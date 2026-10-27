@@ -1401,6 +1401,14 @@ def main() -> int:
         check("…and the same target, the lock released, is removed", not os.path.exists(shutil_target) and said and said[0].startswith("removed "), said)
 
         w = World(under=home)
+        j, left = cargo_job(w, "Cargo.toml", "target/debug/big.o")
+        git_in(left, "add", "-f", "target/debug/big.o")
+        git_in(left, "commit", "-q", "-m", "oops: build output committed")
+        rc, out, err = leave(w, j)
+        check("a target with a tracked file under it is kept, said (switch and tidy share the judge)",
+              rc == 0 and os.path.isfile(os.path.join(left, "target", "debug", "big.o")) and f"kept {left}/target: git tracks files under it" in out, out + err)
+
+        w = World(under=home)
         j, left = cargo_job(w, "Cargo.toml", "real/keep.o")
         os.symlink(os.path.join(left, "real"), os.path.join(left, "target"))
         rc, out, err = leave(w, j)

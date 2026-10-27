@@ -15,6 +15,7 @@ behind bin/fabric-jobs.
     fabric-jobs retract <id> <artifact>                          remove one artifact, exactly as recorded, in any state; noted in the log
     fabric-jobs done <id> [--no-artifact "<what was done>"]      the reason is the evidence of work that leaves no artifact
     fabric-jobs sweep [--dry-run]                                delivered jobs whose evidence has landed become done
+    fabric-jobs tidy [--dry-run]                                 build output (target, node_modules) of every checkout under ~/projects no open job holds
     fabric-jobs drop <id> "<why>"
     fabric-jobs project <id> <project> [--working-copy W]        re-point a job that has no branch or worktree yet; logged on the job
     fabric-jobs show <id> [--json]
@@ -179,7 +180,17 @@ check that failed and changing nothing:
   the line says why, when a process of this uid stands in it, its `.cargo-lock` is held, or a cargo configuration (the directory
   and every parent up to the root, `$CARGO_HOME`) sends the target directory outside the worktree; what cannot be told is kept. One
   line per directory; a failure is a warning, never a refusal. `--keep-targets` skips it, for a job to be resumed within the hour (a
-  paused or blocked job pays a rebuild).
+  paused or blocked job pays a rebuild). A target is also kept when git tracks a file under it (or cannot be asked) or when a file
+  in it belongs to another uid.
+`tidy` (j90, the owner 2026-10-27: /home at 97%) is the same clearing for every checkout, not one job's: the directories directly
+under ~/projects that have a `.git` are the trees; one that is, holds or lies in the worktree or working copy of an active, queued,
+paused or blocked job (a delivered job is not open here), or is a link, another uid's, or on another filesystem, is kept whole,
+said. In the others each `target` beside a Cargo.toml and `node_modules` beside a package.json (4 levels, the keep rules above)
+goes; one line per directory, then `freed: <size>` (`would free:` under --dry-run, which removes nothing). Exit 1, nothing removed,
+and the reason on stderr when the job list (an entry that is no job or has an unknown state included) or ~/projects cannot be
+read; a missing ~/projects is exit 0, "nothing to tidy". A process standing beside a `node_modules` (a dev server at the package
+root) does not protect it: only one standing in it does. The job list is read once, before the walk. Run daily by a user timer as
+the account, which must resolve the same state directory the sessions use (an absent list reads as empty).
 Each switch appends one line to the old and one to the new job's log: the outcome and its evidence, and the branch.
 `switch` still never passes an active job, takes the job named or the first in the order (a blocked job whose blockers
 cleared first, then queued and paused by priority, paused first, then the oldest), and with nothing queued offers the pool's.
@@ -219,6 +230,7 @@ from fabric_jobs.pool import Unanswered, ask_pool, pool_offer, PROJECT_SLUG, cla
 from fabric_jobs.render import line, show, summary  # noqa: E402, F401
 from fabric_jobs.branching import TYPES  # noqa: E402, F401
 from fabric_jobs.sweep import sweep  # noqa: E402, F401
+from fabric_jobs.tidy import tidy  # noqa: E402, F401
 from fabric_jobs.transfer import export_jobs, import_jobs  # noqa: E402, F401
 from fabric_jobs.verbs import decide, add, repoint, pool_list, pool_claim, list_jobs, show_job, switch_job, change  # noqa: E402, F401
 
@@ -261,6 +273,8 @@ def main(argv: list[str] | None = None) -> int:
     rt.add_argument("artifact")
     sw = sub.add_parser("sweep", help="move delivered jobs whose evidence has landed to done")
     sw.add_argument("--dry-run", action="store_true", help="say what would close and why the rest stay; change nothing")
+    ti = sub.add_parser("tidy", help="remove build output (target beside Cargo.toml, node_modules beside package.json) from the checkouts under ~/projects that no open job holds")
+    ti.add_argument("--dry-run", action="store_true", help="say what would go and why the rest stays; remove nothing")
     dr = sub.add_parser("drop")
     dr.add_argument("id")
     dr.add_argument("why")
@@ -295,7 +309,7 @@ def main(argv: list[str] | None = None) -> int:
     pc.add_argument("--working-copy")
     args = ap.parse_args(argv)
 
-    verb = {"add": add, "pool-list": pool_list, "pool-claim": pool_claim, "list": list_jobs, "show": show_job, "switch": switch_job, "next": switch_job, "sweep": sweep, "project": repoint, "export": export_jobs, "import": import_jobs}.get(args.cmd, change)
+    verb = {"add": add, "pool-list": pool_list, "pool-claim": pool_claim, "list": list_jobs, "show": show_job, "switch": switch_job, "next": switch_job, "sweep": sweep, "tidy": tidy, "project": repoint, "export": export_jobs, "import": import_jobs}.get(args.cmd, change)
     try:
         return verb(args)
     except Refused as exc:

@@ -1,13 +1,14 @@
 """tools/fabric/jobsparts/leave_targets.py — the cargo targets `switch` clears from the worktree of the job it leaves (j75, the owner
-2026-10-21: /home filled twice in a day, one project's target is 60 to 75 GB and every job worktree builds its own).
-A part of tools/fabric/jobs.py, whose docstring is the contract.
+2026-10-21: /home filled twice in a day, one project's target is 60 to 75 GB and every job worktree builds its own), and the judge
+`tidy` (tidy.py, j90) applies to those and to `node_modules`. A part of tools/fabric/jobs.py, whose docstring is the contract.
 
 Contract. Only the old job's `worktree` field is read: never its `working copy` or another job's (a main checkout other jobs share:
 a field at, above or below one is refused), only a linked worktree, nothing outside the login's home, nothing when the field is unset or the directory is
 gone. In it, each directory named `target` beside a Cargo.toml, at most 4 levels below the worktree, is removed — links are
 never followed (a `target` that is one is kept), and a filesystem boundary is never crossed (a `target` holding another mount
 is kept whole). One is kept, with the reason, when a process of this uid stands in it, when its `.cargo-lock` is held (a build
-is running), or when a cargo configuration at or above it points the target directory outside the worktree. Whatever cannot
+is running), when a cargo configuration at or above it points the target directory outside the worktree, when git tracks a file
+under it or cannot be asked, or when a file in it belongs to another uid. Whatever cannot
 be told is kept: unknown is never "free to remove". One line per directory; a failure is a warning line, never a refusal:
 the job's settlement already happened. One shared CARGO_TARGET_DIR per login is not an alternative (binaries bake in
 CARGO_MANIFEST_DIR, so a build shared between worktrees runs stale paths)."""
@@ -17,8 +18,13 @@ import fcntl
 import os
 import shutil
 import tomllib
+from fabric_jobs import vcs
 
 MAX_DEPTH = 4
+CARGO = (("target", "Cargo.toml"),)
+# What `tidy` clears besides: a directory is build output only beside the file that makes it one.
+BUILD_OUTPUT = CARGO + (("node_modules", "package.json"),)
+TRACKED_TIMEOUT_S = 30
 CONFIGS = (os.path.join(".cargo", "config.toml"), os.path.join(".cargo", "config"))
 LOCK_DEPTH = 3      # target/<triple>/<profile>/.cargo-lock is the deepest place cargo puts it
 
@@ -40,20 +46,23 @@ def inside(path: str, root: str) -> bool:
     return path != root and path.startswith(root.rstrip(os.sep) + os.sep)
 
 
-def find_targets(worktree: str) -> tuple[list[str], list[str]]:
-    """(the `target` directories beside a Cargo.toml, the `target` links beside one), below the worktree and not below another."""
+def find_targets(worktree: str, kinds: tuple[tuple[str, str], ...] = CARGO) -> tuple[list[str], list[str]]:
+    """(the build-output directories beside their marker file, the links of that name beside one), below the worktree and not
+    below another. A kind's directory is not entered: what a `node_modules` holds is its own packages' business."""
     found: list[str] = []
     links: list[str] = []
+    skip = {".git"} | {name for name, _ in kinds}
     base = worktree.rstrip(os.sep).count(os.sep)
     for dirpath, dirnames, filenames in os.walk(worktree, followlinks=False):
         depth = dirpath.count(os.sep) - base
-        dirnames[:] = [d for d in dirnames if d not in (".git", "target") and not os.path.islink(os.path.join(dirpath, d))] if depth < MAX_DEPTH - 1 else []
-        if "Cargo.toml" in filenames and depth + 1 <= MAX_DEPTH:
-            t = os.path.join(dirpath, "target")
-            if os.path.islink(t):
-                links.append(t)
-            elif os.path.isdir(t):
-                found.append(t)
+        dirnames[:] = [d for d in dirnames if d not in skip and not os.path.islink(os.path.join(dirpath, d))] if depth < MAX_DEPTH - 1 else []
+        for name, marker in kinds:
+            if marker in filenames:
+                t = os.path.join(dirpath, name)
+                if os.path.islink(t):
+                    links.append(t)
+                elif os.path.isdir(t):
+                    found.append(t)
     return found, links
 
 
@@ -78,13 +87,16 @@ def live_cwds() -> list[str]:
 
 
 def scan(target: str, dev: int) -> tuple[int, list[str]]:
-    """(the bytes the tree holds, the `.cargo-lock` files in it); Unknown when another filesystem is mounted in it or a directory
-    cannot be read."""
+    """(the bytes the tree holds, the `.cargo-lock` files in it); Unknown when another filesystem is mounted in it, a file, link or
+    directory in it (the target itself too) belongs to another uid, or a directory cannot be read."""
     total = 0
     seen: set[tuple[int, int]] = set()      # cargo hard-links its artifacts out of deps/: one inode is freed once
     locks: list[str] = []
     errors: list[OSError] = []
     base = target.rstrip(os.sep).count(os.sep)
+    uid = os.getuid()
+    if os.lstat(target).st_uid != uid:      # os.walk shows only its children
+        raise Unknown("another account owns files in it")
     for dirpath, dirnames, filenames in os.walk(target, followlinks=False, onerror=errors.append):
         for name in filenames:
             path = os.path.join(dirpath, name)
@@ -92,6 +104,10 @@ def scan(target: str, dev: int) -> tuple[int, list[str]]:
                 st = os.lstat(path)
             except OSError:
                 continue
+            # Unix lets whoever may write a directory unlink what is in it: a root-owned file left by a container build is
+            # not this account's to remove, whatever owns the directory around it.
+            if st.st_uid != uid:
+                raise Unknown("another account owns files in it")
             if (st.st_dev, st.st_ino) not in seen:
                 seen.add((st.st_dev, st.st_ino))
                 total += st.st_blocks * 512
@@ -99,9 +115,12 @@ def scan(target: str, dev: int) -> tuple[int, list[str]]:
                 locks.append(path)
         for d in dirnames:
             path = os.path.join(dirpath, d)
+            st = os.lstat(path)
+            if st.st_uid != uid:      # a link too: it is unlinked with the rest
+                raise Unknown("another account owns files in it")
             if os.path.islink(path):
                 continue
-            if os.lstat(path).st_dev != dev:
+            if st.st_dev != dev:
                 raise Unknown("another filesystem is mounted in it")
     if errors:
         raise Unknown(f"{errors[0].filename} cannot be read ({errors[0].strerror})")
@@ -191,6 +210,19 @@ def lock_held(locks: list[str]) -> tuple[bool, list[int]]:
     return False, fds
 
 
+def tracked(path: str) -> None:
+    """Unknown when git tracks a file under `path`, or cannot say: build output is ignored output, so a tracked file is source
+    that happens to live under that name."""
+    try:
+        r = vcs.run(os.path.dirname(path), "ls-files", "-z", "--", os.path.basename(path), check=False, timeout=TRACKED_TIMEOUT_S)
+    except vcs.VcsError as e:
+        raise Unknown(f"git cannot be asked what it tracks ({e})") from None
+    if r.returncode != 0:
+        raise Unknown(f"git cannot be asked what it tracks (exit {r.returncode})")
+    if r.stdout:
+        raise Unknown("git tracks files under it")
+
+
 def overlaps(path: str, root: str) -> bool:
     """Whether `path` is the root, inside it or above it: a checkout that is any of these is not the job's to clear."""
     return path == root or inside(path, root) or inside(root, path)
@@ -236,7 +268,17 @@ def clean_targets(worktree: str | None, working_copy: str | None, others: tuple[
 
 
 def one(target: str, root: str, dev: int, cwds: list[str], why_blind: str) -> str:
+    return judge(target, root, dev, cwds, why_blind)[0]
+
+
+def judge(target: str, root: str, dev: int, cwds: list[str], why_blind: str, dry_run: bool = False) -> tuple[str, int]:
+    """(the line for one build-output directory, the bytes freed). A dry run says "would remove" after every check a removal
+    makes, the lock included."""
     fds: list[int] = []
+    cargo = os.path.basename(target) == "target"
+
+    def kept(why: str) -> tuple[str, int]:
+        return f"kept {target}: {why}", 0
     try:
         if why_blind:
             raise Unknown(why_blind)
@@ -244,20 +286,25 @@ def one(target: str, root: str, dev: int, cwds: list[str], why_blind: str) -> st
             raise Unknown("another filesystem")
         real = os.path.realpath(target)
         if any(c == real or inside(c, real) for c in cwds):
-            return f"kept {target}: a process of this uid stands in it"
-        outside = outside_config(target, root)
-        if outside:
-            return f"kept {target}: a cargo configuration sends the target directory to {outside}"
+            return kept("a process of this uid stands in it")
+        tracked(target)
+        if cargo:
+            outside = outside_config(target, root)
+            if outside:
+                return kept(f"a cargo configuration sends the target directory to {outside}")
         size, locks = scan(target, dev)
-        held, fds = lock_held(locks)
-        if held:
-            return f"kept {target}: its .cargo-lock is held, a build is running"
+        if cargo:
+            held, fds = lock_held(locks)
+            if held:
+                return kept("its .cargo-lock is held, a build is running")
+        if dry_run:
+            return f"would remove {target} ({human(size)})", size
         shutil.rmtree(target)
-        return f"removed {target} ({human(size)})"
+        return f"removed {target} ({human(size)})", size
     except Unknown as e:
-        return f"kept {target}: {e}"
+        return kept(str(e))
     except OSError as e:
-        return f"warning: {target} not removed: {e.strerror or e} ({e.filename})"
+        return f"warning: {target} not removed: {e.strerror or e} ({e.filename})", 0
     finally:
         for fd in fds:
             os.close(fd)
