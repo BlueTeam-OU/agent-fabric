@@ -14,8 +14,11 @@ conversation stays on disk; `claude --resume` can still open it.
 --job <id> names the job the next session is for (`fabric-jobs next`
 prints it, ADR-022 rule 12): the launcher starts it in that job's working
 copy, with the job in its opening prompt. An unknown job is refused
-(exit 2); a working copy that is gone or has uncommitted changes is the
-launcher's to refuse, and it says so and starts in the old directory.
+(exit 2); a working copy that is gone, whose status cannot be read, or that
+has uncommitted changes held by another unfinished job's worktree (or a job
+list that cannot be read) is the launcher's to refuse, and it says so and
+starts in the old directory; a job's own uncommitted changes are why it
+starts there.
 
 Refused (exit 3) too, --force or not, when the launcher would refuse the relaunch:
 the fabric checkout is behind origin/main and cannot fast-forward.
