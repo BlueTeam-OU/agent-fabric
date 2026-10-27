@@ -62,10 +62,12 @@ against both trees on 2026-10-23:
 The fleet carries GZCOORD/1 over InterWeave on the one host, beside the
 relay, and nothing further:
 
-- **One host.** The carrier joins the agents whose accounts are on the
-  host the relay runs on, over loopback. No cross-host claim is made, and
-  no profile listens beyond `127.0.0.1`, until InterWeave ADR-0034 §7 and
-  SPIKE-004's deferred limits are consumed.
+- **One host is the first milestone, not the limit.** The carrier starts
+  with the agents whose accounts are on the host the relay runs on, over
+  loopback. A second host is the next milestone: the fleet is to move agents
+  to remote hosts, the first likely edge-hosting, and InterWeave is how
+  they stay reached. Until that milestone's amendment lands, no profile
+  listens beyond `127.0.0.1`.
 - **Dual run.** Every message goes by both carriers. The relay stays the
   transport of record and ADR-033 rule 7's fallback order is unchanged;
   ADR-041's journal collapses the two copies by `MESSAGE-ID`, the carrier
@@ -139,10 +141,15 @@ address, where the relay's `sender` is a claim (ADR-033 §6).
 
 ## 5. Binding Rules
 
-1. The carrier runs only on the host the relay runs on, between accounts
-   on that host; a profile listens on `127.0.0.1` only, on the port the
-   roster fixes for it, one profile per account (InterWeave ADR-0055
-   decision 5). The roster's port range is reserved on the host
+1. The first milestone: the carrier runs on the host the relay runs on,
+   between accounts on that host; a profile listens on `127.0.0.1` only,
+   on the port the roster fixes for it, one profile per account
+   (InterWeave ADR-0055 decision 5). The next milestone is a second host
+   (A 2026-10-27): it opens by an amendment that names the host, gives its
+   accounts' roster rows routable addresses, and says how InterWeave
+   ADR-0034 §7's release gate and SPIKE-004's deferred limits are consumed
+   or, on the owner's word, accepted as known limits for that host; this
+   rule does not stand in its way. The roster's port range is reserved on the host
    (`net.ipv4.ip_local_reserved_ports`), so no outgoing connection takes
    one of its ports as a source port (A 2026-10-26).
 2. The roster (`runtime/interweave/roster.json`) is the only source of a
@@ -316,3 +323,4 @@ The body above reads current; each change's full note is in [history/ADR-064-ame
 | 2026-10-25 | an InterWeave install or update is a control-plane action, checked after the restart | §5 rule 14; §6, §8 and Scope name v0.1.0 |
 | 2026-10-26 | The roster's ports are reserved from the host's ephemeral range | §5 rule 1 |
 | 2026-10-26 | The parity evidence is gathered through the control plane | §5 rule 11 |
+| 2026-10-27 | One host is the first milestone; a second host is the next | §2 one-host bullet; §5 rule 1 |
