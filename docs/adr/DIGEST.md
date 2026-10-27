@@ -792,9 +792,10 @@ its record disagree, the record wins. Look it up, never read it whole:
 - Data that exists nowhere else gets a copy first; a degraded mode counts
   only with a live check; identity never depends on a central service
   (§5 rules 2–4).
-- First step: a copy of the relay's database and a restore read back
-  (§7). Waits on the owner's acceptance (§8).
+- First step, done: the relay's database is copied every 6 h and a
+  restore was read back (§7).
 - A 2026-09-30 — the inventory's key and secrets rows name the stores; Doppler is gone (§1, §5 rule 4).
+- A 2026-10-27 — the relay's database is copied every 6 h to Proton Drive, encrypted and signed, restore read back; §1, §6, §7 say so.
 - Keywords: decentralization, resilience, single point of failure,
   degraded mode, relay, host, crash, backup, autonomy, P5, proposed.
 
