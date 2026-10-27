@@ -417,6 +417,10 @@ def relaunch_args(args: list[str]) -> list[str]:
 RESTARTING = "AGENT_FABRIC_RESTARTING"
 
 
+# jobsparts/base.py TERMINAL; a dropped job keeps the worktree it had.
+FINISHED = ("done", "dropped")
+
+
 def foreign_owner(wc: str, job: str, fabric_root: str) -> str | None:
     """The other unfinished job whose worktree `wc` is, "" when none, None when
     the job list cannot be read. A fresh launch for `job` goes to its dirty copy
@@ -432,7 +436,7 @@ def foreign_owner(wc: str, job: str, fabric_root: str) -> str | None:
             return None
         here = os.path.realpath(wc)
         for j in jobs:
-            if j["id"] != job and j.get("state") != "done" and j.get("worktree") \
+            if j["id"] != job and j.get("state") not in FINISHED and j.get("worktree") \
                     and os.path.realpath(j["worktree"]) == here:
                 return j["id"]
     except (TypeError, ValueError, KeyError, AttributeError):
@@ -470,9 +474,9 @@ def restart(state_dir: str, started: int, opening: bool, status: int, orig_args:
         base["AGENT_FABRIC_FRESH_NOTE"] = note
         if job:
             base["AGENT_FABRIC_FRESH_JOB"] = job
-            # The job's working copy, when it is there and clean: the
-            # rule a finished job's own tree met before fabric-fresh
-            # let it go. Otherwise the old directory, and why.
+            # The job's working copy, when it is there, its status is readable
+            # and it is not another job's worktree: uncommitted changes there
+            # are the job's own work. Otherwise the old directory, and why.
             r = helper([sys.executable, f"{fabric_root}/tools/fabric/jobs.py", "show", job, "--field",
                         "working_copy"], env=env_with(AGENT_FABRIC_ROOT=fabric_root), quiet=True)
             wc = stripped(r) if r is not None and r.returncode == 0 else ""

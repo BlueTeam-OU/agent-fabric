@@ -685,11 +685,13 @@ def main() -> int:
             launch.helper = lambda *a, **k: types.SimpleNamespace(stdout=stdout, returncode=rc)
         wt = os.path.realpath(tempfile.gettempdir())
         jobs = [{"id": "j1", "state": "active"}, {"id": "j2", "state": "queued", "worktree": wt},
-                {"id": "j3", "state": "done", "worktree": wt + "/elsewhere"}]
+                {"id": "j3", "state": "done", "worktree": wt + "/elsewhere"},
+                {"id": "j4", "state": "dropped", "worktree": wt + "/gone"}]
         listing(json.dumps(jobs))
         check("another unfinished job's worktree is named", launch.foreign_owner(wt, "j1", "/f") == "j2")
-        check("…positive control: the job's own record, and a done job's, are not foreign",
-              launch.foreign_owner(wt, "j2", "/f") == "" and launch.foreign_owner(wt + "/elsewhere", "j1", "/f") == "")
+        check("…positive control: the job's own record, and a done or dropped job's, are not foreign",
+              launch.foreign_owner(wt, "j2", "/f") == "" and launch.foreign_owner(wt + "/elsewhere", "j1", "/f") == ""
+              and launch.foreign_owner(wt + "/gone", "j1", "/f") == "")
         for label, out, rc in (("not JSON", "{no", 0), ("a failed listing", "[]", 1), ("not a list", "{}", 0)):
             listing(out, rc)
             check(f"an unreadable job list ({label}) is unknown, not nobody's", launch.foreign_owner(wt, "j1", "/f") is None)
