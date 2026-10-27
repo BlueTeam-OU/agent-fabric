@@ -178,9 +178,10 @@ the same command asks on one account and not on another.
     `fabric-fresh --job <id>`, and the launcher relaunches in that job's
     working copy with the job in its opening prompt, even when that copy
     has uncommitted changes: they are the job's own work in progress. A
-    copy that is gone, whose git status or job list cannot be read, or
-    that is another unfinished job's recorded worktree is refused by the
-    launcher, which starts in the old directory and says why. The command decides
+    copy that is gone or whose git status cannot be read, or whose
+    uncommitted changes are another unfinished job's worktree or cannot
+    be shown to be the job's own (the job list unreadable), is refused by
+    the launcher, which starts in the old directory and says why. The command decides
     and the agent confirms; nothing restarts a session on its own
     (A 2026-09-28). A session that has worked no job yet takes the
     job in place, being already fresh (A 2026-10-11).

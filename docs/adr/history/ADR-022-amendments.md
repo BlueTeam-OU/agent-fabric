@@ -144,6 +144,7 @@ refused the commit from there, and `fabric-fresh --job j93` refused
 the dirty gzapp copy and started in agent-fabric again; only a hand
 stash broke it. python-dev-03's #407 (j89) lets the launcher start in
 the job's own working copy even with uncommitted changes, the job's
-work in progress; it still refuses a copy that is gone, unreadable
-(git status or the job list) or another unfinished job's worktree.
+work in progress; it still refuses a copy that is gone or whose git
+status cannot be read, and a dirty copy that is another unfinished
+job's worktree or whose job list cannot be read.
 Rule 12 says so.
