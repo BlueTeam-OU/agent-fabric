@@ -319,6 +319,28 @@ def main() -> int:
         rc, out, err = tidy()
         check("no ~/projects at all is a fact, not a failure: exit 0, nothing to tidy", rc == 0 and "nothing to tidy" in out, out + err)
         os.rename(projects + "-away", projects)
+        print("fabric-jobs tidy: a job list that is not there")
+        t = tree("target/debug/a.o")
+        os.rename(jobs_file, jobs_file + ".away")
+        rc, out, err = tidy()
+        check("an absent job list with a tree under ~/projects removes nothing, names the path, exit 1",
+              rc == 1 and os.path.isdir(os.path.join(t, "target")) and jobs_file in err and "nothing was removed" in err, out + err)
+        check("…and the first line says which list was looked in", out.splitlines()[:1] == [f"job list: {jobs_file}"], out)
+        os.symlink(os.path.join(tmp, "nowhere.json"), jobs_file)
+        rc, out, err = tidy()
+        check("…a dangling link in its place is absent as well", rc == 1 and os.path.isdir(os.path.join(t, "target")), out + err)
+        os.unlink(jobs_file)
+        os.rename(projects, projects + "-away")
+        os.makedirs(projects)
+        rc, out, err = tidy()
+        check("…with no tree to touch, nothing is at stake: exit 0", rc == 0 and "freed" in out, out + err)
+        os.rmdir(projects)
+        os.rename(projects + "-away", projects)
+        listing()
+        rc, out, err = tidy()
+        check("…positive control: an empty list that is there (a new account) tidies the closed tree, path on the first line",
+              rc == 0 and not os.path.exists(os.path.join(t, "target")) and out.splitlines()[0] == f"job list: {jobs_file}", out + err)
+        os.unlink(jobs_file + ".away")
 
     print(f"{'FAILED' if fails else 'all ok'}: {fails} failed")
     return 1 if fails else 0

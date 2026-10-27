@@ -11,7 +11,10 @@ package.json, at the same depth: kept, with the reason, when a process of this u
 held, when a cargo configuration points the target elsewhere, a link, another filesystem, git tracks a file under it or cannot be asked, or
 anything in it belongs to another uid;
 whatever cannot be told is kept. A delivered job is not open here: its work is on a branch, and a build is cheaper than a full
-disk. One line per directory, then the total. Exit 0 unless the job list or ~/projects cannot be read: then nothing is
+disk. The first line names the job list that decides (its path), so a timer's journal says which one was read. A job list that is
+absent while ~/projects holds any tree refuses: nothing removed, exit 1, the path said — read_jobs reads a missing file as "no
+jobs", which under a state directory the sessions do not use would free the worktrees of every active job; an empty list that is
+there is a new account's and stays valid. One line per directory, then the total. Exit 0 unless the job list or ~/projects cannot be read: then nothing is
 removed and the reason is said; a missing ~/projects is a fact, not an unreadable one (an account that has no checkouts).
 --dry-run says what would go and removes nothing."""
 from __future__ import annotations
@@ -28,8 +31,10 @@ class Unreadable(Exception):
     """The job list or ~/projects could not be read: nothing is removed."""
 
 
-def held_paths() -> dict[str, str]:
-    """{real path: job id} of every worktree and working copy an open job names."""
+def held_paths() -> dict[str, str] | None:
+    """{real path: job id} of every worktree and working copy an open job names; None when there is no job list at all."""
+    if not os.path.exists(identity.jobs_path()):      # not read_jobs' empty list: absent is unknown, an empty file is a fact
+        return None
     try:
         doc = identity.read_jobs()
     except (SystemExit, OSError) as e:      # read_jobs refuses a corrupt list or another host's with SystemExit
@@ -88,6 +93,7 @@ def tidy_tree(tree: str, projects_dev: int, held: dict[str, str], cwds: list[str
 
 def tidy(args) -> int:
     projects = os.path.join(os.path.realpath(os.path.expanduser("~")), "projects")
+    print(f"job list: {identity.jobs_path()}")
     try:
         held = held_paths()
         if not os.path.lexists(projects):
@@ -95,6 +101,8 @@ def tidy(args) -> int:
             return 0
         found = trees(projects)
         projects_dev = os.stat(projects).st_dev
+        if held is None and found:
+            raise Unreadable(f"the job list {identity.jobs_path()} does not exist, so no open job's worktree can be told from a closed one")
     except (Unreadable, OSError) as e:
         print(f"fabric-jobs: tidy: {e}; nothing was removed", file=sys.stderr)
         return 1
