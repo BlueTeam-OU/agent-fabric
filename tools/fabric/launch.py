@@ -33,7 +33,9 @@ CONTRACT, frozen from the bash (ADR-040 §5 rule 3):
             --provider. When that moves the session to another routing
             column (gateway and anthropic are one), the original's
             --model, --fallback-model and --effort go too, said in one
-            line, and the new provider's routing decides them.
+            line, and the new provider's routing decides them. In the
+            same column a --model or --fallback-model the provider would
+            refuse is dropped too, said in one line; a valid one stays.
   stdin     never read; the session inherits it.
   env       AGENT_FABRIC_ROOT (defaults to the repository this file is in),
             AGENT_FABRIC_STATE_DIR (identity.py), AGENT_FABRIC_ALLOW_STALE,
@@ -387,15 +389,32 @@ def declared_provider_args(args: list[str]) -> list[str]:
 
 def foreign_model_options(args: list[str], provider: str, routing) -> tuple[list[str], list[str]]:
     """(args without a --model or --fallback-model `provider` would refuse, what
-    was removed). A model valid for it stays: that is a person's choice."""
-    out, dropped = list(args), []
-    for flag in ("--model", "--fallback-model"):
-        value, given, trailing = caller_value(out, flag)
-        if not given or trailing or value is None:
-            continue
-        if foreign_session_model(routing, provider, value, "") is not None:
-            out, gone = without_options(out, (flag,))
-            dropped += gone
+    was removed). One pass over the options before any `--`, each occurrence
+    judged on its own value, so what is judged is what is removed and a valid
+    one beside a foreign one stays. A trailing bare flag has no value to judge
+    and is left to the launch's own parse. A model valid for `provider` stays:
+    that is a person's choice."""
+    out, dropped, i = [], [], 0
+    while i < len(args):
+        a = args[i]
+        if a == "--":
+            out += args[i:]
+            break
+        name, eq, inline = a.partition("=")
+        if name in ("--model", "--fallback-model"):
+            if eq:
+                value, width = inline, 1
+            elif i + 1 < len(args):
+                value, width = args[i + 1], 2
+            else:
+                out.append(a)
+                break
+            if foreign_session_model(routing, provider, value, "") is not None:
+                dropped += args[i:i + width]
+                i += width
+                continue
+        out.append(a)
+        i += 1
     return out, dropped
 
 
@@ -426,9 +445,9 @@ def relaunch_args(args: list[str], fabric_root: str) -> list[str]:
         return out
     try:
         routing = load_routing(f"{fabric_root}/tools/fabric/routing.py", fabric_root)
+        out, dropped = foreign_model_options(out, parse_argv(out)[1], routing)
     except Exception:  # noqa: BLE001 — the relaunch's own resolve refuses what it cannot read, in its own words
         return out
-    out, dropped = foreign_model_options(out, parse_argv(out)[1], routing)
     if dropped:
         say(f"launch: the restart keeps this session on {now}; dropped what the original launch passed that {now} "
             f"cannot run: {' '.join(dropped)}")

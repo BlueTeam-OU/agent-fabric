@@ -73,6 +73,20 @@ def main() -> int:
     out, said = relaunch(["--provider", "anthropic", "--", "--model", GLM])
     check("nothing after -- is an option", out == ["--provider", "anthropic", "--", "--model", GLM], out)
 
+    out, said = relaunch(["--provider", "anthropic", "--model", "claude-sonnet-5", "--", "--model", GLM])
+    check("a valid --model before -- is not judged by a foreign one after it",
+          out == ["--provider", "anthropic", "--model", "claude-sonnet-5", "--", "--model", GLM] and said == "", (out, said))
+    out, said = relaunch(["--provider", "anthropic", "--model", GLM, "--model", "opus"])
+    check("each occurrence on its own value: the foreign one goes, the valid one stays",
+          out == ["--provider", "anthropic", "--model", "opus"], out)
+    real_load, launch.load_routing = launch.load_routing, lambda path, root: object()
+    try:
+        out, said = relaunch(["--provider", "anthropic", "--model", "claude-sonnet-5"])
+    finally:
+        launch.load_routing = real_load
+    check("a routing module of another shape leaves the arguments as they were",
+          out == ["--provider", "anthropic", "--model", "claude-sonnet-5"], out)
+
     print(f"\ntest_launch_relaunch_models: {'OK' if not fails else f'{fails} FAILED'}")
     return 1 if fails else 0
 
