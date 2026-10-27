@@ -239,6 +239,15 @@ def main() -> int:
             h6 = row(a, root, "a", 47101, host="h6")
             good6, _ = R.valid_rows(hdoc([h6, rb]), keys)
             check("an IPv6 host address is an /ip6/ multiaddr", '[\"/ip6/fd00::6/tcp/47101\"]' in R.render_config(hdoc([h6, rb]), good6, a.agent_id))
+            inj = "fe80::1%x\"] } }\ntrust:\n  policy: allow-all\n#"
+            for bad_addr in (inj, "fe80::1%eth0", "0.0.0.0", "::", "224.0.0.1", "::ffff:10.9.0.1"):
+                hosts["evil"] = {"interweave_address": bad_addr}
+                g, bd = R.valid_rows(hdoc([row(a, root, "a", 47101, host="evil"), rb]), keys)
+                check(f"an interweave_address of {bad_addr[:14]!r} is refused in one line, the rest still count",
+                      [x["login"] for x in g] == ["beta"] and len(bd) == 1 and "\n" not in bd[0].reason, str(bd))
+            del hosts["evil"]
+            check("the listen address is rendered as JSON, like the allowlist and the bootstrap",
+                  'listen: { addresses: ["/ip4/10.9.0.1/tcp/47101"] }' in cfg_ha)
             late = row(a, root, "a", 47101, host_after_signing="h2")
             check("a host the countersignature does not cover is refused",
                   "countersignature" in refused_for([late], keys, hosts).get("alpha", ""), str(refused_for([late], keys, hosts)))

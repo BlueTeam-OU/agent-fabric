@@ -232,6 +232,10 @@ def host_address(roster: Roster, host: str) -> tuple[str | None, str]:
         ip = ipaddress.ip_address(addr)
     except ValueError:
         return None, f"host {host!r} interweave_address {addr!r} is not a literal IP address"
+    # A scope id ("fe80::1%x...") is free text after the %, would land in config.yaml, and is no multiaddr
+    # (the zone is /ip6zone/); an address no peer can be reached at is no address of a host.
+    if getattr(ip, "scope_id", None) or ip.is_unspecified or ip.is_multicast or getattr(ip, "ipv4_mapped", None):
+        return None, f"host {host!r} interweave_address {addr!r} is not a unicast address of the host"
     return f"ip{ip.version}", str(ip)
 
 
@@ -359,7 +363,7 @@ def render_config(roster: Roster, good: list[dict], agent_id: str) -> str:
         "      priority: 5\n"
         "      config:\n"
         f"        peers: {boot}\n"
-        f"transport: {{ listen: {{ addresses: [\"{where(me)}\"] }} }}\n"
+        f"transport: {{ listen: {{ addresses: {json.dumps([where(me)])} }} }}\n"
         "observability: { log_level: info }\n"
     )
 

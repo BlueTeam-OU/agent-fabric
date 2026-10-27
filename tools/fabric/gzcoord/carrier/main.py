@@ -47,7 +47,9 @@ CONTRACT
           live under it), GZCOORD_JOURNAL=off (the carrier refuses to run: the
           route is the relay alone, ADR-064 rule 8), AGENT_FABRIC_ROOT /
           AGENT_FABRIC_OPERATOR / AGENT_FABRIC_STATE_DIR (as every GZCoord
-          tool reads them), GZCOORD_CARRIER_ROSTER (a roster file other than
+          tool reads them), AGENT_FABRIC_HOSTS_REGISTRY (the hosts registry, read
+          only when a roster row names a host; else the operator tree's),
+          GZCOORD_CARRIER_ROSTER (a roster file other than
           runtime/interweave/roster.json: a test), GZCOORD_CARRIER_RELEASE (a
           release.json other than runtime/interweave/release.json: a test)
   stdout  `status`'s JSON; `render-config`'s YAML; `roster-row`'s JSON
@@ -101,7 +103,8 @@ def roster_path() -> str:
 
 
 def hosts_registry_path() -> str:
-    return os.environ.get("AGENT_FABRIC_HOSTS_REGISTRY") or os.path.join(_checkout(), "runtime", "hosts", "registry.json")
+    import roots
+    return roots.hosts_registry()
 
 
 def runtime_dir() -> str:
