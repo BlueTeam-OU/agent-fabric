@@ -134,3 +134,16 @@ names nothing. Unknown is not none: a job list that cannot be read, a
 record whose worktree is not a path, or a state outside those
 `fabric-jobs` writes keeps every worktree, listed as "job list
 unreadable", and branch deletion is unchanged (#364 review F1).
+
+### Amendment 2026-10-27 — A fresh launch starts in the job's own dirty working copy
+
+language-culture-ru (OBSERVATION 01a17d7f, j93) looped through three
+relaunches: its edit sat staged in the job's gzapp copy while the
+session stood in agent-fabric, the job-copy guard (ADR-037 rule 3)
+refused the commit from there, and `fabric-fresh --job j93` refused
+the dirty gzapp copy and started in agent-fabric again; only a hand
+stash broke it. python-dev-03's #407 (j89) lets the launcher start in
+the job's own working copy even with uncommitted changes, the job's
+work in progress; it still refuses a copy that is gone, unreadable
+(git status or the job list) or another unfinished job's worktree.
+Rule 12 says so.

@@ -510,9 +510,8 @@ its record disagree, the record wins. Look it up, never read it whole:
 
 ### ADR-022 — The session lifecycle: auto mode, the watch armed at launch, the inbox held while planning and visible to senders (Accepted)
 
-- Every session watches its inbox from first turn to last, one watch each;
-  the opening prompt arms it; the start hook says
-  `NO INBOX WATCH` on start, resume or compaction without one (§2, §5
+- One inbox watch per session, first turn to last, armed by the opening
+  prompt; the start hook says `NO INBOX WATCH` without one (§2, §5
   rules 1–3).
 - User settings start every session in auto mode (§5 r4).
 - While a session plans, `plan-hold.sh` holds the account and the watch
@@ -526,12 +525,12 @@ its record disagree, the record wins. Look it up, never read it whole:
 - A 2026-09-28 — `fabric-branches --sweep` weekly (r11).
 - A 2026-09-28 — `fabric-jobs next`, `fabric-fresh --job` (r12).
 - A 2026-09-30 — the opening prompt names no command (§5 r1).
-- A 2026-10-10 — the watch is a background `gzcoord-inbox
-  --until-delivery` (§5 r1, r2, r6).
+- A 2026-10-10 — the watch: background `--until-delivery` (§5 r1, r2, r6).
 - A 2026-10-11 — after a worked job, the next starts fresh (§5 r12).
 - A 2026-10-19 — sweep pushed worktrees, session scratch; at switch (r11).
 - A 2026-10-20 — unreadable registry keeps all (r11).
 - A 2026-10-24 — live job's worktree kept (r11).
+- A 2026-10-27 — fresh launch into the job's dirty copy (r12).
 - Keywords: session, lifecycle, inbox watch, Monitor, gzcoord-inbox,
   --follow, opening prompt, resume, auto mode, defaultMode, plan mode,
   hold, planning, presence.
