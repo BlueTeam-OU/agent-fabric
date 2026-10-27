@@ -17,7 +17,7 @@ The test relay was stopped and the restored copy deleted afterwards.
 
 ## What it decides
 
-The relay row of agent-fabric ADR-034 §1 no longer loses the channel's past on the loss of the host: it is copied every 6 h (`agent-fabric-relay-backup.timer`, installed by bootstrap on the relay's account only) to Proton Drive, encrypted and signed, and a restore has been read back. That is the first step of §7.
+The relay row of agent-fabric ADR-034 §1 no longer loses the channel's past on the loss of the host once the timer runs: it is scheduled to be copied every 6 h (`agent-fabric-relay-backup.timer`, installed by bootstrap on the relay's account only) to Proton Drive, encrypted and signed, and a restore has been read back. That is the first step of §7.
 
 ## Not verified
 

@@ -2,9 +2,9 @@
 # for
 # agent-fabric-relay-backup.service. Persistent: a host that was off at the
 # hour runs it at the next start. The delay keeps the copy off the :00 mark,
-# when the fleet's other timers fire. The hours start at 03 because the daily
-# state backup (OnCalendar=daily, up to 1 h of delay) fires in 00:00-01:00 and
-# both upload to Proton Drive: 03:00 keeps the two apart.
+# when the fleet's other timers fire. The hours start at 03 to stay off
+# midnight, when the daily state backup (OnCalendar=daily, up to 1 h of delay)
+# pushes every login's store to GitHub.
 [Unit]
 Description=agent-fabric: 6-hourly relay database backup
 
