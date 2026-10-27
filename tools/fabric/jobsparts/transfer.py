@@ -24,6 +24,7 @@ from fabric_jobs.base import DEFAULT_PRIORITY, PRIORITIES, STATES, Refused, iden
 FORMAT = "fabric-jobs-export"
 VERSION = 1
 MAX_BYTES = 16 * 1024 * 1024   # a list is a few hundred KB after months; a bound keeps a wrong pipe from filling memory
+MAX_DEPTH = 32   # a job is four levels deep (log entries); the bound is generous for fields another writer adds
 JOB_ID = re.compile(r"j([1-9][0-9]*)", re.ASCII)
 TOP_KEYS = {"format", "version", "agent", "host", "seq", "last", "jobs", "blocker_cache"}
 TIME = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z", re.ASCII)
@@ -36,16 +37,22 @@ def has_control(text: str) -> bool:
 
 
 def strings(value: object):
-    """Every string in a JSON value, at any depth, keys included: what a renderer may print is not a list of field names."""
-    if isinstance(value, str):
-        yield value
-    elif isinstance(value, dict):
-        for k, v in value.items():
-            yield from strings(k)
-            yield from strings(v)
-    elif isinstance(value, list):
-        for v in value:
-            yield from strings(v)
+    """Every string in a JSON value, at any depth, keys included: what a renderer may print is not a list of field names.
+    An explicit stack, not recursion: the document is untrusted, and a value nested a thousand deep must not become a traceback."""
+    stack = [(value, 0)]
+    while stack:
+        item, depth = stack.pop()
+        if depth > MAX_DEPTH:
+            # json.dumps recurses too: a value this deep would pass the checks and then fail as a traceback when the list is written.
+            raise Refused(f"a value is nested deeper than {MAX_DEPTH}")
+        if isinstance(item, str):
+            yield item
+        elif isinstance(item, dict):
+            for k, v in item.items():
+                stack.append((k, depth + 1))
+                stack.append((v, depth + 1))
+        elif isinstance(item, list):
+            stack.extend((v, depth + 1) for v in item)
 
 
 def export_document(doc: dict, agent: str) -> dict:
@@ -80,6 +87,8 @@ def parse(text: str) -> dict:
     try:
         # Python reads NaN and Infinity; JSON does not have them, and a stored one would not survive the next json.dumps strictly.
         doc = json.loads(text, parse_constant=lambda c: (_ for _ in ()).throw(ValueError(c)))
+    except RecursionError:
+        raise Refused("the document is nested too deeply")
     except ValueError as exc:
         raise Refused(f"the document is not valid JSON ({exc})")
     if not isinstance(doc, dict) or doc.get("format") != FORMAT:
