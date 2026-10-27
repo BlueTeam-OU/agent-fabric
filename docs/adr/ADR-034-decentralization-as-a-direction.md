@@ -30,7 +30,7 @@ What depends on one thing today, read from the tree:
 | what | depends on | if it fails | degraded mode today |
 |---|---|---|---|
 | every account | one host: `runtime/hosts/registry.json` names one host, `develop-qzapp`, and places all sixteen logins on it | every session and control agent stops; `/home` persists, so identity, bindings and unpushed work survive a reboot of that host, not its loss | none documented beyond the reboot (the Qubes account snapshot, ADR-029 §5 rule 11) |
-| messages between sessions | one relay process on the operator's account, loopback only, one SQLite database (ADR-033) | no session receives anything; the channel's past is copied every 6 h to Proton Drive, encrypted and signed, and a restore was read back (`docs/live-checks/2026-10-27-relay-backup-restore.md`), so a loss takes at most those hours | the human relay (ADR-033 §5 rule 7) |
+| messages between sessions | one relay process on the operator's account, loopback only, one SQLite database (ADR-033) | no session receives anything; the channel's past is copied to Proton Drive, encrypted and signed, on a timer scheduled every 6 h, and a restore was read back (`docs/live-checks/2026-10-27-relay-backup-restore.md`); while the timer's runs succeed, a loss takes the messages since the last good copy (6 h, up to 15 min of delay and the run's time; a failed run is only in the journal) | the human relay (ADR-033 §5 rule 7) |
 | the control plane | the same relay, channel `fabric:control` (ADR-029) | no account answers; with the relay up and the control agents down, presence reads as unknown and `gzcoord-send` refuses without `--force` (ADR-030) | sudo fallbacks: `bin/fabric-usage`, `bin/fabric-host <host> drain` (ADR-029) |
 | signed actions | one key, in the operator's own store (`FABRIC_CONTROL_SIGNING_KEY`) (A 2026-09-30) | no upgrade, distribution or account move can be ordered | `fabric-ctl keygen --force` makes a new key; the registry commit carries the public half |
 | secrets | each login's own store, a private GitHub repository (ADR-038) (A 2026-09-30) | no sync, no rotation, no account move; the tools read the file the last sync wrote, which a failed read does not change | none needed while nothing must change |
@@ -47,8 +47,8 @@ identity, knowledge or the ability to go on working — and measure every
 piece against that criterion, not against a topology.** Reduced capacity
 is acceptable; loss is not. A component that is central but whose
 failure only slows the team (the usage observer) stays central; one whose
-failure loses what cannot be rebuilt (the relay's database as the only
-record of the channel, an agent's undrained memory on one host) gets a
+failure loses what cannot be rebuilt (the relay's database, before it had a
+copy, an agent's undrained memory on one host) gets a
 second copy or a documented recovery before it gets a second instance.
 
 - Every operation the fleet depends on has a row in this record's §1
@@ -67,8 +67,8 @@ second copy or a documented recovery before it gets a second instance.
   autonomy and resilience, not topology; each added instance is state to
   reconcile, and several rows above lose nothing when they fail.
 - **Accept centralization and plan only for reboots.** Rejected: the host
-  has already failed twice, and two rows (the relay's database, undrained
-  memory) lose data on a loss of the host rather than a reboot.
+  has already failed twice, and two rows lost data on a loss of the host rather than a reboot when this was written (the relay's now has a copy, §7; undrained
+  memory).
 - **A second host first.** Deferred, not rejected: it is the largest
   step, it needs a relay the second host can reach (ADR-029 §7), and it
   helps only once the rows that lose data have a copy.
@@ -106,7 +106,7 @@ record would make the channel less durable, not more.
   hosts, the relay, keys or services.
 - One row loses data today on a loss of the host: every agent's
   undrained memory, copied only when a coordinator runs a drain. The
-  relay's database is copied every 6 h (§7).
+  relay's database is scheduled to be copied every 6 h (§7).
 - The degraded modes listed today are unverified by this
   rule until each has its live check; the human relay's was exercised in
   practice before the relay existed, not as a drill.
@@ -114,13 +114,15 @@ record would make the channel less durable, not more.
 ## 7. Future Evolution
 
 **The first concrete step is done:** the relay's database
-is copied every 6 h (`agent-fabric-relay-backup.timer`, on the relay's
+is scheduled to be copied every 6 h (`agent-fabric-relay-backup.timer`, on the relay's
 account) to Proton Drive, encrypted and signed, with `fabric-secrets
 relay backup|--verify|restore`. Its restore was read back: a second relay
 started on the copy and `gzcoord-inbox --replay` showed the channel's
 past (`docs/live-checks/2026-10-27-relay-backup-restore.md`). Not
-shown there: `fabric-ctl all ping` against the restored relay, which
-needs the control agents on it and belongs to the drill below.
+shown there: the timer's scheduled runs; a restore off the host (it ran
+on the host that holds the database); and `fabric-ctl all ping` against
+the restored relay, which needs the control agents on it and belongs to
+the drill below.
 
 After it: a drill of the relay being down for a working hour — sessions
 continue from artifacts, what must go goes by the human relay, nothing is

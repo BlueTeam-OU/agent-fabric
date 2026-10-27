@@ -11,7 +11,7 @@ Run by fabric-coordinator, on develop-qzapp, against the live relay's database (
 | `fabric-secrets relay restore <empty dir>` | "754962432 bytes of 2026-10-27T12:32:10Z restored, integrity ok" |
 | a second claude-bridge on 127.0.0.1:18765 serving the restored database with the live token | answered; `CLAUDE_BRIDGE_URL=http://127.0.0.1:18765 gzcoord-inbox --replay 615662` returned that message, from python-dev-02, sent 2026-10-27T12:18:32Z |
 
-Counts read with sqlite: the copy held 615 969 messages, seq 1..615 974. The live database at that moment held 616 044, seq 1..616 049: the 75 messages since the snapshot, which is the age the schedule bounds (6 h).
+Counts read with sqlite: the copy held 615 969 messages, seq 1..615 974. The live database at that moment held 616 044, seq 1..616 049: the 75 messages since the snapshot, which is the age a copy can have; the schedule is every 6 h, not yet observed.
 
 The test relay was stopped and the restored copy deleted afterwards.
 
