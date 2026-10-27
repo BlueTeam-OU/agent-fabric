@@ -181,6 +181,31 @@ def main() -> int:
         check("an entry no job names is not taken", "pr:other/repo#9" not in merged, merged)
         check("an entry a job names and the host lacks is taken", "pr:owner/repo#7" in merged, merged)
 
+        print("the parser's own depth limit, whatever the interpreter's")
+        # Whether json.loads gives up on a deep document depends on the interpreter; the guard is tested by making it give up.
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("jobs_transfer_unit", os.path.join(ROOT, "tools", "fabric", "jobs.py"))
+        jobs_mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(jobs_mod)
+        transfer = sys.modules["fabric_jobs"].transfer
+
+        class GivesUp:
+            @staticmethod
+            def loads(*_args, **_kwargs):
+                raise RecursionError("maximum recursion depth exceeded")
+        real_json = transfer.json
+        transfer.json = GivesUp
+        try:
+            transfer.parse("[]")
+            said = "no refusal"
+        except jobs_mod.Refused as exc:
+            said = str(exc)
+        except RecursionError:
+            said = "RecursionError escaped"
+        finally:
+            transfer.json = real_json
+        check("a parser that gives up on depth is a one-line refusal", said == "the document is nested too deeply", said)
+
         print("an empty list exports and imports")
         empty = run("blank", "export")
         check("an empty list round-trips", run("blank2", "import", stdin=empty.stdout).returncode == 0 and run("blank2", "export").stdout == empty.stdout)
