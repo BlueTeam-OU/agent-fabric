@@ -8,7 +8,8 @@ session checkout); a link, a tree another uid owns and a tree on another filesys
 that is, holds or lies in the `worktree` or `working copy` of a job that is active, queued, paused or blocked is left alone
 whole. In every other tree, leave_targets' rules apply to a `target` beside a Cargo.toml and to a `node_modules` beside a
 package.json, at the same depth: kept, with the reason, when a process of this uid stands in it, when its `.cargo-lock` is
-held, when a cargo configuration points the target elsewhere, a link, another filesystem, or git tracks a file under it;
+held, when a cargo configuration points the target elsewhere, a link, another filesystem, git tracks a file under it or cannot be asked, or
+anything in it belongs to another uid;
 whatever cannot be told is kept. A delivered job is not open here: its work is on a branch, and a build is cheaper than a full
 disk. One line per directory, then the total. Exit 0 unless the job list or ~/projects cannot be read: then nothing is
 removed and the reason is said; a missing ~/projects is a fact, not an unreadable one (an account that has no checkouts).

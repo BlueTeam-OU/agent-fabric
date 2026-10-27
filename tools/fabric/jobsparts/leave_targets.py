@@ -87,14 +87,16 @@ def live_cwds() -> list[str]:
 
 
 def scan(target: str, dev: int) -> tuple[int, list[str]]:
-    """(the bytes the tree holds, the `.cargo-lock` files in it); Unknown when another filesystem is mounted in it or a directory
-    cannot be read."""
+    """(the bytes the tree holds, the `.cargo-lock` files in it); Unknown when another filesystem is mounted in it, a file, link or
+    directory in it (the target itself too) belongs to another uid, or a directory cannot be read."""
     total = 0
     seen: set[tuple[int, int]] = set()      # cargo hard-links its artifacts out of deps/: one inode is freed once
     locks: list[str] = []
     errors: list[OSError] = []
     base = target.rstrip(os.sep).count(os.sep)
     uid = os.getuid()
+    if os.lstat(target).st_uid != uid:      # os.walk shows only its children
+        raise Unknown("another account owns files in it")
     for dirpath, dirnames, filenames in os.walk(target, followlinks=False, onerror=errors.append):
         for name in filenames:
             path = os.path.join(dirpath, name)
@@ -113,13 +115,13 @@ def scan(target: str, dev: int) -> tuple[int, list[str]]:
                 locks.append(path)
         for d in dirnames:
             path = os.path.join(dirpath, d)
+            st = os.lstat(path)
+            if st.st_uid != uid:      # a link too: it is unlinked with the rest
+                raise Unknown("another account owns files in it")
             if os.path.islink(path):
                 continue
-            st = os.lstat(path)
             if st.st_dev != dev:
                 raise Unknown("another filesystem is mounted in it")
-            if st.st_uid != uid:
-                raise Unknown("another account owns files in it")
     if errors:
         raise Unknown(f"{errors[0].filename} cannot be read ({errors[0].strerror})")
     return total, locks

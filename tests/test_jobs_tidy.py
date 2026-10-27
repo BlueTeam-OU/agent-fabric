@@ -32,7 +32,7 @@ def main() -> int:
         fails += not good
 
     # Outside any home: cargo reads a configuration in every parent of a target, and the fleet's TMPDIR is under the login's home.
-    with tempfile.TemporaryDirectory(prefix="jobs-tidy-", dir="/tmp" if os.access("/tmp", os.W_OK) else None) as raw:
+    with tempfile.TemporaryDirectory(prefix="jobs-tidy-", dir="/tmp") as raw:
         tmp = os.path.realpath(raw)
         home = os.path.join(tmp, "home")
         projects = os.path.join(home, "projects")
@@ -253,7 +253,8 @@ def main() -> int:
                     return st
                 return types.SimpleNamespace(**{**{k: getattr(st, k) for k in dir(st) if k.startswith("st_")}, "st_uid": st.st_uid + 1})
             return lstat
-        for owned, what in (("a.o", "a file"), ("debug", "a directory")):
+        os.symlink(os.path.join(t, "target"), os.path.join(t, "target", "debug", "lnk"))      # a link to a directory
+        for owned, what in (("a.o", "a file"), ("debug", "a directory"), ("lnk", "a link to a directory"), ("target", "the target itself")):
             os.lstat = foreign(owned)
             try:
                 said = lt.judge(os.path.join(t, "target"), t, real_lstat(t).st_dev, [], "")
@@ -261,6 +262,7 @@ def main() -> int:
                 os.lstat = real_lstat
             check(f"{what} in a target that another uid owns keeps the whole target (the directories around it are ours)",
                   said == (f"kept {t}/target: another account owns files in it", 0) and os.path.isfile(os.path.join(t, "target", "debug", "a.o")), said)
+        os.unlink(os.path.join(t, "target", "debug", "lnk"))
         check("…positive control: the same target judged as its owner would go", lt.judge(os.path.join(t, "target"), t, os.lstat(t).st_dev, [], "", True)[0].startswith("would remove "))
         real_uid = os.getuid
         os.getuid = lambda: real_uid() + 1
