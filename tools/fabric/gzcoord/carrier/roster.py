@@ -32,9 +32,17 @@ render_config() produces the profile's config.yaml for one account: every
 OTHER valid row's PeerId allowlisted and nothing else (deny by default),
 their addresses as static bootstrap, this profile listening at its row's
 port, no channels, no connectivity server roles. A row without `host` is at
-127.0.0.1; a row with one is at that host's `interweave_address` in
-runtime/hosts/registry.json (a literal IP). A row naming a host the registry
-lacks, or one without an address, is refused like any other bad row.
+127.0.0.1, as before. An account whose row has a host listens on the wildcard
+of its host address's family (0.0.0.0 or ::) at its port, not on the address
+itself: a daemon bound to a literal address loses network-change detection
+(InterWeave ADR-0055 5b) and a same-host fleet would fail to start whenever
+the overlay is down. That listener relies on host provisioning: the host's
+firewall must admit the roster's port range from the other hosts' overlay
+addresses, and nothing here does. Bootstrap per peer: a peer on the SAME host
+as the account stays at 127.0.0.1; a peer on another host is at that host's
+`interweave_address` in runtime/hosts/registry.json (a literal IP). A row
+naming a host the registry lacks, or one without an address, is refused like
+any other bad row.
 It refuses when the account's own row is not valid: an account whose key
 is not in the roster has no profile to render.
 """
@@ -234,7 +242,7 @@ def host_address(roster: Roster, host: str) -> tuple[str | None, str]:
         return None, f"host {host!r} interweave_address {addr!r} is not a literal IP address"
     # A scope id ("fe80::1%x...") is free text after the %, would land in config.yaml, and is no multiaddr
     # (the zone is /ip6zone/); an address no peer can be reached at is no address of a host.
-    if getattr(ip, "scope_id", None) or ip.is_unspecified or ip.is_multicast or getattr(ip, "ipv4_mapped", None):
+    if getattr(ip, "scope_id", None) or ip.is_unspecified or ip.is_multicast or ip.is_reserved or ip == ipaddress.IPv4Address("255.255.255.255") or getattr(ip, "ipv4_mapped", None):
         return None, f"host {host!r} interweave_address {addr!r} is not a unicast address of the host"
     return f"ip{ip.version}", str(ip)
 
@@ -342,7 +350,19 @@ def render_config(roster: Roster, good: list[dict], agent_id: str) -> str:
         if proto is None:  # valid_rows refused such a row; a caller that hands one in gets a refusal, not 127.0.0.1
             raise RosterError(addr)
         return f"/{proto}/{addr}/tcp/{r['port']}"
-    boot = json.dumps([f"{where(r)}/p2p/{r['peer_id']}" for r in others])
+    def dial(r: dict) -> str:
+        if HOST_KEY in r and r[HOST_KEY] == me.get(HOST_KEY):
+            return f"/ip4/{LOOPBACK}/tcp/{r['port']}"
+        return where(r)
+
+    def listen() -> str:
+        if HOST_KEY not in me:
+            return f"/ip4/{LOOPBACK}/tcp/{me['port']}"
+        proto, addr = host_address(roster, me[HOST_KEY])
+        if proto is None:
+            raise RosterError(addr)
+        return f"/{proto}/{'0.0.0.0' if proto == 'ip4' else '::'}/tcp/{me['port']}"
+    boot = json.dumps([f"{dial(r)}/p2p/{r['peer_id']}" for r in others])
     return (
         "# Rendered from runtime/interweave/roster.json by agent-fabric; never hand-edited\n"
         "schema_version: 2\n"
@@ -363,7 +383,7 @@ def render_config(roster: Roster, good: list[dict], agent_id: str) -> str:
         "      priority: 5\n"
         "      config:\n"
         f"        peers: {boot}\n"
-        f"transport: {{ listen: {{ addresses: {json.dumps([where(me)])} }} }}\n"
+        f"transport: {{ listen: {{ addresses: {json.dumps([listen()])} }} }}\n"
         "observability: { log_level: info }\n"
     )
 

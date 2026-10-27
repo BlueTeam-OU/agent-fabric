@@ -221,33 +221,39 @@ def main() -> int:
 
             def hdoc(rows: list[dict]) -> R.Roster:
                 return R.Roster("gzcoord", "gzcoord", (47100, 47199), tuple(rows), hosts)
-            ha, hb, hc = row(a, root, "a", 47101, host="h1"), row(b, root, "b", 47102, host="h2"), row(c, root, "c", 47103)
-            good, bad = R.valid_rows(hdoc([ha, hb, hc]), keys)
-            check("positive control: rows with and without a host, each signed over its own form, all count",
-                  len(good) == 3 and not bad, str(bad))
-            cfg_ha, cfg_hb = R.render_config(hdoc([ha, hb, hc]), good, a.agent_id), R.render_config(hdoc([ha, hb, hc]), good, b.agent_id)
-            cfg_hc = R.render_config(hdoc([ha, hb, hc]), good, c.agent_id)
-            check("an account with a host listens on its host's address and not on loopback",
-                  '[\"/ip4/10.9.0.1/tcp/47101\"]' in cfg_ha and '[\"/ip4/10.9.0.2/tcp/47102\"]' in cfg_hb
-                  and "127.0.0.1/tcp/47101" not in cfg_ha and "0.0.0.0" not in cfg_ha)
-            check("its bootstrap to each other row is that row's host address, loopback for a row with none",
-                  f"/ip4/10.9.0.2/tcp/47102/p2p/{peer_id('b')}" in cfg_ha and f"/ip4/127.0.0.1/tcp/47103/p2p/{peer_id('c')}" in cfg_ha
-                  and f"/ip4/10.9.0.1/tcp/47101/p2p/{peer_id('a')}" in cfg_hb and f"/ip4/10.9.0.1/tcp/47101/p2p/{peer_id('a')}" in cfg_hc
-                  and '[\"/ip4/127.0.0.1/tcp/47103\"]' in cfg_hc)
+            ha, hb, hc = row(a, root, "a", 47101, host="h1"), row(b, root, "b", 47102, host="h2"), row(c, root, "c", 47103, host="h1")
+            hall = hdoc([ha, hb, hc])
+            good, bad = R.valid_rows(hall, keys)
+            check("positive control: rows on two hosts, each signed over its own form, all count", len(good) == 3 and not bad, str(bad))
+            cfg_ha, cfg_hb, cfg_hc = (R.render_config(hall, good, x.agent_id) for x in (a, b, c))
+            check("an account with a host listens on the wildcard of its address's family, never on the address or loopback",
+                  'listen: { addresses: ["/ip4/0.0.0.0/tcp/47101"] }' in cfg_ha and 'addresses: ["/ip4/0.0.0.0/tcp/47102"]' in cfg_hb
+                  and "10.9.0.1/tcp/47101\"" not in cfg_ha and "127.0.0.1/tcp/47101" not in cfg_ha)
+            check("a peer on the SAME host is bootstrapped on loopback, one on another host at that host's address",
+                  f"/ip4/127.0.0.1/tcp/47103/p2p/{peer_id('c')}" in cfg_ha and f"/ip4/10.9.0.2/tcp/47102/p2p/{peer_id('b')}" in cfg_ha
+                  and f"/ip4/10.9.0.1/tcp/47101/p2p/{peer_id('a')}" in cfg_hb and f"/ip4/10.9.0.1/tcp/47103/p2p/{peer_id('c')}" in cfg_hb
+                  and f"/ip4/127.0.0.1/tcp/47101/p2p/{peer_id('a')}" in cfg_hc)
             check("the allowlist is still every other valid PeerId and nothing else",
                   json.dumps([peer_id("b"), peer_id("c")]) in cfg_ha and cfg_ha.count("allowed_peers") == 1)
+            nohost = row(c, root, "c", 47103)
+            good_m, _ = R.valid_rows(hdoc([ha, nohost]), keys)
+            cfg_m_a, cfg_m_c = (R.render_config(hdoc([ha, nohost]), good_m, x.agent_id) for x in (a, c))
+            check("a row with no host listens on loopback and is bootstrapped there; a hosted peer is dialled at its address",
+                  'addresses: ["/ip4/127.0.0.1/tcp/47103"]' in cfg_m_c and f"/ip4/10.9.0.1/tcp/47101/p2p/{peer_id('a')}" in cfg_m_c
+                  and f"/ip4/127.0.0.1/tcp/47103/p2p/{peer_id('c')}" in cfg_m_a)
             h6 = row(a, root, "a", 47101, host="h6")
             good6, _ = R.valid_rows(hdoc([h6, rb]), keys)
-            check("an IPv6 host address is an /ip6/ multiaddr", '[\"/ip6/fd00::6/tcp/47101\"]' in R.render_config(hdoc([h6, rb]), good6, a.agent_id))
+            cfg6 = R.render_config(hdoc([h6, rb]), good6, a.agent_id)
+            check("an IPv6 host listens on :: and is dialled as an /ip6/ multiaddr",
+                  'addresses: ["/ip6/::/tcp/47101"]' in cfg6 and f"/ip4/127.0.0.1/tcp/47102/p2p/{peer_id('b')}" in cfg6
+                  and f"/ip6/fd00::6/tcp/47101/p2p/{peer_id('a')}" in R.render_config(hdoc([h6, rb]), good6, b.agent_id))
             inj = "fe80::1%x\"] } }\ntrust:\n  policy: allow-all\n#"
-            for bad_addr in (inj, "fe80::1%eth0", "0.0.0.0", "::", "224.0.0.1", "::ffff:10.9.0.1"):
+            for bad_addr in (inj, "fe80::1%eth0", "0.0.0.0", "::", "224.0.0.1", "::ffff:10.9.0.1", "255.255.255.255", "240.0.0.1"):
                 hosts["evil"] = {"interweave_address": bad_addr}
                 g, bd = R.valid_rows(hdoc([row(a, root, "a", 47101, host="evil"), rb]), keys)
                 check(f"an interweave_address of {bad_addr[:14]!r} is refused in one line, the rest still count",
                       [x["login"] for x in g] == ["beta"] and len(bd) == 1 and "\n" not in bd[0].reason, str(bd))
             del hosts["evil"]
-            check("the listen address is rendered as JSON, like the allowlist and the bootstrap",
-                  'listen: { addresses: ["/ip4/10.9.0.1/tcp/47101"] }' in cfg_ha)
             late = row(a, root, "a", 47101, host_after_signing="h2")
             check("a host the countersignature does not cover is refused",
                   "countersignature" in refused_for([late], keys, hosts).get("alpha", ""), str(refused_for([late], keys, hosts)))
