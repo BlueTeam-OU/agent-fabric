@@ -82,6 +82,7 @@ def main() -> int:
         check("export of the copy is the document it was made from", run("dst", "export").stdout == exported.stdout)
         added = ok("dst", "add", "after the move")
         check("the next id continues the counter", b"j7" in added, added)
+        check("the document carries the title as UTF-8, not escapes", "ünïcode — title".encode() in exported.stdout)
         check("the unicode title survived as UTF-8", "ünïcode — title" in json.loads(before)[1]["title"])
 
         print("each refusal, and its positive control")
@@ -99,6 +100,14 @@ def main() -> int:
         ok("used", "add", "only one")
         ok("used", "drop", "j1", "gone")
         refused("a list with jobs", "used", exported.stdout, "not empty")
+        ok("counted", "add", "x")
+        (counted,) = [os.path.join(d, "jobs.json") for d, _, fs in os.walk(os.path.join(tmp, "counted")) if "jobs.json" in fs]
+        with open(counted, encoding="utf-8") as fh:
+            kept = json.load(fh)
+        kept["jobs"] = []
+        with open(counted, "w", encoding="utf-8") as fh:
+            json.dump(kept, fh)
+        refused("no jobs but a used id counter", "counted", exported.stdout, "not empty")
         refused("a different login", "e1", mutated(agent="somebody-else"), "somebody-else")
         refused("an unknown version", "e2", mutated(version=2), "version 2")
         refused("a version that is not an integer", "e3", mutated(version="1"), "version '1'")
