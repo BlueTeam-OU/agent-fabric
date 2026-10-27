@@ -1110,7 +1110,7 @@ class Bootstrap:
                 f"{os.environ['XDG_RUNTIME_DIR']}/bus (systemd absent, or no login session; the next bootstrap with one enables it)")
             return
         run_quiet(["systemctl", "--user", "enable", "--now", f"{TIDY_UNIT}.timer"])
-        if True:
+        if self.changed > before:
             run_quiet(["systemctl", "--user", "restart", f"{TIDY_UNIT}.timer"])
         say(f"  *  {TIDY_UNIT}.timer: {answer(['systemctl', '--user', 'is-active', f'{TIDY_UNIT}.timer'])} "
             f"(systemctl --user list-timers {TIDY_UNIT}.timer)")
