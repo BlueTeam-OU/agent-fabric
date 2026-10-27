@@ -64,6 +64,23 @@ CONTRACT, frozen from the Node:
                                 5 s for the flock, names both pids on
                                 STDERR and takes over; a holder whose
                                 session is alive is refused as above.
+                                --replace (with --until-delivery or
+                                --follow): when the lock is held by a
+                                watch the lock file says serves THIS
+                                session (same session pid, start time
+                                and kind) and that is a gzcoord-inbox
+                                watch of this uid, end it with SIGTERM
+                                by its pid, wait up to 5 s for the flock,
+                                name both pids on STDERR and take its
+                                place: how a session undoes a watch it
+                                armed by hand. Any other holder (another
+                                session's, one the file does not name, a
+                                session recorded without a start time)
+                                is refused with one line on STDOUT naming
+                                it, exit 0, nothing signalled; --replace
+                                without a watch flag, or with --replay,
+                                --history or --held, is a usage line,
+                                exit 1.
                                 --deadline S (default 6900, under the
                                 harness's 2 h cap, which kills the watch
                                 and can leave an orphan that blocks the
@@ -208,6 +225,7 @@ from .inbox_parts import session as watch_session
 
 QUIET_LINE = "gzcoord inbox: quiet for {minutes} min, nothing delivered; run the watch again"
 DEFAULT_DEADLINE_S = 6900.0
+REPLACE_USAGE = "gzcoord inbox: --replace goes with --until-delivery or --follow, and with no --replay, --history or --held"
 DEADLINE_USAGE = "gzcoord inbox: --deadline takes a number of seconds above 0 and goes with --until-delivery"
 
 
@@ -312,6 +330,15 @@ def deadline_arg(argv: list[str]) -> float | None:
     if "--until-delivery" not in argv or not math.isfinite(n) or n <= 0:
         raise ValueError(DEADLINE_USAGE)
     return n
+
+
+def replace_arg(argv: list[str]) -> bool:
+    """Is --replace given? Raises ValueError for it without a watch to replace the holder of."""
+    if "--replace" not in argv:
+        return False
+    if not {"--follow", "--until-delivery"} & set(argv) or {"--replay", "--history", "--held"} & set(argv):
+        raise ValueError(REPLACE_USAGE)
+    return True
 
 
 def _arg_after(argv: list[str], flag: str) -> Any:
@@ -651,6 +678,7 @@ def run(argv: list[str]) -> int:
         # rewrites the mark nor is answered by another watch's refusal line.
         try:
             deadline_arg(argv)
+            replace = replace_arg(argv)
         except ValueError as e:
             print(e, file=sys.stderr)
             return 1
@@ -659,7 +687,7 @@ def run(argv: list[str]) -> int:
         # exits 0, so the harness's background call ends clean.
         if ({"--follow", "--until-delivery"} & set(argv)
                 and not {"--replay", "--history", "--held"} & set(argv)):
-            lock = take_or_report(gzmsg.whoami()["agent"], watch_session.current())
+            lock = take_or_report(gzmsg.whoami()["agent"], watch_session.current(), replace=replace)
             if lock is not None and not lock.acquired:
                 lock = None
             elif lock is None:
