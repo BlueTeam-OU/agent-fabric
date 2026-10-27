@@ -31,7 +31,9 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
+from unittest import mock
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, "tests"))
@@ -356,6 +358,44 @@ class Sweep(unittest.TestCase):
         rc, out, err = self.sweep()
         self.assertFalse(os.path.exists(d), out)
         self.assertRegex(out, rf"removed session scratch {d} \(2\.0 KB\)")
+
+    def test_an_ended_id_whose_dir_a_live_process_writes_under_is_kept(self):
+        """After /clear the registry names the new id; the old id's task output is still written by the same process."""
+        (d,) = self.sessions(ENDED)
+        self.registry()
+        out_path = os.path.join(d, "scratchpad", "task.output")
+        writer = subprocess.Popen(["sh", "-c", f"exec sleep 600 > {out_path}"])
+        try:
+            deadline = time.monotonic() + 30
+            while not any(os.readlink(f"/proc/{writer.pid}/fd/{n}") == out_path
+                          for n in os.listdir(f"/proc/{writer.pid}/fd")) and time.monotonic() < deadline:
+                time.sleep(0.01)
+            rc, out, err = self.sweep()
+            self.assertTrue(os.path.isdir(d), out)
+            self.assertIn(f"kept session scratch {d} — process {writer.pid} stands in it or writes under it", out)
+        finally:
+            writer.kill()
+            writer.wait()
+        rc, out, err = self.sweep()
+        self.assertFalse(os.path.exists(d), "positive control: the writer gone, the same id's directory goes")
+
+    def test_an_ended_id_a_live_process_names_on_its_command_line_is_kept(self):
+        (d,) = self.sessions(ENDED)
+        self.registry()
+        holder = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(600)", ENDED])
+        try:
+            rc, out, err = self.sweep()
+            self.assertTrue(os.path.isdir(d), out)
+            self.assertIn(f"process {holder.pid} names the session id", out)
+        finally:
+            holder.kill()
+            holder.wait()
+
+    def test_the_process_list_that_cannot_be_read_is_unknown_not_empty(self):
+        import branches
+        with mock.patch.object(branches.os, "listdir", side_effect=OSError):
+            self.assertIsNone(branches.process_touches())
+        self.assertIsNotNone(branches.process_touches(), "positive control: the list reads")
 
     def test_a_live_session_stays(self):
         ended, live = self.sessions(ENDED, LIVE)

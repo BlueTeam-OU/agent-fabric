@@ -47,7 +47,9 @@ checkouts piled up, 39 and 530 MB on one login in a day):
     cannot be fetched, or refuses, is named and skipped, never guessed: the rest are swept and the status is 1;
   - an ended Claude Code session's scratch under this login's claude-tmp cache ($CLAUDE_CODE_TMPDIR/claude-<uid> when set,
     and ${TMPDIR:-/tmp}/claude-<uid>, each swept)/…/<session id>), unless the harness of this login's registry (~/.claude/sessions/<pid>.json) names it for a harness
-    that is live by plan_hold's rule for its own markers, or it is the session running the command. A registry that
+    that is live by plan_hold's rule for its own markers, or it is the session running the command, or a process of this uid
+    (/proc) has its cwd or an open file under it or its command line names the id (after /clear the harness's process goes
+    on writing its tasks' output under the old id; /proc that cannot be listed keeps the scratch, said). A registry that
     cannot be read or understood calls no session ended, and is said: no worktree is then removed, each is kept with the
     reason "session registry unreadable". A worktree a live session stands in is in use otherwise, and so is one that any
     process of this uid has as its cwd (/proc), or whose `fabric-in-use` file in its own git directory (first line: a pid)
@@ -647,6 +649,52 @@ def session_dirs(root: str) -> list[str]:
     return out
 
 
+def process_touches() -> list[tuple[int, list[str], str]] | None:
+    """(pid, the paths its cwd and open files name, its command line) of every process of this uid but this one, from /proc;
+    None when /proc cannot be listed. A process that ends, or whose descriptors cannot be read, between the listing and the
+    read is skipped: it is gone or not ours to ask."""
+    try:
+        names = os.listdir("/proc")
+    except OSError:
+        return None
+    me, mine = os.getuid(), os.getpid()
+    found: list[tuple[int, list[str], str]] = []
+    for name in names:
+        if not name.isdigit() or int(name) == mine:
+            continue
+        base = f"/proc/{name}"
+        try:
+            if os.stat(base).st_uid != me:
+                continue
+            paths = [os.readlink(f"{base}/cwd")]
+            for fd in os.listdir(f"{base}/fd"):
+                try:
+                    paths.append(os.readlink(f"{base}/fd/{fd}"))
+                except OSError:
+                    continue
+            with open(f"{base}/cmdline", "rb") as fh:
+                cmdline = fh.read().replace(b"\0", b" ").decode("utf-8", "replace")
+        except OSError:
+            continue
+        found.append((int(name), paths, cmdline))
+    return found
+
+
+def scratch_holder(path: str, touches: list[tuple[int, list[str], str]]) -> str:
+    """Why a live process uses a session's scratch ("" when none does): after /clear the harness's process takes a new session
+    id and goes on writing its background tasks' output under the old id's directory, so the registry calling the old id ended
+    says nothing about its directory. A process holds it when its cwd or an open file is at or under it, or its command line
+    names the session id."""
+    roots = {path, os.path.realpath(path)}
+    sid = os.path.basename(path)
+    for pid, paths, cmdline in touches:
+        if any(p == r or p.startswith(r + "/") for p in paths for r in roots):
+            return f"process {pid} stands in it or writes under it"
+        if sid in cmdline:
+            return f"process {pid} names the session id"
+    return ""
+
+
 def sweep_sessions() -> None:
     """Remove the scratch of this login's ended sessions, and say what is removed (with its size) and what is
     kept (with why). A scratch directory is removed whole, never through a link."""
@@ -655,12 +703,17 @@ def sweep_sessions() -> None:
     registry = live_sessions()
     live = registry[0] if registry is not None else None
     mine = os.environ.get("CLAUDE_CODE_SESSION_ID", "")     # the session running this command, whatever the registry says
+    touches = process_touches() if live is not None else None
     for path in found:
         sid = os.path.basename(path)
         if live is None:
             echo(f"kept session scratch {path} — the sessions of this login cannot be listed: no session is called ended")
         elif sid in live or sid == mine:
             echo(f"kept session scratch {path} — live session")
+        elif touches is None:
+            echo(f"kept session scratch {path} — the processes of this login cannot be listed: no scratch is called unused")
+        elif holder := scratch_holder(path, touches):
+            echo(f"kept session scratch {path} — {holder}")
         else:
             size = tree_bytes(path)
             shutil.rmtree(path, ignore_errors=True)
