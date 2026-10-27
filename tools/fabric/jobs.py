@@ -18,6 +18,8 @@ behind bin/fabric-jobs.
     fabric-jobs drop <id> "<why>"
     fabric-jobs project <id> <project> [--working-copy W]        re-point a job that has no branch or worktree yet; logged on the job
     fabric-jobs show <id> [--json]
+    fabric-jobs export                                           this login's whole list, every state, as one versioned JSON document on stdout
+    fabric-jobs import                                           that document on stdin into this login's EMPTY list; ids kept
     fabric-jobs switch [<id>] [--json] [--type feat|fix|docs|chore|test|refactor] [--needs-merged] [--keep-targets]
     fabric-jobs next [<id>] ...                                  alias of switch
     fabric-jobs pool-list [--role R] [--json]
@@ -78,6 +80,13 @@ another login's branch is not recorded. `switch` to such a job checks that branc
 off the default branch when it exists nowhere yet), in a worktree of its own, ahead of an open pull request or a new feat/ branch,
 unless the job already has another branch of its own (it keeps that) or a pull request from the for/ branch merged (step 3
 below): the job-copy guard then sees a job copy.
+
+`export` and `import` move the list to another host (the j422 design, gap F2): export prints this login's whole list, every state,
+as one JSON document (format fabric-jobs-export, version 1: agent, host, seq, last, jobs, blocker_cache — the blocker cache's entries for the specs the jobs name, whose
+seen_open memory the destination cannot re-derive; the source host is recorded, not applied) and no secret, in UTF-8, nothing needing a tty; import
+reads it on stdin into an EMPTY list of the same login and keeps every id, so job:<login>/jN, blockers and a REQUEST's intake stay valid.
+Each refusal is one line and changes nothing: a list that has a job or a used id counter, another login's document, a version or format
+this tool does not know, a document that is not valid JSON or fails the checks on its jobs (types, times, and the control characters `add` refuses in a title). Job state stays runtime state, never in git.
 
 A job has a priority (ADR-037 rule 7): blocking, high, normal or low;
 normal when none was set, and in a list written before priorities
@@ -210,6 +219,7 @@ from fabric_jobs.pool import Unanswered, ask_pool, pool_offer, PROJECT_SLUG, cla
 from fabric_jobs.render import line, show, summary  # noqa: E402, F401
 from fabric_jobs.branching import TYPES  # noqa: E402, F401
 from fabric_jobs.sweep import sweep  # noqa: E402, F401
+from fabric_jobs.transfer import export_jobs, import_jobs  # noqa: E402, F401
 from fabric_jobs.verbs import decide, add, repoint, pool_list, pool_claim, list_jobs, show_job, switch_job, change  # noqa: E402, F401
 
 
@@ -274,6 +284,8 @@ def main(argv: list[str] | None = None) -> int:
         n.add_argument("--type", choices=TYPES, default="feat", help="the kind of a new branch's name (default feat)")
         n.add_argument("--keep-targets", action="store_true", help="do not clear the left job's cargo target directories (a job resumed within the hour)")
         n.add_argument("--needs-merged", action="store_true", help="the job needs this agent's open pull request merged first: if it cannot take more commits, block on it")
+    sub.add_parser("export", help="print this login's whole job list as one versioned JSON document")
+    sub.add_parser("import", help="read that document on stdin into this login's empty list, keeping every id")
     pl = sub.add_parser("pool-list", help="the open jobs of a role's pool (default: the bound role)")
     pl.add_argument("--role")
     pl.add_argument("--json", action="store_true")
@@ -283,7 +295,7 @@ def main(argv: list[str] | None = None) -> int:
     pc.add_argument("--working-copy")
     args = ap.parse_args(argv)
 
-    verb = {"add": add, "pool-list": pool_list, "pool-claim": pool_claim, "list": list_jobs, "show": show_job, "switch": switch_job, "next": switch_job, "sweep": sweep, "project": repoint}.get(args.cmd, change)
+    verb = {"add": add, "pool-list": pool_list, "pool-claim": pool_claim, "list": list_jobs, "show": show_job, "switch": switch_job, "next": switch_job, "sweep": sweep, "project": repoint, "export": export_jobs, "import": import_jobs}.get(args.cmd, change)
     try:
         return verb(args)
     except Refused as exc:
