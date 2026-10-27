@@ -63,7 +63,7 @@ done
 for v in OPENROUTER_API_KEY GH_TOKEN CLAUDE_BRIDGE_AUTH_TOKEN OPENAI_API_KEY CLAUDE_CODE_OAUTH_TOKEN DEMO_PORT_OFFSET; do
     echo "CLAUDE-HAS:$v=${!v+yes}"
 done
-for v in ANTHROPIC_DEFAULT_HAIKU_MODEL ANTHROPIC_DEFAULT_SONNET_MODEL ANTHROPIC_DEFAULT_OPUS_MODEL ANTHROPIC_DEFAULT_FABLE_MODEL ANTHROPIC_BASE_URL AGENT_FABRIC_LAUNCH_SESSION_MODEL AGENT_FABRIC_LAUNCH_EFFORT AGENT_FABRIC_LAUNCH_PROVIDER AGENT_FABRIC_LAUNCH_PROFILE AGENT_FABRIC_LAUNCH_ROLE AGENT_FABRIC_LAUNCH_PROMPT_DIGEST AGENT_FABRIC_LAUNCH_CLAUDE_VERSION TZ AGENT_FABRIC_LAUNCH_TZ AGENT_FABRIC_OPERATOR_TZ AGENT_FABRIC_SEARCH_COUNTRY CLAUDE_CODE_DISABLE_TERMINAL_TITLE TMPDIR; do
+for v in ANTHROPIC_DEFAULT_HAIKU_MODEL ANTHROPIC_DEFAULT_SONNET_MODEL ANTHROPIC_DEFAULT_OPUS_MODEL ANTHROPIC_DEFAULT_FABLE_MODEL ANTHROPIC_BASE_URL AGENT_FABRIC_LAUNCH_SESSION_MODEL AGENT_FABRIC_LAUNCH_EFFORT AGENT_FABRIC_LAUNCH_PROVIDER AGENT_FABRIC_LAUNCH_PROFILE AGENT_FABRIC_LAUNCH_ROLE AGENT_FABRIC_LAUNCH_PROMPT_DIGEST AGENT_FABRIC_LAUNCH_CLAUDE_VERSION TZ AGENT_FABRIC_LAUNCH_TZ AGENT_FABRIC_OPERATOR_TZ AGENT_FABRIC_SEARCH_COUNTRY CLAUDE_CODE_DISABLE_TERMINAL_TITLE TMPDIR AGENT_FABRIC_RESTARTING; do
     echo "CLAUDE-ENV:$v=${!v:-}"
 done
 '''
@@ -1080,6 +1080,94 @@ print("a" * 40, "b" * 40)
             rc, out = runa()
             check("a marker older than the launch is another session's: removed, not obeyed",
                   rc == 143 and not has(r"^RUN2:", out) and not os.path.exists(f"{agent_dir}/restart.json"), f"rc={rc}\n{out}")
+            write_fake_ori()
+
+            print("launch: a restart onto the declared provider resolves the session for that provider (j417)")
+            # The incident of 2026-10-26: an account on the broker whose launch carried a broker --model of its own, its
+            # agent layer then declared anthropic. The restart put the declaration in place of --provider and replayed the
+            # rest, so plain claude was started with z-ai/glm-5.2@preset/glm2claude-shim, which Anthropic refuses.
+            glm = "z-ai/glm-5.2@preset/glm2claude-shim"
+            put(f"{bin_}/claude", FAKE_CLAUDE, 0o755)
+            profile("agents", LOGIN, json.dumps({"launch_provider": "anthropic"}))
+            restart_marker = json.dumps({"request_id": "r2", "requested_at": "@NOW@", "piece": "the session", "from": "-",
+                                         "to": "-", "installed": "-", "status": "done"})
+            put(f"{bin_}/ori", f"#!/usr/bin/env bash\nif [[ \"${{1:-}}\" == auth ]]; then echo '{AUTH_OK}'; exit 0; fi\n"
+                f'n="$(cat "{runs}" 2>/dev/null || echo 0)"; echo $((n+1)) > "{runs}"\n'
+                f'm=\'{restart_marker}\'; printf \'%s\\n\' "${{m/@NOW@/$(date -u +%Y-%m-%dT%H:%M:%SZ)}}" > "{agent_dir}/restart.json"\n'
+                'echo "RUN1:$*"; exit 143\n', 0o755)
+            declared = {"AGENT_FABRIC_RESUME_PROFILES": f"{fabric}/routing/profiles.json"}
+            rm(runs, alog)
+            rc, out = runa("--provider", "openrouter", "--model", glm, "--effort", "max", **declared)
+            relaunched = grep("^CLAUDE-EXECCED:", out)
+            check("(the broker session ran on the caller's own broker model)", has(rf"^RUN1:.*--model {re.escape(glm)}", out),
+                  grep("RUN1", out))
+            check("the restart comes back on plain claude with the anthropic session model and effort, no broker model in it",
+                  rc == 0 and has(r"^CLAUDE-EXECCED:--model claude-opus-5-5 --effort high .*--resume sess-123", relaunched)
+                  and glm not in relaunched and "--effort max" not in relaunched, f"rc={rc}\n{out}")
+            check("…stamped as it runs", "CLAUDE-ENV:AGENT_FABRIC_LAUNCH_PROVIDER=anthropic" in out
+                  and "CLAUDE-ENV:AGENT_FABRIC_LAUNCH_SESSION_MODEL=claude-opus-5-5" in out, grep("CLAUDE-ENV:AGENT_FABRIC", out))
+            check("…and the restart's own flag is not the session's: it ends at the relaunch",
+                  has(r"^CLAUDE-ENV:AGENT_FABRIC_RESTARTING=$", out), grep("RESTARTING", out))
+            check("…and what the original launch chose for the broker is said as dropped, by name",
+                  f"launch: the restart moves this session from openrouter to anthropic; dropped what the original launch "
+                  f"passed for openrouter's models: --model {glm} --effort max" in out, out)
+            # A relaunch the new provider refuses must not leave the pane quietly at a shell: here plain claude has no
+            # long-lived sign-in, which the broker session never needed.
+            put(sec, "")
+            rm(runs, alog)
+            rc, out = runa("--provider", "openrouter", **declared)
+            check("a relaunch refused after a restart is said as a restart not completed, after the refusal itself",
+                  rc == 1 and "no long-lived Claude sign-in" in out and "CLAUDE-EXECCED" not in out
+                  and has(r"^launch: RESTART NOT COMPLETED: the session stopped for a restart was not brought back", out),
+                  f"rc={rc}\n{out}")
+            rm(runs, alog)
+            rc, out = runa("--provider", "anthropic", "--version")
+            check("…and the same refusal outside a restart says nothing of one",
+                  rc == 1 and "no long-lived Claude sign-in" in out and "RESTART NOT COMPLETED" not in out, out)
+            # A fresh relaunch the same refusal stops is not mended by fabric-resume, which reopens the finished job's
+            # conversation: it names the job and the fresh start instead.
+            fresh_marker = json.dumps({"requested_at": "@NOW@", "piece": "a fresh session", "status": "done", "fresh": True,
+                                       "job": "j417", "note": "PR merged"})
+            put(f"{bin_}/ori", f"#!/usr/bin/env bash\nif [[ \"${{1:-}}\" == auth ]]; then echo '{AUTH_OK}'; exit 0; fi\n"
+                f'n="$(cat "{runs}" 2>/dev/null || echo 0)"; echo $((n+1)) > "{runs}"\n'
+                f'm=\'{fresh_marker}\'; printf \'%s\\n\' "${{m/@NOW@/$(date -u +%Y-%m-%dT%H:%M:%SZ)}}" > "{agent_dir}/restart.json"\n'
+                'echo "RUN1:$*"; exit 143\n', 0o755)
+            rm(runs, alog)
+            rc, out = runa("--provider", "openrouter", **declared)
+            check("a fresh relaunch refused is said as not completed, naming the job and the fresh start, not fabric-resume",
+                  rc == 1 and "no long-lived Claude sign-in" in out and "CLAUDE-EXECCED" not in out
+                  and has(r"^launch: RESTART NOT COMPLETED: the session that finished its job was not brought back fresh", out)
+                  and "run fabric-fresh --job j417, which brings job j417 fresh" in out
+                  and "then fabric-resume" not in out and "not fabric-resume, which reopens the finished job's conversation" in out,
+                  f"rc={rc}\n{out}")
+            put(sec, "export CLAUDE_CODE_OAUTH_TOKEN='sk-ant-oat01-SUITE-FIXTURE'\n")
+            prof = json.loads(read(f"{fabric}/routing/profiles.json"))
+            prof["agents"].pop(LOGIN, None)
+            put(f"{fabric}/routing/profiles.json", json.dumps(prof, indent=1))
+            write_fake_ori()
+
+            print("launch: plain claude never starts on a model that is not Anthropic's, nor the broker on a native id (j417)")
+            for provider in ("anthropic", "gateway"):
+                for alias in ("best", "best[1m]"):
+                    rc, out = run("--provider", provider, "--model", alias, "--version")
+                    check(f"{provider}: the harness alias {alias} is not refused",
+                          "is not an Anthropic model" not in out, f"rc={rc}\n{out}")
+                rc, out = run("--provider", provider, "--model", glm, "--version")
+                check(f"{provider}: a broker model on the command line is refused in one line naming it and its source, "
+                      "nothing started",
+                      rc == 1 and f"launch: the session model '{glm}' (from --model on the command line) is not an Anthropic "
+                      "model" in out and "CLAUDE-EXECCED" not in out, f"rc={rc}\n{out}")
+            rc, out = run("--provider", "anthropic", "--print", "--model", glm)
+            check("…--print says the same refusal", rc == 1 and "is not an Anthropic model" in out, f"rc={rc}\n{out}")
+            for ok in ("claude-sonnet-5", "opus", "sonnet[1m]", "best", "best[1m]"):
+                rc, out = run("--provider", "anthropic", "--model", ok, "--version")
+                check(f"…a native id or a harness alias ({ok}) runs", rc == 0 and has(rf"^CLAUDE-EXECCED:.*--model {re.escape(ok)}", out),
+                      f"rc={rc}\n{out}")
+            rc, out = run("--provider", "openrouter", "--model", "claude-opus-5-5", "--version")
+            check("the broker: a native Claude id is refused, naming it and the broker's spelling",
+                  rc == 1 and "launch: the session model 'claude-opus-5-5' (from --model on the command line) is a native "
+                  "Claude id" in out and "anthropic/claude-opus-5-5" in out and "ORI-EXECCED" not in out, f"rc={rc}\n{out}")
+            rm(f"{bin_}/claude")
             write_fake_ori()
 
             print("launch: a session that ends its own job comes back fresh, not resumed")

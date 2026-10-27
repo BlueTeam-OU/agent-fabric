@@ -209,6 +209,26 @@ def main() -> int:
             check("a local override that is not an object is refused, by its type",
                   str(exc) == "model-profile.local.json is list, not an object")
 
+        print("the session model is the provider's (j417)")
+        real = launch.load_routing(os.path.join(HERE, "tools", "fabric", "routing.py"), HERE)
+        glm = "z-ai/glm-5.2@preset/glm2claude-shim"
+        src = launch.session_source(False, "agent", "r", "a-1", "/s/model-profile.local.json")
+        check("the source names the layer a person fixes it in",
+              src == "from routing/profiles.json agents.a-1"
+              and launch.session_source(False, "local", "r", "a", "/s/l.json") == "from /s/l.json"
+              and launch.session_source(True, "defaults", "r", "a", "l") == "from --model on the command line")
+        check("plain claude and the gateway refuse a broker composite, naming the model and its source",
+              all((launch.foreign_session_model(real, p, glm, src) or "").startswith(
+                  f"the session model '{glm}' (from routing/profiles.json agents.a-1) is not an Anthropic model")
+                  for p in ("anthropic", "gateway")))
+        check("…and take a native id or claude's aliases",
+              all(launch.foreign_session_model(real, "anthropic", m, src) is None
+                  for m in ("claude-opus-5-5", "claude-opus-5[1m]", "opus", "sonnet[1m]", "default", "opusplan")))
+        check("the broker refuses a native id, naming its broker spelling, and leaves its own spellings to ori",
+              "anthropic/claude-opus-5-5" in (launch.foreign_session_model(real, "openrouter", "claude-opus-5-5", src) or "")
+              and launch.foreign_session_model(real, "openrouter", glm, src) is None
+              and launch.foreign_session_model(real, "openrouter", "x", src) is None)
+
         print("--print")
         prompt = put(f"{tmp}/prompt.md", "first line\nsecond\n")
         out, err = io.StringIO(), io.StringIO()
@@ -385,6 +405,41 @@ def main() -> int:
                 launch.reexec = launch_reexec
             check(f"a restart relaunches on the declared provider, not the original's ({orig[0]})",
                   len(calls) == 1 and calls[0][1] == want)
+        # j417: a declaration that moves the session to another column drops what the original chose for the old
+        # one's models; a move within a column (anthropic and the gateway) keeps it.
+        glm = "z-ai/glm-5.2@preset/glm2claude-shim"
+        put(f"{tmp}/profiles.json", json.dumps({"agents": {login: {"launch_provider": "anthropic"}}}))
+        for orig, want in ((["--provider", "openrouter", "--model", glm, "--effort=max", "--verbose"],
+                            ["--provider", "anthropic", "--verbose", "--resume", "sess-9"]),
+                           (["--model", glm, "--fallback-model", "x/y", "--", "--model"],
+                            ["--provider", "anthropic", "--", "--model", "--resume", "sess-9"]),
+                           (["--provider", "gateway", "--model", "claude-sonnet-5", "--effort", "low"],
+                            ["--provider", "anthropic", "--model", "claude-sonnet-5", "--effort", "low", "--resume", "sess-9"])):
+            calls.clear()
+            put(f"{state}/restart.json", json.dumps({"requested_at": when, "status": "done", "piece": "claude",
+                                                     "from": "1", "to": "2"}))
+            launch.reexec = lambda env, args: calls.append((env, args)) or (_ for _ in ()).throw(SystemExit(0))
+            os.environ["AGENT_FABRIC_RESUME_PROFILES"] = f"{tmp}/profiles.json"
+            err = io.StringIO()
+            try:
+                with redirect_stderr(err):
+                    launch.restart(state, launched, True, 143, orig, tmp, tmp)
+            except SystemExit:
+                pass
+            finally:
+                os.environ.clear()
+                os.environ.update(saved)
+                launch.reexec = launch_reexec
+            moved = orig[:2] != ["--provider", "gateway"]
+            check(f"a restart onto another column drops the old one's model and effort, a move within one keeps them "
+                  f"({' '.join(orig[:2])})",
+                  len(calls) == 1 and calls[0][1] == want and calls[0][0].get(launch.RESTARTING) == "1"
+                  and ("dropped what the original launch passed for openrouter's models" in err.getvalue()) == moved,
+                  f"{calls[-1][1] if calls else None}\n{err.getvalue()}")
+        check("without_options: spaced and =, a trailing bare flag, nothing after --",
+              launch.without_options(["--model", "a", "-p", "--effort=x", "--", "--effort", "y"], launch.PROVIDER_BOUND)
+              == (["-p", "--", "--effort", "y"], ["--model", "a", "--effort=x"])
+              and launch.without_options(["-p", "--model"], ("--model",)) == (["-p"], ["--model"]))
         check("the caller's resume flags are replaced, a bare -r keeps the option after it",
               launch.without_resume(["-c", "--resume=a", "-r", "--model", "m", "--continue", "x"])
               == ["--model", "m", "x"])

@@ -115,6 +115,36 @@ def without_resume(orig_args: list[str]) -> list[str]:
     return nxt
 
 
+# The options whose value is chosen for one provider's models: the session's
+# model (a composite on the broker, a native id on plain claude), its fallback,
+# and its effort (a level a broker model distinguishes need not be one the
+# Anthropic model is routed at). A relaunch onto another provider drops them,
+# so the routing of the new provider decides all three (launch.relaunch_args).
+PROVIDER_BOUND = ("--model", "--fallback-model", "--effort")
+
+
+def without_options(args: list[str], names: tuple[str, ...]) -> tuple[list[str], list[str]]:
+    """(args without the named options, what was removed), spaced or `=`; a
+    spaced one takes the next argument as its value, whatever it looks like,
+    as caller_value reads it. Nothing after a `--` is an option."""
+    out, dropped, i = [], [], 0
+    while i < len(args):
+        a = args[i]
+        if a == "--":
+            out += args[i:]
+            break
+        if a in names:
+            dropped += args[i:i + 2]
+            i += 2
+            continue
+        if a.split("=", 1)[0] in names and "=" in a:
+            dropped.append(a)
+        else:
+            out.append(a)
+        i += 1
+    return out, dropped
+
+
 def absolute_path_options(args: list[str], cwd: str) -> list[str]:
     """A path relative to here would name nothing there: the values of the
     options that take paths are made absolute first, spaced or `=`, existing
