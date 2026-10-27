@@ -307,6 +307,15 @@ fabric's own carrier.
   store before it is sent or presented (RETENTION.md: `PENDING_OUTBOUND`, `UNREAD_INBOUND`); G3
   and G4 delete after, not instead. No control record carries a secret value, in any op's request
   or reply: a rule, checked at the sender (ADR-029's ops already print prefixes and counts).
+- **Drained rows carry no receiving endpoint (human store, verified by architect-cto 2026-10-27,
+  unchanged by InterWeave #477).** No inbound row records which endpoint received it. So a row
+  drained from the store at session open prints `local_endpoint: null` and could belong to another
+  endpoint of the profile. The carrier relies on R3 (`fabric-control` is the profile's only human
+  endpoint) to read a null `local_endpoint` as fabric-control's. If R3 ever stopped holding, that
+  reading would break.
+- **No control send is a durable pending row (human store, same verification).** A pending row
+  records no source endpoint, and goes out from whichever endpoint the sending run leases. So every
+  control send names `--endpoint fabric-control` and is made with `--no-pending` (G4).
 
 ### 4.2 fabric-ctl's side
 
@@ -498,6 +507,10 @@ deployment; an ADR-010 live check for H2; and InterWeave's ADR-0055 decision 5b 
 **InterWeave CLI and transport** (for architect-cto as a REQUEST). Blocking marks what P1 cannot
 start without; cross-host marks what P2 cannot start without.
 
+**Status.** G1-G6 are on InterWeave #477 (5 work, 11 fix), armed at 44de4c90 on the owner's word.
+G5 is satisfied: every outbound event carries `problem`, a send-problem token or null. P3s F11 and
+F12 are carried by rust-ui-dev-02.
+
 - **G1-G4 (blocking), the main request**, specified in §4.0:
   - G1: a listen that takes input;
   - G2: a named endpoint, and creating one from the command line;
@@ -508,7 +521,7 @@ start without; cross-host marks what P2 cannot start without.
   `outbound` event prints message status tokens (`sending`, `accepted`, `cancelled`,
   `needs-attention`), not these send-problem tokens (`too-large`, `route-unavailable`, ...), so the
   re-split on `too-large`, and telling a restarting child from an unreachable host, need G5 in
-  G1's event (R8, InterWeave's, asked on #477).
+  G1's event (R8, InterWeave's, asked on #477). Satisfied, as stated in the status line above.
 - **G6 (blocking) — the receiving endpoint in the event.** The `message` event names the author
   (PeerId) and `conversation` (the peer's endpoint, `verbs.rs:735-752`). It must also name the local
   endpoint that received the message.
