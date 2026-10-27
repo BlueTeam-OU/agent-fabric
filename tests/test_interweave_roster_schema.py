@@ -65,7 +65,8 @@ class Schema(unittest.TestCase):
     def test_the_rows_fields_are_the_readers(self):
         row = schema()["$defs"]["row"]
         self.assertEqual(set(row["required"]), R.ROW_KEYS)
-        self.assertEqual(set(row["properties"]), R.ROW_KEYS)
+        # host is the one optional field (ADR-064 rule 1's second host): described, never required.
+        self.assertEqual(set(row["properties"]), R.ROW_KEYS | {R.HOST_KEY})
         self.assertIs(row["additionalProperties"], False)
         top = schema()
         self.assertEqual(set(top["required"]), {"version", "profile", "endpoint", "port_range", "rows"})

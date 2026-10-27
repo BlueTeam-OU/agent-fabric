@@ -86,6 +86,11 @@
         "port": {
           "$ref": "#/$defs/port"
         },
+        "host": {
+          "type": "string",
+          "pattern": "^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$",
+          "description": "Optional: the runtime/hosts/registry.json host the account runs on; its interweave_address is the row's address. When present, the coordinator's countersignature covers it (canonical_row); absent, the row is on the relay's host over 127.0.0.1 (ADR-064 rule 1's first milestone)."
+        },
         "identity_show": {
           "description": "Exactly what `transportctl --profile <p> identity show` printed in the login's account; the login signs these bytes.",
           "type": "string",
