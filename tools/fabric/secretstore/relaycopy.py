@@ -6,7 +6,8 @@ CONTRACT of `relay_backup(db, state_dir)`
           sqlite's online backup, never a copy of the file: it runs in WAL
           mode, and the file, its wal and its shm copied one after another
           are not a database. A path that is not a regular file is refused
-          (never followed, never created: a read-only open creates nothing).
+          (never followed, never created). sqlite's read-only open of a WAL database does leave an empty -wal and
+          -shm beside it when the relay is stopped; the database file itself is not written.
   effect  the snapshot is written to a private temp directory under TMPDIR
           and checked (`PRAGMA integrity_check`) before anything leaves the
           host, hashed (sha256 of the plain snapshot), gzipped, and encrypted
@@ -48,6 +49,8 @@ import shutil
 import sqlite3
 import stat
 import tempfile
+import urllib.parse
+import zlib
 
 from .core import StoreError, gpg, store_dir
 from .backup import PROTON_ROOT, _proton, _proton_folder, _upload, recovery_pub
@@ -64,12 +67,18 @@ CHUNK = 1 << 20
 GPG_TIMEOUT = 1800
 
 
+def _uri(path: str, query: str) -> str:
+    """A sqlite URI for path. Unquoted, a '?', '#' or '%' in the path makes sqlite open a different file
+    than the one the regular-file check looked at."""
+    return f"file:{urllib.parse.quote(os.path.abspath(path))}?{query}"
+
+
 def _integrity(path: str) -> None:
     """integrity_check says ok, else a StoreError. immutable=1: the check
     opens a file nobody else writes, and without it sqlite would make a -wal
     and -shm beside a restored copy."""
     try:
-        con = sqlite3.connect(f"file:{path}?mode=ro&immutable=1", uri=True)
+        con = sqlite3.connect(_uri(path, "mode=ro&immutable=1"), uri=True)
         try:
             rows = con.execute("PRAGMA integrity_check").fetchall()
         finally:
@@ -90,7 +99,7 @@ def _snapshot(db: str, dest: str) -> None:
     except FileNotFoundError:
         raise StoreError(f"{db}: no such relay database; nothing was backed up") from None
     try:
-        src = sqlite3.connect(f"file:{db}?mode=ro", uri=True, timeout=30)
+        src = sqlite3.connect(_uri(db, "mode=ro"), uri=True, timeout=30)
         try:
             out = sqlite3.connect(dest)
             try:
@@ -135,7 +144,7 @@ def relay_backup(db: str, state_dir: str) -> dict:
         blob_dir = os.path.join(tmp, "up")
         os.mkdir(blob_dir, 0o700)
         blob = os.path.join(blob_dir, BLOB)
-        gpg("--trust-model", "always", "--no-encrypt-to", "--encrypt", "--recipient", mine, *_recipients(),
+        gpg("--trust-model", "always", "--no-encrypt-to", "--sign", "--local-user", mine, "--encrypt", "--recipient", mine, *_recipients(),
             "--output", blob, gz, timeout=GPG_TIMEOUT)
         os.remove(gz)
         line = {"at": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
@@ -171,10 +180,12 @@ def _fetch(tmp: str, out: str) -> dict:
     except (OSError, ValueError, KeyError, TypeError):
         raise StoreError("the relay backup's manifest is not readable; nothing was restored") from None
     gz = os.path.join(tmp, "snapshot.gz")
-    r = gpg("--decrypt", "--output", gz, os.path.join(tmp, BLOB), check=False, timeout=GPG_TIMEOUT)
+    r = gpg("--status-fd", "1", "--decrypt", "--output", gz, os.path.join(tmp, BLOB), check=False, timeout=GPG_TIMEOUT)
     if r.returncode != 0:
-        raise StoreError("the relay backup could not be decrypted with this login's key "
-                         "(the owner's recovery key opens it otherwise)")
+        why = (r.stderr.decode(errors="replace").strip().splitlines() or ["no reason given"])[-1]
+        raise StoreError(f"the relay backup could not be decrypted with this login's key ({why}); "
+                         "the owner's recovery key opens it by hand")
+    _require_signed_by_store(r.stdout.decode(errors="replace"))
     h = hashlib.sha256()
     try:
         fd = os.open(out, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
@@ -182,7 +193,7 @@ def _fetch(tmp: str, out: str) -> dict:
             for chunk in iter(lambda: fi.read(CHUNK), b""):
                 h.update(chunk)
                 fo.write(chunk)
-    except (OSError, EOFError) as e:
+    except (OSError, EOFError, zlib.error) as e:
         raise StoreError(f"the relay backup does not decompress ({e})") from None
     finally:
         os.remove(gz)
@@ -190,6 +201,21 @@ def _fetch(tmp: str, out: str) -> dict:
         raise StoreError("the relay backup's sha256 is not the manifest's (a run that stopped between "
                          "its two uploads, or a damaged copy)")
     return manifest
+
+
+def _require_signed_by_store(status: str) -> None:
+    """The encryption key is public: anyone who can write to the Drive folder can encrypt a database to it.
+    What only this login can make is its signature, so a revision is accepted only when gpg reports a
+    valid one by the store's own key (VALIDSIG's last field is the primary key's fingerprint). A host
+    that holds the recovery key alone refuses here until the operator's public key is in its keyring;
+    `gpg --decrypt` by hand is the owner's path then."""
+    mine = key_of_store(store_dir()).upper()
+    for line in status.splitlines():
+        f = line.split()
+        if len(f) > 2 and f[:2] == ["[GNUPG:]", "VALIDSIG"] and f[-1].upper() == mine:
+            return
+    raise StoreError("the relay backup is not signed by this login's key (a revision put on the Drive by "
+                     "someone else, or made before backups were signed); nothing was restored")
 
 
 def relay_verify() -> dict:
@@ -203,7 +229,11 @@ def relay_verify() -> dict:
 def relay_restore(dest: str) -> dict:
     if os.path.islink(dest) or (os.path.exists(dest) and (not os.path.isdir(dest) or os.listdir(dest))):
         raise StoreError(f"{dest} is not an empty directory; a restore never writes over anything")
-    made = not os.path.exists(dest)
+    # Every directory this run makes, outermost first: a failed restore removes them all, not only the leaf.
+    made, d = [], os.path.abspath(dest)
+    while not os.path.exists(d):
+        made.insert(0, d)
+        d = os.path.dirname(d)
     os.makedirs(dest, mode=0o700, exist_ok=True)
     out = os.path.join(dest, DB_NAME)
     try:
@@ -214,7 +244,7 @@ def relay_restore(dest: str) -> dict:
         # What this run wrote and nothing else: dest was empty when it began.
         if os.path.lexists(out):
             os.remove(out)
-        if made:
-            os.rmdir(dest)
+        for d in reversed(made):
+            os.rmdir(d)
         raise
     return {**manifest, "dest": dest}

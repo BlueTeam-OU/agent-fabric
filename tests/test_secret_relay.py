@@ -274,6 +274,58 @@ def main() -> int:
         q = relay("restore", d3)
         check("…and the repaired revision restores (the refusals' control)", q.returncode == 0 and os.listdir(d3) == ["claude-bridge.db"], q.stderr)
 
+        # A revision someone else put on the Drive. The encryption key is public, so only the signature is theirs
+        # to lack; a gzip stream that decrypts yet will not inflate is a refusal in one line too.
+        import gzip, hashlib
+        mine_fpr = open(os.path.join(store, ".gpg-id")).read().split()[0]
+        plain_db = open(os.path.join(dest, "claude-bridge.db"), "rb").read()
+
+        def forge(payload: bytes, signed: bool, manifest_sha: str | None = None) -> None:
+            argv = ["gpg", "--batch", "--yes", "--trust-model", "always", "--pinentry-mode", "loopback", "--passphrase", ""]
+            if signed:
+                argv += ["--sign", "--local-user", mine_fpr]
+            subprocess.run(argv + ["--encrypt", "--recipient", mine_fpr, "--output", blob_path()], input=payload, env=env,
+                           check=True, capture_output=True)
+            m2 = {"at": "2026-10-27T00:00:00Z", "size": len(payload), "sha256": manifest_sha or hashlib.sha256(plain_db).hexdigest()}
+            open(manifest_path, "w").write(json.dumps(m2) + "\n")
+        d4 = os.path.join(tmp, "restored-forged")
+        forge(gzip.compress(plain_db), signed=False)
+        q = relay("restore", d4)
+        v = relay("backup", "--verify")
+        check("a database encrypted to the public key but not signed: restore and verify refuse, nothing written",
+              q.returncode == 1 and "not signed" in q.stderr and not os.path.exists(d4) and v.returncode == 1
+              and "not signed" in v.stderr, (q.stderr, v.stderr))
+        forge(gzip.compress(plain_db), signed=True)
+        q = relay("restore", d4)
+        check("…the same bytes signed by the store's key restore (the refusal's positive control)",
+              q.returncode == 0 and os.listdir(d4) == ["claude-bridge.db"], q.stderr)
+        shutil.rmtree(d4)
+        torn = bytearray(gzip.compress(plain_db * 4))
+        torn[10] |= 0x06     # the first deflate block's type bits: an invalid block, not a short or damaged file
+        forge(bytes(torn), signed=True)
+        q = relay("restore", d4)
+        v = relay("backup", "--verify")
+        check("a signed blob whose deflate stream is invalid: one line, exit 1, no traceback, nothing written",
+              q.returncode == 1 and v.returncode == 1 and len(q.stderr.splitlines()) == 1 and len(v.stderr.splitlines()) == 1
+              and "Traceback" not in q.stderr + v.stderr and not os.path.exists(d4) and scratch_left() == [], (q.stderr, v.stderr))
+        newtop = os.path.join(tmp, "newtop")
+        q = relay("restore", os.path.join(newtop, "mid", "leaf"))
+        check("a failed restore into a path whose parents do not exist removes every directory it made",
+              q.returncode == 1 and not os.path.exists(newtop), q.stderr)
+        open(blob_path(), "wb").write(good_blob)
+        open(manifest_path, "w").write(good_manifest)
+
+        # A '?' or '#' in a path is a path, not sqlite URI syntax.
+        odd = os.path.join(tmp, "odd?dir#1")
+        os.makedirs(odd)
+        shutil.copy(db, os.path.join(odd, "a.db"))
+        q = relay("backup", "--db", os.path.join(odd, "a.db#frag"))
+        check("--db naming a file that does not exist but whose prefix before '#' does: refused, not that prefix backed up",
+              q.returncode == 1 and "no such" in q.stderr, q.stderr)
+        q = relay("backup", "--db", os.path.join(odd, "a.db"))
+        check("…and a real file in a directory named with '?' and '#' backs up (the control)", q.returncode == 0, q.stderr)
+        good_blob, good_manifest = open(blob_path(), "rb").read(), open(manifest_path).read()
+
         # Backup refusals: one line, exit 1, nothing left, nothing uploaded.
         before = open(revs).read()
         garbage = os.path.join(tmp, "garbage.db")
@@ -307,7 +359,7 @@ def main() -> int:
             flag(fl, False)
             check(f"backup with {fl}: one line naming the cause, exit 1, scratch empty, no manifest line kept",
                   q.returncode == 1 and expect in q.stderr and len(q.stderr.splitlines()) == 1 and scratch_left() == []
-                  and len(open(logfile).read().splitlines()) == 3, q.stderr)
+                  and len(open(logfile).read().splitlines()) == 4, q.stderr)
         q = relay("backup", "--db", db, env={"PATH": "/usr/bin:/bin"})
         check("no proton-drive on PATH: one line, exit 1, scratch empty",
               q.returncode == 1 and "not installed" in q.stderr and scratch_left() == [], q.stderr)
@@ -345,8 +397,8 @@ def main() -> int:
             fh.write(subprocess.run(["gpg", "--homedir", rhome, "--armor", "--export", rfpr], capture_output=True, text=True).stdout)
         p = relay("backup", "--db", db)
         opened = subprocess.run(rg + ["--decrypt", blob_path()], capture_output=True)
-        check("with identities/recovery.asc: the recovery key alone decrypts the blob to a gzip stream",
-              p.returncode == 0 and opened.returncode == 0 and opened.stdout[:2] == b"\x1f\x8b", (p.stderr, opened.stderr[-200:]))
+        check("with identities/recovery.asc: the recovery key alone decrypts the blob to a gzip stream (gpg exits 2: it cannot check the signature)",
+              p.returncode == 0 and opened.stdout[:2] == b"\x1f\x8b", (p.stderr, opened.stderr[-200:]))
         check("…and the operator's own restore still works", relay("restore", os.path.join(tmp, "restored-r")).returncode == 0)
         check("each successful run was a new revision of the same two names",
               set(open(revs).read().split()) == {"claude-bridge.db.gz.gpg", "claude-bridge.manifest.json"}
