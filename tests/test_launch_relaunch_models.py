@@ -84,6 +84,7 @@ def main() -> int:
         out, said = relaunch(["--provider", "anthropic", "--model", "claude-sonnet-5"])
     finally:
         launch.load_routing = real_load
+    check("…and says why in one line, naming the exception", said.count("\n") == 1 and "could not judge" in said, said)
     check("a routing module of another shape leaves the arguments as they were",
           out == ["--provider", "anthropic", "--model", "claude-sonnet-5"], out)
 

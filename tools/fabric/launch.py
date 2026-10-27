@@ -446,7 +446,8 @@ def relaunch_args(args: list[str], fabric_root: str) -> list[str]:
     try:
         routing = load_routing(f"{fabric_root}/tools/fabric/routing.py", fabric_root)
         out, dropped = foreign_model_options(out, parse_argv(out)[1], routing)
-    except Exception:  # noqa: BLE001 — the relaunch's own resolve refuses what it cannot read, in its own words
+    except Exception as exc:  # noqa: BLE001 — the relaunch's own resolve refuses what it cannot read, in its own words
+        say(f"launch: could not judge the replayed models ({type(exc).__name__}); keeping the arguments' own.")
         return out
     if dropped:
         say(f"launch: the restart keeps this session on {now}; dropped what the original launch passed that {now} "
