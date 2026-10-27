@@ -47,6 +47,9 @@ ALREADY_RUNNING = ("gzcoord-inbox: a watch is already running (pid {pid}, starte
 # the session only at exit), and it says not to run it again, as a rerun would be refused the same way.
 REPLACE_REFUSED = ("gzcoord-inbox: --replace refused: the watch of pid {pid} (started {started}) is not provably a watch of this "
                    "session ({why}); nothing was signalled; do not run it again")
+# --replace signalled a watch it proved to be this session's and the lock is still held: the line above would say two false things.
+REPLACE_SIGNALLED = ("gzcoord-inbox: --replace sent SIGTERM to the watch of pid {pid} (started {started}), which serves this session, "
+                     "and the lock is still held ({why}); do not run it again")
 _UNKNOWN = "unknown"
 # How long a watch that ended an orphan waits for its flock. SIGTERM ends a Python process at once; a holder that does not
 # end in this time is a holder, refused as any other.
@@ -295,7 +298,9 @@ def take_or_report(login: str, session: sess.Session | None = None, wait_s: floa
     if via_replace and ended is not None:
         # Either the holder did not end in time or a quicker watch took the lock: the line must not say "nothing to kill"
         # to a caller whose --replace did signal.
-        not_replaced = "it was signalled and the lock is still held: it did not end in time, or another watch took it first"
+        print(REPLACE_SIGNALLED.format(pid=pid, started=started,
+                                       why="it did not end within the wait, or another watch took the lock first"), flush=True)
+        return None
     if not_replaced is not None:
         print(REPLACE_REFUSED.format(pid=pid, started=started, why=not_replaced), flush=True)
         return None

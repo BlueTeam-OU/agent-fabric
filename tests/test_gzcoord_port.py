@@ -1512,8 +1512,8 @@ def _():
                     ok(lock is not None and holder.wait(timeout=10) == -signal.SIGTERM, f"{out!r} {err!r}")
                 else:
                     ok(lock is None and holder.poll() is None, f"{out!r} {err!r}")
-                    ok(f"--replace refused: the watch of pid {holder.pid} " in out and "signalled and the lock is still held" in out
-                       and "nothing to kill" not in out, out)
+                    ok(f"--replace sent SIGTERM to the watch of pid {holder.pid} " in out and "the lock is still held" in out
+                       and "nothing to kill" not in out and "nothing was signalled" not in out and "not provably" not in out, out)
             finally:
                 if lock is not None:
                     lock.release()
