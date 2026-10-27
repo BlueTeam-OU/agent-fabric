@@ -312,6 +312,21 @@ def main() -> int:
         q = relay("restore", os.path.join(newtop, "mid", "leaf"))
         check("a failed restore into a path whose parents do not exist removes every directory it made",
               q.returncode == 1 and not os.path.exists(newtop), q.stderr)
+        q = relay("restore", os.path.join(newtop, "gone", "..", "leaf"))
+        check("a failed restore to a path that steps over a missing directory with '..' leaves neither",
+              q.returncode == 1 and not os.path.exists(newtop), q.stderr)
+        full2 = os.path.join(tmp, "full2")
+        os.makedirs(full2)
+        open(os.path.join(full2, "keep"), "w").write("mine")
+        q = relay("restore", os.path.join(tmp, "absent-dir", "..", "full2"))
+        check("…and one that reaches an existing non-empty directory through it is refused, not written into",
+              q.returncode == 1 and "not an empty directory" in q.stderr and os.listdir(full2) == ["keep"], q.stderr)
+        no_pub = {"GNUPGHOME": os.path.join(tmp, "gnupg-empty")}
+        os.makedirs(no_pub["GNUPGHOME"], mode=0o700)
+        forge(gzip.compress(plain_db), signed=True)
+        q = relay("restore", d4, env=no_pub)
+        check("a keyring without the login's public key: refused in one line",
+              q.returncode == 1 and len(q.stderr.splitlines()) == 1 and not os.path.exists(d4), q.stderr)
         open(blob_path(), "wb").write(good_blob)
         open(manifest_path, "w").write(good_manifest)
 

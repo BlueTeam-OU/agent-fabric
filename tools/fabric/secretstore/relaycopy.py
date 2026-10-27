@@ -7,7 +7,7 @@ CONTRACT of `relay_backup(db, state_dir)`
           mode, and the file, its wal and its shm copied one after another
           are not a database. A path that is not a regular file is refused
           (never followed, never created). sqlite's read-only open of a WAL database does leave an empty -wal and
-          -shm beside it when the relay is stopped; the database file itself is not written.
+          a 32 KiB -shm beside it when the relay is stopped; the database file itself is not written.
   effect  the snapshot is written to a private temp directory under TMPDIR
           and checked (`PRAGMA integrity_check`) before anything leaves the
           host, hashed (sha256 of the plain snapshot), gzipped, and encrypted
@@ -29,9 +29,14 @@ CONTRACT of `relay_backup(db, state_dir)`
           and the next run replaces.
 
 CONTRACT of `relay_verify()` and `relay_restore(dest)`
-  both download the latest revision and the manifest, decrypt (this login's
-  key, else the owner's recovery key), gunzip, and require the plain bytes'
-  sha256 to be the manifest's and `PRAGMA integrity_check` to say ok.
+  both download the latest revision and the manifest, decrypt with this
+  login's key, require a valid signature by the store's own key (backups are
+  signed; the encryption key is public, so only the signature says who made
+  the revision), gunzip, and require the plain bytes' sha256 to be the
+  manifest's and `PRAGMA integrity_check` to say ok. A host that holds only
+  the owner's recovery key is refused here (it cannot check the signature):
+  the owner opens the blob with `gpg --decrypt` by hand. Not covered: an
+  older revision this key really signed, put back with its own manifest.
   `relay_verify` leaves nothing. `relay_restore` writes <dest>/claude-bridge.db
   (0600, O_EXCL) into an EMPTY directory (made if absent) and nothing else;
   it never names, opens or writes the live database, and removes what it
@@ -206,9 +211,8 @@ def _fetch(tmp: str, out: str) -> dict:
 def _require_signed_by_store(status: str) -> None:
     """The encryption key is public: anyone who can write to the Drive folder can encrypt a database to it.
     What only this login can make is its signature, so a revision is accepted only when gpg reports a
-    valid one by the store's own key (VALIDSIG's last field is the primary key's fingerprint). A host
-    that holds the recovery key alone refuses here until the operator's public key is in its keyring;
-    `gpg --decrypt` by hand is the owner's path then."""
+    valid one by the store's own key (VALIDSIG's last field is the primary key's fingerprint). A signature
+    gpg cannot check at all (no public key) never gets here: gpg exits 2 and _fetch refuses first."""
     mine = key_of_store(store_dir()).upper()
     for line in status.splitlines():
         f = line.split()
@@ -227,10 +231,15 @@ def relay_verify() -> dict:
 
 
 def relay_restore(dest: str) -> dict:
+    # Resolved first: 'new/../leaf' does not exist while new is absent, so the emptiness check below would pass
+    # a leaf that has files in it.
+    dest = os.path.abspath(dest)
     if os.path.islink(dest) or (os.path.exists(dest) and (not os.path.isdir(dest) or os.listdir(dest))):
         raise StoreError(f"{dest} is not an empty directory; a restore never writes over anything")
     # Every directory this run makes, outermost first: a failed restore removes them all, not only the leaf.
-    made, d = [], os.path.abspath(dest)
+    # makedirs gets the resolved path too: handed 'new/../leaf' it also creates new/, which the walk below
+    # would not have recorded.
+    made, d = [], dest
     while not os.path.exists(d):
         made.insert(0, d)
         d = os.path.dirname(d)
