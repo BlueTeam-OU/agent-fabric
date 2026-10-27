@@ -1244,9 +1244,44 @@ print("a" * 40, "b" * 40)
             put(f"{other}/f", "dirty\n")
             fresh_job_session("j1")
             rc, out = runa()
-            check("a job's copy with uncommitted changes: the old directory, and why",
+            check("a job's copy with uncommitted changes is still the place to start: the dirt is the job's work in "
+                  "progress, and the job-copy guard refuses its commit anywhere else (the 2026-10-27 loop)",
+                  has(rf"^RUN2:pwd={re.escape(other)}:", out)
+                  and f"starting in {other} with 1 uncommitted change(s): the job's own work" in out, out)
+            subprocess.run(["git", "-C", other, "add", "f"], env=base, check=True, timeout=30)
+            fresh_job_session("j1")
+            rc, out = runa()
+            check("…a staged change counts as the same", has(rf"^RUN2:pwd={re.escape(other)}:", out)
+                  and "with 1 uncommitted change(s)" in out, out)
+            # Another job's worktree is that job's dirt, not this one's.
+            jobs_file = f"{agent_dir}/jobs.json"
+            doc = json.loads(read(jobs_file))
+            for j in doc["jobs"]:
+                if j["id"] == "j2":
+                    j["worktree"] = other
+            put(jobs_file, json.dumps(doc))
+            fresh_job_session("j1")
+            rc, out = runa()
+            check("a dirty copy that is another unfinished job's worktree: the old directory, and whose it is",
                   has(rf"^RUN2:pwd={re.escape(repo)}:", out)
-                  and f"job j1's working copy {other} has uncommitted changes; starting in {repo}" in out, out)
+                  and f"job j1's working copy {other} has uncommitted changes that are job j2's worktree; starting in {repo}" in out, out)
+            for j in doc["jobs"]:
+                if j["id"] == "j2":
+                    j["state"] = "done"
+            put(jobs_file, json.dumps(doc))
+            fresh_job_session("j1")
+            rc, out = runa()
+            check("…positive control: once that job is done the copy is j1's again",
+                  has(rf"^RUN2:pwd={re.escape(other)}:", out), out)
+            put(jobs_file, json.dumps(doc))
+            os.rename(f"{other}/.git", f"{other}/.git.real")
+            put(f"{other}/.git", "gitdir: /nonexistent\n")
+            fresh_job_session("j1")
+            rc, out = runa()
+            check("a copy whose status cannot be read: the old directory, not taken for clean",
+                  has(rf"^RUN2:pwd={re.escape(repo)}:", out) and f"job j1's working copy {other} status could not be read" in out, out)
+            os.remove(f"{other}/.git")
+            os.rename(f"{other}/.git.real", f"{other}/.git")
             fresh_job_session("j2")
             rc, out = runa()
             check("a job's copy that is gone: the old directory, and why — the job is still said",

@@ -678,6 +678,26 @@ def main() -> int:
               and real[0].startswith(os.path.realpath(os.path.dirname(MODULE)) + os.sep)
               and real[1].startswith(os.path.realpath(copy) + os.sep) and files[2] == "False", f"{r.stdout}{r.stderr}")
 
+    print("foreign_owner: whose dirt a job's working copy holds")
+    real_helper = launch.helper
+    try:
+        def listing(stdout: str, rc: int = 0):
+            launch.helper = lambda *a, **k: types.SimpleNamespace(stdout=stdout, returncode=rc)
+        wt = os.path.realpath(tempfile.gettempdir())
+        jobs = [{"id": "j1", "state": "active"}, {"id": "j2", "state": "queued", "worktree": wt},
+                {"id": "j3", "state": "done", "worktree": wt + "/elsewhere"}]
+        listing(json.dumps(jobs))
+        check("another unfinished job's worktree is named", launch.foreign_owner(wt, "j1", "/f") == "j2")
+        check("…positive control: the job's own record, and a done job's, are not foreign",
+              launch.foreign_owner(wt, "j2", "/f") == "" and launch.foreign_owner(wt + "/elsewhere", "j1", "/f") == "")
+        for label, out, rc in (("not JSON", "{no", 0), ("a failed listing", "[]", 1), ("not a list", "{}", 0)):
+            listing(out, rc)
+            check(f"an unreadable job list ({label}) is unknown, not nobody's", launch.foreign_owner(wt, "j1", "/f") is None)
+        launch.helper = lambda *a, **k: None
+        check("…a listing that could not run is unknown", launch.foreign_owner(wt, "j1", "/f") is None)
+    finally:
+        launch.helper = real_helper
+
     print("test_launch.py: OK" if not fails else f"test_launch.py: {fails} FAILED")
     return 1 if fails else 0
 

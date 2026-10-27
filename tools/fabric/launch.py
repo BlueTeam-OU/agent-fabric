@@ -417,6 +417,29 @@ def relaunch_args(args: list[str]) -> list[str]:
 RESTARTING = "AGENT_FABRIC_RESTARTING"
 
 
+def foreign_owner(wc: str, job: str, fabric_root: str) -> str | None:
+    """The other unfinished job whose worktree `wc` is, "" when none, None when
+    the job list cannot be read. A fresh launch for `job` goes to its dirty copy
+    because that dirt is the job's work in progress (the 2026-10-27 loop: the
+    refusal sent the session where the job-copy guard then refused its commit);
+    a worktree another job holds has that job's dirt in it, which is not a reason
+    to start there."""
+    r = helper([sys.executable, f"{fabric_root}/tools/fabric/jobs.py", "list", "--all", "--json", "--stored"],
+               env=env_with(AGENT_FABRIC_ROOT=fabric_root), quiet=True)
+    try:
+        jobs = json.loads(r.stdout) if r is not None and r.returncode == 0 else None
+        if not isinstance(jobs, list):
+            return None
+        here = os.path.realpath(wc)
+        for j in jobs:
+            if j["id"] != job and j.get("state") != "done" and j.get("worktree") \
+                    and os.path.realpath(j["worktree"]) == here:
+                return j["id"]
+    except (TypeError, ValueError, KeyError, AttributeError):
+        return None
+    return ""
+
+
 def restart(state_dir: str, started: int, opening: bool, status: int, orig_args: list[str],
             fabric_root: str, cwd: str) -> None:
     marker = f"{state_dir}/restart.json"
@@ -456,9 +479,15 @@ def restart(state_dir: str, started: int, opening: bool, status: int, orig_args:
             if wc:
                 if not os.path.isdir(wc):
                     say(f"launch: job {job}'s working copy {wc} is not there; starting in {cwd}.")
-                elif git_text(wc, "status", "--porcelain"):
-                    say(f"launch: job {job}'s working copy {wc} has uncommitted changes; starting in {cwd}.")
+                elif (dirt := git_text(wc, "status", "--porcelain")) is None:
+                    say(f"launch: job {job}'s working copy {wc} status could not be read; starting in {cwd}.")
+                elif dirt and (owner := foreign_owner(wc, job, fabric_root)) != "":
+                    say(f"launch: job {job}'s working copy {wc} has uncommitted changes that are "
+                        + (f"job {owner}'s worktree" if owner else "not shown to be the job's own (job list unreadable)")
+                        + f"; starting in {cwd}.")
                 elif wc != cwd:
+                    if dirt:
+                        say(f"launch: starting in {wc} with {len(dirt.splitlines())} uncommitted change(s): the job's own work.")
                     nxt = absolute_path_options(nxt, cwd)
                     try:
                         os.chdir(wc)
