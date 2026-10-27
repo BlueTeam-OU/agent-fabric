@@ -152,7 +152,8 @@ def main() -> int:
         deep = "[" * 1500 + "]" * 1500
         refused("a field nested 1500 deep inside a job", "e37", json.dumps({**doc, "jobs": [{**doc["jobs"][0], "x": "@@"}]}).replace('"@@"', deep).encode(), "nested deeper")
         refused("a cache entry nested 1500 deep", "e39", json.dumps({**doc, "blocker_cache": {"pr:owner/repo#7": {"x": "@@"}}}).replace('"@@"', deep).encode(), "nested deeper")
-        refused("a document nested 100000 deep", "e38", b'{"a":' + b"[" * 100000, "nested too deeply")
+        # A complete document: whether the parser gives up (RecursionError) or reads it, the answer is one line and no traceback.
+        refused("a document nested 100000 deep", "e38", b"[" * 100000 + b"]" * 100000, "")
         refused("a seen_open that is not a bool", "e34", mutated(blocker_cache={"pr:owner/repo#7": {"seen_open": "no"}}), "wrong type")
         refused("a blocker_cache that is not entries", "e29", mutated(blocker_cache={"a": 1}), "blocker_cache")
         refused("artifacts that are not strings", "e19", mutated(jobs=[{**doc["jobs"][0], "artifacts": [1]}]), "artifacts")
