@@ -93,3 +93,16 @@ operator. The arrival logs and delivery records are per account, so
 j94) reads them, metadata only, and `gzcoord-carrier parity --collected`
 computes the report from the files it wrote. The rule's content (the
 window, the pairs, the counts, the rollback drill) is unchanged.
+
+### Amendment 2026-10-27 — One host is the first milestone; a second host is the next
+
+The owner, 2026-10-27, on reading that InterWeave is one host only by
+ADR-064 rule 1: "that is not a rule, is a first milestone". The fleet
+is to move agents to remote hosts (the first likely edge-hosting). Whether
+the control plane rides InterWeave is agent-fabric j422's question;
+rule 12 stands until its own amendment. §2's lead and one-host bullet, rule 1 and §7
+now call one host the first milestone and a second host the next,
+opened by an amendment naming the host, routable roster addresses and
+how InterWeave ADR-0034 §7 and SPIKE-004's limits are consumed or
+accepted on the owner's word. Until it lands, profiles still listen on
+`127.0.0.1` only; nothing else changes.
