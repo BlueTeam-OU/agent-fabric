@@ -318,12 +318,27 @@ def main() -> int:
         # A '?' or '#' in a path is a path, not sqlite URI syntax.
         odd = os.path.join(tmp, "odd?dir#1")
         os.makedirs(odd)
-        shutil.copy(db, os.path.join(odd, "a.db"))
+        oc = sqlite3.connect(os.path.join(odd, "a.db"))
+        oc.execute("CREATE TABLE a (n INTEGER)")
+        oc.execute("INSERT INTO a VALUES (1)")
+        oc.commit()
+        oc.close()
         q = relay("backup", "--db", os.path.join(odd, "a.db#frag"))
         check("--db naming a file that does not exist but whose prefix before '#' does: refused, not that prefix backed up",
               q.returncode == 1 and "no such" in q.stderr, q.stderr)
         q = relay("backup", "--db", os.path.join(odd, "a.db"))
-        check("…and a real file in a directory named with '?' and '#' backs up (the control)", q.returncode == 0, q.stderr)
+        d5 = os.path.join(tmp, "restored-odd")
+        q2 = relay("restore", d5) if q.returncode == 0 else q
+        got = 0
+        if q2.returncode == 0:
+            rc = sqlite3.connect(os.path.join(d5, "claude-bridge.db"))
+            try:
+                got = rc.execute("SELECT count(*) FROM a").fetchone()[0]
+            except sqlite3.Error:
+                got = -1
+            rc.close()
+        check("…and a real file in a directory named with '?' and '#' backs up with its rows (the control: unquoted, sqlite opens an empty database)",
+              q.returncode == 0 and got > 0, (q.stderr, q2.stderr, got))
         good_blob, good_manifest = open(blob_path(), "rb").read(), open(manifest_path).read()
 
         # Backup refusals: one line, exit 1, nothing left, nothing uploaded.
