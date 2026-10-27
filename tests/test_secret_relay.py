@@ -41,7 +41,8 @@ elif cmd == ["filesystem", "upload"]:
         print("Error: upload failed", file=sys.stderr); sys.exit(1)
     if flag("slow-upload"):
         open(os.path.join(D, "..", "slow-started"), "w").close(); time.sleep(60)
-    rest = [x for x in rest if x not in ("-f", "create-new-revision")]
+    if rest[:2] != ["-f", "create-new-revision"]: sys.exit(3)   # a new revision, never a replacement
+    rest = rest[2:]
     dst = os.path.join(loc(rest[1]), os.path.basename(rest[0]))
     shutil.copy(rest[0], dst)
     open(os.path.join(D, "..", "revisions"), "a").write(os.path.basename(rest[0]) + "\n")
@@ -275,7 +276,22 @@ def main() -> int:
         open(garbage, "wb").write(b"this is not a database" * 100)
         linked = os.path.join(tmp, "linked.db")
         os.symlink(db, linked)
-        for label, args in (("no database", ["--db", os.path.join(tmp, "absent.db")]), ("a file that is not sqlite", ["--db", garbage]),
+        # Opens, reads and copies, yet integrity_check says no: an index whose pages the schema forgot.
+        broken = os.path.join(tmp, "broken.db")
+        bc = sqlite3.connect(broken)
+        bc.execute("CREATE TABLE t (n INTEGER, v TEXT)")
+        bc.executemany("INSERT INTO t VALUES (?, ?)", [(i, "z" * 50) for i in range(500)])
+        bc.execute("CREATE INDEX t_v ON t (v)")
+        bc.commit()
+        bc.execute("PRAGMA writable_schema=1")
+        bc.execute("DELETE FROM sqlite_master WHERE name='t_v'")
+        bc.commit()
+        bc.close()
+        bc = sqlite3.connect(broken)
+        said = bc.execute("PRAGMA integrity_check").fetchone()[0]
+        bc.close()
+        check("fixture: the broken database is readable but fails its own integrity check", said != "ok", said)
+        for label, args in (("a database that fails integrity_check", ["--db", broken]), ("no database", ["--db", os.path.join(tmp, "absent.db")]), ("a file that is not sqlite", ["--db", garbage]),
                             ("a symlink", ["--db", linked]), ("a directory", ["--db", tmp])):
             q = relay("backup", *args)
             check(f"backup of {label}: one line, exit 1, nothing uploaded, scratch empty",

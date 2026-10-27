@@ -77,7 +77,10 @@ def _integrity(path: str) -> None:
     except sqlite3.Error as e:
         raise StoreError(f"the database fails its integrity check ({e})") from None
     if rows != [("ok",)]:
-        raise StoreError(f"the database fails its integrity check ({rows[0][0] if rows else 'no answer'})")
+        # sqlite answers one row of many lines ("*** in database main ***", then a line per page): two
+        # lines name what failed, and an error stays one line.
+        said = " ".join(str(rows[0][0]).splitlines()[:2]) if rows else "no answer"
+        raise StoreError(f"the database fails its integrity check ({said})")
 
 
 def _snapshot(db: str, dest: str) -> None:
