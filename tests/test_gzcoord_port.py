@@ -1632,6 +1632,193 @@ def _():
     ok(res["delivered"] and acked == ["r1"] and not res.get("sessionEnded"), f"{res} {acked}")
 
 
+def _replace_world(file_lines: list[str], procs: dict, mine, holder: int = 100, kill_exc: Exception | None = None):
+    """(calls, result, stderr) of end_replaced for the session `mine`, on a fake /proc and a fake /proc/locks naming `holder`."""
+    from gzcoord.inbox_parts import watchlock
+    base = P.scratch("repl-")
+    path = os.path.join(base, "x.lock")
+    open(path, "w").close()
+    st = os.stat(path)
+    locks = os.path.join(base, "locks")
+    open(locks, "w").write(f"1: FLOCK  ADVISORY  WRITE {holder} {os.major(st.st_dev):02x}:{os.minor(st.st_dev):02x}:{st.st_ino} 0 EOF\n")
+    root = _fake_proc(os.path.join(base, "proc"), procs)
+    sent: list = []
+
+    def kill(pid, sig):
+        if kill_exc is not None:
+            raise kill_exc
+        sent.append((pid, sig))
+    err = io.StringIO()
+    with contextlib.redirect_stderr(err):
+        res = watchlock.end_replaced(path, file_lines, mine, root, locks, kill=kill)
+    return sent, res, err.getvalue()
+
+
+@case("end_replaced signals a holder by its pid, once, only when it is a gzcoord-inbox watch of this uid the lock file says serves THIS session")
+def _():
+    import signal
+    from unittest import mock
+    S = _session_module()
+    watch = [PYTHON, "-I", "/x/bin/gzcoord-inbox", "--until-delivery"]
+    base = {1: ("systemd", 0, "S", 1), 90: ("claude", 1, "S", 900), 91: ("bash", 90, "S", 910), 100: ("fabric-python", 91, "S", 1000, watch)}
+    mine = S.Session(90, "900", 95, "claude")
+    # this session's own stray: the one pid is signalled, SIGTERM, and both pids are said
+    sent, res, err = _replace_world(["100", "T", "90", "900", "claude"], base, mine)
+    eq((sent, res[0]), ([(100, signal.SIGTERM)], 100))
+    ok("pid 100" in err and "--replace" in err, err)
+    # the positive control for every refusal below: the same world with the record changed in one field
+    refused = [
+        (["100", "T", "91", "900", "claude"], "another session's pid"),
+        (["100", "T", "90", "111", "claude"], "the session pid reused: another start time"),
+        (["100", "T", "90", "900", "parent"], "the same pid and start under another kind"),
+        (["100", "T", "90", "", "claude"], "a session recorded without a start time"),
+        (["100", "T"], "an older watch that recorded no session"),
+        (["100", "T", "90", "900", "future-kind"], "a session line this code does not know"),
+        (["77", "T", "90", "900", "claude"], "a file naming another pid than the holder"),
+        ([], "an empty file"),
+    ]
+    for rec, what in refused:
+        sent, res, _ = _replace_world(rec, base, mine)
+        eq((sent, res[0]), ([], None), what)
+        ok(res[1], what)
+    # a session of ours without a start time cannot be matched to a record that has one
+    sent, res, _ = _replace_world(["100", "T", "90", "900", "claude"], base, S.Session(90, "", 95, "claude"))
+    eq((sent, res[0]), ([], None))
+    # a holder that is no watch, or no process /proc shows, is never signalled though the record says it is ours
+    for args in (["sleep", "60"], [PYTHON, "-I", "/x/bin/gzcoord-inbox"], [PYTHON, "-I", "/x/bin/gzcoord-inbox", "--replay", "5", "--follow"]):
+        sent, res, _ = _replace_world(["100", "T", "90", "900", "claude"], {**base, 100: ("fabric-python", 91, "S", 1000, args)}, mine)
+        eq((sent, res[0]), ([], None), args)
+    only_session = {k: v for k, v in base.items() if k != 100}
+    sent, res, _ = _replace_world(["100", "T", "90", "900", "claude"], only_session, mine)
+    eq((sent, res[0]), ([], None))
+    # another user's process (the uid /proc shows is not ours)
+    with mock.patch("os.getuid", return_value=os.getuid() + 1):
+        sent, res, _ = _replace_world(["100", "T", "90", "900", "claude"], base, mine)
+    eq((sent, res[0]), ([], None))
+    # this process is never its own holder
+    sent, res, _ = _replace_world(["100", "T", "90", "900", "claude"], base, mine, holder=os.getpid())
+    eq((sent, res[0]), ([], None))
+    # a signal that is not allowed is a refusal with its reason; a holder gone before the signal is still the one replaced
+    sent, res, _ = _replace_world(["100", "T", "90", "900", "claude"], base, mine, kill_exc=PermissionError(1, "Operation not permitted"))
+    eq(res[0], None)
+    ok("Operation not permitted" in res[1], res[1])
+    sent, res, _ = _replace_world(["100", "T", "90", "900", "claude"], base, mine, kill_exc=ProcessLookupError())
+    eq(res[0], 100)
+
+
+def _session_module():
+    from gzcoord.inbox_parts import session
+    return session
+
+
+def _arm_detached(env: dict, out_path: str, *flags: str) -> int:
+    """A watch that is no child of this process: double-forked and setsid, so its session is not this one whether or not the
+    suite runs under a claude process (a CI runner has none, a Claude Code session has one above every child of the suite)."""
+    r, w = os.pipe()
+    pid = os.fork()
+    if pid == 0:
+        try:
+            os.setsid()
+            if os.fork() == 0:
+                os.dup2(os.open(os.devnull, os.O_RDONLY), 0)
+                out = os.open(out_path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+                os.dup2(out, 1)
+                os.dup2(out, 2)
+                os.write(w, str(os.getpid()).encode())
+                os.execve(P.INBOX_CMD, [P.INBOX_CMD, *flags], env)
+        finally:
+            os._exit(0)
+    os.close(w)
+    os.waitpid(pid, 0)
+    got = os.read(r, 32).decode()
+    os.close(r)
+    return int(got)
+
+
+def _alive(pid: int) -> bool:
+    try:
+        with open(f"/proc/{pid}/stat") as fh:
+            return fh.read().rpartition(")")[2].split()[0] != "Z"
+    except OSError:
+        return False
+
+
+@case("--replace ends a watch this session armed and takes its place; another session's watch is refused, named, and left running")
+def _():
+    stub, _calls = _wait_stub([])
+    try:
+        env = _replay_env(stub, GZCOORD_JOURNAL="off")
+        # a plain second watch is refused and now says how to replace one (the positive control of the refusal below)
+        first = _arm(env, "--until-delivery")
+        try:
+            _wait_started(first, env)
+            r = subprocess.run([P.INBOX_CMD, "--until-delivery"], env=env, capture_output=True, text=True, timeout=60)
+            ok("--replace" in r.stdout and f"pid {first.pid}" in r.stdout and r.stdout.count("\n") == 1, r.stdout)
+            ok(first.poll() is None, "the plain second watch signalled nothing")
+            # the stray of THIS session (a sibling child of this process: the same session whatever is above it) is replaced
+            second = _arm(env, "--until-delivery", "--replace")
+            try:
+                first.wait(timeout=30)
+                _wait_started(second, env)
+                ok(second.poll() is None, "the replacing watch runs")
+                eq(first.returncode, -15, "the old watch ended by SIGTERM")
+                for flag in ("--follow",):
+                    # and --replace on a replacing watch's own lock is the same rule again
+                    third = _arm(env, flag, "--replace")
+                    try:
+                        second.wait(timeout=30)
+                        _wait_started(third, env)
+                    finally:
+                        third.kill()
+                        third.communicate()
+            finally:
+                second.kill()
+                second.communicate()
+        finally:
+            first.kill()
+            first.communicate()
+        # a watch of another session: double-forked, so no ancestor of ours is its session
+        out = os.path.join(P.scratch("detached-"), "out")
+        other = _arm_detached(env, out, "--until-delivery")
+        try:
+            lock = glob.glob(os.path.join(env["XDG_RUNTIME_DIR"], "agent-fabric", "gzcoord-inbox-*.lock"))
+            end = time.monotonic() + 15
+            while time.monotonic() < end and not (lock and open(lock[0]).read().startswith(str(other))):
+                time.sleep(0.05)
+                lock = glob.glob(os.path.join(env["XDG_RUNTIME_DIR"], "agent-fabric", "gzcoord-inbox-*.lock"))
+            ok(lock and open(lock[0]).read().startswith(str(other)), "the detached watch took its lock")
+            r = subprocess.run([P.INBOX_CMD, "--until-delivery", "--replace"], env=env, capture_output=True, text=True, timeout=60)
+            eq(r.returncode, 0, r.stdout + r.stderr)
+            ok(f"--replace refused: the watch of pid {other} " in r.stdout and "do not run it again" in r.stdout
+               and r.stdout.count("\n") == 1, r.stdout)
+            ok("ending the watch" not in r.stderr, r.stderr)
+            ok(_alive(other), "the other session's watch was not signalled")
+            ok(open(lock[0]).read().startswith(str(other)), "and still holds its lock")
+        finally:
+            try:
+                os.kill(other, 9)
+            except OSError:
+                pass
+    finally:
+        stub.close()
+
+
+@case("--replace without a watch to replace the holder of, or beside --replay, --history or --held, is one usage line, exit 1, no lock")
+def _():
+    stub, _calls = _wait_stub([])
+    try:
+        env = _replay_env(stub, GZCOORD_JOURNAL="off")
+        for argv in (["--replace"], ["--replace", "--wait", "1"], ["--replace", "--history", "--follow"],
+                     ["--replace", "--held", "--until-delivery"], ["--replace", "--replay", "1", "--follow"]):
+            r = subprocess.run([P.INBOX_CMD, *argv], env=env, capture_output=True, text=True, timeout=30)
+            eq(r.returncode, 1, f"{argv}: {r.stdout}{r.stderr}")
+            eq(r.stderr.strip(), "gzcoord inbox: --replace goes with --until-delivery or --follow, and with no --replay, --history or --held")
+            eq(r.stdout, "")
+        ok(not glob.glob(os.path.join(env["XDG_RUNTIME_DIR"], "agent-fabric", "gzcoord-inbox-*.lock")), "no lock was taken")
+    finally:
+        stub.close()
+
+
 def main() -> int:
     fails = 0
     for name, fn in CASES:
