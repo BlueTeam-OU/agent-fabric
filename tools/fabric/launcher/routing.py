@@ -134,8 +134,11 @@ def foreign_session_model(routing, provider: str, model: str, source: str) -> st
     None. Plain claude (anthropic, and the gateway, which routes as anthropic)
     sends the model to Anthropic, which refuses anything but its own: a broker
     composite there was a session that could not run one turn (2026-10-26,
-    j417). The broker, the other way round, names Claude anthropic/claude-…,
-    so a native id would reach OpenRouter as a model it does not have; any
+    j417). The broker, the other way round, spells Claude anthropic/claude-…
+    in its column; ori would forward a native id and OpenRouter serve it
+    (docs/live-checks/2026-09-13-openrouter-routing.md §3), but that
+    bypasses the column's spelling and the review-grade comparison made on
+    it, so it is refused as policy, not because it would fail; any
     other broker spelling stays the caller's and ori's to judge, as before."""
     native = routing.ADAPTERS["anthropic"].is_model(model)
     if provider in ("anthropic", "gateway"):
