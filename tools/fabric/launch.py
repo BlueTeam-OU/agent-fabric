@@ -432,7 +432,9 @@ def restart(state_dir: str, started: int, opening: bool, status: int, orig_args:
         return
     nxt = relaunch_args(without_resume(orig_args))
     base = {k: v for k, v in os.environ.items() if k != "AGENT_FABRIC_PULLED"}
-    base[RESTARTING] = "1"
+    # "fresh" says which way a refused relaunch is mended: fabric-resume would
+    # reopen the finished job's conversation, the one thing a fresh start is not.
+    base[RESTARTING] = "fresh" if resume.startswith("fresh:") else "1"
     if resume.startswith("fresh:"):
         if not opening:
             # A marker not written by fabric-fresh's own check: never
@@ -821,7 +823,15 @@ def main(argv: list[str]) -> int:
         return status
     except Refused as exc:
         say(f"launch: {exc}")
-        if os.environ.get(RESTARTING):
+        stopped = os.environ.get(RESTARTING)
+        if stopped == "fresh":
+            job = os.environ.get("AGENT_FABRIC_FRESH_JOB", "")
+            then = (f"start a new session here and run fabric-fresh --job {job}, which brings job {job} fresh"
+                    if job else "start a new session here")
+            say("launch: RESTART NOT COMPLETED: the session that finished its job was not brought back fresh; the "
+                f"refusal above stopped its relaunch, and this pane is at the account's shell. Fix what it names, "
+                f"then {then}; not fabric-resume, which reopens the finished job's conversation.")
+        elif stopped:
             say("launch: RESTART NOT COMPLETED: the session stopped for a restart was not brought back; the refusal "
                 "above stopped its relaunch, and this pane is at the account's shell. Fix what it names, then "
                 "fabric-resume.")

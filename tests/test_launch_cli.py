@@ -1124,6 +1124,22 @@ print("a" * 40, "b" * 40)
             rc, out = runa("--provider", "anthropic", "--version")
             check("…and the same refusal outside a restart says nothing of one",
                   rc == 1 and "no long-lived Claude sign-in" in out and "RESTART NOT COMPLETED" not in out, out)
+            # A fresh relaunch the same refusal stops is not mended by fabric-resume, which reopens the finished job's
+            # conversation: it names the job and the fresh start instead.
+            fresh_marker = json.dumps({"requested_at": "@NOW@", "piece": "a fresh session", "status": "done", "fresh": True,
+                                       "job": "j417", "note": "PR merged"})
+            put(f"{bin_}/ori", f"#!/usr/bin/env bash\nif [[ \"${{1:-}}\" == auth ]]; then echo '{AUTH_OK}'; exit 0; fi\n"
+                f'n="$(cat "{runs}" 2>/dev/null || echo 0)"; echo $((n+1)) > "{runs}"\n'
+                f'm=\'{fresh_marker}\'; printf \'%s\\n\' "${{m/@NOW@/$(date -u +%Y-%m-%dT%H:%M:%SZ)}}" > "{agent_dir}/restart.json"\n'
+                'echo "RUN1:$*"; exit 143\n', 0o755)
+            rm(runs, alog)
+            rc, out = runa("--provider", "openrouter", **declared)
+            check("a fresh relaunch refused is said as not completed, naming the job and the fresh start, not fabric-resume",
+                  rc == 1 and "no long-lived Claude sign-in" in out and "CLAUDE-EXECCED" not in out
+                  and has(r"^launch: RESTART NOT COMPLETED: the session that finished its job was not brought back fresh", out)
+                  and "run fabric-fresh --job j417, which brings job j417 fresh" in out
+                  and "then fabric-resume" not in out and "not fabric-resume, which reopens the finished job's conversation" in out,
+                  f"rc={rc}\n{out}")
             put(sec, "export CLAUDE_CODE_OAUTH_TOKEN='sk-ant-oat01-SUITE-FIXTURE'\n")
             prof = json.loads(read(f"{fabric}/routing/profiles.json"))
             prof["agents"].pop(LOGIN, None)
