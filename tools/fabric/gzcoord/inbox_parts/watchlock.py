@@ -283,19 +283,19 @@ def take_or_report(login: str, session: sess.Session | None = None, wait_s: floa
                 # Another new watch found the same orphan and was quicker: its pid holds the lock now, and is refused as any other.
                 now = lock_holder(lock.path)
                 if now is not None and now != ended:
-                    if via_replace:
-                        not_replaced = f"it was signalled, and pid {now} took the lock first"
                     break
                 if time.monotonic() >= until:
                     print(f"gzcoord-inbox: pid {ended} did not release the lock in time", file=sys.stderr)
-                    if via_replace:
-                        not_replaced = "it was signalled and did not release the lock in time"
                     break
                 time.sleep(TAKEOVER_POLL_S)
     except OSError as e:
         print(f"gzcoord-inbox: no watch lock ({lock.path}: {e.strerror or e}); watching without one", file=sys.stderr)
         return lock  # not acquired, holds nothing; release() is a no-op
     pid, started = lock.holder or (_UNKNOWN, _UNKNOWN)
+    if via_replace and ended is not None:
+        # Either the holder did not end in time or a quicker watch took the lock: the line must not say "nothing to kill"
+        # to a caller whose --replace did signal.
+        not_replaced = "it was signalled and the lock is still held: it did not end in time, or another watch took it first"
     if not_replaced is not None:
         print(REPLACE_REFUSED.format(pid=pid, started=started, why=not_replaced), flush=True)
         return None
