@@ -139,7 +139,7 @@ check that failed and changing nothing:
   1. The job this session worked last is settled with its evidence, by the state it is left in. done: a pull request merged or
      a commit or a branch (a contributor branch: name or origin/<name>) whose head is on origin's default branch; delivered: a pull
      request open or a branch on origin; blocked: a checkable blocker not yet cleared, or
-     "owner: <the decision awaited>" as text; paused: its branch pushed; dropped: a reason. Evidence is read from the job's
+     "owner: <the decision awaited>" as text; paused: its branch pushed, or its head (or its pull request's merge) on origin's default branch; dropped: a reason. Evidence is read from the job's
      artifacts (owner/repo#N, #N, a pull request URL, a commit sha, or reply:<MESSAGE-ID>, the reply's own id or the id it
      answers, which counts for a job whose artifact is an answer, a message of this login with an IN-REPLY-TO, a REPLY or a DECISION alike, when the journal holds it as sent: accepted by the carrier); a job with topic reflection is also landed by this login's
      fabric-reflect cursor, closed after the job started (ADR-058 rule 4). Whatever the outcome: no uncommitted change in the job's working

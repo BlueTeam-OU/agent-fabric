@@ -397,6 +397,13 @@ def _merged_by_subject(where: str, branch: str, default: str) -> bool:
     return any(re.fullmatch(rf"Merge pull request #[0-9]+ from [^/\s]+/{re.escape(branch)}", line) for line in out.splitlines())
 
 
+def _peeled(where: str, ref: str) -> str | None:
+    """The commit `ref` names, None when there is no such ref; any other git failure raises, so it is never read as absence."""
+    if not vcs.question(where, "show-ref", "--verify", "--quiet", ref):
+        return None
+    return vcs.text(where, "rev-parse", f"{ref}^{{commit}}")
+
+
 def _pushed(job: dict, problems: list[str]) -> list[str]:
     branch = job.get("branch")
     # A worktree swept after its branch landed is gone, not an error: the repository is asked from the recorded worktree while it
@@ -414,8 +421,7 @@ def _pushed(job: dict, problems: list[str]) -> list[str]:
         default = vcs.default_branch(where)
         base = f"refs/remotes/origin/{default}"
         # The head is what is left of the branch: the local one, else origin's tracking ref a plain fetch does not prune.
-        head = next((r.stdout.strip() for ref in (f"refs/heads/{branch}", f"refs/remotes/origin/{branch}")
-                     if (r := vcs.run(where, "rev-parse", "--verify", "--quiet", f"{ref}^{{commit}}", check=False)).returncode == 0), None)
+        head = next((h for h in map(lambda r: _peeled(where, r), (f"refs/heads/{branch}", f"refs/remotes/origin/{branch}")) if h), None)
         if head is not None and vcs.question(where, "merge-base", "--is-ancestor", head, base):
             return [f"branch {branch} on origin/{default}"]
         if head is None and _merged_by_subject(where, branch, default):
@@ -424,9 +430,9 @@ def _pushed(job: dict, problems: list[str]) -> list[str]:
         if tip is None:
             problems.append(f"branch {branch} is not on origin: push it, so the paused work survives this checkout")
             return []
-        local = vcs.run(where, "rev-parse", "--verify", "--quiet", f"refs/heads/{branch}^{{commit}}", check=False)
+        local = _peeled(where, f"refs/heads/{branch}")
         # Without a local branch, origin holds all of it.
-        if local.returncode == 0 and not vcs.question(where, "merge-base", "--is-ancestor", local.stdout.strip(), f"refs/remotes/origin/{branch}"):
+        if local and not vcs.question(where, "merge-base", "--is-ancestor", local, f"refs/remotes/origin/{branch}"):
             problems.append(f"branch {branch} has commits origin does not: push it")
             return []
     except vcs.VcsError as e:
