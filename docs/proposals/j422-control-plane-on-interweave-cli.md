@@ -6,7 +6,11 @@ should be implemented on interweave cli". Its purpose, from the same day: to **m
 remote host**. The first one is likely `edge-hosting`. Today the control plane (agent-fabric
 ADR-029) and GZCoord both ride one relay at `http://127.0.0.1:8765` (`runtime/control/config.json`),
 and that relay cannot be reached from a second host (ADR-029 §7, lines 301-305; ADR-033 §7, lines
-144-147). Read against origin/main 478bcc3f and InterWeave dbdf5b89.
+144-147). Read against origin/main 478bcc3f and InterWeave origin/main cf7089b5 (re-pinned, R12).
+
+**Revision 2026-10-27.** Twelve requirements, R1-R12, came from architect-cto's verification of this
+draft against InterWeave's records (origin/main 5080940c). Each is folded into the section it
+belongs to and tagged `(R<n>)`. R8 and R9 are InterWeave's own changes, noted at §9.
 
 ## 1. Summary of decisions
 
@@ -14,20 +18,22 @@ and that relay cannot be reached from a second host (ADR-029 §7, lines 301-305;
    not yet named or registered. `fabric-ctl` on develop-qzapp reaches it, and its GZCoord traffic
    reaches it too, over InterWeave between the two hosts. The design does not use NAT traversal or
    discovery: both hosts get static addresses that the operator writes into the configuration, on a
-   routed private overlay (§3).
+   routed private overlay (§3). Listeners are wildcard and the firewall is the boundary (R7).
 2. **Carrier.** Each account's `agentd` runs `interweave-human … listen --json` as a supervised,
    long-lived child process, and sends through that same process. **The CLI cannot carry this
    today.** ADR-064 §1's finding stands: `listen` holds the endpoint lease alone, a `send` while it
    runs exits 4, and what it prints lands unread in the human store. §4.0 states the four changes
    InterWeave must make first. They are the main REQUEST to architect-cto.
 3. **Topology.** Control traffic uses the account's existing InterWeave profile and PeerId, on a
-   second endpoint `fabric-control` of the human client kind. The `gzcoord` carrier keeps its own
-   endpoint. On the operator's account, `fabric-ctl` does its fan-out through the operator's own
+   second endpoint `fabric-control`, the profile's first and only human endpoint, an identity (R3).
+   The `gzcoord` carrier keeps its own automated endpoint. The control profile is never a person's
+   profile: the human store's lock is profile-wide (R2). On the operator's account, `fabric-ctl` does its fan-out through the operator's own
    agentd over a local socket, never through its own lease (§5).
 4. **Safety.** On develop-qzapp the relay stays the transport of record for control until a parity
    report and the owner's word, as ADR-064 rule 11 did for GZCoord. The `interweave*` ops stay
    relay-only on that host. On H2, which has no relay, the path when InterWeave is down is hostexec
-   over ssh to a local op runner, which checks the same signature (§6).
+   over ssh to a local op runner, which checks the same signature (§6). Every control record is stored durably before it is sent and
+   carries no secret value (R6).
 5. **Grammar.** ADR-029's request and reply envelopes (`protocol.py:34-39`) and `sign.py` do not
    change. Only the reply part sizes change, per carrier (§4.3).
 
@@ -95,9 +101,12 @@ or provider, which is open question Q2.
 ### 3.1 Network (decided, with the alternatives rejected)
 
 - **Decided:** a WireGuard overlay between develop-qzapp and H2, run by each host's operator.
-  - On each host, each profile listens on that host's overlay address only, on its roster port.
-  - Each host's firewall admits the roster port range (`47100-47199`) only from the other host's
-    overlay address.
+  - On each host, each profile listens on a wildcard address on its roster port (R7). A literal
+    overlay-address listener loses network-change detection (InterWeave ADR-0055 5b, measured), and
+    the same-host fleet would fail to start whenever the overlay is down (a listen failure exits 1;
+    the unit retries four times).
+  - Each host's firewall is the boundary: it admits the roster port range (`47100-47199`) only
+    from the other host's overlay address.
   - ADR-064 rule 1's port reservation applies on every host.
 - **Rejected: a public listener with Noise as the only defence.** It exposes every daemon to
   internet scans. Its pre-auth buckets are the residual risk ADR-0052 accepts, not a boundary.
@@ -128,8 +137,9 @@ ssh-backend read-back as a live check (ADR-010 §7).
   move rewrites one field.
 - The countersignature covers `host`. Every row is re-countersigned once. The logins do not
   re-sign, because their signature covers `identity_show` only (ADR-064 rule 2).
-- The render, per account: listen on `<own host address>:<port>`, and static bootstrap to every
-  other valid row's `<host address>:<port>`. The allowlist stays every other roster PeerId and
+- The render, per account: listen on the wildcard at `<port>` (R7), and static bootstrap to every
+  other valid row's address and port: `127.0.0.1` for a row on the same host, the row's host
+  `interweave_address` for a row on another host. The allowlist stays every other roster PeerId and
   nothing else.
 - An account that is running picks the change up through `interweave-start`'s `rerendered` path
   (ADR-029 table, line 85).
@@ -151,9 +161,21 @@ ssh-backend read-back as a live check (ADR-010 §7).
     copied between hosts.
   - The transport key is **re-minted** with `transportctl identity init`. This is ADR-064 rule 3's
     re-key: the old PeerId row is removed and revoked on every profile.
+  - The `fabric-control` identity key, `<state>/identity-keys/fabric-control.key`, is provisioned
+    state (R3): minted on H2 by the first run, owner-only, never copied between hosts, and its
+    card is never shared.
 - **Secrets.** The store `BlueTeam-OU/fabric-agent-<id>` is cloned on H2. The old account first
   re-encrypts it to both key ids, and drops the old key id at cut-over. Then
   `fabric-secrets sync` runs on H2. A provider credential reaches H2 only inside the store.
+- **Clocks (R10).** ADR-029's freshness window and "strictly newer" rule compare timestamps made
+  on different hosts. Both hosts run chrony (or another NTP client) against a common source, and
+  agentd reports its offset in `interweave`. Proposal, to be set on a measurement: a skew under
+  2 s is tolerated; at or above it the channel reports `control: off (clock)` and refuses signed
+  actions rather than guessing. The 2 s figure is a proposal, not a decision.
+- **Bounds (R11).** Static bootstrap entries are capped at 64 (InterWeave ADR-0062 d2; fatal at
+  start above it), so a one-profile-per-account mesh holds at most 65 accounts per profile. The
+  render fails above it. It also renders `channels.desired` empty for these profiles, or `listen`
+  would receive every GZCoord broadcast into the human store.
 
 ### 3.5 Moving edge-hosting, in order
 
@@ -180,15 +202,15 @@ bundle over hostexec.
 ### 4.0 ADR-064 §1's finding, faced: why the CLI cannot carry today, and what must change
 
 ADR-064 §1 (lines 51-58) and §3 (lines 98-103) found three things wrong with `interweave-human` as
-a carrier. Each is still true at InterWeave dbdf5b89:
+a carrier. Each is still true at InterWeave cf7089b5:
 
 - **(a) The lease is exclusive.** `listen` holds it. Any second client on the profile, so a `send`
-  while `listen` runs, is refused with exit 4 (`apps/human-cli/README.md:55-56`).
+  while `listen` runs, is refused with exit 4 (`apps/human-cli/README.md:57-58`).
 - **(b) `listen` takes no input.** It loops on the session and stdout only
-  (`apps/human-cli/src/verbs.rs:779-805`), so nothing can be sent through the process that holds
+  (`apps/human-cli/src/verbs.rs:817ff`), so nothing can be sent through the process that holds
   the lease.
 - **(c) What `listen` prints lands in the human store.** A `message` it prints "stays unread in the
-  store" (`README.md:62`). The store's retention is a person's reading (ADR-0044); it is encrypted
+  store" (`README.md:64`). The store's retention is a person's reading (ADR-0044); it is encrypted
   at rest (ADR-0060) and grows with every control record.
 
 The control plane can ride the CLI only once InterWeave makes these four changes. They are the
@@ -198,27 +220,34 @@ main REQUEST to architect-cto. Each one is stated as behaviour, so a test can ho
    - `listen --json --input` reads JSON lines on stdin, `{"send": {"conversation": <c>, "text":
      <t>, "ref": <r>}}`, and sends each one over the lease it already holds.
    - Each send is answered on stdout by one `{"event": "outbound", "ref": <r>, "id": <p-id>,
-     "status": <token>}` line, using the fixed tokens `send` already has (`output.rs:66-75`).
+     "status": <token>}` line, using the fixed tokens `send` already has (`output.rs:69-97`).
    - A malformed input line is answered with `{"event": "input-refused", "ref", "reason"}` and the
      process carries on running.
    - Closing stdin does not end `listen`; SIGTERM does, with exit 0, as today.
 2. **(G2) The endpoint is named.**
    - `--endpoint <id>` on `listen` (which human endpoint's lease the process holds) and on each
      input send (which endpoint it sends from). `identities enable` already exists.
-   - Creating a named human endpoint from the command line, which README line 15 puts in Stage 22.
+   - Creating a named human endpoint from the command line, which README line 16 puts in Stage 22.
    - The `message` event names the local endpoint that received the message (G6). Today it names
-     only the author and the peer's endpoint (`verbs.rs:711-713`).
+     only the author and the peer's endpoint (`verbs.rs:735-752`).
 3. **(G3, answers c) A listen that consumes.** `listen --consume` marks each `message` read and
    not kept once its line is written and flushed. No unread row is left behind, and RETENTION.md's
    "read and not kept lives only for the run" applies. A line that cannot be written (the reader
    is gone) is not marked read.
 4. **(G4) An ephemeral send.** An input send with `"pending": false`, or `send --no-pending`, is
-   cancelled when its `--wait` runs out, never left for a later run to send again (`README.md:60`).
+   cancelled when its `--wait` runs out, never left for a later run to send again (`README.md:62`).
    A signed request sent again after its TTL would only be refused, but it must not reach the wire.
 
 Ruling **X2** goes with these: a human-kind lease on `fabric-control` and the fabric carrier's
-lease on `gzcoord` can be held at once in one profile and one daemon. ADR-0041 speaks of one store
-and one lease for the *human* client.
+lease on `gzcoord` can be held at once in one profile and one daemon. That is a statement about the
+daemon's leases only. **The exclusion that remains is the human store's instance lock, not a
+lease** (R2): exit 4 is `HumanClientLock`, profile-wide (`startup.rs:91-98`, `main.rs:218`). While
+agentd's child holds it, no other `interweave-human` run on that profile works, a one-shot `status`
+or `store health` included, and no desktop client. So:
+
+- the control profile is never a person's profile;
+- operator diagnostics of it go through the `interweave` read op or the daemon, never the CLI;
+- a per-endpoint lock is an InterWeave change that architect-cto will not make for this.
 
 With G1-G4 and X2, objections (a), (b) and (c) are answered for the control plane. For GZCoord,
 ADR-064 §3 stays as it is: the volume, the receipts and the chunked media types still need the
@@ -230,6 +259,32 @@ fabric's own carrier.
   `interweave-human --profile gzcoord listen --json --endpoint fabric-control --input` (gaps G1 and
   G2). The first `session` event with `ready` means the child is up. The supervisor reads stdout
   line by line.
+- **Destination (R1).** Every control send names `<peer>/fabric-control`. A peer-only send goes to
+  the remote's default endpoint (`ENDPOINTS.md:76`, `README.md:52`), which the roster row says is
+  `gzcoord`, and that breaks ADR-029 rule 2 by one omitted field. So the render pins each
+  profile's default endpoint (`gzcoord` or none), `identities default` is never run on these
+  profiles, and the carriers enforce both ends: the GZCoord carrier refuses a `fabric-control/1`
+  body arriving on `gzcoord`, and a carrier media type arriving on `fabric-control` is dropped.
+- **What `fabric-control` is (R3).** In InterWeave ADR-0061's terms it is the `gzcoord` profile's
+  first and only human endpoint, hence its identity in front (d1). The CLI mints its identity key
+  silently on the first run (`profile.rs::leasable_endpoints`, `main.rs:141-153`), at
+  `<state>/identity-keys/fabric-control.key`: provisioned state, owner-only (§3.4). A second
+  human-kind endpoint is never configured on the profile (it would be a route, d2, and the CLI
+  would default to no identity, d9). `gzcoord` stays automated (d8) with `allowed_client_kinds`
+  automated only; `fabric-control` is human-client only, the misbinding guard of `ENDPOINTS.md`.
+- **Admin connection (R5).** `interweave-human` holds an admin Status connection, polled every 5 s
+  (`transport-client client.rs:3-5,62`), while `AUTOMATED-CLIENT.md` says an automated consumer
+  never opens the admin socket. This is acceptable, as named: the carrier runs `listen` alone
+  (Status read only), agentd never drives an admin-mutating verb (`identities`, `peers`), and the
+  `interweave*` ops stay on the relay or hostexec.
+- **Custody (R4).** Today the store key and identity key are owner-only files. InterWeave ADR-0060
+  d3 seals the store key under ADR-0038's passphrase envelope when SPIKE-007 lands, and ADR-0063
+  d2 re-seals the identity keys in the same step; a lingering agentd cannot answer a passphrase.
+  **Constraint SPIKE-007's adoption must meet:** a headless custody mode stays available for an
+  account's control profile (architect-cto carries it into ADR-0060/0038's revisit once this
+  design is accepted). The two destructive CLI ops are never agentd's: `store discard --confirm`
+  (exit 5) is an operator's op, and `identity new-key --confirm key-change` runs only on the
+  owner's word, since a key change re-issues the card.
 - **Restart on exit.** Restart uses backoff of 1, 2, 4 … 60 s, by exit code:
 
   | exit | meaning | agentd does |
@@ -248,6 +303,10 @@ fabric's own carrier.
   answers with an `outbound` event naming the `ref` and a fixed status token (`accepted`, or
   `too-large`, `peer-untrusted`, `route-unavailable`, `no-network-path`, `busy`; see
   `apps/human-cli/src/output.rs:66-75`). A send never outlives its request's budget.
+- **Durable first, and no secrets (R6).** Every control record is written durably to the human
+  store before it is sent or presented (RETENTION.md: `PENDING_OUTBOUND`, `UNREAD_INBOUND`); G3
+  and G4 delete after, not instead. No control record carries a secret value, in any op's request
+  or reply: a rule, checked at the sender (ADR-029's ops already print prefixes and counts).
 
 ### 4.2 fabric-ctl's side
 
@@ -264,15 +323,19 @@ State records (rule 16) go as direct sends to each host operator's address, on c
 
 - **One record is one text message.** The message body is `fabric-control/1 ` followed by the JSON
   object. The prefix means a person's text to the endpoint is never parsed as a record.
-  - The canonical form and the signature do not change. An action is accepted only when it is
+  - The canonical form and the signature do not change. Freshness and "strictly newer" now run
+    across hosts, so they need synchronised clocks (R10, §3.4). An action is accepted only when it is
     signed, fresh and strictly newer (rule 5), so a copy arriving by both carriers runs once
     (`ActionLedger`, `agentd.py:342-386`).
 - **Size.** The CLI cannot set a media type or chunk. The human facade brotli-compresses an
   envelope of up to 192 KiB raw and refuses anything that is still over 48 KiB afterwards
-  (`crates/human/chat-protocol/src/encode.rs:9-12`, `decode.rs:21`, `facade.rs:811`).
+  (`crates/human/chat-protocol/src/decode.rs:21`, `encode.rs:166`).
   - The part bound becomes a per-carrier constant: on InterWeave, 32 KiB of base64 per memory part
     (rule 9 says 90 KiB) and 32 KiB per evidence page (`carrier_evidence.py:52-54` derives 64 KiB
     from the relay's 128 KiB).
+  - A 32 KiB evidence page is JSON-escaped twice (the record, then the message line) before the
+    192 KiB raw ceiling applies, so the part size is measured once on the real path, not derived
+    (R11).
   - A `too-large` status re-splits at half the size, once.
 - **Correlation.** `id` and `in_reply_to` are unchanged. agentd's seen-set (rule 4, the last 256
   ids) is shared across both carriers, so a request is answered once.
@@ -292,7 +355,7 @@ State records (rule 16) go as direct sends to each host operator's address, on c
 - **The `gzcoord` carrier as the control broker.** It is a second bridge. It also couples control's
   liveness to the process that control installs and checks (ADR-064 rule 14).
 - **A one-shot `send` per reply while `listen` runs.** The second client exits with code 4
-  (`README.md:55`).
+  (`README.md:57`).
 - **Two profiles per account, one listening and one sending.** It doubles the daemons, ports, keys
   and roster rows, and amends rule 1's "one profile per account". It also means the PeerId that
   replies is not the one that was asked.
@@ -306,7 +369,7 @@ State records (rule 16) go as direct sends to each host operator's address, on c
   and `fabric-control` to `interweave-human`. This keeps rule 1's one daemon per account and adds
   no keys or ports.
   - It assumes InterWeave allows a human-kind lease and a carrier-kind lease on different endpoints
-    of one profile at the same time. That is question X2 for architect-cto.
+    of one profile at the same time. That is question X2 for architect-cto; the store lock (§4.0, R2) is the limit that stays.
   - If X2 says no, the fallback is a second profile per account, `fabric-control`, with its own
     port range (`47200-47299`) and its own roster rows (a `profile` column).
 - **Rejected: sharing the `gzcoord` endpoint.** Control records would reach GZCoord inboxes, against
@@ -356,7 +419,8 @@ State records (rule 16) go as direct sends to each host operator's address, on c
 **What is measured throughout:**
 
 - the child's restart count;
-- the store's row count, which G3 must keep flat;
+- the store's row count, which G3 must keep flat (R9);
+- the clock offset between the two hosts (R10);
 - per-op latency on and off the host. `ping`'s 5 s budget may need 10 s across hosts, and it is
   changed only on a measurement;
 - missed and duplicate counts per carrier.
@@ -377,6 +441,11 @@ State records (rule 16) go as direct sends to each host operator's address, on c
   - The `interweave*` ops go on the relay only, and on a host with no relay through `fabric-op`
     over hostexec, signed alike.
   - Part bounds are per carrier: 32 KiB on InterWeave.
+  - Every send names `<peer>/fabric-control`; the carriers refuse a `fabric-control/1` body on
+    `gzcoord` and drop a carrier media type on `fabric-control` (R1).
+  - Every control record is stored durably before it is sent, and none carries a secret value,
+    checked at the sender (R6).
+  - The hosts' clocks are synchronised within the tolerance proposed in §3.4 (R10).
 - §6, first bullet. Narrow it to the relay copy.
 - §7, second-host bullet. Replace it with: "A second host is reached over InterWeave (ADR-064 as
   amended); the relay stays on develop-qzapp."
@@ -388,11 +457,11 @@ rule 1 asks for. It opens the next milestone; it does not lift a rule. Draft tex
 > The second milestone is the host `<H2>`, registered in `runtime/hosts/registry.json` with its
 > `interweave_address`. Its first account is `edge-hosting`.
 >
-> - **Addresses.** On `<H2>` and on the relay's host, a profile listens on its host's
->   `interweave_address` and on nothing else. That address is the host's address on the
->   operator-managed WireGuard overlay, and the firewall admits the roster's port range only from
->   the other host's overlay address. Each roster row names its `host`, and the render gives every
->   other row's `<interweave_address>:<port>` as static bootstrap.
+> - **Addresses.** On `<H2>` and on the relay's host, a profile listens on a wildcard
+>   address at its roster port, and the host's firewall is the boundary: it admits the roster's
+>   port range only from the other host's address on the operator-managed WireGuard overlay. Each
+>   roster row names its `host`, and the render gives static bootstrap `127.0.0.1:<port>` for a
+>   same-host row and `<interweave_address>:<port>` for an other-host row.
 > - **The InterWeave gates.** For this deployment, ADR-0034 §7's release gate and SPIKE-004's
 >   deferred limits are *consumed*, by InterWeave ADR-0055 decision 5b (X1) and its two-host case:
 >   Kademlia is omitted, the connectivity roles are off, and every dial goes to an address the
@@ -408,7 +477,8 @@ rule 1 asks for. It opens the next milestone; it does not lift a rule. Draft tex
   `fabric-control` endpoint, carried by `interweave-human` (ADR-029 rule 18), never by this
   carrier. On the relay's host the relay stays control's transport of record until the owner's
   word on a control parity report; on `<H2>` InterWeave is control's only carrier, and hostexec is
-  its break-glass."
+  its break-glass. The profile is the control plane's alone: `fabric-control` is its only human
+  endpoint, a person's client never uses it, and `gzcoord` is automated-only (R2, R3)."
 - §3. The `interweave-human` bullet gains a sentence: "Not taken for GZCoord's volume and receipts;
   taken for the control plane (A 2026-10-2x): its records are few, small and TTL'd, the reply is
   their receipt, and the CLI's duplex listen (gap G1) and consuming read (G3) remove the lease and
@@ -434,10 +504,17 @@ start without; cross-host marks what P2 cannot start without.
   - G3: a listen that consumes what it prints;
   - G4: an ephemeral send.
 - **G5 — fixed send outcomes in JSON.** `route-unavailable` and `no-network-path` already exist as
-  tokens (`output.rs:66-75`). Input sends need them as JSON fields as well as exit codes.
+  tokens (`output.rs:69-97`). Input sends need them as JSON fields as well as exit codes. The
+  `outbound` event prints message status tokens (`sending`, `accepted`, `cancelled`,
+  `needs-attention`), not these send-problem tokens (`too-large`, `route-unavailable`, ...), so the
+  re-split on `too-large`, and telling a restarting child from an unreachable host, need G5 in
+  G1's event (R8, InterWeave's, asked on #477).
 - **G6 (blocking) — the receiving endpoint in the event.** The `message` event names the author
-  (PeerId) and `conversation` (the peer's endpoint, `verbs.rs:711-713`). It must also name the local
+  (PeerId) and `conversation` (the peer's endpoint, `verbs.rs:735-752`). It must also name the local
   endpoint that received the message.
+- **G3 also (R9, InterWeave's, asked on #477)** drains the store's unread rows at session open and
+  on `UnreadInStore` (a crash between commit and print, the held cap), and drops a card proposal a
+  roster peer sends to `fabric-control`; else the "row count flat" measure drifts.
 - **G7 — filters on listen.** `--events message,session,connectivity` and `--conversation <c>`.
 - **G8 (cross-host) — per-peer connection state.** `peers --json` gives only
   `{address, source, dialled}`. It needs `connected` and the `last_seen_ms` per trusted peer, so
