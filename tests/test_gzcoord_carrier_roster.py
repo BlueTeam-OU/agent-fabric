@@ -74,12 +74,17 @@ class Keys:
 
 
 def row(agent: Agent, root: Agent, seed: str, port: int, *, signer: Agent | None = None,
-        countersigner: Agent | None = None, show: str | None = None) -> dict:
+        countersigner: Agent | None = None, show: str | None = None, host: str | None = None,
+        host_after_signing: str | None = None) -> dict:
     pid = peer_id(seed)
     shown = show if show is not None else pid + "\n"
     r = {"agent_id": agent.agent_id, "login": agent.login, "peer_id": pid, "endpoint": "gzcoord", "port": port,
          "identity_show": shown, "login_signature": (signer or agent).sign(shown.encode())}
+    if host is not None:
+        r["host"] = host
     r["countersignature"] = (countersigner or root).sign(R.canonical_row(r))
+    if host_after_signing is not None:
+        r["host"] = host_after_signing
     return r
 
 
@@ -87,8 +92,8 @@ def doc(rows: list[dict], lo: int = 47100, hi: int = 47199) -> R.Roster:
     return R.Roster("gzcoord", "gzcoord", (lo, hi), tuple(rows))
 
 
-def refused_for(rows: list[dict], keys: Keys) -> dict[str, str]:
-    good, bad = R.valid_rows(doc(rows), keys)
+def refused_for(rows: list[dict], keys: Keys, hosts: dict | None = None) -> dict[str, str]:
+    good, bad = R.valid_rows(R.Roster("gzcoord", "gzcoord", (47100, 47199), tuple(rows), hosts or {}), keys)
     return {b.login: b.reason for b in bad}
 
 
@@ -197,6 +202,95 @@ def main() -> int:
             check("config.yaml is written atomically, owner-only, with nothing left beside it",
                   open(path).read().endswith("# again\n") and oct(os.stat(path).st_mode & 0o777) == "0o600"
                   and os.listdir(cfgdir) == ["config.yaml"] and oct(os.stat(cfgdir).st_mode & 0o777) == "0o700")
+            # --- rows with a host (ADR-064 §5, j422 F4): inert until a row carries one
+            golden = (
+                "# Rendered from runtime/interweave/roster.json by agent-fabric; never hand-edited\n"
+                "schema_version: 2\nprofile: { name: gzcoord }\ntrust:\n  policy: static-allowlist\n"
+                f"  allowed_peers: [\"{peer_id('b')}\"]\nendpoints:\n  default_direct_endpoint: gzcoord\n  entries:\n"
+                "    - { id: gzcoord, enabled: true, advertise: false, allowed_client_kinds: [automated-client] }\n"
+                "channels: { desired: [] }\ndiscovery:\n  providers:\n    - type: static-bootstrap\n      enabled: true\n"
+                f"      priority: 5\n      config:\n        peers: [\"/ip4/127.0.0.1/tcp/47102/p2p/{peer_id('b')}\"]\n"
+                "transport: { listen: { addresses: [\"/ip4/127.0.0.1/tcp/47101\"] } }\nobservability: { log_level: info }\n")
+            check("a roster with no host renders exactly the loopback config (golden)", cfg_a == golden)
+            check("canonical_row of a row without host is the five-field form every signed row has",
+                  R.canonical_row(ra) == json.dumps({k: ra[k] for k in R.SIGNED_KEYS}, sort_keys=True, separators=(",", ":")).encode()
+                  and b'"host"' not in R.canonical_row(ra)
+                  and b'"host":"h1"' in R.canonical_row(dict(ra, host="h1")))
+            hosts = {"h1": {"interweave_address": "10.9.0.1"}, "h2": {"interweave_address": "10.9.0.2"},
+                     "h6": {"interweave_address": "fd00::6"}, "noaddr": {}, "named": {"interweave_address": "h1.example"}}
+
+            def hdoc(rows: list[dict]) -> R.Roster:
+                return R.Roster("gzcoord", "gzcoord", (47100, 47199), tuple(rows), hosts)
+            ha, hb, hc = row(a, root, "a", 47101, host="h1"), row(b, root, "b", 47102, host="h2"), row(c, root, "c", 47103, host="h1")
+            hall = hdoc([ha, hb, hc])
+            good, bad = R.valid_rows(hall, keys)
+            check("positive control: rows on two hosts, each signed over its own form, all count", len(good) == 3 and not bad, str(bad))
+            cfg_ha, cfg_hb, cfg_hc = (R.render_config(hall, good, x.agent_id) for x in (a, b, c))
+            check("an account with a host listens on the wildcard of its address's family, never on the address or loopback",
+                  'listen: { addresses: ["/ip4/0.0.0.0/tcp/47101"] }' in cfg_ha and 'addresses: ["/ip4/0.0.0.0/tcp/47102"]' in cfg_hb
+                  and "10.9.0.1/tcp/47101\"" not in cfg_ha and "127.0.0.1/tcp/47101" not in cfg_ha)
+            check("a peer on the SAME host is bootstrapped on loopback, one on another host at that host's address",
+                  f"/ip4/127.0.0.1/tcp/47103/p2p/{peer_id('c')}" in cfg_ha and f"/ip4/10.9.0.2/tcp/47102/p2p/{peer_id('b')}" in cfg_ha
+                  and f"/ip4/10.9.0.1/tcp/47101/p2p/{peer_id('a')}" in cfg_hb and f"/ip4/10.9.0.1/tcp/47103/p2p/{peer_id('c')}" in cfg_hb
+                  and f"/ip4/127.0.0.1/tcp/47101/p2p/{peer_id('a')}" in cfg_hc)
+            check("the allowlist is still every other valid PeerId and nothing else",
+                  json.dumps([peer_id("b"), peer_id("c")]) in cfg_ha and cfg_ha.count("allowed_peers") == 1)
+            nohost = row(c, root, "c", 47103)
+            good_m, _ = R.valid_rows(hdoc([ha, nohost]), keys)
+            cfg_m_a, cfg_m_c = (R.render_config(hdoc([ha, nohost]), good_m, x.agent_id) for x in (a, c))
+            check("a row with no host listens on loopback and is bootstrapped there; a hosted peer is dialled at its address",
+                  'addresses: ["/ip4/127.0.0.1/tcp/47103"]' in cfg_m_c and f"/ip4/10.9.0.1/tcp/47101/p2p/{peer_id('a')}" in cfg_m_c
+                  and f"/ip4/127.0.0.1/tcp/47103/p2p/{peer_id('c')}" in cfg_m_a)
+            h6 = row(a, root, "a", 47101, host="h6")
+            good6, _ = R.valid_rows(hdoc([h6, rb]), keys)
+            cfg6 = R.render_config(hdoc([h6, rb]), good6, a.agent_id)
+            check("an IPv6 host listens on :: and is dialled as an /ip6/ multiaddr",
+                  'addresses: ["/ip6/::/tcp/47101"]' in cfg6 and f"/ip4/127.0.0.1/tcp/47102/p2p/{peer_id('b')}" in cfg6
+                  and f"/ip6/fd00::6/tcp/47101/p2p/{peer_id('a')}" in R.render_config(hdoc([h6, rb]), good6, b.agent_id))
+            inj = "fe80::1%x\"] } }\ntrust:\n  policy: allow-all\n#"
+            for bad_addr in (inj, "fe80::1%eth0", "0.0.0.0", "::", "224.0.0.1", "::ffff:10.9.0.1", "255.255.255.255", "240.0.0.1"):
+                hosts["evil"] = {"interweave_address": bad_addr}
+                g, bd = R.valid_rows(hdoc([row(a, root, "a", 47101, host="evil"), rb]), keys)
+                check(f"an interweave_address of {bad_addr[:14]!r} is refused in one line, the rest still count",
+                      [x["login"] for x in g] == ["beta"] and len(bd) == 1 and "\n" not in bd[0].reason, str(bd))
+            del hosts["evil"]
+            late = row(a, root, "a", 47101, host_after_signing="h2")
+            check("a host the countersignature does not cover is refused",
+                  "countersignature" in refused_for([late], keys, hosts).get("alpha", ""), str(refused_for([late], keys, hosts)))
+            moved = dict(ha, host="h2")
+            check("moving a signed host to another is refused too", "countersignature" in refused_for([moved], keys, hosts).get("alpha", ""))
+            dropped = {k: v for k, v in ha.items() if k != "host"}
+            check("dropping a signed host is refused too", "countersignature" in refused_for([dropped], keys, hosts).get("alpha", ""))
+            for why_case, hrow in (("unknown host", row(a, root, "a", 47101, host="nowhere")),
+                                   ("host without an address", row(a, root, "a", 47101, host="noaddr")),
+                                   ("host whose address is a name", row(a, root, "a", 47101, host="named")),
+                                   ("malformed host id", row(a, root, "a", 47101, host="H 1"))):
+                g, bd = R.valid_rows(hdoc([hrow, rb]), keys)
+                check(f"{why_case}: the row is refused with one line and the rest still count",
+                      [x["login"] for x in g] == ["beta"] and len(bd) == 1 and "\n" not in bd[0].reason, str(bd))
+            try:
+                R.render_config(hdoc([row(a, root, "a", 47101, host="nowhere"), rb]), [row(a, root, "a", 47101, host="nowhere"), rb], b.agent_id)
+                silent = True
+            except R.RosterError:
+                silent = False
+            check("render_config never falls back to loopback for a row whose host has no address", not silent)
+            g, bd = R.valid_rows(R.Roster("gzcoord", "gzcoord", (47100, 47199), (ha, rb)), keys)
+            check("a roster whose hosts registry was not attached refuses a row with a host", [x["login"] for x in g] == ["beta"] and len(bd) == 1)
+            check("a non-text host is refused, never a crash", len(R.valid_rows(hdoc([dict(ha, host=7)]), keys)[1]) == 1)
+            regp = os.path.join(d, "reg.json")
+            with open(regp, "w") as fh:
+                json.dump({"hosts": hosts}, fh)
+            plain = R.Roster("gzcoord", "gzcoord", (47100, 47199), (ra, rb))
+            check("with_hosts reads the registry only when a row names a host",
+                  R.with_hosts(plain, os.path.join(d, "absent.json")) is plain
+                  and R.with_hosts(hdoc([ha]), regp).hosts == hosts and R.with_hosts(R.Roster("g", "g", (1, 2), (ha,)), regp).hosts == hosts)
+            try:
+                R.with_hosts(R.Roster("g", "g", (1, 2), (ha,)), os.path.join(d, "absent.json"))
+                unread = False
+            except R.RosterError:
+                unread = True
+            check("a row with a host and an unreadable registry is a RosterError", unread)
+
             # a git that hangs, or cannot run, is a roster that does not verify: a RosterError
             fake = os.path.join(d, "fakebin")
             os.makedirs(fake)

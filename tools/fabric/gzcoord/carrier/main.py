@@ -47,7 +47,9 @@ CONTRACT
           live under it), GZCOORD_JOURNAL=off (the carrier refuses to run: the
           route is the relay alone, ADR-064 rule 8), AGENT_FABRIC_ROOT /
           AGENT_FABRIC_OPERATOR / AGENT_FABRIC_STATE_DIR (as every GZCoord
-          tool reads them), GZCOORD_CARRIER_ROSTER (a roster file other than
+          tool reads them), AGENT_FABRIC_HOSTS_REGISTRY (the hosts registry, read
+          only when a roster row names a host; else the operator tree's),
+          GZCOORD_CARRIER_ROSTER (a roster file other than
           runtime/interweave/roster.json: a test), GZCOORD_CARRIER_RELEASE (a
           release.json other than runtime/interweave/release.json: a test)
   stdout  `status`'s JSON; `render-config`'s YAML; `roster-row`'s JSON
@@ -100,6 +102,11 @@ def roster_path() -> str:
     return os.environ.get("GZCOORD_CARRIER_ROSTER") or os.path.join(_checkout(), "runtime", "interweave", "roster.json")
 
 
+def hosts_registry_path() -> str:
+    import roots
+    return roots.hosts_registry()
+
+
 def runtime_dir() -> str:
     rd = os.environ.get("XDG_RUNTIME_DIR")
     if not rd or not os.path.isabs(rd):
@@ -135,7 +142,7 @@ def make_me() -> engine.Me:
 
 def verified_roster() -> tuple[roster.Roster, list[dict]]:
     from gzcoord import paths
-    r = roster.load(roster_path())
+    r = roster.with_hosts(roster.load(roster_path()), hosts_registry_path())
     good, refused = roster.valid_rows(r, roster.GitMainKeys(paths.operator_root()))
     for x in refused:
         say(f"roster row of {x.login or x.agent_id} counts for nothing: {x.reason}")
