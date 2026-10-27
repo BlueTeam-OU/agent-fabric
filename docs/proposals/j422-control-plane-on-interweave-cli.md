@@ -16,9 +16,10 @@ and that relay cannot be reached from a second host (ADR-029 §7, lines 301-305;
    discovery: both hosts get static addresses that the operator writes into the configuration, on a
    routed private overlay (§3).
 2. **Carrier.** Each account's `agentd` runs `interweave-human … listen --json` as a supervised,
-   long-lived child process, and sends through that same process. This depends on the CLI gap G1
-   (a listen that also takes input), because ADR-064's objection still holds: `listen` takes no
-   input and holds the lease exclusively (§4).
+   long-lived child process, and sends through that same process. **The CLI cannot carry this
+   today.** ADR-064 §1's finding stands: `listen` holds the endpoint lease alone, a `send` while it
+   runs exits 4, and what it prints lands unread in the human store. §4.0 states the four changes
+   InterWeave must make first. They are the main REQUEST to architect-cto.
 3. **Topology.** Control traffic uses the account's existing InterWeave profile and PeerId, on a
    second endpoint `fabric-control` of the human client kind. The `gzcoord` carrier keeps its own
    endpoint. On the operator's account, `fabric-ctl` does its fan-out through the operator's own
@@ -34,8 +35,16 @@ and that relay cannot be reached from a second host (ADR-029 §7, lines 301-305;
 
 **In the fabric**
 
-- ADR-064 rule 1 (lines 142-147): "The carrier runs only on the host the relay runs on … a profile
-  listens on `127.0.0.1` only".
+- ADR-064 rule 1. On main (lines 142-147) it reads "The carrier runs only on the host the relay
+  runs on". PR #397 (head d1f0473c, 2026-10-27, the owner's change) rewrites it: one host is the
+  *first milestone*, and a second host is the next. That milestone opens through an amendment that:
+  - names the host;
+  - gives its accounts' roster rows routable addresses;
+  - says how InterWeave ADR-0034 §7 and SPIKE-004's limits are consumed, or accepted on the owner's
+    word.
+
+  Until that amendment lands, nothing listens off loopback. §8 drafts the amendment, for H2 and
+  edge-hosting.
 - The roster has no host or address field. Its rows are `agent_id, login, peer_id, endpoint, port`
   and two signatures (`runtime/interweave/roster.schema.json`), and the render hard-codes
   `LOOPBACK = "127.0.0.1"` (`tools/fabric/gzcoord/carrier/roster.py:32,53`).
@@ -71,8 +80,9 @@ decision 5b, "two hosts, static operator-supplied addresses, directly routable, 
 connectivity roles off". It would be backed by a two-host case in `tests/automated-client`, run in
 two network namespaces or containers like the SPIKE-004 phase-B setup. It would claim nothing about
 NAT, the internet or Kademlia. ADR-0034 §7 and SPIKE-004 stay where they are, and they block only a
-deployment that needs NAT traversal or discovery. **Only architect-cto can rule on this. Until it
-is ruled, nothing listens off loopback.**
+deployment that needs NAT traversal or discovery. **Only architect-cto can rule on this.** If X1 is
+refused, the PR #397 route remains: the owner accepts the gates as known limits for H2, and §8
+records that.
 
 ## 3. The first remote agent: edge-hosting on H2
 
@@ -166,6 +176,53 @@ accepts it (rule 7). The fallbacks when InterWeave is down: the human relay, git
 bundle over hostexec.
 
 ## 4. The carrier: agentd drives interweave-human
+
+### 4.0 ADR-064 §1's finding, faced: why the CLI cannot carry today, and what must change
+
+ADR-064 §1 (lines 51-58) and §3 (lines 98-103) found three things wrong with `interweave-human` as
+a carrier. Each is still true at InterWeave dbdf5b89:
+
+- **(a) The lease is exclusive.** `listen` holds it. Any second client on the profile, so a `send`
+  while `listen` runs, is refused with exit 4 (`apps/human-cli/README.md:55-56`).
+- **(b) `listen` takes no input.** It loops on the session and stdout only
+  (`apps/human-cli/src/verbs.rs:779-805`), so nothing can be sent through the process that holds
+  the lease.
+- **(c) What `listen` prints lands in the human store.** A `message` it prints "stays unread in the
+  store" (`README.md:62`). The store's retention is a person's reading (ADR-0044); it is encrypted
+  at rest (ADR-0060) and grows with every control record.
+
+The control plane can ride the CLI only once InterWeave makes these four changes. They are the
+main REQUEST to architect-cto. Each one is stated as behaviour, so a test can hold it:
+
+1. **(G1, answers a and b) A listen that takes input.**
+   - `listen --json --input` reads JSON lines on stdin, `{"send": {"conversation": <c>, "text":
+     <t>, "ref": <r>}}`, and sends each one over the lease it already holds.
+   - Each send is answered on stdout by one `{"event": "outbound", "ref": <r>, "id": <p-id>,
+     "status": <token>}` line, using the fixed tokens `send` already has (`output.rs:66-75`).
+   - A malformed input line is answered with `{"event": "input-refused", "ref", "reason"}` and the
+     process carries on running.
+   - Closing stdin does not end `listen`; SIGTERM does, with exit 0, as today.
+2. **(G2) The endpoint is named.**
+   - `--endpoint <id>` on `listen` (which human endpoint's lease the process holds) and on each
+     input send (which endpoint it sends from). `identities enable` already exists.
+   - Creating a named human endpoint from the command line, which README line 15 puts in Stage 22.
+   - The `message` event names the local endpoint that received the message (G6). Today it names
+     only the author and the peer's endpoint (`verbs.rs:711-713`).
+3. **(G3, answers c) A listen that consumes.** `listen --consume` marks each `message` read and
+   not kept once its line is written and flushed. No unread row is left behind, and RETENTION.md's
+   "read and not kept lives only for the run" applies. A line that cannot be written (the reader
+   is gone) is not marked read.
+4. **(G4) An ephemeral send.** An input send with `"pending": false`, or `send --no-pending`, is
+   cancelled when its `--wait` runs out, never left for a later run to send again (`README.md:60`).
+   A signed request sent again after its TTL would only be refused, but it must not reach the wire.
+
+Ruling **X2** goes with these: a human-kind lease on `fabric-control` and the fabric carrier's
+lease on `gzcoord` can be held at once in one profile and one daemon. ADR-0041 speaks of one store
+and one lease for the *human* client.
+
+With G1-G4 and X2, objections (a), (b) and (c) are answered for the control plane. For GZCoord,
+ADR-064 §3 stays as it is: the volume, the receipts and the chunked media types still need the
+fabric's own carrier.
 
 ### 4.1 The long-lived child
 
@@ -324,17 +381,34 @@ State records (rule 16) go as direct sends to each host operator's address, on c
 - §7, second-host bullet. Replace it with: "A second host is reached over InterWeave (ADR-064 as
   amended); the relay stays on develop-qzapp."
 
-**ADR-064.**
+**ADR-064: the second-host milestone amendment, for edge-hosting.** This is the amendment PR #397's
+rule 1 asks for. It opens the next milestone; it does not lift a rule. Draft text, appended to rule
+1 as "(A 2026-1x-xx)":
 
-- Rule 1 is amended. It becomes: "between accounts on the registered hosts. A profile listens on
-  its host's `interweave_address` (loopback on a single-host deployment), on the roster's port.
-  Hosts reach each other only over the operator-managed overlay, with static addresses, Kademlia
-  omitted and connectivity roles off, within the scope InterWeave ADR-0055 decision 5b states."
-- Rule 2 gains `host`, covered by the countersignature.
-- Rule 12 is replaced: "The control plane rides this host's InterWeave profile on its own
-  `fabric-control` endpoint, carried by `interweave-human`, never by this carrier (ADR-029 rule
-  18); the relay stays control's transport of record until the owner's word on a control parity
-  report."
+> The second milestone is the host `<H2>`, registered in `runtime/hosts/registry.json` with its
+> `interweave_address`. Its first account is `edge-hosting`.
+>
+> - **Addresses.** On `<H2>` and on the relay's host, a profile listens on its host's
+>   `interweave_address` and on nothing else. That address is the host's address on the
+>   operator-managed WireGuard overlay, and the firewall admits the roster's port range only from
+>   the other host's overlay address. Each roster row names its `host`, and the render gives every
+>   other row's `<interweave_address>:<port>` as static bootstrap.
+> - **The InterWeave gates.** For this deployment, ADR-0034 §7's release gate and SPIKE-004's
+>   deferred limits are *consumed*, by InterWeave ADR-0055 decision 5b (X1) and its two-host case:
+>   Kademlia is omitted, the connectivity roles are off, and every dial goes to an address the
+>   operator supplied. *Or*, if X1 is not given, they are *accepted on the owner's word as known
+>   limits for `<H2>`*, quoted here with its date. Either way, no NAT traversal, relay circuit or
+>   discovery is relied on, and a third host is a further amendment.
+
+- **Rule 2** gains `host`, covered by the countersignature.
+- **Rule 11** gains an exception: an off-host account has no relay, so its GZCoord carrier of record
+  is InterWeave from its cut-over. The cut-over follows the owner's word on the on-host parity
+  report.
+- **Rule 12** is replaced: "The control plane rides each account's InterWeave profile on its own
+  `fabric-control` endpoint, carried by `interweave-human` (ADR-029 rule 18), never by this
+  carrier. On the relay's host the relay stays control's transport of record until the owner's
+  word on a control parity report; on `<H2>` InterWeave is control's only carrier, and hostexec is
+  its break-glass."
 - §3. The `interweave-human` bullet gains a sentence: "Not taken for GZCoord's volume and receipts;
   taken for the control plane (A 2026-10-2x): its records are few, small and TTL'd, the reply is
   their receipt, and the CLI's duplex listen (gap G1) and consuming read (G3) remove the lease and
@@ -354,20 +428,11 @@ deployment; an ADR-010 live check for H2; and InterWeave's ADR-0055 decision 5b 
 **InterWeave CLI and transport** (for architect-cto as a REQUEST). Blocking marks what P1 cannot
 start without; cross-host marks what P2 cannot start without.
 
-- **G1 (blocking) — a listen that takes input.** `listen --json --input` reads JSON lines on stdin
-  of the form `{"send": {"conversation", "text", "ref"}}`. It answers each one with
-  `{"event": "outbound", "ref", "id", "status"}`, and with the same `send-problem` token (or a
-  per-send exit-class token) where `send` would exit 1, 3 or 6. This is ADR-064 §3's reason
-  ("`listen` takes no input").
-- **G2 (blocking) — choose the endpoint, and create one without the desktop.** `--endpoint <id>` on
-  `listen` and on input sends, so the CLI holds `fabric-control` and not the profile's default
-  human endpoint. Also creating a named human endpoint from the command line; README line 15 puts
-  that in Stage 22.
-- **G3 (blocking) — a consuming listen.** `listen --consume` marks each printed message read and
-  not kept, so machine records never pile up as unread rows (README line 62, ADR-0044).
-- **G4 (blocking) — an ephemeral send.** `--no-pending`: a send whose `--wait` runs out is
-  cancelled rather than left for a later run to send again (README line 60). A stale signed request
-  must not be resent.
+- **G1-G4 (blocking), the main request**, specified in §4.0:
+  - G1: a listen that takes input;
+  - G2: a named endpoint, and creating one from the command line;
+  - G3: a listen that consumes what it prints;
+  - G4: an ephemeral send.
 - **G5 — fixed send outcomes in JSON.** `route-unavailable` and `no-network-path` already exist as
   tokens (`output.rs:66-75`). Input sends need them as JSON fields as well as exit codes.
 - **G6 (blocking) — the receiving endpoint in the event.** The `message` event names the author
