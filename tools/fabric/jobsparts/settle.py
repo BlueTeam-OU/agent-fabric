@@ -389,20 +389,44 @@ def _delivered(job: dict, found: dict, problems: list[str]) -> list[str]:
     return [f"{p} open" for p in opened] + replies
 
 
+def _merged_by_subject(where: str, branch: str, default: str) -> bool:
+    """Whether origin's default branch holds a merge commit of a pull request from `branch`. The only trace a branch leaves once the
+    hygiene run deleted it locally and origin deleted it on merge: its head is the merge's second parent, on the default branch by
+    construction. A squash or a fast-forward leaves none, and then the head is unknown, which the caller refuses."""
+    out = vcs.text(where, "log", "--merges", "-F", f"--grep=/{branch}", "--format=%s", f"refs/remotes/origin/{default}")
+    return any(re.fullmatch(rf"Merge pull request #[0-9]+ from [^/\s]+/{re.escape(branch)}", line) for line in out.splitlines())
+
+
 def _pushed(job: dict, problems: list[str]) -> list[str]:
-    branch, where = job.get("branch"), job.get("worktree") or job.get("working_copy")
-    if not branch or not where:
+    branch = job.get("branch")
+    # A worktree swept after its branch landed is gone, not an error: the repository is asked from the recorded worktree while it
+    # exists, else from the job's working copy, never from a directory that is not there.
+    where = next((d for d in (job.get("worktree"), job.get("working_copy")) if d and os.path.isdir(d)), None)
+    if not branch or not (job.get("worktree") or job.get("working_copy")):
         problems.append("a paused job names the branch holding its work: pause it from that branch's checkout "
                         f"(fabric-jobs pause {job['id']} \"<why>\")")
         return []
+    if where is None:
+        problems.append(f"could not tell whether branch {branch} is pushed: neither its checkout nor the job's working copy exists")
+        return []
     try:
+        vcs.fetch(where)
+        default = vcs.default_branch(where)
+        base = f"refs/remotes/origin/{default}"
+        # The head is what is left of the branch: the local one, else origin's tracking ref a plain fetch does not prune.
+        head = next((r.stdout.strip() for ref in (f"refs/heads/{branch}", f"refs/remotes/origin/{branch}")
+                     if (r := vcs.run(where, "rev-parse", "--verify", "--quiet", f"{ref}^{{commit}}", check=False)).returncode == 0), None)
+        if head is not None and vcs.question(where, "merge-base", "--is-ancestor", head, base):
+            return [f"branch {branch} on origin/{default}"]
+        if head is None and _merged_by_subject(where, branch, default):
+            return [f"branch {branch} on origin/{default} (its pull request merged)"]
         tip = vcs.remote_tip(where, branch)
         if tip is None:
             problems.append(f"branch {branch} is not on origin: push it, so the paused work survives this checkout")
             return []
-        vcs.fetch(where)
-        local = vcs.text(where, "rev-parse", f"refs/heads/{branch}")
-        if not vcs.question(where, "merge-base", "--is-ancestor", local, f"refs/remotes/origin/{branch}"):
+        local = vcs.run(where, "rev-parse", "--verify", "--quiet", f"refs/heads/{branch}^{{commit}}", check=False)
+        # Without a local branch, origin holds all of it.
+        if local.returncode == 0 and not vcs.question(where, "merge-base", "--is-ancestor", local.stdout.strip(), f"refs/remotes/origin/{branch}"):
             problems.append(f"branch {branch} has commits origin does not: push it")
             return []
     except vcs.VcsError as e:
