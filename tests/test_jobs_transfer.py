@@ -153,6 +153,22 @@ def main() -> int:
         if tty is not None:
             check("a terminal on stdin is refused, not waited on", b"stdin" in tty.stdout, tty)
 
+        print("the blocker cache is merged, not replaced")
+        ok("seeded", "add", "x")
+        ok("seeded", "drop", "j1", "gone")
+        (seeded,) = [d for d, _, fs in os.walk(os.path.join(tmp, "seeded")) if "jobs.json" in fs]
+        os.remove(os.path.join(seeded, "jobs.json"))
+        mine = {"job:someone/j2": {"state": "waiting", "detail": "mine", "checked_at": 1.0}}
+        with open(os.path.join(seeded, "jobs-blockers.json"), "w", encoding="utf-8") as fh:
+            json.dump(mine, fh)
+        stray = {**doc["blocker_cache"], "pr:other/repo#9": {"state": "cleared"}}
+        check("a document with a stray cache entry imports", run("seeded", "import", stdin=mutated(blocker_cache=stray)).returncode == 0)
+        with open(os.path.join(seeded, "jobs-blockers.json"), encoding="utf-8") as fh:
+            merged = json.load(fh)
+        check("the host's own entry is kept", merged["job:someone/j2"]["detail"] == "mine", merged)
+        check("an entry no job names is not taken", "pr:other/repo#9" not in merged, merged)
+        check("an entry a job names and the host lacks is taken", "pr:owner/repo#7" in merged, merged)
+
         print("an empty list exports and imports")
         empty = run("blank", "export")
         check("an empty list round-trips", run("blank2", "import", stdin=empty.stdout).returncode == 0 and run("blank2", "export").stdout == empty.stdout)
