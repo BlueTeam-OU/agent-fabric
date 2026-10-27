@@ -43,6 +43,7 @@ elif cmd == ["filesystem", "upload"]:
         open(os.path.join(D, "..", "slow-started"), "w").close(); time.sleep(60)
     if rest[:2] != ["-f", "create-new-revision"]: sys.exit(3)   # a new revision, never a replacement
     rest = rest[2:]
+    open(os.path.join(D, "..", "at-upload"), "a").write("\n".join(n for _, _, fs in os.walk(os.environ["TMPDIR"]) for n in fs) + "\n")
     dst = os.path.join(loc(rest[1]), os.path.basename(rest[0]))
     shutil.copy(rest[0], dst)
     open(os.path.join(D, "..", "revisions"), "a").write(os.path.basename(rest[0]) + "\n")
@@ -155,6 +156,9 @@ def main() -> int:
         lines = open(logfile).read().splitlines() if os.path.exists(logfile) else []
         check("…and the manifest line (time, sha256, size) is kept locally", len(lines) == 1
               and set(json.loads(lines[0])) == {"at", "sha256", "size"}, lines)
+        at_upload = open(os.path.join(flags, "at-upload")).read().split()
+        check("…at upload the scratch held the encrypted blob and the manifest, no plain or gzipped snapshot (disk peak)",
+              sorted(at_upload[:2]) == ["claude-bridge.db.gz.gpg", "claude-bridge.manifest.json"], at_upload)
         check("…the blob on the Drive is ciphertext: no sqlite header, no gzip header",
               not open(blob_path(), "rb").read(64).startswith((b"SQLite format 3", b"\x1f\x8b")))
 
