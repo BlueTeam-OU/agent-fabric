@@ -100,6 +100,10 @@ def roster_path() -> str:
     return os.environ.get("GZCOORD_CARRIER_ROSTER") or os.path.join(_checkout(), "runtime", "interweave", "roster.json")
 
 
+def hosts_registry_path() -> str:
+    return os.environ.get("AGENT_FABRIC_HOSTS_REGISTRY") or os.path.join(_checkout(), "runtime", "hosts", "registry.json")
+
+
 def runtime_dir() -> str:
     rd = os.environ.get("XDG_RUNTIME_DIR")
     if not rd or not os.path.isabs(rd):
@@ -135,7 +139,7 @@ def make_me() -> engine.Me:
 
 def verified_roster() -> tuple[roster.Roster, list[dict]]:
     from gzcoord import paths
-    r = roster.load(roster_path())
+    r = roster.with_hosts(roster.load(roster_path()), hosts_registry_path())
     good, refused = roster.valid_rows(r, roster.GitMainKeys(paths.operator_root()))
     for x in refused:
         say(f"roster row of {x.login or x.agent_id} counts for nothing: {x.reason}")

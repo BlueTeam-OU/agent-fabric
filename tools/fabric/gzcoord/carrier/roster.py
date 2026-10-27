@@ -5,7 +5,8 @@ CONTRACT. runtime/interweave/roster.json:
   {"version": 1, "profile": "gzcoord", "endpoint": "gzcoord",
    "port_range": [lo, hi],
    "rows": [{"agent_id", "login", "peer_id", "endpoint", "port",
-             "identity_show", "login_signature", "countersignature"}]}
+             "identity_show", "login_signature", "countersignature",
+             and optionally "host"}]}
 A row is keyed by agent id (ADR-039). `identity_show` is exactly what
 `transportctl --profile <p> identity show` printed in the login's account.
 It counts only when BOTH hold, judged here and nowhere else:
@@ -15,7 +16,8 @@ It counts only when BOTH hold, judged here and nowhere else:
     primary the lineage records for that agent id; and `identity_show` names
     `peer_id`;
   - `countersignature`, the same over the canonical bytes of the whole row
-    (canonical_row: agent id, login, PeerId, endpoint, port) by the signing
+    (canonical_row: agent id, login, PeerId, endpoint, port, and host when the
+    row has one) by the signing
     subkey of the coordinator's key, the lineage's root (no parent).
 A row that fails either, names a login other than the lineage's for that
 id, carries a port outside the range, an endpoint other than the roster's,
@@ -28,24 +30,33 @@ in its own account and never leaves it (rule 3).
 
 render_config() produces the profile's config.yaml for one account: every
 OTHER valid row's PeerId allowlisted and nothing else (deny by default),
-their loopback addresses as static bootstrap, this profile listening on
-127.0.0.1 at its row's port, no channels, no connectivity server roles.
+their addresses as static bootstrap, this profile listening at its row's
+port, no channels, no connectivity server roles. A row without `host` is at
+127.0.0.1; a row with one is at that host's `interweave_address` in
+runtime/hosts/registry.json (a literal IP). A row naming a host the registry
+lacks, or one without an address, is refused like any other bad row.
 It refuses when the account's own row is not valid: an account whose key
 is not in the roster has no profile to render.
 """
 from __future__ import annotations
 
+import ipaddress
 import json
 import os
 import re
 import subprocess
 import tempfile
-from dataclasses import dataclass
+from collections.abc import Mapping
+from dataclasses import dataclass, field, replace
 from typing import Protocol
 
 ROW_KEYS = {"agent_id", "login", "peer_id", "endpoint", "port",
             "identity_show", "login_signature", "countersignature"}
 SIGNED_KEYS = ("agent_id", "login", "peer_id", "endpoint", "port")
+# `host` is optional so that every row signed before it existed stays valid: canonical_row
+# includes it only when the row has it.
+HOST_KEY = "host"
+HOST_RE = re.compile(r"[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?")
 ENDPOINT_RE = re.compile(r"[a-z][a-z0-9._-]{0,63}")
 PROFILE_RE = re.compile(r"[A-Za-z0-9_-]{1,64}")
 AGENT_ID_RE = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
@@ -112,7 +123,8 @@ def peer_id_ok(peer_id: str) -> bool:
 
 
 def canonical_row(row: dict) -> bytes:
-    return json.dumps({k: row[k] for k in SIGNED_KEYS}, sort_keys=True, separators=(",", ":"),
+    signed = SIGNED_KEYS + ((HOST_KEY,) if HOST_KEY in row else ())
+    return json.dumps({k: row[k] for k in signed}, sort_keys=True, separators=(",", ":"),
                       ensure_ascii=True).encode("ascii")
 
 
@@ -184,6 +196,43 @@ class Roster:
     endpoint: str
     port_range: tuple[int, int]
     rows: tuple[dict, ...]
+    # runtime/hosts/registry.json "hosts", read only when a row names a host (with_hosts);
+    # empty otherwise, so a roster with no host in it never depends on that file.
+    hosts: Mapping[str, object] = field(default_factory=dict)
+
+
+def load_hosts(path: str) -> dict:
+    try:
+        with open(path, encoding="utf-8") as fh:
+            hosts = json.load(fh)["hosts"]
+    except (OSError, ValueError, KeyError, TypeError) as e:
+        raise RosterError(f"a roster row names a host and the hosts registry {path} cannot be read ({type(e).__name__})") from e
+    if not isinstance(hosts, dict):
+        raise RosterError(f"the hosts registry {path} has no hosts object")
+    return hosts
+
+
+def with_hosts(roster: Roster, registry_path: str) -> Roster:
+    """The roster with the hosts registry attached iff some row names a host."""
+    if not any(isinstance(r, dict) and HOST_KEY in r for r in roster.rows):
+        return roster
+    return replace(roster, hosts=load_hosts(registry_path))
+
+
+def host_address(roster: Roster, host: str) -> tuple[str | None, str]:
+    """(multiaddr protocol 'ip4'|'ip6', literal address) of a host, or (None, why).
+    A name is refused: it would be resolved, and a dial would follow whatever it resolved to."""
+    rec = roster.hosts.get(host)
+    if not isinstance(rec, dict):
+        return None, f"host {host!r} is not in the hosts registry"
+    addr = rec.get("interweave_address")
+    if not isinstance(addr, str) or not addr:
+        return None, f"host {host!r} has no interweave_address"
+    try:
+        ip = ipaddress.ip_address(addr)
+    except ValueError:
+        return None, f"host {host!r} interweave_address {addr!r} is not a literal IP address"
+    return f"ip{ip.version}", str(ip)
 
 
 def load(path: str) -> Roster:
@@ -215,8 +264,8 @@ def valid_rows(roster: Roster, keys: KeySource) -> tuple[list[dict], list[Refusa
         refused.setdefault(i, why)
 
     for i, row in enumerate(roster.rows):
-        if set(row) != ROW_KEYS or type(row["port"]) is not int or not all(
-                isinstance(row[k], str) for k in ROW_KEYS - {"port"}):
+        if (set(row) - {HOST_KEY} != ROW_KEYS or type(row["port"]) is not int or not all(
+                isinstance(row[k], str) for k in set(row) - {"port"})):
             refuse(i, "the row has other fields than the roster's, or of other types")
             continue
         if not AGENT_ID_RE.fullmatch(row["agent_id"]) or not LOGIN_RE.fullmatch(row["login"]):
@@ -227,6 +276,10 @@ def valid_rows(roster: Roster, keys: KeySource) -> tuple[list[dict], list[Refusa
             refuse(i, "the endpoint is not the roster's")
         elif not peer_id_ok(row["peer_id"]):
             refuse(i, "the PeerId is not a libp2p Ed25519 PeerId")
+        elif HOST_KEY in row and not HOST_RE.fullmatch(row[HOST_KEY]):
+            refuse(i, "the host is not a hosts registry id")
+        elif HOST_KEY in row and host_address(roster, row[HOST_KEY])[0] is None:
+            refuse(i, host_address(roster, row[HOST_KEY])[1])
     # A collision refuses every row in it: which of two rows claiming one
     # port or PeerId is the real one is the coordinator's to say, not ours.
     for field in ("agent_id", "login", "peer_id", "port"):
@@ -278,7 +331,14 @@ def render_config(roster: Roster, good: list[dict], agent_id: str) -> str:
         raise RosterError("this agent has no valid row in the roster: nothing to render")
     others = sorted((r for r in good if r["agent_id"] != agent_id), key=lambda r: r["port"])
     allowed = json.dumps([r["peer_id"] for r in others])
-    boot = json.dumps([f"/ip4/{LOOPBACK}/tcp/{r['port']}/p2p/{r['peer_id']}" for r in others])
+    def where(r: dict) -> str:
+        if HOST_KEY not in r:
+            return f"/ip4/{LOOPBACK}/tcp/{r['port']}"
+        proto, addr = host_address(roster, r[HOST_KEY])
+        if proto is None:  # valid_rows refused such a row; a caller that hands one in gets a refusal, not 127.0.0.1
+            raise RosterError(addr)
+        return f"/{proto}/{addr}/tcp/{r['port']}"
+    boot = json.dumps([f"{where(r)}/p2p/{r['peer_id']}" for r in others])
     return (
         "# Rendered from runtime/interweave/roster.json by agent-fabric; never hand-edited\n"
         "schema_version: 2\n"
@@ -299,7 +359,7 @@ def render_config(roster: Roster, good: list[dict], agent_id: str) -> str:
         "      priority: 5\n"
         "      config:\n"
         f"        peers: {boot}\n"
-        f"transport: {{ listen: {{ addresses: [\"/ip4/{LOOPBACK}/tcp/{me['port']}\"] }} }}\n"
+        f"transport: {{ listen: {{ addresses: [\"{where(me)}\"] }} }}\n"
         "observability: { log_level: info }\n"
     )
 
