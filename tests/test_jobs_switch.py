@@ -192,9 +192,10 @@ def main() -> int:
         rc, out, err = w.sw("pause", j1, "set aside for the urgent one")
         check("pause on a feature branch records the branch and its checkout", rc == 0 and w.job(j1)["branch"] == "side/work"
               and w.job(j1)["worktree"] == w.repo, repr(w.job(j1)))
+        # A branch with no commit of its own is on the default branch already, and settled (j178); this one carries work.
+        subprocess.run(["git", "-C", w.repo, "commit", "-q", "--allow-empty", "-m", "work"], check=True, env=git_env())
         rc, out, err = w.switch()
         check("a branch that is not on origin is refused", rc == 1 and "branch side/work is not on origin" in err, err)
-        subprocess.run(["git", "-C", w.repo, "commit", "-q", "--allow-empty", "-m", "work"], check=True, env=git_env())
         subprocess.run(["git", "-C", w.repo, "push", "-q", "origin", "side/work"], check=True, env=git_env())
         subprocess.run(["git", "-C", w.repo, "commit", "-q", "--allow-empty", "-m", "more"], check=True, env=git_env())
         rc, out, err = w.switch()
@@ -1710,6 +1711,82 @@ def main() -> int:
         rc, out, err = w.switch(j1)
         check("a job that began on its own branch keeps it when a for/ branch is recorded later",
               rc == 0 and w.job(j1)["branch"] == began and on(w.job(j1)["worktree"]) == began, out + err + repr(w.job(j1)))
+
+        print("paused: a branch the hygiene run swept after it merged is settled; a worktree that is gone is not an error")
+
+        def paused_on(branch: str):
+            """A paused job on `branch`, checked out in the world's repository, with a next job queued."""
+            w = World()
+            j1 = w.working("the swept work")
+            git(w.repo, "checkout", "-q", "-b", branch)
+            git(w.repo, "commit", "-q", "--allow-empty", "-m", "work")
+            return w, j1
+
+        def git(repo: str, *argv: str) -> None:
+            subprocess.run(["git", "-C", repo, *argv], check=True, env=git_env(), capture_output=True)
+
+        def gone_worktree(w: World, j1: str) -> None:
+            """The recorded worktree no longer exists, as after a sweep: the job still names it."""
+            jpath = os.path.join(w.state, "agents", login, "jobs.json")
+            doc = json.load(open(jpath))
+            next(j for j in doc["jobs"] if j["id"] == j1)["worktree"] = os.path.join(tmp, f"swept-{w.n}")
+            with open(jpath, "w", encoding="utf-8") as fh:
+                json.dump(doc, fh)
+
+        w, j1 = paused_on("side/merged")
+        git(w.repo, "push", "-q", "origin", "side/merged")
+        w.sw("pause", j1, "set aside")
+        git(w.repo, "checkout", "-q", "main")
+        git(w.repo, "merge", "-q", "--no-ff", "side/merged", "-m", "Merge pull request #7 from some-org/side/merged")
+        git(w.repo, "push", "-q", "origin", "main")
+        git(w.repo, "push", "-q", "origin", "--delete", "side/merged")
+        git(w.repo, "branch", "-q", "-D", "side/merged")
+        git(w.repo, "fetch", "-q", "--prune", "origin")
+        gone_worktree(w, j1)
+        w.add("next", "--priority", "high")
+        rc, out, err = w.switch()
+        check("merged, deleted on origin, swept locally, worktree gone: the job is left with no push",
+              rc == 0 and "on origin/main (its pull request merged)" in out, out + err)
+
+        w, j1 = paused_on("side/ffmerged")
+        git(w.repo, "push", "-q", "origin", "side/ffmerged")
+        w.sw("pause", j1, "set aside")
+        git(w.repo, "checkout", "-q", "main")
+        git(w.repo, "merge", "-q", "--ff-only", "side/ffmerged")
+        git(w.repo, "push", "-q", "origin", "main")
+        git(w.repo, "branch", "-q", "-D", "side/ffmerged")
+        gone_worktree(w, j1)
+        w.add("next", "--priority", "high")
+        rc, out, err = w.switch()
+        check("a fast-forward merge whose origin branch is still there settles from its head", rc == 0 and "branch side/ffmerged on origin/main" in out, out + err)
+
+        w, j1 = paused_on("side/lost")
+        w.sw("pause", j1, "set aside")
+        gone_worktree(w, j1)
+        w.add("next", "--priority", "high")
+        rc, out, err = w.switch()
+        check("a branch with an unpushed commit still refuses, worktree gone or not",
+              rc == 1 and "branch side/lost is not on origin: push it" in err and w.job(j1)["state"] != "active", err)
+
+        w, j1 = paused_on("side/gone")
+        git(w.repo, "push", "-q", "origin", "side/gone")
+        w.sw("pause", j1, "set aside")
+        git(w.repo, "checkout", "-q", "main")
+        git(w.repo, "branch", "-q", "-D", "side/gone")
+        git(w.repo, "push", "-q", "origin", "--delete", "side/gone")
+        git(w.repo, "fetch", "-q", "--prune", "origin")
+        gone_worktree(w, j1)
+        w.add("next", "--priority", "high")
+        rc, out, err = w.switch()
+        check("a branch that is nowhere and on no merge is unknown, never settled", rc == 1 and "branch side/gone is not on origin" in err, err)
+
+        w, j1 = paused_on("side/pushed")
+        git(w.repo, "push", "-q", "origin", "side/pushed")
+        w.sw("pause", j1, "set aside")
+        gone_worktree(w, j1)
+        w.add("next", "--priority", "high")
+        rc, out, err = w.switch()
+        check("a removed worktree on a pushed branch is fine", rc == 0 and "branch side/pushed pushed" in out, out + err)
 
         print("a session that has worked no job takes the first in place, with its branch")
         w = World()
