@@ -54,6 +54,9 @@ Writes, idempotently, and only machine-local files:
                                      the login's daily working-state backup (runtime/control/;
                                      j179): the timer enabled and started in this account's
                                      user manager when one is running
+  <units>/agent-fabric-tidy.{service,timer}
+                                     the login's daily removal of build output no open job
+                                     holds (fabric-jobs tidy; j439), the timer enabled likewise
   <units>/gzcoord-relay.service      ONLY on the account whose workspace hosts the relay
                                      ($PROJECTS/.gzcoord/venv exists): the relay as a unit
   <units>/agent-fabric-relay-backup.{service,timer}
@@ -259,6 +262,7 @@ UNIT = "agent-fabric-agentd"
 RELAY_UNIT = "gzcoord-relay"
 BACKUP_UNIT = "agent-fabric-state-backup"
 RELAY_BACKUP_UNIT = "agent-fabric-relay-backup"
+TIDY_UNIT = "agent-fabric-tidy"
 RELAY_STATUS = "http://127.0.0.1:8765/status"
 JOURNAL_IMPORT_TIMEOUT = 20
 # The marker of ADR-042's migration on this account, under its state.
@@ -541,6 +545,7 @@ class Bootstrap:
         self.trust(trusted)
         self.control_agent()
         self.state_backup()
+        self.tidy()
         self.relay()
         self.relay_backup()
         self.langid()
@@ -1091,6 +1096,24 @@ class Bootstrap:
             run_quiet(["systemctl", "--user", "restart", f"{BACKUP_UNIT}.timer"])
         say(f"  *  {BACKUP_UNIT}.timer: {answer(['systemctl', '--user', 'is-active', f'{BACKUP_UNIT}.timer'])} "
             f"(systemctl --user list-timers {BACKUP_UNIT}.timer)")
+
+    def tidy(self) -> None:
+        # 6a'. The daily build-output tidy: on every account, mechanics exactly
+        #      the state backup's (6a).
+        before = self.changed
+        for suffix in ("service", "timer"):
+            self.put_file(os.path.join(self.units, f"{TIDY_UNIT}.{suffix}"), f"runtime/control/{TIDY_UNIT}.{suffix}")
+        if self.dry_run:
+            return
+        if not self.user_manager():
+            say(f"  !  {TIDY_UNIT}.timer: installed, not enabled — no user manager at "
+                f"{os.environ['XDG_RUNTIME_DIR']}/bus (systemd absent, or no login session; the next bootstrap with one enables it)")
+            return
+        run_quiet(["systemctl", "--user", "enable", "--now", f"{TIDY_UNIT}.timer"])
+        if self.changed > before:
+            run_quiet(["systemctl", "--user", "restart", f"{TIDY_UNIT}.timer"])
+        say(f"  *  {TIDY_UNIT}.timer: {answer(['systemctl', '--user', 'is-active', f'{TIDY_UNIT}.timer'])} "
+            f"(systemctl --user list-timers {TIDY_UNIT}.timer)")
 
     def agentd_unit(self) -> bytes:
         """The control agent's unit: runtime/control/agent-fabric-agentd.service
