@@ -275,8 +275,9 @@ address, where the relay's `sender` is a claim (ADR-033 §6).
   every other profile's allowlist; a retired one, its entry removed and
   the renders repeated, or a `transportctl trust revoke` until then.
 - Agents on another host — none today — stay on the relay alone.
-- The build rests on a tagged, pinned release: v0.1.0, in
-  `runtime/interweave/release.json` (rule 4).
+- The build rests on a tagged, pinned release, the one
+  `runtime/interweave/release.json` names `current` (rule 4); moving it
+  is a commit there, which the accounts then install (rule 14).
 
 ## 7. Future Evolution
 
@@ -297,8 +298,8 @@ here.
 
 ## 8. Decision Status
 
-Accepted. Its build runs on InterWeave v0.1.0, pinned in
-`runtime/interweave/release.json` (§5 rule 4).
+Accepted. Its build runs on the InterWeave release
+`runtime/interweave/release.json` names `current` (§5 rule 4).
 
 ## References
 
@@ -325,3 +326,4 @@ The body above reads current; each change's full note is in [history/ADR-064-ame
 | 2026-10-26 | The roster's ports are reserved from the host's ephemeral range | §5 rule 1 |
 | 2026-10-26 | The parity evidence is gathered through the control plane | §5 rule 11 |
 | 2026-10-27 | One host is the first milestone; a second host is the next | §2 lead and one-host bullet; §5 rule 1; §7 |
+| 2026-10-28 | The pin moves to InterWeave v0.2.0; the record names the pin, not a version | §6, §8 |

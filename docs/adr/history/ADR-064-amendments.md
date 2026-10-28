@@ -106,3 +106,21 @@ opened by an amendment naming the host, routable roster addresses and
 how InterWeave ADR-0034 §7 and SPIKE-004's limits are consumed or
 accepted on the owner's word. Until it lands, profiles still listen on
 `127.0.0.1` only; nothing else changes.
+
+### Amendment 2026-10-28 — The pin moves to InterWeave v0.2.0; the record names the pin, not a version
+
+What changed: `runtime/interweave/release.json` `current` is 0.2.0
+(tag v0.2.0, commit 32ade966, release run 40568434157 attempt 1,
+success), its 0.1.0 entry kept. The archive's SHA-256 was computed from
+fabric-coordinator's own download and matched the release page's
+digest and the `.sha256` asset; `transportctl` and `transport-daemon`
+print `0.2.0+32ade966cff8`, and their digests are pinned beside it. The
+two user-unit templates are byte-for-byte the ones 0.1.0 installed.
+§6 and §8 now name the pin, not a version, so the next move is a commit
+to release.json alone.
+
+Why: the owner, 2026-10-28, in the coordinator's session: "0.2.0
+landed". The fleet installs it by `fabric-ctl <login|all>
+interweave-install` (rule 14), two accounts first with rule 13's
+procedure re-run on the new programs, then the rest; the dual run's
+parity window counts from after the fleet runs one version.
