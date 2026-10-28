@@ -10,7 +10,7 @@ Mutations planted on the source as formatted, each caught by the case named:
                              read as none on a failure (an_open_pull_request_stays, gh_unavailable_skips_the_step); `--worktrees` also
                              deleting on origin (worktrees_only_deletes_nothing_on_origin); the plain report deleting (the_report_is_the_dry_run);
                              the lease dropped (a_branch_pushed_during_the_run_stays); a refused delete stopping the rest or exiting 0
-                             (a_refused_delete_is_named_and_the_rest_go_on); the default branch never filtered (the_default_branch_stays); ls-remote replaced by the fetched refs (a_branch_the_host_deleted_is_not_offered).
+                             (a_refused_delete_is_named_and_the_rest_go_on); the default branch never filtered (the_default_branch_stays); ls-remote replaced by the fetched refs (a_branch_the_host_deleted_is_not_offered); the `--all` note dropped (all_says_a_refused_origin_delete_is_not_an_unswept_copy).
 
 The environment is built from scratch: PATH (a fake gh first, so no case reaches GitHub), HOME, LANG, TMPDIR, the state directory."""
 from __future__ import annotations
@@ -159,6 +159,16 @@ class Remote(unittest.TestCase):
         rc, out, err = self.run_cmd("--sweep")
         self.assertEqual(rc, 0, (out, err))
         self.assertNotIn("for/x/gone", out)
+
+    def test_all_says_a_refused_origin_delete_is_not_an_unswept_copy(self):
+        self.push(f"{MINE}for/x/a", merged=True)
+        hook = os.path.join(self.origin, "hooks", "pre-receive")
+        with open(hook, "w", encoding="utf-8") as fh:
+            fh.write("#!/bin/sh\nexit 1\n")
+        os.chmod(hook, 0o755)
+        rc, out, err = self.run_cmd("--sweep", "--all")
+        self.assertEqual(rc, 1, (out, err))
+        self.assertIn(f"{self.wc} (exit 1) — exit 1 also means a delete on origin was refused", out)
 
     def test_a_branch_pushed_during_the_run_stays(self):
         self.push(f"{MINE}feat/racing", merged=True)

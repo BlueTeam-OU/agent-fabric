@@ -940,7 +940,9 @@ def sweep_all(top: str) -> int:
     echo("session scratch:")
     sweep_sessions()
     if skipped:
-        echo(f"skipped, not swept or not recorded: {', '.join(skipped)}")
+        # Exit 1 is also a completed, recorded sweep whose delete of a branch on origin was refused: said, not left to read as unswept.
+        note = " — exit 1 also means a delete on origin was refused (the copy was swept)" if any(x.endswith("(exit 1)") for x in skipped) else ""
+        echo(f"skipped, not swept or not recorded: {', '.join(skipped)}{note}")
         return 1
     return 0
 
