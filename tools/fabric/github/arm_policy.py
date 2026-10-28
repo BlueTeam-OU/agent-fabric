@@ -2,7 +2,7 @@
 how many work commits arm it at the review gate, and the GitHub settings that enforce the rest, as one document
 whose shape is identities/schemas/arming.schema.json (the coordinator's). Step A (#196) made arm.py and pr_gate.py
 read the 8 and the 16 through it; step C (this) makes it the schema's document, reads it for the repository's client,
-and maps it onto GitHub for tools/fabric/github/repo_policy.py (fabric-repo-policy plan|verify) and arm.py's drift
+and maps it onto GitHub for tools/fabric/github/repo_policy.py (fabric-repo-policy plan|verify|apply) and arm.py's drift
 refusal.
 
 WHERE A POLICY IS. Two layers, the second over the first:
