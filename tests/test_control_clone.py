@@ -203,6 +203,46 @@ class Clone(Scratch):
         self.assertEqual(doc["status"], "present")
         self.assertEqual(len(self.bootstraps()), 2)
 
+    def test_a_clone_killed_at_its_bound_leaves_nothing_and_the_retry_clones_not_present(self):
+        # git killed by SIGKILL runs no cleanup: the fake leaves what git leaves, a .git with the origin set.
+        def killed(argv, **kw):
+            if argv[:2] == ["git", "clone"]:
+                git("init", "-q", argv[-1])
+                git("remote", "add", "origin", argv[-2], cwd=argv[-1])
+                raise subprocess.TimeoutExpired(argv, kw["timeout"])
+            return util.run_bounded(argv, **kw)
+        first = self.go(run=killed)
+        self.assertEqual(first["status"], "failed")
+        self.assertFalse(os.path.lexists(self.dest), "the half clone is removed")
+        self.assertEqual(self.go()["status"], "cloned")
+        self.assertTrue(os.path.isfile(os.path.join(self.dest, "f")))
+
+    def test_a_clone_that_failed_does_not_remove_what_was_there_before(self):
+        os.makedirs(self.dest)
+        self.go(run=lambda *a, **k: self.fail("ran"))
+        self.assertTrue(os.path.isdir(self.dest))
+
+    def test_the_reason_is_the_line_that_says_what_failed_not_gits_closing_advice(self):
+        err = (b"Warning: Permanently added 'h' to the list of known hosts.\ngit@h: Permission denied (publickey).\nfatal: Could not read from remote repository.\n\n"
+               b"Please make sure you have the correct access rights\nand the repository exists.\n")
+
+        def run(argv, **kw):
+            raise subprocess.CalledProcessError(128, argv, b"", err)
+        doc = self.go(run=run)
+        self.assertEqual(doc["reason"], "git clone exited 128: fatal: Could not read from remote repository.")
+        err = b"ssh: Could not resolve hostname h\nPlease make sure you have the correct access rights\nand the repository exists.\n"
+        self.assertEqual(self.go(run=run)["reason"], "git clone exited 128: ssh: Could not resolve hostname h")
+
+    def test_a_unit_change_bootstrap_left_to_the_caller_is_said_in_the_reply(self):
+        def run(argv, **kw):
+            if argv[0] == "bash":
+                return subprocess.CompletedProcess(argv, 0, b"  *  x.service: unit changed; restart left to the caller\n", b"")
+            return util.run_bounded(argv, **kw)
+        doc = self.go(run=run)
+        self.assertEqual(doc["status"], "cloned")
+        self.assertIn("restart is owed", doc["warning"])
+        self.assertNotIn("warning", self.go(run=lambda a, **k: subprocess.CompletedProcess(a, 0, b"", b"") if a[0] == "bash" else util.run_bounded(a, **k)))
+
     def test_a_bootstrap_that_hangs_is_a_failure(self):
         def run(argv, **kw):
             if argv[0] == "bash":
