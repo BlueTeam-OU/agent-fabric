@@ -148,3 +148,23 @@ work in progress; it still refuses a copy that is gone or whose git
 status cannot be read, and a dirty copy that is another unfinished
 job's worktree or whose job list cannot be read.
 Rule 12 says so.
+
+### Amendment 2026-10-28 — The sweep deletes the login's own merged branches on origin
+
+architect-cto-01 found 256 of InterWeave's 266 origin branches on main
+(REQUEST 01a18168-0ae7, 2026-10-28): delete-on-merge removes only a
+pull request's own head, so every `for/` supply branch folded into
+another lane's PR (234) and every branch folded into one of its own
+lane or pushed after the merge (24) stayed. The owner had them pruned
+by hand; rule 11 said "local only", so nothing would stop them growing
+back. python-dev-03's #416 (j92) makes `fabric-branches --sweep` delete,
+on origin, each branch under the login's own `<host>/<login>/` whose
+`git ls-remote` tip is an ancestor of the freshly fetched default branch
+and that heads no open pull request, with a push leased to that tip so
+one pushed since stays. The plain report lists them as the dry run.
+Another login's branch, a branch with a commit off the default branch
+(a squash-merged one: accepted) and an open PR's head are never
+touched; `gh` missing or unauthenticated ends the step with a line,
+since an unknown PR state is not none, and the local sweep goes on.
+`--sweep --worktrees`, which `fabric-jobs switch` runs, deletes nothing
+on origin.
