@@ -179,7 +179,11 @@ def main() -> int:
         check("…and their branches are kept with the reason, not refused by git",
               "KEPT wt-dirty — checked out in a worktree that stays" in out and "cannot delete branch" not in out, out)
         git("branch", "-q", "-D", f"{me}/merged", ok=True)
-        git("branch", "-q", f"{me}/merged", f"origin/{me}/merged")
+        # j92 (2026-10-28), the one deliberate change to this oracle: the sweep above already deleted this login's merged
+        # branch on origin (tests/test_branches_remote.py holds that contract), so the local branch is made from main.
+        check("…which also deleted this login's merged branch on origin, not another's",
+              not has_branch(f"{me}/merged", cwd=origin) and has_branch("other-host/other-login/fix", cwd=origin))
+        git("branch", "-q", f"{me}/merged", "origin/main")
         if not os.path.isdir(f"{t}/wt-clean"):
             git("worktree", "add", "-q", f"{t}/wt-clean", "-b", "wt-clean2", "main", ok=True)
 
@@ -192,8 +196,7 @@ def main() -> int:
         check("…keeps a branch with commits off main, and main", has_branch(f"{me}/owed") and has_branch("main"), out)
         check("…removes a clean worktree at 0, keeps one with changes",
               not os.path.isdir(f"{t}/wt-clean") and os.path.isdir(f"{t}/wt-dirty") and has_branch("wt-dirty"), out)
-        check("…and no remote branch is touched",
-              has_branch(f"{me}/merged", cwd=origin) and has_branch("other-host/other-login/fix", cwd=origin))
+        check("…and no other login's remote branch is touched", has_branch("other-host/other-login/fix", cwd=origin))
         top = git("rev-parse", "--show-toplevel").strip()
         try:
             with open(f"{t}/state/agents/{LOGIN}/branch-sweep.json", encoding="utf-8") as fh:
