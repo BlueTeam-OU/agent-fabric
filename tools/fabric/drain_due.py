@@ -21,12 +21,13 @@ CONTRACT.
                topic that is still queued, active, paused or blocked is updated in place (title; priority only while it
                is normal or high, so an owner's `blocking` stays); a delivered one is a drain whose landing is under
                way, and a new job is added beside it. Nothing drainable anywhere adds and changes no job.
-            4. The last 4 run directories are kept; older ones are removed. Only after a report was written, so a
-               failing week never evicts the runs that worked.
+            4. The last 4 run directories are kept; older ones are removed. Only after a report was written and a
+               store answered, and a failing collection leaves no directory, so it never evicts a run that worked.
   stdout    the report's summary line, and the job's id.
   stderr    every failure, prefixed `fabric-drain-due: `.
   exit      0 done, or not the coordinator; 1 the collection or the report failed, or no store answered at all (a
-            week of "unknown" must show as a failed unit in the journal; its report is kept, no run is pruned), or
+            week of "unknown" must show as a failed unit in the journal; its report is kept and nothing is pruned that day, though
+            it counts among the 4 kept at the next success), or
             the job could not be kept, or another run holds the lock; 2 bad argv.
 """
 from __future__ import annotations
@@ -305,7 +306,9 @@ def collect(args: argparse.Namespace, now_ms: Callable[[], int], now: int, drain
             shutil.rmtree(run_dir, ignore_errors=True)
         raise
     unknown = report["totals"]["unknown"]
-    if report["stores"] and unknown == len(report["stores"]):
+    # "Answered" is a count given, not an age: an older control agent's store has the first and not the second, and
+    # its count still earns the job.
+    if report["stores"] and all(st["drainable"] is None for st in report["stores"]):
         # Decided before the prune: a run that fails evicts none of the runs that worked.
         raise Failed(f"no store answered; the report is {run_dir}/report.json")
     job = keep_job(report)

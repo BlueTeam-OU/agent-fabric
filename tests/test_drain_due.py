@@ -171,6 +171,10 @@ def main() -> int:
         code, out, err = run(ctl([row("dev-01", [])], name="ctl7"))
         check("an account with no memory directory is known and empty, not a failure", code == 0, (code, err))
 
+        old_agents = [row("o1", [bundle("a", 5, None)]), row("o2", [bundle("b", 5, None)])]
+        code, out, err = run(ctl(old_agents, name="ctl-old"))
+        check("stores that give a count and no age (older control agents) are answers: the job is kept, the age unknown",
+              code == 0 and "10 claims in 2 stores, oldest ? d" in out and "job j" in out and "no store answered" not in err, (code, out, err))
         print("fabric-drain-due: what cannot be told stays unknown")
         stale = bundle("old", 2, None)       # an older control agent: counts, no age
         for label, rows_, why in (
