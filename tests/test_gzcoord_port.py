@@ -1940,7 +1940,10 @@ def _():
     rc, out, err, hits, posted = _placement_send(to, "--force")
     eq(rc, 0, err)
     ok(out.startswith("sent seq 7 INFO ") and "nobody-placed-here" in posted, f"{out!r} {posted!r}")
-    eq([h for h in hits if "presence" in h], [], "presence is not asked about an address no host places")
+    eq(_api_hits(hits), ["POST /api/send"], "the message is the one relay call")
+    # presence.py answers not-placed without a relay call, so what shows it was not asked is the line it would add.
+    ok("not an account any host places" not in err and err.count("sending anyway") == 1 and err.count("is no account") == 1,
+       f"said once, by the local test and not again by the presence check: {err}")
     rc, out, err, hits, posted = _placement_send(to, "--force", token=False)
     eq(rc, 3, f"placement forced, then the old no-token refusal: {err}")
 
