@@ -13,6 +13,7 @@ bin/fabric-ctl runs this on the pinned Python).
     fabric-ctl <login|all> branches [--sweep]
     fabric-ctl <login|all> drift
     fabric-ctl <login|all> tools-install <tool>
+    fabric-ctl <login>... clone <project-id>
     fabric-ctl <login|all> gateway | gateway-install --version V
     fabric-ctl <login|all> <carrier> | <carrier>-install      (the carrier's transport; gzcoord.carrier.CARRIER_NAME)
     fabric-ctl <login> jobs-add [--topic T] [--project P] [--priority P] [--] "<title>"
@@ -112,6 +113,7 @@ from control.sessions import SESSION_ID
 from control.sign import ACTION_OPS, ACTION_TTL_MAX_S, generate_operator_key, public_key_from, sign_request
 from control import units
 from control.branches_op import BRANCHES_SWEEP_BUDGET_S
+from control.clone import CLONE_BUDGET_S
 from control.gateway import GATEWAY_INSTALL_BUDGET_S
 from control.carrier_install import (CARRIER_INSTALL_BUDGET_S, CARRIER_READ_BUDGET_S, CARRIER_START_BUDGET_S, CARRIER_STOP_BUDGET_S,
                                      INSTALL_OP, START_OP, STOP_OP)
@@ -121,6 +123,7 @@ from gzcoord.carrier import CARRIER_LABEL, CARRIER_NAME, parity as _parity
 from control.tools import TOOL_NAME, TOOLS_INSTALL_BUDGET_S
 from control.upgrade import FABRIC_UPGRADE_BUDGET_S, PIECES, UPGRADE_BUDGET_S, VERSION_RE, pinned_version
 import roots
+from registry_id import REGISTRY_ID
 
 UNDEFINED = js.UNDEFINED
 
@@ -195,6 +198,10 @@ VERBS: tuple[Verb, ...] = (
          "fabric-ctl all tools-install shellcheck",
          usage=(("<login|all> tools-install <tool>", "an action: install the tool its registry pin names, on the accounts with a working copy of a project that declares it"),),
          args="<tool>", signed="always", options=COMMON),
+    Verb("clone", "Place a registered project's working copy on an account that already exists, and bootstrap it.",
+         "fabric-ctl ux-designer-01 clone gzapp",
+         usage=(("<login>... clone <project-id>", "an action: clone the registry's remote into ~/projects/<id> as the account (a clone already there is `present`, its origin pointed at the registry's) and run its bootstrap; never `all`"),),
+         args="<project-id>", signed="always", options=COMMON),
     Verb("restart", "Stop the account's running session so its launcher resumes it on the current fabric. One account at a time for all; refused while an upgrade or a secrets-sync runs.",
          "fabric-ctl db-admin restart",
          usage=(("<login|all> restart", "an action: stop the account's running session so its launcher resumes it on the current fabric; one account at a time for all; refused while an upgrade or a secrets-sync runs"),),
@@ -481,6 +488,8 @@ def build_request(args: dict, *, id: str, from_: str, to: Any, cfg: dict, ts: st
         req["args"] = job_args(args)
     if op == "tools-install":
         req["args"] = {"tool": args["tool"]}
+    if op == "clone":
+        req["args"] = {"project": args["tool"]}
     if op == "gateway-install":
         req["args"] = {"version": args["version"]}
     if op == EVIDENCE_OP:
@@ -587,8 +596,8 @@ def parse_args(argv: list[str]) -> dict:
             raise CtlError(f"unknown option {a}")
         elif a == "keygen" and not out["targets"]:
             out["op"] = "keygen"
-        elif out["op"] == "tools-install" and out["tool"] is None:
-            out["tool"] = a   # the word after `tools-install` is the tool, never a login
+        elif out["op"] in ("tools-install", "clone") and out["tool"] is None:
+            out["tool"] = a   # the word after `tools-install` is the tool, after `clone` the project, never a login
         elif out["op"] == "upgrade" and out["piece"] is None:
             out["piece"] = a   # the word after `upgrade` is the piece, never a login
         elif titled and out["title"] is None:
@@ -606,7 +615,7 @@ def parse_args(argv: list[str]) -> dict:
     if out["timeout"] is None:
         out["timeout"] = (units.STEP_TIMEOUT_S if op in units.UNIT_OPS else 5 if op == "ping" else 120 if op == "memory" else 60 if op == "tokens" else 300 if op == "accounts"
                           else 200 if op == "disk" else (FABRIC_UPGRADE_BUDGET_S if out["piece"] == "fabric" else UPGRADE_BUDGET_S) if op == "upgrade"
-                          else 240 if op == "secrets-sync" else RESTART_BUDGET_S if op == "restart" else TOOLS_INSTALL_BUDGET_S if op == "tools-install"
+                          else 240 if op == "secrets-sync" else CLONE_BUDGET_S if op == "clone" else RESTART_BUDGET_S if op == "restart" else TOOLS_INSTALL_BUDGET_S if op == "tools-install"
                           else GATEWAY_INSTALL_BUDGET_S if op == "gateway-install"
                           else CARRIER_INSTALL_BUDGET_S if op == INSTALL_OP
                           else CARRIER_START_BUDGET_S if op == START_OP
@@ -648,6 +657,11 @@ def parse_args(argv: list[str]) -> dict:
             raise CtlError("pool-add names the one login that holds the pool")
     if op == "tools-install" and (out["tool"] is None or not TOOL_NAME.fullmatch(out["tool"])):
         raise CtlError("tools-install takes a tool name: fabric-ctl <login|all> tools-install <tool>")
+    if op == "clone":
+        if out["tool"] is None or not REGISTRY_ID.fullmatch(out["tool"]):
+            raise CtlError("clone takes a project id: fabric-ctl <login>... clone <project-id>")
+        if not out["targets"] or "all" in out["targets"]:
+            raise CtlError("clone names the logins it places a working copy on, never `all`")
     bad = units.check_args(out)
     if bad:
         raise CtlError(bad)
@@ -871,13 +885,13 @@ def rows(expected: list[dict], replies: list[dict]) -> list[dict]:
                     "localPrune": g("local-prune"), "selftest": g("secrets-selftest"), "agentd": g("agentd"),
                     # Only where the control agent answered them (an older one does not): a row never says null for a section nobody asked.
                     **{k: g(k) for k in ("harness", "inbox", "switch", "drift") if dig(d, k) is not UNDEFINED},
-                    **{key: g(op) for key, op in (("branches", "branches"), ("branchesSweep", "branches-sweep"), (f"{CARRIER_NAME}Evidence", EVIDENCE_OP)) if dig(d, op) is not UNDEFINED}})
+                    **{key: g(op) for key, op in (("branches", "branches"), ("branchesSweep", "branches-sweep"), ("clone", "clone"), (f"{CARRIER_NAME}Evidence", EVIDENCE_OP)) if dig(d, op) is not UNDEFINED}})
     return out
 
 
 # What counts as success for each action; anything else fails the run.
 ACTION_OK = {"upgrade": ["current", "upgraded"], "secrets-sync": ["synced"], "jobs-add": ["added", "listed"], "local-prune": ["pruned", "clean"],
-             "secrets-selftest": ["pass"], "pool-add": ["added"], "tools-install": ["installed", "current", "skipped"],
+             "secrets-selftest": ["pass"], "pool-add": ["added"], "tools-install": ["installed", "current", "skipped"], "clone": ["cloned", "present"],
              "gateway-install": ["installed", "current"], INSTALL_OP: ["installed", "current"], START_OP: ["started"], STOP_OP: ["stopped"], EVIDENCE_OP: ["ok"], "branches-sweep": ["swept"], "restart": ["restarted", "no-session", "yours"]}
 
 
@@ -1203,6 +1217,20 @@ def _table_tools_install(rs: list) -> list[str]:
     for r in rs:
         u = r.get("toolsInstall")
         body = r["status"] if _unless(r, u) else f"{pad_end(S(dig(u, 'status')), 9)} {S(nullish(dig(u, 'tool'), ''))} {S(nullish(dig(u, 'version'), ''))}{' ' + S(u['reason']) if T(dig(u, 'reason')) else ''}"
+        lines.append(esc(trim_end(f"{pad_end(r['account'], 22)} {body}")))
+    return lines
+
+
+def _table_clone(rs: list) -> list[str]:
+    lines = []
+    for r in rs:
+        u = r.get("clone")
+        if _unless(r, u):
+            body = r["status"]
+        else:
+            origin = f" (origin {S(dig(u, 'origin'))})" if T(dig(u, "origin")) and dig(u, "origin") != "keep" else ""
+            note = f"  {S(u['reason'])}" if T(dig(u, "reason")) else f"  warning: {S(u['warning'])}" if T(dig(u, "warning")) else ""
+            body = f"{pad_end(S(dig(u, 'status')), 9)} {S(nullish(dig(u, 'project'), ''))}{origin}{note}"
         lines.append(esc(trim_end(f"{pad_end(r['account'], 22)} {body}")))
     return lines
 
@@ -1938,6 +1966,8 @@ def table(op: str, rs: list) -> str:
         lines = _table_tools(rs)
     elif op == "tools-install":
         lines = _table_tools_install(rs)
+    elif op == "clone":
+        lines = _table_clone(rs)
     elif op == "gateway":
         lines = _table_gateway(rs)
     elif op == "switch":

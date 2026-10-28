@@ -74,7 +74,7 @@ import tempfile
 
 from gzcoord.carrier import CARRIER_NAME
 
-ACTION_OPS = ["upgrade", "secrets-sync", "jobs-add", "local-prune", "secrets-selftest", "pool-add", "tools-install", "gateway-install", "branches-sweep", "restart", f"{CARRIER_NAME}-install", f"{CARRIER_NAME}-start", f"{CARRIER_NAME}-stop", f"{CARRIER_NAME}-evidence"]
+ACTION_OPS = ["upgrade", "secrets-sync", "jobs-add", "local-prune", "secrets-selftest", "pool-add", "tools-install", "gateway-install", "branches-sweep", "restart", f"{CARRIER_NAME}-install", f"{CARRIER_NAME}-start", f"{CARRIER_NAME}-stop", f"{CARRIER_NAME}-evidence", "clone"]
 ACTION_TTL_MAX_S = 600
 KEY_PREFIX = "ed25519:"
 PRIVATE_PREFIX = "ed25519-pkcs8:"   # one line: the store's entry is read as its first line (pass layout)

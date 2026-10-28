@@ -1519,7 +1519,7 @@ class Help(unittest.TestCase):
 
     # What a verb needs beside the option under test for parse_args to accept the line, and a value each option takes.
     NEEDS = {"upgrade": ["claude"], "memory": ["--out", "d"], "gateway-install": ["--version", "1.2.3"], "jobs-add": ["a title"],
-             "pool-add": ["--role", "python-dev", "a title"], "tools-install": ["shellcheck"],
+             "pool-add": ["--role", "python-dev", "a title"], "tools-install": ["shellcheck"], "clone": ["gzapp"],
              "interweave-evidence": ["--since", "2026-10-26T00:00:00Z", "--until", "2026-10-27T00:00:00Z"]}
     VALUES = {"--timeout": "5", "--days": "3", "--version": "1.2.3", "--expect": "0123456789ab", "--out": "d", "--topic": "t", "--project": "p",
               "--priority": "normal", "--role": "python-dev", "--since": "2026-10-26T00:00:00Z", "--until": "2026-10-27T00:00:00Z",
