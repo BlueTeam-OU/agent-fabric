@@ -14,7 +14,7 @@ whatever cannot be told is kept. A delivered job is not open here: its work is o
 disk. The first line names the job list that decides (its path), so a timer's journal says which one was read. A job list that is
 absent while ~/projects holds any tree refuses: nothing removed, exit 1, the path said — read_jobs reads a missing file as "no
 jobs", which under a state directory the sessions do not use would free the worktrees of every active job; an empty list that is
-there is a new account's and stays valid. One line per directory, then the total. Exit 0 unless the job list or ~/projects cannot be read: then nothing is
+there is a new account's and stays valid. One line per directory, then the total. Exit 0 unless the job list is absent (with trees) or cannot be read, or ~/projects cannot be read: then nothing is
 removed and the reason is said; a missing ~/projects is a fact, not an unreadable one (an account that has no checkouts).
 --dry-run says what would go and removes nothing."""
 from __future__ import annotations
