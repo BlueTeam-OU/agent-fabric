@@ -161,6 +161,8 @@ def clone(request: Any, root: str | None = None, home: str | None = None, run: C
             out["warning"] = "; ".join(x for x in (OWED, out.get("warning")) if x)[:REASON_MAX]
     except (subprocess.SubprocessError, OSError) as e:
         # A bootstrap that installed the unit and failed later still left the restart owed, and no rerun sees it again.
-        owed = f"; {OWED}" if UNIT_CHANGED in util.decode(getattr(e, "stdout", None)) else ""
-        return _failed(f"{out['status']}, but " + _why(e, "bootstrap.sh", BOOTSTRAP_TIMEOUT_MS) + owed, project=pid)
+        said = util.decode(getattr(e, "stdout", None) or getattr(e, "output", None))   # OutputOverflow keeps it in .output
+        why = f"{out['status']}, but " + _why(e, "bootstrap.sh", BOOTSTRAP_TIMEOUT_MS)
+        # The notice goes first: _failed cuts the reason at REASON_MAX, and the cause of a failure can be long.
+        return _failed(f"{OWED}; {why}" if UNIT_CHANGED in said else why, project=pid)
     return out

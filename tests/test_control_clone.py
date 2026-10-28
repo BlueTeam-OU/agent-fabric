@@ -218,15 +218,20 @@ class Clone(Scratch):
         self.assertTrue(os.path.isfile(os.path.join(self.dest, "f")))
         self.assertEqual(os.listdir(os.path.join(self.home, "projects")), ["gzapp"])
 
-    def test_the_destination_does_not_exist_until_the_clone_is_whole(self):
-        seen: list[bool] = []
+    def test_the_clone_is_made_beside_the_destination_and_the_destination_appears_whole(self):
+        seen: list[tuple[str, bool]] = []
 
         def run(argv, **kw):
             if argv[:2] == ["git", "clone"]:
-                seen.append(os.path.lexists(self.dest))
+                done = util.run_bounded(argv, **kw)
+                seen.append((argv[-1], os.path.lexists(self.dest)))   # sampled after git has run: a direct clone would already be there
+                return done
             return util.run_bounded(argv, **kw)
         self.assertEqual(self.go(run=run)["status"], "cloned")
-        self.assertEqual(seen, [False])
+        (target, there), = seen
+        self.assertNotEqual(target, self.dest)
+        self.assertEqual(os.path.dirname(target), os.path.dirname(self.dest))
+        self.assertFalse(there)
 
     def test_a_clone_that_lost_the_race_never_removes_the_winners(self):
         def run(argv, **kw):
@@ -279,6 +284,19 @@ class Clone(Scratch):
         self.assertEqual(doc["status"], "failed")
         self.assertIn("later step failed", doc["reason"])
         self.assertIn("systemctl --user restart agent-fabric-agentd", doc["reason"])
+
+    def test_the_owed_restart_survives_a_long_cause_and_an_overflowed_bootstrap(self):
+        said = b"  *  x.service: unit changed; restart left to the caller\n"
+        for exc in (subprocess.CalledProcessError(3, ["bash"], said, b"x" * 400 + b"\n"), util.OutputOverflow(["bash"], 5, said, b"")):
+            def run(argv, e=exc, **kw):
+                if argv[0] == "bash":
+                    raise e
+                return util.run_bounded(argv, **kw)
+            doc = self.go(run=run)
+            self.assertEqual(doc["status"], "failed")
+            self.assertIn("systemctl --user restart agent-fabric-agentd", doc["reason"])
+            self.assertLessEqual(len(doc["reason"]), cl.REASON_MAX)
+            shutil.rmtree(self.dest)
 
     def test_a_bootstrap_that_hangs_is_a_failure(self):
         def run(argv, **kw):
