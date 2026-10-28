@@ -272,11 +272,11 @@ def _sweep_one(name: str, copy: str, proc: str, root: str, run: Callable[..., An
 
 
 def _exit_words(code: int) -> str:
-    """What an exit code of the sweep says and no more: the tool's codes are classes (1 an uncaught error or an
-    unrecorded sweep, 2 a refusal or a git call that failed or timed out), not causes."""
+    """What an exit code of the sweep says and no more: the tool's codes are classes (1 an uncaught error, an
+    unrecorded sweep or a refused delete on origin, 2 a refusal or a git call that failed or timed out), not causes."""
     if code < 0:
         return f"killed by signal {-code}"
-    return {1: "exit 1: the sweep stopped or could not record itself", 2: "exit 2: refused, or a git call failed or timed out"}.get(code, f"exit {code}")
+    return {1: "exit 1: the sweep stopped or could not record itself, or origin refused a branch delete", 2: "exit 2: refused, or a git call failed or timed out"}.get(code, f"exit {code}")
 
 
 def takes_no_arguments(request: Any) -> bool:

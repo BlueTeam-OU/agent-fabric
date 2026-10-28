@@ -26,7 +26,9 @@ finding goes to the lane that owns the hunk. Independent work of
 the lane holding the consuming code, contract or screen — owns the
 branch, the PR and the arming. A supplier delivers one
 commit onto the caller's branch, or a contributor branch
-`<host>/<supplier>/for/<caller>/<what>` the caller folds unrebased;
+`<host>/<supplier>/for/<caller>/<what>` the caller folds unrebased
+(once the caller's PR is on main, the supplier's next
+`fabric-branches --sweep` deletes it from origin);
 where the composition is the caller's file (a template's markers, a
 dictionary's keys) it delivers the authored text by locator and the
 caller commits it, citing the message. A supplier never opens a PR for

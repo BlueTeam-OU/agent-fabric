@@ -512,29 +512,30 @@ its record disagree, the record wins. Look it up, never read it whole:
 ### ADR-022 — The session lifecycle: auto mode, the watch armed at launch, the inbox held while planning and visible to senders (Accepted)
 
 - One inbox watch per session, first turn to last, armed by the opening
-  prompt; the start hook says `NO INBOX WATCH` without one (§2, §5
-  rules 1–3).
+  prompt; the hook says `NO INBOX WATCH` without one (§2, §5
+  r1–3).
 - User settings start every session in auto mode (§5 r4).
 - While a session plans, `plan-hold.sh` holds the account and the watch
-  polls nothing; held messages arrive after approval; sending, the start
-  drain, `--wait` are not held (§5 rules 5–7).
-- Presence reports `planning`, shown by `fabric-ctl presence`;
-  `gzcoord-send` tells the sender, without refusing (§5 r8).
-- A clone-started session is held only if its project wires the hooks
+  polls nothing; held messages follow approval; sending, start
+  drain, `--wait` are not held (§5 r5–7).
+- Presence reports `planning`; `gzcoord-send` warns the sender,
+  never refuses (§5 r8).
+- A clone-started session is held only if its project wires hooks
   (r9, §7).
 - A 2026-09-28 — a finished job runs `fabric-fresh` (r10).
 - A 2026-09-28 — `fabric-branches --sweep` weekly (r11).
 - A 2026-09-28 — `fabric-jobs next`, `fabric-fresh --job` (r12).
 - A 2026-09-30 — the opening prompt names no command (§5 r1).
-- A 2026-10-10 — the watch: background `--until-delivery` (§5 r1, r2, r6).
-- A 2026-10-11 — after a worked job, the next starts fresh (§5 r12).
-- A 2026-10-19 — sweep pushed worktrees, session scratch; at switch (r11).
+- A 2026-10-10 — watch: background `--until-delivery` (§5 r1, r2, r6).
+- A 2026-10-11 — after a worked job, the next is fresh (§5 r12).
+- A 2026-10-19 — at switch, pushed worktrees and scratch go (r11).
 - A 2026-10-20 — unreadable registry keeps all (r11).
 - A 2026-10-24 — live job's worktree kept (r11).
-- A 2026-10-27 — fresh launch into the job's dirty copy (r12).
+- A 2026-10-27 — launch into the job's dirty copy (r12).
+- A 2026-10-28 — own merged origin branches swept (r11).
 - Keywords: session, lifecycle, inbox watch, Monitor, gzcoord-inbox,
   --follow, opening prompt, resume, auto mode, defaultMode, plan mode,
-  hold, planning, presence.
+  hold, planning, presence, branch sweep.
 
 ### ADR-023 — An assignment goes to one login (Accepted)
 
