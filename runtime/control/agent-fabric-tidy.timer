@@ -1,0 +1,16 @@
+# runtime/control/agent-fabric-tidy.timer — once a day, for
+# agent-fabric-tidy.service. 05:30 stays clear of the daily state backup
+# (midnight plus up to 1 h of delay) and of the relay backup (03, 09, 15, 21
+# plus up to 15 min); the 30 min delay spreads the fleet's logins so they do
+# not walk the disk together. Persistent: a login whose host was off at the
+# hour runs it at the next start.
+[Unit]
+Description=agent-fabric: daily build-output tidy
+
+[Timer]
+OnCalendar=*-*-* 05:30:00
+RandomizedDelaySec=30min
+Persistent=true
+
+[Install]
+WantedBy=timers.target

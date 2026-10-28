@@ -1,0 +1,21 @@
+# runtime/control/agent-fabric-tidy.service — the login's build output removed
+# from the checkouts under ~/projects that no open job holds (fabric-jobs tidy;
+# j439, built in #410), run by agent-fabric-tidy.timer. A systemd USER unit,
+# installed by bootstrap.py (step 6a') on every account, as the state backup's.
+# Oneshot: a refusal is the journal's and the next day's run tries again.
+# Nice and idle I/O: it walks large trees (target/, node_modules/) and must not
+# slow the agents working beside it. 30 min bounds a walk that has hung on a
+# stalled mount.
+[Unit]
+Description=agent-fabric: remove build output no open job holds
+
+[Service]
+Type=oneshot
+Environment=AGENT_FABRIC_ROOT=%h/projects/agent-fabric
+Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin
+WorkingDirectory=%h/projects/agent-fabric
+ExecStart=/usr/local/bin/fabric-python %h/projects/agent-fabric/tools/fabric/jobs.py tidy
+TimeoutStartSec=30min
+Nice=10
+IOSchedulingClass=idle
+NoNewPrivileges=yes
