@@ -12,6 +12,10 @@ CONTRACT, frozen from the bash (ADR-040 §5 rule 3):
             `--help`), no name, no command after `--` (without --who) is a
             usage error. There is no help option: the usage text is what a
             usage error prints.
+            The name `cpu` is a counted resource (ADR-010 A 2026-10-28), not
+            a file: see CPU SLOTS below. Its own refusals end with
+            reason=cpu-policy (host-load.json unreadable or invalid) or
+            reason=cpu-wait (AGENT_FABRIC_CPU_WAIT not a whole number).
   env       AGENT_FABRIC_LEASES   the lease directory, /run/lock/agent-fabric
                                   when unset or empty
             AGENT_FABRIC_MEMINFO  where MemAvailable is read, /proc/meminfo
@@ -40,6 +44,22 @@ CONTRACT, frozen from the bash (ADR-040 §5 rule 3):
             wrapper, as they did the bash. A signal that was ignored when the
             wrapper started stays ignored and is not forwarded (bash cannot
             trap what was ignored on entry).
+
+CPU SLOTS (ADR-010 §5 rule 9, A 2026-10-28). `cpu` is held in N slots, the
+files cpu.1 … cpu.N of the lease directory, each the same flock and the same
+holder record as any lease. N is policies/host-load.json for this host
+(`hostname -s`), max(1, nproc // cores_per_slot) when the host has no entry;
+a slot's thread budget is J = nproc // N. A taker tries each slot without
+blocking, then polls every ~2 s with jitter until its wait is over: the
+order of waiters is not first-come, on purpose (a queue file is more
+machinery than the load observed). `fabric-lease cpu --who` prints one line
+per slot and exits 0 when a slot is free, 1 when all are held; a held slot
+whose recorded pid is gone ends `(orphan: a child still runs)`. `cpu` has no
+`-- <cmd>` form: it is taken by the process that becomes the tool, with the
+descriptor INHERITED (hold_and_exec), where every other lease's command runs
+as a child with it closed. The shim for cargo and dotnet (cpu_shim.py) and
+tests/run.py take a slot through acquire_cpu and hold_and_exec below. The record of a slot is
+`<login> <pid> <since> cpu.<k> (<label>)`; the label names the job.
 
 WHY (every comment of the bash carried over, with the Python that now does it).
 
@@ -97,16 +117,22 @@ decimal text, so `--wait 010` waits ten seconds.
 """
 from __future__ import annotations
 
+import calendar
 import errno
 import fcntl
+import json
 import os
 import pwd
+import random
 import re
 import shutil
 import signal
+import socket
 import subprocess
 import sys
 import time
+from collections.abc import Callable
+from dataclasses import dataclass
 
 USAGE = """usage: fabric-lease <name> [--wait SECS] [--need-mem MB] [--label JOB] -- <cmd> [args...]
        fabric-lease <name> --who              who holds it, if anyone; exit 0 free, 1 held
@@ -479,6 +505,301 @@ def run_command(a: Args, pipe_ignored: bool, ignored_on_entry: set[int]) -> int:
     return 128 - rc if rc < 0 else rc
 
 
+# --- cpu slots (ADR-010 §5 rule 9, A 2026-10-28) ------------------------------
+
+CPU = "cpu"
+POLICY_FILE = "host-load.json"
+# "Every 2 s with jitter": two waiters woken by the same release must not
+# keep colliding on the same instant.
+CPU_POLL_S = 2.0
+CPU_JITTER_S = 0.5
+CPU_SAY_EVERY_S = 60
+# Set in the child of a slot: a shim that finds it runs its tool directly, so
+# a cargo test that runs cargo never waits on its own slot.
+SLOT_ENV = "FABRIC_CPU_SLOT"
+WAIT_ENV = "AGENT_FABRIC_CPU_WAIT"
+OPT_OUT_ENV = "AGENT_FABRIC_CPU_LEASE"
+TEST_JOBS_ENV = "AGENT_FABRIC_TEST_JOBS"
+# Where host-load.json is read from, for a test and an unusual install; unset
+# or empty means the copy beside this module (an installed shim) or the
+# repository's policies/.
+POLICY_ENV = "AGENT_FABRIC_HOST_LOAD"
+
+
+@dataclass(frozen=True)
+class CpuPolicy:
+    host: str
+    nproc: int
+    slots: int
+    wait_s: int
+
+    @property
+    def jobs(self) -> int:
+        return max(1, self.nproc // self.slots)
+
+
+@dataclass
+class CpuSlot:
+    """A held slot; the lock lives as long as `fd` does, so a caller keeps the
+    object. The descriptor is close-on-exec: nothing the holder runs and leaves
+    behind keeps the slot."""
+    fd: int
+    k: int
+    n: int
+    jobs: int
+    waited_s: int
+
+    def release(self) -> None:
+        if self.fd >= 0:
+            os.close(self.fd)
+            self.fd = -1
+
+
+def _whole(value: object, what: str, minimum: int) -> int:
+    # bool is an int in Python, and `true` is not a count of slots.
+    if isinstance(value, bool) or not isinstance(value, int) or value < minimum:
+        refuse(2, "cpu-policy", f"{what} in {POLICY_FILE} is {json.dumps(value)}, not a whole number ≥ {minimum}")
+    return value  # type: ignore[return-value]
+
+
+def policy_path() -> str:
+    given = os.environ.get(POLICY_ENV)
+    if given:
+        return given
+    here = os.path.dirname(os.path.abspath(__file__))
+    beside = os.path.join(here, POLICY_FILE)
+    if os.path.exists(beside):
+        return beside
+    # Run from a working copy: the operator's policy, found as every engine
+    # module finds it. Imported here because an installed copy has no roots.py.
+    if here not in sys.path:
+        sys.path.insert(0, here)
+    import roots
+    return roots.policy(POLICY_FILE)
+
+
+def cpu_policy(path: str | None = None, host: str | None = None, nproc: int | None = None) -> CpuPolicy:
+    """The slots and wait of this host. A host with no entry gets the default
+    from cores_per_slot (the policy's own statement); a policy that cannot be
+    read or is malformed is a refusal, never a guessed count: the number of
+    builds a host runs at once is the owner's decision, not a fallback."""
+    path = path or policy_path()
+    try:
+        with open(path, encoding="utf-8") as fh:
+            doc = json.load(fh)
+    except (OSError, ValueError) as e:
+        refuse(2, "cpu-policy", f"{path} cannot be read: {e}")
+    if not isinstance(doc, dict):
+        refuse(2, "cpu-policy", f"{path} is not a JSON object")
+    host = host if host is not None else socket.gethostname().split(".")[0]
+    nproc = nproc if nproc is not None else len(os.sched_getaffinity(0))
+    hosts = doc.get("hosts", {})
+    entry = hosts.get(host, {}) if isinstance(hosts, dict) else None
+    if not isinstance(entry, dict):
+        refuse(2, "cpu-policy", f"hosts in {path} is not a table of tables")
+    per_slot = _whole(doc.get("cores_per_slot", 4), "cores_per_slot", 1)
+    slots = _whole(entry["cpu_slots"], "cpu_slots", 1) if "cpu_slots" in entry else max(1, nproc // per_slot)
+    return CpuPolicy(host, nproc, slots, _whole(doc.get("wait_s", 1500), "wait_s", 0))
+
+
+def cpu_wait(policy: CpuPolicy) -> int:
+    given = os.environ.get(WAIT_ENV)
+    if not given:
+        return policy.wait_s
+    if not NUMBER_RE.fullmatch(given):
+        refuse(2, "cpu-wait", f"{WAIT_ENV} takes whole seconds, not '{given}'")
+    return int(given)
+
+
+def cpu_pass_through(env: dict[str, str] | os._Environ[str] | None = None) -> str | None:
+    """Why this process takes no slot, or None. Nested in a slot's child; CI (its
+    runners are not shared hosts); the opt-out, which says so."""
+    env = os.environ if env is None else env
+    if env.get(SLOT_ENV):
+        return "nested"
+    if env.get("CI"):
+        return "ci"
+    if env.get(OPT_OUT_ENV) == "0":
+        return "opt-out"
+    return None
+
+
+def clean_label(text: str) -> str:
+    """A label rides in a file every account reads: printable ASCII, no
+    parentheses (they delimit it), 40 characters."""
+    return "".join(c for c in text if 0x20 <= ord(c) <= 0x7E and c not in "()")[:40].strip()
+
+
+def _age(seconds: float) -> str:
+    seconds = max(0, int(seconds))
+    if seconds < 60:
+        return f"{seconds}s"
+    if seconds < 3600:
+        return f"{seconds // 60}m"
+    return f"{seconds // 3600}h"
+
+
+def describe_holder(record_line: str, wall: float) -> str:
+    """`<login> <label> <age>` from a holder record, whatever of it reads."""
+    parts = record_line.split()
+    if len(parts) < 4:
+        return record_line
+    label = re.search(r"\((.*)\)\s*$", record_line)
+    try:
+        age = " " + _age(wall - calendar.timegm(time.strptime(parts[2], "%Y-%m-%dT%H:%M:%SZ")))
+    except ValueError:
+        age = ""
+    return f"{parts[0]} {label.group(1) if label else parts[3]}{age}"
+
+
+def need_dir(leases: str) -> None:
+    # An agent has no sudo: the directory is root's to make (the boot script,
+    # tmpfiles.d, or the operator's persist run), so the message names whose
+    # action it is rather than a command the caller cannot run.
+    if not os.path.isdir(leases):
+        refuse(2, "nodir", f"no lease directory at {leases} — it is made at boot by the fabric's "
+               "provisioning; ask the host's operator (fabric-coordinator) to run fabric-host <host> persist")
+
+
+def acquire_cpu(leases: str, policy: CpuPolicy, label: str, wait_s: int, *,
+                sleep: Callable[[float], None] = time.sleep,
+                monotonic: Callable[[], float] = time.monotonic,
+                wall: Callable[[], float] = time.time,
+                uniform: Callable[[float, float], float] = random.uniform,
+                say: Callable[[str], None] = err) -> CpuSlot:
+    """A slot of `cpu`, waiting up to wait_s seconds. Raises Exit(75) when none
+    came free (reason=held without a wait, reason=timeout after one), Exit(2)
+    for a directory or file that cannot be used. Shared with tests/run.py,
+    which holds a slot in its own process as it holds full-suite."""
+    need_dir(leases)
+    started = monotonic()
+    next_say = started
+    said = False
+    while True:
+        held: list[str] = []
+        for k in range(1, policy.slots + 1):
+            name = f"{CPU}.{k}"
+            path = os.path.join(leases, name)
+            try:
+                fd = open_lease(path)
+            except OSError:
+                refuse(2, "unopenable", f"cannot open {path}")
+            try:
+                fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError:
+                os.close(fd)
+                held.append(holder(path))
+                continue
+            except OSError as e:
+                os.close(fd)
+                refuse(2, "unopenable", f"cannot lock {path}: {os.strerror(e.errno or 0)}")
+            record(path, name, label)
+            waited = int(monotonic() - started)
+            if said:
+                say(f"fabric-lease: cpu slot {k}/{policy.slots} after {waited}s, jobs={policy.jobs}\n")
+            return CpuSlot(fd, k, policy.slots, policy.jobs, waited)
+        now = monotonic()
+        who = f"{len(held)}/{policy.slots} held: " + ", ".join(describe_holder(h, wall()) for h in held)
+        if now - started >= wait_s:
+            if wait_s == 0:
+                refuse(75, "held", f"cpu is held ({who}) — retry later, or --wait SECS")
+            refuse(75, "timeout", f"cpu still held after {wait_s}s ({who})")
+        if now >= next_say:
+            say(f"fabric-lease: waiting for cpu ({who})\n")
+            said = True
+            next_say = now + CPU_SAY_EVERY_S
+        sleep(min(max(0.0, uniform(CPU_POLL_S - CPU_JITTER_S, CPU_POLL_S + CPU_JITTER_S)), started + wait_s - now))
+
+
+def cpu_child_env(env: dict[str, str] | os._Environ[str], slot: CpuSlot,
+                  say: Callable[[str], None] = err) -> dict[str, str]:
+    """The environment of a slot's child: its thread budget (item 2) and the
+    switches that keep a long-lived build server from inheriting the slot and
+    holding it for good (item 6). A bound the caller set lower is kept; one set higher is
+    lowered, with a line, because the slot's share is the point."""
+    j = str(slot.jobs)
+    out = dict(env)
+    out["CARGO_BUILD_JOBS"] = j
+    out["DOTNET_PROCESSOR_COUNT"] = j
+    out[SLOT_ENV] = f"{slot.k}/{slot.n}"
+    out["MSBUILDDISABLENODEREUSE"] = "1"
+    out["UseSharedCompilation"] = "false"
+    out["DOTNET_CLI_USE_MSBUILD_SERVER"] = "0"
+    if not out.get("MAKEFLAGS"):
+        out["MAKEFLAGS"] = f"-j{j}"
+    have = out.get(TEST_JOBS_ENV, "")
+    if not have:
+        out[TEST_JOBS_ENV] = j
+    elif NUMBER_RE.fullmatch(have) and int(have) > slot.jobs:
+        say(f"fabric-lease: {TEST_JOBS_ENV}={have} lowered to {j} (cpu slot {slot.k}/{slot.n})\n")
+        out[TEST_JOBS_ENV] = j
+    return out
+
+
+def hold_and_exec(argv: list[str], slot: CpuSlot, pipe_ignored: bool) -> int:
+    """Become the tool with the slot's descriptor left inheritable. The slot
+    then lives as long as the tool AND anything it starts and leaves behind:
+    a KILL to this process cannot free it under a build that still burns CPU
+    (the shape tests/run.py was fixed for, ADR-010 A 2026-10-19), and the
+    kernel frees it when the last holder of the descriptor goes. Only a
+    return means the tool could not be run: the shell's 127 / 126."""
+    os.set_inheritable(slot.fd, True)
+    # exec keeps what Python ignores at start-up; the tool gets what the
+    # caller gave this process (SIGPIPE ignored only if the forwarder said so).
+    signal.signal(signal.SIGPIPE, signal.SIG_IGN if pipe_ignored else signal.SIG_DFL)
+    signal.signal(signal.SIGXFSZ, signal.SIG_DFL)
+    try:
+        os.execve(argv[0], argv, cpu_child_env(os.environ, slot))
+    except FileNotFoundError:
+        err(f"fabric-lease: {argv[0]}: No such file or directory\n")
+        return 127
+    except OSError as e:
+        err(f"fabric-lease: {argv[0]}: {os.strerror(e.errno or 0)}\n")
+        return 126
+
+
+ORPHAN = " (orphan: a child still runs)"
+
+
+def orphan(record_line: str) -> bool:
+    """A held slot whose recorded process is gone: the tool ended and something
+    it started still holds the descriptor, which is the point of the slot
+    (hold_and_exec). A pid that is not ours to signal exists; a record that
+    does not read gives no answer, so no claim."""
+    parts = record_line.split()
+    if len(parts) < 2 or not NUMBER_RE.fullmatch(parts[1]):
+        return False
+    try:
+        os.kill(int(parts[1]), 0)
+    except ProcessLookupError:
+        return True
+    except (PermissionError, OverflowError, OSError):
+        return False
+    return False
+
+
+def who_cpu(leases: str, policy: CpuPolicy) -> int:
+    need_dir(leases)
+    anyfree = False
+    for k in range(1, policy.slots + 1):
+        name = f"{CPU}.{k}"
+        path = os.path.join(leases, name)
+        try:
+            fd = open_lease(path)
+        except OSError:
+            refuse(2, "unopenable", f"cannot open {path}")
+        try:
+            fcntl.flock(fd, fcntl.LOCK_SH | fcntl.LOCK_NB)
+            out(f"free: {name}\n")
+            anyfree = True
+        except OSError:
+            line = holder(path)
+            out(f"held: {line}{ORPHAN if orphan(line) else ''}\n")
+        finally:
+            os.close(fd)
+    return 0 if anyfree else 1
+
+
 def run(argv: list[str]) -> int:
     ignored_on_entry = {s for s in (signal.SIGTERM, signal.SIGINT, signal.SIGHUP)
                         if signal.getsignal(s) == signal.SIG_IGN}
@@ -508,12 +829,16 @@ def run(argv: list[str]) -> int:
     if not a.who and not a.cmd:
         err("fabric-lease: a command after --\n")
         usage()
-    # An agent has no sudo: the directory is root's to make (the boot script,
-    # tmpfiles.d, or the operator's persist run), so the message names whose
-    # action it is rather than a command the caller cannot run.
-    if not os.path.isdir(leases):
-        refuse(2, "nodir", f"no lease directory at {leases} — it is made at boot by the fabric's "
-               "provisioning; ask the host's operator (fabric-coordinator) to run fabric-host <host> persist")
+    need_dir(leases)
+    if a.name == CPU:
+        # Not a wrapper: a slot is held by the process that becomes the tool
+        # (hold_and_exec), which this wrapper's own child, in a group of its
+        # own with the descriptor closed, would not be.
+        if not a.who:
+            err("fabric-lease: cpu is taken by the cargo and dotnet shims and by tests/run.py; "
+                "`fabric-lease cpu --who` lists its slots\n")
+            usage()
+        return who_cpu(leases, cpu_policy())
     path = os.path.join(leases, a.name)
     try:
         fd = open_lease(path)
