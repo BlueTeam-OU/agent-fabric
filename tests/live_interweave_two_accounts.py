@@ -36,6 +36,7 @@ readable by all): each account's results.
 """
 from __future__ import annotations
 
+import dataclasses
 import hashlib
 import json
 import os
@@ -61,6 +62,7 @@ HOST = socket.gethostname().split(".")[0]
 CMD = os.path.join(ROOT, "bin", "gzcoord-carrier")
 RELEASE = os.path.join(ROOT, "runtime", "interweave", "release.json")
 ROSTER = os.path.join(ROOT, "runtime", "interweave", "roster.json")
+PEER = os.environ.get("J92_PEER", "")  # the other account; the roster holds every admitted account since 0.2.0 rolled out
 FREE_PORT_OFFSET = 90  # own roster port + 90, in the roster's range: two accounts' controls never meet
 
 
@@ -113,10 +115,15 @@ def judged_roster():
     from gzcoord.carrier import roster
     r = roster.load(ROSTER)
     good, refused = roster.valid_rows(r, roster.GitMainKeys(paths.operator_root()))
+    # only the pair under test: a config naming 28 absent peers is not this check
+    good = [row for row in good if row["login"] in (LOGIN, PEER)]
+    r = dataclasses.replace(r, rows=tuple(row for row in r.rows if row["login"] in (LOGIN, PEER)))
     return r, good, refused
 
 
 def phase_check() -> int:
+    if not PEER or PEER == LOGIN:
+        return die("J92_PEER must name the other account's login")
     build = pinned_build()
     for prog, want in build["reports"].items():
         path = os.path.join(BIN, prog)
@@ -232,7 +239,7 @@ def phase_exchange() -> int:
         return die("J92_RUN must be the run's number in milliseconds, the same for both accounts")
     sock = server.socket_path(os.environ["XDG_RUNTIME_DIR"])
     doc = json.load(open(ROSTER, encoding="utf-8"))
-    other = next(row["login"] for row in doc["rows"] if row["login"] != LOGIN)
+    other = PEER
     out: dict[str, object] = {"login": LOGIN, "other": other, "run": t0, "sent": {}}
     arr = os.path.join(episodic.state_dir(), "gzcoord-arrivals.jsonl")
     outbox = os.path.join(episodic.state_dir(), CARRIER_NAME)
@@ -285,7 +292,7 @@ def phase_portcheck() -> int:
     if phase_check():
         return 2
     doc = json.load(open(ROSTER, encoding="utf-8"))
-    theirs = next(row["port"] for row in doc["rows"] if row["login"] != LOGIN)
+    theirs = next(row["port"] for row in doc["rows"] if row["login"] == PEER)
     free = next(row["port"] for row in doc["rows"] if row["login"] == LOGIN) + FREE_PORT_OFFSET
     # The control that makes a refusal mean something: the port is held right now.
     try:
