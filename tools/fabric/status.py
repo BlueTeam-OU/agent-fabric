@@ -53,7 +53,7 @@ to count), `moveto` (only when installed), `journal`, `python`, `agentd`
 The --json object: agent, host, placement, role, project, working_copy,
 session, binding_updated, launched_role, launch_prompt_digest, drift (a
 list or null), session_effort ({asked, reported, launched} or null),
-undrained_memories ({drainable, no_roles_class, since, dir} or null), jobs
+undrained_memories ({drainable, no_roles_class, oldest_ms, bound_days, since, dir} or null), jobs
 ({active, queued, blocked, delivered} or {error}), api ({provider, path,
 base_url_host, session_model, launch_profile, pins, credentials,
 claude_sign_in}), capabilities ({class: line}), engines ({"<provider> <class>":
@@ -69,6 +69,7 @@ import json
 import os
 import subprocess
 import sys
+import time
 from urllib.parse import urlsplit
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.realpath(__file__))))
@@ -216,7 +217,7 @@ def undrained_memories(ctx, root):
             # The harvester's own reading of the mark, so the count and the
             # next drain agree on where this agent's store was read up to.
             watermark_ms, _ = harvest.previous_watermark(ctx["working_copy"], ctx["host"], ctx["agent"])
-            drainable, private = 0, 0
+            drainable, private, oldest_ms = 0, 0, None
             if os.path.isdir(mem_dir):
                 for name in os.listdir(mem_dir):
                     if not name.endswith(".md") or name == "MEMORY.md":
@@ -226,13 +227,24 @@ def undrained_memories(ctx, root):
                         continue
                     if rec["roles_class"]:
                         drainable += 1
+                        oldest_ms = rec["mtime_ms"] if oldest_ms is None else min(oldest_ms, rec["mtime_ms"])
                     else:
                         private += 1
-            return {"drainable": drainable, "no_roles_class": private,
+            return {"drainable": drainable, "no_roles_class": private, "oldest_ms": oldest_ms, "bound_days": harvest.DRAIN_BOUND_DAYS,
                     "since": "the last drain" if watermark_ms else "ever (no drain report)", "dir": mem_dir}
     except Exception:  # noqa: BLE001 — a status line, not a guard
         pass
     return None
+
+
+def oldest_note(undrained, now_ms=None):
+    """', oldest D d (bound B)': how long the oldest drainable memory has waited (ADR-034 §7 step 3). Nothing when
+    none waits or the report has no age (an older report): an absent age is not 0 d."""
+    oldest = undrained.get("oldest_ms")
+    if oldest is None or not undrained.get("drainable"):
+        return ""
+    now_ms = int(time.time() * 1000) if now_ms is None else now_ms
+    return f", oldest {max(0, now_ms - oldest) // 86_400_000} d (bound {undrained['bound_days']})"
 
 
 def prompt_drift_line(digest, state_dir):
@@ -761,7 +773,8 @@ def render(report, base):
     p(f"routing      {checks if isinstance(checks, str) else str(len(checks)) + ' finding(s): ' + '; '.join(checks)}")
     if undrained:
         p(f"memory       {undrained['drainable']} drainable (roles_class set) and {undrained['no_roles_class']} private "
-          f"(none) written since {undrained['since']} — {undrained['dir']}")
+          f"(none) written since {undrained['since']}"
+          f"{oldest_note(undrained)} — {undrained['dir']}")
     if moveto["installed"]:
         p(f"moveto       {moveto['status']}: {moveto['detail']}" if moveto["status"] == "drift" else f"moveto       {moveto['status']}")
     journal = report["host_tools"].get("journal")

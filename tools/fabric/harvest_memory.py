@@ -91,6 +91,10 @@ from typing import Any
 
 HERE = os.path.dirname(os.path.realpath(__file__))
 
+# ADR-034 §7 step 3: no drainable memory stays older than this outside the corpus. One number for the scheduled
+# drain's report (drain_due.py) and the status line, so they cannot disagree on the bound.
+DRAIN_BOUND_DAYS = 14
+
 
 def _load(name: str, path: str):
     spec = importlib.util.spec_from_file_location(name, path)
