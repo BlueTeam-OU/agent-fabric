@@ -1,4 +1,4 @@
-# The control plane on InterWeave, driven by its CLI: a second host first (draft, j422)
+# The control plane on InterWeave, driven by its CLI: a second host first (j422)
 
 A design for the owner's review, drafted for fabric-coordinator; it decides nothing until the
 records in §8 are accepted. The owner's direction (2026-10-27): "control plane on interweave
@@ -12,6 +12,28 @@ and that relay cannot be reached from a second host (ADR-029 §7, lines 301-305;
 draft against InterWeave's records (origin/main 5080940c). Each is folded into the section it
 belongs to and tagged `(R<n>)`. R8 and R9 are InterWeave's own changes, noted at §9.
 
+**Revision 2026-10-28: where it stands.** Read against agent-fabric origin/main b92f500d and
+InterWeave v0.2.0 (32ade966).
+
+- **The CLI can carry now.** G1, G2 (as endpoint selection), G3, G4 and G6 merged in InterWeave
+  #477 (73579a46, 2026-10-27), which is in the v0.2.0 tag; `runtime/interweave/release.json` pins
+  v0.2.0 on main (#415). G5 is met by the outbound event's `problem` field. G7 and G8 are a later
+  batch on InterWeave's side; G8 is needed before P2 (§9).
+- **X1 is ruled.** InterWeave ADR-0055 decision 5b (A 2026-10-27) is on its main: two hosts over an
+  overlay the deployment provides, wildcard listeners, static bootstrap entries, no discovery, a
+  two-namespace case in `tests/automated-client`. The owner accepted its stated limits for the
+  first remote host in architect-cto's session that day; InterWeave's record of that word is still
+  owed in its history (§9).
+- **X2 is ruled yes** (architect-cto, REPLY 01a17c02): a human lease on `fabric-control` and the
+  carrier's lease on `gzcoord` coexist in one profile. Its one-profile case in
+  `tests/automated-client` is p2p-network-dev-01's and has not landed.
+- **Q6 is answered** (§6, §10): break-glass SSH now, an InterWeave peer on a public address next.
+- **The fabric's gaps.** F2 merged (#401), F4 merged (#400, wildcard listen per R7). F1 and F3 are
+  open.
+- **What this PR lands** (§8): the on-host records, i.e. ADR-029 rule 18, ADR-064 rule 12 and §3,
+  and ADR-033 §7. They let P1 start. The second-host amendment stays drafted here until the owner
+  answers Q1-Q5, since it has to name the host.
+
 ## 1. Summary of decisions
 
 1. **Cross-host is the main case.** The target is `edge-hosting` on a second host, `H2`, which is
@@ -20,10 +42,10 @@ belongs to and tagged `(R<n>)`. R8 and R9 are InterWeave's own changes, noted at
    discovery: both hosts get static addresses that the operator writes into the configuration, on a
    routed private overlay (§3). Listeners are wildcard and the firewall is the boundary (R7).
 2. **Carrier.** Each account's `agentd` runs `interweave-human … listen --json` as a supervised,
-   long-lived child process, and sends through that same process. **The CLI cannot carry this
-   today.** ADR-064 §1's finding stands: `listen` holds the endpoint lease alone, a `send` while it
-   runs exits 4, and what it prints lands unread in the human store. §4.0 states the four changes
-   InterWeave must make first. They are the main REQUEST to architect-cto.
+   long-lived child process, and sends through that same process. ADR-064 §1's finding (`listen`
+   holds the endpoint lease alone, a `send` while it runs exits 4, and what it prints lands unread
+   in the human store) is answered by the four changes in §4.0. They shipped in InterWeave v0.2.0,
+   the release the fabric pins.
 3. **Topology.** Control traffic uses the account's existing InterWeave profile and PeerId, on a
    second endpoint `fabric-control`, the profile's first and only human endpoint, an identity (R3).
    The `gzcoord` carrier keeps its own automated endpoint. The control profile is never a person's
@@ -202,7 +224,7 @@ bundle over hostexec.
 ### 4.0 ADR-064 §1's finding, faced: why the CLI cannot carry today, and what must change
 
 ADR-064 §1 (lines 51-58) and §3 (lines 98-103) found three things wrong with `interweave-human` as
-a carrier. Each is still true at InterWeave cf7089b5:
+a carrier. Each was true at InterWeave cf7089b5; #477 (in v0.2.0) answers them:
 
 - **(a) The lease is exclusive.** `listen` holds it. Any second client on the profile, so a `send`
   while `listen` runs, is refused with exit 4 (`apps/human-cli/README.md:57-58`).
@@ -414,13 +436,17 @@ State records (rule 16) go as direct sends to each host operator's address, on c
   - It is break-glass by ADR-010. Every use is a journal line on both hosts.
 - **Rejected: exposing the relay on the overlay.** Its `sender` is a claim (ADR-033 §6) and it
   binds loopback by design. It would need TLS and a per-instance credential (ADR-033 §7, third
-  bullet). The owner may still want it as the uniform fallback (Q6).
+  bullet). The owner chose the SSH path (Q6, 2026-10-27: "option a for now").
+- **Next, not now: an InterWeave peer on a public address**, so InterWeave works from anywhere
+  rather than over a private overlay only (the owner, same answer). It is a later milestone of
+  ADR-064 rule 1, opened by its own amendment. It meets exactly what decision 5b leaves out
+  (ADR-0034 §7, SPIKE-004's deferred limits), so it starts with architect-cto.
 
 ## 7. Rollout, measurement and lanes
 
 | phase | what | done when | lane |
 |---|---|---|---|
-| P0 | CLI gaps G1-G4 and G6 merged, plus X1 and X2 ruled; a tagged release; `release.json` bumped (F1) | the pin points at a tag | InterWeave holders via architect-cto; tagging is the owner's; the pin is the coordinator's |
+| P0 | CLI gaps G1-G4 and G6 merged, plus X1 and X2 ruled; a tagged release; `release.json` bumped (F1) | the pin points at a tag: **done 2026-10-28 (v0.2.0) except F1** | InterWeave holders via architect-cto; tagging is the owner's; the pin is the coordinator's |
 | P1 | `carrier_cli.py`, the control socket, the per-carrier part sizes and the control parity computation, behind `control_carrier: relay\|dual` (off by default); a two-account check like rule 13; then a dual run on every develop-qzapp account | the parity report is in `docs/live-checks/` and the owner has given the word | python-dev contributors (`tools/`, `runtime/control/`, `runtime/interweave/` are theirs in `policies/authority.json`); the ADR amendments are the coordinator's |
 | P2 | H2 registered (§3.2); the overlay up; the roster's `host` field and the render; a throwaway login on H2 doing ping and identity both ways plus one GZCoord message each way; F3 | the live check, and the GZCoord parity covers the off-host pair | coordinator (registry, roster, provisioning, ADR-048 amendment); H2's operator; python-dev for the render and F3 |
 | P3 | edge-hosting moves (§3.5) | `ping`, `identity`, `tools` and `status` answered from H2 over a week; no lost message in the arrival logs | coordinator; edge-hosting for step 1; the owner for retiring the old account |
@@ -435,6 +461,13 @@ State records (rule 16) go as direct sends to each host operator's address, on c
 - missed and duplicate counts per carrier.
 
 ## 8. The records: draft amendment text
+
+**What lands now and what waits.** The on-host part is written into the records in the same PR as
+this revision: ADR-029 §2, rule 18, §6 and §7; ADR-064 §3, rule 12 and §6; ADR-033 §7. Its text
+is narrower than the draft below: it covers develop-qzapp only, where the relay stays control's
+transport of record, and says nothing of `fabric-op`, which comes with the second host. The
+second-host amendment of ADR-064 (and the off-host exception to rule 11) stays here as a draft.
+It needs a named host, so it waits for Q1-Q5.
 
 **ADR-029 (carrier).**
 
@@ -507,9 +540,11 @@ deployment; an ADR-010 live check for H2; and InterWeave's ADR-0055 decision 5b 
 **InterWeave CLI and transport** (for architect-cto as a REQUEST). Blocking marks what P1 cannot
 start without; cross-host marks what P2 cannot start without.
 
-**Status.** G1-G6 are on InterWeave #477 (5 work, 11 fix), armed at 44de4c90 on the owner's word.
-G5 is satisfied: every outbound event carries `problem`, a send-problem token or null. P3s F11 and
-F12 are carried by rust-ui-dev-02.
+**Status 2026-10-28.** G1-G4 and G6 merged in #477 (73579a46) and released in v0.2.0. G2 shrank to
+selecting a configured endpoint (`--endpoint`); the render configures `fabric-control`, so no CLI
+verb creates one. G5 is satisfied: every outbound event carries `problem`, a send-problem token or
+null. Still open on InterWeave's side: G7, G8, R9's drain at session open (not named in #477), X2's
+one-profile case, and the owner's acceptance of 5b's limits recorded in ADR-0055's history.
 
 - **G1-G4 (blocking), the main request**, specified in §4.0:
   - G1: a listen that takes input;
@@ -541,10 +576,12 @@ F12 are carried by rust-ui-dev-02.
 
 **The fabric's own:**
 
-- **F1** — `interweave-human` in `release.json` `reports` and `program_sha256`.
-- **F2** — `fabric-jobs export|import`.
-- **F3** — `bin/fabric-op`, the local signed-op runner.
-- **F4** — the roster schema's `host` field, and `interweave_address` in the registry schema.
+- **F1** (open, coordinator) — `interweave-human` in `release.json` `reports` and
+  `program_sha256`, so `interweave-install` checks the program agentd will run.
+- **F2** (merged, #401) — `fabric-jobs export|import`.
+- **F3** (open, python-dev) — `bin/fabric-op`, the local signed-op runner.
+- **F4** (merged, #400) — the roster schema's `host` field, and `interweave_address` in the
+  registry schema.
 
 ## 10. Open questions for the owner
 
@@ -555,8 +592,23 @@ F12 are carried by rust-ui-dev-02.
 - **Q3.** WireGuard run by the operators, or a coordinated mesh?
 - **Q4.** Does H2 get its own operator key, so `fabric-ctl` could run there, or no signer at all?
 - **Q5.** Rotate edge-hosting's ADR-038 subkey on H2 (proposed), or carry the keyring over ssh?
-- **Q6.** Is break-glass hostexec acceptable as H2's only control fallback, or should the relay be
-  exposed on the overlay with TLS and a per-instance credential?
+- **Q6 (answered 2026-10-27).** Break-glass hostexec over SSH for now; an InterWeave peer on a
+  public address next.
 - **Q7.** InterWeave's ADR-0064, which is only Proposed, gives automated clients sealed messages
   (decision 8, which names the control plane) and an offline holder (decision 5). Should control
   wait for it, or move without it as proposed here?
+
+## 11. What happens next, and whose it is
+
+1. **Owner.** Accept this PR, which also accepts the on-host records, and answer Q1-Q5 and Q7.
+2. **Coordinator.** F1: `interweave-human` in the pin's `reports` and `program_sha256`. Then the
+   ADR-064 second-host amendment once H2 is named.
+3. **python-dev contributors, one REQUEST each (P1).** `tools/fabric/control/carrier_cli.py` (the
+   supervised child, §4.1); `fabric-ctl`'s control socket and fan-out (§4.2); the per-carrier part
+   bounds (§4.3); the control parity computation; all behind `control_carrier: relay|dual`, off by
+   default. Then F3, `bin/fabric-op`, before P2.
+4. **architect-cto, one REQUEST.** For InterWeave's holders: G8 before P2; R9's drain at session
+   open; X2's one-profile case; ADR-0055's history recording the owner's word on 5b's limits;
+   G7 when convenient.
+5. **Measurement (P1's exit).** A two-account check like ADR-064 rule 13, then a dual run on every
+   develop-qzapp account, then the control parity report in `docs/live-checks/`.
