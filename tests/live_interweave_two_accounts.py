@@ -11,6 +11,10 @@ throwaway profile. The messages are real INFO messages between the two logins,
 journaled and logged by the carrier like any other; their subject says what
 they are.
 
+Each account names the other one in J92_PEER (its login; every phase checks
+it, since the roster holds every admitted account and the pair under test is
+not in it).
+
 The accounts agree on one number, J92_RUN (milliseconds since the epoch, e.g.
 `date +%s%3N`), which makes the MESSAGE-IDs of the run: a rerun uses a new one,
 or the daemon's duplicate window would swallow it. What the accounts share is
@@ -121,9 +125,15 @@ def judged_roster():
     return r, good, refused
 
 
-def phase_check() -> int:
+def peer_refusal() -> str | None:
     if not PEER or PEER == LOGIN:
-        return die("J92_PEER must name the other account's login")
+        return "J92_PEER must name the other account's login"
+    return None
+
+
+def phase_check() -> int:
+    if (why := peer_refusal()):
+        return die(why)
     build = pinned_build()
     for prog, want in build["reports"].items():
         path = os.path.join(BIN, prog)
@@ -169,6 +179,8 @@ def until(cond, seconds: float = 60.0) -> bool:
 
 
 def phase_serve() -> int:
+    if (why := peer_refusal()):
+        return die(why)
     from gzcoord.carrier import roster, server
     if phase_check():
         return 2
@@ -231,6 +243,8 @@ def mid_of(sender: str, tag: str, t0: int) -> str:
 
 
 def phase_exchange() -> int:
+    if (why := peer_refusal()):
+        return die(why)
     import episodic
     from gzcoord.carrier import CARRIER_NAME, record, server
     try:
@@ -288,6 +302,8 @@ def phase_exchange() -> int:
 
 def phase_portcheck() -> int:
     from gzcoord.carrier import roster
+    if (why := peer_refusal()):
+        return die(why)
     if phase_check():
         return 2
     doc = json.load(open(ROSTER, encoding="utf-8"))
