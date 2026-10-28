@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
-"""tools/fabric/github/repo_policy.py, fabric-repo-policy plan|verify (arming step C): the differences between a
+"""tools/fabric/github/repo_policy.py, fabric-repo-policy plan|verify|apply (arming steps C and E): the differences between a
 repository's arming policy and the settings and ruleset GitHub holds, what is only advisory, what an unreadable
 side means (never "no difference"), the exit codes and the --json shape. GitHub is a function answering by path;
-the policy is the real arm_policy.render of a real policy, so what is compared is what apply (step E) would write."""
+the policy is the real arm_policy.render of a real policy, so what is compared is what apply writes."""
 from __future__ import annotations
 
+import base64
+import contextlib
 import copy
 import io
 import json
@@ -35,11 +37,23 @@ class Github:
         self.name = policy["github"]["ruleset"]
         self.asked, self.fail, self.others = [], None, []
         self.apps = {}
+        self.writes = []          # (method, path, body) of each accepted write
+        self.refuse = None        # a method whose write GitHub refuses
+        self.keep = False         # accept a write and change nothing, as a GitHub that ignored it
 
     def __call__(self, path, **kw):
         self.asked.append(path)
-        if kw.get("method", "GET") != "GET":
-            raise AssertionError(f"a write: {path}")
+        method = kw.get("method", "GET")
+        if method != "GET":
+            if method == self.refuse:
+                raise gh.GhError(f"gh api {method} x", "HTTP 422 Validation Failed", status=422)
+            self.writes.append((method, path, copy.deepcopy(kw.get("body"))))
+            if not self.keep:
+                if method == "PATCH":
+                    self.repository.update(kw["body"])
+                else:
+                    self.ruleset = {**copy.deepcopy(kw["body"]), "id": 7}
+            return {}
         if self.fail and self.fail in path:
             raise gh.GhError("gh api GET x", "HTTP 403", status=403)
         if path.startswith("apps/"):
@@ -52,7 +66,7 @@ class Github:
             listed = [{"id": o, "name": f"other {o}"} for o in self.others]
             return listed + ([{"id": 7, "name": self.name}] if self.ruleset is not None else [])
         if path == f"repos/{REPO}/rulesets/7":
-            return copy.deepcopy(self.ruleset)
+            return {**copy.deepcopy(self.ruleset), "id": 7}
         raise AssertionError(f"unexpected read: {path}")
 
 
@@ -203,10 +217,12 @@ class Differences(unittest.TestCase):
 
 
 class Cli(unittest.TestCase):
+    SOURCE = ("O/settings", True)       # a registered project with its own file
+
     def run_cli(self, argv, g: Github | None = None, policy: dict = POLICY, load_error=None):
         out, err = io.StringIO(), io.StringIO()
-        load = mock.Mock(side_effect=load_error) if load_error else mock.Mock(return_value=policy)
-        with mock.patch.object(arm_policy, "load", load), mock.patch.object(gh, "this_repo", return_value=REPO):
+        load = mock.Mock(side_effect=load_error) if load_error else mock.Mock(return_value=(policy, *self.SOURCE))
+        with mock.patch.object(arm_policy, "load_with_source", load), mock.patch.object(gh, "this_repo", return_value=REPO):
             rc = repo_policy.run(argv, g or Github(policy), out, err)
         self.load = load
         return rc, out.getvalue(), err.getvalue()
@@ -214,7 +230,7 @@ class Cli(unittest.TestCase):
     def test_no_difference_is_said_and_both_verbs_exit_zero(self):
         for verb in ("plan", "verify"):
             rc, out, _ = self.run_cli([verb, REPO])
-            self.assertEqual((rc, out), (0, f"{REPO}: GitHub matches the arming policy\n"), verb)
+            self.assertEqual((rc, out), (0, f"policy: repos/R.json in O/settings\n{REPO}: GitHub matches the arming policy\n"), verb)
 
     def test_plan_lists_the_differences_and_exits_zero_verify_exits_one(self):
         g = Github(POLICY)
@@ -251,10 +267,12 @@ class Cli(unittest.TestCase):
         self.assertEqual(self.load.call_args.args[0], REPO)
 
     def test_usage_errors_exit_two_and_say_the_usage(self):
-        for argv in ([], ["apply", REPO], ["plan", REPO, "x/y"], ["plan", "--force"], ["verify", "-x"]):
+        for argv in ([], ["apply"], ["apply", REPO, "x/y"], ["plan", REPO, "x/y"], ["plan", "--force"], ["verify", "-x"],
+                     ["plan", REPO, "--yes"], ["verify", REPO, "--yes"], ["apply", REPO, "--force"], ["plan", REPO, "--fleet-default"]):
             rc, out, err = self.run_cli(argv)
             self.assertEqual((rc, out), (2, ""), argv)
             self.assertIn("usage: fabric-repo-policy plan|verify", err)
+            self.assertIn("apply <owner/repo> [--yes]", err)
 
     def test_a_repository_name_that_is_not_one_exits_two(self):
         for bad in ("../x", "o", "o/r r"):
@@ -280,6 +298,293 @@ class Cli(unittest.TestCase):
                            env={"PATH": os.environ["PATH"], "AGENT_FABRIC_PYTHON": sys.executable})
         self.assertEqual(r.returncode, 2)
         self.assertIn("usage: fabric-repo-policy plan|verify", r.stderr)
+
+
+class Apply(unittest.TestCase):
+    """apply: the plan, then with --yes only what differs, exactly as render() says it, then a read-back."""
+    run_cli = Cli.run_cli
+    SOURCE = Cli.SOURCE
+
+    def drifted(self, policy=POLICY) -> Github:
+        g = Github(policy)
+        g.repository.update(allow_auto_merge=False, allow_squash_merge=True)
+        return g
+
+    def render(self, policy=POLICY) -> dict:
+        return arm_policy.render(policy)
+
+    def test_no_difference_writes_nothing_and_says_so(self):
+        for yes in ([], ["--yes"]):
+            g = Github(POLICY)
+            rc, out, _ = self.run_cli(["apply", REPO, *yes], g)
+            self.assertEqual((rc, out, g.writes), (0, f"policy: repos/R.json in O/settings\n{REPO}: GitHub matches the arming policy\n", []), yes)
+
+    def test_without_yes_it_is_plan_with_a_hint_and_writes_nothing(self):
+        g = self.drifted()
+        rc, plan, _ = self.run_cli(["plan", REPO], g)
+        rc2, out, _ = self.run_cli(["apply", REPO], g)
+        self.assertEqual((rc2, g.writes), (0, []))
+        self.assertEqual(out, plan + "re-run with --yes to write\n")
+
+    def test_yes_patches_only_the_differing_fields_with_renders_values_and_leaves_the_ruleset(self):
+        g = self.drifted()
+        rc, out, _ = self.run_cli(["apply", REPO, "--yes"], g)
+        want = self.render()["repository"]
+        self.assertEqual(g.writes, [("PATCH", f"repos/{REPO}", {"allow_auto_merge": want["allow_auto_merge"], "allow_squash_merge": want["allow_squash_merge"]})])
+        self.assertEqual(rc, 0)
+        self.assertIn("GitHub now matches the arming policy", out)
+
+    def test_a_ruleset_that_exists_is_put_by_id_with_renders_body_and_one_that_does_not_is_posted(self):
+        for policy in (POLICY, QUEUE):
+            g = Github(policy)
+            rule(g, "pull_request")["parameters"]["require_code_owner_review"] = True
+            rc, _, _ = self.run_cli(["apply", REPO, "--yes"], g, policy)
+            self.assertEqual((rc, g.writes), (0, [("PUT", f"repos/{REPO}/rulesets/7", self.render(policy)["ruleset"])]))
+            g = Github(policy)
+            g.ruleset = None
+            rc, _, _ = self.run_cli(["apply", REPO, "--yes"], g, policy)
+            self.assertEqual((rc, g.writes), (0, [("POST", f"repos/{REPO}/rulesets", self.render(policy)["ruleset"])]))
+
+    def test_an_unknown_apps_id_from_github_reaches_the_written_body(self):
+        policy = arm_policy.validate({"required_checks": [{"context": "x", "app": "circleci"}], "github": {"ruleset": "main protection"}})
+        g = Github(policy, {"circleci": 18001})
+        g.apps = {"circleci": 18001}
+        g.ruleset = None
+        self.run_cli(["apply", REPO, "--yes"], g, policy)
+        checks = next(r for r in g.writes[0][2]["rules"] if r["type"] == "required_status_checks")
+        self.assertEqual(checks["parameters"]["required_status_checks"], [{"context": "x", "integration_id": 18001}])
+
+    def test_fields_then_ruleset_in_that_order(self):
+        g = self.drifted()
+        g.ruleset = None
+        self.run_cli(["apply", REPO, "--yes"], g)
+        self.assertEqual([w[0] for w in g.writes], ["PATCH", "POST"])
+
+    def test_a_refused_patch_stops_before_the_ruleset_and_exits_one_saying_the_call_and_the_reason(self):
+        g = self.drifted()
+        g.ruleset = None
+        g.refuse = "PATCH"
+        rc, _, err = self.run_cli(["apply", REPO, "--yes"], g)
+        self.assertEqual((rc, g.writes), (1, []))
+        self.assertIn("gh api PATCH x", err)
+        self.assertIn("HTTP 422 Validation Failed", err)
+
+    def test_a_refused_ruleset_write_exits_one_and_says_the_fields_stay(self):
+        g = self.drifted()
+        g.ruleset = None
+        g.refuse = "POST"
+        rc, _, err = self.run_cli(["apply", REPO, "--yes"], g)
+        self.assertEqual((rc, [w[0] for w in g.writes]), (1, ["PATCH"]))
+        self.assertIn("a rerun is safe", err)
+        g.refuse = None
+        rc, _, _ = self.run_cli(["apply", REPO, "--yes"], g)       # the rerun writes only the ruleset
+        self.assertEqual((rc, [w[0] for w in g.writes]), (0, ["PATCH", "POST"]))
+
+    def test_a_read_back_that_still_differs_is_exit_one_and_names_what(self):
+        g = self.drifted()
+        g.keep = True
+        rc, out, _ = self.run_cli(["apply", REPO, "--yes"], g)
+        self.assertEqual((rc, len(g.writes)), (1, 1))
+        self.assertIn("still differs after the write, in 2 place(s)", out)
+
+    def test_a_read_back_advisory_difference_counts(self):
+        g = Github(POLICY)
+        del g.ruleset["bypass_actors"]            # the token cannot see them: writing them does not make them visible
+        g.keep = True
+        rc, out, _ = self.run_cli(["apply", REPO, "--yes"], g)
+        self.assertEqual((rc, [w[0] for w in g.writes]), (1, ["PUT"]))
+        self.assertIn("(advisory)", out)
+
+    def test_direct_mode_leaves_an_existing_ruleset_alone_says_so_and_does_not_verify(self):
+        policy = arm_policy.validate({"mode": "direct", "github": {"ruleset": "main protection"}})
+        g = Github(policy)
+        g.ruleset = {"name": "main protection", "rules": []}
+        rc, out, _ = self.run_cli(["apply", REPO, "--yes"], g, policy)
+        self.assertEqual((rc, g.writes), (1, []))
+        self.assertIn("left alone", out)
+
+    def test_json_names_the_writes_and_the_difference_left(self):
+        g = self.drifted()
+        rc, out, _ = self.run_cli(["apply", REPO, "--yes", "--json"], g)
+        d = json.loads(out)
+        self.assertEqual((rc, d["repository"], d["verb"], d["after"]), (0, REPO, "apply", []))
+        self.assertEqual(len(d["written"]), 1)
+        self.assertTrue(d["written"][0].startswith(f"PATCH repos/{REPO}"))
+        self.assertEqual(len(d["differences"]), 2)
+
+    def test_an_unreadable_side_exits_two_with_reads_only(self):
+        g = self.drifted()
+        g.fail = f"repos/{REPO}/rulesets/7"
+        rc, _, _ = self.run_cli(["apply", REPO, "--yes"], g)
+        self.assertEqual((rc, g.writes), (2, []))
+
+    def test_an_unmappable_policy_writes_nothing(self):
+        policy = arm_policy.validate({"required_checks": [{"context": "x", "app": "nobody-knows"}]})
+        g = Github(POLICY)
+        rc, _, err = self.run_cli(["apply", REPO, "--yes"], g, policy)
+        self.assertEqual((rc, g.writes), (2, []))
+        self.assertIn("cannot be looked up", err)
+
+    def test_a_ruleset_answer_without_an_id_is_refused_before_the_first_write(self):
+        g = self.drifted()
+        rule(g, "pull_request")["parameters"]["require_code_owner_review"] = True
+        real = g.__call__
+        def no_id(path, **kw):
+            r = real(path, **kw)
+            if path.endswith("/rulesets/7") and isinstance(r, dict):
+                r.pop("id", None)
+            return r
+        rc, _, err = self.run_cli(["apply", REPO, "--yes"], no_id)
+        self.assertEqual((rc, g.writes), (2, []))
+        self.assertIn("no id", err)
+
+    def test_the_repository_name_is_required(self):
+        rc, _, err = self.run_cli(["apply", "--yes"])
+        self.assertEqual(rc, 2)
+
+
+class Source(unittest.TestCase):
+    """Where the policy comes from, with the real arm_policy.load and load_with_source: the registry, the clients file and the
+    settings repository's contents are the only things answered by the test."""
+    REGISTRY = {"projects": {"p": {"remotes": [f"https://github.com/{REPO}"], "client": "c"}}}
+    CLIENTS = {"clients": {"c": {"settings_repo": "O/settings"}}}
+
+    def world(self, g: Github, file: dict | None, registered: bool = True, settings_down: bool = False):
+        def api(path, **kw):
+            if path == f"repos/O/settings/contents/repos/R.json":
+                if file is None:
+                    raise gh.GhError("gh api GET x", "Not Found", status=404)
+                return {"type": "file", "encoding": "base64", "content": base64.b64encode(json.dumps(file).encode()).decode()}
+            if path == "repos/O/settings":
+                if settings_down:
+                    raise gh.GhError("gh api GET x", "Not Found", status=404)
+                return {}
+            return g(path, **kw)
+        return api
+
+    def patched(self, registered=True):
+        """The registry and the clients file as the files they are read from; nothing between them and load is replaced."""
+        real = arm_policy._read_json_file
+        registry = self.REGISTRY if registered else {"projects": {}}
+        return (mock.patch.object(arm_policy.workingcopy, "load_registry", return_value=registry),
+                mock.patch.object(arm_policy, "_read_json_file",
+                                  side_effect=lambda path: self.CLIENTS if path.endswith("clients.json") else real(path)),
+                mock.patch.object(arm_policy, "fleet_policy", return_value=POLICY))
+
+    def run_cli(self, argv, g, file, registered=True, settings_down=False):
+        out, err = io.StringIO(), io.StringIO()
+        with contextlib.ExitStack() as stack:
+            for patch in self.patched(registered):
+                stack.enter_context(patch)
+            rc = repo_policy.run(argv, self.world(g, file, registered, settings_down), out, err)
+        return rc, out.getvalue(), err.getvalue()
+
+    def test_the_policy_readers_run_unmocked_and_agree_on_the_source(self):
+        g = Github(POLICY)
+        with contextlib.ExitStack() as stack:
+            for patch in self.patched():
+                stack.enter_context(patch)
+            for file, want in (({"mode": "owner-only"}, True), (None, False)):
+                api = self.world(g, file)
+                policy, settings, has_file = arm_policy.load_with_source(REPO, api=api)
+                self.assertEqual((settings, has_file), ("O/settings", want))
+                self.assertEqual(arm_policy.load(REPO, api=api), policy)
+            self.assertEqual(arm_policy.load_with_source("X/y", api=self.world(g, None))[1:], (None, False))
+
+    def test_one_fetch_decides_the_source_and_the_policy(self):
+        g, fetches = Github(POLICY), []
+        inner = self.world(g, {"mode": "owner-only"})
+        def api(path, **kw):
+            fetches.append(path)
+            return inner(path, **kw)
+        with contextlib.ExitStack() as stack:
+            for patch in self.patched():
+                stack.enter_context(patch)
+            arm_policy.load_with_source(REPO, api=api)
+        self.assertEqual(fetches.count("repos/O/settings/contents/repos/R.json"), 1)
+
+    def drifted(self) -> Github:
+        g = Github(POLICY)
+        g.repository.update(allow_auto_merge=False)
+        return g
+
+    def test_a_registered_repo_without_its_file_is_refused_by_apply_before_any_write_with_only_reads_made(self):
+        for argv in (["apply", REPO, "--yes"], ["apply", REPO, "--yes", "--fleet-default"], ["apply", REPO]):
+            g = self.drifted()
+            rc, out, err = self.run_cli(argv, g, None)
+            self.assertEqual((rc, out, g.writes), (2, "", []), argv)
+            self.assertIn("repos/R.json is not in O/settings", err)
+            self.assertIn("nothing written", err)
+            self.assertEqual([m for m in g.asked if m.startswith("repos/O/R")][:1], [], "no read of the repository before the refusal")
+
+    def test_plan_and_verify_keep_working_in_that_window_and_say_the_default_is_in_use(self):
+        for verb, want_rc in (("plan", 0), ("verify", 1)):
+            g = self.drifted()
+            rc, out, _ = self.run_cli([verb, REPO], g, None)
+            self.assertEqual(rc, want_rc, verb)
+            self.assertIn("policy: the fleet default (repos/R.json is not in O/settings", out)
+            self.assertEqual(g.writes, [])
+
+    def test_a_registered_repo_with_its_file_is_applied_and_the_source_is_said(self):
+        g = Github(POLICY)       # GitHub holds the fleet's setting; the repository's own file asks for the opposite
+        rc, out, _ = self.run_cli(["apply", REPO, "--yes"], g, {"mode": "owner-only"})
+        patch = [w for w in g.writes if w[0] == "PATCH"]
+        self.assertEqual([w[2] for w in patch], [{"allow_auto_merge": False}], g.writes)
+        self.assertTrue(out.startswith("policy: repos/R.json in O/settings\n"), out)
+
+    def test_a_repo_that_is_no_projects_needs_fleet_default_to_be_applied(self):
+        g = self.drifted()
+        rc, _, err = self.run_cli(["apply", REPO, "--yes"], g, None, registered=False)
+        self.assertEqual((rc, g.writes), (2, []))
+        self.assertIn("--fleet-default", err)
+        rc, out, _ = self.run_cli(["apply", REPO, "--yes", "--fleet-default"], g, None, registered=False)
+        self.assertEqual((rc, [w[0] for w in g.writes]), (0, ["PATCH"]))
+        self.assertIn("policy: the fleet default (O/R is no registered project's)", out)
+
+    def test_a_settings_repository_that_does_not_answer_is_not_a_missing_file(self):
+        g = self.drifted()
+        rc, _, err = self.run_cli(["apply", REPO, "--yes"], g, None, settings_down=True)
+        self.assertEqual((rc, g.writes), (2, []))
+        self.assertIn("is not known to be absent", err)
+
+    def test_json_carries_the_source_for_every_verb(self):
+        for verb in ("plan", "verify", "apply"):
+            rc, out, _ = self.run_cli([verb, REPO, "--json"], self.drifted(), {})
+            self.assertEqual(json.loads(out)["policy_source"], "repos/R.json in O/settings", verb)
+
+
+class UnknownOutcome(unittest.TestCase):
+    run_cli = Cli.run_cli
+    SOURCE = Cli.SOURCE
+
+    def test_a_transient_failure_says_unknown_and_lists_the_call_as_possibly_written(self):
+        g = Github(POLICY)
+        g.repository.update(allow_auto_merge=False)
+        real = g.__call__
+        def lost(path, **kw):
+            if kw.get("method") == "PATCH":
+                raise gh.GhError("gh api PATCH repos/O/R", "the answer is not JSON", transient=True)
+            return real(path, **kw)
+        for as_json in ([], ["--json"]):
+            rc, out, err = self.run_cli(["apply", REPO, "--yes", *as_json], lost)
+            self.assertEqual(rc, 1)
+            self.assertIn("outcome of gh api PATCH repos/O/R is unknown", err)
+            self.assertNotIn("refused", err)
+            self.assertIn(f"fabric-repo-policy verify {REPO}", err)
+            if as_json:
+                d = json.loads(out)
+                self.assertEqual((d["written"], d["possibly_written"]), ([], [f"PATCH repos/{REPO} (allow_auto_merge)"]))
+            else:
+                self.assertIn(f"possibly written (outcome unknown): PATCH repos/{REPO} (allow_auto_merge)", out)
+
+    def test_a_definite_refusal_is_not_listed_as_possibly_written(self):
+        g = Github(POLICY)
+        g.repository.update(allow_auto_merge=False)
+        g.refuse = "PATCH"
+        rc, out, err = self.run_cli(["apply", REPO, "--yes", "--json"], g)
+        self.assertEqual(rc, 1)
+        self.assertIn("refused", err)
+        self.assertEqual(json.loads(out)["possibly_written"], [])
 
 
 if __name__ == "__main__":

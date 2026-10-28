@@ -2,7 +2,7 @@
 how many work commits arm it at the review gate, and the GitHub settings that enforce the rest, as one document
 whose shape is identities/schemas/arming.schema.json (the coordinator's). Step A (#196) made arm.py and pr_gate.py
 read the 8 and the 16 through it; step C (this) makes it the schema's document, reads it for the repository's client,
-and maps it onto GitHub for tools/fabric/github/repo_policy.py (fabric-repo-policy plan|verify) and arm.py's drift
+and maps it onto GitHub for tools/fabric/github/repo_policy.py (fabric-repo-policy plan|verify|apply) and arm.py's drift
 refusal.
 
 WHERE A POLICY IS. Two layers, the second over the first:
@@ -351,6 +351,42 @@ def fetch_repo_policy(settings: str, repo: str, api: Callable[..., Any] = gh.api
     return doc
 
 
+def _registry_and_clients(root: str | None, registry: Any, clients: Any) -> tuple[Any, Any]:
+    """The registry and the clients file, each as given or read; one reader for every way of finding a policy, so
+    two of them can never see different registries."""
+    if registry is None:
+        try:
+            registry = workingcopy.load_registry()
+        except (OSError, ValueError) as e:
+            raise PolicyUnavailable(f"projects/registry.json cannot be read ({e})") from None
+    if clients is None:
+        clients = _read_json_file(os.path.join(roots.projects_dir(root=root), "clients.json")) or {}
+    return registry, clients
+
+
+def _compose(fleet: dict, doc: dict | None, settings: str | None, repo: str) -> dict:
+    policy = fleet
+    if doc is not None:
+        policy = validate(merge(fleet, {k: v for k, v in doc.items() if k not in IGNORED_KEYS}), f"{settings} repos/{repo.split('/', 1)[1]}.json")
+        # A repository may raise the boundary's minimum and never lower it below the fleet's.
+        policy["commits"]["boundary_min"] = max(policy["commits"]["boundary_min"], fleet["commits"]["boundary_min"])
+    return policy
+
+
+def load_with_source(repo: str, *, root: str | None = None, registry: Any = None, clients: Any = None,
+                     api: Callable[..., Any] = gh.api) -> tuple[dict, str | None, bool]:
+    """(the policy, the settings repository, whether it held repos/<name>.json) for `repo`, from ONE fetch of that
+    file, so what a caller is told of the source is what the policy was built from. (policy, None, False) for a
+    repository that is no registered project's, which gets the fleet's policy by definition; (fleet, settings, False)
+    for a registered one whose file is absent, which is not the same: its owner wrote a policy that is not there
+    yet, and the fleet's would replace its queue and required checks. Not cached (load has the cache)."""
+    fleet = fleet_policy(root)
+    registry, clients = _registry_and_clients(root, registry, clients)
+    settings = settings_repo_of(registry, clients, repo)
+    doc = fetch_repo_policy(settings, repo, api) if settings else None
+    return _compose(fleet, doc, settings, repo), settings, doc is not None
+
+
 def load(repo: str | None, *, root: str | None = None, registry: Any = None, clients: Any = None,
          api: Callable[..., Any] = gh.api, cache: dict | None = None) -> dict:
     """The policy for `repo` ("<owner>/<name>"; None: the fleet's). `cache` is the caller's dict, for one run: a
@@ -361,20 +397,10 @@ def load(repo: str | None, *, root: str | None = None, registry: Any = None, cli
         return fleet
     if cache is not None and repo in cache:
         return copy.deepcopy(cache[repo])
-    if registry is None:
-        try:
-            registry = workingcopy.load_registry()
-        except (OSError, ValueError) as e:
-            raise PolicyUnavailable(f"projects/registry.json cannot be read ({e})") from None
-    if clients is None:
-        clients = _read_json_file(os.path.join(roots.projects_dir(root=root), "clients.json")) or {}
+    registry, clients = _registry_and_clients(root, registry, clients)
     settings = settings_repo_of(registry, clients, repo)
     doc = fetch_repo_policy(settings, repo, api) if settings else None
-    policy = fleet
-    if doc is not None:
-        policy = validate(merge(fleet, {k: v for k, v in doc.items() if k not in IGNORED_KEYS}), f"{settings} repos/{repo.split('/', 1)[1]}.json")
-        # A repository may raise the boundary's minimum and never lower it below the fleet's.
-        policy["commits"]["boundary_min"] = max(policy["commits"]["boundary_min"], fleet["commits"]["boundary_min"])
+    policy = _compose(fleet, doc, settings, repo)
     if cache is not None:
         cache[repo] = copy.deepcopy(policy)
     return policy

@@ -19,8 +19,9 @@ resolves wrongly.
 | the project's agents | their own clones: origin and `GH_REPO` |
 
 **Not automated.** No command performs a move or an import end to end.
-`fabric-repo-policy` has `plan` and `verify` only; there is no `apply`
-verb yet, so applying an arming policy to GitHub is by hand. The settings
+`fabric-repo-policy apply <owner/repo> --yes` writes a repository's arming
+policy to GitHub (`plan` shows what it would change, `verify` reads it
+back); it is run only once `repos/<repo>.json` has landed (A, step 7). The settings
 repository's validator runs in that repository's CI, not in this tree.
 
 ## A. Moving a repository (another organisation, or a rename)

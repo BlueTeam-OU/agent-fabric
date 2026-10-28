@@ -1,8 +1,11 @@
 #!/usr/bin/env bash
-# bin/fabric-repo-policy — a repository's arming policy against what GitHub holds (arming step C):
+# bin/fabric-repo-policy — a repository's arming policy against what GitHub holds (arming steps C and E):
 #
 #   fabric-repo-policy plan   [owner/repo] [--json]   the differences GitHub would need changed, or "no change"
 #   fabric-repo-policy verify [owner/repo] [--json]   exit 1 when GitHub differs from the policy, 2 when unreadable
+#   fabric-repo-policy apply  <owner/repo> [--yes] [--fleet-default] [--json]
+#                                                     the plan; with --yes writes what differs, reads back (exit 1 if refused or differing);
+#                                                     refused (2) for a registered project whose policy file is missing
 #
 # The full account is in tools/fabric/github/repo_policy.py.
 set -uo pipefail
