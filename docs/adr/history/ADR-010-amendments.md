@@ -21,9 +21,11 @@ process group of its own, so a KILL to the caller's group would end
 the wrapper and free the lease while the suites ran on. CI,
 partial runs and the opt-out are untouched.
 
-### Amendment 2026-10-28 — cpu: N heavy builds and suites at a time per host (proposed, awaiting the owner)
+### Amendment 2026-10-28 — cpu: N heavy builds and suites at a time per host
 
-§5 rules 9-11, §6. **The owner's ask, 2026-10-26:** the host sat at load
+§5 rules 9-11, §6. Accepted by the owner 2026-10-28, choosing each
+recommendation put to them: "N=2, 5 threads each", "Root shims in
+/usr/local/bin", "25 minutes". **The owner's ask, 2026-10-26:** the host sat at load
 ~110 on 10 vCPU; heavy builds and suites (cargo, dotnet test,
 tests/run.sh) take a host-wide lease so only N run at once. Measured
 2026-10-28 09:48Z on develop-qzapp: load 22 with one full agent-fabric

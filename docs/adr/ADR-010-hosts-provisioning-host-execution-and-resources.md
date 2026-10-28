@@ -116,6 +116,13 @@ that killed the host without privilege and without anything going stale.
    holds it in its own process (the same flock), waiting for it, for a
    run of every section, and a partial run,
    CI and `AGENT_FABRIC_SUITE_LEASE=0` skip it (A 2026-10-19).
+   `cpu` is the host's cores, held in N slots (`cpu.1` … `cpu.N`, N per
+   host in `policies/host-load.json`, default `max(1, nproc // 4)`), each
+   with a thread budget of `nproc // N` handed to its child: shims in
+   `/usr/local/bin` take it for cargo's and dotnet's building and testing
+   subcommands, `tests/run.py` for any local run after `full-suite`,
+   waiting up to 1500 s; `heavy` before `cpu`, a slot's child never waits
+   on another, CI and `AGENT_FABRIC_CPU_LEASE=0` skip it (A 2026-10-28).
 10. `fabric-lease` fails fast by default (exit 75); every refusal ends with
     `fabric-lease: reason=<r>` on stderr, a contract pinned by
     `tests/test_fabric_lease_cli.py`. It needs no privilege; the directory is
@@ -177,4 +184,4 @@ The body above reads current; each change's full note is in [history/ADR-010-ame
 |---|---|---|
 | 2026-09-30 | Doppler is retired: the coordinator keeps its own store, a parent's | §2, §5 rule 1 |
 | 2026-10-19 | full-suite: one full local test run per host | §5 rule 9: a second named resource, the host's CPU and timing headroom, which a full local test run waits for |
-| 2026-10-28 | cpu: N heavy builds and suites at a time per host (proposed, awaiting the owner) | §5 rules 9-11: N slots with a thread budget each, taken by shims ahead of cargo and dotnet and by tests/run.py |
+| 2026-10-28 | cpu: N heavy builds and suites at a time per host | §5 rules 9-11: N slots with a thread budget each, taken by shims ahead of cargo and dotnet and by tests/run.py |
