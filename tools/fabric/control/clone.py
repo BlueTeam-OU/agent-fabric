@@ -24,6 +24,7 @@ import os
 import shutil
 import signal
 import subprocess
+import uuid
 from typing import Any, Callable
 
 from control.ops import util
@@ -42,6 +43,9 @@ GIT_TIMEOUT_MS = 60 * 1000
 CLONE_BUDGET_S = (CLONE_TIMEOUT_MS + 3 * GIT_TIMEOUT_MS + BOOTSTRAP_TIMEOUT_MS) // 1000 + 30
 REASON_MAX = 300
 UNIT_CHANGED = "restart left to the caller"
+# `upgrade fabric` restarts the control agent only when the head moved or its own bootstrap sees the unit change, and
+# neither holds once this bootstrap has installed it: the owed restart is the account's own.
+OWED = "the control agent's unit changed: restart it (systemctl --user restart agent-fabric-agentd)"
 
 
 def _failed(reason: str, **more: str) -> dict:
@@ -61,15 +65,16 @@ def _why(e: BaseException, what: str, timeout_ms: int) -> str:
     return f"{what} could not run: {util.node_error(e, [what])}"
 
 
-# git ends every failed SSH transport with these two lines, whatever went wrong before them.
-_GIT_BOILERPLATE = ("please make sure you have the correct access rights", "and the repository exists")
+# What git says after every failed SSH transport, whatever went wrong before it: advice and a generic fatal line that
+# hide ssh's own words (Permission denied, Could not resolve hostname, Host key verification failed).
+_GIT_BOILERPLATE = ("please make sure you have the correct access rights", "and the repository exists",
+                    "fatal: could not read from remote repository", "warning: permanently added")
 
 
 def _cause(e: subprocess.CalledProcessError) -> str:
-    """The line of git's stderr that says what failed (`fatal: …`, ssh's own words), not the advice it closes with."""
+    """The last line of the program's stderr that is not advice or git's generic closing: what failed, in its words."""
     lines = [x.strip() for x in util.decode(e.stderr).split("\n") if x.strip()]
-    lines = [x for x in lines if not x.lower().startswith(_GIT_BOILERPLATE)] or lines
-    return (next((x for x in lines if x.lower().startswith(("fatal:", "error:"))), None) or (lines[-1] if lines else last_line(e)))
+    return next((x for x in reversed(lines) if not x.lower().startswith(_GIT_BOILERPLATE)), None) or last_line(e)
 
 
 def _env(home: str) -> dict[str, str]:
@@ -130,14 +135,20 @@ def clone(request: Any, root: str | None = None, home: str | None = None, run: C
     elif taken:
         return _failed(f"~/projects/{pid} exists and is not a working copy; left as it is", project=pid)
     else:
+        # Cloned beside the destination and renamed into place: a clone killed at its bound (timeout, flood) runs none
+        # of git's own cleanup, and a `.git` left at the destination would read as a present copy on the retry the
+        # failure invites; a second clone of the same project meanwhile never sees, or removes, this one's half.
+        scratch = os.path.join(parent, f".clone-{pid}-{uuid.uuid4().hex[:12]}")
         try:
-            run(["git", "clone", "-q", "--", remote, dest], cwd=parent, env=env, timeout=clone_timeout_ms / 1000, max_bytes=MAX_BUFFER)
+            run(["git", "clone", "-q", "--", remote, scratch], cwd=parent, env=env, timeout=clone_timeout_ms / 1000, max_bytes=MAX_BUFFER)
         except (subprocess.SubprocessError, OSError) as e:
-            # The destination did not exist before this run, so whatever is there is this clone's. A child killed at its
-            # bound (timeout, flood) never ran git's own cleanup, and a `.git` left behind would read as a present copy
-            # on the retry this failure invites.
-            shutil.rmtree(dest, ignore_errors=True)
+            shutil.rmtree(scratch, ignore_errors=True)
             return _failed(_why(e, "git clone", clone_timeout_ms), project=pid)
+        try:
+            os.rename(scratch, dest)
+        except OSError as e:
+            shutil.rmtree(scratch, ignore_errors=True)
+            return _failed(f"the clone could not be moved into ~/projects/{pid}: {util.node_error(e, [dest])}", project=pid)
         out["status"] = "cloned"
     try:
         # AGENT_FABRIC_DEFER_AGENTD_RESTART: bootstrap would restart this daemon in the middle of its own reply if it
@@ -147,8 +158,9 @@ def clone(request: Any, root: str | None = None, home: str | None = None, run: C
                    env={**env, "AGENT_FABRIC_DEFER_AGENTD_RESTART": "1"}, timeout=BOOTSTRAP_TIMEOUT_MS / 1000, max_bytes=MAX_BUFFER)
         if UNIT_CHANGED in util.decode(done.stdout):
             # Said, not applied: no later bootstrap sees the unit change again, and a restart here would end this reply.
-            owed = "bootstrap changed the control agent's unit; its restart is owed (fabric-ctl <login> upgrade fabric)"
-            out["warning"] = "; ".join(x for x in (out.get("warning"), owed) if x)[:REASON_MAX]
+            out["warning"] = "; ".join(x for x in (OWED, out.get("warning")) if x)[:REASON_MAX]
     except (subprocess.SubprocessError, OSError) as e:
-        return _failed(f"{out['status']}, but " + _why(e, "bootstrap.sh", BOOTSTRAP_TIMEOUT_MS), project=pid)
+        # A bootstrap that installed the unit and failed later still left the restart owed, and no rerun sees it again.
+        owed = f"; {OWED}" if UNIT_CHANGED in util.decode(getattr(e, "stdout", None)) else ""
+        return _failed(f"{out['status']}, but " + _why(e, "bootstrap.sh", BOOTSTRAP_TIMEOUT_MS) + owed, project=pid)
     return out

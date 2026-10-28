@@ -213,35 +213,72 @@ class Clone(Scratch):
             return util.run_bounded(argv, **kw)
         first = self.go(run=killed)
         self.assertEqual(first["status"], "failed")
-        self.assertFalse(os.path.lexists(self.dest), "the half clone is removed")
+        self.assertEqual(os.listdir(os.path.join(self.home, "projects")), [], "neither the destination nor the scratch clone is left")
         self.assertEqual(self.go()["status"], "cloned")
         self.assertTrue(os.path.isfile(os.path.join(self.dest, "f")))
+        self.assertEqual(os.listdir(os.path.join(self.home, "projects")), ["gzapp"])
 
-    def test_a_clone_that_failed_does_not_remove_what_was_there_before(self):
-        os.makedirs(self.dest)
-        self.go(run=lambda *a, **k: self.fail("ran"))
-        self.assertTrue(os.path.isdir(self.dest))
-
-    def test_the_reason_is_the_line_that_says_what_failed_not_gits_closing_advice(self):
-        err = (b"Warning: Permanently added 'h' to the list of known hosts.\ngit@h: Permission denied (publickey).\nfatal: Could not read from remote repository.\n\n"
-               b"Please make sure you have the correct access rights\nand the repository exists.\n")
+    def test_the_destination_does_not_exist_until_the_clone_is_whole(self):
+        seen: list[bool] = []
 
         def run(argv, **kw):
-            raise subprocess.CalledProcessError(128, argv, b"", err)
-        doc = self.go(run=run)
-        self.assertEqual(doc["reason"], "git clone exited 128: fatal: Could not read from remote repository.")
-        err = b"ssh: Could not resolve hostname h\nPlease make sure you have the correct access rights\nand the repository exists.\n"
-        self.assertEqual(self.go(run=run)["reason"], "git clone exited 128: ssh: Could not resolve hostname h")
+            if argv[:2] == ["git", "clone"]:
+                seen.append(os.path.lexists(self.dest))
+            return util.run_bounded(argv, **kw)
+        self.assertEqual(self.go(run=run)["status"], "cloned")
+        self.assertEqual(seen, [False])
 
-    def test_a_unit_change_bootstrap_left_to_the_caller_is_said_in_the_reply(self):
+    def test_a_clone_that_lost_the_race_never_removes_the_winners(self):
+        def run(argv, **kw):
+            if argv[:2] == ["git", "clone"]:
+                done = util.run_bounded(argv, **kw)
+                git("clone", "-q", self.remote, self.dest)   # the other clone lands first
+                with open(os.path.join(self.dest, "winner"), "w") as fh:
+                    fh.write("x")
+                return done
+            return util.run_bounded(argv, **kw)
+        doc = self.go(run=run)
+        self.assertEqual(doc["status"], "failed", doc)
+        self.assertTrue(os.path.isfile(os.path.join(self.dest, "winner")))
+        self.assertEqual(os.listdir(os.path.join(self.home, "projects")), ["gzapp"], "the loser's scratch clone is gone")
+
+    def test_the_reason_is_what_failed_in_its_words_not_gits_closing_lines(self):
+        advice = b"fatal: Could not read from remote repository.\n\nPlease make sure you have the correct access rights\nand the repository exists.\n"
+        for said, want in ((b"Warning: Permanently added 'h' to the list of known hosts.\ngit@h: Permission denied (publickey).\n", "git@h: Permission denied (publickey)."),
+                           (b"ssh: Could not resolve hostname h: Name or service not known\n", "ssh: Could not resolve hostname h: Name or service not known"),
+                           (b"Host key verification failed.\n", "Host key verification failed."),
+                           (b"ERROR: Repository not found.\n", "ERROR: Repository not found.")):
+            def run(argv, e=said + advice, **kw):
+                raise subprocess.CalledProcessError(128, argv, b"", e)
+            self.assertEqual(self.go(run=run)["reason"], f"git clone exited 128: {want}")
+        def only_advice(argv, **kw):
+            raise subprocess.CalledProcessError(128, argv, b"", advice)
+        self.assertIn("git clone exited 128: ", self.go(run=only_advice)["reason"], "nothing but boilerplate still gives a line")
+
+    def test_a_unit_change_bootstrap_left_to_the_caller_is_said_in_the_reply_with_a_remedy_that_restarts_the_daemon(self):
+        said = b"  *  x.service: unit changed; restart left to the caller\n"
+
         def run(argv, **kw):
             if argv[0] == "bash":
-                return subprocess.CompletedProcess(argv, 0, b"  *  x.service: unit changed; restart left to the caller\n", b"")
+                return subprocess.CompletedProcess(argv, 0, said, b"")
             return util.run_bounded(argv, **kw)
         doc = self.go(run=run)
         self.assertEqual(doc["status"], "cloned")
-        self.assertIn("restart is owed", doc["warning"])
+        self.assertIn("systemctl --user restart agent-fabric-agentd", doc["warning"])
+        self.assertNotIn("upgrade fabric", doc["warning"])
         self.assertNotIn("warning", self.go(run=lambda a, **k: subprocess.CompletedProcess(a, 0, b"", b"") if a[0] == "bash" else util.run_bounded(a, **k)))
+
+    def test_a_bootstrap_that_installed_the_unit_and_then_failed_still_says_the_restart_is_owed(self):
+        said = b"  *  x.service: unit changed; restart left to the caller\n"
+
+        def run(argv, **kw):
+            if argv[0] == "bash":
+                raise subprocess.CalledProcessError(3, argv, said, b"later step failed\n")
+            return util.run_bounded(argv, **kw)
+        doc = self.go(run=run)
+        self.assertEqual(doc["status"], "failed")
+        self.assertIn("later step failed", doc["reason"])
+        self.assertIn("systemctl --user restart agent-fabric-agentd", doc["reason"])
 
     def test_a_bootstrap_that_hangs_is_a_failure(self):
         def run(argv, **kw):
