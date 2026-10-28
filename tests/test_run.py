@@ -87,7 +87,9 @@ def env(base: str, **extra: str) -> dict[str, str]:
          "AGENT_FABRIC_TEST_JOBS": "2",
          # Without this every full run these cases make would queue for the host's REAL full-suite lease behind the
          # fleet. The lease cases below turn it back on, each in a lease directory of its own.
-         "AGENT_FABRIC_SUITE_LEASE": "0", RUN_TOKEN_VARIABLE: RUN_TOKEN}
+         "AGENT_FABRIC_SUITE_LEASE": "0",
+         # Likewise the cpu slots: the cases that exercise them turn this back on in a lease directory of their own.
+         "AGENT_FABRIC_CPU_LEASE": "0", RUN_TOKEN_VARIABLE: RUN_TOKEN}
     e.update(extra)
     return e
 
@@ -870,6 +872,118 @@ def main() -> int:
         check("a lease file that cannot be opened is said on stderr and the run goes on unleased (catches: a run failed by "
               "a lease the host cannot give)",
               os.path.exists(os.path.join(sandbox, "ran-broken")) and "no host lease" in r.stderr, (r.returncode, r.stderr))
+
+        print("every section holds one cpu slot, after full-suite (ADR-010 A 2026-10-28)")
+        import json
+        import socket
+        host = socket.gethostname().split(".")[0]
+        nproc = len(os.sched_getaffinity(0))
+        policy = os.path.join(sandbox, "host-load.json")
+        write(policy, json.dumps({"cores_per_slot": 4, "wait_s": 1500, "hosts": {host: {"cpu_slots": 1}}}))
+        budget = str(nproc)                        # one slot: the whole machine is the slot's share
+
+        def cpu_world() -> tuple[str, dict[str, str]]:
+            leases, extra = lease_world()
+            extra.update(AGENT_FABRIC_SUITE_LEASE="0", AGENT_FABRIC_CPU_LEASE="1", AGENT_FABRIC_HOST_LOAD=policy,
+                         AGENT_FABRIC_CPU_WAIT="2")
+            return leases, extra
+
+        def cpu_who(leases: str) -> str:
+            return subprocess.run([os.path.join(leasebin, "fabric-lease"), "cpu", "--who"], capture_output=True, text=True,
+                                  env={"PATH": host_path, "AGENT_FABRIC_LEASES": leases, "AGENT_FABRIC_HOST_LOAD": policy,
+                                       "PYTHONDONTWRITEBYTECODE": "1"}).stdout
+
+        def probe(name: str) -> str:
+            return suite("import json, subprocess\n"
+                         "who = subprocess.run(['fabric-lease', 'cpu', '--who'], capture_output=True, text=True).stdout\n"
+                         "keys = ('AGENT_FABRIC_TEST_JOBS', 'FABRIC_CPU_SLOT', 'CARGO_BUILD_JOBS')\n"
+                         f"open({os.path.join(sandbox, name)!r}, 'w').write(json.dumps([who, {{k: os.environ.get(k) for k in keys}}]))\n")
+
+        def seen_by_suite(name: str) -> tuple[str, dict]:
+            path = os.path.join(sandbox, name)
+            return tuple(json.load(open(path))) if os.path.exists(path) else ("", {})  # type: ignore[return-value]
+
+        for section in ("all", "python"):
+            leases, extra = cpu_world()
+            extra["AGENT_FABRIC_TEST_JOBS"] = "9999"      # higher than the budget: lowered, with a line
+            if section == "all":
+                extra["AGENT_FABRIC_SUITE_LEASE"] = "1"
+            base = fresh(lease=True, files={"tests/test_probe.py": probe(f"cpu-{section}")})
+            before = cpu_who(leases)
+            r = run(base, section, **extra)
+            who_during, saw = seen_by_suite(f"cpu-{section}")
+            check(f"a `{section}` run holds a cpu slot while its suites run, recorded as tests-run {section}, and frees it after "
+                  "(catches: a section that takes none; a slot that outlives the run)",
+                  before.startswith("free:") and f"(tests-run {section})" in who_during and cpu_who(leases).startswith("free:"),
+                  (before, who_during, cpu_who(leases), r.stderr))
+            check(f"…the `{section}` suites get the slot's budget and its marker (catches: a suite on the whole machine)",
+                  saw.get("AGENT_FABRIC_TEST_JOBS") == budget and saw.get("FABRIC_CPU_SLOT") == "1/1"
+                  and saw.get("CARGO_BUILD_JOBS") == budget and "lowered" in r.stderr, (saw, budget, r.stderr))
+
+        # a slot the run cannot get: 75 and no suite (control: the same run on a free directory ran its suite, above)
+        leases, extra = cpu_world()
+        # `fabric-lease cpu -- cmd` is not a command: the slot is taken by lease.py's own function, as the run takes it
+        other = subprocess.Popen([sys.executable, "-c", "import sys, time\nsys.path.insert(0, sys.argv[1])\nimport lease\n"
+                                  "lease.acquire_cpu(sys.argv[2], lease.cpu_policy(sys.argv[3]), 'other', 0)\n"
+                                  "print('held', flush=True)\ntime.sleep(60)\n",
+                                  os.path.join(ROOT, "tools", "fabric"), leases, policy],
+                                 stdout=subprocess.PIPE, text=True, stdin=subprocess.DEVNULL)
+        other.stdout.readline()
+        base = fresh(lease=True, files={"tests/test_mark.py": marker_suite("ran-cpu-held")})
+        r = run(base, "python", **extra)
+        other.terminate()
+        other.wait()
+        other.stdout.close()
+        check("with every cpu slot held by another process the run exits 75, says who holds it, runs no suite and leaves no "
+              "directory (catches: a run that goes on after its wait)",
+              r.returncode == 75 and " other " in r.stderr and not os.path.exists(os.path.join(sandbox, "ran-cpu-held"))
+              and not runs_left(base), (r.returncode, r.stderr))
+
+        # not taken: the probe sees a free directory while its suite runs
+        for key, label, more, said in (("nested", "FABRIC_CPU_SLOT set (nested in a slot)", {"FABRIC_CPU_SLOT": "1/2"}, ""),
+                                       ("optout", "AGENT_FABRIC_CPU_LEASE=0", {"AGENT_FABRIC_CPU_LEASE": "0"}, "AGENT_FABRIC_CPU_LEASE=0"),
+                                       ("gha", "GITHUB_ACTIONS set", {"GITHUB_ACTIONS": "true"}, ""),
+                                       ("ci", "CI set", {"CI": "true"}, "")):
+            leases, extra = cpu_world()
+            base = fresh(lease=True, files={"tests/test_probe.py": probe(f"cpu-off-{key}")})
+            r = run(base, "python", **{**extra, **more})
+            who_during, saw = seen_by_suite(f"cpu-off-{key}")
+            check(f"{label} takes no cpu slot (catches: the exemption missing; control: the cases above hold one)",
+                  r.returncode == 0 and who_during.startswith("free:") and "no cpu slot" not in r.stderr
+                  and (r.stderr.count(said) == 1 if said else True), (r.returncode, who_during, r.stderr))
+        nested = seen_by_suite("cpu-off-nested")[1]
+        check("…nested in a slot the suites keep the caller's marker and a thread bound that is not a fresh budget",
+              nested.get("FABRIC_CPU_SLOT") == "1/2" and nested.get("AGENT_FABRIC_TEST_JOBS") == "2"
+              and nested.get("CARGO_BUILD_JOBS") is None, nested)
+
+        # a lease directory or policy the host cannot give: said, and the run goes on without a slot
+        for label, more in (("a policy that cannot be read", {"AGENT_FABRIC_HOST_LOAD": os.path.join(sandbox, "no-policy.json")}),
+                            ("a host with no lease directory", {"AGENT_FABRIC_LEASES": os.path.join(sandbox, "no-such-leases")})):
+            leases, extra = cpu_world()
+            base = fresh(lease=True, files={"tests/test_mark.py": marker_suite("ran-no-cpu")})
+            if os.path.exists(os.path.join(sandbox, "ran-no-cpu")):
+                os.remove(os.path.join(sandbox, "ran-no-cpu"))
+            r = run(base, "python", **{**extra, **more})
+            check(f"{label}: one `no cpu slot` line on stderr and the run goes on (catches: a run failed by a policy the host "
+                  "cannot give)",
+                  os.path.exists(os.path.join(sandbox, "ran-no-cpu")) and r.stderr.count("no cpu slot (") == 1, (r.returncode, r.stderr))
+
+        # a TERM releases the slot, as it does full-suite
+        leases, extra = cpu_world()
+        flag = os.path.join(sandbox, "cpu-slow-started")
+        base = fresh(lease=True, files={"tests/test_slow.py": suite(f"import time\nopen({flag!r}, 'w').close()\ntime.sleep(60)\n")})
+        p = subprocess.Popen([sys.executable, os.path.join(base, "tests", "run.py"), "python"], cwd=base, env=env(base, **extra),
+                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, stdin=subprocess.DEVNULL)
+        poll_until(lambda: os.path.exists(flag) and cpu_who(leases).startswith("held:"), 30)
+        was_held = cpu_who(leases).startswith("held:")
+        p.send_signal(signal.SIGTERM)
+        try:
+            code = p.wait(timeout=60)
+        except subprocess.TimeoutExpired:
+            p.kill()
+            code = None
+        check("a TERMed run was holding a cpu slot, exits 143, and leaves it free (catches: a slot that outlives the signal)",
+              was_held and code == 143 and cpu_who(leases).startswith("free:"), (was_held, code, cpu_who(leases)))
 
     print(f"\ntest_run: {'OK' if not fails else f'{fails} FAILED'}")
     return 1 if fails else 0

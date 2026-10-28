@@ -1,7 +1,7 @@
 ---
 class: prompt-translation
 translates: identities/prompt/team.md
-translates_digest: sha256:f2a973d2b75ff2eeeb117a27204282b21ac5e8e860ba0c53f02bd89f9c6b83d2
+translates_digest: sha256:14a94b064fc61645089c5db110d4c18e1917b632a3fc35210e2fd135c0ffc299
 ---
 # Работа в команде
 
@@ -95,6 +95,11 @@ work, 2 fix, minimum 8»). Вся процедура — в скилле `pull-r
 в scratchpad сессии; каталог сборки очищен после смены зависимостей;
 большой кэш удалён. Прежде чем чистить, измерь, а потом сообщи, что
 удалил.
+
+**Тяжёлая сборка или прогон тестов запускается в фоне**: cargo, dotnet
+и `tests/run.sh` могут до 25 минут ждать одного из немногих
+процессорных слотов хоста — дольше, чем длится вызов на переднем плане
+(agent-fabric ADR-010, правило 9).
 
 **Плоскость управления — только для чтения.** `agent-fabric/` и
 `.agent-fabric/` каждого проекта пишет только fabric-coordinator; о

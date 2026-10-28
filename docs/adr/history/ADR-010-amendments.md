@@ -52,10 +52,11 @@ and nothing else, rule 2), default `max(1, nproc // 4)`; develop-qzapp:
 develop-qzapp). The holder's child gets `CARGO_BUILD_JOBS=J`,
 `AGENT_FABRIC_TEST_JOBS=J` when unset (lowered to J when higher, with a
 line), `DOTNET_PROCESSOR_COUNT=J`, `MAKEFLAGS=-jJ` when unset, and
-`FABRIC_CPU_SLOT=<k>/<N>`. That the dotnet variable bounds MSBuild nodes
-and the test runner's parallelism is a guess until a live read-back
-(`docs/live-checks/`) measures it; if it does not, the shim adds
-`-m:J` to build/test/publish.
+`FABRIC_CPU_SLOT=<k>/<N>`. The dotnet variable bounds a build to J
+projects at once and sets `Environment.ProcessorCount`, so no `-m:J` is
+added; and the switches of item 6 leave no node or compiler server
+behind (read back in
+`docs/live-checks/2026-10-28-dotnet-cpu-slot.md`).
 
 **3. Which commands.** cargo `build b test t check c clippy run r bench
 doc install nextest llvm-cov`; dotnet `build test publish run pack`;
@@ -88,13 +89,23 @@ that builds, never waits on its own slot. `CI` set passes through.
 `AGENT_FABRIC_CPU_LEASE=0` passes through with one line on stderr.
 `/usr/bin/cargo` named by path bypasses the shim: accepted, said here.
 
-**6. Holding.** The shim holds the slot in its own process and runs the
-tool as a child, never `exec` with the descriptor open: a dotnet build
-server or MSBuild node left behind would inherit it and hold the slot
-after the build. The child runs with `MSBUILDDISABLENODEREUSE=1` and
-`DOTNET_CLI_USE_MSBUILD_SERVER=0`. Signals are forwarded as
-`fabric-lease` forwards them; a KILL to the shim alone frees the slot
-under a running build (§6's shape, unchanged).
+**6. Holding.** The shim takes the slot and then `exec`s the tool with
+the slot's descriptor inherited, so the tool keeps the recorded pid and
+the kernel frees the slot only when the last process holding the
+descriptor exits. A KILL to the tool alone therefore cannot free the
+slot while its children still burn the cores, the shape §6 leaves open
+for every other lease, which closes its descriptor because a leftover
+process must not keep the host's *memory*; for cores the opposite is
+wanted. What would outlive a build and keep the slot is switched off in
+the tool's environment: `MSBUILDDISABLENODEREUSE=1`,
+`DOTNET_CLI_USE_MSBUILD_SERVER=0` and `UseSharedCompilation=false`
+(MSBuild nodes, the MSBuild server, the Roslyn compiler server). Should
+something still inherit it, `fabric-lease cpu --who` names a slot whose
+recorded pid is gone `(orphan: a child still runs)`, so a stuck slot is
+seen rather than guessed. Rejected: holding in the shim with the tool as
+a child, which a KILL to the shim frees under a running build; and
+`fcntl` byte-range locks in one file, which POSIX releases when any
+descriptor on the file closes, across this very exec.
 
 **7. Waiting, and what the agent sees.** The shim waits, up to
 `AGENT_FABRIC_CPU_WAIT` seconds, default 1500, against rule 10's
@@ -105,6 +116,21 @@ once on the grant: `fabric-lease: cpu slot 1/2 after 41s, jobs=5`;
 on the deadline, exit 75 with `fabric-lease: reason=timeout` and the
 holders. A foreground tool call ends at its own timeout first; the team
 rule gains one line: a heavy build or suite runs in the background.
+
+**Measured, with a control.** The rollout is read against the morning
+it answers, not argued. The workload is fixed: `tests/run.sh python` on
+one pinned commit, alone on an idle host (the lower bound), then beside
+three contenders (a cargo build of InterWeave, a `dotnet build` of
+gzapp, a second run), unleased and then leased. What is read is the
+measured run's wall time and pass rate and the time until all four
+end, with load and `/proc/pressure/cpu` every 60 s. Leasing should cost
+the measured run some queueing and save more in total and in red runs;
+a leased case that passes without the planted contention measures
+nothing. Kept if, at the 95th percentile, load stays under 2 × nproc,
+CPU pressure `some` under 60 %, the control has no load flake, and the
+measured run is within 1.5 × its idle time; otherwise N and the thread
+budget are tuned in `policies/host-load.json`, not in code. The
+read-back goes to `docs/live-checks/` beside the dotnet one (item 2).
 
 **Build split.** The slots in `tools/fabric/lease.py`, the shim and its
 provisioning step, and their tests: python-dev, inside its entry.
