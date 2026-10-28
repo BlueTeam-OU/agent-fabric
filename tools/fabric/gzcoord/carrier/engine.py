@@ -74,7 +74,7 @@ class Carrier:
     spool: arrivals.Spool
     arrival_log: arrivals.ArrivalLog
     connect: Callable[[], ipc.Session]
-    journal: Callable[[str, str], str]          # (text, iso ts) -> "written" | "same" | raises
+    journal: Callable[[str, str, str], str]     # (text, iso ts, verified sender) -> "written" | "same" | raises
     parse: Callable[[str], tuple[str | None, dict]]
     for_me: Callable[[dict, dict], bool]
     host: str
@@ -313,16 +313,19 @@ class Carrier:
             # the journal: it collapses repeats, the log keeps them. A copy this agent
             # only filters out (a TO-ROLE it does not hold) is no pair of the report.
             self.arrival_log.append(mid, me.address, CARRIER_NAME, verdict)
+            # The row is journaled under the roster's address, never the copy's FROM, a claim
+            # the verdict above may have found false (ADR-064 rule 9).
+            sender = f"{self.host}/{row['login']}"
             try:
                 ts = self.iso_now()
-                self.journal(text, ts)
+                self.journal(text, ts, sender)
             except Exception as e:  # noqa: BLE001 — a journal that cannot keep it is a refusal to receipt
                 self.counters.not_journaled += 1
                 log(f"the journal could not keep {mid}: {type(e).__name__}: {e}")
                 return
             # Every addressed arrival is listed by `unseen` until the shown ledger settles
             # it: whether it is SHOWN is the ledger's to say, not the journal's outcome.
-            self.spool.keep(mid, text, ts, verdict, f"{self.host}/{row['login']}")
+            self.spool.keep(mid, text, ts, verdict, sender)
         self.send_receipt(session, row, mid)
 
     def send_receipt(self, session: ipc.Session, row: dict, mid: str) -> None:
