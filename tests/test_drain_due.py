@@ -166,6 +166,8 @@ def main() -> int:
         check("no drainable memory adds no job", code == 0 and len([j for j in jobs() if j.get("topic") == "drain-due"]) == 2 and "no job" in out, (code, out, err))
         code, out, err = run(ctl([{"account": "dev-01", "host": "h", "status": "no answer"}], name="ctl6"))
         check("no store answered at all is a failed unit, the report still written", code == 1 and "no store answered" in err and report()["totals"]["unknown"] == 1, (code, err))
+        code, out, err = run(ctl([row("dev-01", [bundle("alpha", 0, None)]), {"account": "dev-02", "host": "h", "status": "no answer"}], name="ctl6b"))
+        check("a partial answer with nothing known drainable does not say 'nothing drainable'", code == 0 and "nothing known drainable, 1 unknown" in out, (code, out, err))
         code, out, err = run(ctl([row("dev-01", [])], name="ctl7"))
         check("an account with no memory directory is known and empty, not a failure", code == 0, (code, err))
 
@@ -194,21 +196,51 @@ def main() -> int:
                                   ("a missing ctl", os.path.join(tmp, "absent"), "cannot run")):
             code, out, err = run(spec, now=NOW + 40 * DAY)
             check(f"{label}: exit 1, said", code == 1 and want in err, (code, err))
-        check("a failing run kept every earlier run (its own empty directory is the only change)",
-              set(os.listdir(runs)) - set(before) <= {"2027-02-24"} and set(before) <= set(os.listdir(runs)), os.listdir(runs))
+        check("a failing run kept every earlier run and left no directory of its own", sorted(os.listdir(runs)) == before, os.listdir(runs))
 
         print("fabric-drain-due: the last 4 runs are kept")
+        full = ["2026-12-01", "2026-12-08", "2026-12-15", "2026-12-22"]
+        for d in full:
+            os.makedirs(os.path.join(runs, d), exist_ok=True)
+        before_none = sorted(os.listdir(runs))
+        code, out, err = run(ctl([{"account": "dev-01", "host": "h", "status": "no answer"}], name="c12"), now=NOW + 60 * DAY)
+        check("a run in which no store answered fails and prunes nothing, its report kept",
+              code == 1 and "no store answered" in err and set(before_none) <= set(os.listdir(runs))
+              and os.path.exists(os.path.join(runs, "2027-03-16", "report.json")), (code, err, os.listdir(runs)))
+        shutil.rmtree(os.path.join(runs, "2027-03-16"))
         for d in ("2026-12-01", "2026-12-08", "2026-12-15", "2026-12-22", "2026-12-29", "2027-01-05"):
             os.makedirs(os.path.join(runs, d), exist_ok=True)
         os.makedirs(os.path.join(runs, "notes"), exist_ok=True)
         os.makedirs(os.path.join(tmp, "elsewhere"))
         os.symlink(os.path.join(tmp, "elsewhere"), os.path.join(runs, "2026-11-01"))
-        shutil.rmtree(os.path.join(runs, "2027-02-24"), ignore_errors=True)   # the failing runs' own, not an earlier run
         code, out, err = run(ctl(fleet, name="c11"))
         left = sorted(d for d in os.listdir(runs) if d[:1].isdigit())
         check("the newest four dated directories remain", code == 0 and left == ["2026-12-22", "2026-12-29", "2027-01-05", "2027-01-15"], (code, err, left))
         check("a name that is not a date and a link's target are untouched, the link itself is gone",
               "notes" in os.listdir(runs) and os.path.isdir(os.path.join(tmp, "elsewhere")) and not os.path.lexists(os.path.join(runs, "2026-11-01")), os.listdir(runs))
+
+        print("fabric-drain-due: one run at a time, and a stuck fabric-jobs is said")
+        import fcntl
+        holder = os.open(os.path.join(runs, ".lock"), os.O_RDWR | os.O_CREAT, 0o600)
+        fcntl.flock(holder, fcntl.LOCK_EX)
+        marker2 = ctl(fleet, name="c13")
+        code, out, err = run(marker2)
+        check("a run while another holds the lock fails, said, and runs nothing", code == 1 and "holds the drain lock" in err and not os.path.exists(marker2 + ".argv"), (code, err))
+        os.close(holder)
+        code, out, err = run(marker2)
+        check("the lock is released with its holder (positive control)", code == 0, (code, err))
+        real_run = dd.subprocess.run
+
+        def hang(argv, **kw):
+            if len(argv) > 1 and str(argv[1]).endswith("jobs.py"):
+                raise subprocess.TimeoutExpired(argv, kw.get("timeout"))
+            return real_run(argv, **kw)
+        dd.subprocess.run = hang
+        try:
+            code, out, err = run(ctl(fleet, name="c14"))
+        finally:
+            dd.subprocess.run = real_run
+        check("a fabric-jobs timeout is a prefixed failure line, not a traceback", code == 1 and err.startswith("fabric-drain-due: fabric-jobs") and "did not finish" in err, (code, err))
 
         print("fabric-drain-due: the installed command and the units")
         env = {**os.environ, "AGENT_FABRIC_PYTHON": sys.executable}

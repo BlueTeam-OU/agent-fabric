@@ -26,12 +26,14 @@ CONTRACT.
   stdout    the report's summary line, and the job's id.
   stderr    every failure, prefixed `fabric-drain-due: `.
   exit      0 done, or not the coordinator; 1 the collection or the report failed, or no store answered at all (a
-            week of "unknown" must show as a failed unit in the journal), or the job could not be kept; 2 bad argv.
+            week of "unknown" must show as a failed unit in the journal; its report is kept, no run is pruned), or
+            the job could not be kept, or another run holds the lock; 2 bad argv.
 """
 from __future__ import annotations
 
 import argparse
 import datetime
+import fcntl
 import importlib.util
 import json
 import os
@@ -211,8 +213,11 @@ def prune_runs(drain_root: str, keep: int = KEEP_RUNS) -> list[str]:
 def jobs_cli(*args: str) -> subprocess.CompletedProcess:
     # cwd: the job's project and working copy are the ones its directory resolves to (jobs.py), and the timer's
     # directory is this checkout.
-    r = subprocess.run([sys.executable, os.path.join(HERE, "jobs.py"), *args], capture_output=True, text=True,
-                       timeout=JOBS_TIMEOUT_S, check=False, cwd=layout.FABRIC_ROOT)
+    try:
+        r = subprocess.run([sys.executable, os.path.join(HERE, "jobs.py"), *args], capture_output=True, text=True,
+                           timeout=JOBS_TIMEOUT_S, check=False, cwd=layout.FABRIC_ROOT)
+    except subprocess.TimeoutExpired:
+        raise Failed(f"fabric-jobs {args[0]} did not finish in {JOBS_TIMEOUT_S} s") from None
     if r.returncode != 0:
         raise Failed(f"fabric-jobs {args[0]} failed: {(r.stderr or r.stdout).strip()[-200:]}")
     return r
@@ -271,20 +276,42 @@ def main(argv: list[str] | None = None, now_ms: Callable[[], int] = lambda: int(
     drain_root = os.path.join(identity.agent_state_dir(), "drain")
     run_dir = os.path.join(drain_root, utc_date(now))
     try:
+        os.makedirs(drain_root, mode=0o700, exist_ok=True)
+        # One run at a time: two would both see no open drain job and both add one. The lock dies with the process.
+        lock = os.open(os.path.join(drain_root, ".lock"), os.O_RDWR | os.O_CREAT, 0o600)
+        try:
+            try:
+                fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError:
+                raise Failed("another fabric-drain-due run holds the drain lock") from None
+            return collect(args, now_ms, now, drain_root, run_dir)
+        finally:
+            os.close(lock)
+    except (Failed, OSError, ValueError) as e:
+        print(f"fabric-drain-due: {e}", file=sys.stderr)
+        return 1
+
+
+def collect(args: argparse.Namespace, now_ms: Callable[[], int], now: int, drain_root: str, run_dir: str) -> int:
+    try:
         os.makedirs(run_dir, mode=0o700, exist_ok=True)
         rows = run_ctl(args.ctl, run_dir, args.timeout)
         # The age is read against the time the collection ended: a slow run does not make a memory look younger.
         report = build_report(rows, now_ms())
         write_report(run_dir, report)
-        job = keep_job(report)
-        prune_runs(drain_root)
-    except (Failed, OSError, ValueError) as e:
-        print(f"fabric-drain-due: {e}", file=sys.stderr)
-        return 1
-    print(f"{title_of(report)} -> {run_dir}/report.json" + (f"; job {job}" if job else "; no job (nothing drainable)"))
-    if report["stores"] and all(s["status"] == "unknown" for s in report["stores"]):
-        print("fabric-drain-due: no store answered", file=sys.stderr)
-        return 1
+    except (Failed, OSError, ValueError):
+        # A directory with no report is not a run: left, it would count among the 4 kept and push a good one out.
+        if not os.path.exists(os.path.join(run_dir, "report.json")):
+            shutil.rmtree(run_dir, ignore_errors=True)
+        raise
+    unknown = report["totals"]["unknown"]
+    if report["stores"] and unknown == len(report["stores"]):
+        # Decided before the prune: a run that fails evicts none of the runs that worked.
+        raise Failed(f"no store answered; the report is {run_dir}/report.json")
+    job = keep_job(report)
+    prune_runs(drain_root)
+    nothing = "nothing drainable" if not unknown else f"nothing known drainable, {unknown} unknown"
+    print(f"{title_of(report)} -> {run_dir}/report.json" + (f"; job {job}" if job else f"; no job ({nothing})"))
     return 0
 
 
