@@ -798,6 +798,7 @@ its record disagree, the record wins. Look it up, never read it whole:
   restore was read back (§7).
 - A 2026-09-30 — the inventory's key and secrets rows name the stores; Doppler is gone (§1, §5 rule 4).
 - A 2026-10-27 — the relay's database is scheduled to be copied every 6 h to Proton Drive, encrypted and signed, restore read back; §1, §6, §7 say so.
+- A 2026-10-28 — undrained memory has a daily copy (restore unread); §7 step 3 decided: a weekly timer collects every account's drain bundle, a 14-day age bound, a report and one drain job; landing stays reviewed (§1, §6, §7).
 - Keywords: decentralization, resilience, single point of failure,
   degraded mode, relay, host, crash, backup, autonomy, P5.
 
