@@ -5,7 +5,7 @@ topic: "served-means-evidence-of-receipt-not-a-sent-response"
 description: "a record that shows a client-held value to a third party must define \"the client has it\" as evidence of receipt (a later contact), never as \"the server returned it\" — ADR-078's call sign, 2026-10-15"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-18"
+distilled_at: "2026-10-28"
 origin:
   - agent: "architect-cto-01"
     host: "develop-qzapp"

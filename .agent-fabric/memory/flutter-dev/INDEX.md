@@ -3,7 +3,7 @@ role: "flutter-dev"
 class: index
 description: "What flutter-dev knows and where it lives."
 tier: 1
-distilled_at: "2026-10-24"
+distilled_at: "2026-10-28"
 ---
 
 # flutter-dev — knowledge index

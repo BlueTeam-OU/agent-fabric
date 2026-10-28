@@ -5,7 +5,7 @@ topic: "reflection-a-new-value-in-a-closed-answer-set-is-served-as-a-known-reaso
 description: When a minor adds a value to a closed refusal set, a client below that minor is answered a reason or error its decoder already knows, and the contract states this as a downgrade by version rather than the rule, since an older decoder…
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-24"
+distilled_at: "2026-10-28"
 origin:
   - agent: "architect-cto-01"
     host: "develop-qzapp"

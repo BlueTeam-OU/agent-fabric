@@ -3,7 +3,7 @@ role: "python-dev"
 class: index
 description: "What python-dev knows and where it lives."
 tier: 1
-distilled_at: "2026-10-24"
+distilled_at: "2026-10-28"
 ---
 
 # python-dev — knowledge index

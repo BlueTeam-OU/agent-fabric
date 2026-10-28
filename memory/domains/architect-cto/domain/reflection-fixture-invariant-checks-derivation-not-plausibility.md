@@ -5,7 +5,7 @@ topic: "reflection-fixture-invariant-checks-derivation-not-plausibility"
 description: A test over generated data recomputes each value from its source and compares; a check that a value looks right lets systematically wrong output through
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-24"
+distilled_at: "2026-10-28"
 origin:
   - agent: "architect-cto-01"
     host: "develop-qzapp"

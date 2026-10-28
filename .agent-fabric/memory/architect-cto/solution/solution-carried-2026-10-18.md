@@ -1,10 +1,11 @@
 ---
 role: "architect-cto"
 class: solution
+topic: "solution-carried-2026-10-18"
 description: "InterWeave: a stage opened beside a lower one is opened by a plan-section record, never by the workspace status, which names the lowest open stage because three guards read it as a number; a deferral to the parallel stage never fires"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-18"
+distilled_at: "2026-10-28"
 origin:
   - agent: "architect-cto-01"
     host: "develop-qzapp"

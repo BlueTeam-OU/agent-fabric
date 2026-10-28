@@ -3,7 +3,7 @@ role: "backend-dev"
 class: index
 description: "What backend-dev knows and where it lives."
 tier: 1
-distilled_at: "2026-10-24"
+distilled_at: "2026-10-28"
 ---
 
 # backend-dev — knowledge index

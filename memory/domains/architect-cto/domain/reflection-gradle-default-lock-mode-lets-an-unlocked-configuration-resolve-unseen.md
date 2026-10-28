@@ -5,7 +5,7 @@ topic: "reflection-gradle-default-lock-mode-lets-an-unlocked-configuration-resol
 description: "Under Gradle's default lock mode a locked configuration with no lock state yet resolves without validation and appears in no lockfile, so a guard that reads lockfiles needs LockMode.STRICT to see every configuration"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-24"
+distilled_at: "2026-10-28"
 origin:
   - agent: "architect-cto-01"
     host: "develop-qzapp"

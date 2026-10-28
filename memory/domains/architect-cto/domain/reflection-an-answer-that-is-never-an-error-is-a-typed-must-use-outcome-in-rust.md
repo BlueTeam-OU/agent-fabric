@@ -5,7 +5,7 @@ topic: "reflection-an-answer-that-is-never-an-error-is-a-typed-must-use-outcome-
 description: "If a wire answer is never an error, the Rust port does not carry it as Err but returns a typed outcome marked must_use, since a caller ending in call()?; discards the Ok value and would show a refused write as made, and with -D warnings…"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-24"
+distilled_at: "2026-10-28"
 origin:
   - agent: "architect-cto-01"
     host: "develop-qzapp"

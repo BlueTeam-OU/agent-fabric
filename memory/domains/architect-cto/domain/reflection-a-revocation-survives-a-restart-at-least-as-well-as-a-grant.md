@@ -5,7 +5,7 @@ topic: "reflection-a-revocation-survives-a-restart-at-least-as-well-as-a-grant"
 description: "A revocation lasts at least as long as the grant it removes: a runtime-only admin change layered over configured state fails open at restart, silently re-allowing what a person revoked, while a lost allow fails visibly; and a…"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-24"
+distilled_at: "2026-10-28"
 origin:
   - agent: "architect-cto-01"
     host: "develop-qzapp"
