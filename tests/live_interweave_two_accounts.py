@@ -11,9 +11,9 @@ throwaway profile. The messages are real INFO messages between the two logins,
 journaled and logged by the carrier like any other; their subject says what
 they are.
 
-Each account names the other one in J92_PEER (its login; every phase checks
-it, since the roster holds every admitted account and the pair under test is
-not in it).
+Each account names the other one in J92_PEER (its login): the roster holds
+every admitted account but not which two are under test, so check, serve,
+exchange and portcheck refuse without it (stop needs none).
 
 The accounts agree on one number, J92_RUN (milliseconds since the epoch, e.g.
 `date +%s%3N`), which makes the MESSAGE-IDs of the run: a rerun uses a new one,
@@ -379,11 +379,18 @@ def phase_stop() -> int:
     return 0
 
 
+ENVIRONMENT = '''environment:
+  J92_PEER   the other account's login (check, serve, exchange, portcheck)
+  J92_RUN    the run's number in ms, the same for both accounts (exchange)
+  J92_SHARE  directory for the accounts' results (default /var/tmp/j92-live-share)
+  J92_WORK   this account's scratch directory (default ~/j92-live)'''
+
+
 def main(argv: list[str]) -> int:
     phases = {"check": phase_check, "serve": phase_serve, "exchange": phase_exchange,
               "portcheck": phase_portcheck, "stop": phase_stop}
     if len(argv) != 1 or argv[0] not in phases:
-        print(__doc__.split("\n\n")[0] + "\nusage: " + " | ".join(phases), file=sys.stderr)
+        print(__doc__.split("\n\n")[0] + "\nusage: " + " | ".join(phases) + "\n" + ENVIRONMENT, file=sys.stderr)
         return 1
     return phases[argv[0]]()
 
