@@ -1853,6 +1853,145 @@ def _():
         stub.close()
 
 
+# ── placement: a TO no host places, before and apart from presence ──
+
+def _placement_send(to_line: str, *flags: str, placed: dict | None = None, registry: str | None = None,
+                    token: bool = True, presence: str = "online", wait_ms: str = "300") -> tuple[int, str, str, list, str]:
+    """(exit, stdout, stderr, the relay paths hit, the content posted) of gzcoord-send for a message with `to_line`,
+    on a hosts registry that places `placed` (login -> host) on the sender's host. `presence` is what the stub's control
+    channel answers an ask with: online, or `down` (a 503 for every call)."""
+    me = gzmsg.whoami()
+    hits: list[str] = []
+    posted: list[str] = []
+    asked: dict = {}
+
+    def answer(_h, method, path, body):
+        hits.append(f"{method} {path.split('?')[0]}")
+        if presence == "down":
+            return 503, '{"error": "down"}'
+        if method == "POST" and path.startswith("/api/send"):
+            sent = json.loads(body)
+            try:
+                inner = json.loads(sent["content"])
+            except ValueError:
+                inner = None
+            if isinstance(inner, dict) and inner.get("op") == "presence":
+                asked.update(id=inner["id"], to=inner["to"])
+                return 200, '{"id": "p1", "seq": 1}'
+            posted.append(sent["content"])
+            return 200, '{"id": "m1", "seq": 7}'
+        if path.startswith("/api/messages") and asked:
+            who = asked["to"][0]
+            reply = {"v": 1, "kind": "reply", "in_reply_to": asked["id"], "from": who,
+                     "data": {"presence": {"status": "ok", "online": True}}}
+            return 200, json.dumps({"messages": [{"id": "p2", "seq": 2, "content": json.dumps(reply)}]})
+        return 200, '{"messages": []}'
+    stub = P.Stub(answer)
+    try:
+        extra = {} if token else {"CLAUDE_BRIDGE_AUTH_TOKEN": ""}
+        env = _replay_env(stub, GZCOORD_JOURNAL="off", GZCOORD_PRESENCE_WAIT_MS=wait_ms, **extra)
+        if registry is None:
+            registry = os.path.join(env["HOME"], "hosts.json")
+            with open(registry, "w", encoding="utf-8") as fh:
+                json.dump({"hosts": {me["host"]: {"operator": "user"}},
+                           "placement": {login: me["host"] for login in (placed or {})}}, fh)
+        env["AGENT_FABRIC_HOSTS_REGISTRY"] = registry
+        f = os.path.join(env["HOME"], "m.txt")
+        with open(f, "w", encoding="utf-8") as fh:
+            fh.write(f"[GZCOORD/1] INFO\nFROM: {me['host']}/{me['agent']}\nROLE: backend-dev\nPROJECT: fixture\n"
+                     f"{to_line.replace('@HOST@', me['host'])}\nSUBJECT: s\n\nNOTES:\nn\n")
+        r = subprocess.run([P.SEND_CMD, f, *flags], env=env, capture_output=True, text=True, timeout=120)
+    finally:
+        stub.close()
+    return r.returncode, r.stdout, r.stderr, hits, "".join(posted)
+
+
+def _api_hits(hits: list) -> list:
+    return [h for h in hits if " /api/" in h]
+
+
+@case("send: a TO naming a role no host places is refused (exit 2) however it is run: --force, --dry-run, no token, presence down")
+def _():
+    to = "TO: @HOST@/fabric-coordinator"
+    for label, flags, kw in (("plain", (), {}), ("--force", ("--force",), {}), ("--dry-run", ("--dry-run",), {}),
+                             ("--dry-run --force", ("--dry-run", "--force"), {}), ("no token", (), {"token": False}),
+                             ("no token --force", ("--force",), {"token": False}),
+                             ("presence down", (), {"presence": "down"}), ("presence down --force", ("--force",), {"presence": "down"})):
+        rc, out, err, hits, posted = _placement_send(to, *flags, **kw)
+        eq(rc, 2, f"{label}: {err}")
+        eq((out, posted, _api_hits(hits)), ("", "", []), f"{label}: nothing left, the relay not asked: {hits}")
+        ok("fabric-coordinator" in err and "TO-ROLE: fabric-coordinator" in err and "one holder's login" in err
+           and "fabric-ctl all presence" in err and "sending anyway" not in err, f"{label}: {err}")
+
+
+@case("send: any other TO no host places is no account: exit 4 and the line says so; --force sends it, with and without presence")
+def _():
+    to = "TO: @HOST@/nobody-placed-here"
+    for label, kw in (("plain", {}), ("no token", {"token": False}), ("presence down", {"presence": "down"})):
+        rc, out, err, hits, posted = _placement_send(to, **kw)
+        eq(rc, 4, f"{label}: {err}")
+        eq((out, posted, _api_hits(hits)), ("", "", []), f"{label}: {hits}")
+        ok("is no account" in err and "offline" not in err and "no session" not in err and "an account being placed right now" in err, err)
+    rc, out, err, hits, posted = _placement_send(to, "--dry-run")
+    eq((rc, _api_hits(hits)), (4, []), f"a dry run is refused alike: {err}")
+    rc, out, err, hits, posted = _placement_send(to, "--force", "--dry-run")
+    eq(rc, 0, f"{err}")
+    ok("sending anyway" in err and "would post" in err.lower() or "would" in err, err)
+    rc, out, err, hits, posted = _placement_send(to, "--force")
+    eq(rc, 0, err)
+    ok(out.startswith("sent seq 7 INFO ") and "nobody-placed-here" in posted, f"{out!r} {posted!r}")
+    eq([h for h in hits if "presence" in h], [], "presence is not asked about an address no host places")
+    rc, out, err, hits, posted = _placement_send(to, "--force", token=False)
+    eq(rc, 3, f"placement forced, then the old no-token refusal: {err}")
+
+
+@case("send: controls — a placed login, even one that equals a role slug, is sent; a TO-ROLE and a BROADCAST are no address to place")
+def _():
+    for to, placed in (("TO: @HOST@/worker-01", {"worker-01": 1}), ("TO: @HOST@/fabric-coordinator", {"fabric-coordinator": 1})):
+        rc, out, err, hits, posted = _placement_send(to, placed=placed)
+        eq(rc, 0, f"{to}: {err}")
+        ok(out.startswith("sent seq 7 INFO ") and to.split(": ")[1].replace("@HOST@", gzmsg.whoami()["host"]) in posted, f"{out!r}")
+        ok("is no account" not in err and "names a role" not in err, err)
+    for to in ("TO-ROLE: backend-dev", "BROADCAST: true"):
+        rc, out, err, hits, posted = _placement_send(to, "--dry-run")
+        eq((rc, _api_hits(hits)), (0, []), f"{to}: {err}")
+        ok("is no account" not in err and "names a role" not in err, err)
+    rc, out, err, hits, posted = _placement_send("TO-ROLE: backend-dev", "--force")
+    eq(rc, 0, f"a TO-ROLE still goes to the presence check, which finds no holder: {err}")
+    ok("no running session holds" in err or "no account holds" in err, err)
+
+
+@case("send: a hosts registry that cannot be read is said as unknown; nothing is refused on it, the presence check asks its own")
+def _():
+    gone = os.path.join(P.scratch("noreg-"), "none.json")
+    rc, out, err, hits, posted = _placement_send("TO: @HOST@/fabric-coordinator", "--dry-run", registry=gone)
+    eq(rc, 0, err)
+    ok("is unknown" in err and "FileNotFoundError" in err and "names a role" not in err, err)
+    bad = os.path.join(P.scratch("noreg-"), "bad.json")
+    with open(bad, "w", encoding="utf-8") as fh:
+        fh.write('{"placement": []}')
+    rc, out, err, hits, posted = _placement_send("TO: @HOST@/fabric-coordinator", "--dry-run", registry=bad)
+    eq(rc, 0, err)
+    ok("is unknown" in err and "no placement and hosts tables" in err, err)
+
+
+@case("placement.judge: a placed address is none; a role slug unplaced is a role; the rest is not-placed; operators are placed")
+def _():
+    from gzcoord import placement
+    placed = {"h/a-login", "h/user", "h/backend-dev"}
+    roles = {"backend-dev", "fabric-coordinator"}
+    eq(placement.judge("h/a-login", placed, roles), None)
+    eq(placement.judge(" h/backend-dev ", placed, roles), None, "a placed login that equals a slug is a login, and TO is trimmed")
+    eq(placement.judge("h/fabric-coordinator", placed, roles), {"kind": "role", "address": "h/fabric-coordinator", "slug": "fabric-coordinator"})
+    eq(placement.judge("other/backend-dev", placed, roles)["kind"], "role", "no host places it there")
+    eq(placement.judge("h/stranger", placed, roles), {"kind": "not-placed", "address": "h/stranger"})
+    eq(placement.judge("h/stranger", placed, ()), {"kind": "not-placed", "address": "h/stranger"}, "no catalogue: no role is known")
+    reg = os.path.join(P.scratch("reg-"), "r.json")
+    with open(reg, "w", encoding="utf-8") as fh:
+        json.dump({"hosts": {"h1": {"operator": "op"}, "h2": {}}, "placement": {"x": "h1", "y": "h2"}}, fh)
+    eq(placement.placed_addresses(reg), {"h1/op", "h2/user", "h1/x", "h2/y"})
+
+
 def main() -> int:
     fails = 0
     for name, fn in CASES:
