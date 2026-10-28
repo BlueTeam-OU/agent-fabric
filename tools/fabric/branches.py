@@ -28,7 +28,7 @@ CONTRACT, frozen from the bash (ADR-040 §5 rule 3):
             fetch, no default branch known (origin/HEAD unset and none in
             projects/registry.json) or none on origin, or a git call whose answer could not be
             read; 1 a sweep that deleted what it was to but could not record
-            itself (or whose closing `git branch` failed)
+            itself (or whose closing `git branch` failed), or one whose delete of a branch on origin was refused
 
 A sweep deletes local branches and worktrees, and on origin only this login's own merged branches (below);
 only what a fresh count and a fresh status still call safe at the moment of deletion.
@@ -117,7 +117,7 @@ working copy, and the deletion of what is provably merged (agent-fabric
 ADR-022).
 
   fabric-branches            report every local branch and worktree
-  fabric-branches --sweep    report, then delete what shows 0
+  fabric-branches --sweep    report, then delete what shows 0, and this login's merged branches on origin
   fabric-branches --sweep --all   the same in every working copy of this login
                              beside this one
   fabric-branches --sweep --worktrees   the worktrees and the sessions' scratch only:
@@ -1109,7 +1109,7 @@ def run(argv: list[str], scratch: bool = True) -> int:
     if not sweep:
         echo()
         echo(f"safe to delete (0): {' '.join(zero) or 'none'}; worktrees: {' '.join(wt_remove) or 'none'}. "
-             "fabric-branches --sweep deletes exactly those.")
+             "fabric-branches --sweep deletes exactly those, and the list of origin above.")
         return 0
 
     echo()

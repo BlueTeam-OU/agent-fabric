@@ -10,7 +10,7 @@ Mutations planted on the source as formatted, each caught by the case named:
                              read as none on a failure (an_open_pull_request_stays, gh_unavailable_skips_the_step); `--worktrees` also
                              deleting on origin (worktrees_only_deletes_nothing_on_origin); the plain report deleting (the_report_is_the_dry_run);
                              the lease dropped (a_branch_pushed_during_the_run_stays); a refused delete stopping the rest or exiting 0
-                             (a_refused_delete_is_named_and_the_rest_go_on); the default branch never filtered (the_default_branch_stays).
+                             (a_refused_delete_is_named_and_the_rest_go_on); the default branch never filtered (the_default_branch_stays); ls-remote replaced by the fetched refs (a_branch_the_host_deleted_is_not_offered).
 
 The environment is built from scratch: PATH (a fake gh first, so no case reaches GitHub), HOME, LANG, TMPDIR, the state directory."""
 from __future__ import annotations
@@ -141,7 +141,7 @@ class Remote(unittest.TestCase):
         self.assertNotIn("on origin, on main", out)
 
     def test_a_branch_pushed_since_the_fetch_stays(self):
-        # Fetched while merged; then someone pushes a commit to it: the fetched ref says merged, origin's tip does not.
+        # Pushed after the fetch: the fetched ref is stale (merged), origin's tip is not.
         self.push(f"{MINE}feat/moved", merged=True)
         self.git("fetch", "-q", "origin")
         self.git("checkout", "-q", "-B", "scratch", "origin/main")
@@ -150,6 +150,15 @@ class Remote(unittest.TestCase):
         rc, out, err = self.run_cmd("--sweep")
         self.assertEqual(rc, 0, err)
         self.assertIn(f"{MINE}feat/moved", self.on_origin())
+
+    def test_a_branch_the_host_deleted_is_not_offered(self):
+        # A fetch without --prune keeps the ref of a branch deleted on origin; ls-remote, not that ref, says what is there.
+        self.push(f"{MINE}for/x/gone", merged=True)
+        self.git("fetch", "-q", "origin")
+        subprocess.run(["git", "-C", self.origin, "branch", "-q", "-D", f"{MINE}for/x/gone"], check=True, timeout=30, env=self.env())
+        rc, out, err = self.run_cmd("--sweep")
+        self.assertEqual(rc, 0, (out, err))
+        self.assertNotIn("for/x/gone", out)
 
     def test_a_branch_pushed_during_the_run_stays(self):
         self.push(f"{MINE}feat/racing", merged=True)
