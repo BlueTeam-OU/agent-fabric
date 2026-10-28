@@ -6,6 +6,7 @@ the policy is the real arm_policy.render of a real policy, so what is compared i
 from __future__ import annotations
 
 import base64
+import contextlib
 import copy
 import io
 import json
@@ -220,9 +221,8 @@ class Cli(unittest.TestCase):
 
     def run_cli(self, argv, g: Github | None = None, policy: dict = POLICY, load_error=None):
         out, err = io.StringIO(), io.StringIO()
-        load = mock.Mock(side_effect=load_error) if load_error else mock.Mock(return_value=policy)
-        with (mock.patch.object(arm_policy, "load", load), mock.patch.object(gh, "this_repo", return_value=REPO),
-              mock.patch.object(arm_policy, "policy_source", return_value=self.SOURCE)):
+        load = mock.Mock(side_effect=load_error) if load_error else mock.Mock(return_value=(policy, *self.SOURCE))
+        with mock.patch.object(arm_policy, "load_with_source", load), mock.patch.object(gh, "this_repo", return_value=REPO):
             rc = repo_policy.run(argv, g or Github(policy), out, err)
         self.load = load
         return rc, out.getvalue(), err.getvalue()
@@ -444,7 +444,7 @@ class Apply(unittest.TestCase):
 
 
 class Source(unittest.TestCase):
-    """Where the policy comes from, with the real arm_policy.load and policy_source: the registry, the clients file and the
+    """Where the policy comes from, with the real arm_policy.load and load_with_source: the registry, the clients file and the
     settings repository's contents are the only things answered by the test."""
     REGISTRY = {"projects": {"p": {"remotes": [f"https://github.com/{REPO}"], "client": "c"}}}
     CLIENTS = {"clients": {"c": {"settings_repo": "O/settings"}}}
@@ -462,13 +462,46 @@ class Source(unittest.TestCase):
             return g(path, **kw)
         return api
 
+    def patched(self, registered=True):
+        """The registry and the clients file as the files they are read from; nothing between them and load is replaced."""
+        real = arm_policy._read_json_file
+        registry = self.REGISTRY if registered else {"projects": {}}
+        return (mock.patch.object(arm_policy.workingcopy, "load_registry", return_value=registry),
+                mock.patch.object(arm_policy, "_read_json_file",
+                                  side_effect=lambda path: self.CLIENTS if path.endswith("clients.json") else real(path)),
+                mock.patch.object(arm_policy, "fleet_policy", return_value=POLICY))
+
     def run_cli(self, argv, g, file, registered=True, settings_down=False):
         out, err = io.StringIO(), io.StringIO()
-        registry = self.REGISTRY if registered else {"projects": {}}
-        with (mock.patch.object(arm_policy, "_registry_and_clients", return_value=(registry, self.CLIENTS)),
-              mock.patch.object(arm_policy, "fleet_policy", return_value=POLICY)):
+        with contextlib.ExitStack() as stack:
+            for patch in self.patched(registered):
+                stack.enter_context(patch)
             rc = repo_policy.run(argv, self.world(g, file, registered, settings_down), out, err)
         return rc, out.getvalue(), err.getvalue()
+
+    def test_the_policy_readers_run_unmocked_and_agree_on_the_source(self):
+        g = Github(POLICY)
+        with contextlib.ExitStack() as stack:
+            for patch in self.patched():
+                stack.enter_context(patch)
+            for file, want in (({"mode": "owner-only"}, True), (None, False)):
+                api = self.world(g, file)
+                policy, settings, has_file = arm_policy.load_with_source(REPO, api=api)
+                self.assertEqual((settings, has_file), ("O/settings", want))
+                self.assertEqual(arm_policy.load(REPO, api=api), policy)
+            self.assertEqual(arm_policy.load_with_source("X/y", api=self.world(g, None))[1:], (None, False))
+
+    def test_one_fetch_decides_the_source_and_the_policy(self):
+        g, fetches = Github(POLICY), []
+        inner = self.world(g, {"mode": "owner-only"})
+        def api(path, **kw):
+            fetches.append(path)
+            return inner(path, **kw)
+        with contextlib.ExitStack() as stack:
+            for patch in self.patched():
+                stack.enter_context(patch)
+            arm_policy.load_with_source(REPO, api=api)
+        self.assertEqual(fetches.count("repos/O/settings/contents/repos/R.json"), 1)
 
     def drifted(self) -> Github:
         g = Github(POLICY)
@@ -493,9 +526,10 @@ class Source(unittest.TestCase):
             self.assertEqual(g.writes, [])
 
     def test_a_registered_repo_with_its_file_is_applied_and_the_source_is_said(self):
-        g = self.drifted()
-        rc, out, _ = self.run_cli(["apply", REPO, "--yes"], g, {})
-        self.assertEqual((rc, [w[0] for w in g.writes]), (0, ["PATCH"]))
+        g = Github(POLICY)       # GitHub holds the fleet's setting; the repository's own file asks for the opposite
+        rc, out, _ = self.run_cli(["apply", REPO, "--yes"], g, {"mode": "owner-only"})
+        patch = [w for w in g.writes if w[0] == "PATCH"]
+        self.assertEqual([w[2] for w in patch], [{"allow_auto_merge": False}], g.writes)
         self.assertTrue(out.startswith("policy: repos/R.json in O/settings\n"), out)
 
     def test_a_repo_that_is_no_projects_needs_fleet_default_to_be_applied(self):

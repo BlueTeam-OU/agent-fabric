@@ -14,8 +14,8 @@ A difference in which merge methods are allowed (a ruleset that allows the polic
 repository's allow_*_merge fields), in delete-branch-on-merge, or in bypass actors this token cannot see, is
 `(advisory)`: verify fails on it, arm does not refuse on it.
 
-The repository defaults to the current one (gh.py). The policy is arm_policy.load(repo): the fleet's with the
-client's settings repository's file over it. What it asks of GitHub is arm_policy.render(): the repository's
+The repository defaults to the current one (gh.py). The policy is arm_policy.load_with_source(repo): the
+fleet's with the client's settings repository's file over it. What it asks of GitHub is arm_policy.render(): the repository's
 merge fields and the one ruleset the policy names (every other ruleset is left alone). What GitHub holds is read
 with GETs; apply alone writes: PATCH repos/<repo> with the differing REPOSITORY_FIELDS, then PUT the ruleset by
 id when one of the policy's name exists, else POST it. Mode `direct` leaves an existing ruleset alone and says
@@ -246,7 +246,7 @@ def run(argv: list[str], api=gh.api, out=sys.stdout, err=sys.stderr) -> int:
         if not arm_policy.is_repo_name(repo):
             print(f"fabric-repo-policy: {repo!r} is not an <owner>/<name>", file=err)
             return 2
-        settings, has_file = arm_policy.policy_source(repo, api=api)
+        policy, settings, has_file = arm_policy.load_with_source(repo, api=api)
         source = describe_source(repo, settings, has_file)
         if verb == "apply" and settings is not None and not has_file:
             print(f"fabric-repo-policy: {source}; applying it would replace {repo}'s queue, required checks and rulesets "
@@ -255,7 +255,6 @@ def run(argv: list[str], api=gh.api, out=sys.stdout, err=sys.stderr) -> int:
         if verb == "apply" and settings is None and not fleet_default:
             print(f"fabric-repo-policy: {source}; apply writes the default only with --fleet-default: nothing written", file=err)
             return 2
-        policy = arm_policy.load(repo, api=api)
         name = arm_policy.ruleset_name(policy)
         desired = desired_state(policy, api)
         live = read_live(repo, name, api)
