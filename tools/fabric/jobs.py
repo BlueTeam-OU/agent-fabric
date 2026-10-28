@@ -190,7 +190,8 @@ goes; one line per directory, then `freed: <size>` (`would free:` under --dry-ru
 and the reason on stderr when the job list (an entry that is no job or has an unknown state included) or ~/projects cannot be
 read; a missing ~/projects is exit 0, "nothing to tidy". A process standing beside a `node_modules` (a dev server at the package
 root) does not protect it: only one standing in it does. The job list is read once, before the walk. Run daily by a user timer as
-the account, which must resolve the same state directory the sessions use (an absent list reads as empty).
+the account, which must resolve the same state directory the sessions use: the first line says `job list: <path>`, and an absent list
+with any tree under ~/projects is exit 1, nothing removed, the path named (an empty list that is there is valid).
 Each switch appends one line to the old and one to the new job's log: the outcome and its evidence, and the branch.
 `switch` still never passes an active job, takes the job named or the first in the order (a blocked job whose blockers
 cleared first, then queued and paused by priority, paused first, then the oldest), and with nothing queued offers the pool's.
