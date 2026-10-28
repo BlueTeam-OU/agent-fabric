@@ -102,7 +102,12 @@ relay, one host first:
   run on one profile; and every received message becomes a human store's
   unread row. A wrapper holding one `listen` and sending through it is
   not possible either: `listen` takes no input, so nothing can be sent
-  through it.
+  through it. Taken for the control plane, which is not this carrier's
+  traffic (A 2026-10-28): its records are few, small and live for a
+  bounded time, the reply is their receipt, and the duplex, consuming
+  `listen` InterWeave released in v0.2.0 removes the lease and store
+  objections. GZCoord's volume, receipts and chunking still need this
+  carrier.
 - **The Claude Code Channel bridge (`claude-channel`).** Not taken: it is
   an MCP server started by one Claude session, so delivery would stop
   whenever no session runs, and the inbox, the job intake (ADR-037) and
@@ -233,8 +238,13 @@ address, where the relay's `sender` is a claim (ADR-033 §6).
     includes a rollback drill (the InterWeave carrier switched off
     mid-window, nothing lost), and one `TO-ROLE` recipient among its
     logins.
-12. The control plane (`fabric:control`, ADR-029) stays on the relay;
-    this carrier carries GZCoord application messages only.
+12. This carrier carries GZCoord application messages only. The control
+    plane rides the same profile on its own `fabric-control` endpoint,
+    through `interweave-human` under the account's agentd (ADR-029 rule
+    18), never through this carrier: `fabric-control` is the profile's
+    only human endpoint, no person's client uses the profile, and
+    `gzcoord` stays automated-only. The ops that install, start, stop
+    or check InterWeave go on the relay (rule 14).
 13. Before the dual run starts, the carrier is validated with at least
     two instances under two accounts on the host, one receiving what the
     other sent (ADR-033 rule 4), and with one account's daemon refused
@@ -244,8 +254,8 @@ address, where the relay's `sender` is a claim (ADR-033 §6).
     InterWeave channel down, and a failure there leaves the agent
     unreachable on it without anyone being told (A 2026-10-25). So an
     install or update is a control-plane action (ADR-029), which rule 12
-    keeps on the relay and so reaches the account while that channel is
-    down. The action restarts the units that were running before it,
+    and ADR-029 rule 18 keep on the relay, so it reaches the account
+    while that channel is down. The action restarts the units that were running before it,
     then checks them through the control plane: each of those units
     active; the daemon unit's process running the program now installed
     (not the file it replaced, which a `--version` on disk cannot tell);
@@ -327,3 +337,4 @@ The body above reads current; each change's full note is in [history/ADR-064-ame
 | 2026-10-26 | The parity evidence is gathered through the control plane | §5 rule 11 |
 | 2026-10-27 | One host is the first milestone; a second host is the next | §2 lead and one-host bullet; §5 rule 1; §7 |
 | 2026-10-28 | The pin moves to InterWeave v0.2.0; the record names the pin, not a version | §6, §8 |
+| 2026-10-28 | The control plane rides the profile's fabric-control endpoint through interweave-human | §3 first alternative; §5 rules 12 and 14 |

@@ -776,6 +776,7 @@ its record disagree, the record wins. Look it up, never read it whole:
 - A 2026-09-30 — the relay token comes from the account's own store (§5 rule 6).
 - A 2026-10-04 — cccc recorded among the refused alternatives (§3).
 - A 2026-10-13 — a persona marked as AI is not a human-style identity (§5 rule 3).
+- A 2026-10-28 — a second host is reached over InterWeave (§7).
 - Keywords: transport, relay, Claude-Bridge, claude-bridge,
   gzcoord-relay, human relay, fallback, Telegram, adapter contract,
   channel, gzapp:gzcoord, bridge token, central, single point of failure.
@@ -1391,11 +1392,11 @@ its record disagree, the record wins. Look it up, never read it whole:
 ### ADR-064 — GZCoord carried over InterWeave: one host, beside the relay (Accepted)
 
 - One host, loopback only, is the first milestone; a second host the
-  next, by amendment; the control plane on the relay (rules 1, 12).
-- Dual run: every message by both carriers, the relay the transport of
-  record and ADR-033 rule 7 unchanged; the journal collapses by
-  MESSAGE-ID; a switch is an ADR-033 amendment on the owner's word over a
-  parity report (rule 11).
+  next, by amendment; control on its own `fabric-control` endpoint
+  via `interweave-human` (rules 1, 12).
+- Dual run: both carriers, the relay of record (ADR-033 rule 7
+  unchanged); the journal collapses by MESSAGE-ID; switching: an
+  ADR-033 amendment on the owner's word over a parity report (rule 11).
 - The carrier: the fabric's own client, not `interweave-human` or
   `claude-channel` (rule 5).
 - A roster keyed by agent id, each row signed by its login and
@@ -1407,16 +1408,16 @@ its record disagree, the record wins. Look it up, never read it whole:
   compress, then chunk, past 48 KiB; FROM checked against the PeerId;
   no transport-native value as metadata (rules 6-10).
 - A 2026-10-24 — zlib; receipts; CARRIER-CONTRACT.md (rules 7, 8).
-- A 2026-10-25 — an install is a control-plane action, checked after
-  the restart (rule 14).
+- A 2026-10-25 — install, a checked control action (rule 14).
 - A 2026-10-26 — roster ports reserved (rule 1).
 - A 2026-10-26 — evidence (rule 11).
 - A 2026-10-27 — one host a milestone (rule 1).
 - A 2026-10-28 — pin v0.2.0 (§8).
-- Parity report from arrival logs: missed, duplicate, offline counts,
-  a rollback drill (rule 11).
-- Built on release.json's pin (§8).
-- Keywords: InterWeave, carrier, relay, P5.
+- A 2026-10-28 — control via `interweave-human` (§3, rules 12, 14).
+- Parity from arrival logs: missed, duplicate, offline counts, a
+  rollback drill (rule 11); built on release.json's pin (§8).
+- Keywords: InterWeave, carrier, relay, P5, interweave-human,
+  fabric-control.
 
 ### ADR-065 — The reviewer reads through pinned tools, says what it covered, and the next round starts where the last one stopped (Accepted)
 

@@ -30,3 +30,12 @@ avatar — always behind the prefix "AI", so a persona discloses what it
 is; rule 3 now says so, and still forbids any identity that passes for a
 person. The owner's words, in the coordinator's session: "only we should
 keep ai agent clearly identificable as such".
+
+### Amendment 2026-10-28 — A second host is reached over InterWeave, not by the relay
+
+What changed: §7's first two bullets were stale. A second host is
+reached over InterWeave (ADR-064 rule 1's next milestone), not by a
+relay URL; InterWeave already carries GZCOORD/1 beside the relay on its
+host (ADR-064) and now the control records too (ADR-029 rule 18).
+
+Why: the same day's ADR-029 and ADR-064 amendments (agent-fabric j422).

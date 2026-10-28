@@ -124,3 +124,21 @@ landed". The fleet installs it by `fabric-ctl <login|all>
 interweave-install` (rule 14), two accounts first with rule 13's
 procedure re-run on the new programs, then the rest; the dual run's
 parity window counts from after the fleet runs one version.
+
+### Amendment 2026-10-28 — The control plane rides the profile's fabric-control endpoint through interweave-human
+
+What changed: rule 12 no longer keeps the control plane on the relay.
+It rides the GZCoord profile on its own `fabric-control` endpoint,
+through `interweave-human` under agentd (ADR-029 rule 18, amended the
+same day), never through this record's carrier; the profile is the
+control plane's alone (its only human endpoint, no person's client,
+`gzcoord` automated-only). §3's first alternative says why the CLI,
+refused for GZCoord, is taken for control. Rule 14's install, start,
+stop and check stay on the relay.
+
+Why: the owner's direction of 2026-10-27 (the control plane on the
+InterWeave CLI, so agents can move hosts; agent-fabric j422), and
+InterWeave #477 in v0.2.0, which answered §1's objections to the CLI
+for traffic of this shape. The second-host amendment of rule 1 is
+drafted in `docs/proposals/j422-control-plane-on-interweave-cli.md`
+and waits for a named host.
