@@ -52,10 +52,11 @@ and nothing else, rule 2), default `max(1, nproc // 4)`; develop-qzapp:
 develop-qzapp). The holder's child gets `CARGO_BUILD_JOBS=J`,
 `AGENT_FABRIC_TEST_JOBS=J` when unset (lowered to J when higher, with a
 line), `DOTNET_PROCESSOR_COUNT=J`, `MAKEFLAGS=-jJ` when unset, and
-`FABRIC_CPU_SLOT=<k>/<N>`. That the dotnet variable bounds MSBuild nodes
-and the test runner's parallelism is a guess until a live read-back
-(`docs/live-checks/`) measures it; if it does not, the shim adds
-`-m:J` to build/test/publish.
+`FABRIC_CPU_SLOT=<k>/<N>`. The dotnet variable bounds a build to J
+projects at once and sets `Environment.ProcessorCount`, so no `-m:J` is
+added; and the switches of item 6 leave no node or compiler server
+behind (read back in
+`docs/live-checks/2026-10-28-dotnet-cpu-slot.md`).
 
 **3. Which commands.** cargo `build b test t check c clippy run r bench
 doc install nextest llvm-cov`; dotnet `build test publish run pack`;
@@ -129,7 +130,7 @@ nothing. Kept if, at the 95th percentile, load stays under 2 × nproc,
 CPU pressure `some` under 60 %, the control has no load flake, and the
 measured run is within 1.5 × its idle time; otherwise N and the thread
 budget are tuned in `policies/host-load.json`, not in code. The
-read-back goes to `docs/live-checks/` with the dotnet one (item 2).
+read-back goes to `docs/live-checks/` beside the dotnet one (item 2).
 
 **Build split.** The slots in `tools/fabric/lease.py`, the shim and its
 provisioning step, and their tests: python-dev, inside its entry.
