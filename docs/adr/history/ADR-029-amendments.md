@@ -232,3 +232,26 @@ identical, nothing is touched (`already_running`); different, the file
 is replaced and both units restarted and checked (`rerendered`). One
 `fabric-ctl all interweave-start` brings the fleet onto the current
 roster, as it will for every new row. The §2 row says so.
+
+### Amendment 2026-10-28 — The records also ride InterWeave, through interweave-human, beside the relay
+
+What changed: rule 18 makes InterWeave a second carrier for the
+control records, through the command-line client `interweave-human`,
+which agentd runs as one supervised child holding the profile's
+`fabric-control` endpoint (listen with input, consume and an endpoint
+named, InterWeave #477 in v0.2.0). It is off per account until
+`control_carrier` says `dual`; the relay stays the transport of record
+until the owner's word on a parity report. §2 says so, §6 narrows the
+unauthenticated-sender consequence to the relay copy, §7's second host
+now goes by InterWeave instead of a relay URL.
+
+Why: the owner, 2026-10-27, confirmed in the coordinator's session and
+relayed first by architect-cto (DECISION 01a17bd3): the control plane
+rides InterWeave, each control agent driving the InterWeave CLI, so
+agents can move to remote hosts. ADR-064 §1 had ruled the CLI out as a
+carrier (one lease, no input, a store that keeps what it prints);
+InterWeave changed it for this (G1-G4, G6 of the j422 plan), and
+architect-cto ruled the two leases in one profile compatible (X2).
+The design, its alternatives and the second-host plan are
+`docs/proposals/j422-control-plane-on-interweave-cli.md`; the
+second-host amendment waits for a named host.

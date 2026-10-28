@@ -652,12 +652,11 @@ its record disagree, the record wins. Look it up, never read it whole:
 
 ### ADR-029 — The control plane: a control agent per account answers signed actions over the relay (Accepted)
 
-- Each account's agentd answers on `fabric:control`; a request while
-  it is down is lost (§2, rules 1–2).
-- A closed op set; no request field reaches a shell; actions carry a
-  fresh Ed25519 operator signature, newer than the last (rules 3–5).
-- Replies carry no secret; a gap is named; silence or failure exits 1
-  (rules 6–9).
+- Each account's agentd answers on `fabric:control`; a request sent
+  while it is down is lost (§2, r1–2).
+- Closed op set, no field reaches a shell; actions carry a fresh,
+  newer Ed25519 operator signature (r3–5).
+- Replies carry no secret; silence or failure exits 1 (r6–9).
 - A 2026-09-27 — actions (rule 12).
 - A 2026-09-27 — answer budgets (rule 12).
 - A 2026-09-28 — jobs (rule 13).
@@ -682,8 +681,10 @@ its record disagree, the record wins. Look it up, never read it whole:
 - A 2026-10-26 — ports.
 - A 2026-10-26 — evidence.
 - A 2026-10-26 — re-render.
+- A 2026-10-28 — InterWeave carrier (rule 18).
 - Keywords: agentd, fabric-ctl, keys, operator_key, usage,
-  tokens, herdr, resume, gateway, switch, evidence, interweave-evidence.
+  tokens, herdr, resume, gateway, switch, evidence, interweave-evidence,
+  interweave-human, fabric-control, control_carrier.
 ### ADR-030 — Presence replaces HELLO and GOODBYE (Accepted)
 
 - Whether a session runs is the control agent's answer from its process
