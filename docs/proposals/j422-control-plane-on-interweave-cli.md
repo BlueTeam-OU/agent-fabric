@@ -17,16 +17,16 @@ InterWeave v0.2.0 (32ade966).
 
 - **The CLI can carry now.** G1, G2 (as endpoint selection), G3, G4 and G6 merged in InterWeave
   #477 (73579a46, 2026-10-27), which is in the v0.2.0 tag; `runtime/interweave/release.json` pins
-  v0.2.0 on main (#415). G5 is met by the outbound event's `problem` field. G7 and G8 are a later
-  batch on InterWeave's side; G8 is needed before P2 (§9).
+  v0.2.0 on main (#415). G5 is met by the outbound event's `problem` field, R9 by `--consume`'s
+  read at open. G7 and G8 are a later batch on InterWeave's side; G8 is needed before P2 (§9).
 - **X1 is ruled.** InterWeave ADR-0055 decision 5b (A 2026-10-27) is on its main: two hosts over an
   overlay the deployment provides, wildcard listeners, static bootstrap entries, no discovery, a
   two-namespace case in `tests/automated-client`. The owner accepted its stated limits for the
-  first remote host in architect-cto's session that day; InterWeave's record of that word is still
-  owed in its history (§9).
+  first remote host in architect-cto's session that day; InterWeave #500 records it, waiting for
+  the owner's word (§9).
 - **X2 is ruled yes** (architect-cto, REPLY 01a17c02): a human lease on `fabric-control` and the
-  carrier's lease on `gzcoord` coexist in one profile. Its one-profile case in
-  `tests/automated-client` is p2p-network-dev-01's and has not landed.
+  carrier's lease on `gzcoord` coexist in one profile, and InterWeave's one-profile case holds
+  both, run from the v0.2.0 binaries.
 - **Q6 is answered** (§6, §10): break-glass SSH now, an InterWeave peer on a public address next.
 - **The fabric's gaps.** F2 merged (#401), F4 merged (#400, wildcard listen per R7). F1 and F3 are
   open.
@@ -543,8 +543,14 @@ start without; cross-host marks what P2 cannot start without.
 **Status 2026-10-28.** G1-G4 and G6 merged in #477 (73579a46) and released in v0.2.0. G2 shrank to
 selecting a configured endpoint (`--endpoint`); the render configures `fabric-control`, so no CLI
 verb creates one. G5 is satisfied: every outbound event carries `problem`, a send-problem token or
-null. Still open on InterWeave's side: G7, G8, R9's drain at session open (not named in #477), X2's
-one-profile case, and the owner's acceptance of 5b's limits recorded in ADR-0055's history.
+null. R9 is met too: `listen --consume` reads what the store held unread at open and what the
+facade left there, with `local_endpoint` null, and declines a card proposal (human-cli README at
+v0.2.0, line 65). X2's one-profile case is on InterWeave main
+(`tests/automated-client/tests/control_plane.rs`) and passed from the v0.2.0 archive's binaries
+(#499). Still open on InterWeave's side (architect-cto, REPLY 01a181d9, 2026-10-28): G8, routed in
+two halves (the daemon's `last_seen_ms` in peer-list 1.2.0, and a `peers --json` listing with
+`connected`); G7, routed with it; and the owner's acceptance of 5b's limits, written as ADR-0055
+A 2026-10-27 (iii) in InterWeave #500, waiting for the owner's word.
 
 - **G1-G4 (blocking), the main request**, specified in §4.0:
   - G1: a listen that takes input;
@@ -607,8 +613,7 @@ one-profile case, and the owner's acceptance of 5b's limits recorded in ADR-0055
    supervised child, §4.1); `fabric-ctl`'s control socket and fan-out (§4.2); the per-carrier part
    bounds (§4.3); the control parity computation; all behind `control_carrier: relay|dual`, off by
    default. Then F3, `bin/fabric-op`, before P2.
-4. **architect-cto, one REQUEST.** For InterWeave's holders: G8 before P2; R9's drain at session
-   open; X2's one-profile case; ADR-0055's history recording the owner's word on 5b's limits;
-   G7 when convenient.
+4. **InterWeave (sent, REQUEST 01a181d5; routed by architect-cto).** G8 before P2, with
+   p2p-network-dev-02 and rust-ui-dev-02; G7 with rust-ui-dev-02; InterWeave #500 for the owner.
 5. **Measurement (P1's exit).** A two-account check like ADR-064 rule 13, then a dual run on every
    develop-qzapp account, then the control parity report in `docs/live-checks/`.
