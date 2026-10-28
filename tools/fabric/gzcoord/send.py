@@ -597,8 +597,11 @@ def main(argv: list[str]) -> int:
                 print(t("send.presence-planning", {"address": n.get("address")}), file=sys.stderr)
         if pres.get("problems"):
             if not force:
-                print(t("send.not-sent-no-account" if all(p.get("kind") == "not-placed" for p in pres["problems"])
-                        else "send.presence-not-sent"), file=sys.stderr)
+                # Each a literal t("…") call, which is how the i18n test sees that a key is printed.
+                if all(p.get("kind") == "not-placed" for p in pres["problems"]):
+                    print(t("send.not-sent-no-account"), file=sys.stderr)
+                else:
+                    print(t("send.presence-not-sent"), file=sys.stderr)
                 return 4
             print(t("send.presence-forced"), file=sys.stderr)
     if not tok:
