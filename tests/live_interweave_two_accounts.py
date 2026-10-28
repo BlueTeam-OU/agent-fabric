@@ -238,7 +238,6 @@ def phase_exchange() -> int:
     except (KeyError, ValueError):
         return die("J92_RUN must be the run's number in milliseconds, the same for both accounts")
     sock = server.socket_path(os.environ["XDG_RUNTIME_DIR"])
-    doc = json.load(open(ROSTER, encoding="utf-8"))
     other = PEER
     out: dict[str, object] = {"login": LOGIN, "other": other, "run": t0, "sent": {}}
     arr = os.path.join(episodic.state_dir(), "gzcoord-arrivals.jsonl")
