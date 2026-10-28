@@ -305,6 +305,12 @@ class Apply(unittest.TestCase):
     run_cli = Cli.run_cli
     SOURCE = Cli.SOURCE
 
+    def setUp(self):
+        self.slept = []
+        patch = mock.patch.object(repo_policy, "_sleep", self.slept.append)
+        patch.start()
+        self.addCleanup(patch.stop)
+
     def drifted(self, policy=POLICY) -> Github:
         g = Github(policy)
         g.repository.update(allow_auto_merge=False, allow_squash_merge=True)
@@ -386,6 +392,31 @@ class Apply(unittest.TestCase):
         rc, out, _ = self.run_cli(["apply", REPO, "--yes"], g)
         self.assertEqual((rc, len(g.writes)), (1, 1))
         self.assertIn("still differs after the write, in 2 place(s)", out)
+
+    def test_a_read_back_that_lags_behind_the_write_is_repeated_until_it_matches(self):
+        g = self.drifted()
+        stale = copy.deepcopy(g.repository)
+        reads = {"n": 0}
+        def lagging(path, **kw):
+            out = g(path, **kw)
+            if path == f"repos/{REPO}" and kw.get("method", "GET") == "GET" and g.writes:
+                reads["n"] += 1
+                if reads["n"] <= 2:
+                    return {**out, **stale}
+            return out
+        rc, out, _ = self.run_cli(["apply", REPO, "--yes"], lagging)
+        self.assertEqual((rc, len(g.writes), self.slept), (0, 1, [1, 2]))
+        self.assertIn("GitHub now matches the arming policy", out)
+
+    def test_a_read_back_that_never_matches_waits_the_whole_bound_and_still_exits_one(self):
+        g = self.drifted()
+        g.keep = True
+        rc, _, _ = self.run_cli(["apply", REPO, "--yes"], g)
+        self.assertEqual((rc, self.slept), (1, list(repo_policy.READ_BACK_WAITS)))
+
+    def test_a_matching_first_read_back_waits_for_nothing(self):
+        self.run_cli(["apply", REPO, "--yes"], self.drifted())
+        self.assertEqual(self.slept, [])
 
     def test_a_read_back_advisory_difference_counts(self):
         g = Github(POLICY)

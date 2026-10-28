@@ -8,7 +8,7 @@ to arm on a repository that has drifted (arming step C); `apply` writes the poli
                                                      exit 2 for what could not be read or judged
   fabric-repo-policy apply  <owner/repo> [--yes] [--fleet-default] [--json]
                                                      the plan; with --yes, writes what differs and reads back
-                                                     exit 0 when the read-back matches (or with no --yes), 1 when a write
+                                                     exit 0 when the read-back matches, re-read for up to 15 s (or with no --yes), 1 when a write
                                                      was refused or the read-back still differs, 2 as plan
 A difference in which merge methods are allowed (a ruleset that allows the policy's method and more, or the
 repository's allow_*_merge fields), in delete-branch-on-merge, or in bypass actors this token cannot see, is
@@ -40,6 +40,7 @@ import json
 import os
 import re
 import sys
+import time
 
 HERE = os.path.dirname(os.path.realpath(__file__))
 sys.path.insert(0, os.path.dirname(HERE))
@@ -51,6 +52,13 @@ REPOSITORY_FIELDS = arm_policy.REPOSITORY_FIELDS
 # never a reason for arm to refuse (the repository's other merge methods being allowed does not let anything
 # through that the ruleset's pull_request rule and required checks hold).
 ADVISORY_FIELDS = ("allow_merge_commit", "allow_squash_merge", "allow_rebase_merge", "delete_branch_on_merge")
+
+
+# GitHub's read right after a write can still answer the old settings (measured by devex-tooling: a PATCH that landed
+# read back as differing, exit 1). The read-back is repeated after these waits, in seconds, until it matches; what
+# still differs after the last is reported as it is. A module name so a test controls time instead of waiting.
+READ_BACK_WAITS = (1, 2, 4, 8)
+_sleep = time.sleep
 
 
 # What an App's slug may be where it forms a request path: GitHub's own spelling.
@@ -304,6 +312,11 @@ def _apply(repo, desired, live, found, name, yes, as_json, source, api, out, err
             return 1
         try:
             after = differences(desired, read_live(repo, name, api), name)
+            for wait in READ_BACK_WAITS:
+                if not after:
+                    break
+                _sleep(wait)
+                after = differences(desired, read_live(repo, name, api), name)
         except Unreadable as e:
             print(f"fabric-repo-policy: written {written}, then the read-back failed: {e}", file=err)
             return 2
