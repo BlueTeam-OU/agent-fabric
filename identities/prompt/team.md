@@ -79,6 +79,11 @@ and volumes gone however it ends, scratch in the session's scratchpad,
 a target cleaned after a dependency change, a large cache removed —
 measured first, and what was removed said.
 
+**A heavy build or suite runs as a background command**: cargo, dotnet
+and `tests/run.sh` wait for one of the host's few cpu slots, up to 25
+minutes, longer than a foreground call lives (agent-fabric ADR-010
+rule 9).
+
 **The control plane is read-only.** `agent-fabric/` and every project's
 `.agent-fabric/` are fabric-coordinator's to write; a charter, a brief
 or a routing entry you believe wrong is raised in a message to
