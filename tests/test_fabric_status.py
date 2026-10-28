@@ -226,6 +226,13 @@ def main() -> int:
             check("a base URL says the sign-in is plain claude's", "claude sign-in own /login (none recorded)  (plain claude's; this session goes to vanilla claude and uses neither)" in text)
             check("findings are counted and joined", "routing      2 finding(s): f1; f2" in text)
             check("memory line", "memory       1 drainable (roles_class set) and 2 private (none) written since the last drain — /m" in text)
+            now_ms = 1_800_000_000_000
+            check("the age: whole days waited, against the bound",
+                  status.oldest_note({"drainable": 2, "oldest_ms": now_ms - 15 * 86_400_000 - 5, "bound_days": 14}, now_ms) == ", oldest 15 d (bound 14)")
+            check("no age without a drainable memory or without a recorded time",
+                  status.oldest_note({"drainable": 0, "oldest_ms": now_ms, "bound_days": 14}, now_ms) == ""
+                  and status.oldest_note({"drainable": 1, "oldest_ms": None, "bound_days": 14}, now_ms) == ""
+                  and status.oldest_note({"drainable": 1, "bound_days": 14}, now_ms) == "")
             check("moveto drift carries its detail", "moveto       drift: behind" in text)
             report["jobs"] = {"error": "boom"}
             check("an unreadable job list is said", "jobs         unreadable: boom" in "\n".join(status.render(report, "")))

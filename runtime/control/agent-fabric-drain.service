@@ -1,0 +1,24 @@
+# runtime/control/agent-fabric-drain.service — the scheduled drain's collection (agent-fabric ADR-034 §7 step 3, j434):
+# `fabric-ctl all memory` into the coordinator's state directory, one report, one drain job (bin/fabric-drain-due),
+# run by agent-fabric-drain.timer. A systemd USER unit, installed by bootstrap.py on the fabric-coordinator
+# account(s) only, as the relay backup's: under any other role the command says so and does nothing, but the unit
+# is not installed there at all.
+# Oneshot: a refusal is the journal's and next week's run tries again. Landing the bundles is not scheduled
+# (memory/README.md): a collision needs the owner's ruling.
+# 15 min bound: fabric-ctl waits up to 600 s for every account's bundles (the command passes --timeout 600; 30
+# accounts, each harvesting every working copy it holds), then the job work runs for under a minute.
+# Nice and idle I/O: the harvests run on the accounts' own daemons, but the bundles are written here and the unit
+# must not slow the sessions beside it.
+[Unit]
+Description=agent-fabric: collect every account's undrained memory, report its age, keep the drain job
+
+[Service]
+Type=oneshot
+Environment=AGENT_FABRIC_ROOT=%h/projects/agent-fabric
+Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin
+WorkingDirectory=%h/projects/agent-fabric
+ExecStart=%h/projects/agent-fabric/bin/fabric-drain-due
+TimeoutStartSec=15min
+Nice=10
+IOSchedulingClass=idle
+NoNewPrivileges=yes

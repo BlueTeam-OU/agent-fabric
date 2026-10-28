@@ -16,6 +16,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 from git_env import git_env, scrub_process_env  # noqa: E402 — tests/, the script's own directory
 from instance_fixtures import ROUTING_OPERATOR_IGNORE, write_registry, write_routing_overlay  # noqa: E402
 scrub_process_env()
@@ -244,6 +245,14 @@ def main() -> int:
         check("counts drainable and private memories newer than the watermark; MEMORY.md is not a memory",
               has(r"^memory       1 drainable \(roles_class set\) and 1 private \(none\) written since the last drain",
                   out), out)
+        check("the memory line says how long the oldest drainable memory has waited",
+              has(r"^memory .* written since the last drain, oldest 0 d \(bound 14\) — ", out), out)
+        aged = time.time() - 20 * 86400 - 3600
+        os.utime(f"{mem}/a.md", (aged, aged))
+        os.utime(f"{mem}/b.md", (aged - 30 * 86400, aged - 30 * 86400))   # private: its age is not the drainable's
+        out = status(cwd=wc, AGENT_FABRIC_OPERATOR=operator)
+        check("an aged one reads in days, and a private memory older than it does not set the age",
+              has(r"^memory .* written since the last drain, oldest 20 d \(bound 14\) — ", out), out)
         os.remove(report)
         out = status(cwd=wc, AGENT_FABRIC_OPERATOR=operator)
         check("no report: counted since ever, said so", "written since ever (no drain report)" in out, out)
