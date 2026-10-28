@@ -371,14 +371,7 @@ def out_final(conn: sqlite3.Connection, message_id: str, state: str, seq: int | 
 def inbound(conn: sqlite3.Connection, records: list[dict], carrier: str = DEFAULT_CARRIER,
             project: str | None = None, working_copy: str | None = None) -> dict:
     """Addressed records, one transaction: all journaled or none (so the
-    caller acknowledges none). Counts by outcome.
-
-    A record's optional `sender` is the address its carrier VERIFIED (the
-    roster's, ADR-064 rule 9); without one, as from the relay, the row's sender
-    is the content's FROM, the sender's claim. A verified sender is the row's
-    whichever copy came first, so a row whose sender differs from its
-    metadata's FROM is a marked claim; the claim itself stays in content and
-    metadata."""
+    caller acknowledges none). Counts by outcome."""
     me = own_address()
     counts = {"written": 0, "same": 0, "echo": 0, "conflict": 0, "claims_me": 0}
     conn.execute("BEGIN IMMEDIATE")
@@ -395,16 +388,12 @@ def inbound(conn: sqlite3.Connection, records: list[dict], carrier: str = DEFAUL
             # not validate) is keyed by its body: one unkeyable record must
             # not hold every other one in the page (review of #78).
             mid = meta.get("MESSAGE-ID") or f"sha256:{h}"
-            verified = rec.get("sender")
-            sender = verified or meta.get("FROM")
             if meta.get("FROM") == me:
                 # Its own message coming back only when this journal holds that
                 # very message: a FROM in the content is the sender's claim, and
                 # a forged one must not pass for an echo, shown but not kept.
                 own = _row(conn, "outbound", mid)
-                # A verified copy is an echo only from this agent: another peer
-                # replaying this journal's body must not settle its pending send.
-                if own and own[1] == h and verified in (None, me):
+                if own and own[1] == h:
                     # The carrier holds this very body, so a send of this
                     # journal's own that was pending or failed reached it: a
                     # row that took the seq and kept that state said both at
@@ -420,9 +409,6 @@ def inbound(conn: sqlite3.Connection, records: list[dict], carrier: str = DEFAUL
                 counts["claims_me"] += 1
             row = _row(conn, "inbound", mid)
             if row and row[1] == h:
-                if verified:
-                    # The relay's copy came first, under the claim: the verified copy corrects it.
-                    conn.execute("UPDATE episodes SET sender=? WHERE id=?", (verified, row[0]))
                 counts["same"] += 1
                 continue
             if row:
@@ -435,7 +421,7 @@ def inbound(conn: sqlite3.Connection, records: list[dict], carrier: str = DEFAUL
                          "content_hash, metadata_json) VALUES (?, ?, 'inbound', 'received', ?, ?, ?, ?, ?, ?, ?, ?, "
                          "?, ?, ?, ?, ?)",
                          (str(uuid.uuid4()), SOURCE, _seconds(rec.get("ts")), now(), project, working_copy, mid,
-                          meta.get("IN-REPLY-TO"), mtype, sender, carrier, seq, text, h,
+                          meta.get("IN-REPLY-TO"), mtype, meta.get("FROM"), carrier, seq, text, h,
                           json.dumps(meta, sort_keys=True)))
             counts["written"] += 1
         conn.execute("COMMIT")
