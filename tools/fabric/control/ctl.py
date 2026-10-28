@@ -199,7 +199,7 @@ VERBS: tuple[Verb, ...] = (
          usage=(("<login|all> tools-install <tool>", "an action: install the tool its registry pin names, on the accounts with a working copy of a project that declares it"),),
          args="<tool>", signed="always", options=COMMON),
     Verb("clone", "Place a registered project's working copy on an account that already exists, and bootstrap it.",
-         "fabric-ctl ux-designer-01 clone gzapp",
+         "fabric-ctl alice clone my-project",
          usage=(("<login>... clone <project-id>", "an action: clone the registry's remote into ~/projects/<id> as the account (a clone already there is `present`, its origin pointed at the registry's) and run its bootstrap; never `all`"),),
          args="<project-id>", signed="always", options=COMMON),
     Verb("restart", "Stop the account's running session so its launcher resumes it on the current fabric. One account at a time for all; refused while an upgrade or a secrets-sync runs.",
