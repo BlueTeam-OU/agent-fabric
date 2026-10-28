@@ -5,6 +5,7 @@ side means (never "no difference"), the exit codes and the --json shape. GitHub 
 the policy is the real arm_policy.render of a real policy, so what is compared is what apply writes."""
 from __future__ import annotations
 
+import base64
 import copy
 import io
 import json
@@ -215,10 +216,13 @@ class Differences(unittest.TestCase):
 
 
 class Cli(unittest.TestCase):
+    SOURCE = ("O/settings", True)       # a registered project with its own file
+
     def run_cli(self, argv, g: Github | None = None, policy: dict = POLICY, load_error=None):
         out, err = io.StringIO(), io.StringIO()
         load = mock.Mock(side_effect=load_error) if load_error else mock.Mock(return_value=policy)
-        with mock.patch.object(arm_policy, "load", load), mock.patch.object(gh, "this_repo", return_value=REPO):
+        with (mock.patch.object(arm_policy, "load", load), mock.patch.object(gh, "this_repo", return_value=REPO),
+              mock.patch.object(arm_policy, "policy_source", return_value=self.SOURCE)):
             rc = repo_policy.run(argv, g or Github(policy), out, err)
         self.load = load
         return rc, out.getvalue(), err.getvalue()
@@ -226,7 +230,7 @@ class Cli(unittest.TestCase):
     def test_no_difference_is_said_and_both_verbs_exit_zero(self):
         for verb in ("plan", "verify"):
             rc, out, _ = self.run_cli([verb, REPO])
-            self.assertEqual((rc, out), (0, f"{REPO}: GitHub matches the arming policy\n"), verb)
+            self.assertEqual((rc, out), (0, f"policy: repos/R.json in O/settings\n{REPO}: GitHub matches the arming policy\n"), verb)
 
     def test_plan_lists_the_differences_and_exits_zero_verify_exits_one(self):
         g = Github(POLICY)
@@ -264,7 +268,7 @@ class Cli(unittest.TestCase):
 
     def test_usage_errors_exit_two_and_say_the_usage(self):
         for argv in ([], ["apply"], ["apply", REPO, "x/y"], ["plan", REPO, "x/y"], ["plan", "--force"], ["verify", "-x"],
-                     ["plan", REPO, "--yes"], ["verify", REPO, "--yes"], ["apply", REPO, "--force"]):
+                     ["plan", REPO, "--yes"], ["verify", REPO, "--yes"], ["apply", REPO, "--force"], ["plan", REPO, "--fleet-default"]):
             rc, out, err = self.run_cli(argv)
             self.assertEqual((rc, out), (2, ""), argv)
             self.assertIn("usage: fabric-repo-policy plan|verify", err)
@@ -299,6 +303,7 @@ class Cli(unittest.TestCase):
 class Apply(unittest.TestCase):
     """apply: the plan, then with --yes only what differs, exactly as render() says it, then a read-back."""
     run_cli = Cli.run_cli
+    SOURCE = Cli.SOURCE
 
     def drifted(self, policy=POLICY) -> Github:
         g = Github(policy)
@@ -312,7 +317,7 @@ class Apply(unittest.TestCase):
         for yes in ([], ["--yes"]):
             g = Github(POLICY)
             rc, out, _ = self.run_cli(["apply", REPO, *yes], g)
-            self.assertEqual((rc, out, g.writes), (0, f"{REPO}: GitHub matches the arming policy\n", []), yes)
+            self.assertEqual((rc, out, g.writes), (0, f"policy: repos/R.json in O/settings\n{REPO}: GitHub matches the arming policy\n", []), yes)
 
     def test_without_yes_it_is_plan_with_a_hint_and_writes_nothing(self):
         g = self.drifted()
@@ -407,11 +412,7 @@ class Apply(unittest.TestCase):
         self.assertTrue(d["written"][0].startswith(f"PATCH repos/{REPO}"))
         self.assertEqual(len(d["differences"]), 2)
 
-    def test_a_missing_settings_file_or_unreadable_side_exits_two_with_reads_only(self):
-        g = Github(POLICY)
-        rc, out, err = self.run_cli(["apply", REPO, "--yes"], g, load_error=arm_policy.PolicyUnavailable("settings gone"))
-        self.assertEqual((rc, out, g.writes, g.asked), (2, "", [], []))
-        self.assertIn("settings gone", err)
+    def test_an_unreadable_side_exits_two_with_reads_only(self):
         g = self.drifted()
         g.fail = f"repos/{REPO}/rulesets/7"
         rc, _, _ = self.run_cli(["apply", REPO, "--yes"], g)
@@ -440,6 +441,116 @@ class Apply(unittest.TestCase):
     def test_the_repository_name_is_required(self):
         rc, _, err = self.run_cli(["apply", "--yes"])
         self.assertEqual(rc, 2)
+
+
+class Source(unittest.TestCase):
+    """Where the policy comes from, with the real arm_policy.load and policy_source: the registry, the clients file and the
+    settings repository's contents are the only things answered by the test."""
+    REGISTRY = {"projects": {"p": {"remotes": [f"https://github.com/{REPO}"], "client": "c"}}}
+    CLIENTS = {"clients": {"c": {"settings_repo": "O/settings"}}}
+
+    def world(self, g: Github, file: dict | None, registered: bool = True, settings_down: bool = False):
+        def api(path, **kw):
+            if path == f"repos/O/settings/contents/repos/R.json":
+                if file is None:
+                    raise gh.GhError("gh api GET x", "Not Found", status=404)
+                return {"type": "file", "encoding": "base64", "content": base64.b64encode(json.dumps(file).encode()).decode()}
+            if path == "repos/O/settings":
+                if settings_down:
+                    raise gh.GhError("gh api GET x", "Not Found", status=404)
+                return {}
+            return g(path, **kw)
+        return api
+
+    def run_cli(self, argv, g, file, registered=True, settings_down=False):
+        out, err = io.StringIO(), io.StringIO()
+        registry = self.REGISTRY if registered else {"projects": {}}
+        with (mock.patch.object(arm_policy, "_registry_and_clients", return_value=(registry, self.CLIENTS)),
+              mock.patch.object(arm_policy, "fleet_policy", return_value=POLICY)):
+            rc = repo_policy.run(argv, self.world(g, file, registered, settings_down), out, err)
+        return rc, out.getvalue(), err.getvalue()
+
+    def drifted(self) -> Github:
+        g = Github(POLICY)
+        g.repository.update(allow_auto_merge=False)
+        return g
+
+    def test_a_registered_repo_without_its_file_is_refused_by_apply_before_any_write_with_only_reads_made(self):
+        for argv in (["apply", REPO, "--yes"], ["apply", REPO, "--yes", "--fleet-default"], ["apply", REPO]):
+            g = self.drifted()
+            rc, out, err = self.run_cli(argv, g, None)
+            self.assertEqual((rc, out, g.writes), (2, "", []), argv)
+            self.assertIn("repos/R.json is not in O/settings", err)
+            self.assertIn("nothing written", err)
+            self.assertEqual([m for m in g.asked if m.startswith("repos/O/R")][:1], [], "no read of the repository before the refusal")
+
+    def test_plan_and_verify_keep_working_in_that_window_and_say_the_default_is_in_use(self):
+        for verb, want_rc in (("plan", 0), ("verify", 1)):
+            g = self.drifted()
+            rc, out, _ = self.run_cli([verb, REPO], g, None)
+            self.assertEqual(rc, want_rc, verb)
+            self.assertIn("policy: the fleet default (repos/R.json is not in O/settings", out)
+            self.assertEqual(g.writes, [])
+
+    def test_a_registered_repo_with_its_file_is_applied_and_the_source_is_said(self):
+        g = self.drifted()
+        rc, out, _ = self.run_cli(["apply", REPO, "--yes"], g, {})
+        self.assertEqual((rc, [w[0] for w in g.writes]), (0, ["PATCH"]))
+        self.assertTrue(out.startswith("policy: repos/R.json in O/settings\n"), out)
+
+    def test_a_repo_that_is_no_projects_needs_fleet_default_to_be_applied(self):
+        g = self.drifted()
+        rc, _, err = self.run_cli(["apply", REPO, "--yes"], g, None, registered=False)
+        self.assertEqual((rc, g.writes), (2, []))
+        self.assertIn("--fleet-default", err)
+        rc, out, _ = self.run_cli(["apply", REPO, "--yes", "--fleet-default"], g, None, registered=False)
+        self.assertEqual((rc, [w[0] for w in g.writes]), (0, ["PATCH"]))
+        self.assertIn("policy: the fleet default (O/R is no registered project's)", out)
+
+    def test_a_settings_repository_that_does_not_answer_is_not_a_missing_file(self):
+        g = self.drifted()
+        rc, _, err = self.run_cli(["apply", REPO, "--yes"], g, None, settings_down=True)
+        self.assertEqual((rc, g.writes), (2, []))
+        self.assertIn("is not known to be absent", err)
+
+    def test_json_carries_the_source_for_every_verb(self):
+        for verb in ("plan", "verify", "apply"):
+            rc, out, _ = self.run_cli([verb, REPO, "--json"], self.drifted(), {})
+            self.assertEqual(json.loads(out)["policy_source"], "repos/R.json in O/settings", verb)
+
+
+class UnknownOutcome(unittest.TestCase):
+    run_cli = Cli.run_cli
+    SOURCE = Cli.SOURCE
+
+    def test_a_transient_failure_says_unknown_and_lists_the_call_as_possibly_written(self):
+        g = Github(POLICY)
+        g.repository.update(allow_auto_merge=False)
+        real = g.__call__
+        def lost(path, **kw):
+            if kw.get("method") == "PATCH":
+                raise gh.GhError("gh api PATCH repos/O/R", "the answer is not JSON", transient=True)
+            return real(path, **kw)
+        for as_json in ([], ["--json"]):
+            rc, out, err = self.run_cli(["apply", REPO, "--yes", *as_json], lost)
+            self.assertEqual(rc, 1)
+            self.assertIn("outcome of gh api PATCH repos/O/R is unknown", err)
+            self.assertNotIn("refused", err)
+            self.assertIn(f"fabric-repo-policy verify {REPO}", err)
+            if as_json:
+                d = json.loads(out)
+                self.assertEqual((d["written"], d["possibly_written"]), ([], [f"PATCH repos/{REPO} (allow_auto_merge)"]))
+            else:
+                self.assertIn(f"possibly written (outcome unknown): PATCH repos/{REPO} (allow_auto_merge)", out)
+
+    def test_a_definite_refusal_is_not_listed_as_possibly_written(self):
+        g = Github(POLICY)
+        g.repository.update(allow_auto_merge=False)
+        g.refuse = "PATCH"
+        rc, out, err = self.run_cli(["apply", REPO, "--yes", "--json"], g)
+        self.assertEqual(rc, 1)
+        self.assertIn("refused", err)
+        self.assertEqual(json.loads(out)["possibly_written"], [])
 
 
 if __name__ == "__main__":

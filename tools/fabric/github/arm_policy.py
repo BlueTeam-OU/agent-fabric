@@ -351,6 +351,24 @@ def fetch_repo_policy(settings: str, repo: str, api: Callable[..., Any] = gh.api
     return doc
 
 
+def _registry_and_clients(root: str | None, registry: Any, clients: Any) -> tuple[Any, Any]:
+    registry, clients = _registry_and_clients(root, registry, clients)
+    return registry, clients
+
+
+def policy_source(repo: str, *, root: str | None = None, registry: Any = None, clients: Any = None,
+                  api: Callable[..., Any] = gh.api) -> tuple[str | None, bool]:
+    """Where load() takes `repo`'s policy from: (the settings repository, whether it holds repos/<name>.json).
+    (None, False) for a repository that is no registered project's, which gets the fleet's policy by definition;
+    (settings, False) for a registered one whose file is absent, which load() also answers with the fleet's. The
+    two are not the same: the second is a repository whose owner wrote a policy that is not there yet."""
+    registry, clients = _registry_and_clients(root, registry, clients)
+    settings = settings_repo_of(registry, clients, repo)
+    if settings is None:
+        return None, False
+    return settings, fetch_repo_policy(settings, repo, api) is not None
+
+
 def load(repo: str | None, *, root: str | None = None, registry: Any = None, clients: Any = None,
          api: Callable[..., Any] = gh.api, cache: dict | None = None) -> dict:
     """The policy for `repo` ("<owner>/<name>"; None: the fleet's). `cache` is the caller's dict, for one run: a
