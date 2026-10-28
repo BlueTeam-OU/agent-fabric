@@ -385,12 +385,14 @@
   "files_written": 53,
   "harvest": {
     "host": "develop-qzapp",
-    "in_scope": 1,
-    "next_watermark": 1792294886284,
+    "in_scope": 36,
+    "next_watermark": 1792937225542,
     "provisional_agent": 0,
-    "reflection": 0,
+    "reflection": 25,
     "since_watermark": 0,
-    "skipped_no_roles_class": []
+    "skipped_no_roles_class": [
+      "persona-ai-lena-noether.md"
+    ]
   },
   "harvest_sources": {
     "architect-cto-01@develop-qzapp": {
