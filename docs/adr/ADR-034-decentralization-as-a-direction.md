@@ -48,7 +48,7 @@ piece against that criterion, not against a topology.** Reduced capacity
 is acceptable; loss is not. A component that is central but whose
 failure only slows the team (the usage observer) stays central; one whose
 failure loses what cannot be rebuilt (the relay's database, before it had a
-copy, an agent's undrained memory on one host) gets a
+copy, an agent's undrained memory before it had a daily copy) gets a
 second copy or a documented recovery before it gets a second instance.
 
 - Every operation the fleet depends on has a row in this record's §1
@@ -106,9 +106,9 @@ record would make the channel less durable, not more.
   hosts, the relay, keys or services.
 - Every agent's undrained memory is copied daily with the login's
   working state (§1), but no restore of that copy has been read back,
-  and until a drain it reaches no other agent, which by hand has gone
-  ten days without one (the amendment's note). The relay's
-  database is scheduled to be copied every 6 h (§7).
+  and it reaches no other agent until a drain, which until §7 step 3
+  is built runs only by hand. The relay's database is scheduled to be
+  copied every 6 h (§7).
 - The degraded modes listed today are unverified by this
   rule until each has its live check; the human relay's was exercised in
   practice before the relay existed, not as a drill.
@@ -190,4 +190,4 @@ The body above reads current; each change's full note is in [history/ADR-034-ame
 |---|---|---|
 | 2026-09-30 | Doppler is retired: the stores replace it | §1 table (signed actions, secrets), §5 rule 4 |
 | 2026-10-27 | The relay's database is copied off the host: step 1 of §7 done | §1 relay row, §6, §7 first step |
-| 2026-10-28 | Undrained memory has a daily copy; §7 step 3, the scheduled drain, decided | §1 memory row, §3, §6, §7 step 3 |
+| 2026-10-28 | Undrained memory has a daily copy; §7 step 3, the scheduled drain, decided | §1 memory row, §2, §3, §6, §7 step 3 |

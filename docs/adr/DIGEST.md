@@ -41,7 +41,7 @@ its record disagree, the record wins. Look it up, never read it whole:
 | which Claude account a login runs on; moving logins; setup-token; usage windows | ADR-031 |
 | changing the GZCoord protocol; the grammar freeze; GZCOORD/2 | ADR-032 |
 | the relay; the human relay; transports; Telegram; the adapter contract | ADR-033 |
-| what a failure may take; single points; degraded modes | ADR-034 |
+| what a failure may take; single points; degraded modes; the scheduled drain | ADR-034 |
 | working with another organization; portable trust; what may be shared | ADR-035 |
 | cost per verified result; spend; shared resources | ADR-036 |
 | your job list; fabric-jobs; the next job and a fresh session | ADR-037 |
@@ -798,9 +798,10 @@ its record disagree, the record wins. Look it up, never read it whole:
   restore was read back (§7).
 - A 2026-09-30 — the inventory's key and secrets rows name the stores; Doppler is gone (§1, §5 rule 4).
 - A 2026-10-27 — the relay's database is scheduled to be copied every 6 h to Proton Drive, encrypted and signed, restore read back; §1, §6, §7 say so.
-- A 2026-10-28 — undrained memory has a daily copy (restore unread); §7 step 3 decided: a weekly timer collects every account's drain bundle, a 14-day age bound, a report and one drain job; landing stays reviewed (§1, §6, §7).
+- A 2026-10-28 — undrained memory has a daily copy (restore unread); §7 step 3 decided: a weekly timer collects every account's drain bundle, a 14-day age bound, a report and one drain job; landing stays reviewed (§1, §2, §6, §7).
 - Keywords: decentralization, resilience, single point of failure,
-  degraded mode, relay, host, crash, backup, autonomy, P5.
+  degraded mode, relay, host, crash, backup, autonomy, P5,
+  scheduled drain, drain timer, undrained memory, state backup.
 
 ### ADR-035 — Federation between organizations: expertise transfers, confidential information does not; portable trust first (Accepted)
 
