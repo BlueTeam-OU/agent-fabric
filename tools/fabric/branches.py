@@ -30,9 +30,18 @@ CONTRACT, frozen from the bash (ADR-040 §5 rule 3):
             read; 1 a sweep that deleted what it was to but could not record
             itself (or whose closing `git branch` failed)
 
-Nothing is deleted from a remote, ever; a sweep deletes local branches and
-worktrees only, and only what a fresh count and a fresh status still call
-safe at the moment of deletion.
+A sweep deletes local branches and worktrees, and on origin only this login's own merged branches (below);
+only what a fresh count and a fresh status still call safe at the moment of deletion.
+
+On origin (the owner, 2026-10-28: a project had 256 merged branches there, 234 of them `for/` supply branches folded
+into other lanes' pull requests, which delete-on-merge never removes): after the fetch, every branch of origin under
+`<host>/<login>/` (this login's prefix, never another's) whose tip `git ls-remote` gives now and is an ancestor of
+origin/<default>, and that heads no OPEN pull request (`gh pr list --head <b> --state open`; a merged or closed one heads
+none). The plain report lists them, "on origin, on main, would delete"; `--sweep` deletes them, one `git push origin
+--delete` each, leased to the tip it judged, so a push since is kept. A branch with a commit off the default branch is
+never touched (a squash-merged one stays: accepted). gh missing, unauthenticated or not answering ends the step, said,
+and the rest of the sweep goes on as before: an unknown PR state is never none. A refused delete is named, the rest
+go on, and the status is 1. Not with `--sweep --worktrees`, which deletes no branch.
 
 What a sweep removes, and why (the owner, 2026-10-19: pushed drains, job checkouts and review-head
 checkouts piled up, 39 and 530 MB on one login in a day):
@@ -133,9 +142,9 @@ with its commits and its pull request, and kept: it is work still owed,
 or the person's decision. The current branch and the default branch are
 never touched.
 
-Local only: no remote branch is deleted or pushed; the merge queue owns
-those. A branch tracking another agent's remote branch is only a local
-copy, deleted like any other when it shows 0.
+On origin, --sweep deletes only this login's own branches that are on the default branch and head no open
+pull request (the report lists them first); no other login's branch, no push of work. A branch tracking another
+agent's remote branch is only a local copy, deleted like any other when it shows 0.
 
 Refused (exit 2) outside a git working copy, when the default branch is
 unknown (never guessed), when the fetch fails, and for --sweep on a
@@ -807,6 +816,83 @@ def sweep_one(b: str, checked_out: set[str], base: str) -> str:
     return f"deleted {b} ({sha})"
 
 
+def remote_merged(base: str, mine: str, default: str) -> list[tuple[str, str]]:
+    """(branch, tip) of every branch of origin under `mine` that `git ls-remote` has now and whose tip is an
+    ancestor of `base`. The tip is the remote's, not the fetched ref's (a fetch without --prune keeps a ref the
+    host deleted, and a push since the fetch moved the branch): a tip this clone does not have is not on `base`.
+    An ls-remote that fails, or an ancestry git cannot answer, is said and drops the branch: unknown is not merged."""
+    try:
+        r = git.run(".", "ls-remote", "--heads", "origin", check=False, timeout=FETCH_TIMEOUT_S)
+    except git.GitError as e:
+        say(f"origin's branches cannot be listed ({e}); none removed there")
+        return []
+    if r.returncode != 0:
+        say(f"origin's branches cannot be listed (git ls-remote exit {r.returncode}); none removed there")
+        return []
+    found: list[tuple[str, str]] = []
+    for line in lines_of(r.stdout):
+        sha, _, ref = line.partition("\t")
+        name = ref[len("refs/heads/"):] if ref.startswith("refs/heads/") else ""
+        if not name.startswith(mine) or name == default or not re.fullmatch(r"[0-9a-f]{40,64}", sha):
+            continue
+        try:
+            a = git.run(".", "merge-base", "--is-ancestor", sha, base, check=False)
+        except git.GitError as e:
+            say(f"could not tell whether {name} is on {base}: {e.reason}")
+            continue
+        if a.returncode == 0:
+            found.append((name, sha))
+        elif a.returncode not in (1, 128):  # 128: the tip is not in this clone, so not on base
+            say(f"could not tell whether {name} is on {base}: exit {a.returncode}")
+    return sorted(found)
+
+
+def open_pull_request(branch: str) -> bool:
+    """Whether an OPEN pull request has `branch` as its head; a GhError is the caller's (unknown is not none)."""
+    rows = json.loads(gh.run(["pr", "list", "--head", branch, "--state", "open", "--json", "number"],
+                             what="gh pr list"))
+    if not isinstance(rows, list):
+        raise ValueError("not a list")
+    return bool(rows)
+
+
+def remote_sweep(base: str, mine: str, default: str, delete: bool) -> int:
+    """The section "on origin, on main": this login's branches of origin that are on `base` and head no open
+    pull request, listed, and with `delete` removed. Returns how many deletions were refused. Nothing is printed
+    when there is none; gh failing ends the step, said, with nothing deleted past that point."""
+    candidates = remote_merged(base, mine, default)
+    if not candidates:
+        return 0
+    echo()
+    echo(f"on origin, on {default}, would delete:" if not delete else f"on origin, on {default}, deleting:")
+    refused = 0
+    for name, sha in candidates:
+        try:
+            if open_pull_request(name):
+                echo(f"  KEPT origin/{name} — heads an open pull request")
+                continue
+        except (gh.GhError, ValueError) as e:
+            echo(f"  skipped: pull requests cannot be read ({e}); no further branch of origin is judged")
+            return refused
+        if not delete:
+            echo(f"  {name}")
+            continue
+        try:
+            d = git.run(".", "push", "-q", "origin", f"--force-with-lease=refs/heads/{name}:{sha}",
+                        "--delete", name, check=False, timeout=FETCH_TIMEOUT_S)
+            ok = d.returncode == 0
+            why = d.stderr.strip().splitlines()[-1] if d.stderr.strip() else f"exit {d.returncode}"
+        except git.GitError as e:
+            ok, why = False, e.reason
+        if ok:
+            echo(f"  deleted origin/{name} ({sha[:7]})")
+        else:
+            refused += 1
+            echo(f"  KEPT origin/{name} — the delete was refused ({why})")
+            say(f"origin/{name} not deleted: {why}")
+    return refused
+
+
 def git_top() -> str:
     try:
         top = git.toplevel(".")
@@ -1019,6 +1105,7 @@ def run(argv: list[str], scratch: bool = True) -> int:
         except git.GitError as e:
             say(f"could not list the commits of {b}: {e.reason}")
 
+    remote_refused = remote_sweep(base, mine, default, delete=False) if branches and not sweep else 0
     if not sweep:
         echo()
         echo(f"safe to delete (0): {' '.join(zero) or 'none'}; worktrees: {' '.join(wt_remove) or 'none'}. "
@@ -1062,6 +1149,8 @@ def run(argv: list[str], scratch: bool = True) -> int:
         return 2
     for b in zero if branches else []:
         echo(sweep_one(b, checked_out, base))
+    if branches:
+        remote_refused = remote_sweep(base, mine, default, delete=True)
     if kept:
         echo(f"kept, with commits off {default}: {' '.join(kept)} — work still owed, or the person's decision")
     if scratch:
@@ -1069,7 +1158,7 @@ def run(argv: list[str], scratch: bool = True) -> int:
         echo("session scratch:")
         sweep_sessions()
 
-    rc = 0
+    rc = 1 if remote_refused else 0
     try:
         record_sweep(top)
     except Exception as e:  # noqa: BLE001
