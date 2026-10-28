@@ -1,11 +1,14 @@
 #!/usr/bin/env python3
 """tools/fabric/github/repo_policy.py — a repository's arming policy against what GitHub holds: `fabric-repo-policy
 plan` says what GitHub would have to change to match the policy, `verify` fails when it differs, and arm.py refuses
-to arm on a repository that has drifted (arming step C; apply is step E's).
+to arm on a repository that has drifted (arming step C); `apply` writes the policy to GitHub (step E).
 
   fabric-repo-policy plan   [owner/repo] [--json]    exit 0; the differences, or "no change"
   fabric-repo-policy verify [owner/repo] [--json]    exit 0 when GitHub matches the policy, 1 when it differs
                                                      exit 2 for what could not be read or judged
+  fabric-repo-policy apply  <owner/repo> [--yes] [--json]   the plan; with --yes, writes what differs and reads back
+                                                     exit 0 when the read-back matches (or with no --yes), 1 when a write
+                                                     was refused or the read-back still differs, 2 as plan
 A difference in which merge methods are allowed (a ruleset that allows the policy's method and more, or the
 repository's allow_*_merge fields), in delete-branch-on-merge, or in bypass actors this token cannot see, is
 `(advisory)`: verify fails on it, arm does not refuse on it.
@@ -13,7 +16,9 @@ repository's allow_*_merge fields), in delete-branch-on-merge, or in bypass acto
 The repository defaults to the current one (gh.py). The policy is arm_policy.load(repo): the fleet's with the
 client's settings repository's file over it. What it asks of GitHub is arm_policy.render(): the repository's
 merge fields and the one ruleset the policy names (every other ruleset is left alone). What GitHub holds is read
-with GETs only: the repository, its rulesets (the repository's own, not the organisation's) and, for an App named
+with GETs (apply alone writes: PATCH repos/<repo> with the differing REPOSITORY_FIELDS, then PUT the ruleset by
+id when one of the policy's name exists, else POST it; mode `direct` leaves an existing ruleset alone and says so,
+so verify still differs after it). What GitHub holds is read: the repository, its rulesets (the repository's own, not the organisation's) and, for an App named
 in a required check that arm_policy does not know, apps/<slug>.
 
 What is compared, and what is not: the repository fields allow_auto_merge, allow_merge_commit, allow_squash_merge,
@@ -151,48 +156,134 @@ def blocking(found: list[str]) -> list[str]:
     return [line for line in found if not line.endswith("(advisory)")]
 
 
-def check(repo: str, policy: dict, api=gh.api) -> list[str]:
-    """The differences between the policy and GitHub's side of `repo`; Unreadable when either cannot be had."""
+def desired_state(policy: dict, api=gh.api) -> dict:
+    """arm_policy.render of the policy with the Apps it names resolved; Unreadable when it cannot be mapped."""
     try:
-        desired = arm_policy.render(policy, resolve_apps(policy, api))
+        return arm_policy.render(policy, resolve_apps(policy, api))
     except arm_policy.PolicyError as e:
         raise Unreadable(f"the policy cannot be mapped onto GitHub ({e})") from None
-    return differences(desired, read_live(repo, arm_policy.ruleset_name(policy), api), arm_policy.ruleset_name(policy))
 
 
-USAGE = "usage: fabric-repo-policy plan|verify [owner/repo] [--json]"
+def check(repo: str, policy: dict, api=gh.api) -> list[str]:
+    """The differences between the policy and GitHub's side of `repo`; Unreadable when either cannot be had."""
+    name = arm_policy.ruleset_name(policy)
+    return differences(desired_state(policy, api), read_live(repo, name, api), name)
+
+
+def write(repo: str, desired: dict, live: dict, found: list[str], written: list[str], notes: list[str], api=gh.api) -> None:
+    """Write exactly what differs (`found`), as render() says it, appending each call made to `written` as it lands
+    (so a caller still has them when a later call is refused) and what was left alone to `notes`. The repository
+    fields first, then the ruleset, so a refused PATCH leaves the ruleset untouched. A ruleset id is checked before
+    the first write. gh.GhError propagates from a refused call; what was written before it stays."""
+    changed = {f: desired["repository"][f] for f in REPOSITORY_FIELDS if live["repository"][f] != desired["repository"][f]}
+    want, have = desired["ruleset"], live["ruleset"]
+    rid = None
+    if want is not None and have is not None and any(not line.startswith("repository ") for line in found):
+        rid = have.get("id")
+        if not isinstance(rid, int) or isinstance(rid, bool):
+            raise Unreadable(f"GitHub's answer for the ruleset {want['name']!r} carries no id to update it by")
+    if changed:
+        api(f"repos/{repo}", method="PATCH", body=changed)
+        written.append(f"PATCH repos/{repo} ({', '.join(changed)})")
+    if want is None:
+        if have is not None:
+            notes.append(f"the ruleset {have.get('name')!r} exists and the policy's mode has no server-side rule: left alone")
+    elif have is None:
+        api(f"repos/{repo}/rulesets", method="POST", body=want)
+        written.append(f"POST repos/{repo}/rulesets")
+    elif rid is not None:
+        api(f"repos/{repo}/rulesets/{rid}", method="PUT", body=want)
+        written.append(f"PUT repos/{repo}/rulesets/{rid}")
+
+
+USAGE = "usage: fabric-repo-policy plan|verify [owner/repo] [--json] | apply <owner/repo> [--yes] [--json]"
+
+
+def _print_plan(repo: str, found: list[str], out) -> None:
+    if found:
+        print(f"{repo}: GitHub differs from the arming policy in {len(found)} place(s):", file=out)
+        for line in found:
+            print(f"  {line}", file=out)
+    else:
+        print(f"{repo}: GitHub matches the arming policy", file=out)
 
 
 def run(argv: list[str], api=gh.api, out=sys.stdout, err=sys.stderr) -> int:
-    args = [a for a in argv if a != "--json"]
     as_json = "--json" in argv
-    if not args or args[0] not in ("plan", "verify") or len(args) > 2 or any(a.startswith("-") for a in args):
+    yes = "--yes" in argv
+    args = [a for a in argv if a not in ("--json", "--yes")]
+    verb = args[0] if args else None
+    if (verb not in ("plan", "verify", "apply") or len(args) > 2 or any(a.startswith("-") for a in args)
+            or (yes and verb != "apply") or (verb == "apply" and len(args) != 2)):
         print(USAGE, file=err)
         return 2
-    verb = args[0]
     try:
         repo = args[1] if len(args) == 2 else gh.this_repo()
         if not arm_policy.is_repo_name(repo):
             print(f"fabric-repo-policy: {repo!r} is not an <owner>/<name>", file=err)
             return 2
         policy = arm_policy.load(repo, api=api)
-        found = check(repo, policy, api)
+        name = arm_policy.ruleset_name(policy)
+        desired = desired_state(policy, api)
+        live = read_live(repo, name, api)
+        found = differences(desired, live, name)
     except (arm_policy.PolicyError, arm_policy.PolicyUnavailable, Unreadable) as e:
         print(f"fabric-repo-policy: {e}", file=err)
         return 2
     except gh.GhError as e:
         print(f"fabric-repo-policy: cannot read the repository: {e.reason}", file=err)
         return 2
+    if verb != "apply":
+        if as_json:
+            print(json.dumps({"repository": repo, "verb": verb, "drift": bool(found), "blocking": blocking(found), "differences": found},
+                             sort_keys=True), file=out)
+        else:
+            _print_plan(repo, found, out)
+        return 1 if (found and verb == "verify") else 0
+    return _apply(repo, desired, live, found, name, yes, as_json, api, out, err)
+
+
+def _apply(repo, desired, live, found, name, yes, as_json, api, out, err) -> int:
+    written: list[str] = []
+    notes: list[str] = []
+    after: list[str] = found
+    rc = 0
+    if found and yes:
+        try:
+            write(repo, desired, live, found, written, notes, api)
+        except Unreadable as e:
+            print(f"fabric-repo-policy: {e}; nothing written", file=err)
+            return 2
+        except gh.GhError as e:
+            print(f"fabric-repo-policy: GitHub refused {e.what}: {e.reason}", file=err)
+            if written:
+                print("fabric-repo-policy: what was written before it stays; a rerun is safe", file=err)
+            return 1
+        try:
+            after = differences(desired, read_live(repo, name, api), name)
+        except Unreadable as e:
+            print(f"fabric-repo-policy: written {written}, then the read-back failed: {e}", file=err)
+            return 2
+        rc = 1 if after else 0
     if as_json:
-        print(json.dumps({"repository": repo, "verb": verb, "drift": bool(found), "blocking": blocking(found), "differences": found},
-                         sort_keys=True), file=out)
-    elif found:
-        print(f"{repo}: GitHub differs from the arming policy in {len(found)} place(s):", file=out)
-        for line in found:
-            print(f"  {line}", file=out)
+        print(json.dumps({"repository": repo, "verb": "apply", "written": written, "after": after, "drift": bool(found),
+                          "blocking": blocking(found), "differences": found, "notes": notes}, sort_keys=True), file=out)
     else:
-        print(f"{repo}: GitHub matches the arming policy", file=out)
-    return 1 if (found and verb == "verify") else 0
+        _print_plan(repo, found, out)
+        if found and not yes:
+            print("re-run with --yes to write", file=out)
+        for w in written:
+            print(f"wrote {w}", file=out)
+        for n in notes:
+            print(n, file=out)
+        if yes and found:
+            if after:
+                print(f"still differs after the write, in {len(after)} place(s):", file=out)
+                for line in after:
+                    print(f"  {line}", file=out)
+            else:
+                print("GitHub now matches the arming policy", file=out)
+    return rc
 
 
 def main() -> int:
