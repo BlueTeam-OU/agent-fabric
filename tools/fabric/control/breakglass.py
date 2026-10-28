@@ -46,8 +46,11 @@ THE JOURNAL, on both ends: fabric-op.jsonl in the control state dir
 run (phase "before": id, op, from, to, host, ts, via) and one after (phase
 "after": id, status, exit). A first line that cannot be written refuses the
 run: an action nobody could later find is the bypass ADR-041 rule 10 audits
-for. A refused request gets its "after" line alone (status "refused", with the
-reason), best effort — the refusal stands whether or not it is written.
+for. A request refused before that line (accept(), the extra refusals) gets an
+"after" line alone (status "refused", with the reason); one refused at the
+claim (a copy that lost the race, a ledger locked or unwritable) follows its
+"before" line with "after"/"refused", so a lone "before" is never a run that
+was refused. Best effort for the refusals — they stand whether or not written.
 
 THE OPERATOR (`--via hostexec`). The request is built and signed exactly as the
 relay path builds it (an unsigned action is never sent), the login's host is

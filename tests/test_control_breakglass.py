@@ -230,6 +230,11 @@ class Decision(Target):
         self.assertEqual((line["phase"], line["id"], line["status"], line["exit"]), ("after", r["id"], "refused", 2))
         self.assertIn("not signed by", line["reason"])
 
+    def test_a_refusal_at_the_claim_follows_its_before_line(self):
+        with mock.patch.object(self.ledger, "claim", return_value=False):
+            self.refused(action(), "a replay")
+        self.assertEqual([(ln["phase"], ln.get("status")) for ln in self.lines()], [("before", None), ("after", "refused")])
+
     def test_an_op_that_fails_exits_1_prints_its_reply_and_journals_failed(self):
         self.fake.status = "failed"
         rc, out, err = self.run_op(action())
@@ -252,6 +257,20 @@ class Decision(Target):
         self.refused(None, "usage", raw=b"{}", argv=["a", "b"])
         self.refused(None, "usage", raw=b"{}", argv=["--x"])
         self.accepted(action(), raw=json.dumps(action()).encode() + b"\n" * 100)
+
+
+class AgentdClaim(Scratch):
+    def test_agentd_runs_nothing_for_a_claim_it_lost_or_could_not_write(self):
+        ledger = agentd.ActionLedger(os.path.join(self.scratch(), "s", "actions-seen.json"))
+        said: list[str] = []
+        r = {"from": OP_ADDRESS, "op": "local-prune"}
+        self.assertTrue(agentd.claimed(ledger, r, 5, said.append))
+        self.assertFalse(agentd.claimed(ledger, r, 5, said.append))
+        self.assertRegex(said.pop(), r"refused: not newer than the last action accepted \(a replay\)$")
+        with mock.patch.object(ledger, "claim", side_effect=PermissionError(13, "x")):
+            self.assertFalse(agentd.claimed(ledger, r, 6, said.append))
+        self.assertRegex(said.pop(), r"the action ledger could not be written \(EACCES\)$")
+        self.assertEqual(said, [])
 
 
 class Ledger(Scratch):
@@ -427,6 +446,14 @@ class EndToEnd(Scratch):
                 rc, out, err = self.operator_side(argv)
                 self.assertEqual((rc, out), (2, []))
                 self.assertIn(why, err[0])
+
+    def test_a_journal_outcome_line_that_cannot_be_written_is_said_beside_the_row(self):
+        reply = {"kind": "reply", "from": self.target, "op": "local-prune", "data": {"local-prune": {"status": "pruned"}}}
+        o = breakglass.Outcome("reply", reply, detail="outcome not journaled: the journal x could not be written (EIO)", exit=0)
+        with mock.patch.object(breakglass, "via_hostexec", return_value=o):
+            rc, out, err = self.operator_side([LOCAL_LOGIN, "local-prune", "--via", "hostexec"])
+        self.assertEqual((rc, len(out)), (0, 1))
+        self.assertRegex(err[0], r"outcome not journaled")
 
     def test_help_names_via_for_an_action_verb_and_not_for_a_read(self):
         self.assertIn("--via hostexec", ctl.render_help("restart"))

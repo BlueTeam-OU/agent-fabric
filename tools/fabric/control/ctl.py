@@ -36,7 +36,9 @@ expected address has answered or the timeout is spent (the operation's own
 budget: 20 s by default, 5 s for ping). An address that stayed silent is a
 row that says so, and the exit code is 1 — a table is never short.
 Stateless: a run leaves one request record and the agents' replies on the
-channel, and nothing else anywhere.
+channel, and nothing else anywhere. Except `--via hostexec`, which sends no
+relay record and leaves its journal line pair in fabric-op.jsonl (and the
+target's, control/breakglass.py).
 
 THE CONTRACT, as the Node's, frozen by its tests (ctl.test.mjs, ported case
 for case in tests/test_control_ctl.py) and held to the Node's tables by
@@ -46,7 +48,8 @@ JavaScript's padEnd and padStart by UTF-16 code unit, toFixed's rounding
 half up, String() of whatever an account sent — the bundles written by a
 drain, the exit codes (0 every expected account answered and every action
 succeeded; 1 a silent account, an unfinished drain or a failed action; 2 a
-refusal; 3 no token, no signing key or a relay that could not be reached),
+refusal; 3 no token, no signing key or a relay that could not be reached; with
+--via also an unwritable journal or a hostexec that gave no reply),
 and stdout against stderr (tables and --json rows on stdout; every
 `fabric-ctl: ` line on stderr).
 
@@ -2508,7 +2511,7 @@ def _via_hostexec(args: dict, request: dict, target: dict, *, registry: str | No
     replies = []
     if o.reply is not None:
         replies.append(o.reply)
-    else:
+    if o.detail or o.reply is None:   # a journal line that could not be written is said beside a good row
         err(f"fabric-ctl: {target['login']}: {o.detail}")
     rs = rows([target], replies)
     if args["json"]:

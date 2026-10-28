@@ -435,6 +435,19 @@ def action_ledger(file: str | None = None) -> ActionLedger:
     return ActionLedger(file)
 
 
+def claimed(ledger: ActionLedger, request: dict, ts: float, say: Callable[[str], None] = _stderr) -> bool:
+    """Record the action in the ledger before it runs; False, said, when it must not run. A claim lost here was
+    taken between accept()'s floor check and now, by `fabric-op` or by another copy of this request."""
+    try:
+        if not ledger.claim(request["from"], ts):
+            say(f"agentd: {request['op']} for {request['from']} refused: not newer than the last action accepted (a replay)")
+            return False
+    except Exception as e:  # noqa: BLE001
+        say(f"agentd: {request['op']} for {request['from']} refused: the action ledger could not be written ({_code(e)})")
+        return False
+    return True
+
+
 def accept(rec: dict, *, me: dict, operators: set, accounts: set | None = None, keys: dict | Callable[[], dict] | None = None, ttl_s: float,
            seen: set, now: float | None = None, action_floor: Callable[[str], float] = lambda _from: 0) -> dict:
     """Is this record a request this agent answers? The reason when not, for
@@ -1012,13 +1025,7 @@ def main(argv: list[str] | None = None) -> int:
                     # for the action, never between (a recorded action that never
                     # ran is refused as a replay when posted again).
                     with leave.lock:
-                        try:
-                            if not ledger.claim(request["from"], a["ts"]):
-                                # Taken between accept()'s check and here, by `fabric-op` or a copy of this request.
-                                _stderr(f"agentd: {request['op']} for {request['from']} refused: not newer than the last action accepted (a replay)")
-                                continue
-                        except Exception as e:  # noqa: BLE001
-                            _stderr(f"agentd: {request['op']} for {request['from']} refused: the action ledger could not be written ({_code(e)})")
+                        if not claimed(ledger, request, a["ts"]):
                             continue
                         _stderr(f"agentd: started {request['op']} for {request['from']} ({request['id'][:8]})")
                         beside(a, True)
