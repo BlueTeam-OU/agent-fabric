@@ -243,7 +243,11 @@ named, InterWeave #477 in v0.2.0). It is off per account until
 `control_carrier` says `dual`; the relay stays the transport of record
 until the owner's word on a parity report. §2 says so, §6 narrows the
 unauthenticated-sender consequence to the relay copy, §7's second host
-now goes by InterWeave instead of a relay URL.
+now goes by InterWeave instead of a relay URL. While both carriers
+run, an account splits a drain or evidence reply once, at the InterWeave
+bound, and sends the same parts by both, so either copy reassembles; the
+row is the PeerId-authenticated InterWeave copy, and a differing relay
+copy is flagged. §8 says rule 18 is not built yet.
 
 Why: the owner, 2026-10-27, confirmed in the coordinator's session and
 relayed first by architect-cto (DECISION 01a17bd3): the control plane

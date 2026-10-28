@@ -100,9 +100,9 @@ relay, one host first:
 - **`interweave-human` as the carrier** (the request's proposal). Not
   taken: the lease is exclusive, so a listener and a sender cannot both
   run on one profile; and every received message becomes a human store's
-  unread row. A wrapper holding one `listen` and sending through it is
-  not possible either: `listen` takes no input, so nothing can be sent
-  through it. Taken for the control plane, which is not this carrier's
+  unread row. A wrapper holding one `listen` and sending through it was
+  not possible either: before v0.2.0, `listen` took no input. Taken for
+  the control plane, which is not this carrier's
   traffic (A 2026-10-28): its records are few, small and live for a
   bounded time, the reply is their receipt, and the duplex, consuming
   `listen` InterWeave released in v0.2.0 removes the lease and store
@@ -243,8 +243,12 @@ address, where the relay's `sender` is a claim (ADR-033 §6).
     through `interweave-human` under the account's agentd (ADR-029 rule
     18), never through this carrier: `fabric-control` is the profile's
     only human endpoint, no person's client uses the profile, and
-    `gzcoord` stays automated-only. The ops that install, start, stop
-    or check InterWeave go on the relay (rule 14).
+    `gzcoord` stays automated-only. The render configures
+    `fabric-control` beside `gzcoord`, pins the profile's default
+    endpoint to `gzcoord`, and leaves the profile's channels empty; this
+    carrier refuses a body that begins `fabric-control/1 `, so a control
+    record never reaches a GZCoord inbox. The ops that install, start,
+    stop or check InterWeave go on the relay (rule 14).
 13. Before the dual run starts, the carrier is validated with at least
     two instances under two accounts on the host, one receiving what the
     other sent (ADR-033 rule 4), and with one account's daemon refused
@@ -284,7 +288,8 @@ address, where the relay's `sender` is a claim (ADR-033 §6).
   and countersigned by the coordinator, and a render of
   every other profile's allowlist; a retired one, its entry removed and
   the renders repeated, or a `transportctl trust revoke` until then.
-- Agents on another host — none today — stay on the relay alone.
+- No agent runs on another host yet. One will be reached over
+  InterWeave alone once rule 1's second-host milestone opens.
 - The build rests on a tagged, pinned release, the one
   `runtime/interweave/release.json` names `current` (rule 4); moving it
   is a commit there, which the accounts then install (rule 14).
@@ -337,4 +342,4 @@ The body above reads current; each change's full note is in [history/ADR-064-ame
 | 2026-10-26 | The parity evidence is gathered through the control plane | §5 rule 11 |
 | 2026-10-27 | One host is the first milestone; a second host is the next | §2 lead and one-host bullet; §5 rule 1; §7 |
 | 2026-10-28 | The pin moves to InterWeave v0.2.0; the record names the pin, not a version | §6, §8 |
-| 2026-10-28 | The control plane rides the profile's fabric-control endpoint through interweave-human | §3 first alternative; §5 rules 12 and 14 |
+| 2026-10-28 | The control plane rides the profile's fabric-control endpoint through interweave-human | §3 first alternative; §5 rules 12 and 14; §6 |

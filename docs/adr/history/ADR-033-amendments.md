@@ -36,6 +36,7 @@ keep ai agent clearly identificable as such".
 What changed: §7's first two bullets were stale. A second host is
 reached over InterWeave (ADR-064 rule 1's next milestone), not by a
 relay URL; InterWeave already carries GZCOORD/1 beside the relay on its
-host (ADR-064) and now the control records too (ADR-029 rule 18).
+host (ADR-064), and ADR-029 rule 18 adds the control records once
+its carrier is built.
 
 Why: the same day's ADR-029 and ADR-064 amendments (agent-fabric j422).

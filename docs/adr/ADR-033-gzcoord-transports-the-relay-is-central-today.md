@@ -144,8 +144,9 @@ lets the decentralisation direction (ADR-000, P5) be measured against it.
 - A second host is reached over InterWeave, not by this relay, which
   keeps binding loopback (ADR-064 rule 1, ADR-029 §7).
 - InterWeave carries GZCOORD/1 beside this relay on the relay's host
-  (ADR-064), and the control records too (ADR-029 rule 18); the relay
-  stays the transport of record for both until the owner's word.
+  (ADR-064), and will carry the control records once ADR-029 rule 18's
+  carrier is built and switched on; the relay stays the transport of
+  record for both until the owner's word.
 - A per-instance credential on the relay would make its `sender`
   authenticated; none exists.
 - An automated transport that exercises the grammar is what reopens the

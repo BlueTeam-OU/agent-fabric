@@ -302,20 +302,26 @@ with Doppler (ADR-038 §5 rule 8).
       (ADR-064 rule 2) maps the sender's PeerId to, and `fabric-ctl`
       accepts a reply only from its `from`'s PeerId;
     - rule 4's seen-set is one across both carriers, so a request is
-      answered once; while both run, the reply goes by both, and
-      `fabric-ctl` keeps the first per (`in_reply_to`, `from`) and logs
-      every arrival with its carrier;
+      answered once; while both run, the reply goes by both, the same
+      reply split into the same parts, and `fabric-ctl` keeps one copy
+      per reply and per part, logging every arrival with its carrier;
+    - when both copies of a reply arrive within the op's budget, the
+      row is the InterWeave copy, whose sender is authenticated; a relay
+      copy that differs from it is flagged in the row, never shown as
+      the account's answer; a row only the relay carried says so;
     - a send never outlives its request's `ttl_s`, and nothing is left
       pending for a later run; what the human store holds of a record is
       deleted after its line is printed, never before;
-    - rule 9's parts and `interweave-evidence`'s pages are bounded per
-      carrier: on InterWeave by a figure measured on this path before
-      the dual run starts, at most 32 KiB;
+    - rule 9's parts and `interweave-evidence`'s pages are bounded by
+      the carriers that send them: an account on both splits once, at
+      the InterWeave bound, a figure measured on this path before the
+      dual run starts and at most 32 KiB, and sends those parts by both;
     - `fabric-ctl` holds no lease: it hands its sends to the operator's
       own agentd over a socket in its runtime directory, mode 0600, and
       `all` is one direct send per placed account's roster row;
     - `interweave`, `interweave-install`, `interweave-start` and
       `interweave-stop` go on the relay only (ADR-064 rule 14);
+      `interweave-evidence` goes by both, as any other op;
     - the relay stays the transport of record. InterWeave becomes it on
       the owner's word, given on a parity report in `docs/live-checks/`
       (every request id and addressee with the carriers that carried
@@ -329,12 +335,15 @@ with Doppler (ADR-038 §5 rule 8).
   sender, so a relay-token holder can write the operator's `from` on a
   read, or post a reply in another account's name that `fabric-ctl`
   prints as that account's row. The table is as honest as the least
-  trusted token holder until replies are signed. A copy carried by
-  InterWeave has its sender authenticated by PeerId (rule 18).
+  trusted token holder until replies are signed. On an account on both
+  carriers the InterWeave copy, authenticated by PeerId, is the row and
+  a differing relay copy is flagged (rule 18); a reply that only the
+  relay carried is no more honest than before.
 - A request posted while a daemon was down is lost, not queued; the row
   says `no answer`, and the operator asks again.
-- One relay carries the channel: when it is down, no account answers,
-  and the sudo fallbacks are the only read (ADR-010's host executor).
+- One relay carries the channel: when it is down, no account answers
+  but one on both carriers (rule 18), and for the rest the sudo
+  fallbacks are the only read (ADR-010's host executor).
 - A drain costs no sudo and reads no other home; a credential-shaped hit
   in a memory refuses that account's whole drain at the harvester.
 
@@ -356,7 +365,9 @@ with Doppler (ADR-038 §5 rule 8).
 ## 8. Decision Status
 
 Accepted. The control agent, the channel, the read ops and the signed
-actions are in use on every placed account.
+actions are in use on every placed account. Rule 18's second carrier is
+not built yet: until it is, `control_carrier` is read by nothing and
+every account is on the relay alone.
 
 ## References
 
@@ -407,4 +418,4 @@ The body above reads current; each change's full note is in [history/ADR-029-ame
 | 2026-10-26 | The InterWeave start renders one account at a time and needs the port reservation | §2 table: `interweave-start`; §5 rule 12: its budget |
 | 2026-10-26 | The InterWeave parity evidence is collected through the control plane | §2 table: `interweave-evidence`; §5 rule 3: its arguments; rule 5: signed; rule 6: no body; rule 12: 60 s a page |
 | 2026-10-26 | A running InterWeave pair is re-rendered when the roster changed | §2 table: `interweave-start` |
-| 2026-10-28 | The records also ride InterWeave, through interweave-human, beside the relay | §2: the second-carrier bullet; §5 rule 18; §6 first bullet; §7 second-host bullet |
+| 2026-10-28 | The records also ride InterWeave, through interweave-human, beside the relay | §2: the second-carrier bullet; §5 rule 18; §6 first and third bullets; §7 second-host bullet; §8: not built yet |

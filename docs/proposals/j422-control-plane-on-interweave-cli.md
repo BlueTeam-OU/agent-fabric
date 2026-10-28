@@ -5,8 +5,9 @@ records in §8 are accepted. The owner's direction (2026-10-27): "control plane 
 should be implemented on interweave cli". Its purpose, from the same day: to **move an agent to a
 remote host**. The first one is likely `edge-hosting`. Today the control plane (agent-fabric
 ADR-029) and GZCoord both ride one relay at `http://127.0.0.1:8765` (`runtime/control/config.json`),
-and that relay cannot be reached from a second host (ADR-029 §7, lines 301-305; ADR-033 §7, lines
-144-147). Read against origin/main 478bcc3f and InterWeave origin/main cf7089b5 (re-pinned, R12).
+which binds loopback and cannot be reached from a second host (ADR-033 §6). First read against
+origin/main 478bcc3f and InterWeave origin/main cf7089b5 (re-pinned, R12); §2's fabric facts are
+brought up to b92f500d below.
 
 **Revision 2026-10-27.** Twelve requirements, R1-R12, came from architect-cto's verification of this
 draft against InterWeave's records (origin/main 5080940c). Each is folded into the section it
@@ -52,8 +53,9 @@ InterWeave v0.2.0 (32ade966).
    profile: the human store's lock is profile-wide (R2). On the operator's account, `fabric-ctl` does its fan-out through the operator's own
    agentd over a local socket, never through its own lease (§5).
 4. **Safety.** On develop-qzapp the relay stays the transport of record for control until a parity
-   report and the owner's word, as ADR-064 rule 11 did for GZCoord. The `interweave*` ops stay
-   relay-only on that host. On H2, which has no relay, the path when InterWeave is down is hostexec
+   report and the owner's word, as ADR-064 rule 11 did for GZCoord. `interweave`,
+   `interweave-install`, `-start` and `-stop` stay relay-only on that host; `interweave-evidence`
+   goes by both. On H2, which has no relay, the path when InterWeave is down is hostexec
    over ssh to a local op runner, which checks the same signature (§6). Every control record is stored durably before it is sent and
    carries no secret value (R6).
 5. **Grammar.** ADR-029's request and reply envelopes (`protocol.py:34-39`) and `sign.py` do not
@@ -63,9 +65,8 @@ InterWeave v0.2.0 (32ade966).
 
 **In the fabric**
 
-- ADR-064 rule 1. On main (lines 142-147) it reads "The carrier runs only on the host the relay
-  runs on". PR #397 (head d1f0473c, 2026-10-27, the owner's change) rewrites it: one host is the
-  *first milestone*, and a second host is the next. That milestone opens through an amendment that:
+- ADR-064 rule 1 (as amended 2026-10-27 by #397, the owner's change): one host is the *first
+  milestone*, and a second host is the next. That milestone opens through an amendment that:
   - names the host;
   - gives its accounts' roster rows routable addresses;
   - says how InterWeave ADR-0034 §7 and SPIKE-004's limits are consumed, or accepted on the owner's
@@ -73,9 +74,10 @@ InterWeave v0.2.0 (32ade966).
 
   Until that amendment lands, nothing listens off loopback. §8 drafts the amendment, for H2 and
   edge-hosting.
-- The roster has no host or address field. Its rows are `agent_id, login, peer_id, endpoint, port`
-  and two signatures (`runtime/interweave/roster.schema.json`), and the render hard-codes
-  `LOOPBACK = "127.0.0.1"` (`tools/fabric/gzcoord/carrier/roster.py:32,53`).
+- The roster's `host` field and the registry's `interweave_address` exist (F4, #400): a row with
+  a `host` renders to that host's address, a wildcard listen (R7); no row carries one yet, so every
+  row renders to `127.0.0.1` (`runtime/interweave/roster.schema.json`,
+  `tools/fabric/gzcoord/carrier/roster.py` `HOST_KEY`, `LOOPBACK`).
 - ADR-048 rule 1 (lines 97-107): sshd listens on loopback, with "more than one host" left to §7
   (lines 187-188).
 - ADR-010 §7 (line 144): the ssh backend of hostexec has never been read back on a real second host.
@@ -155,8 +157,8 @@ ssh-backend read-back as a live check (ADR-010 §7).
 
 ### 3.3 The roster across hosts (fabric-coordinator's surface)
 
-- Rows gain `host`, a registry id. The address comes from the host's `interweave_address`, so one
-  move rewrites one field.
+- Rows carry `host`, a registry id (built in #400). The address comes from the host's
+  `interweave_address`, so one move rewrites one field.
 - The countersignature covers `host`. Every row is re-countersigned once. The logins do not
   re-sign, because their signature covers `identity_show` only (ADR-064 rule 2).
 - The render, per account: listen on the wildcard at `<port>` (R7), and static bootstrap to every
@@ -278,8 +280,8 @@ fabric's own carrier.
 ### 4.1 The long-lived child
 
 - **What runs.** A new `tools/fabric/control/carrier_cli.py` starts
-  `interweave-human --profile gzcoord listen --json --endpoint fabric-control --input` (gaps G1 and
-  G2). The first `session` event with `ready` means the child is up. The supervisor reads stdout
+  `interweave-human --profile gzcoord listen --json --input --consume --endpoint fabric-control`
+  (gaps G1, G2 and G3). The first `session` event with `ready` means the child is up. The supervisor reads stdout
   line by line.
 - **Destination (R1).** Every control send names `<peer>/fabric-control`. A peer-only send goes to
   the remote's default endpoint (`ENDPOINTS.md:76`, `README.md:52`), which the roster row says is
@@ -298,7 +300,7 @@ fabric's own carrier.
   (`transport-client client.rs:3-5,62`), while `AUTOMATED-CLIENT.md` says an automated consumer
   never opens the admin socket. This is acceptable, as named: the carrier runs `listen` alone
   (Status read only), agentd never drives an admin-mutating verb (`identities`, `peers`), and the
-  `interweave*` ops stay on the relay or hostexec.
+  four ops that install, start, stop or check InterWeave stay on the relay or hostexec.
 - **Custody (R4).** Today the store key and identity key are owner-only files. InterWeave ADR-0060
   d3 seals the store key under ADR-0038's passphrase envelope when SPIKE-007 lands, and ADR-0063
   d2 re-seals the identity keys in the same step; a lingering agentd cannot answer a passphrase.
@@ -312,7 +314,7 @@ fabric's own carrier.
   | exit | meaning | agentd does |
   |---|---|---|
   | 3 | no daemon | channel `off`, retry |
-  | 4 | the lease is held | a journal line, retry, never kill the holder |
+  | 4 | the store's instance lock is held (`HumanClientLock`, R2) | a journal line, retry, never kill the holder |
   | 5 | the store cannot be used | channel `off`, reported in `interweave` |
   | EOF or a crash | the child died | restart |
 
@@ -361,7 +363,8 @@ State records (rule 16) go as direct sends to each host operator's address, on c
 - **Size.** The CLI cannot set a media type or chunk. The human facade brotli-compresses an
   envelope of up to 192 KiB raw and refuses anything that is still over 48 KiB afterwards
   (`crates/human/chat-protocol/src/decode.rs:21`, `encode.rs:166`).
-  - The part bound becomes a per-carrier constant: on InterWeave, 32 KiB of base64 per memory part
+  - The part bound follows the carriers that send the reply; an account on both splits once at the
+    InterWeave bound and sends those parts by both: on InterWeave, 32 KiB of base64 per memory part
     (rule 9 says 90 KiB) and 32 KiB per evidence page (`carrier_evidence.py:52-54` derives 64 KiB
     from the relay's 128 KiB).
   - A 32 KiB evidence page is JSON-escaped twice (the record, then the message line) before the
@@ -370,8 +373,11 @@ State records (rule 16) go as direct sends to each host operator's address, on c
   - A `too-large` status re-splits at half the size, once.
 - **Correlation.** `id` and `in_reply_to` are unchanged. agentd's seen-set (rule 4, the last 256
   ids) is shared across both carriers, so a request is answered once.
-  - During the dual run the reply goes back on *both* carriers. fabric-ctl keeps the first copy per
-    (`in_reply_to`, `from`) and logs every arrival with its carrier for the parity report.
+  - During the dual run the reply goes back on *both* carriers, split into the same parts at the
+    InterWeave bound, so either copy reassembles. fabric-ctl keeps one copy per reply and per part,
+    and logs every arrival with its carrier for the parity report.
+  - When both copies arrive within the budget, the row is the InterWeave copy, whose sender is
+    authenticated; a relay copy that differs is flagged, as ADR-064 rule 9 does for GZCoord.
 - **No transport receipt.** The reply is the receipt. A pending send whose `--wait` ran out is
   cancelled, never left to be sent again later (G4).
 - **Authenticated sender.** The listen event's `author` is the sender's PeerId, which the roster
@@ -463,7 +469,7 @@ State records (rule 16) go as direct sends to each host operator's address, on c
 ## 8. The records: draft amendment text
 
 **What lands now and what waits.** The on-host part is written into the records in the same PR as
-this revision: ADR-029 §2, rule 18, §6 and §7; ADR-064 §3, rule 12 and §6; ADR-033 §7. Its text
+this revision: ADR-029 §2, rule 18, §6, §7 and §8; ADR-064 §3, rules 12 and 14, and §6; ADR-033 §7. Its text
 is narrower than the draft below: it covers develop-qzapp only, where the relay stays control's
 transport of record, and says nothing of `fabric-op`, which comes with the second host. The
 second-host amendment of ADR-064 (and the off-host exception to rule 11) stays here as a draft.
@@ -480,9 +486,10 @@ It needs a named host, so it waits for Q1-Q5.
   - On InterWeave a request counts only when its `from` is the address the roster maps its author
     PeerId to.
   - The seen-set is shared across carriers.
-  - The `interweave*` ops go on the relay only, and on a host with no relay through `fabric-op`
-    over hostexec, signed alike.
-  - Part bounds are per carrier: 32 KiB on InterWeave.
+  - `interweave`, `interweave-install`, `-start` and `-stop` go on the relay only, and on a host
+    with no relay through `fabric-op` over hostexec, signed alike.
+  - An account on both carriers splits once, at the InterWeave bound (at most 32 KiB), and sends
+    the same parts by both.
   - Every send names `<peer>/fabric-control`; the carriers refuse a `fabric-control/1` body on
     `gzcoord` and drop a carrier media type on `fabric-control` (R1).
   - Every control record is stored durably before it is sent, and none carries a secret value,
@@ -525,8 +532,6 @@ rule 1 asks for. It opens the next milestone; it does not lift a rule. Draft tex
   taken for the control plane (A 2026-10-2x): its records are few, small and TTL'd, the reply is
   their receipt, and the CLI's duplex listen (gap G1) and consuming read (G3) remove the lease and
   store objections."
-- Rule 11 gains an exception: an off-host account's GZCoord carrier of record is InterWeave from
-  its cut-over.
 
 **ADR-033 §7, second bullet** (the stale sentence at lines 145-147). Replace it with:
 "InterWeave carries GZCOORD/1 beside this relay on one host (ADR-064), and is what a second host

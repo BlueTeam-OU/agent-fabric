@@ -134,7 +134,10 @@ same day), never through this record's carrier; the profile is the
 control plane's alone (its only human endpoint, no person's client,
 `gzcoord` automated-only). §3's first alternative says why the CLI,
 refused for GZCoord, is taken for control. Rule 14's install, start,
-stop and check stay on the relay.
+stop and check stay on the relay. Rule 12 also says what the render
+configures (`fabric-control`, the default endpoint pinned to `gzcoord`,
+no channels) and that this carrier refuses a `fabric-control/1 ` body.
+§6 no longer says an off-host agent stays on the relay alone.
 
 Why: the owner's direction of 2026-10-27 (the control plane on the
 InterWeave CLI, so agents can move hosts; agent-fabric j422), and
