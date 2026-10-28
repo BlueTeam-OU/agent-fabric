@@ -298,8 +298,8 @@ here.
 
 ## 8. Decision Status
 
-Accepted. Its build runs on the InterWeave release pinned in
-`runtime/interweave/release.json` (§5 rule 4), v0.2.0 today.
+Accepted. Its build runs on the InterWeave release
+`runtime/interweave/release.json` names `current` (§5 rule 4).
 
 ## References
 
