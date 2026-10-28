@@ -606,7 +606,7 @@ class Memory(Base):
 
     def test_memory_one_harvester_run_per_directory_gzipped_base64_in_parts_a_failure_and_a_stray_are_rows(self):
         tar = os.urandom(3000)   # incompressible: the parts are real
-        report = {"role": "db-admin", "claims": 2, "counts": {"in_scope": 3, "total": 3}, "needs_rendering": ["ka-note"], "skipped_no_roles_class": ["private"], "memory_dir": "/never/leaves"}
+        report = {"role": "db-admin", "claims": 2, "oldest_drainable_ms": 1700000000000, "counts": {"in_scope": 3, "total": 3}, "needs_rendering": ["ka-note"], "skipped_no_roles_class": ["private"], "memory_dir": "/never/leaves"}
         calls: list = []
 
         def run(cmd, **kw):
@@ -630,7 +630,7 @@ class Memory(Base):
         with mock.patch("time.time", return_value=time.time() + 86400):
             later = ops.memory("/home/x", root="/r", run=lambda c, **k: subprocess.CompletedProcess(c, 0, tar, json.dumps(report).encode()), dirs=[dirs[0]], all=True, part_bytes=1000)["bundles"][0]["_parts"]
         self.assertEqual(later, ok["_parts"], "the gzip header carries no clock: the same tar is the same bytes")
-        self.assertEqual(ok["report"], {"claims": 2, "counts": {"in_scope": 3, "total": 3}, "needs_rendering": ["ka-note"], "skipped_no_roles_class": ["private"]})
+        self.assertEqual(ok["report"], {"claims": 2, "oldest_drainable_ms": 1700000000000, "counts": {"in_scope": 3, "total": 3}, "needs_rendering": ["ka-note"], "skipped_no_roles_class": ["private"]})
         self.assertNotIn("memory_dir", ok["report"], "only the whitelisted report keys travel")
         self.assertEqual(stray, {"slug": "s-stray", "files": 1, "status": "no-working-copy"})
         self.assertEqual(broken["status"], "harvest-failed")

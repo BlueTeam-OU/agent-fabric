@@ -937,6 +937,40 @@ def test_rows_after_the_scan_began_wait_and_the_watermark_stays_behind_them(tmp:
     assert manifest["next_watermark"] == 5, manifest
 
 
+def test_the_oldest_memory_that_still_waits_is_in_the_report_and_the_manifest(tmp: str) -> None:
+    """oldest_drainable_ms is the least mtime among in-scope memories with a roles_class, a held one included; an older
+    memory with no class, an older one before the watermark and a newer one are not it; none waiting is null.
+    Kills: counting unclassed or already drained memories, dropping the held, taking the max, the manifest losing it."""
+    def stamp(mem: str, name: str, ms: int) -> None:
+        os.utime(os.path.join(mem, f"{name}.md"), (ms / 1000, ms / 1000))
+    wm = 1_000_000
+    mem = os.path.join(tmp, "mem-old")
+    os.makedirs(mem)
+    write_memory(mem, "drained", "project", roles_class="solution")
+    write_memory(mem, "unclassed", "project")
+    write_memory(mem, "held", "project", body="მხოლოდ ქართული ტექსტი, თარგმანის გარეშე.", roles_class="solution")
+    write_memory(mem, "newer", "project", roles_class="workflow")
+    stamp(mem, "drained", wm - 5000)
+    stamp(mem, "unclassed", wm + 10)
+    stamp(mem, "held", wm + 2000)
+    stamp(mem, "newer", wm + 9000)
+    wc = os.path.join(tmp, "wc-old")
+    os.makedirs(os.path.join(wc, ".agent-fabric", "memory"))
+    with open(os.path.join(wc, ".agent-fabric", "memory", "last-drain-report.json"), "w", encoding="utf-8") as fh:
+        json.dump({"watermarks": {f"{LOGIN}@hostA": wm}}, fh)
+    target = os.path.join(tmp, "old.tar")
+    r = subprocess.run([sys.executable, TOOL, "--role", "architect-cto", "--memory", mem, "--bundle", target, "--working-copy", wc,
+                        "--project", "demo", "--host", "hostA"], capture_output=True, text=True)
+    assert r.returncode == 0, r.stderr
+    with tarfile.open(target) as tar:
+        manifest = json.load(tar.extractfile("manifest.json"))
+        report = json.load(tar.extractfile("harvest-report.json"))
+    assert report["oldest_drainable_ms"] == wm + 2000 and manifest["oldest_drainable_ms"] == wm + 2000, (report, manifest)
+    r, members, manifest = _bundle(tmp, "old-none", None)
+    assert r.returncode == 0 and manifest["oldest_drainable_ms"] is None, (r.stderr, manifest)
+    assert json.loads(members["harvest-report.json"])["oldest_drainable_ms"] is None
+
+
 def test_a_call_the_caller_got_wrong_is_counted_apart(tmp: str) -> None:
     _state(calls=[{"t": "2026-10-10T07:00:00Z", "tool": "memory_find", "hits": 0, "ids": [], "error": True},
                   {"t": "2026-10-10T07:00:01Z", "tool": "memory_find", "hits": 0, "ids": []}])
@@ -1181,6 +1215,7 @@ def main() -> int:
         test_a_malformed_row_of_another_project_or_no_project_makes_no_drain,
         test_rows_after_the_scan_began_wait_and_the_watermark_stays_behind_them,
         test_a_call_the_caller_got_wrong_is_counted_apart,
+        test_the_oldest_memory_that_still_waits_is_in_the_report_and_the_manifest,
         test_an_id_with_a_trailing_newline_is_not_an_id,
         test_a_note_with_a_credential_is_withheld_and_a_query_is_never_carried,
         test_a_second_store_of_the_login_carries_no_marks,

@@ -91,6 +91,10 @@ from typing import Any
 
 HERE = os.path.dirname(os.path.realpath(__file__))
 
+# ADR-034 §7 step 3: no drainable memory stays older than this outside the corpus. One number for the scheduled
+# drain's report (drain_due.py) and the status line, so they cannot disagree on the bound.
+DRAIN_BOUND_DAYS = 14
+
 
 def _load(name: str, path: str):
     spec = importlib.util.spec_from_file_location(name, path)
@@ -500,6 +504,7 @@ def main() -> int:
     skipped: list[str] = []
     needs_rendering: list[str] = []
     unrendered_ms: list[int] = []
+    drainable_ms: list[int] = []   # every in-scope memory with a roles_class that still waits: held or harvested
     refusals: list[str] = []
     anchor_warnings: list[str] = []
     applied = applied_corrections_of(working_copy)
@@ -543,6 +548,7 @@ def main() -> int:
             # not pass it (the charter: "never dropped").
             needs_rendering.append(name)
             unrendered_ms.append(parsed["mtime_ms"])
+            drainable_ms.append(parsed["mtime_ms"])
             continue
         text, language, title = judged["text"], judged["language"], judged["title"]
         # Skipped only for the section it targets: the same words aimed at another heading are another correction.
@@ -575,6 +581,7 @@ def main() -> int:
             **({"language": language} if language else {}),
         })
         next_ms = max(next_ms, parsed["mtime_ms"])
+        drainable_ms.append(parsed["mtime_ms"])
         if parsed["origin"] == "reflection":
             reflection += 1
         claims.append({
@@ -651,6 +658,9 @@ def main() -> int:
         "since_report": since_report,
         "store": store,
         "next_watermark": next_ms,
+        # ADR-034 §7 step 3: the age bound is read from this, the file's own time of the oldest memory that
+        # still waits outside the corpus (null when none), not from the watermark, which a held memory pins.
+        "oldest_drainable_ms": min(drainable_ms) if drainable_ms else None,
         "counts": {"in_scope": total - len(before_watermark), "total": total,
                    "before_watermark": len(before_watermark), "provisional_agent": 0,
                    # Claims harvested this drain whose origin is exactly `reflection` (ADR-058 rule 5);
@@ -738,6 +748,7 @@ def write_bundle(drain: str, target: str, report: dict) -> int:
         "project": report["project"], "working_copy": report["working_copy"],
         "since_watermark": report["since_watermark"], "next_watermark": report["next_watermark"],
         "claims": report["claims"],
+        "oldest_drainable_ms": report["oldest_drainable_ms"],
         "files": {f: sha256_of(os.path.join(drain, f)) for f in files},
     }
     mbytes = (json.dumps(manifest, indent=2, sort_keys=True) + "\n").encode()
