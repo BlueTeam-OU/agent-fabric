@@ -412,13 +412,13 @@ def main() -> int:
             except lease.Exit as e:
                 return None, e.code
 
-        slot, code = run_wait(130)
+        slot, code = run_wait(131)
         check("the wait polls every 2 s with jitter, never past the deadline: 75 after exactly wait_s",
-              slot is None and code == 75 and abs(sum(sleeps) - 130) < 1e-6 and max(sleeps) <= 2.5 and all(s == (1.5, 2.5) for s in spans),
+              slot is None and code == 75 and abs(sum(sleeps) - 131) < 1e-6 and max(sleeps) <= 2.5 and all(s == (1.5, 2.5) for s in spans),
               f"{code} {sum(sleeps)} {set(spans)}")
         check("a line at the start of a wait and every 60 s after, no more", [round(t) for t, _ in said] == [0, 60, 120], str(said))
-        slot, code = run_wait(10)
-        check("a wait shorter than a poll sleeps only what is left", slot is None and code == 75 and abs(sum(sleeps) - 10) < 1e-6 and sleeps[-1] <= 2.0, str(sleeps))
+        slot, code = run_wait(11)
+        check("a wait shorter than a poll sleeps only what is left", slot is None and code == 75 and abs(sum(sleeps) - 11) < 1e-6 and sleeps[-1] <= 2.0, str(sleeps))
         two = lease.acquire_cpu(leases, pol, "tests-run", 0) if two.fd < 0 else two
         slot, code = run_wait(130, free_at=7)
         check("a slot freed during the wait is taken, with the grant line naming the wait",
@@ -472,9 +472,11 @@ def main() -> int:
               all(bool(sigign(t, *a) & pipe_bit) == t for t in (True, False) for a in (("test",), ("fmt",)))
               and not sigign(False, "test") & (1 << (signal.SIGXFSZ - 1)))
         os.unlink(f"{pfx}/share/agent-fabric/{os.path.basename(directory)}/cpu_shim.py")
-        r = subprocess.run([f"{pfx}/bin/cargo", "test"], env=fe, capture_output=True, text=True, timeout=60, stdin=subprocess.DEVNULL)
+        r = subprocess.run([f"{pfx}/bin/cargo", "--version"], env=fe, capture_output=True, text=True, timeout=60, stdin=subprocess.DEVNULL)
+        real = os.access("/usr/bin/cargo", os.X_OK)
         check("forwarder, copy gone: a line on stderr, then the real tool (/usr/bin) runs without a slot",
-              "the cpu lease shim is not installed" in r.stderr and "/usr/bin/cargo without a slot" in r.stderr, f"{r.returncode} {r.stderr}")
+              "the cpu lease shim is not installed" in r.stderr and "/usr/bin/cargo without a slot" in r.stderr
+              and ((r.returncode == 0 and r.stdout.startswith("cargo ")) if real else r.returncode == 127), f"{r.returncode} {r.stderr}")
         # a changed payload is a new directory, the forwarders move, the old one goes
         with open(f"{root}/policies/host-load.json", "w") as fh:
             fh.write(json.dumps({"hosts": {HOST: {"cpu_slots": 3}}}))

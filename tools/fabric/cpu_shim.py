@@ -57,8 +57,8 @@ DEFAULT_TOOLS = "/usr/bin"
 
 
 def subcommand(tool: str, args: list[str]) -> str | None:
-    """The subcommand the tool would run, None when the arguments name none or
-    ask for help or the version. Looked for the way each tool reads its own
+    """The subcommand the tool would run, None when the arguments name none
+    (`cargo --version`, `cargo --list`, `dotnet --info`). Looked for the way each tool reads its own
     command line: cargo skips `+toolchain` and its global options, dotnet its
     diagnostics switch; a first word that is not a subcommand (a path to an
     assembly) is returned as it is and is not heavy."""
@@ -68,8 +68,6 @@ def subcommand(tool: str, args: list[str]) -> str | None:
             i = 1
         while i < len(args):
             a = args[i]
-            if a in ("-h", "--help", "-V", "--version", "--list"):
-                return None
             if a in CARGO_VALUE_OPTIONS:
                 i += 2
             elif a.startswith("-"):
