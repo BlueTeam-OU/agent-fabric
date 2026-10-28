@@ -8,8 +8,9 @@ to arm on a repository that has drifted (arming step C); `apply` writes the poli
                                                      exit 2 for what could not be read or judged
   fabric-repo-policy apply  <owner/repo> [--yes] [--fleet-default] [--json]
                                                      the plan; with --yes, writes what differs and reads back
-                                                     exit 0 when the read-back matches, re-read for up to 15 s (or with no --yes), 1 when a write
-                                                     was refused or the read-back still differs, 2 as plan
+                                                     exit 0 when the read-back matches (or with no --yes), 1 when a write
+                                                     was refused or the read-back still differs, 2 as plan.
+                                                     After a write the read-back is repeated for 15 s of waiting.
 A difference in which merge methods are allowed (a ruleset that allows the policy's method and more, or the
 repository's allow_*_merge fields), in delete-branch-on-merge, or in bypass actors this token cannot see, is
 `(advisory)`: verify fails on it, arm does not refuse on it.
@@ -312,7 +313,8 @@ def _apply(repo, desired, live, found, name, yes, as_json, source, api, out, err
             return 1
         try:
             after = differences(desired, read_live(repo, name, api), name)
-            for wait in READ_BACK_WAITS:
+            # Nothing written (direct mode leaves an existing ruleset alone) means no lag to wait out.
+            for wait in (READ_BACK_WAITS if written else ()):
                 if not after:
                     break
                 _sleep(wait)

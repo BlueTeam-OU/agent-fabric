@@ -433,6 +433,7 @@ class Apply(unittest.TestCase):
         rc, out, _ = self.run_cli(["apply", REPO, "--yes"], g, policy)
         self.assertEqual((rc, g.writes), (1, []))
         self.assertIn("left alone", out)
+        self.assertEqual(self.slept, [])          # nothing was written, so there is no lag to wait out
 
     def test_json_names_the_writes_and_the_difference_left(self):
         g = self.drifted()
