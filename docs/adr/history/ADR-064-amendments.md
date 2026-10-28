@@ -136,7 +136,8 @@ control plane's alone (its only human endpoint, no person's client,
 refused for GZCoord, is taken for control. Rule 14's install, start,
 stop and check stay on the relay. Rule 12 also says what the render
 configures (`fabric-control`, the default endpoint pinned to `gzcoord`,
-no channels) and that this carrier refuses a `fabric-control/1 ` body.
+no channels) and that this carrier refuses a `fabric-control/1 ` body,
+both built with ADR-029 rule 18's carrier and not before.
 §6 no longer says an off-host agent stays on the relay alone.
 
 Why: the owner's direction of 2026-10-27 (the control plane on the

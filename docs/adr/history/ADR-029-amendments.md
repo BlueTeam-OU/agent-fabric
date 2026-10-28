@@ -246,7 +246,8 @@ unauthenticated-sender consequence to the relay copy, §7's second host
 now goes by InterWeave instead of a relay URL. While both carriers
 run, an account splits a drain or evidence reply once, at the InterWeave
 bound, and sends the same parts by both, so either copy reassembles; the
-row is the PeerId-authenticated InterWeave copy, and a differing relay
+InterWeave copy of a part is kept where both arrive; the row is the
+PeerId-authenticated InterWeave copy, and a differing relay
 copy is flagged. §8 says rule 18 is not built yet.
 
 Why: the owner, 2026-10-27, confirmed in the coordinator's session and

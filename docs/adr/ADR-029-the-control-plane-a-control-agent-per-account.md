@@ -304,7 +304,8 @@ with Doppler (ADR-038 §5 rule 8).
     - rule 4's seen-set is one across both carriers, so a request is
       answered once; while both run, the reply goes by both, the same
       reply split into the same parts, and `fabric-ctl` keeps one copy
-      per reply and per part, logging every arrival with its carrier;
+      per reply and per part, the InterWeave copy where both arrive, and
+      logs every arrival with its carrier;
     - when both copies of a reply arrive within the op's budget, the
       row is the InterWeave copy, whose sender is authenticated; a relay
       copy that differs from it is flagged in the row, never shown as

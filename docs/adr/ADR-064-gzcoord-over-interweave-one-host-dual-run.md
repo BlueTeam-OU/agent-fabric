@@ -243,11 +243,12 @@ address, where the relay's `sender` is a claim (ADR-033 §6).
     through `interweave-human` under the account's agentd (ADR-029 rule
     18), never through this carrier: `fabric-control` is the profile's
     only human endpoint, no person's client uses the profile, and
-    `gzcoord` stays automated-only. The render configures
-    `fabric-control` beside `gzcoord`, pins the profile's default
-    endpoint to `gzcoord`, and leaves the profile's channels empty; this
-    carrier refuses a body that begins `fabric-control/1 `, so a control
-    record never reaches a GZCoord inbox. The ops that install, start,
+    `gzcoord` stays automated-only. Built with ADR-029 rule 18's
+    carrier, and not before it: the render configures `fabric-control`
+    beside `gzcoord`, pins the profile's default endpoint to `gzcoord`,
+    and leaves the profile's channels empty; this carrier refuses a body
+    that begins `fabric-control/1 `, so a control record never reaches a
+    GZCoord inbox. Until then no sender writes such a body. The ops that install, start,
     stop or check InterWeave go on the relay (rule 14).
 13. Before the dual run starts, the carrier is validated with at least
     two instances under two accounts on the host, one receiving what the

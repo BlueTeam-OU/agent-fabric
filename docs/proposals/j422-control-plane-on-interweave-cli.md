@@ -5,7 +5,7 @@ records in §8 are accepted. The owner's direction (2026-10-27): "control plane 
 should be implemented on interweave cli". Its purpose, from the same day: to **move an agent to a
 remote host**. The first one is likely `edge-hosting`. Today the control plane (agent-fabric
 ADR-029) and GZCoord both ride one relay at `http://127.0.0.1:8765` (`runtime/control/config.json`),
-which binds loopback and cannot be reached from a second host (ADR-033 §6). First read against
+which binds loopback and cannot be reached from a second host (ADR-033 §5 rule 5; §7). First read against
 origin/main 478bcc3f and InterWeave origin/main cf7089b5 (re-pinned, R12); §2's fabric facts are
 brought up to b92f500d below.
 
@@ -375,7 +375,8 @@ State records (rule 16) go as direct sends to each host operator's address, on c
   ids) is shared across both carriers, so a request is answered once.
   - During the dual run the reply goes back on *both* carriers, split into the same parts at the
     InterWeave bound, so either copy reassembles. fabric-ctl keeps one copy per reply and per part,
-    and logs every arrival with its carrier for the parity report.
+    the InterWeave copy where both arrive, and logs every arrival with its carrier for the parity
+    report.
   - When both copies arrive within the budget, the row is the InterWeave copy, whose sender is
     authenticated; a relay copy that differs is flagged, as ADR-064 rule 9 does for GZCoord.
 - **No transport receipt.** The reply is the receipt. A pending send whose `--wait` ran out is
