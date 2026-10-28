@@ -26,8 +26,10 @@ HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(HERE, "tools", "fabric"))
 sys.path.insert(0, os.path.join(HERE, "tests"))
 import lease  # noqa: E402
+from instance_fixtures import own_instance_tree, write_json  # noqa: E402
 from git_env import scrub_process_env  # noqa: E402
 scrub_process_env()
+own_instance_tree()
 sys.path.insert(0, os.path.join(HERE, "tools", "fabric", "provisioning"))
 import install_cpu_shims  # noqa: E402
 
@@ -371,12 +373,15 @@ def main() -> int:
         os.chmod(f"{leases}/cpu.1", 0o666)
 
         # ---- from a working copy the policy is the operator root's policies/host-load.json
-        fe = env(AGENT_FABRIC_ROOT=HERE)
+        # a tree of its own: the checkout's live policy would make the case follow the fleet's tuning.
+        # Three slots is no default (cores_per_slot would give NPROC // 4 or 2), so only a read of this file passes.
+        tree = f"{sandbox}/tree"
+        write_json(f"{tree}/policies/host-load.json",
+                   {"cores_per_slot": 4, "wait_s": 1500, "hosts": {HOST: {"cpu_slots": 3}}})
+        fe = env(AGENT_FABRIC_ROOT=tree)
         del fe["AGENT_FABRIC_HOST_LOAD"]
         r = subprocess.run([sys.executable, "-I", LEASE, "cpu", "--who"], env=fe, capture_output=True, text=True, timeout=60)
-        with open(os.path.join(HERE, "policies", "host-load.json")) as fh:
-            doc = json.load(fh)
-        want = doc.get("hosts", {}).get(HOST, {}).get("cpu_slots", max(1, NPROC // doc["cores_per_slot"]))
+        want = 3
         check("no AGENT_FABRIC_HOST_LOAD: the policy read is the operator root's policies/host-load.json",
               r.returncode in (0, 1) and len(r.stdout.splitlines()) == want, f"{r.returncode} {r.stdout} {r.stderr}")
 
