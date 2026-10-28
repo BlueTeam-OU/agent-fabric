@@ -156,7 +156,7 @@ def _report(stderr: str) -> dict | None:
         return None
     if not isinstance(j, dict):
         return None
-    out: dict[str, Any] = {k: j[k] for k in ("claims", "counts") if k in j}   # absent: undefined, which JSON left out
+    out: dict[str, Any] = {k: j[k] for k in ("claims", "counts", "oldest_drainable_ms") if k in j}   # absent: undefined, which JSON left out
     out["needs_rendering"] = j["needs_rendering"] if j.get("needs_rendering") is not None else []
     out["skipped_no_roles_class"] = j["skipped_no_roles_class"] if j.get("skipped_no_roles_class") is not None else []
     return out
