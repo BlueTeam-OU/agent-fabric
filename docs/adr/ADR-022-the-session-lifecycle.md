@@ -165,7 +165,12 @@ the same command asks on one account and not on another.
     scratch and every worktree the sweep would have removed, each named
     with that reason, and the sweep says so (A 2026-10-20).
     Never another login's. What it keeps it names with the reason, what it removes
-    with its size (A 2026-10-19). Local only: no remote branch is deleted or pushed.
+    with its size (A 2026-10-19). On origin it deletes only the login's own
+    branches (`<host>/<login>/`) whose tip, as `git ls-remote` gives it
+    now, is an ancestor of the default branch and that head no open pull
+    request, each with a push leased to that tip; the report lists them
+    first, `gh` unavailable ends that step with a line, and no other
+    login's branch is deleted or anything pushed (A 2026-10-28).
     At a job's end `fabric-jobs switch` runs the worktree half
     (`--sweep --worktrees`, no branch deleted) for the job's working
     copy, and never refuses for what it kept. The session-start hook
@@ -250,3 +255,4 @@ The body above reads current; each change's full note is in [history/ADR-022-ame
 | 2026-10-20 | An unreadable session registry keeps every worktree | §5 rule 11: no worktree is removed when the registry cannot be read, not only the ones `AGENT_FABRIC_BRANCHES_KEEP` names (#337) |
 | 2026-10-24 | A worktree a live job names is kept | §5 rule 11: a queued, active, paused or blocked job's worktree is not removed; an unreadable job list keeps every worktree (#364) |
 | 2026-10-27 | A fresh launch starts in the job's own dirty working copy | §5 rule 12 |
+| 2026-10-28 | The sweep deletes the login's own merged branches on origin | §5 rule 11: under `<host>/<login>/`, on the default branch, heading no open PR (#416) |
