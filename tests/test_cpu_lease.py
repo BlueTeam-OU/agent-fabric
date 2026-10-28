@@ -370,6 +370,16 @@ def main() -> int:
         check("a slot file that cannot be opened (mode 000): exit 2, reason=unopenable", rc == 2 and reason(errs) == "unopenable", f"{rc} {errs}")
         os.chmod(f"{leases}/cpu.1", 0o666)
 
+        # ---- from a working copy the policy is the operator root's policies/host-load.json
+        fe = env(AGENT_FABRIC_ROOT=HERE)
+        del fe["AGENT_FABRIC_HOST_LOAD"]
+        r = subprocess.run([sys.executable, "-I", LEASE, "cpu", "--who"], env=fe, capture_output=True, text=True, timeout=60)
+        with open(os.path.join(HERE, "policies", "host-load.json")) as fh:
+            doc = json.load(fh)
+        want = doc.get("hosts", {}).get(HOST, {}).get("cpu_slots", max(1, NPROC // doc["cores_per_slot"]))
+        check("no AGENT_FABRIC_HOST_LOAD: the policy read is the operator root's policies/host-load.json",
+              r.returncode in (0, 1) and len(r.stdout.splitlines()) == want, f"{r.returncode} {r.stdout} {r.stderr}")
+
         # ---- fabric-lease cpu has no command form
         r = subprocess.run([sys.executable, "-I", LEASE, "cpu", "--", "true"], env=env(), capture_output=True, text=True, timeout=60)
         check("fabric-lease cpu -- <cmd> is a usage error (the slot is the tool's, not a child's)",

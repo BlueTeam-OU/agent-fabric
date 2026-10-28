@@ -568,7 +568,14 @@ def policy_path() -> str:
         return given
     here = os.path.dirname(os.path.abspath(__file__))
     beside = os.path.join(here, POLICY_FILE)
-    return beside if os.path.exists(beside) else os.path.join(os.path.dirname(os.path.dirname(here)), "policies", POLICY_FILE)
+    if os.path.exists(beside):
+        return beside
+    # Run from a working copy: the operator's policy, found as every engine
+    # module finds it. Imported here because an installed copy has no roots.py.
+    if here not in sys.path:
+        sys.path.insert(0, here)
+    import roots
+    return roots.policy(POLICY_FILE)
 
 
 def cpu_policy(path: str | None = None, host: str | None = None, nproc: int | None = None) -> CpuPolicy:
