@@ -280,8 +280,9 @@ its record disagree, the record wins. Look it up, never read it whole:
   until a second Flutter login needs it (§7).
 - A 2026-09-30 — the coordinator keeps its own store and fills each child's, not Doppler (§2, §5 rule 1).
 - A 2026-10-19 — `full-suite`: one full local test run at a time (§5 rule 9).
+- A 2026-10-28 — proposed: `cpu`, N slots with a thread budget, taken by shims ahead of cargo and dotnet and by tests/run.py (§5 rules 9-11).
 - Keywords: host, placement, hostexec, fabric-host, ssh, provisioning,
-  new-agent, Qubes, persist-accounts, moveto, lease, heavy, memory, crash, OOM.
+  new-agent, Qubes, persist-accounts, moveto, lease, heavy, memory, crash, OOM, cpu, load, cargo, dotnet, shim.
 
 ### ADR-011 — Managed projects consume the fabric at a pinned ref (Accepted)
 

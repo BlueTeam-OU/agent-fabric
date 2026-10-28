@@ -177,3 +177,4 @@ The body above reads current; each change's full note is in [history/ADR-010-ame
 |---|---|---|
 | 2026-09-30 | Doppler is retired: the coordinator keeps its own store, a parent's | §2, §5 rule 1 |
 | 2026-10-19 | full-suite: one full local test run per host | §5 rule 9: a second named resource, the host's CPU and timing headroom, which a full local test run waits for |
+| 2026-10-28 | cpu: N heavy builds and suites at a time per host (proposed, awaiting the owner) | §5 rules 9-11: N slots with a thread budget each, taken by shims ahead of cargo and dotnet and by tests/run.py |
