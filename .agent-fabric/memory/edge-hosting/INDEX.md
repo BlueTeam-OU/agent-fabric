@@ -3,7 +3,7 @@ role: "edge-hosting"
 class: index
 description: "What edge-hosting knows and where it lives."
 tier: 1
-distilled_at: "2026-10-24"
+distilled_at: "2026-10-28"
 ---
 
 # edge-hosting — knowledge index

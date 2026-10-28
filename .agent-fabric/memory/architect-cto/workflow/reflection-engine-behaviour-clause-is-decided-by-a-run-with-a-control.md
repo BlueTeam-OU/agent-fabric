@@ -5,13 +5,14 @@ topic: "reflection-engine-behaviour-clause-is-decided-by-a-run-with-a-control"
 description: "A decision clause that rests on a third-party engine's behaviour is decided by a run with a control before the builder is written; the run's assumption is pinned in committed config with a citation and its harness lands under tools/ so an…"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-18"
+distilled_at: "2026-10-28"
 origin:
   - agent: "architect-cto-01"
     host: "develop-qzapp"
     project: "agent-fabric"
     working_copy: "agent-fabric"
 derived_from:
+  - 09834b0e21d2bf48
   - 6f6fb9019dade55f
 ---
 
@@ -46,4 +47,18 @@ comment citing the amendment, and the harness (cases, ids, bundle
 variants, comparison) under tools/ with a README, and write "re-run on an
 engine upgrade or a change to <assumption>" into the record.
 
-*Observed 2026-10-15 (architect-cto)*
+**Two more shapes of the same rule (2026-09-16/17):** (a) a reviewer
+reading a CLI and a developer reading a runtime schema are not a
+measurement either; a clause written from them ("the wrapper cannot
+attach to a tokenised URI") was withdrawn to "unmeasured" until a run
+with its control existed, and when two roles measure different paths
+to the same fact, keep both runs and cite whichever holds, rather than
+treating them as one measurement taken twice. (b) A run that
+conditions the owner's go must be taken on the configuration the
+decision is about, confirmed from the system's own log line (here
+`geocode_search_policy_resolved … source=index`) before the cases
+run; a stack still on the fallback measures nothing, so the
+measuring role holds its cases until the role with the stack reports
+that line.
+
+*Observed 2026-10-18 (architect-cto)*

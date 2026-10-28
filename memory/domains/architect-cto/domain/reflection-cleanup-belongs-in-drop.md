@@ -5,7 +5,7 @@ topic: "reflection-cleanup-belongs-in-drop"
 description: In Rust on tokio, dropping a JoinHandle detaches the task and does not abort it; cleanup that must run on every exit path belongs in impl Drop, not in a shutdown method the caller must remember, and an abort is observable with no new…
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-24"
+distilled_at: "2026-10-28"
 origin:
   - agent: "architect-cto-01"
     host: "develop-qzapp"

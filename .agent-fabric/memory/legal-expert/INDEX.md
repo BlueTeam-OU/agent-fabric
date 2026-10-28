@@ -3,7 +3,7 @@ role: "legal-expert"
 class: index
 description: "What legal-expert knows and where it lives."
 tier: 1
-distilled_at: "2026-10-24"
+distilled_at: "2026-10-28"
 ---
 
 # legal-expert — knowledge index

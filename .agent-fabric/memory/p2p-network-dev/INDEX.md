@@ -3,7 +3,7 @@ role: "p2p-network-dev"
 class: index
 description: "What p2p-network-dev knows and where it lives."
 tier: 1
-distilled_at: "2026-10-24"
+distilled_at: "2026-10-28"
 ---
 
 # p2p-network-dev — knowledge index

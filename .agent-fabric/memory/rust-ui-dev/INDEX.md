@@ -3,7 +3,7 @@ role: "rust-ui-dev"
 class: index
 description: "What rust-ui-dev knows and where it lives."
 tier: 1
-distilled_at: "2026-10-24"
+distilled_at: "2026-10-28"
 ---
 
 # rust-ui-dev — knowledge index

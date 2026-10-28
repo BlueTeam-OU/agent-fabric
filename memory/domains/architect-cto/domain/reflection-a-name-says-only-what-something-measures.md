@@ -5,7 +5,7 @@ topic: "reflection-a-name-says-only-what-something-measures"
 description: "A counter name, a wire member or a person-facing banner states only what something measures; when nothing measures it the value is absent or unknown, never derived or approximated, since absent is better than wrong"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-24"
+distilled_at: "2026-10-28"
 origin:
   - agent: "architect-cto-01"
     host: "develop-qzapp"
@@ -13,6 +13,7 @@ origin:
     working_copy: interweave
 derived_from:
   - 2b3d686859af7153
+  - dbff131b42185052
 ---
 
 ## A counter name, a wire member or a person-facing banner states only what something measures; when nothing measures it the value is absent or unknown, never derived or approximated, since absent is better than wrong
@@ -26,4 +27,6 @@ other direction" (01a0b474-9069). gzapp ADR-062 §2.1 records the eta
 case and InterWeave ADR-0051 decision 3a the vendored patch; the
 general principle is written in neither (checked 2026-10-23).
 
-*Observed 2026-10-23 (architect-cto)*
+**2026-10-24 instance:** I wrote "a counted loss is permanent" for two counters from one mechanism I had not read per counter; the refusal path returns before the dedup entry, so the claim held for one and not the other. Read the write site of EACH counter before stating a guarantee for both.
+
+*Observed 2026-10-24 (architect-cto)*

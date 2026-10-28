@@ -39,6 +39,12 @@ sudo are in the loop.
   channel of their own, `fabric:control` (`runtime/control/config.json`),
   one JSON object per relay message. They are not GZCOORD/1 messages, and
   the GZCoord tools refuse any channel whose name ends in `:control`.
+- **A second carrier: InterWeave** (rule 18). On an account switched to
+  it, agentd also holds its InterWeave profile's `fabric-control`
+  endpoint through the command-line client `interweave-human`, and the
+  operator's agentd carries `fabric-ctl`'s sends. A record is the same
+  JSON object, one message each. On the relay's host the relay stays the
+  transport of record until the owner's word on a control parity report.
 - **No delivery, only reading.** Every daemon reads every record and
   answers only what names it (`to`: its address, a list holding it, or
   `*`); the coordinator reads replies by `in_reply_to`. A daemon keeps no
@@ -279,18 +285,66 @@ with Doppler (ADR-038 §5 rule 8).
     takes no arguments; the reply is the verdict (`pass` or `fail`) and
     its steps, never the canary or its digest. One runs at a time per
     account, a second is answered busy (A 2026-10-07).
+18. InterWeave is control's second carrier, off for an account until
+    `runtime/control/config.json` `control_carrier` names it `dual`
+    (A 2026-10-28):
+    - agentd runs one supervised, long-lived child,
+      `interweave-human --profile gzcoord listen --json --input --consume
+      --endpoint fabric-control`, from the pinned release (ADR-064 rule
+      4), and sends through its stdin; no other `interweave-human` run
+      uses that profile, and agentd drives no admin-changing verb;
+    - `fabric-control` is the profile's only human endpoint, configured
+      by the render; `gzcoord` stays automated-only. Every control send
+      names `<peer>/fabric-control`; the GZCoord carrier refuses a
+      `fabric-control/1 ` body on `gzcoord`, and agentd drops anything on
+      `fabric-control` without that prefix;
+    - a request counts only when its `from` is the address the roster
+      (ADR-064 rule 2) maps the sender's PeerId to, and `fabric-ctl`
+      accepts a reply only from its `from`'s PeerId;
+    - rule 4's seen-set is one across both carriers, so a request is
+      answered once; while both run, the reply goes by both, the same
+      reply split into the same parts, and `fabric-ctl` keeps one copy
+      per reply and per part, the InterWeave copy where both arrive, and
+      logs every arrival with its carrier;
+    - when both copies of a reply arrive within the op's budget, the
+      row is the InterWeave copy, whose sender is authenticated; a relay
+      copy that differs from it is flagged in the row, never shown as
+      the account's answer; a row only the relay carried says so;
+    - a send never outlives its request's `ttl_s`, and nothing is left
+      pending for a later run; what the human store holds of a record is
+      deleted after its line is printed, never before;
+    - rule 9's parts and `interweave-evidence`'s pages are bounded by
+      the carriers that send them: an account on both splits once, at
+      the InterWeave bound, a figure measured on this path before the
+      dual run starts and at most 32 KiB, and sends those parts by both;
+    - `fabric-ctl` holds no lease: it hands its sends to the operator's
+      own agentd over a socket in its runtime directory, mode 0600, and
+      `all` is one direct send per placed account's roster row;
+    - `interweave`, `interweave-install`, `interweave-start` and
+      `interweave-stop` go on the relay only (ADR-064 rule 14);
+      `interweave-evidence` goes by both, as any other op;
+    - the relay stays the transport of record. InterWeave becomes it on
+      the owner's word, given on a parity report in `docs/live-checks/`
+      (every request id and addressee with the carriers that carried
+      the request and the reply, p50 and p95 per carrier, each miss
+      with its cause, and an `interweave-stop` drill mid-window with
+      every request still answered), as an amendment of this record.
 
 ## 6. Consequences
 
-- The fence is not a proof for reads: the relay verifies no sender, so a
-  relay-token holder can write the operator's `from` on a read, or post a
-  reply in another account's name that `fabric-ctl` prints as that
-  account's row. The table is as honest as the least trusted token
-  holder until replies are signed.
+- The fence is not a proof for reads on the relay: it verifies no
+  sender, so a relay-token holder can write the operator's `from` on a
+  read, or post a reply in another account's name that `fabric-ctl`
+  prints as that account's row. The table is as honest as the least
+  trusted token holder until replies are signed. On an account on both
+  carriers the InterWeave copy, authenticated by PeerId, is the row and
+  a differing relay copy is flagged (rule 18); a reply that only the
+  relay carried is no more honest than before.
 - A request posted while a daemon was down is lost, not queued; the row
   says `no answer`, and the operator asks again.
-- One relay carries the channel: when it is down, no account answers,
-  and the sudo fallbacks are the only read (ADR-010's host executor).
+- One relay carries the channel: when it is down, no account answers
+  but one on both carriers (rule 18), and for the rest the sudo
+  fallbacks are the only read (ADR-010's host executor).
 - A drain costs no sudo and reads no other home; a credential-shaped hit
   in a memory refuses that account's whole drain at the harvester.
 
@@ -298,11 +352,12 @@ with Doppler (ADR-038 §5 rule 8).
 
 - Signed replies, by a per-account key the same way, so a forged row
   cannot pass as an account's.
-- A second host: its daemons need a relay URL they can reach —
-  `control_relay_url` for the host in the registry, exported to the unit
-  as `CLAUDE_BRIDGE_URL` — and the same channel. The relay binds
-  `127.0.0.1` today; nothing for a second host is built, and the
-  registry has one host.
+- A second host is reached over InterWeave (rule 18), not by the relay,
+  which keeps binding `127.0.0.1`. It opens with ADR-064 rule 1's
+  second-host amendment, where InterWeave is control's only carrier on
+  that host and break-glass hostexec over SSH its fallback; an
+  InterWeave peer on a public address comes after.
+  The plan is `docs/proposals/j422-control-plane-on-interweave-cli.md`.
 - Removing a login from the Qubes snapshot (`--forget`) waits for the
   first removal; until then a `userdel` there is undone at boot.
 - A reboot of the host, read back — `getent passwd` lists every account
@@ -311,7 +366,9 @@ with Doppler (ADR-038 §5 rule 8).
 ## 8. Decision Status
 
 Accepted. The control agent, the channel, the read ops and the signed
-actions are in use on every placed account.
+actions are in use on every placed account. Rule 18's second carrier is
+not built yet: until it is, `control_carrier` is read by nothing and
+every account is on the relay alone.
 
 ## References
 
@@ -362,3 +419,4 @@ The body above reads current; each change's full note is in [history/ADR-029-ame
 | 2026-10-26 | The InterWeave start renders one account at a time and needs the port reservation | §2 table: `interweave-start`; §5 rule 12: its budget |
 | 2026-10-26 | The InterWeave parity evidence is collected through the control plane | §2 table: `interweave-evidence`; §5 rule 3: its arguments; rule 5: signed; rule 6: no body; rule 12: 60 s a page |
 | 2026-10-26 | A running InterWeave pair is re-rendered when the roster changed | §2 table: `interweave-start` |
+| 2026-10-28 | The records also ride InterWeave, through interweave-human, beside the relay | §2: the second-carrier bullet; §5 rule 18; §6 first and third bullets; §7 second-host bullet; §8: not built yet |

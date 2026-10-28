@@ -2,10 +2,10 @@
 role: "architect-cto"
 class: domain
 topic: "adr-amendment-model-alternatives"
-description: "Correction for the field slice's allOf + not section — a domain slice carries its own pre-flight inline, never a [[link]] into a project corpus, and names a conformance helper's limit as a check to run, not a fact about one repo"
+description: "Correction for the domain slice's sibling-repo section: the three-part amendment model still holds in both repositories; gzapp's validator is the node package tools/validate_adr_index/ (pnpm --filter @gzapp/validate-adr-index validate)…"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-10"
+distilled_at: "2026-10-28"
 origin:
   - agent: "architect-cto-01"
     host: "develop-qzapp"
@@ -17,22 +17,25 @@ derived_from:
   - 22a355ba582a2e7a
   - 37121db4d7dc659e
   - 3903c5020daf01f5
+  - 4d9f8fe8b53ae6e0
   - 55d8348c7c7aa3b0
   - 7d23556dcf9d70f5
   - c1ca49e0421d8134
 ---
 
-## Correction for the field slice's sibling-repo section — the sibling repository runs the three-part amendment model today (ADR-0048, history/ notes, end-matter rows, a validator); a claim about another repo's practice is read from its tree at the time, and a domain slice links to no project corpus
+## Correction for the domain slice's sibling-repo section: the three-part amendment model still holds in both repositories; gzapp's validator is the node package tools/validate_adr_index/ (pnpm --filter @gzapp/validate-adr-index validate), not a tools/checks/*.sh script
 
-A claim about how a sibling repository amends its decision records is a claim about a tree, read at a date. The team's agent-to-agent transport repository runs the three-part amendment model today: its ADR-0048 (Accepted) says an amendment is the body edited in place to read current, a dated note appended to `architecture/adr/history/NNNN-amendments.md` under `### Amendment YYYY-MM-DD — title`, and a row in the ADR's `## Amendments` end-matter table identified by its (date, title) pair, with `tools/checks/validate_adr_index.sh` enforcing the three-way consistency; its history directory holds nineteen files (read at that repository's main, 2026-10-10). Two invariants hold beside it: numbered decision items are permanent identifiers tombstoned rather than renumbered, and a re-decision supersedes rather than amends. Any account that the repository abandoned the ceremony for git-as-sole-history describes an alternative its record weighed and rejected, not its practice.
+### Correction for the field slice's sibling-repo section — the sibling repository runs the three-part amendment model today (ADR-0048, history/ notes, end-matter rows, a validator); a claim about another repo's practice is read from its tree at the time, and a domain slice links to no project corpus
 
-**Why:** a field slice outlives the session that wrote it and is read in every project; a sentence about what a sibling repo "now does" decays the moment that repo decides again, and a reader who trusts it argues from a practice that does not exist.
+A claim about how a sibling repository amends its decision records is a claim about a tree, read at a date. Read 2026-10-20: the agent-to-agent transport repository (InterWeave, ADR-0048 Accepted) and the product repository (gzapp, ADR-075) both run the three-part model — the body edited in place to read current, a dated note appended under `history/…-amendments.md` with a `### Amendment YYYY-MM-DD — title` heading, and an end-matter log row whose (date, title) pair the validator reconciles with the note and with an index count. The validators differ in form: gzapp's is the node package `tools/validate_adr_index/` (`pnpm --filter @gzapp/validate-adr-index validate`, a required CI check), not a `tools/checks/*.sh` script — the `tools/checks/` glob holds the ban/scan guards, and no `validate_adr_index.sh` exists there. The record of the mechanism is each repository's governing ADR; a path to a tool is a dated observation and decays with the tool.
 
-**How to apply:** before a field slice states another repository's mechanism, open that repository's governing record at its main and quote its decision with the date read; state the mechanism as the record states it, and name the alternative it rejected as rejected. A field slice carries no `[[link]]` into a project's own memory corpus — those links do not resolve outside the project — so whatever a project workflow slice would have added (here: that the three-edit model's propagation checklist reliably misses files and restatements unless a validator reconciles them) is said in the slice's own words.
+**Why:** a field slice outlives the session that wrote it and is read in every project; a sentence about what a sibling repo "now does", or the path of its tool, decays the moment that repo changes, and a reader who trusts it runs a command that is gone.
 
-*References: link*
+**How to apply:** before a field slice states another repository's mechanism, open its governing record at main and quote the decision with the date read; name the validator by the command its instruction file gives, and say the date; link to no project corpus.
 
-*Observed 2026-10-10 (architect-cto)*
+*Observed 2026-10-20 (architect-cto)*
+
+*Observed 2026-10-20 (architect-cto)*
 
 ## Correction for the field slice's allOf + not section — a domain slice carries its own pre-flight inline, never a [[link]] into a project corpus, and names a conformance helper's limit as a check to run, not a fact about one repo
 
