@@ -73,6 +73,9 @@ def main() -> int:
         ep.out_pending(conn, msg("hang-1", "posted, outcome never written", sender=ep.own_address()))
         ins([{"content": msg("r-1", "a reply", reply=TOKEN), "seq": 7, "ts": "2026-10-01T15:00:00Z"}])
         ins([{"content": msg(TOKEN, "y" * 2000), "seq": 8, "ts": "2026-10-01T15:30:00Z"}])
+        ins([{"content": msg("v-1", "a claimed FROM"), "seq": None, "ts": "2026-09-30T09:00:00Z", "sender": "h/verified"}])
+        ins([{"content": msg("v-2", "an honest FROM"), "seq": None, "ts": "2026-09-30T09:01:00Z",
+              "sender": "develop-qzapp/peer"}])
         conn.close()
 
         # A hygiene list that cannot be read cannot mask a credential, so
@@ -119,6 +122,13 @@ def main() -> int:
         s = run("yyyy").stdout
         check("…and a credential-shaped MESSAGE-ID in the cut notice of a long message (re-review of #78)",
               TOKEN not in s and "more characters: --full, or --thread [withheld" in s, s[-300:])
+
+        out = run("--thread", "v-1").stdout
+        check("a verified sender that is not the FROM is said under the message (ADR-064 rule 9)",
+              "verified the sender as h/verified; the FROM above, develop-qzapp/peer, is the sender's claim" in out, out)
+        out = run("--thread", "v-2").stdout + run("--thread", "q-1").stdout
+        check("…and nothing is said where it is the FROM, or where the sender is unverified",
+              "verified the sender" not in out and "q-1" in out and "v-2" in out, out[-300:])
 
         other = os.path.join(tmp, "other-store")
         os.makedirs(other)

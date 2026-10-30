@@ -179,10 +179,19 @@ def _migrate_2(conn: sqlite3.Connection) -> None:
 
 # The steps from version n-1 to n, by n, applied in order by connect() in its
 # one transaction: a step that fails leaves the file at the version it had.
-# Every step so far is additive, so v1 code still reads a v2 journal (it never
-# reads the version): a later step that drops or renames breaks that
-# downgrade, and says so.
-MIGRATIONS = {2: _migrate_2}
+# Every step so far is additive, so v1 code still reads a later journal (it
+# never reads the version); code from 2 on refuses a journal newer than it,
+# so a fabric rolled back past step 3 refuses a journal step 3 migrated,
+# naming both versions. A later step that drops or renames says so.
+def _migrate_3(conn: sqlite3.Connection) -> None:
+    """episodes.sender_verified: 1 when a carrier verified the row's sender
+    (ADR-064 rule 9), NULL when the sender is the content's FROM, a claim.
+    Without it a verified sender equal to its FROM cannot be told from the
+    claim, and a later verified copy would overwrite it (#417 round 9 F15)."""
+    conn.execute("ALTER TABLE episodes ADD COLUMN sender_verified INTEGER")
+
+
+MIGRATIONS = {2: _migrate_2, 3: _migrate_3}
 SCHEMA_VERSION = max(MIGRATIONS)
 
 
@@ -376,9 +385,10 @@ def inbound(conn: sqlite3.Connection, records: list[dict], carrier: str = DEFAUL
     A record's optional `sender` is the address its carrier VERIFIED (the
     roster's, ADR-064 rule 9); without one, as from the relay, the row's sender
     is the content's FROM, the sender's claim. A verified sender is the row's
-    whichever copy came first, so a row whose sender differs from its
-    metadata's FROM is a marked claim; the claim itself stays in content and
-    metadata."""
+    whichever copy came first, and the first verified one is kept: the row's
+    sender_verified says which it is, so a verified row whose sender differs
+    from its metadata's FROM is a marked claim; the claim itself stays in
+    content and metadata."""
     me = own_address()
     counts = {"written": 0, "same": 0, "echo": 0, "conflict": 0, "claims_me": 0}
     conn.execute("BEGIN IMMEDIATE")
@@ -422,7 +432,10 @@ def inbound(conn: sqlite3.Connection, records: list[dict], carrier: str = DEFAUL
             if row and row[1] == h:
                 if verified:
                     # The relay's copy came first, under the claim: the verified copy corrects it.
-                    conn.execute("UPDATE episodes SET sender=? WHERE id=?", (verified, row[0]))
+                    # A row already verified keeps its sender: a second peer's copy of the same
+                    # body proves only that it holds the body, not who first sent it (F15).
+                    conn.execute("UPDATE episodes SET sender=?, sender_verified=1 WHERE id=? "
+                                 "AND sender_verified IS NULL", (verified, row[0]))
                 counts["same"] += 1
                 continue
             if row:
@@ -431,11 +444,11 @@ def inbound(conn: sqlite3.Connection, records: list[dict], carrier: str = DEFAUL
                 counts["conflict"] += 1
                 continue
             conn.execute("INSERT INTO episodes (id, source, direction, state, happened_at, recorded_at, project, "
-                         "working_copy, message_id, in_reply_to, type, sender, carrier, carrier_seq, content, "
-                         "content_hash, metadata_json) VALUES (?, ?, 'inbound', 'received', ?, ?, ?, ?, ?, ?, ?, ?, "
-                         "?, ?, ?, ?, ?)",
+                         "working_copy, message_id, in_reply_to, type, sender, sender_verified, carrier, carrier_seq, "
+                         "content, content_hash, metadata_json) VALUES (?, ?, 'inbound', 'received', ?, ?, ?, ?, ?, ?, "
+                         "?, ?, ?, ?, ?, ?, ?, ?)",
                          (str(uuid.uuid4()), SOURCE, _seconds(rec.get("ts")), now(), project, working_copy, mid,
-                          meta.get("IN-REPLY-TO"), mtype, sender, carrier, seq, text, h,
+                          meta.get("IN-REPLY-TO"), mtype, sender, 1 if verified else None, carrier, seq, text, h,
                           json.dumps(meta, sort_keys=True)))
             counts["written"] += 1
         conn.execute("COMMIT")

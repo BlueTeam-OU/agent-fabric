@@ -108,7 +108,24 @@ def render(rows: list[sqlite3.Row], full: bool, patterns: list) -> list[str]:
         if not full and len(text) > CUT:
             text = text[:CUT] + f"\n… ({len(r['content']) - CUT} more characters: --full, or --thread {m('message_id')})"
         out.append(text.rstrip("\n"))
+        claim = verified_against_claim(r)
+        if claim:
+            out.append(f"# the carrier verified the sender as {m('sender')}; the FROM above, {mask(claim, r['id'], patterns)}, "
+                       "is the sender's claim (ADR-064 rule 9)")
     return out
+
+
+def verified_against_claim(r: sqlite3.Row) -> str | None:
+    """The FROM a carrier-verified row's content claims, when it is not the
+    verified sender; None otherwise. A journal older than schema 3 has no
+    sender_verified (a reader migrates nothing): every sender there is a claim."""
+    if "sender_verified" not in r.keys() or not r["sender_verified"]:
+        return None
+    try:
+        claim = json.loads(r["metadata_json"]).get("FROM")
+    except ValueError:
+        return None
+    return claim if claim != r["sender"] else None
 
 
 def main(argv: list[str]) -> int:

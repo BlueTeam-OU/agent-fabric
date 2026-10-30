@@ -175,6 +175,19 @@ def main() -> int:
               c["same"] == 1 and sender("v-2") == ("h/peer", "h/claimed"), str(sender("v-2")))
         ep.inbound(conn, [{"content": relay_first, "seq": 90}])
         check("…which a later relay copy leaves", sender("v-2") == ("h/peer", "h/claimed"))
+        ep.inbound(conn, [{"content": relay_first, "seq": None, "sender": "h/second"}], carrier="interweave")
+        check("…and so does a second peer's verified copy: the first verified sender is kept (F15)",
+              sender("v-2") == ("h/peer", "h/claimed"), str(sender("v-2")))
+        honest = msg("v-4", "verified as its own FROM", sender="h/peer")
+        ep.inbound(conn, [{"content": honest, "seq": None, "sender": "h/peer"}], carrier="interweave")
+        ep.inbound(conn, [{"content": honest, "seq": None, "sender": "h/second"}], carrier="interweave")
+        check("…even where the verified sender is its FROM, which the claim alone could not tell apart (F15)",
+              sender("v-4") == ("h/peer", "h/peer") and conn.execute(
+                  "SELECT sender_verified FROM episodes WHERE message_id='v-4'").fetchone() == (1,), str(sender("v-4")))
+        check("…while a relay row's sender is unverified until a verified copy comes",
+              conn.execute("SELECT message_id, sender_verified FROM episodes WHERE message_id IN ('v-1', 'v-2', 'm-3') "
+                           "AND direction='inbound' ORDER BY message_id").fetchall()
+              == [("m-3", None), ("v-1", 1), ("v-2", 1)])
         mine = msg("v-3", "mine, replayed by a peer", sender=ME)
         ep.out_pending(conn, mine)
         c = ep.inbound(conn, [{"content": mine, "seq": None, "sender": "h/peer"}], carrier="interweave")
@@ -260,7 +273,8 @@ def main() -> int:
             c = sqlite3.connect(db)
             try:
                 return (c.execute("SELECT schema_version FROM meta").fetchall(),
-                        [r[1] for r in c.execute("PRAGMA table_info(meta)")][3:])
+                        [r[1] for r in c.execute("PRAGMA table_info(meta)")][3:]
+                        + [r[1] for r in c.execute("PRAGMA table_info(episodes)")][18:])
             finally:
                 c.close()
 
@@ -271,31 +285,32 @@ def main() -> int:
                 return str(e)
             return None
 
-        markers = ["gzcoord_imported_at", "gzcoord_import_seqs"]
-        check("a new journal is at the code's version, with the import markers",
-              ep.SCHEMA_VERSION == 2 and shape(path) == ([(2,)], markers), shape(path))
+        markers = ["gzcoord_imported_at", "gzcoord_import_seqs", "sender_verified"]
+        check("a new journal is at the code's version, with the import markers and sender_verified",
+              ep.SCHEMA_VERSION == 3 and shape(path) == ([(3,)], markers), shape(path))
         db = v1("v1.db")
         ep.connect(db).close()
         c = sqlite3.connect(db)
-        check("a v1 journal is migrated to 2, its rows kept",
-              shape(db) == ([(2,)], markers)
-              and c.execute("SELECT content FROM episodes WHERE id='e-1'").fetchall() == [("kept body",)], shape(db))
+        check("a v1 journal is migrated to 3, its rows kept, their senders claims",
+              shape(db) == ([(3,)], markers)
+              and c.execute("SELECT content, sender_verified FROM episodes WHERE id='e-1'").fetchall()
+              == [("kept body", None)], shape(db))
         c.close()
         db = v1("v1-markers.db", markers=True)
         ep.connect(db).close()
         c = sqlite3.connect(db)
         check("a v1 journal the importer had already ALTERed is migrated, its marker kept",
-              shape(db) == ([(2,)], markers)
+              shape(db) == ([(3,)], markers)
               and c.execute("SELECT gzcoord_import_seqs FROM meta").fetchall() == [('{"r c": 5}',)], shape(db))
         c.close()
-        db = v1("v3.db", version=3)
+        db = v1("v4.db", version=4)
         with open(db, "rb") as fh:
             before = fh.read()
         why = refused(db)
         with open(db, "rb") as fh:
             after = fh.read()
         check("a journal newer than the code is refused, naming both versions, and left byte for byte",
-              why is not None and "schema version 3" in why and "newer than this code's 2" in why and before == after,
+              why is not None and "schema version 4" in why and "newer than this code's 3" in why and before == after,
               why)
         db = v1("other-owner.db", owner=AGENT_B)
         check("another agent's v1 journal is refused before any migration",
@@ -326,21 +341,21 @@ def main() -> int:
         finally:
             ep.MIGRATIONS[2] = real
 
-        def step3(c: sqlite3.Connection) -> None:
+        def step4(c: sqlite3.Connection) -> None:
             c.execute("CREATE TABLE planted (x)")
-            raise sqlite3.OperationalError("planted in step 3")
-        ep.MIGRATIONS[3], ep.SCHEMA_VERSION = step3, 3
+            raise sqlite3.OperationalError("planted in step 4")
+        ep.MIGRATIONS[4], ep.SCHEMA_VERSION = step4, 4
         try:
             db = v1("two-steps.db")
             try:
                 ep.connect(db).close()
-                check("1→2→3 is one transaction: step 3 failing leaves the file at 1, step 2 undone too", False)
+                check("1→2→3→4 is one transaction: step 4 failing leaves the file at 1, steps 2 and 3 undone too", False)
             except sqlite3.OperationalError:
-                check("1→2→3 is one transaction: step 3 failing leaves the file at 1, step 2 undone too",
+                check("1→2→3→4 is one transaction: step 4 failing leaves the file at 1, steps 2 and 3 undone too",
                       shape(db) == ([(1,)], []), shape(db))
         finally:
-            del ep.MIGRATIONS[3]
-            ep.SCHEMA_VERSION = 2
+            del ep.MIGRATIONS[4]
+            ep.SCHEMA_VERSION = 3
         newer = os.path.join(tmp, "newer-state")
         os.makedirs(os.path.join(newer, "agents", __import__("pwd").getpwuid(os.getuid()).pw_name))
         os.replace(v1("v9.db", version=9), os.path.join(newer, "agents", os.path.basename(os.path.dirname(path)),

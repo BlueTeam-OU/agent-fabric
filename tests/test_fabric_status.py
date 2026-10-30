@@ -332,13 +332,15 @@ def main() -> int:
             fh.write("01a0f782-7e06-7dee-811f-0a860ed93bf3\n")
         db = os.path.join(sb, "journal-state", "agents")
         db_files = [os.path.join(d, "episodic.db") for d, _, fs in os.walk(db) if "episodic.db" in fs]
-        c = _sq.connect(db_files[0]); c.execute("UPDATE meta SET schema_version=99"); c.commit(); c.close()
+        c = _sq.connect(db_files[0])
+        was = c.execute("SELECT schema_version FROM meta").fetchone()[0]   # put back below: a lower stamp re-runs migrations
+        c.execute("UPDATE meta SET schema_version=99"); c.commit(); c.close()
         stamp = os.stat(db_files[0]).st_mtime_ns
         newer = journal_state(jenv)
         check("a journal of newer code is `unknown` with the reason, and is left as it is",
               newer["status"] == "unknown" and "newer than this code" in newer["detail"]
               and os.stat(db_files[0]).st_mtime_ns == stamp)
-        c = _sq.connect(db_files[0]); c.execute("UPDATE meta SET schema_version=2"); c.commit(); c.close()
+        c = _sq.connect(db_files[0]); c.execute("UPDATE meta SET schema_version=?", (was,)); c.commit(); c.close()
         # A state directory with a ? and a # in its name: the path is the file it names, not the start of a URI's query.
         odd = os.path.join(sb, "journal?state#1")
         oenv = {**jenv, "AGENT_FABRIC_STATE_DIR": odd}
