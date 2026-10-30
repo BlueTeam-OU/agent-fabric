@@ -80,6 +80,8 @@ sudo are in the loop.
 | `upgrade` | *action*: the account to the pinned Claude Code or to the merged fabric (ADR-009) |
 | `secrets-sync` | *action*: the account's store projected where its tools read it (ADR-038) |
 | `jobs-add` | *action*: the owner's job on the account's list (rule 13, ADR-037) |
+| `hold` | *action*: the fleet hold on the account's login, `reason` required and `decision` optional, written to its `hold.json` (rule 13, ADR-037 rule 13); decided, not yet built |
+| `unhold` | *action*, no arguments: the login's `hold.json` removed; answered `none` when there was none (rule 13); decided, not yet built |
 | `local-prune` | *action*: per-clone settings entries that duplicate a synced secret, removed (rule 15) |
 | `secrets-selftest` | *action*: a canary through the account's store and back (rule 17) |
 | `tools-install` | *action*: the one tool named, installed from what its project pins (`projects/registry.json` `install`): a release (version, https url, sha256, the hash checked before a byte is unpacked or run), an `installer` pin run once with fixed arguments after the same check (rustup-init), a `cargo` pin built by `cargo +<toolchain> install --locked --version =<v>`, which cargo checks against the crates.io index and Cargo.lock and nothing here hashes, or a `rustup-target` pin added by `rustup target add <target> --toolchain <toolchain>` through the account's rustup, both fields matched by pattern and proved by the install's own list (A 2026-10-19); skipped on an account with no working copy of a project that declares it (`tools/fabric/tools_install.py`) |
@@ -249,6 +251,10 @@ claimant (rule 4).
     peer sees whether a session runs, never another agent's list.
     `jobs-add` names one login, never `all`, and takes a one-line title,
     topic and project id (A 2026-09-28).
+    `hold` and `unhold` set and lift ADR-037 rule 13's fleet hold; they
+    name one login or `all`, `hold` takes a one-line reason and a
+    `DECISION`'s `MESSAGE-ID`, and `fabric-ctl` names every account that
+    did not confirm (A 2026-10-30).
 **§5 rule 14 — withdrawn** (Amendment 2026-09-30): the `secrets-migrate`
 action moved every account from Doppler to its own store and retired
 with Doppler (ADR-038 §5 rule 8).
@@ -472,3 +478,4 @@ The body above reads current; each change's full note is in [history/ADR-029-ame
 | 2026-10-30 | fabric-op is the action path with no relay | Scope line: `bin/fabric-op`; §5 rule 19; §6 third bullet; §7 second-host bullet; References |
 | 2026-10-30 | Upgrade, secrets-sync and restart are busy across processes; the pool has a lock | §5 rule 19: the busy flocks of `busy.py` and `pool.json.lock` (#423); `secrets-selftest` the exclusion still per process |
 | 2026-10-30 | The InterWeave install and start budgets count the failed unit's diagnosis | §5 rule 12: `interweave-install` 2708 s (own 1448 s), `interweave-start` 1620 s |
+| 2026-10-30 | The fleet hold is set through the control plane | §2 table: `hold`, `unhold`; §5 rule 13: both may name `all`; decided, not yet built (ADR-037 rule 13) |

@@ -660,11 +660,11 @@ its record disagree, the record wins. Look it up, never read it whole:
 
 ### ADR-029 — The control plane: a control agent per account answers signed actions over the relay (Accepted)
 
-- Each account's agentd answers on `fabric:control`; a request sent
-  while down is lost (§2, r1–2).
-- Closed op set, no field reaches a shell; actions carry fresh,
-  newer Ed25519 operator signatures (r3–5).
-- Replies carry no secret; silence, failure exit 1 (r6–9).
+- Each account's agentd answers `fabric:control`; down, a request is
+  lost (r1–2).
+- Closed op set, no field reaches a shell; actions carry fresh
+  Ed25519 operator signatures (r3–5).
+- Replies: no secret; silence, failure exit 1 (r6–9).
 - A 2026-09-27 — actions (r12).
 - A 2026-09-27 — answer budgets (r12).
 - A 2026-09-28 — jobs (r13).
@@ -693,6 +693,7 @@ its record disagree, the record wins. Look it up, never read it whole:
 - A 2026-10-30 — `fabric-op` (r19).
 - A 2026-10-30 — busy flocks; pool lock (r19).
 - A 2026-10-30 — budgets (r12).
+- A 2026-10-30 — hold (r13).
 - Keywords: fabric-ctl, keys, operator_key, usage, tokens, herdr,
   resume, interweave-evidence, interweave-human, fabric-control,
   control_carrier, break-glass, busy.
