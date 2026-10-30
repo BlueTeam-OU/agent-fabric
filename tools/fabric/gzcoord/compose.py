@@ -16,11 +16,15 @@ CONTRACT:
             but blanks, or -o FILE that exists or cannot be written; 2 the
             message would be invalid (an unknown or retired type, an
             assignment toward a role, an address of the wrong shape, ROLE
-            or PROJECT unknown) or refused by send (an IN-REPLY-TO that is
+            or PROJECT unknown), a --to naming a role slug that no host
+            places as a login, or refused by send (an IN-REPLY-TO that is
             not an id): the validator's own reason, in the reader's
             language
 
-It never sends. FROM, ROLE and PROJECT are what gzcoord-send resolves for
+It never sends. --to is checked as send checks a TO (placement.py): a role
+slug no host places is refused, since send would refuse it whatever flag
+it is given; any other address no host places is a warning, and composed.
+FROM, ROLE and PROJECT are what gzcoord-send resolves for
 this login (gzmsg.whoami, inbox.identity), so a composed message passes
 send's FROM check. MESSAGE-ID is minted here (gzmsg.mint_id, as `gzmsg
 new-id`): every composed file is a new message with its own id, which is
@@ -48,7 +52,7 @@ if __name__ == "__main__":
     sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.realpath(__file__))))
 
 import git  # noqa: E402
-from gzcoord import gzmsg, i18n, inbox  # noqa: E402
+from gzcoord import gzmsg, i18n, inbox, placement  # noqa: E402
 
 SECTIONS: dict[str, tuple[str, ...]] = {
     "INFO": ("CONTEXT", "NOTES"),
@@ -221,6 +225,22 @@ def main(argv: list[str]) -> int:
     me = inbox.identity(who, taxonomy)
     if me.get("roleError"):
         print(f"gzcoord-compose: warning: {me['roleError']}", file=sys.stderr)
+
+    # The same test as send's, before anything is minted or written: a
+    # skeleton TO a role is never left on disk for send to refuse later.
+    if a.to is not None:
+        try:
+            unplaced = placement.addressee_problem({"TO": a.to}, taxonomy.roles if taxonomy else ())
+        except placement.Unreadable as e:
+            print(f"gzcoord-compose: warning: {t('address.placement-unknown', {'address': a.to, 'detail': str(e)})}", file=sys.stderr)
+            unplaced = None
+        if unplaced and unplaced["kind"] == "role":
+            print(f"gzcoord-compose: {t('address.is-a-role', unplaced)}", file=sys.stderr)
+            return 2
+        if unplaced:
+            # Composed all the same: it never sends, and an account being
+            # placed right now is the case send's --force is for.
+            print(f"gzcoord-compose: warning: {t('address.not-an-account', unplaced)}", file=sys.stderr)
 
     repository = a.repository
     if repository is None:

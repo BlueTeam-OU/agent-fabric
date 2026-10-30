@@ -71,6 +71,13 @@ def main() -> int:
         os.makedirs(os.path.join(operator, "identities", "roles"))
         with open(os.path.join(operator, "identities", "roles", "catalog.json"), "w", encoding="utf-8") as fh:
             json.dump({"roles": [{"id": "fixture-only-role", "title": "A role only this fixture holds"}]}, fh)
+        # Where accounts are placed (the hosts registry under the operator's
+        # tree): the logins the cases address, and one login that is also a
+        # role slug — the positive control for the refusal of a role.
+        os.makedirs(os.path.join(operator, "runtime", "hosts"))
+        with open(os.path.join(operator, "runtime", "hosts", "registry.json"), "w", encoding="utf-8") as fh:
+            json.dump({"hosts": {"develop-qzapp": {"operator": "user"}},
+                       "placement": {"worker-01": "develop-qzapp", "fixture-only-role": "develop-qzapp"}}, fh)
         env = {"PATH": "/usr/bin:/bin", "HOME": home, "LANG": "C.UTF-8", "GIT_CONFIG_NOSYSTEM": "1",
                "AGENT_FABRIC_ROOT": ROOT, "AGENT_FABRIC_OPERATOR": operator, "AGENT_FABRIC_STATE_DIR": state,
                "AGENT_FABRIC_PYTHON": sys.executable}
@@ -143,6 +150,31 @@ def main() -> int:
         reason = EN("validate.request-to-role")
         check("a REQUEST toward a role: exit 2, the validator's reason, nothing on stdout",
               rc == 2 and reason in err and out == "", f"rc={rc}\nout={out}\nerr={err}\nwant={reason}")
+
+        print("--to: a role no host places is refused; any other address no host places is said")
+        role_to = "develop-qzapp/fixture-only-role"
+        for stale in ("other-host/fixture-only-role", "no-slash-host/fixture-only-role"):
+            gone = os.path.join(sandbox, "never.txt")
+            rc, out, err = compose("INFO", "--to", stale, "--subject", "s", "-o", gone)
+            want = EN("address.is-a-role", {"address": stale, "slug": "fixture-only-role"})
+            check(f"{stale}: exit 2, the slug and TO-ROLE named, nothing written",
+                  rc == 2 and want in err and "TO-ROLE: fixture-only-role" in err and out == "" and not os.path.exists(gone)
+                  and "--force" not in err,
+                  f"rc={rc}\n{err}\nwant={want}")
+        rc, out, err = compose("REQUEST", "--to", "other-host/fixture-only-role", "--subject", "s")
+        check("a REQUEST toward a role-named login: refused as well, with the assignment's way said",
+              rc == 2 and "an assignment" in err and out == "", f"rc={rc}\n{err}")
+        rc, out, err = compose("INFO", "--to", role_to, "--subject", "s")
+        check("control: a placed login that equals a role slug is composed, nothing said",
+              rc == 0 and header(out).get("TO") == role_to and err == "", f"rc={rc}\n{err}")
+        rc, out, err = compose("INFO", "--to", "develop-qzapp/nobody", "--subject", "s")
+        check("an unplaced login that is no role: composed, with a warning that it is no account",
+              rc == 0 and header(out).get("TO") == "develop-qzapp/nobody"
+              and EN("address.not-an-account", {"address": "develop-qzapp/nobody"}) in err, f"rc={rc}\n{err}")
+        unreadable = dict(env, AGENT_FABRIC_HOSTS_REGISTRY=os.path.join(sandbox, "no-such-registry.json"))
+        rc, out, err = compose("INFO", "--to", "other-host/fixture-only-role", "--subject", "s", run_env=unreadable)
+        check("a registry that cannot be read is unknown, not 'nobody is placed': said, and composed",
+              rc == 0 and "unknown" in err and "FileNotFoundError" in err, f"rc={rc}\n{err}")
 
         print("refused: the message would be invalid (exit 2)")
         for argv, key, args in ((["HELLO", "--broadcast"], "validate.retired-type", {"type": "HELLO"}),

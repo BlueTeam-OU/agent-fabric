@@ -2398,7 +2398,7 @@ def _():
         has(r"h/gamma's control agent did not answer within 1\.2 s", silent.err)
         stranger = send_with(pr.url, addressed("TO: other/nobody"), **pr.env)
         eq(stranger.code, 4)
-        has(r"other/nobody is not an account any host places", stranger.err)
+        has(r"other/nobody is no account: no host places it[\s\S]*not sent — --force sends it anyway, for an account being placed", stranger.err)
         forced = send_with(pr.url, addressed("TO: h/beta"), ["--force"], **pr.env)
         eq(forced.code, 0, forced.err)
         has(r"sending anyway \(--force\)", forced.err)
