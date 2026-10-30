@@ -504,7 +504,7 @@ def build_request(args: dict, *, id: str, from_: str, to: Any, cfg: dict, ts: st
     if op == "jobs-add":
         req["args"] = job_args(args)
     if op == "hold":
-        req["args"] = {"reason": args["reason"], **({"decision": args["decision"]} if args["decision"] is not None else {})}
+        req["args"] = {"reason": args["reason"], **({"decision": args["decision"]} if args.get("decision") is not None else {})}
     if op == "tools-install":
         req["args"] = {"tool": args["tool"]}
     if op == "clone":
@@ -539,7 +539,7 @@ def placements(registry: str | None = None) -> list[dict]:
 def parse_args(argv: list[str]) -> dict:
     out: dict = {"targets": [], "op": "status", "json": False, "timeout": None, "out": None, "days": None, "piece": None, "version": None,
                  "force": False, "expect": None, "restart": False, "title": None, "topic": None, "project": None, "priority": None,
-                 "role": None, "follow": False, "tool": None, "sweep": False, "reason": None, "decision": None}
+                 "role": None, "follow": False, "tool": None, "sweep": False}
     i = 0
     n = len(argv)
 
@@ -676,12 +676,13 @@ def parse_args(argv: list[str]) -> dict:
         raise CtlError("--days takes a positive number of days, with tokens only")
     if (out["topic"] is not None or out["project"] is not None or out["priority"] is not None) and op not in ("jobs-add", "pool-add"):
         raise CtlError("--topic, --project and --priority go with jobs-add and pool-add only")
-    if (out["reason"] is not None or out["decision"] is not None) and op != "hold":
+    # Not in the defaults: the parser's answer for every other verb is the frozen shape (tests/test_control_frozen.py).
+    if ("reason" in out or "decision" in out) and op != "hold":
         raise CtlError("--reason and --decision go with hold only")
     if op == "hold":
-        if not isinstance(out["reason"], str):
+        if not isinstance(out.get("reason"), str):
             raise CtlError('hold takes --reason "<why>": one line')
-        bad = hold_mod.check_hold(out["reason"], out["decision"] if isinstance(out["decision"], str) else None if out["decision"] is None else "")
+        bad = hold_mod.check_hold(out["reason"], out.get("decision") if isinstance(out.get("decision"), str) else None if "decision" not in out else "")
         if bad:
             raise CtlError(f"hold: {bad}")
     if out["role"] is not None and op != "pool-add":

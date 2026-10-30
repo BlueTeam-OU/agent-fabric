@@ -747,7 +747,7 @@ def render(report, base):
         _a = jobs["active"]
         p("jobs         " + (f"active {_a['id']} ({_a['title'][:60]})" if _a else "none active") + "; "
           + ", ".join(f"{jobs[st]} {st}" for st in ("queued", "paused", "blocked", "delivered")) + "  (fabric-jobs list)")
-    if report["hold"]:
+    if report.get("hold"):
         _hv = load("fabric_hold_view", os.path.join(os.path.dirname(os.path.realpath(__file__)), "hold_view.py"))
         p(f"hold         {_hv.words(report['hold'])}    no job is started (fabric-ctl <login> unhold lifts it)")
     p("")

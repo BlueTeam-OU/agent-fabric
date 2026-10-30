@@ -29,7 +29,7 @@ from control.sign import (ACTION_TTL_MAX_S, generate_operator_key, private_key_f
 from control.upgrade import FABRIC_UPGRADE_BUDGET_S, UPGRADE_BUDGET_S, pinned_version  # noqa: E402
 
 BASE = {"targets": [], "op": "status", "json": False, "timeout": 20, "out": None, "days": None, "piece": None, "version": None, "force": False,
-        "expect": None, "restart": False, "title": None, "topic": None, "project": None, "priority": None, "role": None, "follow": False, "tool": None, "reason": None, "decision": None}
+        "expect": None, "restart": False, "title": None, "topic": None, "project": None, "priority": None, "role": None, "follow": False, "tool": None}
 
 
 def raw_controls(text: str, keep: str = "\n") -> list[str]:
