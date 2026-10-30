@@ -263,6 +263,11 @@ def switch_job(args) -> int:
         again = pick(doc)
         if again["id"] != nxt["id"]:
             raise Refused(f"the list changed while the branch was prepared ({again['id']} is now first, not {nxt['id']}): run switch again")
+        # The hold may have been set while the branch was prepared (a fetch can take seconds): read again, under the list's lock,
+        # which set_hold shares. A Refused discards the prepared branch.
+        late = hold_view.read(identity)
+        if late:
+            raise Refused(held_refusal(late, "no job started"))
         job = find(doc, nxt["id"])
         verdict = decide(doc, job, session)
         who = waiters(job, waits)

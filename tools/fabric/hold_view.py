@@ -10,7 +10,7 @@ one wording of the hold for the refusal, the status row and the ctl table.
 CONTRACT
   read(identity, agent=None)   a record: the hold's own dict, or
                                {"unreadable": <why>} when hold.json cannot
-                               be read; None when the login is not held.
+                               be read (not JSON, not a hold, not openable); None when the login is not held.
                                Never raises for the file's content.
   words(record, now=None)      one line: "<reason> (decision <id>, set by
                                <address>, <age> ago)", or "hold unreadable:
@@ -27,6 +27,9 @@ def read(identity, agent: str | None = None) -> dict | None:
     except SystemExit as exc:
         # SystemExit(str) carries its message; anything else (a code) has none to give.
         return {"unreadable": str(exc.code) if isinstance(exc.code, str) else "hold.json cannot be read"}
+    except OSError as exc:
+        # identity.read_hold catches only a missing file and bad JSON: a directory or a mode-000 file is as much a hold.
+        return {"unreadable": f"{identity.hold_path(agent)}: {exc.strerror or exc}"}
 
 
 def _age(set_at, now: datetime.datetime) -> str | None:

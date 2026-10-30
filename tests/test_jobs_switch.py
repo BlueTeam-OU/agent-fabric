@@ -1891,6 +1891,37 @@ def main() -> int:
         check("held: done works", w.sw("done", j1)[0] == 0 and w.job(j1)["state"] == "done")
         check("held: drop works", w.sw("drop", j2, "not needed")[0] == 0 and w.job(j2)["state"] == "dropped")
 
+        w = World()
+        w.working("the finished work")
+        w.sw("done", "j1")
+        jobs_world.landed(w.state, login, "j1")
+        gh_says({jobs_world.LANDED: "MERGED"})
+        j2 = w.add("the next job")
+        verbs = sys.modules["fabric_jobs.verbs"]
+        real_choose = verbs.choose
+
+        def hold_arrives(*a, **k):
+            choice = real_choose(*a, **k)
+            hold(w)             # set while the branch is prepared, after switch first looked
+            return choice
+        verbs.choose = hold_arrives
+        try:
+            rc, out, err = w.switch()
+        finally:
+            verbs.choose = real_choose
+        check("held: a hold set while the branch is prepared stops the start, and no fabric-fresh is printed",
+              rc == 1 and "release freeze" in err and w.job(j2)["state"] == "queued" and "fabric-fresh" not in out + err, out + err)
+        lift()
+        check("held: ...control, the same switch without the late hold starts it", w.switch()[0] == 0 and w.job(j2)["state"] == "active")
+
+        w, j1, j2 = ready()
+        os.remove(os.path.join(w.state, "agents", login, "hold.json"))
+        os.mkdir(os.path.join(w.state, "agents", login, "hold.json"))
+        rc, out, err = w.switch()
+        check("held: a hold.json that cannot be opened holds too, named as unreadable (no traceback)",
+              rc == 1 and "hold unreadable" in err and "Traceback" not in err and w.job(j2)["state"] == "queued", out + err)
+        os.rmdir(os.path.join(w.state, "agents", login, "hold.json"))
+
         for label, body in (("not JSON", "{not json"), ("not a hold", "[1]")):
             w, j1, j2 = ready()
             with open(os.path.join(w.state, "agents", login, "hold.json"), "w", encoding="utf-8") as fh:

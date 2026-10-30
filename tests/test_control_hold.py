@@ -125,6 +125,11 @@ class View(Scratch):
             self.assertTrue(hold_view.words(rec).startswith("hold unreadable: "), body)
         os.remove(self.path)
         self.assertIsNone(hold_view.read(self.identity))    # the positive control: no file is no hold
+        os.mkdir(self.path)     # a hold.json that cannot even be opened: identity.read_hold lets the OSError out
+        rec = hold_view.read(self.identity)
+        self.assertIn("unreadable", rec)
+        self.assertIn(self.path, rec["unreadable"])
+        self.assertEqual(hold_mod.unhold(self.req("unhold"))["status"], "failed", "unhold reports what it cannot remove, never released")
 
 
 class JobsOp(Scratch):
