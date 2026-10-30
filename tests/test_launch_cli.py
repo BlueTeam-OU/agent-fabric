@@ -235,9 +235,14 @@ def main() -> int:
                 launcher: str = LAUNCHER, **env: str) -> tuple[int, str]:
             """TMPDIR is UNSET for the launcher unless a case keeps one: what
             is asserted is the launcher's default, and a TMPDIR the caller set
-            wins over it by design."""
+            wins over it by design.
+
+            resume.py is the real tree's, so with no override it reads the
+            live routing/profiles.json, whose agent layer may name the login
+            running this suite (python-dev-03 declares anthropic, and every
+            restart case then moved provider, j438): it reads the fixture's."""
             e = {**base, "HOME": home, "PATH": path_export, "AGENT_FABRIC_ROOT": fabric, "AGENT_FABRIC_STATE_DIR": state,
-                 **(plant or {}), **env}
+                 "AGENT_FABRIC_RESUME_PROFILES": f"{fabric}/routing/profiles.json", **(plant or {}), **env}
             e.pop("TMPDIR", None)
             if keep_tmpdir is not None:
                 e["TMPDIR"] = keep_tmpdir
@@ -1095,9 +1100,8 @@ print("a" * 40, "b" * 40)
                 f'n="$(cat "{runs}" 2>/dev/null || echo 0)"; echo $((n+1)) > "{runs}"\n'
                 f'm=\'{restart_marker}\'; printf \'%s\\n\' "${{m/@NOW@/$(date -u +%Y-%m-%dT%H:%M:%SZ)}}" > "{agent_dir}/restart.json"\n'
                 'echo "RUN1:$*"; exit 143\n', 0o755)
-            declared = {"AGENT_FABRIC_RESUME_PROFILES": f"{fabric}/routing/profiles.json"}
             rm(runs, alog)
-            rc, out = runa("--provider", "openrouter", "--model", glm, "--effort", "max", **declared)
+            rc, out = runa("--provider", "openrouter", "--model", glm, "--effort", "max")
             relaunched = grep("^CLAUDE-EXECCED:", out)
             check("(the broker session ran on the caller's own broker model)", has(rf"^RUN1:.*--model {re.escape(glm)}", out),
                   grep("RUN1", out))
@@ -1115,7 +1119,7 @@ print("a" * 40, "b" * 40)
             # long-lived sign-in, which the broker session never needed.
             put(sec, "")
             rm(runs, alog)
-            rc, out = runa("--provider", "openrouter", **declared)
+            rc, out = runa("--provider", "openrouter")
             check("a relaunch refused after a restart is said as a restart not completed, after the refusal itself",
                   rc == 1 and "no long-lived Claude sign-in" in out and "CLAUDE-EXECCED" not in out
                   and has(r"^launch: RESTART NOT COMPLETED: the session stopped for a restart was not brought back", out),
@@ -1133,7 +1137,7 @@ print("a" * 40, "b" * 40)
                 f'm=\'{fresh_marker}\'; printf \'%s\\n\' "${{m/@NOW@/$(date -u +%Y-%m-%dT%H:%M:%SZ)}}" > "{agent_dir}/restart.json"\n'
                 'echo "RUN1:$*"; exit 143\n', 0o755)
             rm(runs, alog)
-            rc, out = runa("--provider", "openrouter", **declared)
+            rc, out = runa("--provider", "openrouter")
             check("a fresh relaunch refused is said as not completed, naming the job and the fresh start, not fabric-resume",
                   rc == 1 and "no long-lived Claude sign-in" in out and "CLAUDE-EXECCED" not in out
                   and has(r"^launch: RESTART NOT COMPLETED: the session that finished its job was not brought back fresh", out)
