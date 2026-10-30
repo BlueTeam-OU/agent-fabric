@@ -273,8 +273,8 @@ def main() -> int:
         check("a job in an unregistered checkout is not the bound project's", jobs()[1]["project"] is None
               and jobs()[1]["working_copy"] == unreg, repr(jobs()[1]))
         p = run("next", "j2", cwd=unreg)
-        check("next in an unregistered checkout, for a job added there: continue here", p.returncode == 0
-              and "continue here" in p.stdout and "fabric-fresh" not in p.stdout, p.stdout + p.stderr)
+        check("next in an unregistered checkout, for a job added there: not fresh for having worked", p.returncode == 0
+              and "already worked" not in p.stdout, p.stdout + p.stderr)
         run("drop", "j2", "a test")
         os.makedirs(os.path.join(repo_a, "sub"), exist_ok=True)
         p = run("add", "from a subdirectory", "--working-copy", os.path.join(repo_a, "sub"))
@@ -292,7 +292,7 @@ def main() -> int:
         run("add", "f")
         p = run("next")
         check("a session that has worked no job takes the first in place", p.returncode == 0
-              and "j1" in p.stdout and "continue here" in p.stdout and "fabric-fresh" not in p.stdout, p.stdout)
+              and "j1" in p.stdout and "already worked" not in p.stdout, p.stdout)
         check("going active records the session in the log", jobs()[0]["log"][-1].get("session") == "sess-A", repr(jobs()[0]))
         p = run("next")
         check("next refuses while a job is active", p.returncode == 1 and "still active" in p.stderr, p.stderr)
@@ -320,7 +320,7 @@ def main() -> int:
         p = run("next", "--json")
         verdict = json.loads(p.stdout or "{}")
         check("another session, which has worked no job: continue here, whatever the last job was",
-              verdict.get("job") == "j5" and verdict.get("fresh") is False and verdict.get("worked") is None, p.stdout)
+              verdict.get("job") == "j5" and verdict.get("reason") != "worked" and verdict.get("worked") is None, p.stdout)
         run("done", "j5")
         p = run("next", "--json")
         verdict = json.loads(p.stdout or "{}")
@@ -350,11 +350,11 @@ def main() -> int:
         verdict = json.loads(p.stdout or "{}")
         check("a session that has worked no job, standing outside the job's copy: fresh, with its reason",
               verdict.get("fresh") is True and verdict.get("reason") == "outside_copy" and verdict.get("worked") is None
-              and verdict.get("here") == repo_a and repo_b in verdict.get("copies", []), p.stdout + p.stderr)
+              and verdict.get("here") == repo_a and verdict.get("copies") and repo_b not in verdict["copies"], p.stdout + p.stderr)
         check("  and the guard denies the commit it would have been taken in place for",
               commit_decision(repo_a, "sess-out") == "deny", commit_decision(repo_a, "sess-out"))
         wt = jobs()[0]["worktree"]
-        check("  the job's copies are the recorded working copy and the worktree", wt and wt in verdict.get("copies", []), repr(verdict))
+        check("  the job's copies are its worktree: the switch records it as the working copy too", wt and verdict.get("copies") == [wt], repr(verdict))
         run("pause", "j1", "setting it aside", cwd=wt)
         inside_world("txt")
         run("add", "work in beta text", "--working-copy", repo_b)
@@ -366,8 +366,7 @@ def main() -> int:
         wt = jobs()[0]["worktree"]
         run("pause", "j1", "setting it aside", cwd=wt)
         os.makedirs(os.path.join(wt, "sub"), exist_ok=True)
-        for what, where in (("the job's worktree", wt), ("a subdirectory of its worktree", os.path.join(wt, "sub")),
-                            ("the recorded working copy", repo_b)):
+        for what, where in (("the job's worktree", wt), ("a subdirectory of its worktree", os.path.join(wt, "sub"))):
             # The paused job of the world above, taken again by a session of its own that has worked nothing.
             env["CLAUDE_CODE_SESSION_ID"] = "sess-in-" + re.sub(r"\W", "-", what)
             p = run("next", "--json", cwd=where)
@@ -388,6 +387,11 @@ def main() -> int:
         check("the cwd is read as its checkout's toplevel: a copy recorded as a subdirectory is not stood in from that subdirectory",
               (jobs_mod.outside_copy({"id": "j9", "working_copy": sub}, sub) or {}).get("reason") == "outside_copy"
               and jobs_mod.outside_copy({"id": "j9", "working_copy": repo_b}, sub) is None)
+        two = {"id": "j9", "working_copy": repo_b, "worktree": os.path.join(tmp, "elsewhere")}
+        check("a recorded working copy that differs from the worktree (no sync) is inside as well",
+              jobs_mod.outside_copy(two, repo_b) is None and jobs_mod.outside_copy(two, sub) is None)
+        check("a recorded working copy that differs from the worktree: the project's main checkout is outside once it is not recorded",
+              (jobs_mod.outside_copy({"id": "j9", "worktree": two["worktree"]}, repo_b) or {}).get("reason") == "outside_copy")
         check("a job that records no working copy and no worktree: no outside verdict, as before",
               jobs_mod.outside_copy({"id": "j9", "working_copy": None, "worktree": None}, repo_a) is None
               and jobs_mod.outside_copy({"id": "j9"}, repo_a) is None)
@@ -423,7 +427,7 @@ def main() -> int:
         p = run("next", "--json")
         verdict = json.loads(p.stdout or "{}")
         check("a session that only dropped a queued job has worked none: continue here",
-              verdict.get("job") == "j11" and verdict.get("fresh") is False and verdict.get("worked") is None, p.stdout)
+              verdict.get("job") == "j11" and verdict.get("reason") != "worked" and verdict.get("worked") is None, p.stdout)
         run("done", "j11")
         env["CLAUDE_CODE_SESSION_ID"] = saved
         p = run("next", "j3")
