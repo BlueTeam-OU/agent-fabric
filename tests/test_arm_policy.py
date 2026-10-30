@@ -812,6 +812,9 @@ class ArmRun(unittest.TestCase):
             return (0, json.dumps(review if "review-status" in what else gate))
 
         def api(path, **kw):
+            if "/pulls/" in path and "/files" in path:
+                # A (new, old) pair is a rename: GitHub names the file by where it ended up and the other by previous_filename.
+                return [{"filename": f[0], "previous_filename": f[1]} if isinstance(f, tuple) else {"filename": f} for f in files]
             if "/contents/" in path:
                 asked.append(path)
                 if isinstance(workflows, Exception):
@@ -1405,8 +1408,9 @@ class ArmRun(unittest.TestCase):
             self.assertIn("this PR adds CI: wait for its checks", str(rc), added)
             self.assertFalse(self.merged())
         # A rename out of the workflows directory is a change to it: the previous name is in the list too.
-        rc, _ = self.run_arm(p, 3, checks="none-yet", basis=self.NO_CI_WORD, files=(".github/workflows/old.yml",))
+        rc, _ = self.run_arm(p, 3, checks="none-yet", basis=self.NO_CI_WORD, files=(("docs/old.yml", ".github/workflows/old.yml"),))
         self.assertIn("this PR adds CI", str(rc))
+        self.assertFalse(self.merged())
         # Positive control: a neighbouring path is not CI.
         rc, out = self.run_arm(p, 3, checks="none-yet", basis=self.NO_CI_WORD, files=(".github/workflows-notes/a.md", "x/.github/workflows/y"))
         self.assertEqual(rc, 0, out)
@@ -1451,7 +1455,7 @@ class ArmRun(unittest.TestCase):
             self.assertFalse(self.asked)
             self.assertFalse(self.merged())
 
-    def test_the_no_ci_word_where_it_is_not_needed_is_said_not_read_and_not_recorded(self):
+    def test_the_no_ci_word_where_it_is_not_needed_is_said_not_read_and_adds_no_sentence(self):
         auto = claude_only({"mode": "auto", "commits": {"min": 1}})
         required = claude_only({"mode": "auto", "commits": {"min": 1}, "required_checks": [{"context": "ci-ok", "app": "github-actions"}]})
         direct = claude_only({"mode": "direct", "commits": {"min": 1}})
@@ -1459,7 +1463,7 @@ class ArmRun(unittest.TestCase):
                                   ("direct, no check", direct, "none-yet")):
             rc, out = self.run_arm(pol, 3, checks=checks, basis=self.NO_CI_WORD, extra=("--dry-run",))
             self.assertEqual(rc, 0, (name, out))
-            self.assertIn("the owner's no-CI word is not needed here: it is not read, and not recorded", out, name)
+            self.assertIn("the owner's no-CI word is not needed here: it is not read, and no No CI sentence is added", out, name)
             self.assertFalse(self.asked, name)
             self.assertNotIn("No CI:", out, name)
         rc, out = self.run_arm(auto, 3, checks="green")

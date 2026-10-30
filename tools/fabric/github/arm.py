@@ -267,7 +267,7 @@ What it refuses, in order, and why:
      that exists, or that the PR adds, is waited for. A red, pending or unreadable check is refused
      with or without it; any other answer for the workflows directory is exit 2. The comment then says
      "No CI: <base> has no workflow...". Where it is not needed (a direct repository, a required check,
-     green checks) it is said so, not read and not recorded.
+     green checks) it is said so and not read: no No CI sentence is added, the basis is posted as given.
 
 Then: posts the arming basis as a comment ("Arming basis: <text> —
 <W> work commits, head <sha>"; a security boundary armed at 8 or more
@@ -1080,7 +1080,8 @@ def arm(argv: list[str]) -> int:
             say("direct repository: every check on the head is green" if policy["mode"] == "direct"
                 else "no required check on this repository: every check on the head is green")
     if no_ci_word and not no_ci_used:
-        say("the owner's no-CI word is not needed here: it is not read, and not recorded")
+        # The basis goes into the comment as given, phrase included: what is not recorded is the No CI sentence.
+        say("the owner's no-CI word is not needed here: it is not read, and no No CI sentence is added (the basis is posted as given)")
 
     comment = f"Arming basis: {basis} — {work} work commits{f', class: {cls}' if cls else ''}{f', role: {role}' if by_role else ''}, head {head[:8]}."
     if no_ci_used:
