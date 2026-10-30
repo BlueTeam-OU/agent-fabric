@@ -739,9 +739,11 @@ def cpu_child_env(env: dict[str, str] | os._Environ[str], slot: CpuSlot,
     """The environment of a slot's child: its thread budget (item 2) and the
     switches that keep a long-lived build server from inheriting the slot and
     holding it for good (item 6). A CARGO_BUILD_JOBS or DOTNET_PROCESSOR_COUNT the caller
-    set lower is kept and any other value is replaced, silently; the same holds
-    for TEST_JOBS_ENV, except that a higher number is lowered with a line. The
-    slot's share is the point."""
+    set lower is kept and any other value is replaced, silently. TEST_JOBS_ENV
+    differs: empty or unset becomes the slot's jobs, a number above them is
+    lowered with a line, and everything else is kept, 0 and non-numbers
+    included, because the suite that reads it owns what those mean. The slot's
+    share is the point."""
     j = str(slot.jobs)
     out = dict(env)
     for var in ("CARGO_BUILD_JOBS", "DOTNET_PROCESSOR_COUNT"):
@@ -759,7 +761,9 @@ def cpu_child_env(env: dict[str, str] | os._Environ[str], slot: CpuSlot,
     have = out.get(TEST_JOBS_ENV, "")
     if not have:
         out[TEST_JOBS_ENV] = j
-    elif NUMBER_RE.fullmatch(have) and int(have) > slot.jobs:
+    # A digit string of 10 or more is above any budget; the length test keeps
+    # int() off one past its conversion limit.
+    elif NUMBER_RE.fullmatch(have) and (len(have) >= 10 or int(have) > slot.jobs):
         say(f"fabric-lease: {TEST_JOBS_ENV}={have} lowered to {j} (cpu slot {slot.k}/{slot.n})\n")
         out[TEST_JOBS_ENV] = j
     return out
