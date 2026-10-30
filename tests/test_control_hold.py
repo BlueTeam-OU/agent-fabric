@@ -116,7 +116,7 @@ class View(Scratch):
         self.assertEqual(hold_view.words({"reason": "bare"}), "bare")
 
     def test_a_hold_file_that_cannot_be_read_is_a_hold_never_none(self):
-        for body in ("{not json", "[1]", '{"reason": 5}', '{"reason": "r", "agent": "someone-else"}'):
+        for body in ("{not json", "[1]", '{"reason": 5}', '{"reason": "r", "agent": "someone-else"}', "[" * 200000):
             with open(self.path, "w", encoding="utf-8") as fh:
                 fh.write(body)
             rec = hold_view.read(self.identity)

@@ -30,6 +30,9 @@ def read(identity, agent: str | None = None) -> dict | None:
     except OSError as exc:
         # identity.read_hold catches only a missing file and bad JSON: a directory or a mode-000 file is as much a hold.
         return {"unreadable": f"{identity.hold_path(agent)}: {exc.strerror or exc}"}
+    except Exception as exc:  # noqa: BLE001 — json.load's RecursionError on deep nesting is no ValueError, and escaped
+        # every reader as "no hold" or a crash (review of #429, F1): whatever the content raises, the file still holds.
+        return {"unreadable": f"{identity.hold_path(agent)}: {type(exc).__name__}"}
 
 
 def _age(set_at, now: datetime.datetime) -> str | None:

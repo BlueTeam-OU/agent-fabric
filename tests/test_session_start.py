@@ -765,17 +765,22 @@ def test_hook_says_the_fleet_hold(tmp: str) -> None:
     os.unlink(hold_path); assert jobs("start", "j1").returncode == 0; hold()
     ctx = context_of(run_hook({"cwd": here}, env))
     assert "jobs — active j1: queued while held; nothing waiting (`fabric-jobs list`). FLEET HOLD: dual-run window" in ctx, ctx
-    # A job list the hook cannot read does not hide the hold.
-    with open(os.path.join(agent_dir, "jobs.json"), "w", encoding="utf-8") as fh:
-        fh.write("{ not json")
-    ctx = context_of(run_hook({"cwd": here}, env))
-    assert "jobs — none open. FLEET HOLD: dual-run window" in ctx, ctx
+    # A job list the hook cannot read, or cannot render, does not hide the hold, and is never said to be empty.
+    for body in ("{ not json", json.dumps({"jobs": [{"id": "j1", "state": "active", "title": 5}]})):
+        with open(os.path.join(agent_dir, "jobs.json"), "w", encoding="utf-8") as fh:
+            fh.write(body)
+        ctx = context_of(run_hook({"cwd": here}, env))
+        assert "jobs — the list could not be read" in ctx and "FLEET HOLD: dual-run window" in ctx and "none open" not in ctx, (body, ctx)
     os.unlink(os.path.join(agent_dir, "jobs.json"))
     # A hold.json that is not a hold is a hold: somebody wrote it to stop job starts.
     with open(hold_path, "w", encoding="utf-8") as fh:
         fh.write("{ not json")
     ctx = context_of(run_hook({"cwd": here}, env))
     assert "FLEET HOLD: hold unreadable: identity: " in ctx, ctx
+    with open(hold_path, "w", encoding="utf-8") as fh:
+        fh.write("[" * 200000)     # json.load raises RecursionError, not ValueError (review of #429, F1)
+    ctx = context_of(run_hook({"cwd": here}, env))
+    assert "FLEET HOLD: hold unreadable: " in ctx and "RecursionError" in ctx, ctx
     os.unlink(hold_path)
     assert "FLEET HOLD" not in context_of(run_hook({"cwd": here}, env))
 

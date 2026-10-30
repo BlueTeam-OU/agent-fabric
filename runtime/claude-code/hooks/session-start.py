@@ -197,14 +197,16 @@ def main() -> int:
             pass
         try:
             hold = hold_of(identity, ctx["agent"])
-        except Exception:  # noqa: BLE001 — hold_view reads an unreadable hold.json as a hold; this is its module missing
+        except Exception:  # noqa: BLE001 — hold_view.read never raises for the file; this is hold_view.py itself failing to load
             hold = None
         try:
             doc = identity.read_jobs(ctx["agent"])
             lines += jobs_line(doc, ctx["working_copy"], cleared_jobs(doc), hold)
         except (Exception, SystemExit):  # noqa: BLE001 — a job list it cannot read must not cost the session its start
             if hold:
-                lines += jobs_line({}, ctx["working_copy"], None, hold)
+                # Not jobs_line({}): that says "none open" beside an active job the list may well hold (review of #429, F2).
+                lines.append(f"agent-fabric: jobs — the list could not be read (`fabric-jobs list` says why). "
+                             f"FLEET HOLD: {hold_view().words(hold)}. Take no new job (ADR-037 rule 13).")
         try:
             missing = watch_running() is False
         except Exception:  # noqa: BLE001 — a /proc oddity must not cost the session its project layer
