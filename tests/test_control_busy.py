@@ -7,6 +7,7 @@ flock, never a fake; each refusal has its positive control (the same call with
 nothing held does the work), and a run leaves all three locks free."""
 from __future__ import annotations
 
+import fcntl
 import os
 import signal
 import subprocess
@@ -80,6 +81,25 @@ class Primitives(Case):
         self.assertTrue(busy.held(self.dir, "marker"))
         busy.release(x)
         self.assertFalse(busy.held(self.dir, "marker"))
+
+    def test_a_probe_in_flight_is_not_read_as_a_holder_and_a_real_holder_still_is(self):
+        os.makedirs(self.dir, mode=0o700)
+        probe = os.open(os.path.join(self.dir, "busy-sync"), os.O_RDWR | os.O_CREAT, 0o600)
+        fcntl.flock(probe, fcntl.LOCK_EX)   # what held() holds for an instant
+        waits: list[float] = []
+
+        def sleep(s: float) -> None:
+            waits.append(s)
+            os.close(probe)   # the probe ends before the first retry
+
+        fd = busy.hold(self.dir, "sync", sleep=sleep)
+        self.assertIsNotNone(fd, "a probe's instant is not a running sync")
+        self.assertEqual(waits, [busy.PROBE_RETRY_S])
+        # positive control: a holder that stays is refused after every retry
+        waits.clear()
+        self.assertIsNone(busy.hold(self.dir, "sync", sleep=waits.append))
+        self.assertEqual(len(waits), busy.PROBE_RETRIES)
+        busy.release(fd)
 
     def test_names_are_independent(self):
         x = busy.hold(self.dir, "sync")
