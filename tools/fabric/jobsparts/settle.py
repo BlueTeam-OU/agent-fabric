@@ -418,7 +418,8 @@ def _peeled(where: str, ref: str) -> str | None:
 def _pushed(job: dict, problems: list[str]) -> list[str]:
     branch = job.get("branch")
     # A worktree swept after its branch landed is gone, not an error: the repository is asked from the recorded worktree while it
-    # exists, else from the job's working copy, never from a directory that is not there.
+    # exists, else from checkout_of (the working copy, or the project's checkout when that went with the worktree), never from a directory
+    # that is not there.
     where = next((d for d in (job.get("worktree"), checkout_of(job)) if d and os.path.isdir(d)), None)
     if not branch or not (job.get("worktree") or job.get("working_copy")):
         problems.append("a paused job names the branch holding its work: pause it from that branch's checkout "
