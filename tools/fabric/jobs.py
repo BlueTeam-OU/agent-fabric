@@ -203,7 +203,7 @@ With no session id in the environment (an unlaunched shell) the job that last le
 The fleet hold (ADR-037 rule 13; hold.json, read by hold_view.py): while this login is held, or its hold.json cannot be read
 (which holds), `switch` and `next` settle the job being left as above and its build output is cleared, then stop with exit 1
 naming the hold (reason, decision, who set it, how long ago): no job is started, no fabric-fresh printed, nothing queued or
-paused is touched, and "no queued job" never hides the hold. `start` of a queued, paused or blocked job refuses the same way.
+paused is touched, and "no queued job" never hides the hold. `start` of a job, whatever its state, refuses the same way.
 Every other verb works as before, so nothing asked of the agent is lost.
 Every job starts in a fresh session (the owner, 2026-10-11): a fresh launch reads the fabric anew, which a running session
 never does, and a warm prompt cache is no reason to continue. The agent runs the command it prints, never the owner.
