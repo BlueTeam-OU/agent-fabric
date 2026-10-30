@@ -146,6 +146,20 @@ def main() -> int:
         rc, a, _e = ask({"TO": "h/alpha"}, url="http://127.0.0.1:1")
         check("a relay that cannot be reached: exit 6, an error with no status", rc == 6 and a.get("status") is None
               and a.get("error"), (rc, a))
+        # An unreadable registry is unknown: the same {"error"} line as a relay that cannot be reached, never
+        # not-placed (which send turns into "not an account" and a --force). The control above is the
+        # readable registry answering not-placed for "h/nobody".
+        notjson = os.path.join(tmp, "notjson.json")
+        with open(notjson, "w") as fh:
+            fh.write("{ not json")
+        for label, path in (("missing", os.path.join(tmp, "absent.json")), ("unreadable (a directory)", tmp), ("not JSON", notjson)):
+            base["AGENT_FABRIC_HOSTS_REGISTRY"] = path
+            for md in ({"TO": "h/alpha"}, {"TO-ROLE": "web-dev"}):
+                rc, a, err = ask(md)
+                check(f"a registry that is {label}, {next(iter(md))}: exit 6, an error saying it could not be read, no problem list",
+                      rc == 6 and a is not None and "could not be read" in a.get("error", "") and "problems" not in a
+                      and TOKEN not in json.dumps(a) + err, (rc, a, err[-300:]))
+        base["AGENT_FABRIC_HOSTS_REGISTRY"] = registry
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
     print(f"test_presence_cli: {'OK' if not fails else f'FAILED — {fails}'}")

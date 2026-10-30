@@ -178,12 +178,31 @@ def new_id() -> str:
     return gzmsg.mint_id()
 
 
-def _registry(registry: str | None) -> Any:
+class RegistryUnreadable(Exception):
+    """The hosts registry gave no answer (missing, unreadable, not JSON): the
+    message says why, never what it held."""
+
+
+def read_registry(registry: str | None) -> Any:
+    """The parsed registry, or RegistryUnreadable. For a caller that must tell
+    "nobody is placed" from "the registry could not be read" (presence, the
+    fabric-ctl gate); _registry is the daemon's lenient read of the same file."""
     path = roots.hosts_registry(engine=FABRIC_ROOT, empty_is_set=True) if registry is None else registry
     try:
         with open(path, encoding="utf-8", errors="replace") as fh:
             return js.json_parse(fh.read())
-    except (OSError, ValueError):
+    except OSError as e:
+        raise RegistryUnreadable(f"the hosts registry {path} could not be read ({errno.errorcode.get(e.errno, 'OSError')})") from None
+    except ValueError:
+        raise RegistryUnreadable(f"the hosts registry {path} could not be read (not JSON)") from None
+
+
+def _registry(registry: str | None) -> Any:
+    # The daemon takes an unreadable registry for no operator and no account
+    # (it then refuses every request), which is the safe side for it.
+    try:
+        return read_registry(registry)
+    except RegistryUnreadable:
         return None
 
 

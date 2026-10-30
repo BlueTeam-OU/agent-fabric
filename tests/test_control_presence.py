@@ -148,7 +148,7 @@ def main() -> int:
           len(node) == len(shapes) and not differ, differ[:3])
 
     print("the CLI: presence.py check")
-    agentd = SimpleNamespace(account_addresses=lambda: set(PLACED), operator_addresses=lambda: set(), new_id=lambda: "q",
+    agentd = SimpleNamespace(read_registry=lambda _r: {}, account_addresses=lambda: set(PLACED), operator_addresses=lambda: set(), new_id=lambda: "q",
                              control_config=lambda: {"relay_url": "x", "channel": "c", "ttl_s": 30})
 
     def run(argv, stdin, ask):
