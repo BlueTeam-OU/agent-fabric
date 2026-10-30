@@ -401,7 +401,7 @@ def change(args) -> int:
             job["updated"] = identity.now_iso()
         elif args.cmd == "start":
             held = hold_view.read(identity)
-            # Whatever the job's state: a delivered job restarts too (rule 13, as amended); only import, which starts nothing, is let through.
+            # Whatever the job's state: a delivered job restarts too (rule 13 as amended in agent-fabric #433, which owns the ADR text); only import, which starts nothing, is let through.
             if held:
                 raise Refused(held_refusal(held, f"{job['id']} not started"))
             # A job with no project at all (added in a directory that is no checkout) never had one to find: it starts as it always did.
