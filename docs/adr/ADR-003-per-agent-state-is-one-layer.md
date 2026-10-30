@@ -4,7 +4,7 @@
 **Status:** Accepted
 **Ratified:** owner, 2026-09-27, by arming agent-fabric #51 (ratification by merge, the owner's rule of 2026-09-27)
 **Decision Makers:** fabric-coordinator, on the review of 2026-09-16 (items 1, 2, 5, 6)
-**Scope:** everything under `${XDG_STATE_HOME:-~/.local/state}/agent-fabric/agents/<login>/`; runtime/identity.py; tools/fabric/role.py, runtime/claude-code/hooks/session-start.py, runtime/provisioning/rename_history.py and rename-working-copy.sh
+**Scope:** everything under `${XDG_STATE_HOME:-~/.local/state}/agent-fabric/agents/<login>/`; runtime/identity.py; tools/fabric/role.py, runtime/claude-code/hooks/session-start.py, runtime/provisioning/rename_history.py and rename-working-copy.sh; the control code's state writers (tools/fabric/control/: upgrade.py's restart.json, agentd.py's ActionLedger, pool.py, breakglass.py's and switch_log.py's logs)
 **Pillar:** P1
 
 ## 1. Context and Problem
@@ -40,13 +40,32 @@ Every write to `agents/<login>/` from Python goes through
 - `update_binding(mutate, agent)` and `append_history(record, agent)` —
   the two operations callers need, built on both.
 
-The one writer that cannot import it — the account's control agent, in
-Node, which writes `restart.json` for a fleet upgrade
-(`runtime/control/upgrade.mjs`) and its ledger of signed actions seen,
-`actions-seen.json` (`runtime/control/agentd.mjs`) — writes in the same
-shape, a temporary beside the target, then a rename; it takes no
-`agent_lock`, and what serializes it is that one control agent runs per
-account. The launcher is the other party to `restart.json`: after its
+The one writer outside it is the account's control code
+(`tools/fabric/control/`, Python since ADR-040's Wave 8, which kept the
+Node's own writers rather than move them into `identity.py`). It writes
+`restart.json` for a fleet upgrade (`upgrade.py`) and its ledger of
+signed actions seen, `actions-seen.json` (`agentd.py` `ActionLedger`),
+in the same shape, a temporary beside the target, then a rename, and
+it takes no `agent_lock`. The ledger has two writers in one account:
+the control agent, and `bin/fabric-op`, the break-glass path that runs
+one signed action with no relay (`breakglass.py`, ADR-029 rule 19).
+Every read-modify-write of the ledger (`ActionLedger.claim`, `record`)
+holds an exclusive `flock` on the state directory itself
+(`ActionLedger._locked`, a 5 s wait, then an error). `accept()`'s earlier
+read of the floor takes no lock; the claim checks the floor again under
+it and records in the same step, so a floor one writer raised is never
+written back lower by the other and a request is claimed once. The
+control code's other state files (the pressure, switch, tools, gateway
+and carrier records, the role pool) are replaced whole by temporary and
+rename, and two are append-only logs: `fabric-op`'s journal,
+`fabric-op.jsonl`, and the account switch log, `account-switch.jsonl`
+(`switch_log.py`), each one `O_APPEND` write per batch of lines, mode
+0600. The role pool, `pool.json` (`pool.py`), is read, changed and
+replaced with no lock, and its writers are not one at a time even
+inside one control agent: `pool-add`, an action, runs in a thread beside
+the read loop that answers `pool-claim`, and `fabric-op` can run a
+`pool-add` in a second process. One of two such updates can be lost (a
+known gap, to close). The launcher is the other party to `restart.json`: after its
 session stopped it polls the marker until the control agent records the
 upgrade's outcome, or until `AGENT_FABRIC_RESTART_WAIT_S` (600 s by
 default) passes, then removes it; a marker the control agent writes
@@ -92,9 +111,10 @@ state file an obvious place to get its writer.
    `identity` and calls `atomic_write`, `update_binding`,
    `append_history` or `update_jobs`, the job list's writer (ADR-037)
    (A 2026-09-28). A new state file gets its writer added to
-   `runtime/identity.py`, not a rewrite in place elsewhere. The Node
-   control agent is the named exception (§2), and writes only by
-   temporary and rename. A self-contained transactional store (§2) is
+   `runtime/identity.py`, not a rewrite in place elsewhere. The control
+   code is the named exception (§2): it replaces a file only by temporary
+   and rename, and appends its logs (`fabric-op.jsonl`,
+   `account-switch.jsonl`) only by `O_APPEND` (A 2026-10-30). A self-contained transactional store (§2) is
    the other: `episodic.db`, written only by `tools/fabric/episodic.py`
    through its own transactions (A 2026-10-05). Two GZCoord logs are the
    third: `journal-bypass.jsonl` (ADR-041 rule 10), append-only, written
@@ -104,10 +124,16 @@ state file an obvious place to get its writer.
    `tools/fabric/gzcoord/send.py` and trimmed by rewrite, without
    `agent_lock` yet (a known gap, to close) (A 2026-10-05).
 2. Every read-modify-write of per-agent state holds `agent_lock`, except
-   the Node control agent's own files (§2), which only it writes and the
+   the control code's own files (§2), which only it writes and the
    launcher only consumes; `restart.json` has a second writer,
    `bin/fabric-fresh`, which replaces it whole through `atomic_write`
-   (A 2026-09-28).
+   (A 2026-09-28). `actions-seen.json`, written by the control agent and
+   by `fabric-op`, is checked and replaced (`claim`, `record`) only under
+   the `flock` on the state directory, never under `agent_lock`;
+   `accept()`'s first read of it is unlocked and decides nothing the
+   claim does not check again. `pool.json`'s unlocked read-modify-write,
+   raced by `pool-add` beside `pool-claim` within the control agent and
+   across `fabric-op`, is a known gap (A 2026-10-30).
 3. `read_binding` refuses a record that names another agent or whose
    `host` is not this machine's, with the same wording, and says how to
    bind here. A move between hosts is a rebind there.
@@ -156,3 +182,4 @@ The body above reads current; each change's full note is in [history/ADR-003-ame
 | 2026-10-05 | A self-contained transactional store is a writer class | §2, §5 rule 1: `episodic.db` (ADR-041) written only by `episodic.py`, through SQLite's own transactions |
 | 2026-10-05 | The GZCoord logs are a writer class | §5 rule 1: `journal-bypass.jsonl` and the send ledger, written by `bypass.py` and `send.py`; the ledger's unlocked trim named as a gap |
 | 2026-09-28 | The job list is per-agent state | §5 rule 1: `jobs.json` and its writer `update_jobs` |
+| 2026-10-30 | The action ledger has two writers, serialized by a flock on the state directory | §2, §5 rules 1–2: the control code in Python, not Node; `actions-seen.json` claimed by agentd and `fabric-op` under `ActionLedger._locked`; two append-only logs; `pool.json`'s unlocked rewrite a named gap |
