@@ -238,7 +238,7 @@ from fabric_jobs.branching import TYPES  # noqa: E402, F401
 from fabric_jobs.sweep import sweep  # noqa: E402, F401
 from fabric_jobs.tidy import tidy  # noqa: E402, F401
 from fabric_jobs.transfer import export_jobs, import_jobs  # noqa: E402, F401
-from fabric_jobs.verbs import decide, add, repoint, pool_list, pool_claim, list_jobs, show_job, switch_job, change  # noqa: E402, F401
+from fabric_jobs.verbs import decide, outside_copy, add, repoint, pool_list, pool_claim, list_jobs, show_job, switch_job, change  # noqa: E402, F401
 
 
 def main(argv: list[str] | None = None) -> int:
