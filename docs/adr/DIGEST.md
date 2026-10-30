@@ -157,7 +157,9 @@ its record disagree, the record wins. Look it up, never read it whole:
   are a writer class; the ledger's unlocked trim is a named gap (§5 rule 1).
 - A 2026-10-30 — `actions-seen.json` has two writers, agentd and
   `fabric-op`, whose claims hold a flock on the state directory, never
-  `agent_lock`; `pool.json`'s unlocked rewrite is a gap (§2, §5 rules 1–2).
+  `agent_lock` (§2, §5 rules 1–2).
+- A 2026-10-30 — `pool.json` is rewritten under a flock on
+  `pool.json.lock` (§2, §5 rule 2).
 - Keywords: state, binding, atomic write, lock, flock, rename, history,
   host, XDG_STATE_HOME, actions-seen.json, action ledger, fabric-op.jsonl.
 
@@ -468,30 +470,31 @@ its record disagree, the record wins. Look it up, never read it whole:
 ### ADR-020 — The review class is the review (Accepted)
 
 - The review class's blind review is the review of every PR: each head,
-  each finding's judgement, each fix range; no automated reviewer is
+  each finding's judgement, each fix range; no automated reviewer
   assumed (§5 rule 1).
 - Dispatch: `code-review`, `model: fable`, description "review…" or
   "re-review…", no isolation; the agent file's routed model decides
-  (§5 rules 2–3).
+  (rules 2–3).
 - The reviewer writes nothing; its brief is facts, never conclusions
-  (§5 rules 4–5).
-- Posted by `fabric-pr post-review` with the marker; counted only when marked
-  and posted by the PR's account or a named poster, or unmarked from a
-  trusted account (§5 rules 6–7). Legacy markers until the sunset (§5
-  rule 8).
+  (rules 4–5).
+- Posted by `fabric-pr post-review` with the marker; counted when marked
+  by the PR's account or a named poster, or unmarked from a trusted
+  account (§5 rules 6–7); legacy markers until the sunset (rule 8).
 - A 2026-10-05 — the reviewer inherits no secret: a clean environment
-  (§5 rule 4).
+  (rule 4).
 - A 2026-10-14 — the card governs from the base; only a `pinned`
-  review covers a head (§5 rules 9–10).
-- A 2026-10-15 — a pinned review reads a detached head worktree (§5
-  rule 10).
-- A 2026-10-16 — a review covers the commit it read (§5 rule 6).
+  review covers a head (rules 9–10).
+- A 2026-10-15 — a pinned review reads a detached head worktree (rule
+  10).
+- A 2026-10-16 — a review covers the commit it read (rule 6).
 - A 2026-10-22 — a supplier dispatches no review of its own part; the
-  caller reviews the folded head (§5 rule 11).
-- A 2026-10-24 — pinned read tools in a proved sandbox, no Bash (§5
-  rules 4, 6; ADR-065).
+  caller reviews the folded head (rule 11).
+- A 2026-10-24 — pinned read tools in a proved sandbox, no Bash (rules
+  4, 6; ADR-065).
 - A 2026-10-25 — the guard also knows a supplier by its active job's
-  `deliver_to` (§5 rule 11).
+  `deliver_to` (rule 11).
+- A 2026-10-30 — pre-commit hook and lint judge the card cap (rule
+  9).
 - Keywords: review, blind review, code-review, re-review, brief,
   fabric-review, post-review, pr-review-status, marker, coverage,
   review card, pinned, supplier.
@@ -658,11 +661,11 @@ its record disagree, the record wins. Look it up, never read it whole:
 
 ### ADR-029 — The control plane: a control agent per account answers signed actions over the relay (Accepted)
 
-- Each account's agentd answers on `fabric:control`; a request sent
-  while it is down is lost (§2, r1–2).
-- Closed op set, no field reaches a shell; actions carry a fresh,
-  newer Ed25519 operator signature (r3–5).
-- Replies carry no secret; silence or failure exits 1 (r6–9).
+- Each account's agentd answers `fabric:control`; down, a request is
+  lost (r1–2).
+- Closed op set, no field reaches a shell; actions carry fresh
+  Ed25519 operator signatures (r3–5).
+- Replies: no secret; silence, failure exit 1 (r6–9).
 - A 2026-09-27 — actions (r12).
 - A 2026-09-27 — answer budgets (r12).
 - A 2026-09-28 — jobs (r13).
@@ -671,7 +674,7 @@ its record disagree, the record wins. Look it up, never read it whole:
 - A 2026-10-06 — local, local-prune (r15).
 - A 2026-10-07 — session state (r16).
 - A 2026-10-07 — secrets-selftest (r17).
-- A 2026-10-08 — resumable state (r16).
+- A 2026-10-08 — resumable (r16).
 - A 2026-10-08 — public ops (r4).
 - A 2026-10-09 — forged claims (r4).
 - A 2026-10-09 — Scope.
@@ -680,7 +683,7 @@ its record disagree, the record wins. Look it up, never read it whole:
 - A 2026-10-10 — gateway ops (§2).
 - A 2026-10-12 — switch controller.
 - A 2026-10-18 — installer pins (§2).
-- A 2026-10-19 — rustup-target pins (§2).
+- A 2026-10-19 — rustup-target (§2).
 - A 2026-10-25 — install/read.
 - A 2026-10-25 — start/stop.
 - A 2026-10-26 — client.
@@ -689,9 +692,12 @@ its record disagree, the record wins. Look it up, never read it whole:
 - A 2026-10-26 — re-render.
 - A 2026-10-28 — InterWeave carrier (r18).
 - A 2026-10-30 — `fabric-op` (r19).
+- A 2026-10-30 — busy flocks; pool lock (r19).
+- A 2026-10-30 — budgets (r12).
+- A 2026-10-30 — hold (r13).
 - Keywords: fabric-ctl, keys, operator_key, usage, tokens, herdr,
   resume, interweave-evidence, interweave-human, fabric-control,
-  control_carrier, break-glass.
+  control_carrier, break-glass, busy.
 ### ADR-030 — Presence replaces HELLO and GOODBYE (Accepted)
 
 - Whether a session runs is the control agent's answer from its process
@@ -850,14 +856,14 @@ its record disagree, the record wins. Look it up, never read it whole:
 ### ADR-037 — Each agent keeps a job list (Accepted)
 
 - One list per login (`agents/<login>/jobs.json`, through
-  `runtime/identity.py`); seven states, one active at a time (§5 rules 1–2).
+  `runtime/identity.py`); seven states, one active (§5 rules 1–2).
 - `fabric-jobs switch` (alias `next`): after a worked job, the next starts
-  in a fresh session (`fabric-fresh --job <id>`); else in place (§5 rule 3).
-- Jobs come from the agent, the owner and a delivered REQUEST (§5 rules
+  fresh (`fabric-fresh --job <id>`); else in place (§5 rule 3).
+- Jobs come from the agent, the owner, a delivered REQUEST (§5 rules
   4–5, 11).
 - The owner reads every list (`fabric-ctl jobs`, §5 rule 6).
-- A 2026-10-08 — priority, never preempting; blocking rank; a role pool;
-  take the next (§5 rules 7–10).
+- A 2026-10-08 — priority, never preempting; blocking rank; a role pool
+  (§5 rules 7–10).
 - A 2026-10-09 — a stale waiter still blocks (§5 rule 8).
 - A 2026-10-09 — a REQUEST to a login is queued on its list (§5 rule 11).
 - A 2026-10-09 — a job may be a plan's step (§5 rule 11).
@@ -866,11 +872,12 @@ its record disagree, the record wins. Look it up, never read it whole:
 - A 2026-10-14 — `paused`; `fabric-jobs switch` (§5 rules 2, 10).
 - A 2026-10-15 — text reads as built.
 - A 2026-10-16 — landed delivered jobs swept to done (§5 rule 12).
-- A 2026-10-18 — no-artifact close with a reason (§5 rule 10).
-- A 2026-10-20 — commits fenced to the session's job copies (§5 rule 3).
+- A 2026-10-18 — no-artifact close, a reason (§5 rule 10).
+- A 2026-10-20 — commits fenced to job copies (§5 rule 3).
 - A 2026-10-21 — switch to clean targets, unbuilt (§5 rule 10).
-- Keywords: job, jobs.json, fabric-jobs, next, switch, paused, fresh
-  session, intake, priority, pool, claim, sweep.
+- A 2026-10-30 — fleet hold (§5 rule 13).
+- Keywords: job, jobs.json, fabric-jobs, next, switch, paused,
+  fresh session, intake, priority, pool, claim, sweep, fleet hold, unhold.
 
 ### ADR-038 — Each agent owns its key and its secrets (Accepted)
 

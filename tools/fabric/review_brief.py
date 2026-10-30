@@ -57,6 +57,7 @@ import uuid
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "runtime"))
 
+import review_card  # noqa: E402
 import review_lines  # noqa: E402
 
 FABRIC_ROOT = os.environ.get("AGENT_FABRIC_ROOT") or os.path.dirname(
@@ -84,14 +85,13 @@ JOB_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
 COUNT_RE = re.compile(r"^[1-9][0-9]*$")
 SHA_RE = re.compile(r"^[0-9a-f]{40}$")
 MANY_LENSES = 3
-# The project's own text a reviewer gets (agent-fabric ADR-020): the reviewer
-# runs without the project's instruction files (omitClaudeMd), so this card
-# is all of it, and it is re-sent every turn: a cap, refused over, not truncated.
+# The project's own text a reviewer gets (agent-fabric ADR-020); its path and
+# cap are review_card's, which the commit hook and lint judge by too.
 # It is read from the request's BASE commit, never the working tree or the
 # head: a change under review must not write its own rules of review. The
 # head's copy is evidence, and the card's own diff is in the reviewed range.
-CARD_PATH = ".agent-fabric/review-card.md"
-CARD_CAP = 2048
+CARD_PATH = review_card.CARD_PATH
+CARD_CAP = review_card.CARD_CAP
 
 # Verdict-shaped phrasing: the author's conclusion about the change, not
 # a fact about what must be true. Kept short and each one actionable —
@@ -393,8 +393,8 @@ def card(repo: object, base_sha: str | None) -> tuple[str | None, str | None]:
     r = _git(repo, "show", spec)
     if r.returncode != 0:
         return None, f"{spec}: the project review card cannot be read ({r.stderr.decode(errors='replace').strip()})"
-    if len(r.stdout) > CARD_CAP:
-        return None, f"{spec}: the project review card is {len(r.stdout)} bytes, over the {CARD_CAP}-byte cap; shorten it"
+    if review_card.over_cap(len(r.stdout)):
+        return None, review_card.refusal(spec, len(r.stdout))
     return r.stdout.decode("utf-8", errors="replace").strip(), None
 
 

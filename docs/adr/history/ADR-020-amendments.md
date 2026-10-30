@@ -127,3 +127,16 @@ renamed branch) was held by the rule alone. python-dev-01's j365 (#371,
 and the dispatching cwd is inside that job's worktree or working copy.
 The sentence now names both; a supplier outside both is still held by
 the rule alone. Raised by #371's blind review, F3.
+
+### Amendment 2026-10-30 — The card's cap is judged at commit and in CI
+
+§5 rule 9 set the card's cap, and only the brief renderer judged it,
+at review time: a managed project's card grew to 2396 bytes over two
+commits nothing refused, and every review of that project failed at
+render until it was cut back to 2048. The cap moves to
+`tools/fabric/review_card.py`, the one definition three judges read:
+the renderer as before; the pre-commit hook, which refuses any
+committer's commit that stages the card over the cap and judges no
+commit that leaves the card alone; and lint, which a project CI that
+lints its `.agent-fabric/` already runs, for what passed the hook
+(a `--no-verify` commit, a web edit). j475.

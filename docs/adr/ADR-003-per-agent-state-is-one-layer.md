@@ -60,12 +60,14 @@ and carrier records, the role pool) are replaced whole by temporary and
 rename, and two are append-only logs: `fabric-op`'s journal,
 `fabric-op.jsonl`, and the account switch log, `account-switch.jsonl`
 (`switch_log.py`), each one `O_APPEND` write per batch of lines, mode
-0600. The role pool, `pool.json` (`pool.py`), is read, changed and
-replaced with no lock, and its writers are not one at a time even
-inside one control agent: `pool-add`, an action, runs in a thread beside
-the read loop that answers `pool-claim`, and `fabric-op` can run a
-`pool-add` in a second process. One of two such updates can be lost (a
-known gap, to close). The launcher is the other party to `restart.json`: after its
+0600. The role pool, `pool.json` (`pool.py`), has writers that are not
+one at a time even inside one control agent: `pool-add`, an action,
+runs in a thread beside the read loop that answers `pool-claim`, and
+`fabric-op` can run a `pool-add` in a second process. Every
+read-modify-write of it holds an exclusive `flock` on a lock file beside
+it, `pool.json.lock` (`pool._locked`, a 5 s wait, then a refusal that
+changes nothing), not on the state directory, whose lock is the
+ledger's. The launcher is the other party to `restart.json`: after its
 session stopped it polls the marker until the control agent records the
 upgrade's outcome, or until `AGENT_FABRIC_RESTART_WAIT_S` (600 s by
 default) passes, then removes it; a marker the control agent writes
@@ -131,9 +133,10 @@ state file an obvious place to get its writer.
    by `fabric-op`, is checked and replaced (`claim`, `record`) only under
    the `flock` on the state directory, never under `agent_lock`;
    `accept()`'s first read of it is unlocked and decides nothing the
-   claim does not check again. `pool.json`'s unlocked read-modify-write,
-   raced by `pool-add` beside `pool-claim` within the control agent and
-   across `fabric-op`, is a known gap (A 2026-10-30).
+   claim does not check again (A 2026-10-30). `pool.json`, written by
+   `pool-add` beside `pool-claim` within the control agent and across
+   `fabric-op`, is read, changed and replaced only under the `flock` on
+   `pool.json.lock` (A 2026-10-30).
 3. `read_binding` refuses a record that names another agent or whose
    `host` is not this machine's, with the same wording, and says how to
    bind here. A move between hosts is a rebind there.
@@ -183,3 +186,4 @@ The body above reads current; each change's full note is in [history/ADR-003-ame
 | 2026-10-05 | The GZCoord logs are a writer class | §5 rule 1: `journal-bypass.jsonl` and the send ledger, written by `bypass.py` and `send.py`; the ledger's unlocked trim named as a gap |
 | 2026-09-28 | The job list is per-agent state | §5 rule 1: `jobs.json` and its writer `update_jobs` |
 | 2026-10-30 | The action ledger has two writers, serialized by a flock on the state directory | §2, §5 rules 1–2: the control code in Python, not Node; `actions-seen.json` claimed by agentd and `fabric-op` under `ActionLedger._locked`; two append-only logs; `pool.json`'s unlocked rewrite a named gap |
+| 2026-10-30 | The role pool is rewritten under its own lock | §2, §5 rule 2: `pool.json`'s read-modify-write holds a flock on `pool.json.lock` (#423); the gap is closed |

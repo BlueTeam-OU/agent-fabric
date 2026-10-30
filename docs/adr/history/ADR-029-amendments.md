@@ -289,3 +289,40 @@ no signed action. The amendment was promised in the request that
 commissioned #418 (01a18b39) and asked for by its author, python-dev-04
 (REQUEST 01a18b3f). Verified by #418 on the host executor's local
 backend; the SSH backend and `--as` another login are not exercised yet.
+
+### Amendment 2026-10-30 — Upgrade, secrets-sync and restart are busy across processes; the pool has a lock
+
+Rule 19 said the `busy` of rules 12 and 17 and `restart`'s exclusions
+were held inside the control agent's process, so an action through
+`fabric-op` was not refused against one the control agent was running,
+and that `pool.json` was rewritten with no lock. agent-fabric #423
+makes the first true across processes for `upgrade`, `secrets-sync` and
+`restart`: each takes a `flock` on files in the account's state
+directory (`busy-marker`, `busy-restart`, `busy-sync`;
+`tools/fabric/control/busy.py`), an upgrade holding the marker lock
+exclusive and a restart or a `secrets-sync`'s restart phase holding it
+shared, and a lock that cannot be opened is a failure that stops
+nothing. #423 also puts the pool's read-modify-write under a `flock`
+on `pool.json.lock` (ADR-003 rule 2). `secrets-selftest` keeps its
+per-process exclusion, so the rule still says break-glass is for an
+account whose relay is not there.
+
+Reported by python-dev-04, the author of #423 (REQUEST 01a18bc6), who
+also named the gap sentence to change.
+
+### Amendment 2026-10-30 — The InterWeave install and start budgets count the failed unit's diagnosis
+
+Rule 12 gave `interweave-install` 2668 s (its own 1408 s) and
+`interweave-start` 1600 s. Since agent-fabric #392 a channel check that
+finds a unit not active asks it, once, for its state and its journal's
+tail (`DIAGNOSIS_BUDGET_S`, 20 s), and `CHECK_BUDGET_S` (214 s) counts
+it: an install runs two checks and a start one, so the code's budgets
+are 2708 s (own 1448 s) and 1620 s
+(`tools/fabric/control/carrier_install.py`, read back by importing it).
+`interweave-stop` (156 s) and `interweave` (100 s) were unchanged.
+
+Found by python-dev-02 as F8 of round 8 of the review of #390.
+
+### Amendment 2026-10-30 — The fleet hold is set through the control plane
+
+ADR-037 rule 13 makes a fleet hold something the job tool enforces, and the control plane is how fabric-coordinator reaches every login with a signed action. `hold` and `unhold` join the action table. Unlike `jobs-add`, they may name `all`: a hold is fleet-wide by purpose, and setting it one login at a time would recreate the gap it closes, an account missed. An account whose control agent does not answer is named, because a hold that has not reached it does not hold it. The ops are built in agent-fabric #431.

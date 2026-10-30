@@ -80,6 +80,8 @@ sudo are in the loop.
 | `upgrade` | *action*: the account to the pinned Claude Code or to the merged fabric (ADR-009) |
 | `secrets-sync` | *action*: the account's store projected where its tools read it (ADR-038) |
 | `jobs-add` | *action*: the owner's job on the account's list (rule 13, ADR-037) |
+| `hold` | *action*: the fleet hold on the account's login, `reason` required and `decision` optional, written to its `hold.json` (rule 13, ADR-037 rule 13) |
+| `unhold` | *action*, no arguments: the login's `hold.json` removed; answered `none` when there was none (rule 13) |
 | `local-prune` | *action*: per-clone settings entries that duplicate a synced secret, removed (rule 15) |
 | `secrets-selftest` | *action*: a canary through the account's store and back (rule 17) |
 | `tools-install` | *action*: the one tool named, installed from what its project pins (`projects/registry.json` `install`): a release (version, https url, sha256, the hash checked before a byte is unpacked or run), an `installer` pin run once with fixed arguments after the same check (rustup-init), a `cargo` pin built by `cargo +<toolchain> install --locked --version =<v>`, which cargo checks against the crates.io index and Cargo.lock and nothing here hashes, or a `rustup-target` pin added by `rustup target add <target> --toolchain <toolchain>` through the account's rustup, both fields matched by pattern and proved by the install's own list (A 2026-10-19); skipped on an account with no working copy of a project that declares it (`tools/fabric/tools_install.py`) |
@@ -229,13 +231,15 @@ claimant (rule 4).
     a cargo pin's crate build needs, so a hung fetch or build is its
     verdict, not a silence), 300 s for `gateway-install`
     (its 240 s download bound, two 10 s version bounds and 40 s of margin), 100 s for
-    `interweave`, 2668 s for `interweave-install` (a 1200 s wait for the
+    `interweave`, 2708 s for `interweave-install` (a 1200 s wait for the
     host's download turn and 60 s of grace before the install's own
-    1408 s: the download, the archive, `install.sh`, the version runs and
-    two restart-and-check rounds), 1600 s for `interweave-start` (a
+    1448 s: the download, the archive, `install.sh`, the version runs and
+    two restart-and-check rounds), 1620 s for `interweave-start` (a
     600 s wait for the host's render turn; its rule-14 check polls the
     carrier's `status` up to 45 times, a cold carrier having taken 29 s
-    to open its socket with 26 roster rows),
+    to open its socket with 26 roster rows); each check of the two
+    includes 20 s to ask a unit that did not come up for its state and
+    its journal's tail,
     156 s for `interweave-stop`, 60 s a page for `interweave-evidence`
     (`fabric-ctl` sends one request per page, to every account whose
     next page starts at the same time), 480 s for
@@ -247,6 +251,10 @@ claimant (rule 4).
     peer sees whether a session runs, never another agent's list.
     `jobs-add` names one login, never `all`, and takes a one-line title,
     topic and project id (A 2026-09-28).
+    `hold` and `unhold` set and lift ADR-037 rule 13's fleet hold; they
+    name one login or `all`, `hold` takes a one-line reason and,
+    optionally, a `DECISION`'s `MESSAGE-ID`, and `fabric-ctl` names
+    every account that did not confirm (A 2026-10-30).
 **§5 rule 14 — withdrawn** (Amendment 2026-09-30): the `secrets-migrate`
 action moved every account from Doppler to its own store and retired
 with Doppler (ADR-038 §5 rule 8).
@@ -354,17 +362,23 @@ with Doppler (ADR-038 §5 rule 8).
       journal does not show (ADR-041 rule 10);
     - its reply is the record the relay would have carried, one JSON
       line, and `fabric-ctl` prints it as that account's row;
-    - the `busy` of rules 12 and 17 for `upgrade`, `secrets-sync` and
-      `secrets-selftest`, and `restart`'s own exclusion and its refusals
-      beside an upgrade or a `secrets-sync`, are held inside the control
-      agent's process: an action through `fabric-op` is not refused
-      against one the control agent is running at that moment; and
-      `pool.json` is rewritten with no lock, so `pool-add` can lose an
-      update beside a `pool-claim`, inside the control agent already and
-      across `fabric-op` too (ADR-003 §5 rule 2). The locks of `gateway-install` and of the three InterWeave
-      ops are file locks and do hold across both. Until every exclusion
-      spans processes, break-glass is for an account whose relay is not
-      there, not a second path beside a live one.
+    - the `busy` of rules 12 and 17 for `upgrade` and `secrets-sync`,
+      and `restart`'s own exclusion and its refusals beside an upgrade
+      or a `secrets-sync`, are `flock`s on three files in the account's
+      state directory, `busy-marker`, `busy-restart` and `busy-sync`
+      (`tools/fabric/control/busy.py`, agent-fabric #423), so the
+      control agent and `fabric-op` exclude each other: an upgrade
+      holds the marker lock exclusive, a restart or a `secrets-sync`'s
+      restart phase holds it shared beside its own, and a lock file
+      that cannot be opened is a failure that stops nothing, never
+      "nobody holds it". `pool.json` is rewritten under a `flock` on
+      `pool.json.lock` (ADR-003 §5 rule 2). The locks of
+      `gateway-install` and of the three InterWeave ops are file locks
+      too. The `busy` of `secrets-selftest` is still held inside the
+      control agent's process, so a self-test through `fabric-op` is
+      not refused against one the control agent is running. Until every
+      exclusion spans processes, break-glass is for an account whose
+      relay is not there, not a second path beside a live one.
     It is verified on the host executor's local backend; the SSH backend
     and `--as` another login are not yet exercised.
 
@@ -462,3 +476,6 @@ The body above reads current; each change's full note is in [history/ADR-029-ame
 | 2026-10-26 | A running InterWeave pair is re-rendered when the roster changed | §2 table: `interweave-start` |
 | 2026-10-28 | The records also ride InterWeave, through interweave-human, beside the relay | §2: the second-carrier bullet; §5 rule 18; §6 first and third bullets; §7 second-host bullet; §8: not built yet |
 | 2026-10-30 | fabric-op is the action path with no relay | Scope line: `bin/fabric-op`; §5 rule 19; §6 third bullet; §7 second-host bullet; References |
+| 2026-10-30 | Upgrade, secrets-sync and restart are busy across processes; the pool has a lock | §5 rule 19: the busy flocks of `busy.py` and `pool.json.lock` (#423); `secrets-selftest` the exclusion still per process |
+| 2026-10-30 | The InterWeave install and start budgets count the failed unit's diagnosis | §5 rule 12: `interweave-install` 2708 s (own 1448 s), `interweave-start` 1620 s |
+| 2026-10-30 | The fleet hold is set through the control plane | §2 table: `hold`, `unhold`; §5 rule 13: both may name `all`; built in #431 (ADR-037 rule 13) |

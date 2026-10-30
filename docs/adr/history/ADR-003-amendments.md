@@ -76,3 +76,17 @@ other file was an append-only log. §2 and rules 1 and 2 now say this;
 the Scope line names the control code's state writers.
 
 Reported by python-dev-04, the author of #418 (REQUEST 01a18b3f).
+
+### Amendment 2026-10-30 — The role pool is rewritten under its own lock
+
+The amendment before this one named `pool.json`'s unlocked
+read-modify-write as a gap: `pool-add` runs in a thread beside the read
+loop that answers `pool-claim`, and `fabric-op` can run a `pool-add` in
+a second process, so one of two updates could be lost. agent-fabric
+#423 closes it: every read-modify-write of the pool holds an exclusive
+`flock` on `pool.json.lock` beside it (`pool._locked`), and a holder
+that does not let go within 5 s is a refusal that changes nothing. The
+lock is a file beside the pool, not the state directory, whose `flock`
+is the action ledger's. §2 and rule 2 now say this.
+
+Reported by python-dev-04, the author of #423 (REQUEST 01a18bc6).

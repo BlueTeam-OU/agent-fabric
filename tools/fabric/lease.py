@@ -719,7 +719,10 @@ def acquire_cpu(leases: str, policy: CpuPolicy, label: str, wait_s: int, *,
         if len(unusable) == policy.slots:
             refuse(2, "unopenable", f"no cpu slot in {leases} can be used")
         now = monotonic()
-        who = f"{len(held)}/{policy.slots} held: " + ", ".join(describe_holder(h, wall()) for h in held)
+        # An unusable slot is never free to the caller, so "1/2 held" alone would
+        # read as a slot to wait for (review of #425, F5).
+        lost = f", {len(unusable)} unusable" if unusable else ""
+        who = f"{len(held)}/{policy.slots} held{lost}: " + ", ".join(describe_holder(h, wall()) for h in held)
         if now - started >= wait_s:
             if wait_s == 0:
                 refuse(75, "held", f"cpu is held ({who}) — retry later, or --wait SECS")
@@ -735,8 +738,12 @@ def cpu_child_env(env: dict[str, str] | os._Environ[str], slot: CpuSlot,
                   say: Callable[[str], None] = err) -> dict[str, str]:
     """The environment of a slot's child: its thread budget (item 2) and the
     switches that keep a long-lived build server from inheriting the slot and
-    holding it for good (item 6). A bound the caller set lower is kept; one set higher is
-    lowered, with a line, because the slot's share is the point."""
+    holding it for good (item 6). A CARGO_BUILD_JOBS or DOTNET_PROCESSOR_COUNT the caller
+    set lower is kept and any other value is replaced, silently. TEST_JOBS_ENV
+    differs: empty or unset becomes the slot's jobs, a number above them is
+    lowered with a line, and everything else is kept, 0 and non-numbers
+    included, because the suite that reads it owns what those mean. The slot's
+    share is the point."""
     j = str(slot.jobs)
     out = dict(env)
     for var in ("CARGO_BUILD_JOBS", "DOTNET_PROCESSOR_COUNT"):
@@ -754,7 +761,9 @@ def cpu_child_env(env: dict[str, str] | os._Environ[str], slot: CpuSlot,
     have = out.get(TEST_JOBS_ENV, "")
     if not have:
         out[TEST_JOBS_ENV] = j
-    elif NUMBER_RE.fullmatch(have) and int(have) > slot.jobs:
+    # A digit string of 10 or more is above any budget; the length test keeps
+    # int() off one past its conversion limit.
+    elif NUMBER_RE.fullmatch(have) and (len(have) >= 10 or int(have) > slot.jobs):
         say(f"fabric-lease: {TEST_JOBS_ENV}={have} lowered to {j} (cpu slot {slot.k}/{slot.n})\n")
         out[TEST_JOBS_ENV] = j
     return out

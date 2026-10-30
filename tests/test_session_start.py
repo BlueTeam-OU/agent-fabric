@@ -737,6 +737,54 @@ def says_the_job_list(tmp: str, relays: list) -> None:
     assert proc.returncode == 0 and "agent=" in ctx and "jobs —" not in ctx, proc.stdout + proc.stderr
 
 
+def test_hook_says_the_fleet_hold(tmp: str) -> None:
+    """A fleet hold (ADR-037 rule 13) is said on the jobs line with its
+    reason, decision and setter, also when the list is empty or cannot be
+    read; an unreadable hold.json is said as a hold; no hold, no word of one."""
+    state = os.path.join(tmp, "state"); agent_dir = os.path.join(state, "agents", id_un()); os.makedirs(agent_dir)
+    env = {**os.environ, "AGENT_FABRIC_ROOT": ROOT, "AGENT_FABRIC_STATE_DIR": state}
+    here = os.path.join(tmp, "here"); git_repo(here, "https://example.invalid/here.git")
+    hold_path = os.path.join(agent_dir, "hold.json")
+    decision = "01a18b15-0000-7000-8000-000000000000"
+    def hold(**fields) -> None:
+        with open(hold_path, "w", encoding="utf-8") as fh:
+            json.dump({"agent": id_un(), "reason": "dual-run window", "decision": decision,
+                       "set_by": "develop-qzapp/user", "set_at": "2026-10-30T10:00:00Z", **fields}, fh)
+    # The control: no hold, an empty list, nothing said.
+    assert "jobs —" not in (ctx := context_of(run_hook({"cwd": here}, env))) and "FLEET HOLD" not in ctx, ctx
+    hold()
+    ctx = context_of(run_hook({"cwd": here}, env))
+    assert "jobs — none open. FLEET HOLD: dual-run window (decision " + decision in ctx \
+        and "set by develop-qzapp/user" in ctx and "Take no new job" in ctx, ctx
+    jobs = lambda *a: subprocess.run([os.path.join(ROOT, "bin", "fabric-jobs"), *a], cwd=here, env=env,  # noqa: E731
+                                     capture_output=True, text=True, check=False)
+    jobs("add", "queued while held")
+    ctx = context_of(run_hook({"cwd": here}, env))
+    assert "jobs — none active; 1 queued. FLEET HOLD: dual-run window" in ctx and "`fabric-jobs switch` starts" not in ctx, ctx
+    # A job started before the hold: the line names it and the hold together.
+    os.unlink(hold_path); assert jobs("start", "j1").returncode == 0; hold()
+    ctx = context_of(run_hook({"cwd": here}, env))
+    assert "jobs — active j1: queued while held; nothing waiting (`fabric-jobs list`). FLEET HOLD: dual-run window" in ctx, ctx
+    # A job list the hook cannot read, or cannot render, does not hide the hold, and is never said to be empty.
+    for body in ("{ not json", json.dumps({"jobs": [{"id": "j1", "state": "active", "title": 5}]})):
+        with open(os.path.join(agent_dir, "jobs.json"), "w", encoding="utf-8") as fh:
+            fh.write(body)
+        ctx = context_of(run_hook({"cwd": here}, env))
+        assert "jobs — the list could not be read" in ctx and "FLEET HOLD: dual-run window" in ctx and "none open" not in ctx, (body, ctx)
+    os.unlink(os.path.join(agent_dir, "jobs.json"))
+    # A hold.json that is not a hold is a hold: somebody wrote it to stop job starts.
+    with open(hold_path, "w", encoding="utf-8") as fh:
+        fh.write("{ not json")
+    ctx = context_of(run_hook({"cwd": here}, env))
+    assert "FLEET HOLD: hold unreadable: identity: " in ctx, ctx
+    with open(hold_path, "w", encoding="utf-8") as fh:
+        fh.write("[" * 200000)     # json.load raises RecursionError, not ValueError (review of #429, F1)
+    ctx = context_of(run_hook({"cwd": here}, env))
+    assert "FLEET HOLD: hold unreadable: " in ctx and "RecursionError" in ctx, ctx
+    os.unlink(hold_path)
+    assert "FLEET HOLD" not in context_of(run_hook({"cwd": here}, env))
+
+
 def clone_config() -> str:
     return subprocess.run(["git", "-C", ROOT, "config", "--local", "--list"], capture_output=True, text=True,
                           check=True, timeout=30, env=git_env()).stdout
@@ -815,6 +863,7 @@ def main() -> int:
              test_hook_says_when_the_session_has_no_inbox_watch,
              test_hook_says_when_the_branch_sweep_is_due,
              test_hook_says_the_job_list,
+             test_hook_says_the_fleet_hold,
              test_hook_says_missing_tools,
              test_bootstrap_restarts_the_control_agent_unless_its_caller_is_the_control_agent,
              test_bootstrap_writes_only_the_workspace_and_home_files]

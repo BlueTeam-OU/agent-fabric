@@ -4,7 +4,7 @@
 **Status:** Accepted
 **Ratified:** owner, 2026-09-27, by arming agent-fabric #52 (ratification by merge, the owner's rule of 2026-09-27)
 **Decision Makers:** the owner; drafted by fabric-coordinator
-**Scope:** runtime/claude-code/agents/code-review.md; runtime/claude-code/hooks/agent-dispatch-guard.sh and review-bash-guard.sh; runtime/claude-code/aliases.json; routing/capabilities.json and routing/policies/review-grade.json (the class's model); bin/fabric-review and tools/fabric/review_brief.py; fabric-pr post-review, fabric-pr review-status, fabric-pr gate; policies/subagent-dispatch/SKILL.md
+**Scope:** runtime/claude-code/agents/code-review.md; runtime/claude-code/hooks/agent-dispatch-guard.sh and review-bash-guard.sh; runtime/claude-code/aliases.json; routing/capabilities.json and routing/policies/review-grade.json (the class's model); bin/fabric-review, tools/fabric/review_brief.py and tools/fabric/review_card.py (the card's cap, which tools/fabric/guards/commit_hooks.py and tools/fabric/lint_rules/card.py judge by too); fabric-pr post-review, fabric-pr review-status, fabric-pr gate; policies/subagent-dispatch/SKILL.md
 **Pillar:** P3
 **Evidence:** docs/live-checks/2026-09-16-review-context-boundary.md
 
@@ -149,7 +149,14 @@ outage procedure.
    unconditionally: what a reviewer needs of a project is the card, the
    brief, the lenses and the tree. Where a project has no card yet, its
    reviewer gets no project text but the brief, the lenses and the tree;
-   the gzapp and InterWeave cards are to follow.
+   the gzapp and InterWeave cards are to follow. The cap is
+   `tools/fabric/review_card.py`'s `CARD_CAP` (2048 bytes), and three
+   judge it by that one definition: the renderer, which refuses a card
+   over it and never cuts one; the pre-commit hook, which refuses any
+   committer's commit that stages the card over it, and judges no commit
+   that leaves the card alone; and lint, which every project CI that
+   lints its `.agent-fabric/` runs, for what reached the tree past the
+   hook.
 10. **A review names its evidence mode, and only a pinned review covers a
     head.** A request is `evidence: pinned` (the default for a ranged
     request; a diff file names no commits and is working-tree) or
@@ -250,3 +257,4 @@ The body above reads current; each change's full note is in [history/ADR-020-ame
 | 2026-10-22 | A supplier dispatches no review of its own part | §5 rule 11: the caller folds every supply and dispatches the one blind review of the head; a supplier sends its own checks, never a review-class review; the dispatch guard denies a review from a `for/` branch |
 | 2026-10-24 | The reviewer reads through pinned tools and posts nothing headerless | §5 rule 4: no Bash, the fabric-review tools and a proved sandbox (ADR-065); rule 6: no headerless `--head` post |
 | 2026-10-25 | The guard also knows a supplier by its job | §5 rule 11: the dispatch guard denies a review from inside the active job's worktree or working copy when the job has a `deliver_to`, on any branch |
+| 2026-10-30 | The card's cap is judged at commit and in CI | §5 rule 9: `CARD_CAP` lives in `tools/fabric/review_card.py`; the pre-commit hook refuses a commit that stages the card over it, whoever commits, and lint refuses a tree that holds one, so a project CI catches what passed the hook; a project's card had grown past it over two commits that nothing refused |
