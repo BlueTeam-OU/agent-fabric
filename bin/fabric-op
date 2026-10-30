@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+# bin/fabric-op — run one signed control action here, without the relay.
+#
+#   hostexec <host> --as <login> -- @fabric/bin/fabric-op <op>      (one signed request on stdin)
+#   fabric-ctl <login> <action-op> ... --via hostexec               (builds, signs and sends it)
+#
+# The break-glass path to an account whose relay is not there (j422 F3): the
+# decision is agentd's own (accept(), the same operators, keys, ttl and action
+# ledger), the op is agentd's own answer(); what it adds, what it refuses and
+# its journal are in tools/fabric/control/breakglass.py. Exit 0 ok, 1 the op
+# failed, 2 refused (nothing run).
+set -uo pipefail
+ROOT="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/.." && pwd)"
+export AGENT_FABRIC_ROOT="${AGENT_FABRIC_ROOT:-$ROOT}"
+# The fleet's pinned Python (runtime/python.json, ADR-040), one per host;
+# AGENT_FABRIC_PYTHON points elsewhere for a test or a host without it.
+py="${AGENT_FABRIC_PYTHON:-/usr/local/bin/fabric-python}"
+[[ -x "$py" ]] || { echo "fabric-op: the fleet's pinned Python is not installed at $py; as root: /usr/bin/python3 <agent-fabric>/tools/fabric/python_pin.py install" >&2; exit 127; }
+exec "$py" "$ROOT/tools/fabric/control/breakglass.py" "$@"
