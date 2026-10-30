@@ -232,3 +232,60 @@ identical, nothing is touched (`already_running`); different, the file
 is replaced and both units restarted and checked (`rerendered`). One
 `fabric-ctl all interweave-start` brings the fleet onto the current
 roster, as it will for every new row. The §2 row says so.
+
+### Amendment 2026-10-28 — The records also ride InterWeave, through interweave-human, beside the relay
+
+What changed: rule 18 makes InterWeave a second carrier for the
+control records, through the command-line client `interweave-human`,
+which agentd runs as one supervised child holding the profile's
+`fabric-control` endpoint (listen with input, consume and an endpoint
+named, InterWeave #477 in v0.2.0). It is off per account until
+`control_carrier` says `dual`; the relay stays the transport of record
+until the owner's word on a parity report. §2 says so, §6 narrows the
+unauthenticated-sender consequence to the relay copy, §7's second host
+now goes by InterWeave instead of a relay URL. While both carriers
+run, an account splits a drain or evidence reply once, at the InterWeave
+bound, and sends the same parts by both, so either copy reassembles; the
+InterWeave copy of a part is kept where both arrive; the row is the
+PeerId-authenticated InterWeave copy, and a differing relay
+copy is flagged. §8 says rule 18 is not built yet.
+
+Why: the owner, 2026-10-27, confirmed in the coordinator's session and
+relayed first by architect-cto (DECISION 01a17bd3): the control plane
+rides InterWeave, each control agent driving the InterWeave CLI, so
+agents can move to remote hosts. ADR-064 §1 had ruled the CLI out as a
+carrier (one lease, no input, a store that keeps what it prints);
+InterWeave changed it for this (G1-G4, G6 of the j422 plan), and
+architect-cto ruled the two leases in one profile compatible (X2).
+The design, its alternatives and the second-host plan are
+`docs/proposals/j422-control-plane-on-interweave-cli.md`; the
+second-host amendment waits for a named host.
+
+### Amendment 2026-10-30 — fabric-op is the action path with no relay
+
+What changed: rule 19 names `bin/fabric-op` (agent-fabric #418) as the
+one way a signed action reaches an account with no relay. The operator
+sends it with `fabric-ctl <login> <action-op> … --via hostexec`; the
+account decides it with agentd's own `accept()` against the same action
+ledger, so a request is run once whichever path carries it, and runs it
+through agentd's own `answer()`. Beyond `accept()` it refuses reads, a
+`to` holding `*`, and an argv op the signature does not cover, and
+journals each run on both ends before it starts. §6 says it is the only
+action when the relay is down; §7's second host names it as the SSH
+fallback. Rule 19 also records what #418 does not do: the `busy` of
+rules 12 and 17 (`upgrade`, `secrets-sync`, `secrets-selftest`) and
+`restart`'s exclusions are decided inside the control agent's process,
+and `pool.json` is rewritten with no lock (a race inside the control
+agent already, ADR-003 rule 2), so a `fabric-op` action is
+not excluded against one the control agent is running, and break-glass
+stays for an account whose relay is not there. The blind review of
+#422 found the first version of the rule naming only `upgrade` and
+`secrets-sync`.
+
+Why: the owner chose this path on 2026-10-27 (j422, Q6 "option a for
+now"): an account with no relay — a second host before its carrier is
+up — was otherwise reachable only by a plain `fabric-host` run, which is
+no signed action. The amendment was promised in the request that
+commissioned #418 (01a18b39) and asked for by its author, python-dev-04
+(REQUEST 01a18b3f). Verified by #418 on the host executor's local
+backend; the SSH backend and `--as` another login are not exercised yet.

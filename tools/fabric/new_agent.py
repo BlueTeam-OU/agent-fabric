@@ -140,6 +140,7 @@ import tempfile
 
 HERE = os.path.dirname(os.path.realpath(__file__))
 sys.path.insert(0, HERE)
+import project_clone as pc  # noqa: E402
 import roots  # noqa: E402
 from provisioning import config as cfg  # noqa: E402
 from provisioning.new_agent_args import HELP, Exit, die, parse, parse_signing_key_only, say  # noqa: E402
@@ -155,11 +156,8 @@ def project_remote(pid: str) -> str | None:
     names none), or None when the registry does not hold it."""
     try:
         with open(roots.projects_registry(engine=cfg.ROOT), encoding="utf-8") as fh:
-            p = (json.load(fh).get("projects") or {}).get(pid)
-        if not p:
-            return None
-        return next((x for x in p["remotes"] if x.startswith("git@")), p["remotes"][0])
-    except (OSError, ValueError, KeyError, IndexError, TypeError, AttributeError):
+            return pc.registry_remote(fh.read(), pid)
+    except (OSError, ValueError):
         return None
 
 

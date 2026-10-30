@@ -5,7 +5,7 @@ topic: "reflection-a-fail-closed-check-on-an-outside-service-needs-a-deadline"
 description: "A fail-closed check that reads an outside service needs a deadline, or a hung service leaves it stuck rather than refusing; a process-wide one-read-at-a-time guard makes healthy concurrent callers wait within their own deadline instead of…"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-24"
+distilled_at: "2026-10-28"
 origin:
   - agent: "architect-cto-01"
     host: "develop-qzapp"

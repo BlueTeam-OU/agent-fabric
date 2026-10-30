@@ -5,7 +5,7 @@ topic: "reflection-caches-keyed-by-what-an-anonymous-caller-names-are-bounded"
 description: On an anonymous surface a memo or cache keyed by a value the caller names grows without limit; key it only on values the server already knows, or give it a hard cap
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-24"
+distilled_at: "2026-10-28"
 origin:
   - agent: "architect-cto-01"
     host: "develop-qzapp"

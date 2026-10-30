@@ -11,6 +11,10 @@ throwaway profile. The messages are real INFO messages between the two logins,
 journaled and logged by the carrier like any other; their subject says what
 they are.
 
+Each account names the other one in J92_PEER (its login): the roster holds
+every admitted account but not which two are under test, so check, serve,
+exchange and portcheck refuse without it (stop needs none).
+
 The accounts agree on one number, J92_RUN (milliseconds since the epoch, e.g.
 `date +%s%3N`), which makes the MESSAGE-IDs of the run: a rerun uses a new one,
 or the daemon's duplicate window would swallow it. What the accounts share is
@@ -36,6 +40,7 @@ readable by all): each account's results.
 """
 from __future__ import annotations
 
+import dataclasses
 import hashlib
 import json
 import os
@@ -61,6 +66,7 @@ HOST = socket.gethostname().split(".")[0]
 CMD = os.path.join(ROOT, "bin", "gzcoord-carrier")
 RELEASE = os.path.join(ROOT, "runtime", "interweave", "release.json")
 ROSTER = os.path.join(ROOT, "runtime", "interweave", "roster.json")
+PEER = os.environ.get("J92_PEER", "")  # the other account; the roster holds every admitted account since 0.2.0 rolled out
 FREE_PORT_OFFSET = 90  # own roster port + 90, in the roster's range: two accounts' controls never meet
 
 
@@ -113,10 +119,21 @@ def judged_roster():
     from gzcoord.carrier import roster
     r = roster.load(ROSTER)
     good, refused = roster.valid_rows(r, roster.GitMainKeys(paths.operator_root()))
+    # only the pair under test: a config naming 28 absent peers is not this check
+    good = [row for row in good if row["login"] in (LOGIN, PEER)]
+    r = dataclasses.replace(r, rows=tuple(row for row in r.rows if row["login"] in (LOGIN, PEER)))
     return r, good, refused
 
 
+def peer_refusal() -> str | None:
+    if not PEER or PEER == LOGIN:
+        return "J92_PEER must name the other account's login"
+    return None
+
+
 def phase_check() -> int:
+    if (why := peer_refusal()):
+        return die(why)
     build = pinned_build()
     for prog, want in build["reports"].items():
         path = os.path.join(BIN, prog)
@@ -162,6 +179,8 @@ def until(cond, seconds: float = 60.0) -> bool:
 
 
 def phase_serve() -> int:
+    if (why := peer_refusal()):
+        return die(why)
     from gzcoord.carrier import roster, server
     if phase_check():
         return 2
@@ -224,6 +243,8 @@ def mid_of(sender: str, tag: str, t0: int) -> str:
 
 
 def phase_exchange() -> int:
+    if (why := peer_refusal()):
+        return die(why)
     import episodic
     from gzcoord.carrier import CARRIER_NAME, record, server
     try:
@@ -231,8 +252,7 @@ def phase_exchange() -> int:
     except (KeyError, ValueError):
         return die("J92_RUN must be the run's number in milliseconds, the same for both accounts")
     sock = server.socket_path(os.environ["XDG_RUNTIME_DIR"])
-    doc = json.load(open(ROSTER, encoding="utf-8"))
-    other = next(row["login"] for row in doc["rows"] if row["login"] != LOGIN)
+    other = PEER
     out: dict[str, object] = {"login": LOGIN, "other": other, "run": t0, "sent": {}}
     arr = os.path.join(episodic.state_dir(), "gzcoord-arrivals.jsonl")
     outbox = os.path.join(episodic.state_dir(), CARRIER_NAME)
@@ -282,10 +302,12 @@ def phase_exchange() -> int:
 
 def phase_portcheck() -> int:
     from gzcoord.carrier import roster
+    if (why := peer_refusal()):
+        return die(why)
     if phase_check():
         return 2
     doc = json.load(open(ROSTER, encoding="utf-8"))
-    theirs = next(row["port"] for row in doc["rows"] if row["login"] != LOGIN)
+    theirs = next(row["port"] for row in doc["rows"] if row["login"] == PEER)
     free = next(row["port"] for row in doc["rows"] if row["login"] == LOGIN) + FREE_PORT_OFFSET
     # The control that makes a refusal mean something: the port is held right now.
     try:
@@ -357,11 +379,18 @@ def phase_stop() -> int:
     return 0
 
 
+ENVIRONMENT = '''environment:
+  J92_PEER   the other account's login (check, serve, exchange, portcheck)
+  J92_RUN    the run's number in ms, the same for both accounts (exchange)
+  J92_SHARE  directory for the accounts' results (default /var/tmp/j92-live-share)
+  J92_WORK   this account's scratch directory (default ~/j92-live)'''
+
+
 def main(argv: list[str]) -> int:
     phases = {"check": phase_check, "serve": phase_serve, "exchange": phase_exchange,
               "portcheck": phase_portcheck, "stop": phase_stop}
     if len(argv) != 1 or argv[0] not in phases:
-        print(__doc__.split("\n\n")[0] + "\nusage: " + " | ".join(phases), file=sys.stderr)
+        print(__doc__.split("\n\n")[0] + "\nusage: " + " | ".join(phases) + "\n" + ENVIRONMENT, file=sys.stderr)
         return 1
     return phases[argv[0]]()
 

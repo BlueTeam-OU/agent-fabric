@@ -41,7 +41,7 @@ its record disagree, the record wins. Look it up, never read it whole:
 | which Claude account a login runs on; moving logins; setup-token; usage windows | ADR-031 |
 | changing the GZCoord protocol; the grammar freeze; GZCOORD/2 | ADR-032 |
 | the relay; the human relay; transports; Telegram; the adapter contract | ADR-033 |
-| what a failure may take; single points; degraded modes | ADR-034 |
+| what a failure may take; single points; degraded modes; the scheduled drain | ADR-034 |
 | working with another organization; portable trust; what may be shared | ADR-035 |
 | cost per verified result; spend; shared resources | ADR-036 |
 | your job list; fabric-jobs; the next job and a fresh session | ADR-037 |
@@ -138,10 +138,11 @@ its record disagree, the record wins. Look it up, never read it whole:
 
 - Every write under `agents/<login>/` goes through `runtime/identity.py`:
   `atomic_write`, `update_binding`, `append_history`; no caller opens a
-  state file for writing. The Node control agent, which cannot import it,
-  writes by temporary and rename (§5 rule 1).
+  state file for writing. The control code (`tools/fabric/control/`)
+  replaces its own files by temporary and rename and appends its logs
+  (§5 rule 1).
 - Every read-modify-write holds `agent_lock`, a re-entrant flock, except
-  the Node control agent's own files, which only it writes and the
+  the control code's own files, which only it writes and the
   launcher only consumes (§5 rule 2).
 - A binding is per (agent, host); another host's is refused (§5 rule 3).
 - A working-copy rename merges history, never overwrites (§5 rule 4); the
@@ -154,8 +155,11 @@ its record disagree, the record wins. Look it up, never read it whole:
   transactional store written only by `episodic.py` (§5 rule 1).
 - A 2026-10-05 — the GZCoord logs (`journal-bypass.jsonl`, the send ledger)
   are a writer class; the ledger's unlocked trim is a named gap (§5 rule 1).
+- A 2026-10-30 — `actions-seen.json` has two writers, agentd and
+  `fabric-op`, whose claims hold a flock on the state directory, never
+  `agent_lock`; `pool.json`'s unlocked rewrite is a gap (§2, §5 rules 1–2).
 - Keywords: state, binding, atomic write, lock, flock, rename, history,
-  host, XDG_STATE_HOME.
+  host, XDG_STATE_HOME, actions-seen.json, action ledger, fabric-op.jsonl.
 
 ### ADR-004 — Adding a role without breaking anyone's CI (Accepted)
 
@@ -654,25 +658,24 @@ its record disagree, the record wins. Look it up, never read it whole:
 
 ### ADR-029 — The control plane: a control agent per account answers signed actions over the relay (Accepted)
 
-- Each account's agentd answers on `fabric:control`; a request while
-  it is down is lost (§2, rules 1–2).
-- A closed op set; no request field reaches a shell; actions carry a
-  fresh Ed25519 operator signature, newer than the last (rules 3–5).
-- Replies carry no secret; a gap is named; silence or failure exits 1
-  (rules 6–9).
-- A 2026-09-27 — actions (rule 12).
-- A 2026-09-27 — answer budgets (rule 12).
-- A 2026-09-28 — jobs (rule 13).
-- A 2026-09-29 — secrets-migrate (rule 14).
-- A 2026-09-30 — rule 14 withdrawn.
-- A 2026-10-06 — local, local-prune (rule 15).
-- A 2026-10-07 — session state (rule 16).
-- A 2026-10-07 — secrets-selftest (rule 17).
-- A 2026-10-08 — resumable state (rule 16).
-- A 2026-10-08 — public ops (rule 4).
-- A 2026-10-09 — forged claims (rule 4).
+- Each account's agentd answers on `fabric:control`; a request sent
+  while it is down is lost (§2, r1–2).
+- Closed op set, no field reaches a shell; actions carry a fresh,
+  newer Ed25519 operator signature (r3–5).
+- Replies carry no secret; silence or failure exits 1 (r6–9).
+- A 2026-09-27 — actions (r12).
+- A 2026-09-27 — answer budgets (r12).
+- A 2026-09-28 — jobs (r13).
+- A 2026-09-29 — secrets-migrate (r14).
+- A 2026-09-30 — r14 withdrawn.
+- A 2026-10-06 — local, local-prune (r15).
+- A 2026-10-07 — session state (r16).
+- A 2026-10-07 — secrets-selftest (r17).
+- A 2026-10-08 — resumable state (r16).
+- A 2026-10-08 — public ops (r4).
+- A 2026-10-09 — forged claims (r4).
 - A 2026-10-09 — Scope.
-- A 2026-10-09 — `tools-install` (rules 3, 12).
+- A 2026-10-09 — `tools-install` (r3, r12).
 - A 2026-10-09 — closed jobs (§2).
 - A 2026-10-10 — gateway ops (§2).
 - A 2026-10-12 — switch controller.
@@ -684,8 +687,11 @@ its record disagree, the record wins. Look it up, never read it whole:
 - A 2026-10-26 — ports.
 - A 2026-10-26 — evidence.
 - A 2026-10-26 — re-render.
-- Keywords: agentd, fabric-ctl, keys, operator_key, usage,
-  tokens, herdr, resume, gateway, switch, evidence, interweave-evidence.
+- A 2026-10-28 — InterWeave carrier (r18).
+- A 2026-10-30 — `fabric-op` (r19).
+- Keywords: fabric-ctl, keys, operator_key, usage, tokens, herdr,
+  resume, interweave-evidence, interweave-human, fabric-control,
+  control_carrier, break-glass.
 ### ADR-030 — Presence replaces HELLO and GOODBYE (Accepted)
 
 - Whether a session runs is the control agent's answer from its process
@@ -777,6 +783,7 @@ its record disagree, the record wins. Look it up, never read it whole:
 - A 2026-09-30 — the relay token comes from the account's own store (§5 rule 6).
 - A 2026-10-04 — cccc recorded among the refused alternatives (§3).
 - A 2026-10-13 — a persona marked as AI is not a human-style identity (§5 rule 3).
+- A 2026-10-28 — a second host is reached over InterWeave (§7).
 - Keywords: transport, relay, Claude-Bridge, claude-bridge,
   gzcoord-relay, human relay, fallback, Telegram, adapter contract,
   channel, gzapp:gzcoord, bridge token, central, single point of failure.
@@ -797,8 +804,10 @@ its record disagree, the record wins. Look it up, never read it whole:
   restore was read back (§7).
 - A 2026-09-30 — the inventory's key and secrets rows name the stores; Doppler is gone (§1, §5 rule 4).
 - A 2026-10-27 — the relay's database is scheduled to be copied every 6 h to Proton Drive, encrypted and signed, restore read back; §1, §6, §7 say so.
+- A 2026-10-28 — undrained memory has a daily copy (restore unread); §7 step 3 decided: a weekly timer collects every account's drain bundle, a 14-day age bound, a report and one drain job; landing stays reviewed (§1, §2, §6, §7).
 - Keywords: decentralization, resilience, single point of failure,
-  degraded mode, relay, host, crash, backup, autonomy, P5.
+  degraded mode, relay, host, crash, backup, autonomy, P5,
+  scheduled drain, drain timer, undrained memory, state backup.
 
 ### ADR-035 — Federation between organizations: expertise transfers, confidential information does not; portable trust first (Accepted)
 
@@ -1392,11 +1401,11 @@ its record disagree, the record wins. Look it up, never read it whole:
 ### ADR-064 — GZCoord carried over InterWeave: one host, beside the relay (Accepted)
 
 - One host, loopback only, is the first milestone; a second host the
-  next, by amendment; the control plane on the relay (rules 1, 12).
-- Dual run: every message by both carriers, the relay the transport of
-  record and ADR-033 rule 7 unchanged; the journal collapses by
-  MESSAGE-ID; a switch is an ADR-033 amendment on the owner's word over a
-  parity report (rule 11).
+  next, by amendment; control on its own `fabric-control` endpoint
+  via `interweave-human` (rules 1, 12).
+- Dual run: both carriers, the relay of record (ADR-033 rule 7
+  unchanged); the journal collapses by MESSAGE-ID; switching: an
+  ADR-033 amendment on the owner's word over a parity report (rule 11).
 - The carrier: the fabric's own client, not `interweave-human` or
   `claude-channel` (rule 5).
 - A roster keyed by agent id, each row signed by its login and
@@ -1408,16 +1417,16 @@ its record disagree, the record wins. Look it up, never read it whole:
   compress, then chunk, past 48 KiB; FROM checked against the PeerId;
   no transport-native value as metadata (rules 6-10).
 - A 2026-10-24 — zlib; receipts; CARRIER-CONTRACT.md (rules 7, 8).
-- A 2026-10-25 — an install is a control-plane action, checked after
-  the restart (rule 14).
+- A 2026-10-25 — install, a checked control action (rule 14).
 - A 2026-10-26 — roster ports reserved (rule 1).
 - A 2026-10-26 — evidence (rule 11).
 - A 2026-10-27 — one host a milestone (rule 1).
 - A 2026-10-28 — pin v0.2.0 (§8).
-- Parity report from arrival logs: missed, duplicate, offline counts,
-  a rollback drill (rule 11).
-- Built on release.json's pin (§8).
-- Keywords: InterWeave, carrier, relay, P5.
+- A 2026-10-28 — control via `interweave-human` (§3, rules 12, 14).
+- Parity from arrival logs: missed, duplicate, offline counts, a
+  rollback drill (rule 11); built on release.json's pin (§8).
+- Keywords: InterWeave, carrier, relay, P5, interweave-human,
+  fabric-control.
 
 ### ADR-065 — The reviewer reads through pinned tools, says what it covered, and the next round starts where the last one stopped (Accepted)
 

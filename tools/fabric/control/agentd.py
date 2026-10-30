@@ -93,10 +93,13 @@ WHERE THE PORT DIFFERS (each listed because a reader of the Node would look):
     their context keys.
   - the carrier's install and read (control/carrier_install.py) are Python-only likewise:
     carrier_install_opts and carrier_opts.
+  - `clone` (control/clone.py) is Python-only: clone_opts is its context key.
 """
 from __future__ import annotations
 
+import contextlib
 import errno
+import fcntl
 import math
 import os
 import subprocess
@@ -104,7 +107,7 @@ import sys
 import threading
 import time
 from concurrent.futures import Future
-from typing import Any, Callable, Iterable
+from typing import Any, Callable, Iterable, Iterator
 
 # Run as a script, this directory would lead sys.path and its queue.py would
 # shadow the standard library's for any module importing it (gzcoord.py).
@@ -112,7 +115,7 @@ if sys.path and os.path.realpath(sys.path[0] or ".") == os.path.dirname(os.path.
     sys.path[0] = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
 else:
     sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.realpath(__file__))))
-from control import gateway as gateway_mod, carrier_install as carrier_mod, carrier_evidence as evidence_mod, gzcoord, js, ops, pressure, sessions, tools as tools_mod  # noqa: E402
+from control import clone as clone_mod, gateway as gateway_mod, carrier_install as carrier_mod, carrier_evidence as evidence_mod, gzcoord, js, ops, pressure, sessions, tools as tools_mod  # noqa: E402
 from control.gzcoord import FABRIC_ROOT  # noqa: E402
 from control.carrier_install import CARRIER_NAME, INSTALL_OP, START_OP, STOP_OP  # noqa: E402
 from control.jobs import jobs_add  # noqa: E402
@@ -224,6 +227,7 @@ USAGE_CACHE_MS = 10000
 ACCOUNTS_KEEPALIVE_MS = 4 * 3600 * 1000
 ACTION_CLOCK_SKEW_MS = 60 * 1000
 ACCOUNTS_CACHE_MS = 5 * 60 * 1000
+LEDGER_LOCK_WAIT_S = 5.0
 # Reads that run beside the read loop, like the actions: each can take
 # minutes, and the loop must keep answering behind it. `gateway` hashes
 # the installed binary and runs it, up to ten seconds; `branches` asks git of every working copy of the account
@@ -362,13 +366,36 @@ class ActionLedger:
         n = number_of(self._read().get(sender, js.UNDEFINED))
         return n if n == n and n else 0.0
 
-    def record(self, sender: str, ts: float) -> None:
-        d = self._read()
-        n = number_of(d.get(sender, js.UNDEFINED))
-        if (n if n == n and n else 0.0) >= ts:
-            return
+    @contextlib.contextmanager
+    def _locked(self) -> Iterator[None]:
+        """Every read-modify-write of the ledger runs under this. Two writers
+        share the file as the same account — agentd and `fabric-op` (the
+        break-glass path, which has no relay) — and the rename alone does not
+        stop one from writing back a floor it read before the other raised
+        it: that lowers the floor, and the request the other accepted is a
+        replay again. flock on the directory, not on a lock file, so the state
+        directory holds nothing more than it did; the kernel drops the lock
+        with the holder, so a killed writer leaves no stale owner. A holder
+        that does not let go within LOCK_WAIT_S is an error the caller says."""
+        directory = os.path.dirname(self.file)
+        os.makedirs(directory, exist_ok=True)
+        fd = os.open(directory, os.O_RDONLY | os.O_DIRECTORY)
+        try:
+            deadline = time.monotonic() + LEDGER_LOCK_WAIT_S
+            while True:
+                try:
+                    fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    break
+                except BlockingIOError:
+                    if time.monotonic() >= deadline:
+                        raise OSError(errno.ETIMEDOUT, f"the action ledger is locked by another writer ({directory})") from None
+                    time.sleep(0.02)
+            yield
+        finally:
+            os.close(fd)
+
+    def _put(self, d: dict, sender: str, ts: float) -> None:
         d[sender] = int(ts) if float(ts).is_integer() else ts
-        os.makedirs(os.path.dirname(self.file), exist_ok=True)
         tmp = f"{self.file}.{os.getpid()}.tmp"
         try:
             fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
@@ -382,9 +409,44 @@ class ActionLedger:
                 pass
             raise
 
+    def record(self, sender: str, ts: float) -> None:
+        with self._locked():
+            d = self._read()
+            n = number_of(d.get(sender, js.UNDEFINED))
+            if (n if n == n and n else 0.0) >= ts:
+                return
+            self._put(d, sender, ts)
+
+    def claim(self, sender: str, ts: float) -> bool:
+        """record() that says whether `ts` was strictly newer than the floor
+        at the moment of writing. accept() checked the floor earlier, without
+        the lock; this is the check that holds when the same request reaches
+        agentd and `fabric-op`, or `fabric-op` twice, at once: one claims, the
+        others are replays."""
+        with self._locked():
+            d = self._read()
+            n = number_of(d.get(sender, js.UNDEFINED))
+            if (n if n == n and n else 0.0) >= ts:
+                return False
+            self._put(d, sender, ts)
+            return True
+
 
 def action_ledger(file: str | None = None) -> ActionLedger:
     return ActionLedger(file)
+
+
+def claimed(ledger: ActionLedger, request: dict, ts: float, say: Callable[[str], None] = _stderr) -> bool:
+    """Record the action in the ledger before it runs; False, said, when it must not run. A claim lost here was
+    taken between accept()'s floor check and now, by `fabric-op` or by another copy of this request."""
+    try:
+        if not ledger.claim(request["from"], ts):
+            say(f"agentd: {request['op']} for {request['from']} refused: not newer than the last action accepted (a replay)")
+            return False
+    except Exception as e:  # noqa: BLE001
+        say(f"agentd: {request['op']} for {request['from']} refused: the action ledger could not be written ({_code(e)})")
+        return False
+    return True
 
 
 def accept(rec: dict, *, me: dict, operators: set, accounts: set | None = None, keys: dict | Callable[[], dict] | None = None, ttl_s: float,
@@ -621,6 +683,8 @@ def answer(request: dict, ctx: dict) -> dict:
         # because a run already in flight began before the install and its answer is stale on arrival.
         if verdict.get("status") == "installed" and ctx.get("tools_refresh"):
             threading.Thread(target=ctx["tools_refresh"], name="tools report after install", daemon=True).start()
+    elif op == "clone":
+        data = {"clone": clone_mod.clone(request, home=home, root=root, **(ctx.get("clone_opts") or {}))}
     elif op == "gateway-install":
         data = {"gateway-install": gateway_mod.gateway_install(request, home=home, root=root, **(ctx.get("gateway_install_opts") or {}))}
     elif op == INSTALL_OP:
@@ -964,10 +1028,7 @@ def main(argv: list[str] | None = None) -> int:
                     # for the action, never between (a recorded action that never
                     # ran is refused as a replay when posted again).
                     with leave.lock:
-                        try:
-                            ledger.record(request["from"], a["ts"])
-                        except Exception as e:  # noqa: BLE001
-                            _stderr(f"agentd: {request['op']} for {request['from']} refused: the action ledger could not be written ({_code(e)})")
+                        if not claimed(ledger, request, a["ts"]):
                             continue
                         _stderr(f"agentd: started {request['op']} for {request['from']} ({request['id'][:8]})")
                         beside(a, True)

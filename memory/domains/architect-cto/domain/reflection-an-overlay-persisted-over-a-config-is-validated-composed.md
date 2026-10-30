@@ -5,7 +5,7 @@ topic: "reflection-an-overlay-persisted-over-a-config-is-validated-composed"
 description: "Configuration that validates alone need not validate once an overlay is applied, so the composed result is validated: refused at set time with nothing written, fatal at start naming the overlay, and never normalised away"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-24"
+distilled_at: "2026-10-28"
 origin:
   - agent: "architect-cto-01"
     host: "develop-qzapp"

@@ -5,7 +5,7 @@ topic: "antique-anthropic-code-review-surface"
 description: "Antique is Anthropic's internal code review surface (2026), beside Scion source control; what is public about it and what is not"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-18"
+distilled_at: "2026-10-28"
 origin:
   - agent: "architect-cto-01"
     host: "develop-qzapp"

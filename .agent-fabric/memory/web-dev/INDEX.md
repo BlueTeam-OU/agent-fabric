@@ -3,7 +3,7 @@ role: "web-dev"
 class: index
 description: "What web-dev knows and where it lives."
 tier: 1
-distilled_at: "2026-10-24"
+distilled_at: "2026-10-28"
 ---
 
 # web-dev — knowledge index

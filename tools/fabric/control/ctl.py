@@ -13,6 +13,7 @@ bin/fabric-ctl runs this on the pinned Python).
     fabric-ctl <login|all> branches [--sweep]
     fabric-ctl <login|all> drift
     fabric-ctl <login|all> tools-install <tool>
+    fabric-ctl <login>... clone <project-id>
     fabric-ctl <login|all> gateway | gateway-install --version V
     fabric-ctl <login|all> <carrier> | <carrier>-install      (the carrier's transport; gzcoord.carrier.CARRIER_NAME)
     fabric-ctl <login> jobs-add [--topic T] [--project P] [--priority P] [--] "<title>"
@@ -21,6 +22,7 @@ bin/fabric-ctl runs this on the pinned Python).
     fabric-ctl <coordinator> switch
     fabric-ctl <login|all> control-start | control-stop [--include-self] [--json]
     fabric-ctl keygen [--force]
+    fabric-ctl <login> <action-op> ... --via hostexec      an action to one account with no relay (control/breakglass.py)
 
 The two control-start / control-stop ops are the exception: they send no request
 and read no replies (the agent that would answer is what they start or stop), and
@@ -35,7 +37,9 @@ expected address has answered or the timeout is spent (the operation's own
 budget: 20 s by default, 5 s for ping). An address that stayed silent is a
 row that says so, and the exit code is 1 — a table is never short.
 Stateless: a run leaves one request record and the agents' replies on the
-channel, and nothing else anywhere.
+channel, and nothing else anywhere. Except `--via hostexec`, which sends no
+relay record and leaves its journal line pair in fabric-op.jsonl (and the
+target's, control/breakglass.py).
 
 THE CONTRACT, as the Node's, frozen by its tests (ctl.test.mjs, ported case
 for case in tests/test_control_ctl.py) and held to the Node's tables by
@@ -45,7 +49,8 @@ JavaScript's padEnd and padStart by UTF-16 code unit, toFixed's rounding
 half up, String() of whatever an account sent — the bundles written by a
 drain, the exit codes (0 every expected account answered and every action
 succeeded; 1 a silent account, an unfinished drain or a failed action; 2 a
-refusal; 3 no token, no signing key or a relay that could not be reached),
+refusal; 3 no token, no signing key or a relay that could not be reached; with
+--via also an unwritable journal or a hostexec that gave no reply),
 and stdout against stderr (tables and --json rows on stdout; every
 `fabric-ctl: ` line on stderr).
 
@@ -112,6 +117,7 @@ from control.sessions import SESSION_ID
 from control.sign import ACTION_OPS, ACTION_TTL_MAX_S, generate_operator_key, public_key_from, sign_request
 from control import units
 from control.branches_op import BRANCHES_SWEEP_BUDGET_S
+from control.clone import CLONE_BUDGET_S
 from control.gateway import GATEWAY_INSTALL_BUDGET_S
 from control.carrier_install import (CARRIER_INSTALL_BUDGET_S, CARRIER_READ_BUDGET_S, CARRIER_START_BUDGET_S, CARRIER_STOP_BUDGET_S,
                                      INSTALL_OP, START_OP, STOP_OP)
@@ -121,6 +127,7 @@ from gzcoord.carrier import CARRIER_LABEL, CARRIER_NAME, parity as _parity
 from control.tools import TOOL_NAME, TOOLS_INSTALL_BUDGET_S
 from control.upgrade import FABRIC_UPGRADE_BUDGET_S, PIECES, UPGRADE_BUDGET_S, VERSION_RE, pinned_version
 import roots
+from registry_id import REGISTRY_ID
 
 UNDEFINED = js.UNDEFINED
 
@@ -151,6 +158,8 @@ class Verb:
 JSON_OPT = ("--json", "one JSON object per line instead of the table")
 TIMEOUT_OPT = ("--timeout S", "seconds to wait for the answers (a positive number; each verb has its own default)")
 COMMON = (JSON_OPT, TIMEOUT_OPT)
+VIA_NOTE = ("--via hostexec sends the signed action to one account through the host executor with no relay (bin/fabric-op there): "
+            "one login, never all; the table is the one a relay reply makes")
 JOB_OPTS = (("--topic T", "the job's topic"), ("--project P", "the project the job is for"), ("--priority P", "the job's priority"))
 
 
@@ -195,6 +204,10 @@ VERBS: tuple[Verb, ...] = (
          "fabric-ctl all tools-install shellcheck",
          usage=(("<login|all> tools-install <tool>", "an action: install the tool its registry pin names, on the accounts with a working copy of a project that declares it"),),
          args="<tool>", signed="always", options=COMMON),
+    Verb("clone", "Place a registered project's working copy on an account that already exists, and bootstrap it.",
+         "fabric-ctl alice clone my-project",
+         usage=(("<login>... clone <project-id>", "an action: clone the registry's remote into ~/projects/<id> as the account (a clone already there is `present`, its origin pointed at the registry's) and run its bootstrap; never `all`"),),
+         args="<project-id>", signed="always", options=COMMON),
     Verb("restart", "Stop the account's running session so its launcher resumes it on the current fabric. One account at a time for all; refused while an upgrade or a secrets-sync runs.",
          "fabric-ctl db-admin restart",
          usage=(("<login|all> restart", "an action: stop the account's running session so its launcher resumes it on the current fabric; one account at a time for all; refused while an upgrade or a secrets-sync runs"),),
@@ -290,6 +303,8 @@ def render_help(verb: str) -> str:
                v.signed, f"only with {v.signed}, which is signed with the operator key; without it a read")]
     if v.options:
         out += ["", "options:"] + [f"  {flag:<16}{what}" for flag, what in v.options]
+    if v.signed:
+        out += ["", VIA_NOTE]   # not in `options`: those are the flags every verb's parse and completion pin one for one
     out += ["", "example:", f"  {v.example}"]
     return "\n".join(out)
 
@@ -304,7 +319,7 @@ def verbs_listing(verb: str | None = None) -> list[str]:
 
 USAGE = render_usage()
 
-VALUE_OPTIONS = ("--timeout", "--out", "--since", "--until", "--section", "--days", "--version", "--expect", "--topic", "--project", "--priority", "--role")
+VALUE_OPTIONS = ("--via", "--timeout", "--out", "--since", "--until", "--section", "--days", "--version", "--expect", "--topic", "--project", "--priority", "--role")
 
 
 def help_request(argv: list[str]) -> tuple[str, str | None] | None:
@@ -481,6 +496,8 @@ def build_request(args: dict, *, id: str, from_: str, to: Any, cfg: dict, ts: st
         req["args"] = job_args(args)
     if op == "tools-install":
         req["args"] = {"tool": args["tool"]}
+    if op == "clone":
+        req["args"] = {"project": args["tool"]}
     if op == "gateway-install":
         req["args"] = {"version": args["version"]}
     if op == EVIDENCE_OP:
@@ -551,6 +568,10 @@ def parse_args(argv: list[str]) -> dict:
             out["version"] = nxt()
         elif a.startswith("--version="):
             out["version"] = a[10:]
+        elif a == "--via":
+            out["via"] = nxt()   # absent otherwise: the parse defaults are pinned by the frozen suite
+        elif a.startswith("--via="):
+            out["via"] = a[6:]
         elif a == "--force":
             out["force"] = True
         elif a == "--expect":
@@ -587,8 +608,8 @@ def parse_args(argv: list[str]) -> dict:
             raise CtlError(f"unknown option {a}")
         elif a == "keygen" and not out["targets"]:
             out["op"] = "keygen"
-        elif out["op"] == "tools-install" and out["tool"] is None:
-            out["tool"] = a   # the word after `tools-install` is the tool, never a login
+        elif out["op"] in ("tools-install", "clone") and out["tool"] is None:
+            out["tool"] = a   # the word after `tools-install` is the tool, after `clone` the project, never a login
         elif out["op"] == "upgrade" and out["piece"] is None:
             out["piece"] = a   # the word after `upgrade` is the piece, never a login
         elif titled and out["title"] is None:
@@ -598,6 +619,8 @@ def parse_args(argv: list[str]) -> dict:
         else:
             out["targets"].append(a)
         i += 1
+    if out.get("via") is not None and out["via"] != "hostexec":
+        raise CtlError("--via takes hostexec: the only path besides the relay")
     if out["sweep"] and out["op"] != "branches":
         raise CtlError("--sweep goes with branches only")
     if out.pop("sweep"):
@@ -606,7 +629,7 @@ def parse_args(argv: list[str]) -> dict:
     if out["timeout"] is None:
         out["timeout"] = (units.STEP_TIMEOUT_S if op in units.UNIT_OPS else 5 if op == "ping" else 120 if op == "memory" else 60 if op == "tokens" else 300 if op == "accounts"
                           else 200 if op == "disk" else (FABRIC_UPGRADE_BUDGET_S if out["piece"] == "fabric" else UPGRADE_BUDGET_S) if op == "upgrade"
-                          else 240 if op == "secrets-sync" else RESTART_BUDGET_S if op == "restart" else TOOLS_INSTALL_BUDGET_S if op == "tools-install"
+                          else 240 if op == "secrets-sync" else CLONE_BUDGET_S if op == "clone" else RESTART_BUDGET_S if op == "restart" else TOOLS_INSTALL_BUDGET_S if op == "tools-install"
                           else GATEWAY_INSTALL_BUDGET_S if op == "gateway-install"
                           else CARRIER_INSTALL_BUDGET_S if op == INSTALL_OP
                           else CARRIER_START_BUDGET_S if op == START_OP
@@ -648,6 +671,11 @@ def parse_args(argv: list[str]) -> dict:
             raise CtlError("pool-add names the one login that holds the pool")
     if op == "tools-install" and (out["tool"] is None or not TOOL_NAME.fullmatch(out["tool"])):
         raise CtlError("tools-install takes a tool name: fabric-ctl <login|all> tools-install <tool>")
+    if op == "clone":
+        if out["tool"] is None or not REGISTRY_ID.fullmatch(out["tool"]):
+            raise CtlError("clone takes a project id: fabric-ctl <login>... clone <project-id>")
+        if not out["targets"] or "all" in out["targets"]:
+            raise CtlError("clone names the logins it places a working copy on, never `all`")
     bad = units.check_args(out)
     if bad:
         raise CtlError(bad)
@@ -664,6 +692,11 @@ def parse_args(argv: list[str]) -> dict:
         raise CtlError(bad)
     if op == "memory" and not js.truthy(out["out"]):
         raise CtlError("memory takes --out <dir>: where the drain bundles are written")
+    if out.get("via") is not None:
+        if op not in ACTION_OPS:
+            raise CtlError(f"--via hostexec goes with an action op only ({op} is a read: fabric-host run asks it without the relay)")
+        if len(out["targets"]) != 1 or out["targets"][0] == "all":
+            raise CtlError("--via hostexec names one login: the target refuses a request addressed to everyone")
     t = out["timeout"]
     if not (isinstance(t, (int, float)) and math.isfinite(t) and t > 0):
         raise CtlError("--timeout takes seconds, a positive number")
@@ -871,13 +904,13 @@ def rows(expected: list[dict], replies: list[dict]) -> list[dict]:
                     "localPrune": g("local-prune"), "selftest": g("secrets-selftest"), "agentd": g("agentd"),
                     # Only where the control agent answered them (an older one does not): a row never says null for a section nobody asked.
                     **{k: g(k) for k in ("harness", "inbox", "switch", "drift") if dig(d, k) is not UNDEFINED},
-                    **{key: g(op) for key, op in (("branches", "branches"), ("branchesSweep", "branches-sweep"), (f"{CARRIER_NAME}Evidence", EVIDENCE_OP)) if dig(d, op) is not UNDEFINED}})
+                    **{key: g(op) for key, op in (("branches", "branches"), ("branchesSweep", "branches-sweep"), ("clone", "clone"), (f"{CARRIER_NAME}Evidence", EVIDENCE_OP)) if dig(d, op) is not UNDEFINED}})
     return out
 
 
 # What counts as success for each action; anything else fails the run.
 ACTION_OK = {"upgrade": ["current", "upgraded"], "secrets-sync": ["synced"], "jobs-add": ["added", "listed"], "local-prune": ["pruned", "clean"],
-             "secrets-selftest": ["pass"], "pool-add": ["added"], "tools-install": ["installed", "current", "skipped"],
+             "secrets-selftest": ["pass"], "pool-add": ["added"], "tools-install": ["installed", "current", "skipped"], "clone": ["cloned", "present"],
              "gateway-install": ["installed", "current"], INSTALL_OP: ["installed", "current"], START_OP: ["started"], STOP_OP: ["stopped"], EVIDENCE_OP: ["ok"], "branches-sweep": ["swept"], "restart": ["restarted", "no-session", "yours"]}
 
 
@@ -1203,6 +1236,20 @@ def _table_tools_install(rs: list) -> list[str]:
     for r in rs:
         u = r.get("toolsInstall")
         body = r["status"] if _unless(r, u) else f"{pad_end(S(dig(u, 'status')), 9)} {S(nullish(dig(u, 'tool'), ''))} {S(nullish(dig(u, 'version'), ''))}{' ' + S(u['reason']) if T(dig(u, 'reason')) else ''}"
+        lines.append(esc(trim_end(f"{pad_end(r['account'], 22)} {body}")))
+    return lines
+
+
+def _table_clone(rs: list) -> list[str]:
+    lines = []
+    for r in rs:
+        u = r.get("clone")
+        if _unless(r, u):
+            body = r["status"]
+        else:
+            origin = f" (origin {S(dig(u, 'origin'))})" if T(dig(u, "origin")) and dig(u, "origin") != "keep" else ""
+            note = f"  {S(u['reason'])}" if T(dig(u, "reason")) else f"  warning: {S(u['warning'])}" if T(dig(u, "warning")) else ""
+            body = f"{pad_end(S(dig(u, 'status')), 9)} {S(nullish(dig(u, 'project'), ''))}{origin}{note}"
         lines.append(esc(trim_end(f"{pad_end(r['account'], 22)} {body}")))
     return lines
 
@@ -1938,6 +1985,8 @@ def table(op: str, rs: list) -> str:
         lines = _table_tools(rs)
     elif op == "tools-install":
         lines = _table_tools_install(rs)
+    elif op == "clone":
+        lines = _table_clone(rs)
     elif op == "gateway":
         lines = _table_gateway(rs)
     elif op == "switch":
@@ -2072,9 +2121,11 @@ def main(argv: list[str] | None = None, *, registry: str | None = None, call: Ca
     me = {"address": f"{who['host']}/{who['agent']}"}
     cfg = agentd.control_config()
     gz = integration_config(who.get("project"))
-    tok = token if token is not None else gz_token(inbox_root(who), gz if gz.get("configured") else None)
-    if tok is None:
-        tok = synced_token()   # `??`: a token that is empty is a token, and refused as one
+    tok = None
+    if not args.get("via"):   # the break-glass path never touches the relay
+        tok = token if token is not None else gz_token(inbox_root(who), gz if gz.get("configured") else None)
+        if tok is None:
+            tok = synced_token()   # `??`: a token that is empty is a token, and refused as one
     api_call = call or (lambda p, **init: api(tok, p, relay_url=cfg["relay_url"], **init))
     if args["op"] == "states":
         # A read of the channel, not a request: no daemon is asked and none
@@ -2088,7 +2139,7 @@ def main(argv: list[str] | None = None, *, registry: str | None = None, call: Ca
     if me["address"] not in agentd.operator_addresses(registry) and not (args["op"] in PUBLIC_OPS and me["address"] in agentd.account_addresses(registry)):
         err(f"fabric-ctl: {me['address']} is not a host operator in runtime/hosts/registry.json — no agent would answer; not sent")
         return 2
-    if not tok:
+    if not tok and not args.get("via"):
         err("fabric-ctl: no CLAUDE_BRIDGE_AUTH_TOKEN (fabric-secrets sync)")
         return 3
     rid = agentd.new_id()
@@ -2118,6 +2169,8 @@ def main(argv: list[str] | None = None, *, registry: str | None = None, call: Ca
         except Exception as e:  # noqa: BLE001 — the signer's own words, as the Node said them
             err(f"fabric-ctl: {e}")
             return 3
+    if args.get("via"):
+        return _via_hostexec(args, request, expected[0], registry=registry, out=out, err=err)
     try:
         sent = api_call("/api/send", method="POST", body=js.stringify({"channel": cfg["channel"], "sender": me["address"], "content": js.stringify(request)}))
     except Exception as e:  # noqa: BLE001 — any failure of the call is said in relay_failure's words, as the Node said it
@@ -2206,7 +2259,8 @@ def _collect_evidence(args: dict, expected: list[dict], *, out: Callable, err: C
 
     def send(logins: list[str], section: str, since: str, until: str) -> dict:
         lines: list[str] = []
-        argv = ["--json", "--timeout", str(args["timeout"]), *logins, EVIDENCE_OP, "--section", section, "--since", since, "--until", until]
+        argv = ["--json", "--timeout", str(args["timeout"]), *logins, EVIDENCE_OP, "--section", section, "--since", since, "--until", until,
+                *(["--via", args["via"]] if args.get("via") else [])]
         main(argv, out=lines.append, err=err, **inject)
         got: dict = {}
         for line in lines:
@@ -2472,6 +2526,32 @@ def states(args: dict, expected: list[dict], *, call: Callable[..., Any], cfg: d
 # (key rotated, #95). gpg hands the value to this process on its stdout pipe
 # — never argv, never a file — with secret_store.py gpg()'s flags. Each way it
 # can fail is its own line, and none of them carries the value.
+
+def _via_hostexec(args: dict, request: dict, target: dict, *, registry: str | None, out: Callable[[str], None], err: Callable[[str], None]) -> int:
+    """The signed action sent through hostexec instead of the relay (control/breakglass.py): the row is the one a relay reply makes."""
+    from control import breakglass
+    try:
+        o = breakglass.via_hostexec(request, target, timeout=args["timeout"], registry=registry)
+    except breakglass.JournalError as e:
+        err(f"fabric-ctl: {e}; nothing sent")
+        return 3
+    if o.kind in ("refused", "failed"):
+        err(f"fabric-ctl: {target['login']}: {'refused by fabric-op: ' if o.kind == 'refused' else ''}{o.detail}")
+        return 2 if o.kind == "refused" else 3
+    replies = []
+    if o.reply is not None:
+        replies.append(o.reply)
+    if o.detail or o.reply is None:   # a journal line that could not be written is said beside a good row
+        err(f"fabric-ctl: {target['login']}: {o.detail}")
+    rs = rows([target], replies)
+    if args["json"]:
+        for r in rs:
+            out(js.stringify(r))
+    else:
+        out(table(args["op"], rs))
+    failed = any(dig(r, "data", args["op"], "status") not in ACTION_OK.get(args["op"], []) for r in replies)
+    return 1 if not replies or failed else 0
+
 
 SIGNING_KEY_NAME = "FABRIC_CONTROL_SIGNING_KEY"
 DECRYPT_TIMEOUT_S = 30
