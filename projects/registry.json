@@ -160,6 +160,9 @@
         {"name": "moli", "proof": "moli --version", "version": "1.1.19", "why": "the fleet's web reader: moli fetch --dump markdown <url> (ADR-051); moli serve asks every time, behind @playwright/mcp", "where": "account",
          "install": {"version": "1.1.19", "url": "https://github.com/lexmount/moli/releases/download/v1.1.19/moli-x86_64-unknown-linux-gnu.tar.gz",
                      "sha256": "5c22362065e64e6de785274f6b3f28a735fca363abf9896c48733e5f58489def", "member": "moli-v1.1.19-x86_64-unknown-linux-gnu/moli"}},
+        {"name": "impeccable", "proof": "impeccable --version", "version": "0.1.18", "why": "brand-comms' AI-slop detector for pages and decks: impeccable detect <dir|file|url> only, never install, hook, plugin or live mode; run with DO_NOT_TRACK=1 (telemetry off); --version prints \"0.1.18+engine\"", "where": "account", "roles": ["brand-comms"],
+         "install": {"version": "0.1.18", "url": "https://github.com/pbakaus/impeccable/releases/download/engine-v0.1.18/impeccable-linux-x64",
+                     "sha256": "736ed785e74ae2344d3036127f614ddde5ab520a527d8bc82a891612ef71f648"}},
         {"name": "fonttools", "proof": "python3 -c 'import fontTools; print(fontTools.version)'", "version": "4.x", "why": "font subsetting and inspection for brand assets (python3-fonttools)", "where": "host", "roles": ["brand-comms"]},
         {"name": "uharfbuzz", "proof": "python3 -c 'import uharfbuzz; print(uharfbuzz.__version__)'", "version": "0.51", "why": "text shaping, to measure set type exactly (python3-uharfbuzz)", "where": "host", "roles": ["brand-comms"]},
         {"name": "scour", "proof": "scour --version", "version": "0.38", "why": "SVG optimisation for logos and icons (python3-scour)", "where": "host", "roles": ["brand-comms"]},
@@ -189,7 +192,10 @@
         {"name": "npm", "proof": "npm --version", "why": "installs the Marp CLI locally", "where": "host"},
         {"name": "moli", "proof": "moli --version", "version": "1.1.19", "why": "the fleet's web reader: moli fetch --dump markdown <url> (ADR-051); moli serve asks every time, behind @playwright/mcp", "where": "account",
          "install": {"version": "1.1.19", "url": "https://github.com/lexmount/moli/releases/download/v1.1.19/moli-x86_64-unknown-linux-gnu.tar.gz",
-                     "sha256": "5c22362065e64e6de785274f6b3f28a735fca363abf9896c48733e5f58489def", "member": "moli-v1.1.19-x86_64-unknown-linux-gnu/moli"}}
+                     "sha256": "5c22362065e64e6de785274f6b3f28a735fca363abf9896c48733e5f58489def", "member": "moli-v1.1.19-x86_64-unknown-linux-gnu/moli"}},
+        {"name": "impeccable", "proof": "impeccable --version", "version": "0.1.18", "why": "brand-comms' AI-slop detector for pages and decks: impeccable detect <dir|file|url> only, never install, hook, plugin or live mode; run with DO_NOT_TRACK=1 (telemetry off); --version prints \"0.1.18+engine\"", "where": "account", "roles": ["brand-comms"],
+         "install": {"version": "0.1.18", "url": "https://github.com/pbakaus/impeccable/releases/download/engine-v0.1.18/impeccable-linux-x64",
+                     "sha256": "736ed785e74ae2344d3036127f614ddde5ab520a527d8bc82a891612ef71f648"}}
       ]
     },
     "blueteam.ee": {
@@ -213,6 +219,9 @@
         {"name": "moli", "proof": "moli --version", "version": "1.1.19", "why": "the fleet's web reader: moli fetch --dump markdown <url> (ADR-051); moli serve asks every time, behind @playwright/mcp", "where": "account",
          "install": {"version": "1.1.19", "url": "https://github.com/lexmount/moli/releases/download/v1.1.19/moli-x86_64-unknown-linux-gnu.tar.gz",
                      "sha256": "5c22362065e64e6de785274f6b3f28a735fca363abf9896c48733e5f58489def", "member": "moli-v1.1.19-x86_64-unknown-linux-gnu/moli"}},
+        {"name": "impeccable", "proof": "impeccable --version", "version": "0.1.18", "why": "brand-comms' AI-slop detector for pages and decks: impeccable detect <dir|file|url> only, never install, hook, plugin or live mode; run with DO_NOT_TRACK=1 (telemetry off); --version prints \"0.1.18+engine\"", "where": "account", "roles": ["brand-comms"],
+         "install": {"version": "0.1.18", "url": "https://github.com/pbakaus/impeccable/releases/download/engine-v0.1.18/impeccable-linux-x64",
+                     "sha256": "736ed785e74ae2344d3036127f614ddde5ab520a527d8bc82a891612ef71f648"}},
         {"name": "fonttools", "proof": "python3 -c 'import fontTools; print(fontTools.version)'", "version": "4.x", "why": "font subsetting and inspection for brand assets (python3-fonttools)", "where": "host", "roles": ["brand-comms"]},
         {"name": "uharfbuzz", "proof": "python3 -c 'import uharfbuzz; print(uharfbuzz.__version__)'", "version": "0.51", "why": "text shaping, to measure set type exactly (python3-uharfbuzz)", "where": "host", "roles": ["brand-comms"]},
         {"name": "scour", "proof": "scour --version", "version": "0.38", "why": "SVG optimisation for logos and icons (python3-scour)", "where": "host", "roles": ["brand-comms"]},
@@ -239,6 +248,9 @@
         {"name": "moli", "proof": "moli --version", "version": "1.1.19", "why": "the fleet's web reader: moli fetch --dump markdown <url> (ADR-051); moli serve asks every time, behind @playwright/mcp", "where": "account",
          "install": {"version": "1.1.19", "url": "https://github.com/lexmount/moli/releases/download/v1.1.19/moli-x86_64-unknown-linux-gnu.tar.gz",
                      "sha256": "5c22362065e64e6de785274f6b3f28a735fca363abf9896c48733e5f58489def", "member": "moli-v1.1.19-x86_64-unknown-linux-gnu/moli"}},
+        {"name": "impeccable", "proof": "impeccable --version", "version": "0.1.18", "why": "brand-comms' AI-slop detector for pages and decks: impeccable detect <dir|file|url> only, never install, hook, plugin or live mode; run with DO_NOT_TRACK=1 (telemetry off); --version prints \"0.1.18+engine\"", "where": "account", "roles": ["brand-comms"],
+         "install": {"version": "0.1.18", "url": "https://github.com/pbakaus/impeccable/releases/download/engine-v0.1.18/impeccable-linux-x64",
+                     "sha256": "736ed785e74ae2344d3036127f614ddde5ab520a527d8bc82a891612ef71f648"}},
         {"name": "fonttools", "proof": "python3 -c 'import fontTools; print(fontTools.version)'", "version": "4.x", "why": "font subsetting and inspection for brand assets (python3-fonttools)", "where": "host", "roles": ["brand-comms"]},
         {"name": "uharfbuzz", "proof": "python3 -c 'import uharfbuzz; print(uharfbuzz.__version__)'", "version": "0.51", "why": "text shaping, to measure set type exactly (python3-uharfbuzz)", "where": "host", "roles": ["brand-comms"]},
         {"name": "scour", "proof": "scour --version", "version": "0.38", "why": "SVG optimisation for logos and icons (python3-scour)", "where": "host", "roles": ["brand-comms"]},
