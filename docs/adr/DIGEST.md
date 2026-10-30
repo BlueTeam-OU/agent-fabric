@@ -661,19 +661,19 @@ its record disagree, the record wins. Look it up, never read it whole:
 - Closed op set, no field reaches a shell; actions carry a fresh,
   newer Ed25519 operator signature (r3–5).
 - Replies carry no secret; silence or failure exits 1 (r6–9).
-- A 2026-09-27 — actions (rule 12).
-- A 2026-09-27 — answer budgets (rule 12).
-- A 2026-09-28 — jobs (rule 13).
-- A 2026-09-29 — secrets-migrate (rule 14).
-- A 2026-09-30 — rule 14 withdrawn.
-- A 2026-10-06 — local, local-prune (rule 15).
-- A 2026-10-07 — session state (rule 16).
-- A 2026-10-07 — secrets-selftest (rule 17).
-- A 2026-10-08 — resumable state (rule 16).
-- A 2026-10-08 — public ops (rule 4).
-- A 2026-10-09 — forged claims (rule 4).
+- A 2026-09-27 — actions (r12).
+- A 2026-09-27 — answer budgets (r12).
+- A 2026-09-28 — jobs (r13).
+- A 2026-09-29 — secrets-migrate (r14).
+- A 2026-09-30 — r14 withdrawn.
+- A 2026-10-06 — local, local-prune (r15).
+- A 2026-10-07 — session state (r16).
+- A 2026-10-07 — secrets-selftest (r17).
+- A 2026-10-08 — resumable state (r16).
+- A 2026-10-08 — public ops (r4).
+- A 2026-10-09 — forged claims (r4).
 - A 2026-10-09 — Scope.
-- A 2026-10-09 — `tools-install` (rules 3, 12).
+- A 2026-10-09 — `tools-install` (r3, r12).
 - A 2026-10-09 — closed jobs (§2).
 - A 2026-10-10 — gateway ops (§2).
 - A 2026-10-12 — switch controller.
@@ -685,10 +685,11 @@ its record disagree, the record wins. Look it up, never read it whole:
 - A 2026-10-26 — ports.
 - A 2026-10-26 — evidence.
 - A 2026-10-26 — re-render.
-- A 2026-10-28 — InterWeave carrier (rule 18).
-- Keywords: agentd, fabric-ctl, keys, operator_key, usage,
-  tokens, herdr, resume, gateway, switch, evidence, interweave-evidence,
-  interweave-human, fabric-control, control_carrier.
+- A 2026-10-28 — InterWeave carrier (r18).
+- A 2026-10-30 — `fabric-op` (r19).
+- Keywords: fabric-ctl, keys, operator_key, usage, tokens, herdr,
+  resume, interweave-evidence, interweave-human, fabric-control,
+  control_carrier, break-glass.
 ### ADR-030 — Presence replaces HELLO and GOODBYE (Accepted)
 
 - Whether a session runs is the control agent's answer from its process
