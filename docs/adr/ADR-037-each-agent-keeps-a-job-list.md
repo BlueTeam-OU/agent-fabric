@@ -4,7 +4,7 @@
 **Status:** Accepted
 **Ratified:** owner, 2026-09-29, by the merge of agent-fabric #61 (75e1bab), which built it, as §8 provided
 **Decision Makers:** the owner; drafted by fabric-coordinator
-**Scope:** runtime/identity.py (`jobs.json`); bin/fabric-jobs, tools/fabric/jobs.py; bin/fabric-fresh (`--job`); runtime/openrouter/launch (the fresh relaunch); runtime/claude-code/hooks/session-start.py; bin/fabric-status; tools/fabric/control/jobs.py, ops/, agentd.py, ctl.py (`jobs`, `jobs-add`); tools/fabric/gzcoord/send.py (the inactive intake), inbox.py (`--replay --json`); policies/agent-jobs/SKILL.md
+**Scope:** runtime/identity.py (`jobs.json`); bin/fabric-jobs, tools/fabric/jobs.py; bin/fabric-fresh (`--job`); runtime/openrouter/launch (the fresh relaunch); runtime/claude-code/hooks/session-start.py; bin/fabric-status; tools/fabric/control/jobs.py, ops/, agentd.py, ctl.py (`jobs`, `jobs-add`, `hold`, `unhold`); tools/fabric/gzcoord/send.py (the inactive intake), inbox.py (`--replay --json`); policies/agent-jobs/SKILL.md
 **Pillar:** P3
 
 ## 1. Context and Problem
@@ -230,6 +230,36 @@ Why these choices:
     the caller's pull request merges, whether or not the supplier's
     session ever starts again; `delivered` then means waiting on
     someone else, not finished long ago (A 2026-10-16).
+13. A fleet hold stops every held agent from taking a new job, and
+    from nothing else (A 2026-10-30). fabric-coordinator sets it through
+    the control plane, `fabric-ctl <login|all> hold --reason "<why>"
+    [--decision <MESSAGE-ID>]`, and lifts it with `fabric-ctl
+    <login|all> unhold`, both signed actions (ADR-029). Each account's
+    control agent writes or removes its login's `hold.json` through
+    `runtime/identity.py`, recording the reason, the decision, the
+    operator's address and the time. While the hold is set:
+    - the active job goes on to its artifact; `block`, `pause`,
+      `deliver`, `done` and `drop` work as before; `add`, the intake of
+      a delivered `REQUEST` (rule 11) and a pool claim still queue, so
+      nothing asked of the agent is lost;
+    - `switch` and `next` settle the job being left by rule 10 step 1,
+      then stop and name the hold: they start no job and print no
+      `fabric-fresh`. `start` of a queued, paused or blocked job and
+      `fabric-fresh --job` refuse, naming the hold;
+    - a session whose job is settled ends idle, and rule 10's "never
+      idle while a job is queued" yields to the hold. A `REQUEST`
+      that arrives is queued and answered as held;
+    - `fabric-status` and the session-start jobs line show the hold
+      with its reason, decision and age, and the `jobs` op reports it,
+      so `fabric-ctl all jobs` shows which accounts are held.
+    An account whose control agent did not answer is not held, and
+    `fabric-ctl` names it; the coordinator sets the hold again when the
+    account is back, and holds a login provisioned during the hold by
+    naming it. The hold fences off a session that never read the
+    announcement. It does not stop an agent that edits its own state:
+    a login can delete its own `hold.json`, and must not. This rule is
+    decided and not yet built; until it is, a hold is a broadcast
+    `DECISION`.
 
 ## 6. Consequences
 
@@ -254,7 +284,7 @@ Why these choices:
 
 ## 8. Decision Status
 
-Accepted and in force, rules 7–10 included (built in agent-fabric #118).
+Accepted and in force, rules 7–10 included (built in agent-fabric #118). Rule 13, the fleet hold, is decided and not yet built (A 2026-10-30).
 
 ## References
 
@@ -281,3 +311,4 @@ The body above reads current; each change's full note is in [history/ADR-037-ame
 | 2026-10-18 | Work that leaves no artifact closes with a reason | §5 rule 10: a `done` job is settled by a recorded `--no-artifact` reason when its work lands nothing in a repository |
 | 2026-10-20 | A session works one job's working copy | §5 rule 3: a PreToolUse hook refuses a commit or a publish outside the session's job copies, and refuses everything after the session's job has left `active`; reads stay allowed |
 | 2026-10-21 | Leaving a job cleans its build output | §5 rule 10 step 1, decided and unbuilt (python-dev's j75): once the old job is settled, its worktree's cargo targets are to be removed, except one in use, with `--keep-targets` to skip it |
+| 2026-10-30 | A fleet hold the job tool enforces | §5 rule 13 added, decided and unbuilt: `fabric-ctl hold`/`unhold` set a login's `hold.json`; while it is set, `switch` settles and starts nothing, `start` and `fabric-fresh --job` refuse; status, session start and `jobs` show it; §8 says so |
