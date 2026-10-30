@@ -876,8 +876,8 @@ its record disagree, the record wins. Look it up, never read it whole:
 - A 2026-10-20 — commits fenced to job copies (§5 rule 3).
 - A 2026-10-21 — switch to clean targets, unbuilt (§5 rule 10).
 - A 2026-10-30 — fleet hold (§5 rule 13).
-- Keywords: job, jobs.json, fabric-jobs, next, switch, paused,
-  fresh session, intake, priority, pool, claim, sweep, fleet hold, unhold.
+- A 2026-10-30 — held, no start (§5 rule 13).
+- Keywords: fresh session, intake, priority, claim, sweep, unhold.
 
 ### ADR-038 — Each agent owns its key and its secrets (Accepted)
 
