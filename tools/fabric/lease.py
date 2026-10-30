@@ -59,8 +59,9 @@ with one stderr line naming it, in `--who` and for a taker alike); a held slot
 whose recorded pid is gone ends `(orphan: a child still runs)`. `cpu` has no
 `-- <cmd>` form: it is taken by the process that becomes the tool, with the
 descriptor INHERITED (hold_and_exec), where every other lease's command runs
-as a child with it closed. The shim for cargo and dotnet (cpu_shim.py) and
-tests/run.py take a slot through acquire_cpu and hold_and_exec below. The record of a slot is
+as a child with it closed. Only the shim for cargo and dotnet (cpu_shim.py) takes
+a slot through acquire_cpu and hold_and_exec below; tests/run.py takes one through acquire_cpu alone
+and keeps it close-on-exec in its own process, which stays the parent of its suites. The record of a slot is
 `<login> <pid> <since> cpu.<k> (<label>)`; the label names the job.
 
 WHY (every comment of the bash carried over, with the Python that now does it).
