@@ -719,8 +719,12 @@ def cpu_child_env(env: dict[str, str] | os._Environ[str], slot: CpuSlot,
     lowered, with a line, because the slot's share is the point."""
     j = str(slot.jobs)
     out = dict(env)
-    out["CARGO_BUILD_JOBS"] = j
-    out["DOTNET_PROCESSOR_COUNT"] = j
+    for var in ("CARGO_BUILD_JOBS", "DOTNET_PROCESSOR_COUNT"):
+        have = out.get(var, "")
+        # Empty, 0 and junk are no bound a caller chose; the length cap keeps
+        # int() off a digit string past its conversion limit.
+        lower = NUMBER_RE.fullmatch(have) is not None and len(have) < 10 and 0 < int(have) < slot.jobs
+        out[var] = have if lower else j
     out[SLOT_ENV] = f"{slot.k}/{slot.n}"
     out["MSBUILDDISABLENODEREUSE"] = "1"
     out["UseSharedCompilation"] = "false"

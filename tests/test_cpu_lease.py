@@ -332,6 +332,18 @@ def main() -> int:
         check("AGENT_FABRIC_TEST_JOBS below the budget is kept, silently; an empty MAKEFLAGS is unset; CARGO_BUILD_JOBS is set to J",
               ran.get("AGENT_FABRIC_TEST_JOBS") == "1" and ran.get("MAKEFLAGS") == f"-j{J}" and ran.get("CARGO_BUILD_JOBS") == str(J) and errs == "",
               f"{ran} {errs}")
+        # "1" is below J on any host with two or more slots' worth of cores; 0, empty and junk are no bound.
+        p = shim("cargo", "test", CARGO_BUILD_JOBS="1", DOTNET_PROCESSOR_COUNT="1")
+        rc, _o, errs = finish(p)
+        ran = started(p)
+        check("CARGO_BUILD_JOBS and DOTNET_PROCESSOR_COUNT below the budget are kept (J > 1 here), silently",
+              J > 1 and ran.get("CARGO_BUILD_JOBS") == "1" and ran.get("DOTNET_PROCESSOR_COUNT") == "1" and errs == "",
+              f"J={J} {ran} {errs}")
+        p = shim("cargo", "test", CARGO_BUILD_JOBS="0", DOTNET_PROCESSOR_COUNT="x")
+        rc, _o, errs = finish(p)
+        ran = started(p)
+        check("CARGO_BUILD_JOBS=0 and DOTNET_PROCESSOR_COUNT=junk are set to J",
+              ran.get("CARGO_BUILD_JOBS") == str(J) and ran.get("DOTNET_PROCESSOR_COUNT") == str(J), f"{ran} {errs}")
 
         # ---- the policy: a host with no entry, a policy that does not read
         write_policy({"cores_per_slot": 4, "wait_s": 1500, "hosts": {"another-host": {"cpu_slots": 7}}})
