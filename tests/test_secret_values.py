@@ -10,7 +10,9 @@ Mutations each case fails on: _check_secret_values removed from pre_commit (stag
 placed after the owner's return (the owner case); a needle form dropped from needles() (the form cases); _base64_runs at one
 alignment only (the base64 offsets); a value under MIN_CHARS searched (the short case); IGNORE ignored (the ignored case); the path
 printed with a name hit (the name case); a missing file raising (no-file case); an unreadable one admitting (unreadable case); the
-scissors' tail searched (scissors case); scan_objects reading blobs only (the history message case)."""
+scissors' tail searched or comment lines dropped (the message cases); scan_objects reading blobs only (the history message case); a
+gitlink read (the submodule case); the history capped at twenty (the many-findings case); _cat joining its feeder before it ends
+git (the hang case, which then hangs), or the feeder's broken pipe uncaught (the same case, by its stderr)."""
 from __future__ import annotations
 
 import base64
@@ -159,14 +161,13 @@ class Hooks(unittest.TestCase):
 
     def test_many_objects_after_a_missing_one_refuse_without_hanging(self):
         # _cat ends git before it waits for its feeder: a feeder blocked on a full pipe must not hang the hook.
+        # In a process of its own, so what the feeder thread prints is seen: the refusal is the whole of it (review of #433, F7).
         oids = ["0" * 40] + [self.repo.git("rev-parse", "HEAD:src/a.txt").stdout.strip()] * 20000
-        cwd = os.getcwd()
-        os.chdir(self.repo.path)
-        try:
-            with self.assertRaises(sv.CannotJudge):
-                list(sv._cat(oids))
-        finally:
-            os.chdir(cwd)
+        script = ("import sys; sys.path.insert(0, sys.argv[1]); import secret_values as sv\n"
+                  "try:\n    list(sv._cat(sys.stdin.read().split()))\nexcept sv.CannotJudge:\n    sys.exit(3)\n")
+        r = subprocess.run([sys.executable, "-c", script, os.path.join(ROOT, "tools", "fabric", "guards")], cwd=self.repo.path,
+                           input="\n".join(oids), capture_output=True, text=True, timeout=60)
+        self.assertEqual((r.returncode, r.stderr), (3, ""))
 
     def test_a_clean_commit_and_an_account_without_secrets_are_admitted(self):
         self.repo.stage("src/config.txt", "token=from-the-environment\n")

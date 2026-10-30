@@ -143,10 +143,17 @@ def _cat(oids: list[str]):
                          stderr=subprocess.DEVNULL)
 
     def feed() -> None:
+        # A reader that stopped early kills git, and this write then meets a closed pipe: that is the stop, not an error to
+        # print after the refusal (review of #433, F7).
         try:
             p.stdin.write("".join(o + "\n" for o in oids).encode())
+        except OSError:
+            pass
         finally:
-            p.stdin.close()
+            try:
+                p.stdin.close()
+            except OSError:
+                pass
 
     writer = threading.Thread(target=feed, daemon=True)
     writer.start()
