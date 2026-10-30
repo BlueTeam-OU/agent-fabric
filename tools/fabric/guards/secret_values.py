@@ -38,8 +38,9 @@ import urllib.parse
 
 # omerta's default: shorter values are ports, flags and counts, which match ordinary text.
 MIN_CHARS = 8
-# Names whose value is not a secret, which secrets.env may still carry (a value under MIN_CHARS is skipped anyway).
-IGNORE = frozenset({"GZAPP_PORT_OFFSET", "AGENT_LOGIN"})
+# Names whose value is not a secret, which secrets.env may still carry: the store's own login, which every branch name and
+# message of the account holds. A port offset or a count is under MIN_CHARS and needs no entry.
+IGNORE = frozenset({"AGENT_LOGIN"})
 SECRETS_FILE = (".config", "agent-fabric", "secrets.env")
 GIT_TIMEOUT_S = 120
 SCISSORS = "# ------------------------ >8 ------------------------"

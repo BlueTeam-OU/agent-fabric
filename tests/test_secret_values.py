@@ -77,7 +77,7 @@ class Load(unittest.TestCase):
         self.addCleanup(self.fabric.cleanup)
 
     def test_short_and_ignored_values_are_not_searched_and_a_bad_line_is_skipped(self):
-        write_secrets(self.fabric.home, f"export FAKE_TOKEN={VALUE}\nexport SHORT=abcdefg\nexport GZAPP_PORT_OFFSET=123456789\n"
+        write_secrets(self.fabric.home, f"export FAKE_TOKEN={VALUE}\nexport SHORT=abcdefg\nexport AGENT_LOGIN=python-dev-01\n"
                                         "export BROKEN='unterminated\n# comment\nPLAIN=not-exported-value\n")
         self.assertEqual(sv.load(self.fabric.home), {"FAKE_TOKEN": VALUE})
 
