@@ -1446,6 +1446,11 @@ print("a" * 40, "b" * 40)
             check("…without frontmatter", "class: charter" not in prompt)
             digest = "sha256:" + hashlib.sha256(prompt.encode()).hexdigest()
             check("role stamped in the child env", has(r"ORI-ENV:AGENT_FABRIC_LAUNCH_ROLE=backend-dev$", out), out)
+            # run() puts the root in the environment, so only the launcher's own write is seen with it removed: a stamp that is
+            # not written is then a session with no root at all.
+            out_root = out_of("--version", AGENT_FABRIC_ROOT="")
+            check("the launcher stamps a fabric root into the session (an unset one is still written)",
+                  has(r"ORI-ENV:AGENT_FABRIC_ROOT=/", out_root), out_root)
             check("the fabric root the launcher verified is stamped, so a session started in another checkout does not run its code",
                   has(rf"ORI-ENV:AGENT_FABRIC_ROOT={re.escape(fabric)}$", out), out)
             # Control: the start directory is another agent-fabric checkout, whose session-start hook would name itself the root.

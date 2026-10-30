@@ -349,6 +349,8 @@ def repoint(args) -> int:
         # Its own worktree is no other checkout: naming it syncs the two fields a job's record had drifted on (j474).
         own = bool(job.get("worktree") and args.working_copy
                    and os.path.realpath(os.path.expanduser(args.working_copy)) == os.path.realpath(job["worktree"]))
+        # …but only to sync those fields: a different project would leave the record at odds with the repository its branch is in.
+        own = own and args.project == job.get("project")
         if held and not own:
             raise Refused(f"{job['id']} has {' and '.join(held)}: its work is in that project's checkout, so it is not re-pointed")
         old = job.get("project")

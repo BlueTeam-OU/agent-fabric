@@ -17,7 +17,7 @@ behind bin/fabric-jobs.
     fabric-jobs sweep [--dry-run]                                delivered jobs whose evidence has landed become done
     fabric-jobs tidy [--dry-run]                                 build output (target, node_modules) of every checkout under ~/projects no open job holds
     fabric-jobs drop <id> "<why>"
-    fabric-jobs project <id> <project> [--working-copy W]        re-point a job that has no branch or worktree yet; logged on the job
+    fabric-jobs project <id> <project> [--working-copy W]        re-point a job that has no branch or worktree yet (or sync it to its own worktree); logged on the job
     fabric-jobs show <id> [--json]
     fabric-jobs export                                           this login's whole list, every state, as one versioned JSON document on stdout
     fabric-jobs import                                           that document on stdin into this login's EMPTY list; ids kept
@@ -57,7 +57,7 @@ REPOSITORY is absent, unregistered, registered by two projects, or the registry 
 REQUEST carries is a reason not to queue it.
 The working copy is this login's of that project; when there is none the job is still listed, with none, and `start` refuses
 by name until `project <id> <project> --working-copy DIR` names one (`switch` refuses a job with no working copy as before).
-`project` re-points a job whose headers were both wrong; it is refused while the job has a branch or a worktree (the one-job guard
+`project` re-points a job whose headers were both wrong; it is refused while the job has a branch or a worktree, but for naming that worktree and its own project (the one-job guard
 and the sweep key on them) or is closed, and the old and new project are logged on the job. `show` prints "project from": the
 --project, REPOSITORY, PROJECT or re-pointing that decided it (a job added before it was recorded, from the pool, or in a working copy with no --project shows none; one the sending side added
 through the control plane says so, until the receiving side, which reads REPOSITORY, replaces that label while the job is queued and its project is the one the receiving side resolves).

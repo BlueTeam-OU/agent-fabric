@@ -919,10 +919,32 @@ def main() -> int:
         check("the working copy itself is untouched", subprocess.run(["git", "-C", w.repo, "rev-parse", "--abbrev-ref", "HEAD"], capture_output=True, text=True).stdout.strip() == "main")
         check("switch gives the job a worktree and sets working_copy to it in the same write (j474: a relaunch followed the older one)",
               job["working_copy"] == job["worktree"] != w.repo, repr(job))
+        # A delivered job's branch and commits are asked of its working copy, which is its worktree now, and the leave sweep removes
+        # that worktree: git is then asked in this login's checkout of the project, so `sweep` can still close the job.
+        jpath = os.path.join(w.state, "agents", login, "jobs.json")
+        doc = json.load(open(jpath))
+        next(j for j in doc["jobs"] if j["id"] == j1)["project"] = "proj"
+        with open(jpath, "w", encoding="utf-8") as fh:
+            json.dump(doc, fh)
+        settle = sys.modules["fabric_jobs.settle"]
+        # The fixture has no registry to find a project's checkout by; what is asked here is that the fallback is taken.
+        real_working_copy_of = settle.working_copy_of
+        settle.working_copy_of = lambda p: w.repo if p == "proj" else None
+        check("the directory git is asked in is the job's working copy while it is there", settle.checkout_of(w.job(j1)) == job["worktree"], repr(job))
+        subprocess.run(["git", "-C", w.repo, "worktree", "remove", "--force", job["worktree"]], check=True, env=git_env())
+        os.chdir(w.repo)
+        check("…and the project's checkout once the sweep has removed the worktree it names",
+              settle.checkout_of(w.job(j1)) == w.repo, repr(w.job(j1)))
+        settle.working_copy_of = real_working_copy_of
+        subprocess.run(["git", "-C", w.repo, "worktree", "add", "-q", job["worktree"], job["branch"]], check=True, env=git_env())
         # The record named two places until then; its own worktree is the one re-pointing the guard accepts.
-        rc, out, err = w.sw("project", j1, "somewhere", "--working-copy", job["worktree"])
+        project = "proj"
+        rc, out, err = w.sw("project", j1, project, "--working-copy", job["worktree"])
         check("project --working-copy <the job's own worktree> is accepted and leaves the two fields equal",
-              rc == 0 and w.job(j1)["working_copy"] == job["worktree"] == w.job(j1)["worktree"] and w.job(j1)["project"] == "somewhere", out + err)
+              rc == 0 and w.job(j1)["working_copy"] == job["worktree"] == w.job(j1)["worktree"], out + err)
+        rc, out, err = w.sw("project", j1, "elsewhere", "--working-copy", job["worktree"])
+        check("…but it does not rename the job: another project is refused, with the reason",
+              rc == 1 and "its work is in that project's checkout" in err and w.job(j1)["project"] == project, out + err)
         rc, out, err = w.sw("project", j1, "somewhere", "--working-copy", w.repo)
         check("…positive control: any other directory is still refused while the job has a worktree",
               rc == 1 and "its work is in that project's checkout" in err and w.job(j1)["working_copy"] == job["worktree"], out + err)
