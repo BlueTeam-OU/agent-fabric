@@ -11,6 +11,7 @@ import os
 import subprocess
 import sys
 
+from fabric_jobs import vcs
 from fabric_jobs.base import FABRIC_ROOT
 
 BRANCHES = os.path.join(FABRIC_ROOT, "tools", "fabric", "branches.py")
@@ -24,7 +25,9 @@ SAID = ("removed ", "kept session scratch", "KEPT worktree", "  freed ", "  beca
 def after_leaving(working_copy: str | None, here: str | None) -> list[str]:
     """The report of the sweep in the left job's working copy, or the one line saying why there is none. `here` (the checkout
     this session stands in, often a linked worktree of that copy) is named in use: it is never removed from under the session."""
-    where = next((p for p in (working_copy, here) if p and os.path.isdir(p)), None)
+    # The sweep may remove the left job's own worktree, which is its working copy once switch made one (j474): it runs from the
+    # repository's main checkout, never from a directory it could remove.
+    where = next((vcs.main_checkout(p) for p in (working_copy, here) if p and os.path.isdir(p)), None)
     if not where:
         return ["sweep skipped: no working copy of the job is a directory"]
     env = dict(os.environ)

@@ -917,6 +917,57 @@ def main() -> int:
         check("the opening prompt names the branch", f"work on branch {want} in {job['worktree']}" in w.sw("show", j1, "--line")[1], w.sw("show", j1, "--line")[1])
         check("the log line carries the branch", f"branch {want}" in job["log"][-1]["note"], repr(job["log"]))
         check("the working copy itself is untouched", subprocess.run(["git", "-C", w.repo, "rev-parse", "--abbrev-ref", "HEAD"], capture_output=True, text=True).stdout.strip() == "main")
+        check("switch gives the job a worktree and sets working_copy to it in the same write (j474: a relaunch followed the older one)",
+              job["working_copy"] == job["worktree"] != w.repo, repr(job))
+        # A delivered job's branch and commits are asked of its working copy, which is its worktree now, and the leave sweep removes
+        # that worktree: git is then asked in this login's checkout of the project, so `sweep` can still close the job.
+        jpath = os.path.join(w.state, "agents", login, "jobs.json")
+        doc = json.load(open(jpath))
+        next(j for j in doc["jobs"] if j["id"] == j1)["project"] = "proj"
+        with open(jpath, "w", encoding="utf-8") as fh:
+            json.dump(doc, fh)
+        settle = sys.modules["fabric_jobs.settle"]
+        # The fixture has no registry to find a project's checkout by; what is asked here is that the fallback is taken.
+        real_working_copy_of = settle.working_copy_of
+        settle.working_copy_of = lambda p: w.repo if p == "proj" else None
+        check("the directory git is asked in is the job's working copy while it is there", settle.checkout_of(w.job(j1)) == job["worktree"], repr(job))
+        subprocess.run(["git", "-C", w.repo, "worktree", "remove", "--force", job["worktree"]], check=True, env=git_env())
+        os.chdir(w.repo)
+        check("…and the project's checkout once the sweep has removed the worktree it names",
+              settle.checkout_of(w.job(j1)) == w.repo, repr(w.job(j1)))
+        # Through a settle call site, not the helper: a branch artifact is resolved on origin from the project's checkout.
+        subprocess.run(["git", "-C", w.repo, "push", "-q", "origin", job["branch"]], check=True, env=git_env())
+        problems: list[str] = []
+        _, tips = settle._branch_tips(w.job(j1) | {"artifacts": [job["branch"]]}, problems)
+        check("a delivered job whose worktree is swept still has its branch artifact found on origin (what lets `sweep` close it)",
+              [name for name, _ in tips] == [job["branch"]] and not problems, repr((tips, problems)))
+        settle.working_copy_of = real_working_copy_of
+        subprocess.run(["git", "-C", w.repo, "worktree", "add", "-q", job["worktree"], job["branch"]], check=True, env=git_env())
+        # The record named two places until then; its own worktree is the one re-pointing the guard accepts.
+        project = "proj"
+        before = w.job(j1)
+        rc, out, err = w.sw("project", j1, project, "--working-copy", job["worktree"])
+        check("project --working-copy <the job's own worktree> is accepted and leaves the two fields equal",
+              rc == 0 and w.job(j1)["working_copy"] == job["worktree"] == w.job(j1)["worktree"], out + err)
+        check("…and changes nothing else: the project and where it came from stay, and the log says a sync, not a re-pointing",
+              w.job(j1).get("project_from") == before.get("project_from") and w.job(j1)["project"] == "proj"
+              and "synced to its worktree" in w.job(j1)["log"][-1]["note"], repr(w.job(j1)))
+        rc, out, err = w.sw("project", j1, "elsewhere", "--working-copy", job["worktree"])
+        check("…but it does not rename the job: another project is refused, with the reason",
+              rc == 1 and "its work is in that project's checkout" in err and w.job(j1)["project"] == project, out + err)
+        rc, out, err = w.sw("project", j1, "somewhere", "--working-copy", w.repo)
+        check("…positive control: any other directory is still refused while the job has a worktree",
+              rc == 1 and "its work is in that project's checkout" in err and w.job(j1)["working_copy"] == job["worktree"], out + err)
+
+        # A job whose working copy is a linked worktree (its record names one place, j474): the branch's worktree is made beside the
+        # repository's main checkout, not beside that worktree.
+        w = World()
+        linked = f"{w.repo}-linked"
+        subprocess.run(["git", "-C", w.repo, "worktree", "add", "-q", "-b", "linked-branch", linked], check=True, env=git_env())
+        j1 = w.add("from a worktree", "--working-copy", linked)
+        rc, out, err = w.switch("--type", "fix")
+        check("a job whose working copy is a linked worktree gets its worktree beside the main checkout",
+              rc == 0 and w.job(j1).get("worktree") == f"{w.repo}-{j1}-from-a-worktree", out + err + repr(w.job(j1)))
 
         w = World()
         j1 = w.working("first")
