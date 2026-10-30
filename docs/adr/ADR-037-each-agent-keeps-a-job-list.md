@@ -4,7 +4,7 @@
 **Status:** Accepted
 **Ratified:** owner, 2026-09-29, by the merge of agent-fabric #61 (75e1bab), which built it, as §8 provided
 **Decision Makers:** the owner; drafted by fabric-coordinator
-**Scope:** runtime/identity.py (`jobs.json`); bin/fabric-jobs, tools/fabric/jobs.py; bin/fabric-fresh (`--job`); runtime/openrouter/launch (the fresh relaunch); runtime/claude-code/hooks/session-start.py; bin/fabric-status; tools/fabric/control/jobs.py, ops/, agentd.py, ctl.py (`jobs`, `jobs-add`, `hold`, `unhold`); tools/fabric/gzcoord/send.py (the inactive intake), inbox.py (`--replay --json`); policies/agent-jobs/SKILL.md
+**Scope:** runtime/identity.py (`jobs.json`, `hold.json`); tools/fabric/hold_view.py; bin/fabric-jobs, tools/fabric/jobs.py; bin/fabric-fresh (`--job`); runtime/openrouter/launch (the fresh relaunch); runtime/claude-code/hooks/session-start.py; bin/fabric-status; tools/fabric/control/jobs.py, ops/, agentd.py, ctl.py, hold.py (`jobs`, `jobs-add`, `hold`, `unhold`); tools/fabric/gzcoord/send.py (the inactive intake), inbox.py (`--replay --json`); policies/agent-jobs/SKILL.md
 **Pillar:** P3
 
 ## 1. Context and Problem

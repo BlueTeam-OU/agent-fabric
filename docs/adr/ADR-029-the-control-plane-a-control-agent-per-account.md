@@ -252,9 +252,9 @@ claimant (rule 4).
     `jobs-add` names one login, never `all`, and takes a one-line title,
     topic and project id (A 2026-09-28).
     `hold` and `unhold` set and lift ADR-037 rule 13's fleet hold; they
-    name one login or `all`, `hold` takes a one-line reason and a
-    `DECISION`'s `MESSAGE-ID`, and `fabric-ctl` names every account that
-    did not confirm (A 2026-10-30).
+    name one login or `all`, `hold` takes a one-line reason and,
+    optionally, a `DECISION`'s `MESSAGE-ID`, and `fabric-ctl` names
+    every account that did not confirm (A 2026-10-30).
 **§5 rule 14 — withdrawn** (Amendment 2026-09-30): the `secrets-migrate`
 action moved every account from Doppler to its own store and retired
 with Doppler (ADR-038 §5 rule 8).
