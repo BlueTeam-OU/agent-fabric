@@ -45,3 +45,24 @@ by a read-then-rewrite that holds no lock. Rule 1 now names them as a
 class, with how each is written, and records the ledger's unlocked trim
 as a gap to close rather than as conforming.
 
+
+### Amendment 2026-10-30 — The action ledger has two writers, serialized by a flock on the state directory
+
+§2 said the control agent, in Node, wrote `actions-seen.json` and
+`restart.json` with no `agent_lock`, and that what serialized them was
+that one control agent runs per account. Two things had made that
+false. The control code is Python since ADR-040's Wave 8 (the Node was
+deleted in #170); it kept its own temporary-and-rename writers. And
+agent-fabric #418 added `bin/fabric-op`, the break-glass path that runs
+one signed action on an account with no relay (ADR-029 rule 19): it
+decides through agentd's own `accept()` against the same ledger, so the
+ledger now has two writers in one account. #418 serializes them with
+an exclusive `flock` on the state directory (`ActionLedger._locked`),
+and records a request by an atomic check-and-record under it
+(`ActionLedger.claim`), so one writer never writes back a floor read
+before the other raised it, and a request reaching both paths is run
+once. `fabric-op` also appends a journal, `fabric-op.jsonl`. §2 and
+rules 1 and 2 now say this; the Scope line names the control code's
+state writers.
+
+Reported by python-dev-04, the author of #418 (REQUEST 01a18b3f).
