@@ -359,6 +359,11 @@ def jobs_summary(identity, agent):
             **{st: sum(1 for j in _jobs if j["state"] == st) for st in ("queued", "paused", "blocked", "delivered")}}
 
 
+def hold_of(identity, agent):
+    # The fleet hold (ADR-037 rule 13): the record, {"unreadable": why} for a hold.json that cannot be read, None when not held.
+    return load("fabric_hold_view", os.path.join(os.path.dirname(os.path.realpath(__file__)), "hold_view.py")).read(identity, agent)
+
+
 # A session's Bash no longer holds the harness's credentials (the
 # SessionStart hook unsets them, ADR-038 rule 9), so what this session
 # signs in with is read where it is: the environment of the nearest
@@ -549,6 +554,7 @@ def build_report(root, environ=None, cred_environ=None):
         "session_effort": session_effort,
         "undrained_memories": undrained,
         "jobs": jobs,
+        "hold": hold_of(identity, ctx["agent"]),
         "api": {"provider": provider, "path": path, "base_url_host": host or None,
                 "session_model": stamp or "harness default (not visible from the environment; /status shows it)",
                 "launch_profile": environ.get("AGENT_FABRIC_LAUNCH_PROFILE"),
@@ -741,6 +747,9 @@ def render(report, base):
         _a = jobs["active"]
         p("jobs         " + (f"active {_a['id']} ({_a['title'][:60]})" if _a else "none active") + "; "
           + ", ".join(f"{jobs[st]} {st}" for st in ("queued", "paused", "blocked", "delivered")) + "  (fabric-jobs list)")
+    if report["hold"]:
+        _hv = load("fabric_hold_view", os.path.join(os.path.dirname(os.path.realpath(__file__)), "hold_view.py"))
+        p(f"hold         {_hv.words(report['hold'])}    no job is started (fabric-ctl <login> unhold lifts it)")
     p("")
     p(f"api          {path}")
     p(f"session model {report['api']['session_model']}")
