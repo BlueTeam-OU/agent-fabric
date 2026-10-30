@@ -395,6 +395,20 @@ def main() -> int:
         r = who_err()
         check("--who with cpu.1 mode 000: free: cpu.2 only, exit 0, cpu.1 named on stderr",
               r.returncode == 0 and r.stdout == "free: cpu.2\n" and f"{leases}/cpu.1 is unusable" in r.stderr, f"{r.returncode} {r.stdout} {r.stderr}")
+        # An unusable slot is not a slot to wait for: the line says so (review of #425, F5).
+        h = shim("cargo", "test", mode="hold")
+        started(h)
+        p = shim("cargo", "build", AGENT_FABRIC_CPU_WAIT="1")
+        rc, _o, errs = finish(p)
+        check("cpu.1 mode 000, cpu.2 held: the wait line and the timeout name the unusable slot",
+              rc == 75 and reason(errs) == "timeout" and "waiting for cpu (1/2 held, 1 unusable: " in errs
+              and "still held after 1s (1/2 held, 1 unusable: " in errs, f"{rc} {errs}")
+        p = shim("cargo", "build", AGENT_FABRIC_CPU_WAIT="0")
+        rc, _o, errs = finish(p)
+        check("cpu.1 mode 000, cpu.2 held, no wait: reason=held names the unusable slot",
+              rc == 75 and reason(errs) == "held" and "cpu is held (1/2 held, 1 unusable: " in errs, f"{rc} {errs}")
+        release(h)
+        finish(h)
         os.chmod(f"{leases}/cpu.2", 0)
         rc, _slot, errs = slot_used(shim("cargo", "build"))
         check("every slot mode 000: exit 2, reason=unopenable", rc == 2 and reason(errs) == "unopenable", f"{rc} {errs}")
