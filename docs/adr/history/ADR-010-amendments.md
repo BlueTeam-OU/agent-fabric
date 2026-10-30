@@ -49,10 +49,13 @@ and nothing else, rule 2), default `max(1, nproc // 4)`; develop-qzapp:
 **N = 2**.
 
 **2. A slot carries a thread budget.** J = `nproc // N` (5 on
-develop-qzapp). The holder's child gets `CARGO_BUILD_JOBS=J`,
-`AGENT_FABRIC_TEST_JOBS=J` when unset (lowered to J when higher, with a
-line), `DOTNET_PROCESSOR_COUNT=J`, `MAKEFLAGS=-jJ` when unset, and
-`FABRIC_CPU_SLOT=<k>/<N>`. The dotnet variable bounds a build to J
+develop-qzapp). The holder's child gets `CARGO_BUILD_JOBS` and
+`DOTNET_PROCESSOR_COUNT` at J, or at the caller's own value when that
+is a number from 1 to J-1 (any other value, higher included, becomes J
+without a line); `AGENT_FABRIC_TEST_JOBS=J` when unset (lowered to J
+when higher, with a line); `MAKEFLAGS=-jJ` when unset; and
+`FABRIC_CPU_SLOT=<k>/<N>`. The variable outranks cargo's own
+configuration, so a project's `build.jobs` below J is raised to J. The dotnet variable bounds a build to J
 projects at once and sets `Environment.ProcessorCount`, so no `-m:J` is
 added; and the switches of item 6 leave no node or compiler server
 behind (read back in
