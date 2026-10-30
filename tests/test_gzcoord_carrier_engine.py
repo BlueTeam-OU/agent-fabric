@@ -93,6 +93,7 @@ class Node:
         os.makedirs(d)
         self.daemon = FakeDaemon(d, peer=pid(n))
         self.journal_rows: list[tuple[str, str]] = []
+        self.journal_senders: dict[str, str] = {}      # message id -> the sender the carrier passed the journal
         self.already: set[str] = set()        # ids the relay's inbox journaled first: the journal answers "same"
         self.arrivals_when_journaled: dict[str, int] = {}     # how many arrival lines existed when the journal was called
         self.journal_fail = journal_fail if journal_fail is not None else [False]
@@ -117,10 +118,11 @@ class Node:
             raise OSError("git could not run")
         return roster.Roster("gzcoord", "gzcoord", (47100, 47199), tuple(self.rows)), self.rows
 
-    def _journal(self, text: str, ts: str) -> str:
+    def _journal(self, text: str, ts: str, sender: str) -> str:
         if self.journal_fail[0]:
             raise OSError("journal is held")
         _, meta = parse(text)
+        self.journal_senders[meta["MESSAGE-ID"]] = sender
         self.arrivals_when_journaled.setdefault(meta["MESSAGE-ID"], len(self.arrivals()))
         if meta["MESSAGE-ID"] in self.already:
             return "same"
@@ -149,6 +151,33 @@ class Node:
 def mkrows(names: list[str]) -> list[dict]:
     return [{"agent_id": f"agent-{n}", "login": n, "peer_id": pid(i), "endpoint": "gzcoord", "port": 47100 + i,
              "identity_show": "", "login_signature": "", "countersignature": ""} for i, n in enumerate(names)]
+
+
+def journal_roundtrip() -> None:
+    """main.journal_inbound against a scratch journal: the row's sender read back
+    is the address the carrier passed, not the copy's FROM."""
+    import episodic
+    from gzcoord.carrier import main as carrier_main
+    agent_id = "01a0f782-7e06-7dee-811f-0a860ed93bf3"
+    with tempfile.TemporaryDirectory(prefix="gz-ce-") as d:
+        path = os.path.join(d, "e.db")
+        real = episodic.connect
+        episodic.connect = lambda: real(path, agent_id)
+        try:
+            claimed = msg("J-1", "h/gamma", to="h/beta")
+            out = carrier_main.journal_inbound(claimed, "2026-10-28T12:00:00Z", "h/alpha")
+            conn = real(path, agent_id)
+            try:
+                got = conn.execute("SELECT sender FROM episodes WHERE message_id='J-1'").fetchall()
+                # positive control: without a verified sender (the relay's path) the claim is the row's
+                episodic.inbound(conn, [{"content": msg("J-2", "h/gamma", to="h/beta"), "seq": None, "ts": "2026-10-28T12:00:00Z"}])
+                ctl = conn.execute("SELECT sender FROM episodes WHERE message_id='J-2'").fetchall()
+            finally:
+                conn.close()
+        finally:
+            episodic.connect = real
+    check("journal_inbound writes the row under the verified sender, not the FROM", out == "written" and got == [("h/alpha",)], f"{out} {got}")
+    check("... and a record with no sender keeps the FROM (the control that the read-back is live)", ctl == [("h/gamma",)], str(ctl))
 
 
 def main() -> int:
@@ -240,6 +269,11 @@ def main() -> int:
             v = [x for x in b.arrivals() if x["mid"] == "M-4"]
             check("a FROM that is not the sender's roster address is a mismatch verdict",
                   v and v[0]["verdict"] == "mismatch" and any(r["verdict"] == "mismatch" for r in b.spool.unseen()))
+
+            check("a mismatch copy (FROM h/gamma, sent by alpha's peer) reaches the journal under the roster's address",
+                  b.journal_senders.get("M-4") == "h/alpha", str(b.journal_senders))
+            check("a copy whose FROM is the roster's is journaled under it too (positive control)",
+                  b.journal_senders.get("M-1") == "h/alpha", str(b.journal_senders))
 
             # the relay's copy was journaled first (the usual order): the journal says "same"
             b.already.update({"M-RS1", "M-RS2"})
@@ -422,6 +456,7 @@ def main() -> int:
         finally:
             for n in nodes:
                 n.stop()
+    journal_roundtrip()
     print(f"\ntest_gzcoord_carrier_engine: {'OK' if not fails else f'FAILED — {fails} check(s)'}")
     return 1 if fails else 0
 

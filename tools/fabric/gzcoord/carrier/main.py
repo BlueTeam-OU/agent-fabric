@@ -149,11 +149,11 @@ def verified_roster() -> tuple[roster.Roster, list[dict]]:
     return r, good
 
 
-def journal_inbound(text: str, ts: str) -> str:
+def journal_inbound(text: str, ts: str, sender: str) -> str:
     import episodic
     conn = episodic.connect()
     try:
-        counts = episodic.inbound(conn, [{"content": text, "seq": None, "ts": ts}], carrier=CARRIER_NAME)
+        counts = episodic.inbound(conn, [{"content": text, "seq": None, "ts": ts, "sender": sender}], carrier=CARRIER_NAME)
     finally:
         conn.close()
     return "written" if counts["written"] else "same"
