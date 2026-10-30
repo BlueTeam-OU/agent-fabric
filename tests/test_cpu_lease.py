@@ -378,11 +378,48 @@ def main() -> int:
         p = shim("cargo", "build", AGENT_FABRIC_LEASES=f"{sandbox}/nowhere")
         rc, _o, errs = finish(p)
         check("no lease directory: exit 2, reason=nodir, naming the fix", rc == 2 and reason(errs) == "nodir" and "persist" in errs, f"{rc} {errs}")
+
+        def who_err() -> subprocess.CompletedProcess:
+            return subprocess.run([sys.executable, "-I", LEASE, "cpu", "--who"], env=env(), capture_output=True,
+                                  text=True, timeout=30, stdin=subprocess.DEVNULL)
+
+        def slot_used(p: subprocess.Popen) -> tuple[int, str, str]:
+            rc, _o, errs = finish(p)
+            return rc, started(p).get("FABRIC_CPU_SLOT", ""), errs
+
+        # One slot that cannot be used is a lost slot, not a lost host (review of #425, F4).
         os.chmod(f"{leases}/cpu.1", 0)
-        p = shim("cargo", "build")
-        rc, _o, errs = finish(p)
-        check("a slot file that cannot be opened (mode 000): exit 2, reason=unopenable", rc == 2 and reason(errs) == "unopenable", f"{rc} {errs}")
+        rc, slot, errs = slot_used(shim("cargo", "build"))
+        check("cpu.1 mode 000, cpu.2 free: the taker gets cpu.2, one line names cpu.1",
+              rc == 0 and slot == "2/2" and errs.count(f"{leases}/cpu.1 is unusable") == 1, f"{rc} {slot} {errs}")
+        r = who_err()
+        check("--who with cpu.1 mode 000: free: cpu.2 only, exit 0, cpu.1 named on stderr",
+              r.returncode == 0 and r.stdout == "free: cpu.2\n" and f"{leases}/cpu.1 is unusable" in r.stderr, f"{r.returncode} {r.stdout} {r.stderr}")
+        os.chmod(f"{leases}/cpu.2", 0)
+        rc, _slot, errs = slot_used(shim("cargo", "build"))
+        check("every slot mode 000: exit 2, reason=unopenable", rc == 2 and reason(errs) == "unopenable", f"{rc} {errs}")
+        r = who_err()
+        check("--who with every slot mode 000: exit 2", r.returncode == 2 and r.stdout == "", f"{r.returncode} {r.stdout} {r.stderr}")
         os.chmod(f"{leases}/cpu.1", 0o666)
+        os.chmod(f"{leases}/cpu.2", 0o666)
+
+        # A fifo would block open() past the wait deadline; the 30 s bound of finish() and who_err() is the failure.
+        os.unlink(f"{leases}/cpu.1")
+        os.mkfifo(f"{leases}/cpu.1")
+        rc, slot, errs = slot_used(shim("cargo", "build"))
+        check("a fifo in cpu.1, cpu.2 free: the taker gets cpu.2, one line names cpu.1",
+              rc == 0 and slot == "2/2" and errs.count(f"{leases}/cpu.1 is unusable (not a regular file)") == 1, f"{rc} {slot} {errs}")
+        r = who_err()
+        check("--who with a fifo in cpu.1: returns, free: cpu.2, exit 0",
+              r.returncode == 0 and r.stdout == "free: cpu.2\n" and "cpu.1 is unusable" in r.stderr, f"{r.returncode} {r.stdout} {r.stderr}")
+        os.unlink(f"{leases}/cpu.2")
+        os.mkfifo(f"{leases}/cpu.2")
+        rc, _slot, errs = slot_used(shim("cargo", "build"))
+        check("a fifo in every slot: exit 2, reason=unopenable, no wait", rc == 2 and reason(errs) == "unopenable", f"{rc} {errs}")
+        r = who_err()
+        check("--who with a fifo in every slot: exit 2", r.returncode == 2, f"{r.returncode} {r.stdout} {r.stderr}")
+        for k in (1, 2):
+            os.unlink(f"{leases}/cpu.{k}")
 
         # ---- from a working copy the policy is the operator root's policies/host-load.json
         # a tree of its own: the checkout's live policy would make the case follow the fleet's tuning.

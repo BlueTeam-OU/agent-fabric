@@ -53,7 +53,9 @@ a slot's thread budget is J = nproc // N. A taker tries each slot without
 blocking, then polls every ~2 s with jitter until its wait is over: the
 order of waiters is not first-come, on purpose (a queue file is more
 machinery than the load observed). `fabric-lease cpu --who` prints one line
-per slot and exits 0 when a slot is free, 1 when all are held; a held slot
+per slot and exits 0 when a slot is free, 1 when all are held, 2 when none can
+be used (a slot file that cannot be opened or is not a regular file is skipped
+with one stderr line naming it, in `--who` and for a taker alike); a held slot
 whose recorded pid is gone ends `(orphan: a child still runs)`. `cpu` has no
 `-- <cmd>` form: it is taken by the process that becomes the tool, with the
 descriptor INHERITED (hold_and_exec), where every other lease's command runs
@@ -128,6 +130,7 @@ import re
 import shutil
 import signal
 import socket
+import stat
 import subprocess
 import sys
 import time
@@ -294,9 +297,11 @@ def record(path: str, name: str, label: str) -> None:
         pass
 
 
-def open_lease(path: str) -> int:
+def open_lease(path: str, *, regular_only: bool = False) -> int:
     """The lease file's descriptor, the file made when absent; OSError when it
-    cannot be opened. Shared with tests/run.py, which holds full-suite itself."""
+    cannot be opened. Shared with tests/run.py, which holds full-suite itself.
+    regular_only (a cpu slot): the open cannot block on a fifo, and anything
+    but a regular file is refused with an OSError."""
     # 0666 so a later holder, another login, can record itself; a file that
     # exists with tighter modes (made by hand) still locks, and the record is
     # best effort. The lock is taken on a READ-ONLY descriptor (see record()).
@@ -308,7 +313,13 @@ def open_lease(path: str) -> int:
             pass
         finally:
             os.umask(old)
-    return os.open(path, os.O_RDONLY)
+    if not regular_only:
+        return os.open(path, os.O_RDONLY)
+    fd = os.open(path, os.O_RDONLY | os.O_NONBLOCK)
+    if not stat.S_ISREG(os.fstat(fd).st_mode):
+        os.close(fd)
+        raise OSError(errno.EINVAL, "not a regular file")
+    return fd
 
 
 class _Alarm(Exception):
@@ -675,29 +686,37 @@ def acquire_cpu(leases: str, policy: CpuPolicy, label: str, wait_s: int, *,
     started = monotonic()
     next_say = started
     said = False
+    unusable: set[int] = set()
     while True:
         held: list[str] = []
         for k in range(1, policy.slots + 1):
+            if k in unusable:
+                continue
             name = f"{CPU}.{k}"
             path = os.path.join(leases, name)
             try:
-                fd = open_lease(path)
-            except OSError:
-                refuse(2, "unopenable", f"cannot open {path}")
-            try:
-                fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                fd = open_lease(path, regular_only=True)
+                try:
+                    fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                except BaseException:
+                    os.close(fd)
+                    raise
             except BlockingIOError:
-                os.close(fd)
                 held.append(holder(path))
                 continue
             except OSError as e:
-                os.close(fd)
-                refuse(2, "unopenable", f"cannot lock {path}: {os.strerror(e.errno or 0)}")
+                # One slot nobody can use is a lost slot, not a lost host: the
+                # others still serve (review of #425, F4).
+                unusable.add(k)
+                say(f"fabric-lease: {path} is unusable ({e.strerror or e}); the other cpu slots serve\n")
+                continue
             record(path, name, label)
             waited = int(monotonic() - started)
             if said:
                 say(f"fabric-lease: cpu slot {k}/{policy.slots} after {waited}s, jobs={policy.jobs}\n")
             return CpuSlot(fd, k, policy.slots, policy.jobs, waited)
+        if len(unusable) == policy.slots:
+            refuse(2, "unopenable", f"no cpu slot in {leases} can be used")
         now = monotonic()
         who = f"{len(held)}/{policy.slots} held: " + ", ".join(describe_holder(h, wall()) for h in held)
         if now - started >= wait_s:
@@ -785,22 +804,30 @@ def orphan(record_line: str) -> bool:
 def who_cpu(leases: str, policy: CpuPolicy) -> int:
     need_dir(leases)
     anyfree = False
+    unusable = 0
     for k in range(1, policy.slots + 1):
         name = f"{CPU}.{k}"
         path = os.path.join(leases, name)
         try:
-            fd = open_lease(path)
-        except OSError:
-            refuse(2, "unopenable", f"cannot open {path}")
+            fd = open_lease(path, regular_only=True)
+        except OSError as e:
+            unusable += 1
+            err(f"fabric-lease: {path} is unusable ({e.strerror or e})\n")
+            continue
         try:
             fcntl.flock(fd, fcntl.LOCK_SH | fcntl.LOCK_NB)
             out(f"free: {name}\n")
             anyfree = True
-        except OSError:
+        except BlockingIOError:
             line = holder(path)
             out(f"held: {line}{ORPHAN if orphan(line) else ''}\n")
+        except OSError as e:
+            unusable += 1
+            err(f"fabric-lease: {path} is unusable (cannot lock: {e.strerror or e})\n")
         finally:
             os.close(fd)
+    if unusable == policy.slots:
+        refuse(2, "unopenable", f"no cpu slot in {leases} can be used")
     return 0 if anyfree else 1
 
 
