@@ -2,7 +2,7 @@
 """moveto --via ssh|sudo (ADR-048; job j78) and `fabric-host ssh-pin`, which says which is the default.
 
 moveto's ssh path enters an account through its pinned sshd, whose forced command (enter-ssh) runs `enter`
-in the workspace. What is pinned here: the exact ssh argv for each of the four words, the `--` OpenSSH
+in the workspace. What is pinned here: the exact ssh argv for each of the five words, the `--` OpenSSH
 needs before a word that begins with `-`, the generated known_hosts, the default following the registry
 (and degrading to sudo only where there is no registry to ask or an older fabric-host that cannot say),
 the refusals (no key, a named clone, no pin for --via ssh), and that --via sudo never touches ssh.
@@ -39,7 +39,7 @@ def main() -> int:
 
     print("the ssh argv, exactly")
     pin = ("127.0.0.1", 22)
-    for mode, word in (("--wait", "--wait"), ("--watch", "--watch"), ("--resume", "--resume"), ("", "shell")):
+    for mode, word in (("--wait", "--wait"), ("--watch", "--watch"), ("--resume", "--resume"), ("--attach", "attach"), ("", "shell")):
         want = ["ssh", "-i", "/k", "-o", "IdentitiesOnly=yes", "-o", "UserKnownHostsFile=/kh", "-o", "StrictHostKeyChecking=yes",
                 "-t", "acct@127.0.0.1", "--", word]
         check(f"mode {mode or '(none)'} → ... acct@127.0.0.1 -- {word}", moveto.ssh_argv("acct", mode, pin, "/kh", "/k") == want,
@@ -103,7 +103,7 @@ def main() -> int:
             return [c[1:] for c in calls if c[0] == "ssh"]
 
         fabric_host_says("ssh 127.0.0.1 22")
-        for word, flag in (("--wait", ["--wait"]), ("--watch", ["--watch"]), ("--resume", ["--resume"]), ("shell", [])):
+        for word, flag in (("--wait", ["--wait"]), ("--watch", ["--watch"]), ("--resume", ["--resume"]), ("attach", ["--attach"]), ("shell", [])):
             rc, out, calls = mv("acct", "--via", "ssh", *flag)
             want = ["-i", key, "-o", "IdentitiesOnly=yes", "-o", f"UserKnownHostsFile={kh}", "-o", "StrictHostKeyChecking=yes", "-t",
                     "acct@127.0.0.1", "--", word]
@@ -122,6 +122,27 @@ def main() -> int:
         rc, out, calls = mv("acct", "--print", "--wait")
         check("--print over ssh: the workspace, the account's title, the mode, `via: ssh`, and nothing spawned",
               rc == 0 and out == f"{acct_home}/projects\ntitle: acct\nthen: Enter to activate, then fabric-resume\nvia: ssh\n" and not ssh_calls(calls), (rc, out))
+
+        print("moveto --attach: the fifth word over ssh, the same attach by sudo, and its refusals")
+        rc, out, calls = mv("acct", "--attach")
+        check("no --via and a pinned sshd: the remote argv is the one word `attach` (the deck recognises its pane by it)",
+              rc == 0 and len(ssh_calls(calls)) == 1 and ssh_calls(calls)[0][-3:] == ["acct@127.0.0.1", "--", "attach"], (rc, calls, out))
+        rc, out, calls = mv("acct", "--via", "sudo", "--attach")
+        sudo = [c for c in calls if c[0] == "sudo"]
+        check("--via sudo --attach: enter, as the account, with the mode --attach last; ssh never run",
+              rc == 0 and not ssh_calls(calls) and sudo[-1][1] == f"-n -u acct -H /usr/local/share/moveto/enter {acct_home}/projects acct --attach", (rc, calls, out))
+        rc, out, calls = mv("acct", "--attach", "--print")
+        check("--attach --print over ssh says what it would do and spawns nothing",
+              rc == 0 and out == f"{acct_home}/projects\ntitle: acct\nthen: attach to the harness pane of the account's own FleetDeck server\nvia: ssh\n" and not ssh_calls(calls), (rc, out))
+        for argv, want in ((["acct", "--attach", "--wait"], "moveto: one of --wait, --resume, --watch, --attach at a time"),
+                           (["acct", "--wait", "--attach"], "moveto: one of --wait, --resume, --watch, --attach at a time"),
+                           (["acct", "--attach", "--watch"], "one of --wait, --resume, --watch, --attach at a time"),
+                           (["acct", "--wait", "--resume"], "moveto: one of --wait, --resume, --watch at a time"),
+                           (["acct", "--attach", "agent-fabric"], "has no directory"), (["acct", "agent-fabric", "--attach", "--via", "ssh"], "has no directory")):
+            rc, out, calls = mv(*argv)
+            check(f"{' '.join(argv)}: refused ({want!r}), nothing run", rc == 1 and want in out and not ssh_calls(calls) and not any(c[0] == "sudo" for c in calls), (rc, out, calls))
+        rc, out, calls = mv("acct", "--attach", "--attach")
+        check("--attach twice is the same mode, as --wait twice is", rc == 0 and len(ssh_calls(calls)) == 1, (rc, out, calls))
 
         print("moveto: refusals and the default's other answers")
         rc, out, calls = mv("acct", "--via", "ssh", "agent-fabric")

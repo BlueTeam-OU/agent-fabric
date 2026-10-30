@@ -15,6 +15,7 @@ moveto <account> --via sudo    # the break-glass; sudo is also the default until
 moveto <account> [<clone>] --resume  # …and bring its last session back first (fabric-resume)
 moveto <account> [<clone>] --wait    # "<account> - Enter to activate"; Enter does --resume
 moveto <account> [<clone>] --watch   # …and show its status first (fabric-watch), until q
+moveto <account> --attach            # draw the harness pane of the account's own FleetDeck server; no shell, no refresh
 ```
 
 `exit` returns to the shell you came from.
@@ -30,6 +31,20 @@ the account, or while another activation's launcher holds its
 `resume.lock`, so an Enter never starts a second session. `--watch` runs
 `fabric-watch`, read-only, after the refresh; `q` returns to the account's
 shell.
+
+`--attach` is the fourth word and the odd one: it starts nothing. Each account
+runs a headless FleetDeck server as a user unit (`agent-fabric-harness.service`,
+`runtime/control/`), whose one pane, labelled `harness`, runs `enter --wait` and
+then the session. `--attach` draws that pane here until the attach is hung up
+(Ctrl-b q, or the ssh dropping); that ends the attach only, the session runs on
+in the unit, and a second attach redraws it. Over ssh the forced command's fifth
+word is `attach` (`ssh … -- attach`), which reaches `enter` as `--attach`; by
+sudo it is `enter … --attach` as the account. With no
+`/usr/local/bin/agent-fabric-fleetdeck` (`tools/fabric/provisioning/install_fleetdeck.py`),
+no server or no harness pane it says which in one line and exits 1; it never
+starts a server (`fabric-ctl <login> harness-start` does). It excludes the other
+modes and takes no clone. A session in the unit is ended with
+`fabric-ctl <login> harness-stop`, never by hanging up a pane.
 
 Entering refreshes the account, best effort, before the shell opens: the
 fabric checkout is fast-forwarded (`git -C ~/projects/agent-fabric pull
