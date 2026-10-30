@@ -694,7 +694,7 @@ its record disagree, the record wins. Look it up, never read it whole:
 - A 2026-10-30 — busy flocks; pool lock (r19).
 - Keywords: fabric-ctl, keys, operator_key, usage, tokens, herdr,
   resume, interweave-evidence, interweave-human, fabric-control,
-  control_carrier, break-glass.
+  control_carrier, break-glass, busy.
 ### ADR-030 — Presence replaces HELLO and GOODBYE (Accepted)
 
 - Whether a session runs is the control agent's answer from its process
