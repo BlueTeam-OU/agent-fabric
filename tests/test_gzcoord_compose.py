@@ -158,7 +158,8 @@ def main() -> int:
             rc, out, err = compose("INFO", "--to", stale, "--subject", "s", "-o", gone)
             want = EN("address.is-a-role", {"address": stale, "slug": "fixture-only-role"})
             check(f"{stale}: exit 2, the slug and TO-ROLE named, nothing written",
-                  rc == 2 and want in err and "TO-ROLE: fixture-only-role" in err and out == "" and not os.path.exists(gone),
+                  rc == 2 and want in err and "TO-ROLE: fixture-only-role" in err and out == "" and not os.path.exists(gone)
+                  and "--force" not in err,
                   f"rc={rc}\n{err}\nwant={want}")
         rc, out, err = compose("REQUEST", "--to", "other-host/fixture-only-role", "--subject", "s")
         check("a REQUEST toward a role-named login: refused as well, with the assignment's way said",

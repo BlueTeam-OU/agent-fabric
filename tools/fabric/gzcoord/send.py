@@ -535,6 +535,8 @@ def main(argv: list[str]) -> int:
     unplaced = _placement_problem(msg["metadata"], taxonomy, t)
     if unplaced and unplaced["kind"] == "role":
         print("send: " + t("address.is-a-role", unplaced), file=sys.stderr)
+        # Apart from the shared key: gzcoord-compose prints it too, and has no --force.
+        print(t("send.not-sent-role"), file=sys.stderr)
         return 2
     if unplaced:
         print("send: " + t("address.not-an-account", unplaced), file=sys.stderr)

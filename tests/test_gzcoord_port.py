@@ -1921,7 +1921,8 @@ def _():
         eq(rc, 2, f"{label}: {err}")
         eq((out, posted, _api_hits(hits)), ("", "", []), f"{label}: nothing left, the relay not asked: {hits}")
         ok("fabric-coordinator" in err and "TO-ROLE: fabric-coordinator" in err and "one holder's login" in err
-           and "fabric-ctl all presence" in err and "sending anyway" not in err, f"{label}: {err}")
+           and "fabric-ctl all presence" in err and "sending anyway" not in err
+           and err.rstrip().endswith("send: not sent — --force does not send it"), f"{label}: {err}")
 
 
 @case("send: any other TO no host places is no account: exit 4 and the line says so; --force sends it, with and without presence")
