@@ -316,8 +316,10 @@ its record disagree, the record wins. Look it up, never read it whole:
 - A destination and its credential move together, with a check on the
   secret itself; credentials are tested by shape (§5 rules 6–7).
 - A 2026-09-30 — the Doppler layout is replaced by each login's own store (§2, §5 rules 1–4, 8).
+- A 2026-10-30 — the commit hooks and pre-push refuse a value of the account's own secrets.env, named by variable (§5 rule 9).
 - Keywords: credentials, secrets, Doppler, token, API key, fabric-secrets,
-  provision, enroll, rotation, leak, shape, locator, base URL.
+  provision, enroll, rotation, leak, shape, locator, base URL, omerta,
+  secret value, pre-commit, pre-push, history audit.
 
 ### ADR-013 — The memory model: scopes, kinds of truth, tiers, the drain (Accepted)
 
