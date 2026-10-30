@@ -196,10 +196,15 @@ def main() -> int:
         except Exception:  # noqa: BLE001 — a report oddity must not cost the session its start
             pass
         try:
+            hold = hold_of(identity, ctx["agent"])
+        except Exception:  # noqa: BLE001 — hold_view reads an unreadable hold.json as a hold; this is its module missing
+            hold = None
+        try:
             doc = identity.read_jobs(ctx["agent"])
-            lines += jobs_line(doc, ctx["working_copy"], cleared_jobs(doc))
+            lines += jobs_line(doc, ctx["working_copy"], cleared_jobs(doc), hold)
         except (Exception, SystemExit):  # noqa: BLE001 — a job list it cannot read must not cost the session its start
-            pass
+            if hold:
+                lines += jobs_line({}, ctx["working_copy"], None, hold)
         try:
             missing = watch_running() is False
         except Exception:  # noqa: BLE001 — a /proc oddity must not cost the session its project layer
@@ -324,11 +329,28 @@ def cleared_jobs(doc: dict) -> list[str]:
         return []
 
 
-def jobs_line(doc: dict, working_copy: str | None, cleared: list[str] | None = None) -> list[str]:
+def hold_view():
+    # hold_view is fabric-jobs' own reader (ADR-037 rule 13), loaded rather than restated, so an unreadable
+    # hold.json is a hold here exactly as it is where the hold is enforced.
+    spec = importlib.util.spec_from_file_location("fabric_hold_view", os.path.join(FABRIC_ROOT, "tools", "fabric", "hold_view.py"))
+    view = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(view)
+    return view
+
+
+def hold_of(identity, agent: str) -> dict | None:
+    """The record, {"unreadable": why} for a hold.json that cannot be read, None when not held."""
+    return hold_view().read(identity, agent)
+
+
+def jobs_line(doc: dict, working_copy: str | None, cleared: list[str] | None = None,
+              hold: dict | None = None) -> list[str]:
     """The agent's job list in one line (ADR-037): the active job and how
     many wait behind it, and a warning when the active job's working copy
     is not this session's — the restart rule broken, or a job left active
-    by a session that ended. Nothing when the list has no open job."""
+    by a session that ended. Nothing when the list has no open job and no
+    fleet hold is set; a hold is said even with an empty list, since it is
+    what tells the session not to take the next request as a job."""
     jobs = doc.get("jobs") or []
     active = next((j for j in jobs if j.get("state") == "active"), None)
     queued = sum(1 for j in jobs if j.get("state") == "queued")
@@ -336,8 +358,11 @@ def jobs_line(doc: dict, working_copy: str | None, cleared: list[str] | None = N
     # Paused is the agent's own choice to set a job aside (ADR-037 rule 2): listed apart from blocked,
     # which is a wait it does not control, so the start says what is set aside as well as what waits.
     paused = sum(1 for j in jobs if j.get("state") == "paused")
+    held = (f" FLEET HOLD: {hold_view().words(hold)}. Take no new job: carry the active one to its artifact, "
+            f"`fabric-jobs switch` then settles it and starts nothing, and the session ends idle (ADR-037 rule 13)."
+            if hold else "")
     if not active and not queued and not blocked and not paused:
-        return []
+        return [f"agent-fabric: jobs — none open.{held}"] if hold else []
     waiting = ", ".join(f"{n} {what}" for n, what in ((queued, "queued"), (paused, "paused"), (blocked, "blocked"))
                         if n) or "nothing waiting"
     if cleared:
@@ -345,9 +370,11 @@ def jobs_line(doc: dict, working_copy: str | None, cleared: list[str] | None = N
         more = f", +{len(cleared) - 3} more" if len(cleared) > 3 else ""
         waiting += f"; blocker cleared: {', '.join(cleared[:3])}{more}"
     if not active:
+        if hold:
+            return [f"agent-fabric: jobs — none active; {waiting}.{held}"]
         return [f"agent-fabric: jobs — none active; {waiting}. `fabric-jobs switch` starts the next one "
                 f"and says whether it needs a fresh session."]
-    line = f"agent-fabric: jobs — active {active['id']}: {active.get('title', '')[:120]}; {waiting} (`fabric-jobs list`)."
+    line = f"agent-fabric: jobs — active {active['id']}: {active.get('title', '')[:120]}; {waiting} (`fabric-jobs list`).{held}"
     wc = active.get("working_copy")
     if wc and working_copy != wc:
         line += (f" Your active job is in {wc}, and this session is in {working_copy or 'no working copy'}: "
