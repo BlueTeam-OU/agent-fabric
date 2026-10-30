@@ -939,6 +939,35 @@ def main() -> int:
               r.returncode == 75 and " other " in r.stderr and not os.path.exists(os.path.join(sandbox, "ran-cpu-held"))
               and not runs_left(base), (r.returncode, r.stderr))
 
+        # the order: full-suite first, then the slot. Taken the other way round, a run holding a slot would wait on
+        # full-suite while the run holding full-suite waits on that slot (review of #425, F3).
+        leases, extra = cpu_world()
+        extra.update(AGENT_FABRIC_SUITE_LEASE="1", AGENT_FABRIC_CPU_WAIT="30")
+        other = subprocess.Popen([sys.executable, "-c", "import sys, time\nsys.path.insert(0, sys.argv[1])\nimport lease\n"
+                                  "lease.acquire_cpu(sys.argv[2], lease.cpu_policy(sys.argv[3]), 'other', 0)\n"
+                                  "print('held', flush=True)\ntime.sleep(60)\n",
+                                  os.path.join(ROOT, "tools", "fabric"), leases, policy],
+                                 stdout=subprocess.PIPE, text=True, stdin=subprocess.DEVNULL)
+        other.stdout.readline()
+        base = fresh(lease=True, files={"tests/test_mark.py": marker_suite("ran-order")})
+        p = subprocess.Popen([sys.executable, os.path.join(base, "tests", "run.py"), "all"], cwd=base, env=env(base, **extra),
+                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, stdin=subprocess.DEVNULL)
+        took_suite = poll_until(lambda: who(leases).startswith("held:"), 20)
+        slot_still_other = "(other)" in cpu_who(leases)
+        p.send_signal(signal.SIGTERM)
+        try:
+            p.wait(timeout=60)
+        except subprocess.TimeoutExpired:
+            p.kill()
+            p.wait()
+        other.terminate()
+        other.wait()
+        other.stdout.close()
+        check("waiting for a cpu slot, an `all` run already holds full-suite (catches: the slot taken first, which deadlocks "
+              "two runs; control: the slot is still the other process's)",
+              took_suite and slot_still_other and not os.path.exists(os.path.join(sandbox, "ran-order")),
+              (took_suite, slot_still_other, who(leases), cpu_who(leases)))
+
         # not taken: the probe sees a free directory while its suite runs
         for key, label, more, said in (("nested", "FABRIC_CPU_SLOT set (nested in a slot)", {"FABRIC_CPU_SLOT": "1/2"}, ""),
                                        ("optout", "AGENT_FABRIC_CPU_LEASE=0", {"AGENT_FABRIC_CPU_LEASE": "0"}, "AGENT_FABRIC_CPU_LEASE=0"),
