@@ -275,7 +275,8 @@ action when the relay is down; §7's second host names it as the SSH
 fallback. Rule 19 also records what #418 does not do: the `busy` of
 rules 12 and 17 (`upgrade`, `secrets-sync`, `secrets-selftest`) and
 `restart`'s exclusions are decided inside the control agent's process,
-and `pool.json` is rewritten with no lock, so a `fabric-op` action is
+and `pool.json` is rewritten with no lock (a race inside the control
+agent already, ADR-003 rule 2), so a `fabric-op` action is
 not excluded against one the control agent is running, and break-glass
 stays for an account whose relay is not there. The blind review of
 #422 found the first version of the rule naming only `upgrade` and

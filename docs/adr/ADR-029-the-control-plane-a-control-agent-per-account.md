@@ -358,9 +358,10 @@ with Doppler (ADR-038 §5 rule 8).
       `secrets-selftest`, and `restart`'s own exclusion and its refusals
       beside an upgrade or a `secrets-sync`, are held inside the control
       agent's process: an action through `fabric-op` is not refused
-      against one the control agent is running at that moment, and
-      `pool-add` can lose an update beside a `pool-claim` (ADR-003 §5
-      rule 2). The locks of `gateway-install` and of the three InterWeave
+      against one the control agent is running at that moment; and
+      `pool.json` is rewritten with no lock, so `pool-add` can lose an
+      update beside a `pool-claim`, inside the control agent already and
+      across `fabric-op` too (ADR-003 §5 rule 2). The locks of `gateway-install` and of the three InterWeave
       ops are file locks and do hold across both. Until every exclusion
       spans processes, break-glass is for an account whose relay is not
       there, not a second path beside a live one.

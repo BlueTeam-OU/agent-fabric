@@ -64,10 +64,15 @@ before the other raised it, and a request reaching both paths is run
 once; `accept()`'s earlier read of the floor is unlocked, and the
 claim checks it again. `fabric-op` also appends a journal,
 `fabric-op.jsonl`, beside the older append-only `account-switch.jsonl`.
-The one control file the second writer leaves unserialized is the role
-pool, `pool.json`, rewritten with no lock: `pool-add` through `fabric-op`
-beside a `pool-claim` the control agent answers can lose an update, and
-rule 2 names it as a gap to close. §2 and rules 1 and 2 now say this;
+The control code's other files are replaced whole by temporary and
+rename. One of them is unserialized: the role pool, `pool.json`, which
+is rewritten with no lock. Its module says the writes are serialized
+because agentd makes them in its loop, but `pool-add` runs in a thread
+beside that loop, which answers `pool-claim`. So one control agent
+already races with itself, and `fabric-op` adds a second process. Rule
+2 names this as a gap to close. The re-review of #422 found the first
+wording, which said the race came only from `fabric-op` and that every
+other file was an append-only log. §2 and rules 1 and 2 now say this;
 the Scope line names the control code's state writers.
 
 Reported by python-dev-04, the author of #418 (REQUEST 01a18b3f).

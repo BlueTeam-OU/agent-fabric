@@ -55,14 +55,17 @@ holds an exclusive `flock` on the state directory itself
 read of the floor takes no lock; the claim checks the floor again under
 it and records in the same step, so a floor one writer raised is never
 written back lower by the other and a request is claimed once. The
-control code's other state files are append-only logs: `fabric-op`'s
-journal, `fabric-op.jsonl`, and the account switch log,
-`account-switch.jsonl` (`switch_log.py`), each one `O_APPEND` write per
-batch of lines, mode 0600. The role pool, `pool.json` (`pool.py`), is
-replaced by temporary and rename with no lock, which held while one
-control agent was its only writer; `pool-add` through `fabric-op`
-beside a `pool-claim` the control agent answers can lose one of the two
-updates (a known gap, to close). The launcher is the other party to `restart.json`: after its
+control code's other state files (the pressure, switch, tools, gateway
+and carrier records, the role pool) are replaced whole by temporary and
+rename, and two are append-only logs: `fabric-op`'s journal,
+`fabric-op.jsonl`, and the account switch log, `account-switch.jsonl`
+(`switch_log.py`), each one `O_APPEND` write per batch of lines, mode
+0600. The role pool, `pool.json` (`pool.py`), is read, changed and
+replaced with no lock, and its writers are not one at a time even
+inside one control agent: `pool-add`, an action, runs in a thread beside
+the read loop that answers `pool-claim`, and `fabric-op` can run a
+`pool-add` in a second process. One of two such updates can be lost (a
+known gap, to close). The launcher is the other party to `restart.json`: after its
 session stopped it polls the marker until the control agent records the
 upgrade's outcome, or until `AGENT_FABRIC_RESTART_WAIT_S` (600 s by
 default) passes, then removes it; a marker the control agent writes
@@ -128,8 +131,9 @@ state file an obvious place to get its writer.
    by `fabric-op`, is checked and replaced (`claim`, `record`) only under
    the `flock` on the state directory, never under `agent_lock`;
    `accept()`'s first read of it is unlocked and decides nothing the
-   claim does not check again. `pool.json`'s unlocked read-modify-write
-   is a known gap once `fabric-op` runs `pool-add` (A 2026-10-30).
+   claim does not check again. `pool.json`'s unlocked read-modify-write,
+   raced by `pool-add` beside `pool-claim` within the control agent and
+   across `fabric-op`, is a known gap (A 2026-10-30).
 3. `read_binding` refuses a record that names another agent or whose
    `host` is not this machine's, with the same wording, and says how to
    bind here. A move between hosts is a rebind there.
