@@ -331,6 +331,17 @@ def main() -> int:
         ran = started(p)
         check("AGENT_FABRIC_TEST_JOBS of 5000 digits is lowered, not a traceback",
               rc == 0 and ran.get("AGENT_FABRIC_TEST_JOBS") == str(J) and "Traceback" not in errs, f"{rc} {ran} {errs[-200:]}")
+        for padded in ("0000000000", "0000000001"):
+            p = shim("cargo", "test", AGENT_FABRIC_TEST_JOBS=padded)
+            rc, _o, errs = finish(p)
+            ran = started(p)
+            check(f"AGENT_FABRIC_TEST_JOBS={padded} is a number at or below the budget: kept, no line",
+                  rc == 0 and ran.get("AGENT_FABRIC_TEST_JOBS") == padded and errs == "", f"{rc} {ran} {errs}")
+        p = shim("cargo", "test", AGENT_FABRIC_TEST_JOBS="0" * 5000 + "9" * 12)
+        rc, _o, errs = finish(p)
+        ran = started(p)
+        check("a padded value above the budget is lowered",
+              rc == 0 and ran.get("AGENT_FABRIC_TEST_JOBS") == str(J) and "Traceback" not in errs, f"{rc} {ran} {errs[-200:]}")
         p = shim("cargo", "test", AGENT_FABRIC_TEST_JOBS="1", MAKEFLAGS="", CARGO_BUILD_JOBS="99")
         rc, _o, errs = finish(p)
         ran = started(p)
