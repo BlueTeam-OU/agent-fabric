@@ -17,6 +17,13 @@ Where one action must see another's lock it does not hold, `held()` asks with an
 non-blocking lock it drops at once (a shared ask would not see a shared holder); the Dekker order (take yours, then ask theirs) means
 two that start together both refuse and never both proceed.
 
+THE PROBE IS A BRIEF HOLDER. `held()` takes its exclusive lock for microseconds, and a `hold()` of
+that name landing inside the window would read it as a real holder and refuse with a note naming
+an action that is not running (a restart's probe of busy-sync against a sync starting, and the
+mirror). So `hold()` retries a few times, PROBE_RETRY_S apart, before it answers "held": the
+probe is gone by the first retry, a real holder costs the caller a few milliseconds more. The
+probe never makes both proceed; the retry only stops it making one refuse for nothing.
+
 NO STALE OWNER. flock locks belong to the open file description and the kernel drops
 them when the holder dies, however it dies; the file's content is never read. The
 descriptor is close-on-exec: a child the action starts (the installer, fabric-lease)
@@ -30,8 +37,12 @@ from __future__ import annotations
 
 import fcntl
 import os
+import time
+from typing import Callable
 
 NAMES = ("marker", "restart", "sync")
+PROBE_RETRIES = 3
+PROBE_RETRY_S = 0.005
 
 
 class Unavailable(Exception):
@@ -58,12 +69,17 @@ def _flock(fd: int, how: int) -> bool:
     return True
 
 
-def hold(directory: str, name: str, *, shared: bool = False) -> int | None:
-    """The descriptor that keeps the lock (release() it), or None when another holder has it."""
+def hold(directory: str, name: str, *, shared: bool = False,
+         sleep: Callable[[float], None] = time.sleep) -> int | None:
+    """The descriptor that keeps the lock (release() it), or None when another holder has it
+    (still there after PROBE_RETRIES waits: a `held()` probe is not a holder)."""
     fd = _open(directory, name)
     try:
-        if _flock(fd, fcntl.LOCK_SH if shared else fcntl.LOCK_EX):
-            return fd
+        for attempt in range(PROBE_RETRIES + 1):
+            if attempt:
+                sleep(PROBE_RETRY_S)
+            if _flock(fd, fcntl.LOCK_SH if shared else fcntl.LOCK_EX):
+                return fd
     except BaseException:
         os.close(fd)
         raise

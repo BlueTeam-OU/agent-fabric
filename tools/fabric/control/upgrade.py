@@ -63,11 +63,12 @@ two, agentd and `fabric-op`; an upgrade also holds a flock on the state director
 which a restart or a secrets-sync's restart phase takes shared. The in-process flags stay in front
 of it, so a fake of the same names still tests each module alone.
 
-KNOWN LIMIT. In one process the interlock with secrets-sync is a check and then a set
-(`upgrade_running()` then `restart_in_flight(True)` in secrets.py): safe while agentd runs one
-action at a time, as the Node's single thread did. A daemon that runs actions on threads needs one
-locked test-and-set; restart.py takes one (`claim_restart`), secrets.py's is still the check and
-the set. Between processes the kernel makes it one call (the busy-marker flock above).
+KNOWN LIMIT. The in-process flags are still a check and then a set (`upgrade_running()` then
+`restart_in_flight(True)` in secrets.py), and a daemon that runs actions on threads can interleave
+them; restart.py closes its own with one locked test-and-set (`claim_restart`). What makes the
+interleaving safe is the busy-marker flock above: each action opens its own file description, which
+flock treats as independent even inside one process, so an upgrade and a sync's restart phase
+cannot both hold the marker, in one process or between two.
 """
 from __future__ import annotations
 
