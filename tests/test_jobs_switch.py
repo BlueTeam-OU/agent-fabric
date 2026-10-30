@@ -927,6 +927,16 @@ def main() -> int:
         check("…positive control: any other directory is still refused while the job has a worktree",
               rc == 1 and "its work is in that project's checkout" in err and w.job(j1)["working_copy"] == job["worktree"], out + err)
 
+        # A job whose working copy is a linked worktree (its record names one place, j474): the branch's worktree is made beside the
+        # repository's main checkout, not beside that worktree.
+        w = World()
+        linked = f"{w.repo}-linked"
+        subprocess.run(["git", "-C", w.repo, "worktree", "add", "-q", "-b", "linked-branch", linked], check=True, env=git_env())
+        j1 = w.add("from a worktree", "--working-copy", linked)
+        rc, out, err = w.switch("--type", "fix")
+        check("a job whose working copy is a linked worktree gets its worktree beside the main checkout",
+              rc == 0 and w.job(j1).get("worktree") == f"{w.repo}-{j1}-from-a-worktree", out + err + repr(w.job(j1)))
+
         w = World()
         j1 = w.working("first")
         w.sw("drop", j1, "x")
