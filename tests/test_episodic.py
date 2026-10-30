@@ -158,6 +158,34 @@ def main() -> int:
                   "SELECT direction, state, carrier_seq FROM episodes WHERE message_id='m-3' ORDER BY direction").fetchall()
               == [("inbound", "received", 63), ("outbound", "pending", None)])
 
+        print("inbound: the sender a carrier verified (ADR-064 rule 9)")
+
+        def sender(mid: str):
+            return conn.execute("SELECT sender, json_extract(metadata_json, '$.FROM') FROM episodes "
+                                "WHERE direction='inbound' AND message_id=?", (mid,)).fetchone()
+        claimed = msg("v-1", "from someone else", sender="h/claimed")
+        ep.inbound(conn, [{"content": claimed, "seq": None, "sender": "h/peer"}], carrier="interweave")
+        check("a mismatch copy is journaled under the verified sender, the claim kept in its metadata",
+              sender("v-1") == ("h/peer", "h/claimed"), str(sender("v-1")))
+        relay_first = msg("v-2", "relay first", sender="h/claimed")
+        ep.inbound(conn, [{"content": relay_first, "seq": 90}])
+        check("…without one, as from the relay, the sender is the claim", sender("v-2") == ("h/claimed", "h/claimed"))
+        c = ep.inbound(conn, [{"content": relay_first, "seq": None, "sender": "h/peer"}], carrier="interweave")
+        check("…and the verified copy that follows corrects it, no second row",
+              c["same"] == 1 and sender("v-2") == ("h/peer", "h/claimed"), str(sender("v-2")))
+        ep.inbound(conn, [{"content": relay_first, "seq": 90}])
+        check("…which a later relay copy leaves", sender("v-2") == ("h/peer", "h/claimed"))
+        mine = msg("v-3", "mine, replayed by a peer", sender=ME)
+        ep.out_pending(conn, mine)
+        c = ep.inbound(conn, [{"content": mine, "seq": None, "sender": "h/peer"}], carrier="interweave")
+        check("a peer's copy of this journal's own body is no echo: the send stays pending, the copy is received",
+              c["echo"] == 0 and c["claims_me"] == 1 and conn.execute(
+                  "SELECT direction, state, sender FROM episodes WHERE message_id='v-3' ORDER BY direction").fetchall()
+              == [("inbound", "received", "h/peer"), ("outbound", "pending", ME)])
+        c = ep.inbound(conn, [{"content": mine, "seq": None, "sender": ME}], carrier="interweave")
+        check("…and this agent's own verified copy is", c["echo"] == 1 and conn.execute(
+            "SELECT state FROM episodes WHERE direction='outbound' AND message_id='v-3'").fetchone() == ("accepted",))
+
         print("the header, read as gzmsg's parse() reads it")
         cases = {
             "bom": "\ufeff" + msg("bom-1"),
