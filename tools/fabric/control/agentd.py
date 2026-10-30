@@ -93,6 +93,7 @@ WHERE THE PORT DIFFERS (each listed because a reader of the Node would look):
     their context keys.
   - the carrier's install and read (control/carrier_install.py) are Python-only likewise:
     carrier_install_opts and carrier_opts.
+  - `clone` (control/clone.py) is Python-only: clone_opts is its context key.
 """
 from __future__ import annotations
 
@@ -114,7 +115,7 @@ if sys.path and os.path.realpath(sys.path[0] or ".") == os.path.dirname(os.path.
     sys.path[0] = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
 else:
     sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.realpath(__file__))))
-from control import gateway as gateway_mod, carrier_install as carrier_mod, carrier_evidence as evidence_mod, gzcoord, js, ops, pressure, sessions, tools as tools_mod  # noqa: E402
+from control import clone as clone_mod, gateway as gateway_mod, carrier_install as carrier_mod, carrier_evidence as evidence_mod, gzcoord, js, ops, pressure, sessions, tools as tools_mod  # noqa: E402
 from control.gzcoord import FABRIC_ROOT  # noqa: E402
 from control.carrier_install import CARRIER_NAME, INSTALL_OP, START_OP, STOP_OP  # noqa: E402
 from control.jobs import jobs_add  # noqa: E402
@@ -682,6 +683,8 @@ def answer(request: dict, ctx: dict) -> dict:
         # because a run already in flight began before the install and its answer is stale on arrival.
         if verdict.get("status") == "installed" and ctx.get("tools_refresh"):
             threading.Thread(target=ctx["tools_refresh"], name="tools report after install", daemon=True).start()
+    elif op == "clone":
+        data = {"clone": clone_mod.clone(request, home=home, root=root, **(ctx.get("clone_opts") or {}))}
     elif op == "gateway-install":
         data = {"gateway-install": gateway_mod.gateway_install(request, home=home, root=root, **(ctx.get("gateway_install_opts") or {}))}
     elif op == INSTALL_OP:
