@@ -152,12 +152,24 @@ integration; the token from the file `fabric-secrets sync` writes,
 `~/.config/agent-fabric/secrets.env`, which no shell sources). It prints `sent seq <n> <TYPE> <id>` and nothing else — the
 id it minted, or yours. Keep the id: a reply names it in `IN-REPLY-TO`.
 
-**Before a `TO` or `TO-ROLE` message leaves, `gzcoord-send` asks whether the
-addressee has a session running** — the control plane answers from each
-account's process table (`fabric-ctl <login|all> presence` shows the
-same). An addressee with no session, a control agent that did not answer
-or could not tell, an address no host places, or presence that could not
-be asked at all is named, nothing is sent, and it exits 4. A relay that
+**First, a `TO` must name an account some host places**
+(`runtime/hosts/registry.json`, read from disk, so `--dry-run`, a missing
+token and a presence that is down all meet it). A `TO` whose login part
+is a role slug — `<host>/fabric-coordinator` — names nobody: no session
+will ever read it. It is refused with exit 2, and `--force` does not
+send it: an `INFO`, `QUESTION` or `DECISION` goes `TO-ROLE: <slug>`, an
+assignment `TO` one holder's login (§2). Any other address no host
+places is no account: exit 4, and `--force` sends it, for an account
+being placed right now. `gzcoord-compose --to` refuses the role the same
+way and warns about the rest. A registry that cannot be read is said,
+and refuses nothing.
+
+**Then, before a `TO` or `TO-ROLE` message leaves, `gzcoord-send` asks
+whether the addressee has a session running** — the control plane answers
+from each account's process table (`fabric-ctl <login|all> presence`
+shows the same). An addressee with no session, a control agent that did
+not answer or could not tell, or presence that could not be asked at all
+is named, nothing is sent, and it exits 4. A relay that
 refuses the token is the exception: the check is skipped with a line
 saying so, and the post reports the refusal.
 A `TO-ROLE` passes when any holder of the role is running; a broadcast is

@@ -25,8 +25,11 @@ CONTRACT, frozen from the Node:
             the message, or (GZCOORD_JOURNAL=off) a bypass that cannot
             be recorded; 3 not configured, no token, relay unreachable,
             the token refused, or a post whose outcome is unknown (it may
-            have been delivered); 4 an addressee with no session, silent, not
-            placed, or presence not askable — unless --force
+            have been delivered); 4 an addressee with no session, silent,
+            not placed (no account), or presence not askable — unless
+            --force
+  and 2 also for a TO no host places whose login part is a role slug of
+  the catalogue: --force does not send it (placement.py)
 
 After a REQUEST TO a login is posted by that login's host operator, the
 send may run fabric-ctl (up to two calls, 30 s each) to put the job on the
@@ -55,6 +58,17 @@ recorded — id and a hash of the message — in this login's state directory
 out with other content is refused; the same message again passes. A post
 whose reply was lost is not recorded, so an edited resend under that id is
 not caught.
+
+PLACEMENT comes before presence and does not depend on it: a TO is looked
+up in the hosts registry on this disk (placement.py) after the message
+validates and before the dry run, the token, the journal or any relay call,
+so a dry run, a send with no token, a presence that is skipped or cannot be
+asked, and --force all meet it. An address no host places is no account:
+exit 4 with --force to send it (an account being placed right now), and
+exit 2 with no --force when it is a role slug, which no session will ever
+read — an INFO, QUESTION or DECISION goes TO-ROLE, an assignment to one
+holder's login. A registry that cannot be read is said and the presence
+check asks its own: unknown is not "nobody is placed".
 
 PRESENCE, and why it is the control plane's process, not a copy here: a
 TO or TO-ROLE message asks whether its addressee has a session before it
@@ -91,7 +105,7 @@ import subprocess
 import sys
 from typing import Any, Callable
 
-from . import bypass, gzmsg, i18n, inbox, intake, paths
+from . import bypass, gzmsg, i18n, inbox, intake, paths, placement
 from . import jsvalues as js
 
 import hidden_unicode  # noqa: E402 — tools/fabric, on sys.path through paths
@@ -350,6 +364,16 @@ def asked_presence(metadata: dict, sender: str, tok: str, run: Callable[..., Any
     return {"checked": True, "problems": [{"kind": "unavailable", "detail": str(pres["error"]).split("\n")[0][:160]}]}
 
 
+def _placement_problem(metadata: dict, taxonomy: gzmsg.Taxonomy | None, t: i18n.Printer) -> dict | None:
+    """placement.addressee_problem, with a registry that cannot be read said
+    and not acted on: the presence check then asks its own."""
+    try:
+        return placement.addressee_problem(metadata, taxonomy.roles if taxonomy else ())
+    except placement.Unreadable as e:
+        print("send: " + t("address.placement-unknown", {"address": metadata.get("TO"), "detail": str(e)}), file=sys.stderr)
+        return None
+
+
 def _read_input(file: str) -> str:
     if file == "-":
         return sys.stdin.buffer.read().decode("utf-8", errors="replace")
@@ -502,6 +526,20 @@ def main(argv: list[str]) -> int:
         else:
             print(t("send.empty-body", {"type": msg["type"], "sections": missing[0]}), file=sys.stderr)
         return 2
+    # Before the fallback reminder, the ledger, the dry run, the token and the
+    # presence ask: whether a host places the address needs none of them.
+    unplaced = _placement_problem(msg["metadata"], taxonomy, t)
+    if unplaced and unplaced["kind"] == "role":
+        print("send: " + t("address.is-a-role", unplaced), file=sys.stderr)
+        # Apart from the shared key: gzcoord-compose prints it too, and has no --force.
+        print(t("send.not-sent-role"), file=sys.stderr)
+        return 2
+    if unplaced:
+        print("send: " + t("address.not-an-account", unplaced), file=sys.stderr)
+        if not force:
+            print(t("send.not-sent-no-account"), file=sys.stderr)
+            return 4
+        print(t("send.presence-forced"), file=sys.stderr)
     # This session's model fell back after a safeguard flagged a request
     # (model-fallback-note.sh leaves the marker): the flagged text is
     # contagious, so the reminder is repeated at the moment of sending. A
@@ -532,7 +570,9 @@ def main(argv: list[str]) -> int:
     # relay until one starts, and a TO-ROLE with no running holder reaches
     # nobody now. The sender decides — --force sends anyway (the owner,
     # 2026-09-25). A broadcast is not checked.
-    if tok:
+    # An address no host places has been said and forced above; presence could
+    # only say it again.
+    if tok and not unplaced:
         pres = asked_presence(msg["metadata"], me["address"], tok)
         # Said, never silent: the contract is that a TO is checked.
         if pres.get("skipped"):
@@ -559,7 +599,11 @@ def main(argv: list[str]) -> int:
                 print(t("send.presence-planning", {"address": n.get("address")}), file=sys.stderr)
         if pres.get("problems"):
             if not force:
-                print(t("send.presence-not-sent"), file=sys.stderr)
+                # Each a literal t("…") call, which is how the i18n test sees that a key is printed.
+                if all(p.get("kind") == "not-placed" for p in pres["problems"]):
+                    print(t("send.not-sent-no-account"), file=sys.stderr)
+                else:
+                    print(t("send.presence-not-sent"), file=sys.stderr)
                 return 4
             print(t("send.presence-forced"), file=sys.stderr)
     if not tok:
