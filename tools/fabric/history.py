@@ -115,6 +115,20 @@ def render(rows: list[sqlite3.Row], full: bool, patterns: list) -> list[str]:
     return out
 
 
+def json_episode(r: sqlite3.Row, patterns: list) -> dict:
+    """One row for --json, every string masked. sender_verified says whose
+    the sender is (true: a carrier verified it; false: the content's FROM, a
+    claim), and claimed_from is that FROM where a verified sender differs."""
+    out = {k: (mask(r[k], r["id"], patterns) if isinstance(r[k], str) else r[k])
+           for k in ("happened_at", "direction", "state", "type", "message_id", "in_reply_to", "sender", "project",
+                     "carrier", "carrier_seq", "content")}
+    out["sender_verified"] = bool("sender_verified" in r.keys() and r["sender_verified"])
+    claim = verified_against_claim(r)
+    if claim:
+        out["claimed_from"] = mask(claim, r["id"], patterns)
+    return out
+
+
 def verified_against_claim(r: sqlite3.Row) -> str | None:
     """The FROM a carrier-verified row's content claims, when it is not the
     verified sender; None otherwise. A journal older than schema 3 has no
@@ -155,10 +169,7 @@ def main(argv: list[str]) -> int:
         print(f"fabric-history: {e}", file=sys.stderr)
         return 1
     if args.json:
-        print(json.dumps({"banner": BANNER, "episodes": [
-            {k: (mask(r[k], r["id"], patterns) if isinstance(r[k], str) else r[k])
-             for k in ("happened_at", "direction", "state", "type", "message_id", "in_reply_to", "sender", "project",
-                       "carrier", "carrier_seq", "content")} for r in rows]}, indent=1))
+        print(json.dumps({"banner": BANNER, "episodes": [json_episode(r, patterns) for r in rows]}, indent=1))
     else:
         print("\n".join(render(rows, args.full, patterns)))
     return 0

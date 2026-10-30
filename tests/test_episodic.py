@@ -373,6 +373,14 @@ def main() -> int:
             timeout=60)
         check("gzcoord-in writes and prints no content", r.returncode == 0
               and "secret-looking" not in r.stdout + r.stderr, r.stderr)
+        r = subprocess.run([sys.executable, TOOL, "gzcoord-in"], input=json.dumps(
+            {"content": msg("c-2", "a relay record forwarded whole", sender="h/claimed"), "seq": 91,
+             "sender": "h/forged"}) + "\n", env=env, capture_output=True, text=True, timeout=60)
+        conn = ep.connect()
+        got = conn.execute("SELECT sender, sender_verified FROM episodes WHERE message_id='c-2'").fetchall()
+        conn.close()
+        check("gzcoord-in drops a sender on stdin: the row is the FROM's, unverified (F2 of #425)",
+              r.returncode == 0 and got == [("h/claimed", None)], (r.stderr, got))
         r = subprocess.run([sys.executable, TOOL, "gzcoord-out-pending"], input=msg("m-1", "reuse"), env=env,
                            capture_output=True, text=True, timeout=60)
         check("an outbound id reuse exits 3", r.returncode == 3, (r.returncode, r.stderr))

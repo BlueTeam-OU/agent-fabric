@@ -130,6 +130,14 @@ def main() -> int:
         check("…and nothing is said where it is the FROM, or where the sender is unverified",
               "verified the sender" not in out and "q-1" in out and "v-2" in out, out[-300:])
 
+        eps = {e["message_id"]: e for e in json.loads(run("--json", "--limit", "50").stdout)["episodes"]}
+        check("--json says a verified sender and the FROM it differs from (F1 of #425)",
+              eps["v-1"]["sender"] == "h/verified" and eps["v-1"]["sender_verified"] is True
+              and eps["v-1"]["claimed_from"] == "develop-qzapp/peer", eps["v-1"])
+        check("…a verified sender equal to its FROM is verified with no claimed_from, an unverified one is a claim",
+              eps["v-2"]["sender_verified"] is True and "claimed_from" not in eps["v-2"]
+              and eps["q-1"]["sender_verified"] is False and "claimed_from" not in eps["q-1"], (eps["v-2"], eps["q-1"]))
+
         other = os.path.join(tmp, "other-store")
         os.makedirs(other)
         with open(os.path.join(other, ".agent-id"), "w") as f:

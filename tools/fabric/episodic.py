@@ -8,7 +8,9 @@ the moment they cross the carrier, in its own runtime state.
                                             attempt's outcome was never written
     episodic.py gzcoord-out-final MESSAGE-ID --state accepted|failed [--seq N] [--carrier C]
     episodic.py gzcoord-in [--carrier C] [--project P] [--working-copy W]
-                                            JSON lines on stdin: {"content", "seq", "ts"}
+                                            JSON lines on stdin: {"content", "seq", "ts"}; any
+                                            other key, a "sender" included, is dropped: only a
+                                            carrier in process verifies a sender
     episodic.py gzcoord-import [--if-needed] [PROJECT...]
                                             the backfill from the carrier (episodic_import.py)
     episodic.py where                       the journal's path
@@ -499,6 +501,10 @@ def main(argv: list[str]) -> int:
             records = [json.loads(line) for line in sys.stdin if line.strip()]
             if not all(isinstance(r, dict) and isinstance(r.get("content"), str) for r in records):
                 raise JournalError("gzcoord-in takes one JSON object with a content string per line")
+            # A line on stdin is whatever its writer forwarded, a relay record whole included,
+            # whose sender is a claim: only a carrier calling inbound() in process passes one
+            # it verified (ADR-064 rule 9), so the CLI keeps nothing but the three fields.
+            records = [{k: r[k] for k in ("content", "seq", "ts") if k in r} for r in records]
             counts = inbound(connect(), records, carrier, project, wc)
             if counts["conflict"]:
                 print(f"episodic: {counts['conflict']} message(s) reuse an id this journal holds with another body; "
