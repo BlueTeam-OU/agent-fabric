@@ -14,6 +14,10 @@ import subprocess
 import sys
 import tempfile
 
+# Fixture repositories are no session's clone: a run from inside a Claude Code session would otherwise be refused
+# them (review_brief.session_repository_refusal), and a run from CI would not. Subprocesses inherit it.
+os.environ["FABRIC_REVIEW_SESSION_CLONE"] = ""
+
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 from instance_fixtures import own_instance_tree  # noqa: E402 — tests/, the script's own directory
 own_instance_tree()
