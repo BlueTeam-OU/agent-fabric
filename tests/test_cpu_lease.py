@@ -355,6 +355,13 @@ def main() -> int:
         check("CARGO_BUILD_JOBS and DOTNET_PROCESSOR_COUNT below the budget are kept (J > 1 here), silently",
               J > 1 and ran.get("CARGO_BUILD_JOBS") == "1" and ran.get("DOTNET_PROCESSOR_COUNT") == "1" and errs == "",
               f"J={J} {ran} {errs}")
+        # Leading zeros are not length: a padded 1 is the number 1, a padded huge number is above the budget (review of #433, F5).
+        p = shim("cargo", "test", CARGO_BUILD_JOBS="0000000001", DOTNET_PROCESSOR_COUNT="0" * 5000 + "9" * 12)
+        rc, _o, errs = finish(p)
+        ran = started(p)
+        check("a padded CARGO_BUILD_JOBS below the budget is kept; a padded DOTNET_PROCESSOR_COUNT above it is set to J",
+              J > 1 and ran.get("CARGO_BUILD_JOBS") == "0000000001" and ran.get("DOTNET_PROCESSOR_COUNT") == str(J)
+              and "Traceback" not in errs, f"J={J} {ran} {errs[-200:]}")
         p = shim("cargo", "test", CARGO_BUILD_JOBS="0", DOTNET_PROCESSOR_COUNT="x")
         rc, _o, errs = finish(p)
         ran = started(p)

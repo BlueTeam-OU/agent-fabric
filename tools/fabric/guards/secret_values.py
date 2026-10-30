@@ -10,14 +10,16 @@ CONTRACT
             cannot be read: the check cannot judge and REFUSES.
   needles   each value as written, percent-encoded, JSON-escaped and base64-encoded (standard and URL-safe, at each of
             the three byte alignments, so a value inside a longer base64 run is found too).
-  searched  staged      every staged path that differs from HEAD: the staged blob's bytes and the path's name
-            message     the commit message as git will record it: comment lines and everything under the scissors dropped
+  searched  staged      every staged path that differs from HEAD: the staged blob's bytes and the path's name; a gitlink
+                        (mode 160000) records another repository's commit id, no content of this one, and is not read
+            message     the commit message file, comment lines included (git keeps them for -m and -F), up to the scissors
+                        line: what follows it is `commit -v`'s diff, which shows a removed value as well as an added one
             objects     every commit, tag and blob `git rev-list --objects <revs>` names (a commit's and a tag's whole
                         object, so the message and the headers; a blob's bytes and the path it was reached by) — what a
                         push adds (pre-push), or the whole history (the `history` verb, an audit)
   output    a finding names the VARIABLE and where: `<path>: GH_TOKEN (base64)`, `commit <oid> message: GH_TOKEN`; a
             value found in a path's name is reported without the path, which would print it. Never a value, never a
-            needle. No value is ever on git's argv: git is asked for object ids and names, and Python searches the bytes.
+            needle. A hook shows the first 20 findings; `history` shows every one. No value is ever on git's argv: git is asked for object ids and names, and Python searches the bytes.
   argv      history [<rev-args>...]      default --all; exit 0 clean, 1 found, 2 could not judge
             The hooks import scan_staged, scan_message and scan_objects; see commit_hooks.py and githooks_prepush.py.
 
@@ -44,6 +46,7 @@ IGNORE = frozenset({"AGENT_LOGIN"})
 SECRETS_FILE = (".config", "agent-fabric", "secrets.env")
 GIT_TIMEOUT_S = 120
 SCISSORS = "# ------------------------ >8 ------------------------"
+GITLINK = "160000"
 
 
 class CannotJudge(Exception):
@@ -147,6 +150,7 @@ def _cat(oids: list[str]):
 
     writer = threading.Thread(target=feed, daemon=True)
     writer.start()
+    done = False
     try:
         for _ in oids:
             header = p.stdout.readline().decode().split()
@@ -156,10 +160,15 @@ def _cat(oids: list[str]):
             data = p.stdout.read(int(size))
             p.stdout.read(1)
             yield oid, kind, data
+        done = True
     finally:
+        # Stopped early, git may still be blocked writing to us and the feeder blocked writing to it: end git first, or the
+        # join waits forever.
+        if not done:
+            p.kill()
         writer.join()
         p.stdout.close()
-        if p.wait() != 0:
+        if p.wait() != 0 and done:
             raise CannotJudge("git cat-file failed")
 
 
@@ -175,12 +184,14 @@ def scan_staged(ns: list[tuple[str, str, bytes]]) -> list[str]:
         meta, _, name = entry.partition("\t")
         fields = meta.split()
         if len(fields) == 3 and fields[2] == "0":
-            oids[name] = fields[1]
+            oids[name] = "" if fields[0] == GITLINK else fields[1]
     out: list[str] = []
     for path in paths:
         out += _name_hits(path, ns)
         if path not in oids:
-            raise CannotJudge(f"{path} is staged but has no stage-0 entry in the index")
+            # Not the path: its name may be the value, and this is said before any name hit is.
+            raise CannotJudge("a staged path has no stage-0 entry in the index")
+    paths = [p for p in paths if oids[p]]
     by_oid: dict[str, list[str]] = {}
     for path in paths:
         by_oid.setdefault(oids[path], []).append(path)
@@ -195,14 +206,9 @@ def scan_staged(ns: list[tuple[str, str, bytes]]) -> list[str]:
 
 
 def message_body(text: str) -> str:
-    """The message as git's default cleanup records it: comment lines and the scissors' tail dropped."""
-    kept: list[str] = []
-    for line in text.split("\n"):
-        if line == SCISSORS:
-            break
-        if not line.startswith("#"):
-            kept.append(line)
-    return "\n".join(kept)
+    """The message up to the scissors line. Comment lines stay: whether git strips them depends on how the commit was made
+    (`-m` and `-F` keep them), which the hook is not told."""
+    return text.split("\n" + SCISSORS + "\n", 1)[0] if not text.startswith(SCISSORS + "\n") else ""
 
 
 def scan_message(text: str, ns: list[tuple[str, str, bytes]]) -> list[str]:
@@ -254,8 +260,8 @@ def _git_batch_check(oids: list[str]) -> list[str]:
     return [line for line in r.stdout.split("\n") if line and not line.endswith(" missing")]
 
 
-def refusal(what: str, findings: list[str]) -> str:
-    shown = findings[:20] + ([f"… ({len(findings)} findings)"] if len(findings) > 20 else [])
+def refusal(what: str, findings: list[str], cap: int | None = 20) -> str:
+    shown = findings if cap is None or len(findings) <= cap else findings[:cap] + [f"… ({len(findings)} findings)"]
     return ("\n  ".join([f"{what} holds a value of this account's own secrets ({secrets_path()}):", *shown])
             + "\n  Remove it and rotate the secret if it ever left this machine (agent-fabric ADR-012 §5 rules 1, 8 and 9)."
             + "\n  The value is named by its variable only; it is never printed.")
@@ -275,7 +281,7 @@ def main(argv: list[str]) -> int:
         print(f"history: could not judge ({e})", file=sys.stderr)
         return 2
     if findings:
-        print(refusal("the history", findings))
+        print(refusal("the history", findings, cap=None))
         return 1
     print(f"history: none of {len({n for n, _, _ in ns})} values found")
     return 0

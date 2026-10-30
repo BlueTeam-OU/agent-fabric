@@ -93,9 +93,12 @@ class Load(unittest.TestCase):
         with self.assertRaises(sv.CannotJudge):
             sv.load(self.fabric.home)
 
-    def test_the_message_body_drops_comments_and_the_scissors_tail(self):
-        text = f"subject\n# {VALUE}\n{sv.SCISSORS}\ndiff {VALUE}\n"
-        self.assertEqual(sv.scan_message(text, sv.needles({"FAKE_TOKEN": VALUE})), [])
+    def test_a_comment_line_is_searched_and_the_scissors_tail_is_not(self):
+        # git keeps a `#` line for -m and -F (review of #433, F1); the tail under the scissors is commit -v's diff, which also shows
+        # a value being removed.
+        ns = sv.needles({"FAKE_TOKEN": VALUE})
+        self.assertEqual(sv.scan_message(f"subject\n\n#ref {VALUE}\n", ns), ["the commit message: FAKE_TOKEN"])
+        self.assertEqual(sv.scan_message(f"subject\n{sv.SCISSORS}\n-old {VALUE}\n", ns), [])
 
 
 class Hooks(unittest.TestCase):
@@ -138,6 +141,33 @@ class Hooks(unittest.TestCase):
         self.repo.stage("cfg.json", json.dumps({"p": PASS}) + "\n")
         self.assertRefusedNaming(self.fabric.hook("pre-commit", self.repo), "cfg.json: FAKE_PASS (JSON-escaped)")
 
+    def test_a_hash_line_given_with_m_is_refused_by_commit_msg(self):
+        self.repo.stage("src/config.txt", "clean\n")
+        r = self.fabric.commit(self.repo, f"subject\n\n#ref {VALUE}\n\nKind: work")
+        self.assertRefusedNaming(r, "commit-msg", "the commit message: FAKE_TOKEN")
+
+    def test_a_staged_submodule_is_admitted(self):
+        # A gitlink names a commit of another repository, which cat-file here answers missing (review of #433, F2).
+        sub = Repo({"s.txt": "sub\n"}, name="sub")
+        self.addCleanup(sub.cleanup)
+        head = sub.git("rev-parse", "HEAD").stdout.strip()
+        self.repo.stage("src/config.txt", "clean\n")   # before the gitlink: stage()'s `add -A` drops an index entry with no work tree
+        self.repo.git("update-index", "--add", "--cacheinfo", f"160000,{head},vendor/sub")
+        self.assertIn("vendor/sub", self.repo.git("diff", "--cached", "--name-only").stdout)
+        r = self.fabric.hook("pre-commit", self.repo)
+        self.assertEqual((r.returncode, r.stderr), (0, ""))
+
+    def test_many_objects_after_a_missing_one_refuse_without_hanging(self):
+        # _cat ends git before it waits for its feeder: a feeder blocked on a full pipe must not hang the hook.
+        oids = ["0" * 40] + [self.repo.git("rev-parse", "HEAD:src/a.txt").stdout.strip()] * 20000
+        cwd = os.getcwd()
+        os.chdir(self.repo.path)
+        try:
+            with self.assertRaises(sv.CannotJudge):
+                list(sv._cat(oids))
+        finally:
+            os.chdir(cwd)
+
     def test_a_clean_commit_and_an_account_without_secrets_are_admitted(self):
         self.repo.stage("src/config.txt", "token=from-the-environment\n")
         r = self.fabric.hook("pre-commit", self.repo)
@@ -169,6 +199,22 @@ class Hooks(unittest.TestCase):
         self.assertRegex(r.stdout, r"commit [0-9a-f]{12}: FAKE_TOKEN")
         self.assertRegex(r.stdout, r"c\.json \(blob [0-9a-f]{12}\): FAKE_TOKEN")
         self.assertNotIn(VALUE, r.stdout + r.stderr)
+
+    def test_history_names_every_finding_past_twenty(self):
+        # A hook shows twenty; the audit shows all, or a leaked variable after the twentieth goes unnamed (review of #433, F3).
+        repo = Repo({"a.txt": "clean\n"}, name="many")
+        self.addCleanup(repo.cleanup)
+        for i in range(21):
+            repo.write(f"f{i:02}.txt", f"{i} {VALUE}\n")
+        repo.write("z.txt", f"{PASS}\n")
+        repo.git("add", "-A")
+        repo.git("commit", "-qm", "many")
+        r = subprocess.run([sys.executable, os.path.join(ROOT, "tools", "fabric", "guards", "secret_values.py"), "history"], cwd=repo.path,
+                           env={**os.environ, "HOME": self.fabric.home}, capture_output=True, text=True, timeout=60)
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        self.assertEqual(r.stdout.count(": FAKE_TOKEN"), 21, r.stdout)
+        self.assertIn("z.txt (blob", r.stdout)
+        self.assertIn(": FAKE_PASS", r.stdout)
 
 
 if __name__ == "__main__":
