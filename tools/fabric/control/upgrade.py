@@ -58,11 +58,16 @@ WHERE THE PORT DIFFERS ON PURPOSE
     same), where the Node's `??` kept the empty string and read a pin from
     the working directory.
 
-KNOWN LIMIT. The interlock with secrets-sync is a check and then a set
-(`upgrade_running()` then `restart_in_flight(True)` in secrets.py): safe
-while agentd runs one action at a time, as the Node's single thread did. A
-daemon that runs actions on threads needs one locked test-and-set; restart.py
-takes one (`claim_restart`), secrets.py's is still the check and the set.
+ACROSS PROCESSES (control/busy.py): the flags below are per process, and an account has
+two, agentd and `fabric-op`; an upgrade also holds a flock on the state directory's busy-marker,
+which a restart or a secrets-sync's restart phase takes shared. The in-process flags stay in front
+of it, so a fake of the same names still tests each module alone.
+
+KNOWN LIMIT. In one process the interlock with secrets-sync is a check and then a set
+(`upgrade_running()` then `restart_in_flight(True)` in secrets.py): safe while agentd runs one
+action at a time, as the Node's single thread did. A daemon that runs actions on threads needs one
+locked test-and-set; restart.py takes one (`claim_restart`), secrets.py's is still the check and
+the set. Between processes the kernel makes it one call (the busy-marker flock above).
 """
 from __future__ import annotations
 
@@ -79,7 +84,7 @@ import time
 from datetime import datetime, timezone
 from typing import Any, Callable
 
-from control import js
+from control import busy, js
 from control.ops import util
 from control.ops.usage import claude_bin
 
@@ -422,12 +427,32 @@ def upgrade(request: dict, **opts: Any) -> dict:
             return {"status": "busy", "note": "an upgrade is already running on this account"}
         if _sync_restarting:
             return {"status": "busy", "note": "a secrets-sync is restarting the session on this account"}
+        # After the in-process busy tests, as the Node's order was; before any file lock, so a malformed
+        # request touches no state directory and is refused, never failed or busy on another process's lock.
+        args = request.get("args")
+        bad = check_args({} if args is None else args)
+        if bad:
+            return {"status": "refused", "reason": bad}
         _running = True
+    owner = None
     try:
+        # The same refusals, across processes: agentd and fabric-op each have their own flags above.
+        directory = opts.get("directory") or state_dir(opts.get("home"))
+        try:
+            owner = busy.hold(directory, "marker")
+            if owner is None:
+                # An exclusive holder is an upgrade; if a shared hold is free, it was a restart's.
+                other = busy.hold(directory, "marker", shared=True)
+                busy.release(other)
+                return {"status": "busy", "note": "an upgrade is already running on this account" if other is None
+                        else "a secrets-sync is restarting the session on this account"}
+        except busy.Unavailable as e:
+            return {"status": "failed", "reason": f"cannot tell whether another upgrade or restart is running ({e}); nothing stopped"}
         args = request.get("args")
         fabric = _get(args, "piece") == "fabric"
         return (upgrade_fabric if fabric else upgrade_once)(request, **opts)
     finally:
+        busy.release(owner)
         with _state:
             _running = False
 

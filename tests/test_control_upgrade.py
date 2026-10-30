@@ -459,7 +459,7 @@ class FabricFx:
         return git(self.root, "rev-parse", "HEAD")
 
     def opts(self, **over):
-        return {"root": self.root, "sessions": [], "env": self.env, **over}
+        return {"root": self.root, "sessions": [], "env": self.env, "directory": os.path.join(self.base, "state"), **over}
 
 
 def freq(commit: str) -> dict:
