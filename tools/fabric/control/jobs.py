@@ -13,7 +13,8 @@ jobs-add are a closed set, checked before anything runs.
 
 CONTRACT, frozen from jobs.mjs:
   TITLE_MAX, TOPIC_MAX, PRIORITIES                    as Node's
-  jobs(home, root, run)      {"status": "ok", "jobs": [...]}, each job's
+  jobs(home, root, run)      {"status": "ok", "jobs": [...], "hold": null or the
+                             fleet hold's record (ADR-037 rule 13)}, each job's
                              id, state, title, project, topic, priority,
                              source, blocked_on, artifacts, updated, and
                              where it has checkable blockers (after the
@@ -65,6 +66,7 @@ if sys.path and os.path.realpath(sys.path[0] or ".") == os.path.dirname(os.path.
 else:
     sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.realpath(__file__))))
 from control import js  # noqa: E402
+import hold_view  # noqa: E402
 from registry_id import REGISTRY_ID as PROJECT_SLUG  # noqa: E402 — one grammar for jobs-add, the job list and the intake
 
 JOBS_TIMEOUT_S = 15
@@ -105,7 +107,12 @@ def run_python(argv: list[str], *, cwd: str | None, env: dict, timeout: float) -
 Runner = Callable[..., subprocess.CompletedProcess]
 
 
-def jobs(home: str | None = None, root: str | None = None, run: Runner = run_python) -> dict:
+def _hold() -> dict | None:
+    from control.hold import identity_module
+    return hold_view.read(identity_module())
+
+
+def jobs(home: str | None = None, root: str | None = None, run: Runner = run_python, hold: Callable[[], dict | None] = _hold) -> dict:
     home = os.path.expanduser("~") if home is None else home
     root = _default_root(home) if root is None else root
     # --stored: the operator reads what the list holds, and the daemon
@@ -143,7 +150,8 @@ def jobs(home: str | None = None, root: str | None = None, run: Runner = run_pyt
                     # Only where the job has checkable blockers (fabric-jobs list --json --stored, from its cache): the
                     # board reads a missing key as "not said". Each is {spec, state, detail, checked_at}.
                     **({"blockers": j["blockers"], "cleared": j.get("cleared")} if isinstance(j.get("blockers"), list) and j["blockers"] else {})})
-    return {"status": "ok", "jobs": out}
+    # ADR-037 rule 13: null when not held; {"unreadable": why} for a hold.json that cannot be read, which holds.
+    return {"status": "ok", "jobs": out, "hold": hold()}
 
 
 def check_job_args(args) -> str | None:

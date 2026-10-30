@@ -276,6 +276,24 @@ def main() -> int:
         check("…and in --json", isinstance(j, dict) and (j.get("active") or {}).get("id") == "j2"
               and j.get("queued") == 1, str(j))
 
+        print("fabric-status: the fleet hold (ADR-037 rule 13)")
+        check("not held: no hold row, and null in --json", not has(r"^hold ", out) and json_of(status("--json", cwd=sandbox)).get("hold", "absent") is None,
+              out)
+        put(f"{agent}/hold.json", json.dumps({"agent": LOGIN, "host": host, "reason": "release freeze",
+                                              "decision": "01a18d02-edd3-7bef-8fe9-965718c256b5", "set_by": "h/operator",
+                                              "set_at": "2020-01-01T00:00:00Z"}) + "\n")
+        out = status(cwd=sandbox)
+        hold_line = "\n".join(line for line in out.split("\n") if line.startswith("hold"))
+        check("held: a hold row with the reason, decision, setter and age",
+              has(r"^hold         release freeze \(decision 01a18d02-edd3-7bef-8fe9-965718c256b5, set by h/operator, \d+ days ago\)", out), hold_line)
+        h = json_of(status("--json", cwd=sandbox)).get("hold")
+        check("…and the record in --json", isinstance(h, dict) and h.get("reason") == "release freeze" and h.get("set_by") == "h/operator", str(h))
+        put(f"{agent}/hold.json", "{not json")
+        out = status(cwd=sandbox)
+        check("a hold.json that cannot be read is shown as held, unreadable", has(r"^hold         hold unreadable: ", out), out)
+        check("…and in --json", "unreadable" in (json_of(status("--json", cwd=sandbox)).get("hold") or {}), "")
+        os.remove(f"{agent}/hold.json")
+
         print("fabric-status: which Claude sign-in plain claude uses")
         h = f"{sandbox}/signin-home"
         put(f"{h}/.claude.json", '{"oauthAccount":{"emailAddress":"someone@example.org"}}\n')

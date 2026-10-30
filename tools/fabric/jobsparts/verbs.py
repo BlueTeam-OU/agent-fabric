@@ -13,7 +13,7 @@ from fabric_jobs.leave_sweep import after_leaving
 from fabric_jobs.leave_targets import clean_targets
 from fabric_jobs.branching import choose
 from fabric_jobs import blockers as bl
-from fabric_jobs.base import MESSAGE_ID, Job, NothingQueued, OPEN, POOL_ID, PRIORITIES, Refused, TERMINAL, identity, mutate
+from fabric_jobs.base import MESSAGE_ID, Job, hold_view, NothingQueued, OPEN, POOL_ID, PRIORITIES, Refused, TERMINAL, identity, mutate
 from fabric_jobs.ranking import effective_priority, named, queue_order, stored_priority, waiters
 from fabric_jobs.records import active, fetch_message, find, listed_request, named_working_copy, new_job, request_id_of, request_job, SENDER_ADD_LABEL, session_id, session_worked, transition
 from fabric_jobs.queue import stream_waits
@@ -27,6 +27,11 @@ def decide(doc: dict, nxt: dict, session: str | None) -> dict:
     job reads the fabric anew (the owner, 2026-10-11, ADR-037 rule 3)."""
     worked = session_worked(doc, session)
     return {"job": nxt["id"], "fresh": bool(worked), "worked": worked}
+
+
+def held_refusal(record: dict, what: str) -> str:
+    """The answer to a start while the fleet hold is set (ADR-037 rule 13): the hold's own words, and what is not done."""
+    return f"{what}: this login is held, {hold_view.words(record)}"
 
 
 def add(args) -> int:
@@ -189,8 +194,10 @@ def switch_job(args) -> int:
     # Read before the lock: the stream is a relay call, and the list's
     # lock is every writer's.
     listed = identity.read_jobs()
-    waits, stale = ({}, {}) if args.id else stream_waits(listed)
-    cache = {} if args.id else bl.refresh(bl.all_specs(listed), check=True)
+    # Rule 13: a hold, or a hold file that cannot be read, starts nothing; the job being left is still settled (rule 10 step 1).
+    hold = hold_view.read(identity)
+    waits, stale = ({}, {}) if args.id or hold else stream_waits(listed)
+    cache = {} if args.id or hold else bl.refresh(bl.all_specs(listed), check=True)
 
     def cleared(doc):
         """The blocked jobs whose blockers have all cleared, the highest stored priority first, then the oldest."""
@@ -205,6 +212,8 @@ def switch_job(args) -> int:
                     if ready else "")
             raise Refused(f"{current['id']} is still active ({current['title']}); deliver, block, "
                           f"finish, pause or drop it first, then switch{note}")
+        if hold:
+            return None
         if args.id:
             nxt = find(doc, args.id)
             if nxt["state"] not in ("queued", "blocked", "paused"):
@@ -226,7 +235,7 @@ def switch_job(args) -> int:
     settled = None
     swept: list[str] = []
     # The job just left is the one taken again (a blocker that cleared at once, a job paused and resumed): nothing was left.
-    if old and old["id"] != nxt["id"]:
+    if old and (nxt is None or old["id"] != nxt["id"]):
         try:
             here = vcs.toplevel(os.getcwd())
         except vcs.VcsError as e:
@@ -239,6 +248,14 @@ def switch_job(args) -> int:
         # Before the next job's worktree is made: the sweep would take a fresh one for finished (clean, on the remote). Said, never
         # a reason to stay: what it cannot do it reports.
         swept = after_leaving(old.get("working_copy"), here)
+    if nxt is None:
+        # Held: the job left is settled and its build output cleared as for any switch; nothing is started, no fresh session printed.
+        if old and not args.keep_targets:
+            others = tuple(p for j in listed["jobs"] if j["id"] != old["id"] for p in (j.get("working_copy"), j.get("worktree")))
+            swept = clean_targets(old.get("worktree"), old.get("working_copy"), others) + swept
+        for said in swept:
+            print(said, file=sys.stderr)
+        raise Refused(held_refusal(hold, "no job started") + (f"; {old['id']} left ({settled})" if settled else ""))
     choice = choose(nxt, kind=args.type, needs_merged=args.needs_merged)
     verdict_for = {}
 
@@ -246,6 +263,11 @@ def switch_job(args) -> int:
         again = pick(doc)
         if again["id"] != nxt["id"]:
             raise Refused(f"the list changed while the branch was prepared ({again['id']} is now first, not {nxt['id']}): run switch again")
+        # The hold may have been set while the branch was prepared (a fetch can take seconds): read again, under the list's lock,
+        # which set_hold shares. A Refused discards the prepared branch.
+        late = hold_view.read(identity)
+        if late:
+            raise Refused(held_refusal(late, "no job started"))
         job = find(doc, nxt["id"])
         verdict = decide(doc, job, session)
         who = waiters(job, waits)
@@ -368,6 +390,9 @@ def change(args) -> int:
             job["priority"] = args.priority
             job["updated"] = identity.now_iso()
         elif args.cmd == "start":
+            held = hold_view.read(identity)
+            if held and job["state"] in ("queued", "paused", "blocked"):
+                raise Refused(held_refusal(held, f"{job['id']} not started"))
             # A job with no project at all (added in a directory that is no checkout) never had one to find: it starts as it always did.
             if job.get("project") and not job.get("working_copy") and job["state"] not in TERMINAL:
                 raise Refused(f"{job['id']} has no working copy ({job['project']} has none here or beside this one): "

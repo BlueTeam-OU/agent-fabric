@@ -18,6 +18,8 @@ usage: fabric-ctl <login|all> [status|usage|identity|keys|fabric|session|script|
        fabric-ctl <login|all> interweave-stop   (an action: disable --now the InterWeave client and daemon units and confirm both are inactive (the rollback of interweave-start))
        fabric-ctl <login|all> interweave-evidence --since T --until T [--out <dir>]   (a signed read: each account's gzcoord-arrivals.jsonl lines, InterWeave delivery records and message kinds for [T, T) as YYYY-MM-DDTHH:MM:SSZ, paged until complete; with --out filed as <dir>/<login>/ for gzcoord-carrier parity --collected; a body never leaves an account)
        fabric-ctl <login> jobs-add [--topic T] [--project P] [--priority P] [--] "<title>"
+       fabric-ctl <login|all> hold --reason "<why>" [--decision <MESSAGE-ID>]   (an action: write the account's hold.json; fabric-jobs switch and start and fabric-fresh --job then refuse; an account that does not answer is not held, and is named)
+       fabric-ctl <login|all> unhold   (an action: remove the account's hold.json; `none` where there was none)
        fabric-ctl <holder> pool-add --role R [--topic T] [--project P] [--priority P] [--] "<title>"
        fabric-ctl <login|all> secrets-selftest
        fabric-ctl <login|all> local

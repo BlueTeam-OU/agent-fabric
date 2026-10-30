@@ -294,6 +294,45 @@ def test_the_job_list_is_the_logins_and_serialized(tmp: str) -> None:
         del os.environ["AGENT_FABRIC_STATE_DIR"]
 
 
+def test_hold_round_trip_and_a_corrupt_hold_still_holds(tmp: str) -> None:
+    os.environ["AGENT_FABRIC_STATE_DIR"] = os.path.join(tmp, "state")
+    try:
+        assert identity.read_hold() is None, "no file is no hold"
+        assert identity.clear_hold() is False, "lifting no hold says so"
+        decision = "01a182e0-647c-772f-b90a-2dbe6a7b7da1"
+        identity.set_hold("orderly pause", "develop-qzapp/user", decision)
+        got = identity.read_hold()
+        assert got is not None and got["reason"] == "orderly pause" and got["decision"] == decision
+        assert got["agent"] == id_un() and got["set_by"] == "develop-qzapp/user"
+        for bad in ("", "two\nlines", "x" * (identity.HOLD_REASON_MAX + 1)):
+            try:
+                identity.set_hold(bad, "develop-qzapp/user")
+            except ValueError:
+                pass
+            else:
+                raise AssertionError(f"reason {bad[:20]!r} was accepted")
+        try:
+            identity.set_hold("ok", "develop-qzapp/user", "not-a-message-id")
+        except ValueError:
+            pass
+        else:
+            raise AssertionError("a decision that is no MESSAGE-ID was accepted")
+        assert identity.read_hold()["reason"] == "orderly pause", "a refused set must leave the hold as it was"
+        # A hold that cannot be read is refused, never taken for no hold.
+        with open(identity.hold_path(), "w", encoding="utf-8") as fh:
+            fh.write("{torn")
+        try:
+            identity.read_hold()
+        except SystemExit as exc:
+            assert "counts as held" in str(exc)
+        else:
+            raise AssertionError("a corrupt hold read as no hold")
+        assert identity.clear_hold() is True
+        assert identity.read_hold() is None
+    finally:
+        del os.environ["AGENT_FABRIC_STATE_DIR"]
+
+
 def main() -> int:
     cases = [
         test_atomic_write_leaves_the_old_file_whole_on_failure,
@@ -310,6 +349,7 @@ def main() -> int:
         test_marker_file_declares_the_project,
         test_a_marker_naming_an_unknown_project_is_an_error_not_a_fallthrough,
         test_binding_round_trip_is_stamped_by_the_os,
+        test_hold_round_trip_and_a_corrupt_hold_still_holds,
     ]
     failures = 0
     for case in cases:
