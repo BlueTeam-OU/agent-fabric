@@ -4,7 +4,7 @@
 **Status:** Accepted
 **Ratified:** owner, 2026-09-27, by arming agent-fabric #52 (ratification by merge, the owner's rule of 2026-09-27)
 **Decision Makers:** the owner; drafted by fabric-coordinator
-**Scope:** runtime/claude-code/user-settings.py (`permissions.defaultMode`); runtime/openrouter/launch (the opening prompt, the restart marker); bin/fabric-fresh; bin/fabric-branches and policies/branch-hygiene/SKILL.md; runtime/claude-code/workspace/settings.json and each managed project's `.claude/settings.json` (the hook wiring); runtime/claude-code/hooks/session-start.py (the watch check), runtime/claude-code/hooks/plan-hold.sh; tools/fabric/gzcoord/inbox.py and send.py; tools/fabric/control/ops/, tools/fabric/control/presence.py, tools/fabric/control/ctl.py (presence); communication/gzcoord/skills/gzcoord-receive/SKILL.md
+**Scope:** runtime/claude-code/user-settings.py (`permissions.defaultMode`); tools/fabric/launch.py and tools/fabric/launcher/currency.py (the fresh relaunch's directory, the session's fabric root); runtime/openrouter/launch (the opening prompt, the restart marker); bin/fabric-fresh; bin/fabric-branches and policies/branch-hygiene/SKILL.md; runtime/claude-code/workspace/settings.json and each managed project's `.claude/settings.json` (the hook wiring); runtime/claude-code/hooks/session-start.py (the watch check), runtime/claude-code/hooks/plan-hold.sh; tools/fabric/gzcoord/inbox.py and send.py; tools/fabric/control/ops/, tools/fabric/control/presence.py, tools/fabric/control/ctl.py (presence); communication/gzcoord/skills/gzcoord-receive/SKILL.md
 **Pillar:** P3
 **Evidence:** docs/live-checks/2026-09-16-inbox-hold-while-planning.md
 
@@ -181,7 +181,9 @@ the same command asks on one account and not on another.
     worked a job. If so, the next job is a fresh session however alike
     the two are: the agent runs
     `fabric-fresh --job <id>`, and the launcher relaunches in that job's
-    working copy with the job in its opening prompt, even when that copy
+    worktree, or its working copy when it records no worktree or the
+    worktree is gone, each said (A 2026-10-30), with the job in its
+    opening prompt, even when that copy
     has uncommitted changes: they are the job's own work in progress. A
     copy that is gone or whose git status cannot be read, or whose
     uncommitted changes are another unfinished job's worktree or cannot
@@ -189,7 +191,13 @@ the same command asks on one account and not on another.
     the launcher, which starts in the old directory and says why. The command decides
     and the agent confirms; nothing restarts a session on its own
     (A 2026-09-28). A session that has worked no job yet takes the
-    job in place, being already fresh (A 2026-10-11).
+    job in place, being already fresh (A 2026-10-11). Every launch hands
+    the session `AGENT_FABRIC_ROOT`, the fabric root it checked against
+    origin/main, so a session started in another agent-fabric checkout
+    runs the root's fabric code, not that checkout's; when that checkout
+    is behind, the launcher says its hooks and `.claude/settings.json`
+    are its own, and names the root. A warning, never a refusal: a
+    feature worktree behind main is normal work (A 2026-10-30).
 
 ## 6. Consequences
 
@@ -256,3 +264,4 @@ The body above reads current; each change's full note is in [history/ADR-022-ame
 | 2026-10-24 | A worktree a live job names is kept | §5 rule 11: a queued, active, paused or blocked job's worktree is not removed; an unreadable job list keeps every worktree (#364) |
 | 2026-10-27 | A fresh launch starts in the job's own dirty working copy | §5 rule 12 |
 | 2026-10-28 | The sweep deletes the login's own merged branches on origin | §5 rule 11: under `<host>/<login>/`, on the default branch, heading no open PR (#416) |
+| 2026-10-30 | A fresh launch starts in the job's worktree; the session carries the verified fabric root | §5 rule 12: worktree before working copy, `AGENT_FABRIC_ROOT` exported, a behind fabric checkout named (#432) |

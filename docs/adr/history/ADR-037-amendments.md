@@ -74,3 +74,12 @@ On 2026-10-28 the owner asked for an orderly pause of the fabric: each agent was
 Rule 13 puts the hold where jobs start. The control plane sets it on each account, because that is the operator's path to every login and it already carries signed actions such as `jobs-add`. The control agent writes the hold into the login's own state, so `switch` reads a local file and needs no network. A held `switch` still settles the job being left: getting each agent to a settled job is the purpose of the hold, and refusing the whole switch would leave that job unsettled. A hold still queues new work, so a REQUEST that arrives during it is not lost and is answered as held.
 
 Rejected: one fleet-wide hold kept by the coordinator's control agent and queried on every `switch`, as the role pool is (rule 9). An unreachable coordinator would then force a choice between failing open, which loses the hold, and failing closed, which holds the whole fleet when nobody set a hold. A per-account file has neither problem. Its cost, an account missed while its control agent was down, is reported by `fabric-ctl` and fixed by setting the hold again.
+
+### Amendment 2026-10-30 — While held, every start refuses
+
+Rule 13 as first written named only the starts of a queued, paused or blocked job. python-dev-02 built it that way in #431 and reported two paths still open while a hold is set (REPLY 01a18d6e, point 1): `fabric-jobs start` of a delivered job, and `fabric-jobs import` of a list holding an active job.
+
+`start` on a delivered job reopens work the agent had handed off and makes it the active job. That is a new job taken during the hold, and the hold exists to stop exactly that. So every `start` refuses while held, whatever the job's state. The rule now says "any job" instead of listing states, so a state added later is covered without another amendment.
+
+`import` stays allowed. It fills an empty list only, keeping every id, and it moves a login's list from one placement to another. A job that arrives active was taken before the move and is not chosen again by it. Refusing the import would leave the login with no list at all, and that loses more than the hold protects.
+

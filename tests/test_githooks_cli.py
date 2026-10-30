@@ -213,6 +213,7 @@ def run() -> None:
     shutil.copy2(f"{FABRIC}/tools/fabric/guards/commit_kind.py", f"{REPO}/tools/fabric/guards/")   # commit-msg's Kind rule
     # the hooks' module beside commit_kind.py (ADR-040 rule 5: a fixture that copies the scripts copies their modules)
     shutil.copy2(f"{FABRIC}/tools/fabric/guards/commit_hooks.py", f"{REPO}/tools/fabric/guards/")
+    shutil.copy2(f"{FABRIC}/tools/fabric/guards/secret_values.py", f"{REPO}/tools/fabric/guards/")   # the value check it runs first
     shutil.copy2(f"{FABRIC}/tools/fabric/roots.py", f"{REPO}/tools/fabric/")   # which commit_hooks.py spells its policy path with
     for m in ("agent_text.py", "hidden_unicode.py", "review_card.py"):   # the hidden-text and card checks commit_hooks.py runs for every committer
         shutil.copy2(f"{FABRIC}/tools/fabric/{m}", f"{REPO}/tools/fabric/")
