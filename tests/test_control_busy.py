@@ -214,10 +214,12 @@ class SyncBeside(Case):
         f.opts["directory"] = self.dir
 
         def kill(pid, sig):
-            seen.append((busy.held(self.dir, "sync"), busy.hold(self.dir, "marker") is None))
+            other = busy.hold(self.dir, "marker", shared=True)   # the marker is shared, as a restart's is
+            busy.release(other)
+            seen.append((busy.held(self.dir, "sync"), busy.hold(self.dir, "marker") is None, other is not None))
         f.sync({"id": "s", "from": "h/user", "args": {"restart": True}}, sessions=[3], me="h/db-admin", env_of=TS.env_with(TS.OLD),
                kill=kill, alive=lambda p: False, sleep=lambda s: None)
-        self.assertEqual(seen, [(True, True)])
+        self.assertEqual(seen, [(True, True, True)])
 
 
 if __name__ == "__main__":
