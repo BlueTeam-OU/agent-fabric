@@ -244,6 +244,21 @@ class MalformedIsRefusedBeforeAnyLock(Case):
             self.assertEqual(R.restart({"id": "r", "args": {"x": 1}}, directory=self.dir)["status"], "refused", "not busy")
             self.assertEqual(U.upgrade({"id": "u", "args": {"piece": "claude", "version": "x"}}, directory=self.dir)["status"], "refused")
 
+    def test_a_malformed_request_beside_a_running_action_in_this_process_is_busy_as_it_was(self):
+        self.assertTrue(R._restarting.acquire(blocking=False))
+        try:
+            self.assertEqual(R.restart({"id": "r", "args": {"x": 1}}, directory=self.dir)["status"], "busy")
+        finally:
+            R._restarting.release()
+        U._running = True
+        try:
+            self.assertEqual(U.upgrade({"id": "u", "args": {"piece": "nope"}}, directory=self.dir)["status"], "busy")
+        finally:
+            U._running = False
+        self.assertEqual(R.restart({"id": "r", "args": {"x": 1}}, directory=self.dir)["status"], "refused", "released after a refusal")
+        self.assertEqual(U.upgrade({"id": "u", "args": {"piece": "nope"}}, directory=self.dir)["status"], "refused")
+        self.assertFalse(os.path.exists(self.dir))
+
 
 if __name__ == "__main__":
     unittest.main()

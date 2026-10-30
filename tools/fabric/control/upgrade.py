@@ -422,17 +422,17 @@ def claim_restart() -> bool:
 
 def upgrade(request: dict, **opts: Any) -> dict:
     global _running
-    # A malformed request is refused before anything is locked: it must not touch the state directory or
-    # be answered busy/failed (the refusal is what a caller of the Node's upgrade saw).
-    args = request.get("args")
-    bad = check_args({} if args is None else args)
-    if bad:
-        return {"status": "refused", "reason": bad}
     with _state:
         if _running:
             return {"status": "busy", "note": "an upgrade is already running on this account"}
         if _sync_restarting:
             return {"status": "busy", "note": "a secrets-sync is restarting the session on this account"}
+        # After the in-process busy tests, as the Node's order was; before any file lock, so a malformed
+        # request touches no state directory and is refused, never failed or busy on another process's lock.
+        args = request.get("args")
+        bad = check_args({} if args is None else args)
+        if bad:
+            return {"status": "refused", "reason": bad}
         _running = True
     owner = None
     try:
