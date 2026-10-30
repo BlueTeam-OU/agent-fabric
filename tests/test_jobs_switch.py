@@ -1925,6 +1925,17 @@ def main() -> int:
             check(f"held: ...control, start of the {state_setup} job works once lifted", w2.sw("start", jx)[0] == 0 and w2.job(jx)["state"] == "active")
 
         w = World()
+        jd = w.working("work delivered")
+        w.sw("deliver", jd, f"{jobs_world.GH_REPO}#2")
+        check("held: setup, the job is delivered", w.job(jd)["state"] == "delivered")
+        hold(w)
+        rc, out, err = w.sw("start", jd)
+        check("held: start of a delivered job refuses, naming the hold, and the job stays delivered",
+              rc == 1 and "release freeze" in err and w.job(jd)["state"] == "delivered", out + err)
+        lift()
+        check("held: ...control, start of the delivered job works once lifted", w.sw("start", jd)[0] == 0 and w.job(jd)["state"] == "active")
+
+        w = World()
         j1 = w.working("the active one")
         hold(w)
         j2 = w.add("asked of the agent while held")
