@@ -422,6 +422,12 @@ def claim_restart() -> bool:
 
 def upgrade(request: dict, **opts: Any) -> dict:
     global _running
+    # A malformed request is refused before anything is locked: it must not touch the state directory or
+    # be answered busy/failed (the refusal is what a caller of the Node's upgrade saw).
+    args = request.get("args")
+    bad = check_args({} if args is None else args)
+    if bad:
+        return {"status": "refused", "reason": bad}
     with _state:
         if _running:
             return {"status": "busy", "note": "an upgrade is already running on this account"}

@@ -124,7 +124,7 @@ class UpgradeBeside(Case):
         saved = U.upgrade_once
         U.upgrade_once = lambda request, **opts: {"status": "ran"}
         try:
-            return U.upgrade({"id": "u"}, directory=self.dir)
+            return U.upgrade({"id": "u", "args": {"piece": "claude"}}, directory=self.dir)
         finally:
             U.upgrade_once = saved
 
@@ -141,7 +141,7 @@ class UpgradeBeside(Case):
         saved = U.upgrade_once
         U.upgrade_once = lambda request, **opts: seen.append((busy.held(self.dir, "marker"), busy.hold(self.dir, "marker", shared=True))) or {"status": "ran"}
         try:
-            U.upgrade({"id": "u"}, directory=self.dir)
+            U.upgrade({"id": "u", "args": {"piece": "claude"}}, directory=self.dir)
         finally:
             U.upgrade_once = saved
         self.assertEqual(seen, [(True, None)])
@@ -220,6 +220,29 @@ class SyncBeside(Case):
         f.sync({"id": "s", "from": "h/user", "args": {"restart": True}}, sessions=[3], me="h/db-admin", env_of=TS.env_with(TS.OLD),
                kill=kill, alive=lambda p: False, sleep=lambda s: None)
         self.assertEqual(seen, [(True, True, True)])
+
+    def test_a_restart_lock_it_cannot_ask_leaves_the_marker_free_for_an_upgrade(self):
+        os.makedirs(self.dir)
+        os.symlink("/dev/null", os.path.join(self.dir, "busy-restart"))
+        r, sigs = self.sync()
+        self.assertEqual((r["status"], sigs), ("failed", []))
+        self.assertIn("cannot tell whether an upgrade or restart", r["reason"])
+        x = busy.hold(self.dir, "marker")
+        self.assertIsNotNone(x, "the shared hold was not leaked")
+        busy.release(x)
+        os.unlink(os.path.join(self.dir, "busy-restart"))
+
+
+class MalformedIsRefusedBeforeAnyLock(Case):
+    def test_bad_arguments_are_refused_and_touch_no_state_directory(self):
+        r = R.restart({"id": "r", "args": {"x": 1}}, directory=self.dir)
+        self.assertEqual(r["status"], "refused")
+        u = U.upgrade({"id": "u", "args": {"piece": "claude", "version": "x"}}, directory=self.dir)
+        self.assertEqual(u["status"], "refused")
+        self.assertFalse(os.path.exists(self.dir), "a refused request created nothing")
+        with Held(self.dir, "marker"), Held(self.dir, "restart"):
+            self.assertEqual(R.restart({"id": "r", "args": {"x": 1}}, directory=self.dir)["status"], "refused", "not busy")
+            self.assertEqual(U.upgrade({"id": "u", "args": {"piece": "claude", "version": "x"}}, directory=self.dir)["status"], "refused")
 
 
 if __name__ == "__main__":

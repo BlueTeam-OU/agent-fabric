@@ -60,6 +60,10 @@ def check_args(args: Any) -> str | None:
 
 
 def restart(request: dict, **opts: Any) -> dict:
+    # Refused before any lock, as for upgrade: a malformed request touches no state directory.
+    bad = check_args(request["args"] if "args" in request else {})
+    if bad:
+        return {"status": "refused", "reason": bad}
     if not _restarting.acquire(blocking=False):
         return {"status": "busy", "note": "a restart is already running on this account"}
     held: list[int | None] = []

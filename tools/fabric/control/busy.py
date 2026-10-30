@@ -13,8 +13,8 @@ THREE FILES in the account's state directory, each a flock(2) lock:
   busy-restart  a restart, EXCLUSIVE
   busy-sync     a secrets-sync, EXCLUSIVE (the whole action, as the in-process lock was)
 A test-and-set is one kernel call, so two processes starting together cannot both pass.
-Where one action must see another's lock it does not hold, `held()` asks with a shared
-non-blocking lock it drops at once; the Dekker order (take yours, then ask theirs) means
+Where one action must see another's lock it does not hold, `held()` asks with an exclusive
+non-blocking lock it drops at once (a shared ask would not see a shared holder); the Dekker order (take yours, then ask theirs) means
 two that start together both refuse and never both proceed.
 
 NO STALE OWNER. flock locks belong to the open file description and the kernel drops

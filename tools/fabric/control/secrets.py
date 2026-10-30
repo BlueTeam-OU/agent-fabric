@@ -343,6 +343,7 @@ def secrets_sync_once(
     wait_ms = up.STOP_WAIT_MS if stop_wait_ms is None else stop_wait_ms
     # Another process's upgrade or restart (control/busy.py): our sync lock is held already, so a restart
     # that starts after this sees it; the marker is taken shared, as restart.py takes it.
+    marker_fd = None
     try:
         marker_fd = busy.hold(directory, "marker", shared=True)
         if marker_fd is None:
@@ -351,6 +352,7 @@ def secrets_sync_once(
             busy.release(marker_fd)
             return fail("a restart is running on this account; synced, nothing stopped — run it again after")
     except busy.Unavailable as e:
+        busy.release(marker_fd)   # taken, then the restart lock could not be asked: a leaked shared hold would make every upgrade busy
         return fail(f"cannot tell whether an upgrade or restart is running ({e}); synced, nothing stopped")
     up.restart_in_flight(True)
     try:
