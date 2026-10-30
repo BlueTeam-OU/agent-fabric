@@ -773,6 +773,10 @@ def presence_of(role="architect-cto", login="arch", host="h", status="ok"):
 HOLDS_WEB_DEV = presence_of(role="web-dev", login="me")
 
 
+# What the contents API answers for a directory the branch does not have.
+NOT_FOUND = arm.gh.GhError("gh api GET repos/O/R/contents/.github/workflows", "HTTP 404", status=404)
+
+
 class ArmRun(unittest.TestCase):
     """arm.arm() in process, with everything it reads replaced: the rules are the policy's."""
     HEAD = "abcdef1234567890abcdef1234567890abcdef12"
@@ -780,15 +784,15 @@ class ArmRun(unittest.TestCase):
     def run_arm(self, policy, work, files=("docs/a.md",), basis="reviewed", body="", boundary_re=r"^policies/", classes=None,
                 load_error=None, extra=(), load_fn=None, drift=(), drift_error=None, role_trailers=None, checks="green", live=None,
                 replay=None, presence=None, unresolved=0, reviewed=True, fleet=None, waiver_role=None, branch="h/me/feat/x",
-                whoami=None, review_doc=None):
-        pr = {"number": 7, "state": "OPEN", "isDraft": False, "headRefName": branch, "headRefOid": self.HEAD, "body": body, "title": "t"}
+                whoami=None, review_doc=None, workflows=NOT_FOUND):
+        pr = {"number": 7, "state": "OPEN", "isDraft": False, "headRefName": branch, "baseRefName": "main", "headRefOid": self.HEAD, "body": body, "title": "t"}
         gate = [{"commits_known": True, "work_commits": work, "checks": checks}]
         review = {"blind": {"rows": [{"commit_sha8": self.HEAD[:8]}] if reviewed else []}, "unresolved_threads": unresolved}
         review = review_doc if review_doc is not None else review
         self.reads = reads = []
         commits = [{"parents": [{}, {}], "commit": {"message": "Merge branch main"}} if r == "MERGE" else
                    {"parents": [{}], "commit": {"message": "c" + (f"\n\nFabric-Role: {r}" if r else "")}} for r in (role_trailers or [None])]
-        ran = []
+        ran, asked = [], []
 
         def reader(head, args, timeout=600):
             # The program's name and verb, never its directory: a checkout whose path holds
@@ -808,6 +812,11 @@ class ArmRun(unittest.TestCase):
             return (0, json.dumps(review if "review-status" in what else gate))
 
         def api(path, **kw):
+            if "/contents/" in path:
+                asked.append(path)
+                if isinstance(workflows, Exception):
+                    raise workflows
+                return workflows
             return commits if "/commits" in path else [{"filename": f} for f in files]
 
         def gh_run(args, **kw):
@@ -843,7 +852,7 @@ class ArmRun(unittest.TestCase):
                 rc = f"refused: {e}"
             except arm.Unanswered as e:
                 rc = f"unanswered: {e}"
-        self.ran = ran
+        self.ran, self.asked = ran, asked
         return rc, out.getvalue()
 
     def test_under_the_fleet_default_the_claude_review_with_no_codex_review_or_marker_arms_with_codex_absent(self):
@@ -1361,6 +1370,110 @@ class ArmRun(unittest.TestCase):
         rc, out = self.run_arm(p, 3, checks="green", extra=("--dry-run",))
         self.assertEqual(rc, 0, out)
         self.assertIn("no required check on this repository: every check on the head is green", out)
+
+    NO_CI_WORD = "reviewed, the owner's no-CI word"
+
+    def merged(self):
+        return [c for c in self.ran if c[:2] == ["pr", "merge"]]
+
+    def test_the_no_ci_word_arms_a_pr_mode_repository_whose_base_has_no_workflow_and_no_check(self):
+        p = claude_only({"mode": "auto", "commits": {"min": 1}})
+        rc, out = self.run_arm(p, 3, checks="none-yet", basis=self.NO_CI_WORD)
+        self.assertEqual(rc, 0, out)
+        self.assertEqual(self.asked, ["repos/O/R/contents/.github/workflows?ref=main"])
+        self.assertIn("no CI on main and no check on the head: arming on the owner's no-CI word", out)
+        self.assertTrue(self.merged(), self.ran)
+        comment = [c for c in self.ran if c[:2] == ["pr", "comment"]][0][-1]
+        self.assertIn(" No CI: main has no workflow and the head carries no check; armed on the owner's no-CI word.", comment)
+        rc, out = self.run_arm(p, 3, checks="none-yet", basis=self.NO_CI_WORD, extra=("--dry-run",))
+        self.assertEqual(rc, 0, out)
+        self.assertIn("DRY RUN — would post: ", out)
+        self.assertIn("No CI: main has no workflow and the head carries no check; armed on the owner's no-CI word.", out)
+        self.assertFalse([c for c in self.ran if c[:2] in (["pr", "merge"], ["pr", "comment"])], self.ran)
+
+    def test_the_no_ci_word_does_not_stand_in_for_a_workflow_on_the_base(self):
+        p = claude_only({"mode": "auto", "commits": {"min": 1}})
+        rc, _ = self.run_arm(p, 3, checks="none-yet", basis=self.NO_CI_WORD, workflows=[{"name": "ci.yml", "type": "file"}])
+        self.assertIn("main has workflows: none-yet is a check not reported yet", str(rc))
+        self.assertTrue(str(rc).startswith("refused"), rc)
+        self.assertFalse(self.merged())
+
+    def test_the_no_ci_word_does_not_stand_in_for_a_workflow_the_pr_adds(self):
+        p = claude_only({"mode": "auto", "commits": {"min": 1}})
+        for added in (".github/workflows/ci.yml", ".github/workflows/sub/x.yaml"):
+            rc, _ = self.run_arm(p, 3, checks="none-yet", basis=self.NO_CI_WORD, files=("docs/a.md", added))
+            self.assertIn("this PR adds CI: wait for its checks", str(rc), added)
+            self.assertFalse(self.merged())
+        # A rename out of the workflows directory is a change to it: the previous name is in the list too.
+        rc, _ = self.run_arm(p, 3, checks="none-yet", basis=self.NO_CI_WORD, files=(".github/workflows/old.yml",))
+        self.assertIn("this PR adds CI", str(rc))
+        # Positive control: a neighbouring path is not CI.
+        rc, out = self.run_arm(p, 3, checks="none-yet", basis=self.NO_CI_WORD, files=(".github/workflows-notes/a.md", "x/.github/workflows/y"))
+        self.assertEqual(rc, 0, out)
+
+    def test_a_workflows_lookup_that_is_not_a_404_or_a_list_is_unanswered_never_no_ci(self):
+        p = claude_only({"mode": "auto", "commits": {"min": 1}})
+        answers = (arm.gh.GhError("w", "HTTP 500", status=500, transient=True), arm.gh.GhError("w", "the answer is not JSON", transient=True),
+                   arm.gh.GhError("w", "HTTP 403", status=403), {"type": "file", "name": "workflows"}, {"message": "Not Found"}, [], None, "x")
+        for answer in answers:
+            rc, _ = self.run_arm(p, 3, checks="none-yet", basis=self.NO_CI_WORD, workflows=answer)
+            self.assertTrue(str(rc).startswith("unanswered: cannot read .github/workflows on main"), (answer, rc))
+            self.assertFalse(self.merged())
+
+    def test_the_owners_word_alone_does_not_lift_the_checks_gate_and_the_refusal_names_the_phrase(self):
+        p = claude_only({"mode": "auto", "commits": {"min": 1}})
+        for basis in ("reviewed", "the owner's word", "the owner’s word"):
+            rc, _ = self.run_arm(p, 3, checks="none-yet", basis=basis)
+            self.assertIn("has no required check", str(rc), basis)
+            self.assertIn("if the owner gave it and O/R has no CI at all, the basis carries \"owner's no-CI word\"", str(rc))
+            self.assertFalse(self.asked, "the workflows are not looked up without the word")
+            self.assertFalse(self.merged())
+
+    def test_the_hint_is_only_where_the_word_could_help(self):
+        direct = claude_only({"mode": "direct", "commits": {"min": 1}, "required_checks": [{"context": "ci"}]})
+        rc, _ = self.run_arm(direct, 3, checks="none-yet")
+        self.assertNotIn("no-CI word", str(rc))
+        rc, _ = self.run_arm(claude_only({"mode": "auto", "commits": {"min": 1}}), 3, checks="red:ci")
+        self.assertNotIn("no-CI word", str(rc))
+
+    def test_the_no_ci_word_does_not_lift_the_count_gate_and_the_owners_word_is_not_it(self):
+        p = claude_only({"mode": "auto", "commits": {"min": 5}})
+        rc, _ = self.run_arm(p, 3, checks="none-yet", basis=self.NO_CI_WORD)
+        self.assertIn("under 5 arms only on the owner's word", str(rc))
+        rc, out = self.run_arm(p, 3, checks="none-yet", basis="the owner's word, the owner's no-CI word", extra=("--dry-run",))
+        self.assertEqual(rc, 0, out)
+
+    def test_the_no_ci_word_lifts_nothing_but_none_yet(self):
+        p = claude_only({"mode": "auto", "commits": {"min": 1}})
+        for checks in ("red:ci", "pending:1", "?"):
+            rc, _ = self.run_arm(p, 3, checks=checks, basis=self.NO_CI_WORD)
+            self.assertIn("has no required check", str(rc), checks)
+            self.assertFalse(self.asked)
+            self.assertFalse(self.merged())
+
+    def test_the_no_ci_word_where_it_is_not_needed_is_said_not_read_and_not_recorded(self):
+        auto = claude_only({"mode": "auto", "commits": {"min": 1}})
+        required = claude_only({"mode": "auto", "commits": {"min": 1}, "required_checks": [{"context": "ci-ok", "app": "github-actions"}]})
+        direct = claude_only({"mode": "direct", "commits": {"min": 1}})
+        for name, pol, checks in (("green", auto, "green"), ("required check", required, "none-yet"), ("direct", direct, "green"),
+                                  ("direct, no check", direct, "none-yet")):
+            rc, out = self.run_arm(pol, 3, checks=checks, basis=self.NO_CI_WORD, extra=("--dry-run",))
+            self.assertEqual(rc, 0, (name, out))
+            self.assertIn("the owner's no-CI word is not needed here: it is not read, and not recorded", out, name)
+            self.assertFalse(self.asked, name)
+            self.assertNotIn("No CI:", out, name)
+        rc, out = self.run_arm(auto, 3, checks="green")
+        self.assertNotIn("no-CI word", out)
+
+    def test_the_two_words_are_read_apart(self):
+        for yes in ("the owner's word", "Owner’s Word", "OWNER'S WORD, thanks"):
+            self.assertTrue(arm.has_owner_word(yes), yes)
+            self.assertFalse(arm.has_no_ci_word(yes), yes)
+        for yes in ("the owner's no-CI word", "Owner’s No-Ci Word", "OWNER'S NO-CI WORD"):
+            self.assertTrue(arm.has_no_ci_word(yes), yes)
+            self.assertFalse(arm.has_owner_word(yes), yes)
+        for no in ("", "owner's no CI word", "owners no-CI word", "the owner has no-CI word", "no-CI word"):
+            self.assertFalse(arm.has_no_ci_word(no), no)
 
     def test_a_repository_with_a_required_check_leaves_the_checks_to_github(self):
         p = claude_only({"commits": {"min": 1}, "required_checks": [{"context": "ci-ok", "app": "github-actions"}]})

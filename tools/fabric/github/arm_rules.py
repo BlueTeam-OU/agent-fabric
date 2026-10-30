@@ -29,6 +29,12 @@ def has_owner_word(basis: str) -> bool:
     return re.search(r"owner('|’)s word", basis, re.I) is not None
 
 
+def has_no_ci_word(basis: str) -> bool:
+    # A word of its own, not a longer form of the owner's word: "owner's word" must not lift the checks gate, and this
+    # one must not lift the count gate (has_owner_word's pattern does not match it, and that is kept).
+    return re.search(r"owner('|’)s no-CI word", basis, re.I) is not None
+
+
 def head_lines(lines: list[str], n: int = 3) -> str:
     """The first n, as `head -3 | tr '\\n' ' '` wrote them."""
     return "".join(f"{l} " for l in lines[:n])
