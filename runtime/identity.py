@@ -306,6 +306,68 @@ def update_jobs(mutate, agent: str | None = None) -> dict:
         return new
 
 
+# The fleet hold (agent-fabric ADR-037 rule 13): present means held. Only
+# the control agent's `hold`/`unhold` actions write it; the job tool, the
+# status and the session-start hook read it. Its absence is the normal
+# state, so a reader never creates it.
+HOLD_REASON_MAX = 200
+HOLD_DECISION = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}", re.ASCII)
+
+
+def hold_path(agent: str | None = None) -> str:
+    return os.path.join(agent_state_dir(agent), "hold.json")
+
+
+def read_hold(agent: str | None = None) -> dict | None:
+    """The hold, {"agent", "host", "reason", "decision", "set_by", "set_at"},
+    or None when the login is not held. A file that cannot be read as a
+    hold is refused, never read as no hold: somebody wrote it to stop job
+    starts, and a corrupt one must not be what lets them through."""
+    agent = agent or current_agent()
+    path = hold_path(agent)
+    try:
+        with open(path, encoding="utf-8") as fh:
+            data = json.load(fh)
+    except FileNotFoundError:
+        return None
+    except ValueError as exc:
+        raise SystemExit(f"identity: {path} is not valid JSON ({exc}); the login counts as held until it is fixed or unhold removes it")
+    if not isinstance(data, dict) or not isinstance(data.get("reason"), str):
+        raise SystemExit(f"identity: {path} is not a hold; the login counts as held until unhold removes it")
+    if data.get("agent") not in (None, agent):
+        raise SystemExit(f"identity: {path} names agent {data.get('agent')!r}, but this is {agent!r}'s state directory")
+    return data
+
+
+def set_hold(reason: str, set_by: str, decision: str | None = None, agent: str | None = None) -> dict:
+    """Write the hold, replacing one already set (a second `hold` restates
+    the reason). `reason` is one line of at most HOLD_REASON_MAX
+    characters; `decision`, when given, is a GZCoord MESSAGE-ID."""
+    agent = agent or current_agent()
+    if not isinstance(reason, str) or not reason.strip() or "\n" in reason or "\r" in reason or len(reason) > HOLD_REASON_MAX:
+        raise ValueError(f"a hold's reason is one non-empty line of at most {HOLD_REASON_MAX} characters")
+    if decision is not None and not HOLD_DECISION.fullmatch(decision):
+        raise ValueError("a hold's decision is a MESSAGE-ID (a lowercase UUID)")
+    record = {"agent": agent, "host": current_host(), "reason": reason.strip(),
+              "decision": decision, "set_by": set_by, "set_at": now_iso()}
+    with agent_lock(agent):
+        path = hold_path(agent)
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        atomic_write(path, json.dumps(record, ensure_ascii=False, indent=2, sort_keys=True) + "\n")
+    return record
+
+
+def clear_hold(agent: str | None = None) -> bool:
+    """Lift the hold: True when one was removed, False when none was set."""
+    agent = agent or current_agent()
+    with agent_lock(agent):
+        try:
+            os.unlink(hold_path(agent))
+        except FileNotFoundError:
+            return False
+    return True
+
+
 # Plans the coordinator keeps (agent-fabric ADR-047): one file per plan in
 # the agent's own state, written only here, under the agent lock.
 PLAN_ID = re.compile(r"[a-z0-9][a-z0-9-]{0,62}", re.ASCII)
