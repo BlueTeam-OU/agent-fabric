@@ -346,10 +346,13 @@ def repoint(args) -> int:
             raise Refused(f"{job['id']} is {job['state']}; a closed job is not re-pointed")
         # The one-job guard and the sweep key on these: a job with work in a checkout is that checkout's.
         held = [f"{k} {job[k]}" for k in ("branch", "worktree") if job.get(k)]
-        if held:
+        # Its own worktree is no other checkout: naming it syncs the two fields a job's record had drifted on (j474).
+        own = bool(job.get("worktree") and args.working_copy
+                   and os.path.realpath(os.path.expanduser(args.working_copy)) == os.path.realpath(job["worktree"]))
+        if held and not own:
             raise Refused(f"{job['id']} has {' and '.join(held)}: its work is in that project's checkout, so it is not re-pointed")
         old = job.get("project")
-        working_copy = named_working_copy(args.project, args.working_copy)
+        working_copy = job["worktree"] if own else named_working_copy(args.project, args.working_copy)
         job["project"], job["working_copy"], job["project_from"] = args.project, working_copy, "re-pointed"
         now = identity.now_iso()
         job["updated"] = now

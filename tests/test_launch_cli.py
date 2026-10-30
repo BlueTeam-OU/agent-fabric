@@ -39,7 +39,7 @@ if [[ "${1:-}" == auth ]]; then
     exit 0
 fi
 echo "ORI-EXECCED:$*"
-for v in ANTHROPIC_DEFAULT_HAIKU_MODEL ANTHROPIC_DEFAULT_SONNET_MODEL ANTHROPIC_DEFAULT_OPUS_MODEL ANTHROPIC_DEFAULT_FABLE_MODEL AGENT_FABRIC_LAUNCH_SESSION_MODEL AGENT_FABRIC_LAUNCH_EFFORT AGENT_FABRIC_LAUNCH_PROFILE AGENT_FABRIC_LAUNCH_AGENT AGENT_FABRIC_LAUNCH_ROLE AGENT_FABRIC_LAUNCH_PROMPT_DIGEST AGENT_FABRIC_LAUNCH_STORE_SHA AGENT_FABRIC_LAUNCH_ADDENDA_COMMIT AGENT_FABRIC_LAUNCH_CLAUDE_VERSION CLAUDE_CODE_DISABLE_TERMINAL_TITLE TMPDIR; do
+for v in ANTHROPIC_DEFAULT_HAIKU_MODEL ANTHROPIC_DEFAULT_SONNET_MODEL ANTHROPIC_DEFAULT_OPUS_MODEL ANTHROPIC_DEFAULT_FABLE_MODEL AGENT_FABRIC_LAUNCH_SESSION_MODEL AGENT_FABRIC_LAUNCH_EFFORT AGENT_FABRIC_LAUNCH_PROFILE AGENT_FABRIC_LAUNCH_AGENT AGENT_FABRIC_LAUNCH_ROLE AGENT_FABRIC_LAUNCH_PROMPT_DIGEST AGENT_FABRIC_LAUNCH_STORE_SHA AGENT_FABRIC_LAUNCH_ADDENDA_COMMIT AGENT_FABRIC_LAUNCH_CLAUDE_VERSION AGENT_FABRIC_ROOT CLAUDE_CODE_DISABLE_TERMINAL_TITLE TMPDIR; do
     echo "ORI-ENV:$v=${!v:-}"
 done
 # Presence only, never a value: a template token must not reach the broker.
@@ -1282,11 +1282,48 @@ print("a" * 40, "b" * 40)
                   has(rf"^RUN2:pwd={re.escape(repo)}:", out) and f"job j1's working copy {other} status could not be read" in out, out)
             os.remove(f"{other}/.git")
             os.rename(f"{other}/.git.real", f"{other}/.git")
+            # j2 held `other` as its worktree for the foreign-owner case above; a worktree that is there is taken before the
+            # working copy, so this case is about the working copy alone.
+            for j in doc["jobs"]:
+                if j["id"] == "j2":
+                    j.pop("worktree", None)
+            put(jobs_file, json.dumps(doc))
             fresh_job_session("j2")
             rc, out = runa()
             check("a job's copy that is gone: the old directory, and why — the job is still said",
                   has(rf"^RUN2:pwd={re.escape(repo)}:", out) and f"job j2's working copy {sandbox}/gone is not there" in out
                   and has(r"^RUN2:.*It is for your job j2", out), out)
+
+            print("launch: a fresh session starts in the job's worktree before its working copy (j474)")
+            stale, wt = f"{sandbox}/stale-copy", f"{sandbox}/job-worktree"
+            for d in (stale, wt):
+                rm(d)
+                os.makedirs(d)
+                subprocess.run(["git", "init", "-q", d], env=base, check=True, timeout=30)
+            jobs_cmd("add", "a job whose record drifted", "--working-copy", stale)
+            doc = json.loads(read(jobs_file))
+            drifted = doc["jobs"][-1]["id"]
+            doc["jobs"][-1]["worktree"] = wt
+            put(jobs_file, json.dumps(doc))
+            fresh_job_session(drifted)
+            rc, out = runa()
+            check("a job whose worktree differs from its working copy starts in the worktree, and says which it took",
+                  rc == 0 and has(rf"^RUN2:pwd={re.escape(wt)}:", out)
+                  and f"job {drifted} records working copy {stale} and worktree {wt}; taking the worktree" in out, f"rc={rc}\n{out}")
+            doc["jobs"][-1]["worktree"] = stale
+            put(jobs_file, json.dumps(doc))
+            fresh_job_session(drifted)
+            rc, out = runa()
+            check("…a worktree that is the working copy says nothing of the two", has(rf"^RUN2:pwd={re.escape(stale)}:", out)
+                  and "taking the worktree" not in out, out)
+            doc["jobs"][-1]["worktree"] = f"{sandbox}/worktree-gone"
+            put(jobs_file, json.dumps(doc))
+            fresh_job_session(drifted)
+            rc, out = runa()
+            check("a worktree that is not there: the working copy, with the line said",
+                  has(rf"^RUN2:pwd={re.escape(stale)}:", out)
+                  and f"job {drifted}'s worktree {sandbox}/worktree-gone is not there; trying its working copy {stale}" in out, out)
+            rm(stale, wt)
             write_fake_ori()
 
         if _want(7):
@@ -1375,6 +1412,14 @@ print("a" * 40, "b" * 40)
             check("on another branch: the gap is said and nothing moves",
                   rc == 0 and "(feature) lacks 1 commit(s) of origin/main" in out
                   and git("rev-parse", "HEAD", cwd=repo) != git("rev-parse", "HEAD", cwd=wc_other), out)
+            check("…and says nothing of a fabric root when the checkout is not an agent-fabric one",
+                  "agent-fabric checkout other than the fabric root" not in out, out)
+            put(f"{repo}/tools/fabric/launch.py", "")
+            rc, out = run("--print")
+            check("…a behind agent-fabric checkout other than the fabric root says its hooks and settings are its own and names the root",
+                  rc == 0 and f"launch: {repo} is an agent-fabric checkout other than the fabric root: its hooks and "
+                  f".claude/settings.json are its own, and the fabric root is {fabric}." in out, out)
+            rm(f"{repo}/tools")
             git("checkout", "-q", "main", cwd=repo)
             put(f"{repo}/tracked", "change\n")
             git("add", "tracked", cwd=repo)
@@ -1401,6 +1446,28 @@ print("a" * 40, "b" * 40)
             check("…without frontmatter", "class: charter" not in prompt)
             digest = "sha256:" + hashlib.sha256(prompt.encode()).hexdigest()
             check("role stamped in the child env", has(r"ORI-ENV:AGENT_FABRIC_LAUNCH_ROLE=backend-dev$", out), out)
+            check("the fabric root the launcher verified is stamped, so a session started in another checkout does not run its code",
+                  has(rf"ORI-ENV:AGENT_FABRIC_ROOT={re.escape(fabric)}$", out), out)
+            # Control: the start directory is another agent-fabric checkout, whose session-start hook would name itself the root.
+            other_fabric = f"{sandbox}/other-fabric"
+            rm(other_fabric)
+            os.makedirs(f"{other_fabric}/tools/fabric")
+            put(f"{other_fabric}/tools/fabric/launch.py", "")
+            subprocess.run(["git", "init", "-q", other_fabric], env=base, check=True, timeout=30)
+            out = out_of("--version", cwd=other_fabric)
+            check("…also when the session starts in another agent-fabric checkout: still the verified root, never that checkout",
+                  has(rf"ORI-ENV:AGENT_FABRIC_ROOT={re.escape(fabric)}$", out), out)
+            rm(other_fabric)
+            # Unset (here empty, as the launcher reads it), the root is the repository the launcher file is in.
+            shutil.copytree(f"{ROOT}/tools/fabric", f"{fabric}/tools/fabric", dirs_exist_ok=True,
+                            ignore=shutil.ignore_patterns("__pycache__"))
+            os.makedirs(f"{fabric}/runtime/openrouter", exist_ok=True)
+            shutil.copy2(LAUNCHER, f"{fabric}/runtime/openrouter/launch")
+            out = out_of("--version", launcher=f"{fabric}/runtime/openrouter/launch", AGENT_FABRIC_ROOT="")
+            check("…and when AGENT_FABRIC_ROOT is unset it defaults to the launcher's own tree and is stamped as such",
+                  has(rf"ORI-ENV:AGENT_FABRIC_ROOT={re.escape(fabric)}$", out), out)
+            mkfabric()
+            out = out_of("--version")
             check("the prompt's sha256 stamped, and it is the file's",
                   has(rf"ORI-ENV:AGENT_FABRIC_LAUNCH_PROMPT_DIGEST={digest}$", out), out)
             mkfabric()

@@ -917,6 +917,15 @@ def main() -> int:
         check("the opening prompt names the branch", f"work on branch {want} in {job['worktree']}" in w.sw("show", j1, "--line")[1], w.sw("show", j1, "--line")[1])
         check("the log line carries the branch", f"branch {want}" in job["log"][-1]["note"], repr(job["log"]))
         check("the working copy itself is untouched", subprocess.run(["git", "-C", w.repo, "rev-parse", "--abbrev-ref", "HEAD"], capture_output=True, text=True).stdout.strip() == "main")
+        check("switch gives the job a worktree and sets working_copy to it in the same write (j474: a relaunch followed the older one)",
+              job["working_copy"] == job["worktree"] != w.repo, repr(job))
+        # The record named two places until then; its own worktree is the one re-pointing the guard accepts.
+        rc, out, err = w.sw("project", j1, "somewhere", "--working-copy", job["worktree"])
+        check("project --working-copy <the job's own worktree> is accepted and leaves the two fields equal",
+              rc == 0 and w.job(j1)["working_copy"] == job["worktree"] == w.job(j1)["worktree"] and w.job(j1)["project"] == "somewhere", out + err)
+        rc, out, err = w.sw("project", j1, "somewhere", "--working-copy", w.repo)
+        check("…positive control: any other directory is still refused while the job has a worktree",
+              rc == 1 and "its work is in that project's checkout" in err and w.job(j1)["working_copy"] == job["worktree"], out + err)
 
         w = World()
         j1 = w.working("first")

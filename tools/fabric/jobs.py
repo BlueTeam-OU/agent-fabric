@@ -169,7 +169,7 @@ check that failed and changing nothing:
      login's open pull request in the repository when it can take more commits (not armed or queued, fewer than 16 work
      commits), with the default branch merged into it first (locally, not pushed); else, with --needs-merged, the job is blocked
      on that pull request and not started; else a new branch <host>/<login>/<type>/<job id and title words> off the freshly
-     fetched default branch. Each is checked out in a worktree beside the job's working copy, which stays where it is; the
+     fetched default branch. Each is checked out in a worktree beside the job's working copy, which becomes that worktree (the job's record names one place); the
      job keeps `branch` and `worktree`, and the opening prompt of its fresh session names them. Two open pull requests of this
      login, no working copy, or an origin that cannot be asked are refused.
   Once the switch has committed (a refusal leaves everything as it was) and the sweep of what the job left has run, `switch` clears
@@ -289,7 +289,7 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("--json", action="store_true")
     s.add_argument("--line", action="store_true", help="one line, for an opening prompt")
     s.add_argument("--field", help="one field's value, for the launcher")
-    rp = sub.add_parser("project", help="re-point a job to another project (and working copy); refused once it has a branch or worktree")
+    rp = sub.add_parser("project", help="re-point a job to another project (and working copy); refused once it has a branch or worktree, but for naming that worktree")
     rp.add_argument("id")
     rp.add_argument("project")
     rp.add_argument("--working-copy")

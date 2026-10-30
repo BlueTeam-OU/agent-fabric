@@ -55,8 +55,10 @@ CONTRACT, frozen from the bash (ADR-040 §5 rule 3):
             (dropped, settle_secrets), TMPDIR,
             HOME, PATH, PWD (the launch directory, as the shell names it).
             Written into the session's environment: the alias pins, every
-            AGENT_FABRIC_LAUNCH_* stamp, CLAUDE_CODE_DISABLE_TERMINAL_TITLE,
-            TMPDIR.
+            AGENT_FABRIC_LAUNCH_* stamp, AGENT_FABRIC_ROOT (the fabric
+            root verified above, so a session started in another
+            agent-fabric checkout does not run that checkout's code),
+            CLAUDE_CODE_DISABLE_TERMINAL_TITLE, TMPDIR.
   files     reads the settings scopes, ~/.config/agent-fabric/secrets.env,
             the agent's state directory (binding.json,
             model-profile.local.json, restart.json, and on a relaunch
@@ -519,12 +521,24 @@ def restart(state_dir: str, started: int, opening: bool, status: int, orig_args:
         base["AGENT_FABRIC_FRESH_NOTE"] = note
         if job:
             base["AGENT_FABRIC_FRESH_JOB"] = job
-            # The job's working copy, when it is there, its status is readable
-            # and it is not another job's worktree: uncommitted changes there
-            # are the job's own work. Otherwise the old directory, and why.
-            r = helper([sys.executable, f"{fabric_root}/tools/fabric/jobs.py", "show", job, "--field",
-                        "working_copy"], env=env_with(AGENT_FABRIC_ROOT=fabric_root), quiet=True)
-            wc = stripped(r) if r is not None and r.returncode == 0 else ""
+            # The job's worktree (where its branch lives) before its working
+            # copy, which a record can leave on an older checkout of the project
+            # (j474: 348 commits behind). The one taken is then the place when it
+            # is there, its status is readable and it is not another job's
+            # worktree: uncommitted changes there are the job's own work.
+            # Otherwise the old directory, and why.
+            def job_field(field: str) -> str:
+                r = helper([sys.executable, f"{fabric_root}/tools/fabric/jobs.py", "show", job, "--field", field],
+                           env=env_with(AGENT_FABRIC_ROOT=fabric_root), quiet=True)
+                return stripped(r) if r is not None and r.returncode == 0 else ""
+            wc, recorded = job_field("working_copy"), job_field("worktree")
+            if recorded and os.path.isdir(recorded):
+                if wc and os.path.realpath(wc) != os.path.realpath(recorded):
+                    say(f"launch: job {job} records working copy {wc} and worktree {recorded}; taking the worktree.")
+                wc = recorded
+            elif recorded:
+                say(f"launch: job {job}'s worktree {recorded} is not there; "
+                    + (f"trying its working copy {wc}." if wc else "it names no working copy."))
             if wc:
                 if not os.path.isdir(wc):
                     say(f"launch: job {job}'s working copy {wc} is not there; starting in {cwd}.")
@@ -673,6 +687,9 @@ def launch(argv: list[str]) -> int:
     env["AGENT_FABRIC_LAUNCH_SESSION_MODEL"] = effective_session
     env["AGENT_FABRIC_LAUNCH_PROFILE"] = label
     env["AGENT_FABRIC_LAUNCH_AGENT"] = agent
+    # session-start.sh takes ${AGENT_FABRIC_ROOT:-its own checkout}: unset, a session
+    # started in a worktree of the fabric ran that worktree's code, behind main (j474).
+    env["AGENT_FABRIC_ROOT"] = fabric_root
     # The provider stamp is the routing column (every reader of it knows two);
     # the gateway is a transport beside it, stamped for fabric-status.
     env["AGENT_FABRIC_LAUNCH_PROVIDER"] = routing_provider

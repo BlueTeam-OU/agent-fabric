@@ -75,6 +75,10 @@ def transition(doc: dict, job: dict, state: str, **fields) -> None:
     for key, value in fields.items():
         if key != "note" and value is not None:
             job[key] = value
+    # The record named two places for one job's work, and a relaunch followed the older (j474: 348 commits behind): where a
+    # job is given a worktree, that is its working copy, in the same write.
+    if fields.get("worktree"):
+        job["working_copy"] = fields["worktree"]
 
 
 def own_project(ctx: dict) -> str | None:
