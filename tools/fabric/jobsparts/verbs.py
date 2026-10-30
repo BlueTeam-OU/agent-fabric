@@ -372,16 +372,26 @@ def repoint(args) -> int:
             raise Refused(f"{job['id']} is {job['state']}; a closed job is not re-pointed")
         # The one-job guard and the sweep key on these: a job with work in a checkout is that checkout's.
         held = [f"{k} {job[k]}" for k in ("branch", "worktree") if job.get(k)]
-        if held:
+        # Its own worktree is no other checkout: naming it syncs the two fields a job's record had drifted on (j474).
+        own = bool(job.get("worktree") and args.working_copy
+                   and os.path.realpath(os.path.expanduser(args.working_copy)) == os.path.realpath(job["worktree"]))
+        # …but only to sync those fields: a different project would leave the record at odds with the repository its branch is in.
+        own = own and args.project == job.get("project")
+        if held and not own:
             raise Refused(f"{job['id']} has {' and '.join(held)}: its work is in that project's checkout, so it is not re-pointed")
         old = job.get("project")
-        working_copy = named_working_copy(args.project, args.working_copy)
-        job["project"], job["working_copy"], job["project_from"] = args.project, working_copy, "re-pointed"
         now = identity.now_iso()
         job["updated"] = now
+        if own:
+            # Nothing was re-pointed: the project and where it came from stay, only the working copy follows the worktree.
+            job["working_copy"] = job["worktree"]
+            note = f"working copy synced to its worktree {job['worktree']}"
+        else:
+            working_copy = named_working_copy(args.project, args.working_copy)
+            job["project"], job["working_copy"], job["project_from"] = args.project, working_copy, "re-pointed"
+            note = f"project re-pointed from {old or '-'} to {args.project}" + (f"; working copy {working_copy}" if working_copy else "; no working copy")
         # No `state`: fleet.log_times reads the state of an entry as a transition.
-        job.setdefault("log", []).append({"at": now, "kind": "project", "note": f"project re-pointed from {old or '-'} to {args.project}"
-                                          + (f"; working copy {working_copy}" if working_copy else "; no working copy")})
+        job.setdefault("log", []).append({"at": now, "kind": "project", "note": note})
         return job
     job = mutate(edit)
     print(line(job))

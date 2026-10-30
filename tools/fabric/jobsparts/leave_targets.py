@@ -245,7 +245,10 @@ def clean_targets(worktree: str | None, working_copy: str | None, others: tuple[
         # checkouts, a directory inside one) is not the job's own worktree.
         if not os.path.isfile(os.path.join(root, ".git")):
             return [f"cargo targets: {worktree} is not a linked worktree; left alone"]
-        for c in (working_copy, *others):
+        # A working copy that is the worktree itself is the job's record naming its worktree twice (j474), not a checkout of
+        # another: only a different one, or another job's, makes the worktree shared.
+        mine = working_copy if working_copy and os.path.realpath(working_copy) != root else None
+        for c in (mine, *others):
             if c and os.path.lexists(c) and overlaps(os.path.realpath(c), root):
                 return [f"cargo targets: {worktree} is, holds or lies in a checkout of this or another job ({c}); left alone"]
         found, links = find_targets(root)

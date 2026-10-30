@@ -14,6 +14,7 @@ import time
 from fabric_jobs import blockers as bl
 from fabric_jobs import vcs
 from fabric_jobs.base import FABRIC_ROOT, MESSAGE_ID, _load, identity
+from fabric_jobs.records import working_copy_of
 
 _REPO = r"[A-Za-z0-9][A-Za-z0-9_.-]*/[A-Za-z0-9_.-]+"
 PR_FULL = re.compile(rf"(?<![\w/.-])({_REPO})#([1-9][0-9]{{0,8}})\b", re.ASCII)
@@ -63,11 +64,21 @@ def branches_of(job: dict) -> list[str]:
     return list(dict.fromkeys(names))
 
 
+def checkout_of(job: dict) -> str | None:
+    """The directory git is asked in for a job's artifacts: its working copy, which is its worktree once switch made one (j474) and
+    goes with that worktree when the leave sweep removes it after delivery; then this login's checkout of the job's project, so a
+    delivered job's branch or commit is still found on origin and the sweep can close it."""
+    wc = job.get("working_copy")
+    if wc and os.path.isdir(wc):
+        return wc
+    return (working_copy_of(job["project"]) if job.get("project") else None) or wc
+
+
 def _branch_tips(job: dict, problems: list[str]) -> tuple[str | None, list[tuple[str, str]]]:
     """(the default branch, [(branch, tip)]) for the branch artifacts that are branches on origin now (asked of the remote, so a
     branch deleted there is none although its tracking ref lingers); (None, []) when there are none or git could not tell
     (said in `problems`). The default branch itself and origin/HEAD are no contributor branch: a job's note that it was "merged into origin/main" is no evidence of its work."""
-    wc = job.get("working_copy")
+    wc = checkout_of(job)
     names = branches_of(job)
     if not names or not wc:
         return None, []
@@ -278,7 +289,7 @@ def _landed(job: dict, found: dict, problems: list[str], pr_state=_pr_state) -> 
     """The artifacts that show the work on the default branch, for `done`: merged PRs, commits on origin's default branch, replies.
     `pr_state(repo, number)` asks gh for a pull request's state; `sweep` hands in one that remembers, so a PR named by many jobs is asked once."""
     landed, opened = [], []
-    wc = job.get("working_copy")
+    wc = checkout_of(job)
     for repo, number in found["prs"]:
         try:
             state = pr_state(repo, number)
@@ -376,7 +387,7 @@ def _delivered(job: dict, found: dict, problems: list[str]) -> list[str]:
     default, tips = _branch_tips(job, problems)
     for name, tip in tips:
         try:
-            folded = vcs.question(job["working_copy"], "merge-base", "--is-ancestor", tip, f"refs/remotes/origin/{default}")
+            folded = vcs.question(checkout_of(job), "merge-base", "--is-ancestor", tip, f"refs/remotes/origin/{default}")
         except vcs.VcsError as e:
             problems.append(f"could not tell whether branch {name} is on the default branch ({e})")
             continue
@@ -407,8 +418,9 @@ def _peeled(where: str, ref: str) -> str | None:
 def _pushed(job: dict, problems: list[str]) -> list[str]:
     branch = job.get("branch")
     # A worktree swept after its branch landed is gone, not an error: the repository is asked from the recorded worktree while it
-    # exists, else from the job's working copy, never from a directory that is not there.
-    where = next((d for d in (job.get("worktree"), job.get("working_copy")) if d and os.path.isdir(d)), None)
+    # exists, else from checkout_of (the working copy, or the project's checkout when that went with the worktree), never from a directory
+    # that is not there.
+    where = next((d for d in (job.get("worktree"), checkout_of(job)) if d and os.path.isdir(d)), None)
     if not branch or not (job.get("worktree") or job.get("working_copy")):
         problems.append("a paused job names the branch holding its work: pause it from that branch's checkout "
                         f"(fabric-jobs pause {job['id']} \"<why>\")")
@@ -466,9 +478,9 @@ def settle(job: dict, places: list[str], session_start: float | None = None) -> 
     starts = [t for t in (started_at(job), session_start) if t is not None]
     duty_since = min(starts) if starts else None
     repo = None
-    if job.get("working_copy"):
+    if checkout_of(job):
         try:
-            repo = vcs.gh.this_repo(job["working_copy"])
+            repo = vcs.gh.this_repo(checkout_of(job))
         except vcs.gh.GhError:
             repo = None
     found = artifacts_of(job, repo)
