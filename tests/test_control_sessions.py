@@ -355,6 +355,38 @@ def main() -> int:
         fake_proc(proc, 600, 2, ppid=700)
         check("a parent cycle ends the walk with none", cs.ssh_client(700, state, proc) is None)
 
+    print("FleetDeck part 2: a session in the harness unit")
+    # The deck's attach mode reads an agent's row from this stream alone (no process under its pane is the harness), so the
+    # stream must keep posting for a session whose ancestry has no ssh at all: the unit's tree is
+    # systemd -> server -> the pane's shell -> enter -> the launcher -> claude, with no enter-ssh and no ssh-clients record.
+    with tempfile.TemporaryDirectory() as d:
+        proc, state = os.path.join(d, "proc"), os.path.join(d, "state")
+        os.makedirs(state)    # no ssh-clients directory at all: enter-ssh never ran on this account
+        for pid, start, ppid in ((10, 1, 1), (11, 2, 10), (12, 3, 11), (13, 4, 12), (14, 5, 13)):
+            fake_proc(proc, pid, start, ppid=ppid)
+        fake_proc(proc, 14, 5, comm="claude", ppid=13)
+        sfile = os.path.join(state, "session-state.json")
+
+        def say(sessions):
+            with open(sfile, "w") as fh:
+                json.dump({"sessions": sessions}, fh)
+        say({"unit-1": {"state": "working", "since": "2026-10-30T10:00:00.000Z", "pid": 14, "start": 5}})
+        rows = cs.read_sessions(sfile, proc=proc)
+        check("the session in the unit is read, alive, with no ssh_client", rows is not None and [r["session"] for r in rows] == ["unit-1"]
+              and "ssh_client" not in rows[0], rows)
+        t, posts = [1_000_000.0], []
+        w = cs.StateWatcher(address="h/acct", post=posts.append, file=sfile, proc=proc, now=lambda: t[0], heartbeat_ms=60_000, log=lambda m: None)
+        check("the first tick posts a state record naming the session", w.tick() is True and len(posts) == 1
+              and posts[0]["kind"] == "state" and posts[0]["from"] == "h/acct" and [x["session"] for x in posts[0]["sessions"]] == ["unit-1"], posts)
+        check("an unchanged state is not re-posted before the heartbeat", w.tick() is False and len(posts) == 1)
+        t[0] += 60_001
+        check("…and is posted again at the heartbeat, so a deck that attaches later still reads a fresh row", w.tick() is True and len(posts) == 2, posts)
+        say({"unit-1": {"state": "idle", "since": "2026-10-30T10:05:00.000Z", "pid": 14, "start": 5}})
+        check("a change in the unit's session is posted at once", w.tick() is True and posts[-1]["sessions"][0]["state"] == "idle", posts[-1])
+        check("positive control: the same tree under an enter-ssh record carries ssh_client, so its absence above is the ancestry's",
+              (os.makedirs(os.path.join(state, "ssh-clients")), open(os.path.join(state, "ssh-clients", "11"), "w").write("192.0.2.7 51234 22\n"))[1] > 0
+              and cs.ssh_client(14, state, proc) == {"addr": "192.0.2.7", "port": 51234})
+
     print(f"\n{'FAILED' if fails else 'all passed'}")
     return 1 if fails else 0
 

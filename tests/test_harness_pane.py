@@ -12,7 +12,10 @@ from __future__ import annotations
 import io
 import json
 import os
-import stat
+import pwd
+import re
+import select
+import shlex
 import subprocess
 import sys
 import tempfile
@@ -168,6 +171,48 @@ class Ensure(unittest.TestCase):
         s = FakeServer()
         ensure(s, home="/home/we ird$(id)", login="a")
         self.assertEqual(s.typed[0][1], "/usr/local/share/moveto/enter '/home/we ird$(id)/projects' a --wait")
+
+
+class WaitLine(unittest.TestCase):
+    """The deck's boot presses Enter only at `<login> - Enter to activate` (fork PR #50, interface point c): the unit's
+    pane runs exactly the line this module types, so the line is read from moveto's own enter run with those arguments."""
+
+    def run_enter(self, home, stdin_open=True):
+        typed = shlex.split(hp.enter_command(pwd.getpwuid(os.getuid()).pw_name, home))
+        self.assertEqual((typed[0], typed[-1]), (hp.ENTER, "--wait"))
+        stub = os.path.join(HERE, "runtime", "provisioning", "moveto", "enter")
+        env = {"PATH": "/usr/bin:/bin", "HOME": home, "LANG": "C.UTF-8", "AGENT_FABRIC_PYTHON": sys.executable}
+        return subprocess.Popen(["bash", stub, *typed[1:]], env=env, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+
+    def test_the_panes_last_line_while_it_waits_is_the_login_and_enter_to_activate(self):
+        home = tempfile.mkdtemp(prefix="hp-home-")
+        self.addCleanup(__import__("shutil").rmtree, home, True)
+        os.makedirs(os.path.join(home, "projects"))
+        p = self.run_enter(home)
+        self.addCleanup(lambda: (p.kill(), p.wait(), [f.close() for f in (p.stdin, p.stdout, p.stderr) if f]))
+        got = b""
+        while not got.endswith(b"Enter to activate\n"):
+            ready, _, _ = select.select([p.stdout], [], [], 30)
+            self.assertTrue(ready, f"no Enter line within 30 s: {got!r}")
+            chunk = os.read(p.stdout.fileno(), 4096)
+            if not chunk:    # the message is built only here: reading stderr of a live process would block
+                self.fail(f"enter ended before the line: {got!r} {p.stderr.read()!r}")
+            got += chunk
+        login = pwd.getpwuid(os.getuid()).pw_name
+        # The title is two OSC sequences a terminal does not draw (enter writes them first, on the same line).
+        drawn = re.sub(r"\x1b\][12];[^\x07]*\x07", "", got.decode())
+        self.assertEqual(drawn.splitlines()[-1], f"{login} - Enter to activate")
+        self.assertEqual(drawn, f"{login} - Enter to activate\n")
+        # It waits there: nothing more is drawn, and it has not exited, until the Enter.
+        self.assertEqual(select.select([p.stdout], [], [], 1.0)[0], [])
+        self.assertIsNone(p.poll())
+        # Positive control: the Enter is what moves it on (a pane that ignored stdin would pass the two checks above).
+        p.stdin.write(b"\n")
+        p.stdin.flush()
+        p.stdin.close()
+        p.wait(timeout=60)
+        rest = p.stdout.read() + p.stderr.read()
+        self.assertTrue(rest, "nothing followed the Enter")
 
 
 class EntryPoint(unittest.TestCase):
