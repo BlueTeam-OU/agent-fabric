@@ -44,6 +44,7 @@ import threading
 import time
 from typing import Any, Callable, Mapping
 
+from control import busy
 from control.ops import util
 from gzcoord.inbox_parts.tokens import synced_var  # noqa: E402 — control.ops.util puts tools/fabric on sys.path
 
@@ -200,12 +201,20 @@ def process_started(pid: int, proc: str = "/proc") -> str | None:
 
 
 def secrets_sync(request: Mapping[str, Any], **opts: Any) -> dict:
-    """One secrets-sync at a time per daemon."""
+    """One secrets-sync at a time per account: this process's lock, then the state directory's (control/busy.py)."""
     if not _syncing.acquire(blocking=False):
         return {"status": "busy", "note": "a secrets-sync is already running on this account"}
+    fd = None
     try:
+        try:
+            fd = busy.hold(opts.get("directory") or util.state_dir(), "sync")
+        except busy.Unavailable as e:
+            return {"status": "failed", "reason": f"cannot tell whether a secrets-sync is running ({e}); nothing synced"}
+        if fd is None:
+            return {"status": "busy", "note": "a secrets-sync is already running on this account"}
         return secrets_sync_once(request, **opts)
     finally:
+        busy.release(fd)
         _syncing.release()
 
 
@@ -332,6 +341,17 @@ def secrets_sync_once(
         return fail("a restart is running on this account; synced, nothing stopped — run it again after")
     directory = directory or util.state_dir()
     wait_ms = up.STOP_WAIT_MS if stop_wait_ms is None else stop_wait_ms
+    # Another process's upgrade or restart (control/busy.py): our sync lock is held already, so a restart
+    # that starts after this sees it; the marker is taken shared, as restart.py takes it.
+    try:
+        marker_fd = busy.hold(directory, "marker", shared=True)
+        if marker_fd is None:
+            return fail("an upgrade is running on this account (it owns the restart marker); synced, nothing stopped — run it again after")
+        if busy.held(directory, "restart"):
+            busy.release(marker_fd)
+            return fail("a restart is running on this account; synced, nothing stopped — run it again after")
+    except busy.Unavailable as e:
+        return fail(f"cannot tell whether an upgrade or restart is running ({e}); synced, nothing stopped")
     up.restart_in_flight(True)
     try:
         # The launcher reads the marker when the session returns: written first,
@@ -367,3 +387,4 @@ def secrets_sync_once(
         return done("restarting" + gw_words)
     finally:
         up.restart_in_flight(False)
+        busy.release(marker_fd)
