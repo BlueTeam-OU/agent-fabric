@@ -406,7 +406,7 @@ def main() -> int:
         obj = json.loads(b.stdout)
         check("--json is one object with the frozen keys", list(obj) == [
             "agent", "host", "placement", "role", "project", "working_copy", "session", "binding_updated", "launched_role",
-            "launch_prompt_digest", "drift", "session_effort", "undrained_memories", "jobs", "api", "capabilities", "engines", "routing_check",
+            "launch_prompt_digest", "drift", "session_effort", "undrained_memories", "jobs", "hold", "api", "capabilities", "engines", "routing_check",
             "host_tools", "control_plane"])
         check("…whose api keys are frozen too", list(obj["api"]) == [
             "provider", "path", "base_url_host", "session_model", "launch_profile", "pins", "credentials", "claude_sign_in"])

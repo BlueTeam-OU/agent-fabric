@@ -16,6 +16,7 @@ bin/fabric-ctl runs this on the pinned Python).
     fabric-ctl <login>... clone <project-id>
     fabric-ctl <login|all> gateway | gateway-install --version V
     fabric-ctl <login|all> <carrier> | <carrier>-install      (the carrier's transport; gzcoord.carrier.CARRIER_NAME)
+    fabric-ctl <login|all> hold --reason "<why>" [--decision <MESSAGE-ID>] | unhold
     fabric-ctl <login> jobs-add [--topic T] [--project P] [--priority P] [--] "<title>"
     fabric-ctl <holder> pool-add --role R [--topic T] [--project P] [--priority P] [--] "<title>"
     fabric-ctl <login|all> states [--follow] [--json]
@@ -111,6 +112,7 @@ from control.gzcoord import FABRIC_ROOT, api, inbox_root, integration_config, re
 from control.ops import OPS, PUBLIC_OPS
 from control.pool import check_pool_args, pool_holder
 from control.jobs import check_job_args
+from control import hold as hold_mod
 from control.selftest import SELFTEST_BUDGET_S
 from control.restart import RESTART_BUDGET_S
 from control.sessions import SESSION_ID
@@ -245,6 +247,13 @@ VERBS: tuple[Verb, ...] = (
          usage=(('<login> jobs-add [--topic T] [--project P] [--priority P] [--] "<title>"', None),), target="<login>",
          args='[--topic T] [--project P] [--priority P] [--] "<title>"', signed="always",
          options=JOB_OPTS + (("--", "ends the options: the next word is the title even if it starts with a dash"),) + COMMON),
+    Verb("hold", "Hold the account: it takes no new job until unhold (ADR-037 rule 13). The active job goes on to its artifact.",
+         'fabric-ctl all hold --reason "release freeze" --decision 01a18d02-edd3-7bef-8fe9-965718c256b5',
+         usage=(('<login|all> hold --reason "<why>" [--decision <MESSAGE-ID>]', "an action: write the account's hold.json; fabric-jobs switch and start and fabric-fresh --job then refuse; an account that does not answer is not held, and is named"),),
+         args='--reason "<why>" [--decision <MESSAGE-ID>]', signed="always",
+         options=(("--reason WHY", "one line of at most 200 characters (required)"), ("--decision ID", "the GZCoord MESSAGE-ID of the decision that holds")) + COMMON),
+    Verb("unhold", "Lift the hold: the account takes jobs again. `none` for an account that was not held.", "fabric-ctl all unhold",
+         usage=(("<login|all> unhold", "an action: remove the account's hold.json; `none` where there was none"),), signed="always", options=COMMON),
     Verb("pool-add", "Add a job to a role's pool, through the account that holds the pool.", 'fabric-ctl pool-holder pool-add --role python-dev "port the thing"',
          usage=(('<holder> pool-add --role R [--topic T] [--project P] [--priority P] [--] "<title>"', None),), target="<holder>",
          args='--role R [--topic T] [--project P] [--priority P] [--] "<title>"', signed="always",
@@ -494,6 +503,8 @@ def build_request(args: dict, *, id: str, from_: str, to: Any, cfg: dict, ts: st
             req["args"] = {"piece": args["piece"], "version": args["version"] if args["version"] is not None else version()}
     if op == "jobs-add":
         req["args"] = job_args(args)
+    if op == "hold":
+        req["args"] = {"reason": args["reason"], **({"decision": args["decision"]} if args.get("decision") is not None else {})}
     if op == "tools-install":
         req["args"] = {"tool": args["tool"]}
     if op == "clone":
@@ -598,6 +609,14 @@ def parse_args(argv: list[str]) -> dict:
             out["priority"] = nxt()
         elif a.startswith("--priority="):
             out["priority"] = a[11:]
+        elif a == "--reason":
+            out["reason"] = nxt()
+        elif a.startswith("--reason="):
+            out["reason"] = a[9:]
+        elif a == "--decision":
+            out["decision"] = nxt()
+        elif a.startswith("--decision="):
+            out["decision"] = a[11:]
         elif a == "--role":
             out["role"] = nxt()
         elif a.startswith("--role="):
@@ -657,6 +676,15 @@ def parse_args(argv: list[str]) -> dict:
         raise CtlError("--days takes a positive number of days, with tokens only")
     if (out["topic"] is not None or out["project"] is not None or out["priority"] is not None) and op not in ("jobs-add", "pool-add"):
         raise CtlError("--topic, --project and --priority go with jobs-add and pool-add only")
+    # Not in the defaults: the parser's answer for every other verb is the frozen shape (tests/test_control_frozen.py).
+    if ("reason" in out or "decision" in out) and op != "hold":
+        raise CtlError("--reason and --decision go with hold only")
+    if op == "hold":
+        if not isinstance(out.get("reason"), str):
+            raise CtlError('hold takes --reason "<why>": one line')
+        bad = hold_mod.check_hold(out["reason"], out.get("decision") if isinstance(out.get("decision"), str) else None if "decision" not in out else "")
+        if bad:
+            raise CtlError(f"hold: {bad}")
     if out["role"] is not None and op != "pool-add":
         raise CtlError("--role goes with pool-add only")
     # A placed agent lists and claims for itself, through fabric-jobs: the
@@ -904,14 +932,14 @@ def rows(expected: list[dict], replies: list[dict]) -> list[dict]:
                     "localPrune": g("local-prune"), "selftest": g("secrets-selftest"), "agentd": g("agentd"),
                     # Only where the control agent answered them (an older one does not): a row never says null for a section nobody asked.
                     **{k: g(k) for k in ("harness", "inbox", "switch", "drift") if dig(d, k) is not UNDEFINED},
-                    **{key: g(op) for key, op in (("branches", "branches"), ("branchesSweep", "branches-sweep"), ("clone", "clone"), (f"{CARRIER_NAME}Evidence", EVIDENCE_OP)) if dig(d, op) is not UNDEFINED}})
+                    **{key: g(op) for key, op in (("branches", "branches"), ("branchesSweep", "branches-sweep"), ("clone", "clone"), ("hold", "hold"), ("unhold", "unhold"), (f"{CARRIER_NAME}Evidence", EVIDENCE_OP)) if dig(d, op) is not UNDEFINED}})
     return out
 
 
 # What counts as success for each action; anything else fails the run.
 ACTION_OK = {"upgrade": ["current", "upgraded"], "secrets-sync": ["synced"], "jobs-add": ["added", "listed"], "local-prune": ["pruned", "clean"],
              "secrets-selftest": ["pass"], "pool-add": ["added"], "tools-install": ["installed", "current", "skipped"], "clone": ["cloned", "present"],
-             "gateway-install": ["installed", "current"], INSTALL_OP: ["installed", "current"], START_OP: ["started"], STOP_OP: ["stopped"], EVIDENCE_OP: ["ok"], "branches-sweep": ["swept"], "restart": ["restarted", "no-session", "yours"]}
+             "gateway-install": ["installed", "current"], INSTALL_OP: ["installed", "current"], START_OP: ["started"], STOP_OP: ["stopped"], EVIDENCE_OP: ["ok"], "branches-sweep": ["swept"], "hold": ["held"], "unhold": ["released", "none"], "restart": ["restarted", "no-session", "yours"]}
 
 
 def targets_of(targets: list[str], placed: list[dict]) -> dict:
@@ -1170,6 +1198,11 @@ def _table_jobs(rs: list) -> list[str]:
         if _unless(r, r.get("jobs")):
             lines.append(_row(r))
             continue
+        # ADR-037 rule 13: a held account says so before its jobs (a hold.json that cannot be read is a hold).
+        held = dig(r.get("jobs"), "hold")
+        if T(held):
+            lines.append(esc(f"{pad_end(r['account'], 22)} HELD  " + (f"hold unreadable: {S(held['unreadable'])}" if T(dig(held, "unreadable")) else S(dig(held, "reason")))
+                             + (f" (decision {S(held['decision'])})" if T(dig(held, "decision")) else "")))
         if dig(r.get("jobs"), "status") != "ok":
             lines.append(f"{pad_end(r['account'], 22)} jobs {S(dig(r['jobs'], 'status'))}{': ' + S(r['jobs']['error']) if T(dig(r['jobs'], 'error')) else ''}")
             continue
@@ -1433,6 +1466,20 @@ def _table_jobs_add(rs: list) -> list[str]:
         lines.append(trim_end(f"{pad_end(r['account'], 22)} {body}"))
         if T(dig(u, "warning")):
             lines.append(f"{pad_end('', 22)} {S(u['warning'])}")
+    return lines
+
+
+def _table_hold(rs: list, op: str) -> list[str]:
+    lines = []
+    for r in rs:
+        u = r.get(op)
+        if _unless(r, u):
+            body = r["status"]
+        elif op == "hold" and dig(u, "status") == "held":
+            body = f"held  {S(nullish(dig(u, 'hold', 'reason'), ''))}"
+        else:
+            body = f"{S(dig(u, 'status'))}  {S(nullish(dig(u, 'reason'), ''))}"
+        lines.append(esc(trim_end(f"{pad_end(r['account'], 22)} {body}")))
     return lines
 
 
@@ -2005,6 +2052,8 @@ def table(op: str, rs: list) -> str:
         lines = _table_restart(rs)
     elif op == "jobs-add":
         lines = _table_jobs_add(rs)
+    elif op in ("hold", "unhold"):
+        lines = _table_hold(rs, op)
     elif op == "pool-add":
         lines = _table_pool_add(rs)
     elif op == "presence":

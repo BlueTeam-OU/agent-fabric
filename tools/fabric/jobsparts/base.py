@@ -61,6 +61,10 @@ identity = _load("fabric_identity", os.path.join(FABRIC_ROOT, "runtime", "identi
 PROJECT_SLUG = _load("fabric_registry_id", os.path.join(HERE, "registry_id.py")).REGISTRY_ID
 
 
+# The fleet hold's reader (ADR-037 rule 13), loaded by path for the same reason.
+hold_view = _load("fabric_hold_view", os.path.join(HERE, "hold_view.py"))
+
+
 STATES = ("queued", "active", "paused", "blocked", "delivered", "done", "dropped")
 
 

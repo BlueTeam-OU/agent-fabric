@@ -1804,6 +1804,133 @@ def main() -> int:
         check("--json carries the verdict, the branch and what was settled", rc == 0 and v["fresh"] is False and v["settled"] is None
               and v["branch"].startswith(f"{host}/{login}/feat/{j1}-") and v["branch_kind"] == "new", out + err)
 
+        print("the fleet hold (ADR-037 rule 13): the old job is settled, nothing is started")
+        DECISION = "01a18d02-edd3-7bef-8fe9-965718c256b5"
+
+        def hold(w: World, reason: str = "release freeze") -> None:
+            jobs.identity.set_hold(reason, set_by="h/operator", decision=DECISION)
+
+        def lift() -> None:
+            jobs.identity.clear_hold()
+
+        def ready(reason: str = "release freeze") -> tuple[World, str, str]:
+            """j1 worked and done with its evidence, j2 queued, the login held."""
+            w = World()
+            j1 = w.working("the finished work")
+            w.sw("done", j1)
+            jobs_world.landed(w.state, login, j1)
+            gh_says({jobs_world.LANDED: "MERGED"})
+            j2 = w.add("the next job")
+            hold(w, reason)
+            return w, j1, j2
+
+        w, j1, j2 = ready()
+        rc, out, err = w.switch()
+        check("held: switch starts nothing, exits non-zero and names the hold's reason, decision and setter",
+              rc == 1 and "release freeze" in err and DECISION in err and "h/operator" in err and w.job(j2)["state"] == "queued", out + err)
+        check("held: ...and prints no fabric-fresh", "fabric-fresh" not in out + err, out + err)
+        check("held: ...but the job being left was settled, and says how", f"{j1} left (done: " in err, err)
+        lift()
+        rc, out, err = w.switch()
+        check("held: the control, the same list with the hold lifted starts the next job", rc == 0 and w.job(j2)["state"] == "active", out + err)
+
+        w, j1, j2 = ready()
+        rc, out, err = w.sw("next")
+        check("held: next is switch", rc == 1 and "release freeze" in err and w.job(j2)["state"] == "queued", out + err)
+        w = World()
+        j1 = w.working("done without evidence")
+        w.sw("done", j1)
+        w.add("the next job")
+        hold(w)
+        rc, out, err = w.switch()
+        check("held: a job that cannot be left yet is still refused as before, not waved through", rc == 1 and "cannot leave" in err and "done needs evidence" in err, err)
+        w = World()
+        w.add("queued only")
+        hold(w)
+        rc, out, err = w.switch()
+        check("held: with nothing worked yet, switch starts nothing and names the hold", rc == 1 and "release freeze" in err and "no queued job" not in err, out + err)
+        w = World()
+        busy = w.working("still going")
+        w.add("the next job")
+        hold(w)
+        rc, out, err = w.switch()
+        check("held: the active job is not left: switch refuses as ever", rc == 1 and "is still active" in err and w.job(busy)["state"] == "active", err)
+
+        w, j1, j2 = ready()
+        rc, out, err = w.sw("start", j2)
+        check("held: start of a queued job refuses, naming the hold", rc == 1 and "release freeze" in err and w.job(j2)["state"] == "queued", out + err)
+        w.sw("pause", j2, "x")      # not active: refused as ever, the job is untouched
+        for state_setup in ("paused", "blocked"):
+            w2 = World()
+            jx = w2.working("work to set aside")
+            if state_setup == "paused":
+                w2.sw("pause", jx, "aside")
+            else:
+                w2.sw("block", jx, "an answer")
+            hold(w2)
+            rc, out, err = w2.sw("start", jx)
+            check(f"held: start of a {state_setup} job refuses", rc == 1 and "release freeze" in err and w2.job(jx)["state"] == state_setup, out + err)
+            lift()
+            check(f"held: ...control, start of the {state_setup} job works once lifted", w2.sw("start", jx)[0] == 0 and w2.job(jx)["state"] == "active")
+
+        w = World()
+        j1 = w.working("the active one")
+        hold(w)
+        j2 = w.add("asked of the agent while held")
+        check("held: add still queues", w.job(j2)["state"] == "queued")
+        rc, out, err = w.sw("block", j1, "an answer")
+        check("held: block works", rc == 0 and w.job(j1)["state"] == "blocked", err)
+        jobs.identity.clear_hold()
+        w.sw("start", j1)
+        hold(w)
+        check("held: pause works", w.sw("pause", j1, "aside")[0] == 0 and w.job(j1)["state"] == "paused")
+        lift()
+        w.sw("start", j1)
+        hold(w)
+        check("held: deliver works", w.sw("deliver", j1, f"{jobs_world.GH_REPO}#2")[0] == 0 and w.job(j1)["state"] == "delivered")
+        check("held: done works", w.sw("done", j1)[0] == 0 and w.job(j1)["state"] == "done")
+        check("held: drop works", w.sw("drop", j2, "not needed")[0] == 0 and w.job(j2)["state"] == "dropped")
+
+        w = World()
+        w.working("the finished work")
+        w.sw("done", "j1")
+        jobs_world.landed(w.state, login, "j1")
+        gh_says({jobs_world.LANDED: "MERGED"})
+        j2 = w.add("the next job")
+        verbs = sys.modules["fabric_jobs.verbs"]
+        real_choose = verbs.choose
+
+        def hold_arrives(*a, **k):
+            choice = real_choose(*a, **k)
+            hold(w)             # set while the branch is prepared, after switch first looked
+            return choice
+        verbs.choose = hold_arrives
+        try:
+            rc, out, err = w.switch()
+        finally:
+            verbs.choose = real_choose
+        check("held: a hold set while the branch is prepared stops the start, and no fabric-fresh is printed",
+              rc == 1 and "release freeze" in err and w.job(j2)["state"] == "queued" and "fabric-fresh" not in out + err, out + err)
+        lift()
+        check("held: ...control, the same switch without the late hold starts it", w.switch()[0] == 0 and w.job(j2)["state"] == "active")
+
+        w, j1, j2 = ready()
+        os.remove(os.path.join(w.state, "agents", login, "hold.json"))
+        os.mkdir(os.path.join(w.state, "agents", login, "hold.json"))
+        rc, out, err = w.switch()
+        check("held: a hold.json that cannot be opened holds too, named as unreadable (no traceback)",
+              rc == 1 and "hold unreadable" in err and "Traceback" not in err and w.job(j2)["state"] == "queued", out + err)
+        os.rmdir(os.path.join(w.state, "agents", login, "hold.json"))
+
+        for label, body in (("not JSON", "{not json"), ("not a hold", "[1]")):
+            w, j1, j2 = ready()
+            with open(os.path.join(w.state, "agents", login, "hold.json"), "w", encoding="utf-8") as fh:
+                fh.write(body)
+            rc, out, err = w.switch()
+            check(f"held: a hold.json that is {label} holds: switch refuses saying it is unreadable", rc == 1 and "hold unreadable" in err and w.job(j2)["state"] == "queued", out + err)
+            rc, out, err = w.sw("start", j2)
+            check(f"held: ...and start refuses", rc == 1 and "hold unreadable" in err and w.job(j2)["state"] == "queued", out + err)
+
     print("PASS" if not fails else f"FAILED: {fails}")
     return 1 if fails else 0
 
