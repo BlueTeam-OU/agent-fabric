@@ -139,10 +139,13 @@ that killed the host without privilege and without anything going stale.
 
 - A killed holder releases its lease; a harness ending a timed-out call
   with KILL to the wrapper alone would free the lease under a running
-  suite — not observed, the shape to settle if it is. A `cpu` slot is
-  the exception: the tool is exec'd with it and its children inherit
-  it, so the slot is freed only by the last of them, and `--who` calls
-  a slot whose holder is gone an orphan (§5 rule 9, the `cpu` amendment's item 6).
+  suite — not observed, the shape to settle if it is. A `cpu` slot a
+  shim takes is the exception: the tool is exec'd with it and its
+  children inherit it, so the slot is freed only by the last of them,
+  and `--who` calls a slot whose holder is gone an orphan (§5 rule 9,
+  the `cpu` amendment's item 6). `tests/run.py` holds its slot in its
+  own process, close-on-exec, as it holds `full-suite`, and shares
+  that open shape.
 - The lease serialises two accounts and does nothing about one; the quota
   layer is what would.
 - Every account on a host must have pulled a new worker before it reaches
