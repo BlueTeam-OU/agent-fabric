@@ -192,6 +192,10 @@ def cli(argv: list[str] | None = None, stdin=None, ask=check_addressees, agentd=
             return 6
         from control import agentd   # agentd's port: control_config, account_addresses, operator_addresses, new_id
     try:
+        # An unreadable registry is unknown, not "nobody is placed": agentd's
+        # lenient read would make every TO not-placed and invite a --force.
+        # It is the same {"error"} line as a relay that cannot be reached.
+        agentd.read_registry(None)
         answer = ask(req["metadata"], from_=req["from"], token=req["token"], placed=list(agentd.account_addresses()),
                      operators=list(agentd.operator_addresses()), cfg=agentd.control_config(), new_id=agentd.new_id)
     except Exception as e:  # noqa: BLE001 — presence.mjs's catch: every failure is one {"error"} line, exit 6

@@ -2083,7 +2083,13 @@ def main(argv: list[str] | None = None, *, registry: str | None = None, call: Ca
     if args["op"] == "keygen":
         return keygen(args, registry=registry, who=who, out=out, err=err)
     agentd = _agentd()
-    picked = targets_of(args["targets"], placements(registry))
+    try:
+        placed = placements(registry)
+    except (OSError, ValueError) as e:
+        # Who is placed is unknown, not nobody: said as such, one line, exit 1 as any registry failure was.
+        err(f"fabric-ctl: the hosts registry could not be read ({e.__class__.__name__}); cannot tell who is placed; nothing sent")
+        return 1
+    picked = targets_of(args["targets"], placed)
     if "refused" in picked:
         err(f"fabric-ctl: {picked['refused']}")
         return 2
