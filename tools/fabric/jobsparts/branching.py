@@ -38,7 +38,7 @@ def branch_name(job: dict, kind: str) -> str:
 
 
 def _worktree_path(wc: str, branch: str) -> str:
-    return f"{os.path.realpath(wc)}-{branch.rsplit('/', 1)[-1]}"
+    return f"{os.path.realpath(vcs.main_checkout(wc))}-{branch.rsplit('/', 1)[-1]}"
 
 
 def _checkout(wc: str, branch: str) -> str:

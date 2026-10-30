@@ -33,6 +33,16 @@ def text(repo: str, *args: str, timeout: float = 60) -> str:
     return run(repo, *args, timeout=timeout).stdout.strip()
 
 
+def main_checkout(repo: str) -> str:
+    """The checkout that holds the repository's .git when `repo` is a linked worktree of one, else `repo`. A job's working copy
+    is its worktree once switch has made one (j474), and what is made or swept "beside the working copy" is beside the main one."""
+    try:
+        common = text(repo, "rev-parse", "--path-format=absolute", "--git-common-dir")
+    except VcsError:
+        return repo
+    return os.path.dirname(common) if os.path.basename(common) == ".git" else repo
+
+
 def question(repo: str, *args: str) -> bool:
     """A question git answers with exit 0 or 1; any other status is an error, not a no."""
     r = run(repo, *args, check=False)
