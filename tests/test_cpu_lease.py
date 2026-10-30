@@ -326,6 +326,11 @@ def main() -> int:
         check("AGENT_FABRIC_TEST_JOBS above the budget is lowered, with a line; MAKEFLAGS set is kept",
               ran.get("AGENT_FABRIC_TEST_JOBS") == str(J) and ran.get("MAKEFLAGS") == "-j1"
               and f"AGENT_FABRIC_TEST_JOBS={J + 7} lowered to {J}" in errs, f"{ran} {errs}")
+        p = shim("cargo", "test", AGENT_FABRIC_TEST_JOBS="9" * 5000)
+        rc, _o, errs = finish(p)
+        ran = started(p)
+        check("AGENT_FABRIC_TEST_JOBS of 5000 digits is lowered, not a traceback",
+              rc == 0 and ran.get("AGENT_FABRIC_TEST_JOBS") == str(J) and "Traceback" not in errs, f"{rc} {ran} {errs[-200:]}")
         p = shim("cargo", "test", AGENT_FABRIC_TEST_JOBS="1", MAKEFLAGS="", CARGO_BUILD_JOBS="99")
         rc, _o, errs = finish(p)
         ran = started(p)
