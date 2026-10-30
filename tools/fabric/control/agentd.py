@@ -192,10 +192,9 @@ def read_registry(registry: str | None) -> Any:
         with open(path, encoding="utf-8", errors="replace") as fh:
             return js.json_parse(fh.read())
     except OSError as e:
-        import errno
-        raise RegistryUnreadable(f"the hosts registry could not be read ({errno.errorcode.get(e.errno, 'OSError')})") from None
+        raise RegistryUnreadable(f"the hosts registry {path} could not be read ({errno.errorcode.get(e.errno, 'OSError')})") from None
     except ValueError:
-        raise RegistryUnreadable("the hosts registry could not be read (not JSON)") from None
+        raise RegistryUnreadable(f"the hosts registry {path} could not be read (not JSON)") from None
 
 
 def _registry(registry: str | None) -> Any:

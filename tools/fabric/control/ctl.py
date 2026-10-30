@@ -2087,7 +2087,7 @@ def main(argv: list[str] | None = None, *, registry: str | None = None, call: Ca
         placed = placements(registry)
     except (OSError, ValueError) as e:
         # Who is placed is unknown, not nobody: said as such, one line, exit 1 as any registry failure was.
-        err(f"fabric-ctl: the hosts registry could not be read ({e.__class__.__name__}); cannot tell who is placed; nothing sent")
+        err(f"fabric-ctl: the hosts registry could not be read ({e}); cannot tell who is placed; nothing sent")
         return 1
     picked = targets_of(args["targets"], placed)
     if "refused" in picked:
