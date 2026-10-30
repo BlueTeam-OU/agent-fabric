@@ -376,7 +376,6 @@ class Sweep(unittest.TestCase):
 
     def test_the_fd_wait_tolerates_a_vanished_fd_and_a_gone_process(self):
         pid = os.getpid()
-        real = os.readlink
         calls = []
 
         def flaky(p):
@@ -387,9 +386,11 @@ class Sweep(unittest.TestCase):
 
         with mock.patch.object(os, "listdir", return_value=["3", "4"]), mock.patch.object(os, "readlink", flaky):
             self.assertTrue(self.holds_open(pid, "/wanted"), "the second fd is still found after the first vanished")
-        self.assertEqual(real(f"/proc/{pid}/cwd"), os.getcwd(), "positive control: readlink is restored")
+        with open(os.path.join(self.tmp, "held"), "w", encoding="utf-8") as fh:
+            self.assertTrue(self.holds_open(pid, os.path.realpath(fh.name)), "positive control: unpatched, an open file is found")
         gone = subprocess.Popen(["true"])
         gone.wait()
+        self.assertFalse(os.path.exists(f"/proc/{gone.pid}"), "the pid is gone")
         self.assertFalse(self.holds_open(gone.pid, "/wanted"))
 
     def test_an_ended_id_whose_dir_a_live_process_writes_under_is_kept(self):
