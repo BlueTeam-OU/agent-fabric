@@ -1446,31 +1446,28 @@ print("a" * 40, "b" * 40)
             check("…without frontmatter", "class: charter" not in prompt)
             digest = "sha256:" + hashlib.sha256(prompt.encode()).hexdigest()
             check("role stamped in the child env", has(r"ORI-ENV:AGENT_FABRIC_LAUNCH_ROLE=backend-dev$", out), out)
-            # run() puts the root in the environment, so only the launcher's own write is seen with it removed: a stamp that is
-            # not written is then a session with no root at all.
-            out_root = out_of("--version", AGENT_FABRIC_ROOT="")
-            check("the launcher stamps a fabric root into the session (an unset one is still written)",
-                  has(r"ORI-ENV:AGENT_FABRIC_ROOT=/", out_root), out_root)
-            check("the fabric root the launcher verified is stamped, so a session started in another checkout does not run its code",
+            # run() puts the root in the environment, so a stamp that is not written is seen only with it removed: the launcher is a
+            # copy inside the fixture fabric, whose own tree is then its root, and the session starts in the repo or in another
+            # agent-fabric checkout, whose session-start hook would name itself the root.
+            shutil.copytree(f"{ROOT}/tools/fabric", f"{fabric}/tools/fabric", dirs_exist_ok=True,
+                            ignore=shutil.ignore_patterns("__pycache__"))
+            os.makedirs(f"{fabric}/runtime/openrouter", exist_ok=True)
+            shutil.copy2(LAUNCHER, f"{fabric}/runtime/openrouter/launch")
+            copy = f"{fabric}/runtime/openrouter/launch"
+            out = out_of("--version", launcher=copy, AGENT_FABRIC_ROOT="")
+            check("AGENT_FABRIC_ROOT unset: the root defaults to the launcher's own tree and is stamped as such",
                   has(rf"ORI-ENV:AGENT_FABRIC_ROOT={re.escape(fabric)}$", out), out)
-            # Control: the start directory is another agent-fabric checkout, whose session-start hook would name itself the root.
             other_fabric = f"{sandbox}/other-fabric"
             rm(other_fabric)
             os.makedirs(f"{other_fabric}/tools/fabric")
             put(f"{other_fabric}/tools/fabric/launch.py", "")
             subprocess.run(["git", "init", "-q", other_fabric], env=base, check=True, timeout=30)
-            out = out_of("--version", cwd=other_fabric)
-            check("…also when the session starts in another agent-fabric checkout: still the verified root, never that checkout",
+            out = out_of("--version", launcher=copy, AGENT_FABRIC_ROOT="", cwd=other_fabric)
+            check("…and started in another agent-fabric checkout it is still the launcher's root, never that checkout",
                   has(rf"ORI-ENV:AGENT_FABRIC_ROOT={re.escape(fabric)}$", out), out)
             rm(other_fabric)
-            # Unset (here empty, as the launcher reads it), the root is the repository the launcher file is in.
-            shutil.copytree(f"{ROOT}/tools/fabric", f"{fabric}/tools/fabric", dirs_exist_ok=True,
-                            ignore=shutil.ignore_patterns("__pycache__"))
-            os.makedirs(f"{fabric}/runtime/openrouter", exist_ok=True)
-            shutil.copy2(LAUNCHER, f"{fabric}/runtime/openrouter/launch")
-            out = out_of("--version", launcher=f"{fabric}/runtime/openrouter/launch", AGENT_FABRIC_ROOT="")
-            check("…and when AGENT_FABRIC_ROOT is unset it defaults to the launcher's own tree and is stamped as such",
-                  has(rf"ORI-ENV:AGENT_FABRIC_ROOT={re.escape(fabric)}$", out), out)
+            out = out_of("--version")
+            check("an inherited AGENT_FABRIC_ROOT is the one stamped", has(rf"ORI-ENV:AGENT_FABRIC_ROOT={re.escape(fabric)}$", out), out)
             mkfabric()
             out = out_of("--version")
             check("the prompt's sha256 stamped, and it is the file's",
