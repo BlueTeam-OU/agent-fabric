@@ -9,6 +9,7 @@ import json
 import os
 import re
 import shutil
+import sqlite3
 import subprocess
 import sys
 import tempfile
@@ -73,6 +74,9 @@ def main() -> int:
         ep.out_pending(conn, msg("hang-1", "posted, outcome never written", sender=ep.own_address()))
         ins([{"content": msg("r-1", "a reply", reply=TOKEN), "seq": 7, "ts": "2026-10-01T15:00:00Z"}])
         ins([{"content": msg(TOKEN, "y" * 2000), "seq": 8, "ts": "2026-10-01T15:30:00Z"}])
+        ins([{"content": msg("v-1", "a claimed FROM"), "seq": None, "ts": "2026-09-30T09:00:00Z", "sender": "h/verified"}])
+        ins([{"content": msg("v-2", "an honest FROM"), "seq": None, "ts": "2026-09-30T09:01:00Z",
+              "sender": "develop-qzapp/peer"}])
         conn.close()
 
         # A hygiene list that cannot be read cannot mask a credential, so
@@ -120,6 +124,21 @@ def main() -> int:
         check("…and a credential-shaped MESSAGE-ID in the cut notice of a long message (re-review of #78)",
               TOKEN not in s and "more characters: --full, or --thread [withheld" in s, s[-300:])
 
+        out = run("--thread", "v-1").stdout
+        check("a verified sender that is not the FROM is said under the message (ADR-064 rule 9)",
+              "verified the sender as h/verified; the FROM above, develop-qzapp/peer, is the sender's claim" in out, out)
+        out = run("--thread", "v-2").stdout + run("--thread", "q-1").stdout
+        check("…and nothing is said where it is the FROM, or where the sender is unverified",
+              "verified the sender" not in out and "q-1" in out and "v-2" in out, out[-300:])
+
+        eps = {e["message_id"]: e for e in json.loads(run("--json", "--limit", "50").stdout)["episodes"]}
+        check("--json says a verified sender and the FROM it differs from (F1 of #425)",
+              eps["v-1"]["sender"] == "h/verified" and eps["v-1"]["sender_verified"] is True
+              and eps["v-1"]["claimed_from"] == "develop-qzapp/peer", eps["v-1"])
+        check("…a verified sender equal to its FROM is verified with no claimed_from, an unverified one is a claim",
+              eps["v-2"]["sender_verified"] is True and "claimed_from" not in eps["v-2"]
+              and eps["q-1"]["sender_verified"] is False and "claimed_from" not in eps["q-1"], (eps["v-2"], eps["q-1"]))
+
         other = os.path.join(tmp, "other-store")
         os.makedirs(other)
         with open(os.path.join(other, ".agent-id"), "w") as f:
@@ -129,6 +148,30 @@ def main() -> int:
         r = subprocess.run(["bash", SHIM, "--limit", "1"], env=env, capture_output=True, text=True, timeout=60)
         check("the shim runs it", r.returncode == 0 and "1 episode(s)" in r.stdout, r.stderr)
         check("usage: --limit 0 refused", run("--limit", "0").returncode == 2)
+
+        # A journal schema 3 never touched: fabric-history reads it as it is, migrating nothing (F3 of #425).
+        old_state = os.path.join(tmp, "old-state")
+        old_db = ep.db_path().replace(env["AGENT_FABRIC_STATE_DIR"], old_state, 1)
+        os.makedirs(os.path.dirname(old_db))
+        src = sqlite3.connect(ep.db_path())
+        src.execute("PRAGMA wal_checkpoint(FULL)")
+        dst = sqlite3.connect(old_db)
+        src.backup(dst)
+        src.close()
+        dst.execute("ALTER TABLE episodes DROP COLUMN sender_verified")
+        dst.execute("UPDATE meta SET schema_version=2")
+        dst.commit()
+        dst.close()
+        oenv = {**env, "AGENT_FABRIC_STATE_DIR": old_state}
+        rt, rj = run("--thread", "v-1", e=oenv), run("--json", "--thread", "v-1", e=oenv)
+        old = json.loads(rj.stdout)["episodes"] if rj.returncode == 0 else []
+        check("a schema 2 journal is read in both forms: every sender a claim, nothing said of a verified one",
+              rt.returncode == 0 and "v-1" in rt.stdout and "verified the sender" not in rt.stdout
+              and [(e["sender_verified"], "claimed_from" in e) for e in old] == [(False, False)], (rt.stderr, rj.stderr, old))
+        c = sqlite3.connect(old_db)
+        check("…and left at schema 2, no column added", c.execute("SELECT schema_version FROM meta").fetchone() == (2,)
+              and "sender_verified" not in [r[1] for r in c.execute("PRAGMA table_info(episodes)")])
+        c.close()
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
     print(f"\n{'all passed' if not fails else str(fails) + ' FAILED'}")

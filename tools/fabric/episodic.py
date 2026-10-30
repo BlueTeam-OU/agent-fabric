@@ -8,7 +8,9 @@ the moment they cross the carrier, in its own runtime state.
                                             attempt's outcome was never written
     episodic.py gzcoord-out-final MESSAGE-ID --state accepted|failed [--seq N] [--carrier C]
     episodic.py gzcoord-in [--carrier C] [--project P] [--working-copy W]
-                                            JSON lines on stdin: {"content", "seq", "ts"}
+                                            JSON lines on stdin: {"content", "seq", "ts"}; any
+                                            other key, a "sender" included, is dropped: only a
+                                            carrier in process verifies a sender
     episodic.py gzcoord-import [--if-needed] [PROJECT...]
                                             the backfill from the carrier (episodic_import.py)
     episodic.py where                       the journal's path
@@ -179,10 +181,19 @@ def _migrate_2(conn: sqlite3.Connection) -> None:
 
 # The steps from version n-1 to n, by n, applied in order by connect() in its
 # one transaction: a step that fails leaves the file at the version it had.
-# Every step so far is additive, so v1 code still reads a v2 journal (it never
-# reads the version): a later step that drops or renames breaks that
-# downgrade, and says so.
-MIGRATIONS = {2: _migrate_2}
+# Every step so far is additive, so v1 code still reads a later journal (it
+# never reads the version); code from 2 on refuses a journal newer than it,
+# so a fabric rolled back past step 3 refuses a journal step 3 migrated,
+# naming both versions. A later step that drops or renames says so.
+def _migrate_3(conn: sqlite3.Connection) -> None:
+    """episodes.sender_verified: 1 when a carrier verified the row's sender
+    (ADR-064 rule 9), NULL when the sender is the content's FROM, a claim.
+    Without it a verified sender equal to its FROM cannot be told from the
+    claim, and a later verified copy would overwrite it (#417 round 9 F15)."""
+    conn.execute("ALTER TABLE episodes ADD COLUMN sender_verified INTEGER")
+
+
+MIGRATIONS = {2: _migrate_2, 3: _migrate_3}
 SCHEMA_VERSION = max(MIGRATIONS)
 
 
@@ -371,7 +382,15 @@ def out_final(conn: sqlite3.Connection, message_id: str, state: str, seq: int | 
 def inbound(conn: sqlite3.Connection, records: list[dict], carrier: str = DEFAULT_CARRIER,
             project: str | None = None, working_copy: str | None = None) -> dict:
     """Addressed records, one transaction: all journaled or none (so the
-    caller acknowledges none). Counts by outcome."""
+    caller acknowledges none). Counts by outcome.
+
+    A record's optional `sender` is the address its carrier VERIFIED (the
+    roster's, ADR-064 rule 9); without one, as from the relay, the row's sender
+    is the content's FROM, the sender's claim. A verified sender is the row's
+    whichever copy came first, and the first verified one is kept: the row's
+    sender_verified says which it is, so a verified row whose sender differs
+    from its metadata's FROM is a marked claim; the claim itself stays in
+    content and metadata."""
     me = own_address()
     counts = {"written": 0, "same": 0, "echo": 0, "conflict": 0, "claims_me": 0}
     conn.execute("BEGIN IMMEDIATE")
@@ -388,12 +407,16 @@ def inbound(conn: sqlite3.Connection, records: list[dict], carrier: str = DEFAUL
             # not validate) is keyed by its body: one unkeyable record must
             # not hold every other one in the page (review of #78).
             mid = meta.get("MESSAGE-ID") or f"sha256:{h}"
+            verified = rec.get("sender")
+            sender = verified or meta.get("FROM")
             if meta.get("FROM") == me:
                 # Its own message coming back only when this journal holds that
                 # very message: a FROM in the content is the sender's claim, and
                 # a forged one must not pass for an echo, shown but not kept.
                 own = _row(conn, "outbound", mid)
-                if own and own[1] == h:
+                # A verified copy is an echo only from this agent: another peer
+                # replaying this journal's body must not settle its pending send.
+                if own and own[1] == h and verified in (None, me):
                     # The carrier holds this very body, so a send of this
                     # journal's own that was pending or failed reached it: a
                     # row that took the seq and kept that state said both at
@@ -409,6 +432,12 @@ def inbound(conn: sqlite3.Connection, records: list[dict], carrier: str = DEFAUL
                 counts["claims_me"] += 1
             row = _row(conn, "inbound", mid)
             if row and row[1] == h:
+                if verified:
+                    # The relay's copy came first, under the claim: the verified copy corrects it.
+                    # A row already verified keeps its sender: a second peer's copy of the same
+                    # body proves only that it holds the body, not who first sent it (F15).
+                    conn.execute("UPDATE episodes SET sender=?, sender_verified=1 WHERE id=? "
+                                 "AND sender_verified IS NULL", (verified, row[0]))
                 counts["same"] += 1
                 continue
             if row:
@@ -417,11 +446,11 @@ def inbound(conn: sqlite3.Connection, records: list[dict], carrier: str = DEFAUL
                 counts["conflict"] += 1
                 continue
             conn.execute("INSERT INTO episodes (id, source, direction, state, happened_at, recorded_at, project, "
-                         "working_copy, message_id, in_reply_to, type, sender, carrier, carrier_seq, content, "
-                         "content_hash, metadata_json) VALUES (?, ?, 'inbound', 'received', ?, ?, ?, ?, ?, ?, ?, ?, "
-                         "?, ?, ?, ?, ?)",
+                         "working_copy, message_id, in_reply_to, type, sender, sender_verified, carrier, carrier_seq, "
+                         "content, content_hash, metadata_json) VALUES (?, ?, 'inbound', 'received', ?, ?, ?, ?, ?, ?, "
+                         "?, ?, ?, ?, ?, ?, ?, ?)",
                          (str(uuid.uuid4()), SOURCE, _seconds(rec.get("ts")), now(), project, working_copy, mid,
-                          meta.get("IN-REPLY-TO"), mtype, meta.get("FROM"), carrier, seq, text, h,
+                          meta.get("IN-REPLY-TO"), mtype, sender, 1 if verified else None, carrier, seq, text, h,
                           json.dumps(meta, sort_keys=True)))
             counts["written"] += 1
         conn.execute("COMMIT")
@@ -472,6 +501,10 @@ def main(argv: list[str]) -> int:
             records = [json.loads(line) for line in sys.stdin if line.strip()]
             if not all(isinstance(r, dict) and isinstance(r.get("content"), str) for r in records):
                 raise JournalError("gzcoord-in takes one JSON object with a content string per line")
+            # A line on stdin is whatever its writer forwarded, a relay record whole included,
+            # whose sender is a claim: only a carrier calling inbound() in process passes one
+            # it verified (ADR-064 rule 9), so the CLI keeps nothing but the three fields.
+            records = [{k: r[k] for k in ("content", "seq", "ts") if k in r} for r in records]
             counts = inbound(connect(), records, carrier, project, wc)
             if counts["conflict"]:
                 print(f"episodic: {counts['conflict']} message(s) reuse an id this journal holds with another body; "

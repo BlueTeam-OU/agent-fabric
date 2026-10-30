@@ -116,6 +116,13 @@ that killed the host without privilege and without anything going stale.
    holds it in its own process (the same flock), waiting for it, for a
    run of every section, and a partial run,
    CI and `AGENT_FABRIC_SUITE_LEASE=0` skip it (A 2026-10-19).
+   `cpu` is the host's cores, held in N slots (`cpu.1` … `cpu.N`, N per
+   host in `policies/host-load.json`, default `max(1, nproc // 4)`), each
+   with a thread budget of `nproc // N` handed to its child: shims in
+   `/usr/local/bin` take it for cargo's and dotnet's building and testing
+   subcommands, `tests/run.py` for any local run after `full-suite`,
+   waiting up to 1500 s; `heavy` before `cpu`, a slot's child never waits
+   on another, CI and `AGENT_FABRIC_CPU_LEASE=0` skip it (A 2026-10-28).
 10. `fabric-lease` fails fast by default (exit 75); every refusal ends with
     `fabric-lease: reason=<r>` on stderr, a contract pinned by
     `tests/test_fabric_lease_cli.py`. It needs no privilege; the directory is
@@ -132,7 +139,13 @@ that killed the host without privilege and without anything going stale.
 
 - A killed holder releases its lease; a harness ending a timed-out call
   with KILL to the wrapper alone would free the lease under a running
-  suite — not observed, the shape to settle if it is.
+  suite — not observed, the shape to settle if it is. A `cpu` slot a
+  shim takes is the exception: the tool is exec'd with it and its
+  children inherit it, so the slot is freed only by the last of them,
+  and `--who` calls a slot whose holder is gone an orphan (§5 rule 9,
+  the `cpu` amendment's item 6). `tests/run.py` holds its slot in its
+  own process, close-on-exec, as it holds `full-suite`, and shares
+  that open shape.
 - The lease serialises two accounts and does nothing about one; the quota
   layer is what would.
 - Every account on a host must have pulled a new worker before it reaches
@@ -177,3 +190,4 @@ The body above reads current; each change's full note is in [history/ADR-010-ame
 |---|---|---|
 | 2026-09-30 | Doppler is retired: the coordinator keeps its own store, a parent's | §2, §5 rule 1 |
 | 2026-10-19 | full-suite: one full local test run per host | §5 rule 9: a second named resource, the host's CPU and timing headroom, which a full local test run waits for |
+| 2026-10-28 | cpu: N heavy builds and suites at a time per host | §5 rules 9-11: N slots with a thread budget each, taken by shims ahead of cargo and dotnet and by tests/run.py |
