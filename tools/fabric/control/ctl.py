@@ -21,11 +21,11 @@ bin/fabric-ctl runs this on the pinned Python).
     fabric-ctl <holder> pool-add --role R [--topic T] [--project P] [--priority P] [--] "<title>"
     fabric-ctl <login|all> states [--follow] [--json]
     fabric-ctl <coordinator> switch
-    fabric-ctl <login|all> control-start | control-stop [--include-self] [--json]
+    fabric-ctl <login|all> control-start | control-stop | harness-start | harness-stop [--include-self] [--json]
     fabric-ctl keygen [--force]
     fabric-ctl <login> <action-op> ... --via hostexec      an action to one account with no relay (control/breakglass.py)
 
-The two control-start / control-stop ops are the exception: they send no request
+The control-start / control-stop / harness-start / harness-stop ops are the exception: they send no request
 and read no replies (the agent that would answer is what they start or stop), and
 their --timeout bounds each host call. Everything below is about the others.
 
@@ -286,6 +286,13 @@ VERBS: tuple[Verb, ...] = (
     Verb("control-stop", "Stop each account's control agent, the unit staying enabled. This session's own account's only with --include-self. Sends no request.",
          "fabric-ctl db-admin control-stop", usage=(("<login|all> control-stop [--json] [--include-self]", "stops it, the unit staying enabled; this session's own account's agent only with --include-self"),),
          args="[--json] [--include-self]", options=COMMON + (("--include-self", "also stop the agent of the account this session runs under"),)),
+    Verb("harness-start", "Start each account's harness unit (its FleetDeck server and the session pane in it), read back by is-active. Sends no request.",
+         "fabric-ctl all harness-start",
+         usage=(("<login|all> harness-start [--json]", "starts each account's stopped harness unit through the host executor, read back by is-active; sends no request; --timeout bounds each host call, default 60"),),
+         args="[--json]", options=COMMON),
+    Verb("harness-stop", "Stop each account's harness unit: the session ends as `fabric-ctl restart` ends it (SIGTERM), the unit staying enabled. This session's own account's only with --include-self. Sends no request.",
+         "fabric-ctl db-admin harness-stop", usage=(("<login|all> harness-stop [--json] [--include-self]", "stops it, the unit staying enabled; this session's own account's only with --include-self"),),
+         args="[--json] [--include-self]", options=COMMON + (("--include-self", "also stop the harness of the account this session runs under"),)),
     Verb("keygen", "Make the operator signing key an action needs. Takes no login.", "fabric-ctl keygen", usage=(("keygen [--force]", None),),
          target="", args="[--force]", options=(("--force", "replace an existing key"),)),
 )
@@ -2147,8 +2154,8 @@ def main(argv: list[str] | None = None, *, registry: str | None = None, call: Ca
         # No request, no relay, no token: the agent that would answer is the thing being started or stopped.
         who = gz_whoami() if who is None else who
         include_self = args.get("include_self", False)
-        if args["op"] == units.STOP and not everyone and not include_self and any(e["login"] == who.get("agent") for e in expected):
-            err("fabric-ctl: control-stop would stop this session's own account's agent; --include-self says it is meant; nothing run")
+        if not units.is_start(args["op"]) and not everyone and not include_self and any(e["login"] == who.get("agent") for e in expected):
+            err(f"fabric-ctl: {args['op']} would stop this session's own account's {'agent' if args['op'] == units.STOP else 'session'}; --include-self says it is meant; nothing run")
             return 2
         # The registry the placements came from is the one hostexec reads, however the operator tree is split from the engine.
         reg_path = registry if registry is not None else roots.hosts_registry(engine=FABRIC_ROOT, empty_is_set=True)

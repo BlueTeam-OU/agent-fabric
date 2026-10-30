@@ -29,7 +29,8 @@ class FakeSystemd:
     """One unit state per login. `start` makes it active unless the login is
     in `wont_start`; `stop` makes it inactive unless in `wont_stop`."""
 
-    def __init__(self, states, wont_start=(), wont_stop=(), broken=(), hang=(), refuse=()):
+    def __init__(self, states, wont_start=(), wont_stop=(), broken=(), hang=(), refuse=(), unit=units.UNIT):
+        self.unit = unit
         self.states, self.wont_start, self.wont_stop = dict(states), set(wont_start), set(wont_stop)
         self.broken, self.hang, self.refuse = set(broken), set(hang), set(refuse)
         self.calls = []
@@ -43,7 +44,7 @@ class FakeSystemd:
         login, verb = argv[3], argv[-2]
         uid = 1000 + sorted(self.states).index(login)
         assert argv[5:7] == [f"XDG_RUNTIME_DIR=/run/user/{uid}", f"DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/{uid}/bus"], argv
-        assert argv[7:9] == ["systemctl", "--user"] and argv[-1] == units.UNIT, argv
+        assert argv[7:9] == ["systemctl", "--user"] and argv[-1] == self.unit, argv
         if login in self.hang:
             raise subprocess.TimeoutExpired(argv, timeout)
         if login in self.broken:
@@ -187,7 +188,7 @@ class Units(unittest.TestCase):
 
     def test_refusals_run_nothing(self):
         fake = FakeSystemd({"a": "inactive"})
-        for argv, want in ((["a", "control-start", "--include-self"], "control-stop only"), (["nobody", "control-stop"], "not a placed account")):
+        for argv, want in ((["a", "control-start", "--include-self"], "control-stop and harness-stop only"), (["nobody", "control-stop"], "not a placed account")):
             fake.calls.clear()
             rc, out, err = self.ctl(argv, fake)
             self.assertEqual((rc, out, fake.calls), (2, [], []), argv)
@@ -247,6 +248,58 @@ class RealExecutor(unittest.TestCase):
         row = units.one(units.START, {"login": "a", "host": "nowhere"}, units.hostexec_run(reg), 20)
         self.assertEqual(row["state"], "failed")
         self.assertIn("unknown host", row["detail"])
+
+
+class HarnessUnit(Units):
+    """The same rows, exit codes and --include-self rule for the harness unit: every scenario above is run
+    again with the ops renamed, the fake asserting that systemctl is asked about agent-fabric-harness.service
+    and never the control agent's."""
+
+    def ctl(self, argv, fake, *a, **kw):
+        fake.unit = units.HARNESS_UNIT
+        argv = [w.replace("control-", "harness-") for w in argv]
+        return super().ctl(argv, fake, *a, **kw)
+
+
+for _name in ("test_the_executor_reads_the_registry_the_placements_came_from", "test_a_dead_bus_a_missing_account_and_a_hang_are_each_a_failed_row_with_their_own_words",
+              "test_all_is_every_agent_and_never_a_human_and_a_human_name_is_refused", "test_start_waits_after_start_and_before_the_read_back_and_a_daemon_that_dies_in_it_is_failed",
+              "test_the_login_is_checked_before_it_reaches_a_command_line", "test_help_lists_both_ops_for_fleet_deck"):
+    setattr(HarnessUnit, _name, None)   # these call ctl.main / units.one directly with the control op: covered above
+
+
+class HarnessOps(unittest.TestCase):
+    def test_the_ops_name_the_unit_and_the_verb(self):
+        self.assertEqual(units.OPS["harness-start"], (units.HARNESS_UNIT, "start"))
+        self.assertEqual(units.OPS["harness-stop"], (units.HARNESS_UNIT, "stop"))
+        self.assertEqual(units.HARNESS_UNIT, "agent-fabric-harness.service")
+        self.assertEqual(units.OPS["control-stop"], (units.UNIT, "stop"))
+
+    def test_harness_stop_asks_the_harness_unit_only_and_start_hints_at_the_binary_condition(self):
+        fake = FakeSystemd({"a": "active"}, unit=units.HARNESS_UNIT)
+        row = units.one("harness-stop", {"login": "a", "host": "h"}, fake, 5)
+        self.assertEqual((row["state"], {c[1][-1] for c in fake.calls if c[1][0] == "sudo"}), ("stopped", {units.HARNESS_UNIT}))
+        fake = FakeSystemd({"a": "inactive"}, wont_start=["a"], unit=units.HARNESS_UNIT)   # ConditionPathExists: start exits 0, stays inactive
+        row = units.one("harness-start", {"login": "a", "host": "h"}, fake, 5, sleep=lambda s: None)
+        self.assertEqual(row["state"], "failed")
+        self.assertIn("agent-fabric-fleetdeck", row["detail"])
+
+    def test_the_control_start_failure_carries_no_binary_hint(self):
+        fake = FakeSystemd({"a": "inactive"}, wont_start=["a"])
+        row = units.one("control-start", {"login": "a", "host": "h"}, fake, 5, sleep=lambda s: None)
+        self.assertNotIn("fleetdeck", row["detail"])
+
+    def test_include_self_goes_with_both_stops_and_neither_start(self):
+        for op, bad in (("control-stop", ""), ("harness-stop", ""), ("control-start", "x"), ("harness-start", "x")):
+            self.assertEqual(bool(units.check_args({"op": op, "include_self": True})), bool(bad), op)
+
+    def test_harness_stop_refuses_naming_this_sessions_account_and_says_session(self):
+        fake = FakeSystemd({"coordinator": "active"}, unit=units.HARNESS_UNIT)
+        err = io.StringIO()
+        reg = registry(self, {"coordinator": "h"})
+        with redirect_stderr(err):
+            rc = ctl.main(["coordinator", "harness-stop"], registry=reg, out=lambda m: None, who=ME, units_run=fake, sleep=lambda s: None)
+        self.assertEqual((rc, fake.calls), (2, []))
+        self.assertIn("harness-stop would stop this session's own account's session", err.getvalue())
 
 
 if __name__ == "__main__":
