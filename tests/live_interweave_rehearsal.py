@@ -191,7 +191,7 @@ def main() -> int:
                 meta[k] = v
             return first[12:], meta
 
-        def bjournal(text, ts):
+        def bjournal(text, ts, sender):
             _, meta = parse(text)
             jrows.append((meta["MESSAGE-ID"], text))
             return "written"
