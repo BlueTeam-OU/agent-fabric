@@ -268,15 +268,18 @@ one way a signed action reaches an account with no relay. The operator
 sends it with `fabric-ctl <login> <action-op> … --via hostexec`; the
 account decides it with agentd's own `accept()` against the same action
 ledger, so a request is run once whichever path carries it, and runs it
-through agentd's own `answer()`. It refuses reads, a request for `*` or
-another account, and an argv op the signature does not cover, and
+through agentd's own `answer()`. Beyond `accept()` it refuses reads, a
+`to` holding `*`, and an argv op the signature does not cover, and
 journals each run on both ends before it starts. §6 says it is the only
 action when the relay is down; §7's second host names it as the SSH
-fallback. Rule 19 also records what #418 does not do: rule 12's
-`busy` for a second `upgrade` or `secrets-sync` is decided inside the
-control agent's process, so a `fabric-op` action is not excluded against
-one the control agent is running, and break-glass stays for an account
-whose relay is not there.
+fallback. Rule 19 also records what #418 does not do: the `busy` of
+rules 12 and 17 (`upgrade`, `secrets-sync`, `secrets-selftest`) and
+`restart`'s exclusions are decided inside the control agent's process,
+and `pool.json` is rewritten with no lock, so a `fabric-op` action is
+not excluded against one the control agent is running, and break-glass
+stays for an account whose relay is not there. The blind review of
+#422 found the first version of the rule naming only `upgrade` and
+`secrets-sync`.
 
 Why: the owner chose this path on 2026-10-27 (j422, Q6 "option a for
 now"): an account with no relay — a second host before its carrier is

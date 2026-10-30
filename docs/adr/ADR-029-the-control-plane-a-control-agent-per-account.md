@@ -336,28 +336,34 @@ with Doppler (ADR-038 §5 rule 8).
     signed as for the relay and handed to `hostexec <host> --as <login>
     -- @fabric/bin/fabric-op <op>` on stdin, never in argv; the relay
     and its token are not touched. On the account:
-    - the decision is agentd's own `accept()` (rule 4's operators, keys,
-      ttl and clock skew) and the op is agentd's own `answer()`, never a
+    - the decision is agentd's own `accept()` (rules 4–5: the operators,
+      their keys, the ttl and the clock skew) and the op is agentd's own `answer()`, never a
       copy; the replay floor is the same `actions-seen.json` as the
       control agent's (ADR-003 §2), claimed by one check-and-record under
       its lock, so a request accepted on either path is a replay on the
       other;
-    - beyond rule 4 it refuses, with exit 2 and nothing run, a read op (a
-      read without the relay is a plain `fabric-host` run), a `to` of
-      `*` or of another account, and an argv op that is not the signed
-      request's op; `fabric-ctl` refuses the first two before sending;
+    - beyond rules 4–5 it refuses, with exit 2 and nothing run, a read
+      op (a read without the relay is a plain `fabric-host` run), a `to`
+      holding `*`, and an argv op that is not the signed request's op; a
+      `to` not naming this account is `accept()`'s refusal, and a `to`
+      listing this account beside others is run here. `fabric-ctl`
+      sends a read or more than one account nothing;
     - it journals to `fabric-op.jsonl` in the account's state directory,
       on both ends: a line before the run and one after, and a first line
       that cannot be written refuses the run, so no action runs that the
       journal does not show (ADR-041 rule 10);
     - its reply is the record the relay would have carried, one JSON
       line, and `fabric-ctl` prints it as that account's row;
-    - rule 12's one-of-a-kind exclusion for `upgrade` and `secrets-sync`
-      is held inside the control agent's process: an action through
-      `fabric-op` is not answered `busy` against one the control agent is
-      running at that moment. Until that lock spans processes, break-glass
-      is for an account whose relay is not there, not a second path
-      beside a live one.
+    - the `busy` of rules 12 and 17 for `upgrade`, `secrets-sync` and
+      `secrets-selftest`, and `restart`'s own exclusion and its refusals
+      beside an upgrade or a `secrets-sync`, are held inside the control
+      agent's process: an action through `fabric-op` is not refused
+      against one the control agent is running at that moment, and
+      `pool-add` can lose an update beside a `pool-claim` (ADR-003 §5
+      rule 2). The locks of `gateway-install` and of the three InterWeave
+      ops are file locks and do hold across both. Until every exclusion
+      spans processes, break-glass is for an account whose relay is not
+      there, not a second path beside a live one.
     It is verified on the host executor's local backend; the SSH backend
     and `--as` another login are not yet exercised.
 

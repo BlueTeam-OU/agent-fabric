@@ -61,8 +61,13 @@ an exclusive `flock` on the state directory (`ActionLedger._locked`),
 and records a request by an atomic check-and-record under it
 (`ActionLedger.claim`), so one writer never writes back a floor read
 before the other raised it, and a request reaching both paths is run
-once. `fabric-op` also appends a journal, `fabric-op.jsonl`. §2 and
-rules 1 and 2 now say this; the Scope line names the control code's
-state writers.
+once; `accept()`'s earlier read of the floor is unlocked, and the
+claim checks it again. `fabric-op` also appends a journal,
+`fabric-op.jsonl`, beside the older append-only `account-switch.jsonl`.
+The one control file the second writer leaves unserialized is the role
+pool, `pool.json`, rewritten with no lock: `pool-add` through `fabric-op`
+beside a `pool-claim` the control agent answers can lose an update, and
+rule 2 names it as a gap to close. §2 and rules 1 and 2 now say this;
+the Scope line names the control code's state writers.
 
 Reported by python-dev-04, the author of #418 (REQUEST 01a18b3f).

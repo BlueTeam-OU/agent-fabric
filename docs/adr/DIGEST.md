@@ -139,7 +139,8 @@ its record disagree, the record wins. Look it up, never read it whole:
 - Every write under `agents/<login>/` goes through `runtime/identity.py`:
   `atomic_write`, `update_binding`, `append_history`; no caller opens a
   state file for writing. The control code (`tools/fabric/control/`)
-  writes its own files by temporary and rename (§5 rule 1).
+  replaces its own files by temporary and rename and appends its logs
+  (§5 rule 1).
 - Every read-modify-write holds `agent_lock`, a re-entrant flock, except
   the control code's own files, which only it writes and the
   launcher only consumes (§5 rule 2).
@@ -155,8 +156,8 @@ its record disagree, the record wins. Look it up, never read it whole:
 - A 2026-10-05 — the GZCoord logs (`journal-bypass.jsonl`, the send ledger)
   are a writer class; the ledger's unlocked trim is a named gap (§5 rule 1).
 - A 2026-10-30 — `actions-seen.json` has two writers, agentd and
-  `fabric-op`, serialized by a flock on the state directory, never
-  `agent_lock` (§2, §5 rules 1–2).
+  `fabric-op`, whose claims hold a flock on the state directory, never
+  `agent_lock`; `pool.json`'s unlocked rewrite is a gap (§2, §5 rules 1–2).
 - Keywords: state, binding, atomic write, lock, flock, rename, history,
   host, XDG_STATE_HOME, actions-seen.json, action ledger, fabric-op.jsonl.
 
