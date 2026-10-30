@@ -138,10 +138,11 @@ its record disagree, the record wins. Look it up, never read it whole:
 
 - Every write under `agents/<login>/` goes through `runtime/identity.py`:
   `atomic_write`, `update_binding`, `append_history`; no caller opens a
-  state file for writing. The Node control agent, which cannot import it,
-  writes by temporary and rename (§5 rule 1).
+  state file for writing. The control code (`tools/fabric/control/`)
+  replaces its own files by temporary and rename and appends its logs
+  (§5 rule 1).
 - Every read-modify-write holds `agent_lock`, a re-entrant flock, except
-  the Node control agent's own files, which only it writes and the
+  the control code's own files, which only it writes and the
   launcher only consumes (§5 rule 2).
 - A binding is per (agent, host); another host's is refused (§5 rule 3).
 - A working-copy rename merges history, never overwrites (§5 rule 4); the
@@ -154,8 +155,11 @@ its record disagree, the record wins. Look it up, never read it whole:
   transactional store written only by `episodic.py` (§5 rule 1).
 - A 2026-10-05 — the GZCoord logs (`journal-bypass.jsonl`, the send ledger)
   are a writer class; the ledger's unlocked trim is a named gap (§5 rule 1).
+- A 2026-10-30 — `actions-seen.json` has two writers, agentd and
+  `fabric-op`, whose claims hold a flock on the state directory, never
+  `agent_lock`; `pool.json`'s unlocked rewrite is a gap (§2, §5 rules 1–2).
 - Keywords: state, binding, atomic write, lock, flock, rename, history,
-  host, XDG_STATE_HOME.
+  host, XDG_STATE_HOME, actions-seen.json, action ledger, fabric-op.jsonl.
 
 ### ADR-004 — Adding a role without breaking anyone's CI (Accepted)
 
@@ -658,19 +662,19 @@ its record disagree, the record wins. Look it up, never read it whole:
 - Closed op set, no field reaches a shell; actions carry a fresh,
   newer Ed25519 operator signature (r3–5).
 - Replies carry no secret; silence or failure exits 1 (r6–9).
-- A 2026-09-27 — actions (rule 12).
-- A 2026-09-27 — answer budgets (rule 12).
-- A 2026-09-28 — jobs (rule 13).
-- A 2026-09-29 — secrets-migrate (rule 14).
-- A 2026-09-30 — rule 14 withdrawn.
-- A 2026-10-06 — local, local-prune (rule 15).
-- A 2026-10-07 — session state (rule 16).
-- A 2026-10-07 — secrets-selftest (rule 17).
-- A 2026-10-08 — resumable state (rule 16).
-- A 2026-10-08 — public ops (rule 4).
-- A 2026-10-09 — forged claims (rule 4).
+- A 2026-09-27 — actions (r12).
+- A 2026-09-27 — answer budgets (r12).
+- A 2026-09-28 — jobs (r13).
+- A 2026-09-29 — secrets-migrate (r14).
+- A 2026-09-30 — r14 withdrawn.
+- A 2026-10-06 — local, local-prune (r15).
+- A 2026-10-07 — session state (r16).
+- A 2026-10-07 — secrets-selftest (r17).
+- A 2026-10-08 — resumable state (r16).
+- A 2026-10-08 — public ops (r4).
+- A 2026-10-09 — forged claims (r4).
 - A 2026-10-09 — Scope.
-- A 2026-10-09 — `tools-install` (rules 3, 12).
+- A 2026-10-09 — `tools-install` (r3, r12).
 - A 2026-10-09 — closed jobs (§2).
 - A 2026-10-10 — gateway ops (§2).
 - A 2026-10-12 — switch controller.
@@ -682,10 +686,11 @@ its record disagree, the record wins. Look it up, never read it whole:
 - A 2026-10-26 — ports.
 - A 2026-10-26 — evidence.
 - A 2026-10-26 — re-render.
-- A 2026-10-28 — InterWeave carrier (rule 18).
-- Keywords: agentd, fabric-ctl, keys, operator_key, usage,
-  tokens, herdr, resume, gateway, switch, evidence, interweave-evidence,
-  interweave-human, fabric-control, control_carrier.
+- A 2026-10-28 — InterWeave carrier (r18).
+- A 2026-10-30 — `fabric-op` (r19).
+- Keywords: fabric-ctl, keys, operator_key, usage, tokens, herdr,
+  resume, interweave-evidence, interweave-human, fabric-control,
+  control_carrier, break-glass.
 ### ADR-030 — Presence replaces HELLO and GOODBYE (Accepted)
 
 - Whether a session runs is the control agent's answer from its process

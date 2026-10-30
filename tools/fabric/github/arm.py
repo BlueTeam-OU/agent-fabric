@@ -165,6 +165,7 @@ import re
 import shutil
 import subprocess
 import sys
+import urllib.parse
 
 HERE = os.path.dirname(os.path.realpath(__file__))
 sys.path.insert(0, os.path.dirname(HERE))
@@ -175,7 +176,7 @@ from github import arm_policy, common, landed, pr_gate, repo_policy  # noqa: E40
 # The rules' names stay importable from here, where the oracle and callers
 # reach them as arm.<name>.
 from github.arm_rules import (  # noqa: E402, F401
-    Refused, Unanswered, config_path, has_owner_word, head_lines, load_config, stated_class, unmet_supply)
+    Refused, Unanswered, config_path, has_no_ci_word, has_owner_word, head_lines, load_config, stated_class, unmet_supply)
 
 FABRIC = os.path.dirname(os.path.dirname(os.path.dirname(HERE)))
 
@@ -256,6 +257,18 @@ What it refuses, in order, and why:
      UNDER THE MINIMUM above); at 8 or more it needs none, boundary or not. A waived boundary is judged as no boundary.
      (8 and 16 are the default numbers; the policy's, read as THE ARMING POLICY above, are the ones applied.)
 
+  6. the checks, on a repository with no required check (and on a direct one): every check on the head
+     must be green. A direct repository whose policy names no required check merges with no check on
+     the head. A PR-mode repository (auto, queue) with no required check and no CI at all reads
+     "none-yet" and is refused; the owner's word for that is its own phrase, "owner's no-CI word"
+     in the --basis (the owner's word of the count rule does not stand in for it, nor it for that),
+     and it lifts the gate only when GitHub answers 404 for .github/workflows on the PR's base
+     branch and the PR changes no file under .github/workflows/ (a rename's old name included): CI
+     that exists, or that the PR adds, is waited for. A red, pending or unreadable check is refused
+     with or without it; any other answer for the workflows directory is exit 2. The comment then says
+     "No CI: <base> has no workflow...". Where it is not needed (a direct repository, a required check,
+     green checks) it is said so and not read: no No CI sentence is added, the basis is posted as given.
+
 Then: posts the arming basis as a comment ("Arming basis: <text> —
 <W> work commits, head <sha>"; a security boundary armed at 8 or more
 without the owner's word adds a sentence saying so), runs `gh pr merge <n> --merge --auto
@@ -287,6 +300,32 @@ Exit codes:
 Environment: AGENT_FABRIC_PR_GATE, AGENT_FABRIC_PR_REVIEW_STATUS,
 AGENT_FABRIC_PR_SESSION, AGENT_FABRIC_ARM_CONFIG,
 AGENT_FABRIC_GZCOORD_INBOX, AGENT_FABRIC_CTL, AGENT_FABRIC_WHOAMI."""
+
+
+WORKFLOWS = ".github/workflows"
+
+
+def why_not_no_ci(repo: str, base: str, files: list[str]) -> str | None:
+    """Why the no-CI word does not apply (the base has a workflow, or the PR adds one), None when it holds. Only
+    GitHub's 404 for the directory says "no CI": any other error or shape is Unanswered. An empty answer (gh.api
+    reads it as None) is no answer, so a flag, not None, carries the 404."""
+    if not base:
+        raise Unanswered("cannot tell which branch the PR targets, so whether it has CI")
+    try:
+        listing, absent = gh.api(f"repos/{repo}/contents/{WORKFLOWS}?ref={urllib.parse.quote(base, safe='')}"), False
+    except gh.GhError as e:
+        if e.status != 404:
+            raise Unanswered(f"cannot read {WORKFLOWS} on {base}: {e.reason}") from None
+        listing, absent = None, True
+    if not absent:
+        if isinstance(listing, list) and listing:
+            return (f"{base} has workflows: none-yet is a check not reported yet, and the owner's no-CI word"
+                    " does not stand in for CI that exists")
+        raise Unanswered(f"cannot read {WORKFLOWS} on {base}: the answer is not a list of files")
+    added = [f for f in files if f.startswith(f"{WORKFLOWS}/")]
+    if added:
+        return f"this PR adds CI: wait for its checks ({head_lines(added)})"
+    return None
 
 
 def say(msg: str) -> None:
@@ -1015,6 +1054,7 @@ def arm(argv: list[str]) -> int:
     # A repository with no required check has nothing server-side that makes the merge wait for green: arm waits
     # for it here, on the head the gates read. A direct repository has no ruleset, so a required_checks list in its
     # policy (its own or the fleet's) holds nothing on GitHub either: it is waited for here too.
+    no_ci_word, no_ci_used = has_no_ci_word(basis), False
     if policy["mode"] == "direct" or not policy["required_checks"]:
         checks = str(row.get("checks"))
         held = "is direct" if policy["mode"] == "direct" else "has no required check"
@@ -1023,14 +1063,29 @@ def arm(argv: list[str]) -> int:
         # required check says CI exists, so its "none-yet" is a check not reported yet, never no CI.
         if policy["mode"] == "direct" and not policy["required_checks"] and checks == "none-yet":
             say("direct repository with no check on the head: it merges on the review of its head alone")
+        elif checks == "none-yet" and policy["mode"] != "direct" and no_ci_word:
+            # PR mode has no exception of its own (the coordinator's ruling: the no-CI exception is direct's alone):
+            # the owner's word, per PR, stands in for a check that never comes, and for nothing that exists.
+            no_ci_not = why_not_no_ci(repo, base, files)
+            if no_ci_not:
+                raise refuse(no_ci_not)
+            no_ci_used = True
+            say(f"no CI on {base} and no check on the head: arming on the owner's no-CI word")
         elif checks != "green":
+            hint = (f' — if the owner gave it and {repo} has no CI at all, the basis carries "owner\'s no-CI word"'
+                    if checks == "none-yet" and policy["mode"] != "direct" else "")
             raise refuse(f"{repo} {held}, so nothing but this gate keeps a red or unfinished head from"
-                         f" merging: every check on the head must be green first (pr-gate reads {checks})")
+                         f" merging: every check on the head must be green first (pr-gate reads {checks}){hint}")
         else:
             say("direct repository: every check on the head is green" if policy["mode"] == "direct"
                 else "no required check on this repository: every check on the head is green")
+    if no_ci_word and not no_ci_used:
+        # The basis goes into the comment as given, phrase included: what is not recorded is the No CI sentence.
+        say("the owner's no-CI word is not needed here: it is not read, and no No CI sentence is added (the basis is posted as given)")
 
     comment = f"Arming basis: {basis} — {work} work commits{f', class: {cls}' if cls else ''}{f', role: {role}' if by_role else ''}, head {head[:8]}."
+    if no_ci_used:
+        comment += f" No CI: {base} has no workflow and the head carries no check; armed on the owner's no-CI word."
     if waived_by:
         comment += f" {waived_by}"
     if authorized_by:

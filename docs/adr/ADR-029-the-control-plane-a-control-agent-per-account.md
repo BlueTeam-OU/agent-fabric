@@ -4,7 +4,7 @@
 **Status:** Accepted
 **Ratified:** owner, 2026-09-27, by arming agent-fabric #53 (ratification by merge, the owner's rule of 2026-09-27)
 **Decision Makers:** the owner; drafted by fabric-coordinator
-**Scope:** runtime/control/, every module and the unit file, and its Python package tools/fabric/control/ from its creation (ADR-040 Wave 8); bin/fabric-ctl; the control channel's refusal in GZCoord's inbox and send tools; the unit's installation in tools/fabric/bootstrap.py; tools/fabric/local_settings.py (rule 15) and runtime/claude-code/hooks/session-state.py (rule 16); account persistence (runtime/provisioning/persist-accounts.sh, runtime/provisioning/platform/qubes/agent-fabric-accounts.rc); the fallbacks bin/fabric-usage and bin/fabric-host
+**Scope:** runtime/control/, every module and the unit file, and its Python package tools/fabric/control/ from its creation (ADR-040 Wave 8); bin/fabric-ctl; the control channel's refusal in GZCoord's inbox and send tools; the unit's installation in tools/fabric/bootstrap.py; tools/fabric/local_settings.py (rule 15) and runtime/claude-code/hooks/session-state.py (rule 16); account persistence (runtime/provisioning/persist-accounts.sh, runtime/provisioning/platform/qubes/agent-fabric-accounts.rc); the fallbacks bin/fabric-usage and bin/fabric-host; bin/fabric-op, the break-glass action path (rule 19)
 **Pillar:** P5
 **Evidence:** docs/live-checks/2026-09-17-control-plane.md
 
@@ -329,6 +329,44 @@ with Doppler (ADR-038 §5 rule 8).
       the request and the reply, p50 and p95 per carrier, each miss
       with its cause, and an `interweave-stop` drill mid-window with
       every request still answered), as an amendment of this record.
+19. An action reaches an account with no relay only through
+    `bin/fabric-op` (`tools/fabric/control/breakglass.py`), the
+    break-glass path (A 2026-10-30). The operator runs `fabric-ctl
+    <login> <action-op> … --via hostexec`: the request is built and
+    signed as for the relay and handed to `hostexec <host> --as <login>
+    -- @fabric/bin/fabric-op <op>` on stdin, never in argv; the relay
+    and its token are not touched. On the account:
+    - the decision is agentd's own `accept()` (rules 4–5: the operators,
+      their keys, the ttl and the clock skew) and the op is agentd's own `answer()`, never a
+      copy; the replay floor is the same `actions-seen.json` as the
+      control agent's (ADR-003 §2), claimed by one check-and-record under
+      its lock, so a request accepted on either path is a replay on the
+      other;
+    - beyond rules 4–5 it refuses, with exit 2 and nothing run, a read
+      op (a read without the relay is a plain `fabric-host` run), a `to`
+      holding `*`, and an argv op that is not the signed request's op; a
+      `to` not naming this account is `accept()`'s refusal, and a `to`
+      listing this account beside others is run here. `fabric-ctl`
+      sends a read or more than one account nothing;
+    - it journals to `fabric-op.jsonl` in the account's state directory,
+      on both ends: a line before the run and one after, and a first line
+      that cannot be written refuses the run, so no action runs that the
+      journal does not show (ADR-041 rule 10);
+    - its reply is the record the relay would have carried, one JSON
+      line, and `fabric-ctl` prints it as that account's row;
+    - the `busy` of rules 12 and 17 for `upgrade`, `secrets-sync` and
+      `secrets-selftest`, and `restart`'s own exclusion and its refusals
+      beside an upgrade or a `secrets-sync`, are held inside the control
+      agent's process: an action through `fabric-op` is not refused
+      against one the control agent is running at that moment; and
+      `pool.json` is rewritten with no lock, so `pool-add` can lose an
+      update beside a `pool-claim`, inside the control agent already and
+      across `fabric-op` too (ADR-003 §5 rule 2). The locks of `gateway-install` and of the three InterWeave
+      ops are file locks and do hold across both. Until every exclusion
+      spans processes, break-glass is for an account whose relay is not
+      there, not a second path beside a live one.
+    It is verified on the host executor's local backend; the SSH backend
+    and `--as` another login are not yet exercised.
 
 ## 6. Consequences
 
@@ -344,7 +382,8 @@ with Doppler (ADR-038 §5 rule 8).
   says `no answer`, and the operator asks again.
 - One relay carries the channel: when it is down, no account answers
   but one on both carriers (rule 18), and for the rest the sudo
-  fallbacks are the only read (ADR-010's host executor).
+  fallbacks are the only read (ADR-010's host executor) and `fabric-op`
+  the only action (rule 19), one account per command.
 - A drain costs no sudo and reads no other home; a credential-shaped hit
   in a memory refuses that account's whole drain at the harvester.
 
@@ -355,7 +394,8 @@ with Doppler (ADR-038 §5 rule 8).
 - A second host is reached over InterWeave (rule 18), not by the relay,
   which keeps binding `127.0.0.1`. It opens with ADR-064 rule 1's
   second-host amendment, where InterWeave is control's only carrier on
-  that host and break-glass hostexec over SSH its fallback; an
+  that host and break-glass `fabric-op` through hostexec over SSH its
+  fallback (rule 19; the SSH backend not exercised yet); an
   InterWeave peer on a public address comes after.
   The plan is `docs/proposals/j422-control-plane-on-interweave-cli.md`.
 - Removing a login from the Qubes snapshot (`--forget`) waits for the
@@ -378,7 +418,8 @@ every account is on the relay alone.
   `ctl.py`, `upgrade.py`, `gateway.py`, `tools.py`; with
   `runtime/claude-code/hooks/session-state.py`,
   `runtime/control/config.json`, `runtime/control/agent-fabric-agentd.service`.
-- `bin/fabric-ctl`, `bin/fabric-usage`, `bin/fabric-host`.
+- `bin/fabric-ctl`, `bin/fabric-usage`, `bin/fabric-host`, `bin/fabric-op`
+  with `tools/fabric/control/breakglass.py` (rule 19).
 - `tools/fabric/gzcoord/inbox_parts/config.py` (`assert_not_control_channel`),
   `tools/fabric/gzcoord/send.py`.
 - `runtime/claude-code/bootstrap.sh` (the unit),
@@ -420,3 +461,4 @@ The body above reads current; each change's full note is in [history/ADR-029-ame
 | 2026-10-26 | The InterWeave parity evidence is collected through the control plane | §2 table: `interweave-evidence`; §5 rule 3: its arguments; rule 5: signed; rule 6: no body; rule 12: 60 s a page |
 | 2026-10-26 | A running InterWeave pair is re-rendered when the roster changed | §2 table: `interweave-start` |
 | 2026-10-28 | The records also ride InterWeave, through interweave-human, beside the relay | §2: the second-carrier bullet; §5 rule 18; §6 first and third bullets; §7 second-host bullet; §8: not built yet |
+| 2026-10-30 | fabric-op is the action path with no relay | Scope line: `bin/fabric-op`; §5 rule 19; §6 third bullet; §7 second-host bullet; References |
