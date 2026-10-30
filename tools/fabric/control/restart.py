@@ -37,6 +37,7 @@ import time
 from datetime import datetime, timezone
 from typing import Any, Callable
 
+from control import busy
 from control.ops import util
 from control.upgrade import STOP_WAIT_MS
 
@@ -61,9 +62,32 @@ def check_args(args: Any) -> str | None:
 def restart(request: dict, **opts: Any) -> dict:
     if not _restarting.acquire(blocking=False):
         return {"status": "busy", "note": "a restart is already running on this account"}
+    # After the in-process busy test, as before; before any file lock, so a malformed request touches no
+    # state directory.
+    bad = check_args(request["args"] if "args" in request else {})
+    if bad:
+        _restarting.release()
+        return {"status": "refused", "reason": bad}
+    held: list[int | None] = []
     try:
+        # Across processes (control/busy.py): agentd and fabric-op each have their own lock above.
+        directory = opts.get("directory") or util.state_dir()
+        try:
+            mine = busy.hold(directory, "restart")
+            if mine is None:
+                return {"status": "busy", "note": "a restart is already running on this account"}
+            held.append(mine)
+            # The marker is shared with other restarts and a secrets-sync's; an upgrade holds it alone.
+            marker = busy.hold(directory, "marker", shared=True)
+            if marker is None:
+                return {"status": "failed", "reason": "an upgrade is running on this account (it owns the restart marker); nothing stopped"}
+            held.append(marker)
+        except busy.Unavailable as e:
+            return {"status": "failed", "reason": f"cannot tell whether an upgrade or secrets-sync is running ({e}); nothing stopped"}
         return restart_once(request, **opts)
     finally:
+        for fd in held:
+            busy.release(fd)
         _restarting.release()
 
 
@@ -91,6 +115,12 @@ def restart_once(request: dict, *, me: str | None = None, directory: str | None 
 
 def _stop(request, up, sec, *, me, directory, sessions, pgrep, syncing, kill, alive, sleep, clock, stop_wait_ms, now) -> dict:
     if (syncing or sec.sync_running)():
+        return {"status": "failed", "reason": "a secrets-sync is running on this account; nothing stopped"}
+    try:   # another process's: ours is held already, so a sync that starts after this sees it
+        elsewhere = busy.held(directory or util.state_dir(), "sync")
+    except busy.Unavailable as e:
+        return {"status": "failed", "reason": f"cannot tell whether a secrets-sync is running ({e}); nothing stopped"}
+    if elsewhere:
         return {"status": "failed", "reason": "a secrets-sync is running on this account; nothing stopped"}
     try:
         running = sessions if sessions is not None else up.session_pids(**({"run": pgrep} if pgrep else {}))

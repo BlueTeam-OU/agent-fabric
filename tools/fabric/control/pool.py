@@ -28,9 +28,14 @@ they reach back less) is a binding unknown, and the claim is refused. A
 job has one claimant: a claim of a job another account holds is refused;
 the same account claiming again gets it again.
 
-SERIALIZED, by construction: every change to the file is one
-read-modify-write that agentd runs in its loop, one request at a time,
-and one agentd runs per account. What the relay verifies about a sender
+SERIALIZED, by a lock: every change to the file is one read-modify-write
+under flock on `pool.json.lock` (`_locked`). It is not serial by
+construction: pool-add is an action that agentd starts in a thread of its
+own while pool-claim is answered in the loop, so two requests can read the
+same pool; and the holder's account may answer through more than one
+process. The kernel drops the lock with its holder; a holder that does not
+let go within POOL_LOCK_WAIT_S is a refusal the asker reads, never a write
+over what it has not seen. What the relay verifies about a sender
 is nothing: the fence is that a claim lands only on the claimant's own
 list, written by its own fabric-jobs (rule 1).
 
@@ -54,11 +59,15 @@ list, and threw for a null host).
 """
 from __future__ import annotations
 
+import contextlib
 import errno
+import fcntl
 import functools
 import os
 import re
 import sys
+import tempfile
+import time
 from datetime import datetime, timezone
 from typing import Callable
 
@@ -80,6 +89,9 @@ ROLE_SLUG = re.compile(r"[a-z][a-z0-9-]{0,62}")         # matched whole
 # them to ctl.mjs's values).
 STATES_REPLAY = 500
 STATES_STALE_MS = 2 * 10 * 60 * 1000
+
+
+POOL_LOCK_WAIT_S = 5.0
 
 
 class PoolError(Exception):
@@ -133,12 +145,38 @@ def read_pool(file: str) -> dict:
     return doc
 
 
+@contextlib.contextmanager
+def _locked(file: str):
+    """Every read-modify-write of the pool runs under this (see SERIALIZED above). A lock file beside the
+    pool, not on its directory: the directory is the account's state directory, whose flock is the action
+    ledger's. O_NOFOLLOW: a symlink planted there is an error, not somebody else's file locked."""
+    os.makedirs(os.path.dirname(file) or ".", exist_ok=True)
+    path = f"{file}.lock"
+    try:
+        fd = os.open(path, os.O_RDWR | os.O_CREAT | os.O_CLOEXEC | os.O_NOFOLLOW, 0o600)
+    except OSError as e:
+        raise PoolError(f"the pool cannot be locked ({errno.errorcode.get(e.errno or 0) or e})") from None
+    try:
+        deadline = time.monotonic() + POOL_LOCK_WAIT_S
+        while True:
+            try:
+                fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                break
+            except BlockingIOError:
+                if time.monotonic() >= deadline:
+                    raise PoolError("the pool is locked by another writer; nothing changed, ask again") from None
+                time.sleep(0.02)
+        yield
+    finally:
+        os.close(fd)
+
+
 def _write_pool(file: str, doc: dict) -> None:
     # dirname of a bare name is "", which Node's path.dirname gives as ".".
     os.makedirs(os.path.dirname(file) or ".", exist_ok=True)
-    tmp = f"{file}.{os.getpid()}.tmp"
     data = (js.stringify(doc, indent=2) + "\n").encode("utf-8")
-    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    # A name of its own per write (mkstemp, mode 0600): a fixed name shared by two writers is one file.
+    fd, tmp = tempfile.mkstemp(prefix=os.path.basename(file) + ".", suffix=".tmp", dir=os.path.dirname(file) or ".")
     done = False
     try:
         try:
@@ -247,15 +285,16 @@ def pool_add(request: dict, *, me: str, holder: str | None, file: str, known=_UN
     a = request["args"]
     topic = a.get("topic")
     try:
-        doc = read_pool(file)
-        doc["seq"] += 1
-        job = {"id": f"p{js.string(doc['seq'])}", "seq": doc["seq"], "role": a["role"], "title": _squash(a["title"]),
-               "topic": _squash(topic) if isinstance(topic, str) else None, "project": a.get("project"),
-               "priority": "normal" if a.get("priority") is None else a["priority"], "created": now(),
-               "from": js.string(request.get("from", js.UNDEFINED)), "claimed": None}
-        doc["jobs"].append(job)
-        _write_pool(file, doc)
-        return {"status": "added", "job": _shown(job)}
+        with _locked(file):
+            doc = read_pool(file)
+            doc["seq"] += 1
+            job = {"id": f"p{js.string(doc['seq'])}", "seq": doc["seq"], "role": a["role"], "title": _squash(a["title"]),
+                   "topic": _squash(topic) if isinstance(topic, str) else None, "project": a.get("project"),
+                   "priority": "normal" if a.get("priority") is None else a["priority"], "created": now(),
+                   "from": js.string(request.get("from", js.UNDEFINED)), "claimed": None}
+            doc["jobs"].append(job)
+            _write_pool(file, doc)
+            return {"status": "added", "job": _shown(job)}
     except (PoolError, OSError) as e:
         return _refused(str(e))
 
@@ -329,23 +368,24 @@ def pool_claim(request: dict, *, me: str, holder: str | None, file: str, role_of
         return _refused("this control agent reads no state stream: the claimant's role is unknown")
     bound = role_of(sender)
     try:
-        doc = read_pool(file)
-        job = next((j for j in doc["jobs"] if isinstance(j, dict) and j.get("id") == pid), None)
-        if job is None:
-            return _refused(f"no pool job {pid}")
-        if bound.get("error"):
-            return _refused(bound["error"])
-        if bound.get("role") != job.get("role"):
-            return _refused(f"{sender} holds {js.string(bound.get('role', js.UNDEFINED))}, as its control agent reports it; {pid} is for {js.string(job.get('role', js.UNDEFINED))}")
-        claimed = job.get("claimed")
-        if js.truthy(claimed) and (claimed.get("by") if isinstance(claimed, dict) else js.UNDEFINED) != sender:
-            by = claimed.get("by", js.UNDEFINED) if isinstance(claimed, dict) else js.UNDEFINED
-            at = claimed.get("at", js.UNDEFINED) if isinstance(claimed, dict) else js.UNDEFINED
-            return _refused(f"{pid} is claimed by {js.string(by)} ({js.string(at)})")
-        again = js.truthy(claimed)
-        if not again:
-            job["claimed"] = {"by": sender, "at": now()}
-            _write_pool(file, doc)
-        return {"status": "claimed", "job": _shown(job), **({"again": True} if again else {})}
+        with _locked(file):
+            doc = read_pool(file)
+            job = next((j for j in doc["jobs"] if isinstance(j, dict) and j.get("id") == pid), None)
+            if job is None:
+                return _refused(f"no pool job {pid}")
+            if bound.get("error"):
+                return _refused(bound["error"])
+            if bound.get("role") != job.get("role"):
+                return _refused(f"{sender} holds {js.string(bound.get('role', js.UNDEFINED))}, as its control agent reports it; {pid} is for {js.string(job.get('role', js.UNDEFINED))}")
+            claimed = job.get("claimed")
+            if js.truthy(claimed) and (claimed.get("by") if isinstance(claimed, dict) else js.UNDEFINED) != sender:
+                by = claimed.get("by", js.UNDEFINED) if isinstance(claimed, dict) else js.UNDEFINED
+                at = claimed.get("at", js.UNDEFINED) if isinstance(claimed, dict) else js.UNDEFINED
+                return _refused(f"{pid} is claimed by {js.string(by)} ({js.string(at)})")
+            again = js.truthy(claimed)
+            if not again:
+                job["claimed"] = {"by": sender, "at": now()}
+                _write_pool(file, doc)
+            return {"status": "claimed", "job": _shown(job), **({"again": True} if again else {})}
     except (PoolError, OSError) as e:
         return _refused(str(e))
