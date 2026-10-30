@@ -470,30 +470,31 @@ its record disagree, the record wins. Look it up, never read it whole:
 ### ADR-020 — The review class is the review (Accepted)
 
 - The review class's blind review is the review of every PR: each head,
-  each finding's judgement, each fix range; no automated reviewer is
+  each finding's judgement, each fix range; no automated reviewer
   assumed (§5 rule 1).
 - Dispatch: `code-review`, `model: fable`, description "review…" or
   "re-review…", no isolation; the agent file's routed model decides
-  (§5 rules 2–3).
+  (rules 2–3).
 - The reviewer writes nothing; its brief is facts, never conclusions
-  (§5 rules 4–5).
-- Posted by `fabric-pr post-review` with the marker; counted only when marked
-  and posted by the PR's account or a named poster, or unmarked from a
-  trusted account (§5 rules 6–7). Legacy markers until the sunset (§5
-  rule 8).
+  (rules 4–5).
+- Posted by `fabric-pr post-review` with the marker; counted when marked
+  by the PR's account or a named poster, or unmarked from a trusted
+  account (§5 rules 6–7); legacy markers until the sunset (rule 8).
 - A 2026-10-05 — the reviewer inherits no secret: a clean environment
-  (§5 rule 4).
+  (rule 4).
 - A 2026-10-14 — the card governs from the base; only a `pinned`
-  review covers a head (§5 rules 9–10).
-- A 2026-10-15 — a pinned review reads a detached head worktree (§5
-  rule 10).
-- A 2026-10-16 — a review covers the commit it read (§5 rule 6).
+  review covers a head (rules 9–10).
+- A 2026-10-15 — a pinned review reads a detached head worktree (rule
+  10).
+- A 2026-10-16 — a review covers the commit it read (rule 6).
 - A 2026-10-22 — a supplier dispatches no review of its own part; the
-  caller reviews the folded head (§5 rule 11).
-- A 2026-10-24 — pinned read tools in a proved sandbox, no Bash (§5
-  rules 4, 6; ADR-065).
+  caller reviews the folded head (rule 11).
+- A 2026-10-24 — pinned read tools in a proved sandbox, no Bash (rules
+  4, 6; ADR-065).
 - A 2026-10-25 — the guard also knows a supplier by its active job's
-  `deliver_to` (§5 rule 11).
+  `deliver_to` (rule 11).
+- A 2026-10-30 — pre-commit hook and lint judge the card cap (rule
+  9).
 - Keywords: review, blind review, code-review, re-review, brief,
   fabric-review, post-review, pr-review-status, marker, coverage,
   review card, pinned, supplier.

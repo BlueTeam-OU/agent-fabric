@@ -111,6 +111,7 @@ from fabric_lint_rules.locales import (locale_coverage_findings, locale_file_fin
 from fabric_lint_rules.locales import locale_alignment_findings  # noqa: E402, F401
 from fabric_lint_rules.locales import locale_worker_findings  # noqa: E402, F401
 from fabric_lint_rules.hidden import hidden_unicode_findings  # noqa: E402, F401
+from fabric_lint_rules.card import review_card_findings  # noqa: E402, F401
 from fabric_lint_rules.signing import signing_findings  # noqa: E402, F401
 from fabric_lint_rules.slices import CLASS_DIRS, flat_and_dir_findings, lint_slices, staleness_warnings  # noqa: E402, F401
 
@@ -468,7 +469,7 @@ CONTRIBUTOR_NEVER = (
     "tests/test_contributors.py", "tests/test_agent_fabric_dir_authority.py", "tests/test_charter_authority.py",
     "runtime/identity.py", "runtime/claude-code/",
     "bin/fabric-role", "tools/fabric/role.py", "tools/fabric/routing.py", "tools/fabric/launch_prompt.py",
-    "bin/fabric-review", "tools/fabric/review_brief.py",
+    "bin/fabric-review", "tools/fabric/review_brief.py", "tools/fabric/review_card.py",
     # Runs as root on every host and installs the interpreter every tool runs on.
     "tools/fabric/python_pin.py", "runtime/python.json",
     # Wires the fleet's hooks into a session started in this clone.
@@ -778,6 +779,7 @@ def main() -> int:
 
     # --- no hidden Unicode in text an agent reads (j305) ---------------------
     findings += hidden_unicode_findings(root)
+    findings += review_card_findings(root)
 
     # --- role identities ---------------------------------------------------
     template_schema = load_schema(root, schemas, "role-template")

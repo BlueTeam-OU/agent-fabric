@@ -30,6 +30,7 @@ replaced by a copy of the working tree (staged tree), either `rm -rf "$adr_tree"
 (managed project)."""
 from __future__ import annotations
 
+import importlib.util
 import json
 import os
 import shutil
@@ -43,6 +44,10 @@ from instance_fixtures import write_registry  # noqa: E402
 
 GENERIC_TAIL = "agent-fabric is read-only for every role but fabric-coordinator; in a managed\nproject, .agent-fabric/ is."
 LOCALE = "identities/roles/language-culture/locale"
+_card_spec = importlib.util.spec_from_file_location("review_card", os.path.join(ROOT, "tools", "fabric", "review_card.py"))
+_review_card = importlib.util.module_from_spec(_card_spec)
+_card_spec.loader.exec_module(_review_card)
+CARD_CAP = _review_card.CARD_CAP
 
 
 class PreCommit(unittest.TestCase):
@@ -448,6 +453,56 @@ class Worktree(PreCommit):
                 self.assertIn("this commit changes agent-fabric itself", r.stderr)
                 r = self.fabric.hook("pre-commit", project, PATH=path)
                 self.assertEqual((r.returncode, r.stderr), (0, ""))
+
+
+class ReviewCard(PreCommit):
+    """A commit that stages .agent-fabric/review-card.md over tools/fabric/review_card.py's CARD_CAP is refused whoever commits
+    (j475: a project's card reached 2396 bytes over two commits). Mutations: the call removed from pre_commit (every refusal case); the
+    check placed after the owner's return (the owner case); `>=` for `>` (the at-cap case); the work tree's size read instead of the
+    staged blob's (the staged-blob case); every commit judged, not only one that changes the card (the unrelated-commit case)."""
+
+    CARD = ".agent-fabric/review-card.md"
+
+    def setUp(self):
+        self.build(owner_role="fabric-coordinator")
+        self.cap = CARD_CAP
+
+    def put(self, repo, size):
+        repo.write(self.CARD, "x" * size)
+        repo.git("add", "-A")
+
+    def test_a_card_over_the_cap_is_refused_for_the_owner_in_a_project_and_in_the_fabric(self):
+        for repo in (self.fabric.project(), self.fabric.itself()):
+            self.put(repo, self.cap + 1)
+            for role in (None, "fabric-coordinator"):
+                with self.subTest(repo=repo.path, role=role):
+                    self.fabric.bind(role)
+                    r = self.run_hook(repo)
+                    self.assertEqual(r.returncode, 1, r.stderr)
+                    self.assertIn(f"the project review card is {self.cap + 1} bytes, over the {self.cap}-byte cap", r.stderr)
+
+    def test_a_card_at_the_cap_is_admitted(self):
+        repo = self.fabric.project()
+        self.put(repo, self.cap)
+        self.fabric.bind("fabric-coordinator")
+        r = self.run_hook(repo)
+        self.assertEqual((r.returncode, r.stderr), (0, ""))
+
+    def test_the_staged_blob_is_judged_not_the_work_tree(self):
+        repo = self.fabric.project()
+        self.put(repo, self.cap + 1)
+        repo.write(self.CARD, "short\n")
+        self.fabric.bind("fabric-coordinator")
+        self.assertEqual(self.run_hook(repo).returncode, 1)
+
+    def test_a_commit_that_leaves_an_over_cap_card_alone_is_not_judged_by_it(self):
+        repo = self.fabric.project()
+        self.put(repo, self.cap + 1)
+        repo.git("-c", "core.hooksPath=/dev/null", "commit", "-qm", "unjudged")   # a --no-verify commit, a web edit
+        repo.stage("src/a.txt")
+        self.fabric.bind("backend-dev")
+        r = self.run_hook(repo)
+        self.assertEqual((r.returncode, r.stderr), (0, ""))
 
 
 class HiddenUnicode(PreCommit):

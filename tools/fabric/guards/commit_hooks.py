@@ -25,6 +25,8 @@ CONTRACT, frozen from the bash (ADR-040 §5 rule 3):
             under identities/ and .agent-fabric/; in a managed project: .agent-fabric/ only) whose STAGED blob holds
             a character tools/fabric/hidden_unicode.py refuses. Exit 1, one `<path>:<line>:<col>: U+XXXX NAME (kind)` per
             character.
+  card      pre-commit also refuses, for EVERY committer, a commit that stages .agent-fabric/review-card.md over
+            tools/fabric/review_card.py's CARD_CAP bytes. Exit 1, the size and the cap named.
   env       AGENT_FABRIC_STATE_DIR etc. are read by runtime/identity.py, which runs for the binding's role;
             AGENT_FABRIC_PYTHON is read by the forwarders only. The login is `id -un`, never the password database.
   stdout    only the three library verbs print on stdout; the hooks speak on stderr (and the decision-record check's
@@ -58,6 +60,7 @@ sys.path.insert(1, os.path.dirname(HERE))
 import agent_text  # noqa: E402  the one predicate for text an agent reads (lint judges the same files)
 import commit_kind  # noqa: E402
 import hidden_unicode  # noqa: E402  the one definition of what such text may not hide
+import review_card  # noqa: E402  the card's path and cap, as the brief renderer refuses it
 import roots  # noqa: E402  the hook's own checkout is the root it is given; roots spells the policy's path (test_roots_seam)
 
 ITSELF = "agent-fabric itself"
@@ -352,9 +355,32 @@ def _check_hidden_unicode(root: str) -> None:
                      "— not committed. What is refused, and what is allowed, is defined in tools/fabric/hidden_unicode.py.")
 
 
+def _check_review_card() -> None:
+    """A commit that stages the project review card over its cap is refused, whoever commits (j475: a project's card reached 2396
+    bytes over two commits, and every review of the project failed at render until it was cut). Only a commit that changes the card
+    is judged: an over-cap card already committed does not stop unrelated work, and the commit that shortens it is the
+    one that gets judged. The staged blob, by the index's object id, as _check_hidden_unicode reads it."""
+    r = _git("diff", "--cached", "-z", "--no-renames", "--name-only", "--diff-filter=ACMRT", "--", review_card.CARD_PATH)
+    if r.returncode != 0:
+        raise Refuse(f"pre-commit: cannot tell whether {review_card.CARD_PATH} is staged to check its size — not committed")
+    if not any(r.stdout.split("\0")):
+        return
+    idx = _git("ls-files", "-s", "-z", "--full-name", "--", review_card.CARD_PATH)
+    fields = idx.stdout.split("\0", 1)[0].partition("\t")[0].split() if idx.returncode == 0 else []
+    if len(fields) != 3 or fields[2] != "0":
+        raise Refuse(f"pre-commit: {review_card.CARD_PATH} is staged but has no stage-0 entry in the index — not committed")
+    size = _git("cat-file", "-s", fields[1])
+    if size.returncode != 0 or not size.stdout.strip().isdigit():
+        raise Refuse(f"pre-commit: cannot read the staged {review_card.CARD_PATH} to check its size — not committed")
+    if review_card.over_cap(int(size.stdout)):
+        raise Refuse("pre-commit: " + review_card.refusal(f"staged {review_card.CARD_PATH}", int(size.stdout))
+                     + " — not committed. A reviewer gets it whole on every turn (agent-fabric ADR-020).")
+
+
 def pre_commit(root: str) -> int:
     _check_decision_records(root)
     _check_hidden_unicode(root)
+    _check_review_card()
     what, staged = guarded_change(root)
     if not staged:
         return 0
