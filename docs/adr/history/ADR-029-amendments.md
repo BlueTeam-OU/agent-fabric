@@ -325,4 +325,4 @@ Found by python-dev-02 as F8 of round 8 of the review of #390.
 
 ### Amendment 2026-10-30 — The fleet hold is set through the control plane
 
-ADR-037 rule 13 makes a fleet hold something the job tool enforces, and the control plane is how fabric-coordinator reaches every login with a signed action. `hold` and `unhold` join the action table. Unlike `jobs-add`, they may name `all`: a hold is fleet-wide by purpose, and setting it one login at a time would recreate the gap it closes, an account missed. An account whose control agent does not answer is named, because a hold that has not reached it does not hold it. The ops are decided and not yet built.
+ADR-037 rule 13 makes a fleet hold something the job tool enforces, and the control plane is how fabric-coordinator reaches every login with a signed action. `hold` and `unhold` join the action table. Unlike `jobs-add`, they may name `all`: a hold is fleet-wide by purpose, and setting it one login at a time would recreate the gap it closes, an account missed. An account whose control agent does not answer is named, because a hold that has not reached it does not hold it. The ops are built in agent-fabric #431.

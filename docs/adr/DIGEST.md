@@ -874,7 +874,7 @@ its record disagree, the record wins. Look it up, never read it whole:
 - A 2026-10-18 — no-artifact close, a reason (§5 rule 10).
 - A 2026-10-20 — commits fenced to job copies (§5 rule 3).
 - A 2026-10-21 — switch to clean targets, unbuilt (§5 rule 10).
-- A 2026-10-30 — fleet hold, unbuilt (§5 rule 13).
+- A 2026-10-30 — fleet hold (§5 rule 13).
 - Keywords: job, jobs.json, fabric-jobs, next, switch, paused,
   fresh session, intake, priority, pool, claim, sweep, fleet hold, unhold.
 

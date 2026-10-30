@@ -257,9 +257,7 @@ Why these choices:
     account is back, and holds a login provisioned during the hold by
     naming it. The hold fences off a session that never read the
     announcement. It does not stop an agent that edits its own state:
-    a login can delete its own `hold.json`, and must not. This rule is
-    decided and not yet built; until it is, a hold is a broadcast
-    `DECISION`.
+    a login can delete its own `hold.json`, and must not.
 
 ## 6. Consequences
 
@@ -284,7 +282,7 @@ Why these choices:
 
 ## 8. Decision Status
 
-Accepted and in force, rules 7–10 included (built in agent-fabric #118). Rule 13, the fleet hold, is decided and not yet built (A 2026-10-30).
+Accepted and in force, rules 7–10 included (built in agent-fabric #118). Rule 13, the fleet hold, is built in agent-fabric #431 (the control plane, `fabric-jobs`, `fabric-fresh`, `fabric-status`) and #429 (the session-start line, the skill) (A 2026-10-30).
 
 ## References
 
@@ -311,4 +309,4 @@ The body above reads current; each change's full note is in [history/ADR-037-ame
 | 2026-10-18 | Work that leaves no artifact closes with a reason | §5 rule 10: a `done` job is settled by a recorded `--no-artifact` reason when its work lands nothing in a repository |
 | 2026-10-20 | A session works one job's working copy | §5 rule 3: a PreToolUse hook refuses a commit or a publish outside the session's job copies, and refuses everything after the session's job has left `active`; reads stay allowed |
 | 2026-10-21 | Leaving a job cleans its build output | §5 rule 10 step 1, decided and unbuilt (python-dev's j75): once the old job is settled, its worktree's cargo targets are to be removed, except one in use, with `--keep-targets` to skip it |
-| 2026-10-30 | A fleet hold the job tool enforces | §5 rule 13 added, decided and unbuilt: `fabric-ctl hold`/`unhold` set a login's `hold.json`; while it is set, `switch` settles and starts nothing, `start` and `fabric-fresh --job` refuse; status, session start and `jobs` show it; §8 says so |
+| 2026-10-30 | A fleet hold the job tool enforces | §5 rule 13 added, built in #431 and #429: `fabric-ctl hold`/`unhold` set a login's `hold.json`; while it is set, `switch` settles and starts nothing, `start` and `fabric-fresh --job` refuse; status, session start and `jobs` show it; §8 says so |
