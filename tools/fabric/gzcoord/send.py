@@ -526,10 +526,6 @@ def main(argv: list[str]) -> int:
         else:
             print(t("send.empty-body", {"type": msg["type"], "sections": missing[0]}), file=sys.stderr)
         return 2
-    # This session's model fell back after a safeguard flagged a request
-    # (model-fallback-note.sh leaves the marker): the flagged text is
-    # contagious, so the reminder is repeated at the moment of sending. A
-    # reminder, never a content check.
     # Before the fallback reminder, the ledger, the dry run, the token and the
     # presence ask: whether a host places the address needs none of them.
     unplaced = _placement_problem(msg["metadata"], taxonomy, t)
@@ -544,6 +540,10 @@ def main(argv: list[str]) -> int:
             print(t("send.not-sent-no-account"), file=sys.stderr)
             return 4
         print(t("send.presence-forced"), file=sys.stderr)
+    # This session's model fell back after a safeguard flagged a request
+    # (model-fallback-note.sh leaves the marker): the flagged text is
+    # contagious, so the reminder is repeated at the moment of sending. A
+    # reminder, never a content check.
     fb = fallback_marker()
     if fb:
         topic = fb.get("topic")

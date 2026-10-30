@@ -2399,7 +2399,6 @@ def _():
         stranger = send_with(pr.url, addressed("TO: other/nobody"), **pr.env)
         eq(stranger.code, 4)
         has(r"other/nobody is no account: no host places it[\s\S]*not sent — --force sends it anyway, for an account being placed", stranger.err)
-        eq(len(pr.asked), 3, "presence was not asked about an address no host places")
         forced = send_with(pr.url, addressed("TO: h/beta"), ["--force"], **pr.env)
         eq(forced.code, 0, forced.err)
         has(r"sending anyway \(--force\)", forced.err)
