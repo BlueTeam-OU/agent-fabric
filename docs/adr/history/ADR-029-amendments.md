@@ -289,3 +289,23 @@ no signed action. The amendment was promised in the request that
 commissioned #418 (01a18b39) and asked for by its author, python-dev-04
 (REQUEST 01a18b3f). Verified by #418 on the host executor's local
 backend; the SSH backend and `--as` another login are not exercised yet.
+
+### Amendment 2026-10-30 — Upgrade, secrets-sync and restart are busy across processes; the pool has a lock
+
+Rule 19 said the `busy` of rules 12 and 17 and `restart`'s exclusions
+were held inside the control agent's process, so an action through
+`fabric-op` was not refused against one the control agent was running,
+and that `pool.json` was rewritten with no lock. agent-fabric #423
+makes the first true across processes for `upgrade`, `secrets-sync` and
+`restart`: each takes a `flock` on files in the account's state
+directory (`busy-marker`, `busy-restart`, `busy-sync`;
+`tools/fabric/control/busy.py`), an upgrade holding the marker lock
+exclusive and a restart or a `secrets-sync`'s restart phase holding it
+shared, and a lock that cannot be opened is a failure that stops
+nothing. #423 also puts the pool's read-modify-write under a `flock`
+on `pool.json.lock` (ADR-003 rule 2). `secrets-selftest` keeps its
+per-process exclusion, so the rule still says break-glass is for an
+account whose relay is not there.
+
+Reported by python-dev-04, the author of #423 (REQUEST 01a18bc6), who
+also named the gap sentence to change.

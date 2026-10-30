@@ -157,7 +157,9 @@ its record disagree, the record wins. Look it up, never read it whole:
   are a writer class; the ledger's unlocked trim is a named gap (§5 rule 1).
 - A 2026-10-30 — `actions-seen.json` has two writers, agentd and
   `fabric-op`, whose claims hold a flock on the state directory, never
-  `agent_lock`; `pool.json`'s unlocked rewrite is a gap (§2, §5 rules 1–2).
+  `agent_lock` (§2, §5 rules 1–2).
+- A 2026-10-30 — `pool.json` is rewritten under a flock on
+  `pool.json.lock` (§2, §5 rule 2).
 - Keywords: state, binding, atomic write, lock, flock, rename, history,
   host, XDG_STATE_HOME, actions-seen.json, action ledger, fabric-op.jsonl.
 
@@ -689,6 +691,7 @@ its record disagree, the record wins. Look it up, never read it whole:
 - A 2026-10-26 — re-render.
 - A 2026-10-28 — InterWeave carrier (r18).
 - A 2026-10-30 — `fabric-op` (r19).
+- A 2026-10-30 — busy flocks; pool lock (r19).
 - Keywords: fabric-ctl, keys, operator_key, usage, tokens, herdr,
   resume, interweave-evidence, interweave-human, fabric-control,
   control_carrier, break-glass.

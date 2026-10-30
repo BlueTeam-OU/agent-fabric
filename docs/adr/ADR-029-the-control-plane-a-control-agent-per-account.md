@@ -354,17 +354,23 @@ with Doppler (ADR-038 §5 rule 8).
       journal does not show (ADR-041 rule 10);
     - its reply is the record the relay would have carried, one JSON
       line, and `fabric-ctl` prints it as that account's row;
-    - the `busy` of rules 12 and 17 for `upgrade`, `secrets-sync` and
-      `secrets-selftest`, and `restart`'s own exclusion and its refusals
-      beside an upgrade or a `secrets-sync`, are held inside the control
-      agent's process: an action through `fabric-op` is not refused
-      against one the control agent is running at that moment; and
-      `pool.json` is rewritten with no lock, so `pool-add` can lose an
-      update beside a `pool-claim`, inside the control agent already and
-      across `fabric-op` too (ADR-003 §5 rule 2). The locks of `gateway-install` and of the three InterWeave
-      ops are file locks and do hold across both. Until every exclusion
-      spans processes, break-glass is for an account whose relay is not
-      there, not a second path beside a live one.
+    - the `busy` of rules 12 and 17 for `upgrade` and `secrets-sync`,
+      and `restart`'s own exclusion and its refusals beside an upgrade
+      or a `secrets-sync`, are `flock`s on three files in the account's
+      state directory, `busy-marker`, `busy-restart` and `busy-sync`
+      (`tools/fabric/control/busy.py`, agent-fabric #423), so the
+      control agent and `fabric-op` exclude each other: an upgrade
+      holds the marker lock exclusive, a restart or a `secrets-sync`'s
+      restart phase holds it shared beside its own, and a lock file
+      that cannot be opened is a failure that stops nothing, never
+      "nobody holds it". `pool.json` is rewritten under a `flock` on
+      `pool.json.lock` (ADR-003 §5 rule 2). The locks of
+      `gateway-install` and of the three InterWeave ops are file locks
+      too. The `busy` of `secrets-selftest` is still held inside the
+      control agent's process, so a self-test through `fabric-op` is
+      not refused against one the control agent is running. Until every
+      exclusion spans processes, break-glass is for an account whose
+      relay is not there, not a second path beside a live one.
     It is verified on the host executor's local backend; the SSH backend
     and `--as` another login are not yet exercised.
 
@@ -462,3 +468,4 @@ The body above reads current; each change's full note is in [history/ADR-029-ame
 | 2026-10-26 | A running InterWeave pair is re-rendered when the roster changed | §2 table: `interweave-start` |
 | 2026-10-28 | The records also ride InterWeave, through interweave-human, beside the relay | §2: the second-carrier bullet; §5 rule 18; §6 first and third bullets; §7 second-host bullet; §8: not built yet |
 | 2026-10-30 | fabric-op is the action path with no relay | Scope line: `bin/fabric-op`; §5 rule 19; §6 third bullet; §7 second-host bullet; References |
+| 2026-10-30 | Upgrade, secrets-sync and restart are busy across processes; the pool has a lock | §5 rule 19: the busy flocks of `busy.py` and `pool.json.lock` (#423); `secrets-selftest` the exclusion still per process |
