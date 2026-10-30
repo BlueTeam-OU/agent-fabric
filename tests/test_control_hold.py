@@ -131,17 +131,18 @@ class JobsOp(Scratch):
     LISTED = json.dumps([{"id": "j1", "state": "queued", "title": "a"}])
 
     @staticmethod
-    def run(argv, **kw):
+    def lister(argv, **kw):
+        # Not `run`: that name is unittest's own, and shadowing it makes the test body never run.
         return SimpleNamespace(stdout=JobsOp.LISTED, stderr="", returncode=0)
 
     def test_the_answer_carries_the_hold_or_null_and_a_corrupt_file_counts(self):
-        self.assertIsNone(cj.jobs(run=self.run)["hold"])
+        self.assertIsNone(cj.jobs(run=self.lister)["hold"])
         self.identity.set_hold("release freeze", set_by=OPERATOR, decision=DECISION)
-        got = cj.jobs(run=self.run)
+        got = cj.jobs(run=self.lister)
         self.assertEqual((got["hold"]["reason"], got["hold"]["set_by"], len(got["jobs"])), ("release freeze", OPERATOR, 1))
         with open(self.path, "w", encoding="utf-8") as fh:
             fh.write("{not json")
-        self.assertIn("unreadable", cj.jobs(run=self.run)["hold"])
+        self.assertIn("unreadable", cj.jobs(run=self.lister)["hold"])
 
 
 class Ctl(Scratch):
