@@ -726,6 +726,17 @@ class Commands(unittest.TestCase):
         self.assertEqual(no.returncode, 2, no.stderr)
         self.assertRegex(no.stderr, r"not a host operator")
         self.assertEqual(len(r.rows), n, "nothing was sent")
+        # A registry that cannot be read leaves who is placed unknown: said so, nothing sent, and never "not a host operator".
+        d = os.path.dirname(reg)
+        bad = os.path.join(d, "notjson.json")
+        with open(bad, "w") as fh:
+            fh.write("{ not json")
+        for label, path in (("missing", os.path.join(d, "absent.json")), ("unreadable", d), ("not JSON", bad)):
+            un = run_ctl(self, r.url(), path, ["db-admin", "presence", "--timeout", "1"])
+            self.assertEqual(un.returncode, 1, (label, un.stderr))
+            self.assertIn("hosts registry could not be read", un.stderr, label)
+            self.assertNotIn("not a host operator", un.stderr, label)
+            self.assertEqual(len(r.rows), n, f"nothing was sent ({label})")
         # The relay lost the request (history cleared): said, and the run ends early.
         r.rows.clear()   # the earlier runs' records
         stop = threading.Event()
@@ -1502,8 +1513,10 @@ class Help(unittest.TestCase):
             rc = ctl.main(argv, registry=reg, call=boom, who=boom, token=None, out=seen.append, err=seen.append, sleep=boom)
             self.assertEqual(rc, 0, argv)
             self.assertTrue(seen, argv)
-        with self.assertRaises(Exception):   # the positive control: this registry does fail a run that reads it
-            ctl.main(["all", "ping"], registry=reg, call=boom, who={"host": "h", "agent": "a"}, token="t", out=lambda m: None, err=lambda m: None)
+        said: list[str] = []   # the positive control: this registry does fail a run that reads it
+        rc = ctl.main(["all", "ping"], registry=reg, call=boom, who={"host": "h", "agent": "a"}, token="t", out=lambda m: None, err=said.append)
+        self.assertEqual(rc, 1)
+        self.assertTrue(any("hosts registry could not be read" in m for m in said), said)
 
     def test_help_names_every_option_the_verb_takes_and_whether_it_is_signed(self):
         from control.sign import ACTION_OPS
