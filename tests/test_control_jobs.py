@@ -78,15 +78,15 @@ def main() -> int:
                "blocked_on": "x", "artifacts": None, "updated": "t", "log": [1]},
               {"id": "j4", "state": "done", "title": "d", "source": "a string", "artifacts": ["PR #1"]},
               {"id": "j5", "state": "queued", "title": "e", "source": {"from": "h/u"}, "priority": "high"}]
-    got = cj.jobs(run=done(json.dumps(listed)))
+    got = cj.jobs(run=done(json.dumps(listed)), hold=lambda: None)
     check("a priority stored as null is unknown, never normal; an absent one is normal",
           [j["priority"] for j in got["jobs"]][:2] == [None, "normal"])
     nodes = node("return await m.jobs({ exec: async () => JSON.stringify(input) });", listed)
-    check("the list is mapped as Node maps it, field for field (?? is null only)", got == nodes, (got, nodes))
+    check("the list is mapped as Node maps it, field for field (?? is null only)", {k: v for k, v in got.items() if k != "hold"} == nodes and got["hold"] is None, (got, nodes))
     for label, run in (("a failed list", done("", "fabric-jobs: broken\n", 1)), ("an answer that is not JSON", done("nope")),
                        ("an answer that is not a list", done('{"a": 1}'))):
         try:
-            cj.jobs(run=run)
+            cj.jobs(run=run, hold=lambda: None)
             check(f"{label} is JobsError", False)
         except cj.JobsError:
             check(f"{label} is JobsError, never an empty list", True)
@@ -189,12 +189,12 @@ def main() -> int:
             else:
                 os.environ["AGENT_FABRIC_STATE_DIR"] = saved
     try:
-        cj.jobs(run=done("", "first\nfabric-jobs: broken\n", 1))
+        cj.jobs(run=done("", "first\nfabric-jobs: broken\n", 1), hold=lambda: None)
     except cj.JobsError as e:
         check("a failed list says its last stderr line, as text", str(e) == "fabric-jobs list: exit 1: fabric-jobs: broken", str(e))
     sparse = [{"state": "q", "title": "no id"}, {"id": "j9"}]
     check("a stored job without id, state or title has no such key, as JSON.stringify drops undefined",
-          cj.jobs(run=done(json.dumps(sparse))) == node("return await m.jobs({ exec: async () => JSON.stringify(input) });", sparse))
+          {k: v for k, v in cj.jobs(run=done(json.dumps(sparse)), hold=lambda: None).items() if k != "hold"} == node("return await m.jobs({ exec: async () => JSON.stringify(input) });", sparse))
     r = subprocess.run([sys.executable, os.path.join(HERE, "tools", "fabric", "jobs.py"), "--help"], capture_output=True, timeout=60)
     check("the jobs tool the ops run exists where they look for it", r.returncode == 0, r.stderr[-200:])
 

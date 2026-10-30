@@ -119,6 +119,7 @@ from control import clone as clone_mod, gateway as gateway_mod, carrier_install 
 from control.gzcoord import FABRIC_ROOT  # noqa: E402
 from control.carrier_install import CARRIER_NAME, INSTALL_OP, START_OP, STOP_OP  # noqa: E402
 from control.jobs import jobs_add  # noqa: E402
+from control import hold as hold_mod  # noqa: E402
 from control.branches_op import branches_sweep  # noqa: E402
 from control.local import local_prune  # noqa: E402
 from control.pool import POOL_FILE, pool_add, pool_claim, pool_holder, pool_list, role_from_stream  # noqa: E402
@@ -687,6 +688,8 @@ def answer(request: dict, ctx: dict) -> dict:
         data = {"restart": restart(request, me=me, **(ctx.get("restart_opts") or {}))}
     elif op == "jobs-add":
         data = {"jobs-add": jobs_add(request, home=home, root=root, **(ctx.get("jobs_opts") or {}))}
+    elif op in ("hold", "unhold"):
+        data = {op: getattr(hold_mod, op)(request, **(ctx.get("hold_opts") or {}))}
     elif op == "pool-add":
         data = {"pool-add": pool_add(request, me=me, holder=pool_holder(control_config()), file=pool_file(), **_only(ctx, "pool_opts", "known", "now"))}
     elif op == "pool-list":
