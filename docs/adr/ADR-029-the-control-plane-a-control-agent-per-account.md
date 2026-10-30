@@ -229,13 +229,15 @@ claimant (rule 4).
     a cargo pin's crate build needs, so a hung fetch or build is its
     verdict, not a silence), 300 s for `gateway-install`
     (its 240 s download bound, two 10 s version bounds and 40 s of margin), 100 s for
-    `interweave`, 2668 s for `interweave-install` (a 1200 s wait for the
+    `interweave`, 2708 s for `interweave-install` (a 1200 s wait for the
     host's download turn and 60 s of grace before the install's own
-    1408 s: the download, the archive, `install.sh`, the version runs and
-    two restart-and-check rounds), 1600 s for `interweave-start` (a
+    1448 s: the download, the archive, `install.sh`, the version runs and
+    two restart-and-check rounds), 1620 s for `interweave-start` (a
     600 s wait for the host's render turn; its rule-14 check polls the
     carrier's `status` up to 45 times, a cold carrier having taken 29 s
-    to open its socket with 26 roster rows),
+    to open its socket with 26 roster rows); each check of the two
+    includes 20 s to ask a unit that did not come up for its state and
+    its journal's tail,
     156 s for `interweave-stop`, 60 s a page for `interweave-evidence`
     (`fabric-ctl` sends one request per page, to every account whose
     next page starts at the same time), 480 s for
@@ -469,3 +471,4 @@ The body above reads current; each change's full note is in [history/ADR-029-ame
 | 2026-10-28 | The records also ride InterWeave, through interweave-human, beside the relay | §2: the second-carrier bullet; §5 rule 18; §6 first and third bullets; §7 second-host bullet; §8: not built yet |
 | 2026-10-30 | fabric-op is the action path with no relay | Scope line: `bin/fabric-op`; §5 rule 19; §6 third bullet; §7 second-host bullet; References |
 | 2026-10-30 | Upgrade, secrets-sync and restart are busy across processes; the pool has a lock | §5 rule 19: the busy flocks of `busy.py` and `pool.json.lock` (#423); `secrets-selftest` the exclusion still per process |
+| 2026-10-30 | The InterWeave install and start budgets count the failed unit's diagnosis | §5 rule 12: `interweave-install` 2708 s (own 1448 s), `interweave-start` 1620 s |

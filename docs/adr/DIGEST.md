@@ -661,10 +661,10 @@ its record disagree, the record wins. Look it up, never read it whole:
 ### ADR-029 — The control plane: a control agent per account answers signed actions over the relay (Accepted)
 
 - Each account's agentd answers on `fabric:control`; a request sent
-  while it is down is lost (§2, r1–2).
-- Closed op set, no field reaches a shell; actions carry a fresh,
-  newer Ed25519 operator signature (r3–5).
-- Replies carry no secret; silence or failure exits 1 (r6–9).
+  while down is lost (§2, r1–2).
+- Closed op set, no field reaches a shell; actions carry fresh,
+  newer Ed25519 operator signatures (r3–5).
+- Replies carry no secret; silence, failure exit 1 (r6–9).
 - A 2026-09-27 — actions (r12).
 - A 2026-09-27 — answer budgets (r12).
 - A 2026-09-28 — jobs (r13).
@@ -673,7 +673,7 @@ its record disagree, the record wins. Look it up, never read it whole:
 - A 2026-10-06 — local, local-prune (r15).
 - A 2026-10-07 — session state (r16).
 - A 2026-10-07 — secrets-selftest (r17).
-- A 2026-10-08 — resumable state (r16).
+- A 2026-10-08 — resumable (r16).
 - A 2026-10-08 — public ops (r4).
 - A 2026-10-09 — forged claims (r4).
 - A 2026-10-09 — Scope.
@@ -682,7 +682,7 @@ its record disagree, the record wins. Look it up, never read it whole:
 - A 2026-10-10 — gateway ops (§2).
 - A 2026-10-12 — switch controller.
 - A 2026-10-18 — installer pins (§2).
-- A 2026-10-19 — rustup-target pins (§2).
+- A 2026-10-19 — rustup-target (§2).
 - A 2026-10-25 — install/read.
 - A 2026-10-25 — start/stop.
 - A 2026-10-26 — client.
@@ -692,6 +692,7 @@ its record disagree, the record wins. Look it up, never read it whole:
 - A 2026-10-28 — InterWeave carrier (r18).
 - A 2026-10-30 — `fabric-op` (r19).
 - A 2026-10-30 — busy flocks; pool lock (r19).
+- A 2026-10-30 — budgets (r12).
 - Keywords: fabric-ctl, keys, operator_key, usage, tokens, herdr,
   resume, interweave-evidence, interweave-human, fabric-control,
   control_carrier, break-glass, busy.

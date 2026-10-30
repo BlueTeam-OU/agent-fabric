@@ -309,3 +309,16 @@ account whose relay is not there.
 
 Reported by python-dev-04, the author of #423 (REQUEST 01a18bc6), who
 also named the gap sentence to change.
+
+### Amendment 2026-10-30 — The InterWeave install and start budgets count the failed unit's diagnosis
+
+Rule 12 gave `interweave-install` 2668 s (its own 1408 s) and
+`interweave-start` 1600 s. Since agent-fabric #392 a channel check that
+finds a unit not active asks it, once, for its state and its journal's
+tail (`DIAGNOSIS_BUDGET_S`, 20 s), and `CHECK_BUDGET_S` (214 s) counts
+it: an install runs two checks and a start one, so the code's budgets
+are 2708 s (own 1448 s) and 1620 s
+(`tools/fabric/control/carrier_install.py`, read back by importing it).
+`interweave-stop` (156 s) and `interweave` (100 s) were unchanged.
+
+Found by python-dev-02 as F8 of round 8 of the review of #390.
