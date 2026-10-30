@@ -359,6 +359,39 @@ class Sweep(unittest.TestCase):
         self.assertFalse(os.path.exists(d), out)
         self.assertRegex(out, rf"removed session scratch {d} \(2\.0 KB\)")
 
+    @staticmethod
+    def holds_open(pid: int, path: str) -> bool:
+        """The shell holds fds briefly before `exec sleep` closes them, so one can vanish between listdir and readlink."""
+        try:
+            names = os.listdir(f"/proc/{pid}/fd")
+        except OSError:
+            return False
+        for n in names:
+            try:
+                if os.readlink(f"/proc/{pid}/fd/{n}") == path:
+                    return True
+            except OSError:
+                continue
+        return False
+
+    def test_the_fd_wait_tolerates_a_vanished_fd_and_a_gone_process(self):
+        pid = os.getpid()
+        real = os.readlink
+        calls = []
+
+        def flaky(p):
+            calls.append(p)
+            if len(calls) == 1:
+                raise FileNotFoundError(p)
+            return "/wanted"
+
+        with mock.patch.object(os, "listdir", return_value=["3", "4"]), mock.patch.object(os, "readlink", flaky):
+            self.assertTrue(self.holds_open(pid, "/wanted"), "the second fd is still found after the first vanished")
+        self.assertEqual(real(f"/proc/{pid}/cwd"), os.getcwd(), "positive control: readlink is restored")
+        gone = subprocess.Popen(["true"])
+        gone.wait()
+        self.assertFalse(self.holds_open(gone.pid, "/wanted"))
+
     def test_an_ended_id_whose_dir_a_live_process_writes_under_is_kept(self):
         """After /clear the registry names the new id; the old id's task output is still written by the same process."""
         (d,) = self.sessions(ENDED)
@@ -367,9 +400,9 @@ class Sweep(unittest.TestCase):
         writer = subprocess.Popen(["sh", "-c", f"exec sleep 600 > {out_path}"])
         try:
             deadline = time.monotonic() + 30
-            while not any(os.readlink(f"/proc/{writer.pid}/fd/{n}") == out_path
-                          for n in os.listdir(f"/proc/{writer.pid}/fd")) and time.monotonic() < deadline:
+            while not self.holds_open(writer.pid, out_path) and time.monotonic() < deadline:
                 time.sleep(0.01)
+            self.assertTrue(self.holds_open(writer.pid, out_path), "the writer never opened its output")
             rc, out, err = self.sweep()
             self.assertTrue(os.path.isdir(d), out)
             self.assertIn(f"kept session scratch {d} — process {writer.pid} stands in it or writes under it", out)
