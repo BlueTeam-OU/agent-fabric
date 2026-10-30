@@ -1,6 +1,6 @@
 ---
 name: agent-jobs
-description: "Your own job list: what you have undertaken, are doing, wait on and have delivered, kept with fabric-jobs so it outlives this session; its priorities, a job blocked on another agent's request, your role's open pool, and the restart rule that says what to take next and when it needs a fresh session. Load it when you take on a piece of work, when the session-start context shows a jobs line, when a job reaches its artifact, or before deciding what to do next."
+description: "Your own job list: what you have undertaken, are doing, wait on and have delivered, kept with fabric-jobs so it outlives this session; its priorities, a job blocked on another agent's request, your role's open pool, a fleet hold, and the restart rule that says what to take next and when it needs a fresh session. Load it when you take on a piece of work, when the session-start context shows a jobs line, when a job reaches its artifact, or before deciding what to do next."
 ---
 
 # Your job list
@@ -103,6 +103,18 @@ first. A blocked job keeps its place and is taken only by name. A
 blocking job reaches you the next time you ask, never in the middle of
 another.
 
+**A fleet hold stops the next job, and nothing else** (ADR-037 rule 13).
+fabric-coordinator sets it on your login through the control plane;
+the session-start jobs line says `FLEET HOLD:` with its reason and
+decision, and `fabric-status` has a `hold` row. While it is set, carry
+the active job to its artifact as usual: `block`, `pause`, `deliver`,
+`done`, `drop` and `add` work, and a `REQUEST` that arrives is queued
+and answered as held. `switch` and `next` settle the job you leave and
+then stop, naming the hold: they start nothing and print no
+`fabric-fresh`, and `start` and `fabric-fresh --job` refuse. A session
+whose job is settled then ends idle; "never idle while a job is queued"
+yields to the hold. Only `fabric-ctl <login> unhold` lifts it.
+
 **Nothing queued: your role's pool.** With no queued job on your list
 (blocked and delivered ones do not count), `next` starts nothing and
 exits 1, saying what your role's open pool holds: its first job, that
@@ -161,6 +173,8 @@ agents see whether you have a session running, not your list.
 ## Never
 
 - Edit `jobs.json` by hand. `fabric-jobs` writes it under the agent lock.
+- Remove or edit your own `hold.json`. The fence stops a session that
+  missed the announcement, not one that goes round it.
 - Two active jobs. Block or deliver one first.
 - A job for another agent's work. Their list is theirs; ask them.
 - A pool job claimed and left unstarted to keep it from others. Claim
