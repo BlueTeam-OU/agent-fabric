@@ -180,8 +180,10 @@ fabric by `fabric-ref`, so the project's files exist before its CI runs.
    `projects/registry.json` and `clients.json` from that checkout). So the
    PR sets `AGENT_FABRIC_REF` to an agent-fabric main commit at or after
    the step 2 merge AND adds `repos/<repo>.json`; either alone fails CI. Then `fabric-repo-policy plan
-   <owner/repo>`; apply by hand only when the file is on the settings
-   repository's default branch.
+   <owner/repo>`. `fabric-repo-policy apply <owner/repo> --yes` waits
+   until the file is on the settings repository's default branch and,
+   when the policy names `required_checks`, until step 7's CI has merged:
+   a required check no workflow reports blocks every pull request.
 6. **fabric-coordinator**, `policies/auto-mode.json`: name the repository
    under PUBLIC, INTERNAL or PRIVATE in `Repository visibility` (an
    unnamed repository is outside the trust boundary), and in `Source
@@ -206,6 +208,6 @@ fabric by `fabric-ref`, so the project's files exist before its CI runs.
    unreadable). Then message the
    roles that work there.
 
-Not automated yet: the CI workflow, and applying the arming policy to
-GitHub. The entry, the integration directory and the `.agent-fabric/`
+Not automated yet: the CI workflow (step 7). The arming policy reaches
+GitHub through `fabric-repo-policy apply` (step 5). The entry, the integration directory and the `.agent-fabric/`
 files are scaffolded by `fabric-project import` and finished by hand.
