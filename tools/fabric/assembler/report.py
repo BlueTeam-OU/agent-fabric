@@ -14,6 +14,7 @@ import memory_horizons
 from assembler.core import layout, Run, in_report, hygiene_substitute, patterns_for
 from assembler.slices import merge_reports, scan_collisions, drop_held, read_existing_slice
 from corrections import section_key
+from assembler.shapes import still_replaced
 
 
 def store_of(hr: dict) -> str:
@@ -281,6 +282,7 @@ def report(run: Run) -> int:
         "section_writers_gone": run.section_writers_gone,
         "section_moves": run.section_moves,
         "applied_corrections": run.applied_corrections,
+        "replaced_sections": run.replaced_sections,
         "oversized_claims": run.oversized,
         "clipped_descriptions": run.clipped_descriptions,
         "migrated": run.migrated,
@@ -330,6 +332,7 @@ def report(run: Run) -> int:
                 return entry.get("heading") in sections and section_key(sections[entry["heading"]]) == entry.get("applied_key")
         return False
     report["applied_corrections"] = [e for e in report.get("applied_corrections") or [] if holds(e)]
+    report["replaced_sections"] = still_replaced(run, report.get("replaced_sections") or [])
     # A key an earlier run of the stamp held stays held only while no run
     # has written its slice since: this run writing it ends the hold.
     def written_now(key: str) -> bool:

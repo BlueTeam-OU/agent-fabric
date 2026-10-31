@@ -24,7 +24,8 @@ import re
 import sys
 from collections import defaultdict
 from typing import Any
-from assembler.core import layout, Run, in_report
+from assembler.core import layout, CLASS_FILES, Run, in_report, hygiene_substitute, patterns_for
+from corrections import section_key
 from assembler.slices import read_existing_slice, claim_heading, claim_block, undated, is_retire
 from assembler.targets import existing_sections, slice_candidates
 
@@ -122,10 +123,13 @@ def verify_replacements(run: Run) -> int | None:
     except (OSError, ValueError, AttributeError):
         earlier = []
     seen = {(path, target) for _key, path, target in run.replacements}
+    # A correction of this run that writes the heading back is a revert, which the earlier correction's replaced heading
+    # standing again is the point of.
+    reverted = {key.split("#", 1)[1].rsplit("@", 1)[0] for key, _path, _target in run.replacements}
     for entry in earlier:
         if not isinstance(entry, dict) or not isinstance(entry.get("slice"), str) or not isinstance(entry.get("replaced"), str):
             continue
-        if entry["replaced"] == entry.get("heading"):
+        if entry["replaced"] == entry.get("heading") or entry["replaced"] in reverted:
             continue
         for base in [layout.working_copy_for(run.project), layout.FABRIC_ROOT]:
             path = os.path.join(base, entry["slice"]) if base else ""
@@ -143,3 +147,74 @@ def verify_replacements(run: Run) -> int | None:
     for note in standing:
         print(f"  {note}", file=sys.stderr)
     return 1
+
+
+def report_home(run: Run, role: str | None, klass: str) -> str:
+    """The class's files as the report names them, without an extension: a record keyed by it survives a flat file moving into
+    its directory and a slice splitting into parts, which a slice's own path does not."""
+    if role is None:
+        return in_report(run, os.path.join(layout.shared_home(klass, run.project), klass))
+    return in_report(run, os.path.join(layout.class_home(klass, role, run.project), CLASS_FILES[klass]))
+
+
+def _in_home(home: str, path: str) -> bool:
+    return path == home + ".md" or path.startswith(home + "/") or path.startswith(home + "-")
+
+
+def _home_sections(home: str, project: str) -> dict[str, list[str]]:
+    """Every section of the class's files at `home`, by heading, as the files hold them now."""
+    found: dict[str, list[str]] = defaultdict(list)
+    for base in [layout.working_copy_for(project), layout.FABRIC_ROOT]:
+        if not base:
+            continue
+        stem = os.path.join(base, home)
+        for path in sorted({*glob.glob(glob.escape(stem) + ".md"), *glob.glob(glob.escape(stem) + "/*.md"), *glob.glob(glob.escape(stem) + "-*.md")}):
+            try:
+                for heading, text in read_existing_slice(path)[1].items():
+                    found[heading].append(text)
+            except (OSError, UnicodeDecodeError):
+                continue
+    return found
+
+
+def still_replaced(run: Run, entries: list[dict[str, str]]) -> list[dict[str, str]]:
+    """The replaced texts the report keeps: one stays until its text is a section again (a revert put it back, and a pass over
+    the old bundle is then the corpus's own text, a no-op) or its class has no files left."""
+    kept = []
+    for entry in entries:
+        sections = _home_sections(entry["home"], run.project)
+        if sections and not any(section_key(t) == entry["key"] for t in sections.get(entry["heading"], [])):
+            kept.append(entry)
+    return kept
+
+
+def drop_replayed(run: Run) -> None:
+    """A claim whose text an earlier replacement took out is that replacement, harvested again: a second pass over one drain's
+    bundles (or a later drain over a memory nobody updated) brought the original back beside, or over, its correction
+    (j82; the 2026-10-31 drain: 12 files changed by a second pass). It is not written, and the report names it
+    (`superseded_harvests`) as it names a predecessor of a same-run correction. A correction whose merge_target still stands
+    is a real replacement and stays: a revert is one."""
+    try:
+        with open(layout.project_report_path(run.project), encoding="utf-8") as fh:
+            earlier = json.load(fh).get("replaced_sections") or []
+    except (OSError, ValueError, AttributeError):
+        earlier = []
+    entries = [e for e in earlier if isinstance(e, dict) and all(isinstance(e.get(k), str) for k in ("home", "heading", "key"))]
+    if not entries:
+        return
+    for role, label, klass, topic, group in _groups(run):
+        home = report_home(run, role, klass)
+        mine = [e for e in entries if e["home"] == home]
+        if not mine:
+            continue
+        present = existing_sections(slice_candidates(run, role, klass, topic))
+        for claim in list(group):
+            if is_retire(claim) or (claim.get("merge_target") or "").strip() in present:
+                continue
+            key = section_key(claim_block(claim).split("\n", 1)[1].strip())
+            heading = hygiene_substitute(claim_heading(claim), "replaced section heading", patterns_for(klass))[0]
+            if any(e["heading"] == heading and e["key"] == key for e in mine):
+                group.remove(claim)
+                run.superseded_harvests.append(
+                    f"{label}/{klass}:{topic}#{claim_heading(claim)}: memory {claim['topic']!r} is text an applied correction or "
+                    f"supersede replaced (last-drain-report.json replaced_sections); not written — update or delete {claim['topic']!r}")

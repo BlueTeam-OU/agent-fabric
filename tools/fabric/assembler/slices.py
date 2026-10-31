@@ -92,6 +92,12 @@ def merge_reports(previous: dict[str, Any], current: dict[str, Any],
     for entry in [*(previous.get("applied_corrections") or []), *(current.get("applied_corrections") or [])]:
         if isinstance(entry, dict) and isinstance(entry.get("slice"), str) and exists(entry["slice"]):
             applied[(entry["slice"], entry.get("heading"), entry.get("applied_key"))] = entry
+    # j82: the texts replacements took out, across drains too — a later pass over an old bundle must not write them back.
+    replaced: dict[tuple, dict[str, Any]] = {}
+    for entry in [*(previous.get("replaced_sections") or []), *(current.get("replaced_sections") or [])]:
+        if isinstance(entry, dict) and all(isinstance(entry.get(k), str) for k in ("home", "heading", "key")):
+            replaced[(entry["home"], entry["heading"], entry["key"])] = entry
+    current = dict(current, replaced_sections=list(replaced.values()))
     if previous.get("stamp") != current["stamp"]:
         merged = dict(current, watermarks=marks, section_writers=writers, applied_corrections=list(applied.values()))
         merged["files"] = [f for f in current["files"] if exists(f)]

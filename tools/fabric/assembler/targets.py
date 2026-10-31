@@ -317,6 +317,34 @@ def resolve_targets(run: Run, role: str | None, label: str,
             moved.append((role, claim["topic"], written_stem(run, role, klass, holders[0])))
             if role is None:
                 run.shared_owners[(klass, holders[0])] |= run.shared_owners[(klass, topic)]
+    # A CORRECTION FOLLOWS THE CLAIM IT CORRECTS WHEN THAT IS IN THE SAME RUN (j82): another correction (a chain) or the memory
+    # itself harvested with it. B names the heading A gives its section, which the corpus holds only once A is applied: in one run B was written as a topic of its own, "unresolved", and the next pass found A's
+    # heading and replaced it again, leaving B's text twice. Filed after A in A's slice, B replaces A's section in the order
+    # the writer applies them. Repeated until no claim moves, so a chain of any length (and the order of the topics) resolves.
+    moving = True
+    while moving:
+        moving = False
+        for (klass, topic), group in sorted(buckets.items()):
+            for claim in list(group):
+                target = (claim.get("merge_target") or "").strip()
+                own = existing_sections(slice_candidates(run, role, klass, topic))
+                if not target or is_retire(claim) or target in own or claim_heading(claim) in own:
+                    continue   # (its heading standing is a correction already applied, which the pass above sent home)
+                if any(target in sections for sections in (existing_sections(p) for p in topics_on_disk(run, role, klass).values())):
+                    continue   # a section some topic holds: resolved above, or ambiguous and already refused
+                predecessors = sorted({t for (k, t), g in buckets.items() if k == klass and any(
+                    c is not claim and claim_heading(c) == target for c in g)} - {topic})
+                if len(predecessors) != 1:
+                    continue
+                label_of = "shared" if role is None else role
+                where = f"{label_of}/{klass}:{topic}#{claim_heading(claim)}: merge_target {target!r} names no section"
+                run.unresolved_targets[:] = [n for n in run.unresolved_targets if not n.startswith(where)]
+                group.remove(claim)
+                buckets[(klass, predecessors[0])].append(claim)
+                moved.append((role, claim["topic"], written_stem(run, role, klass, predecessors[0])))
+                if role is None:
+                    run.shared_owners[(klass, predecessors[0])] |= run.shared_owners[(klass, topic)]
+                moving = True
     for key in [k for k, g in buckets.items() if not g]:
         del buckets[key]
     return moved

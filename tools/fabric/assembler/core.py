@@ -407,6 +407,9 @@ class Run:
     # Each section a claim's merge_target replaced under another heading, (claim key, file written, replaced heading): what
     # shapes.verify_replacements looks for in the files afterwards.
     replacements: list[tuple[str, str, str]] = field(default_factory=list)
+    # Each text a replacement took out (j82), {"home", "heading", "key"}: what later passes over the drain's bundles must not write
+    # back. `home` is the class's files as the report names them (report_home), not a slice, which a split or a move renames.
+    replaced_sections: list[dict[str, str]] = field(default_factory=list)
     index_entries: dict[str, list[IndexEntry]] = field(default_factory=lambda: defaultdict(list))
     clipped_descriptions: list[str] = field(default_factory=list)
     # A role whose crossref this run writes with an empty index. Said, not

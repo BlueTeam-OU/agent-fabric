@@ -129,9 +129,14 @@ def test_a_replaced_heading_standing_after_the_write_fails_the_run(tmp: str) -> 
                                                  "evidence": ["h4"], **sw}])
             proc = ta.run_assemble(drain, claims_dir, out)
             assert proc.returncode == 0, proc.stderr
-            # The defect: the replaced section's memory harvested again.
+            # The same text harvested again is the correction's own predecessor (j82): a no-op, named, not an undo.
             ta.set_claims(claims_dir, "alpha", [{"class": "workflow", "topic": "two", "title": "Second section",
                                                  "body": "Old text of two.", "evidence": ["h5"], **sw}])
+            proc = ta.run_assemble(drain, claims_dir, out)
+            assert proc.returncode == 0 and "Second section" not in "".join(ta.tree(out).values()), proc.stderr
+            # The defect: other text under the replaced heading, which nothing says is the old one.
+            ta.set_claims(claims_dir, "alpha", [{"class": "workflow", "topic": "two", "title": "Second section",
+                                                 "body": "Reworded old text of two.", "evidence": ["h5"], **sw}])
             proc = ta.run_assemble(drain, claims_dir, out)
             assert proc.returncode == 1, proc.stderr
             assert "replaced heading stands after the write" in proc.stderr and "Second section" in proc.stderr \
