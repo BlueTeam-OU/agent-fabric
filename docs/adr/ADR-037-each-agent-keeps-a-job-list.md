@@ -244,8 +244,10 @@ Why these choices:
       nothing asked of the agent is lost;
     - `switch` and `next` settle the job being left by rule 10 step 1,
       then stop and name the hold: they start no job and print no
-      `fabric-fresh`. `start` of a queued, paused or blocked job and
-      `fabric-fresh --job` refuse, naming the hold;
+      `fabric-fresh`. `start` of any job, a delivered one included,
+      and `fabric-fresh --job` refuse, naming the hold. `import` still
+      fills an empty list, an active job in it included: it moves a
+      list that was already worked, and starts nothing;
     - a session whose job is settled ends idle, and rule 10's "never
       idle while a job is queued" yields to the hold. A `REQUEST`
       that arrives is queued and answered as held;
@@ -310,3 +312,4 @@ The body above reads current; each change's full note is in [history/ADR-037-ame
 | 2026-10-20 | A session works one job's working copy | §5 rule 3: a PreToolUse hook refuses a commit or a publish outside the session's job copies, and refuses everything after the session's job has left `active`; reads stay allowed |
 | 2026-10-21 | Leaving a job cleans its build output | §5 rule 10 step 1, decided and unbuilt (python-dev's j75): once the old job is settled, its worktree's cargo targets are to be removed, except one in use, with `--keep-targets` to skip it |
 | 2026-10-30 | A fleet hold the job tool enforces | §5 rule 13 added, built in #431 and #429: `fabric-ctl hold`/`unhold` set a login's `hold.json`; while it is set, `switch` settles and starts nothing, `start` and `fabric-fresh --job` refuse; status, session start and `jobs` show it; §8 says so |
+| 2026-10-30 | While held, every start refuses | §5 rule 13: `start` refuses a delivered job too, not only a queued, paused or blocked one; `import` stays allowed, since it moves a list and starts nothing |

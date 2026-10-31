@@ -87,6 +87,20 @@ def main() -> int:
         with open(dcache, encoding="utf-8") as fh:
             check("the blocker cache's entries came with the jobs, seen_open included", json.load(fh) == entries)
         check("export of the copy is the document it was made from", run("dst", "export").stdout == exported.stdout)
+
+        print("the fleet hold (ADR-037 rule 13): import starts nothing, so it is let through")
+        held_side = subprocess.run([sys.executable, "-c", "from runtime import identity; identity.set_hold('release freeze', set_by='h/operator')"],
+                                   cwd=ROOT, env={**env("held"), "PYTHONPATH": ROOT}, capture_output=True, timeout=60)
+        check("setup: the hold is set on a fresh state dir", held_side.returncode == 0, held_side)
+        ok("busy", "add", "an active one")
+        ok("busy", "start", "j1")
+        got = run("held", "import", stdin=ok("busy", "export"))
+        check("held: import of a list with an active job succeeds", got.returncode == 0 and b"imported 1 job" in got.stdout, got)
+        check("held: ...and the job came in active", b'"state": "active"' in run("held", *listing).stdout, run("held", *listing).stdout)
+        ok("held", "pause", "j1", "aside")
+        refused = run("held", "start", "j1")
+        check("held: ...control, a start in the same state dir is refused, naming the hold",
+              refused.returncode != 0 and b"release freeze" in refused.stderr, refused)
         added = ok("dst", "add", "after the move")
         check("the next id continues the counter", b"j7" in added, added)
         check("the document carries the title as UTF-8, not escapes", "ünïcode — title".encode() in exported.stdout)

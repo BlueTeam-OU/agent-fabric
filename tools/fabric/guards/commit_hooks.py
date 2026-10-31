@@ -27,6 +27,9 @@ CONTRACT, frozen from the bash (ADR-040 §5 rule 3):
             character.
   card      pre-commit also refuses, for EVERY committer, a commit that stages .agent-fabric/review-card.md over
             tools/fabric/review_card.py's CARD_CAP bytes. Exit 1, the size and the cap named.
+  secrets   pre-commit refuses, FIRST and for EVERY committer in every repository, a staged blob or path name that holds a
+            value of the committing account's own secrets.env, and commit-msg a message that holds one
+            (tools/fabric/guards/secret_values.py, ADR-012 §5 rule 9). Exit 1, the variable named, never the value.
   env       AGENT_FABRIC_STATE_DIR etc. are read by runtime/identity.py, which runs for the binding's role;
             AGENT_FABRIC_PYTHON is read by the forwarders only. The login is `id -un`, never the password database.
   stdout    only the three library verbs print on stdout; the hooks speak on stderr (and the decision-record check's
@@ -62,6 +65,7 @@ import commit_kind  # noqa: E402
 import hidden_unicode  # noqa: E402  the one definition of what such text may not hide
 import review_card  # noqa: E402  the card's path and cap, as the brief renderer refuses it
 import roots  # noqa: E402  the hook's own checkout is the root it is given; roots spells the policy's path (test_roots_seam)
+import secret_values  # noqa: E402  the account's own secret values, searched in what a commit records (ADR-012 §5 rule 9)
 
 ITSELF = "agent-fabric itself"
 AGENT_FABRIC_DIR = ".agent-fabric/"
@@ -377,7 +381,19 @@ def _check_review_card() -> None:
                      + " — not committed. A reviewer gets it whole on every turn (agent-fabric ADR-020).")
 
 
+def _check_secret_values(what: str, scan) -> None:
+    """Before anything else, whoever commits, in every repository: a value of this account's own secrets is never recorded.
+    A check that cannot run refuses, like every other here."""
+    try:
+        found = scan(secret_values.needles(secret_values.load()))
+    except secret_values.CannotJudge as e:
+        raise Refuse(f"{what}: {e} — not committed") from None
+    if found:
+        raise Refuse(f"{what}: " + secret_values.refusal("this commit", found) + "\n  Not committed.")
+
+
 def pre_commit(root: str) -> int:
+    _check_secret_values("pre-commit", secret_values.scan_staged)
     _check_decision_records(root)
     _check_hidden_unicode(root)
     _check_review_card()
@@ -479,6 +495,7 @@ def commit_msg(root: str, msg: str) -> int:
         raise Refuse(f"commit-msg: cannot read the message file {msg}: {e.strerror}") from None
     # Comment lines are not part of the message.
     body = "\n".join(line for line in text.split("\n") if not line.startswith("#"))
+    _check_secret_values("commit-msg", lambda ns: secret_values.scan_message(text, ns))
     reasons = _banned_attribution(body)
     if reasons:
         raise Refuse("\n".join(reasons) + "\n" + REMOVE_AND_COMMIT_AGAIN)

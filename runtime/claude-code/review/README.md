@@ -300,6 +300,7 @@ Tests: `tests/test_review_codex.py`, `tests/test_review_gateway.py`.
 | the reviewer cannot write, change git state or install | structurally: the agent file's `tools:` allow-list (no Bash, no writing tool), the fabric-review server's fixed-argv git tools and its proved read-only sandbox (ADR-065), `subagent-clone-guard.sh` |
 | the brief carries facts, not conclusions | a dispatcher convention with two fences: the renderer's rationale lint before the dispatch, the reviewer's verdict rule after it — never a hook on prompt text (`policies/subagent-dispatch/SKILL.md`) |
 | a named lens reaches the reviewer | rendered inline; the reviewer lists the lenses it applied under *Brief notes* |
+| the brief names a repository the reviewer can read | the renderer refuses, for a Claude review, a `repository` that is not the dispatching session's clone or one of its worktrees, the only ones the fabric-review server reads (`CLAUDE_PROJECT_DIR`); without a session (a shell, CI) nothing is checked, and the server still refuses the reviewer's call |
 | charter fields never become routing | the renderer emits Markdown only; routing reads `routing/` and `aliases.json` |
 
 Tests: `tests/test_review_brief.py` (the constitution's frontmatter and

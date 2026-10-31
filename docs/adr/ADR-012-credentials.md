@@ -41,7 +41,10 @@ Around that record:
   request goes moves every credential and header bound to that destination
   in the same change, with a destination-independent check on the secret
   itself;
-- credentials are **tested by shape**, never by value.
+- credentials are **tested by shape**, never by value;
+- a commit or a push that holds **a value of the committing account's own
+  secrets** is refused at the keyboard, the variable named and never the
+  value (A 2026-10-30).
 
 ## 3. Alternatives Considered
 
@@ -94,6 +97,17 @@ at the secret boundary (ADR-002).
 8. Rotation is a change in the coordinator's own store, then `fabric-secrets
    provision share all --name NAME --replace` and `fabric-ctl all
    secrets-sync` (A 2026-09-30).
+9. The commit hooks refuse, for every committer in every repository whose
+   hooks are the fabric's, a staged file, a file's name or a commit
+   message that holds a value of the committing account's own
+   `secrets.env` of 8 characters or more, as written, percent-encoded,
+   JSON-escaped or base64-encoded; pre-push refuses the same in every
+   commit, tag and file a push adds. A refusal names the variable and
+   never the value, no value is put on git's argv, and a check that
+   cannot read the file refuses. CI holds no account's values, so the
+   keyboard is where this is judged; `--no-verify` is a choice, and
+   `secret_values.py history` is the audit that finds what passed
+   (`tools/fabric/guards/secret_values.py`) (A 2026-10-30).
 
 ## 6. Consequences
 
@@ -123,6 +137,9 @@ credential together, tests by shape. Where the record lives is ADR-038's.
 - `communication/gzcoord/protocol/SPEC.md` §17;
   `communication/gzcoord/skills/gzcoord-send/SKILL.md`.
 - `runtime/openrouter/launch` (the broker environment and the key check).
+- `tools/fabric/guards/secret_values.py`, `tools/fabric/guards/commit_hooks.py`,
+  `tools/fabric/githooks_prepush.py` (rule 9); omerta (shcherbak-ai/omerta),
+  whose value-based check rule 9 borrows.
 - ADR-002 (the login is the identity), ADR-009 (the operator's signing key),
   ADR-010 (enrolment through the host executor), ADR-038 (each login's own
   store).
@@ -134,3 +151,4 @@ The body above reads current; each change's full note is in [history/ADR-012-ame
 | Date | Amendment | Effect |
 |---|---|---|
 | 2026-09-30 | The Doppler layout is replaced by each login's own store (ADR-038); rules 1-4 and 8 restated, 5-7 stand | §2, §4, §5 rules 1–4 and 8, §6, §8, Scope |
+| 2026-10-30 | A commit or a push holding a value of the account's own secrets is refused at the keyboard | §2, §5 rule 9, References |

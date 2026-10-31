@@ -168,3 +168,29 @@ touched; `gh` missing or unauthenticated ends the step with a line,
 since an unknown PR state is not none, and the local sweep goes on.
 `--sweep --worktrees`, which `fabric-jobs switch` runs, deletes nothing
 on origin.
+
+### Amendment 2026-10-30 — A fresh launch starts in the job's worktree; the session carries the verified fabric root
+
+Three sessions of one login ran stale fabric code on 2026-10-30, and
+twice the inbox and `gzcoord-send` broke on it (`episodic.db` at schema
+3, the code reading it at 2). Two causes. `fabric-fresh --job` relaunched
+in the job's `working_copy`, which the record had left on an old
+worktree 348 commits behind, while the job's `worktree`, where its branch
+lives, was elsewhere. And a session took `AGENT_FABRIC_ROOT` from the
+SessionStart hook of the checkout it started in, which defaults to that
+checkout: the launcher checked its own root against origin/main and then
+did not pass it on, so a session started in a fabric worktree ran that
+worktree's code.
+
+python-dev-02's #432 (j102, REQUEST 01a18d9f) makes the fresh relaunch
+take the job's worktree before its working copy, with the same checks,
+saying which it took when the two differ and falling back to the working
+copy, said, when the worktree is gone; `fabric-jobs` now writes
+`working_copy` with `worktree` so the two stop drifting. The launcher
+writes `AGENT_FABRIC_ROOT=<the root it verified>` into the session's
+environment, which `session-start.sh` already honours. A start
+directory that is an agent-fabric checkout other than the root, and
+behind, is named as having its own hooks and settings. Neither is a
+refusal: a feature worktree behind main is ordinary work, and refusing
+it would stop the work the warning is about. Rule 12 says so.
+
