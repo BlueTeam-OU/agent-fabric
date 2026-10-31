@@ -31,4 +31,6 @@ usage: fabric-ctl <login|all> [status|usage|identity|keys|fabric|session|script|
        fabric-ctl <coordinator> switch   (the account switch controller's mode and move log, ADR-052; any other account has none)
        fabric-ctl <login|all> control-start [--json]   (starts each account's stopped control agent through the host executor, read back by is-active; sends no request; --timeout bounds each host call, default 60)
        fabric-ctl <login|all> control-stop [--json] [--include-self]   (stops it, the unit staying enabled; this session's own account's agent only with --include-self)
+       fabric-ctl <login|all> harness-start [--json]   (starts each account's stopped harness unit through the host executor, read back by is-active; sends no request; --timeout bounds each host call, default 60)
+       fabric-ctl <login|all> harness-stop [--json] [--include-self]   (stops it, the unit staying enabled; this session's own account's only with --include-self)
        fabric-ctl keygen [--force]
