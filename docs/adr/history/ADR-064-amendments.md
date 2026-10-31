@@ -146,3 +146,29 @@ InterWeave #477 in v0.2.0, which answered §1's objections to the CLI
 for traffic of this shape. The second-host amendment of rule 1 is
 drafted in `docs/proposals/j422-control-plane-on-interweave-cli.md`
 and waits for a named host.
+
+### Amendment 2026-10-31 — The archive is checked against the owner's minisign signature as well as its digest
+
+What changed: rule 4 adds that the archive must also verify against the
+owner's minisign signature before it is extracted, the key pinned in
+`runtime/interweave/release.json` as InterWeave's
+`packaging/release-keys.toml` holds it on InterWeave's main (the copy its
+release job signs with), and that a release with no signature is not
+installed. The pin carries, per release, the key and the InterWeave commit
+it was read from, and, per build, the signature's three lines, so nothing
+about the signature is fetched at install time. v0.1.0, which predates
+the key, is marked unsigned.
+
+Why: the digest proves the bytes are the ones fabric-coordinator
+reviewed, not that the owner released them; a digest copied wrong at a
+pin move, or taken from a page that was not the release's, installs
+whatever it names. v0.2.0 is the first release that ships a `.minisig`,
+and InterWeave's release job refuses to publish an archive its pinned
+key cannot check. The measurement, with its controls, is
+`docs/live-checks/2026-10-31-interweave-archive-signature.md`: the
+signature verifies with `minisign` and with the standard library alone
+(BLAKE2b-512 and Ed25519 verification), which is what the installer
+uses, since the fleet's pinned Python has no `cryptography` and no host
+is provisioned with `minisign`. The installer's check is python-dev's
+(agent-fabric j449); until it lands the pin's new fields are read by no
+code, and the digest stays the only check.

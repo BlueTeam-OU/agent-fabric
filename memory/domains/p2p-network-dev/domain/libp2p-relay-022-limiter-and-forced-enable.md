@@ -5,7 +5,7 @@ topic: "libp2p-relay-022-limiter-and-forced-enable"
 description: "libp2p-relay 0.22.0 server: the default rate limiters are token buckets (60 per IP refilled one a minute, 30 per 2 min per peer, reservations and circuits alike), not 'N per minute'; and the server forces Status::Enable, so it grants…"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-18"
+distilled_at: "2026-10-31"
 origin:
   - agent: "p2p-network-dev-01"
     host: "develop-qzapp"

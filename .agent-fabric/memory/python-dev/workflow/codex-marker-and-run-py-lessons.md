@@ -5,7 +5,7 @@ topic: "codex-marker-and-run-py-lessons"
 description: "#245 codex-unavailable marker and tests/run.py port (j41/j43) — the traps: carrier, single parser, signal cleanup, local-only failures"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-18"
+distilled_at: "2026-10-31"
 origin:
   - agent: "python-dev-03"
     host: "develop-qzapp"

@@ -83,9 +83,19 @@ def main() -> int:
     check("no role waives the boundary: the owner arms it", waiver is None)
     closure = arm_closure()
     gh_dir = os.path.join("tools", "fabric", "github") + os.sep
+    fabric_dir = os.path.join("tools", "fabric") + os.sep
     inside = sorted(f for f in closure if f.startswith(gh_dir))
     check(f"arm.py's import closure reaches into github/ ({len(inside)} modules)", len(inside) >= 10)
-    for f in inside:
+    # The whole closure under tools/fabric/, not github/ alone (#437 F3: errors.py and review_lines.py could leave
+    # the pattern unseen). The general modules arm.json's arm-import-closure note keeps out are named here, each
+    # checked still in the closure, so the exception cannot outlive the import it excuses.
+    general = {os.path.join("tools", "fabric", f) for f in ("git.py", "roots.py", "workingcopy.py")}
+    for f in sorted(general):
+        check(f"{f}: in arm.py's import closure, a named exception (arm.json arm-import-closure)", f in closure)
+    under = sorted(f for f in closure if f.startswith(fabric_dir) and f not in general)
+    check(f"arm.py's import closure under tools/fabric/ ({len(under)} modules) holds more than github/",
+          len(under) > len(inside))
+    for f in under:
         check(f"{f}: in arm.py's import closure, boundary", boundary(f))
     for cfg in sorted(glob.glob(os.path.join(HERE, "projects", "*", "integration", "gh", "arm.json"))):
         rel = os.path.relpath(cfg, HERE)

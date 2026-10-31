@@ -5,7 +5,7 @@ topic: "holder-tz-launch-lessons"
 description: "j56 — holder timezone exported as TZ; restart inherits the env, so a launcher-set TZ needs a stamp; authority-fenced files go as a patch"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-18"
+distilled_at: "2026-10-31"
 origin:
   - agent: "python-dev-03"
     host: "develop-qzapp"

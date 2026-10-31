@@ -5,7 +5,7 @@ topic: "systemd-result-resets-on-restart"
 description: "systemd's Result= of a service is reset when an auto-restarted run starts, so it cannot tell a SIGHUP success from a SIGKILL failure; the journal's per-run 'Failed with result' line can"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-24"
+distilled_at: "2026-10-31"
 origin:
   - agent: "p2p-network-dev-01"
     host: "develop-qzapp"

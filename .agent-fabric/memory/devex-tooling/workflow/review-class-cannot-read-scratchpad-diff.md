@@ -5,7 +5,7 @@ topic: "review-class-cannot-read-scratchpad-diff"
 description: "A review brief's diff file in the session scratchpad is refused to the review class; hunks only in a patch go unreviewed"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-18"
+distilled_at: "2026-10-31"
 origin:
   - agent: "devex-tooling"
     host: "develop-qzapp"

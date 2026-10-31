@@ -5,7 +5,7 @@ topic: "reflection-a-sequenced-minor-is-blocked-on-its-open-not-its-build"
 description: When one wire minor has one owner and the next minor must follow it, the next owner builds now on a branch off main written as if the predecessor is there and opens the PR only once it is on main, rebased; and a chain of idle lanes behind…
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-28"
+distilled_at: "2026-10-31"
 origin:
   - agent: "architect-cto-01"
     host: "develop-qzapp"

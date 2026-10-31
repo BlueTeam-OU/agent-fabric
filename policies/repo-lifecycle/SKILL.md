@@ -91,7 +91,14 @@ ruleset, the arm refuses on drift).
     it (ADR-011). `communication/` protocol examples are a normative
     contract (ADR-032): changing one is an amendment, queue it.
 11. **fabric-coordinator:** `fabric-ctl all upgrade fabric`, so every
-    account's bootstrap runs `repoint`; read back with `fabric-ctl all status`.
+    account's bootstrap runs `repoint`. `status` prints no clone's remote,
+    and only the accounts holding a clone have one to read back:
+    `fabric-ctl all branches` names each account's working copies, then
+    `fabric-ctl <login>… clone <id>` for those logins reports the clone
+    `present` with `origin` `keep` (already the registry's SSH remote) or
+    `set` (re-pointed by this call: the upgrade did not). `unreadable`, a
+    push-URL warning, or a copy not at `~/projects/<id>` (which `clone`
+    does not read) goes to that account's agent as step 12.
 12. **The project's agents**, until their clone is re-pointed: API writes
     through the old name fail with HTTP 307, fetch and read still work.
     `export GH_REPO=<new owner>/<repo>` and `git remote set-url origin
@@ -180,8 +187,10 @@ fabric by `fabric-ref`, so the project's files exist before its CI runs.
    `projects/registry.json` and `clients.json` from that checkout). So the
    PR sets `AGENT_FABRIC_REF` to an agent-fabric main commit at or after
    the step 2 merge AND adds `repos/<repo>.json`; either alone fails CI. Then `fabric-repo-policy plan
-   <owner/repo>`; apply by hand only when the file is on the settings
-   repository's default branch.
+   <owner/repo>`. `fabric-repo-policy apply <owner/repo> --yes` waits
+   until the file is on the settings repository's default branch and,
+   when the policy names `required_checks`, until step 7's CI has merged:
+   a required check no workflow reports blocks every pull request.
 6. **fabric-coordinator**, `policies/auto-mode.json`: name the repository
    under PUBLIC, INTERNAL or PRIVATE in `Repository visibility` (an
    unnamed repository is outside the trust boundary), and in `Source
@@ -206,6 +215,6 @@ fabric by `fabric-ref`, so the project's files exist before its CI runs.
    unreadable). Then message the
    roles that work there.
 
-Not automated yet: the CI workflow, and applying the arming policy to
-GitHub. The entry, the integration directory and the `.agent-fabric/`
+Not automated yet: the CI workflow (step 7). The arming policy reaches
+GitHub through `fabric-repo-policy apply` (step 5). The entry, the integration directory and the `.agent-fabric/`
 files are scaffolded by `fabric-project import` and finished by hand.

@@ -5,7 +5,7 @@ topic: "agent-repo-per-agent"
 description: "Owner 2026-10-13 — each agent's secrets and settings share one repo, fabric-agent-<uuid>, in BlueTeam-OU; description names host/login/role, never the uuid; jobs/plans are working state backed up via Proton Drive CLI (separate); I run the…"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-18"
+distilled_at: "2026-10-31"
 origin:
   - agent: user
     host: "develop-qzapp"

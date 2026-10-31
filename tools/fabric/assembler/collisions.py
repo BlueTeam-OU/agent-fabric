@@ -8,7 +8,7 @@ import sys
 from collections import defaultdict
 from typing import Any
 from assembler.core import layout, CLASS_FILES, Run, in_report
-from assembler.slices import read_existing_slice, OBSERVED_RE, undated, claim_heading, absorbed, claim_block, shares_cue
+from assembler.slices import read_existing_slice, OBSERVED_RE, undated, claim_heading, absorbed, claim_block, shares_cue, is_retire
 from assembler.targets import existing_sections, slice_candidates, is_carried, pointed
 
 
@@ -65,6 +65,102 @@ def sole_author(run: Run, role: str | None, klass: str, topic: str, paths: list[
     return agents.pop() if len(agents) == 1 else None
 
 
+def _target(claim: dict[str, Any]) -> str:
+    return (claim.get("merge_target") or "").strip()
+
+
+def _text(claim: dict[str, Any]) -> str:
+    return undated(claim_block(claim).split("\n", 1)[1])
+
+
+def _agent(run: Run, claim: dict[str, Any]) -> str:
+    return (run.origins.get((claim.get("evidence") or [""])[0]) or {}).get("agent", "unresolved")
+
+
+def _siblings(present: dict[str, str], heading: str) -> list[str]:
+    """The heading and its kept-both siblings "X (n)" the corpus holds."""
+    return [k for k in present if k == heading or re.fullmatch(re.escape(heading) + r" \(\d+\)", k)]
+
+
+def settle_same_run(run: Run, label: str, klass: str, topic: str, group: list[dict[str, Any]],
+                    present: dict[str, str], refused: list[str]) -> None:
+    """Two claims of ONE drain that meet in one topic, judged against each other as well as against the corpus.
+
+    The rest of the pre-pass judges a claim against the corpus as it stood before the run, and an authorised
+    merge_target is waved through ("the author's own supersession"). Both lost knowledge in a project's drain of
+    2026-10-28 (j481, review 5716071440, F1 and F2):
+
+    - A MEMORY'S TEXT THE RUN'S OWN CORRECTION REPLACES is the correction's predecessor, harvested again. Read as
+      "standing" it passed as a no-op, and the writer then put it in another budget part, where it came back as the
+      corrected text. It is not written, and the report names it and its corrector (`superseded_harvests`).
+    - TWO CLAIMS THAT BOTH WRITE ONE HEADING — one under its own heading (which the same-agent rule turns into a
+      replacement of the corpus's section), one naming it in merge_target — were applied one over the other, and
+      the first one's text left the run with no trace but a correction row for a text that never stood. That is a
+      contested heading like the in-drain pair, asked on the claim that names the heading (its key; the other
+      claim's key is printed so each is identifiable).
+    A retire renders nothing and is not a writer here: it takes part only as the correction that replaces."""
+    named = [c for c in group if _target(c) in present]   # the author's own supersession, or a retire
+    replaced: dict[str, dict[str, Any]] = {}              # section heading in the corpus -> the claim that removes it
+    for c in named:
+        for k in ([_target(c)] if is_retire(c) else _siblings(present, _target(c))):   # a retire takes only its heading
+            replaced.setdefault(k, c)
+    named_ids = {id(c) for c in named}
+    for claim in list(group):
+        if id(claim) in named_ids:
+            continue
+        copies = [k for k in _siblings(present, claim_heading(claim)) if undated(present[k]) == _text(claim)]
+        if copies and all(k in replaced for k in copies):
+            corrector = replaced[copies[0]]
+            group.remove(claim)
+            run.superseded_harvests.append(
+                f"{label}/{klass}:{topic}#{claim_heading(claim)}: memory {claim['topic']!r} is the text of the section "
+                f"memory {corrector['topic']!r} {'retires' if is_retire(corrector) else 'corrects'} "
+                f"({_target(corrector)!r}) in this drain; not written — update or delete {claim['topic']!r}")
+    writers: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for claim in group:
+        if is_retire(claim):
+            continue
+        if _target(claim) in present:
+            writers[_target(claim)].append(claim)
+        elif not _target(claim) and claim_heading(claim) in present \
+                and _text(claim) not in {undated(present[k]) for k in _siblings(present, claim_heading(claim))}:
+            writers[claim_heading(claim)].append(claim)
+    for heading, claimants in writers.items():
+        pivot = next((c for c in reversed(claimants) if _target(c)), None)
+        rivals = [c for c in claimants if c is not pivot and _text(c) != _text(pivot)] if pivot else []
+        if not rivals:
+            continue
+        key_id = f"{label}/{klass}:{topic}#{heading}"
+        key_of = lambda c: f"{key_id}@{(c.get('evidence') or ['?'])[0][:12]}"   # noqa: E731 — the claim's key, as below
+        pivot_key = key_of(pivot)
+        decision = run.decisions.get(pivot_key) or run.decisions.get(key_id)
+        if decision is None:
+            refused.append(
+                f"{pivot_key}   (or {key_id} for every pair under the heading; decide on this key)\n"
+                f"    two claims of this drain both write {heading!r}; the corpus holds it as: {excerpt(present[heading])}\n"
+                + "".join(f"    {key_of(r)}  (observed {r.get('observed_at') or 'undated'}, {_agent(run, r)}, memory {r['topic']!r}"
+                          f"{', merge_target' if _target(r) else ', under its own heading'}): {excerpt(_text(r))}\n"
+                          for r in rivals)
+                + f"    incoming      (observed {pivot.get('observed_at') or 'undated'}, {_agent(run, pivot)}, memory "
+                  f"{pivot['topic']!r}, merge_target): {excerpt(_text(pivot))}")
+            continue
+        row = {"key": pivot_key if pivot_key in run.decisions else key_id, "decision": decision, "agent": _agent(run, pivot),
+               "observed_at": pivot.get("observed_at") or "", "memory": pivot["topic"]}
+        if decision == "supersede":
+            # The pivot stands; each rival's text leaves the run, and the report says so by memory (a rival never
+            # reaches the writer, which would have laid the pivot over it with no trace).
+            for r in rivals:
+                group.remove(r)
+                run.applied_decisions.append({"key": key_of(r), "decision": "superseded", "by": pivot_key,
+                                              "agent": _agent(run, r), "observed_at": r.get("observed_at") or "",
+                                              "memory": r["topic"]})
+        elif decision == "drop":
+            group.remove(pivot)
+        elif decision == "keep-both":
+            pivot.pop("merge_target", None)   # a correction written beside the claim, not over it
+        run.applied_decisions.append(row)
+
+
 def check_collisions(run: Run) -> int | None:
     refused_collisions: list[str] = []
     groups_to_check: list[tuple[str | None, str, tuple[str, str], list[dict[str, Any]]]] = []
@@ -79,6 +175,7 @@ def check_collisions(run: Run) -> int | None:
         present = {h: pointed(run, role, t) for h, t in existing_sections(candidates).items()}
         author = sole_author(run, role, klass, topic, candidates) if present else None
         author_any = sole_author(run, role, klass, topic, candidates, own_only=False) if present else None
+        settle_same_run(run, label, klass, topic, group, present, refused_collisions)
         # A HEADING TWO CLAIMS OF THIS DRAIN DISAGREE UNDER is contested
         # whichever comes first: judged claim by claim, a pair whose second
         # claim equalled the corpus passed as a no-op after the first had

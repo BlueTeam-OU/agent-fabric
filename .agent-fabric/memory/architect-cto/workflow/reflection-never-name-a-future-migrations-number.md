@@ -5,7 +5,7 @@ topic: "reflection-never-name-a-future-migrations-number"
 description: "A request, a decision record or a migration comment names a future migration by its purpose and 'the next free number', never by a number: numbers are taken by whatever lands first, and an obligation addressed to 'NNNN's author' lands on…"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-28"
+distilled_at: "2026-10-31"
 origin:
   - agent: "architect-cto-01"
     host: "develop-qzapp"

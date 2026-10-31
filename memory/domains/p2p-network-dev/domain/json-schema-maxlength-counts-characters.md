@@ -5,7 +5,7 @@ topic: "json-schema-maxlength-counts-characters"
 description: "JSON Schema maxLength counts characters (code points), not UTF-8 bytes — 2048 characters can be 8 KiB; when prose says bytes and the schema says maxLength, raise the conflict, and test the bound with multi-byte text so a `len()` check fails"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-18"
+distilled_at: "2026-10-31"
 origin:
   - agent: "p2p-network-dev-01"
     host: "develop-qzapp"

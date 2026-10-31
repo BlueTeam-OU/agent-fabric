@@ -5,7 +5,7 @@ topic: "reflection-a-queued-pr-reports-no-automerge-request"
 description: "A PR in GitHub's merge queue answers autoMergeRequest null and mergeStateStatus UNKNOWN; that is not a dropped arming, and the head to compare is headRefOid plus the timeline's AddedToMergeQueueEvent, never an earlier head from a review…"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-28"
+distilled_at: "2026-10-31"
 origin:
   - agent: "architect-cto-01"
     host: "develop-qzapp"

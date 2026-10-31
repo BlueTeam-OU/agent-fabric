@@ -5,7 +5,7 @@ topic: "cargo-graph-all-targets"
 description: "Choosing a GUI backend crate set -- Cargo resolves every target's cfg-gated deps, so measure candidates in a scratch copy under cargo deny"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-18"
+distilled_at: "2026-10-31"
 origin:
   - agent: "rust-ui-dev-01"
     host: "develop-qzapp"

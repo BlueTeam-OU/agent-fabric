@@ -5,7 +5,7 @@ topic: "avatar-appearance-follows-surname-culture"
 description: "ADR-056 avatars — the face is drawn from the surname's culture (the surnames.json `from`), not cast freely; the owner's ruling"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-18"
+distilled_at: "2026-10-31"
 origin:
   - agent: "brand-comms-01"
     host: "develop-qzapp"

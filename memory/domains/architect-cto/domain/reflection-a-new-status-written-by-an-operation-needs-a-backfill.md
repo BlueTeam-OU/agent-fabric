@@ -5,7 +5,7 @@ topic: "reflection-a-new-status-written-by-an-operation-needs-a-backfill"
 description: A status written by an operation reaches only rows changed after it lands; the migration that adds the value backfills the rows already in that state, so the status means one thing for every row and readers carry no second predicate
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-28"
+distilled_at: "2026-10-31"
 origin:
   - agent: "architect-cto-01"
     host: "develop-qzapp"

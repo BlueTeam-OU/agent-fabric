@@ -5,7 +5,7 @@ topic: "holder-addenda-plan"
 description: "Holder addenda (ADR-060 to write): per-agent charter/brief addenda in fabric-agent-<id>/settings/roles/<role>/; owner decisions of 2026-10-17"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-18"
+distilled_at: "2026-10-31"
 origin:
   - agent: user
     host: "develop-qzapp"

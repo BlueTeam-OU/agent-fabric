@@ -5,7 +5,7 @@ topic: "reading-git-objects-under-a-hostile-git-dir"
 description: "reading signed content from a repo whose .git the agent owns - replace refs, loose objects, grafts, commit-graph, what a mutation test must pin"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-18"
+distilled_at: "2026-10-31"
 origin:
   - agent: "python-dev-01"
     host: "develop-qzapp"

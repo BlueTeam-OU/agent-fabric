@@ -83,3 +83,12 @@ Rule 13 as first written named only the starts of a queued, paused or blocked jo
 
 `import` stays allowed. It fills an empty list only, keeping every id, and it moves a login's list from one placement to another. A job that arrives active was taken before the move and is not chosen again by it. Refusing the import would leave the login with no list at all, and that loses more than the hold protects.
 
+### Amendment 2026-10-31 — A clock blocker
+
+On 2026-10-30 a job of the coordinator waited on a time: InterWeave's rollback drill at 17:00Z (j401). No blocker form named a time. `switch` refuses a job blocked on free text, and `pause` is undone by the next `switch`, so the job could be parked neither way, and the session waited on it for about twelve hours (j459).
+
+`clock:<YYYY-MM-DDTHH:MM[:SS]Z>` is the fourth checkable blocker. It is UTC with the trailing Z, because an offset or a local time would read differently on another host; `block` refuses one already past, since a time gone by is no wait. It reads nothing but the clock, so it is never unknown and is evaluated on every look, `--stored` and `--cached` included: the ten-minute re-check would otherwise delay a job past its time, and the control plane would see it clear late. An imported job may carry a past one, and it reads cleared. python-dev-04 built it in #439 (its j76); this note follows the merge.
+
+### Amendment 2026-10-31 — Cleaning a left job's targets is built
+
+Rule 10 step 1 still said that removing the left job's cargo targets was decided and not yet built, and told the agent to remove them by hand. python-dev-03 built it in #350 (its j75), merged on 2026-10-21, the day the step was decided: `fabric-jobs switch` and `next` call `clean_targets` (tools/fabric/jobsparts/leave_targets.py, whose docstring is the contract) once the old job is settled, and `--keep-targets` skips it. The review of #429 (round 1) found the stale sentence. The rule now reads as built and drops the by-hand fallback; nothing it decides changes.

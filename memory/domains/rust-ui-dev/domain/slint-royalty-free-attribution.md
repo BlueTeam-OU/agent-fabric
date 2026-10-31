@@ -5,7 +5,7 @@ topic: "slint-royalty-free-attribution"
 description: "Meeting the Slint Royalty-free 2.0 attribution duty -- AboutSlint needs an image feature; the download-page badge is the alternative"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-18"
+distilled_at: "2026-10-31"
 origin:
   - agent: "rust-ui-dev-01"
     host: "develop-qzapp"

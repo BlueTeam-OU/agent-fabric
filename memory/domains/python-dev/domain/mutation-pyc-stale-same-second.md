@@ -5,7 +5,7 @@ topic: "mutation-pyc-stale-same-second"
 description: "Mutation runs that edit a source and rerun within the same second can run a stale .pyc - clear __pycache__ and set PYTHONDONTWRITEBYTECODE"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-18"
+distilled_at: "2026-10-31"
 origin:
   - agent: "python-dev-04"
     host: "develop-qzapp"

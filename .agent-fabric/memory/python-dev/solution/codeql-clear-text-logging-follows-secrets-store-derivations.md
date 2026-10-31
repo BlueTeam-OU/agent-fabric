@@ -5,7 +5,7 @@ topic: "codeql-clear-text-logging-follows-secrets-store-derivations"
 description: "CodeQL py/clear-text-logging-sensitive-data flags a print of anything derived from the secrets store's path or files read (basename, len) — print a literal"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-18"
+distilled_at: "2026-10-31"
 origin:
   - agent: "python-dev-04"
     host: "develop-qzapp"

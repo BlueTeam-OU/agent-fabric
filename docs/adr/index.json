@@ -35,7 +35,7 @@
       "status": "Accepted",
       "date": "2026-09-16",
       "pillar": "P1",
-      "amendments": 6
+      "amendments": 7
     },
     {
       "number": "004",
@@ -269,7 +269,7 @@
       "status": "Accepted",
       "date": "2026-09-17",
       "pillar": "P5",
-      "amendments": 29
+      "amendments": 30
     },
     {
       "number": "030",
@@ -341,7 +341,7 @@
       "status": "Accepted",
       "date": "2026-09-28",
       "pillar": "P3",
-      "amendments": 14
+      "amendments": 16
     },
     {
       "number": "038",
@@ -584,7 +584,7 @@
       "status": "Accepted",
       "date": "2026-10-23",
       "pillar": "P5",
-      "amendments": 7
+      "amendments": 8
     },
     {
       "number": "065",
@@ -593,7 +593,7 @@
       "status": "Accepted",
       "date": "2026-10-23",
       "pillar": "P3",
-      "amendments": 0
+      "amendments": 1
     }
   ]
 }

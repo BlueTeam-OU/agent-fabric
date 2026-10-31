@@ -5,7 +5,7 @@ topic: "timing-tests-under-load-j58"
 description: "j58 (#296) — how to bound a timing test: event or CPU time, ceiling an unbounded call would show; synthetic load recipe; traps"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-18"
+distilled_at: "2026-10-31"
 origin:
   - agent: "python-dev-03"
     host: "develop-qzapp"

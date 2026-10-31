@@ -5,7 +5,7 @@ topic: "agent-fabric-arm-json-outside-entry"
 description: "projects/agent-fabric/integration/gh/arm.json is NOT in devex-tooling's authority entry (only gzapp's and interweave's are); and the fence refuses any non-for/ branch name"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-18"
+distilled_at: "2026-10-31"
 origin:
   - agent: "devex-tooling"
     host: "develop-qzapp"

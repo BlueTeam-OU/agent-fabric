@@ -226,8 +226,8 @@ def tools(directory: str | None = None, now: Callable[[], float] = lambda: time.
 
 # `tools-install <tool>`, a signed action: the account installs the tool a
 # project pins for it (tools/fabric/tools_install.py has the rules: the
-# pin, the hash, the proof, the working copy that makes it this account's
-# to have). The control agent only runs it and carries the verdict back;
+# pin, the hash, the proof, the working copy and the bound role that make
+# it this account's to have). The control agent only runs it and carries the verdict back;
 # it decides nothing about which account gets what, so the Doppler CLI
 # stays off every account the registry does not name it for.
 TOOL_NAME = re.compile(r"[a-z0-9][a-z0-9._-]{0,63}")

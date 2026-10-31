@@ -2,10 +2,10 @@
 role: "fabric-coordinator"
 class: solution
 topic: "trusted-base-orphaned-by-reset"
-description: "A store's trusted base can point at a commit a reset orphaned; ADR-060 addenda.load then refuses the launch for every role"
+description: "A store's trusted base orphaned by a reset or rebase refuses the launch for every role; the agent repairs it with fabric-secrets store trust-base --replace-orphaned"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-18"
+distilled_at: "2026-10-31"
 origin:
   - agent: user
     host: "develop-qzapp"
@@ -13,28 +13,26 @@ origin:
     working_copy: "agent-fabric"
 derived_from:
   - 3eed053d807b8fe3
+  - 9b924e1bf1cb153f
 ---
 
-## A store's trusted base can point at a commit a reset orphaned; ADR-060 addenda.load then refuses the launch for every role
+## A store's trusted base orphaned by a reset or rebase refuses the launch for every role; the agent repairs it with fabric-secrets store trust-base --replace-orphaned
 
-On 2026-10-17, architect-cto-01 (base 187855c) and brand-comms-01 (base 21f92fe)
-would not launch: `agent-fabric.trustedbase` in the store's .git/config named a
-commit that HEAD no longer descended from. architect-cto-01's reflog showed the
-persona commit, then `reset: moving to 58c4664`, then re-added settings.
-Likely cause: the writer moves the base before the push succeeds, and a reset
-after a failed push orphans it. The fix (writer order and a clearer refusal) is
-still to be dispatched to a python contributor.
+On 2026-10-17 two agents would not launch: `agent-fabric.trustedbase` in their store's .git/config named a
+commit HEAD no longer descended from (a reset after a failed push); the owner set both bases by hand in each
+agent's pane.
 
-**Why:** auto mode refuses my setting another account's base ("Security Weaken");
-the owner set both bases to the verified HEAD (10c40e2, 365f6cc) in each
-agent's own pane on 2026-10-18.
+Fixed in the tree on 2026-10-18 (`tools/fabric/secretstore/trust.py`): a store write that orphans the trusted
+base moves it back, and the refusal names the repair, `fabric-secrets store trust-base --replace-orphaned`,
+which re-trusts only after a rewrite that orphaned the base and only to the verified tip.
 
-**How to apply:** verify that HEAD equals origin/main and is signed by the
-agent's own key, then hand the owner the one-line `git config` + `claude`
-command for that agent's tab. Related: [[tmpdir-in-home-2026-10-17]].
+**Why:** auto mode refuses my setting another account's base ("Security Weaken"); the store is that agent's.
+**How to apply:** when a launch refuses on the trusted base, the agent itself (or the owner in its pane) runs
+the command the refusal prints; verify first that HEAD equals origin/main and is signed by the agent's own key.
+Related: [[tmpdir-in-home-2026-10-17]].
 
 *References: tmpdir-in-home-2026-10-17*
 
-*Anchors: `tools/fabric/secretstore/trust.py::trusted_base`*
+*Anchors: `tools/fabric/secretstore/trust.py::--replace-orphaned`*
 
-*Observed 2026-10-17 (fabric-coordinator)*
+*Observed 2026-10-23 (fabric-coordinator)*

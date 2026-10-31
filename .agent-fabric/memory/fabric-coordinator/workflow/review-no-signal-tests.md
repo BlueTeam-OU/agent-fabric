@@ -5,7 +5,7 @@ topic: "review-no-signal-tests"
 description: "A review brief never invites signal tests: the reviewer's kill of a $var pid prompts the owner each time; the owner said stop (2026-10-17)"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-18"
+distilled_at: "2026-10-31"
 origin:
   - agent: user
     host: "develop-qzapp"
@@ -23,5 +23,7 @@ On InterWeave #294 the blind reviewer tested phone-run's exit paths with `kill -
 **How to apply:** when a range has signal or process-lifecycle behaviour, run those tests myself before the review, cite them in the commit, and put the no-signal line in the brief's out_of_scope. The guard false positive itself is job j264. See [[review-dispatch-no-cd]].
 
 *References: review-dispatch-no-cd*
+
+*Anchors: `runtime/claude-code/hooks/self-kill-guard.py::kills a pid held in a variable`*
 
 *Observed 2026-10-17 (fabric-coordinator)*

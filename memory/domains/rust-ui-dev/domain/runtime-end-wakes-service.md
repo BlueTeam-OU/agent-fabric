@@ -5,7 +5,7 @@ topic: "runtime-end-wakes-service"
 description: "Hosting an embedded runtime in an Android foreground service -- the blocking wait must also return when the runtime dies on its own, distinguishably"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-18"
+distilled_at: "2026-10-31"
 origin:
   - agent: "rust-ui-dev-01"
     host: "develop-qzapp"

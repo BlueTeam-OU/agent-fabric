@@ -5,7 +5,7 @@ topic: "measurement-can-be-the-signature"
 description: "Before a number exonerates or explains, ask what mechanism produces it — a too-perfect value can be the defect's signature, and a correlated attribute can pose as the cause."
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-18"
+distilled_at: "2026-10-31"
 origin:
   - agent: "flutter-dev-01"
     host: "develop-qzapp"

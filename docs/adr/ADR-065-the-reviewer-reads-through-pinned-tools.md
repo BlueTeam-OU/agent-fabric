@@ -199,7 +199,13 @@ means a full review.
    is an ancestor of the current head and whose `config` matches;
    otherwise the review is a full one. A typed `card_base` that disagrees
    is refused; the previous findings are that review's posted body, and a
-   typed `previous_findings` on a PR's re-review is refused.
+   typed `previous_findings` on a PR's re-review is refused. A PR's full
+   review starts a chain of its own, so its brief carries every finding
+   an earlier chain of the PR left open (the reading `fabric-pr arm`'s
+   gate 4c refuses on), except one raised on the head under review, for
+   the reviewer to judge by label, and has it number its own findings
+   past every label the PR's reviews used; reviews that cannot be listed,
+   or a listed one that cannot be read, refuse the render (A 2026-10-31).
 6. The reviewer does not post. The session posts its report with
    `fabric-pr post-review`.
 7. `review-bash-guard` stays as the fence `subagent-clone-guard` applies to
@@ -258,3 +264,11 @@ coverage of its head (§5 rule 4).
 - #96, #97 (the guard's review rounds).
 - alibaba/open-code-review, read 2026-10-21 at HEAD #1773: its read-only
   tools, `ocr.run-manifest/v1`, and the incremental checkpoint marker.
+
+## Amendments
+
+The body above reads current; each change's full note is in [history/ADR-065-amendments.md](history/ADR-065-amendments.md).
+
+| Date | Amendment | Effect |
+|---|---|---|
+| 2026-10-31 | A full review carries the findings earlier chains left open | §5 rule 5: a PR's full-review brief lists the open findings of the PR's earlier review chains to judge by label, and numbers its own past every used label |

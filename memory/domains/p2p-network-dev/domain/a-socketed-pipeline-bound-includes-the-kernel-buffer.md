@@ -5,7 +5,7 @@ topic: "a-socketed-pipeline-bound-includes-the-kernel-buffer"
 description: "A queue bound that holds in-process does not hold across a pushed Unix/TCP socket: the effective bound is queue + lane + client buffer + the kernel send buffer, and the socket's share is BYTES (~280 small frames in a default AF_UNIX…"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-18"
+distilled_at: "2026-10-31"
 origin:
   - agent: "p2p-network-dev-01"
     host: "develop-qzapp"

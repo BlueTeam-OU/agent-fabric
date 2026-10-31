@@ -10,7 +10,7 @@
   {"query": "git worktree under .claude directory staged as embedded repo", "expect": [
     {"slice": "p:shared/workflow-worktree-under-dot-claude", "heading": "an isolated subagent's worktree", "within": 1, "band": "strong"}]},
   {"query": "grep resolves to ugrep on this host", "expect": [
-    {"slice": "p:shared/workflow-local-grep-is-ugrep", "heading": "On develop-qzapp `grep` resolves to ugrep", "within": 1, "band": "strong"}]},
+    {"slice": "p:shared/workflow-local-grep-is-ugrep", "heading": "\"grep is ugrep\" on a login is the Claude Code Bash tool's shell function", "within": 1, "band": "strong"}]},
   {"query": "pipe exit status tail commit lint failed", "expect": [
     {"slice": "p:shared/workflow-check-exit-status-not-pipe", "heading": "Never `check | tail -1", "within": 1, "band": "strong"}]},
   {"query": "test GNUPGHOME equals home gpg-agent shared", "expect": [

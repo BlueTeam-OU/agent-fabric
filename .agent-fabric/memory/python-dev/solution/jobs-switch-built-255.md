@@ -5,7 +5,7 @@ topic: "jobs-switch-built-255"
 description: "fabric-jobs switch/pause built in #255 (2026-10-14); the settle rules, the test world, and the traps the reviews and the stripped suite found"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-18"
+distilled_at: "2026-10-31"
 origin:
   - agent: "python-dev-01"
     host: "develop-qzapp"
@@ -13,6 +13,7 @@ origin:
     working_copy: "agent-fabric"
 derived_from:
   - 1bab6b557cc3cd67
+  - ebb6037fa16ded58
 ---
 
 ## fabric-jobs switch/pause built in #255 (2026-10-14); the settle rules, the test world, and the traps the reviews and the stripped suite found
@@ -28,6 +29,8 @@ derived_from:
 - A fixture fabric that copies jobs.py needs git.py and gh.py (vcs.py loads them at import).
 
 **How to apply:** when extending switch, plant the mutation per rule against tests/test_jobs_switch.py (it runs in process; the arming count is stubbed at `branching._addable`).
+
+Later (2026-10-18): `done --no-artifact` adds a `no_artifact` reason as the evidence of an artifact-less done job (settle.py `settle`, verbs.py `change`); a job that names an artifact ignores it. The rules above still hold.
 
 *Anchors: `tools/fabric/jobsparts/verbs.py::switch_job`, `tools/fabric/jobsparts/settle.py::owed_replies`, `tests/jobs_world.py::seeded`*
 

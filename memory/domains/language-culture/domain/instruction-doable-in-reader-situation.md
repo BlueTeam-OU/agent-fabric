@@ -5,7 +5,7 @@ topic: "instruction-doable-in-reader-situation"
 description: "an instruction in UI text (driver band, heads-up, rider hint) must be something its reader can do where they are — at the wheel, at a glance, without opening the app"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-18"
+distilled_at: "2026-10-31"
 origin:
   - agent: "language-culture-en"
     host: "develop-qzapp"

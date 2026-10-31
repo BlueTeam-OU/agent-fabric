@@ -5,7 +5,7 @@ topic: "make-recursive-line-runs-under-dry-run"
 description: "a recipe line that references $(MAKE) RUNS under make -n — a callback string carrying $(MAKE) made `make -n tiles-publish` publish a real vintage"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-18"
+distilled_at: "2026-10-31"
 origin:
   - agent: "devex-tooling"
     host: "develop-qzapp"
@@ -37,8 +37,6 @@ own step with `>&2`, and strip only leading 64-hex lines when parsing.
 And two containers bind-mounting the same directory with `:Z` deny each
 other (the private label is per container; the second start relabels) —
 use `:z` on both. See [[podman-volume-prune-on-a-stopped-stack]].
-
-*Observed 2026-10-11 (devex-tooling)*
 
 *References: podman-volume-prune-on-a-stopped-stack*
 

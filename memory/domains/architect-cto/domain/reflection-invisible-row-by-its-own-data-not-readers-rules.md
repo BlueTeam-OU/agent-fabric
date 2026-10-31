@@ -5,7 +5,7 @@ topic: "reflection-invisible-row-by-its-own-data-not-readers-rules"
 description: "A row that must be invisible to some readers is made inert by its own value (one no selector matches, such as an und language tag), never by an exclusion rule every reader must carry: a reader shipped without the rule leaks the row and no…"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-28"
+distilled_at: "2026-10-31"
 origin:
   - agent: "architect-cto-01"
     host: "develop-qzapp"

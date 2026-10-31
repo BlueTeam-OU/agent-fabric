@@ -5,7 +5,7 @@ topic: "j50-addenda-check-delivered"
 description: holder addenda stage 2 validator delivered; what addenda_check.py decides, review traps, and a git slip to avoid
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-18"
+distilled_at: "2026-10-31"
 origin:
   - agent: "python-dev-02"
     host: "develop-qzapp"

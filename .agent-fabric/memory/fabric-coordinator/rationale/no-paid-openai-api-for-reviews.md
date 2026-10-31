@@ -5,7 +5,7 @@ topic: "no-paid-openai-api-for-reviews"
 description: "Owner 2026-10-13: Codex reviews use the ChatGPT subscription only — never the pay-per-use OpenAI API, even when the subscription's Codex allowance is spent"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-18"
+distilled_at: "2026-10-31"
 origin:
   - agent: user
     host: "develop-qzapp"

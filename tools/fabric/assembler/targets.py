@@ -35,6 +35,11 @@ def existing_sections(paths: list[str]) -> dict[str, str]:
     return found
 
 
+def parts_holding(run: Run, role: str | None, klass: str, topic: str, heading: str) -> list[str]:
+    """The files of one topic (its budget parts) that hold a section under `heading`."""
+    return [p for p in slice_candidates(run, role, klass, topic) if heading in read_existing_slice(p)[1]]
+
+
 def plan_classes(run: Run) -> None:
     # THE LAYOUT OF EACH CLASS IS DECIDED ONCE, from the drain as it
     # arrived, before any claim moves between topics (a correction whose
@@ -220,6 +225,16 @@ def resolve_targets(run: Run, role: str | None, label: str,
             if not target and role is None:
                 continue   # shared/ has no carried file
             own = existing_sections(slice_candidates(run, role, klass, topic))
+            where = f"{label}/{klass}:{topic}#{claim_heading(claim)}"
+            # A HEADING TWO PARTS OF ONE TOPIC HOLD is as ambiguous as one two topics hold. Which part the claim is
+            # written into is split_by_budget's grouping, not the target's, and the other part's copy stood: in
+            # a project's drain of 2026-10-28 (j481) the correction replaced the heading in part 2 only, and the
+            # text it replaced came back from part 1's side. Refused like the two-topic case, nothing written; the
+            # author or the owner leaves one copy in the corpus.
+            if target and len(parts_holding(run, role, klass, topic, target)) > 1:
+                run.ambiguous_targets.append(f"{where}: merge_target {target!r} is a section of more than one part of "
+                                             f"{klass}:{topic}: " + ", ".join(in_report(run, p) for p in parts_holding(run, role, klass, topic, target)))
+                continue
             if target and target in own:
                 continue
             if klass not in on_disk_by_class:
@@ -245,8 +260,12 @@ def resolve_targets(run: Run, role: str | None, label: str,
                     buckets[(klass, holders[0])].append(claim)
                     moved.append((role, claim["topic"], written_stem(run, role, klass, holders[0])))
                 continue
-            where = f"{label}/{klass}:{topic}#{heading}"
             holders = sorted(t for t, sections in on_disk.items() if target in sections and t != topic)
+            if len(holders) == 1 and len(parts_holding(run, role, klass, holders[0], target)) > 1:
+                run.ambiguous_targets.append(f"{where}: merge_target {target!r} is a section of more than one part of "
+                                             f"{klass}:{holders[0]}: "
+                                             + ", ".join(in_report(run, p) for p in parts_holding(run, role, klass, holders[0], target)))
+                continue
             if len(holders) > 1:
                 run.ambiguous_targets.append(f"{where}: merge_target {target!r} is a section of "
                                          + ", ".join(f"{klass}:{t}" for t in holders))
@@ -408,7 +427,7 @@ def resolve_all_targets(run: Run) -> int | None:
     moved += resolve_targets(run, None, "shared", run.shared)
     point_links(run, moved)
     if run.ambiguous_targets:
-        print("MERGE TARGET AMBIGUOUS — a correction names a heading more than one topic holds; "
+        print("MERGE TARGET AMBIGUOUS — a correction names a heading more than one topic, or more than one part of a topic, holds; "
               "the author names the section unambiguously (retitle one of them, or the memory). "
               "This run wrote NOTHING and exits 1.", file=sys.stderr)
         for note in run.ambiguous_targets:

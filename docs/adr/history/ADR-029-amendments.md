@@ -326,3 +326,18 @@ Found by python-dev-02 as F8 of round 8 of the review of #390.
 ### Amendment 2026-10-30 — The fleet hold is set through the control plane
 
 ADR-037 rule 13 makes a fleet hold something the job tool enforces, and the control plane is how fabric-coordinator reaches every login with a signed action. `hold` and `unhold` join the action table. Unlike `jobs-add`, they may name `all`: a hold is fleet-wide by purpose, and setting it one login at a time would recreate the gap it closes, an account missed. An account whose control agent does not answer is named, because a hold that has not reached it does not hold it. The ops are built in agent-fabric #431.
+
+### Amendment 2026-10-31 — A tool pinned for some roles is installed only on an account bound to one
+
+The §2 row said `tools-install` skips an account with no working copy of
+a project that declares the tool. A declaration may also name `roles`,
+and `fabric-tools` checks a tool only on an account bound to one of
+them, but `tools_install.py` ignored the field: a role-scoped pin
+(impeccable, brand-comms') was placed on every account with a working
+copy of its project, then never checked there. The install now skips,
+with nothing fetched or written, when every declaration in a working
+copy names `roles` and the account's bound role is not among them; an
+account with no bound role is skipped the same way. A declaration
+without `roles` is for every role, as in the check.
+
+Found in the review of agent-fabric #421 (§2); fixed by fabric-coordinator as job j463.

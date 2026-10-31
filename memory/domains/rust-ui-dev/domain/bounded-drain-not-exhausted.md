@@ -5,7 +5,7 @@ topic: "bounded-drain-not-exhausted"
 description: "Consuming a bounded event drain -- a short or empty return is not \"nothing left\" when notices, duplicates or undecodable items take slots"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-18"
+distilled_at: "2026-10-31"
 origin:
   - agent: "rust-ui-dev-01"
     host: "develop-qzapp"

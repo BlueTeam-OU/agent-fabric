@@ -5,7 +5,7 @@ topic: "lint-in-worktree-root"
 description: "Running tools/fabric/lint.py inside a worktree without AGENT_FABRIC_ROOT=$PWD judged the main checkout, so a branch's schema finding went unseen and CI's platform-smoke went red"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-18"
+distilled_at: "2026-10-31"
 origin:
   - agent: user
     host: "develop-qzapp"

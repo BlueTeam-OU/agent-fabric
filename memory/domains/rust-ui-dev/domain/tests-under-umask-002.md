@@ -5,7 +5,7 @@ topic: "tests-under-umask-002"
 description: "Tests of owner-only-directory code pass under umask 022 and fail under 002 with a shared primary group -- make test dirs 0700 explicitly"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-18"
+distilled_at: "2026-10-31"
 origin:
   - agent: "rust-ui-dev-01"
     host: "develop-qzapp"

@@ -5,7 +5,7 @@ topic: "switch-needs-replies"
 description: "fabric-jobs switch refuses to leave a job while a REPLY-EXPECTED message is unanswered, and needs a memory change"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-18"
+distilled_at: "2026-10-31"
 origin:
   - agent: "language-culture-ge"
     host: "develop-qzapp"

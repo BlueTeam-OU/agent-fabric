@@ -5,7 +5,7 @@ topic: "owner-merge-asap-on-another-roles-pr-is-a-drive"
 description: "The owner's \"merge #N asap\" on a PR another role owns is a drive, not an arm; read the gate first, since a queued PR or a forced-order red needs no message at all"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-28"
+distilled_at: "2026-10-31"
 origin:
   - agent: "architect-cto-01"
     host: "develop-qzapp"

@@ -12,7 +12,7 @@ from assembler.core import layout, yaml_scalar
 
 
 REPORT_LISTS = ("files", "hygiene_problems", "rejected_hygiene", "redactions", "retired_in_siblings",
-                "oversized_claims", "clipped_descriptions", "migrated", "merge_target_unresolved", "held_back")
+                "oversized_claims", "clipped_descriptions", "migrated", "merge_target_unresolved", "superseded_harvests", "held_back")
 
 
 def drop_held(report: dict[str, Any], keys: list[str], paths: set[str]) -> None:
@@ -426,6 +426,15 @@ def absorbed(sections: dict[str, str], claim: dict[str, Any]) -> list[str]:
 def claim_block(claim: dict[str, Any]) -> str:
     title = claim_heading(claim)
     body = demote_headings(claim["body"].strip())
+    # A BODY THAT CARRIES ITS OWN FOOTER (a memory copied from a slice, a correction memory) was given a second one
+    # whenever the claim had observed_at: two identical lines at the end of the section (a project's merged drain of
+    # 2026-10-28, j485). Every footer at the very end comes off before the claim's is built. The claim's own date and
+    # role win; a claim without observed_at keeps the body's last footer, once — a dated fact is never made undated.
+    # Only the end is touched: the pattern is anchored there, so an "Observed" sentence in the prose stays.
+    footers: list[str] = []
+    while (found := OBSERVED_RE.search(body)):
+        footers.append(found.group(0).strip())
+        body = body[:found.start()].rstrip()
     cites = claim.get("citations") or {}
     flat = [c for values in cites.values() for c in values]
     tail = ""
@@ -441,6 +450,8 @@ def claim_block(claim: dict[str, Any]) -> str:
     if claim.get("observed_at"):
         who = f" ({claim['_role']})" if claim.get("_role") else ""
         tail += f"\n\n*Observed {claim['observed_at']}{who}*"
+    elif footers:
+        tail += "\n\n" + footers[0]   # collected from the end, so [0] is the body's last
     scope = ""
     if claim.get("knowledge_scope") == "domain-only":
         scope = "\n\n> Learned outside this system; it describes the field, not our implementation.\n"

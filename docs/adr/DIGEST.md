@@ -139,11 +139,9 @@ its record disagree, the record wins. Look it up, never read it whole:
 - Every write under `agents/<login>/` goes through `runtime/identity.py`:
   `atomic_write`, `update_binding`, `append_history`; no caller opens a
   state file for writing. The control code (`tools/fabric/control/`)
-  replaces its own files by temporary and rename and appends its logs
-  (§5 rule 1).
-- Every read-modify-write holds `agent_lock`, a re-entrant flock, except
-  the control code's own files, which only it writes and the
-  launcher only consumes (§5 rule 2).
+  replaces its files by rename, appends its logs (§5 rule 1).
+- Every read-modify-write holds `agent_lock`, a flock, except
+  the control code's own files (§5 rule 2).
 - A binding is per (agent, host); another host's is refused (§5 rule 3).
 - A working-copy rename merges history, never overwrites (§5 rule 4); the
   session-start hook stays non-blocking (§5 rule 5).
@@ -160,8 +158,9 @@ its record disagree, the record wins. Look it up, never read it whole:
   `agent_lock` (§2, §5 rules 1–2).
 - A 2026-10-30 — `pool.json` is rewritten under a flock on
   `pool.json.lock` (§2, §5 rule 2).
-- Keywords: state, binding, atomic write, lock, flock, rename, history,
-  host, XDG_STATE_HOME, actions-seen.json, action ledger, fabric-op.jsonl.
+- A 2026-10-31 — a lock file, held by `flock` only and never written,
+  read or removed, is not state (§2, §5 rule 1).
+- Keywords: atomic write, flock, XDG_STATE_HOME, actions-seen.json, action ledger, fabric-op.jsonl.
 
 ### ADR-004 — Adding a role without breaking anyone's CI (Accepted)
 
@@ -663,9 +662,9 @@ its record disagree, the record wins. Look it up, never read it whole:
 
 ### ADR-029 — The control plane: a control agent per account answers signed actions over the relay (Accepted)
 
-- Each account's agentd answers `fabric:control`; down, a request is
-  lost (r1–2).
-- Closed op set, no field reaches a shell; actions carry fresh
+- Each agentd answers `fabric:control`; down, requests are lost
+  (r1–2).
+- Closed op set, no field reaches shells; actions carry fresh
   Ed25519 operator signatures (r3–5).
 - Replies: no secret; silence, failure exit 1 (r6–9).
 - A 2026-09-27 — actions (r12).
@@ -680,7 +679,7 @@ its record disagree, the record wins. Look it up, never read it whole:
 - A 2026-10-08 — public ops (r4).
 - A 2026-10-09 — forged claims (r4).
 - A 2026-10-09 — Scope.
-- A 2026-10-09 — `tools-install` (r3, r12).
+- A 2026-10-09 — `tools-install` (r3/r12).
 - A 2026-10-09 — closed jobs (§2).
 - A 2026-10-10 — gateway ops (§2).
 - A 2026-10-12 — switch controller.
@@ -697,9 +696,10 @@ its record disagree, the record wins. Look it up, never read it whole:
 - A 2026-10-30 — busy flocks; pool lock (r19).
 - A 2026-10-30 — budgets (r12).
 - A 2026-10-30 — hold (r13).
+- A 2026-10-31 — roles.
 - Keywords: fabric-ctl, keys, operator_key, usage, tokens, herdr,
   resume, interweave-evidence, interweave-human, fabric-control,
-  control_carrier, break-glass, busy.
+  control_carrier, break-glass.
 ### ADR-030 — Presence replaces HELLO and GOODBYE (Accepted)
 
 - Whether a session runs is the control agent's answer from its process
@@ -861,24 +861,26 @@ its record disagree, the record wins. Look it up, never read it whole:
   `runtime/identity.py`); seven states, one active (§5 rules 1–2).
 - `fabric-jobs switch` (alias `next`): after a worked job, the next starts
   fresh (`fabric-fresh --job <id>`); else in place (§5 rule 3).
-- Jobs come from the agent, the owner, a delivered REQUEST (§5 rules
+- Jobs come from agent, owner, a delivered REQUEST (§5 rules
   4–5, 11).
 - The owner reads every list (`fabric-ctl jobs`, §5 rule 6).
-- A 2026-10-08 — priority, never preempting; blocking rank; a role pool
+- A 2026-10-08 — priority, never preempting; blocking rank; role pool
   (§5 rules 7–10).
-- A 2026-10-09 — a stale waiter still blocks (§5 rule 8).
-- A 2026-10-09 — a REQUEST to a login is queued on its list (§5 rule 11).
-- A 2026-10-09 — a job may be a plan's step (§5 rule 11).
-- A 2026-10-11 — every job after a worked one starts fresh (§5 rule 3).
+- A 2026-10-09 — stale waiter still blocks (§5 rule 8).
+- A 2026-10-09 — a login's REQUEST is queued (§5 rule 11).
+- A 2026-10-09 — jobs as plan steps (§5 rule 11).
+- A 2026-10-11 — fresh after worked job (§5 rule 3).
 - A 2026-10-12 — checkable blockers (§5 rule 8).
-- A 2026-10-14 — `paused`; `fabric-jobs switch` (§5 rules 2, 10).
+- A 2026-10-14 — `paused`; `switch` (§5 rules 2, 10).
 - A 2026-10-15 — text reads as built.
-- A 2026-10-16 — landed delivered jobs swept to done (§5 rule 12).
+- A 2026-10-16 — delivered jobs swept to done (§5 rule 12).
 - A 2026-10-18 — no-artifact close, a reason (§5 rule 10).
 - A 2026-10-20 — commits fenced to job copies (§5 rule 3).
-- A 2026-10-21 — switch to clean targets, unbuilt (§5 rule 10).
+- A 2026-10-21 — switch cleans targets (§5 rule 10).
 - A 2026-10-30 — fleet hold (§5 rule 13).
 - A 2026-10-30 — held, no start (§5 rule 13).
+- A 2026-10-31 — clock blocker (§5 rule 8).
+- A 2026-10-31 — cleanup built (§5 rule 10).
 - Keywords: fresh session, intake, priority, claim, sweep, unhold.
 
 ### ADR-038 — Each agent owns its key and its secrets (Accepted)
@@ -1412,8 +1414,8 @@ its record disagree, the record wins. Look it up, never read it whole:
 
 ### ADR-064 — GZCoord carried over InterWeave: one host, beside the relay (Accepted)
 
-- One host, loopback only, is the first milestone; a second host the
-  next, by amendment; control on its own `fabric-control` endpoint
+- One host, loopback only, first; a second host next, by
+  amendment; control on its own `fabric-control` endpoint
   via `interweave-human` (rules 1, 12).
 - Dual run: both carriers, the relay of record (ADR-033 rule 7
   unchanged); the journal collapses by MESSAGE-ID; switching: an
@@ -1423,7 +1425,7 @@ its record disagree, the record wins. Look it up, never read it whole:
 - A roster keyed by agent id, each row signed by its login and
   countersigned by the coordinator, renders every profile's
   deny-by-default allowlist; keys minted in their own account; a
-  tagged, pinned release (rules 2-4).
+  tagged release pinned in release.json, signed (rules 2-4).
 - One direct send per recipient, no GossipSub; a receipt awaited,
   retried under one message_id, abandoned only by its operator;
   compress, then chunk, past 48 KiB; FROM checked against the PeerId;
@@ -1435,10 +1437,10 @@ its record disagree, the record wins. Look it up, never read it whole:
 - A 2026-10-27 — one host a milestone (rule 1).
 - A 2026-10-28 — pin v0.2.0 (§8).
 - A 2026-10-28 — control via `interweave-human` (§3, rules 12, 14).
+- A 2026-10-31 — minisign signature (rule 4).
 - Parity from arrival logs: missed, duplicate, offline counts, a
-  rollback drill (rule 11); built on release.json's pin (§8).
-- Keywords: InterWeave, carrier, relay, P5, interweave-human,
-  fabric-control.
+  rollback drill (rule 11).
+- Keywords: InterWeave, carrier, relay, P5.
 
 ### ADR-065 — The reviewer reads through pinned tools, says what it covered, and the next round starts where the last one stopped (Accepted)
 
@@ -1454,6 +1456,8 @@ its record disagree, the record wins. Look it up, never read it whole:
   fail-closed (§2 C, §5 rules 4–5).
 - The session posts the report; `review-bash-guard` stays only for other
   unisolated classes (§5 rules 6–7).
+- A 2026-10-31 — a PR's full review is handed earlier chains' open
+  findings to judge, and numbers past their labels (§5 rule 5).
 - Keywords: review class, reviewer, Bash guard, pinned tools, MCP,
   read-only, bubblewrap, sandbox, checks, coverage manifest, checkpoint
-  marker, re-review, card_base, open-code-review, P3.
+  marker, re-review, card_base, open findings, open-code-review, P3.

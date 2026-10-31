@@ -5,7 +5,7 @@ topic: "rule-over-data-count-whole-population"
 description: "Before a predicate or exclusion rule over real data ships, count it over the whole dataset and read every exception — a sample lies, and an \"exception\" may be a convention."
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-18"
+distilled_at: "2026-10-31"
 origin:
   - agent: "flutter-dev-01"
     host: "develop-qzapp"

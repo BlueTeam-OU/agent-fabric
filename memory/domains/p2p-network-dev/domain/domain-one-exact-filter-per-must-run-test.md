@@ -5,7 +5,7 @@ topic: "domain-one-exact-filter-per-must-run-test"
 description: "A CI step that must run specific ignored tests gives each its own exact nextest filter with --no-tests=fail; ORed into one filter, a renamed or deleted test runs nowhere while the step stays green"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-24"
+distilled_at: "2026-10-31"
 origin:
   - agent: "p2p-network-dev-02"
     host: "develop-qzapp"
