@@ -13,7 +13,7 @@ CONTRACT, frozen from the bash (ADR-040 §5 rule 3):
             checkout: account, role, then what projects/ holds, agent-fabric
             included (it is no clone to enter: `moveto <account> --list`
             does not name it).
-            <account> [<clone>] [--print] [--list] [--wait|--resume|--watch],
+            <account> [<clone>] [--print] [--list] [--wait|--resume|--watch|--attach],
             options in any order after the account; --list there prints
             that account's clones, one per line, and stops; an unknown
             option, a second clone, a clone that is not one path segment,
@@ -24,7 +24,9 @@ CONTRACT, frozen from the bash (ADR-040 §5 rule 3):
             (ADR-048). ssh: `ssh -i ~/.ssh/fabric_deck -o IdentitiesOnly=yes
             -o UserKnownHostsFile=<generated> -o StrictHostKeyChecking=yes
             [-p <port>] -t <account>@<address> -- <word>`, the word one of
-            --wait|--watch|--resume|shell (shell for no mode), which the
+            --wait|--watch|--resume|attach|shell (shell for no mode; `attach` for
+            --attach, the one mode whose word is not its flag: the deck
+            recognises its harness pane by that argv), which the
             account's forced command (enter-ssh) runs `enter` for: the
             workspace only, so a named clone is refused; no sudo is needed.
             sudo: the break-glass, unchanged. Without --via: ssh when the
@@ -34,6 +36,15 @@ CONTRACT, frozen from the bash (ADR-040 §5 rule 3):
             registry it cannot read is a refusal). known_hosts is
             `fabric-ssh-hosts known-hosts`, written whole to
             $XDG_STATE_HOME/fabric-deck/known_hosts (0600) at every entry.
+            --attach (FleetDeck part 2, agent-fabric-harness.service): no
+            shell and no refresh; the terminal of the account's harness
+            pane, held by its own FleetDeck server (a user unit), drawn here
+            until the attach is hung up (Ctrl-b q, or the ssh dropping), which
+            ends only the attach: the session runs on in the unit. Over ssh
+            `enter … --attach` finds the pane, as the account, by either
+            path (enter-ssh's `attach` is that mode). A mode of its own, so it is refused beside another. It
+            never starts a server: with no binary, no server or no harness
+            pane it says which in one line and exits 1.
   stdin     never read; the entered shell inherits it.
   env       PATH (also fabric-host, fabric-ssh-hosts and ssh for --via; HOME and
             XDG_STATE_HOME for the key and the known_hosts) (getent, sudo, find, test, cat and sort are found there,
@@ -56,7 +67,7 @@ locale calls a control (C0, DEL, C1, U+2028/U+2029) whatever the locale,
 where bash in the C locale stripped C0 and DEL only; every command it runs
 is bounded (TIMEOUT_S), and one that runs out reads as that command failing.
 
-ENTER (`moveto.py --enter <dir> <title> [--wait|--resume|--watch]`, run by
+ENTER (`moveto.py --enter <dir> <title> [--wait|--resume|--watch|--attach]`, run by
 the stub `enter` that moveto hands off to, under a login shell): the account's
 side of the entry, ported from the bash `enter`. argv is exactly that, the mode
 a fixed word and always last (Fleet Deck reads it from the `sudo … enter`
@@ -76,6 +87,7 @@ new shell rather than moving the one you typed in.
 """
 from __future__ import annotations
 
+import json
 import os
 import pwd
 import re
@@ -102,6 +114,8 @@ usage: moveto <account>             open a shell as <account>, in its workspace
        moveto <account> --wait      …say "<account> - Enter to activate", then on Enter
                                    refresh and do exactly --resume; end of input: a shell
        moveto <account> --watch     …and show its status (fabric-watch) until q; the shell follows
+       moveto <account> --attach    …attach to the harness pane its own FleetDeck server (agent-fabric-harness.service)
+                                   holds, instead of a shell of its own; hanging up ends the attach, not the session
        moveto <account> --print     print the resolved path, spawn nothing
        moveto <account> --via ssh   …through the pinned sshd (ADR-048: the account's forced command enters it;
                                    the workspace only, no clone) instead of sudo; --via sudo is the break-glass.
@@ -118,7 +132,15 @@ returns to the shell you came from.
 SSH_KEY = "~/.ssh/fabric_deck"
 VIA_WORDS = ("ssh", "sudo")
 # What each mode has enter do, as --print says it.
-MODES = {"--wait": "Enter to activate, then fabric-resume", "--resume": "fabric-resume", "--watch": "fabric-watch"}
+MODES = {"--wait": "Enter to activate, then fabric-resume", "--resume": "fabric-resume", "--watch": "fabric-watch",
+         "--attach": "attach to the harness pane of the account's own FleetDeck server"}
+# The word enter-ssh admits for --attach: the one mode whose ssh word is not its flag. The deck reads it in its pane's ssh argv.
+SSH_WORDS = {"--attach": "attach"}
+# The account's own FleetDeck server (agent-fabric-harness.service) and the workspace its pane step labels
+# (tools/fabric/control/harness_pane.py): the same three constants there.
+FLEETDECK = "/usr/local/bin/agent-fabric-fleetdeck"
+HARNESS_SESSION = "harness"
+HARNESS_LABEL = "harness"
 ROLE_LINE = re.compile(r'.*"role": *"([^"]*)".*')
 
 
@@ -312,13 +334,13 @@ def known_hosts_file() -> str:
 
 
 def ssh_argv(account: str, mode: str, pin: tuple[str, int], known_hosts: str, key: str) -> list[str]:
-    """The ssh command that enters `account` (ADR-048 §5 rule 4): the forced command takes one of four exact words,
-    `shell` for none. The word follows `--`: OpenSSH reads options after the destination too, and a bare --wait is
+    """The ssh command that enters `account` (ADR-048 §5 rule 4): the forced command takes one of five exact words,
+    `shell` for none, `attach` for --attach. The word follows `--`: OpenSSH reads options after the destination too, and a bare --wait is
     `unknown option -- -` (ssh 10.0)."""
     address, port = pin
     return ["ssh", "-i", key, "-o", "IdentitiesOnly=yes", "-o", f"UserKnownHostsFile={known_hosts}",
             "-o", "StrictHostKeyChecking=yes", *(["-p", str(port)] if port != 22 else []), "-t",
-            f"{account}@{address}", "--", mode or "shell"]
+            f"{account}@{address}", "--", SSH_WORDS.get(mode) or mode or "shell"]
 
 
 def enter_over_ssh(account: str, target: str, print_only: bool, mode: str, pin: tuple[str, int]) -> int:
@@ -342,6 +364,79 @@ def enter_over_ssh(account: str, target: str, print_only: bool, mode: str, pin: 
     sys.stdout.flush()
     signal.signal(signal.SIGPIPE, signal.SIG_IGN if os.environ.pop(PIPE_IGNORED_ENV, "") == "1" else signal.SIG_DFL)
     os.execvp(argv[0], argv)
+
+
+HARNESS_ID = re.compile(r"[A-Za-z0-9_.:][A-Za-z0-9_.:-]*")  # never a leading "-": it would be read as an option
+
+
+def harness_call(*args: str) -> dict:
+    """The JSON answer of one `agent-fabric-fleetdeck --session harness …` call. Every failure is a Refused with the
+    one line the person needs: which of the binary, the server and the pane is missing is the whole error contract of
+    --attach, and nothing here starts a server (a `status` or a list never does). A non-zero `status` is the only
+    answer that means the server is down; any other call failing after it is said as that call failing."""
+    try:
+        r = subprocess.run([FLEETDECK, "--session", HARNESS_SESSION, *args], capture_output=True, text=True, errors="replace",
+                           timeout=TIMEOUT_S, stdin=subprocess.DEVNULL)
+    except FileNotFoundError:
+        die(f"no harness unit here: {FLEETDECK} is not installed (tools/fabric/provisioning/install_fleetdeck.py)")
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        die(f"the harness server did not answer ({exc.__class__.__name__})")
+    if r.returncode != 0:
+        last = display_safe((r.stderr.strip().splitlines() or [f"exit {r.returncode}"])[-1][:120])
+        if args[0] == "status":
+            die(f"no harness server is running: {last} (agent-fabric-harness.service; fabric-ctl <login> harness-start)")
+        die(f"the harness server failed `{' '.join(args[:2])}`: {last}")
+    try:
+        doc = json.loads(r.stdout)
+    except ValueError:
+        die(f"the harness server's answer to `{' '.join(args[:2])}` is not JSON")
+    if not isinstance(doc, dict):
+        die(f"the harness server's answer to `{' '.join(args[:2])}` is not an object")
+    return doc
+
+
+def harness_result(*args: str) -> dict:
+    result = harness_call(*args).get("result")
+    if not isinstance(result, dict):
+        die(f"the harness server's answer to `{' '.join(args[:2])}` has no result object")
+    return result
+
+
+def harness_id(value: object, what: str) -> str:
+    if not isinstance(value, str) or not HARNESS_ID.fullmatch(value):
+        die(f"the harness server gave {what} that is not an id")
+    return value
+
+
+def harness_terminal() -> str:
+    """The terminal id of the one pane of the workspace labelled harness, or a Refused naming what is missing. An
+    answer not understood (no `running`, an entry without a `label`) is said as that, never read as a missing pane."""
+    running = harness_call("status", "server", "--json").get("running")
+    if not isinstance(running, bool):
+        die("the harness server's `status server` answer has no running field; nothing chosen")
+    if not running:
+        die("no harness server is running (agent-fabric-harness.service; fabric-ctl <login> harness-start)")
+    workspaces = harness_result("workspace", "list").get("workspaces")
+    if not isinstance(workspaces, list) or not all(isinstance(w, dict) and "label" in w for w in workspaces):
+        die("the harness server's workspace list is not a list of labelled workspaces; nothing chosen")
+    ours = [w for w in workspaces if w["label"] == HARNESS_LABEL]
+    if not ours:
+        die("the harness server has no harness pane (the unit opens it when it starts)")
+    if len(ours) > 1:
+        die("the harness server has more than one harness workspace; nothing chosen")
+    workspace = harness_id(ours[0].get("workspace_id"), "a workspace id")
+    panes = harness_result("pane", "list", "--workspace", workspace).get("panes")
+    if not isinstance(panes, list) or len(panes) != 1 or not isinstance(panes[0], dict):
+        die("the harness workspace does not hold exactly one pane; nothing chosen")
+    return harness_id(panes[0].get("terminal_id"), "a terminal id")
+
+
+def attach() -> "NoReturn":  # noqa: F821
+    """Become `agent-fabric-fleetdeck --session harness terminal attach <the harness pane>`."""
+    terminal = harness_terminal()
+    sys.stdout.flush()
+    signal.signal(signal.SIGPIPE, signal.SIG_IGN if os.environ.pop(PIPE_IGNORED_ENV, "") == "1" else signal.SIG_DFL)
+    os.execv(FLEETDECK, [FLEETDECK, "--session", HARNESS_SESSION, "terminal", "attach", terminal])
 
 
 def moveto(argv: list[str]) -> int:
@@ -369,7 +464,8 @@ def moveto(argv: list[str]) -> int:
             # the work; moveto only tells enter which, and gains no
             # privilege. One pane does one thing.
             if mode and mode != a:
-                die(f"one of {', '.join(MODES)} at a time")
+                # --attach is named only when it is one of the two: the line the three older modes always gave is unchanged.
+                die(f"one of {', '.join(m for m in MODES if m != '--attach' or '--attach' in (mode, a))} at a time")
             mode = a
         elif a == "--list":
             listed = list_clones(account)
@@ -389,6 +485,8 @@ def moveto(argv: list[str]) -> int:
                 die(f"clone must be a single name under ~/projects, not a path: {a}")
             target = a
 
+    if mode == "--attach" and target:
+        die("--attach draws the account's harness pane, which has no directory; a clone cannot go with it")
     if command(["getent", "passwd", account])[0] != 0:
         die(f"no such account: {account}")
     pin = None
@@ -563,6 +661,8 @@ def enter_main(argv: list[str]) -> int:
     except OSError as exc:
         print(f"moveto: cd {directory}: {exc.strerror}", file=sys.stderr)
         return 1
+    if mode == "--attach":
+        attach()    # no title, no refresh: the pane drawn here is the harness's own, already past both
     os.environ["MOVETO_TITLE"] = title
     if mode not in ("", *MODES):
         print(f"moveto: unknown mode '{mode}'; a plain shell", file=sys.stderr)

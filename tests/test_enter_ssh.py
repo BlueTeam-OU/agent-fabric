@@ -25,8 +25,9 @@ for a in "$@"; do printf 'arg=%s\\n' "$a"; done
 printf 'bashrc=%s\\n' "${ENTER_SSH_TEST_BASHRC-unset}"
 """
 
-REFUSAL = "enter-ssh: refused; ask for exactly one of --wait, --watch, shell, --resume\n"
-ACCEPTED = {"--wait": ["--wait"], "--watch": ["--watch"], "--resume": ["--resume"], "shell": []}
+REFUSAL = "enter-ssh: refused; ask for exactly one of --wait, --watch, shell, --resume, attach\n"
+# The fifth word is `attach`, which reaches enter as the mode --attach: the word is not the flag.
+ACCEPTED = {"--wait": ["--wait"], "--watch": ["--watch"], "--resume": ["--resume"], "shell": [], "attach": ["--attach"]}
 REFUSED = {
     "unset": None, "empty": "", "unknown word": "--help", "unknown option": "--list",
     "two words": "--wait --watch", "trailing space": "shell ", "leading space": " --wait",
@@ -34,6 +35,9 @@ REFUSED = {
     "substitution after a word": "--resume$(id)", "backticks": "`id`",
     "newline": "--wait\nid", "trailing newline": "--resume\n", "a command": "id -un",
     "case": "--WAIT", "shell word as option": "--shell",
+    "the attach flag, which is not its word": "--attach", "attach in capitals": "ATTACH", "attach with an argument": "attach 7",
+    "attach with a pane id": "attach w1:p1", "attach and a substitution": "attach$(id)", "attach and a newline": "attach\nid",
+    "attach as an option": "--attach=1", "two words, one of them attach": "shell attach",
 }
 
 
@@ -110,7 +114,7 @@ def main() -> int:
             r = run(tmp, word)
             want = "".join(f"arg={a}\n" for a in [os.path.join(home, "projects"), me, *tail])
             want = f"argc={2 + len(tail)}\n{want}bashrc=ran\n"
-            check(f"accepts {word}: enter gets <workspace> <login>{' ' + word if tail else ''}, after ~/.bashrc",
+            check(f"accepts {word}: enter gets <workspace> <login>{' ' + tail[0] if tail else ''}, after ~/.bashrc",
                   r.returncode == 0 and r.stdout == want and r.stderr == "",
                   f"rc={r.returncode} stdout={r.stdout!r} stderr={r.stderr!r} want={want!r}")
         for label, request in REFUSED.items():
@@ -137,6 +141,17 @@ def main() -> int:
                   r.returncode == 1 and r.stdout == "" and len(r.stderr.splitlines()) == 1
                   and "not owned by root" in r.stderr, f"rc={r.returncode} {r.stdout!r} {r.stderr!r}")
             os.chmod(path, 0o644 if path == conf else 0o755)
+        for path, label in ((conf, "conf"), (enter, "enter")):
+            os.chmod(path, 0o666 if path == conf else 0o777)
+            r = run(tmp, "attach")
+            check(f"attach through a world-writable {label}: refused like every word, enter not run",
+                  r.returncode == 1 and r.stdout == "" and "not owned by root" in r.stderr, f"rc={r.returncode} {r.stdout!r} {r.stderr!r}")
+            os.chmod(path, 0o644 if path == conf else 0o755)
+        write_conf(tmp, None)
+        r = run(tmp, "attach")
+        check("attach with no conf: nothing run, never the sibling enter",
+              r.returncode == 1 and r.stdout == "" and r.stderr.startswith("enter-ssh: no installed enter"), f"rc={r.returncode} {r.stdout!r} {r.stderr!r}")
+        write_conf(tmp, os.path.join(tmp, "share", "enter") + "\n")
         r = run(tmp, "--watch")
         check("closed to group and others again: runs", r.returncode == 0, f"rc={r.returncode} {r.stderr!r}")
         shutil.copy2(UNDER_TEST, os.path.join(tmp, "bin", "enter-ssh"))  # verbatim: expects owner uid 0
@@ -158,6 +173,11 @@ def main() -> int:
         check("SSH_CLIENT is recorded under the pane's pid, and the pane still enters",
               r.returncode == 0 and r.stderr == "" and os.path.isfile(rec) and open(rec, encoding="utf-8").read() == "192.0.2.7 51234 22\n",
               f"rc={r.returncode} {r.stderr!r} {sorted(os.listdir(clients))}")
+        r, pid = run_pid(tmp, "attach", "192.0.2.8 51235 22")
+        rec = os.path.join(clients, str(pid))
+        check("attach records the client under its pid too, and enter still gets --attach",
+              r.returncode == 0 and "arg=--attach\n" in r.stdout and os.path.isfile(rec) and open(rec, encoding="utf-8").read() == "192.0.2.8 51235 22\n",
+              f"rc={r.returncode} {r.stdout!r} {sorted(os.listdir(clients))}")
         check("a dead pane's record is pruned, a file that is no pid's is not",
               not os.path.exists(dead) and os.path.exists(os.path.join(clients, "notes")), str(sorted(os.listdir(clients))))
         before = sorted(os.listdir(clients))

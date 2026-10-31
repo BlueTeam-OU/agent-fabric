@@ -75,11 +75,18 @@ every path: success, refusal, failure, timeout, and SIGTERM/SIGHUP/SIGINT.
 WHAT THE RUN MUST SHOW. Codex runs with --json, its stdout the JSONL event
 stream (its own log lines on stderr, kept apart), and the run is a failed
 review unless that stream shows it read the code: no `error` item (the
-missing tool host, codex-code-mode-host, is named as such), no failed turn,
+missing tool host, codex-code-mode-host, is named as such; the one exception is Codex's compaction
+heads-up, an advisory below), no failed turn,
 at least one command_execution that completed with exit code 0, and a final
 agent message. A Codex installed without its tool host ran no command and
 answered {"findings": []} from the brief alone, which was posted as a clean
 review (2026-10-12); a run that read nothing is never posted.
+
+The compaction heads-up ("Heads up: Long threads and multiple compactions can cause the model to be less
+accurate…", Codex 0.162.1) arrives as an `error` item and is no error: an item whose message contains
+COMPACTION_ADVISORY is counted apart, refuses nothing, and the run still has to pass every other check
+above. The posted report says it in one line after its header lines, because a model that compacted may
+have read the early files less exactly. Every other `error` item still refuses.
 
 WHAT IS POSTED. Codex's last message must be ONE JSON object valid against
 runtime/claude-code/review/codex-answer.schema.json (also handed to
@@ -208,6 +215,9 @@ _sleep = time.sleep
 # What Codex 0.162.1 puts in a failed turn's message when the model cannot be had, read from its binary. The
 # apostrophe in "You’ve" is U+2019. Anything not listed is an ordinary failed turn, never retried.
 CAPACITY_MESSAGES = ("Selected model is at capacity",)
+# The fixed part of Codex 0.162.1's compaction heads-up, which it emits as an `error` item (read from its binary,
+# pinned by the test). An advisory about the run, not a failure of it; any other error item still refuses.
+COMPACTION_ADVISORY = "Long threads and multiple compactions"
 ALLOWANCE_MESSAGES = ("You\u2019ve hit your usage limit", "Quota exceeded", "Your workspace is out of credits",
                       "You hit your spend cap")
 RESET_TIME = re.compile(r"[Tt]ry again at ([^.\n]{1,60})")
@@ -233,7 +243,8 @@ COVERAGE_SHAPE = """The object also carries "coverage", what you read of the ran
  "coverage": {"paths": [{"path": "<every path `git diff --name-only` of the range lists>", "status": "read|not read",
   "reason": "<why, when not read; else an empty string>"}], "lenses": [{"lens": "<each lens of the brief>",
   "status": "applied|not applied"}]}
-Name every path of the range once, "read" only for a file you read in full."""
+Name every path of the range once, "read" only for a file you read in full. A file whose output was cut off
+is read in parts (for example `sed -n 'a,bp'`) until every line has been seen, and only then marked "read"."""
 
 
 def answer_shape() -> str:
@@ -625,10 +636,12 @@ USAGE_FIELDS = ("input_tokens", "cached_input_tokens", "cache_write_input_tokens
 
 
 class CodexRun:
-    """What `codex exec --json` said it did: its error items, its commands, its last agent message."""
+    """What `codex exec --json` said it did: its error items (the compaction heads-up apart, as advisories), its
+    commands, its last agent message."""
 
     def __init__(self) -> None:
         self.errors: list[str] = []
+        self.advisories = 0          # error items that are Codex's compaction heads-up, which refuse nothing
         self.commands = 0            # command_execution items completed with exit code 0
         self.commands_failed = 0     # ...completed otherwise
         self.last_message: str | None = None
@@ -674,7 +687,11 @@ def read_events(path: str) -> CodexRun:
             if kind != "item.completed" or not isinstance(item, dict):
                 continue
             if item.get("type") == "error":
-                run.errors.append(str(item.get("message") or "(no message)"))
+                message = str(item.get("message") or "(no message)")
+                if COMPACTION_ADVISORY in message:
+                    run.advisories += 1
+                else:
+                    run.errors.append(message)
             elif item.get("type") == "command_execution":
                 if item.get("status") == "completed" and item.get("exit_code") == 0:
                     run.commands += 1
@@ -709,7 +726,7 @@ def judge_run(run: CodexRun) -> None:
     if host:
         raise FailedReview("Codex ran no command: its tool host is missing (codex-code-mode-host); install Codex whole "
                            f"with `fabric-tools --install codex` — Codex said: {_one_line(host)[:400]}")
-    # Every error item refuses, Codex's "Model metadata for `X` not found" among them: it falls back to generic
+    # Every error item refuses (the compaction heads-up was counted apart by read_events), Codex's "Model metadata for `X` not found" among them: it falls back to generic
     # metadata for a model outside its catalog, and the routed model (gpt-6.1-sol, routing/capabilities.json's
     # openai column) is in the catalog of the pinned 0.162.1, so on the routed path it is a misconfiguration.
     if run.errors:
@@ -870,7 +887,8 @@ def announce_unavailable(repo: str, pr: str, head: str, e: "ModelUnavailable") -
     return "posted"
 
 
-def render_review(model: str, head: str, rng: str, findings: list[dict], effort_level: str | None = None) -> str:
+def render_review(model: str, head: str, rng: str, findings: list[dict], effort_level: str | None = None,
+                  advisories: int = 0) -> str:
     """The body post-review gets. Its first line names the engine, the model
     that ran (rule 4) and the level sent, or that none was; post-review puts
     its marker above it."""
@@ -883,6 +901,9 @@ def render_review(model: str, head: str, rng: str, findings: list[dict], effort_
            "",
            "Each finding is judged by the review class before it is answered (ADR-053 rule 5).",
            ""]
+    if advisories:
+        out += [f"Codex compacted its context during the run ({advisories} heads-up), so its reading of early files "
+                "may be less exact.", ""]
     if not findings:
         out.append("No findings.")
     else:
@@ -904,13 +925,13 @@ def render_review(model: str, head: str, rng: str, findings: list[dict], effort_
 
 
 def report_body(brief: str, model: str, head: str, rng: str, findings: list[dict], level: str | None,
-                coverage: review_coverage.Coverage | None) -> str:
+                coverage: review_coverage.Coverage | None, advisories: int = 0) -> str:
     """What post-review is given. With the coverage the answer states, the brief's own dispatch header goes ahead of the
     report, as the review class's does: post-review takes the range and the config of the v2 marker from it, strips it,
     and checks the block against `git diff --name-only`. No coverage in the answer (a schema without the field) or no
     header in the brief: the bare report is returned, and post-review refuses it (a review is posted as v2 only, and
     its range comes from the header), so nothing is posted."""
-    body = render_review(model, head, rng, findings, level)
+    body = render_review(model, head, rng, findings, level, advisories)
     header = post_review.first_dispatch_header(brief)
     if not coverage or not header:
         return body
@@ -1085,7 +1106,8 @@ def _review(pr: str, request: str, *, model_flag: str | None, timeout_min: float
     observed.status = ("completed", "codex:answer")   # the run's; what happens to its answer after is not
     if not no_post and pr_head(repo, pr) != head:
         raise Refused(f"PR #{pr} moved while Codex read {head[:12]}; nothing posted — run it on the new head")
-    body = report_body(brief, model, head, req["range"], findings, level, coverage)
+    # run_codex handed the answering run's events over on its way out, so it is the last one observed.
+    body = report_body(brief, model, head, req["range"], findings, level, coverage, observed.runs[-1].advisories)
     if no_post:
         sys.stdout.write(body)
         return 0

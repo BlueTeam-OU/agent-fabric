@@ -51,6 +51,7 @@ BACKUP = "agent-fabric-state-backup"
 RELAY = "gzcoord-relay"
 RBK = "agent-fabric-relay-backup"
 TIDY = "agent-fabric-tidy"
+HARNESS = "agent-fabric-harness"
 HOOK_REL = "policies/githooks"
 # The plain tools the script and what it runs call. Anything not here, and
 # not a fake, is "command not found": a port that starts calling something
@@ -678,6 +679,13 @@ def first_run() -> None:
     check("step 6a': …the timer daily at 05:30 with a 30 min delay, persistent, clear of both backups",
           "OnCalendar=*-*-* 05:30:00\n" in tmr and "RandomizedDelaySec=30min\n" in tmr and "Persistent=true\n" in tmr
           and "WantedBy=timers.target\n" in tmr, tmr)
+    hu = f"{a.units}/{HARNESS}.service"
+    check("step 6a'': the harness unit installed on every account, its start refused for want of a manager, said",
+          L[k + 8:k + 10] == [f"  +  {hu}",
+                              f"  !  {HARNESS}: installed, not started — no user manager at {a.run}/bus "
+                              f"(loginctl enable-linger {LOGIN}, or the next login starts it)"], "\n".join(L[k + 8:k + 10]))
+    check("step 6a'': …the fabric's file, mode 644",
+          read(hu) == read(f"{FR}/runtime/control/{HARNESS}.service") and mode(hu) == 0o644)
     check("step 6: no user manager: systemctl and loginctl never called", a.calls("systemctl") == [] and a.calls("loginctl") == [],
           a.calls())
     check("step 6b: no relay venv: no relay unit, no relay line",
@@ -685,7 +693,7 @@ def first_run() -> None:
 
     # Step 7.
     check("step 7: the detector's venv made and its package installed, said",
-          L[k + 8] == f"  +  {VENV} ({pkg})", L[k + 8:k + 9])
+          L[k + 10] == f"  +  {VENV} ({pkg})", L[k + 10:k + 11])
     check("step 7: …by the venv's own pip, quietly, the pinned package",
           a.calls("pip") == [["pip", "install", "-q", pkg]] and a.calls("python3") == [["python3", "-m", "venv", VENV]],
           a.calls())
@@ -694,10 +702,10 @@ def first_run() -> None:
 
     # The summary counts the script's own puts, links, the user settings and
     # step 5's lines; the agent files, steps 4, 5b and 7 are not in it.
-    n_written = 2 + 2 + len(cmds) + 1 + 1 + len(SKILLS) + 4 + 1 + 2
+    n_written = 2 + 2 + len(cmds) + 1 + 1 + len(SKILLS) + 4 + 1 + 2 + 1
     check("the summary counts what was written",
-          L[k + 9:] == [f"bootstrap: {n_written} written, 2 already current.",
-                        f"Launch from {P}: cd \"{P}\" && claude   — the session starts as {LOGIN}."], "\n".join(L[k + 9:]))
+          L[k + 11:] == [f"bootstrap: {n_written} written, 2 already current.",
+                         f"Launch from {P}: cd \"{P}\" && claude   — the session starts as {LOGIN}."], "\n".join(L[k + 11:]))
     check("curl, ss, pgrep, uv and sudo never called",
           not [c for c in a.calls() if c[0] in ("curl", "ss", "pgrep", "uv", "sudo", "pip3")], a.calls())
     check("the script's own temporary directory is gone", os.listdir(a.tmp) == [], os.listdir(a.tmp))
@@ -711,7 +719,7 @@ def first_run() -> None:
     check("second run: the tree is unchanged (paths, modes, content)", before == after, diff(before, after))
     plus = [x for x in r2.lines if x.startswith("  +  ") or x.startswith("  -  ")]
     check("second run: nothing said written or removed", plus == [], "\n".join(plus))
-    n_same = 2 + 2 + len(cmds) + 1 + 1 + len(SKILLS) + 6 + 1 + 2
+    n_same = 2 + 2 + len(cmds) + 1 + 1 + len(SKILLS) + 6 + 1 + 2 + 1
     check("second run: the summary says all of it current",
           f"bootstrap: 0 written, {n_same} already current." in r2.lines, r2.out)
     check("second run: step 4 says =", f"  =  {FR}: core.hooksPath = {HOOK_REL}" in r2.lines)
@@ -1023,8 +1031,12 @@ def user_manager() -> None:
                                    ["systemctl", "--user", "daemon-reload"], ["systemctl", "--user", "enable", "--now", f"{BACKUP}.timer"],
                                    ["systemctl", "--user", "restart", f"{BACKUP}.timer"], ["systemctl", "--user", "is-active", f"{BACKUP}.timer"],
                                    ["systemctl", "--user", "daemon-reload"], ["systemctl", "--user", "enable", "--now", f"{TIDY}.timer"],
-                                   ["systemctl", "--user", "restart", f"{TIDY}.timer"], ["systemctl", "--user", "is-active", f"{TIDY}.timer"]],
+                                   ["systemctl", "--user", "restart", f"{TIDY}.timer"], ["systemctl", "--user", "is-active", f"{TIDY}.timer"],
+                                   ["systemctl", "--user", "daemon-reload"], ["systemctl", "--user", "enable", "--now", HARNESS],
+                                   ["systemctl", "--user", "is-active", HARNESS]],
           a.calls("systemctl"))
+    check("the harness: a new unit started, never restarted, its state said; no 'changed' line for a first install's inactive unit",
+          f"  *  {HARNESS}: active (systemctl --user status {HARNESS})" in r.lines, r.out)
     check("the tidy timer's line says its state",
           f"  *  {TIDY}.timer: active (systemctl --user list-timers {TIDY}.timer)" in r.lines, r.out)
     check("the backup timer's line says its state",
@@ -1042,7 +1054,10 @@ def user_manager() -> None:
                                    ["systemctl", "--user", "is-active", f"{BACKUP}.timer"],
                                    ["systemctl", "--user", "daemon-reload"],
                                    ["systemctl", "--user", "enable", "--now", f"{TIDY}.timer"],
-                                   ["systemctl", "--user", "is-active", f"{TIDY}.timer"]], a.calls("systemctl"))
+                                   ["systemctl", "--user", "is-active", f"{TIDY}.timer"],
+                                   ["systemctl", "--user", "daemon-reload"],
+                                   ["systemctl", "--user", "enable", "--now", HARNESS],
+                                   ["systemctl", "--user", "is-active", HARNESS]], a.calls("systemctl"))
     check("…and an inactive unit says so", f"  *  {UNIT}: inactive (systemctl --user status {UNIT})" in r.lines, r.out)
     # A changed unit under the daemon's own upgrade: the restart is its caller's.
     put(f"{a.units}/{UNIT}.service", "[Unit]\nDescription=agent-fabric old\n")
@@ -1054,7 +1069,7 @@ def user_manager() -> None:
     a.clear_log()
     r = bootstrap(a, env=a.env(FAKE_RELOAD_RC="1"))
     check("a manager that will not reload: installed, not started, said; nothing enabled",
-          a.calls("systemctl") == [["systemctl", "--user", "daemon-reload"]] * 3
+          a.calls("systemctl") == [["systemctl", "--user", "daemon-reload"]] * 4
           and f"  !  {UNIT}: installed, not started — no user manager at {a.run}/bus (loginctl enable-linger {LOGIN}, or the next login starts it)" in r.lines,
           f"{a.calls('systemctl')}\n{r.out}")
     a.clear_log()
@@ -1090,6 +1105,26 @@ def user_manager() -> None:
     check("an unchanged tidy unit is not restarted",
           ["systemctl", "--user", "restart", f"{TIDY}.timer"] not in a.calls("systemctl")
           and ["systemctl", "--user", "enable", "--now", f"{TIDY}.timer"] in a.calls("systemctl"), a.calls("systemctl"))
+    check("…and an unchanged running harness says no 'changed' line",
+          not any(x.startswith(f"  *  {HARNESS}: unit changed") for x in r.lines), r.out)
+    # The harness's stop ends the session in its pane: a changed unit file is
+    # installed and said, never acted on while the unit runs.
+    put(f"{a.units}/{HARNESS}.service", "[Unit]\nDescription=agent-fabric old\n")
+    a.clear_log()
+    r = bootstrap(a)
+    check("a changed harness unit, running: restored, enabled, never restarted nor stopped, the way to apply it said",
+          read(f"{a.units}/{HARNESS}.service") == read(f"{a.fr}/runtime/control/{HARNESS}.service")
+          and ["systemctl", "--user", "enable", "--now", HARNESS] in a.calls("systemctl")
+          and not [c for c in a.calls("systemctl") if HARNESS in c and c[2] in ("restart", "stop", "try-restart", "reload-or-restart")]
+          and f"  *  {HARNESS}: unit changed; not restarted, a restart ends the session in its pane "
+              f"(fabric-ctl {LOGIN} harness-stop, then harness-start)" in r.lines, f"{a.calls('systemctl')}\n{r.out}")
+    put(f"{a.units}/{HARNESS}.service", "[Unit]\nDescription=agent-fabric old\n")
+    a.clear_log()
+    r = bootstrap(a, env=a.env(FAKE_ACTIVE_agent_fabric_harness="inactive"))
+    check("…inactive (no binary, or stopped): no 'changed' line, the state with where the binary comes from",
+          not any(x.startswith(f"  *  {HARNESS}: unit changed") for x in r.lines)
+          and f"  *  {HARNESS}: inactive (systemctl --user status {HARNESS}; it starts only where install_fleetdeck.py put the binary)"
+              in r.lines, r.out)
 
 
 def relay() -> None:
