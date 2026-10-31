@@ -348,6 +348,11 @@ def carried_findings(pr: int, head_sha: str, repo: str) -> tuple[dict | None, li
     if got is None:
         return None, [f"pr: #{pr}'s reviews cannot be listed, so the findings earlier reviews left open cannot be "
                       "carried into this review; render again when GitHub answers, or leave pr out"]
+    if got.unknown:
+        # Listed but unread is the same gap as not listed: its open findings would go uncarried and its labels reused.
+        return None, [f"pr: #{pr} has {len(got.unknown)} review(s) whose findings cannot be read — "
+                      f"{'; '.join(got.unknown[:3])}{' …' if len(got.unknown) > 3 else ''}: what they left open and the "
+                      "labels they used are unknown; re-post them with their machine lines (Finding:/Judgement:), or leave pr out"]
     numbers = [int(f.label[1:]) for f in got.findings]
     return {"findings": [f for f in got.open if f.head != head_sha], "next": max(numbers, default=0) + 1}, []
 

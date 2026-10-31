@@ -897,6 +897,11 @@ def test_a_prs_full_review_carries_the_findings_earlier_reviews_left_open(tmp: s
                       posted(2, old1, old2, ["Judgement: F1 | fixed | gone", "Finding: none"])]
         section = rb.render(req).split("## Open findings from earlier reviews\n", 1)[1].split("\n## ", 1)[0]
         assert section == "Earlier reviews of #12 used the labels up to F1: number your own findings from F2.", section
+        # a review listed but unread: refused too, since its findings and labels are unknown (#437 round 3 F6)
+        reviews.append({"id": 4, "user": {"login": "me"}, "submitted_at": "2026-10-31T01:00:00Z", "body": None})
+        assert any(p.startswith("pr: #12 has 1 review(s) whose findings cannot be read — review 4") for p in refusals(req)), \
+            refusals(req)
+        reviews.pop()
         # reviews that cannot be listed: refused, never rendered as none
         rb.earlier_reviews = lambda pr, r: None
         assert any(p.startswith("pr: #12's reviews cannot be listed") for p in refusals(req)), refusals(req)

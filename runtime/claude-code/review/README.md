@@ -133,7 +133,7 @@ left open under "Open findings from earlier reviews", for the reviewer to
 answer in a `Judgement:` line by its label. It has the reviewer number its own
 findings past every label the PR's reviews used. A finding raised on the
 head under review is another engine's same round and is left out; reviews
-that cannot be listed refuse the render (agent-fabric ADR-065 §5 rule 5).
+that cannot be listed, or a listed one that cannot be read, refuse the render (agent-fabric ADR-065 §5 rule 5).
 
 Derive it rather than edit it: `bin/fabric-review save <PR> <round> <
 report` keeps a round's report under this account's state, and

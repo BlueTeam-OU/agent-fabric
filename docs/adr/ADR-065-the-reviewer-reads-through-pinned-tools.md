@@ -204,8 +204,8 @@ means a full review.
    an earlier chain of the PR left open (the reading `fabric-pr arm`'s
    gate 4c refuses on), except one raised on the head under review, for
    the reviewer to judge by label, and has it number its own findings
-   past every label the PR's reviews used; reviews that cannot be listed
-   refuse the render (A 2026-10-31).
+   past every label the PR's reviews used; reviews that cannot be listed,
+   or a listed one that cannot be read, refuse the render (A 2026-10-31).
 6. The reviewer does not post. The session posts its report with
    `fabric-pr post-review`.
 7. `review-bash-guard` stays as the fence `subagent-clone-guard` applies to
