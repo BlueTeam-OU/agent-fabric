@@ -73,6 +73,11 @@ def gh_mock(s: str, a: list[str], stdin: str) -> tuple[int, str, str]:
         return 1, "", "gh: Not Found (HTTP 404)"
     if line.startswith("api repos/gzapi-org/agent-fabric-settings "):
         return 0, json.dumps({"full_name": "gzapi-org/agent-fabric-settings"}), ""
+    # Gate 4c's read: every review object of the PR (`reviews.json`, none without it; `reviews_fail` a failed call).
+    if line.startswith("api repos/gzapi-org/gzapp/pulls/7/reviews") and "--paginate --slurp" in line:
+        if has("reviews_fail"):
+            return 1, "", "gh: Bad Gateway (HTTP 502)"
+        return 0, json.dumps([json.loads(_state(s, "reviews.json", "[]"))]), ""
     if line.startswith("api repos/gzapi-org/gzapp"):
         sys.path.insert(0, os.path.join(ROOT, "tools", "fabric"))
         from github import arm_policy
@@ -162,8 +167,20 @@ def ctl_mock(s: str, a: list[str], stdin: str) -> tuple[int, str, str]:
     return int(_state(s, "ctl_rc", "0") or 0), _state(s, "presence.out", ""), ""
 
 
+# fabric-jobs, gate 4c's jobs half: `jobs.json` is the list (none without it), `shows.json` {id: record} what show
+# answers. Each call is recorded, prefixed.
+def jobs_mock(s: str, a: list[str], stdin: str) -> tuple[int, str, str]:
+    _log(s, "jobs " + " ".join(a) + "\n")
+    if a == ["list", "--all", "--json"]:
+        return (2, "", "") if os.path.exists(os.path.join(s, "jobs_fail")) else (0, _state(s, "jobs.json", "[]"), "")
+    if len(a) == 3 and a[0] == "show" and a[2] == "--json":
+        shown = json.loads(_state(s, "shows.json", "{}")).get(a[1])
+        return (0, json.dumps(shown), "") if shown else (1, "", f"no job {a[1]}")
+    return 2, "", "mock fabric-jobs: unhandled: " + " ".join(a)
+
+
 MOCKS = {"gh": gh_mock, "pr-gate": gate_mock, "pr-review-status": review_mock,
-         "gzcoord-inbox": inbox_mock, "fabric-ctl": ctl_mock}
+         "gzcoord-inbox": inbox_mock, "fabric-ctl": ctl_mock, "fabric-jobs": jobs_mock}
 
 SHIM_TEXT = '''#!/usr/bin/env python3
 import os, sys
@@ -227,7 +244,7 @@ def main() -> int:
             """A clean slate; `reviewed` (the default) a review-class review of the head, which every PR needs under
             claude_only (gate 4b): a case about a missing review says reviewed=False."""
             for n in ("calls", "armed", "queued", "merged", "closed", "noarm", "nohead", "pushed", "viewfail", "blind", "independent", "unresolved", "no_blind_field", "unavailable",
-                      "mergefail", "inbase", "unasked",
+                      "mergefail", "inbase", "unasked", "reviews.json", "reviews_fail", "jobs.json", "jobs_fail", "shows.json",
                       "waiver.out", "waiver_rc", "presence.out", "ctl_rc", "gh_repos"):
                 if os.path.exists(f"{state}/{n}"):
                     os.remove(f"{state}/{n}")
@@ -236,7 +253,7 @@ def main() -> int:
         def set_pr(branch: str, body: str, files: list[str], st: str = "OPEN", draft: bool = False) -> None:
             put("pr.json", json.dumps({"number": 7, "state": st, "isDraft": draft, "headRefName": branch,
                                        "headRefOid": HEAD, "baseRefName": "main", "body": body, "files": files,
-                                       "title": "the pr"}))
+                                       "title": "the pr", "author": {"login": "gzbot"}}))
 
         def set_gate(n: int | None, known: bool | None = True) -> None:
             row: dict = {"number": 7, "checks": "green"}
@@ -254,7 +271,7 @@ def main() -> int:
             e = dict(base_env, MOCK_STATE=state, ARM_ROOT=ROOT, PATH=f"{bindir}:{base_env.get('PATH', '')}",
                      AGENT_FABRIC_PR_GATE=f"{bindir}/pr-gate", AGENT_FABRIC_PR_REVIEW_STATUS=f"{bindir}/pr-review-status",
                      AGENT_FABRIC_PR_SESSION="develop-qzapp/me", AGENT_FABRIC_GZCOORD_INBOX=f"{bindir}/gzcoord-inbox",
-                     AGENT_FABRIC_CTL=f"{bindir}/fabric-ctl")
+                     AGENT_FABRIC_CTL=f"{bindir}/fabric-ctl", AGENT_FABRIC_JOBS=f"{bindir}/fabric-jobs")
             if fixture_rules:
                 # Rules named, not found from the clone's remote; the legacy marker is the one the reader counts.
                 e.update(AGENT_FABRIC_ARM_CONFIG=GZAPP_CONFIG,
@@ -713,6 +730,136 @@ def main() -> int:
         rc, out = run("7", "--basis", "b", policy=bnd_extra)
         check("…as on a boundary that requires it", rc == 1 and "by the codex engine" in out and "pr merge" not in calls(), out)
 
+        print("arm: gate 4c — a finding open in any review chain (#425: F5 open in the first, the second clean at head)")
+        h1, h2, b2 = "1026be28" + "1" * 32, "ecaf9eb7" + "2" * 32, "8cd787c6" + "3" * 32
+        f5 = "Finding: F5 | P3 | likely | tools/fabric/lease.py:722 | the lease file is left behind on a timeout"
+
+        def review(rid: int, base: str, head: str, lines: str | None, login: str = "gzbot", at: str = "") -> dict:
+            body = None if lines is None else (f"<!-- agent-fabric-review v2 base={base} head={head} card={'c' * 40}"
+                                               f" config={'d' * 64} -->\n\n## Report\n\n{lines}\n")
+            return {"id": rid, "user": {"login": login}, "body": body, "commit_id": head,
+                    "submitted_at": at or f"2026-10-30T0{rid % 10}:00:00Z"}
+
+        first = review(5709892041, h1, h2, f5)
+        fresh = review(5710450122, b2, HEAD, "Finding: none")
+
+        def reviews(*rs: dict) -> None:
+            put("reviews.json", json.dumps(list(rs)))
+
+        def plain() -> None:
+            reset(); set_pr(me, "plain", ["docs/a.md"]); set_gate(9)
+
+        plain(); reviews(first, fresh)
+        rc, out = run("7", "--basis", "b")
+        check("F5 open in the first chain, the second clean at head: refused, F5 and its review named",
+              rc == 1 and "1 finding(s) open in a review chain" in out and "F5 | P3 | tools/fabric/lease.py:722" in out
+              and "review 5709892041" in out and "raised on head ecaf9eb7" in out and "pr merge" not in calls(), out)
+        check("…the remedy named: a re-review on that chain, or --defer", "a re-review on that chain" in out
+              and "--defer" in out, out)
+        rc, out = run("7", "--basis", "b", "--dry-run")
+        check("…the dry run evaluates it too", rc == 1 and "finding(s) open" in out, out)
+        plain(); reviews(first, fresh, review(5710450123, h2, HEAD, "Judgement: F5 | fixed | the lease is removed\nFinding: none"))
+        rc, out = run("7", "--basis", "b")
+        check("control: a later review on that chain judges F5 fixed: armed",
+              rc == 0 and "no finding open across 3 review(s) in 2 chain(s)" in out and "ARMED #7" in out, out)
+        plain(); reviews(review(5710450123, h2, HEAD, "Judgement: F5 | fixed | the lease is removed\nFinding: none"), fresh, first)
+        rc, out = run("7", "--basis", "b")
+        check("…listed newest first by the API: read oldest first, the same answer", rc == 0 and "ARMED #7" in out, out)
+        plain(); reviews(first, fresh, review(5710450123, HEAD, HEAD, "Judgement: F5 | not-real | not on the change\nFinding: none"))
+        rc, out = run("7", "--basis", "b")
+        check("a not-real judgement in a later chain clears the earlier chain's F5: armed", rc == 0 and "ARMED #7" in out, out)
+        plain(); reviews(first, fresh, review(5710450123, h2, HEAD, "Judgement: F5 | fixed | done\nFinding: none"),
+                         review(5710450124, HEAD, HEAD, "Judgement: F5 | not-fixed | the timeout path still leaks\nFinding: none"))
+        rc, out = run("7", "--basis", "b")
+        check("the latest judgement wins: fixed, then not-fixed, is open", rc == 1 and "review 5709892041" in out, out)
+        plain(); reviews(first, fresh, review(5710450123, h2, HEAD, "Judgement: F5 | partly | half of it\nFinding: none"))
+        rc, out = run("7", "--basis", "b")
+        check("a partly judgement keeps it open", rc == 1 and "F5 | P3" in out, out)
+        plain(); reviews(review(5709892041, h1, h2, f5 + "\nJudgement: F5 | fixed | judged by its own review"), fresh)
+        rc, out = run("7", "--basis", "b")
+        check("a judgement judges only an EARLIER review's finding, never its own", rc == 1 and "F5 | P3" in out, out)
+        plain(); reviews(first, review(5710450122, b2, HEAD, "Finding: F2 | P1 | certain | a.py:3 | breaks"))
+        rc, out = run("7", "--basis", "b")
+        check("two open findings in two chains: both named", rc == 1 and "2 finding(s) open" in out and "F2 | P1 | a.py:3" in out, out)
+
+        plain(); reviews(first, fresh)
+        why = "a P3 on a path this PR does not touch; j470 takes it"
+        rc, out = run("7", "--basis", "b", "--defer", "ecaf9eb7:F5", why)
+        check("--defer ecaf9eb7:F5 arms, said on an arm: line", rc == 0 and "ARMED #7" in out
+              and f"finding ecaf9eb7:F5 (P3, review 5709892041) DEFERRED: {why}" in out and "1 deferred" in out, out)
+        check("…and the comment carries the deferral and its reason",
+              f"Deferred ecaf9eb7:F5 (P3, review 5709892041): {why}." in calls(), calls())
+        plain(); reviews(first, fresh)
+        rc, out = run("7", "--basis", "b", "--defer", "ecaf9eb7:F6", why)
+        check("--defer of a label not open: refused, the open ones named",
+              rc == 1 and "--defer ecaf9eb7:F6 names no open finding (open: ecaf9eb7:F5)" in out and "pr merge" not in calls(), out)
+        plain(); reviews(first, fresh)
+        rc, out = run("7", "--basis", "b", "--defer", "abcdef01:F5", why)
+        check("--defer of F5 on another review's head: refused", rc == 1 and "names no open finding" in out, out)
+        plain(); reviews(first, fresh, review(5710450123, h2, HEAD, "Judgement: F5 | fixed | done\nFinding: none"))
+        rc, out = run("7", "--basis", "b", "--defer", "ecaf9eb7:F5", why)
+        check("--defer of a finding already judged fixed: refused (open: none)",
+              rc == 1 and "names no open finding (open: none)" in out, out)
+        for bad in (("--defer", "F5", why), ("--defer", "ecaf9eb7:F5"), ("--defer", "ecaf:F5", why), ("--defer", "ecaf9eb7:X5", why)):
+            plain(); rc, out = run("7", "--basis", "b", *bad)
+            check(f"{' '.join(bad[:2])}{' (no reason)' if len(bad) == 2 else ''}: usage, exit 2", rc == 2 and "--defer" in out, out)
+
+        for what, broken in (("a malformed machine line", review(5710450122, b2, HEAD, "Finding: F1 | P9 | sure | a.py | x")),
+                             ("no machine lines at all (an older report)", review(5710450122, b2, HEAD, "looks fine")),
+                             ("a body the API did not return", review(5710450122, b2, HEAD, None))):
+            plain(); reviews(first, review(5709892043, h2, HEAD, "Judgement: F5 | fixed | done\nFinding: none"), broken)
+            rc, out = run("7", "--basis", "b")
+            check(f"{what}: refused as unknown, the review named", rc == 1 and "cannot be read" in out
+                  and "review 5710450122" in out and "pr merge" not in calls(), out)
+        plain(); reviews(first, review(5709892043, h2, HEAD, "Judgement: F5 | fixed | done\nFinding: none"), fresh)
+        rc, out = run("7", "--basis", "b")
+        check("control: the same chains, every body read: armed", rc == 0 and "ARMED #7" in out, out)
+        unmarked = dict(review(5710450122, b2, HEAD, None), body="a comment-like review\nFinding: F9 | P1 | certain | a.py | x")
+        plain(); reviews(first, unmarked)
+        rc, out = run("7", "--basis", "b")
+        check("a review whose first line is not the v2 marker is not read", rc == 1 and "F9" not in out and "F5" in out, out)
+        plain(); reviews(review(5709892041, h1, h2, f5, login="drive-by"), fresh)
+        rc, out = run("7", "--basis", "b")
+        check("a review from an account the blind review does not count from is not read: armed", rc == 0 and "ARMED #7" in out, out)
+        plain(); reviews(review(5709892041, h1, h2, f5, login="poster"), fresh)
+        rc, out = run("7", "--basis", "b", env={"AGENT_FABRIC_REVIEW_POSTERS": '["poster"]'})
+        check("…one from a login in AGENT_FABRIC_REVIEW_POSTERS is: refused", rc == 1 and "F5 | P3" in out, out)
+        plain(); rc, out = run("7", "--basis", "b", env={"AGENT_FABRIC_REVIEW_POSTERS": "poster"})
+        check("AGENT_FABRIC_REVIEW_POSTERS not a JSON array: exit 2, never fewer posters", rc == 2 and "REVIEW_POSTERS" in out, out)
+        plain(); put("reviews_fail", "")
+        rc, out = run("7", "--basis", "b")
+        check("the reviews cannot be listed: exit 2, nothing armed", rc == 2 and "cannot list #7's reviews" in out
+              and "pr merge" not in calls(), out)
+
+        print("arm: gate 4c — a blocked job on the PR's branch")
+        blocked = {"id": "j9", "state": "blocked", "branch": me, "blocked_on": "python-dev supply, REQUEST 01a1"}
+        plain(); put("jobs.json", json.dumps([blocked]))
+        rc, out = run("7", "--basis", "b")
+        check("a blocked job on the head branch: refused, the job and its blocker named",
+              rc == 1 and f"job j9 on {me} is blocked — python-dev supply, REQUEST 01a1" in out and "pr merge" not in calls(), out)
+        check("…the list read as the login's whole list", "jobs list --all --json" in calls(), calls())
+        plain(); put("jobs.json", json.dumps([dict(blocked, state="done")]))
+        rc, out = run("7", "--basis", "b")
+        check("control: the same job done: armed", rc == 0 and f"jobs: none blocked on {me}" in out and "ARMED #7" in out, out)
+        plain(); put("jobs.json", json.dumps([dict(blocked, branch="develop-qzapp/me/feat/other")]))
+        rc, out = run("7", "--basis", "b")
+        check("control: a blocked job on another branch: armed", rc == 0 and "ARMED #7" in out, out)
+        nobranch = {k: v for k, v in blocked.items() if k != "branch"}
+        plain(); put("jobs.json", json.dumps([nobranch])); put("shows.json", json.dumps({"j9": blocked}))
+        rc, out = run("7", "--basis", "b")
+        check("a blocked job the list gives no branch: show read, refused",
+              rc == 1 and "job j9" in out and "jobs show j9 --json" in calls(), out + calls())
+        plain(); put("jobs.json", json.dumps([nobranch])); put("shows.json", json.dumps({"j9": nobranch}))
+        rc, out = run("7", "--basis", "b")
+        check("control: show says it has no branch: armed", rc == 0 and "ARMED #7" in out, out)
+        plain(); put("jobs_fail", "")
+        rc, out = run("7", "--basis", "b")
+        check("fabric-jobs cannot answer: exit 2, nothing armed", rc == 2 and "fabric-jobs list" in out and "pr merge" not in calls(), out)
+        reset(); set_pr("develop-qzapp/other/feat/x", "plain", ["docs/a.md"]); set_gate(9); put("jobs.json", json.dumps([blocked]))
+        rc, out = run("7", "--basis", "b", "--any-owner")
+        check("another login's PR (--any-owner): its jobs said not read, not refused, never asked",
+              rc == 0 and "jobs: not read" in out and "ARMED #7" in out and "jobs list" not in calls(), out)
+
         print("arm: gate 5 — the classes that arm under 8 without asking")
         reset(); set_pr("develop-qzapp/me/docs/x", "Wording.\n\nClass: docs-only",
                         ["docs/adr/ADR-054-x.md", ".claude/skills/pr-gate/SKILL.md", "apps/backend_dotnet/CLAUDE.md"]); set_gate(2)
@@ -1019,6 +1166,15 @@ def main() -> int:
         rc, out = cli("7", "--basis", "b", "--dry-run")
         check("…with codex's unavailable marker for the head: the claude review alone arms (dry run)",
               rc == 0 and "DRY RUN" in out and "codex unavailable (allowance)" in out and "pr merge" not in calls(), out + calls())
+
+        reset(); set_pr(me, "plain", ["docs/a.md"]); set_gate(9); both_reviewed(); reviews(first, fresh)
+        rc, out, err = cli("7", "--basis", "b", split=True)
+        check("a finding open in an earlier chain, read through gh as a program: exit 1, on stderr, nothing armed",
+              rc == 1 and "F5 | P3" in err and "review 5709892041" in err and "pr merge" not in calls(), out + err)
+        reset(); set_pr(me, "plain", ["docs/a.md"]); set_gate(9); both_reviewed()
+        put("jobs.json", json.dumps([{"id": "j9", "state": "blocked", "branch": me, "blocked_on": "a supply"}]))
+        rc, out, err = cli("7", "--basis", "b", split=True)
+        check("a blocked job, read through fabric-jobs as a program: exit 1, on stderr", rc == 1 and "job j9" in err, out + err)
 
         print("arm (CLI): the arming path, the dry run, a merge on the arming")
         reset(); set_pr(me, "plain", ["docs/a.md"]); set_gate(9); both_reviewed()
