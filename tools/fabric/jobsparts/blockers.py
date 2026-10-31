@@ -88,7 +88,7 @@ def normalise(spec: str) -> str:
         when = _clock_time(m)
         if when is None:
             raise Refused(f"{spec!r} names a time that does not exist: clock:<YYYY-MM-DDTHH:MM[:SS]Z> (UTC)")
-        return "clock:" + when.strftime("%Y-%m-%dT%H:%M:%SZ")
+        return f"clock:{when.year:04d}-{when:%m-%dT%H:%M:%S}Z"     # %Y alone does not pad a year below 1000 on glibc
     if text.startswith("clock:"):
         raise Refused(f"{spec!r} is not a UTC time: clock:<YYYY-MM-DDTHH:MM[:SS]Z>, with the trailing Z (an offset or a local time is refused)")
     if PR.fullmatch(text) or JOB.fullmatch(text):
@@ -142,7 +142,8 @@ def check_request(message_id: str) -> Check:
 
 def check_clock(epoch: float) -> Check:
     """Reads now() and nothing else, so it is never unknown."""
-    stamp = datetime.datetime.fromtimestamp(epoch, datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    when = datetime.datetime.fromtimestamp(epoch, datetime.timezone.utc)
+    stamp = f"{when.year:04d}-{when:%m-%dT%H:%M:%S}Z"
     left = epoch - now()
     if left <= 0:
         return Check("cleared", f"reached {stamp}")

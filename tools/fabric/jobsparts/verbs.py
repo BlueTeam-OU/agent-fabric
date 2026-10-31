@@ -121,7 +121,7 @@ def list_jobs(args) -> int:
     jobs = [j for j in doc["jobs"] if args.all or j["state"] in OPEN]
     waits, stale = stream_waits(doc, stored=args.stored)
     # Checkable blockers are re-checked here (cached: at most once per 10 minutes each); --stored and --cached read
-    # the cache and check nothing, which is what the control agent's `jobs` op and a hook want.
+    # the cache and check nothing (except a clock, which only reads now()), which is what the control agent's `jobs` op and a hook want.
     cache = bl.refresh(bl.all_specs(doc), check=not (args.stored or args.cached))
     if args.json:
         # The effective rank is the reader's, never stored: it is only

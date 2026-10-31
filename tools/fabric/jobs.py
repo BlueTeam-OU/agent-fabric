@@ -111,7 +111,7 @@ included), several
 allowed and all of them must clear. `list`, `next` and `block` check them, a blocker at most once every ten
 minutes (a cleared one never again: <state dir>/jobs-blockers.json), and a job whose blockers have all cleared reads
 "blocker cleared: <what>", is listed first, and is what `next` takes before anything queued: the agent moves it on
-itself. `--stored` and `--cached` check nothing and read that cache (the control agent's `jobs` op, a hook).
+itself. `--stored` and `--cached` check nothing and read that cache (a clock blocker is still evaluated, and cached) (the control agent's `jobs` op, a hook).
 `list --json` and the control plane's `jobs` carry, for such a job only, `blockers` ([{spec, state, detail,
 checked_at}]; state cleared, waiting or unknown, and unknown never clears) and `cleared` (true, false, or null
 while none is told). A request blocker is also kept as `waits_on`, as `--on-request` always kept it, and
@@ -259,8 +259,8 @@ def main(argv: list[str] | None = None) -> int:
     ls = sub.add_parser("list", help="open jobs (--all: closed ones too)")
     ls.add_argument("--all", action="store_true")
     ls.add_argument("--json", action="store_true")
-    ls.add_argument("--stored", action="store_true", help="stored priorities only; the state stream is not read, nor a blocker checked")
-    ls.add_argument("--cached", action="store_true", help="checkable blockers are read from the cache, not checked")
+    ls.add_argument("--stored", action="store_true", help="stored priorities only; the state stream is not read, nor a blocker checked (a clock: blocker is still evaluated)")
+    ls.add_argument("--cached", action="store_true", help="checkable blockers are read from the cache, not checked (a clock: blocker is still evaluated)")
     pr = sub.add_parser("prio", help="set a job's priority")
     pr.add_argument("id")
     pr.add_argument("priority", choices=PRIORITIES)
