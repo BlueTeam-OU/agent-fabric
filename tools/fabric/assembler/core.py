@@ -404,6 +404,9 @@ class Run:
     section_writers_gone: list[str] = field(default_factory=list)   # headings that left a slice this run: their writers go
     section_moves: dict[str, str] = field(default_factory=dict)     # slice moved this run, as the report names it: old path -> new
     applied_corrections: list[dict[str, Any]] = field(default_factory=list)
+    # Each section a claim's merge_target replaced under another heading, (claim key, file written, replaced heading): what
+    # shapes.verify_replacements looks for in the files afterwards.
+    replacements: list[tuple[str, str, str]] = field(default_factory=list)
     index_entries: dict[str, list[IndexEntry]] = field(default_factory=lambda: defaultdict(list))
     clipped_descriptions: list[str] = field(default_factory=list)
     # A role whose crossref this run writes with an empty index. Said, not

@@ -73,14 +73,26 @@ def plan_classes(run: Run) -> None:
             known = {held} if held else set()
             # A SECOND TOPIC MOVES THE CLASS INTO ITS DIRECTORY. The flat file has one INDEX row and one description,
             # so a topic written into it lost its cue (a drain's blind review, 2026-10-24).
+            #
+            # A FLAT FILE THAT RECORDS NO TOPIC IS NOT KNOWN TO HOLD THE ONE THE DRAIN BRINGS. Per-bundle runs each see
+            # one topic, so a file written before topics were recorded took every unrelated topic of its class as its
+            # own: brand-comms' domain.md piled them up in the 2026-10-31 drain (#437 round 5, F13). Only the crossref
+            # can say whose it is, and only when it names exactly the drain's topics; otherwise the file moves into the
+            # directory as the carried file and the new topic gets a file of its own. Refusing instead would stop every
+            # drain of a class whose file predates the field (half of the corpus's flat files).
+            unclaimed = bool(os.path.exists(flat_file) and not held and set(here) != set(prior))
             split = (os.path.isdir(os.path.join(base, CLASS_FILES[klass])) or len(here) > 1
                      or bool(known and os.path.exists(flat_file) and not set(here) <= known))
+            # Moved as the carried file, never named for a topic from the crossref, which lists referenced slices only: the
+            # file may hold memories it never named, and labelling them one topic's wrote them twice (review of #368, F1).
+            carry = unclaimed and not split
+            split = split or unclaimed
             if os.path.exists(flat_file):
                 if not split:
                     flat_topic = here[0]
                 elif held:
                     flat_topic = held
-                elif len(prior) == 1:
+                elif len(prior) == 1 and not carry:
                     flat_topic = prior[0]
                 else:
                     stamp = read_existing_slice(flat_file)[0].get("distilled_at") or "earlier"

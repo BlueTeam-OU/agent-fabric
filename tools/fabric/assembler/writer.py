@@ -207,6 +207,9 @@ def write_slice(
                     order.remove(stale)
                 sibling += 1
             resolved.append(target)
+            if heading != target:
+                evidence_head = (claim.get("evidence") or ["?"])[0][:12]
+                run.replacements.append((f"{role}/{klass}:{topic or flat_topic or claim['topic']}#{heading}@{evidence_head}", path, target))
         base_heading = heading
         rendered = claim_block(claim).split("\n", 1)[1].strip()
         if not authorised and heading in blocks and undated(blocks[heading]) != undated(rendered):
