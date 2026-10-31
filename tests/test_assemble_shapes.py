@@ -9,7 +9,6 @@ Stdlib only; runnable as `python3 test_assemble_shapes.py`.
 """
 from __future__ import annotations
 
-import json
 import os
 import sys
 import tempfile
