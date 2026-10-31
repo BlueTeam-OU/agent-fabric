@@ -311,6 +311,42 @@ def test_d4_a_merge_target_two_parts_of_one_topic_hold_is_ambiguous(tmp: str) ->
     assert proc.returncode == 1 and "MERGE TARGET AMBIGUOUS" in proc.stderr, (proc.returncode, proc.stderr)
 
 
+FOOTER = "*Observed 2026-10-20 (architect-cto)*"
+
+
+def test_j485_a_body_that_carries_its_own_observed_footer_gets_one_footer(tmp: str) -> None:
+    """j485: claim_block appended the claim's footer without looking at the body's, so a memory copied from a slice
+    (or a correction memory) ended in two identical lines. The claim's footer is the only one when it has observed_at,
+    and its date wins; two footers in the body make one; without observed_at the body's last footer stays, once;
+    only a footer at the very end is touched."""
+    from assembler.slices import claim_block
+    base = {"topic": "t", "title": "T", "evidence": ["h1"], "_role": "architect-cto"}
+    block = lambda body, **extra: claim_block({**base, "body": body, **extra})  # noqa: E731 — the rendering under test
+    assert block("Text.", observed_at="2026-10-25") == "## T\n\nText.\n\n*Observed 2026-10-25 (architect-cto)*\n", "the control: no footer in the body"
+    assert block(f"Text.\n\n{FOOTER}", observed_at="2026-10-25") == "## T\n\nText.\n\n*Observed 2026-10-25 (architect-cto)*\n"
+    assert block(f"Text.\n\n{FOOTER}\n\n*Observed 2026-10-21 (architect-cto)*", observed_at="2026-10-20") \
+        == "## T\n\nText.\n\n*Observed 2026-10-20 (architect-cto)*\n"
+    assert block(f"Text.\n\n{FOOTER}") == f"## T\n\nText.\n\n{FOOTER}\n", "no observed_at: the body's footer, once"
+    assert block(f"Text.\n\n*Observed 2026-10-19 (architect-cto)*\n\n{FOOTER}") == f"## T\n\nText.\n\n{FOOTER}\n", "the last of the body's"
+    assert block("Text.") == "## T\n\nText.\n", "no footer anywhere: nothing added"
+    prose = f"On 2026-10-20 it was Observed 2026-10-20 (x) in the logs.\n\n{FOOTER}\n\nMore prose, Observed 2026-10-19."
+    assert block(prose, observed_at="2026-10-25") == f"## T\n\n{prose}\n\n*Observed 2026-10-25 (architect-cto)*\n", "prose stays"
+
+
+def test_j485_a_slice_re_rendered_from_a_body_with_its_footer_carries_one(tmp: str) -> None:
+    """The section a drain wrote twice-footed is re-rendered from its claim with one footer (a fixture of the
+    correction memories' shape), and the same drain again is a no-op."""
+    body = f"The correction authorizes the send.\n\n{FOOTER}"
+    drain, claims_dir, out = ta.build(tmp, {"alpha": ta.claims("alpha", [
+        {"class": "workflow", "topic": "correction-x", "title": "Correction X", "body": body, "evidence": ["h1"],
+         "observed_at": "2026-10-20"}])})
+    assert ta.run_assemble(drain, claims_dir, out).returncode == 0
+    text = ta.read(ta.proj(out, "alpha", "workflow.md"))
+    assert text.count("*Observed 2026-10-20") == 1, text
+    first = tree_of(out)
+    assert ta.run_assemble(drain, claims_dir, out).returncode == 0 and tree_of(out) == first
+
+
 def main() -> int:
     cases = [
         test_an_owner_named_only_in_shared_with_gets_its_index,
@@ -324,6 +360,8 @@ def main() -> int:
         test_d3_the_predecessor_of_a_same_run_correction_is_reported_not_written_back,
         test_d3_a_correction_replaces_the_kept_both_siblings_so_their_text_is_a_predecessor_too,
         test_d4_a_merge_target_two_parts_of_one_topic_hold_is_ambiguous,
+        test_j485_a_body_that_carries_its_own_observed_footer_gets_one_footer,
+        test_j485_a_slice_re_rendered_from_a_body_with_its_footer_carries_one,
     ]
     # Cases run because they are listed, so one written and not listed
     # would pass forever unrun (test_assemble.py's registry rule).
