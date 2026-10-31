@@ -8,9 +8,11 @@ The rule, as the request states it:
   - a review whose base= is the head= of an earlier review continues that review's chain; any other starts one;
   - each body is read by errors.parse_machine_lines, the one reader of the Finding:/Judgement: lines;
   - a Finding is open until a LATER review judges its label fixed or not-real; the latest judgement of it wins, so a
-    real, partly or not-fixed after a fixed opens it again. A judgement goes to the newest earlier Finding of its
-    label in its own chain, then in the chains begun before its own. Two findings that share a label are told apart
-    by nothing but that order: a judgement may close the wrong one and leave the right one open, which over-blocks —
+    real, partly or not-fixed after a fixed opens it again. A judgement goes to its own chain whenever that chain
+    ever raised the label, open or closed (a repeated fixed re-closes its own, #437 F1); only a label its chain
+    never raised goes to the chains begun before its own; among those, the newest earlier Finding of the label, a
+    fixed or not-real taking an open one first. Two findings that share a label are told apart by nothing but that
+    order: a judgement may close the wrong one and leave the right one open, which over-blocks —
     the accepted cost; under-blocking is the defect this gate exists for;
   - a review read as nothing — no body from the API, a body with no machine lines, a malformed line — is unknown,
     never "no findings": the gate refuses naming it.
@@ -110,15 +112,17 @@ def read(reviews: list, trusted: set[str]) -> Reading:
         # Judged before this review's own findings are added: a review never judges what it raises itself.
         for label, verdict, _ in parsed.judgements:
             same = [f for f in out.findings if f.label == label]
+            # Its own chain whenever that chain ever raised the label, open or closed: a repeated `F1 | fixed` (a
+            # second engine on the range, the next round restating it) re-closes its own F1 and never spills onto
+            # an earlier chain's open F1 (#437 F1). Only a label its chain never raised goes to the chains begun
+            # before. Within the chosen chains, newest first, a clearing verdict preferring one still open.
+            mine = [f for f in same if f.chain == chain]
+            pool = mine or [f for f in same if chain_first[f.chain] < chain_first[chain]]
+            pool.sort(key=lambda f: -f.order)
             if verdict in CLEARS:
-                same = [f for f in same if f.open]
-            # Own chain first, newest first; then the chains begun before this one, newest first.
-            mine = sorted((f for f in same if f.chain == chain), key=lambda f: -f.order)
-            older = sorted((f for f in same if f.chain != chain and chain_first[f.chain] < chain_first[chain]),
-                           key=lambda f: -f.order)
-            target = (mine or older or [None])[0]
-            if target is not None:
-                target.open = verdict not in CLEARS
+                pool = [f for f in pool if f.open] + [f for f in pool if not f.open]
+            if pool:
+                pool[0].open = verdict not in CLEARS
         for label, level in parsed.findings:
             path, summary = _where(body, label)
             out.findings.append(Finding(rid, marker.head, chain, order, label, level, path, summary))
