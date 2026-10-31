@@ -225,6 +225,8 @@ if a[:1] == ["api"]:
             f.write(path + "\\n")
         if os.path.exists(os.path.join(S, "read-fails")):
             print("gh: HTTP 502: Bad Gateway", file=sys.stderr); sys.exit(1)
+        if "-i" in a:   # gh.api_list: the status line and headers, a blank line, one page of the list
+            sys.stdout.write("HTTP/2.0 200 OK\r\n\r\n" + json.dumps(state("reviews.json", []))); sys.exit(0)
         if path.split("?")[0].endswith("/reviews"):
             print(json.dumps([state("reviews.json", [])]))
         else:
@@ -498,7 +500,7 @@ def main() -> int:
         def set_pr(oid: str = head) -> None:
             with open(os.path.join(state, "pr.json"), "w") as f:
                 json.dump({"number": 7, "state": "OPEN", "headRefName": f"{me}/feat/thing", "headRefOid": oid,
-                           "baseRefName": "main"}, f)
+                           "baseRefName": "main", "author": {"login": "fleet-account"}}, f)
             with open(os.path.join(state, "mergebase"), "w") as f:
                 f.write(base)
             for n in ("calls", "payload.json", "codex-run.json", "codex-calls", "grandchild", "sandbox-calls", "sandbox-mode",
@@ -818,6 +820,48 @@ def main() -> int:
         check("exit 0 and the body on stdout", r.returncode == 0 and shown(r.stdout).startswith("**Engine:** Codex")
               and "No findings." in r.stdout, r.stderr + r.stdout)
         check("nothing posted", not posted())
+
+        print("labels: a full review numbers its findings past every label the PR's reviews used (ADR-065 §5 rule 5)")
+        def labels(text: str) -> list[str]:
+            return re.findall(r"^Finding: (F\d+) ", text, re.M)
+
+        def seed_reviews(*reviews: dict) -> None:
+            with open(os.path.join(state, "reviews.json"), "w") as f:
+                json.dump([{"user": {"login": "fleet-account"}, "author_association": "OWNER", **r} for r in reviews], f)
+
+        def earlier(rid: int, *lines: str) -> dict:
+            # A v2 report of an earlier head, as the Claude reviews are: the reader skips a review with no marker.
+            marker = review_coverage.format_marker(chr(96 + rid) * 40, chr(97 + rid) * 40, "d" * 40, "e" * 64)
+            return {"id": rid, "submitted_at": f"2026-10-3{rid}T00:00:00Z", "body": marker + "\nreport\n" + "\n".join(lines) + "\n"}
+
+        set_pr(); mode("ok")
+        r = run("7", req, "--no-post")
+        check("control: a PR with no reviews starts at F1", r.returncode == 0 and labels(r.stdout) == ["F1", "F2"],
+              (r.stderr, r.stdout))
+        set_pr(); mode("ok")
+        seed_reviews(earlier(1, *(f"Finding: F{n} | P3 | likely | a.txt:1 | s{n}" for n in range(1, 6))),
+                     earlier(2, *(f"Judgement: F{n} | fixed | gone" for n in range(1, 6)),
+                             *(f"Finding: F{n} | P2 | certain | a.txt:1 | s{n}" for n in range(6, 10))))
+        r = run("7", req, "--no-post")
+        check("a PR whose reviews used up to F9: the Codex findings are F10 and F11", r.returncode == 0
+              and labels(r.stdout) == ["F10", "F11"], (r.stderr, r.stdout))
+        set_pr(); mode("ok")
+        seed_reviews(earlier(1, "Finding: F9 | P2 | certain | a.txt:1 | s9"))
+        r = run("7", req)
+        check("…and the posted review carries the same labels", r.returncode == 0 and posted()
+              and labels(payload_body()) == ["F10", "F11"], (r.stderr, payload_body()))
+        set_pr(); mode("ok"); open(os.path.join(state, "read-fails"), "w").close()
+        r = run("7", req)
+        check("reviews that cannot be listed: refused, exit 1, nothing posted", r.returncode == 1 and not posted()
+              and "cannot be listed" in r.stderr, (r.returncode, r.stderr))
+        set_pr(); mode("ok"); open(os.path.join(state, "read-fails"), "w").close()
+        r = run("7", req, "--no-post")
+        check("…--no-post prints no report either", r.returncode == 1 and r.stdout == "", (r.returncode, r.stdout))
+        set_pr(); mode("ok")
+        seed_reviews(earlier(1, "Finding: F9 | P2 | certain | a.txt:1 | s9"), {"id": 2, "submitted_at": "2026-10-32T00:00:00Z", "body": None})
+        r = run("7", req)
+        check("a listed review that cannot be read: refused, exit 1, nothing posted", r.returncode == 1 and not posted()
+              and "cannot be read" in r.stderr, (r.returncode, r.stderr))
 
         print("the compaction heads-up: posted with the advisory line; with any other error or no command, a failed review")
         set_pr(); mode("compaction")
