@@ -1456,6 +1456,8 @@ its record disagree, the record wins. Look it up, never read it whole:
   fail-closed (§2 C, §5 rules 4–5).
 - The session posts the report; `review-bash-guard` stays only for other
   unisolated classes (§5 rules 6–7).
+- A 2026-10-31 — a PR's full review is handed earlier chains' open
+  findings to judge, and numbers past their labels (§5 rule 5).
 - Keywords: review class, reviewer, Bash guard, pinned tools, MCP,
   read-only, bubblewrap, sandbox, checks, coverage manifest, checkpoint
-  marker, re-review, card_base, open-code-review, P3.
+  marker, re-review, card_base, open findings, open-code-review, P3.
