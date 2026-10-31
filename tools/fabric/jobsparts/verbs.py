@@ -52,7 +52,7 @@ def outside_copy(job: dict, here: str | None) -> dict | None:
         return None
     if here is not None and any(here == c or here.startswith(c.rstrip("/") + "/") for c in copies):
         return None
-    return {"fresh": True, "reason": "outside_copy", "here": here, "copies": copies}
+    return {"fresh": True, "reason": "outside_copy" if here is not None else "place_unreadable", "here": here, "copies": copies}
 
 
 def held_refusal(record: dict, what: str) -> str:
@@ -359,9 +359,12 @@ def switch_job(args) -> int:
               f"(stored {stored_priority(job)})")
     if verdict["fresh"]:
         if verdict["reason"] == "outside_copy":
-            where = verdict["here"] or "a directory that could not be read (no git answer, or the directory is gone)"
-            print(f"fresh session: this one has worked no job, but stands in {where}, outside the copies of {job['id']} "
+            print(f"fresh session: this one has worked no job, but stands in {verdict['here']}, outside the copies of {job['id']} "
                   f"({', '.join(verdict['copies'])}); the job copy guard refuses a commit from there (ADR-037 rule 3).")
+        elif verdict["reason"] == "place_unreadable":
+            # Not the guard's refusal: it asks on a git timeout and reads the cwd as itself when git is missing.
+            print(f"fresh session: this one has worked no job, but could not tell where it stands (git gave no answer, or the directory "
+                  f"is gone), so it cannot be told to be inside the copies of {job['id']} ({', '.join(verdict['copies'])}); a fresh one is the safe answer.")
         else:
             print(f"fresh session: this one has already worked {verdict['worked']}; every job starts in a fresh one.")
         # The agent runs it, never the person: an agent once handed this line to the owner as a

@@ -427,7 +427,7 @@ def main() -> int:
             vcs_mod.toplevel = real_toplevel
         verdict = jobs_mod.outside_copy({"id": "j9", "working_copy": sub}, unreadable) or {}
         check("an unreadable toplevel is outside, with no place named, though the cwd is the recorded copy",
-              unreadable is None and verdict.get("reason") == "outside_copy" and verdict.get("here") is None, repr((unreadable, verdict)))
+              unreadable is None and verdict.get("reason") == "place_unreadable" and verdict.get("here") is None, repr((unreadable, verdict)))
         check("  positive control: the same copy and directory, git answering, is read as before",
               at(sub) == os.path.realpath(repo_b))
         env["AGENT_FABRIC_STATE_DIR"] = saved_state
