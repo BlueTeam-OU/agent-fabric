@@ -36,7 +36,7 @@ import fabric_settings  # noqa: E402
 TOOL = os.path.join(ROOT, "tools", "fabric", "managed_settings.py")
 TEMPLATE = os.path.join(ROOT, ms.TEMPLATE)
 WORKSPACE = os.path.join(ROOT, "runtime", "claude-code", "workspace", "settings.json")
-GATE = "[ -e /etc/claude-code/managed-settings.json ] && exit 0; "
+GATE = "[ -e /etc/claude-code/managed-settings.json ] && [ -x /usr/local/bin/fabric-python ] && exit 0; "
 # The workspace scripts whose entries moved, and the managed guard each became.
 MOVED = {"agent-dispatch-guard.sh": "agent-dispatch-guard", "subagent-clone-guard.sh": "subagent-clone-guard",
          "pipe-status-guard.sh": "pipe-status-guard", "self-kill-guard.py": "self-kill-guard",

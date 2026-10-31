@@ -29,6 +29,11 @@ Without root, `CLAUDE_CODE_MANAGED_SETTINGS_PATH` pointed at a scratch folder, a
 
 The hook inherits the session's `PATH` and environment either way, so what a guard execs by name is the login's to choose. The managed entry is therefore exec form, an absolute path to a `#!/bin/bash -p` script that resets the environment itself. `-p` ignores `BASH_ENV` and imported functions.
 
+**A managed hook that cannot run.** Both cases are exec form, with the guard reached through `<prefix>/managed/current`:
+- N11a: the interpreter exists and the script does not (a dangling `current`). `fabric-python` exits 2 ("can't open file"), and 2.1.316 treats a `PreToolUse` exit 2 as a block. The call was denied, so this case fails closed.
+- N11b: the interpreter does not exist. The spawn fails with ENOENT, the harness logs "status code 1", which is non-blocking, and **the command ran**. A managed guard whose interpreter is missing is therefore off.
+The workspace's own copies of the guards stand down only while the managed file exists **and** `/usr/local/bin/fabric-python` is executable. `fabric-managed check` reports a missing interpreter as `missing`.
+
 **Not measured here.**
 - A managed hook running a root-owned script under `/usr/local/lib/agent-fabric/hooks/`. Where the command lives does not change how a hook is run, but it is read back on the real install.
 - A project-scope `disableAllHooks`; only user scope was run.
