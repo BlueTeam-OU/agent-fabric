@@ -432,15 +432,20 @@ def range_head(req: dict) -> str:
     return _git(req["repository"], "rev-parse", "--verify", "-q", f"{head}^{{commit}}")
 
 
-def first_label(req: dict, head: str) -> int:
-    """The label number a full review of a PR starts at: past every label its reviews used, read by the reader and
-    the accounts the Claude brief uses (review_brief.carried_for), so the two engines cannot post one label for two
-    findings. 1 for a request that is no PR's full review. A PR whose reviews cannot be listed or read is refused:
-    its labels are unknown, and a guess would collide."""
-    handed, refusals = review_brief.carried_for(req, {"head_sha": head})
+def label_start(req: dict, head: str, pr: str) -> int:
+    """The label number a full review of PR `pr` starts at: past every label its reviews used, read by the reader and
+    the accounts the Claude brief uses (review_brief.carried_findings). `pr` is the one the review is posted to, not
+    the request's own (load_request lets a request name another): the labels that matter are the posted-to PR's. 1 for
+    a request that is no full review. A PR whose reviews cannot be listed or read is refused: its labels are unknown,
+    and a guess would collide."""
+    if req.get("mode") != "review":
+        return 1
+    handed, refusals = review_brief.carried_findings(int(pr), head, req["repository"])
     if refusals:
-        raise Refused("; ".join(refusals))
-    return handed["next"] if handed else 1
+        # The brief's own refusal text advises leaving pr out, which cannot help here: the CLI's PR is read either way.
+        raise Refused(f"PR #{pr}'s earlier labels are unknown, so this review's cannot be numbered past them; "
+                      f"nothing posted ({'; '.join(refusals)})")
+    return handed["next"]
 
 
 def pr_head(repo: str, pr: str) -> str:
@@ -923,7 +928,7 @@ def render_review(model: str, head: str, rng: str, findings: list[dict], effort_
         out.append("")
         ordered = sorted(findings, key=lambda f: order[f["level"]])
         for n, f in enumerate(ordered, 1):
-            out += [f"{n}. **{f['level']}** `{_one_line(f['file'])}:{f['line']}`",
+            out += [f"F{first_label + n - 1}. **{f['level']}** `{_one_line(f['file'])}:{f['line']}`",
                     f"   - **Scenario:** {_one_line(f['scenario'])}",
                     f"   - **Expected:** {_one_line(f['expected'])}",
                     f"   - **Fix:** {_one_line(f['fix'])}"]
@@ -1122,7 +1127,7 @@ def _review(pr: str, request: str, *, model_flag: str | None, timeout_min: float
     # Read after the run, not before: an unavailable model posts a statement whatever GitHub answers, and a review
     # posted while Codex read has used labels too. A refusal here costs the run; nothing is posted.
     body = report_body(brief, model, head, req["range"], findings, level, coverage, observed.runs[-1].advisories,
-                       first_label(req, head))
+                       label_start(req, head, pr))
     if no_post:
         sys.stdout.write(body)
         return 0

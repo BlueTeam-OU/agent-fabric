@@ -845,6 +845,18 @@ def main() -> int:
         r = run("7", req, "--no-post")
         check("a PR whose reviews used up to F9: the Codex findings are F10 and F11", r.returncode == 0
               and labels(r.stdout) == ["F10", "F11"], (r.stderr, r.stdout))
+        check("…and the prose list carries the same labels as the machine lines",
+              re.findall(r"^(F\d+)\. \*\*P\d\*\*", r.stdout, re.M) == ["F10", "F11"], r.stdout)
+        asked: list = []
+        saved_cf = review_codex.review_brief.carried_findings
+        review_codex.review_brief.carried_findings = lambda pr, head, repo: (asked.append(pr), ({"findings": [], "next": 4}, []))[1]
+        try:
+            check("the labels are read from the PR the review is posted to, not the one the request names",
+                  review_codex.label_start({"mode": "review", "pr": 12, "repository": "r"}, "h", "7") == 4 and asked == [7], asked)
+            check("a request that is no full review is not asked", review_codex.label_start({"mode": "re-review", "repository": "r"}, "h", "7") == 1
+                  and asked == [7], asked)
+        finally:
+            review_codex.review_brief.carried_findings = saved_cf
         set_pr(); mode("ok")
         seed_reviews(earlier(1, "Finding: F9 | P2 | certain | a.txt:1 | s9"))
         r = run("7", req)
@@ -853,7 +865,7 @@ def main() -> int:
         set_pr(); mode("ok"); open(os.path.join(state, "read-fails"), "w").close()
         r = run("7", req)
         check("reviews that cannot be listed: refused, exit 1, nothing posted", r.returncode == 1 and not posted()
-              and "cannot be listed" in r.stderr, (r.returncode, r.stderr))
+              and "cannot be listed" in r.stderr and "leave pr out" not in r.stderr.split("(")[0], (r.returncode, r.stderr))
         set_pr(); mode("ok"); open(os.path.join(state, "read-fails"), "w").close()
         r = run("7", req, "--no-post")
         check("…--no-post prints no report either", r.returncode == 1 and r.stdout == "", (r.returncode, r.stdout))
