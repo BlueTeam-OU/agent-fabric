@@ -47,7 +47,14 @@ arm — all on that head; a new supply starts again at the fold.
 **A code PR is armed by its work-commit count** (review fixes excluded)
 against the repository's minimum, which `fabric-pr arm --dry-run` prints —
 never a number from memory. At it or above, arm once the review gate is
-met (a posted review of the head, no open P1/P2). Below it, or for a
+met (a posted review of the head, no open P1/P2 on it, and nothing
+open from an earlier round). That last part is gate 4c: a `Finding:` of
+any posted review chain stays open until a later `Judgement:` closes
+it, at any P-level, a fresh full review included, and a review it
+cannot read refuses; so does a blocked job of yours on the PR's
+branch, unless its blockers have all cleared. `--defer
+"<head8>:F<n>" "<why>"` lifts one finding and `--defer-job j<n>
+"<why>"` one job, each recorded in the arming comment. Below it, or for a
 security-boundary change under the boundary minimum, the dry-run names who
 may give the word: the owner, whose word ("arm <n>") goes in your basis as
 "the owner's word", or the repository's arming authority
