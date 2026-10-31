@@ -1847,12 +1847,12 @@ def main() -> int:
         rc, out, err = w.switch()
         check("a removed worktree on a pushed branch is fine", rc == 0 and "branch side/pushed pushed" in out, out + err)
 
-        print("a session that has worked no job takes the first in place, with its branch")
+        print("a session that has worked no job gets the first with its branch; standing in the main checkout it is outside the new worktree")
         w = World()
         j1 = w.add("first")
         rc, out, err = w.switch("--json")
         v = json.loads(out)
-        check("--json carries the verdict, the branch and what was settled", rc == 0 and v["fresh"] is False and v["settled"] is None
+        check("--json carries the verdict, the branch and what was settled", rc == 0 and v["worked"] is None and v["reason"] == "outside_copy" and v["settled"] is None
               and v["branch"].startswith(f"{host}/{login}/feat/{j1}-") and v["branch_kind"] == "new", out + err)
 
         print("the fleet hold (ADR-037 rule 13): the old job is settled, nothing is started")
