@@ -847,7 +847,10 @@ class RealPin(unittest.TestCase):
         cases = {
             "neither minisign nor unsigned": lambda d: rel(d).pop("minisign"),
             "both minisign and unsigned": lambda d: rel(d).update(unsigned="why"),
-            "unsigned without a reason": lambda d: (rel(d).pop("minisign"), rel(d).pop("x86_64").pop("minisig"), rel(d).update(unsigned="")),
+            "unsigned without a reason": lambda d: (rel(d).pop("minisign"), rel(d)["x86_64"].pop("minisig"), rel(d).update(unsigned="")),
+            "unsigned with a blank reason": lambda d: (rel(d).pop("minisign"), rel(d)["x86_64"].pop("minisig"), rel(d).update(unsigned="  ")),
+            "unsigned with a reason of two lines": lambda d: (rel(d).pop("minisign"), rel(d)["x86_64"].pop("minisig"), rel(d).update(unsigned="a\nb")),
+            "a trusted comment that is not utf-8": lambda d: sig(d).update(trusted_comment="x\ud800"),
             "a release without a build's minisig": lambda d: rel(d)["x86_64"].pop("minisig"),
             "a minisig on an unsigned release": lambda d: d["releases"]["0.1.0"]["x86_64"].update(minisig=sig(d)),
             "a key of another length": lambda d: rel(d)["minisign"].update(public_key=b64(b"Ed" + b"\1" * 39)),
@@ -869,10 +872,19 @@ class RealPin(unittest.TestCase):
                 rel(d)["minisign"].update(key_id="0807060504030201"), sig(d).update(signature=b64(raw(d)[:2] + bytes.fromhex("0807060504030201")[::-1] + raw(d)[10:]))),
             "a global signature with padding bits set": lambda d: sig(d).update(global_signature=sig(d)["global_signature"][:-3] + "R=="),
         }
+        control = json.loads(json.dumps(good))
+        control["releases"]["0.2.0"].pop("minisign")
+        control["releases"]["0.2.0"]["x86_64"].pop("minisig")
+        control["releases"]["0.2.0"]["unsigned"] = "predates the key"
+        self.assertIsNone(iw.pin_problem(control), "positive control: the same edit with a real reason is a valid pin")
         for label, mutate in cases.items():
             d = json.loads(json.dumps(good))
             mutate(d)
-            self.assertIsNotNone(iw.pin_problem(d), label)
+            problem = iw.pin_problem(d)
+            self.assertIsNotNone(problem, label)
+            if label.startswith("unsigned"):
+                self.assertIn("unsigned", problem, label)
+                self.assertNotIn("no build", problem, label)
 
 
 class Signature(Case):

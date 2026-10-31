@@ -287,7 +287,9 @@ def _signing_problem(version: str, rel: dict) -> str | None:
     if ("minisign" in rel) == ("unsigned" in rel):
         return f"{version} must have exactly one of minisign and unsigned"
     if "unsigned" in rel:
-        return None if isinstance(rel["unsigned"], str) and rel["unsigned"].strip() else f"{version} is unsigned without a reason"
+        reason = rel["unsigned"]
+        # One line: the refusal that quotes it is a one-line reply.
+        return None if isinstance(reason, str) and reason.strip() and "\n" not in reason else f"{version} is unsigned without a one-line reason"
     m = rel["minisign"]
     if not (isinstance(m, dict) and set(m) == {"public_key", "key_id", "release_keys_commit"}):
         return f"{version} has a minisign that is not public_key, key_id and release_keys_commit"

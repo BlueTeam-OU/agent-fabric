@@ -140,8 +140,13 @@ def minisig_problem(minisig: Any, key_id: Any) -> str | None:
         return "has a signature made by another key than the release's"
     if _b64(minisig["global_signature"], GLOBAL_LEN) is None:
         return "has a global_signature that is not 64 bytes in base64"
-    if not isinstance(minisig["trusted_comment"], str):
+    comment = minisig["trusted_comment"]
+    if not isinstance(comment, str):
         return "has a trusted_comment that is not a string"
+    try:
+        comment.encode("utf-8")
+    except UnicodeEncodeError:
+        return "has a trusted_comment that is not valid UTF-8 text"
     return None
 
 
