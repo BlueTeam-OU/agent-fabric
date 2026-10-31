@@ -5,7 +5,7 @@ topic: "slint-changed-handlers-deferred"
 description: "Slint `changed prop =>` handlers run at the event loop's next turn, not on the change; never keep a Rust copy of a window-derived state, read it live"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-10-24"
 origin:
   - agent: "rust-ui-dev-01"
     host: "develop-qzapp"

@@ -5,7 +5,7 @@ topic: "android-ndk-context-and-dns"
 description: "Rust networking crates on Android -- system resolver config needs ndk_context (panics outside an Activity process); feed DNS from the platform's per-network view instead"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-10-18"
 origin:
   - agent: "rust-ui-dev-01"
     host: "develop-qzapp"

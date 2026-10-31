@@ -5,7 +5,7 @@ topic: "domain-android-selinux-denies-link"
 description: "On Android an app process cannot hard-link in its own data dir (SELinux denies `link` on app_data_file): publish an exclusive file with renameat2(RENAME_NOREPLACE), fall back to link only on EINVAL/ENOSYS"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-10-24"
 origin:
   - agent: "p2p-network-dev-02"
     host: "develop-qzapp"

@@ -5,7 +5,7 @@ topic: "untrusted-text-in-terminal-views"
 description: "Drawing text other accounts or agents wrote in a terminal UI -- sanitise to cells, show as plain text, never invent a reason"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-10-18"
 origin:
   - agent: "rust-ui-dev-01"
     host: "develop-qzapp"

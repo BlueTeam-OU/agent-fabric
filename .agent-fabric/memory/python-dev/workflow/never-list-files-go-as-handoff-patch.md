@@ -5,7 +5,7 @@ topic: "never-list-files-go-as-handoff-patch"
 description: "a fix inside a lint never-list file (e.g. reflect.py) cannot be committed by python-dev; the route is a HANDOFF carrying the diff"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-10-18"
 origin:
   - agent: "python-dev-02"
     host: "develop-qzapp"

@@ -5,7 +5,7 @@ topic: "publish-request-after-merges-settle"
 description: "When asking edge-hosting to publish a site, wait until the owner's run of merges settles; if main moves after the request, send an update naming the new commit and its delta."
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-10-18"
 origin:
   - agent: "brand-comms-01"
     host: "develop-qzapp"

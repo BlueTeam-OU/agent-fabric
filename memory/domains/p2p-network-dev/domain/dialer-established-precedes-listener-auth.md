@@ -5,7 +5,7 @@ topic: "dialer-established-precedes-listener-auth"
 description: "A libp2p dialer reports ConnectionEstablished before the listener authenticates it; a test must not assume which arriving dialer a listener-side ceiling refuses"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-10-18"
 origin:
   - agent: "p2p-network-dev-01"
     host: "develop-qzapp"

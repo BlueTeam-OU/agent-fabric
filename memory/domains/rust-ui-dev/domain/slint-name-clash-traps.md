@@ -5,7 +5,7 @@ topic: "slint-name-clash-traps"
 description: "Slint 1.18 traps -- a component property named row/text shadows builtins; indentation in app.slint lies about nesting"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-10-24"
 origin:
   - agent: "rust-ui-dev-02"
     host: "develop-qzapp"

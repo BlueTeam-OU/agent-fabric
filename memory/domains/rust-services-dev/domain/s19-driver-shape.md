@@ -5,7 +5,7 @@ topic: "s19-driver-shape"
 description: "Driving a nested claude TUI through a pty: match menu text with spaces squeezed out, and redact ~/ paths"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-10-24"
 origin:
   - agent: "rust-services-dev-02"
     host: "develop-qzapp"

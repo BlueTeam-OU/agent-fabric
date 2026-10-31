@@ -5,7 +5,7 @@ topic: "process-group-test-zombie-pid1"
 description: "a \"grandchild was killed\" test that uses os.kill(pid,0) fails in containers whose PID 1 does not reap; read /proc state Z and poll"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-10-18"
 origin:
   - agent: "python-dev-03"
     host: "develop-qzapp"

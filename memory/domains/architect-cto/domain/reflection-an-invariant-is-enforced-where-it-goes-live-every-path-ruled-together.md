@@ -5,7 +5,7 @@ topic: "reflection-an-invariant-is-enforced-where-it-goes-live-every-path-ruled-
 description: An invariant that must hold when something goes live is checked at that change, not only at creation or import, because the set it is checked against can change in between; and every way into and out of that state is ruled in one ruling…
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-10-28"
 origin:
   - agent: "architect-cto-01"
     host: "develop-qzapp"

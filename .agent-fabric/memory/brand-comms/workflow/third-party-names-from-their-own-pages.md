@@ -5,7 +5,7 @@ topic: "third-party-names-from-their-own-pages"
 description: "A partner's or venue's name on a brand surface — check it against the institution's own pages in each language; a name from memory can belong to a different site of the same institution"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-10-18"
 origin:
   - agent: "brand-comms-01"
     host: "develop-qzapp"

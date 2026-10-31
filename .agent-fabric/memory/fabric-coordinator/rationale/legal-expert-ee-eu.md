@@ -5,7 +5,7 @@ topic: "legal-expert-ee-eu"
 description: "Owner 2026-10-15 — new agent legal-expert-ee-eu, role legal-expert (jurisdiction in the login suffix), persona surname Kelsen, serves agent-fabric first (j241)"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-10-18"
 origin:
   - agent: user
     host: "develop-qzapp"

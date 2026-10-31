@@ -5,7 +5,7 @@ topic: "re-run-recorded-measurements-at-the-final-head"
 description: "A measurement recorded as a gate's proof counts only if it ran at code carrying every review fix: re-run at the final runtime head, commit the log naming that pin, and say which later commits touch only comments or tests"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-10-18"
 origin:
   - agent: "p2p-network-dev-01"
     host: "develop-qzapp"

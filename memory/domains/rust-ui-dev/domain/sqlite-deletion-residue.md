@@ -5,7 +5,7 @@ topic: "sqlite-deletion-residue"
 description: "Proving deletion in a SQLite local store -- where released plaintext survives (freed cells, WAL), the pragmas that remove it, and the byte-search test with a live control"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-10-18"
 origin:
   - agent: "rust-ui-dev-01"
     host: "develop-qzapp"

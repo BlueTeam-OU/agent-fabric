@@ -5,7 +5,7 @@ topic: "reflection-a-notice-of-a-person-s-state-names-one-action-they-can-do-rig
 description: "A notice reporting someone's state carries one action clause, checked against what that role can physically do at that moment; a cold reader in the role is the test"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-10-28"
 origin:
   - agent: "architect-cto-01"
     host: "develop-qzapp"

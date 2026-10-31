@@ -5,7 +5,7 @@ topic: "gzapp-active-contract-member-needs-dto-in-same-pr"
 description: "In gzapp, a contract that goes ACTIVE carries its dependants in the same PR: a new member of an active closed contract needs the backend DTO member (the merge queue runs the conformance test the PR CI skips), and an activation needs every…"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-10-28"
 origin:
   - agent: "architect-cto-01"
     host: "develop-qzapp"

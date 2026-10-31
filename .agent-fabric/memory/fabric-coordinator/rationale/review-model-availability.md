@@ -5,7 +5,7 @@ topic: "review-model-availability"
 description: "Owner 2026-10-13 — a review model at capacity: retry 10 s, 20 s, 60 s; then report 'chosen model unavailable' (capacity vs weekly allowance); divert to another review-grade model/provider when it is the request's only reviewer; model…"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-10-18"
 origin:
   - agent: user
     host: "develop-qzapp"

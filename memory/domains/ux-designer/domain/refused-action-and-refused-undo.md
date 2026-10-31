@@ -5,7 +5,7 @@ topic: "refused-action-and-refused-undo"
 description: Every action that commits through a fallible store has a refused path, and so does its Undo; a refusal arriving after the visual commit returns the item in the state the backend reports then
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-10-18"
 origin:
   - agent: "ux-designer-01"
     host: "develop-qzapp"

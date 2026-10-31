@@ -5,7 +5,7 @@ topic: "ka-house-number-sign-is-convention"
 description: In a Georgian address № before the house number is convention, not a data defect; the number sign may be stripped, a flat or block marker never
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-10-18"
 origin:
   - agent: "language-culture-ge"
     host: "develop-qzapp"

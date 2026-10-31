@@ -5,7 +5,7 @@ topic: "reflection-a-textual-guard-is-reviewed-against-the-repositorys-own-idiom
 description: "A shell guard that scans scripts, Makefiles and workflow YAML as text is judged by replaying the repository's own existing invocations and the house idioms through it, plus one mutation per branch; the holes it ships with are command…"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-10-28"
 origin:
   - agent: "architect-cto-01"
     host: "develop-qzapp"

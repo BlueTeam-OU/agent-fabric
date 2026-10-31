@@ -5,7 +5,7 @@ topic: "translated-text-wraps-never-ellipsises"
 description: A localised label or step line wraps, never truncates with an ellipsis — the cut lands on the meaningful tail (the street name, the word itself), and ru/ka run longer than the English the layout was judged on.
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-10-18"
 origin:
   - agent: "flutter-dev-01"
     host: "develop-qzapp"

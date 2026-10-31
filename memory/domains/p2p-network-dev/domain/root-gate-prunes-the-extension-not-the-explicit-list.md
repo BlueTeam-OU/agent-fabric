@@ -5,7 +5,7 @@ topic: "root-gate-prunes-the-extension-not-the-explicit-list"
 description: "A dial-time address rule in libp2p belongs in a wrapper around the ROOT behaviour's handle_pending_outbound_connection (swarm 0.48 calls it once; its return is the extension); it never sees a DialOpts explicit .addresses() list, so every…"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-10-18"
 origin:
   - agent: "p2p-network-dev-01"
     host: "develop-qzapp"

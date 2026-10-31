@@ -5,7 +5,7 @@ topic: "inbox-wait-not-monitor"
 description: "Watch the GZCoord inbox with a background `gzcoord-inbox --until-delivery` (no loop; one watch per login) that exits on a delivery, not a 30-minute Monitor: every Monitor expiry woke the session and rang the deck's job-end sound (the…"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-10-18"
 origin:
   - agent: user
     host: "develop-qzapp"
@@ -13,7 +13,6 @@ origin:
     working_copy: "agent-fabric"
 derived_from:
   - 021e202a016e0fb7
-  - b66794dd2faa829e
   - fb83ff2a555d3ca7
 ---
 
@@ -36,9 +35,4 @@ session.
 
 Updated 2026-10-14: the command is `gzcoord-inbox --until-delivery`, run in the background with the longest timeout (7200000 ms); it exits on the first delivery addressed here and is restarted after reading it. The watch-on-stop hook requires one before a turn ends. Never a Monitor, never a second watch.
 
-2026-10-19: never start it with `&` / `disown` or inside a compound shell line either — that
-watch is outside the harness, its delivery goes nowhere, the guard refuses to kill it and a
-second watch is refused while it lives; the one message it takes must be read back with
-`gzcoord-inbox --replay <seq>`. Only the dedicated `run_in_background` call.
-
-*Observed 2026-10-19 (fabric-coordinator)*
+*Observed 2026-10-16 (fabric-coordinator)*

@@ -5,7 +5,7 @@ topic: "cli-suite-audit-pattern"
 description: "how to cut a slow agent-fabric CLI test suite to smoke cases without losing a contract, and the trap a blind review caught"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-10-18"
 origin:
   - agent: "devex-tooling"
     host: "develop-qzapp"
@@ -33,7 +33,7 @@ in-process inside the CLI file itself rather than move. A mutation check need no
 patch the function in memory and `runpy.run_path` the suite (an on-disk sed of product code was refused by
 the auto-mode classifier).
 
-Related: [[solution-carried-2026-10-12]]
+Related: [[gzcoord-compose-test-login-trap]]
 
 *References: gzcoord-compose-test-login-trap*
 

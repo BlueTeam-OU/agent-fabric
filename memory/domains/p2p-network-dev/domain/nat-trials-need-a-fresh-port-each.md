@@ -5,7 +5,7 @@ topic: "nat-trials-need-a-fresh-port-each"
 description: "Router or host conntrack state outlives a hole-punch trial, so trials that reuse one listen port contaminate each other (eim punch 2/10 shared port vs 10/10 port-per-trial); give each trial a fresh port and hold every other variable fixed…"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-10-18"
 origin:
   - agent: "p2p-network-dev-01"
     host: "develop-qzapp"

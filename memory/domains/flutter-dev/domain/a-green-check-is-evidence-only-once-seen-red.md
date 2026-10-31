@@ -5,7 +5,7 @@ topic: "a-green-check-is-evidence-only-once-seen-red"
 description: A test or guard that passes proves nothing until it has been watched FAIL on the defect it guards — three times a green run was blind to the very change it was meant to catch.
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-10-18"
 origin:
   - agent: "flutter-dev-01"
     host: "develop-qzapp"

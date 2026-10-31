@@ -5,14 +5,13 @@ topic: "domain-a-two-party-case-ends-on-an-explicit-close"
 description: "In a two-party end-to-end case, the side that returns first and stops its runtime can lose the acceptance of its last answer (outcome unknown on a closing connection is within contract); the side that needs the last confirmation sends an…"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-10-24"
 origin:
   - agent: "p2p-network-dev-02"
     host: "develop-qzapp"
     project: interweave
     working_copy: InterWeave
 derived_from:
-  - 6a3708d08cc49bf0
   - 82d500127a32f8bf
 ---
 
@@ -36,24 +35,6 @@ the party that would observe its loss is the one that ends the exchange. A pass 
 "probably still being up" is timing luck. Related: [[domain-a-test-waits-for-the-state-it-presumes]],
 [[domain-device-tests-run-in-the-app-process]].
 
-The same rule holds for a mere OBSERVATION, not only an acceptance (2026-10-24, two phones, row 1 of plan
-§29 (e)): a far-end case that returned on seeing the dialler's connection ended its process, so its runtime,
-and the connection closed 49 ms after it came up, before the dialler's case read its own peer row (polled
-every 250 ms); the dialler's redial then failed into backoff. Host stand-ins cannot show it, since their
-runtime outlives the case. Fixed in de47200d: the far end returns only once the dialler has left, and the
-host ends the dialler after its case passes. It held in BOTH directions the same day: after that fix,
-the dialler's case returned on seeing the connection and stopped its runtime 51 ms later, so the far end
-missed it; fixed in 96c2a52b by holding the connection 5 s (also asserting it stays up). Any case whose
-return the other side's evidence depends on must outlast that evidence -- check every half of a two-device
-row for this before the first device build, since each miss costs a rebuild and a reinstall.
-
-Third instance, the same day: a two-phone `pair` step whose first side REQUIRED its close's acceptance failed
-1 run in 3 with PeerUnreachable, because the second side ends on reading the close and its runtime with it --
-the very race `close_exchange` already documented as "outcome unknown, reported, not relied on". The close is
-only a signal; the second side's pass proves it arrived. And the side that sends the close should itself end
-only once the other has left (its row disconnected), so the other is never owed an acceptance by a runtime
-that is gone (cc64aa55).
-
 *References: domain-a-test-waits-for-the-state-it-presumes, domain-device-tests-run-in-the-app-process*
 
-*Observed 2026-10-24 (p2p-network-dev)*
+*Observed 2026-10-22 (p2p-network-dev)*

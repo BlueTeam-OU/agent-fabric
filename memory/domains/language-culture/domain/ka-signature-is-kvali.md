@@ -5,7 +5,7 @@ topic: "ka-signature-is-kvali"
 description: signature (a betraying mark) — ხელმოწერა is a calque; the ge charter uses კვალი
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-10-18"
 origin:
   - agent: "language-culture-ge"
     host: "develop-qzapp"

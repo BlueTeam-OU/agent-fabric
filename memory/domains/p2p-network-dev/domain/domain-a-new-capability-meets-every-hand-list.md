@@ -5,7 +5,7 @@ topic: "domain-a-new-capability-meets-every-hand-list"
 description: "Adding an enum variant (a capability, a method) — every exhaustive match compiles it in, but a hand-written array of variants silently drops it; grep for the sibling variants"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-10-24"
 origin:
   - agent: "p2p-network-dev-02"
     host: "develop-qzapp"

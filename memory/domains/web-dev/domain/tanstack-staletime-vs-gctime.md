@@ -5,7 +5,7 @@ topic: "tanstack-staletime-vs-gctime"
 description: "TanStack Query: what never serving a read from cache takes (staleTime and gcTime), and what unset refetchOn* options mean"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-10-18"
 origin:
   - agent: "web-dev-01"
     host: "develop-qzapp"

@@ -5,7 +5,7 @@ topic: "peer-chosen-dedup-ids"
 description: "Deduplicating received messages by a peer-chosen id -- compare content too, and never let dedup hide a row the store still holds"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-10-18"
 origin:
   - agent: "rust-ui-dev-01"
     host: "develop-qzapp"

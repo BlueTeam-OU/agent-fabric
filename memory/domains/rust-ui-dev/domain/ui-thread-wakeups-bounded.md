@@ -5,7 +5,7 @@ topic: "ui-thread-wakeups-bounded"
 description: "Bridging a worker thread to a Slint window -- invoke_from_event_loop per message is an unbounded queue; bound the channel and coalesce the wake-up"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-10-18"
 origin:
   - agent: "rust-ui-dev-01"
     host: "develop-qzapp"

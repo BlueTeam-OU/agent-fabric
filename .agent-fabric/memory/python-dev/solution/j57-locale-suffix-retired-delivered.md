@@ -5,7 +5,7 @@ topic: "j57-locale-suffix-retired-delivered"
 description: "j57 ADR-060 stage 6 delivered — launch-locale.json record, en without holder.json carries no TZ/country, test traps"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-10-18"
 origin:
   - agent: "python-dev-02"
     host: "develop-qzapp"

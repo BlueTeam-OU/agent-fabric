@@ -5,7 +5,7 @@ topic: "platform-copy-per-situation"
 description: "One shared UI text table across desktop and mobile when the remedy differs by platform -- one key per situation, per-platform values chosen at the composition root"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-10-18"
 origin:
   - agent: "rust-ui-dev-01"
     host: "develop-qzapp"
@@ -13,7 +13,6 @@ origin:
     working_copy: "agent-fabric"
 derived_from:
   - 6be4a4c7a49ea172
-  - 7ea55695e793916b
 ---
 
 ## One shared UI text table across desktop and mobile when the remedy differs by platform -- one key per situation, per-platform values chosen at the composition root
@@ -33,12 +32,5 @@ state) reads wrong after a Cancel, and the copy owner gave it its own key ("Send
 An event text must also be true on every path that shows it: "Restored" was false after an Undo
 of Keep, which restores nothing, so it became "Action undone". When a text is reused across
 paths, list the paths for the copy owner rather than the key.
-
-The premise check applies to every reuse (2026-10-22/24): "No code was found in this image"
-when the clipboard held no image; "This image could not be opened" when the clipboard itself
-could not be read; "the daemon is an older version" for a request the client never sent. Each
-got its own key. And a reason line is shown only when a read reports the cause: an empty
-address list does not say "offline" or "local addresses only", because the client cannot know
-which -- show the state without a reason until a read carries one.
 
 *Observed 2026-10-18 (rust-ui-dev)*

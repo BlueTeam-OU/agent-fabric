@@ -5,7 +5,7 @@ topic: "ka-owner-words-in-legal-text"
 description: "In a legal role's prompt, Georgian words for owner/finding/real read as legal terms — use \"ეკუთვნის\", \"მიგნება\", \"საფუძვლიანი\""
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-10-18"
 origin:
   - agent: "language-culture-ge"
     host: "develop-qzapp"

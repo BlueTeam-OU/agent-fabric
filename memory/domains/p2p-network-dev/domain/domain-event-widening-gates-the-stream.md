@@ -5,7 +5,7 @@ topic: "domain-event-widening-gates-the-stream"
 description: "Widening an EVENT shape behind a minor (a required member goes optional) must be gated per stream/session, not per message, when new-only events can coalesce with or replace old-shape ones"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-10-24"
 origin:
   - agent: "p2p-network-dev-02"
     host: "develop-qzapp"

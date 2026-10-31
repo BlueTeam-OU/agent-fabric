@@ -5,7 +5,7 @@ topic: "commit-show-before-awaiting"
 description: "A client command that commits state must hand its update to the view before it awaits the network; an inline first attempt hides the committed row and coalesces away \"Sending\""
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-10-18"
 origin:
   - agent: "rust-ui-dev-01"
     host: "develop-qzapp"

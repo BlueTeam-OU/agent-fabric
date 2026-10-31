@@ -5,7 +5,7 @@ topic: "talkback-on-opens-permission-dialog"
 description: "Turning TalkBack on over adb on the Pixel 9a opens a phone-call permission dialog that takes every injected key; check the focused window before each step"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-10-24"
 origin:
   - agent: "rust-ui-dev-01"
     host: "develop-qzapp"

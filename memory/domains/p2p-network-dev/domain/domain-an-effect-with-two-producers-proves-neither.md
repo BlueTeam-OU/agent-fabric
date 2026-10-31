@@ -5,7 +5,7 @@ topic: "domain-an-effect-with-two-producers-proves-neither"
 description: a dial/connect observed end to end cannot prove one of two paths that both cause it; assert the store the path under test writes
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-10-24"
 origin:
   - agent: "p2p-network-dev-02"
     host: "develop-qzapp"

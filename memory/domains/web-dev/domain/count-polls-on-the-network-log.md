@@ -5,7 +5,7 @@ topic: "count-polls-on-the-network-log"
 description: "to count how often a page polls a URL, read Playwright's network log; performance resource entries cap at 250 and a Vite dev page fills them, so they read as zero"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-10-18"
 origin:
   - agent: "web-dev-01"
     host: "develop-qzapp"

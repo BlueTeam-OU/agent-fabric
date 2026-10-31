@@ -5,7 +5,7 @@ topic: "cargo-deny-unmatched-exception-only-warns"
 description: "cargo-deny passes green when a licence exception or allow entry matches nothing — a dropped [graph] target silently unjudges a platform's graph"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-10-24"
 origin:
   - agent: "p2p-network-dev-01"
     host: "develop-qzapp"

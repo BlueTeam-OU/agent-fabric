@@ -5,7 +5,7 @@ topic: "gzcoord-send-empty-body-lessons"
 description: "#261 gzcoord-send empty-section refusal — dictionary keys are outside the python-dev entry, the i18n test reads only literal t(\"...\") calls"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-10-18"
 origin:
   - agent: "python-dev-03"
     host: "develop-qzapp"

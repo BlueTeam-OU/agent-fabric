@@ -5,7 +5,7 @@ topic: "subagent-transcript-shape"
 description: "what a Claude Code subagent transcript shows about how the run ended, cost and effort (read 2026-10-14 over 348 transcripts on develop-qzapp)"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-10-18"
 origin:
   - agent: "devex-tooling"
     host: "develop-qzapp"

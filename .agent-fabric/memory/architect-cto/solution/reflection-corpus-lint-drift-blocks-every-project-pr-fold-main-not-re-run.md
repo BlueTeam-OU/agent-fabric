@@ -5,7 +5,7 @@ topic: "reflection-corpus-lint-drift-blocks-every-project-pr-fold-main-not-re-ru
 description: "A project's ban-checks job clones agent-fabric fresh and runs the corpus lint against the PR head's .agent-fabric/, so a charter or slice description changed on agent-fabric main turns every project PR red with no change of theirs…"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-10-28"
 origin:
   - agent: "architect-cto-01"
     host: "develop-qzapp"

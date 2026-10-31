@@ -5,7 +5,7 @@ topic: "reflection-sender-carrying-types-never-enter-the-rule-bearing-crate"
 description: "When a privacy rule is enforced by what a crate cannot depend on, satisfying a layering guard by moving types into that crate re-enables the rule; add a types-only crate instead"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-10-28"
 origin:
   - agent: "architect-cto-01"
     host: "develop-qzapp"

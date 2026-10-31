@@ -5,7 +5,7 @@ topic: "ui-deferred-input-queue"
 description: "When view callbacks queue raw input that is resolved later against the model -- identity not position, never reorder, drop newest, text and focus are state"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-10-18"
 origin:
   - agent: "rust-ui-dev-01"
     host: "develop-qzapp"

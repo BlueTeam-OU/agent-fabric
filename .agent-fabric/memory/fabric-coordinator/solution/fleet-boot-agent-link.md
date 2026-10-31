@@ -5,7 +5,7 @@ topic: "fleet-boot-agent-link"
 description: "Fleet boot asks the fabric_deck passphrase in every pane: herdr's pane agent link herdr.sock.agent points at .unavailable when the terminal that started/attached the deck had no working ssh-agent"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-10-18"
 origin:
   - agent: user
     host: "develop-qzapp"
@@ -13,7 +13,6 @@ origin:
     working_copy: "agent-fabric"
 derived_from:
   - a63fa34eb81c8c9c
-  - a6e01b221f295538
 ---
 
 ## Fleet boot asks the fabric_deck passphrase in every pane: herdr's pane agent link herdr.sock.agent points at .unavailable when the terminal that started/attached the deck had no working ssh-agent
@@ -31,8 +30,6 @@ Also that day: sshd PerSourcePenalties locked localhost after the failures until
 ssh-operator.sh (exemption 127.0.0.1,::1 now live and staged for boot).
 
 2026-10-15: the 24 shell panes were still at that prompt two days later: their ssh clients had started 13 Oct 19:00 while the link was dead and never retried after it was fixed (the agent panes had been re-entered). Never kill the fabric_deck ssh clients by name (74, the live harness connections among them); per shell pane: `pane send-keys <pane> C-c` (the key name is C-c), then `pane send-text <pane> "moveto <login>"` and `enter`. All 24 reached their prompt with no passphrase.
-
-2026-10-30: same again, and my own fault: `ssh-add -l` on `/run/user/1000/keyring/ssh` LISTED fabric_deck (gcr lists ~/.ssh/*.pub without holding them), I told the owner to use it, and 25 panes prompted. The deck's own `fleet-deck status` line "panes' ssh-agent: live" is the check, and the socket is always `keyring/.ssh` (with the dot). Recovery that worked: relink, `fleet-deck restart`, then per prompting pane `pane send-keys <p> C-c`, `send-text <p> "moveto <login> --wait"`, `send-keys <p> enter`.
 
 **Why:** the deck trusts the attaching terminal's agent; a dead one silently becomes "unavailable".
 **How to apply:** before starting or attaching the deck, check `ssh-add -l` on the socket you pass;

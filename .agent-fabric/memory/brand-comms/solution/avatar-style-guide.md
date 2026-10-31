@@ -5,7 +5,7 @@ topic: "avatar-style-guide"
 description: "ADR-056 avatar generation — where the style guide is, the fixed prompt template, and what gpt-image-1 does with framing words"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-10-18"
 origin:
   - agent: "brand-comms-01"
     host: "develop-qzapp"

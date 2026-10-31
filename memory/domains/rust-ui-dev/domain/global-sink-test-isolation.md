@@ -5,7 +5,7 @@ topic: "global-sink-test-isolation"
 description: "A Rust test that counts lines in a process-global log or sink flakes when sibling tests in the same binary emit the same line in parallel -- give it its own binary"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-10-18"
 origin:
   - agent: "rust-ui-dev-01"
     host: "develop-qzapp"

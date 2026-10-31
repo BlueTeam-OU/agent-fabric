@@ -5,7 +5,7 @@ topic: "agent-persona-decisions"
 description: "Owner 2026-10-13 — agent personas: 'AI <Name> <Surname>' / 'AI <Name> - <Role>', worldwide scientist surnames (no weapons-related), each agent picks surname+name+sex; anime avatars the agent may reject; sex is for appearance only, no…"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-10-18"
 origin:
   - agent: user
     host: "develop-qzapp"

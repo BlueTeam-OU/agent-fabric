@@ -5,7 +5,7 @@ topic: "slint-flicked-input-only"
 description: "Slint 1.18 Flickable's flicked fires only on wheel, drag and fling; focus reveal and programmatic content-y moves don't fire it, so track scroll position with changed content-y"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-10-24"
 origin:
   - agent: "rust-ui-dev-01"
     host: "develop-qzapp"

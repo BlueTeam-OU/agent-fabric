@@ -5,7 +5,7 @@ topic: "drain-heading-comes-from-description"
 description: "the drain derives a slice's heading and INDEX line from the memory's description; a person's domain or name in a description travels into every project, so name the artifact, never its author"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-10-28"
 origin:
   - agent: "architect-cto-01"
     host: "develop-qzapp"

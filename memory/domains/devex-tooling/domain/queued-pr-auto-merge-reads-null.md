@@ -5,7 +5,7 @@ topic: "queued-pr-auto-merge-reads-null"
 description: "a PR queued by auto-merge reads autoMergeRequest null; the arming's time survives only as the timeline's AutoMergeEnabledEvent"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-10-24"
 origin:
   - agent: "devex-tooling"
     host: "develop-qzapp"

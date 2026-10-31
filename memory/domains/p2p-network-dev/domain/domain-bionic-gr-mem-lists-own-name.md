@@ -5,7 +5,7 @@ topic: "domain-bionic-gr-mem-lists-own-name"
 description: "On Android, getgrgid_r never answers an empty member list — every group lists its own name; \"group of one = empty gr_mem\" predicates refuse every group there"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-10-24"
 origin:
   - agent: "p2p-network-dev-02"
     host: "develop-qzapp"

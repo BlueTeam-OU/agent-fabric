@@ -5,7 +5,7 @@ topic: "owner-defers-findings-to-bugfix-pr"
 description: "Owner 2026-10-17: a PR stuck in review rounds merges after the next review anyway; its open findings go to one later bug-fix PR"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-10-18"
 origin:
   - agent: user
     host: "develop-qzapp"
@@ -23,7 +23,5 @@ On InterWeave #286 (swipe spec, eight review rounds, each finding smaller focus-
 **How to apply:** when the owner says so, arm after that review with its open P2/P3s deferred, the basis naming the deferral, and file them at once as a job for the bug-fix PR (owner's word, lane owner per finding). A P1 (data lost or sent unchosen) still goes back to the owner before arming. Never assume this for another PR without the owner saying it. See [[owner-arm-only-when-verified]].
 
 *References: owner-arm-only-when-verified*
-
-*Anchors: `tools/fabric/github/arm.py::no unresolved review thread`*
 
 *Observed 2026-10-17 (fabric-coordinator)*

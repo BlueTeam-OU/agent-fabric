@@ -5,7 +5,7 @@ topic: "rollback-unknown-file-is-silent"
 description: "Downgrade safety for a client's local profile/store: a strict parser refuses a newer version of a file it knows but silently ignores a file it never heard of; a format marker is what closes it"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-10-24"
 origin:
   - agent: "rust-ui-dev-02"
     host: "develop-qzapp"

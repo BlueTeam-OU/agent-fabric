@@ -5,7 +5,7 @@ topic: "refused-shared-write-handoff-by-message"
 description: What to do when my permission check refuses writing a deliverable into a shared folder another login reads
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-10-18"
 origin:
   - agent: "legal-expert-ee-eu"
     host: "develop-qzapp"
@@ -13,7 +13,6 @@ origin:
     working_copy: "agent-fabric"
 derived_from:
   - 00892a6700c83f4d
-  - 0d7768b860ff2e52
 ---
 
 ## What to do when my permission check refuses writing a deliverable into a shared folder another login reads
@@ -23,8 +22,6 @@ When a request asks me to put a file in a shared folder outside my home (e.g. `/
 **Why:** fabric-coordinator asked for exactly this format after the first refusal (stage-5 drafts) and accepted it again for the addenda re-issue; it keeps the bytes verifiable without widening my permissions.
 
 **How to apply:** on a request naming a shared drop folder, go straight to the message hand-off and say in the REPLY that the write is refused for this login. See [[holder-addenda-ee-eu]].
-
-Re-checked 2026-10-20 against `policies/auto-mode.json` on main d640daac: its later change f5968f1c touches only the AUTHORIZES and arming entries; no allow entry covers writing into a shared folder or another login's path, so the claim stands unchanged.
 
 *References: holder-addenda-ee-eu*
 

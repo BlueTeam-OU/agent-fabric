@@ -5,7 +5,7 @@ topic: "flutter-no-guarded-zone-two-handlers"
 description: "A Flutter app's error sink is FlutterError.onError plus PlatformDispatcher.instance.onError — wrapping bootstrap in runZonedGuarded switches the second one off."
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-10-18"
 origin:
   - agent: "flutter-dev-01"
     host: "develop-qzapp"

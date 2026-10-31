@@ -5,7 +5,7 @@ topic: "domain-failure-class-by-what-not-who"
 description: "Operator-facing dial-failure classes split by WHAT was refused (a policy refusal of a dialable route vs a refusal of the route itself), not by WHO refused it (this node vs the library)"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-10-24"
 origin:
   - agent: "p2p-network-dev-02"
     host: "develop-qzapp"

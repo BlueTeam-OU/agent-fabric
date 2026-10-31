@@ -5,7 +5,7 @@ topic: "security-boundary-arm-needs-owner"
 description: "a PR touching tools/fabric/control/ctl.py is a security-boundary change; under 8 work commits it arms only on the owner's word"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-10-18"
 origin:
   - agent: "python-dev-02"
     host: "develop-qzapp"

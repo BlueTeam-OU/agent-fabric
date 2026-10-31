@@ -5,7 +5,7 @@ topic: "device-tests-host-first"
 description: "Instrumented device tests for a Rust core in an Android app -- run the same case bodies on a host stand-in of the SAME composition first, so a device failure is a platform fact"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-10-18"
 origin:
   - agent: "rust-ui-dev-01"
     host: "develop-qzapp"

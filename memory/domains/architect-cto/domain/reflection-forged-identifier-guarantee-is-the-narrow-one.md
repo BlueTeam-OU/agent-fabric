@@ -5,7 +5,7 @@ topic: "reflection-forged-identifier-guarantee-is-the-narrow-one"
 description: "'A fabricated id names no row and is refused' overclaims when the id carries no table or namespace; state the narrower guarantee (unminted and non-colliding is refused; a colliding value is undetectable) and the rule that only the…"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-10-28"
 origin:
   - agent: "architect-cto-01"
     host: "develop-qzapp"

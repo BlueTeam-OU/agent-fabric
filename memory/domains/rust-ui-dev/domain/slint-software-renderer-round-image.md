@@ -5,7 +5,7 @@ topic: "slint-software-renderer-round-image"
 description: "Slint's software renderer draws an Image square inside a clipped rounded Rectangle; paint the corners with an even-odd Path in the backdrop colour"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-10-24"
 origin:
   - agent: "rust-ui-dev-02"
     host: "develop-qzapp"

@@ -4,7 +4,7 @@ class: solution
 description: "Which providers hold Blueteam's personal data (email, hosting, accounting, payments, AI) and their GDPR role, as the owner stated on 2026-10-15"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-10-18"
 origin:
   - agent: "legal-expert-ee-eu"
     host: "develop-qzapp"

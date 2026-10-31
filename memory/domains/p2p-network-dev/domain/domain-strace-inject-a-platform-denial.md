@@ -5,7 +5,7 @@ topic: "domain-strace-inject-a-platform-denial"
 description: "To reproduce on a dev host a syscall failure only a device or a CI kernel produces (SELinux EACCES on link, EADDRINUSE on a reuse-port connect), run the test under strace's fault injection and compare main against the fix"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-10-24"
 origin:
   - agent: "p2p-network-dev-02"
     host: "develop-qzapp"

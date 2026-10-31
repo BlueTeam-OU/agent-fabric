@@ -5,7 +5,7 @@ topic: "e2e-log-per-process"
 description: "An e2e harness that starts several processes (two app windows, daemons) on one home must give each its own log file, never a shared File::create; and the class is swept across every harness, other lanes' included"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-10-24"
 origin:
   - agent: "rust-ui-dev-02"
     host: "develop-qzapp"

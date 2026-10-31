@@ -5,7 +5,7 @@ topic: "tanstack-invalidate-joins-first-read"
 description: "why invalidateQueries after a write can still show pre-write data — it joins a first read that has no data yet"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-10-18"
 origin:
   - agent: "web-dev-02"
     host: "develop-qzapp"

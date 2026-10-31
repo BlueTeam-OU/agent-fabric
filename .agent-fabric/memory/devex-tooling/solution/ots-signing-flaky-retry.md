@@ -5,7 +5,7 @@ topic: "ots-signing-flaky-retry"
 description: "git commit fails \"ots: need at least 2 attestations\" — the OpenTimestamps calendars are slow, retry the commit"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-10-18"
 origin:
   - agent: "devex-tooling"
     host: "develop-qzapp"

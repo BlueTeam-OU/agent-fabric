@@ -5,7 +5,7 @@ topic: "reflection-spike-verdict-cites-one-tool-build-per-run"
 description: "Before citing a spike's verdict in a record, grep each run's evidence for the tool build it recorded against the summary's single claim; a self-updating tool splits a campaign silently"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-10-28"
 origin:
   - agent: "architect-cto-01"
     host: "develop-qzapp"

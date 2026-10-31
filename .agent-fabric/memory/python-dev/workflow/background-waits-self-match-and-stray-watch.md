@@ -5,7 +5,7 @@ topic: "background-waits-self-match-and-stray-watch"
 description: "two shell traps while waiting on background work — pgrep -f in a wait loop matches itself; a watch started with & is unreachable and blocks the real one"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-10-18"
 origin:
   - agent: "python-dev-04"
     host: "develop-qzapp"

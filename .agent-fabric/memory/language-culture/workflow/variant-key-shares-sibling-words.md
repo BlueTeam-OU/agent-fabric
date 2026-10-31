@@ -5,7 +5,7 @@ topic: "variant-key-shares-sibling-words"
 description: "writing a variant key (-no-sign, -no-x) beside a sibling: reuse the sibling's words, and a defect a reader finds is the sibling's too"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-10-18"
 origin:
   - agent: "language-culture-en"
     host: "develop-qzapp"

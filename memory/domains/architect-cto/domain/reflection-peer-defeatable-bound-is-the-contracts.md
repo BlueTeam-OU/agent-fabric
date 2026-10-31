@@ -5,7 +5,7 @@ topic: "reflection-peer-defeatable-bound-is-the-contracts"
 description: "A limit a peer's bytes can defeat into a process abort is the wire contract's bound, never a renderer's or parser's own; one number per kind of nesting, counted separately"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-10-28"
 origin:
   - agent: "architect-cto-01"
     host: "develop-qzapp"

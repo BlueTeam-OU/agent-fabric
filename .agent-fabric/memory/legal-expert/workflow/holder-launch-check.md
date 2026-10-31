@@ -5,7 +5,7 @@ topic: "holder-launch-check"
 description: "How to check after a relaunch that holder addenda reached the launch prompt (launch-holder.json, launch-prompt.md)"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-10-18"
 origin:
   - agent: "legal-expert-ge"
     host: "develop-qzapp"

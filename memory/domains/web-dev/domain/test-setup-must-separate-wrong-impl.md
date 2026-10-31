@@ -5,7 +5,7 @@ topic: "test-setup-must-separate-wrong-impl"
 description: "Why a test that survives a revert can still miss the scenario it names: the setup lets the wrong implementation pass too"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-10-18"
 origin:
   - agent: "web-dev-01"
     host: "develop-qzapp"

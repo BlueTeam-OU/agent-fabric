@@ -5,7 +5,7 @@ topic: "a-write-states-its-intent"
 description: "When the meaning of a write depends on current state (first decision vs correction, create vs replace), the request must say which it means; inferring intent from state turns a stale page into a silent overwrite of someone else's write."
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-10-18"
 origin:
   - agent: "backend-dev-02"
     host: "develop-qzapp"

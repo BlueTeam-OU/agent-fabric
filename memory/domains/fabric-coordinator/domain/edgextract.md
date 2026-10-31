@@ -2,10 +2,10 @@
 role: "fabric-coordinator"
 class: domain
 topic: edgextract
-description: "edgextract (a markdown-to-knowledge-graph library): markdown -> knowledge graph with a user ontology; a local decision model answers closed yes/no per candidate (probability + cutoff: keep / review / drop); not adopted (needs Ollama + a…"
+description: "raphaelmansuy/edgextract: markdown -> knowledge graph with a user ontology; a local decision model answers closed yes/no per candidate (probability + cutoff: keep / review / drop); not adopted (needs Ollama + a decision model); borrow…"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-10-18"
 origin:
   - agent: user
     host: "develop-qzapp"
@@ -13,12 +13,11 @@ origin:
     working_copy: "agent-fabric"
 derived_from:
   - 06509847aa49830e
-  - 621ad75e3fa2c126
 ---
 
-## edgextract (a markdown-to-knowledge-graph library): markdown -> knowledge graph with a user ontology; a local decision model answers closed yes/no per candidate (probability + cutoff: keep / review / drop); not adopted (needs Ollama + a decision model); borrow closed decisions with a review queue and ontology-gated typed links
+## raphaelmansuy/edgextract: markdown -> knowledge graph with a user ontology; a local decision model answers closed yes/no per candidate (probability + cutoff: keep / review / drop); not adopted (needs Ollama + a decision model); borrow closed decisions with a review queue and ontology-gated typed links
 
-The edgextract repository on GitHub (its author's personal account), read 2026-10-15 (Apache-2.0, 115 stars, 11 forks, 17 commits: young). Python library (`uv`, `extract_text`, `write_report`), a Rust crate (`cargo add edgextract`) that compiles to WASM for an in-browser demo (Tev1 0.8B on WebGPU). Output is EdgeQuake-shaped JSON (entities `UPPER_SNAKE`, relationships with their evidence sentence, a `review` list and a `rejected` list), plus Cypher and an interactive HTML graph.
+https://github.com/raphaelmansuy/edgextract, read 2026-10-15 (Apache-2.0, 115 stars, 11 forks, 17 commits: young). Python library (`uv`, `extract_text`, `write_report`), a Rust crate (`cargo add edgextract`) that compiles to WASM for an in-browser demo (Tev1 0.8B on WebGPU). Output is EdgeQuake-shaped JSON (entities `UPPER_SNAKE`, relationships with their evidence sentence, a `review` list and a `rejected` list), plus Cypher and an interactive HTML graph.
 
 **How it works:** split into sentences with offsets; candidate names come from code (the ontology's gazetteer, markdown cues, optionally GLiNER), never from the model; each unknown span gets a closed question ("is this a name?"), then a pick from the ontology's kinds; pairs the ontology does not allow are never asked; one yes/no per legal link type, so two link types can both hold; a probability per answer (Ollama `POST /v1/systemone`, 0.35+), and the caller's cutoffs decide keep / send to a person / drop. A decision cache makes moving the cutoffs free.
 

@@ -5,7 +5,7 @@ topic: "media-urls-meet-the-browser-element"
 description: "Before shaping a media read, check how the client's element will load the URL: an <img>/<video> src sends no Authorization header, so a 302 from a bearer-only route never reaches it; and an HLS manifest plays natively only in Safari."
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-10-18"
 origin:
   - agent: "backend-dev-02"
     host: "develop-qzapp"

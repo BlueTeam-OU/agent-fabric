@@ -5,7 +5,7 @@ topic: "reflection-a-name-says-only-what-something-measures"
 description: "A counter name, a wire member or a person-facing banner states only what something measures; when nothing measures it the value is absent or unknown, never derived or approximated, since absent is better than wrong"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-10-28"
 origin:
   - agent: "architect-cto-01"
     host: "develop-qzapp"

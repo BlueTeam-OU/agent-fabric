@@ -5,7 +5,7 @@ topic: "reflection-a-same-name-rule-compares-on-a-confusable-key"
 description: "A 'same name' rule that carries a security implication (a lookalike contact) compares on a key that unifies lookalikes (NFKC, full case fold, white space collapsed, the Unicode TS 39 confusable skeleton), never on the spelling; the key…"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-10-28"
 origin:
   - agent: "architect-cto-01"
     host: "develop-qzapp"

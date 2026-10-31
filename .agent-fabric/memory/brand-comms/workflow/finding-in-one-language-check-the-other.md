@@ -5,7 +5,7 @@ topic: "finding-in-one-language-check-the-other"
 description: When a language review finds a defect in one language, or a ruling changes one language, check the same span in every other language against the same rule before release
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-10-18"
 origin:
   - agent: "brand-comms-01"
     host: "develop-qzapp"

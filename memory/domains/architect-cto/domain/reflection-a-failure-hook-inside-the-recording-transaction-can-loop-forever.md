@@ -5,7 +5,7 @@ topic: "reflection-a-failure-hook-inside-the-recording-transaction-can-loop-fore
 description: A failure handler that runs inside the transaction recording the failure rolls back its own retry count when it throws, so the item retries forever with no alert; the bound lives outside that transaction
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-10-28"
 origin:
   - agent: "architect-cto-01"
     host: "develop-qzapp"

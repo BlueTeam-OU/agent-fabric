@@ -3,7 +3,7 @@ role: "domain-transit"
 class: index
 description: "What domain-transit knows and where it lives."
 tier: 1
-distilled_at: "2026-10-31"
+distilled_at: "2026-10-28"
 ---
 
 # domain-transit — knowledge index
@@ -38,17 +38,6 @@ control plane checked out beside it.
 - [`memory/domains/domain-transit/domain/otp-street-name-language-follows-the-request.md`](memory/domains/domain-transit/domain/otp-street-name-language-follows-the-request.md) — OTP 2.10 walk-step streetName language — planConnection without locale gives OSM `name`, legacy `plan` gives name:en, a locale picks name:<lang>; underpass is a bogus name
 - [`memory/domains/domain-transit/domain/the-timetable-does-not-bound-operations.md`](memory/domains/domain-transit/domain/the-timetable-does-not-bound-operations.md) — the schedule answers what the service PLANS, never what a vehicle or a shift actually does — those are bounded by driver behaviour, not by a published window
 - [`memory/shared/domain-claude-code-attribution-reminder.md`](memory/shared/domain-claude-code-attribution-reminder.md) — The attribution key is written by runtime/claude-code/user-settings.py, run from tools/fabric/bootstrap.py (shared)
-
-## solution
-
-- [`.agent-fabric/memory/domain-transit/solution.md`](.agent-fabric/memory/domain-transit/solution.md) — In gzapp, tools/gtfs_kutaisi's default stop policy file must follow the newest global stop_policies revision, not the v0 seed row
-
-## workflow
-
-- [`.agent-fabric/memory/domain-transit/workflow/ci-fix-on-main-reaches-a-pr-only-by-fold.md`](.agent-fabric/memory/domain-transit/workflow/ci-fix-on-main-reaches-a-pr-only-by-fold.md) — A PR that is red from a test or runner breakage already fixed on main stays red until origin/main is folded in; a re-run does not help, and the fold disarms
-- [`.agent-fabric/memory/domain-transit/workflow/inbox-watch-only-as-tracked-task.md`](.agent-fabric/memory/domain-transit/workflow/inbox-watch-only-as-tracked-task.md) — Start gzcoord-inbox --until-delivery only as a harness background task, never with & / disown inside a compound command
-- [`.agent-fabric/memory/domain-transit/workflow/job-intake-homes-project-requests-in-agent-fabric.md`](.agent-fabric/memory/domain-transit/workflow/job-intake-homes-project-requests-in-agent-fabric.md) — a REQUEST sent with PROJECT agent-fabric becomes a job homed in agent-fabric even when the work is in another repo; the commit guard then blocks it
-- [`.agent-fabric/memory/domain-transit/workflow/pin-to-what-the-consumer-resolves.md`](.agent-fabric/memory/domain-transit/workflow/pin-to-what-the-consumer-resolves.md) — A test pinning a parameter file to a named seed revision stays green when a newer revision arrives; pin to the revision the consumer actually resolves
 
 ## recall
 

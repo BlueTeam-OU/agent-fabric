@@ -5,7 +5,7 @@ topic: "settings-validate-test-env"
 description: "agent-fabric-settings tools/test_validate_policies.py exits 1 without FABRIC and SETTINGS_REPO=<owner>/<name>"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-10-18"
 origin:
   - agent: "devex-tooling"
     host: "develop-qzapp"

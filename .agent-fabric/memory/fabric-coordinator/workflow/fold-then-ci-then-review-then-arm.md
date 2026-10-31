@@ -5,7 +5,7 @@ topic: "fold-then-ci-then-review-then-arm"
 description: "Owner 2026-10-13: a caller folds every supplied commit back BEFORE review and the full CI run; order is fold → tests/run.sh (full) → blind review → arm, and a new supply restarts it"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-10-18"
 origin:
   - agent: user
     host: "develop-qzapp"

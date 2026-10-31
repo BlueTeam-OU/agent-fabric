@@ -5,7 +5,7 @@ topic: "ci-env-for-lint-and-mutations"
 description: "Run lint.py and mutation harnesses with AGENT_FABRIC_* stripped and a scratch TMPDIR — the session env makes lint check the main checkout and mutations leak into the account TMPDIR"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-10-18"
 origin:
   - agent: "python-dev-02"
     host: "develop-qzapp"
@@ -13,7 +13,6 @@ origin:
     working_copy: "agent-fabric"
 derived_from:
   - 7b7d11048b3aadc8
-  - fcf75c8bdf84b604
 ---
 
 ## Run lint.py and mutation harnesses with AGENT_FABRIC_* stripped and a scratch TMPDIR — the session env makes lint check the main checkout and mutations leak into the account TMPDIR
@@ -37,17 +36,12 @@ strip the env, own the TMPDIR. See [[forge-port-oracle-runs]].
 The suite's own TMPDIR must be SHORT: under the session scratchpad
 (/var/tmp/…/claude-1020/<slug>/<session>/scratchpad/…) test_session_start
 fails with "AF_UNIX path too long" and test_secret_store's recovery-copy
-case fails too (gpg-agent socket); both pass with a short TMPDIR such as
-`mktemp -d ~/agent-fabric-tmp/afs.XXXX` (pruned weekly: scratch only, never helpers) (2026-10-08, PR #122; moved off
-/var/tmp 2026-10-19: since #292 the launcher's TMPDIR is in the home and
-/var/tmp is the 40G root volume). Use that for suite runs, and remove it after.
+case fails too (gpg-agent socket); both pass with a TMPDIR of
+/var/tmp/agent-fabric-<login>/x.XXXX (2026-10-08, PR #122). Use
+`mktemp -d /var/tmp/agent-fabric-<login>/afs.XXXX` for suite runs.
 
-Helpers kept outside the tree: `. ~/.local/share/agent-fabric-python-dev/cienv.sh; ci <cmd>`
-strips AGENT_FABRIC_*/GITHUB_*/GIT_DIR. CI's ruff 0.16.7 is
-~/.local/bin/ruff (the old ruff-venv is gone; check `ruff --version` against
-the pin in .github/workflows/ci.yml). A PreToolUse hook refuses
-`check | filter && git commit`: run the check to a log, read rc, commit separately.
+Helpers kept outside the tree (2026-10-08): `. a host scratch path; ci <cmd>` strips AGENT_FABRIC_*/GITHUB_*/GIT_DIR; CI's ruff 0.16.7 is in a host scratch path (not on the host otherwise). A PreToolUse hook refuses `check | filter && git commit`: run the check to a log, read rc, commit separately.
 
 *References: forge-port-oracle-runs*
 
-*Observed 2026-10-19 (python-dev)*
+*Observed 2026-10-08 (python-dev)*

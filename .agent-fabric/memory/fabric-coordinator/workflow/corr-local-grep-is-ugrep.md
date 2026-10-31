@@ -2,27 +2,27 @@
 role: "fabric-coordinator"
 class: workflow
 topic: "corr-local-grep-is-ugrep"
-description: "Only a command typed at the Bash tool's top level gets the harness's ugrep `grep`; scripts, hooks, guards and tests/run.sh run GNU /usr/bin/grep, so compare a measurement against a guard with /usr/bin/grep"
+description: "On the coordinator's login grep is ugrep; verify a grep-based guard with /usr/bin/grep before trusting a local green"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-10-18"
 origin:
   - agent: user
     host: "develop-qzapp"
     project: "agent-fabric"
     working_copy: "agent-fabric"
 derived_from:
-  - 0850a89e30dac4d5
   - c6aac5efefa6edeb
 ---
 
-## Only a command typed at the Bash tool's top level gets the harness's ugrep `grep`; scripts, hooks, guards and tests/run.sh run GNU /usr/bin/grep, so compare a measurement against a guard with /usr/bin/grep
+## On the coordinator's login grep is ugrep; verify a grep-based guard with /usr/bin/grep before trusting a local green
 
-In a Claude Code session the Bash tool's shell snapshot defines `grep` (and `find`) as a shell function ("Shadow find/grep with embedded bfs/ugrep") that runs the claude binary as ugrep. The function is not exported. `bash -c`, `sh -c`, a script, a python subprocess and `shutil.which` all resolve GNU `/usr/bin/grep`. Measured by python-dev-04 on Claude Code 2.1.286, 2026-10-24. No login has a ugrep file on the host, and provisioning sets no grep path. The ugrep version moves with `upgrade claude`.
+In a Claude Code session `grep` is a shell function that runs the harness's embedded ugrep (checked 2026-10-11: `type grep` shows it, it prints "ugrep: warning: ..." for a missing file). `tests/static.sh`'s one-dialect check (`grep -lE '^#!/bin/sh|^#!/usr/bin/env sh'` over every script, still plain `grep`, not pinned to `command -p grep`) printed "all bash scripts parse" locally on 2026-09-19 while CI's GNU grep found the `#!/bin/sh` inside a stub heredoc of a lifted test (PR #19; that test file has since been retired).
 
-So tests/static.sh, the hooks and the guards run GNU grep everywhere. The difference shows only in what I type at the top level, for example a case fold: U+0131 under `-i` matches with GNU grep and does not with ugrep. A top-level grep and a script's grep can disagree on the same input.
+**Why:** a guard that reads differently under two greps is green on the machine that matters least. CI is the authority; a local static pass is a hint.
 
-**Why:** a check I typed at the top level can disagree with the guard it is meant to reproduce. The earlier reading (the whole login is ugrep, so a local static.sh run differs from CI) blamed the wrong layer.
-**How to apply:** when a grep result at the Bash tool has to match a guard, a test or CI, run `/usr/bin/grep` (or `command grep`). A local-versus-CI difference in a script needs another cause. Code that needs GNU semantics names `/usr/bin/grep`.
+**How to apply:** before pushing a change to a shell-script set, run the shebang check with `/usr/bin/grep` explicitly, or run the static suite in the podman smoke container (see [[smoke-container-before-ci]]). Pinning `static.sh` to `command -p grep` is still a fabric change not yet made; propose it to fabric-coordinator's own lane rather than assume it.
 
-*Observed 2026-10-25 (fabric-coordinator)*
+*References: smoke-container-before-ci*
+
+*Observed 2026-10-11 (fabric-coordinator)*

@@ -5,7 +5,7 @@ topic: "jobs-reply-artifact-names-request"
 description: "fabric-jobs artifact reply:<id> names the message answered (IN-REPLY-TO), not your reply's own id; artifacts are append-only"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-10-18"
 origin:
   - agent: "devex-tooling"
     host: "develop-qzapp"

@@ -5,7 +5,7 @@ topic: "unknown-served-enum-renders-unknown"
 description: "What a screen shows when the server sends a status, role or model value the client's closed set does not have yet"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-10-18"
 origin:
   - agent: "web-dev-01"
     host: "develop-qzapp"

@@ -5,7 +5,7 @@ topic: "first-pass-settled-terms"
 description: "The Georgian first pass flags established fabric terms; a re-render does not change them"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-10-18"
 origin:
   - agent: "language-culture-ge"
     host: "develop-qzapp"

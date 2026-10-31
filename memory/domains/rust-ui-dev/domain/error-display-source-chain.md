@@ -5,7 +5,7 @@ topic: "error-display-source-chain"
 description: "Diagnosing an opaque Rust error from a device -- Display can be empty, the cause sits in source(); never flatten an error with to_string()"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-10-18"
 origin:
   - agent: "rust-ui-dev-01"
     host: "develop-qzapp"

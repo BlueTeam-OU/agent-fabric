@@ -5,7 +5,7 @@ topic: "domain-tap-a-unix-socket-by-renaming"
 description: record every IPC byte to a daemon without reconfiguring any client — rename its serving socket aside, listen at the old path
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-10-24"
 origin:
   - agent: "p2p-network-dev-02"
     host: "develop-qzapp"

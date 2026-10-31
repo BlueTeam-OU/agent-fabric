@@ -5,7 +5,7 @@ topic: "reflection-a-write-new-then-remove-old-invariant-needs-two-slots"
 description: "An invariant 'the new secret is written before the old is removed' needs two storage slots per identity; where the platform gives one (one Keystore alias, a create that refuses over an existing file) rule the order the platform allows and…"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-10-28"
 origin:
   - agent: "architect-cto-01"
     host: "develop-qzapp"

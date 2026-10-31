@@ -5,7 +5,7 @@ topic: "domain-userns-root-is-overflow-uid"
 description: "a daemon with an ancestor-ownership rule refuses every path inside an unprivileged user namespace — / reads as uid 65534; pivot_root into an owned tmpfs"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-10-24"
 origin:
   - agent: "p2p-network-dev-02"
     host: "develop-qzapp"

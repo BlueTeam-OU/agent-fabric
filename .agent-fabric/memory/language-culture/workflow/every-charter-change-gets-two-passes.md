@@ -5,7 +5,7 @@ topic: "every-charter-change-gets-two-passes"
 description: "Every change to a translated charter gets the two passes, a one-clause change or a fix of my own finding included"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-10-18"
 origin:
   - agent: "language-culture-ge"
     host: "develop-qzapp"

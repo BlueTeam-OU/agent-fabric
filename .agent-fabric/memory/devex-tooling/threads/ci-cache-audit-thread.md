@@ -5,7 +5,7 @@ topic: "ci-cache-audit-thread"
 description: "j142 CI cache audit, open as of 2026-10-18: gateway #67 warm-run measurement owed, herdr handed to rust-ui-dev j106, InterWeave android caches wait on CodeQL expiry"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-10-18"
 origin:
   - agent: "devex-tooling"
     host: "develop-qzapp"

@@ -5,7 +5,7 @@ topic: "review-fix-branch-off-integrator-pr-head"
 description: "Which base a contributor's review-fix for/ branch takes when its files exist only on the integrator's open PR"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-10-18"
 origin:
   - agent: "legal-expert-ee-eu"
     host: "develop-qzapp"

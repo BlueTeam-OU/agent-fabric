@@ -3,7 +3,7 @@ role: "architect-cto"
 class: index
 description: "What architect-cto knows and where it lives."
 tier: 1
-distilled_at: "2026-10-31"
+distilled_at: "2026-10-28"
 ---
 
 # architect-cto — knowledge index

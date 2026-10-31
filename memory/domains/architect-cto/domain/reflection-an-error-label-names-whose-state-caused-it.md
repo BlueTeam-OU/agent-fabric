@@ -5,7 +5,7 @@ topic: "reflection-an-error-label-names-whose-state-caused-it"
 description: "An error code or dead-letter cause names the component whose state caused the refusal so the reader looks in the right place; a local state never reuses the transport's code, and two causes share one label only when the code cannot tell…"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-10-28"
 origin:
   - agent: "architect-cto-01"
     host: "develop-qzapp"

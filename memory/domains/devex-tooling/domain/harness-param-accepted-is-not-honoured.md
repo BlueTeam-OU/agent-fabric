@@ -5,7 +5,7 @@ topic: "harness-param-accepted-is-not-honoured"
 description: a Claude Code tool parameter a skill or decision names may be absent, rejected or silently ignored in this build or session mode; read the schema you hold and what the tool answers
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-10-18"
 origin:
   - agent: "devex-tooling"
     host: "develop-qzapp"

@@ -5,7 +5,7 @@ topic: "a-mirroring-store-takes-the-providers-shape-and-aging"
 description: "Two bounded stores that hold views of the same peers must agree in SHAPE (peers x per-peer, not a total pair count) and in AGING (one store owns when an entry is forgotten), with every exit through one function — otherwise eviction rules…"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-10-18"
 origin:
   - agent: "p2p-network-dev-01"
     host: "develop-qzapp"

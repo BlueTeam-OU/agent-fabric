@@ -5,7 +5,7 @@ topic: "blueteam-owner-wants-imagery-flag-curves"
 description: "What the owner rejects and wants in blueteam.ee's look — never a text-only page; the flag's blue/black/white sections with curves; woven imagery"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-10-18"
 origin:
   - agent: "brand-comms-01"
     host: "develop-qzapp"

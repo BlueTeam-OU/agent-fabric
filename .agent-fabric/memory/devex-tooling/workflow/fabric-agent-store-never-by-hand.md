@@ -5,7 +5,7 @@ topic: "fabric-agent-store-never-by-hand"
 description: "Never clone or push my fabric-agent-<id> repo by hand, nor hand the owner a script that does; settings go through fabric-secrets store settings-put"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-10-18"
 origin:
   - agent: "devex-tooling"
     host: "develop-qzapp"

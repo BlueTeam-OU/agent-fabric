@@ -5,7 +5,7 @@ topic: "ka-clear-softens-a-destructive-act"
 description: "Georgian \"გასუფთავება\" (clear) reads as tidying a field or cache; on a button for a consequential act it softens it — name the act (\"delete\")"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-10-18"
 origin:
   - agent: "language-culture-ge"
     host: "develop-qzapp"

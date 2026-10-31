@@ -5,7 +5,7 @@ topic: "rollup-keeps-superseded-runs"
 description: "statusCheckRollup.contexts lists every check run on a head, cancelled/re-run ones too; read the latest per check"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-10-18"
 origin:
   - agent: "devex-tooling"
     host: "develop-qzapp"

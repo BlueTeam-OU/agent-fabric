@@ -5,7 +5,7 @@ topic: "predict-then-let-git-decide"
 description: "a read-only prediction of a git pull's failure (fabric-fresh vs the launcher) must err toward refusing, and the actor must still let git decide"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-10-18"
 origin:
   - agent: "python-dev-04"
     host: "develop-qzapp"

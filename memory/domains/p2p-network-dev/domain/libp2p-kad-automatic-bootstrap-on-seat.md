@@ -5,7 +5,7 @@ topic: "libp2p-kad-automatic-bootstrap-on-seat"
 description: "libp2p-kad 0.49 starts a bootstrap 500 ms after any routing seat, even with periodic bootstrap off; a test that seats a full bucket must not let seated routers name competing peers until it is full"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-10-24"
 origin:
   - agent: "p2p-network-dev-01"
     host: "develop-qzapp"

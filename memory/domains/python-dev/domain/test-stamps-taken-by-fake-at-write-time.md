@@ -5,7 +5,7 @@ topic: "test-stamps-taken-by-fake-at-write-time"
 description: a timestamp a test composes before launching the code under test is raced by host load; let the fake stamp it when it writes
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-10-18"
 origin:
   - agent: "python-dev-04"
     host: "develop-qzapp"

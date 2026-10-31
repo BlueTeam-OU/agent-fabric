@@ -5,7 +5,7 @@ topic: "addenda-open-points"
 description: "Open questions on my legal-expert-ge brief addendum, held for its next revision (company organs bullet)"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-10-18"
 origin:
   - agent: "legal-expert-ge"
     host: "develop-qzapp"

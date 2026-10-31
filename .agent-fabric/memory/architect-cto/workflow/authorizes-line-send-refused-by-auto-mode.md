@@ -5,7 +5,7 @@ topic: "authorizes-line-send-refused-by-auto-mode"
 description: "The auto-mode classifier refuses gzcoord-send of a DECISION carrying an AUTHORIZES line (boundary arm below minimum) as \"CI Bypass\"; the judgement is done in-session, the line reaches the arm only by the owner's hand"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-10-28"
 origin:
   - agent: "architect-cto-01"
     host: "develop-qzapp"

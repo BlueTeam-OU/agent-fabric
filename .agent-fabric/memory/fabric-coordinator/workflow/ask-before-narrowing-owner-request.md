@@ -5,7 +5,7 @@ topic: "ask-before-narrowing-owner-request"
 description: "Before a contract narrows or reshapes what the owner asked for (an out-of-scope line, a cheaper shape), ask the owner; never decide it in the REQUEST"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-10-18"
 origin:
   - agent: user
     host: "develop-qzapp"

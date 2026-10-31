@@ -5,7 +5,7 @@ topic: "fabric-ctl-json-is-lines-and-daemon-ctx-has-no-home"
 description: "Two control-plane facts that hid j30 bugs behind green tests - fabric-ctl --json prints one object per line, and agentd's status context carries no home/uid/run"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-10-18"
 origin:
   - agent: "python-dev-04"
     host: "develop-qzapp"

@@ -5,7 +5,7 @@ topic: "forced-crash-no-core"
 description: "A test that forces a crash (abort) of a process holding a key or content writes a core the host's collector keeps; make it non-dumpable first"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-10-24"
 origin:
   - agent: "rust-ui-dev-01"
     host: "develop-qzapp"

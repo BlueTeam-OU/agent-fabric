@@ -5,7 +5,7 @@ topic: "reflection-a-corrected-rule-is-swept-tree-wide-on-the-first-correction"
 description: "When a review shows a rule's wording wrong, grep the whole tree for the old wording and its paraphrases in the FIRST correction, give the reason one home that the other texts cite, and exchange exact replacement text; otherwise the round…"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-10-28"
 origin:
   - agent: "architect-cto-01"
     host: "develop-qzapp"

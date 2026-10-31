@@ -5,7 +5,7 @@ topic: "fleet-attention-paused-257"
 description: "fleet.py attention data carries paused beside blocked/pending (#257); unreadable-receipt owed row names its subject"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-10-18"
 origin:
   - agent: "python-dev-01"
     host: "develop-qzapp"

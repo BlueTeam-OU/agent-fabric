@@ -5,7 +5,7 @@ topic: "domain-silence-bound-arms-on-first-ping"
 description: "A client-side liveness timer must arm on evidence the server runs keepalive (the first ping read), not at connect, when the handshake does not say whether keepalive was granted"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-10-24"
 origin:
   - agent: "p2p-network-dev-02"
     host: "develop-qzapp"

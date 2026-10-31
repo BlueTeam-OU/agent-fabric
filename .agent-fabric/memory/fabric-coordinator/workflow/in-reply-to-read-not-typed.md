@@ -5,7 +5,7 @@ topic: "in-reply-to-read-not-typed"
 description: "Before sending a REPLY, copy IN-REPLY-TO from the delivery's MESSAGE-ID line (gzcoord-inbox --replay <seq>); never type or recall it"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-10-18"
 origin:
   - agent: user
     host: "develop-qzapp"

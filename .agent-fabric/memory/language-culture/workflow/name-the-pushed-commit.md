@@ -5,7 +5,7 @@ topic: "name-the-pushed-commit"
 description: "before a REPLY names a delivered commit, read the branch head with git ls-remote; never let one script commit, push and send"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-10-18"
 origin:
   - agent: "language-culture-en"
     host: "develop-qzapp"

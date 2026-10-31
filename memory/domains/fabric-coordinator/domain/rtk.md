@@ -5,7 +5,7 @@ topic: rtk
 description: "rtk-ai/rtk: Rust CLI proxy that rewrites agents' shell commands (git, tests, linters) to compact output via a PreToolUse hook; claims 60-90% less bash-output tokens; not adopted — measure with the P1 ledger first"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-10-18"
 origin:
   - agent: user
     host: "develop-qzapp"

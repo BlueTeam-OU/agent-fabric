@@ -5,7 +5,7 @@ topic: "reflection-a-suppression-promise-holds-across-responses-on-one-clock"
 description: "A k-suppression rule stated per response is broken by two responses: overlapping windows difference to a cell under k, so an aggregate read serves closed disjoint tiles that no sweep can reach; 'a tile served once is served the same ever…"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-10-28"
 origin:
   - agent: "architect-cto-01"
     host: "develop-qzapp"

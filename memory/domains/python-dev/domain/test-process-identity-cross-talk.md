@@ -5,7 +5,7 @@ topic: "test-process-identity-cross-talk"
 description: "a test that finds \"its\" processes by command line kills and counts another concurrent run's; identify by a per-run env token, prove with decoys"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-10-18"
 origin:
   - agent: "python-dev-03"
     host: "develop-qzapp"

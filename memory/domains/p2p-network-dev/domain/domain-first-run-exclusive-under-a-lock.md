@@ -5,7 +5,7 @@ topic: "domain-first-run-exclusive-under-a-lock"
 description: "Making a first-run creation exclusive (provision one identity record) — hold a kernel-released lock across the whole step, not a reservation file: a crash leaves the file behind and refuses every later attempt"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-10-24"
 origin:
   - agent: "p2p-network-dev-02"
     host: "develop-qzapp"

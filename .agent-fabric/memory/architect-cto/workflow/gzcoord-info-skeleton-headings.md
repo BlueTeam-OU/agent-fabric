@@ -5,7 +5,7 @@ topic: "gzcoord-info-skeleton-headings"
 description: "gzcoord-compose INFO renders CONTEXT:/NOTES: sections, not INFO:; a fill-in that targets a heading the skeleton lacks sends an empty, valid message"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-10-28"
 origin:
   - agent: "architect-cto-01"
     host: "develop-qzapp"

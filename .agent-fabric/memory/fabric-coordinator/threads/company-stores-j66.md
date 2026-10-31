@@ -5,7 +5,7 @@ topic: "company-stores-j66"
 description: "j66 / #271 (2026-10-15) — ADR-038 rule 10 company stores proposed; contract for python-dev; names inventory awaiting the owner; what the survey found"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-10-18"
 origin:
   - agent: user
     host: "develop-qzapp"

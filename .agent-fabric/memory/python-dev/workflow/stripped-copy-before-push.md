@@ -5,7 +5,7 @@ topic: "stripped-copy-before-push"
 description: "tests/run.sh passes locally but CI's platform-smoke fails on tests that read live instance files; run touched tests through tests/stripped_run.py before pushing"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-10-18"
 origin:
   - agent: "python-dev-02"
     host: "develop-qzapp"

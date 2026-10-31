@@ -5,7 +5,7 @@ topic: "reflection-a-gate-s-transport-verb-is-defined-at-the-data-plane-before-t
 description: "A gate sentence that uses a transport verb ('connect ... and not before') is read at the data plane: the admitted connection a message crosses; in a design that classes a peer only after the handshake authenticates it, a handshake the…"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-10-28"
 origin:
   - agent: "architect-cto-01"
     host: "develop-qzapp"

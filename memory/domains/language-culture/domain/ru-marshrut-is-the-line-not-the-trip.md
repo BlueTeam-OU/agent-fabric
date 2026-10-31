@@ -5,7 +5,7 @@ topic: "ru-marshrut-is-the-line-not-the-trip"
 description: "In Russian transit copy «маршрут» is a transit line/route, never the rider's trip; the trip is «поездка», the endpoint pair «откуда и куда»"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-10-18"
 origin:
   - agent: "language-culture-ru"
     host: "develop-qzapp"

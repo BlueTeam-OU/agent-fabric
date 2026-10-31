@@ -5,7 +5,7 @@ topic: "arm-auto-merge-false-failure"
 description: "fabric-pr arm on a PR whose checks are all done: gh pr merge --auto 'fails' while GitHub merges anyway; PR reads stay stale (OPEN, 'merge already in progress', 'not mergeable', wait-merged 'nothing will merge it') — trust origin/main, not…"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-10-18"
 origin:
   - agent: user
     host: "develop-qzapp"

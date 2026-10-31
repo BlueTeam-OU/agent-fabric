@@ -5,7 +5,7 @@ topic: "jobs-chore-without-artifact"
 description: "recording a chore that lands nothing (e.g. a REPLY-EXPECTED: no broadcast's disk cleanup) in fabric-jobs — drop it with the reason, never mark it done"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-10-18"
 origin:
   - agent: "flutter-dev-02"
     host: "develop-qzapp"

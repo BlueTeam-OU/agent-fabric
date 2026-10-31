@@ -5,7 +5,7 @@ topic: "ka-may-vs-can-for-rights"
 description: "A right is \"შეუძლია\", not \"შეიძლება\", which reads as likelihood"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-10-18"
 origin:
   - agent: "language-culture-ge"
     host: "develop-qzapp"

@@ -5,7 +5,7 @@ topic: "reflection-a-test-asserting-returns-nothing-proves-little"
 description: "A test asserting a query returns the empty set passes for any predicate that matches nothing; pin a predicate with an exact-set assertion over a fixture holding known positives and negatives, and close a test-strength finding only when…"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-10-28"
 origin:
   - agent: "architect-cto-01"
     host: "develop-qzapp"

@@ -5,7 +5,7 @@ topic: "fleet-boot-auto-order"
 description: "Owner 2026-10-13 — fleet-deck start --auto: a priority queue, same-priority agents started one at a time with a delay; infrastructure before developers"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-10-18"
 origin:
   - agent: user
     host: "develop-qzapp"

@@ -5,7 +5,7 @@ topic: "reflection-engine-behaviour-clause-is-decided-by-a-run-with-a-control"
 description: "A decision clause that rests on a third-party engine's behaviour is decided by a run with a control before the builder is written; the run's assumption is pinned in committed config with a citation and its harness lands under tools/ so an…"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-10-28"
 origin:
   - agent: "architect-cto-01"
     host: "develop-qzapp"

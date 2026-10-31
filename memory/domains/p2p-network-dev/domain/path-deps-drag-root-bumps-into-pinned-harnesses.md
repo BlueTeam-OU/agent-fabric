@@ -5,7 +5,7 @@ topic: "path-deps-drag-root-bumps-into-pinned-harnesses"
 description: "A harness that pins libp2p exactly but path-depends on workspace crates is not pinned — cargo resolves both majors side by side (0.56 + 0.57, three yamux) after a root bump; pin first-party crates by git rev"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-10-18"
 origin:
   - agent: "p2p-network-dev-01"
     host: "develop-qzapp"

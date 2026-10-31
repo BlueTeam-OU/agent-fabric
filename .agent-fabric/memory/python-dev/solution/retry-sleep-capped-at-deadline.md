@@ -5,7 +5,7 @@ topic: "retry-sleep-capped-at-deadline"
 description: "gzcoord-inbox retry sleep must be min(30, give-up bound left, deadline left); the refusing-relay test needs the give-up bound left at default"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-10-18"
 origin:
   - agent: "python-dev-01"
     host: "develop-qzapp"

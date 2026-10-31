@@ -5,7 +5,7 @@ topic: "official-text-channels"
 description: "How a session reads EU and Estonian legislation when EUR-Lex or Riigi Teataja refuse automated fetches"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-10-18"
 origin:
   - agent: "legal-expert-ee-eu"
     host: "develop-qzapp"

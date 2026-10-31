@@ -5,7 +5,7 @@ topic: "text-true-folds-crlf-review-claim-unobservable"
 description: "subprocess text=True turns CRLF into LF, so a \"split before replace \\r\" review finding on gh output is not observable; non-exec fake needs PATH without a later real binary"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-10-18"
 origin:
   - agent: "python-dev-04"
     host: "develop-qzapp"

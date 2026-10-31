@@ -5,7 +5,7 @@ topic: "contract-test-renders-real-producer"
 description: "a test that a reader takes every field a producer writes must feed the producer's output verbatim, every value set, and assert every key — never re-inject the key under test"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-10-18"
 origin:
   - agent: "devex-tooling"
     host: "develop-qzapp"

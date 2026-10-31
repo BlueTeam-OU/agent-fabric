@@ -5,7 +5,7 @@ topic: "verify-incoming-needs-head-behind"
 description: "running the store's _verify_incoming on a fresh clone passes vacuously because HEAD already is the tip; set HEAD to the base and keep a refusing control before reporting \"passes\""
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-10-18"
 origin:
   - agent: "python-dev-02"
     host: "develop-qzapp"

@@ -5,7 +5,7 @@ topic: "domain-a-test-asserts-the-rule-not-one-timing"
 description: "A timing flake is fixed by asserting what the rule permits and keeping the broken case failing inside the run, never by widening a timeout alone; prove the flake under CPU load before and after, and re-run the mutation"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-10-24"
 origin:
   - agent: "p2p-network-dev-02"
     host: "develop-qzapp"

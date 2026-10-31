@@ -5,7 +5,7 @@ topic: "reflection-a-statement-tied-to-the-prompt-is-skipped-on-piped-input"
 description: A warning that must precede secret input goes before the read on every input path, since a CLI prompts only when stdin is a terminal and anything tied to the prompt never shows on a pipe or a file; the same holds for every screen that…
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-10-28"
 origin:
   - agent: "architect-cto-01"
     host: "develop-qzapp"

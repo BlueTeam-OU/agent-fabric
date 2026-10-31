@@ -5,7 +5,7 @@ topic: "ledger-p1-supply-state"
 description: "j112 review-economics P1 ledger supply: where it lives, the decisions, traps met (empty-body INFOs, unknown vs 0, windowed by_pr, stale-mutation hang)"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-10-18"
 origin:
   - agent: "python-dev-01"
     host: "develop-qzapp"
@@ -13,7 +13,6 @@ origin:
     working_copy: "agent-fabric"
 derived_from:
   - 1cafeb059dacc0e1
-  - b76f2c60fd31e903
 ---
 
 ## j112 review-economics P1 ledger supply: where it lives, the decisions, traps met (empty-body INFOs, unknown vs 0, windowed by_pr, stale-mutation hang)
@@ -29,8 +28,6 @@ j112 delivered 2026-10-14: contributor branch `develop-qzapp/python-dev-01/for/u
 Also: `test_review_codex` had a flake (`good_line.replace(head[:1], ...)` hit "codex"); test_launch_cli fails rc=143 sometimes under suite load, passes alone.
 
 j111 (the architect first request, onto devex-tooling's branch) was superseded by the re-target and dropped; `fabric-jobs deliver` only appends artifacts, so a wrong `reply:` artifact is removed by editing the own jobs.json (reply:<id> must be the id of the message you replied TO). Codex rows carry `:usage-unverified` in status_source until a signed-in holder pins a live turn.completed (9dc2bdfe).
-
-Later (95879cd4, 2026-10-19): `results.merged_prs` marks a PR `cut` when GitHub's commit list reached 250; errors.py counts it as `prs_cut` and says it is read in part. `review_cost` itself is unchanged.
 
 *Anchors: `tools/fabric/ledger.py::dispatch_header`, `tools/fabric/control/ops/usage.py::ledger_tokens`, `tools/fabric/results.py::review_cost`*
 

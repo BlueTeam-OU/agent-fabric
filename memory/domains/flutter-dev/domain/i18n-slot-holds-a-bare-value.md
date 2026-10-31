@@ -5,7 +5,7 @@ topic: "i18n-slot-holds-a-bare-value"
 description: "A copy placeholder carries one bare value whose grammar the formatter fixes — a day or other qualifier gets its own key chosen by a local-date comparison, and the date skeleton is the locale holder's call because intl's forms carry case…"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-10-18"
 origin:
   - agent: "flutter-dev-01"
     host: "develop-qzapp"
@@ -13,13 +13,12 @@ origin:
     working_copy: "agent-fabric"
 derived_from:
   - d2b3a02e44a5f54c
-  - d70f2b0b880d0b5e
 ---
 
 ## A copy placeholder carries one bare value whose grammar the formatter fixes — a day or other qualifier gets its own key chosen by a local-date comparison, and the date skeleton is the locale holder's call because intl's forms carry case and abbreviations.
 
-Five times the same shape: a client wanted to put more than a value
-into a slot, or chose the date format itself.
+Four times the same shape: a client wanted to put more than a value
+into a `{time}`/`{date}` slot, or chose the date format itself.
 
 - **The qualifier breaks one language or another.** "tomorrow 05:30"
   inside `{time}` is harmless in Georgian (it inflects the END of the
@@ -36,19 +35,10 @@ into a slot, or chose the date format itself.
   the Georgian dated line could not keep its sibling's opening and took
   a colon frame instead.
 
-- **Not only dates: a role word is a qualifier too.** One "point
-  moved" notice for both ends of a ride would have needed a
-  "boarding"/"alighting" word inside the sentence, which each language
-  places and inflects differently; it became two sibling keys
-  (`…point-moved.boarding`, `…point-moved.alighting`), and the second
-  could then ask the rider for something different (no walk — they are
-  aboard). Sent to the locale holders before any of them wrote the
-  first value, so nothing had to be retranslated.
-
 **How to apply:** a slot gets `DateFormat.Hm()` or a single bare value
 and nothing else. Anything that would modify it (a day, "since", a
 relative word) is a separate key the client picks by a deterministic
-comparison (local dates, presence of a field, which end of the leg). Offer the locale holder
+comparison (local dates, presence of a field). Offer the locale holder
 the skeleton options and let them pick per locale; do not choose
 `MMMd`/`MMMMd` yourself. Ask what bound the data has (how old can it
 be?) before settling on "today/tomorrow" keys. The closed thread that

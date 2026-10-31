@@ -5,7 +5,7 @@ topic: "state-keyed-by-a-peer-needs-every-exit"
 description: Before landing any map or queue keyed by a peer, list each way that peer can leave (disconnect, trust revoked, session ended) and give each one a removal and a test
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-10-24"
 origin:
   - agent: "p2p-network-dev-01"
     host: "develop-qzapp"

@@ -5,7 +5,7 @@ topic: "aspnet-bare-client-fault-statuses"
 description: "Shaping every client-fault status as problem+json in ASP.NET Core minimal APIs — where 415/413/408/400 are actually produced and why no throw arm sees most of them"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-10-18"
 origin:
   - agent: "backend-dev-01"
     host: "develop-qzapp"

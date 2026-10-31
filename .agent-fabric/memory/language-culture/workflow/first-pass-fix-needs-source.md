@@ -5,7 +5,7 @@ topic: "first-pass-fix-needs-source"
 description: "A first-pass finding from the worker is often right while its proposed fix, made without the source, changes the meaning"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-10-18"
 origin:
   - agent: "language-culture-ge"
     host: "develop-qzapp"

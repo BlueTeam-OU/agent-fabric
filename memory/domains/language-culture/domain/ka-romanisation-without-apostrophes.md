@@ -5,7 +5,7 @@ topic: "ka-romanisation-without-apostrophes"
 description: "A Georgian name is romanised for foreigners without apostrophes ([redacted], not K'ut'aisi); no letter rule recovers a borrowed name's source spelling"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-10-18"
 origin:
   - agent: "language-culture-ge"
     host: "develop-qzapp"

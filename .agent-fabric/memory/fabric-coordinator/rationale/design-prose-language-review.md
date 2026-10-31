@@ -5,7 +5,7 @@ topic: "design-prose-language-review"
 description: "Owner 2026-10-16 — language-culture reviews the English of every InterWeave design/ spec; behaviour stays with the author"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-10-18"
 origin:
   - agent: user
     host: "develop-qzapp"

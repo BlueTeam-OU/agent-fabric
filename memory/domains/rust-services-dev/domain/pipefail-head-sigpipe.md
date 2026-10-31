@@ -2,10 +2,10 @@
 role: "rust-services-dev"
 class: domain
 topic: "pipefail-head-sigpipe"
-description: "`cmd | head -1` under `set -euo pipefail` can end a shell script silently; quit inside the producer instead"
+description: "`cmd | head -1` under set -o pipefail fails intermittently and silently; use sed's q instead"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-10-18"
 origin:
   - agent: "rust-services-dev-01"
     host: "develop-qzapp"

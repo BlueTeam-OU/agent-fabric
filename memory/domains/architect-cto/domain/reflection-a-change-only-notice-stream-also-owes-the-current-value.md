@@ -5,7 +5,7 @@ topic: "reflection-a-change-only-notice-stream-also-owes-the-current-value"
 description: "A contract that delivers state only as change notices must also send the current value when a subscription or route begins and after every reconnect, or a state that never changes, such as an always-relayed peer, is never shown"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-10-28"
 origin:
   - agent: "architect-cto-01"
     host: "develop-qzapp"

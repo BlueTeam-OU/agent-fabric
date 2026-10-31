@@ -5,7 +5,7 @@ topic: "cold-read-explore-on-sonnet"
 description: "Холодное чтение готового текста — read-only Explore на model sonnet (не opus); locale-worker остаётся на opus"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-10-18"
 origin:
   - agent: "language-culture-ru"
     host: "develop-qzapp"

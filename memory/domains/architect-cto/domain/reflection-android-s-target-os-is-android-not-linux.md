@@ -5,7 +5,7 @@ topic: "reflection-android-s-target-os-is-android-not-linux"
 description: "In Rust, Android's target_os is android, so a cfg(target_os = \"linux\") gate in our crates or in a dependency's backend silently selects the fallback branch on Android"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-10-28"
 origin:
   - agent: "architect-cto-01"
     host: "develop-qzapp"

@@ -5,7 +5,7 @@ topic: "watch-deadline-seams"
 description: "gzcoord-inbox --deadline (j120, #285): a deadline checked only between arms is overrun by a hung relay; lock mark, flag-before-lock, worktree-name test failures"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-10-18"
 origin:
   - agent: "python-dev-01"
     host: "develop-qzapp"

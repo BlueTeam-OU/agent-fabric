@@ -5,7 +5,7 @@ topic: "next-calendar-day-not-24h"
 description: "\"Tomorrow at the same wall clock\" is DateTime(y, m, d + 1, h, min), never add(Duration(days: 1)) — and a test of it can only fail when run in a DST-observing zone."
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-10-18"
 origin:
   - agent: "flutter-dev-01"
     host: "develop-qzapp"
@@ -13,7 +13,6 @@ origin:
     working_copy: "agent-fabric"
 derived_from:
   - 7c246466861f7841
-  - a2cee0ba7eff4d48
 ---
 
 ## "Tomorrow at the same wall clock" is DateTime(y, m, d + 1, h, min), never add(Duration(days: 1)) — and a test of it can only fail when run in a DST-observing zone.
@@ -38,12 +37,6 @@ is used only for true elapsed intervals. Run date tests locally under a
 DST zone (`TZ=Europe/Berlin flutter test …`) — a UTC machine or runner
 cannot fail them, so a green there says nothing. See
 [[a-green-check-is-evidence-only-once-seen-red]].
-
-**The same trap in a zone label.** A zone name or offset shown beside a
-timestamp is read AT that timestamp, never at now: gzapp's status_web test
-compared a July time's zone with today's and broke on 2026-10-25 under
-TZ=Europe/Berlin (GMT+2 vs GMT+1), fixed in 17be7e300. A date test that
-mixes "now" with a fixed date is a test that fails on two days a year.
 
 *References: a-green-check-is-evidence-only-once-seen-red*
 

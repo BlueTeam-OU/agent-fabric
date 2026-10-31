@@ -5,7 +5,7 @@ topic: "reflection-request-a-guard-only-for-a-premise-verified-on-the-pinned-too
 description: Before requesting a guard, verify on the pinned toolchain that the thing it refuses can occur; a guard whose premise never occurs passes vacuously for as long as it exists, and the honest record is a watch item, not a check
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-10-28"
 origin:
   - agent: "architect-cto-01"
     host: "develop-qzapp"

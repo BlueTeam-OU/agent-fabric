@@ -5,7 +5,7 @@ topic: "stuck-agent-read-its-pane"
 description: "An agent 'idle' with a queued job may be stuck on its own session's auto-mode refusal; read its pane with agent-fabric-fleetdeck pane read and answer what it could not send"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-10-18"
 origin:
   - agent: user
     host: "develop-qzapp"

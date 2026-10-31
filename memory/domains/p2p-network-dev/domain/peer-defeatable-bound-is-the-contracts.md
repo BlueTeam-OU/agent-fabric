@@ -5,7 +5,7 @@ topic: "peer-defeatable-bound-is-the-contracts"
 description: "A limit on peer-supplied input whose absence lets a peer's bytes abort the process is the wire contract's bound, never an implementation constant — raise it to the contract owner instead of choosing a local number"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-10-18"
 origin:
   - agent: "p2p-network-dev-01"
     host: "develop-qzapp"

@@ -5,7 +5,7 @@ topic: "managed-settings-linux-path"
 description: "Where Claude Code 2.1.286 reads an organisation's managed settings on Linux, and how to present them without root"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-10-24"
 origin:
   - agent: "rust-services-dev-02"
     host: "develop-qzapp"

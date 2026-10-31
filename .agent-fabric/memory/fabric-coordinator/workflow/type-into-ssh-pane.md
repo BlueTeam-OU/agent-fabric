@@ -5,22 +5,19 @@ topic: "type-into-ssh-pane"
 description: "How to type the owner's words into another agent's session when its deck pane is an ssh link; why language-culture-ge sat idle on 11 queued jobs"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-10-18"
 origin:
   - agent: user
     host: "develop-qzapp"
     project: "agent-fabric"
     working_copy: "agent-fabric"
 derived_from:
-  - 9ff71bbc6d7ebbac
   - cfbbebbb2b84d54b
 ---
 
 ## How to type the owner's words into another agent's session when its deck pane is an ssh link; why language-culture-ge sat idle on 11 queued jobs
 
 To relay the owner's words into another agent's session (2026-10-16, language-culture-ge):
-
-- Every deck call goes through `agent-fabric-fleetdeck` (agent list, pane read). Plain `herdr pane …` looks for a server at my own ~/.config/herdr/herdr.sock, finds none and says "server_not_running". That is the wrong tool, not missing access (2026-10-20).
 
 - `agent-fabric-fleetdeck agent prompt` and `agent send-keys` refuse a pane whose foreground process is the ssh client, with "agent_not_ready".
 - `agent-fabric-fleetdeck pane send-text <pane> "<text>"` followed by `pane send-keys <pane> enter` works.

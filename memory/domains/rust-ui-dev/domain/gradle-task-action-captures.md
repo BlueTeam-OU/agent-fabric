@@ -5,7 +5,7 @@ topic: "gradle-task-action-captures"
 description: "A Gradle task action (doLast) that names an AGP Variant, even in a message string, breaks the configuration cache; capture plain values at configuration time and run the task once with --configuration-cache"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-10-24"
 origin:
   - agent: "rust-ui-dev-02"
     host: "develop-qzapp"

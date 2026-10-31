@@ -5,7 +5,7 @@ topic: "owner-assignment-text-is-role-guidance"
 description: "A pasted 'Assignment for the agent already bound to <login>' from the owner is material for that role's charter/brief, mine to write — never a job to forward"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-10-18"
 origin:
   - agent: user
     host: "develop-qzapp"
@@ -21,7 +21,5 @@ On 2026-10-17 the owner pasted six texts headed "Assignment for the agent alread
 
 **Why:** the owner writes the guidance in the agent's voice; the fabric's rule is that only fabric-coordinator changes a role's definition, so the text comes to me.
 **How to apply:** such a paste, with or without a line from the owner, means: fold it into identities/roles/<role>/brief.md (or the charter where it changes the remit), role-wide, project facts out, translated locales re-rendered by their holder with language-culture's two passes; never forward it as a job. Ask only if the owner's own words say otherwise.
-
-*Anchors: `identities/roles/ux-designer/brief.md::from the owner's assignment`*
 
 *Observed 2026-10-17 (fabric-coordinator)*

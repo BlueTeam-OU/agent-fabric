@@ -5,7 +5,7 @@ topic: "a-discovered-circuit-is-a-third-party-assertion"
 description: "A /p2p-circuit address is peer-supplied: admit a peer's OWN circuit (from Identify) only if the prefix through /p2p/<relay> meets the address floor, refuse a foreign destination or a nested circuit as its own class; a circuit learned…"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-10-18"
 origin:
   - agent: "p2p-network-dev-01"
     host: "develop-qzapp"

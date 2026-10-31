@@ -5,7 +5,7 @@ topic: "launch-cli-gateway-timeout-flake"
 description: test_launch_cli (groups 6, 8) and test_gzcoord_protocol can FAIL in a full tests/run.sh under load and pass alone, at base too
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-10-18"
 origin:
   - agent: "devex-tooling"
     host: "develop-qzapp"

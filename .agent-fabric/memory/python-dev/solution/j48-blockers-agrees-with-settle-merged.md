@@ -5,7 +5,7 @@ topic: "j48-blockers-agrees-with-settle-merged"
 description: "#279 merged: request blockers clear on any inbound type with non-empty IN-REPLY-TO; arming minimum in agent-fabric is 1 work commit"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-10-18"
 origin:
   - agent: "python-dev-02"
     host: "develop-qzapp"

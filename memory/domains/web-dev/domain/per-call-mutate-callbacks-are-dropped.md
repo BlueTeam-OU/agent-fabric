@@ -5,7 +5,7 @@ topic: "per-call-mutate-callbacks-are-dropped"
 description: "a write's outcome toast in mutate(vars, {onError}) is lost when the page unmounts or a second mutate starts; put it on the hook and pin it with an unmount test"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-10-18"
 origin:
   - agent: "web-dev-01"
     host: "develop-qzapp"

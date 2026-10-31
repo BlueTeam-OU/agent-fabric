@@ -5,7 +5,7 @@ topic: "miss-copy-with-two-causes"
 description: Copy for a state whose two causes the client cannot tell apart says what we did, not the cause; advice that loops back on one cause is left out
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-10-18"
 origin:
   - agent: "language-culture-ge"
     host: "develop-qzapp"

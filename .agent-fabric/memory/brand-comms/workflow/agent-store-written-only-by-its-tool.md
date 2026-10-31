@@ -5,7 +5,7 @@ topic: "agent-store-written-only-by-its-tool"
 description: "An agent's fabric-agent-<id> repository is its secrets store — never clone, commit or push to it by hand, even for persona files"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-10-18"
 origin:
   - agent: "brand-comms-01"
     host: "develop-qzapp"
