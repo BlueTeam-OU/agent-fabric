@@ -60,7 +60,11 @@ with `--any-owner` when the PR is another session's, always where
 `authority_own_prs` is false). Ask the one it
 names, after the review; an authority vouches only for the head it names.
 Unless the dry-run says the owner arms it by their own hand. Never without
-the gate. Any PR status you state carries its counts ("PR <n> is unarmed:
+the gate. On a PR-mode repository with no required check and no CI at
+all (no `.github/workflows` on the base, none added by the PR), a head
+with no check arms only on the owner's separate word, "owner's no-CI
+word" in the basis: "the owner's word" lifts the count, never the
+checks, and neither stands in for the other. Any PR status you state carries its counts ("PR <n> is unarmed:
 6 work, 2 fix, minimum 8").
 
 ## One open pull request

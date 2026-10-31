@@ -865,21 +865,22 @@ its record disagree, the record wins. Look it up, never read it whole:
 - Jobs come from the agent, the owner, a delivered REQUEST (§5 rules
   4–5, 11).
 - The owner reads every list (`fabric-ctl jobs`, §5 rule 6).
-- A 2026-10-08 — priority, never preempting; blocking rank; a role pool
+- A 2026-10-08 — priority, never preempting; blocking rank; role pool
   (§5 rules 7–10).
-- A 2026-10-09 — a stale waiter still blocks (§5 rule 8).
-- A 2026-10-09 — a REQUEST to a login is queued on its list (§5 rule 11).
+- A 2026-10-09 — stale waiter still blocks (§5 rule 8).
+- A 2026-10-09 — a REQUEST to a login is queued (§5 rule 11).
 - A 2026-10-09 — a job may be a plan's step (§5 rule 11).
-- A 2026-10-11 — every job after a worked one starts fresh (§5 rule 3).
+- A 2026-10-11 — fresh after a worked job (§5 rule 3).
 - A 2026-10-12 — checkable blockers (§5 rule 8).
 - A 2026-10-14 — `paused`; `fabric-jobs switch` (§5 rules 2, 10).
 - A 2026-10-15 — text reads as built.
-- A 2026-10-16 — landed delivered jobs swept to done (§5 rule 12).
+- A 2026-10-16 — delivered jobs swept to done (§5 rule 12).
 - A 2026-10-18 — no-artifact close, a reason (§5 rule 10).
 - A 2026-10-20 — commits fenced to job copies (§5 rule 3).
-- A 2026-10-21 — switch to clean targets, unbuilt (§5 rule 10).
+- A 2026-10-21 — switch cleans targets, unbuilt (§5 rule 10).
 - A 2026-10-30 — fleet hold (§5 rule 13).
 - A 2026-10-30 — held, no start (§5 rule 13).
+- A 2026-10-31 — clock blocker (§5 rule 8).
 - Keywords: fresh session, intake, priority, claim, sweep, unhold.
 
 ### ADR-038 — Each agent owns its key and its secrets (Accepted)
