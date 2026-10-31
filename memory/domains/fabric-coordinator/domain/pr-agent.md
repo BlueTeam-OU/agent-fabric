@@ -5,7 +5,7 @@ topic: "pr-agent"
 description: "PR-Agent (The-PR-Agent/pr-agent, ex-Qodo, MIT, Python): single-LLM-call PR tools /review /describe /improve /ask; diff-only with token-aware compression; not adopted as the fabric's reviewer; borrow ideas listed"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-18"
+distilled_at: "2026-10-31"
 origin:
   - agent: user
     host: "develop-qzapp"

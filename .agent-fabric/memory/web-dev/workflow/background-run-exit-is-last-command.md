@@ -5,7 +5,7 @@ topic: "background-run-exit-is-last-command"
 description: "Running a PR watcher or any verdict-by-exit-code script in the harness's background mode: why the reported exit can lie"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-18"
+distilled_at: "2026-10-31"
 origin:
   - agent: "web-dev-01"
     host: "develop-qzapp"

@@ -5,7 +5,7 @@ topic: "spike-fact-is-its-configuration"
 description: "a spike's wire observation describes the client configuration it ran; check it in the configuration the gateway serves and commit it to the record before a contract relies on it"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-18"
+distilled_at: "2026-10-31"
 origin:
   - agent: "rust-services-dev-02"
     host: "develop-qzapp"

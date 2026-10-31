@@ -5,7 +5,7 @@ topic: "late-result-keeps-newer-feedback"
 description: "When an action's feedback waits for an asynchronous answer, a newer action's feedback (and its Undo) is never replaced by the late result"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-18"
+distilled_at: "2026-10-31"
 origin:
   - agent: "ux-designer-01"
     host: "develop-qzapp"

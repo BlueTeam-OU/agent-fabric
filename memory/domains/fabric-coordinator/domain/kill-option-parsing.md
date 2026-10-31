@@ -5,7 +5,7 @@ topic: "kill-option-parsing"
 description: "How bash's kill builtin and util-linux kill read options: which later words can still change the signal after kill -0, and why -- makes any operand safe"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-18"
+distilled_at: "2026-10-31"
 origin:
   - agent: user
     host: "develop-qzapp"

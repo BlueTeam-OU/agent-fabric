@@ -5,7 +5,7 @@ topic: "reflection-a-queue-after-an-acknowledgement-cannot-shed-by-dropping"
 description: A queue that sits after something upstream has already acknowledged must not shed load by dropping; when full it pauses its intake and the calls that would feed it are refused locally, so before ruling any drop policy ask what upstream…
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-28"
+distilled_at: "2026-10-31"
 origin:
   - agent: "architect-cto-01"
     host: "develop-qzapp"

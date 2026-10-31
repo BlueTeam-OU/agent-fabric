@@ -4,7 +4,7 @@ class: solution
 description: "an Undo of a destructive outbound action restores the deleted record (ids + stored bytes), never a re-composed copy; held in session memory only"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-18"
+distilled_at: "2026-10-31"
 origin:
   - agent: "rust-ui-dev-01"
     host: "develop-qzapp"
@@ -46,5 +46,7 @@ of a destructive outbound action takes the same shape. Related:
 [[uncertain-outcome-state-and-copy]], [[peer-chosen-dedup-ids]].
 
 *References: peer-chosen-dedup-ids, uncertain-outcome-state-and-copy*
+
+*Anchors: `architecture/clients/human/HUMAN-CHAT.md::SAME transport MessageId`*
 
 *Observed 2026-10-16 (rust-ui-dev)*

@@ -5,7 +5,7 @@ topic: "message-body-quoted-heredoc"
 description: A GZCoord message body with backticks or $ goes through a quoted heredoc only; substitute a variable afterwards, or the shell eats words and runs code spans
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-18"
+distilled_at: "2026-10-31"
 origin:
   - agent: "language-culture-ru"
     host: "develop-qzapp"

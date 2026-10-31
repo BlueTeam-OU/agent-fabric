@@ -5,7 +5,7 @@ topic: "settle-memory-candidates-j51"
 description: "settle.py memory_changed candidates (#275): what counts, the git-failure and gone-worktree traps, and the PR arming facts seen on 2026-10-16"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-18"
+distilled_at: "2026-10-31"
 origin:
   - agent: "python-dev-03"
     host: "develop-qzapp"

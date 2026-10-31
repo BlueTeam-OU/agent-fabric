@@ -5,7 +5,7 @@ topic: "domain-hickory-android-ndk-context-panic"
 description: "hickory's Android read_system_conf panics (not Errs) without an initialised ndk_context, which only android-activity sets"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-24"
+distilled_at: "2026-10-31"
 origin:
   - agent: "p2p-network-dev-02"
     host: "develop-qzapp"

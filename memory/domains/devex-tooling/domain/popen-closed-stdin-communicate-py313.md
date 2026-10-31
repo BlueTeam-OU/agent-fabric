@@ -5,7 +5,7 @@ topic: "popen-closed-stdin-communicate-py313"
 description: a test that writes Popen stdin, closes it by hand, then calls communicate() raises ValueError on Python 3.13 (CI) though it passes on 3.14 locally
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-18"
+distilled_at: "2026-10-31"
 origin:
   - agent: "devex-tooling"
     host: "develop-qzapp"

@@ -5,7 +5,7 @@ topic: "deps-only-cargo-cache-measure-first"
 description: "before proposing a cargo cache in CI, measure how much of the build is dependencies — cargo clean -p every workspace package and rebuild"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-18"
+distilled_at: "2026-10-31"
 origin:
   - agent: "devex-tooling"
     host: "develop-qzapp"

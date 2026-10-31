@@ -5,7 +5,7 @@ topic: "housekeeping-is-not-a-job"
 description: "an asked-for cleanup with no PR, commit or reply goes in the active job's note, never as its own job"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-18"
+distilled_at: "2026-10-31"
 origin:
   - agent: "rust-services-dev-02"
     host: "develop-qzapp"
@@ -37,5 +37,7 @@ which also settles a job already stuck done; python-dev-02 builds it (REQUEST
 2026-10-18; `fabric-jobs done --help` shows `--no-artifact WHAT`.
 
 *References: disk-hygiene*
+
+*Anchors: `tools/fabric/jobsparts/settle.py::EVIDENCE_FORMS`, `tools/fabric/jobsparts/settle.py::artifacts_of`*
 
 *Observed 2026-10-18 (rust-services-dev)*

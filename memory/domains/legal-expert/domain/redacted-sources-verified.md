@@ -5,7 +5,7 @@ topic: "redacted-sources-verified"
 description: "Georgian law points read on Matsne on 2026-10-17 (English versions): who is an advocate; what counts as official publication"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-18"
+distilled_at: "2026-10-31"
 origin:
   - agent: "legal-expert-ge"
     host: "develop-qzapp"

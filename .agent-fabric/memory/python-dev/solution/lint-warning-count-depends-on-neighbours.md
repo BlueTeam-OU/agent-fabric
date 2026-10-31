@@ -5,7 +5,7 @@ topic: "lint-warning-count-depends-on-neighbours"
 description: "corpus lint's warning count depends on checkouts beside the tree (origin working copies); a test comparing two trees must put both among the same neighbours (#262, j157)"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-18"
+distilled_at: "2026-10-31"
 origin:
   - agent: "python-dev-01"
     host: "develop-qzapp"

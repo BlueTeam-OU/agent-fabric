@@ -5,7 +5,7 @@ topic: "fence-refuses-amend"
 description: "the agent-fabric contributor fence refuses git commit --amend (no path staged); redo an unpushed commit with reset --soft HEAD~1 and a new commit"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-18"
+distilled_at: "2026-10-31"
 origin:
   - agent: "devex-tooling"
     host: "develop-qzapp"

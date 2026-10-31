@@ -5,7 +5,7 @@ topic: "android-private-dir-ancestors"
 description: "Owner-only directory checks on Android -- /data is 0771 system and files/ is 0771 app-gid, so the ancestor walk needs a platform trust boundary"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-18"
+distilled_at: "2026-10-31"
 origin:
   - agent: "rust-ui-dev-01"
     host: "develop-qzapp"

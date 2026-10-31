@@ -5,7 +5,7 @@ topic: "an-untried-address-is-not-held-by-a-backoff-it-did-not-earn"
 description: "A per-peer dial backoff set by a stale address's failure must not refuse a freshly learned, never-tried address of the same peer — and the refusal usually lives at TWO sites (the retry scheduler and the admission check); placeholder dials…"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-18"
+distilled_at: "2026-10-31"
 origin:
   - agent: "p2p-network-dev-01"
     host: "develop-qzapp"

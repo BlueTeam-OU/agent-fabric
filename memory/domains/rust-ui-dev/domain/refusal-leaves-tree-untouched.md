@@ -5,7 +5,7 @@ topic: "refusal-leaves-tree-untouched"
 description: A refused start or lock acquire must judge every existing directory before creating anything, and its test must assert the directory is absent too
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-18"
+distilled_at: "2026-10-31"
 origin:
   - agent: "rust-ui-dev-01"
     host: "develop-qzapp"

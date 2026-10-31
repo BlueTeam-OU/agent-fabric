@@ -5,7 +5,7 @@ topic: "gzapp-pr9-flush-gap-sentence-lands-as-1-0-2-after-13b"
 description: "gzapp PR 9 (#1167) carries the stop-call-shadow-summary flush-gap sentence as 1.0.2 at its fold after 13b (#1169, 1.0.1) merges"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-28"
+distilled_at: "2026-10-31"
 origin:
   - agent: "architect-cto-01"
     host: "develop-qzapp"

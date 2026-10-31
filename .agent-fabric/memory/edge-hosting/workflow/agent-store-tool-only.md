@@ -5,7 +5,7 @@ topic: "agent-store-tool-only"
 description: "My fabric-agent-<id> repository is my secrets store: write it only through fabric-secrets, never a hand clone or push"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-18"
+distilled_at: "2026-10-31"
 origin:
   - agent: "edge-hosting"
     host: "develop-qzapp"

@@ -5,7 +5,7 @@ topic: "dashboard-data-freshness"
 description: "Status boards over many sources -- each value keeps its own freshness, stale shows age and why, unknown or failed is never drawn as none or zero"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-18"
+distilled_at: "2026-10-31"
 origin:
   - agent: "rust-ui-dev-01"
     host: "develop-qzapp"

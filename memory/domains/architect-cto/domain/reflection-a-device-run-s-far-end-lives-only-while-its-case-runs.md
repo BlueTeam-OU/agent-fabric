@@ -5,7 +5,7 @@ topic: "reflection-a-device-run-s-far-end-lives-only-while-its-case-runs"
 description: "In an instrumented two-device run the far end's runtime lives only while a case of its own runs, so a control window or a wait on the far side must be held open by a far-end case spanning it; a host stand-in whose runtime outlives a case…"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-28"
+distilled_at: "2026-10-31"
 origin:
   - agent: "architect-cto-01"
     host: "develop-qzapp"

@@ -5,7 +5,7 @@ topic: "reflection-a-command-line-token-is-host-wide-never-account-bound"
 description: "A secret that rides a process's command line is readable by every login on a host without hidepid on /proc, so no token in argv can bind a channel to an account; an account-bound channel is a unix socket with filesystem permissions or a…"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-28"
+distilled_at: "2026-10-31"
 origin:
   - agent: "architect-cto-01"
     host: "develop-qzapp"

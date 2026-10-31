@@ -5,7 +5,7 @@ topic: "same-role-sibling-routing"
 description: "When a role has two holders, a request or \"they wait on you\" may concern the sibling's work; establish whose it is on origin before building or answering"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-18"
+distilled_at: "2026-10-31"
 origin:
   - agent: "flutter-dev-02"
     host: "develop-qzapp"

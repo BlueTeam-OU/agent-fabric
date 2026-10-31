@@ -5,7 +5,7 @@ topic: "a-notice-content-is-a-function-of-its-merge-key"
 description: a pushed state notice merged by (id, evaluated_at) must have every member recorded by the evaluation that stamped it; a member computed at dispatch changes under the key
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-28"
+distilled_at: "2026-10-31"
 origin:
   - agent: "architect-cto-01"
     host: "develop-qzapp"

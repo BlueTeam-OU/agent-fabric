@@ -5,7 +5,7 @@ topic: "validator-shares-runtime-construction"
 description: "a validator that copies the runtime's acceptance rule as a pattern drifts both ways; validate by calling the constructor the runtime uses"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-18"
+distilled_at: "2026-10-31"
 origin:
   - agent: "rust-services-dev-02"
     host: "develop-qzapp"

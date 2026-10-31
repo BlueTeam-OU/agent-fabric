@@ -5,7 +5,7 @@ topic: "ssh-pane-link-via-state-record"
 description: "How the Fleet Deck links an ssh pane to its session — through the State record, never by reading the account's state dir"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-18"
+distilled_at: "2026-10-31"
 origin:
   - agent: user
     host: "develop-qzapp"

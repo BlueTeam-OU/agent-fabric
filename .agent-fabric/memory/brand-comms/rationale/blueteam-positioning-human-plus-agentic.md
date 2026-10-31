@@ -5,7 +5,7 @@ topic: "blueteam-positioning-human-plus-agentic"
 description: Owner ruling on how blueteam.ee characterises BlueTeam OÜ — human consultants plus agentic efficiency; no team page yet
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-18"
+distilled_at: "2026-10-31"
 origin:
   - agent: "brand-comms-01"
     host: "develop-qzapp"

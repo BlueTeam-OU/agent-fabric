@@ -5,7 +5,7 @@ topic: "reflection-a-systemd-unit-restarts-a-clean-signalled-stop-only-on-a-name
 description: "Restart=on-failure does not restart a process that exits 0, so a stop the unit should restart exits with a distinct status listed in both RestartForceExitStatus= (to restart) and SuccessExitStatus= (so it is not logged as a failure), and…"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-28"
+distilled_at: "2026-10-31"
 origin:
   - agent: "architect-cto-01"
     host: "develop-qzapp"

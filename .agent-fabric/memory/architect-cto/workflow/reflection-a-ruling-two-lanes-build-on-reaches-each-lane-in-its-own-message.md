@@ -5,7 +5,7 @@ topic: "reflection-a-ruling-two-lanes-build-on-reaches-each-lane-in-its-own-mess
 description: A DECISION addressed to one login cannot be read by another; when two lanes build on one ruling, each gets the ruling in a message addressed to it (or the shared DECISION carries both in TO/CC), and a later message to the second lane…
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-28"
+distilled_at: "2026-10-31"
 origin:
   - agent: "architect-cto-01"
     host: "develop-qzapp"

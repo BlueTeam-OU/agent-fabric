@@ -5,7 +5,7 @@ topic: "test-arm-policy-outside-entry"
 description: "Which agent-fabric tests of tools/fabric/github/ code are outside devex-tooling's authority entry (test_wait_merged.py is; test_arm_policy.py, and test_fabric_pr.py + test_pr_counts.py from 0cae803a, are in); an outside hunk goes to…"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-18"
+distilled_at: "2026-10-31"
 origin:
   - agent: "devex-tooling"
     host: "develop-qzapp"

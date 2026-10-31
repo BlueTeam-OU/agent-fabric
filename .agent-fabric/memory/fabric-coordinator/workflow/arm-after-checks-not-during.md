@@ -5,7 +5,7 @@ topic: "arm-after-checks-not-during"
 description: "fabric-pr arm does not gate on CI results: #247 armed with platform-smoke (debian) failed; arm only after every check reads pass"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-18"
+distilled_at: "2026-10-31"
 origin:
   - agent: user
     host: "develop-qzapp"
@@ -13,6 +13,7 @@ origin:
     working_copy: "agent-fabric"
 derived_from:
   - 2d9428e7777e805c
+  - "874e815816816529"
 ---
 
 ## fabric-pr arm does not gate on CI results: #247 armed with platform-smoke (debian) failed; arm only after every check reads pass
@@ -24,7 +25,8 @@ not check results; auto-merge then simply waits on the red required check, and t
 
 **Why:** an armed PR with a red check looks ready to the owner and to the board; the basis comment
 is the record.
-**How to apply:** after `--watch`, read `gh pr checks` and arm only when every line is pass/skipping
+**How to apply:** wait with `gh pr checks <N> --watch --interval 120` in the background (the bare
+`--watch` polls GraphQL every 10 s on the fleet's one GitHub account), then read `gh pr checks` and arm only when every line is pass/skipping
 (else print what failed). Worth a devex-tooling request: arm refuses a head with a failed check.
 Related: [[fold-then-ci-then-review-then-arm]], [[owner-arm-only-when-verified]].
 

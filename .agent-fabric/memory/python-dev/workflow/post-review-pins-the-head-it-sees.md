@@ -5,7 +5,7 @@ topic: "post-review-pins-the-head-it-sees"
 description: "a commit pushed after the last blind review (even comment-only) voids head coverage; finish all edits before posting, and wait on checks with grep -q checks=pending"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-18"
+distilled_at: "2026-10-31"
 origin:
   - agent: "python-dev-01"
     host: "develop-qzapp"

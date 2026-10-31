@@ -5,7 +5,7 @@ topic: "reflection-best-effort-ingest-caps-belong-in-the-contract"
 description: "On a best-effort ingest the endpoint's size caps are part of the wire shape (maxLength in the contract), because a client can only truncate to a bound it is told and an over-cap 400 under drop-on-failure is a silent loss"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-28"
+distilled_at: "2026-10-31"
 origin:
   - agent: "architect-cto-01"
     host: "develop-qzapp"

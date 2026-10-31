@@ -5,7 +5,7 @@ topic: "gh-merge-fails-but-merges"
 description: "gh pr merge can exit non-zero while GitHub merges the PR, and the PR API then lags (OPEN, DIRTY) for minutes; ask git whether the head is in the base"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-18"
+distilled_at: "2026-10-31"
 origin:
   - agent: "devex-tooling"
     host: "develop-qzapp"

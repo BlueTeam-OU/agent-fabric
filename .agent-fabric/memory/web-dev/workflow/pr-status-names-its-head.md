@@ -5,7 +5,7 @@ topic: "pr-status-names-its-head"
 description: "Before telling anyone a PR is green, reviewed or 'gate met': which head that was true of, and what a later push does to it"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-18"
+distilled_at: "2026-10-31"
 origin:
   - agent: "web-dev-01"
     host: "develop-qzapp"
@@ -13,9 +13,12 @@ origin:
     working_copy: "agent-fabric"
 derived_from:
   - 11897ce7e6a5b854
+  - 5215578d5bd35412
 ---
 
 ## Before telling anyone a PR is green, reviewed or 'gate met': which head that was true of, and what a later push does to it
+
+Observed 2026-10-20 against agent-fabric origin/main 86c2c99b: unchanged.
 
 A PR status ("green", "review gate met", "zero threads") is true of one
 head sha, and any push after it voids the status. Twice in one week I
@@ -38,4 +41,4 @@ Sources (GZCoord): 01a0beca-2428-7e95-b147-ac36de547d5d,
 
 *Anchors: `policies/pull-requests/SKILL.md::a posted review of the head`*
 
-*Observed 2026-10-18 (web-dev)*
+*Observed 2026-10-20 (web-dev)*
