@@ -91,7 +91,14 @@ ruleset, the arm refuses on drift).
     it (ADR-011). `communication/` protocol examples are a normative
     contract (ADR-032): changing one is an amendment, queue it.
 11. **fabric-coordinator:** `fabric-ctl all upgrade fabric`, so every
-    account's bootstrap runs `repoint`; read back with `fabric-ctl all status`.
+    account's bootstrap runs `repoint`. `status` prints no clone's remote,
+    and only the accounts holding a clone have one to read back:
+    `fabric-ctl all branches` names each account's working copies, then
+    `fabric-ctl <login>… clone <id>` for those logins reports the clone
+    `present` with `origin` `keep` (already the registry's SSH remote) or
+    `set` (re-pointed by this call: the upgrade did not). `unreadable`, a
+    push-URL warning, or a copy not at `~/projects/<id>` (which `clone`
+    does not read) goes to that account's agent as step 12.
 12. **The project's agents**, until their clone is re-pointed: API writes
     through the old name fail with HTTP 307, fetch and read still work.
     `export GH_REPO=<new owner>/<repo>` and `git remote set-url origin
