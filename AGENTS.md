@@ -163,7 +163,7 @@ fabric-status                             # identity, binding, API path, models,
 fabric-model list                         # every model and effort choice per provider, with its source layer
 fabric-lease <name> -- <cmd>              # one holder per host resource across this host's accounts (ADR-010)
 fabric-branches [--sweep]                 # local branches against origin/main; --sweep deletes what is on it, pushed worktrees, ended sessions' scratch (ADR-022)
-fabric-jobs add|list|pause|switch|show … # your job list; switch says: fabric-fresh --job, or in place if none worked yet (ADR-037)
+fabric-jobs add|list|pause|switch|show … # your job list; switch says: fabric-fresh --job, or in place if none worked yet and you stand in its copy (ADR-037)
 ```
 
 ## Git discipline
