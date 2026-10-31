@@ -90,3 +90,24 @@ lock is a file beside the pool, not the state directory, whose `flock`
 is the action ledger's. §2 and rule 2 now say this.
 
 Reported by python-dev-04, the author of #423 (REQUEST 01a18bc6).
+
+### Amendment 2026-10-31 — A lock file is not state
+
+The blind review of agent-fabric #429, round 1, asked whether the lock
+files under `agents/<login>/` fall under rule 1's "no caller opens a
+file for writing". `pool.json.lock` (`pool._locked`) and the control
+code's `busy-marker`, `busy-restart` and `busy-sync`
+(`control/busy.py`) are opened `O_RDWR | O_CREAT` outside
+`runtime/identity.py`, and so is `identity.py`'s own `.lock`. Read
+literally, the rule forbids all of them, `agent_lock` included; read
+for its purpose (no lost update, no torn file), it never meant them,
+since no byte of a lock file is written or read. The decision: a lock
+file is not state, and rule 1 does not reach it, on three conditions
+that keep the lock sound. Its content is never written or read. It is
+opened without `O_TRUNC`, mode 0600. And it is never removed or
+replaced: a process holding the unlinked file and another opening its
+successor would each hold "the" lock, which is the one way a lock file
+can fail. The files named meet all three today. `O_NOFOLLOW` and
+`O_CLOEXEC`, which `pool.py` and `busy.py` add, are good practice, not
+conditions: `agent_lock` predates them, and the state directory is
+0700.

@@ -108,6 +108,7 @@ import tempfile
 
 spec = importlib.util.spec_from_file_location("fabric_review_brief", os.path.join(ROOT, "tools", "fabric", "review_brief.py"))
 rb = importlib.util.module_from_spec(spec); spec.loader.exec_module(rb)
+from github import arm_findings, review_coverage  # noqa: E402 — on the path review_brief put tools/fabric on
 BIN = os.path.join(ROOT, "bin", "fabric-review")
 
 
@@ -252,6 +253,7 @@ def test_the_dispatch_header(tmp: str) -> None:
     repo = mkrepo(tmp, "headed")
     base, head = g(repo, "rev-parse", "main"), g(repo, "rev-parse", "HEAD")
     env0 = {k: os.environ.get(k) for k in ("CLAUDE_CODE_SESSION_ID",)}
+    saved_reviews = rb.earlier_reviews
     os.environ["CLAUDE_CODE_SESSION_ID"] = "sess-123"
     try:
         # a request without the optional fields still renders, and the header parses
@@ -270,7 +272,8 @@ def test_the_dispatch_header(tmp: str) -> None:
         assert out.startswith("```agent-fabric-dispatch v1\n{"), "the header is the first block"
         # minted at render: two renders do not share an id
         assert _header(rb.render(base_request(repo)))["dispatch_id"] != _header(rb.render(base_request(repo)))["dispatch_id"]
-        # the optional fields
+        # the optional fields; a PR's full review reads its earlier reviews, here none
+        rb.earlier_reviews = lambda pr, r: arm_findings.Reading()
         h = _header(rb.render({**base_request(repo), "pr": "253", "job_id": "j176", "review_round": 2}))
         assert h["pr"] == 253 and h["job_id"] == "j176" and h["review_round"] == 2 and h["review_id"] == "headed#253", h
         h = _header(rb.render({**base_request(repo), "pr": 7, "review_id": "R-9"}))
@@ -286,6 +289,7 @@ def test_the_dispatch_header(tmp: str) -> None:
         assert h["base_sha"] is None and h["head_sha"] is None and h["evidence_mode"] == "working-tree", h
         assert h["card_base"] is None and h["config"] is None, h
     finally:
+        rb.earlier_reviews = saved_reviews
         if env0["CLAUDE_CODE_SESSION_ID"] is None:
             os.environ.pop("CLAUDE_CODE_SESSION_ID", None)
         else:
@@ -800,7 +804,7 @@ def test_a_prs_re_review_starts_at_its_last_checkpoint(tmp: str) -> None:
     commit(repo, "fix", {"a.txt": "b\n"})
     head = g(repo, "rev-parse", "HEAD")
     asked = []
-    saved = rb.checkpoint
+    saved, saved_reviews = rb.checkpoint, rb.earlier_reviews
     try:
         def none(pr, h, r, exclude_head=None):
             asked.append((pr, h)); return None
@@ -848,11 +852,66 @@ def test_a_prs_re_review_starts_at_its_last_checkpoint(tmp: str) -> None:
         asked.clear(); rb.checkpoint = none
         info, refused = rb.resolve_range({**{k: v for k, v in req.items() if k != "pr"}, "card_base": base})
         assert not refused and info["base_sha"] == mid and not asked, (info, refused, asked)
-        # a first review never asks
+        # a first review never asks for a checkpoint (it reads the PR's open findings instead)
+        rb.earlier_reviews = lambda pr, r: arm_findings.Reading()
         info, refused = rb.resolve_range({**req, "mode": "review", "card_base": base})
         assert not refused and not asked, (refused, asked)
     finally:
         rb.checkpoint = saved
+        rb.earlier_reviews = saved_reviews
+
+
+def test_a_prs_full_review_carries_the_findings_earlier_reviews_left_open(tmp: str) -> None:
+    """#425 merged with F5 open: a fresh full review starts its own chain, so the brief hands it every finding an
+    earlier chain left open, to judge by label, and has it number its own past every label the PR used. A finding
+    raised on this head is another engine's same round (blind review) and is not handed over."""
+    repo = mkrepo(tmp, "carried")
+    head = g(repo, "rev-parse", "HEAD")
+    old1, old2, other = "a" * 40, "b" * 40, "c" * 40
+    def posted(rid: int, base: str, at: str, lines: list[str], on: str = "") -> dict:
+        body = review_coverage.format_marker(base, on or at, "d" * 40, "e" * 64) + "\nreport\n" + "\n".join(lines) + "\n"
+        return {"id": rid, "user": {"login": "me"}, "submitted_at": f"2026-10-3{rid}T00:00:00Z", "body": body}
+    reviews = [posted(1, other, old1, ["Finding: F1 | P2 | certain | a.txt:1 | the first", "Finding: F2 | P3 | likely | - | the second"]),
+               posted(2, old1, old2, ["Judgement: F1 | fixed | gone", "Judgement: F2 | real | still there", "Finding: none"]),
+               posted(3, other, head, ["Finding: F3 | P1 | likely | a.txt:1 | this round's other engine"])]
+    asked = []
+    saved = rb.earlier_reviews
+    try:
+        def answer(pr, r):
+            asked.append(pr); return arm_findings.read(reviews, {"me"})
+        rb.earlier_reviews = answer
+        req = {**base_request(repo), "pr": 12}
+        out = rb.render(req)
+        section = out.split("## Open findings from earlier reviews\n", 1)[1].split("\n## ", 1)[0]
+        assert "- F2 | P3 | - | the second (raised on aaaaaaaaaaaa)" in section, section
+        assert "F1 |" not in section and "F3 |" not in section, "a closed finding and this head's are not carried"
+        assert "Judgement: F<n>" in section and "from F4." in section, section
+        assert out.index("## Open findings") < out.index("## Lenses") and asked and set(asked) == {12}, asked
+        # the second engine is handed none: it answers findings only and numbers them itself
+        asked.clear()
+        assert "## Open findings" not in rb.render(req, engine="codex", purpose="second-engine-review") and not asked, asked
+        # nothing ever raised: no section; every label closed: only where to number from
+        reviews[:] = []
+        assert "## Open findings" not in rb.render(req)
+        reviews[:] = [posted(1, other, old1, ["Finding: F1 | P2 | certain | a.txt:1 | the first"]),
+                      posted(2, old1, old2, ["Judgement: F1 | fixed | gone", "Finding: none"])]
+        section = rb.render(req).split("## Open findings from earlier reviews\n", 1)[1].split("\n## ", 1)[0]
+        assert section == "Earlier reviews of #12 used the labels up to F1: number your own findings from F2.", section
+        # a review listed but unread: refused too, since its findings and labels are unknown (#437 round 3 F6)
+        reviews.append({"id": 4, "user": {"login": "me"}, "submitted_at": "2026-10-31T01:00:00Z", "body": None})
+        assert any(p.startswith("pr: #12 has 1 review(s) whose findings cannot be read — review 4") for p in refusals(req)), \
+            refusals(req)
+        reviews.pop()
+        # reviews that cannot be listed: refused, never rendered as none
+        rb.earlier_reviews = lambda pr, r: None
+        assert any(p.startswith("pr: #12's reviews cannot be listed") for p in refusals(req)), refusals(req)
+        # no PR, or not a full review: nothing is asked
+        asked.clear(); rb.earlier_reviews = answer
+        rb.render(base_request(repo))
+        rb.render({**req, "mode": "finding-adjudication"})
+        assert asked == [], asked
+    finally:
+        rb.earlier_reviews = saved
 
 
 def test_the_report_lines_ask_for_the_coverage_block(tmp: str) -> None:
@@ -877,7 +936,7 @@ def main() -> int:
              test_a_finding_adjudication_carries_the_findings_it_judges, test_a_diff_file_reads_the_card_at_the_default_branch_tip,
              test_the_yaml_subset_and_the_cli, test_the_parser_refuses_what_it_cannot_keep,
              test_the_readme_example_renders_as_documented, test_the_config_fingerprint_follows_the_card_and_the_agent_file,
-             test_a_prs_re_review_starts_at_its_last_checkpoint,
+             test_a_prs_re_review_starts_at_its_last_checkpoint, test_a_prs_full_review_carries_the_findings_earlier_reviews_left_open,
              test_the_report_lines_ask_for_the_coverage_block]
     failures = 0
     # Removed when the run ends, however it ends: tests/run.sh names every

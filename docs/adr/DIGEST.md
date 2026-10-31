@@ -139,11 +139,9 @@ its record disagree, the record wins. Look it up, never read it whole:
 - Every write under `agents/<login>/` goes through `runtime/identity.py`:
   `atomic_write`, `update_binding`, `append_history`; no caller opens a
   state file for writing. The control code (`tools/fabric/control/`)
-  replaces its own files by temporary and rename and appends its logs
-  (§5 rule 1).
-- Every read-modify-write holds `agent_lock`, a re-entrant flock, except
-  the control code's own files, which only it writes and the
-  launcher only consumes (§5 rule 2).
+  replaces its files by rename, appends its logs (§5 rule 1).
+- Every read-modify-write holds `agent_lock`, a flock, except
+  the control code's own files (§5 rule 2).
 - A binding is per (agent, host); another host's is refused (§5 rule 3).
 - A working-copy rename merges history, never overwrites (§5 rule 4); the
   session-start hook stays non-blocking (§5 rule 5).
@@ -160,8 +158,9 @@ its record disagree, the record wins. Look it up, never read it whole:
   `agent_lock` (§2, §5 rules 1–2).
 - A 2026-10-30 — `pool.json` is rewritten under a flock on
   `pool.json.lock` (§2, §5 rule 2).
-- Keywords: state, binding, atomic write, lock, flock, rename, history,
-  host, XDG_STATE_HOME, actions-seen.json, action ledger, fabric-op.jsonl.
+- A 2026-10-31 — a lock file, held by `flock` only and never written,
+  read or removed, is not state (§2, §5 rule 1).
+- Keywords: atomic write, flock, XDG_STATE_HOME, actions-seen.json, action ledger, fabric-op.jsonl.
 
 ### ADR-004 — Adding a role without breaking anyone's CI (Accepted)
 
@@ -862,25 +861,26 @@ its record disagree, the record wins. Look it up, never read it whole:
   `runtime/identity.py`); seven states, one active (§5 rules 1–2).
 - `fabric-jobs switch` (alias `next`): after a worked job, the next starts
   fresh (`fabric-fresh --job <id>`); else in place (§5 rule 3).
-- Jobs come from the agent, the owner, a delivered REQUEST (§5 rules
+- Jobs come from agent, owner, a delivered REQUEST (§5 rules
   4–5, 11).
 - The owner reads every list (`fabric-ctl jobs`, §5 rule 6).
 - A 2026-10-08 — priority, never preempting; blocking rank; role pool
   (§5 rules 7–10).
 - A 2026-10-09 — stale waiter still blocks (§5 rule 8).
-- A 2026-10-09 — a REQUEST to a login is queued (§5 rule 11).
-- A 2026-10-09 — a job may be a plan's step (§5 rule 11).
-- A 2026-10-11 — fresh after a worked job (§5 rule 3).
+- A 2026-10-09 — a login's REQUEST is queued (§5 rule 11).
+- A 2026-10-09 — jobs as plan steps (§5 rule 11).
+- A 2026-10-11 — fresh after worked job (§5 rule 3).
 - A 2026-10-12 — checkable blockers (§5 rule 8).
-- A 2026-10-14 — `paused`; `fabric-jobs switch` (§5 rules 2, 10).
+- A 2026-10-14 — `paused`; `switch` (§5 rules 2, 10).
 - A 2026-10-15 — text reads as built.
 - A 2026-10-16 — delivered jobs swept to done (§5 rule 12).
 - A 2026-10-18 — no-artifact close, a reason (§5 rule 10).
 - A 2026-10-20 — commits fenced to job copies (§5 rule 3).
-- A 2026-10-21 — switch cleans targets, unbuilt (§5 rule 10).
+- A 2026-10-21 — switch cleans targets (§5 rule 10).
 - A 2026-10-30 — fleet hold (§5 rule 13).
 - A 2026-10-30 — held, no start (§5 rule 13).
 - A 2026-10-31 — clock blocker (§5 rule 8).
+- A 2026-10-31 — cleanup built (§5 rule 10).
 - Keywords: fresh session, intake, priority, claim, sweep, unhold.
 
 ### ADR-038 — Each agent owns its key and its secrets (Accepted)
@@ -1456,6 +1456,8 @@ its record disagree, the record wins. Look it up, never read it whole:
   fail-closed (§2 C, §5 rules 4–5).
 - The session posts the report; `review-bash-guard` stays only for other
   unisolated classes (§5 rules 6–7).
+- A 2026-10-31 — a PR's full review is handed earlier chains' open
+  findings to judge, and numbers past their labels (§5 rule 5).
 - Keywords: review class, reviewer, Bash guard, pinned tools, MCP,
   read-only, bubblewrap, sandbox, checks, coverage manifest, checkpoint
-  marker, re-review, card_base, open-code-review, P3.
+  marker, re-review, card_base, open findings, open-code-review, P3.
