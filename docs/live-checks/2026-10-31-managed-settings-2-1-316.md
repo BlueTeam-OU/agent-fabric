@@ -22,6 +22,13 @@ Without root, `CLAUDE_CODE_MANAGED_SETTINGS_PATH` pointed at a scratch folder, a
 
 **Rule 7, the fleet's own flags.** During the read-back the host's process table held 30 `claude` processes across its accounts, and none carried `--plugin-dir`, `--plugin-url`, `--agents` or `--mcp-config`. In the tree, those flags appear only in the launcher's option-parsing tables (`tools/fabric/launcher/base.py` `VALUE_OPTIONS`, `PATH_OPTIONS`). `memory_hint.py` passes `--strict-mcp-config` with no `--mcp-config`. The fleet's MCP servers (`fabric-memory`, `fabric-review`) are user-scope entries in each login's `.claude.json` (`install_agent_files.py`), not sideloaded. Nothing the fleet launches is refused by `disableSideloadFlags`.
 
+**How a managed hook is spawned.** The session ran with a hostile environment: `PATH` led with a scratch directory holding a fake `sh` and a fake `bash`, each of which logged its arguments before exec'ing the real one, and `BASH_ENV` and `ENV` named a script that logged. Results:
+- N8, a shell-form managed hook (`"command": "<string>"`). The hook ran under the real `/bin/sh`, named by its absolute path: `$0=/bin/sh`, and the fake `sh` logged nothing for it. The fake `sh` ran once in every case, with or without a hook, for Claude Code's own startup probe (`sh -c 'uname -s; …; command -v npm …'`).
+- N9, an exec-form managed hook (`"command": "<absolute path>", "args": ["pipe-status"]`, the form the build's validator calls "no shell"). It ran its entry directly with no shell, and its deny stood.
+- N10, the control for N9: the same environment and managed file, with no tool call. Only the startup probe ran.
+
+The hook inherits the session's `PATH` and environment either way, so what a guard execs by name is the login's to choose. The managed entry is therefore exec form, an absolute path to a `#!/bin/bash -p` script that resets the environment itself. `-p` ignores `BASH_ENV` and imported functions.
+
 **Not measured here.**
 - A managed hook running a root-owned script under `/usr/local/lib/agent-fabric/hooks/`. Where the command lives does not change how a hook is run, but it is read back on the real install.
 - A project-scope `disableAllHooks`; only user scope was run.
