@@ -1,6 +1,7 @@
 ---
 role: "brand-comms"
 class: domain
+topic: gita-grant-programmes-2026
 description: "The three instruments a national innovation agency offers startups — staged accelerator grants, matching grants, regional grants — with the figures verified 2026-09-17 for the one this company applies to."
 tier: 2
 knowledge_scope: full
