@@ -663,9 +663,9 @@ its record disagree, the record wins. Look it up, never read it whole:
 
 ### ADR-029 — The control plane: a control agent per account answers signed actions over the relay (Accepted)
 
-- Each account's agentd answers `fabric:control`; down, a request is
-  lost (r1–2).
-- Closed op set, no field reaches a shell; actions carry fresh
+- Each agentd answers `fabric:control`; down, requests are lost
+  (r1–2).
+- Closed op set, no field reaches shells; actions carry fresh
   Ed25519 operator signatures (r3–5).
 - Replies: no secret; silence, failure exit 1 (r6–9).
 - A 2026-09-27 — actions (r12).
@@ -680,7 +680,7 @@ its record disagree, the record wins. Look it up, never read it whole:
 - A 2026-10-08 — public ops (r4).
 - A 2026-10-09 — forged claims (r4).
 - A 2026-10-09 — Scope.
-- A 2026-10-09 — `tools-install` (r3, r12).
+- A 2026-10-09 — `tools-install` (r3/r12).
 - A 2026-10-09 — closed jobs (§2).
 - A 2026-10-10 — gateway ops (§2).
 - A 2026-10-12 — switch controller.
@@ -697,9 +697,10 @@ its record disagree, the record wins. Look it up, never read it whole:
 - A 2026-10-30 — busy flocks; pool lock (r19).
 - A 2026-10-30 — budgets (r12).
 - A 2026-10-30 — hold (r13).
+- A 2026-10-31 — roles.
 - Keywords: fabric-ctl, keys, operator_key, usage, tokens, herdr,
   resume, interweave-evidence, interweave-human, fabric-control,
-  control_carrier, break-glass, busy.
+  control_carrier, break-glass.
 ### ADR-030 — Presence replaces HELLO and GOODBYE (Accepted)
 
 - Whether a session runs is the control agent's answer from its process

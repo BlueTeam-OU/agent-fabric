@@ -170,6 +170,33 @@ def main() -> int:
         r = run(os.path.join(tmp, "no-such-home"), reg)
         check("no ~/projects directory is skipped, not an error", r["status"] == "skipped", r)
 
+        print("skipped — the bound role is not one the pin names (#421 review §2)")
+        scoped = entry()
+        scoped["roles"] = ["brand-comms"]
+        sreg = registry(("pa", scoped))
+        for role in ("python-dev", None):
+            home = account("pa")
+            r = tools_install.install("faketool", reg=sreg, home=home, fetch=never, role=role)
+            check(f"role {role!r}: skipped, the pin's roles named, nothing fetched or written",
+                  r["status"] == "skipped" and "brand-comms" in r["reason"] and listing(home) == [], (r, listing(home)))
+        home = account("pa")
+        r = tools_install.install("faketool", reg=sreg, home=home, fetch=serving(SCRIPT), role="brand-comms")
+        check("the control: the role it names installs it", r["status"] == "installed", r)
+        both = registry(("pa", scoped), ("pb", entry()))
+        home = account("pa", "pb")
+        r = tools_install.install("faketool", reg=both, home=home, fetch=serving(SCRIPT), role="python-dev")
+        check("a second project pinning it for every role still installs it", r["status"] == "installed", r)
+        seen: dict = {}
+        saved = tools_check.bound_role, tools_install.install, tools_check.registry
+        tools_check.bound_role = lambda: "brand-comms"
+        tools_check.registry = lambda: sreg
+        tools_install.install = lambda tool, **k: seen.update(k) or {"status": "skipped", "tool": tool}
+        try:
+            code = tools_check.main(["--install", "faketool", "--json"])
+        finally:
+            tools_check.bound_role, tools_install.install, tools_check.registry = saved
+        check("fabric-tools --install hands the account's bound role to the install", (code, seen.get("role")) == (0, "brand-comms"), (code, seen))
+
         print("refused")
         home = account("pa")
         for odd in ("../x", "a/b", "Faketool", "", "-x"):
