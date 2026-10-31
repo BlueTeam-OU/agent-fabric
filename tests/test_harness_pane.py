@@ -57,7 +57,10 @@ class FakeServer:
         if args[:2] == ["pane", "list"]:
             return 0, json.dumps({"result": {"panes": [{"pane_id": p["pane_id"], "workspace_id": args[3]} for p in self.panes[args[3]]]}}), ""
         if args[:2] == ["pane", "process-info"]:
-            pane = next(p for ps in self.panes.values() for p in ps if p["pane_id"] == args[2])
+            # The fork refuses a positional pane id (live, 0.10.0): `--pane <ID>` only.
+            if args[2] != "--pane" or len(args) != 4:
+                return 2, "", f"error: unknown option: {args[2]}\n"
+            pane = next(p for ps in self.panes.values() for p in ps if p["pane_id"] == args[3])
             procs = [{"pid": SHELL_PID, "name": "bash", "argv": ["bash"]}]
             if pane["running"]:
                 procs = [{"pid": SHELL_PID + 1, "name": "python", "argv": ["fabric-python", "-I", "/usr/local/share/moveto/moveto.py", "--enter"]}]

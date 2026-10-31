@@ -170,7 +170,7 @@ def ensure(deck: Deck, login: str, home: str, clock: Callable[[], float] = time.
     if not isinstance(panes, list) or len(panes) != 1:
         raise Failed(f"the {LABEL} workspace holds {len(panes) if isinstance(panes, list) else 'an unreadable list of'} panes, not one; refusing to choose")
     pane = _id(_field(panes[0], "pane_id", what="pane list") if isinstance(panes[0], dict) else None, "pane list")
-    if running_program(deck.call("pane", "process-info", pane)):
+    if running_program(deck.call("pane", "process-info", "--pane", pane)):
         return f"the {LABEL} pane {pane} is already running a program (enter, or the session it started)"
     deck.text("pane", "run", pane, command)
     return f"ran enter again in the restored {LABEL} pane {pane}"
