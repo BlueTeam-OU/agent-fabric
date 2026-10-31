@@ -10,7 +10,10 @@ the release every account installs, releases.<version>.<arch> holds the
 asset url, the archive's name, size and SHA-256, the directory the archive
 unpacks into (`root`) and what each program must print under `--version`
 (`reports`). The size and digest are the reviewed ones, never fetched from
-the artifact's own origin.
+the artifact's own origin. A release also carries `minisign` (public_key, key_id
+and the commit of the carrier repository's packaging/release-keys.toml it was read from) with, in each build,
+`minisig`: the lines 2, 3 and 4 of the archive's .minisig, so nothing about the signature is fetched;
+or `unsigned`, the reason (a release that predates the key), and an unsigned release is never installed.
 
 THE REQUEST has no arguments: the release is the pin's `current`, and
 nothing in a request names a url, a digest, a size or a path.
@@ -25,8 +28,11 @@ THE SEQUENCE, for one account, as that login and with no root:
      failure, not a bypass), then the archive is downloaded with the account's GH_TOKEN (the repository is
      internal): into the install's own temporary directory, the token in a
      header only and dropped on the redirect to storage;
-  4. its size AND its SHA-256 must equal the pin's before anything is
-     extracted or run;
+  4. its size AND its SHA-256 must equal the pin's, and the archive must verify against the pinned minisign
+     signature (control/minisign.py, standard library: Ed25519 of its BLAKE2b-512 under the pinned key, the global
+     signature over the signature and the trusted comment, and `file:<archive name>` among the comment's
+     tab-separated fields), before anything is extracted or run; an `unsigned` release is refused at the
+     request, before the lock, with nothing downloaded;
   5. it is extracted into that directory, member by member, after every
      member has been judged: one outside `root`, absolute, with "..", twice,
      or anything but a file or a directory (a link, a device) refuses the
@@ -139,6 +145,7 @@ import zlib
 from typing import Any, Callable
 
 from gzcoord.carrier import CARRIER_LABEL, CARRIER_NAME, install_client, roster
+from control import minisign
 from control.gateway import ARCHES, SHA256, PinError, _arch, _fsync_dir, _why, download, file_sha256
 from control.ops import util
 from control.upgrade import LEASE_HELD, VERSION_RE, LeaseRefused, hold_lease
@@ -239,6 +246,9 @@ def pin_problem(pin: Any) -> str | None:
             return f"{version} has a tag other than v{version}"
         if not (isinstance(rel.get("commit"), str) and COMMIT_RE.fullmatch(rel["commit"])):
             return f"{version} has no commit of 40 lowercase hex digits"
+        signing = _signing_problem(version, rel)
+        if signing:
+            return signing
         builds = [k for k in rel if k in ARCHES.values()]
         if not builds:
             return f"{version} has no build"
@@ -262,7 +272,29 @@ def pin_problem(pin: Any) -> str | None:
             if not (isinstance(reports, dict) and reports
                     and all(isinstance(k, str) and NAME_RE.fullmatch(k) and isinstance(v, str) and v for k, v in reports.items())):
                 return f"{where} says nothing of what the programs print"
+            if "minisign" in rel:
+                problem = minisign.minisig_problem(b.get("minisig"), rel["minisign"]["key_id"])
+                if problem:
+                    return f"{where} {problem}"
+            elif "minisig" in b:
+                return f"{where} has a minisig, which an unsigned release does not"
     return None
+
+
+def _signing_problem(version: str, rel: dict) -> str | None:
+    """A release is signed (`minisign`) or says why not (`unsigned`), never both and never neither: a missing field
+    must not read as a release that needs no signature."""
+    if ("minisign" in rel) == ("unsigned" in rel):
+        return f"{version} must have exactly one of minisign and unsigned"
+    if "unsigned" in rel:
+        return None if isinstance(rel["unsigned"], str) and rel["unsigned"].strip() else f"{version} is unsigned without a reason"
+    m = rel["minisign"]
+    if not (isinstance(m, dict) and set(m) == {"public_key", "key_id", "release_keys_commit"}):
+        return f"{version} has a minisign that is not public_key, key_id and release_keys_commit"
+    if not (isinstance(m["release_keys_commit"], str) and COMMIT_RE.fullmatch(m["release_keys_commit"])):
+        return f"{version} has no release_keys_commit of 40 lowercase hex digits"
+    problem = minisign.key_problem(m["public_key"], m["key_id"])
+    return f"{version} {problem}" if problem else None
 
 
 def load_pin(root: str) -> dict:
@@ -374,10 +406,20 @@ def unpack(archive: str, root: str, dest: str) -> str:
     return os.path.join(dest, root)
 
 
-def fetch_and_unpack(build: dict, token: str, dest: str, fetch: Callable[..., tuple[int, str]] = download) -> str:
-    """Download build["url"] with token, refuse unless its size AND sha256 equal the pin's, extract into the empty
-    directory dest and return dest/<root>, which holds bin/ and install.sh. Runs nothing, reads no environment and
-    touches no home. InstallError, one line with the token out of it, for every failure."""
+def unsigned_reason(version: str, release: dict) -> str | None:
+    """Why the release is not installed for lack of a signature, or None; the pin's shape (pin_problem) makes `minisign` the other case."""
+    if "unsigned" in release:
+        return f"{version} is unsigned ({release['unsigned']}) and an unsigned release is never installed; nothing was downloaded"
+    return None
+
+
+def fetch_and_unpack(release: dict, build: dict, token: str, dest: str, fetch: Callable[..., tuple[int, str]] = download) -> str:
+    """Download build["url"] with token, refuse unless its size AND sha256 equal the pin's AND the archive verifies
+    against the release's pinned minisign signature, extract into the empty directory dest and return dest/<root>,
+    which holds bin/ and install.sh. An `unsigned` release is refused before anything is downloaded. Runs nothing,
+    reads no environment and touches no home. InstallError, one line with the token out of it, for every failure."""
+    if "minisign" not in release:
+        raise InstallError(unsigned_reason(release.get("tag", "the release"), release) or "the release carries no minisign key; nothing was downloaded")
     if not os.path.isdir(dest):
         raise InstallError("the extraction directory does not exist")
     if os.listdir(dest):
@@ -396,6 +438,10 @@ def fetch_and_unpack(build: dict, token: str, dest: str, fetch: Callable[..., tu
             raise InstallError(f"size mismatch: the pin says {build['size']} bytes, the download is {got}; nothing was installed")
         if digest != build["sha256"]:
             raise InstallError(f"sha256 mismatch: the pin says {build['sha256']}, the download is {digest}; nothing was installed")
+        try:
+            minisign.verify_file(part, release["minisign"]["public_key"], build["minisig"], build["name"])
+        except minisign.SignatureError as e:
+            raise InstallError(f"minisign check failed: {e}; nothing was installed") from None
         return unpack_checked(part, build, dest)
     finally:
         try:
@@ -821,6 +867,10 @@ def carrier_install(request: Any, root: str | None = None, home: str | None = No
         return _failed(None, str(e))
     except InstallError as e:
         return _refused(str(e))
+    unsigned = unsigned_reason(version, pin["releases"][version])
+    if unsigned:
+        # Before the lock and before the marker is read: even an account already on these programs is not told "current" for a release nobody signed.
+        return _refused(unsigned)
     try:
         os.makedirs(state, mode=0o700, exist_ok=True)
         lock_fd = os.open(os.path.join(state, LOCK), os.O_WRONLY | os.O_CREAT, 0o600)
@@ -875,7 +925,7 @@ def _install(version: str, release: dict, build: dict, state: str, home: str, ro
                            if e.code == LEASE_HELD else
                            f"the host's download queue is unavailable ({e.line[:160]}); nothing was fetched")
         try:
-            tree = fetch_and_unpack(build, tok, tree_dir, fetch)
+            tree = fetch_and_unpack(release, build, tok, tree_dir, fetch)
         except InstallError as e:
             return _failed(version, str(e))
         finally:

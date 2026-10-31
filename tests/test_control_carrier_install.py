@@ -6,6 +6,7 @@ download is a fake that writes it (a real local HTTP server where the size bound
 the network and nothing is installed outside the scratch directories."""
 from __future__ import annotations
 
+import base64
 import fcntl
 import hashlib
 import http.server
@@ -103,11 +104,69 @@ def tarball(members: list[tuple[str, bytes, str]]) -> bytes:
     return buf.getvalue()
 
 
-def pin_for(artifact: bytes, **over) -> dict:
-    b = {"url": "https://api.github.com/repos/o/r/releases/assets/1", "name": f"{ROOT}.tar.gz", "size": len(artifact),
+# A signing key of the tests' own (an Ed25519 seed fixed here, so a run is repeatable), and the minisign key id it is filed under.
+# Signing is the secret half of RFC 8032 section 5.1.6; the verifier under test shares its curve constants and nothing else.
+SEED = hashlib.sha256(b"test_control_carrier_install signing key").digest()
+KEY_ID = bytes.fromhex("0102030405060708")
+OTHER_SEED = hashlib.sha256(b"test_control_carrier_install another key").digest()
+COMMENT = "timestamp:1793172713\tfile:{name}\thashed"
+
+
+def _encode(p) -> bytes:
+    zi = pow(p[2], -1, iw.minisign._P)
+    x, y = p[0] * zi % iw.minisign._P, p[1] * zi % iw.minisign._P
+    return (y | (x & 1) << 255).to_bytes(32, "little")
+
+
+def ed_public(seed: bytes) -> bytes:
+    a = int.from_bytes(hashlib.sha512(seed).digest()[:32], "little")
+    a = (a & ~7 & ((1 << 254) - 1)) | (1 << 254)
+    return _encode(iw.minisign._mul(a, iw.minisign._B))
+
+
+def ed_sign(seed: bytes, message: bytes) -> bytes:
+    h = hashlib.sha512(seed).digest()
+    a = (int.from_bytes(h[:32], "little") & ~7 & ((1 << 254) - 1)) | (1 << 254)
+    pub = ed_public(seed)
+    r = int.from_bytes(hashlib.sha512(h[32:] + message).digest(), "little") % iw.minisign._L
+    big_r = _encode(iw.minisign._mul(r, iw.minisign._B))
+    k = int.from_bytes(hashlib.sha512(big_r + pub + message).digest(), "little") % iw.minisign._L
+    return big_r + ((r + k * a) % iw.minisign._L).to_bytes(32, "little")
+
+
+def b64(raw: bytes) -> str:
+    return base64.b64encode(raw).decode()
+
+
+def public_key_line(seed: bytes = SEED, key_id: bytes = KEY_ID) -> str:
+    return b64(b"Ed" + key_id + ed_public(seed))
+
+
+def minisig_for(artifact: bytes, name: str, seed: bytes = SEED, key_id: bytes = KEY_ID, comment: str | None = None, kind: bytes = b"ED") -> dict:
+    """The three lines of the .minisig minisign would write: the prehashed kind signs the BLAKE2b-512 of the file, the legacy kind the file."""
+    message = hashlib.blake2b(artifact, digest_size=64).digest() if kind == b"ED" else artifact
+    sig = kind + key_id + ed_sign(seed, message)
+    comment = COMMENT.format(name=name) if comment is None else comment
+    return {"signature": b64(sig), "trusted_comment": comment, "global_signature": b64(ed_sign(seed, sig[10:] + comment.encode()))}
+
+
+def pin_for(artifact: bytes, signed: bool = True, **over) -> dict:
+    """A pin for the artifact, signed by the tests' key unless `signed` is false (then the release is `unsigned`)."""
+    name = over.get("name", f"{ROOT}.tar.gz")
+    b = {"url": "https://api.github.com/repos/o/r/releases/assets/1", "name": name, "size": len(artifact),
          "sha256": hashlib.sha256(artifact).hexdigest(), "root": ROOT, "reports": REPORTS, **over}
-    return {"version": 1, "description": "fixture", "current": VERSION,
-            "releases": {VERSION: {"tag": f"v{VERSION}", "commit": "a" * 40, "release_run": "run 1", "x86_64": b}}}
+    rel = {"tag": f"v{VERSION}", "commit": "a" * 40, "release_run": "run 1", "x86_64": b}
+    if signed:
+        rel["minisign"] = {"public_key": public_key_line(), "key_id": iw.minisign.key_id_text(KEY_ID), "release_keys_commit": "b" * 40}
+        b.setdefault("minisig", minisig_for(artifact, name))
+    else:
+        rel["unsigned"] = "the fixture predates the key"
+    return {"version": 1, "description": "fixture", "current": VERSION, "releases": {VERSION: rel}}
+
+
+def released(artifact: bytes, **over) -> tuple[dict, dict]:
+    release = pin_for(artifact, **over)["releases"][VERSION]
+    return release, release["x86_64"]
 
 
 def rd(path: str) -> str:
@@ -542,11 +601,11 @@ class Install(Case):
 
     def test_extraction_gives_modes_by_the_archives_execute_bit_whatever_the_umask(self):
         self.release()
-        build = pin_for(self.artifact)["releases"][VERSION]["x86_64"]
+        release, build = released(self.artifact)
         with tempfile.TemporaryDirectory(dir=self._tmp.name) as dest:
             old = os.umask(0o077)
             try:
-                tree = iw.fetch_and_unpack(build, TOKEN, dest, self.fetch)
+                tree = iw.fetch_and_unpack(release, build, TOKEN, dest, self.fetch)
             finally:
                 os.umask(old)
             modes = {n: stat.S_IMODE(os.stat(os.path.join(tree, n)).st_mode)
@@ -685,19 +744,20 @@ class Install(Case):
         threading.Thread(target=srv.serve_forever, daemon=True).start()
         self.addCleanup(srv.server_close)
         self.addCleanup(srv.shutdown)
-        build = {**pin["releases"][VERSION]["x86_64"], "url": f"http://127.0.0.1:{srv.server_address[1]}/a"}
+        release = pin["releases"][VERSION]
+        build = {**release["x86_64"], "url": f"http://127.0.0.1:{srv.server_address[1]}/a"}
         with tempfile.TemporaryDirectory(dir=self._tmp.name) as dest:
             with self.assertRaisesRegex(iw.InstallError, r"the download failed \(the download is larger than 4097 bytes\)"):
-                iw.fetch_and_unpack(build, TOKEN, dest)
+                iw.fetch_and_unpack(release, build, TOKEN, dest)
             self.assertEqual(os.listdir(dest), [], "the part file is removed")
 
 
 class FetchAndUnpack(Case):
     def test_it_runs_nothing_touches_no_home_and_returns_the_root(self):
         self.release(default_members({"install.sh": (install_sh(f"touch {self.sentinel}"), "exec")}))
-        build = pin_for(self.artifact)["releases"][VERSION]["x86_64"]
+        release, build = released(self.artifact)
         with tempfile.TemporaryDirectory(dir=self._tmp.name) as dest:
-            tree = iw.fetch_and_unpack(build, TOKEN, dest, self.fetch)
+            tree = iw.fetch_and_unpack(release, build, TOKEN, dest, self.fetch)
             self.assertEqual(tree, os.path.join(dest, ROOT))
             self.assertEqual(sorted(os.listdir(os.path.join(tree, "bin"))), sorted(PROGRAMS))
             self.assertTrue(os.access(os.path.join(tree, "install.sh"), os.X_OK))
@@ -708,14 +768,307 @@ class FetchAndUnpack(Case):
 
     def test_the_directory_must_exist_and_be_empty(self):
         self.release()
-        build = pin_for(self.artifact)["releases"][VERSION]["x86_64"]
+        release, build = released(self.artifact)
         with self.assertRaisesRegex(iw.InstallError, "does not exist"):
-            iw.fetch_and_unpack(build, TOKEN, os.path.join(self._tmp.name, "nope"), self.fetch)
+            iw.fetch_and_unpack(release, build, TOKEN, os.path.join(self._tmp.name, "nope"), self.fetch)
         with tempfile.TemporaryDirectory(dir=self._tmp.name) as dest:
             open(os.path.join(dest, "x"), "w").close()
             with self.assertRaisesRegex(iw.InstallError, "not empty"):
-                iw.fetch_and_unpack(build, TOKEN, dest, self.fetch)
+                iw.fetch_and_unpack(release, build, TOKEN, dest, self.fetch)
         self.assertEqual(self.fetched, [])
+
+
+class Ed25519(unittest.TestCase):
+    # RFC 8032 section 7.1: (secret seed, public key, message, signature).
+    VECTORS = (
+        ("9d61b19deffd5a60ba844af492ec2cc44449c5697b326919703bac031cae7f60", "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a", "",
+         "e5564300c360ac729086e2cc806e828a84877f1eb8e5d974d873e065224901555fb8821590a33bacc61e39701cf9b46bd25bf5f0595bbe24655141438e7a100b"),
+        ("4ccd089b28ff96da9db6c346ec114e0f5b8a319f35aba624da8cf6ed4fb8a6fb", "3d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c", "72",
+         "92a009a9f0d4cab8720e820b5f642540a2b27b5416503f8fb3762223ebdb69da085ac1e43e15996e458f3613d0f11d8c387b2eaeb4302aeeb00d291612bb0c00"),
+        ("c5aa8df43f9f837bedb7442f31dcb7b166d38535076f094b85ce3a2e0b4458f7", "fc51cd8e6218a1a38da47ed00230f0580816ed13ba3303ac5deb911548908025", "af82",
+         "6291d657deec24024827e69c3abe01a30ce548a284743a445e3680d7db5ac3ac18ff9b538d16f290ae67f760984dc6594a7c15e9716ed28dc027beceea1ec40a"),
+    )
+
+    def test_the_rfc_8032_test_vectors_verify_and_a_changed_bit_does_not(self):
+        for seed, public, message, signature in self.VECTORS:
+            pub, msg, sig = (bytes.fromhex(x) for x in (public, message, signature))
+            self.assertEqual(ed_public(bytes.fromhex(seed)), pub, "the tests' signer derives the RFC's public key")
+            self.assertEqual(ed_sign(bytes.fromhex(seed), msg), sig, "and its signature")
+            self.assertTrue(iw.minisign.ed25519_verify(pub, msg, sig), f"vector {public[:8]}")
+            self.assertFalse(iw.minisign.ed25519_verify(pub, msg + b"\0", sig), "control: another message")
+            self.assertFalse(iw.minisign.ed25519_verify(pub, msg, sig[:-1] + bytes([sig[-1] ^ 1])), "control: S changed")
+            self.assertFalse(iw.minisign.ed25519_verify(pub, msg, bytes([sig[0] ^ 1]) + sig[1:]), "control: R changed")
+
+    def test_a_signature_whose_s_is_not_reduced_is_refused(self):
+        seed, public, message, signature = self.VECTORS[0]
+        sig = bytes.fromhex(signature)
+        s_plus_l = (int.from_bytes(sig[32:], "little") + iw.minisign._L).to_bytes(32, "little")
+        self.assertFalse(iw.minisign.ed25519_verify(bytes.fromhex(public), b"", sig[:32] + s_plus_l))
+
+    def test_a_key_or_signature_of_the_wrong_length_or_off_the_curve_is_false_not_an_exception(self):
+        seed, public, message, signature = self.VECTORS[0]
+        self.assertFalse(iw.minisign.ed25519_verify(b"\0" * 31, b"", bytes.fromhex(signature)))
+        self.assertFalse(iw.minisign.ed25519_verify(bytes.fromhex(public), b"", b"\0" * 63))
+        self.assertFalse(iw.minisign.ed25519_verify(b"\xff" * 32, b"", bytes.fromhex(signature)), "y >= p")
+
+
+class RealPin(unittest.TestCase):
+    """The committed pin read by the real reader: the data and the code that judges it together."""
+
+    def test_v0_2_0_is_signed_and_its_signature_shape_passes_the_real_pin_problem(self):
+        pin = iw.load_pin(HERE)
+        self.assertEqual(pin["current"], "0.2.0")
+        rel = pin["releases"]["0.2.0"]
+        self.assertNotIn("unsigned", rel)
+        self.assertEqual(rel["minisign"]["key_id"], "5B8EC2921F6805E1")
+        self.assertIn("unsigned", pin["releases"]["0.1.0"], "v0.1.0 predates the key")
+        self.assertNotIn("minisign", pin["releases"]["0.1.0"])
+
+    def test_the_trusted_comments_signature_verifies_with_the_pinned_key_and_names_the_archive(self):
+        # The archive is 117 MB and is not here; the global signature covers the comment and the archive's signature, so
+        # it ties the pinned bytes to the pinned key without it. verify_file itself runs on the archive in the live check.
+        rel = iw.load_pin(HERE)["releases"]["0.2.0"]
+        build = rel["x86_64"]
+        key = base64.b64decode(rel["minisign"]["public_key"])
+        sig = base64.b64decode(build["minisig"]["signature"])
+        comment = build["minisig"]["trusted_comment"]
+        glob = base64.b64decode(build["minisig"]["global_signature"])
+        self.assertTrue(iw.minisign.ed25519_verify(key[10:], sig[10:] + comment.encode(), glob))
+        self.assertFalse(iw.minisign.ed25519_verify(key[10:], sig[10:] + comment.encode() + b"x", glob), "control: an edited comment")
+        self.assertIn(f"file:{build['name']}", comment.split("\t"))
+
+    def test_a_pin_with_the_real_fields_broken_one_at_a_time_is_refused(self):
+        with open(os.path.join(HERE, iw.PIN_REL)) as fh:
+            good = json.load(fh)
+        self.assertIsNone(iw.pin_problem(good), "positive control")
+        rel = lambda d: d["releases"]["0.2.0"]  # noqa: E731
+        sig = lambda d: rel(d)["x86_64"]["minisig"]  # noqa: E731
+        raw = lambda d: base64.b64decode(sig(d)["signature"])  # noqa: E731
+        cases = {
+            "neither minisign nor unsigned": lambda d: rel(d).pop("minisign"),
+            "both minisign and unsigned": lambda d: rel(d).update(unsigned="why"),
+            "unsigned without a reason": lambda d: (rel(d).pop("minisign"), rel(d).pop("x86_64").pop("minisig"), rel(d).update(unsigned="")),
+            "a release without a build's minisig": lambda d: rel(d)["x86_64"].pop("minisig"),
+            "a minisig on an unsigned release": lambda d: d["releases"]["0.1.0"]["x86_64"].update(minisig=sig(d)),
+            "a key of another length": lambda d: rel(d)["minisign"].update(public_key=b64(b"Ed" + b"\1" * 39)),
+            "a key that does not start Ed": lambda d: rel(d)["minisign"].update(public_key=b64(b"ED" + base64.b64decode(rel(d)["minisign"]["public_key"])[2:])),
+            "a key that is not base64": lambda d: rel(d)["minisign"].update(public_key="RWTh!"),
+            "a key id that is not the key's": lambda d: rel(d)["minisign"].update(key_id="E105681F92C28E5B"),
+            "a key id in lower case": lambda d: rel(d)["minisign"].update(key_id="5b8ec2921f6805e1"),
+            "no release_keys_commit": lambda d: rel(d)["minisign"].pop("release_keys_commit"),
+            "a short release_keys_commit": lambda d: rel(d)["minisign"].update(release_keys_commit="b1b65cb"),
+            "a signature of the legacy kind": lambda d: sig(d).update(signature=b64(b"Ed" + raw(d)[2:])),
+            "a signature of 73 bytes": lambda d: sig(d).update(signature=b64(raw(d)[:-1])),
+            "a signature by another key": lambda d: sig(d).update(signature=b64(raw(d)[:2] + b"\1" * 8 + raw(d)[10:])),
+            "a signature that is not base64": lambda d: sig(d).update(signature="!!"),
+            "a global signature of 63 bytes": lambda d: sig(d).update(global_signature=b64(base64.b64decode(sig(d)["global_signature"])[:-1])),
+            "a trusted comment that is no string": lambda d: sig(d).update(trusted_comment=5),
+            "an extra field": lambda d: sig(d).update(extra="x"),
+            "a signature of neither kind": lambda d: sig(d).update(signature=b64(b"XX" + raw(d)[2:])),
+            "a key id that is the signature's but not the key's": lambda d: (
+                rel(d)["minisign"].update(key_id="0807060504030201"), sig(d).update(signature=b64(raw(d)[:2] + bytes.fromhex("0807060504030201")[::-1] + raw(d)[10:]))),
+            "a global signature with padding bits set": lambda d: sig(d).update(global_signature=sig(d)["global_signature"][:-3] + "R=="),
+        }
+        for label, mutate in cases.items():
+            d = json.loads(json.dumps(good))
+            mutate(d)
+            self.assertIsNotNone(iw.pin_problem(d), label)
+
+
+class Signature(Case):
+    def refused_before_extraction(self):
+        """Install the archive as the pin on disk has it; the reply must be a failure that installed and extracted nothing."""
+        r = self.install()
+        self.assertEqual(r["status"], "failed", r)
+        self.nothing_installed()
+        return r["reason"]
+
+    def test_a_signed_archive_installs_and_the_reply_gains_nothing(self):
+        self.release()
+        r = self.install()
+        self.assertEqual(r["status"], "installed", r)
+        self.assertEqual(sorted(r), ["client", "programs", "sha256", "status", "units", "version"])
+
+    def test_one_byte_changed_in_the_archive_is_refused_though_its_digest_is_the_pins(self):
+        art = self.release()
+        changed = art[:-1] + bytes([art[-1] ^ 1])
+        # The pin names the changed archive's digest: only the signature can tell it from the one that was signed.
+        with open(os.path.join(self.root, iw.PIN_REL), "w") as fh:
+            pin = pin_for(changed)
+            pin["releases"][VERSION]["x86_64"]["minisig"] = pin_for(art)["releases"][VERSION]["x86_64"]["minisig"]
+            json.dump(pin, fh)
+        self.artifact = changed
+        self.assertRegex(self.refused_before_extraction(), r"^minisign check failed: the archive's signature does not verify with the pinned key; nothing was installed$")
+        self.release()
+        self.assertEqual(self.install()["status"], "installed", "positive control: the signed bytes")
+
+    def test_another_key_is_refused_whether_it_wears_the_pinned_id_or_its_own(self):
+        art = self.release()
+        for label, key_id, expect in (("the pinned id", KEY_ID, "the archive's signature does not verify"),
+                                      ("its own id", b"\x09" * 8, "signature made by another key than the release's")):
+            pin = pin_for(art)
+            pin["releases"][VERSION]["x86_64"]["minisig"] = minisig_for(art, f"{ROOT}.tar.gz", seed=OTHER_SEED, key_id=key_id)
+            with open(os.path.join(self.root, iw.PIN_REL), "w") as fh:
+                json.dump(pin, fh)
+            self.assertIn(expect, self.refused_before_extraction(), label)
+        self.release()
+        self.assertEqual(self.install()["status"], "installed", "positive control")
+
+    def test_an_edited_trusted_comment_is_refused(self):
+        art = self.release()
+        pin = pin_for(art)
+        pin["releases"][VERSION]["x86_64"]["minisig"]["trusted_comment"] += "\tx:1"
+        with open(os.path.join(self.root, iw.PIN_REL), "w") as fh:
+            json.dump(pin, fh)
+        self.assertIn("the trusted comment's signature does not verify", self.refused_before_extraction())
+
+    def test_a_signed_comment_that_names_another_file_is_refused(self):
+        art = self.release()
+        for comment in (COMMENT.format(name="other.tar.gz"), f"timestamp:1\tfile:{ROOT}.tar.gz.x\thashed",
+                        f"timestamp:1\tnotfile:{ROOT}.tar.gz\thashed", f"timestamp:1 file:{ROOT}.tar.gz hashed"):
+            pin = pin_for(art)
+            pin["releases"][VERSION]["x86_64"]["minisig"] = minisig_for(art, f"{ROOT}.tar.gz", comment=comment)
+            with open(os.path.join(self.root, iw.PIN_REL), "w") as fh:
+                json.dump(pin, fh)
+            self.assertIn(f"does not name file:{ROOT}.tar.gz", self.refused_before_extraction(), comment)
+
+    def test_the_verifier_alone_refuses_a_signature_filed_under_another_key_id(self):
+        art = b"archive"
+        with tempfile.TemporaryDirectory(dir=self._tmp.name) as d:
+            path = os.path.join(d, "a")
+            with open(path, "wb") as fh:
+                fh.write(art)
+            iw.minisign.verify_file(path, public_key_line(), minisig_for(art, "a"), "a")    # positive control
+            with self.assertRaisesRegex(iw.minisign.SignatureError, "another key"):
+                iw.minisign.verify_file(path, public_key_line(), minisig_for(art, "a", key_id=b"\x09" * 8), "a")
+
+    def test_a_legacy_signature_is_refused(self):
+        art = self.release()
+        pin = pin_for(art)
+        pin["releases"][VERSION]["x86_64"]["minisig"] = minisig_for(art, f"{ROOT}.tar.gz", kind=b"Ed")
+        with open(os.path.join(self.root, iw.PIN_REL), "w") as fh:
+            json.dump(pin, fh)
+        self.assertIn("legacy signature (Ed)", self.refused_before_extraction())
+        # And the verifier refuses it on its own, were a pin ever to let one through: the legacy signature is valid Ed25519 of the file.
+        with tempfile.TemporaryDirectory(dir=self._tmp.name) as d:
+            path = os.path.join(d, "a")
+            with open(path, "wb") as fh:
+                fh.write(art)
+            with self.assertRaisesRegex(iw.minisign.SignatureError, "legacy kind"):
+                iw.minisign.verify_file(path, public_key_line(), minisig_for(art, "a", kind=b"Ed"), "a")
+
+    def test_an_unsigned_current_release_is_refused_with_nothing_downloaded(self):
+        art = self.release()
+        with open(os.path.join(self.root, iw.PIN_REL), "w") as fh:
+            json.dump(pin_for(art, signed=False), fh)
+        r = self.install()
+        self.assertEqual(r["status"], "refused", r)
+        self.assertRegex(r["reason"], r"^0\.1\.0 is unsigned \(the fixture predates the key\) and an unsigned release is never installed; nothing was downloaded$")
+        self.assertEqual((self.fetched, self.events), ([], []), "no lease, no download")
+        self.nothing_installed()
+
+    def test_an_unsigned_release_is_not_current_even_when_the_marker_names_it(self):
+        art = self.release()
+        self.assertEqual(self.install()["status"], "installed")
+        with open(os.path.join(self.root, iw.PIN_REL), "w") as fh:
+            json.dump(pin_for(art, signed=False), fh)
+        self.assertEqual(self.install()["status"], "refused", "the signed install is not an answer for a pin that says unsigned")
+
+    def test_fetch_and_unpack_alone_checks_the_signature_before_it_extracts(self):
+        art = self.release()
+        release, build = released(art)
+        build["minisig"] = minisig_for(art, "another-name.tar.gz")
+        with tempfile.TemporaryDirectory(dir=self._tmp.name) as dest:
+            with self.assertRaisesRegex(iw.InstallError, "^minisign check failed: .*does not name file:"):
+                iw.fetch_and_unpack(release, build, TOKEN, dest, self.fetch)
+            self.assertEqual(os.listdir(dest), [], "nothing extracted and the part file removed")
+        unsigned, build = released(art, signed=False)
+        self.fetched.clear()
+        with tempfile.TemporaryDirectory(dir=self._tmp.name) as dest:
+            with self.assertRaisesRegex(iw.InstallError, "is unsigned"):
+                iw.fetch_and_unpack(unsigned, build, TOKEN, dest, self.fetch)
+        self.assertEqual(self.fetched, [], "nothing downloaded")
+
+    def test_a_digest_mismatch_is_still_named_before_the_signature_is_looked_at(self):
+        art = self.release()
+        release, build = released(art)
+        build["sha256"] = "0" * 64
+        with tempfile.TemporaryDirectory(dir=self._tmp.name) as dest:
+            with self.assertRaisesRegex(iw.InstallError, "^sha256 mismatch"):
+                iw.fetch_and_unpack(release, build, TOKEN, dest, self.fetch)
+
+
+@unittest.skipUnless(shutil.which("minisign"), "the minisign program is not installed here: the cross-check against it did not run")
+class AgainstMinisign(Case):
+    """The same bytes through the `minisign` program and through the verifier: neither is the oracle of the other alone."""
+
+    def run_minisign(self, *argv, cwd):
+        env = {"PATH": os.environ.get("PATH", "/usr/bin:/bin"), "HOME": cwd, "LC_ALL": "C"}
+        return subprocess.run(["minisign", *argv], cwd=cwd, env=env, capture_output=True, text=True, timeout=30, check=False)
+
+    def keyed(self):
+        d = tempfile.mkdtemp(dir=self._tmp.name)
+        r = self.run_minisign("-G", "-W", "-p", "k.pub", "-s", "k.key", cwd=d)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        with open(os.path.join(d, "k.pub")) as fh:
+            return d, fh.read().splitlines()[1]
+
+    def signed_by_minisign(self, d, content: bytes, *flags):
+        with open(os.path.join(d, "a.tar.gz"), "wb") as fh:
+            fh.write(content)
+        r = self.run_minisign("-S", *flags, "-s", "k.key", "-m", "a.tar.gz", "-x", "a.minisig", cwd=d)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        with open(os.path.join(d, "a.minisig")) as fh:
+            lines = fh.read().splitlines()
+        return {"signature": lines[1], "trusted_comment": lines[2].removeprefix("trusted comment: "), "global_signature": lines[3]}
+
+    def test_a_signature_minisign_made_verifies_and_each_change_is_refused(self):
+        d, key = self.keyed()
+        content = os.urandom(4096)
+        sig = self.signed_by_minisign(d, content)
+        path = os.path.join(d, "a.tar.gz")
+        iw.minisign.verify_file(path, key, sig, "a.tar.gz")      # does not raise: the positive control
+        self.assertIsNone(iw.minisign.key_problem(key, iw.minisign.key_id_text(base64.b64decode(key)[2:10])))
+        with open(path, "wb") as fh:
+            fh.write(content[:-1] + bytes([content[-1] ^ 1]))
+        with self.assertRaises(iw.minisign.SignatureError, msg="a byte of the file"):
+            iw.minisign.verify_file(path, key, sig, "a.tar.gz")
+        with open(path, "wb") as fh:
+            fh.write(content)
+        with self.assertRaises(iw.minisign.SignatureError):
+            iw.minisign.verify_file(path, key, {**sig, "trusted_comment": sig["trusted_comment"] + "x"}, "a.tar.gz")
+        with self.assertRaisesRegex(iw.minisign.SignatureError, "does not name file:b"):
+            iw.minisign.verify_file(path, key, sig, "b")
+        d2, key2 = self.keyed()
+        with self.assertRaises(iw.minisign.SignatureError):
+            iw.minisign.verify_file(path, key2, sig, "a.tar.gz")
+
+    def test_minisign_legacy_signature_is_refused(self):
+        d, key = self.keyed()
+        sig = self.signed_by_minisign(d, b"legacy", "-l")
+        self.assertTrue(base64.b64decode(sig["signature"]).startswith(b"Ed"), "the control: minisign wrote the legacy kind")
+        self.assertIn("legacy", iw.minisign.minisig_problem(sig, iw.minisign.key_id_text(base64.b64decode(key)[2:10])))
+        with self.assertRaises(iw.minisign.SignatureError):
+            iw.minisign.verify_file(os.path.join(d, "a.tar.gz"), key, sig, "a.tar.gz")
+
+    def test_a_signature_the_tests_made_verifies_under_minisign_and_a_changed_one_does_not(self):
+        d = tempfile.mkdtemp(dir=self._tmp.name)
+        content = b"cross-check"
+        with open(os.path.join(d, "a.tar.gz"), "wb") as fh:
+            fh.write(content)
+        key_line = public_key_line()
+        sig = minisig_for(content, "a.tar.gz")
+
+        def check(sig_lines):
+            with open(os.path.join(d, "a.minisig"), "w") as fh:
+                fh.write("untrusted comment: x\n" + sig_lines["signature"] + "\ntrusted comment: " + sig_lines["trusted_comment"] + "\n"
+                         + sig_lines["global_signature"] + "\n")
+            return self.run_minisign("-V", "-m", "a.tar.gz", "-x", "a.minisig", "-P", key_line, cwd=d)
+        self.assertEqual(check(sig).returncode, 0, "minisign accepts the signer's output")
+        self.assertNotEqual(check({**sig, "trusted_comment": sig["trusted_comment"] + "x"}).returncode, 0, "control: an edited comment")
+        with open(os.path.join(d, "a.tar.gz"), "wb") as fh:
+            fh.write(content + b"x")
+        self.assertNotEqual(check(sig).returncode, 0, "control: an edited file")
 
 
 class Read(Case):
