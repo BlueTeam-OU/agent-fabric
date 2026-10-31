@@ -34,10 +34,13 @@ class FakeServer:
     """What `agent-fabric-fleetdeck --session harness …` answers. `answers_after` calls fail first (a server not yet
     listening); `panes` maps workspace id to a list of pane dicts {id, running}."""
 
-    def __init__(self, workspaces=(), answers_after=0):
+    def __init__(self, workspaces=(), answers_after=0, startup=(), typed_lost=False):
+        """`startup`: the non-shell foreground pids of the first process-info reads, one set per read (a shell still
+        sourcing its profile), before the pane's own state answers; `typed_lost`: a `pane run` that never arrives."""
         self.workspaces = {w["workspace_id"]: dict(w) for w in workspaces}
         self.panes = {w["workspace_id"]: [{"pane_id": f"{w['workspace_id']}:p1", "running": w.get("running", False)}] for w in workspaces}
         self.calls, self.typed, self.refuse = [], [], answers_after
+        self.startup, self.typed_lost = list(startup), typed_lost
 
     def __call__(self, argv):
         assert argv[:3] == [hp.BINARY, "--session", "harness"], argv
@@ -62,12 +65,15 @@ class FakeServer:
                 return 2, "", f"error: unknown option: {args[2]}\n"
             pane = next(p for ps in self.panes.values() for p in ps if p["pane_id"] == args[3])
             procs = [{"pid": SHELL_PID, "name": "bash", "argv": ["bash"]}]
-            if pane["running"]:
+            if self.startup:
+                procs += [{"pid": pid, "name": "grepconf.sh", "argv": ["/usr/bin/sh", "/usr/libexec/grepconf.sh", "-c"]} for pid in self.startup.pop(0)]
+            elif pane["running"]:
                 procs = [{"pid": SHELL_PID + 1, "name": "python", "argv": ["fabric-python", "-I", "/usr/local/share/moveto/moveto.py", "--enter"]}]
             return 0, json.dumps({"result": {"process_info": {"shell_pid": SHELL_PID, "foreground_pgid": 1, "foreground_processes": procs}}}), ""
         if args[:2] == ["pane", "run"]:
             self.typed.append((args[2], args[3]))
-            next(p for ps in self.panes.values() for p in ps if p["pane_id"] == args[2])["running"] = True
+            if not self.typed_lost:
+                next(p for ps in self.panes.values() for p in ps if p["pane_id"] == args[2])["running"] = True
             return 0, "{}", ""
         raise AssertionError(args)
 
@@ -138,7 +144,9 @@ class Ensure(unittest.TestCase):
         slept = []
         t = [0.0]
         hp.ensure(hp.Deck(s), "a", "/home/a", clock=lambda: t[0], sleep=lambda x: (slept.append(x), t.__setitem__(0, t[0] + x)))
-        self.assertEqual(slept, [hp.POLL_S] * 3)
+        first = [i for i, c in enumerate(s.calls) if c == ["workspace", "list"]]
+        self.assertEqual(first, [0, 1, 2, 3])    # three refused, then the answer: one poll's sleep between each
+        self.assertEqual(set(slept), {hp.POLL_S})
         self.assertEqual(len(s.typed), 1)
 
     def test_a_server_that_never_answers_is_an_error_naming_the_wait(self):
@@ -175,6 +183,39 @@ class Ensure(unittest.TestCase):
                 hp.ensure(hp.Deck(s), "a", "/home/a", clock=lambda: 0.0, sleep=lambda x: None) if key != ("workspace", "list") else ensure(s)
             self.assertEqual(s.typed, [], why)
             self.assertEqual(len(s.workspaces), 1, why)    # none created
+
+    def test_a_restored_shell_still_sourcing_its_profile_is_waited_out_then_given_enter(self):
+        # Measured 2026-10-31: a restored pane's foreground held flatpak, grepconf.sh or readlink for a moment, each a
+        # new pid; read as "running a program", 5 of 12 panes were left at a bare shell and the deck pressed nothing.
+        s = FakeServer([{"workspace_id": "w7", "label": "harness"}], startup=[{5001}, {5002, 5003}, {5004}])
+        said = ensure(s)
+        self.assertEqual(s.typed, [("w7:p1", "/usr/local/share/moveto/enter /home/a/projects a --wait")])
+        self.assertIn("again", said)
+
+    def test_a_foreground_that_only_churns_is_an_error_and_nothing_is_typed(self):
+        churn = [{6000 + i} for i in range(int(hp.STARTUP_S / hp.POLL_S) + 5)]
+        s = FakeServer([{"workspace_id": "w7", "label": "harness"}], startup=churn)
+        with self.assertRaisesRegex(hp.Failed, rf"no program that stays in its foreground after {hp.STARTUP_S:g} s"):
+            ensure(s)
+        self.assertEqual(s.typed, [])
+
+    def test_a_program_that_stays_for_the_settle_window_is_a_running_one(self):
+        # Positive control for the waiting-out above: the same pid read across SETTLE_S is never typed over.
+        s = FakeServer([{"workspace_id": "w7", "label": "harness"}], startup=[{7000}] * (int(hp.SETTLE_S / hp.POLL_S) + 1))
+        self.assertIn("already running", ensure(s))
+        self.assertEqual(s.typed, [])
+
+    def test_a_line_that_never_starts_enter_fails_the_step_and_is_not_typed_twice(self):
+        # The unit's Restart=on-failure is the retry: a second line could land at enter's prompt as the activating Enter.
+        for ws in ((), ({"workspace_id": "w7", "label": "harness"},)):
+            s = FakeServer(ws, typed_lost=True)
+            with self.assertRaisesRegex(hp.Failed, rf"is still at its shell after {hp.READBACK_S:g} s"):
+                ensure(s)
+            self.assertEqual(len(s.typed), 1)
+
+    def test_the_waits_fit_the_units_start_timeout(self):
+        # systemd's default TimeoutStartSec (90 s) bounds the ExecStartPost as a whole.
+        self.assertLess(hp.WAIT_S + hp.STARTUP_S + hp.READBACK_S, 90)
 
     def test_the_typed_line_is_quoted_for_the_panes_shell(self):
         s = FakeServer()
@@ -246,12 +287,16 @@ elif a[2:4] == ["workspace", "create"]:
 elif a[2:4] == ["pane", "run"]:
     open(os.environ["HP_LOG"], "w").write(json.dumps(a))
     print("{}")
+elif a[2:4] == ["pane", "process-info"]:
+    procs = [{"pid": 10}] + ([{"pid": 11}] if os.path.exists(os.environ["HP_LOG"]) else [])
+    print(json.dumps({"result": {"process_info": {"shell_pid": 10, "foreground_processes": procs}}}))
 else:
     sys.exit(7)
 """)
         log = os.path.join(os.path.dirname(path), "log")
         out, err = io.StringIO(), io.StringIO()
-        with mock.patch.object(hp, "BINARY", path), mock.patch.dict(os.environ, {"HP_LOG": log}), redirect_stdout(out), redirect_stderr(err):
+        with mock.patch.object(hp, "BINARY", path), mock.patch.object(hp, "SETTLE_S", 0.2), mock.patch.object(hp, "POLL_S", 0.1), \
+                mock.patch.dict(os.environ, {"HP_LOG": log}), redirect_stdout(out), redirect_stderr(err):
             rc = hp.main(["ensure"])
         self.assertEqual((rc, err.getvalue()), (0, ""), out.getvalue())
         self.assertEqual(out.getvalue(), "opened the harness pane w1:p1\n")

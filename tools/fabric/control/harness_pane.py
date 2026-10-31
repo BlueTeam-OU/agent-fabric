@@ -16,6 +16,12 @@ CONTRACT
               layout and not the program: measured by rust-ui-dev-01, REPLY
               01a17c6b, 2026-10-27)   `pane run` again in that pane
               the workspace, its pane already running a program (enter, or the session it started)   nothing
+            Either way the line is typed only once the pane's foreground has
+            settled: a restored pane's shell is still sourcing its profile
+            then (flatpak, grepconf.sh, readlink, measured 2026-10-31: 5 of 12
+            restored panes read as running and were left at a bare shell),
+            so a program counts as running only when one pid of it stays in
+            the foreground for SETTLE_S, and a shell alone in it is ready.
             Never a second workspace or pane: two workspaces carrying the
             label, or a workspace with other than one pane, is not understood
             and is an error, not a choice.
@@ -23,6 +29,11 @@ CONTRACT
             line enter-ssh runs, typed into the pane with `pane run` (quoted
             for the pane's shell). The login is the process's own, from the
             passwd database, never $USER.
+  read-back After the line, the pane must run a program that settles within
+            READBACK_S; a pane still at its shell is an error, so the unit
+            fails and Restart=on-failure starts it again, never a second line
+            typed into a pane whose first one may yet arrive (it would land
+            at enter's prompt as the Enter that activates the account).
   wait      The unit is Type=simple: this runs once the server is forked, not
             once its socket answers. `workspace list` is asked until it
             answers, for at most WAIT_S; a server that never answers is an
@@ -53,6 +64,12 @@ ENTER = "/usr/local/share/moveto/enter"
 CALL_TIMEOUT_S = 15
 WAIT_S = 30
 POLL_S = 0.5
+# A profile script's child lives milliseconds, enter --wait and the session for good; under a boot's load (all accounts'
+# units at once) a child can last a second or two, so the settle window is several polls. WAIT_S + STARTUP_S +
+# READBACK_S stays under systemd's default 90 s TimeoutStartSec for the ExecStartPost.
+SETTLE_S = 3
+STARTUP_S = 20
+READBACK_S = 20
 
 Run = Callable[[list[str]], "tuple[int, str, str]"]
 
@@ -131,11 +148,11 @@ def wait_for_server(deck: Deck, clock: Callable[[], float], sleep: Callable[[flo
             sleep(POLL_S)
 
 
-def running_program(info: dict[str, Any]) -> bool:
-    """Whether the pane runs a program besides its shell: enter in its wait, a shell it became, or the session. Any
-    foreground process that is not the pane's shell counts, so a session in progress is never typed over. The answer
-    must name the shell and list the foreground processes: a pane at a plain shell lists its shell, so a list that is
-    empty or has no pids is an answer not understood, not an idle pane."""
+def foreground_programs(info: dict[str, Any]) -> set[int]:
+    """The pids in the pane's foreground besides its shell: enter in its wait, a shell it became, the session, or a
+    profile script still running at the shell's start. The answer must name the shell and list the foreground
+    processes: a pane at a plain shell lists its shell, so a list that is empty or has no pids is an answer not
+    understood, not an idle pane."""
     shell = _field(info, "process_info", "shell_pid", what="pane process-info")
     procs = _field(info, "process_info", "foreground_processes", what="pane process-info")
     if not isinstance(shell, int) or not isinstance(procs, list) or not procs:
@@ -143,7 +160,33 @@ def running_program(info: dict[str, Any]) -> bool:
     pids = [p.get("pid") if isinstance(p, dict) else None for p in procs]
     if not all(isinstance(pid, int) for pid in pids):
         raise Failed("pane process-info: a foreground process without a pid")
-    return any(pid != shell for pid in pids)
+    return {pid for pid in pids if pid != shell}
+
+
+def settled(deck: Deck, pane: str, clock: Callable[[], float], sleep: Callable[[float], None], within: float,
+            shell_waits: bool) -> bool:
+    """True once one non-shell pid has stayed in the foreground for SETTLE_S: a program runs. With the shell alone in
+    the foreground, False at once, or, with shell_waits, asked again until a program settles. Never settled within
+    `within` is an error naming what was seen."""
+    until = clock() + within
+    kept: set[int] | None = None    # the pids seen in every read since `since`
+    since = clock()
+    while True:
+        pids = foreground_programs(deck.call("pane", "process-info", "--pane", pane))
+        if not pids:
+            if not shell_waits:
+                return False
+            kept = None
+        elif kept is None or not kept & pids:
+            kept, since = pids, clock()
+        else:
+            kept &= pids
+            if clock() - since >= SETTLE_S:
+                return True
+        if clock() >= until:
+            what = "is still at its shell" if not pids else "has no program that stays in its foreground"
+            raise Failed(f"the {LABEL} pane {pane} {what} after {within:g} s")
+        sleep(POLL_S)
 
 
 def ensure(deck: Deck, login: str, home: str, clock: Callable[[], float] = time.monotonic,
@@ -163,17 +206,19 @@ def ensure(deck: Deck, login: str, home: str, clock: Callable[[], float] = time.
     if not ours:
         made = deck.call("workspace", "create", "--label", LABEL, "--cwd", os.path.join(home, "projects"), "--no-focus")
         pane = _id(_field(made, "root_pane", "pane_id", what="workspace create"), "workspace create")
-        deck.text("pane", "run", pane, command)
-        return f"opened the {LABEL} pane {pane}"
-    workspace = _id(ours[0].get("workspace_id"), "workspace list")
-    panes = _field(deck.call("pane", "list", "--workspace", workspace), "panes", what="pane list")
-    if not isinstance(panes, list) or len(panes) != 1:
-        raise Failed(f"the {LABEL} workspace holds {len(panes) if isinstance(panes, list) else 'an unreadable list of'} panes, not one; refusing to choose")
-    pane = _id(_field(panes[0], "pane_id", what="pane list") if isinstance(panes[0], dict) else None, "pane list")
-    if running_program(deck.call("pane", "process-info", "--pane", pane)):
+        said = f"opened the {LABEL} pane {pane}"
+    else:
+        workspace = _id(ours[0].get("workspace_id"), "workspace list")
+        panes = _field(deck.call("pane", "list", "--workspace", workspace), "panes", what="pane list")
+        if not isinstance(panes, list) or len(panes) != 1:
+            raise Failed(f"the {LABEL} workspace holds {len(panes) if isinstance(panes, list) else 'an unreadable list of'} panes, not one; refusing to choose")
+        pane = _id(_field(panes[0], "pane_id", what="pane list") if isinstance(panes[0], dict) else None, "pane list")
+        said = f"ran enter again in the restored {LABEL} pane {pane}"
+    if settled(deck, pane, clock, sleep, STARTUP_S, shell_waits=False):
         return f"the {LABEL} pane {pane} is already running a program (enter, or the session it started)"
     deck.text("pane", "run", pane, command)
-    return f"ran enter again in the restored {LABEL} pane {pane}"
+    settled(deck, pane, clock, sleep, READBACK_S, shell_waits=True)
+    return said
 
 
 def main(argv: list[str] | None = None) -> int:
