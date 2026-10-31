@@ -334,7 +334,7 @@ def known_hosts_file() -> str:
 
 
 def ssh_argv(account: str, mode: str, pin: tuple[str, int], known_hosts: str, key: str) -> list[str]:
-    """The ssh command that enters `account` (ADR-048 §5 rule 4): the forced command takes one of four exact words,
+    """The ssh command that enters `account` (ADR-048 §5 rule 4): the forced command takes one of five exact words,
     `shell` for none, `attach` for --attach. The word follows `--`: OpenSSH reads options after the destination too, and a bare --wait is
     `unknown option -- -` (ssh 10.0)."""
     address, port = pin
@@ -366,10 +366,14 @@ def enter_over_ssh(account: str, target: str, print_only: bool, mode: str, pin: 
     os.execvp(argv[0], argv)
 
 
+HARNESS_ID = re.compile(r"[A-Za-z0-9_.:][A-Za-z0-9_.:-]*")  # never a leading "-": it would be read as an option
+
+
 def harness_call(*args: str) -> dict:
     """The JSON answer of one `agent-fabric-fleetdeck --session harness …` call. Every failure is a Refused with the
     one line the person needs: which of the binary, the server and the pane is missing is the whole error contract of
-    --attach, and nothing here starts a server (a `status` or a list never does)."""
+    --attach, and nothing here starts a server (a `status` or a list never does). A non-zero `status` is the only
+    answer that means the server is down; any other call failing after it is said as that call failing."""
     try:
         r = subprocess.run([FLEETDECK, "--session", HARNESS_SESSION, *args], capture_output=True, text=True, errors="replace",
                            timeout=TIMEOUT_S, stdin=subprocess.DEVNULL)
@@ -378,8 +382,10 @@ def harness_call(*args: str) -> dict:
     except (OSError, subprocess.TimeoutExpired) as exc:
         die(f"the harness server did not answer ({exc.__class__.__name__})")
     if r.returncode != 0:
-        die(f"no harness server is running: {display_safe((r.stderr.strip().splitlines() or [f'exit {r.returncode}'])[-1][:120])} "
-            "(agent-fabric-harness.service; fabric-ctl <login> harness-start)")
+        last = display_safe((r.stderr.strip().splitlines() or [f"exit {r.returncode}"])[-1][:120])
+        if args[0] == "status":
+            die(f"no harness server is running: {last} (agent-fabric-harness.service; fabric-ctl <login> harness-start)")
+        die(f"the harness server failed `{' '.join(args[:2])}`: {last}")
     try:
         doc = json.loads(r.stdout)
     except ValueError:
@@ -389,26 +395,40 @@ def harness_call(*args: str) -> dict:
     return doc
 
 
+def harness_result(*args: str) -> dict:
+    result = harness_call(*args).get("result")
+    if not isinstance(result, dict):
+        die(f"the harness server's answer to `{' '.join(args[:2])}` has no result object")
+    return result
+
+
+def harness_id(value: object, what: str) -> str:
+    if not isinstance(value, str) or not HARNESS_ID.fullmatch(value):
+        die(f"the harness server gave {what} that is not an id")
+    return value
+
+
 def harness_terminal() -> str:
-    """The terminal id of the one pane of the workspace labelled harness, or a Refused naming what is missing."""
-    if harness_call("status", "server", "--json").get("running") is not True:
+    """The terminal id of the one pane of the workspace labelled harness, or a Refused naming what is missing. An
+    answer not understood (no `running`, an entry without a `label`) is said as that, never read as a missing pane."""
+    running = harness_call("status", "server", "--json").get("running")
+    if not isinstance(running, bool):
+        die("the harness server's `status server` answer has no running field; nothing chosen")
+    if not running:
         die("no harness server is running (agent-fabric-harness.service; fabric-ctl <login> harness-start)")
-    workspaces = harness_call("workspace", "list").get("result", {}).get("workspaces")
-    if not isinstance(workspaces, list):
-        die("the harness server's workspace list has no workspaces")
-    ours = [w for w in workspaces if isinstance(w, dict) and w.get("label") == HARNESS_LABEL]
+    workspaces = harness_result("workspace", "list").get("workspaces")
+    if not isinstance(workspaces, list) or not all(isinstance(w, dict) and "label" in w for w in workspaces):
+        die("the harness server's workspace list is not a list of labelled workspaces; nothing chosen")
+    ours = [w for w in workspaces if w["label"] == HARNESS_LABEL]
     if not ours:
         die("the harness server has no harness pane (the unit opens it when it starts)")
-    if len(ours) > 1 or not isinstance(ours[0].get("workspace_id"), str):
+    if len(ours) > 1:
         die("the harness server has more than one harness workspace; nothing chosen")
-    panes = harness_call("pane", "list", "--workspace", ours[0]["workspace_id"]).get("result", {}).get("panes")
+    workspace = harness_id(ours[0].get("workspace_id"), "a workspace id")
+    panes = harness_result("pane", "list", "--workspace", workspace).get("panes")
     if not isinstance(panes, list) or len(panes) != 1 or not isinstance(panes[0], dict):
         die("the harness workspace does not hold exactly one pane; nothing chosen")
-    terminal = panes[0].get("terminal_id")
-    # Never a leading "-": it would be read as an option.
-    if not isinstance(terminal, str) or not re.fullmatch(r"[A-Za-z0-9_.:][A-Za-z0-9_.:-]*", terminal):
-        die("the harness pane has no terminal id")
-    return terminal
+    return harness_id(panes[0].get("terminal_id"), "a terminal id")
 
 
 def attach() -> "NoReturn":  # noqa: F821

@@ -50,6 +50,18 @@ class InstallFleetdeck(unittest.TestCase):
         env = {"PATH": "/usr/bin:/bin", "FLEETDECK_PREFIX": prefix or self.prefix}
         return subprocess.run([sys.executable, "-I", SCRIPT, *argv], env=env, capture_output=True, text=True, timeout=60, stdin=subprocess.DEVNULL)
 
+    def test_an_existing_shared_directory_keeps_its_mode_and_the_manifests_own_is_made_0755(self):
+        os.makedirs(f"{self.prefix}/bin")
+        os.chmod(f"{self.prefix}/bin", 0o2775)
+        os.makedirs(f"{self.prefix}/share/agent-fabric-fleetdeck")
+        os.chmod(f"{self.prefix}/share", 0o750)
+        os.chmod(f"{self.prefix}/share/agent-fabric-fleetdeck", 0o700)
+        r = self.run_cmd("--from", self.src)
+        self.assertEqual((r.returncode, r.stderr), (0, ""), r.stdout)
+        self.assertEqual(mode(f"{self.prefix}/bin"), "2775")
+        self.assertEqual(mode(f"{self.prefix}/share"), "750")
+        self.assertEqual(mode(f"{self.prefix}/share/agent-fabric-fleetdeck"), "755")
+
     def test_installs_the_binary_0755_and_records_sha256_and_source(self):
         r = self.run_cmd("--from", self.src)
         dst = f"{self.prefix}/bin/agent-fabric-fleetdeck"
@@ -91,6 +103,13 @@ class InstallFleetdeck(unittest.TestCase):
         self.assertEqual(read(dst, "rb"), b"#!/bin/sh\nnew\n")
         left = [n for n in os.listdir(f"{self.prefix}/bin") + os.listdir(f"{self.prefix}/share/agent-fabric-fleetdeck") if n.startswith(".install-")]
         self.assertEqual(left, [])
+
+    def test_a_source_swapped_for_a_fifo_after_the_check_is_refused_not_waited_on(self):
+        fifo = os.path.join(self.t, "swapped")
+        os.mkfifo(fifo, 0o755)
+        with mock.patch.object(ifd, "check_source"), self.assertRaisesRegex(ifd.Refused, "not a regular file"):
+            ifd.install(self.prefix, fifo)    # a blocking open or a copy of a pipe would hang here
+        self.assertEqual(os.listdir(f"{self.prefix}/bin"), [])    # no destination, no temporary left
 
     def test_a_source_that_is_not_a_regular_executable_file_is_refused_with_nothing_written(self):
         plain = os.path.join(self.t, "plain")

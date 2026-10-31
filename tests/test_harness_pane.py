@@ -161,11 +161,17 @@ class Ensure(unittest.TestCase):
                                  (("pane", "list"), (0, json.dumps({"result": {}}), ""), "no panes"),
                                  (("pane", "process-info"), (0, json.dumps({"result": {"process_info": {"shell_pid": 1, "foreground_processes": []}}}), ""), "no shell pid or no foreground"),
                                  (("pane", "process-info"), (0, json.dumps({"result": {"process_info": {"foreground_processes": [{"pid": 2}]}}}), ""), "no process_info.shell_pid"),
-                                 (("pane", "process-info"), (1, "", "boom\n"), "boom")):
+                                 (("pane", "process-info"), (1, "", "boom\n"), "boom"),
+                                 # A listing that does not name the label is not a listing with no harness workspace.
+                                 (("workspace", "list"), (0, json.dumps({"result": {"workspaces": [{"workspace_id": "w1", "name": "harness"}]}}), ""), "not an object with a label"),
+                                 (("workspace", "list"), (0, json.dumps({"result": {"workspaces": [{"workspace_id": "w1", "label": "harness"}, "junk"]}}), ""), "not an object with a label"),
+                                 (("workspace", "list"), (0, json.dumps({"result": {"workspaces": [{"workspace_id": "-w", "label": "harness"}]}}), ""), "not a plain id"),
+                                 (("pane", "list"), (0, json.dumps({"result": {"panes": [{"pane_id": "-x", "terminal_id": "t"}]}}), ""), "not a plain id")):
             s = Odd({key: answer}, ws)
             with self.assertRaisesRegex(hp.Failed, why):
                 hp.ensure(hp.Deck(s), "a", "/home/a", clock=lambda: 0.0, sleep=lambda x: None) if key != ("workspace", "list") else ensure(s)
             self.assertEqual(s.typed, [], why)
+            self.assertEqual(len(s.workspaces), 1, why)    # none created
 
     def test_the_typed_line_is_quoted_for_the_panes_shell(self):
         s = FakeServer()

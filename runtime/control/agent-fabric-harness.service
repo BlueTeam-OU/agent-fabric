@@ -13,6 +13,11 @@
 [Unit]
 Description=agent-fabric harness: the account's FleetDeck server and its session pane
 ConditionPathExists=/usr/local/bin/agent-fabric-fleetdeck
+# A layout the pane step does not understand (two harness workspaces, a pane
+# count other than one) fails the same way on every restart: five starts in five
+# minutes leave the unit `failed`, for a person to read, not looped on.
+StartLimitIntervalSec=300
+StartLimitBurst=5
 
 [Service]
 Type=simple

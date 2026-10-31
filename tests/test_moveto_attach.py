@@ -33,9 +33,21 @@ if mode == "down":
     sys.exit(1)
 cmd = a[2:]
 if cmd == ["status", "server", "--json"]:
-    print(json.dumps({{"running": mode != "stopped"}}))
+    print(json.dumps({{"result": {{"running": True}}}} if mode == "wrappedrunning" else {{}} if mode == "norunning" else {{"running": mode != "stopped"}}))
 elif cmd == ["workspace", "list"]:
+    if mode == "listfails":
+        sys.stderr.write("error: socket closed\\n")
+        sys.exit(1)
+    if mode == "nullresult":
+        print(json.dumps({{"result": None}}))
+        sys.exit(0)
     ws = [] if mode == "nopane" else [{{"workspace_id": "w1", "label": "harness"}}] * (2 if mode == "twoworkspaces" else 1)
+    if mode == "nolabel":
+        ws = [{{"workspace_id": "w1", "name": "harness"}}]
+    if mode == "junkentry":
+        ws = [{{"workspace_id": "w1", "label": "harness"}}, "junk"]
+    if mode == "badwsid":
+        ws = [{{"workspace_id": "-w", "label": "harness"}}]
     print(json.dumps({{"result": {{"workspaces": ws}}}}))
 elif cmd[:2] == ["pane", "list"]:
     panes = [{{"pane_id": "w1:p1", "terminal_id": "term_abc123"}}]
@@ -96,10 +108,6 @@ class Attach(unittest.TestCase):
         for word in ("--wait", "--resume", "--watch"):
             self.assertIn(word, r.stdout.split())
 
-    def test_help_does_not_list_attach_as_a_prefix_of_something_else(self):
-        # Positive control for the token test: a text that has only a longer word does not pass it.
-        self.assertNotIn("--attach", "moveto --attached x".split())
-
     def test_enter_attach_becomes_terminal_attach_of_the_harness_panes_terminal(self):
         r = self.enter()
         self.assertEqual((r.returncode, r.stdout, r.stderr), (0, "ATTACHED term_abc123\n", ""))
@@ -117,7 +125,11 @@ class Attach(unittest.TestCase):
     def test_every_missing_piece_is_one_line_and_exit_1_and_no_server_is_started(self):
         cases = {"down": "no harness server is running", "stopped": "no harness server is running", "nopane": "has no harness pane",
                  "twoworkspaces": "more than one harness workspace", "twopanes": "does not hold exactly one pane",
-                 "noterminal": "has no terminal id", "hostileid": "has no terminal id"}
+                 "noterminal": "not an id", "hostileid": "not an id",
+                 # An answer not understood is said as that: never "not running" or "no pane".
+                 "norunning": "no running field", "wrappedrunning": "no running field", "nullresult": "no result object",
+                 "nolabel": "not a list of labelled workspaces", "junkentry": "not a list of labelled workspaces",
+                 "badwsid": "not an id", "listfails": "failed `workspace list`: error: socket closed"}
         for mode, why in cases.items():
             os.path.exists(self.log) and os.remove(self.log)
             r = self.enter(mode)
@@ -125,6 +137,8 @@ class Attach(unittest.TestCase):
             self.assertEqual(r.stderr.count("\n"), 1, (mode, r.stderr))
             self.assertRegex(r.stderr, rf"^moveto: .*{why}", mode)
             self.assertNotIn("Traceback", r.stderr)
+            if mode not in ("down", "stopped"):
+                self.assertNotIn("is running", r.stderr, mode)
             self.assertNotIn(["terminal", "attach"], [c[:2] for c in self.calls()], mode)
             # Only read-only questions were asked: nothing that could start, create or type.
             self.assertTrue(all(c[0] in ("status", "workspace", "pane") and c[1] in ("server", "list") for c in self.calls()), (mode, self.calls()))

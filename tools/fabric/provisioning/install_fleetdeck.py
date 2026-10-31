@@ -20,7 +20,8 @@ CONTRACT
             root (a test as another user keeps its own owner: chown to root
             needs root and is not attempted), replaced by rename so a server
             already running keeps the inode it started from. The directories
-            are made 0755.
+            are made 0755 when missing; an existing one keeps its mode, but
+            the manifest's own directory.
   manifest  <prefix>/share/agent-fabric-fleetdeck/installed.sha256, 0644,
             swapped in whole: the sha256sum line of the installed binary
             (relative to the prefix, `sha256sum -c` reads it from there) and a
@@ -74,7 +75,12 @@ def _replace_whole(src: str | None, dst: str, mode: int, data: str | None = None
     try:
         with os.fdopen(fd, "wb") as out:
             if src is not None:
-                with open(src, "rb") as fh:
+                # The kind is read from the descriptor copied from, not from a second look at the name: a swap to a
+                # FIFO or a device between check_source and here must not hang the root installer or fill the disk.
+                fd_in = os.open(src, os.O_RDONLY | os.O_NONBLOCK)
+                with os.fdopen(fd_in, "rb") as fh:
+                    if not stat.S_ISREG(os.fstat(fh.fileno()).st_mode):
+                        raise Refused(f"{src} is not a regular file")
                     shutil.copyfileobj(fh, out)
             else:
                 out.write((data or "").encode("utf-8"))
@@ -90,12 +96,25 @@ def _replace_whole(src: str | None, dst: str, mode: int, data: str | None = None
         raise
 
 
+def _make_dirs(prefix: str, sub: str, own_leaf: bool = False) -> None:
+    """Missing directories made 0755. One that already exists keeps its mode: /usr/local/bin is root:staff 2775 on
+    Debian, and an installer for one binary does not reset a shared directory. The leaf of ours is the exception."""
+    path = prefix
+    for part in sub.split("/"):
+        path = os.path.join(path, part)
+        if not os.path.isdir(path):
+            os.mkdir(path)
+            os.chmod(path, 0o755)
+    if own_leaf:
+        os.chmod(path, 0o755)
+
+
 def install(prefix: str, source: str) -> str:
     """Install `source` under `prefix`; the sha256 of what is there afterwards."""
     check_source(source)
-    for sub in ("bin", "share/agent-fabric-fleetdeck"):
-        os.makedirs(os.path.join(prefix, sub), exist_ok=True)
-        os.chmod(os.path.join(prefix, sub), 0o755)
+    os.makedirs(prefix, exist_ok=True)    # /usr/local exists; a test prefix may not
+    _make_dirs(prefix, "bin")
+    _make_dirs(prefix, "share/agent-fabric-fleetdeck", own_leaf=True)
     _replace_whole(source, os.path.join(prefix, BIN), 0o755)
     # Read back from the destination, not the source: the manifest says what is installed.
     digest = _sha256(os.path.join(prefix, BIN))

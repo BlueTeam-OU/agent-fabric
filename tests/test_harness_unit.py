@@ -52,6 +52,12 @@ class HarnessUnit(unittest.TestCase):
         self.assertEqual((s["KillMode"], s["KillSignal"], s["SendSIGHUP"]), ("control-group", "SIGTERM", "no"))
         self.assertGreater(int(s["TimeoutStopSec"]), upgrade.STOP_WAIT_MS / 1000)
 
+    def test_a_failure_that_survives_restarts_ends_in_failed_not_in_a_loop(self):
+        # systemd's default limit (5 in 10 s) never trips at RestartSec=5; the burst must fit the interval at that spacing.
+        interval, burst, spacing = int(self.cp["Unit"]["StartLimitIntervalSec"]), int(self.cp["Unit"]["StartLimitBurst"]), int(self.cp["Service"]["RestartSec"])
+        self.assertGreaterEqual(burst, 2)
+        self.assertGreater(interval, (burst - 1) * spacing)
+
     def test_it_is_a_user_unit_installed_on_the_default_target(self):
         self.assertEqual(self.cp["Install"]["WantedBy"], "default.target")
         self.assertNotIn("User", self.cp["Service"])    # a user unit runs as its manager's login

@@ -39,6 +39,7 @@ from __future__ import annotations
 import json
 import os
 import pwd
+import re
 import shlex
 import subprocess
 import sys
@@ -105,9 +106,13 @@ def _field(obj: Any, *path: str, what: str) -> Any:
     return obj
 
 
+# Never a leading "-": an id from the binary's JSON goes into an argv, where it would be read as an option.
+ID = re.compile(r"[A-Za-z0-9_.:][A-Za-z0-9_.:-]*")
+
+
 def _id(value: Any, what: str) -> str:
-    if not isinstance(value, str) or not value:
-        raise Failed(f"{what}: an id that is not a string")
+    if not isinstance(value, str) or not ID.fullmatch(value):
+        raise Failed(f"{what}: an id that is not a plain id string")
     return value
 
 
@@ -147,7 +152,11 @@ def ensure(deck: Deck, login: str, home: str, clock: Callable[[], float] = time.
     workspaces = _field(listing, "workspaces", what="workspace list")
     if not isinstance(workspaces, list):
         raise Failed("workspace list: workspaces is not a list")
-    ours = [w for w in workspaces if isinstance(w, dict) and w.get("label") == LABEL]
+    # An entry without a `label` is a shape not understood, not an unlabelled workspace: reading it as "none of ours"
+    # would create a second harness workspace on every start. A present null is an unlabelled one.
+    if not all(isinstance(w, dict) and "label" in w for w in workspaces):
+        raise Failed("workspace list: an entry is not an object with a label")
+    ours = [w for w in workspaces if w["label"] == LABEL]
     if len(ours) > 1:
         raise Failed(f"{len(ours)} workspaces are labelled {LABEL}; refusing to choose one")
     command = enter_command(login, home)
