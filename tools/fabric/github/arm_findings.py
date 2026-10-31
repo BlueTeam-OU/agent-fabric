@@ -10,11 +10,12 @@ The rule, as the request states it:
   - a Finding is open until a LATER review judges its label fixed or not-real; the latest judgement of it wins, so a
     real, partly or not-fixed after a fixed opens it again. A judgement goes to its own chain whenever that chain
     ever raised the label, open or closed (a repeated fixed re-closes its own, #437 F1); only a label its chain
-    never raised goes to the chains begun before its own, less every Finding raised on the judging review's own
-    head (another engine's review of that head numbers from F1 too, and its findings are not what this one judged:
-    #437 round 3 F5); among those, the newest earlier Finding of the label, a fixed or not-real taking an open one
-    first. Two findings that share a label are told apart by nothing but that
-    order: a judgement may close the wrong one and leave the right one open, which over-blocks —
+    never raised goes to the chains begun before its own; among those, the newest earlier Finding of the label, a
+    fixed or not-real taking an open one first. In both, a judgement never applies to a Finding raised on its own
+    head unless its own base is that head: another engine's review of the same range numbers from F1 too, in
+    another chain (#437 round 3 F5) or in the same one (both bases one chain's head, #437 round 4 F8), and its
+    findings are not what this one judged; a review whose base is that head (H..H, the next round) has read them.
+    Two findings that share a label are told apart by nothing but that order: a judgement may close the wrong one and leave the right one open, which over-blocks —
     the accepted cost; under-blocking is the defect this gate exists for;
   - a review read as nothing — no body from the API, a body with no machine lines, a malformed line — is unknown,
     never "no findings": the gate refuses naming it.
@@ -113,16 +114,19 @@ def read(reviews: list, trusted: set[str]) -> Reading:
             continue
         # Judged before this review's own findings are added: a review never judges what it raises itself.
         for label, verdict, _ in parsed.judgements:
-            same = [f for f in out.findings if f.label == label]
+            # Never a Finding raised on this review's own head, unless its base is that head: a second engine's
+            # review of the same range raises its own F1, which this judgement never saw, whether the two bases start
+            # two chains (#437 round 3 F5) or continue one (both on a chain's head h0, #437 round 4 F8); closing it
+            # would arm with that F1 unjudged. A review of H..H (an adjudication, the next round) read the findings
+            # raised on H, and judges them. The filter is on both pools, so a chain that raised the label only on
+            # this head counts as never having raised it.
+            same = [f for f in out.findings if f.label == label and (f.head != marker.head or marker.base == marker.head)]
             # Its own chain whenever that chain ever raised the label, open or closed: a repeated `F1 | fixed` (a
             # second engine on the range, the next round restating it) re-closes its own F1 and never spills onto
             # an earlier chain's open F1 (#437 F1). Only a label its chain never raised goes to the chains begun
-            # before, never one raised on this review's own head: a second engine's review of the same head (Codex
-            # and Claude both at H1 on base B, two chains) raises its own F1, which this judgement never saw; closing
-            # it would arm with that F1 unjudged (#437 round 3 F5). Within the chosen chains, newest first, a
-            # clearing verdict preferring one still open.
+            # before. Within the chosen chains, newest first, a clearing verdict preferring one still open.
             mine = [f for f in same if f.chain == chain]
-            pool = mine or [f for f in same if chain_first[f.chain] < chain_first[chain] and f.head != marker.head]
+            pool = mine or [f for f in same if chain_first[f.chain] < chain_first[chain]]
             pool.sort(key=lambda f: -f.order)
             if verdict in CLEARS:
                 pool = [f for f in pool if f.open] + [f for f in pool if not f.open]

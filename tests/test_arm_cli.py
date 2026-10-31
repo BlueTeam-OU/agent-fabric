@@ -814,6 +814,23 @@ def main() -> int:
             check(f"a judgement {when} on its own head closes chain A's F1/F2, never codex's F1/F2 of that head: refused",
                   rc == 1 and "2 finding(s) open" in out and "z.py:1" in out and "z.py:2" in out
                   and "review 5721000001" not in out and "pr merge" not in calls(), out)
+        # #437 round 4 F8: Codex and Claude both review base h0 (chain A's head), head HEAD: one chain, A's. Codex raises
+        # its own F1 on HEAD; Claude's F1 fixed judges A's F1 raised on h0, never Codex's, whichever was posted first.
+        a1 = review(5722000001, "a" * 40, h0, "Finding: F1 | P2 | likely | x.py:1 | A's F1", at="2026-10-30T01:00:00Z")
+        codex1 = review(5722000002, h0, HEAD, "Finding: F1 | P1 | certain | z.py:1 | codex's F1", at="2026-10-30T02:00:00Z")
+        for when, at in (("posted after codex", "2026-10-30T03:00:00Z"), ("posted before codex", "2026-10-30T01:30:00Z")):
+            plain(); reviews(a1, codex1, review(5722000003, h0, HEAD, "Judgement: F1 | fixed | done\nFinding: none", at=at))
+            rc, out = run("7", "--basis", "b")
+            check(f"one chain, a judgement {when} on head HEAD closes h0's F1, never codex's F1 of HEAD: refused",
+                  rc == 1 and "1 finding(s) open" in out and "z.py:1" in out and "review 5722000002" in out
+                  and "review 5722000001" not in out and "pr merge" not in calls(), out)
+        plain(); reviews(a1, codex1, review(5722000003, h0, HEAD, "Judgement: F1 | fixed | done\nFinding: none",
+                                            at="2026-10-30T03:00:00Z"),
+                         review(5722000004, HEAD, HEAD, "Judgement: F1 | fixed | adjudicated\nFinding: none",
+                                at="2026-10-30T04:00:00Z"))
+        rc, out = run("7", "--basis", "b")
+        check("control: a review with base HEAD, head HEAD judges the F1 raised on HEAD: armed",
+              rc == 0 and "no finding open across 4 review(s) in 1 chain(s)" in out and "ARMED #7" in out, out)
 
         plain(); reviews(first, fresh)
         why = "a P3 on a path this PR does not touch; j470 takes it"
