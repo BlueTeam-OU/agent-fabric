@@ -10,8 +10,10 @@ The rule, as the request states it:
   - a Finding is open until a LATER review judges its label fixed or not-real; the latest judgement of it wins, so a
     real, partly or not-fixed after a fixed opens it again. A judgement goes to its own chain whenever that chain
     ever raised the label, open or closed (a repeated fixed re-closes its own, #437 F1); only a label its chain
-    never raised goes to the chains begun before its own; among those, the newest earlier Finding of the label, a
-    fixed or not-real taking an open one first. Two findings that share a label are told apart by nothing but that
+    never raised goes to the chains begun before its own, less every Finding raised on the judging review's own
+    head (another engine's review of that head numbers from F1 too, and its findings are not what this one judged:
+    #437 round 3 F5); among those, the newest earlier Finding of the label, a fixed or not-real taking an open one
+    first. Two findings that share a label are told apart by nothing but that
     order: a judgement may close the wrong one and leave the right one open, which over-blocks —
     the accepted cost; under-blocking is the defect this gate exists for;
   - a review read as nothing — no body from the API, a body with no machine lines, a malformed line — is unknown,
@@ -115,9 +117,12 @@ def read(reviews: list, trusted: set[str]) -> Reading:
             # Its own chain whenever that chain ever raised the label, open or closed: a repeated `F1 | fixed` (a
             # second engine on the range, the next round restating it) re-closes its own F1 and never spills onto
             # an earlier chain's open F1 (#437 F1). Only a label its chain never raised goes to the chains begun
-            # before. Within the chosen chains, newest first, a clearing verdict preferring one still open.
+            # before, never one raised on this review's own head: a second engine's review of the same head (Codex
+            # and Claude both at H1 on base B, two chains) raises its own F1, which this judgement never saw; closing
+            # it would arm with that F1 unjudged (#437 round 3 F5). Within the chosen chains, newest first, a
+            # clearing verdict preferring one still open.
             mine = [f for f in same if f.chain == chain]
-            pool = mine or [f for f in same if chain_first[f.chain] < chain_first[chain]]
+            pool = mine or [f for f in same if chain_first[f.chain] < chain_first[chain] and f.head != marker.head]
             pool.sort(key=lambda f: -f.order)
             if verdict in CLEARS:
                 pool = [f for f in pool if f.open] + [f for f in pool if not f.open]

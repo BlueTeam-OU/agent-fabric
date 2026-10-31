@@ -800,6 +800,20 @@ def main() -> int:
         rc, out = run("7", "--basis", "b")
         check("control: a judgement in chain A's own chain closes A's F1, B's stays open",
               rc == 1 and "review 5720000002" in out and "review 5720000001" not in out, out)
+        # #437 round 3 F5: Codex and Claude both review HEAD on base B, two chains begun after chain A at H0. Claude's
+        # F1/F2 fixed judges A's, never Codex's F1/F2 raised on its own head, whichever of the two was posted first.
+        h0 = "cccc0001" + "7" * 32
+        a12 = review(5721000001, "a" * 40, h0, "Finding: F1 | P2 | likely | x.py:1 | A's F1\n"
+                                                "Finding: F2 | P3 | likely | x.py:2 | A's F2", at="2026-10-30T01:00:00Z")
+        codex = review(5721000002, b2, HEAD, "Finding: F1 | P1 | certain | z.py:1 | codex's F1\n"
+                                              "Finding: F2 | P2 | likely | z.py:2 | codex's F2", at="2026-10-30T02:00:00Z")
+        judged = "Judgement: F1 | fixed | done\nJudgement: F2 | fixed | done\nFinding: none"
+        for when, at in (("posted after codex", "2026-10-30T03:00:00Z"), ("posted before codex", "2026-10-30T01:30:00Z")):
+            plain(); reviews(a12, codex, review(5721000003, b2, HEAD, judged, at=at))
+            rc, out = run("7", "--basis", "b")
+            check(f"a judgement {when} on its own head closes chain A's F1/F2, never codex's F1/F2 of that head: refused",
+                  rc == 1 and "2 finding(s) open" in out and "z.py:1" in out and "z.py:2" in out
+                  and "review 5721000001" not in out and "pr merge" not in calls(), out)
 
         plain(); reviews(first, fresh)
         why = "a P3 on a path this PR does not touch; j470 takes it"
