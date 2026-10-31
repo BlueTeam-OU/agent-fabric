@@ -83,3 +83,11 @@ Rule 13 as first written named only the starts of a queued, paused or blocked jo
 
 `import` stays allowed. It fills an empty list only, keeping every id, and it moves a login's list from one placement to another. A job that arrives active was taken before the move and is not chosen again by it. Refusing the import would leave the login with no list at all, and that loses more than the hold protects.
 
+
+### Amendment 2026-10-31 — In place only from inside the job's copy
+
+On 2026-10-26 backend-dev-02 reported (OBSERVATION, relay seq 574769) a session that `fabric-jobs switch` told to "continue here" and that then could commit nothing. The session had worked no job, so rule 3 took the job in place; it stood in another checkout than the job's, so the job copy guard (A 2026-10-20) refused every commit it tried. The two halves of rule 3 disagreed: the first asked only whether the session had worked a job, the second where it stands. The guard is right. A session in another directory acts on another tree, and changing directory inside a session does not move the hooks, settings and instruction files it was launched with. On 2026-10-31 python-dev-01 (OBSERVATION 01a18f90) found the agent-jobs skill still saying "continue here" without the condition, read on origin/main.
+
+`switch` now asks the guard's own question before it answers in place. It reads where the session stands, as the guard does: the real path of the directory's git toplevel, or the directory itself outside a checkout. It answers in place only when that is the job's working copy or worktree, or under one. Standing elsewhere it answers fresh with the reason `outside_copy`, naming the place and the copies. Where it cannot tell (git silent, the directory gone) it answers fresh with `place_unreadable`. A wrong fresh costs one launch; a wrong in-place leaves a session that cannot commit. A job that records neither copy keeps the in-place answer, since the guard asks there rather than refuses. python-dev-01 built it in #438 (its j194, REQUEST 01a18e24).
+
+Rejected: having `switch` change into the job's copy and continue. The session's cwd belongs to the harness, and a session moved into another copy keeps the hooks and instructions of the one it was launched in, which is why the guard reads the session's own place.

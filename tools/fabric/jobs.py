@@ -198,11 +198,17 @@ with any tree under ~/projects is exit 1, nothing removed, the path named (an em
 Each switch appends one line to the old and one to the new job's log: the outcome and its evidence, and the branch.
 `switch` still never passes an active job, takes the job named or the first in the order (a blocked job whose blockers
 cleared first, then queued and paused by priority, paused first, then the oldest), and with nothing queued offers the pool's.
-A session that has worked no job has nothing to settle and takes the job in place; "worked" is read from the list: a
+A session that has worked no job has nothing to settle and takes the job in place, from inside the job's copy (below); "worked" is read from the list: a
 transition whose old or new state is `active` (a start, a block, a delivery, a finish or a drop of the active job) writes
 the harness session id (CLAUDE_CODE_SESSION_ID), when the environment has one, into the job's log entry, and a session is one
 that appears in any entry, so a session launched with its job already active is known once it finishes it.
 With no session id in the environment (an unlaunched shell) the job that last left `active` counts, so `switch` says fresh.
+"Inside the job's copy" (the job copy guard's own, job-copy-guard.py): the real path of the current directory's git toplevel (the
+directory itself outside a checkout) equal to, or under, the job's `working_copy` or `worktree`, read before the list is locked.
+Standing elsewhere the verdict is fresh with `reason` "outside_copy" (--json also carries `here` and `copies`) and the text says
+where and why; a place that cannot be read (git silent, the directory gone) is fresh with `reason` "place_unreadable" and `here`
+null: a false fresh costs one launch, a false in-place leaves a session the guard refuses. A job that records neither copy keeps
+the in-place answer, the guard asking there. A session that has worked a job is fresh as before, `reason` "worked".
 The fleet hold (ADR-037 rule 13; hold.json, read by hold_view.py): while this login is held, or its hold.json cannot be read
 (which holds), `switch` and `next` settle the job being left as above and its build output is cleared, then stop with exit 1
 naming the hold (reason, decision, who set it, how long ago): no job is started, no fabric-fresh printed, nothing queued or
@@ -241,7 +247,7 @@ from fabric_jobs.branching import TYPES  # noqa: E402, F401
 from fabric_jobs.sweep import sweep  # noqa: E402, F401
 from fabric_jobs.tidy import tidy  # noqa: E402, F401
 from fabric_jobs.transfer import export_jobs, import_jobs  # noqa: E402, F401
-from fabric_jobs.verbs import decide, add, repoint, pool_list, pool_claim, list_jobs, show_job, switch_job, change  # noqa: E402, F401
+from fabric_jobs.verbs import decide, outside_copy, standing, add, repoint, pool_list, pool_claim, list_jobs, show_job, switch_job, change  # noqa: E402, F401
 
 
 def main(argv: list[str] | None = None) -> int:

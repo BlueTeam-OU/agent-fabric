@@ -150,8 +150,15 @@ Every job after a finished one starts in a fresh session (the owner):
   ask first. The launcher starts a new session in that job's working
   copy, with the job in its opening prompt.
 - **This session has worked no job yet** (launched on its own, not by
-  `fabric-fresh --job`, whose session already has its job active):
-  "continue here". It is already fresh, so take the job in place.
+  `fabric-fresh --job`, whose session already has its job active) **and
+  stands in the job's copy** (its working copy or worktree, or under
+  one): "continue here". It is already fresh, so take the job in place.
+- **It has worked no job, but stands elsewhere** (another checkout, or a
+  place `switch` could not read): "fresh session", the reason said.
+  Run the `fabric-fresh --job <id>` it prints, as above. Never `cd` into
+  the job's copy instead: the job copy guard reads where the session
+  stands and refuses every commit from outside it, and a session keeps
+  the hooks and instructions it was launched with wherever it moves.
 
 A fresh session costs this conversation's context, and a cold prompt
 cache; that is the point. A launch reads the fabric anew (the prompt,

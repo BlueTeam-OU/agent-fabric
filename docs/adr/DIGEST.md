@@ -860,25 +860,27 @@ its record disagree, the record wins. Look it up, never read it whole:
 - One list per login (`agents/<login>/jobs.json`, through
   `runtime/identity.py`); seven states, one active (§5 rules 1–2).
 - `fabric-jobs switch` (alias `next`): after a worked job, the next starts
-  fresh (`fabric-fresh --job <id>`); else in place (§5 rule 3).
+  fresh (`fabric-fresh --job <id>`), as outside the job's copy; else in
+  place (r3).
 - Jobs come from the agent, the owner, a delivered REQUEST (§5 rules
   4–5, 11).
 - The owner reads every list (`fabric-ctl jobs`, §5 rule 6).
 - A 2026-10-08 — priority, never preempting; blocking rank; a role pool
   (§5 rules 7–10).
-- A 2026-10-09 — a stale waiter still blocks (§5 rule 8).
-- A 2026-10-09 — a REQUEST to a login is queued on its list (§5 rule 11).
-- A 2026-10-09 — a job may be a plan's step (§5 rule 11).
-- A 2026-10-11 — every job after a worked one starts fresh (§5 rule 3).
-- A 2026-10-12 — checkable blockers (§5 rule 8).
-- A 2026-10-14 — `paused`; `fabric-jobs switch` (§5 rules 2, 10).
+- A 2026-10-09 — a stale waiter still blocks (r8).
+- A 2026-10-09 — a REQUEST to a login is queued on its list (r11).
+- A 2026-10-09 — a job may be a plan's step (r11).
+- A 2026-10-11 — every job after a worked one starts fresh (r3).
+- A 2026-10-12 — checkable blockers (r8).
+- A 2026-10-14 — `paused`; `fabric-jobs switch` (r2/r10).
 - A 2026-10-15 — text reads as built.
-- A 2026-10-16 — landed delivered jobs swept to done (§5 rule 12).
-- A 2026-10-18 — no-artifact close, a reason (§5 rule 10).
-- A 2026-10-20 — commits fenced to job copies (§5 rule 3).
-- A 2026-10-21 — switch to clean targets, unbuilt (§5 rule 10).
-- A 2026-10-30 — fleet hold (§5 rule 13).
-- A 2026-10-30 — held, no start (§5 rule 13).
+- A 2026-10-16 — landed delivered jobs swept to done (r12).
+- A 2026-10-18 — no-artifact close, a reason (r10).
+- A 2026-10-20 — commits fenced to job copies (r3).
+- A 2026-10-21 — switch to clean targets, unbuilt (r10).
+- A 2026-10-30 — fleet hold (r13).
+- A 2026-10-30 — held, no start (r13).
+- A 2026-10-31 — in place only inside the job's copy (r3).
 - Keywords: fresh session, intake, priority, claim, sweep, unhold.
 
 ### ADR-038 — Each agent owns its key and its secrets (Accepted)
