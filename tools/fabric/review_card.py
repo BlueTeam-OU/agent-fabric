@@ -2,8 +2,9 @@
 """tools/fabric/review_card.py — a project's review card: where it is and how large it may be (agent-fabric ADR-020).
 
 One definition for the three that judge it: review_brief.py, which renders it into every brief and refuses one over the
-cap; the pre-commit hook (tools/fabric/guards/commit_hooks.py), which refuses a commit that leaves it over the cap; and
-lint (tools/fabric/lint_rules/docs.py), which every project CI that lints its .agent-fabric/ runs. Without the last two
+cap; the pre-commit hook (tools/fabric/guards/commit_hooks.py), which refuses a commit that stages it over the cap (one
+already committed over it does not stop a commit that leaves it untouched); and lint (tools/fabric/lint_rules/card.py),
+which every project CI that lints its .agent-fabric/ runs. Without the last two
 the renderer was the only judge, and it judged only at review time: a managed project's card reached 2396 bytes over
 two commits nothing refused (j475), and every review of that project then failed until it was cut.
 

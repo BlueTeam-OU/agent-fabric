@@ -734,6 +734,16 @@ def acquire_cpu(leases: str, policy: CpuPolicy, label: str, wait_s: int, *,
         sleep(min(max(0.0, uniform(CPU_POLL_S - CPU_JITTER_S, CPU_POLL_S + CPU_JITTER_S)), started + wait_s - now))
 
 
+def _number_below(have: str, bound: int, floor: int = 0) -> bool:
+    """floor <= have < bound for a digit string. Leading zeros do not count
+    toward the length, so 0000000002 is 2; the length test keeps int() off a
+    digit string past its conversion limit, and is above any budget."""
+    if NUMBER_RE.fullmatch(have) is None:
+        return False
+    digits = have.lstrip("0")
+    return len(digits) < 10 and floor <= int(digits or "0") < bound
+
+
 def cpu_child_env(env: dict[str, str] | os._Environ[str], slot: CpuSlot,
                   say: Callable[[str], None] = err) -> dict[str, str]:
     """The environment of a slot's child: its thread budget (item 2) and the
@@ -750,7 +760,7 @@ def cpu_child_env(env: dict[str, str] | os._Environ[str], slot: CpuSlot,
         have = out.get(var, "")
         # Empty, 0 and junk are no bound a caller chose; the length cap keeps
         # int() off a digit string past its conversion limit.
-        lower = NUMBER_RE.fullmatch(have) is not None and len(have) < 10 and 0 < int(have) < slot.jobs
+        lower = _number_below(have, slot.jobs, floor=1)
         out[var] = have if lower else j
     out[SLOT_ENV] = f"{slot.k}/{slot.n}"
     out["MSBUILDDISABLENODEREUSE"] = "1"
@@ -761,9 +771,7 @@ def cpu_child_env(env: dict[str, str] | os._Environ[str], slot: CpuSlot,
     have = out.get(TEST_JOBS_ENV, "")
     if not have:
         out[TEST_JOBS_ENV] = j
-    # A digit string of 10 or more is above any budget; the length test keeps
-    # int() off one past its conversion limit.
-    elif NUMBER_RE.fullmatch(have) and (len(have) >= 10 or int(have) > slot.jobs):
+    elif NUMBER_RE.fullmatch(have) and not _number_below(have, slot.jobs + 1):
         say(f"fabric-lease: {TEST_JOBS_ENV}={have} lowered to {j} (cpu slot {slot.k}/{slot.n})\n")
         out[TEST_JOBS_ENV] = j
     return out

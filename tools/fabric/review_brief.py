@@ -411,7 +411,7 @@ def _count(v: object) -> int | None:
 
 # --- validation --------------------------------------------------------------
 
-def validate(req: dict, lenses_dir: str | None = None) -> list[str]:
+def validate(req: dict, lenses_dir: str | None = None, engine: str = "claude") -> list[str]:
     """Every refusal, by field. Empty means the request renders."""
     problems: list[str] = []
     for key in req:
@@ -445,6 +445,9 @@ def validate(req: dict, lenses_dir: str | None = None) -> list[str]:
         problems.append("repository: required (the live clone's path)")
     elif not os.path.isdir(os.path.join(repo, ".git")) and not os.path.isfile(os.path.join(repo, ".git")):
         problems.append(f"repository: {repo} is not a git working copy")
+    elif engine == "claude" and (refusal := session_repository_refusal(repo)):
+        # Codex reads its clone itself, never through the session's review tools.
+        problems.append(refusal)
     rng, diff = req.get("range"), req.get("diff")
     if bool(rng) == bool(diff):
         problems.append("range / diff: exactly one — a base..head range, or a diff file in the scratchpad")
@@ -658,6 +661,49 @@ def dispatching_session_pid(proc: str = "/proc", start: int | None = None) -> in
     return None
 
 
+# Names the session clone a brief is checked against instead of the claude ancestor's directory: a test names its
+# fixture clone, and "" says there is no session, so nothing is checked. It moves an early refusal only; the review
+# tools still read nothing outside the clone they were started for.
+SESSION_CLONE_ENV = "FABRIC_REVIEW_SESSION_CLONE"
+
+
+def session_clone(proc: str = "/proc", start: int | None = None) -> str | None:
+    """The directory the dispatching session was started in, or None without a session (a shell, CI). The review tools
+    read that clone and its worktrees only (review_mcp/gittools.allowed_repositories, from CLAUDE_PROJECT_DIR), and
+    CLAUDE_PROJECT_DIR reaches hooks and MCP servers, never a Bash call: the claude process's own working directory
+    is the same place, or a worktree of the same clone after EnterWorktree, whose worktree list is the same set."""
+    if SESSION_CLONE_ENV in os.environ:
+        return os.environ[SESSION_CLONE_ENV] or None
+    pid = dispatching_session_pid(proc, start)
+    if pid is None:
+        return None
+    try:
+        return os.readlink(os.path.join(proc, str(pid), "cwd"))
+    except OSError:
+        return None
+
+
+def session_repository_refusal(repo: str, proc: str = "/proc") -> str | None:
+    """Why a reviewer dispatched from this session could not read `repo`, or None. A brief naming another clone
+    renders and dispatches, and the reviewer's every tool call is refused, so its report reads nothing and
+    post-review refuses the coverage after a whole review was spent (OBSERVATION 01a17a20). One rule, the
+    review server's own, read once here, before anything is dispatched."""
+    clone = session_clone(proc)
+    if clone is None:
+        return None
+    from review_mcp import gittools, scope  # noqa: PLC0415 — only a session's render needs the server's rule
+    try:
+        allowed = gittools.allowed_repositories(project_dir=clone)
+    except scope.ToolError as exc:
+        return (f"repository: this session's review tools read no repository ({exc}; the session was started in "
+                f"{clone}); dispatch the review from a session started in {repo}'s clone")
+    if os.path.realpath(repo) in allowed:
+        return None
+    return (f"repository: {repo} is not this session's clone ({allowed[0]}) or one of its worktrees, the only "
+            "repositories its review tools read; the reviewer would read nothing and post-review would refuse its "
+            f"coverage. Dispatch the review from a session started in {repo}'s clone")
+
+
 def mark_in_use(path: str, proc: str = "/proc") -> None:
     """Write `fabric-in-use` (pid line, UTC timestamp line) into the worktree's own git
     directory. `fabric-branches --sweep` once removed a pinned evidence worktree while
@@ -733,10 +779,10 @@ def prepare_evidence(req: dict) -> tuple[str | None, bool]:
     return ensure_head_worktree(req["repository"], info["head_sha"]) if info else (None, False)
 
 
-def refusals(req: dict, allow_rationale: bool = False, lenses_dir: str | None = None) -> list[str]:
+def refusals(req: dict, allow_rationale: bool = False, lenses_dir: str | None = None, engine: str = "claude") -> list[str]:
     """Every refusal render() raises that needs no evidence: what a caller
     runs before it makes a worktree, so a request that will not render creates nothing."""
-    problems = validate(req, lenses_dir)
+    problems = validate(req, lenses_dir, engine)
     if not allow_rationale:
         problems += [f"{field}: {sentence!r} — {why}; state what must be true instead (or --allow-rationale to render it flagged)"
                      for field, sentence, why in rationale_findings(req)]
@@ -788,7 +834,7 @@ def render(req: dict, lenses_dir: str | None = None, allow_rationale: bool = Fal
     tests pass them in). `evidence_path` is the pinned head's worktree, made by
     the caller (prepare_evidence), so that rendering has no side effect."""
     rationale = rationale_findings(req)
-    if (problems := refusals(req, allow_rationale, lenses_dir)):
+    if (problems := refusals(req, allow_rationale, lenses_dir, engine)):
         raise RequestError(problems)
     known = lenses(lenses_dir)
     mode = req["mode"]

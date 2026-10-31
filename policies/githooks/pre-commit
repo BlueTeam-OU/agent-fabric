@@ -3,6 +3,8 @@
 # fabric-coordinator role guards (everything in agent-fabric itself, `.agent-fabric/` in a
 # managed project) is refused unless the live binding holds the role or a carve-out admits it
 # (the locale holder, a contributor), and the decision records are consistent in what it commits.
+# First, for every committer: no staged file or name holds a value of the account's own secrets
+# (agent-fabric ADR-012 §5 rule 9, tools/fabric/guards/secret_values.py).
 #
 # A forwarder (ADR-040 §5 rule 1): the decision, and every reason for it, is
 # tools/fabric/guards/commit_hooks.py on the fleet's pinned Python; git runs a hook by path, so

@@ -18,6 +18,10 @@ import re
 import shutil
 import sys
 
+# Fixture repositories are no session's clone: a run from inside a Claude Code session would otherwise be refused
+# them (review_brief.session_repository_refusal), and a run from CI would not. Subprocesses inherit it.
+os.environ["FABRIC_REVIEW_SESSION_CLONE"] = ""
+
 ROOT = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
 AGENT = os.path.join(ROOT, "runtime", "claude-code", "agents", "code-review.md")
 SIZE_CAP = 13_500   # 12_288 until 2026-09-19: the owner's code-as-memory policy gave the reviewer one more section (agent-fabric ADR-015 §5 rule 7); 13_000 until j296 gave it the machine lines errors.py reads
@@ -495,6 +499,45 @@ def test_the_in_use_marker(tmp: str) -> None:
         g(repo, "worktree", "remove", "--force", want)
 
 
+def test_a_repository_the_sessions_review_tools_cannot_read_is_refused(tmp: str) -> None:
+    """The review tools read the session's clone and its worktrees only, so a brief naming another clone is refused
+    before the dispatch, not after a review that read nothing (OBSERVATION 01a17a20). The session is the claude ancestor's
+    working directory; without one nothing is checked."""
+    clone, other = mkrepo(tmp, "sessclone"), mkrepo(tmp, "otherclone")
+    linked = os.path.join(tmp, "sessclone-wt")
+    g(clone, "worktree", "add", "-q", "--detach", linked, "HEAD")
+    proc = _fake_proc(os.path.join(tmp, "proc3"), [(50, "claude", 1), (60, "bash", 50), (70, "python3", 60)])
+    noclaude = _fake_proc(os.path.join(tmp, "proc4"), [(60, "bash", 1), (70, "python3", 60)])
+    real_clone, saved = rb.session_clone, os.environ.pop(rb.SESSION_CLONE_ENV)
+
+    def started_in(fake: str, directory: str | None) -> None:
+        if directory:
+            os.symlink(directory, os.path.join(fake, "50", "cwd"))
+        rb.session_clone = lambda proc_="/proc", start=None: real_clone(fake, 70)
+    try:
+        started_in(proc, linked)
+        assert real_clone(proc, 70) == linked, "the session's directory is the claude process's cwd"
+        assert rb.session_repository_refusal(clone) is None, "the clone, from a session in its worktree"
+        assert rb.session_repository_refusal(linked) is None, "the worktree itself"
+        assert refusals(base_request(linked)) == [], "a brief naming a worktree of the clone renders"
+        probs = refusals(base_request(other))
+        assert any(p.startswith(f"repository: {other} is not this session's clone") for p in probs), probs
+        os.unlink(os.path.join(proc, "50", "cwd"))
+        started_in(proc, tmp)
+        probs = refusals(base_request(clone))
+        assert any("this session's review tools read no repository" in p for p in probs), probs
+        started_in(noclaude, None)
+        assert real_clone(noclaude, 70) is None and refusals(base_request(other)) == [], "no session, nothing checked"
+        os.environ[rb.SESSION_CLONE_ENV] = clone
+        assert real_clone(noclaude, 70) == clone, "the variable names the clone"
+        assert any("is not this session's clone" in p for p in refusals(base_request(other)))
+        assert refusals(base_request(other), engine="codex") == [], "Codex reads its clone itself"
+    finally:
+        rb.session_clone = real_clone
+        os.environ[rb.SESSION_CLONE_ENV] = saved
+        g(clone, "worktree", "remove", "--force", linked)
+
+
 def test_every_refusal_names_its_field(tmp: str) -> None:
     repo = mkrepo(tmp, "repo2")
     ok = base_request(repo)
@@ -829,7 +872,7 @@ def main() -> int:
              test_the_incident_rules_are_still_there, test_the_re_review_rule_is_measured_by_turns, test_the_new_rules_are_stated_once,
              test_render_carries_every_heading_once_and_the_named_lenses, test_the_project_review_card,
              test_a_base_the_default_branch_does_not_contain_is_refused, test_the_dispatch_header, test_the_evidence_mode, test_a_pinned_brief_checks_out_its_head_detached, test_a_refused_pinned_request_leaves_no_worktree, test_reusing_and_remaking_a_head_worktree, test_the_in_use_marker,
-             test_every_refusal_names_its_field,
+             test_a_repository_the_sessions_review_tools_cannot_read_is_refused, test_every_refusal_names_its_field,
              test_the_rationale_lint_refuses_verdicts_and_passes_facts, test_re_review_inlines_the_previous_report_and_names_the_new_range,
              test_a_finding_adjudication_carries_the_findings_it_judges, test_a_diff_file_reads_the_card_at_the_default_branch_tip,
              test_the_yaml_subset_and_the_cli, test_the_parser_refuses_what_it_cannot_keep,

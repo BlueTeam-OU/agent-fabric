@@ -2,7 +2,8 @@
 # policies/githooks/commit-msg — refuses a commit message carrying machine attribution BEFORE
 # it becomes a commit, repeats the fence pre-commit holds (the Fabric-Role trailer it writes is
 # what CI reads), stamps the Kind: trailer, and holds a decision record's body edit to its
-# Amendments row or an ADR-Editorial: trailer.
+# Amendments row or an ADR-Editorial: trailer. First, it refuses a message that holds a value of
+# the account's own secrets (agent-fabric ADR-012 §5 rule 9).
 #
 # A forwarder (ADR-040 §5 rule 1): the decision, and every reason for it, is
 # tools/fabric/guards/commit_hooks.py on the fleet's pinned Python; git runs a hook by path, so
