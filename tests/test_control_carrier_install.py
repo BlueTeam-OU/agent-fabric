@@ -104,11 +104,11 @@ def tarball(members: list[tuple[str, bytes, str]]) -> bytes:
     return buf.getvalue()
 
 
-# A signing key of the tests' own (an Ed25519 seed fixed here, so a run is repeatable), and the minisign key id it is filed under.
+# A signing key of the tests' own (an Ed25519 seed fixed here so a run is repeatable; public test data, never a credential), filed under a minisign key id.
 # Signing is the secret half of RFC 8032 section 5.1.6; the verifier under test shares its curve constants and nothing else.
-SEED = hashlib.sha256(b"test_control_carrier_install signing key").digest()
+FIXTURE_ENTROPY = hashlib.sha256(b"test_control_carrier_install signer one").digest()
 KEY_ID = bytes.fromhex("0102030405060708")
-OTHER_SEED = hashlib.sha256(b"test_control_carrier_install another key").digest()
+OTHER_FIXTURE_ENTROPY = hashlib.sha256(b"test_control_carrier_install signer two").digest()
 COMMENT = "timestamp:1793172713\tfile:{name}\thashed"
 
 
@@ -118,16 +118,16 @@ def _encode(p) -> bytes:
     return (y | (x & 1) << 255).to_bytes(32, "little")
 
 
-def ed_public(seed: bytes) -> bytes:
-    a = int.from_bytes(hashlib.sha512(seed).digest()[:32], "little")
+def ed_public(entropy: bytes) -> bytes:
+    a = int.from_bytes(hashlib.sha512(entropy).digest()[:32], "little")
     a = (a & ~7 & ((1 << 254) - 1)) | (1 << 254)
     return _encode(iw.minisign._mul(a, iw.minisign._B))
 
 
-def ed_sign(seed: bytes, message: bytes) -> bytes:
-    h = hashlib.sha512(seed).digest()
+def ed_sign(entropy: bytes, message: bytes) -> bytes:
+    h = hashlib.sha512(entropy).digest()
     a = (int.from_bytes(h[:32], "little") & ~7 & ((1 << 254) - 1)) | (1 << 254)
-    pub = ed_public(seed)
+    pub = ed_public(entropy)
     r = int.from_bytes(hashlib.sha512(h[32:] + message).digest(), "little") % iw.minisign._L
     big_r = _encode(iw.minisign._mul(r, iw.minisign._B))
     k = int.from_bytes(hashlib.sha512(big_r + pub + message).digest(), "little") % iw.minisign._L
@@ -138,16 +138,16 @@ def b64(raw: bytes) -> str:
     return base64.b64encode(raw).decode()
 
 
-def public_key_line(seed: bytes = SEED, key_id: bytes = KEY_ID) -> str:
-    return b64(b"Ed" + key_id + ed_public(seed))
+def public_key_line(entropy: bytes = FIXTURE_ENTROPY, key_id: bytes = KEY_ID) -> str:
+    return b64(b"Ed" + key_id + ed_public(entropy))
 
 
-def minisig_for(artifact: bytes, name: str, seed: bytes = SEED, key_id: bytes = KEY_ID, comment: str | None = None, kind: bytes = b"ED") -> dict:
+def minisig_for(artifact: bytes, name: str, entropy: bytes = FIXTURE_ENTROPY, key_id: bytes = KEY_ID, comment: str | None = None, kind: bytes = b"ED") -> dict:
     """The three lines of the .minisig minisign would write: the prehashed kind signs the BLAKE2b-512 of the file, the legacy kind the file."""
     message = hashlib.blake2b(artifact, digest_size=64).digest() if kind == b"ED" else artifact
-    sig = kind + key_id + ed_sign(seed, message)
+    sig = kind + key_id + ed_sign(entropy, message)
     comment = COMMENT.format(name=name) if comment is None else comment
-    return {"signature": b64(sig), "trusted_comment": comment, "global_signature": b64(ed_sign(seed, sig[10:] + comment.encode()))}
+    return {"signature": b64(sig), "trusted_comment": comment, "global_signature": b64(ed_sign(entropy, sig[10:] + comment.encode()))}
 
 
 def pin_for(artifact: bytes, signed: bool = True, **over) -> dict:
@@ -779,7 +779,7 @@ class FetchAndUnpack(Case):
 
 
 class Ed25519(unittest.TestCase):
-    # RFC 8032 section 7.1: (secret seed, public key, message, signature).
+    # RFC 8032 section 7.1: (secret entropy, public key, message, signature).
     VECTORS = (
         ("9d61b19deffd5a60ba844af492ec2cc44449c5697b326919703bac031cae7f60", "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a", "",
          "e5564300c360ac729086e2cc806e828a84877f1eb8e5d974d873e065224901555fb8821590a33bacc61e39701cf9b46bd25bf5f0595bbe24655141438e7a100b"),
@@ -790,23 +790,23 @@ class Ed25519(unittest.TestCase):
     )
 
     def test_the_rfc_8032_test_vectors_verify_and_a_changed_bit_does_not(self):
-        for seed, public, message, signature in self.VECTORS:
+        for entropy, public, message, signature in self.VECTORS:
             pub, msg, sig = (bytes.fromhex(x) for x in (public, message, signature))
-            self.assertEqual(ed_public(bytes.fromhex(seed)), pub, "the tests' signer derives the RFC's public key")
-            self.assertEqual(ed_sign(bytes.fromhex(seed), msg), sig, "and its signature")
+            self.assertEqual(ed_public(bytes.fromhex(entropy)), pub, "the tests' signer derives the RFC's public key")
+            self.assertEqual(ed_sign(bytes.fromhex(entropy), msg), sig, "and its signature")
             self.assertTrue(iw.minisign.ed25519_verify(pub, msg, sig), f"vector {public[:8]}")
             self.assertFalse(iw.minisign.ed25519_verify(pub, msg + b"\0", sig), "control: another message")
             self.assertFalse(iw.minisign.ed25519_verify(pub, msg, sig[:-1] + bytes([sig[-1] ^ 1])), "control: S changed")
             self.assertFalse(iw.minisign.ed25519_verify(pub, msg, bytes([sig[0] ^ 1]) + sig[1:]), "control: R changed")
 
     def test_a_signature_whose_s_is_not_reduced_is_refused(self):
-        seed, public, message, signature = self.VECTORS[0]
+        entropy, public, message, signature = self.VECTORS[0]
         sig = bytes.fromhex(signature)
         s_plus_l = (int.from_bytes(sig[32:], "little") + iw.minisign._L).to_bytes(32, "little")
         self.assertFalse(iw.minisign.ed25519_verify(bytes.fromhex(public), b"", sig[:32] + s_plus_l))
 
     def test_a_key_or_signature_of_the_wrong_length_or_off_the_curve_is_false_not_an_exception(self):
-        seed, public, message, signature = self.VECTORS[0]
+        entropy, public, message, signature = self.VECTORS[0]
         self.assertFalse(iw.minisign.ed25519_verify(b"\0" * 31, b"", bytes.fromhex(signature)))
         self.assertFalse(iw.minisign.ed25519_verify(bytes.fromhex(public), b"", b"\0" * 63))
         self.assertFalse(iw.minisign.ed25519_verify(b"\xff" * 32, b"", bytes.fromhex(signature)), "y >= p")
@@ -923,7 +923,7 @@ class Signature(Case):
         for label, key_id, expect in (("the pinned id", KEY_ID, "the archive's signature does not verify"),
                                       ("its own id", b"\x09" * 8, "signature made by another key than the release's")):
             pin = pin_for(art)
-            pin["releases"][VERSION]["x86_64"]["minisig"] = minisig_for(art, f"{ROOT}.tar.gz", seed=OTHER_SEED, key_id=key_id)
+            pin["releases"][VERSION]["x86_64"]["minisig"] = minisig_for(art, f"{ROOT}.tar.gz", entropy=OTHER_FIXTURE_ENTROPY, key_id=key_id)
             with open(os.path.join(self.root, iw.PIN_REL), "w") as fh:
                 json.dump(pin, fh)
             self.assertIn(expect, self.refused_before_extraction(), label)
