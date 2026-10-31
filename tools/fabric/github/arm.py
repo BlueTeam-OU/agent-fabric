@@ -14,6 +14,8 @@ nothing wrote a false record.
   argv      <pr-number> --basis "<one line>"
             [--boundary | --no-boundary "<why>" --waiver <message-id|seq>]
             [--authorization <message-id|seq>]
+            [--defer "<review-head8>:F<n>" "<why>"]...
+            [--defer-job j<n> "<why>"]...
             [--any-owner] [--dry-run] [-h|--help]
             --no-boundary and --waiver come together; either alone is
             usage (exit 2)
@@ -26,7 +28,10 @@ nothing wrote a false record.
             (fabric-ctl, run as a program: <it> <login> presence
             --json), AGENT_FABRIC_WHOAMI (fabric-whoami, run as a
             program: <it> --json; the role of this session by its
-            binding), AGENT_FABRIC_ROOT
+            binding), AGENT_FABRIC_JOBS (fabric-jobs, run as a program:
+            <it> list --all --json, <it> show <id> --json),
+            AGENT_FABRIC_REVIEW_POSTERS (who besides the PR's author posts
+            a counted review; gate 4c), AGENT_FABRIC_ROOT
   stdout    `arm: ` lines — what each gate found, and the watcher line
             (none for a PR that merged on the arming)
   stderr    `arm: REFUSED #N — <why>` on a refusal; `arm: <why>` when a
@@ -38,8 +43,8 @@ nothing wrote a false record.
             direct repository only merged; 1 refused — the
             reason is the last line; 2 gh / pr-gate / pr-review-status /
             the project's arm.json / the relay / fabric-ctl / fabric-whoami
-            / the role catalogue could not
-            answer, the read-back is idle with the head not in the base,
+            / the role catalogue / fabric-jobs / the PR's reviews could
+            not answer, the read-back is idle with the head not in the base,
             closed or on another head (on a direct repository, anything
             but merged), or usage
 
@@ -156,6 +161,16 @@ this clone's remote as trial.json is (or AGENT_FABRIC_ARM_CONFIG):
                     pre-push enforces it (agent-fabric ADR-019 §5 rule 1).
 A project with no arm.json is exit 2: a boundary the tool cannot read is
 never judged absent.
+
+GATE 4c (REQUEST 01a18fe0; #437 review 1): a finding open in any review
+chain refuses (arm_findings), --defer "<review-head8>:F<n>" "<why>"
+lifting one; then a blocked job of this login on the head branch refuses,
+unless every one of its blockers has cleared (fabric-jobs list --json
+`cleared`: true), which waits on nothing and is said. A parked job keeps
+the branch it started on, so a wait on another PR reads here as well: the
+default stays refuse, and --defer-job j<n> "<why>" lifts that one job,
+recorded in the comment as --defer is; one naming no blocked job on the
+branch is refused.
 """
 from __future__ import annotations
 
@@ -172,7 +187,7 @@ sys.path.insert(0, os.path.dirname(HERE))
 import gh  # noqa: E402
 import git  # noqa: E402
 import roots  # noqa: E402
-from github import arm_policy, common, landed, pr_gate, repo_policy  # noqa: E402
+from github import arm_findings, arm_policy, common, landed, pr_gate, repo_policy  # noqa: E402
 # The rules' names stay importable from here, where the oracle and callers
 # reach them as arm.<name>.
 from github.arm_rules import (  # noqa: E402, F401
@@ -238,6 +253,28 @@ What it refuses, in order, and why:
      reviews ("codex: absent, no review or marker on <head>" in the output
      and the basis). Its open P1 or P2 still blocks. The marker counts only as the first line of a review
      object on the head, from the account a blind review counts from.
+  4c. a finding left open in ANY review chain, not only the latest: every
+     review object whose first line is the v2 marker, from an account the
+     blind review counts from (the PR's author, AGENT_FABRIC_REVIEW_POSTERS),
+     read oldest first; a review whose base= is an earlier one's head=
+     continues its chain, any other starts one. A `Finding:` stays open until
+     a LATER review's `Judgement:` of its label says fixed or not-real (the
+     latest judgement wins; it goes to the newest earlier finding of that
+     label in its own chain, then in earlier chains). Every open finding
+     refuses, at any P-level, named by review id, head, label, level, path
+     and summary; a review with no body, no machine lines or a malformed one
+     is unknown and refuses too. The remedy: a re-review on that chain, or
+     --defer "<review-head8>:F<n>" "<why>", which lifts that one finding and
+     goes into the comment; a --defer naming no open finding is refused.
+     Then this login's jobs (fabric-jobs list --all --json, show for a job
+     the list gives no branch): a BLOCKED job whose branch is the PR's head
+     ref refuses, naming it and its blocker. A blocked job whose blockers have
+     all cleared (`cleared`: true) waits on nothing: said, not refused. A job
+     keeps the branch it started on when it is parked, so a wait on another
+     PR reads here too: --defer-job j<n> "<why>" lifts that one job and goes
+     into the comment; one naming no blocked job on the branch is refused.
+     Another login's PR (--any-owner): its jobs are not readable here, said
+     and not refused (and a --defer-job has nothing to lift: refused);
   5. the count rule (fabric-pr gate's classifier; the 8 and the 16 here are
      the default numbers of the repository's arming policy, tools/fabric/
      github/arm_policy.py: the fleet's, with the settings repository's file for
@@ -288,6 +325,8 @@ Options:
   --waiver <id|seq>     the waiver role holder's message (MESSAGE-ID or relay seq)
   --authorization <id|seq>  the policy's authority role holder's message (AUTHORIZATION above), for a PR under its minimum
   --any-owner           arm a PR whose branch is not this session's
+  --defer "<head8>:F<n>" "<why>"  lift one open finding of gate 4c (repeatable); recorded in the comment
+  --defer-job j<n> "<why>"  lift one blocked job of gate 4c whose wait is not this PR's (repeatable); recorded in the comment
   --dry-run             evaluate every gate, arm nothing, post nothing
   --repo <owner/name|project>  the PR's repository, whose arm.json and policy apply, not the cwd checkout's
 
@@ -295,11 +334,12 @@ Exit codes:
   0  armed or merged (or, with --dry-run, would arm)
   1  refused — the reason is the last line
   2  gh / pr-gate / pr-review-status / arm.json / the relay / fabric-ctl /
-     fabric-whoami / the role catalogue could not answer, or usage
+     fabric-whoami / the role catalogue / fabric-jobs could not answer, or usage
 
 Environment: AGENT_FABRIC_PR_GATE, AGENT_FABRIC_PR_REVIEW_STATUS,
 AGENT_FABRIC_PR_SESSION, AGENT_FABRIC_ARM_CONFIG,
-AGENT_FABRIC_GZCOORD_INBOX, AGENT_FABRIC_CTL, AGENT_FABRIC_WHOAMI."""
+AGENT_FABRIC_GZCOORD_INBOX, AGENT_FABRIC_CTL, AGENT_FABRIC_WHOAMI,
+AGENT_FABRIC_JOBS, AGENT_FABRIC_REVIEW_POSTERS."""
 
 
 WORKFLOWS = ".github/workflows"
@@ -707,12 +747,149 @@ def check_engines(num: str, head: str, engines: list[str], refuse, additional: l
                        for e in absent)])
 
 
+def review_posters() -> set[str]:
+    """AGENT_FABRIC_REVIEW_POSTERS as pr-review-status binds it. Unreadable is exit 2 here, never none: fewer
+    trusted accounts is fewer reviews read, and a finding in an unread review would arm."""
+    try:
+        posters = json.loads(os.environ.get("AGENT_FABRIC_REVIEW_POSTERS") or "[]")
+    except ValueError:
+        posters = None
+    if not isinstance(posters, list) or not all(isinstance(x, str) for x in posters):
+        raise Unanswered("AGENT_FABRIC_REVIEW_POSTERS is not a JSON array of logins: the reviews gate 4c reads cannot be told")
+    return set(posters)
+
+
+def check_open_findings(repo: str, num: str, pr: dict, defers: list, refuse) -> str:
+    """Gate 4c (arm_findings): refuse on every finding open in any chain and every review read as nothing, at any
+    P-level; a --defer lifts one named finding, and one naming no open finding is refused, so a typo cannot pass.
+    Returns what the comment records of the deferrals, or ""."""
+    author = str((pr.get("author") or {}).get("login") or "")
+    trusted = review_posters() | ({author} if author else set())
+    try:
+        reviews = gh.api(f"repos/{repo}/pulls/{num}/reviews?per_page=100", paginate=True)
+    except gh.GhError as e:
+        raise Unanswered(f"cannot list #{num}'s reviews ({e.reason}): gate 4c reads every chain") from None
+    if not isinstance(reviews, list):
+        raise Unanswered(f"#{num}'s reviews did not read as a list: gate 4c reads every chain")
+    got = arm_findings.read(reviews, trusted)
+    if got.unknown:
+        raise refuse(f"{len(got.unknown)} review(s) whose findings cannot be read — {'; '.join(got.unknown[:3])}"
+                     f"{f' (and {len(got.unknown) - 3} more)' if len(got.unknown) > 3 else ''}: an unread review is unknown,"
+                     f" never clean; re-post it with its machine lines (Finding:/Judgement:), or review again")
+    still = got.open
+    lifted = []
+    for what, key, why in defers:
+        hit = [f for f in still if arm_findings.matches(f, key)]
+        if not hit:
+            raise refuse(f"--defer {what} names no open finding (open: "
+                         f"{', '.join(f'{f.head[:8]}:{f.label}' for f in still) or 'none'}): a deferral must name one")
+        still = [f for f in still if f not in hit]
+        lifted += [(f, why) for f in hit]
+    if still:
+        named = "; ".join(f"{f.label} | {f.level} | {f.path} | {f.summary} (review {f.review_id}, raised on head"
+                          f" {f.head[:8]}, its chain now at {got.chains[f.chain][:8]})" for f in still[:5])
+        more = f" (and {len(still) - 5} more)" if len(still) > 5 else ""
+        raise refuse(f"{len(still)} finding(s) open in a review chain — {named}{more}: a re-review on that chain"
+                     f" (base = the chain's head) judging each fixed or not-real, or --defer \"<head8>:F<n>\" \"<why>\"")
+    for f, why in lifted:
+        say(f"finding {f.head[:8]}:{f.label} ({f.level}, review {f.review_id}) DEFERRED: {why}")
+    say(f"no finding open across {got.reviews} review(s) in {len(got.chains)} chain(s)"
+        f"{f', {len(lifted)} deferred' if lifted else ''}")
+    return " ".join(f"Deferred {f.head[:8]}:{f.label} ({f.level}, review {f.review_id}): {why}." for f, why in lifted)
+
+
+def check_jobs(branch: str, session: str, any_owner: bool, defer_jobs: list, refuse) -> str:
+    """Gate 4c, its jobs half: refuse while a job of this login whose branch is the PR's head ref is blocked on a
+    blocker not cleared. Another login's PR (--any-owner) has jobs this login cannot read: said, not refused. A
+    --defer-job lifts one such job, and one naming no blocking job is refused, so a typo cannot pass. Returns what
+    the comment records of the lifted jobs, or ""."""
+    if not branch.startswith(f"{session}/"):
+        say(f"jobs: not read — {branch} is another login's, whose jobs this login cannot read")
+        if defer_jobs:
+            raise refuse(f"--defer-job {defer_jobs[0][0]} names no blocked job: {branch}'s jobs are not read here")
+        return ""
+    jobs_cmd = program("AGENT_FABRIC_JOBS", "fabric-jobs")
+    rc, out = run_reader(jobs_cmd, ["list", "--all", "--json"])
+    try:
+        jobs = json.loads(out) if rc == 0 else None
+    except ValueError:
+        jobs = None
+    if not isinstance(jobs, list):
+        raise Unanswered(f"fabric-jobs list --all --json could not answer (exit {rc}): a blocked job on {branch} cannot be told")
+    blocking, cleared = [], []
+    for job in jobs:
+        if not isinstance(job, dict) or job.get("state") != "blocked":
+            continue
+        jid = str(job.get("id") or "")
+        on = job.get("branch") if "branch" in job else None
+        if on is None:
+            # The list leaves the key out where a job has none recorded; show is its whole record.
+            rc, shown = run_reader(jobs_cmd, ["show", jid, "--json"])
+            try:
+                on = (json.loads(shown) if rc == 0 else None) or {}
+            except ValueError:
+                on = None
+            if not isinstance(on, dict):
+                raise Unanswered(f"fabric-jobs show {jid} --json could not answer (exit {rc}): its branch cannot be told")
+            on = on.get("branch")
+        if on != branch:
+            continue
+        # `cleared` is true only when every checkable blocker has cleared; false, null (none told yet) or absent (a
+        # free-text blocker) all still wait.
+        if job.get("cleared") is True:
+            cleared.append(jid)
+        else:
+            blocking.append(job)
+    for jid in cleared:
+        say(f"jobs: {jid} on {branch} is blocked, but every blocker has cleared: it waits on nothing")
+    lifted = []
+    for jid, why in defer_jobs:
+        hit = [j for j in blocking if str(j.get("id")) == jid]
+        if not hit:
+            raise refuse(f"--defer-job {jid} names no blocked job on {branch} (blocked: "
+                         f"{', '.join(str(j.get('id')) for j in blocking) or 'none'}): a deferral must name one")
+        blocking = [j for j in blocking if j not in hit]
+        lifted += [(hit[0], why)]
+    if blocking:
+        job = blocking[0]
+        more = f" (and {len(blocking) - 1} more: {', '.join(str(j.get('id')) for j in blocking[1:])})" if len(blocking) > 1 else ""
+        raise refuse(f"job {job.get('id')} on {branch} is blocked — {job.get('blocked_on') or 'no blocker recorded'}{more}:"
+                     f" the work it waits on is not in this head; unblock it (fabric-jobs), or, when its wait is not"
+                     f" this PR's, --defer-job {job.get('id')} \"<why>\"")
+    for job, why in lifted:
+        say(f"job {job.get('id')} on {branch} DEFERRED: {why}")
+    say(f"jobs: none blocked on {branch}{f', {len(lifted)} deferred' if lifted else ''}")
+    return " ".join(f"Deferred job {job.get('id')} ({job.get('blocked_on') or 'no blocker recorded'}): {why}."
+                    for job, why in lifted)
+
+
 def arm(argv: list[str]) -> int:
     num = basis = no_boundary = waiver = authorization = ""
     boundary = any_owner = dry = False
+    defers: list[tuple[str, tuple[str, str], str]] = []
+    defer_jobs: list[tuple[str, str]] = []
     i = 0
     while i < len(argv):
         a = argv[i]
+        if a == "--defer":
+            what, why = (argv[i + 1:i + 3] + ["", ""])[:2]
+            key = arm_findings.defer_key(what)
+            if key is None:
+                raise Unanswered(f"--defer needs \"<review-head8>:F<n>\" \"<why>\", not '{what}' (try --help)")
+            if not why.strip() or why.startswith("--"):
+                raise Unanswered(f"--defer {what} needs the reason, the next argument")
+            defers.append((what, key, why.strip()))
+            i += 3
+            continue
+        if a == "--defer-job":
+            jid, why = (argv[i + 1:i + 3] + ["", ""])[:2]
+            if not re.fullmatch(r"j[1-9][0-9]*", jid):
+                raise Unanswered(f"--defer-job needs j<n> \"<why>\", not '{jid}' (try --help)")
+            if not why.strip() or why.startswith("--"):
+                raise Unanswered(f"--defer-job {jid} needs the reason, the next argument")
+            defer_jobs.append((jid, why.strip()))
+            i += 3
+            continue
         if a == "--basis":
             basis = argv[i + 1] if i + 1 < len(argv) else ""
             i += 2
@@ -771,7 +948,7 @@ def arm(argv: list[str]) -> int:
     except gh.GhError as e:
         raise Unanswered(f"cannot read the repository: {e.reason}") from None
     try:
-        pr = json.loads(gh.run(["pr", "view", num, "--json", "number,state,isDraft,headRefName,headRefOid,baseRefName,body,title"],
+        pr = json.loads(gh.run(["pr", "view", num, "--json", "number,state,isDraft,headRefName,headRefOid,baseRefName,body,title,author"],
                                what=f"gh pr view {num}"))
     except (gh.GhError, ValueError):
         # The repository named: from another project's checkout, #N is looked for in the cwd's (2026-10-18).
@@ -924,6 +1101,11 @@ def arm(argv: list[str]) -> int:
     # its unavailable marker or its absence lets the arm proceed on the required ones, and the basis says which.
     engines = arm_policy.required_engines(policy, is_boundary and not waiver)
     engines_out = check_engines(num, head, engines, refuse, arm_policy.additional_engines(policy, is_boundary and not waiver))
+
+    # 4c. a finding left open in any review chain, not only the latest (REQUEST 01a18fe0: #425 merged with F5 open)
+    deferred = check_open_findings(repo, num, pr, defers, refuse)
+    # …and a job of this login on the PR's branch that is blocked: the work it waits on is not in the head
+    deferred_jobs = check_jobs(branch, session, any_owner, defer_jobs, refuse)
 
     # 5. the count rule, from pr-gate's classifier
     rc, out = run_reader(fabric_pr("AGENT_FABRIC_PR_GATE", "gate"), ["--json", num])
@@ -1092,6 +1274,10 @@ def arm(argv: list[str]) -> int:
         comment += f" {authorized_by}"
     if engines_out:
         comment += f" {engines_out}"
+    if deferred:
+        comment += f" {deferred}"
+    if deferred_jobs:
+        comment += f" {deferred_jobs}"
     # A boundary armed at the repository's minimum or more needs no owner's word (gate 5), so the
     # record says that is what happened: a reader of the PR would
     # otherwise take an unmarked boundary arming for an oversight. Gate 5

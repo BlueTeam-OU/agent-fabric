@@ -175,7 +175,11 @@ address, where the relay's `sender` is a claim (ADR-033 §6).
    removed from the roster and revoked on every profile.
 4. The InterWeave programs are installed per account from a tagged
    InterWeave release archive whose version the fabric pins, by the
-   archive's own `install.sh`; never from a checkout build.
+   archive's own `install.sh`; never from a checkout build. Before it is
+   extracted the archive must match the pinned SHA-256 and verify against
+   the owner's minisign signature, pinned with the key InterWeave's
+   `packaging/release-keys.toml` holds on its main; a release with no
+   signature is not installed (A 2026-10-31).
 5. The carrier is one long-lived process per account under the client
    unit template, holding the lease of the `gzcoord` endpoint; it never
    opens the admin socket. The send and inbox adapters talk to it, and it
@@ -344,3 +348,4 @@ The body above reads current; each change's full note is in [history/ADR-064-ame
 | 2026-10-27 | One host is the first milestone; a second host is the next | §2 lead and one-host bullet; §5 rule 1; §7 |
 | 2026-10-28 | The pin moves to InterWeave v0.2.0; the record names the pin, not a version | §6, §8 |
 | 2026-10-28 | The control plane rides the profile's fabric-control endpoint through interweave-human | §3 first alternative; §5 rules 12 and 14; §6 |
+| 2026-10-31 | The archive is checked against the owner's minisign signature as well as its digest | §5 rule 4 |

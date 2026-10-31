@@ -126,6 +126,15 @@ regression, saying what it widened to and why. A re-review carries only the lens
 included: it verifies, it does not explore — so one that names none pays
 for no lens text.
 
+**A PR's full review** (`mode: review` with `pr` set) starts a review
+chain of its own, so the renderer reads the PR's reviews, as `fabric-pr
+arm`'s gate 4c does, and the brief lists each finding an earlier chain
+left open under "Open findings from earlier reviews", for the reviewer to
+answer in a `Judgement:` line by its label. It has the reviewer number its own
+findings past every label the PR's reviews used. A finding raised on the
+head under review is another engine's same round and is left out; reviews
+that cannot be listed, or a listed one that cannot be read, refuse the render (agent-fabric ADR-065 §5 rule 5).
+
 Derive it rather than edit it: `bin/fabric-review save <PR> <round> <
 report` keeps a round's report under this account's state, and
 `bin/fabric-review next REQUEST --pr <PR>` writes `REQUEST-rr<N>.json`

@@ -22,7 +22,9 @@ StartLimitBurst=5
 [Service]
 Type=simple
 # The user manager's PATH is minimal; ~/.local/bin is where the account's own tools are (claude).
-Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin
+# HERDR_CONFIG_PATH: the server reads the fabric's file, whose update checks are
+# off, instead of the account's config.toml (the file says why).
+Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin HERDR_CONFIG_PATH=%h/projects/agent-fabric/runtime/control/fleetdeck-harness.toml
 WorkingDirectory=%h/projects
 ExecStart=/usr/local/bin/agent-fabric-fleetdeck --session harness server
 # Type=simple: this runs as soon as the server is forked, not once it listens;

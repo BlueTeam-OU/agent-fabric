@@ -288,6 +288,7 @@ def report(run: Run) -> int:
         "collision_decisions": run.applied_decisions,
         "retitles": run.retitles,
         "merge_target_unresolved": run.unresolved_targets,
+        "superseded_harvests": run.superseded_harvests,
         "harvest": harvest_meta,
         "harvest_sources": {source: harvest_meta} if harvest_meta is not None else {},
         "watermarks": watermarks,
@@ -385,6 +386,11 @@ def report(run: Run) -> int:
               "it is — retarget the memory if a stale section remains, drop the target if it was applied):",
               file=sys.stderr)
         for note in run.unresolved_targets:
+            print(f"  {note}", file=sys.stderr)
+    if run.superseded_harvests:
+        print("\nSUPERSEDED HARVESTS (a memory whose text is the section a correction of this run replaces; "
+              "not written — update or delete the memory):", file=sys.stderr)
+        for note in run.superseded_harvests:
             print(f"  {note}", file=sys.stderr)
     if run.empty_crossrefs:
         print("\nCROSSREF EMPTY (written with no entry: no observation behind the role's slices "

@@ -9,6 +9,7 @@ from __future__ import annotations
 import configparser
 import os
 import sys
+import tomllib
 import unittest
 
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -46,6 +47,14 @@ class HarnessUnit(unittest.TestCase):
         self.assertEqual(words[1].replace("%h/projects/agent-fabric/", ""), "tools/fabric/control/harness_pane.py")
         self.assertTrue(os.path.isfile(os.path.join(HERE, "tools", "fabric", "control", "harness_pane.py")))
         self.assertEqual(words[2:], ["ensure"])
+
+    def test_the_server_reads_the_fabrics_config_with_the_update_checks_off(self):
+        env = dict(a.split("=", 1) for a in self.cp["Service"]["Environment"].split())
+        path = env["HERDR_CONFIG_PATH"]
+        self.assertTrue(path.startswith("%h/projects/agent-fabric/"))
+        with open(os.path.join(HERE, path.replace("%h/projects/agent-fabric/", "")), "rb") as fh:
+            config = tomllib.load(fh)
+        self.assertEqual(config, {"update": {"version_check": False, "manifest_check": False}})
 
     def test_a_stop_is_sigterm_to_every_process_and_outlasts_the_sessions_own_stop(self):
         s = self.cp["Service"]

@@ -476,8 +476,8 @@ class Apply(unittest.TestCase):
 
 
 class Source(unittest.TestCase):
-    """Where the policy comes from, with the real arm_policy.load and load_with_source: the registry, the clients file and the
-    settings repository's contents are the only things answered by the test."""
+    """Where the policy comes from, with the real arm_policy.load and load_with_source: the registry, the clients file, the
+    settings repository's contents and the fleet policy (fleet_policy, mocked to POLICY) are the only things answered by the test."""
     REGISTRY = {"projects": {"p": {"remotes": [f"https://github.com/{REPO}"], "client": "c"}}}
     CLIENTS = {"clients": {"c": {"settings_repo": "O/settings"}}}
 
@@ -495,7 +495,8 @@ class Source(unittest.TestCase):
         return api
 
     def patched(self, registered=True):
-        """The registry and the clients file as the files they are read from; nothing between them and load is replaced."""
+        """The registry and the clients file as the files they are read from, and fleet_policy mocked to POLICY; nothing else
+        between them and load is replaced."""
         real = arm_policy._read_json_file
         registry = self.REGISTRY if registered else {"projects": {}}
         return (mock.patch.object(arm_policy.workingcopy, "load_registry", return_value=registry),

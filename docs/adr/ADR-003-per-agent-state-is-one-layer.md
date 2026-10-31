@@ -87,6 +87,20 @@ directory 0700 and the files 0600, and its own schema version migrated
 in the opening transaction. Its path comes from
 `identity.agent_state_dir()`, as every other file's does.
 
+A lock file is not state. A writer that serializes on a `flock` holds
+it on a file of its own beside the state: `.lock` (`agent_lock`),
+`pool.json.lock` (`pool._locked`), and the control code's
+`busy-marker`, `busy-restart` and `busy-sync` (`control/busy.py`). Each
+is opened for writing with `O_CREAT`, because `flock` needs a
+descriptor and its first holder must be able to create it. But no
+byte of it is ever written or read: the lock is the open file
+description, and the kernel drops it with its holder. Rule 1 governs
+what state files hold, so it does not reach such a file, on three
+conditions. Its content is never written and never read. It is opened
+without `O_TRUNC`, mode 0600. And it is never removed or replaced,
+because a holder of the unlinked file and an opener of its successor
+would each believe they hold the lock (A 2026-10-31).
+
 A binding is per (agent, host). A working-copy rename merges history,
 never overwrites it.
 
@@ -124,7 +138,10 @@ state file an obvious place to get its writer.
    `O_NOFOLLOW`, mode 0600, one write and an fsync per batch of lines;
    and `gzcoord-sent.jsonl`, the send ledger, appended by
    `tools/fabric/gzcoord/send.py` and trimmed by rewrite, without
-   `agent_lock` yet (a known gap, to close) (A 2026-10-05).
+   `agent_lock` yet (a known gap, to close) (A 2026-10-05). A lock
+   file (§2) is not a write of state: one opened only to hold a
+   `flock`, never written, read, truncated or removed, mode 0600, needs
+   no writer in `identity.py` (A 2026-10-31).
 2. Every read-modify-write of per-agent state holds `agent_lock`, except
    the control code's own files (§2), which only it writes and the
    launcher only consumes; `restart.json` has a second writer,
@@ -187,3 +204,4 @@ The body above reads current; each change's full note is in [history/ADR-003-ame
 | 2026-09-28 | The job list is per-agent state | §5 rule 1: `jobs.json` and its writer `update_jobs` |
 | 2026-10-30 | The action ledger has two writers, serialized by a flock on the state directory | §2, §5 rules 1–2: the control code in Python, not Node; `actions-seen.json` claimed by agentd and `fabric-op` under `ActionLedger._locked`; two append-only logs; `pool.json`'s unlocked rewrite a named gap |
 | 2026-10-30 | The role pool is rewritten under its own lock | §2, §5 rule 2: `pool.json`'s read-modify-write holds a flock on `pool.json.lock` (#423); the gap is closed |
+| 2026-10-31 | A lock file is not state | §2, §5 rule 1: a file opened `O_CREAT` only to hold a `flock` (`.lock`, `pool.json.lock`, `busy-*`), never written, read, truncated or removed, mode 0600, is outside rule 1 |

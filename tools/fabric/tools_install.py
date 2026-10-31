@@ -106,7 +106,10 @@ The verdict, one per run:
              rustup-target pin: added by rustup, proved after the fact
   skipped    this account has no working copy of a project that declares
              the tool (the Doppler CLI stays off every other account: the
-             owner, 2026-10-08) — nothing was looked up, fetched or written
+             owner, 2026-10-08), or every such declaration names `roles`
+             and the account's bound role is not one of them (fabric-tools
+             does not check it there either) — nothing was looked up,
+             fetched or written
   failed     the fetch, the hash, the unpacking or the proof said no;
              whatever was already installed is untouched (but for the
              program-running kinds: a program that fails midway, or a link
@@ -913,7 +916,7 @@ def install_target(tool: str, entry: dict, home: str) -> dict:
 
 
 def install(tool: str, *, reg: dict, home: str, projects_dir: str | None = None,
-            fetch: Fetch = fetch_https) -> dict:
+            fetch: Fetch = fetch_https, role: str | None = None) -> dict:
     if not TOOL_NAME.fullmatch(tool or ""):
         return {"status": "refused", "tool": tool, "reason": "not a tool name"}
     declared = declarations(reg, tool)
@@ -924,6 +927,13 @@ def install(tool: str, *, reg: dict, home: str, projects_dir: str | None = None,
     if not wanted:
         return {"status": "skipped", "tool": tool,
                 "reason": f"no working copy of {', '.join(pid for pid, _ in declared)} on this account"}
+    # The same rule as the check's: a role-scoped pin (impeccable is brand-comms') was placed on every
+    # account with a working copy, then never checked there (#421 review §2). No role is no role.
+    wanted = [(pid, e) for pid, e in wanted if not e.get("roles") or role in e["roles"]]
+    if not wanted:
+        return {"status": "skipped", "tool": tool,
+                "reason": f"the bound role {role or '(none)'} is not one of the roles "
+                          f"{', '.join(sorted({r for _, e in declared for r in e.get('roles') or ()}))} it is pinned for"}
     for pid, e in wanted:
         bad = check_pin(e.get("install"))
         if bad:

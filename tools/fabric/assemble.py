@@ -54,6 +54,13 @@ Merge mode is the default: existing slices are read, and a claim whose
 `merge_target` names an existing section updates it instead of appending
 beside it. Regenerating from scratch would discard accumulated curation,
 so it is never done implicitly.
+
+A merge_target is judged against the claims of the same run as well as the
+corpus: two claims that both write one heading (one under it, one naming it
+in merge_target) are a contested heading the owner decides; a memory whose
+text is the section another memory corrects in the same run is not written
+and is listed under `superseded_harvests`; a merge_target that two parts of
+one topic hold is ambiguous, like one two topics hold.
 <<< help
 """
 
