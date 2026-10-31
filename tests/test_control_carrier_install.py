@@ -1076,9 +1076,9 @@ class AgainstMinisign(Case):
         sig = minisig_for(content, "a.tar.gz")
 
         def check(sig_lines):
+            first, comment, last = sig_lines.values()    # minisig_for's order, which the .minisig file's lines 2-4 follow
             with open(os.path.join(d, "a.minisig"), "w") as fh:
-                fh.write("untrusted comment: x\n" + sig_lines["signature"] + "\ntrusted comment: " + sig_lines["trusted_comment"] + "\n"
-                         + sig_lines["global_signature"] + "\n")
+                fh.write(f"untrusted comment: x\n{first}\ntrusted comment: {comment}\n{last}\n")
             return self.run_minisign("-V", "-m", "a.tar.gz", "-x", "a.minisig", "-P", key_line, cwd=d)
         self.assertEqual(check(sig).returncode, 0, "minisign accepts the signer's output")
         self.assertNotEqual(check({**sig, "trusted_comment": sig["trusted_comment"] + "x"}).returncode, 0, "control: an edited comment")
