@@ -902,7 +902,13 @@ def render(req: dict, lenses_dir: str | None = None, allow_rationale: bool = Fal
         out += [f"## {heading}", _items(req.get(key))]
     text, _ = card(req["repository"], info["card_base"] if info else _default_tip(req["repository"]))
     out += ["## Project review card", text if text else "(none)"]
-    handed = carried_for(req, info)[0] if info and engine == "claude" else None
+    handed = None
+    if info and engine == "claude":
+        handed, refused = carried_for(req, info)
+        if refused:
+            # refusals() read the reviews once; this second read can fail where that one passed, and a brief without
+            # the carried findings would have the reviewer reuse their labels (#437 round 4 F9).
+            raise RequestError(refused)
     if handed and handed["next"] > 1:
         pr = _count(req.get("pr"))
         out.append("## Open findings from earlier reviews")

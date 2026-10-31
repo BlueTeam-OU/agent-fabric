@@ -905,6 +905,16 @@ def test_a_prs_full_review_carries_the_findings_earlier_reviews_left_open(tmp: s
         # reviews that cannot be listed: refused, never rendered as none
         rb.earlier_reviews = lambda pr, r: None
         assert any(p.startswith("pr: #12's reviews cannot be listed") for p in refusals(req)), refusals(req)
+        # listed for the refusals, then not for the section: refused, never rendered without it (#437 round 4 F9)
+        calls = []
+        def first_only(pr, r):
+            calls.append(pr); return arm_findings.read(reviews, {"me"}) if len(calls) == 1 else None
+        rb.earlier_reviews = first_only
+        try:
+            rb.render(req)
+            raise AssertionError("a failed second read rendered a brief")
+        except rb.RequestError as e:
+            assert len(calls) == 2 and "cannot be listed" in str(e), (calls, e)
         # no PR, or not a full review: nothing is asked
         asked.clear(); rb.earlier_reviews = answer
         rb.render(base_request(repo))
