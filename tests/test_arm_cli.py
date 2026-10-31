@@ -781,6 +781,25 @@ def main() -> int:
         plain(); reviews(first, review(5710450122, b2, HEAD, "Finding: F2 | P1 | certain | a.py:3 | breaks"))
         rc, out = run("7", "--basis", "b")
         check("two open findings in two chains: both named", rc == 1 and "2 finding(s) open" in out and "F2 | P1 | a.py:3" in out, out)
+        # #437 F1: a repeated `F1 | fixed` in chain B found no OPEN F1 of its own and closed chain A's.
+        ha, hb1, hb2 = "aaaa0001" + "4" * 32, "bbbb0001" + "5" * 32, "bbbb0002" + "6" * 32
+        f1 = "Finding: F1 | P1 | certain | x.py:1 | the first chain's F1"
+        chain_a = review(5720000001, "a" * 40, ha, f1)
+        chain_b = [review(5720000002, b2, hb1, "Finding: F1 | P2 | likely | y.py:2 | the second chain's F1"),
+                   review(5720000003, hb1, hb2, "Judgement: F1 | fixed | done\nFinding: none"),
+                   review(5720000004, hb2, HEAD, "Judgement: F1 | fixed | still done\nFinding: none")]
+        plain(); reviews(chain_a, *chain_b)
+        rc, out = run("7", "--basis", "b")
+        check("a repeated fixed in chain B re-closes B's own F1, never chain A's: A's F1 open, refused",
+              rc == 1 and "1 finding(s) open" in out and "review 5720000001" in out and "x.py:1" in out
+              and "pr merge" not in calls(), out)
+        plain(); reviews(*chain_b)
+        rc, out = run("7", "--basis", "b")
+        check("control: chain B alone, its F1 judged fixed twice: armed", rc == 0 and "ARMED #7" in out, out)
+        plain(); reviews(chain_a, chain_b[0], review(5720000003, ha, hb2, "Judgement: F1 | fixed | done\nFinding: none"))
+        rc, out = run("7", "--basis", "b")
+        check("control: a judgement in chain A's own chain closes A's F1, B's stays open",
+              rc == 1 and "review 5720000002" in out and "review 5720000001" not in out, out)
 
         plain(); reviews(first, fresh)
         why = "a P3 on a path this PR does not touch; j470 takes it"
@@ -859,6 +878,54 @@ def main() -> int:
         rc, out = run("7", "--basis", "b", "--any-owner")
         check("another login's PR (--any-owner): its jobs said not read, not refused, never asked",
               rc == 0 and "jobs: not read" in out and "ARMED #7" in out and "jobs list" not in calls(), out)
+        reset(); set_pr("develop-qzapp/other/feat/x", "plain", ["docs/a.md"]); set_gate(9)
+        rc, out = run("7", "--basis", "b", "--any-owner", "--defer-job", "j9", "x")
+        check("…a --defer-job there has nothing to lift: refused", rc == 1 and "--defer-job j9 names no blocked job" in out, out)
+
+        # The cleared rule: fabric-jobs list --json's `cleared` is true once every checkable blocker has cleared.
+        spec = [{"spec": "pr:BlueTeam-OU/agent-fabric#438", "state": "cleared", "detail": "merged", "checked_at": "t"}]
+        plain(); put("jobs.json", json.dumps([dict(blocked, blockers=spec, cleared=True)]))
+        rc, out = run("7", "--basis", "b")
+        check("a blocked job whose blockers have all cleared waits on nothing: armed, said",
+              rc == 0 and "j9" in out and "every blocker has cleared" in out and "ARMED #7" in out, out)
+        for still, label in ((False, "false"), (None, "null: none told yet")):
+            plain(); put("jobs.json", json.dumps([dict(blocked, blockers=[dict(spec[0], state="waiting")], cleared=still)]))
+            rc, out = run("7", "--basis", "b")
+            check(f"control: cleared {label}: still waiting, refused", rc == 1 and "job j9" in out and "pr merge" not in calls(), out)
+
+        # A wait that is not this PR's: a parked job keeps the branch it started on (#437, j410 on #438).
+        print("arm: gate 4c — --defer-job")
+        other = dict(blocked, id="j410", blocked_on="pr:BlueTeam-OU/agent-fabric#438 merging")
+        plain(); put("jobs.json", json.dumps([other]))
+        rc, out = run("7", "--basis", "b")
+        check("the refusal names --defer-job and the job", rc == 1 and "--defer-job j410" in out, out)
+        why = "j410 waits on #438, no work of this PR"
+        plain(); put("jobs.json", json.dumps([other]))
+        rc, out = run("7", "--basis", "b", "--defer-job", "j410", why)
+        check("--defer-job j410 lifts it: armed, said", rc == 0 and f"job j410 on {me} DEFERRED: {why}" in out
+              and "1 deferred" in out and "ARMED #7" in out, out)
+        check("…and the comment carries it and its reason",
+              f"Deferred job j410 (pr:BlueTeam-OU/agent-fabric#438 merging): {why}." in calls(), calls())
+        plain(); put("jobs.json", json.dumps([other, blocked]))
+        rc, out = run("7", "--basis", "b", "--defer-job", "j410", why)
+        check("control: one of two lifted, the other still refuses", rc == 1 and "job j9" in out and "pr merge" not in calls(), out)
+        plain(); put("jobs.json", json.dumps([other, blocked]))
+        rc, out = run("7", "--basis", "b", "--defer-job", "j410", why, "--defer-job", "j9", "a supply already in")
+        check("…both lifted (repeatable): armed", rc == 0 and "2 deferred" in out and "ARMED #7" in out, out)
+        for jobs_now, what in (([other], "a job not blocked on the branch"),
+                               ([dict(other, branch="develop-qzapp/me/feat/other")], "a job blocked on another branch"),
+                               ([dict(other, cleared=True)], "a job whose blockers have cleared"),
+                               ([], "no job at all")):
+            plain(); put("jobs.json", json.dumps(jobs_now))
+            rc, out = run("7", "--basis", "b", "--defer-job", "j411", why)
+            check(f"--defer-job naming no blocked job on the branch ({what}): refused",
+                  rc == 1 and "--defer-job j411 names no blocked job" in out and "pr merge" not in calls(), out)
+        plain(); put("jobs.json", json.dumps([dict(other, cleared=True)]))
+        rc, out = run("7", "--basis", "b", "--defer-job", "j410", why)
+        check("…a cleared job named is not a blocking one: refused", rc == 1 and "names no blocked job" in out, out)
+        for bad in (("--defer-job", "410", why), ("--defer-job", "j410"), ("--defer-job", "j410", "--dry-run")):
+            plain(); rc, out = run("7", "--basis", "b", *bad)
+            check(f"{' '.join(bad)}: usage, exit 2", rc == 2 and "--defer-job" in out, out)
 
         print("arm: gate 5 — the classes that arm under 8 without asking")
         reset(); set_pr("develop-qzapp/me/docs/x", "Wording.\n\nClass: docs-only",
