@@ -1409,8 +1409,8 @@ its record disagree, the record wins. Look it up, never read it whole:
 
 ### ADR-064 — GZCoord carried over InterWeave: one host, beside the relay (Accepted)
 
-- One host, loopback only, is the first milestone; a second host the
-  next, by amendment; control on its own `fabric-control` endpoint
+- One host, loopback only, first; a second host next, by
+  amendment; control on its own `fabric-control` endpoint
   via `interweave-human` (rules 1, 12).
 - Dual run: both carriers, the relay of record (ADR-033 rule 7
   unchanged); the journal collapses by MESSAGE-ID; switching: an
@@ -1420,7 +1420,7 @@ its record disagree, the record wins. Look it up, never read it whole:
 - A roster keyed by agent id, each row signed by its login and
   countersigned by the coordinator, renders every profile's
   deny-by-default allowlist; keys minted in their own account; a
-  tagged, pinned release (rules 2-4).
+  tagged release pinned in release.json, signed (rules 2-4).
 - One direct send per recipient, no GossipSub; a receipt awaited,
   retried under one message_id, abandoned only by its operator;
   compress, then chunk, past 48 KiB; FROM checked against the PeerId;
@@ -1432,10 +1432,10 @@ its record disagree, the record wins. Look it up, never read it whole:
 - A 2026-10-27 — one host a milestone (rule 1).
 - A 2026-10-28 — pin v0.2.0 (§8).
 - A 2026-10-28 — control via `interweave-human` (§3, rules 12, 14).
+- A 2026-10-31 — minisign signature (rule 4).
 - Parity from arrival logs: missed, duplicate, offline counts, a
-  rollback drill (rule 11); built on release.json's pin (§8).
-- Keywords: InterWeave, carrier, relay, P5, interweave-human,
-  fabric-control.
+  rollback drill (rule 11).
+- Keywords: InterWeave, carrier, relay, P5.
 
 ### ADR-065 — The reviewer reads through pinned tools, says what it covered, and the next round starts where the last one stopped (Accepted)
 
