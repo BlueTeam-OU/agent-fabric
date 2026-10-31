@@ -1,0 +1,118 @@
+{
+  "_comment": "Template for each host's /etc/claude-code/managed-settings.json (agent-fabric ADR-043 rules 1 and 2), rendered by tools/fabric/managed_settings.py, which fills @ENTRY@ with <prefix>/managed/current/runtime/claude-code/managed/hook_entry.py and drops this comment, and installed by the host's operator as root (sudo fabric-managed install --sha <main's sha>). Rule 1: the built-in guard loads managed mods only, and the session refuses --plugin-dir, --plugin-url and --agents (disableSideloadFlags; rule 7's read-back is docs/live-checks/2026-10-31-managed-settings-2-1-316.md). Rule 2: the fleet's guards are managed hooks, which run before every mod and whose deny is final, each in exec form (no shell: the hook inherits the session's PATH and environment, so a shell or a program found by name would be the login's choice): the pinned interpreter by its absolute path, isolated (-I -S), running hook_entry.py, which runs the root-owned snapshot's guard module in a cleared environment. Matchers, events and timeouts are the workspace settings' as they were. review-fence is new: the review class's tool fence (ADR-065 rule 1), keyed on the payload's agent_type, so it holds whatever the login's agent file says. The transition: the workspace settings keep each guard, made a no-op by a test for /etc/claude-code/managed-settings.json, so a host without this file keeps its guards as before, and a host with it runs them only from here. Rule 2 is in force once the file is installed, and nothing is lost before that. Conveniences (the status line, SessionStart, tab-title, model-fallback-note) stay in the workspace settings.",
+  "pluginConfigs": {
+    "cc-plugin-sec-default@builtin": {
+      "options": {
+        "allowManagedModsOnly": true
+      }
+    }
+  },
+  "disableSideloadFlags": true,
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Agent",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/usr/local/bin/fabric-python",
+            "args": ["-I", "-S", "@ENTRY@", "agent-dispatch-guard"],
+            "timeout": 10
+          }
+        ]
+      },
+      {
+        "matcher": "Write|Edit|MultiEdit|NotebookEdit|Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/usr/local/bin/fabric-python",
+            "args": ["-I", "-S", "@ENTRY@", "subagent-clone-guard"],
+            "timeout": 10
+          }
+        ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/usr/local/bin/fabric-python",
+            "args": ["-I", "-S", "@ENTRY@", "pipe-status-guard"],
+            "timeout": 5
+          },
+          {
+            "type": "command",
+            "command": "/usr/local/bin/fabric-python",
+            "args": ["-I", "-S", "@ENTRY@", "self-kill-guard"],
+            "timeout": 5
+          },
+          {
+            "type": "command",
+            "command": "/usr/local/bin/fabric-python",
+            "args": ["-I", "-S", "@ENTRY@", "job-copy-guard"],
+            "timeout": 10
+          }
+        ]
+      },
+      {
+        "matcher": "Bash|Write|Edit|MultiEdit|NotebookEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/usr/local/bin/fabric-python",
+            "args": ["-I", "-S", "@ENTRY@", "review-fence"],
+            "timeout": 5
+          }
+        ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/usr/local/bin/fabric-python",
+            "args": ["-I", "-S", "@ENTRY@", "plan-hold"],
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "PreModelSwitch": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/usr/local/bin/fabric-python",
+            "args": ["-I", "-S", "@ENTRY@", "model-switch-guard"],
+            "timeout": 10,
+            "statusMessage": "agent-fabric: checking the switch keeps its family shim…"
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/usr/local/bin/fabric-python",
+            "args": ["-I", "-S", "@ENTRY@", "plan-hold"],
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/usr/local/bin/fabric-python",
+            "args": ["-I", "-S", "@ENTRY@", "plan-hold"],
+            "timeout": 5
+          }
+        ]
+      }
+    ]
+  }
+}
