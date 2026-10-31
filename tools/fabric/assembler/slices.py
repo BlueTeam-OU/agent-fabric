@@ -12,7 +12,7 @@ from assembler.core import layout, yaml_scalar
 
 
 REPORT_LISTS = ("files", "hygiene_problems", "rejected_hygiene", "redactions", "retired_in_siblings",
-                "oversized_claims", "clipped_descriptions", "migrated", "merge_target_unresolved", "held_back")
+                "oversized_claims", "clipped_descriptions", "migrated", "merge_target_unresolved", "superseded_harvests", "held_back")
 
 
 def drop_held(report: dict[str, Any], keys: list[str], paths: set[str]) -> None:

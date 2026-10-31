@@ -19,6 +19,9 @@ import tempfile
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import test_assemble as ta  # noqa: E402
+sys.path.insert(0, os.path.join(os.path.dirname(HERE), "tools", "fabric"))
+from assembler.slices import read_existing_slice  # noqa: E402
+from corrections import section_key  # noqa: E402
 from instance_fixtures import own_instance_tree  # noqa: E402 — tests/, the script's own directory
 own_instance_tree()
 
@@ -130,6 +133,184 @@ def test_the_command_runs_in_isolated_mode(tmp: str) -> None:
     assert "Advertisements are one-way" in ta.read(ta.dom(out, "alpha", "domain.md"))
 
 
+def tree_of(out: str) -> dict[str, str]:
+    """The corpus; the project's hygiene list is the fixture's, written by the first run of any case."""
+    return {k: v for k, v in ta.tree(out).items() if not k.endswith("hygiene.json")}
+
+
+def same_run_pair(tmp: str) -> tuple[str, str, str]:
+    """A corpus holding 'Issue 851' (dev-01's text); then a drain in which dev-01 harvests a newer 'Issue 851' (claim A,
+    memory `tracker`) and dev-02's memory `fix-note` names the heading in merge_target (claim B)."""
+    drain, claims_dir, out = ta.build(tmp, {"alpha": ta.claims("alpha", [
+        {"class": "domain", "topic": "tracker", "title": "Issue 851", "body": "Old text.", "evidence": ["a1"],
+         "observed_at": "2026-09-20"}])})
+    ta.with_agents(drain, {"a1": "dev-01", "a2": "dev-01", "b1": "dev-02"})
+    assert ta.run_assemble(drain, claims_dir, out).returncode == 0
+    ta.set_claims(claims_dir, "alpha", [
+        {"class": "domain", "topic": "tracker", "title": "Issue 851", "body": "A new lesson.", "evidence": ["a2"],
+         "observed_at": "2026-09-24"},
+        {"class": "domain", "topic": "fix-note", "title": "Issue 851 fixed", "body": "B correction.", "evidence": ["b1"],
+         "observed_at": "2026-09-25", "merge_target": "Issue 851"}])
+    return drain, claims_dir, out
+
+
+def test_d1_two_claims_writing_one_heading_stop_the_drain_and_the_owner_decides(tmp: str) -> None:
+    """j481 D1 (InterWeave #516, review 5716071440 F1): claim A under heading H (which the same-agent rule makes a
+    replacement of the corpus's H) and claim B naming H in merge_target were applied one over the other, and A's text
+    left the run with no report line. They are a contested heading: nothing written, both claim keys printed; a
+    supersede on B's key keeps B and names A's memory in collision_decisions."""
+    drain, claims_dir, out = same_run_pair(tmp)
+    before = tree_of(out)
+    standing = read_existing_slice(ta.dom(out, "alpha", "domain.md"))[1]["Issue 851"]
+    proc = ta.run_assemble(drain, claims_dir, out)
+    assert proc.returncode == 1, (proc.returncode, proc.stderr)
+    assert "alpha/domain:tracker#Issue 851@b1" in proc.stderr and "alpha/domain:tracker#Issue 851@a2" in proc.stderr, proc.stderr
+    assert tree_of(out) == before, "a refused drain writes nothing"
+    key = "alpha/domain:tracker#Issue 851@b1"
+    proc = ta.run_assemble(drain, claims_dir, out, "--collision-decisions", ta.decisions_file(tmp, {key: "supersede"}))
+    assert proc.returncode == 0, proc.stderr
+    text = ta.read(ta.dom(out, "alpha", "domain", "tracker.md"))
+    assert "B correction." in text and "A new lesson." not in text, text
+    assert description_of(ta.dom(out, "alpha", "domain", "tracker.md")) == "Issue 851 fixed"
+    rows = {d["key"]: d for d in json.loads(ta.read(ta.report_path(out)))["collision_decisions"]}
+    assert rows[key]["decision"] == "supersede" and rows[key]["memory"] == "fix-note", rows
+    # B replaced the section the corpus held, not A's text, which never stood there (the row the lost claim left).
+    (applied,) = json.loads(ta.read(ta.report_path(out)))["applied_corrections"]
+    assert applied["replaced_key"] == section_key(standing), applied
+    (lost,) = [d for d in rows.values() if d["decision"] == "superseded"]
+    assert lost["memory"] == "tracker" and lost["by"] == key, rows
+    # The positive control of the refusal: a pair of one text is no question (the same drain without B's difference).
+    ta.set_claims(claims_dir, "alpha", [
+        {"class": "domain", "topic": "tracker", "title": "Issue 851", "body": "B correction.", "evidence": ["a2"]},
+        {"class": "domain", "topic": "fix-note", "title": "Issue 851 fixed", "body": "B correction.", "evidence": ["b1"],
+         "merge_target": "Issue 851"}])
+    assert ta.run_assemble(drain, claims_dir, out, "--stamp", "2026-01-03").returncode == 0
+
+
+def test_d1_keep_both_and_drop_leave_no_claim_unreported(tmp: str) -> None:
+    drain, claims_dir, out = same_run_pair(tmp)
+    key = "alpha/domain:tracker#Issue 851@b1"
+    proc = ta.run_assemble(drain, claims_dir, out, "--collision-decisions", ta.decisions_file(tmp, {key: "keep-both"}))
+    assert proc.returncode == 0, proc.stderr
+    text = ta.read(ta.dom(out, "alpha", "domain", "tracker.md"))
+    assert "A new lesson." in text and "B correction." in text, text
+    drain, claims_dir, out = same_run_pair(os.path.join(tmp, "drop"))
+    proc = ta.run_assemble(drain, claims_dir, out, "--collision-decisions", ta.decisions_file(tmp, {key: "drop"}))
+    assert proc.returncode == 0, proc.stderr
+    text = ta.read(ta.dom(out, "alpha", "domain", "tracker.md"))
+    assert "A new lesson." in text and "B correction." not in text, text
+    assert [d["memory"] for d in json.loads(ta.read(ta.report_path(out)))["collision_decisions"]
+            if d["key"] == key] == ["fix-note"]
+
+
+def test_d2_a_description_follows_a_heading_the_file_holds(tmp: str) -> None:
+    """j481 D2 (F1): the description was the first claim's title whether or not that heading stood. A retire claim
+    filed first in a part that does not hold its section gave the part the cue 'Retire B'. A heading that stands
+    keeps the description it had; a slice no claim touches is not rewritten."""
+    big = "x " * 800
+    drain, claims_dir, out = ta.build(tmp, {"alpha": ta.claims("alpha", [
+        {"class": "solution", "topic": "big", "title": "A", "body": big, "evidence": ["h1"]},
+        {"class": "solution", "topic": "big", "title": "B", "body": big, "evidence": ["h2"]},
+        {"class": "solution", "topic": "calm", "title": "First", "body": "One.", "evidence": ["h1"]},
+        {"class": "solution", "topic": "calm", "title": "Second", "body": "Two.", "evidence": ["h1"]}])})
+    assert ta.run_assemble(drain, claims_dir, out, "--budget", "500").returncode == 0
+    calm = ta.proj(out, "alpha", "solution", "calm.md")
+    calm_before = ta.read(calm)
+    ta.set_claims(claims_dir, "alpha", [ta.retire("B", topic="big"),
+                                        {"class": "solution", "topic": "big", "title": "N", "body": "new", "evidence": ["h1"]}])
+    proc = ta.run_assemble(drain, claims_dir, out, "--budget", "500", "--stamp", "2026-01-02")
+    assert proc.returncode == 0, proc.stderr
+    first = ta.proj(out, "alpha", "solution", "big.md")
+    assert "## Retire B" not in ta.read(first) and description_of(first) == "A", description_of(first)
+    assert ta.read(calm) == calm_before, "an untouched multi-section slice is byte for byte what it was"
+    ta.set_claims(claims_dir, "alpha", [{"class": "solution", "topic": "calm", "title": "Third", "body": "Three.", "evidence": ["h1"]}])
+    assert ta.run_assemble(drain, claims_dir, out, "--budget", "500", "--stamp", "2026-01-03").returncode == 0
+    assert description_of(calm) == "Third", "a heading that stands is the description, as before"
+
+
+def test_d3_the_predecessor_of_a_same_run_correction_is_reported_not_written_back(tmp: str) -> None:
+    """j481 D3 (F2): memory `grow` still carries the text of 'Heading H'; memory `fix` corrects that section in this
+    drain. The pre-pass read the old text as standing, the writer put it in part 1 and the correction in part 2, and
+    the corrected text was back in the corpus. It is not written and the report names both memories."""
+    old = "h " * 850
+    drain, claims_dir, out = ta.build(tmp, {"alpha": ta.claims("alpha", [])})
+    directory = ta.dom(out, "alpha", "domain")
+    os.makedirs(directory)
+    for name, sections in (("grow.md", [("Big", "y " * 20)]), ("grow-2.md", [("Heading H", old.strip())])):
+        with open(os.path.join(directory, name), "w", encoding="utf-8") as fh:
+            fh.write("---\nrole: alpha\nclass: domain\ndescription: x\ntier: 2\nknowledge_scope: full\ntopic: grow\n"
+                     "origin:\n  - agent: unresolved\n    host: unknown\nderived_from:\n  - h1\n---\n\n"
+                     + "\n\n".join(f"## {h}\n\n{t}" for h, t in sections) + "\n")
+    ta.set_claims(claims_dir, "alpha", [
+        {"class": "domain", "topic": "grow", "title": "Heading H", "body": old, "evidence": ["h1"]},
+        {"class": "domain", "topic": "fix", "title": "Heading H, corrected", "body": "Corrected. " * 150,
+         "evidence": ["h2"], "merge_target": "Heading H"}])
+    proc = ta.run_assemble(drain, claims_dir, out, "--budget", "500")
+    assert proc.returncode == 0, proc.stderr
+    everything = "".join(ta.read(os.path.join(directory, n)) for n in os.listdir(directory))
+    assert "## Heading H\n" not in everything and "Heading H (2)" not in everything and "collisions:" not in everything, everything
+    assert "## Heading H, corrected" in everything
+    (note,) = json.loads(ta.read(ta.report_path(out)))["superseded_harvests"]
+    assert "'grow'" in note and "'fix'" in note, note
+
+
+def write_part(directory: str, name: str, sections: list[tuple[str, str]], topic: str = "grow") -> None:
+    os.makedirs(directory, exist_ok=True)
+    with open(os.path.join(directory, name), "w", encoding="utf-8") as fh:
+        fh.write(f"---\nrole: alpha\nclass: domain\ndescription: x\ntier: 2\nknowledge_scope: full\ntopic: {topic}\n"
+                 "origin:\n  - agent: unresolved\n    host: unknown\nderived_from:\n  - h1\n---\n\n"
+                 + "\n\n".join(f"## {h}\n\n{t}" for h, t in sections) + "\n")
+
+
+def test_d3_a_correction_replaces_the_kept_both_siblings_so_their_text_is_a_predecessor_too(tmp: str) -> None:
+    """The consolidation a merge_target does retires 'X (2)' with 'X': a memory whose text is the sibling's is the
+    correction's predecessor as much as the one whose text is 'X'."""
+    drain, claims_dir, out = ta.build(tmp, {"alpha": ta.claims("alpha", [])})
+    write_part(ta.dom(out, "alpha", "domain"), "grow.md", [("Heading H", "One."), ("Heading H (2)", "Two.")])
+    ta.set_claims(claims_dir, "alpha", [
+        {"class": "domain", "topic": "grow", "title": "Heading H", "body": "Two.", "evidence": ["h1"]},
+        {"class": "domain", "topic": "fix", "title": "Heading H, corrected", "body": "Corrected.", "evidence": ["h2"],
+         "merge_target": "Heading H"}])
+    proc = ta.run_assemble(drain, claims_dir, out)
+    assert proc.returncode == 0, proc.stderr
+    text = ta.read(ta.dom(out, "alpha", "domain", "grow.md"))
+    assert "Two." not in text and "Corrected." in text, text
+    assert len(json.loads(ta.read(ta.report_path(out)))["superseded_harvests"]) == 1
+
+
+def test_d4_a_merge_target_two_parts_of_one_topic_hold_is_ambiguous(tmp: str) -> None:
+    """j481 D4 (F2): the part a correction is written into is split_by_budget's grouping, not the target's; with the
+    heading in two parts it replaced one copy and the other stood. Refused like a heading two topics hold, nothing
+    written. Chosen over retiring the other copy with the correction: which copy is the true predecessor is the
+    author's to say, and a silent retire of the part the claim did not land in is the loss the run is refused for."""
+    drain, claims_dir, out = ta.build(tmp, {"alpha": ta.claims("alpha", [])})
+    directory = ta.dom(out, "alpha", "domain")
+    os.makedirs(directory)
+    for name, text in (("grow.md", "First text."), ("grow-2.md", "Second text.")):
+        with open(os.path.join(directory, name), "w", encoding="utf-8") as fh:
+            fh.write("---\nrole: alpha\nclass: domain\ndescription: x\ntier: 2\nknowledge_scope: full\ntopic: grow\n"
+                     "origin:\n  - agent: unresolved\n    host: unknown\nderived_from:\n  - h1\n---\n\n"
+                     f"## Heading H\n\n{text}\n")
+    ta.set_claims(claims_dir, "alpha", [
+        {"class": "domain", "topic": "fix", "title": "Heading H, corrected", "body": "Corrected.", "evidence": ["h2"],
+         "merge_target": "Heading H"}])
+    before = tree_of(out)
+    proc = ta.run_assemble(drain, claims_dir, out, "--budget", "500")
+    assert proc.returncode == 1 and "MERGE TARGET AMBIGUOUS" in proc.stderr and "grow-2.md" in proc.stderr, (proc.returncode, proc.stderr)
+    assert tree_of(out) == before, "a refused drain writes nothing"
+    # The positive control: with one copy the same correction is applied.
+    os.remove(os.path.join(directory, "grow-2.md"))
+    assert ta.run_assemble(drain, claims_dir, out, "--budget", "500").returncode == 0
+    assert "Corrected." in ta.read(os.path.join(directory, "grow.md"))
+    # The claim of the topic itself (its parts are one topic's, whichever part it lands in).
+    write_part(directory, "grow.md", [("Heading H", "First text.")])
+    write_part(directory, "grow-2.md", [("Heading H", "Second text.")])
+    ta.set_claims(claims_dir, "alpha", [{"class": "domain", "topic": "grow", "title": "Heading H, corrected",
+                                         "body": "Corrected.", "evidence": ["h2"], "merge_target": "Heading H"}])
+    proc = ta.run_assemble(drain, claims_dir, out, "--budget", "500")
+    assert proc.returncode == 1 and "MERGE TARGET AMBIGUOUS" in proc.stderr, (proc.returncode, proc.stderr)
+
+
 def main() -> int:
     cases = [
         test_an_owner_named_only_in_shared_with_gets_its_index,
@@ -137,6 +318,12 @@ def main() -> int:
         test_a_retire_beside_a_flat_file_clips_the_siblings_new_cue,
         test_a_carried_copy_dropped_clips_the_carried_files_new_cue,
         test_the_command_runs_in_isolated_mode,
+        test_d1_two_claims_writing_one_heading_stop_the_drain_and_the_owner_decides,
+        test_d1_keep_both_and_drop_leave_no_claim_unreported,
+        test_d2_a_description_follows_a_heading_the_file_holds,
+        test_d3_the_predecessor_of_a_same_run_correction_is_reported_not_written_back,
+        test_d3_a_correction_replaces_the_kept_both_siblings_so_their_text_is_a_predecessor_too,
+        test_d4_a_merge_target_two_parts_of_one_topic_hold_is_ambiguous,
     ]
     # Cases run because they are listed, so one written and not listed
     # would pass forever unrun (test_assemble.py's registry rule).
