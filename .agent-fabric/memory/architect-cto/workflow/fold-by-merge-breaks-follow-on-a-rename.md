@@ -5,7 +5,7 @@ topic: "fold-by-merge-breaks-follow-on-a-rename"
 description: "A branch that renames a file must not fold origin/main by merge while main still has a file under the renamed-to name; git log --follow loses the history. Rebase instead, and measure in a scratch clone."
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-28"
+distilled_at: "2026-10-31"
 origin:
   - agent: "architect-cto-01"
     host: "develop-qzapp"

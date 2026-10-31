@@ -5,7 +5,7 @@ topic: "regex-redos-fix-needs-old-new-comparison"
 description: "Narrowing a regex to stop backtracking in a refusing validator changes what it accepts; compare old and new exhaustively and pin nested/unbalanced must-refuse cases"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-18"
+distilled_at: "2026-10-31"
 origin:
   - agent: "python-dev-02"
     host: "develop-qzapp"

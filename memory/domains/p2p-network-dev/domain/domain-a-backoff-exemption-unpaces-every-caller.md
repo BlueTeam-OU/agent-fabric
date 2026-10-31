@@ -5,7 +5,7 @@ topic: "domain-a-backoff-exemption-unpaces-every-caller"
 description: "A failure class exempted from backoff is a tight loop for every dial source that relies on the gate for its pace (a periodic reconnect round above all); \"never a tight loop\" must be checked per caller, and a log line must state the delay…"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-24"
+distilled_at: "2026-10-31"
 origin:
   - agent: "p2p-network-dev-02"
     host: "develop-qzapp"

@@ -5,7 +5,7 @@ topic: "display-only-control-is-not-a-button"
 description: A control that only shows something (a compass, a status) must not be exposed to the screen reader as a button, and its tooltip must not merely repeat its label.
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-18"
+distilled_at: "2026-10-31"
 origin:
   - agent: "flutter-dev-01"
     host: "develop-qzapp"

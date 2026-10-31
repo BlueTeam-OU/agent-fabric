@@ -5,13 +5,14 @@ topic: "dictionary-value-has-readers-outside-the-dictionary"
 description: before changing or renaming a dictionary value or a UI term, find every reader of the old text — tests, comments, other values that quote it — and sweep by concept, not by string
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-18"
+distilled_at: "2026-10-31"
 origin:
   - agent: "language-culture-en"
     host: "develop-qzapp"
     project: "agent-fabric"
     working_copy: "agent-fabric"
 derived_from:
+  - 7e0aa3ae0a66fabe
   - e9a15fde6344732f
 ---
 
@@ -30,7 +31,8 @@ When a term changes (a step is renamed, a "restriction" becomes a "zone"), sweep
 **How to apply:** before you deliver a changed value, run a full-text search for the old text and its concept words. List each hit by owner. Ask the owner of each test or comment for a supplier commit, in the same delivery.
 
 Related: [[key-value-true-in-every-state]]
+Also (j79): when a row or section is renamed, grep for lists that name it by its old description; here the read-back row's list kept the old storage row's name.
 
 *References: key-value-true-in-every-state*
 
-*Observed 2026-10-15 (language-culture)*
+*Observed 2026-10-19 (language-culture)*

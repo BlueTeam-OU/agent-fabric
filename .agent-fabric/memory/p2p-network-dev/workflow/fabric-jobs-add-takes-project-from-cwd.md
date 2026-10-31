@@ -5,7 +5,7 @@ topic: "fabric-jobs-add-takes-project-from-cwd"
 description: "fabric-jobs add records the project of the working directory it runs in; run it from the project's working copy, or switch makes the worktree in the wrong repository"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-18"
+distilled_at: "2026-10-31"
 origin:
   - agent: "p2p-network-dev-01"
     host: "develop-qzapp"

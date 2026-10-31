@@ -5,7 +5,7 @@ topic: "import-skip-guard-checks-outputs"
 description: "A \"skip if already built/imported\" guard or a \"current?\" check must test what the step produces against its inputs, never a marker, the file's existence or its own hash — an older run leaves the same marker."
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-18"
+distilled_at: "2026-10-31"
 origin:
   - agent: "flutter-dev-01"
     host: "develop-qzapp"

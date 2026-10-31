@@ -5,7 +5,7 @@ topic: "reflection-a-mirrored-bound-copies-each-dimension"
 description: A store meant to stay consistent with a bounded provider copies every dimension of the bound, per key and total, not the product alone, since equal in count is not equal in shape; eviction then frees exactly the slot the provider would free
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-28"
+distilled_at: "2026-10-31"
 origin:
   - agent: "architect-cto-01"
     host: "develop-qzapp"

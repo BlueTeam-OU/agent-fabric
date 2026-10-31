@@ -4,13 +4,14 @@ class: solution
 description: "blueteam.ee unreachable from develop-qzapp but up elsewhere — 1984 Hosting firewall dropping our one egress IP"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-18"
+distilled_at: "2026-10-31"
 origin:
   - agent: "edge-hosting"
     host: "develop-qzapp"
     project: "agent-fabric"
     working_copy: "agent-fabric"
 derived_from:
+  - 6a4f4ec26c0bea30
   - db1c1e3f614d4215
 ---
 
@@ -22,6 +23,6 @@ On 2026-10-15 (about 11:00–11:45Z) every port on .204 timed out from develop-q
 
 **How to apply:** when the site is unreachable from here, compare an outside vantage (check-host.net API) and a same-/24 neighbour before calling it down; if only our address fails, it is the provider's per-host firewall — the owner asks 1984 support, and agents stop probing meanwhile.
 
-*Anchors: `deploy/target.json::2222`*
+The deploy target this concerns is in the blueteam.ee repository, not agent-fabric: `../blueteam.ee/deploy/target.json` (SFTP, port 2222; re-checked on origin/main bcd6b6f, 2026-10-20). It is cited as a sibling path and carries no anchor, because an anchor is only looked for in the slice's origin checkout, which is agent-fabric.
 
 *Observed 2026-10-15 (edge-hosting)*

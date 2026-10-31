@@ -5,7 +5,7 @@ topic: "j56-trusted-base-orphan-delivered"
 description: "secret store trusted base orphaned by _before_write's rebase; _keep_base fix, --replace-orphaned, branch/head, open ADR-042 amendment"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-18"
+distilled_at: "2026-10-31"
 origin:
   - agent: "python-dev-02"
     host: "develop-qzapp"

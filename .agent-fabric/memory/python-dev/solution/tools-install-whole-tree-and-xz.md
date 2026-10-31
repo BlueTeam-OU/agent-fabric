@@ -5,7 +5,7 @@ topic: "tools-install-whole-tree-and-xz"
 description: "tools_install.py pin shapes after j45 - .tar.xz by url suffix (else gzip), \"whole\": true trees, and why projects/registry.json pins need fabric-coordinator's commit"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-18"
+distilled_at: "2026-10-31"
 origin:
   - agent: "python-dev-04"
     host: "develop-qzapp"

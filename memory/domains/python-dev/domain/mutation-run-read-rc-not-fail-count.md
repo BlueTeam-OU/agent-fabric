@@ -5,7 +5,7 @@ topic: "mutation-run-read-rc-not-fail-count"
 description: planting a mutation and counting FAIL lines passes when the test crashes or the fixture is dangling — read rc and use symlink targets that exist
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-18"
+distilled_at: "2026-10-31"
 origin:
   - agent: "python-dev-04"
     host: "develop-qzapp"

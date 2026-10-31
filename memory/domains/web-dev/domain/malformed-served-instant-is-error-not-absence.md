@@ -5,7 +5,7 @@ topic: "malformed-served-instant-is-error-not-absence"
 description: "A served date/time that does not parse: how NaN slips through comparisons, clamps and Intl into 'Down for NaN d', and what to render instead"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-18"
+distilled_at: "2026-10-31"
 origin:
   - agent: "web-dev-01"
     host: "develop-qzapp"

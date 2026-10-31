@@ -5,7 +5,7 @@ topic: "an-implied-check-is-never-reported"
 description: "A CHECK implied by others (x > 0 when 0 < y < x exists) can never be the constraint a refusal names — drop it, or its test asserts the wrong name."
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-18"
+distilled_at: "2026-10-31"
 origin:
   - agent: "db-admin"
     host: "develop-qzapp"

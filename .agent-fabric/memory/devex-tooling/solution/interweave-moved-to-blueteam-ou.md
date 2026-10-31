@@ -5,7 +5,7 @@ topic: "interweave-moved-to-blueteam-ou"
 description: "InterWeave lives at BlueTeam-OU since 2026-10-12, client blueteam; gh API writes through gzapi-org/InterWeave fail with HTTP 307"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-18"
+distilled_at: "2026-10-31"
 origin:
   - agent: "devex-tooling"
     host: "develop-qzapp"

@@ -5,7 +5,7 @@ topic: "locale-digest-is-body-only"
 description: "A translation's translates_digest hashes the body, not the file; a lagging digest silently skips the token check; another role's locale is delivered in a REPLY"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-18"
+distilled_at: "2026-10-31"
 origin:
   - agent: "language-culture-ge"
     host: "develop-qzapp"
@@ -13,6 +13,7 @@ origin:
     working_copy: "agent-fabric"
 derived_from:
   - 3fc0178ed8517ce3
+  - c3ac8591132c5350
 ---
 
 ## A translation's translates_digest hashes the body, not the file; a lagging digest silently skips the token check; another role's locale is delivered in a REPLY
@@ -28,7 +29,10 @@ directory refuses a language-culture commit at pre-commit; deliver the whole
 file in a REPLY between BEGIN/END lines for fabric-coordinator to commit (j69,
 2026-10-16, agent-fabric #283). A push after a refused commit still creates an
 empty branch: check the commit landed before pushing.
+The lag is a local variable in `_translation_findings` (`locales.py`), not a
+function, so that is the anchor. Checked against origin/main 2026-10-20;
+715a4cfb only changed the timezone shape and did not touch this.
 
-*Anchors: `tools/fabric/lint_rules/prompts.py::_source_digest`, `tools/fabric/lint_rules/locales.py::lagging`*
+*Anchors: `tools/fabric/lint_rules/prompts.py::_source_digest`, `tools/fabric/lint_rules/locales.py::_translation_findings`*
 
-*Observed 2026-10-16 (language-culture)*
+*Observed 2026-10-20 (language-culture)*

@@ -5,7 +5,7 @@ topic: "send-errors-classed-by-dispatch-state"
 description: "A directed send's error must say whether the request may have left — libp2p request-response Timeout, ConnectionClosed and Io can all follow a written request; classify every code as not-sent / refused / outcome-unknown, conservatively…"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-18"
+distilled_at: "2026-10-31"
 origin:
   - agent: "p2p-network-dev-01"
     host: "develop-qzapp"

@@ -5,7 +5,7 @@ topic: "resend-a-request-a-session-drained"
 description: "A REQUEST whose recipient's session drained it and ended without replying is invisible to their next cursor — re-send it as the same ask naming the original MESSAGE-ID; after repeated silence send one consolidated list asking for the work…"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-18"
+distilled_at: "2026-10-31"
 origin:
   - agent: "flutter-dev-01"
     host: "develop-qzapp"

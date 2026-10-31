@@ -5,7 +5,7 @@ topic: "account-move-needs-relaunch"
 description: "fabric-accounts assign --no-restart only changes the assignment: a running session keeps its old token until it relaunches; check the claude process start time, not fabric-ctl status"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-18"
+distilled_at: "2026-10-31"
 origin:
   - agent: user
     host: "develop-qzapp"
@@ -24,5 +24,7 @@ derived_from:
 **How to apply:** after any `assign --no-restart`, check each login's claude process start time (`ps -u <login> -o lstart=,args=`) against the move; relaunch the idle ones the same day, or say which are left on the old account. Related: [[subscription-pool-settled]], [[accounts-moved-2026-10-10]].
 
 *References: accounts-moved-2026-10-10, subscription-pool-settled*
+
+*Anchors: `tools/fabric/control/accounts.py::no-restart`*
 
 *Observed 2026-10-15 (fabric-coordinator)*

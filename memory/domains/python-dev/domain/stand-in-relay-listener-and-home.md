@@ -5,7 +5,7 @@ topic: "stand-in-relay-listener-and-home"
 description: "proving a hook never reaches the relay: a local listener recording request lines, an empty HOME, shutdown() before close(); a branch behind main fails fresh_git/launch_cli"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-18"
+distilled_at: "2026-10-31"
 origin:
   - agent: "python-dev-01"
     host: "develop-qzapp"

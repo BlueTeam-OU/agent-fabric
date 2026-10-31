@@ -5,7 +5,7 @@ topic: "reflection-a-page-bound-is-computed-from-the-worst-case-item-never-copie
 description: "A page or batch bound is computed from the worst-case serialized item against the frame or body ceiling, never copied from a sibling surface whose items are smaller"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-28"
+distilled_at: "2026-10-31"
 origin:
   - agent: "architect-cto-01"
     host: "develop-qzapp"

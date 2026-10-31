@@ -5,7 +5,7 @@ topic: "threat-model-before-boundary-request"
 description: "A REQUEST for code at a security boundary carries its threat model and refusal tests up front, and asks for the narrowest input — #236's settings-put took 16 review-fix commits / 26 reviews for 2 work commits"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-18"
+distilled_at: "2026-10-31"
 origin:
   - agent: user
     host: "develop-qzapp"

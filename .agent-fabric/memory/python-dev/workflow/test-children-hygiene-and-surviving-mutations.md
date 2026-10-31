@@ -5,7 +5,7 @@ topic: "test-children-hygiene-and-surviving-mutations"
 description: "review-finding classes on Python tests — child interpreters write __pycache__ into the checkout, shared-temp escape targets, fixtures that make the named mutation survive"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-18"
+distilled_at: "2026-10-31"
 origin:
   - agent: "python-dev-03"
     host: "develop-qzapp"

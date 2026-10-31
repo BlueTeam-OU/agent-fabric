@@ -5,7 +5,7 @@ topic: "lint-no-siblings-for-own-tree"
 description: "tools/fabric/lint.py reports sibling projects' memory-index drift; --no-siblings is the clean check of agent-fabric's own tree"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-18"
+distilled_at: "2026-10-31"
 origin:
   - agent: "devex-tooling"
     host: "develop-qzapp"

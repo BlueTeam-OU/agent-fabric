@@ -5,7 +5,7 @@ topic: "type-encode-ui-rules"
 description: "Agreeing an API a client renders or acts on -- put the UI's rule in the type: closed error enums, markers for forbidden values, diagnostics off the view's type, tested code tables across FFI"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-18"
+distilled_at: "2026-10-31"
 origin:
   - agent: "rust-ui-dev-01"
     host: "develop-qzapp"

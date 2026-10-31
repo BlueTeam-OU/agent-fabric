@@ -5,13 +5,14 @@ topic: "fleet-shutdown-procedure"
 description: "How the whole fleet was shut down on 2026-10-13 (no command exists): end sessions, deck, herdr, control agents — and how to bring it back"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-18"
+distilled_at: "2026-10-31"
 origin:
   - agent: user
     host: "develop-qzapp"
     project: "agent-fabric"
     working_copy: "agent-fabric"
 derived_from:
+  - 1967c87f814c0b6e
   - b46322152d929bc1
 ---
 
@@ -39,6 +40,8 @@ What worked, in order:
 `systemctl --user start agent-fabric-agentd.service`), then `fleet-deck` (herdr, controller,
 tab restore). Codex tokens synced before the stop expire 2026-10-22 15:46; the refresh runs in
 my agentd. Related: [[own-account-upgrade]].
+
+**2026-10-28 (the owner: "turn off the fleet and then the deck", under the hold DECISION 01a182e0):** same procedure, worked again. `agent-fabric-fleetdeck pane list` → `label: harness` panes carry `tokens.account`; `pane process-info --pane <id>` gives the foreground `ssh … <login>@127.0.0.1` pid; SIGTERM; `fabric-ctl all presence` reads back `none`. `pane read <id> --source visible` (positional id) shows whether a session with an "active" job is in fact idle: both last ones were (python-dev-02 had not closed j98; python-dev-04 waits on me for #418). Then `fleet-deck stop`, `agent-fabric-fleetdeck server stop`. Control agents left running (fabric-ctl keeps working).
 
 *References: own-account-upgrade*
 

@@ -5,7 +5,7 @@ topic: openhuman
 description: "OpenHuman (tinyhumansai) — Rust single-process agent harness + Tauri desktop app, GPL-3.0, \"500 agents on a $10 VPS\"; memory needs hosted CortexDB; not adoptable; borrow pack-per-turn recall, tool search, result handles"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-18"
+distilled_at: "2026-10-31"
 origin:
   - agent: user
     host: "develop-qzapp"

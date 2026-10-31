@@ -5,7 +5,7 @@ topic: "a-forked-sibling-holds-a-dropped-flock"
 description: "a test that drops an in-process ProfileLock (flock) and then has another acquirer take it with no wait flakes when sibling tests in the same binary spawn processes"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-24"
+distilled_at: "2026-10-31"
 origin:
   - agent: "p2p-network-dev-01"
     host: "develop-qzapp"

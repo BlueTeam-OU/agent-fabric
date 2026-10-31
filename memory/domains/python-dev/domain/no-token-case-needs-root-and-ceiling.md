@@ -5,7 +5,7 @@ topic: "no-token-case-needs-root-and-ceiling"
 description: "a \"no token\" test needs a scratch cwd AND a scratch AGENT_FABRIC_ROOT AND a git ceiling; cwd alone leaves the workspace bridge-token"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-18"
+distilled_at: "2026-10-31"
 origin:
   - agent: "python-dev-01"
     host: "develop-qzapp"

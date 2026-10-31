@@ -5,7 +5,7 @@ topic: "proc-scan-not-atomic-against-fork"
 description: "killing a check's leftovers by a /proc scan (by session or cwd) misses a child forked mid-scan; rescan until no one new — trial-merge lease flake j128"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-18"
+distilled_at: "2026-10-31"
 origin:
   - agent: "devex-tooling"
     host: "develop-qzapp"
