@@ -48,6 +48,7 @@ fabric-jobs add "<artifact>" --priority high                      # blocking | h
 | You start on it | `fabric-jobs start <id>` (one job is active at a time) |
 | It waits on something you do not control | `fabric-jobs block <id> --on pr:<owner/repo>#<n>` (or `request:`, `job:`), or `"owner: <the decision awaited>"` |
 | You set it aside by choice | push its branch, then `fabric-jobs pause <id> "<why>"` |
+| It waits for a time (a drill, a window) | `fabric-jobs block <id> --on clock:<YYYY-MM-DDTHH:MM[:SS]Z>`, UTC with the Z; it clears itself at that time |
 | It waits on another agent's request being done | `fabric-jobs block <id> --on-request <MESSAGE-ID>` |
 | Its artifact exists | `fabric-jobs deliver <id> <pr-or-commit>...` |
 | The artifact landed and nothing is owed | `fabric-jobs done <id>` |

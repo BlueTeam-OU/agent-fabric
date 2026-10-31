@@ -159,7 +159,11 @@ Why these choices:
    the journal holds an inbound message of any type whose non-empty
    IN-REPLY-TO names it) and `job:<login>/j<n>` (cleared when
    delivered, or closed after it was seen open); several may be given
-   and all must clear. `list`, `next` and `block` re-check a blocker at
+   and all must clear. `clock:<YYYY-MM-DDTHH:MM[:SS]Z>` is a time of
+   the agent's own, UTC with the Z: it clears once now is at or after
+   it, `block` refuses one already past, and since it reads only the
+   clock it is evaluated on every look, `--stored` included
+   (A 2026-10-31). `list`, `next` and `block` re-check a blocker at
    most every ten minutes and never one that cleared; a job whose
    blockers have all cleared reads "blocker cleared", is listed first
    and is taken first by `next`, and `--stored` reads the cache without
@@ -313,3 +317,4 @@ The body above reads current; each change's full note is in [history/ADR-037-ame
 | 2026-10-21 | Leaving a job cleans its build output | §5 rule 10 step 1, decided and unbuilt (python-dev's j75): once the old job is settled, its worktree's cargo targets are to be removed, except one in use, with `--keep-targets` to skip it |
 | 2026-10-30 | A fleet hold the job tool enforces | §5 rule 13 added, built in #431 and #429: `fabric-ctl hold`/`unhold` set a login's `hold.json`; while it is set, `switch` settles and starts nothing, `start` and `fabric-fresh --job` refuse; status, session start and `jobs` show it; §8 says so |
 | 2026-10-30 | While held, every start refuses | §5 rule 13: `start` refuses a delivered job too, not only a queued, paused or blocked one; `import` stays allowed, since it moves a list and starts nothing |
+| 2026-10-31 | A clock blocker | §5 rule 8: `block --on clock:<UTC time>` waits on a time and clears itself at it, built in #439 |
