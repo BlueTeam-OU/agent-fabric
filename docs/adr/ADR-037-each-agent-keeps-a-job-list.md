@@ -38,7 +38,7 @@ and managed with `fabric-jobs`. A job carries:
 
 **The restart rule.** At a job's end, `fabric-jobs next` decides whether
 the next job takes this session in place only when it has worked no job
-yet and stands in that job's working copy; otherwise it needs a fresh one. The agent confirms it with
+yet and stands in that job's working copy or worktree (rule 3); otherwise it needs a fresh one. The agent confirms it with
 `fabric-fresh --job <id>`. The launcher then starts the fresh session in
 that job's working copy, with the job in its opening prompt.
 
