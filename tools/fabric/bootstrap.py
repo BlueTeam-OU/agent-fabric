@@ -57,6 +57,11 @@ Writes, idempotently, and only machine-local files:
   <units>/agent-fabric-tidy.{service,timer}
                                      the login's daily removal of build output no open job
                                      holds (fabric-jobs tidy; j439), the timer enabled likewise
+  <units>/agent-fabric-harness.service
+                                     the account's FleetDeck server and its session pane
+                                     (FleetDeck part 2), enabled and started likewise; inactive
+                                     where install_fleetdeck.py put no binary, and never
+                                     restarted by bootstrap (its stop ends the session)
   <units>/gzcoord-relay.service      ONLY on the account whose workspace hosts the relay
                                      ($PROJECTS/.gzcoord/venv exists): the relay as a unit
   <units>/agent-fabric-relay-backup.{service,timer}
@@ -263,6 +268,7 @@ RELAY_UNIT = "gzcoord-relay"
 BACKUP_UNIT = "agent-fabric-state-backup"
 RELAY_BACKUP_UNIT = "agent-fabric-relay-backup"
 TIDY_UNIT = "agent-fabric-tidy"
+HARNESS_UNIT = "agent-fabric-harness"
 RELAY_STATUS = "http://127.0.0.1:8765/status"
 JOURNAL_IMPORT_TIMEOUT = 20
 # The marker of ADR-042's migration on this account, under its state.
@@ -546,6 +552,7 @@ class Bootstrap:
         self.control_agent()
         self.state_backup()
         self.tidy()
+        self.harness()
         self.relay()
         self.relay_backup()
         self.langid()
@@ -1114,6 +1121,31 @@ class Bootstrap:
             run_quiet(["systemctl", "--user", "restart", f"{TIDY_UNIT}.timer"])
         say(f"  *  {TIDY_UNIT}.timer: {answer(['systemctl', '--user', 'is-active', f'{TIDY_UNIT}.timer'])} "
             f"(systemctl --user list-timers {TIDY_UNIT}.timer)")
+
+    def harness(self) -> None:
+        # 6a''. The harness: the account's FleetDeck server and its session pane
+        #       (runtime/control/agent-fabric-harness.service), on every account,
+        #       enabled and started as the control agent is. Started, it only
+        #       waits (enter --wait); an account without the binary leaves it
+        #       inactive by its ConditionPathExists, which is no failure here.
+        #       Never restarted, not even when the unit file changed: its stop
+        #       ends the session running in the pane, which is a person's call
+        #       (fabric-ctl <login> harness-stop, then harness-start).
+        before = self.changed
+        self.put_file(os.path.join(self.units, f"{HARNESS_UNIT}.service"), f"runtime/control/{HARNESS_UNIT}.service")
+        if self.dry_run:
+            return
+        if not self.user_manager():
+            say(f"  !  {HARNESS_UNIT}: installed, not started — no user manager at {os.environ['XDG_RUNTIME_DIR']}/bus "
+                f"(loginctl enable-linger {login()}, or the next login starts it)")
+            return
+        run_quiet(["systemctl", "--user", "enable", "--now", HARNESS_UNIT])
+        state = answer(["systemctl", "--user", "is-active", HARNESS_UNIT])
+        if self.changed > before and state == "active":
+            say(f"  *  {HARNESS_UNIT}: unit changed; not restarted, a restart ends the session in its pane "
+                f"(fabric-ctl {login()} harness-stop, then harness-start)")
+        hint = "" if state == "active" else "; it starts only where install_fleetdeck.py put the binary"
+        say(f"  *  {HARNESS_UNIT}: {state} (systemctl --user status {HARNESS_UNIT}{hint})")
 
     def agentd_unit(self) -> bytes:
         """The control agent's unit: runtime/control/agent-fabric-agentd.service
