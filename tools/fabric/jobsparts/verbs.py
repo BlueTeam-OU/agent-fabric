@@ -424,6 +424,10 @@ def change(args) -> int:
             if mid is not None and not MESSAGE_ID.fullmatch(mid):
                 raise Refused(f"--on-request takes a MESSAGE-ID (a UUID), not {args.on_request!r}")
             specs = list(dict.fromkeys([bl.normalise(s) for s in (args.on_spec or [])] + ([f"request:{mid}"] if mid else [])))
+            for spec in specs:
+                at = bl.clock_epoch(spec)
+                if at is not None and at <= bl.now():
+                    raise Refused(f"{spec} has already passed: a time that has gone by is no wait")
             text = " ".join(args.on.split()) if (args.on or "").strip() else None
             if text is None and not specs:
                 raise Refused("block needs what the job waits on: free text, --on <blocker> or --on-request <MESSAGE-ID>")
