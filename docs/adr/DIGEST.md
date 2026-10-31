@@ -1016,11 +1016,11 @@ its record disagree, the record wins. Look it up, never read it whole:
   guards as a Bash call would, or is refused at review (§5 rule 8).
 - A 2026-10-09 — rule 8's gate: the managed MCP allowlist, versions pinned.
 - A 2026-10-31 — rules 1–2 built: exec-form guards through a root-owned
-  hook-entry, snapshot of a named main; `fabric-managed` install and check;
+  hook_entry.py, snapshot of a named main; `fabric-managed` install and check;
   operator reinstall per guard change; AppVM boot restore (§5 rules 2, 9).
 - Keywords: mods, plugin, managed settings, allowManagedModsOnly,
   disableSideloadFlags, prependPlugins, sec-default, guard, redaction,
-  MCP server, sandbox, fabric-managed, hook-entry.
+  MCP server, sandbox, fabric-managed, hook_entry.py.
 
 ### ADR-044 — Identity kinds: an agent and a human (Accepted)
 
