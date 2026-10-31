@@ -2,7 +2,7 @@
 role: "flutter-dev"
 class: domain
 topic: "locked-phone-ble-scan"
-description: "Corrects the locked-phone BLE slice: a product-and-Play-policy phrase written with a slash was read as a path; the claim is unchanged"
+description: "A locked Android phone hears the beacon only with a FILTERED scan, renewed, and a beacon advertising fast enough — measured 2026-09-28 on the bench phone"
 tier: 2
 knowledge_scope: full
 distilled_at: "2026-10-31"
@@ -12,10 +12,12 @@ origin:
     project: gzapp
     working_copy: gzapp
 derived_from:
-  - 28e80151589d7ec9
+  - 2a75bf5f43dbe630
+  - 32f0101e89fa040e
+  - 481405ccf0e10fdf
 ---
 
-## Corrects the locked-phone BLE slice: a product-and-Play-policy phrase written with a slash was read as a path; the claim is unchanged
+## A locked Android phone hears the beacon only with a FILTERED scan, renewed, and a beacon advertising fast enough — measured 2026-09-28 on the bench phone
 
 Measured on the bench phone (Galaxy A40, Android 11) with the EYE BEACON, 2026-09-28,
 reading `adb shell dumpsys bluetooth_manager` (per-app scan table + "Last 5 scans"):
@@ -94,4 +96,4 @@ Related: [[passenger-background-crowding-owed]], [[android-build-on-phone]].
 
 *References: android-build-on-phone, passenger-background-crowding-owed*
 
-*Observed 2026-10-23 (flutter-dev)*
+*Observed 2026-09-28 (flutter-dev)*

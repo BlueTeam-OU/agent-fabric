@@ -397,17 +397,6 @@
       "stamp": "2026-10-31"
     },
     {
-      "agent": "python-dev-04",
-      "applied_key": "b7c0e34cbfb7ac0e",
-      "heading": "j38 claim re-checked 2026-10-20 — the \"N suite(s) FAILED\" last line is still what tests/run.sh ends on, now printed by tests/run.py",
-      "host": "develop-qzapp",
-      "memory": "read-suite-summary-anchor-moved-to-run-py",
-      "replaced": "j38 — a trailer claiming a green run.sh was written before its summary line was read; lint refuses \"agent-fabric ADR-N\" for an ADR not on main",
-      "replaced_key": "9f9507e1b06c2421",
-      "slice": ".agent-fabric/memory/python-dev/workflow/read-suite-summary-before-trailer-and-unmerged-adr-citation.md",
-      "stamp": "2026-10-31"
-    },
-    {
       "agent": "rust-services-dev-01",
       "applied_key": "b210b3558a5d5b08",
       "heading": "A derived serde struct also deserializes from a JSON array; a field probe that must only accept objects needs a map-only visitor",
@@ -2633,6 +2622,7 @@
     "python-dev/solution:settled-fabric-sign-adr057",
     "python-dev/solution:settled-settle-memory-candidates",
     "python-dev/solution:settled-wait-merged-pending",
+    "python-dev/workflow:read-suite-summary-anchor-moved-to-run-py",
     "python-dev/workflow:settled-persona-avatar-settings-put",
     "python-dev/workflow:settled-wave8-port-method"
   ],
@@ -6816,10 +6806,10 @@
       "host": "develop-qzapp",
       "observed": "2026-10-11"
     },
-    ".agent-fabric/memory/python-dev/workflow/read-suite-summary-before-trailer-and-unmerged-adr-citation.md#j38 claim re-checked 2026-10-20 — the \"N suite(s) FAILED\" last line is still what tests/run.sh ends on, now printed by tests/run.py": {
+    ".agent-fabric/memory/python-dev/workflow/read-suite-summary-before-trailer-and-unmerged-adr-citation.md#j38 — a trailer claiming a green run.sh was written before its summary line was read; lint refuses \"agent-fabric ADR-N\" for an ADR not on main": {
       "agent": "python-dev-04",
       "host": "develop-qzapp",
-      "observed": "2026-10-20"
+      "observed": "2026-10-17"
     },
     ".agent-fabric/memory/python-dev/workflow/reflection-pass-method-w43.md#How a fabric-reflect pass goes when most messages are job records; empty delta is fine, but fabric-jobs switch still wants a memory change": {
       "agent": "python-dev-03",
@@ -7145,11 +7135,6 @@
       "agent": "python-dev-04",
       "host": "develop-qzapp",
       "observed": "2026-10-25"
-    },
-    ".agent-fabric/memory/shared/workflow-local-grep-is-ugrep.md#On develop-qzapp `grep` resolves to ugrep — tests/static.sh's sh-shebang check passed locally and failed in CI; verify a grep-based guard with /usr/bin/grep before trusting a local green": {
-      "agent": "user",
-      "host": "develop-qzapp",
-      "observed": "2026-09-19"
     },
     ".agent-fabric/memory/shared/workflow-run-suites-as-ci-before-push.md#A suite green in a launched session can fail in CI — the session sets AGENT_FABRIC_ROOT, CI's pull_request sets GITHUB_HEAD_REF/BASE_REF; run the touched suites with CI's environment before pushing": {
       "agent": "user",
@@ -8581,8 +8566,7 @@
     "python-dev/solution:j55-addenda-p3-delivered#A validator's findings name the key and the expected value, never the value read; test every rewritten message on well-formed values, not only on a credential: memory 'j55-addenda-p3-delivered' is the text of the section memory 'j55-addenda-p3-checked' corrects (\"A validator's findings name the key and the expected value, never the value read; test every rewritten message on well-formed values, not only on a credential\") in this drain; not written — update or delete 'j55-addenda-p3-delivered'",
     "python-dev/workflow:launcher-print-comparison-script-deleted#tests/parity/launch_print.py (the --print comparison against the deleted bash launcher) is gone; compare --print output by running the launcher with its fake ori and claude as tests/test_launch_cli.py does: memory 'launcher-print-comparison-script-deleted' is the text of the section memory 'launcher-print-comparison-checked' corrects ('tests/parity/launch_print.py (the --print comparison against the deleted bash launcher) is gone; compare --print output by running the launcher with its fake ori and claude as tests/test_launch_cli.py does') in this drain; not written — update or delete 'launcher-print-comparison-script-deleted'",
     "python-dev/solution:reflect-cursor-design#fabric-reflect (ADR-058) cursor design lessons: rowid position, failed sends, closing exactly the shown pass: memory 'reflect-cursor-design' is the text of the section memory 'reflect-cursor-checked' corrects ('fabric-reflect (ADR-058) cursor design lessons: rowid position, failed sends, closing exactly the shown pass') in this drain; not written — update or delete 'reflect-cursor-design'",
-    "python-dev/threads:j19-resume-state#Where j19 (last Node in agent-fabric, PR 181) stood when paused for live check 7 on 2026-10-10: what is done, what to run, what waits: memory 'j19-resume-state' is the text of the section memory 'settled-j19-resume-state' retires ('Where j19 (last Node in agent-fabric, PR 181) stood when paused for live check 7 on 2026-10-10: what is done, what to run, what waits') in this drain; not written — update or delete 'j19-resume-state'",
-    "python-dev/workflow:read-suite-summary-before-trailer-and-unmerged-adr-citation#j38 — a trailer claiming a green run.sh was written before its summary line was read; lint refuses \"agent-fabric ADR-N\" for an ADR not on main: memory 'read-suite-summary-before-trailer-and-unmerged-adr-citation' is the text of the section memory 'read-suite-summary-anchor-moved-to-run-py' corrects ('j38 — a trailer claiming a green run.sh was written before its summary line was read; lint refuses \"agent-fabric ADR-N\" for an ADR not on main') in this drain; not written — update or delete 'read-suite-summary-before-trailer-and-unmerged-adr-citation'"
+    "python-dev/threads:j19-resume-state#Where j19 (last Node in agent-fabric, PR 181) stood when paused for live check 7 on 2026-10-10: what is done, what to run, what waits: memory 'j19-resume-state' is the text of the section memory 'settled-j19-resume-state' retires ('Where j19 (last Node in agent-fabric, PR 181) stood when paused for live check 7 on 2026-10-10: what is done, what to run, what waits') in this drain; not written — update or delete 'j19-resume-state'"
   ],
   "telemetry": {
     "architect-cto": {
@@ -9051,7 +9035,7 @@
     "python-dev-02@develop-qzapp": 1793400130941,
     "python-dev-02@develop-qzapp#projects-root": 1791434674140,
     "python-dev-03@develop-qzapp": 1792478546999,
-    "python-dev-04@develop-qzapp": 1793432329541,
+    "python-dev-04@develop-qzapp": 1792483376999,
     "rust-services-dev-01@develop-qzapp": 1792919237479,
     "rust-services-dev-02@develop-qzapp": 1792681371016,
     "rust-ui-dev-01@develop-qzapp": 1793102150595,
