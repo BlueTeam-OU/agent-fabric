@@ -27,7 +27,7 @@ PARTS = os.path.join(ROOT, "tools", "fabric", "jobsparts")
 # the types test (Job, STATES...), the control plane's test (PRIORITIES) and the CLI itself.
 NAMES = ["main", "mutate", "new_job", "request_job", "fetch_message", "Refused", "NothingQueued", "Job", "PRIORITIES", "DEFAULT_PRIORITY",
          "STATES", "OPEN", "TERMINAL", "MESSAGE_ID", "POOL_ID", "identity", "find", "active", "transition", "queue_order", "stored_priority",
-         "effective_priority", "stream_waits", "ask_queue", "ask_pool", "claimed_job", "pool_job", "line", "show", "summary", "decide", "outside_copy",
+         "effective_priority", "stream_waits", "ask_queue", "ask_pool", "claimed_job", "pool_job", "line", "show", "summary", "decide", "outside_copy", "standing",
          "FABRIC_ROOT", "HERE", "INBOX", "QUEUE", "QUEUE_TIMEOUT_S", "Unreachable", "Unanswered"]
 ORDER = ["base", "blockers", "vcs", "ranking", "records", "queue", "pool", "render", "settle", "branching", "sweep", "leave_sweep", "leave_targets", "tidy", "verbs", "transfer"]
 

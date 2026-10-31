@@ -291,7 +291,7 @@ def main() -> int:
         run("add", "e")
         run("add", "f")
         p = run("next")
-        check("a session that has worked no job takes the first in place", p.returncode == 0
+        check("a session that has worked no job is not fresh for having worked (standing in the main checkout it is outside the new worktree)", p.returncode == 0
               and "j1" in p.stdout and "already worked" not in p.stdout, p.stdout)
         check("going active records the session in the log", jobs()[0]["log"][-1].get("session") == "sess-A", repr(jobs()[0]))
         p = run("next")
@@ -319,7 +319,7 @@ def main() -> int:
         env["CLAUDE_CODE_SESSION_ID"] = "sess-B"
         p = run("next", "--json")
         verdict = json.loads(p.stdout or "{}")
-        check("another session, which has worked no job: continue here, whatever the last job was",
+        check("another session, which has worked no job: not fresh for having worked, whatever the last job was",
               verdict.get("job") == "j5" and verdict.get("reason") != "worked" and verdict.get("worked") is None, p.stdout)
         run("done", "j5")
         p = run("next", "--json")
@@ -375,28 +375,61 @@ def main() -> int:
             check(f"  and the guard allows a commit from {what}", commit_decision(where, env["CLAUDE_CODE_SESSION_ID"]) == "allow",
                   commit_decision(where, env["CLAUDE_CODE_SESSION_ID"]))
             run("pause", "j1", "setting it aside", cwd=wt)
+        env["CLAUDE_CODE_SESSION_ID"] = "sess-in-text"
+        p = run("next", cwd=wt)
+        check("standing in the job's worktree, the text says continue here and prints no fabric-fresh",
+              p.returncode == 0 and "continue here" in p.stdout and "fabric-fresh" not in p.stdout and "fresh session" not in p.stdout,
+              p.stdout + p.stderr)
+        run("pause", "j1", "setting it aside", cwd=wt)
         # `next` itself refuses a job with no checkout (no branch can be chosen), so the verdict's answer for a job that records
         # no copy is asked of the function: the guard asks there (decision 8), and the verdict stays what it was.
         spec = importlib.util.spec_from_file_location("jobs_inside", JOBS_PY)
         jobs_mod = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(jobs_mod)
         # The guard resolves the cwd to its git toplevel before it asks "inside", so a recorded copy that is a subdirectory of its
-        # checkout (the list stores toplevels, a hand-edited record may not) holds no directory under it.
+        # checkout (the list stores toplevels, a hand-edited record may not) holds no directory under it. `standing` is read
+        # in process from each directory.
+        def at(directory: str):
+            before = os.getcwd()
+            os.chdir(directory)
+            try:
+                return jobs_mod.standing()
+            finally:
+                os.chdir(before)
+
         os.makedirs(os.path.join(repo_b, "sub"), exist_ok=True)
         sub = os.path.join(repo_b, "sub")
         check("the cwd is read as its checkout's toplevel: a copy recorded as a subdirectory is not stood in from that subdirectory",
-              (jobs_mod.outside_copy({"id": "j9", "working_copy": sub}, sub) or {}).get("reason") == "outside_copy"
-              and jobs_mod.outside_copy({"id": "j9", "working_copy": repo_b}, sub) is None)
+              at(sub) == os.path.realpath(repo_b)
+              and (jobs_mod.outside_copy({"id": "j9", "working_copy": sub}, at(sub)) or {}).get("reason") == "outside_copy"
+              and jobs_mod.outside_copy({"id": "j9", "working_copy": repo_b}, at(sub)) is None)
         two = {"id": "j9", "working_copy": repo_b, "worktree": os.path.join(tmp, "elsewhere")}
         check("a recorded working copy that differs from the worktree (no sync) is inside as well",
-              jobs_mod.outside_copy(two, repo_b) is None and jobs_mod.outside_copy(two, sub) is None)
-        check("a recorded working copy that differs from the worktree: the project's main checkout is outside once it is not recorded",
-              (jobs_mod.outside_copy({"id": "j9", "worktree": two["worktree"]}, repo_b) or {}).get("reason") == "outside_copy")
+              jobs_mod.outside_copy(two, at(repo_b)) is None and jobs_mod.outside_copy(two, at(sub)) is None)
+        check("  and once it is not recorded, the project's main checkout is outside",
+              (jobs_mod.outside_copy({"id": "j9", "worktree": two["worktree"]}, at(repo_b)) or {}).get("reason") == "outside_copy")
         check("a job that records no working copy and no worktree: no outside verdict, as before",
-              jobs_mod.outside_copy({"id": "j9", "working_copy": None, "worktree": None}, repo_a) is None
-              and jobs_mod.outside_copy({"id": "j9"}, repo_a) is None)
+              jobs_mod.outside_copy({"id": "j9", "working_copy": None, "worktree": None}, at(repo_a)) is None
+              and jobs_mod.outside_copy({"id": "j9"}, None) is None)
         check("  and its positive control: one that records a copy elsewhere is outside",
-              (jobs_mod.outside_copy({"id": "j9", "working_copy": repo_b}, repo_a) or {}).get("reason") == "outside_copy")
+              (jobs_mod.outside_copy({"id": "j9", "working_copy": repo_b}, at(repo_a)) or {}).get("reason") == "outside_copy")
+        # An unreadable place is outside, never the cwd taken as the answer: git failing must not turn fresh into in place.
+        vcs_mod = sys.modules["fabric_jobs.vcs"]
+        real_toplevel = vcs_mod.toplevel
+
+        def broken(path):
+            raise vcs_mod.VcsError("git did not answer")
+
+        vcs_mod.toplevel = broken
+        try:
+            unreadable = at(sub)
+        finally:
+            vcs_mod.toplevel = real_toplevel
+        verdict = jobs_mod.outside_copy({"id": "j9", "working_copy": sub}, unreadable) or {}
+        check("an unreadable toplevel is outside, with no place named, though the cwd is the recorded copy",
+              unreadable is None and verdict.get("reason") == "outside_copy" and verdict.get("here") is None, repr((unreadable, verdict)))
+        check("  positive control: the same copy and directory, git answering, is read as before",
+              at(sub) == os.path.realpath(repo_b))
         env["AGENT_FABRIC_STATE_DIR"] = saved_state
         env["CLAUDE_CODE_SESSION_ID"] = saved
         # A launched session never activates its job: A's `next` did, and B
@@ -426,7 +459,7 @@ def main() -> int:
         run("drop", "j10", "stale")
         p = run("next", "--json")
         verdict = json.loads(p.stdout or "{}")
-        check("a session that only dropped a queued job has worked none: continue here",
+        check("a session that only dropped a queued job has worked none: not fresh for having worked",
               verdict.get("job") == "j11" and verdict.get("reason") != "worked" and verdict.get("worked") is None, p.stdout)
         run("done", "j11")
         env["CLAUDE_CODE_SESSION_ID"] = saved

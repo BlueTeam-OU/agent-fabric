@@ -195,7 +195,7 @@ with any tree under ~/projects is exit 1, nothing removed, the path named (an em
 Each switch appends one line to the old and one to the new job's log: the outcome and its evidence, and the branch.
 `switch` still never passes an active job, takes the job named or the first in the order (a blocked job whose blockers
 cleared first, then queued and paused by priority, paused first, then the oldest), and with nothing queued offers the pool's.
-A session that has worked no job has nothing to settle and takes the job in place; "worked" is read from the list: a
+A session that has worked no job has nothing to settle and takes the job in place, from inside the job's copy (below); "worked" is read from the list: a
 transition whose old or new state is `active` (a start, a block, a delivery, a finish or a drop of the active job) writes
 the harness session id (CLAUDE_CODE_SESSION_ID), when the environment has one, into the job's log entry, and a session is one
 that appears in any entry, so a session launched with its job already active is known once it finishes it.
@@ -238,7 +238,7 @@ from fabric_jobs.branching import TYPES  # noqa: E402, F401
 from fabric_jobs.sweep import sweep  # noqa: E402, F401
 from fabric_jobs.tidy import tidy  # noqa: E402, F401
 from fabric_jobs.transfer import export_jobs, import_jobs  # noqa: E402, F401
-from fabric_jobs.verbs import decide, outside_copy, add, repoint, pool_list, pool_claim, list_jobs, show_job, switch_job, change  # noqa: E402, F401
+from fabric_jobs.verbs import decide, outside_copy, standing, add, repoint, pool_list, pool_claim, list_jobs, show_job, switch_job, change  # noqa: E402, F401
 
 
 def main(argv: list[str] | None = None) -> int:
