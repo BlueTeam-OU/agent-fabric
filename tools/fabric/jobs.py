@@ -10,7 +10,7 @@ behind bin/fabric-jobs.
     fabric-jobs pause <id> "<why>"
     fabric-jobs block <id> "<on what>"
     fabric-jobs block <id> --on-request <MESSAGE-ID> ["<on what>"]
-    fabric-jobs block <id> --on <blocker> [--on <blocker>…] ["<on what>"]   blocker: pr:<owner/repo>#<n> | request:<message-id> | job:<login>/j<n>
+    fabric-jobs block <id> --on <blocker> [--on <blocker>…] ["<on what>"]   blocker: pr:<owner/repo>#<n> | request:<message-id> | job:<login>/j<n> | clock:<YYYY-MM-DDTHH:MM[:SS]Z>
     fabric-jobs deliver <id> <artifact>...
     fabric-jobs retract <id> <artifact>                          remove one artifact, exactly as recorded, in any state; noted in the log
     fabric-jobs done <id> [--no-artifact "<what was done>"]      the reason is the evidence of work that leaves no artifact
@@ -104,11 +104,14 @@ waits would be said by nobody, and read as a wait by a person.
 A job can be blocked on something the tool can check (`block --on`, tools/fabric/jobsparts/blockers.py is the
 contract): a pull request (`pr:<owner/repo>#<n>`, cleared when it is merged or closed), a request this login sent
 (`request:<message-id>`, cleared when a message of any type, a DECISION as well as a REPLY, with a non-empty IN-REPLY-TO naming it is in the journal) or a peer's job (`job:<login>/j<n>`, cleared
-when it is delivered, or closed after it was seen open; read through fabric-ctl, a host operator's op), several
+when it is delivered, or closed after it was seen open; read through fabric-ctl, a host operator's op) or a
+time of your own (`clock:<YYYY-MM-DDTHH:MM[:SS]Z>`, UTC with the Z, cleared once now is at or after it; `block`
+refuses one already past; it reads only the clock, so it is evaluated on every look, `--stored` and `--cached`
+included), several
 allowed and all of them must clear. `list`, `next` and `block` check them, a blocker at most once every ten
 minutes (a cleared one never again: <state dir>/jobs-blockers.json), and a job whose blockers have all cleared reads
 "blocker cleared: <what>", is listed first, and is what `next` takes before anything queued: the agent moves it on
-itself. `--stored` and `--cached` check nothing and read that cache (the control agent's `jobs` op, a hook).
+itself. `--stored` and `--cached` check nothing and read that cache (a clock blocker is still evaluated, and cached) (the control agent's `jobs` op, a hook).
 `list --json` and the control plane's `jobs` carry, for such a job only, `blockers` ([{spec, state, detail,
 checked_at}]; state cleared, waiting or unknown, and unknown never clears) and `cleared` (true, false, or null
 while none is told). A request blocker is also kept as `waits_on`, as `--on-request` always kept it, and
@@ -256,8 +259,8 @@ def main(argv: list[str] | None = None) -> int:
     ls = sub.add_parser("list", help="open jobs (--all: closed ones too)")
     ls.add_argument("--all", action="store_true")
     ls.add_argument("--json", action="store_true")
-    ls.add_argument("--stored", action="store_true", help="stored priorities only; the state stream is not read, nor a blocker checked")
-    ls.add_argument("--cached", action="store_true", help="checkable blockers are read from the cache, not checked")
+    ls.add_argument("--stored", action="store_true", help="stored priorities only; the state stream is not read, nor a blocker checked (a clock: blocker is still evaluated)")
+    ls.add_argument("--cached", action="store_true", help="checkable blockers are read from the cache, not checked (a clock: blocker is still evaluated)")
     pr = sub.add_parser("prio", help="set a job's priority")
     pr.add_argument("id")
     pr.add_argument("priority", choices=PRIORITIES)
@@ -269,7 +272,7 @@ def main(argv: list[str] | None = None) -> int:
     b.add_argument("id")
     b.add_argument("on", nargs="?")
     b.add_argument("--on", dest="on_spec", action="append", metavar="BLOCKER",
-                   help="a checkable blocker: pr:<owner/repo>#<n>, request:<message-id> or job:<login>/j<n>; repeatable, all must clear")
+                   help="a checkable blocker: pr:<owner/repo>#<n>, request:<message-id>, job:<login>/j<n> or clock:<YYYY-MM-DDTHH:MM[:SS]Z> (UTC); repeatable, all must clear")
     b.add_argument("--on-request", metavar="MESSAGE-ID", help="the GZCoord request this job waits on")
     d = sub.add_parser("deliver")
     d.add_argument("id")

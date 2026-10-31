@@ -173,6 +173,11 @@ def main() -> int:
         refused("artifacts that are not strings", "e19", mutated(jobs=[{**doc["jobs"][0], "artifacts": [1]}]), "artifacts")
         check("a refused import wrote nothing", not os.path.exists(os.path.join(tmp, "e9", "agents")) or json.loads(run("e9", "export").stdout)["jobs"] == [])
         check("positive control: the unmodified document imports", run("e20", "import", stdin=exported.stdout).returncode == 0)
+        past = "clock:2020-01-01T00:00:00Z"
+        check("a job carrying a clock already past imports (an import is no new block)",
+              run("e41", "import", stdin=mutated(jobs=[{**doc["jobs"][0], "state": "blocked", "blocked_on": "a time", "blockers": [past]}, *doc["jobs"][1:]])).returncode == 0)
+        got = [j for j in json.loads(run("e41", "list", "--all", "--json", "--stored").stdout) if j["id"] == doc["jobs"][0]["id"]]
+        check("…and reads cleared at once, with no check run", got and got[0].get("cleared") is True and got[0]["blockers"][0]["state"] == "cleared", got)
         check("positive control: a document with fewer jobs and a high seq imports",
               run("e21", "import", stdin=mutated(jobs=doc["jobs"][:2], seq=9, last=None)).returncode == 0)
         tty = subprocess.run(["script", "-qec", f"{JOBS} import", "/dev/null"], cwd=repo, env=env("e22"), input=b"", capture_output=True, timeout=60) if os.path.exists("/usr/bin/script") else None

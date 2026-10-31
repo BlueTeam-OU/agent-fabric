@@ -1081,8 +1081,9 @@ its record disagree, the record wins. Look it up, never read it whole:
 - Keys only from root-owned `/etc/ssh/authorized_keys/%u`; one operator
   key, passphrase, forced to a root-owned installed `enter-ssh` with
   `restrict,pty`, never a checkout's (§5 rules 2–3).
-- `enter-ssh` takes one of `--wait`, `--watch`, `shell`, `--resume`, runs
-  `enter` in a login shell, refuses anything else with exit 2 (§5 rule 4).
+- `enter-ssh` takes one of `--wait`, `--watch`, `shell`, `--resume`,
+  `attach`, runs `enter` in a login shell, refuses anything else with
+  exit 2 (§5 rule 4).
 - Host keys pinned in the registry's `sshd`, read on the host;
   `fabric-ssh-hosts` generates `known_hosts` and checks the pin; never
   ssh-keyscan (§5 rule 5).
@@ -1091,8 +1092,10 @@ its record disagree, the record wins. Look it up, never read it whole:
   rc.local restores them, runs `sshd -t`, then sshd at boot (§5 rule 6). sudo stays
   break-glass; agents' own ssh keys stay future (§5 rules 7–8).
 - A 2026-10-13 — loopback exempt from per-source penalties; MaxStartups 100 (§5 rule 1).
+- A 2026-10-31 — `attach`: the deck attaches to the harness pane (§5 rule 4).
 - Keywords: ssh, sshd, operator, Fleet Deck, moveto, enter-ssh, forced
-  command, authorized_keys, host key, known_hosts, Qubes, rc.local.
+  command, authorized_keys, host key, known_hosts, Qubes, rc.local, attach,
+  harness, agent-fabric-harness.service.
 
 ### ADR-049 — Memory is retrieved through an MCP server, the curated corpus unchanged (Accepted)
 
