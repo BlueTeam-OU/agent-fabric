@@ -42,7 +42,8 @@ class FakeServer:
         self.calls, self.typed, self.refuse = [], [], answers_after
         self.startup, self.typed_lost = list(startup), typed_lost
 
-    def __call__(self, argv):
+    def __call__(self, argv, timeout):
+        assert 0 < timeout <= hp.CALL_TIMEOUT_S, timeout
         assert argv[:3] == [hp.BINARY, "--session", "harness"], argv
         args = argv[3:]
         self.calls.append(args)
@@ -160,11 +161,11 @@ class Ensure(unittest.TestCase):
             def __init__(self, patch, *a):
                 super().__init__(*a)
                 self.patch = patch
-            def __call__(self, argv):
+            def __call__(self, argv, timeout):
                 for key, answer in self.patch.items():
                     if argv[3:5] == list(key):
                         return answer
-                return super().__call__(argv)
+                return super().__call__(argv, timeout)
         ws = [{"workspace_id": "w1", "label": "harness"}]
         for key, answer, why in ((("workspace", "list"), (0, "not json", ""), "not JSON"),
                                  (("workspace", "list"), (0, json.dumps({"workspaces": []}), ""), "no result object"),
@@ -199,6 +200,19 @@ class Ensure(unittest.TestCase):
             ensure(s)
         self.assertEqual(s.typed, [])
 
+    def test_a_pane_just_made_is_typed_into_once_its_profile_child_leaves_however_long_it_stayed(self):
+        # Round 1 F1: a profile child that outlasts SETTLE_S in a pane this step made is not a running program.
+        stays = int(hp.SETTLE_S / hp.POLL_S) + 3
+        s = FakeServer(startup=[{9001}] * stays)
+        self.assertIn("opened", ensure(s))
+        self.assertEqual(s.typed, [("w1:p1", "/usr/local/share/moveto/enter /home/a/projects a --wait")])
+
+    def test_a_pane_just_made_that_never_comes_to_its_shell_is_an_error_and_nothing_is_typed(self):
+        s = FakeServer(startup=[{9001}] * (int(hp.STARTUP_S / hp.POLL_S) + 5))
+        with self.assertRaisesRegex(hp.Failed, rf"has not come to its shell after {hp.STARTUP_S:g} s"):
+            ensure(s)
+        self.assertEqual((s.typed, s.pane_count()), ([], 1))
+
     def test_a_program_that_stays_for_the_settle_window_is_a_running_one(self):
         # Positive control for the waiting-out above: the same pid read across SETTLE_S is never typed over.
         s = FakeServer([{"workspace_id": "w7", "label": "harness"}], startup=[{7000}] * (int(hp.SETTLE_S / hp.POLL_S) + 1))
@@ -213,9 +227,26 @@ class Ensure(unittest.TestCase):
                 ensure(s)
             self.assertEqual(len(s.typed), 1)
 
-    def test_the_waits_fit_the_units_start_timeout(self):
-        # systemd's default TimeoutStartSec (90 s) bounds the ExecStartPost as a whole.
-        self.assertLess(hp.WAIT_S + hp.STARTUP_S + hp.READBACK_S, 90)
+    def test_the_step_ends_within_its_budget_however_slow_the_calls(self):
+        # Round 1 F2: systemd's default TimeoutStartSec (90 s) bounds the step as a whole, slow calls included. A call
+        # given less time than it takes times out at that time, as real_run's subprocess timeout does.
+        self.assertLess(hp.STEP_S + hp.POLL_S, 90)
+        for latency in (0.2, 5, 14, 20):
+            for ws, kw in (((), {"typed_lost": True}), (({"workspace_id": "w7", "label": "harness"},), {"typed_lost": True, "answers_after": 2}),
+                           (({"workspace_id": "w7", "label": "harness"},), {"startup": [{6000 + i} for i in range(200)]})):
+                t = [0.0]
+                class Slow(FakeServer):
+                    def __call__(self, argv, timeout):
+                        if latency > timeout:
+                            t[0] += timeout
+                            raise hp.Failed("no answer")
+                        t[0] += latency
+                        return super().__call__(argv, timeout)
+                s = Slow(ws, **kw)
+                with self.assertRaises(hp.Failed):
+                    hp.ensure(hp.Deck(s), "a", "/home/a", clock=lambda: t[0], sleep=lambda x: t.__setitem__(0, t[0] + x))
+                self.assertLessEqual(t[0], hp.STEP_S + hp.POLL_S, (latency, kw))
+                self.assertLessEqual(len(s.typed), 1)
 
     def test_the_typed_line_is_quoted_for_the_panes_shell(self):
         s = FakeServer()
