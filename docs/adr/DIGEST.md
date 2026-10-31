@@ -139,11 +139,9 @@ its record disagree, the record wins. Look it up, never read it whole:
 - Every write under `agents/<login>/` goes through `runtime/identity.py`:
   `atomic_write`, `update_binding`, `append_history`; no caller opens a
   state file for writing. The control code (`tools/fabric/control/`)
-  replaces its own files by temporary and rename and appends its logs
-  (§5 rule 1).
-- Every read-modify-write holds `agent_lock`, a re-entrant flock, except
-  the control code's own files, which only it writes and the
-  launcher only consumes (§5 rule 2).
+  replaces its files by rename, appends its logs (§5 rule 1).
+- Every read-modify-write holds `agent_lock`, a flock, except
+  the control code's own files (§5 rule 2).
 - A binding is per (agent, host); another host's is refused (§5 rule 3).
 - A working-copy rename merges history, never overwrites (§5 rule 4); the
   session-start hook stays non-blocking (§5 rule 5).
@@ -160,8 +158,9 @@ its record disagree, the record wins. Look it up, never read it whole:
   `agent_lock` (§2, §5 rules 1–2).
 - A 2026-10-30 — `pool.json` is rewritten under a flock on
   `pool.json.lock` (§2, §5 rule 2).
-- Keywords: state, binding, atomic write, lock, flock, rename, history,
-  host, XDG_STATE_HOME, actions-seen.json, action ledger, fabric-op.jsonl.
+- A 2026-10-31 — a lock file, held by `flock` only and never written,
+  read or removed, is not state (§2, §5 rule 1).
+- Keywords: atomic write, flock, XDG_STATE_HOME, actions-seen.json, action ledger, fabric-op.jsonl.
 
 ### ADR-004 — Adding a role without breaking anyone's CI (Accepted)
 
