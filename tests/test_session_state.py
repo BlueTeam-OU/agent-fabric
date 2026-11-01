@@ -138,6 +138,15 @@ def main() -> int:
         check("the file is written by identity.atomic_write, 0600", seen == [(os.path.join(w, ss.FILE), 0o600)], seen)
         check("…its lock file is 0600 under umask 022", os.stat(os.path.join(w, ss.FILE + ".lock")).st_mode & 0o777 == 0o600,
               oct(os.stat(os.path.join(w, ss.FILE + ".lock")).st_mode))
+        # The old hooks left the lock 0644 on every account they ran on (review of #451, F4).
+        old = os.path.join(tmp, "agents", "old")
+        os.makedirs(old)
+        with open(os.path.join(old, ss.FILE + ".lock"), "a"):
+            pass
+        os.chmod(os.path.join(old, ss.FILE + ".lock"), 0o644)
+        ss.record(ev("SessionStart"), old, 0, P, PROC)
+        check("…a lock file the old hooks left 0644 is made 0600", os.stat(os.path.join(old, ss.FILE + ".lock")).st_mode & 0o777 == 0o600,
+              oct(os.stat(os.path.join(old, ss.FILE + ".lock")).st_mode))
         whole = open(os.path.join(w, ss.FILE)).read()
         real_replace = os.replace
         def refuse(*a):

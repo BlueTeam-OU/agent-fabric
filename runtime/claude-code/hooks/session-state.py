@@ -84,9 +84,13 @@ def identity():
 
 
 def open_lock(path: str):
-    """The lock file `path`, created 0600 and never truncated, written or
-    removed: what makes it a lock and not state (ADR-003 §2)."""
-    return os.fdopen(os.open(path, os.O_WRONLY | os.O_CREAT | os.O_CLOEXEC | os.O_NOFOLLOW, 0o600), "w")
+    """The lock file `path`, 0600 and never truncated, written or removed:
+    what makes it a lock and not state (ADR-003 §2). The mode is set on
+    every open, not only at creation: an account the old hooks ran on has
+    the file already, made 0644 by `open(…, "a")` under umask 022."""
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_CLOEXEC | os.O_NOFOLLOW, 0o600)
+    os.fchmod(fd, 0o600)
+    return os.fdopen(fd, "w")
 
 
 def harness(proc: str = "/proc", pid: int | None = None) -> tuple[int, int] | None:

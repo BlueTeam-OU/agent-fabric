@@ -9,6 +9,7 @@ import json
 import os
 import subprocess
 import sys
+import time
 
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 HOOK = os.path.join(HERE, "runtime", "claude-code", "hooks", "post-review-shape-guard.py")
@@ -45,6 +46,24 @@ def main() -> int:
         ("an option before the subcommand, then a pipe", "fabric-pr --repo o/n post-review 3 < r | cat"),
         ("inside a substitution", "out=$(fabric-pr post-review 12 < r.md)"),
         ("after ||", "false || fabric-pr post-review 12 < r.md"),
+        # Wrappers with no separator before the script (review of #451, F1).
+        ("a brace group", "{ fabric-pr post-review 12 < r.md; } 2>&1"),
+        ("time", "time fabric-pr post-review 12 < r.md"),
+        ("timeout with a duration", "timeout 60 fabric-pr post-review 12 < r.md"),
+        ("timeout with a signal and a duration", "timeout -s KILL 60 fabric-pr post-review 12 < r.md"),
+        ("env", "env X=1 fabric-pr post-review 12 < r.md"),
+        ("sudo with a user", "sudo -u x fabric-pr post-review 12 < r.md"),
+        ("nohup", "nohup fabric-pr post-review 12 < r.md"),
+        ("negated", "! fabric-pr post-review 12 < r.md"),
+        ("inside if/then", "if true; then fabric-pr post-review 12 < r.md; fi"),
+        ("bash -c", 'bash -c "fabric-pr post-review 12 < r.md"'),
+        ("sudo sh -lc", "sudo sh -lc 'fabric-pr post-review 12 < r.md'"),
+        ("bash -c --", 'bash -c -- "fabric-pr post-review 12 < r.md"'),
+        ("eval", 'eval "fabric-pr post-review 12 < r.md"'),
+        ("a backslash before the name", "\\fabric-pr post-review 12 < r.md"),
+        ("the name quoted", '"fabric-pr" post-review 12 < r.md'),
+        ("in backticks", "x=`fabric-pr post-review 12 < r.md`"),
+        ("wrapped, with an unclosed quote shlex cannot split", "cd /x && fabric-pr post-review 12 < 'r.md"),
     ]
     allowed = [
         ("the bare form", "fabric-pr post-review 449 --model fable < /home/a/scratchpad/review1.md"),
@@ -56,11 +75,29 @@ def main() -> int:
         ("a grep for the words", "grep -rn 'fabric-pr post-review' docs/ | head"),
         ("an echo of the words", "echo fabric-pr post-review 12"),
         ("post-review before fabric-pr", "grep -n post-review bin/fabric-pr"),
+        # Words that only name a post-review after a separator inside quotes or a heredoc (review of #451, F2).
+        ("a heredoc body line", "cat > doc.md <<EOF\nPost with\nfabric-pr post-review 12 < r.md\nEOF"),
+        ("a quoted heredoc body, then a command", "cat > d.md <<'EOF'\nx; fabric-pr post-review 1\nEOF\ngit add d.md"),
+        ("a commit message body", 'git commit -m "post-review: bare form\n\nfabric-pr post-review 12 < r.md"'),
+        ("an echo with a separator inside quotes", 'echo "x; fabric-pr post-review 12"'),
+        ("a grep alternation", 'grep -E "arm|fabric-pr post-review" docs'),
+        ("a gh comment body", 'gh pr comment 1 --body "(fabric-pr post-review 12)"'),
+        ("an unquoted echo after a separator", "cd /x && echo fabric-pr post-review 12"),
+        ("a redirection target", "fabric-pr arm 3 > post-review.log"),
     ]
     for label, cmd in refused:
         check(f"refused: {label}", g.refused(cmd), cmd)
     for label, cmd in allowed:
         check(f"passed: {label}", not g.refused(cmd), cmd)
+
+    # A long separator-dense command is decided well inside the 5 s the settings give the hook (review of #451, F3:
+    # the regex this replaced took 22 s on 100 000 separators, and a hook past its timeout is read as no objection).
+    for label, cmd in (("100 000 separators naming both words", ";" * 100000 + " fabric-pr post-review 1 | x"),
+                       ("100 000 separators, neither word", ";" * 100000)):
+        t = time.monotonic()
+        g.refused(cmd)
+        took = time.monotonic() - t
+        check(f"fast: {label} ({took:.2f} s)", took < 2.0, took)
 
     # The hook end to end: a deny line on a refused command, nothing otherwise, exit 0 on what it cannot read.
     out = run(json.dumps({"tool_input": {"command": refused[0][1]}}))
