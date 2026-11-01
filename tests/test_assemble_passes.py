@@ -156,6 +156,37 @@ def test_a_correction_recorded_before_replaced_sections_existed_drops_the_replay
     assert held(ta.tree(out)) == held(before) and "Original text" not in held(ta.tree(out)), held(ta.tree(out))
 
 
+def test_a_correction_replayed_after_its_revert_is_written_and_named(tmp: str) -> None:
+    """After a revert the corpus holds the original again, so the bundle of the first correction reads as that correction's first
+    run: nothing says it is a replay. It is written, and the report names it, so the run is not silent (a review of #445, F3)."""
+    drain, claims_dir, out = ta.build(tmp, {"alpha": ta.claims("alpha", [])})
+    ta.with_agents(drain, AGENTS)
+    revert = claim("revert", "Status v1 of the thing", "Original text of the finding.", "h6", "Status v2 of the thing")
+    for bundle in ([ORIGINAL], [CORRECTION_A], [revert]):
+        ta.set_claims(claims_dir, "alpha", bundle)
+        assert ta.run_assemble(drain, claims_dir, out).returncode == 0
+    ta.set_claims(claims_dir, "alpha", [CORRECTION_A])
+    proc = ta.run_assemble(drain, claims_dir, out)
+    assert proc.returncode == 0, proc.stderr
+    named = json.loads(ta.read(ta.report_path(out)))["reharvested_replaced"]
+    assert any("memory 'fix-a'" in n and "re-applies" in n for n in named), named
+    assert "REHARVESTED UNDER A REPLACED HEADING" in proc.stderr, proc.stderr
+
+
+def test_other_text_under_a_replaced_heading_is_named_with_both_keys(tmp: str) -> None:
+    """The control of the drop: reworded text is no replay, so it is written (verify_replacements judges it) and the note says
+    which keys differ, so a person can tell a reworded memory from a defect in the drop."""
+    drain, claims_dir, out = ta.build(tmp, {"alpha": ta.claims("alpha", [])})
+    ta.with_agents(drain, AGENTS)
+    for bundle in ([ORIGINAL], [CORRECTION_A]):
+        ta.set_claims(claims_dir, "alpha", bundle)
+        assert ta.run_assemble(drain, claims_dir, out).returncode == 0
+    ta.set_claims(claims_dir, "alpha", [claim("t", "Status v1 of the thing", "Reworded original text of the finding.", "h6")])
+    proc = ta.run_assemble(drain, claims_dir, out)
+    assert proc.returncode == 1 and "REPLACED SECTION STANDS" in proc.stderr, proc.stderr
+    assert "carries other text than the section 'Status v1 of the thing' a correction replaced" in proc.stderr, proc.stderr
+
+
 def main() -> int:
     cases = [
         test_a_second_pass_over_two_bundles_with_a_chained_correction_and_a_flat_class_file_changes_nothing,
@@ -165,6 +196,8 @@ def main() -> int:
         test_a_revert_is_not_dropped_and_its_original_then_stands,
         test_a_replayed_text_is_named_in_the_report_and_not_written,
         test_a_correction_recorded_before_replaced_sections_existed_drops_the_replayed_original,
+        test_a_correction_replayed_after_its_revert_is_written_and_named,
+        test_other_text_under_a_replaced_heading_is_named_with_both_keys,
     ]
     # A case written and not listed passes silently and forever (test_assemble_seams.py's registry guard).
     declared = {name for name, obj in sorted(globals().items()) if name.startswith("test_") and callable(obj)}

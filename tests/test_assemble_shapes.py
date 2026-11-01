@@ -168,7 +168,7 @@ def test_verify_replacements_names_the_claim_key_and_passes_a_removed_heading(tm
     saved = shapes.layout, shapes.in_report
     shapes.layout, shapes.in_report = stub_layout, lambda _run, p: os.path.basename(p)
     try:
-        run = SimpleNamespace(project="demo", args=SimpleNamespace(stamp="2026-01-01"), replacements=[("shared/workflow:one#New@h9", path, "Replaced heading")])
+        run = SimpleNamespace(project="demo", args=SimpleNamespace(stamp="2026-01-01"), reharvested_replaced=[], replacements=[("shared/workflow:one#New@h9", path, "Replaced heading")])
         assert shapes.verify_replacements(run) == 1
         run.replacements = [("shared/workflow:one#New@h9", path, "Another heading")]
         assert shapes.verify_replacements(run) is None
@@ -213,6 +213,44 @@ def test_a_flat_file_recording_no_topic_does_not_take_another_topic(tmp: str) ->
     assert "Unrelated fact" in ta.read(ta.dom(out, "alpha", "domain", "unrelated.md")), files
 
 
+def test_a_one_word_body_is_refused_whatever_the_claim_carries_around_it(tmp: str) -> None:
+    """The body alone is counted: citations and anchors are rendered after it, and a body of one word with
+    any of them was applied (a review of #445, F2). The equal-body rule reads the same words."""
+    for extra in ({"citations": {"memories": ["other-memory"]}}, {"anchors": ["tools/a.py::run"]}):
+        with tempfile.TemporaryDirectory() as sub:
+            drain, claims_dir, out, sw = seeded(sub)
+            before = ta.tree(out)
+            ta.set_claims(claims_dir, "alpha", [{**correction("fix", "Corrected heading", "Second section", "project", "h3", sw), **extra}])
+            refused(ta.run_assemble(drain, claims_dir, out), out, before,
+                    "alpha/workflow:two#Corrected heading@h3", "correction body is one word")
+    with tempfile.TemporaryDirectory() as sub:
+        drain, claims_dir, out, sw = seeded(sub)
+        before = ta.tree(out)
+        ta.set_claims(claims_dir, "alpha", [
+            {**correction("fix-one", "Corrected one", LONG_HEADING, BODY, "h3", sw), "citations": {"memories": ["a-memory"]}},
+            {**correction("fix-two", "Corrected two", "Second section", BODY, "h4", sw), "citations": {"memories": ["b-memory"]}}])
+        refused(ta.run_assemble(drain, claims_dir, out), out, before, "alpha/workflow:one#Corrected one@h3",
+                "correction body equals another correction's")
+
+
+def test_a_correction_in_a_topic_named_for_a_date_is_not_undone_by_its_sibling_topic(tmp: str) -> None:
+    """`deploy-2026-09-18` is a topic of its own beside `deploy-2026-09-17`, not a budget part of it: its section under the
+    same heading is its own, and a correction of the first topic's is no write-back (a review of #445, F5)."""
+    drain, claims_dir, out = ta.build(tmp, {"alpha": ta.claims("alpha", [
+        {"class": "workflow", "topic": "deploy-2026-09-17", "title": "Daily status", "body": "Status of the 17th.", "evidence": ["h1"]},
+        {"class": "workflow", "topic": "deploy-2026-09-18", "title": "Daily status", "body": "Status of the 18th.", "evidence": ["h2"]},
+    ])})
+    ta.with_agents(drain, {"h1": "dev-01", "h2": "dev-01", "h3": "dev-01"})
+    assert ta.run_assemble(drain, claims_dir, out).returncode == 0
+    ta.set_claims(claims_dir, "alpha", [{"class": "workflow", "topic": "deploy-2026-09-17", "title": "Daily status, corrected",
+                                         "merge_target": "Daily status", "body": "Status of the 17th, in full with its reason.",
+                                         "evidence": ["h3"]}])
+    proc = ta.run_assemble(drain, claims_dir, out)
+    assert proc.returncode == 0, proc.stderr
+    text = "".join(ta.tree(out).values())
+    assert "Status of the 17th, in full" in text and "Status of the 18th." in text and "Status of the 17th." not in text, text
+
+
 def main() -> int:
     cases = [
         test_a_one_word_correction_body_is_refused_and_a_full_text_passes,
@@ -223,6 +261,8 @@ def main() -> int:
         test_a_later_drain_reusing_a_replaced_heading_undoes_nothing,
         test_verify_replacements_names_the_claim_key_and_passes_a_removed_heading,
         test_a_flat_file_recording_no_topic_does_not_take_another_topic,
+        test_a_one_word_body_is_refused_whatever_the_claim_carries_around_it,
+        test_a_correction_in_a_topic_named_for_a_date_is_not_undone_by_its_sibling_topic,
     ]
     # A case written and not listed passes silently and forever (test_assemble_seams.py's registry guard).
     declared = {name for name, obj in sorted(globals().items()) if name.startswith("test_") and callable(obj)}

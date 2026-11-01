@@ -25,7 +25,7 @@ import sys
 from collections import defaultdict
 from typing import Any
 from assembler.core import layout, CLASS_FILES, Run, in_report, hygiene_substitute, patterns_for
-from corrections import section_key
+from corrections import demote_headings, section_key
 from assembler.slices import read_existing_slice, claim_heading, claim_block, undated, is_retire
 from assembler.targets import existing_sections, slice_candidates
 
@@ -43,13 +43,29 @@ def claim_key(label: str, klass: str, topic: str, claim: dict[str, Any]) -> str:
 
 
 def _words(claim: dict[str, Any]) -> list[str]:
-    return undated(claim_block(claim).split("\n", 1)[1]).split()
+    """The body's words alone: the rendered block adds References, Anchors and a scope note a one-word body does not make text."""
+    return undated(demote_headings(claim["body"].strip())).split()
+
+
+def _earlier(run: Run) -> dict[str, list[dict[str, Any]]]:
+    """The report's records of earlier corrections (applied_corrections, replaced_sections), entries that are not objects left out.
+    An unreadable report has none: it is the first run's, or the drain's before these keys existed."""
+    try:
+        with open(layout.project_report_path(run.project), encoding="utf-8") as fh:
+            report = json.load(fh)
+    except (OSError, ValueError, AttributeError):
+        report = {}
+    return {key: [e for e in (report.get(key) or []) if isinstance(e, dict)] for key in ("applied_corrections", "replaced_sections")}
 
 
 def check_correction_shapes(run: Run) -> int | None:
     """Refuse a correction whose body is one word, whose body another correction of the run, writing a different section, also
     has, or whose title is a strict prefix of the heading it replaces. Nothing is written."""
     refused: list[str] = []
+    # A revert titles its claim with the heading an earlier correction replaced, which is a prefix of the lengthened heading
+    # it replaces back ("The finding" for "The finding, corrected"): not a title cut short.
+    undone = {(e["replaced"], e["heading"]) for e in _earlier(run)["applied_corrections"]
+              if isinstance(e.get("replaced"), str) and isinstance(e.get("heading"), str)}
     corrections: list[tuple[str, str, tuple[str | None, str, str], list[str]]] = []   # key, target, (scope, class, target), words
     for role, label, klass, topic, group in _groups(run):
         present: dict[str, str] | None = None
@@ -66,7 +82,7 @@ def check_correction_shapes(run: Run) -> int | None:
             if present is None:
                 present = existing_sections(slice_candidates(run, role, klass, topic))
             heading = claim_heading(claim)
-            if target in present and heading != target and target.startswith(heading):
+            if target in present and heading != target and target.startswith(heading) and (heading, target) not in undone:
                 refused.append(f"{key}   (rule: correction title is a prefix of the heading it replaces)\n"
                                f"    title {heading!r} is the first {len(heading)} of the {len(target)} characters of {target!r}; "
                                "a title cut short would become the section's heading and lose the rest")
@@ -93,14 +109,24 @@ def check_correction_shapes(run: Run) -> int | None:
 
 
 def _sections_around(path: str) -> dict[str, str]:
-    """The sections of the slice file and of its budget parts `<stem>-<n>.md`, which a replacement may have left a copy in."""
+    """The sections of the slice file and of its budget parts `<stem>-<n>.md`, which a replacement may have left a copy in.
+    A part is the file that records the same topic: `deploy-2026-09-18` is a topic of its own beside `deploy-2026-09-17`, and
+    `foo-2` beside `foo` (targets.is_budget_part, which cannot be called here: the replaced heading's role and topic are not
+    kept). A file that records no topic (an older slice) is read by its name, beside files that record none either."""
     directory, name = os.path.split(path)
-    stem = re.sub(r"-\d+$", "", name[:-3])
-    files = sorted({path, *glob.glob(os.path.join(glob.escape(directory), glob.escape(stem) + "*.md"))})
+    recorded = read_existing_slice(path)[0].get("topic")
+    stem = name[:-3]
+    if recorded and recorded in stem:
+        stem = stem[:stem.index(recorded) + len(recorded)]
+    else:
+        stem = re.sub(r"-\d+$", "", stem)
     found: dict[str, str] = {}
-    for file in files:
-        if file == path or re.fullmatch(re.escape(stem) + r"-\d+\.md", os.path.basename(file)):
-            found.update(read_existing_slice(file)[1])
+    for file in sorted({path, *glob.glob(os.path.join(glob.escape(directory), glob.escape(stem) + "*.md"))}):
+        if file != path and not re.fullmatch(re.escape(stem) + r"-\d+\.md", os.path.basename(file)):
+            continue
+        meta, sections = read_existing_slice(file)
+        if file == path or meta.get("topic") == recorded:
+            found.update(sections)
     return found
 
 
@@ -145,6 +171,9 @@ def verify_replacements(run: Run) -> int | None:
           "The files of this run are WRITTEN: discard the working tree, fix the claim that wrote it back, and re-run. "
           "Exits 1.", file=sys.stderr)
     for note in standing:
+        print(f"  {note}", file=sys.stderr)
+    # Report() does not run after this refusal; the notes are what tells a reworded memory from a drop that failed to match.
+    for note in run.reharvested_replaced:
         print(f"  {note}", file=sys.stderr)
     return 1
 
@@ -193,18 +222,13 @@ def drop_replayed(run: Run) -> None:
     bundles (or a later drain over a memory nobody updated) brought the original back beside, or over, its correction
     (j82; the 2026-10-31 drain: 12 files changed by a second pass). It is not written, and the report names it
     (`superseded_harvests`) as it names a predecessor of a same-run correction. A correction whose merge_target still stands
-    is a real replacement and stays: a revert is one."""
-    try:
-        with open(layout.project_report_path(run.project), encoding="utf-8") as fh:
-            report = json.load(fh)
-        earlier = report.get("replaced_sections") or []
-        applied = report.get("applied_corrections") or []
-    except (OSError, ValueError, AttributeError):
-        earlier, applied = [], []
-    entries = [e for e in earlier if isinstance(e, dict) and all(isinstance(e.get(k), str) for k in ("home", "heading", "key"))]
+    is a real replacement and stays: a revert is one, and the report names it (`reharvested_replaced`)."""
+    earlier = _earlier(run)
+    applied = earlier["applied_corrections"]
+    entries = [e for e in earlier["replaced_sections"] if all(isinstance(e.get(k), str) for k in ("home", "heading", "key"))]
     # A correction applied before replaced_sections existed (the herdr one of 2026-10-18) is recorded only here: the slice it
     # wrote, the heading and the key of the text it replaced. Its home is read from the slice path, as _in_home reads it.
-    legacy = [e for e in applied if isinstance(e, dict) and all(isinstance(e.get(k), str) for k in ("slice", "replaced", "replaced_key"))]
+    legacy = [e for e in applied if all(isinstance(e.get(k), str) for k in ("slice", "replaced", "replaced_key"))]
     if not entries and not legacy:
         return
     for role, label, klass, topic, group in _groups(run):
@@ -215,12 +239,28 @@ def drop_replayed(run: Run) -> None:
             continue
         present = existing_sections(slice_candidates(run, role, klass, topic))
         for claim in list(group):
-            if is_retire(claim) or (claim.get("merge_target") or "").strip() in present:
+            if is_retire(claim):
                 continue
             key = section_key(claim_block(claim).split("\n", 1)[1].strip())
             heading = hygiene_substitute(claim_heading(claim), "replaced section heading", patterns_for(klass))[0]
-            if any(e["heading"] == heading and e["key"] == key for e in mine):
+            same_heading = [e for e in mine if e["heading"] == heading]
+            if not same_heading:
+                continue
+            where = f"{label}/{klass}:{topic}#{claim_heading(claim)}: memory {claim['topic']!r}"
+            if (claim.get("merge_target") or "").strip() in present:
+                # Replaying a correction after a revert and a revert's first run are one claim to the corpus: nothing in it says
+                # which (the revert's own record is pruned once its text stands). Written, and said, so the pass is not silent.
+                if any(e["key"] == key for e in same_heading):
+                    run.reharvested_replaced.append(f"{where} re-applies a text an earlier replacement took out; written (a revert, or "
+                                                    "a correction replayed after its revert)")
+            elif any(e["key"] == key for e in same_heading):
                 group.remove(claim)
                 run.superseded_harvests.append(
-                    f"{label}/{klass}:{topic}#{claim_heading(claim)}: memory {claim['topic']!r} is text an applied correction or "
-                    f"supersede replaced (last-drain-report.json replaced_sections or applied_corrections); not written — update or delete {claim['topic']!r}")
+                    f"{where} is text an applied correction or supersede replaced (last-drain-report.json replaced_sections or "
+                    f"applied_corrections); not written — update or delete {claim['topic']!r}")
+            else:
+                # The heading was replaced and this text is not the text it replaced: written, and the replaced heading stands
+                # again, which verify_replacements refuses for a run of this drain. Named here so the key says why it was no replay.
+                run.reharvested_replaced.append(
+                    f"{where} carries other text than the section {heading!r} a correction replaced (claim key {key}, replaced "
+                    f"{', '.join(sorted({e['key'] for e in same_heading}))}); written")

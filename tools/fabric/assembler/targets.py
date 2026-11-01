@@ -52,8 +52,9 @@ def plan_classes(run: Run) -> None:
     #   flat_topic — whose sections the flat `<class>.md` holds this run:
     #                the drain's one topic when the flat file stays, else
     #                the stem it is moved to (the topic the file records;
-    #                for an older file the one topic the crossref names,
-    #                or `<class>-carried-<stamp>` for several)
+    #                for an older file that records none, the one topic the
+    #                crossref names when it names exactly the drain's topics,
+    #                else the carried file, `<class>-carried-<stamp>`)
     for role, topics in run.per_role.items():
         for klass in sorted({k for (k, _t) in topics}):
             base = layout.class_home(klass, role, run.project)
@@ -69,7 +70,7 @@ def plan_classes(run: Run) -> None:
                 held = read_existing_slice(flat_file)[0].get("topic")
                 held = held if isinstance(held, str) and held else None
             # Only a file that records its topic is known to hold that one: an older flat file may hold memories the
-            # crossref (referenced slices only) never named, and keeps its reading, split by more than one topic.
+            # crossref (referenced slices only) never named, so it is not read as the drain's topic's (see `unclaimed`).
             known = {held} if held else set()
             # A SECOND TOPIC MOVES THE CLASS INTO ITS DIRECTORY. The flat file has one INDEX row and one description,
             # so a topic written into it lost its cue (a drain's blind review, 2026-10-24).

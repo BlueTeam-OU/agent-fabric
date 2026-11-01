@@ -291,6 +291,7 @@ def report(run: Run) -> int:
         "retitles": run.retitles,
         "merge_target_unresolved": run.unresolved_targets,
         "superseded_harvests": run.superseded_harvests,
+        "reharvested_replaced": run.reharvested_replaced,
         "harvest": harvest_meta,
         "harvest_sources": {source: harvest_meta} if harvest_meta is not None else {},
         "watermarks": watermarks,
@@ -391,9 +392,14 @@ def report(run: Run) -> int:
         for note in run.unresolved_targets:
             print(f"  {note}", file=sys.stderr)
     if run.superseded_harvests:
-        print("\nSUPERSEDED HARVESTS (a memory whose text is the section a correction of this run replaces; "
-              "not written — update or delete the memory):", file=sys.stderr)
+        print("\nSUPERSEDED HARVESTS (a memory whose text is a section a correction replaced, in this run or an earlier "
+              "one; not written — update or delete the memory):", file=sys.stderr)
         for note in run.superseded_harvests:
+            print(f"  {note}", file=sys.stderr)
+    if run.reharvested_replaced:
+        print("\nREHARVESTED UNDER A REPLACED HEADING (written; a replaced heading that stands after the write stops the "
+              "run):", file=sys.stderr)
+        for note in run.reharvested_replaced:
             print(f"  {note}", file=sys.stderr)
     if run.empty_crossrefs:
         print("\nCROSSREF EMPTY (written with no entry: no observation behind the role's slices "

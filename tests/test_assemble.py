@@ -1460,7 +1460,7 @@ def test_a_correction_stays_listed_only_while_its_slice_holds_the_text_it_applie
     assert run_assemble(drain, claims_dir, out, "--stamp", "2026-01-02").returncode == 0
     (fix_entry,) = listed()
     assert fix_entry["applied_key"] == memory_key("Y, the correction."), "key parity holds with anchors and citations on the section"
-    set_claims(claims_dir, "alpha", [{"class": "solution", "topic": "revert", "title": "The finding, reverted", "merge_target": "The finding, corrected",
+    set_claims(claims_dir, "alpha", [{"class": "solution", "topic": "revert", "title": "The finding", "merge_target": "The finding, corrected",
                                       "body": "X, as first written.", "evidence": ["h3"]}])
     assert run_assemble(drain, claims_dir, out, "--stamp", "2026-01-03").returncode == 0
     entries = listed()

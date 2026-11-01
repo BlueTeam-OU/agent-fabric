@@ -393,6 +393,8 @@ class Run:
     # A claim whose text is the section a correction of the same run replaces: the correction's predecessor, harvested
     # again. Not written; each entry names its memory and the correcting memory so the author can update or delete it.
     superseded_harvests: list[str] = field(default_factory=list)
+    # A claim written under a heading an earlier correction replaced: a revert, or other text than the replaced section's (j82).
+    reharvested_replaced: list[str] = field(default_factory=list)
     applied_decisions: list[dict[str, str]] = field(default_factory=list)
     # ADR-050 rule 11: each section a retitle retires, one entry per old heading, so the report says what changed without stderr.
     retitles: list[dict[str, str]] = field(default_factory=list)
