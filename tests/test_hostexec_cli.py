@@ -179,6 +179,9 @@ def main() -> int:
         check("persist: the target's own persist_accounts.py, as root, on its pinned Python, for every placement there",
               "sudo -n /usr/local/bin/fabric-python -I @fabric/tools/fabric/provisioning/persist_accounts.py zz-far-login" in log(sshlog),
               log(sshlog))
+        check("persist: and then its persist_host_settings.py, as root, on the same interpreter, once",
+              log(sshlog).count("sudo -n /usr/local/bin/fabric-python -I @fabric/tools/fabric/provisioning/persist_host_settings.py") == 1
+              and log(sshlog).index("persist_accounts.py") < log(sshlog).index("persist_host_settings.py"), log(sshlog))
         clear(sshlog)
         run(FH, "far-host", "drain", "zz-far-login", "--dry-run", merge=True)
         check("drain: the account's own harvest, as the account, bundle to stdout",
