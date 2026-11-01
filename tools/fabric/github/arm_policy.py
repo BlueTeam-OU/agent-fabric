@@ -34,6 +34,12 @@ the owner's word it needs under that many work commits is about the security bou
 commits (the owner, 2026-10-11, through fabric-coordinator's REPLY 01a12ab1). The fleet's value is the floor: a
 repository's file may raise it and never lowers it below the fleet's, which load() enforces after the merge.
 
+armed_status (a status context; null: off) ties an arming to one head on GitHub's side. fabric-pr arm posts it,
+state success, on the head its gates read before it enables auto-merge, and render() makes the ruleset of an auto
+repository require it, so a head pushed after the arming waits for an arming of its own whatever a workflow did with
+auto-merge (audit F02). It is its own key, not an entry of required_checks: a repository's list replaces the fleet's,
+and every repository that names its own checks would drop it.
+
 threshold() IS THE ORDER OF SPECIFICITY: a stated class whose regex every file matches (commits.classes), then the
 author's role (commits.roles; arm.py takes it only when presence reports the branch's login bound to it), then
 commits.min; a boundary change gets the floor above and nothing lowers it.
@@ -64,6 +70,7 @@ BELOW_MIN = ("owner-word", "refuse")
 # Absent from DEFAULT on purpose: absent is "no authority", which a default role slug would not be.
 AUTHORITY_KEYS = ("boundary_authority", "below_min_authority")
 GROUPING = ("allgreen", "headgreen")
+STATUS_CONTEXT = re.compile(r"[^\s](?:[^\n\r]*[^\s])?")
 UPDATE_TYPES = ("patch", "minor", "major")
 # GitHub's repository fields for the merge methods: the merge commit's is the odd one out.
 REPO_FIELD = {"merge": "allow_merge_commit", "squash": "allow_squash_merge", "rebase": "allow_rebase_merge"}
@@ -94,6 +101,7 @@ DEFAULT: dict[str, Any] = {
     "additional_reviews": ["codex"],
     "bots": {},
     "github": {"ruleset": "fabric arming policy"},
+    "armed_status": "fabric/armed",
 }
 # The review engines (agent-fabric ADR-053 rule 6): "claude" is the review class's `fabric-pr post-review ... --model
 # fable`; "codex" is one posted with `--model codex`.
@@ -254,7 +262,17 @@ def validate(doc: Any, where: str = "the policy") -> dict:
     for k, v in g.items():
         if not isinstance(v, str) or not v:
             raise PolicyError(f"{where}: github.{k} is not a name")
+    # Compared byte for byte with the context GitHub reports and disarm-on-push reads, so a padded name would be a
+    # check that never comes.
+    a = p["armed_status"]
+    if a is not None and not (isinstance(a, str) and STATUS_CONTEXT.fullmatch(a)):
+        raise PolicyError(f"{where}: armed_status is a status context's name (no space at either end, one line) or null")
     return p
+
+
+def armed_status(policy: dict) -> str | None:
+    """The context fabric-pr arm posts on the head it arms, or None where the repository turns it off."""
+    return policy.get("armed_status")
 
 
 def _read_json_file(path: str) -> Any:
@@ -532,15 +550,21 @@ def render(policy: dict, apps: Mapping[str, int] | None = None) -> dict:
     rules.append({"type": "pull_request", "parameters": {
         "allowed_merge_methods": [p["method"]], "dismiss_stale_reviews_on_push": False, "require_code_owner_review": False,
         "require_last_push_approval": False, "required_approving_review_count": 0, "required_review_thread_resolution": False}})
-    if p["required_checks"]:
-        entries = []
-        for c in p["required_checks"]:
-            entry: dict[str, Any] = {"context": c["context"]}
-            if "app" in c:
-                if c["app"] not in ids:
-                    raise PolicyError(f"no integration id is known for the App {c['app']!r} (repo_policy asks GitHub for it)")
-                entry["integration_id"] = ids[c["app"]]
-            entries.append(entry)
+    entries = []
+    for c in p["required_checks"]:
+        entry: dict[str, Any] = {"context": c["context"]}
+        if "app" in c:
+            if c["app"] not in ids:
+                raise PolicyError(f"no integration id is known for the App {c['app']!r} (repo_policy asks GitHub for it)")
+            entry["integration_id"] = ids[c["app"]]
+        entries.append(entry)
+    # Auto alone: a queue merges its own merge-group commit, which carries no arming's status, and an owner-only
+    # repository is merged by the owner's hand with nothing posting it; required there, it would hold every merge.
+    # Any App: arm posts it with the session's own token, which is no App's.
+    armed = armed_status(p)
+    if armed and p["mode"] == "auto" and all(e["context"] != armed for e in entries):
+        entries.append({"context": armed})
+    if entries:
         rules.append({"type": "required_status_checks", "parameters": {
             "strict_required_status_checks_policy": False, "do_not_enforce_on_create": False, "required_status_checks": entries}})
     if p["mode"] == "queue":
