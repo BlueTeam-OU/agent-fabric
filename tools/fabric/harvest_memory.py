@@ -661,11 +661,12 @@ def main() -> int:
                                      until_ms=scan_start_ms)
         if use is not None:
             next_ms = max(next_ms, use["until_ms"])
+    # The watermark never passes the cutoff taken at the scan's start: a memory past it is skipped above, so every
+    # mtime that raised next_ms is at or below it.
     # The watermark stops below the oldest unrendered memory, whatever drained
     # after it: the next incremental drain names it again (the charter:
     # "never dropped"), at the price of re-reading what came after — which
     # the assembler dedupes by content hash.
-    next_ms = min(next_ms, max(scan_start_ms, since_ms))      # never forward past the cutoff taken at the scan's start
     if unrendered_ms:
         next_ms = min(next_ms, min(unrendered_ms) - 1)
     report = {
