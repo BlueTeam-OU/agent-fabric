@@ -302,7 +302,7 @@ for a in $accounts; do echo "${{a%%:*}}:x:${{a#*:}}:${{a#*:}}::{fx}/home/${{a%%:
             ("getent", f"#!/bin/sh\necho \"$2:x:2000:2000::{sshd}/home:/bin/bash\"\n"),
             ("ssh", "#!/bin/sh\nprintf '%s\\n' \"$*\" > \"$FX_ARGV\"\n"
                     "printf '\\033[>1u\\033[?1000h\\033[?1006h\\033[?1004h\\033[?2004h\\033[>4;2m\\033[?25l'\n"
-                    "case $FX_END in exit0) exit 0;; drop) exit 255;; hup) : > \"$FX_READY\"; exec sleep 60;; nap) : > \"$FX_READY\"; exec sleep 1;; esac\n"),
+                    "case $FX_END in exit0) exit 0;; drop) exit 255;; hup) : > \"$FX_READY\"; exec sleep 60;; nap) : > \"$FX_READY\"; exec sleep 1;; stop) : > \"$FX_READY\"; kill -STOP $$; exit 7;; esac\n"),
         ):
             put(f"{sshd}/bin/{name}", body, 0o755)
         put(f"{sshd}/home/.ssh/fabric_deck", "")
@@ -369,6 +369,36 @@ for a in $accounts; do echo "${{a%%:*}}:x:${{a#*:}}:${{a#*:}}::{fx}/home/${{a%%:
         rc, out, argv = via_ssh("exit0", host="10.0.0.7", port="2222")
         check("a host that is not loopback, as --via ssh to a second host: the same reset, and ssh's argv names it",
               rc == 0 and reset_after_enabling(out) and "-p 2222" in argv and "acct@10.0.0.7" in argv, f"{out!r} {argv!r}")
+        # ssh's ~^Z stops ssh alone; the pane's bash waits for moveto, so moveto must stop too (WUNTRACED) and, when
+        # continued, continue ssh. Only moveto is signalled here, as bash's fg would when ssh is not in its job.
+        env = clean_env(PATH=f"{sshd}/bin:/usr/bin:/bin", HOME=f"{sshd}/home", XDG_STATE_HOME=f"{sshd}/state",
+                        FX_ADDR="127.0.0.1", FX_PORT="22", FX_END="stop", FX_ARGV=f"{sshd}/argv", FX_READY=f"{sshd}/ready")
+        if os.path.exists(f"{sshd}/ready"):
+            os.remove(f"{sshd}/ready")
+        master, slave = pty.openpty()
+        p = subprocess.Popen([sys.executable, os.path.join(SRC, "moveto.py"), "acct", "--via", "ssh"], env=env,
+                             stdin=subprocess.DEVNULL, stdout=slave, stderr=subprocess.DEVNULL)
+        os.close(slave)
+        try:
+            # Reading the state of a child that is not ours to reap: a stopped moveto shows as T in /proc.
+            state = ""
+            for _ in range(200):
+                try:
+                    state = open(f"/proc/{p.pid}/stat", encoding="ascii").read().rsplit(")", 1)[1].split()[0]
+                except OSError:
+                    state = "?"
+                if state == "T" and os.path.exists(f"{sshd}/ready"):
+                    break
+                time.sleep(0.05)
+            check("ssh stops itself (~^Z): moveto stops too, so the pane's shell gets its prompt back", state == "T", state)
+            p.send_signal(signal.SIGCONT)
+            rc = p.wait(timeout=60)
+        finally:
+            if p.poll() is None:
+                p.kill()
+                p.wait()
+            os.close(master)
+        check("…and continued, moveto continues ssh, which runs on to its own status (7)", rc == 7, f"rc={rc}")
         for end, rc_want in (("exit0", 0), ("drop", 255)):
             rc, out, argv = via_ssh(end, tty=False)
             check(f"stdout a pipe ({end}): ssh's output only, no reset, status {rc_want}", rc == rc_want and out == enabled, f"rc={rc} out={out!r}")
