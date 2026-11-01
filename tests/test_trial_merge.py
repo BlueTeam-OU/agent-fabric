@@ -164,7 +164,7 @@ def main() -> int:
         check("a pid-less worktree an hour old goes", not os.path.exists(stale))
         check("a pid-less fresh one stays", os.path.isdir(fresh))
 
-        print("refs: a PR by its head branch, a branch by name, origin/ once")
+        print("refs: a PR by the head gh names, fetched from refs/pull; a branch by name, origin/ once")
         origin = os.path.join(scratch, "origin.git")
         sh(scratch, "init", "-q", "--bare", "-b", "main", origin)
         sh(repo, "remote", "add", "origin", origin)
@@ -175,29 +175,71 @@ def main() -> int:
         sh(repo, "push", "-q", "origin", "main")
         sh(repo, "checkout", "-q", "-b", "h/a/feat")
         sh(repo, "commit", "-q", "--allow-empty", "-m", "feat")
-        sh(repo, "push", "-q", "origin", "h/a/feat")
+        sh(repo, "push", "-q", "origin", "h/a/feat", "h/a/feat:refs/pull/7/head", "h/a/feat:refs/pull/8/head",
+                           "h/a/feat:refs/pull/10/head", "h/a/feat:refs/pull/12/head", "h/a/feat:refs/pull/14/head")
+        sha = sh(repo, "rev-parse", "h/a/feat").strip()
+        # A fork's PR #11 whose branch shares its name with an origin branch
+        # at another commit: GitHub keeps the fork's head only as
+        # refs/pull/11/head, and no branch of origin holds it (audit F14).
+        # Made in another clone, so that only a fetch brings it here.
+        fork = os.path.join(scratch, "fork")
+        sh(scratch, "clone", "-q", origin, fork)
+        sh(fork, "commit", "-q", "--allow-empty", "-m", "fork's commit")
+        fork_sha = sh(fork, "rev-parse", "HEAD").strip()
+        sh(fork, "push", "-q", "origin", "HEAD:refs/pull/11/head")
+        shutil.rmtree(fork)
+        sh(repo, "checkout", "-q", "main")
         sh(repo, "fetch", "-q", "origin")
-        sha = sh(repo, "rev-parse", "origin/h/a/feat").strip()
+        main_sha = sh(repo, "rev-parse", "main").strip()
+        fetch_head = os.path.join(repo, ".git", "FETCH_HEAD")
+        with open(fetch_head) as fh:
+            fetch_head_before = fh.read()
         real_run, real_which = gh.run, shutil.which
         asked = []
+        same = {"headRefOid": sha, "isCrossRepository": False, "headRepositoryOwner": {"login": "o"}}
+        prs = {"7": {"headRefName": "h/a/feat", **same}, "0008": {"headRefName": "origin/h/a/feat", **same},
+               "9": {"headRefName": None, **same}, "10": {"headRefName": "h/a/gone", **same},
+               "11": {"headRefName": "h/a/feat", "headRefOid": fork_sha, "isCrossRepository": True,
+                      "headRepositoryOwner": {"login": "forker"}},
+               "12": {"headRefName": "h/a/feat", "headRefOid": "0" * 40, **{k: v for k, v in same.items() if k != "headRefOid"}},
+               "13": {"headRefName": "h/a/feat", **same},
+               # gh's head is a commit this clone has, but not the pull ref's.
+               "14": {"headRefName": "h/a/feat", "headRefOid": main_sha, **{k: v for k, v in same.items() if k != "headRefOid"}}}
 
         def fake_run(args, **kw):
             asked.append(args)
-            return json.dumps({"headRefName": {"7": "h/a/feat", "0008": "origin/h/a/feat", "9": None, "10": "h/a/gone"}.get(args[2])})
+            return json.dumps(prs.get(args[2]))
 
         gh.run = fake_run
         try:
             check("a branch by name", tm.resolve_refs(repo, ["h/a/feat"]) == (["h/a/feat"], [sha]))
             check("origin/ stripped", tm.resolve_refs(repo, ["origin/h/a/feat"]) == (["h/a/feat"], [sha]))
-            check("a PR number becomes its head branch", tm.resolve_refs(repo, ["7"]) == (["h/a/feat"], [sha]) and asked == [["pr", "view", "7", "--json", "headRefName"]])
-            check("the number as typed, and a head carrying origin/", tm.resolve_refs(repo, ["0008"]) == (["h/a/feat"], [sha]) and asked[-1][2] == "0008")
-            for ref, want in (("9", "is not a pull request gh can read"), ("10", "h/a/gone is not a branch on origin"),
+            check("a PR number becomes the head gh names",
+                  tm.resolve_refs(repo, ["7"]) == (["h/a/feat"], [sha])
+                  and asked == [["pr", "view", "7", "--json", "headRefName,headRefOid,isCrossRepository,headRepositoryOwner"]])
+            check("the number as typed to gh, and a head carrying origin/", tm.resolve_refs(repo, ["0008"]) == (["h/a/feat"], [sha]) and asked[-1][2] == "0008")
+            try:
+                got = tm.resolve_refs(repo, ["11"])
+            except tm.Refused as e:
+                got = str(e)
+            check(f"a fork's PR is its own head, never the origin branch of the same name, and is named as the fork's ({got})",
+                  got == (["forker:h/a/feat"], [fork_sha]))
+            for ref, want in (("9", "is not a pull request gh can read"),
+                              ("12", "#12's head 0000000000000000000000000000000000000000 is not what origin's refs/pull/12/head holds"),
+                              ("13", "#13: refs/pull/13/head cannot be fetched from origin"),
+                              ("14", f"#14's head {main_sha} is not what origin's refs/pull/14/head holds"),
                               ("nowhere", "nowhere is not a branch on origin"), ("", " is not a branch on origin")):
                 try:
                     tm.resolve_refs(repo, [ref])
                     check(f"refused: {ref!r}", False)
                 except tm.Refused as e:
-                    check(f"refused: {ref!r}", want in str(e) and "nothing tried" in str(e))
+                    check(f"refused: {ref!r} ({e})", want in str(e) and "nothing tried" in str(e))
+            check("…and a PR whose head branch is gone from origin still resolves by its pull ref",
+                  tm.resolve_refs(repo, ["10"]) == (["h/a/gone"], [sha]))
+            with open(fetch_head) as fh:
+                fetch_head_after = fh.read()
+            check("…and the caller's refs are as they were: no ref of refs/pull fetched into the clone, FETCH_HEAD unwritten",
+                  sh(repo, "for-each-ref", "refs/pull", "refs/remotes/origin/pull") == "" and fetch_head_after == fetch_head_before)
 
             def failing(args, **kw):
                 raise gh.GhError("gh pr view 7", "Not Found (HTTP 404)", 404)
@@ -213,7 +255,7 @@ def main() -> int:
                 tm.resolve_refs(repo, ["7"])
                 check("no gh installed is refused", False)
             except tm.Refused as e:
-                check("no gh installed: #7 needs gh to find its branch", "#7 needs gh to find its branch" in str(e))
+                check("no gh installed: #7 needs gh to find its head", "#7 needs gh to find its head" in str(e))
             check("...but a branch name never needs gh", tm.resolve_refs(repo, ["h/a/feat"]) == (["h/a/feat"], [sha]))
         finally:
             gh.run, shutil.which = real_run, real_which
