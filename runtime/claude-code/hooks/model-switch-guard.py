@@ -41,7 +41,7 @@ DECISIONS, in order, with their exact words:
 
 NOT BYTE-IDENTICAL to the bash, each by the jq the bash read through (hook_jq.py beside this file):
   - routing.py runs on this interpreter (the pin, under the forwarder), where the bash ran the first
-    `python3` on PATH; its argv, environment and the stdout it reads are the bash's.
+    `python3` on PATH, and with -E -s; its other argv, its environment and the stdout it reads are the bash's.
   - a to_model or requested_model that is not a string is rendered as Python's JSON, not jq's (jq 1.8 keeps
     a number's literal); the harness sends strings.
   - a stream of several JSON values, a NaN, a lone surrogate: read as jq 1.8 reads them; jq 1.6 and 1.7
@@ -115,7 +115,9 @@ def main() -> int:
                    f"session a bare model id runs without its family shim; approve only if '{target}' needs none.")
         return 0
     try:
-        r = subprocess.run([sys.executable, routing, "--fabric", root, "shim", target], stdin=subprocess.DEVNULL,
+        # -E -s: no PYTHON* variable or user site reaches the probe this gate's answer rests on, as the dispatch
+        # guard's (not -I: routing.py imports its siblings from its own directory).
+        r = subprocess.run([sys.executable, "-E", "-s", routing, "--fabric", root, "shim", target], stdin=subprocess.DEVNULL,
                            stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, check=False)
         failed = r.returncode != 0
     except OSError:

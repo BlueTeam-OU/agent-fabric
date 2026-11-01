@@ -124,6 +124,44 @@ def main() -> int:
               got is False and 0.9 <= waited < 3, (got, waited))
         check("no temporary file left", sorted(os.listdir(d)) == [ss.FILE, ss.FILE + ".lock"], os.listdir(d))
 
+        # ADR-003 rule 1: the rewrite is identity.atomic_write's, and its lock file is 0600 whatever the umask.
+        w = os.path.join(tmp, "agents", "w")
+        seen = []
+        real = ss.identity().atomic_write
+        ss.identity().atomic_write = lambda path, data, mode=None: (seen.append((path, mode)), real(path, data, mode))[1]
+        old_umask = os.umask(0o022)
+        try:
+            ss.record(ev("SessionStart"), w, 0, P, PROC)
+        finally:
+            os.umask(old_umask)
+            ss.identity().atomic_write = real
+        check("the file is written by identity.atomic_write, 0600", seen == [(os.path.join(w, ss.FILE), 0o600)], seen)
+        check("…its lock file is 0600 under umask 022", os.stat(os.path.join(w, ss.FILE + ".lock")).st_mode & 0o777 == 0o600,
+              oct(os.stat(os.path.join(w, ss.FILE + ".lock")).st_mode))
+        # The old hooks left the lock 0644 on every account they ran on (review of #451, F4).
+        old = os.path.join(tmp, "agents", "old")
+        os.makedirs(old)
+        with open(os.path.join(old, ss.FILE + ".lock"), "a"):
+            pass
+        os.chmod(os.path.join(old, ss.FILE + ".lock"), 0o644)
+        ss.record(ev("SessionStart"), old, 0, P, PROC)
+        check("…a lock file the old hooks left 0644 is made 0600", os.stat(os.path.join(old, ss.FILE + ".lock")).st_mode & 0o777 == 0o600,
+              oct(os.stat(os.path.join(old, ss.FILE + ".lock")).st_mode))
+        whole = open(os.path.join(w, ss.FILE)).read()
+        real_replace = os.replace
+        def refuse(*a):
+            raise OSError("no space left")
+        os.replace = refuse
+        try:
+            failed = ss.record(ev("UserPromptSubmit"), w, 1, P, PROC)
+        except OSError:
+            failed = "raised"
+        finally:
+            os.replace = real_replace
+        check("a write that fails leaves the previous file whole and no temporary",
+              failed == "raised" and open(os.path.join(w, ss.FILE)).read() == whole
+              and sorted(os.listdir(w)) == [ss.FILE, ss.FILE + ".lock"], (failed, os.listdir(w)))
+
         env = {**os.environ, "AGENT_FABRIC_STATE_DIR": os.path.join(tmp, "cli")}
         for stdin in ('{"session_id":"c1","hook_event_name":"UserPromptSubmit"}', "not json", "[1,2]", ""):
             r = subprocess.run([sys.executable, HOOK], input=stdin, capture_output=True, text=True, env=env, timeout=30)

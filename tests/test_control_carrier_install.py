@@ -1093,7 +1093,38 @@ class Read(Case):
 
     def test_nothing_installed_is_absent_with_the_units_said(self):
         self.release()
-        self.assertEqual(self.read(), {"status": "absent", "units": {u: False for u in UNITS}, "client": {"status": "absent"}})
+        got = self.read()
+        got.pop("reserved_ports")                  # its own tests, below
+        self.assertEqual(got, {"status": "absent", "units": {u: False for u in UNITS}, "client": {"status": "absent"}})
+
+    def set_reserved(self, text):
+        path = os.path.join(iw.PROC_ROOT, iw.RESERVED_PORTS_REL)
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w") as fh:
+            fh.write(text)
+
+    def test_the_read_reports_whether_the_host_reserves_the_rosters_range(self):
+        for text, status in (("47100-47199\n", "covered"), ("32768,47000-47150,47151-47300", "covered"), ("47100-47198", "not-covered"),
+                             ("", "not-covered"), ("32768", "not-covered"), ("junk", "unreadable"), ("47100-", "unreadable")):
+            self.set_reserved(text)
+            got = self.read()["reserved_ports"]
+            self.assertEqual((got["status"], got["range"]), (status, [47100, 47199]), text)
+            self.assertEqual("reason" in got, status == "unreadable", text)
+        os.unlink(os.path.join(iw.PROC_ROOT, iw.RESERVED_PORTS_REL))
+        got = self.read()["reserved_ports"]
+        self.assertEqual((got["status"], got["range"]), ("unreadable", [47100, 47199]))
+        self.assertIn("cannot be read", got["reason"])
+
+    def test_a_roster_without_a_range_leaves_the_reservation_unreadable_and_the_rest_of_the_read_alone(self):
+        self.release()
+        self.set_reserved("47100-47199")
+        with open(os.path.join(self.root, iw.ROSTER_REL), "w") as fh:
+            json.dump({"version": 1, "profile": "gzcoord", "rows": []}, fh)
+        got = self.read()
+        self.assertEqual(got["reserved_ports"]["status"], "unreadable")
+        self.assertNotIn("range", got["reserved_ports"])
+        self.assertIn("port_range", got["reserved_ports"]["reason"])
+        self.assertEqual(got["status"], "absent", "a positive control: the rest of the read is as without the problem")
 
     def test_an_install_reads_back_its_version_digests_and_units(self):
         art = self.release()
@@ -1987,6 +2018,8 @@ class StartStop(Case):
             self.assertEqual(r["status"], "refused", text)
             self.assertIn("ip_local_reserved_ports", r["reason"], text)
             self.assertIn("47100-47199", r["reason"], text)
+            self.assertIn("`fabric-host <host> persist`", r["reason"], text)
+            self.assertNotIn("set net.ipv4", r["reason"], "the fix is provisioning's, not a hand sysctl")
             self.nothing_touched(text)
             self.assertEqual(self.events, [], "no turn is taken for a host that will be refused")
         os.unlink(os.path.join(iw.PROC_ROOT, iw.RESERVED_PORTS_REL))

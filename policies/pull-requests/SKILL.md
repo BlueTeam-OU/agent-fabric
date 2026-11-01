@@ -40,7 +40,11 @@ the dispatch guard denies a review from a `for/` branch). The caller arms, never
 `REQUEST` of its own; person-facing copy is never self-authored (a
 caller's draft ships as a marked placeholder). The order is fixed: fold
 every supply, then the project's full suite as CI runs it, then one blind review, then
-arm — all on that head; a new supply starts again at the fold.
+arm — all on that head; a new supply starts again at the fold. The
+review is posted as one bare command, `fabric-pr post-review [--repo
+<owner/name>] <n> < <report>`, nothing chained before or after: a
+wrapped one goes to the auto-mode classifier, which refuses it as
+[Self-Approval] for the session, and a hook denies it first.
 
 ## Arming
 

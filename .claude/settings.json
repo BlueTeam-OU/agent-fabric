@@ -19,6 +19,11 @@
             "type": "command",
             "command": "bash \"$CLAUDE_PROJECT_DIR/runtime/claude-code/hooks/tab-title.sh\"",
             "timeout": 10
+          },
+          {
+            "type": "command",
+            "command": "{ [ -x /usr/local/bin/fabric-python ] && [ -e /etc/claude-code/managed-settings.json ]; } || printf '%s\\n' '{\"hookSpecificOutput\":{\"hookEventName\":\"SessionStart\",\"additionalContext\":\"ADR-043: rules 1-2 are not installed on this host; the workspace guards run from this checkout — operator: sudo fabric-managed install\"}}'; true",
+            "timeout": 5
           }
         ]
       },
@@ -50,7 +55,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "f=\"$CLAUDE_PROJECT_DIR/runtime/claude-code/hooks/agent-dispatch-guard.sh\"; if [ -f \"$f\" ]; then bash \"$f\"; else printf '%s\\n' '{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"ask\",\"permissionDecisionReason\":\"The dispatch guard script was not found; approve only if you have checked model and isolation yourself.\"}}'; fi",
+            "command": "[ -x /usr/local/bin/fabric-python ] && grep -qF '\"agent-dispatch-guard\"' /etc/claude-code/managed-settings.json 2>/dev/null && exit 0; f=\"$CLAUDE_PROJECT_DIR/runtime/claude-code/hooks/agent-dispatch-guard.sh\"; if [ -f \"$f\" ]; then bash \"$f\"; else printf '%s\\n' '{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"ask\",\"permissionDecisionReason\":\"The dispatch guard script was not found; approve only if you have checked model and isolation yourself.\"}}'; fi",
             "timeout": 10
           }
         ]
@@ -60,7 +65,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "f=\"$CLAUDE_PROJECT_DIR/runtime/claude-code/hooks/subagent-clone-guard.sh\"; if [ -f \"$f\" ]; then bash \"$f\"; else printf '%s\\n' '{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"ask\",\"permissionDecisionReason\":\"The subagent clone guard script was not found; approve only if this tool call is not a subagent writing in the session clone.\"}}'; fi",
+            "command": "[ -x /usr/local/bin/fabric-python ] && grep -qF '\"subagent-clone-guard\"' /etc/claude-code/managed-settings.json 2>/dev/null && exit 0; f=\"$CLAUDE_PROJECT_DIR/runtime/claude-code/hooks/subagent-clone-guard.sh\"; if [ -f \"$f\" ]; then bash \"$f\"; else printf '%s\\n' '{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"ask\",\"permissionDecisionReason\":\"The subagent clone guard script was not found; approve only if this tool call is not a subagent writing in the session clone.\"}}'; fi",
             "timeout": 10
           }
         ]
@@ -70,17 +75,22 @@
         "hooks": [
           {
             "type": "command",
-            "command": "f=\"$CLAUDE_PROJECT_DIR/runtime/claude-code/hooks/pipe-status-guard.sh\"; [ -f \"$f\" ] && bash \"$f\"; true",
+            "command": "[ -x /usr/local/bin/fabric-python ] && grep -qF '\"pipe-status-guard\"' /etc/claude-code/managed-settings.json 2>/dev/null && exit 0; f=\"$CLAUDE_PROJECT_DIR/runtime/claude-code/hooks/pipe-status-guard.sh\"; [ -f \"$f\" ] && bash \"$f\"; true",
             "timeout": 5
           },
           {
             "type": "command",
-            "command": "f=\"$CLAUDE_PROJECT_DIR/runtime/claude-code/hooks/self-kill-guard.py\"; [ -f \"$f\" ] && python3 \"$f\"; true",
+            "command": "[ -x /usr/local/bin/fabric-python ] && grep -qF '\"self-kill-guard\"' /etc/claude-code/managed-settings.json 2>/dev/null && exit 0; f=\"$CLAUDE_PROJECT_DIR/runtime/claude-code/hooks/self-kill-guard.py\"; [ -f \"$f\" ] && python3 \"$f\"; true",
             "timeout": 5
           },
           {
             "type": "command",
-            "command": "f=\"$CLAUDE_PROJECT_DIR/runtime/claude-code/hooks/job-copy-guard.sh\"; if [ -f \"$f\" ]; then bash \"$f\"; else printf '%s\\n' '{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"ask\",\"permissionDecisionReason\":\"The job copy guard script was not found; approve only if this command does not commit or publish outside the working copy of the job this session works (agent-fabric ADR-037 rule 3).\"}}'; fi",
+            "command": "[ -x /usr/local/bin/fabric-python ] && grep -qF '\"post-review-shape-guard\"' /etc/claude-code/managed-settings.json 2>/dev/null && exit 0; f=\"$CLAUDE_PROJECT_DIR/runtime/claude-code/hooks/post-review-shape-guard.py\"; [ -f \"$f\" ] && python3 \"$f\"; true",
+            "timeout": 5
+          },
+          {
+            "type": "command",
+            "command": "[ -x /usr/local/bin/fabric-python ] && grep -qF '\"job-copy-guard\"' /etc/claude-code/managed-settings.json 2>/dev/null && exit 0; f=\"$CLAUDE_PROJECT_DIR/runtime/claude-code/hooks/job-copy-guard.sh\"; if [ -f \"$f\" ]; then bash \"$f\"; else printf '%s\\n' '{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"ask\",\"permissionDecisionReason\":\"The job copy guard script was not found; approve only if this command does not commit or publish outside the working copy of the job this session works (agent-fabric ADR-037 rule 3).\"}}'; fi",
             "timeout": 10
           }
         ]
@@ -89,7 +99,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "f=\"$CLAUDE_PROJECT_DIR/runtime/claude-code/hooks/plan-hold.sh\"; [ -f \"$f\" ] && bash \"$f\"; true",
+            "command": "[ -x /usr/local/bin/fabric-python ] && grep -qF '\"plan-hold\"' /etc/claude-code/managed-settings.json 2>/dev/null && exit 0; f=\"$CLAUDE_PROJECT_DIR/runtime/claude-code/hooks/plan-hold.sh\"; [ -f \"$f\" ] && bash \"$f\"; true",
             "timeout": 5
           }
         ]
@@ -100,7 +110,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "f=\"$CLAUDE_PROJECT_DIR/runtime/claude-code/hooks/model-switch-guard.sh\"; if [ -f \"$f\" ]; then bash \"$f\"; else printf '%s\\n' '{\"hookSpecificOutput\":{\"hookEventName\":\"PreModelSwitch\",\"permissionDecision\":\"ask\",\"permissionDecisionReason\":\"The model-switch guard script was not found; in a broker session a bare model id runs without its family shim. Approve only if the target is a composite or needs no shim.\"}}'; fi",
+            "command": "[ -x /usr/local/bin/fabric-python ] && grep -qF '\"model-switch-guard\"' /etc/claude-code/managed-settings.json 2>/dev/null && exit 0; f=\"$CLAUDE_PROJECT_DIR/runtime/claude-code/hooks/model-switch-guard.sh\"; if [ -f \"$f\" ]; then bash \"$f\"; else printf '%s\\n' '{\"hookSpecificOutput\":{\"hookEventName\":\"PreModelSwitch\",\"permissionDecision\":\"ask\",\"permissionDecisionReason\":\"The model-switch guard script was not found; in a broker session a bare model id runs without its family shim. Approve only if the target is a composite or needs no shim.\"}}'; fi",
             "timeout": 10,
             "statusMessage": "agent-fabric: checking the switch keeps its family shim…"
           }
@@ -112,7 +122,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "f=\"$CLAUDE_PROJECT_DIR/runtime/claude-code/hooks/plan-hold.sh\"; [ -f \"$f\" ] && bash \"$f\"; true",
+            "command": "[ -x /usr/local/bin/fabric-python ] && grep -qF '\"plan-hold\"' /etc/claude-code/managed-settings.json 2>/dev/null && exit 0; f=\"$CLAUDE_PROJECT_DIR/runtime/claude-code/hooks/plan-hold.sh\"; [ -f \"$f\" ] && bash \"$f\"; true",
             "timeout": 5
           }
         ]
@@ -123,7 +133,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "f=\"$CLAUDE_PROJECT_DIR/runtime/claude-code/hooks/plan-hold.sh\"; [ -f \"$f\" ] && bash \"$f\"; true",
+            "command": "[ -x /usr/local/bin/fabric-python ] && grep -qF '\"plan-hold\"' /etc/claude-code/managed-settings.json 2>/dev/null && exit 0; f=\"$CLAUDE_PROJECT_DIR/runtime/claude-code/hooks/plan-hold.sh\"; [ -f \"$f\" ] && bash \"$f\"; true",
             "timeout": 5
           }
         ]

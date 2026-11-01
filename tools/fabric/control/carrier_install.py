@@ -88,6 +88,8 @@ will not report makes the status "unreadable" with the reason, never a guessed
 version. channel: the check of step 9 looked at once, now: "ok" | "off" (a unit
 runs and fails it) | "not-running" | "unknown" (it could not be made), with the
 units' states and a reason, so that an account off the channel is seen.
+reserved_ports (whatever the status above): the host's reservation of the roster's port_range, {status "covered" | "not-covered" |
+"unreadable", range [low, high] (absent when the roster cannot be read), reason?}; the fix for the last two is `fabric-host <host> persist`.
 
 THE START (`<carrier>-start`, no arguments; agent-fabric ADR-064 rule 11: starting an account's units is the dual
 run's switch) writes the profile's config.yaml and brings the roster's profile up as two units of the user manager:
@@ -206,6 +208,8 @@ RENDER_LEASE_WAIT_S = 600
 # daemons dialling each other one took 47124 and its owner could not bind (EADDRINUSE). The host reserves the roster's range.
 RESERVED_PORTS_REL = os.path.join("sys", "net", "ipv4", "ip_local_reserved_ports")
 RESERVED_PORTS_HINT = "net.ipv4.ip_local_reserved_ports (agent-fabric ADR-064)"
+# Provisioning makes the setting and keeps it across a reboot (tools/fabric/provisioning/persist_host_settings.py); a hand sysctl is lost with an AppVM's root.
+RESERVED_PORTS_FIX = "fabric-host <host> persist"
 # A carrier that has just started verifies every roster row before it opens its socket (29 s measured with 26 rows, 2026-10-25), so the
 # start waits for `status` much longer than a restart's check, which finds a carrier that was already up.
 STARTUP_STATUS_POLLS = 45
@@ -504,16 +508,8 @@ def roster_port_range(root: str) -> tuple[int, int]:
     return rng[0], rng[1]
 
 
-def reserved_ports_problem(low: int, high: int) -> str | None:
-    """None when the host reserves every port of low..high away from outgoing connections, else what to do. A host whose
-    setting cannot be read is not shown to reserve them: the same refusal, with the reason."""
-    path = os.path.join(PROC_ROOT, RESERVED_PORTS_REL)
-    fix = f"; set {RESERVED_PORTS_HINT} to cover {low}-{high}"
-    try:
-        with open(path, encoding="ascii") as fh:
-            text = fh.read()
-    except (OSError, ValueError) as e:
-        return f"the host's reserved ports cannot be read ({_oneline(e)}){fix}"
+def parse_reserved_ports(text: str) -> list[tuple[int, int]]:
+    """The spans of the kernel's ip_local_reserved_ports text ("a,b-c", newlines count as commas); ValueError names the item that is none."""
     spans = []
     for item in text.replace("\n", ",").split(","):
         item = item.strip()
@@ -523,15 +519,58 @@ def reserved_ports_problem(low: int, high: int) -> str | None:
         try:
             spans.append((int(lo), int(hi if sep else lo)))
         except ValueError:
-            return f"the host's reserved ports are not readable ({item[:40]!r}){fix}"
+            raise ValueError(item[:40]) from None
+    return spans
+
+
+def ports_covered(spans: list[tuple[int, int]], low: int, high: int) -> bool:
     covered = low
     for lo, hi in sorted(spans):
         if lo > covered:
             break
         covered = max(covered, hi + 1)
         if covered > high:
-            return None
+            return True
+    return False
+
+
+def read_reserved_ports(proc_root: str | None = None) -> list[tuple[int, int]]:
+    """The host's reserved spans; OSError if the setting cannot be read, ValueError(item) if its text is not spans."""
+    path = os.path.join(PROC_ROOT if proc_root is None else proc_root, RESERVED_PORTS_REL)
+    with open(path, encoding="ascii") as fh:
+        return parse_reserved_ports(fh.read())
+
+
+def reserved_ports_problem(low: int, high: int) -> str | None:
+    """None when the host reserves every port of low..high away from outgoing connections, else what to do. A host whose
+    setting cannot be read is not shown to reserve them: the same refusal, with the reason."""
+    fix = f"; run `{RESERVED_PORTS_FIX}` to reserve {low}-{high} ({RESERVED_PORTS_HINT})"
+    try:
+        spans = read_reserved_ports()
+    except (OSError, UnicodeDecodeError) as e:
+        return f"the host's reserved ports cannot be read ({_oneline(e)}){fix}"
+    except ValueError as e:
+        return f"the host's reserved ports are not readable ({str(e)!r}){fix}"
+    if ports_covered(spans, low, high):
+        return None
     return f"the host does not reserve ports {low}-{high} from outgoing connections{fix}"
+
+
+def reserved_ports_state(root: str) -> dict:
+    """The reservation as the read reports it: {"status": "covered" | "not-covered" | "unreadable", "range"?: [low, high], "reason"?}.
+    Unreadable is a roster or a setting that cannot be read: neither is shown to cover or to miss."""
+    try:
+        low, high = roster_port_range(root)
+    except InstallError as e:
+        return {"status": "unreadable", "reason": str(e)}
+    out: dict = {"range": [low, high]}
+    try:
+        spans = read_reserved_ports()
+    except (OSError, UnicodeDecodeError) as e:
+        return {**out, "status": "unreadable", "reason": f"the host's reserved ports cannot be read ({_oneline(e)})"}
+    except ValueError as e:
+        return {**out, "status": "unreadable", "reason": f"the host's reserved ports are not readable ({str(e)!r})"}
+    return {**out, "status": "covered" if ports_covered(spans, low, high) else "not-covered"}
 
 
 TCP_STATES = {"01": "ESTABLISHED", "02": "SYN_SENT", "03": "SYN_RECV", "04": "FIN_WAIT1", "05": "FIN_WAIT2", "06": "TIME_WAIT", "07": "CLOSE",
@@ -1373,7 +1412,7 @@ def installed(home: str | None = None, state: str | None = None, run: Callable[.
               root: str | None = None) -> dict:
     home = os.path.expanduser("~") if home is None else home
     root = _code_root() if root is None else root
-    return dict(_installed(home, state, run, root), client=client_state(home, root))
+    return dict(_installed(home, state, run, root), client=client_state(home, root), reserved_ports=reserved_ports_state(root))
 
 
 def _installed(home: str, state: str | None, run: Callable[..., Any], root: str) -> dict:

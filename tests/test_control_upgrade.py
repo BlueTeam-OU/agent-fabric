@@ -790,5 +790,62 @@ class PortAdditions(unittest.TestCase):
         self.assertFalse(U._alive(2 ** 22 + 12345))
 
 
+class ManagedGate(unittest.TestCase):
+    """ADR-043 rule 6: Claude Code 2.1.287 or later only on a host whose managed settings are in force."""
+
+    def gate(self, state: str, reasons=("etc file is absent",)):
+        seen: list[tuple] = []
+
+        def check(**kw):
+            seen.append(tuple(sorted(kw.items())))
+            return {"state": state, "reasons": list(reasons), "snapshot": None, "etc": "/e", "ref": kw["ref"], "prefix": "/p"}
+        return (lambda root: U.managed_refusal(root, check=check)), seen
+
+    def upgrade(self, f: Fx, version: str, gate):
+        return U.upgrade_once(req(args={"piece": "claude", "version": version}), **f.opts(sessions=[], kill=no_kill, me="h/db-admin", managed_gate=gate))
+
+    def test_missing_refuses_at_the_floor_and_above_it_and_nothing_is_stopped_or_installed(self):
+        for version in ("2.1.287", "2.1.316"):
+            f = Fx(self, installed="2.1.280")
+            gate, seen = self.gate("missing")
+            r = self.upgrade(f, version, gate)
+            self.assertEqual((r["status"], r["piece"], r["to"]), ("refused", "claude", version))
+            self.assertIn("are missing on this host: etc file is absent", r["reason"])
+            self.assertIn(f"sudo {f.root}/bin/fabric-managed install --sha <main sha>", r["reason"])
+            self.assertEqual(f.calls, ["--version"], "only the version was read: no lease, no install")
+            self.assertFalse(os.path.exists(U.marker_path(f.dir)))
+            self.assertEqual(seen, [(("ref", "origin/main"), ("repo", f.root))])
+
+    def test_below_the_floor_the_gate_is_not_asked(self):
+        f = Fx(self, installed="2.1.280")
+
+        def gate(_root):
+            raise AssertionError("asked for 2.1.286")
+        self.assertEqual(self.upgrade(f, "2.1.286", gate)["status"], "upgraded")
+
+    def test_in_force_passes_at_a_later_version(self):
+        f = Fx(self, installed="2.1.280")
+        gate, _seen = self.gate("in force", ())
+        self.assertEqual(self.upgrade(f, "2.1.316", gate)["status"], "upgraded")
+
+    def test_a_host_already_at_the_target_is_current_not_refused(self):
+        f = Fx(self, installed="2.1.316")
+        gate, _seen = self.gate("missing")
+        self.assertEqual(self.upgrade(f, "2.1.316", gate)["status"], "current")
+
+    def test_every_state_but_in_force_refuses_and_a_check_that_cannot_run_does_too(self):
+        for state in ("missing", "drifted", "tampered", "unreadable", "something-new"):
+            self.assertIn(f"are {state} on this host", U.managed_refusal("/r", check=lambda **_kw: {"state": state, "reasons": [], "snapshot": None}))
+
+        def boom(**_kw):
+            raise OSError("no git")
+        self.assertIn("the check could not run: no git", U.managed_refusal("/r", check=boom))
+
+    def test_the_default_gate_asks_the_real_check_and_a_bare_root_is_not_in_force(self):
+        f = Fx(self, installed="2.1.280")
+        r = U.upgrade_once(req(args={"piece": "claude", "version": "2.1.287"}), **f.opts(sessions=[], kill=no_kill, me="h/db-admin"))
+        self.assertEqual(r["status"], "refused", "no origin/main in the scratch root, so the template is unreadable: not in force")
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -38,6 +38,20 @@ The v0.2.0 archive is signed by the key InterWeave pins, and that signature can 
 
 ## Not verified
 
-- The installer's check itself: it is python-dev's to build (agent-fabric ADR-064, amendment 2026-10-31), and this page is its oracle.
 - The tag key (`[tag]`, an OpenPGP key): the tag's signature is InterWeave's release job's check, not the archive's, and the fabric does not install from a tag.
 - A key rotation: only one archive key has existed.
+
+## Read back on the merged installer (2026-11-01)
+
+Run by fabric-coordinator (user@develop-qzapp, job j449) on develop-qzapp, with main at 00616fdf: the installer's check (#442, cab1f748) and the pin as merged, against the real v0.2.0 release.
+
+| what | result |
+|---|---|
+| `carrier_install.pin_problem` on `release.json` | none |
+| `fetch_and_unpack` for 0.2.0, with its own `download`, from the asset endpoint | size, SHA-256 and signature passed; extracted; `.archive.part` removed; both programs' `program_sha256` match the pin |
+| control: the archive with one byte changed, its digest forged to the pin's, so only the signature can refuse it | `minisign check failed: the archive's signature does not verify with the pinned key; nothing was installed`, the directory left empty |
+| control: `minisign.verify_file` with another file name | refused: the signed trusted comment does not name it |
+| control: 0.1.0 (`unsigned`) | refused before any download |
+| InterWeave `packaging/release-keys.toml` on main (817ac44b) | `[archive] minisign_public_key` equal to the pin's; b1b65cb9 is still the newest commit that changed the file |
+
+The check costs 0.3 s of CPU on the 118 MB archive. It decides that the merged installer holds an account to the owner's signature as well as the digest. Nothing is left open for j449. The tag key and a key rotation stay unverified, as above.
