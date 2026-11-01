@@ -161,6 +161,62 @@ def main() -> int:
                          AGENT_FABRIC_LEASES=f"{t}/nowhere/deep/leases")
         check("a fallback that cannot set the mode says so", "not made 1777" in err, err)
 
+        print("boot script: a subordinate id range that overlaps another account's is refused, never renumbered (audit F12)")
+
+        def boot(name: str, etc_files: dict[str, str], snap_files: dict[str, str]) -> tuple[str, str, str]:
+            e, sn = f"{t}/{name}-etc", f"{t}/{name}-snap"
+            os.makedirs(e)
+            os.makedirs(sn)
+            for fname, text in etc_files.items():
+                put(f"{e}/{fname}", text)
+            for fname, text in snap_files.items():
+                put(f"{sn}/{fname}", text)
+            put(log, "")
+            _, _, err = run(["sh", RC], AGENT_FABRIC_ETC=e, AGENT_FABRIC_ACCOUNTS_SNAPSHOT=sn)
+            return e, sn, err
+
+        base_etc = {"passwd": "root:x:0:0:root:/root:/bin/bash\ntemplate-user:x:1000:1000::/home/t:/bin/bash\n",
+                    "shadow": "root:*:1::::::\n", "group": "root:x:0:\ntemplate-user:x:1000:\n", "gshadow": "root:::\n",
+                    "subuid": "template-user:200000:65536\n", "subgid": "template-user:200000:65536\n"}
+
+        def snap_of(login: str, uid: int, sub: str, subgid: str | None = None) -> dict[str, str]:
+            return {"passwd": f"{login}:x:{uid}:{uid}::/home/{login}:/bin/bash\n", "shadow": f"{login}:$6$h:1::::::\n",
+                    "group": f"{login}:x:{uid}:\n", "gshadow": f"{login}:!::\n",
+                    "subuid": f"{login}:{sub}\n", "subgid": f"{login}:{subgid or sub}\n"}
+
+        def has(path: str, prefix: str) -> bool:
+            return any(ln.startswith(prefix) for ln in lines(path))
+
+        def refused(e: str, login: str) -> bool:
+            return not any(has(f"{e}/{f}", f"{login}:") for f in ("passwd", "shadow", "group", "gshadow", "subuid", "subgid"))
+
+        e, _, err = boot("f12a", base_etc, snap_of("audit-agent", 1020, "200000:65536"))
+        check("the very range another account holds: refused whole, named on stderr",
+              refused(e, "audit-agent") and "audit-agent" in err and "template-user" in err and "200000" in err, err)
+        check("…the existing range stands as it was, and no linger for the refused", read(f"{e}/subuid") == base_etc["subuid"]
+              and "audit-agent" not in read(log), read(f"{e}/subuid"))
+        e, _, err = boot("f12b", base_etc, snap_of("audit-agent", 1020, "100000:100200", "265000:1000"))
+        check("a partial overlap in the subuid file alone refuses the account", refused(e, "audit-agent") and "overlaps" in err, err)
+        e, _, err = boot("f12c", base_etc, snap_of("audit-agent", 1020, "300000:100", "265000:1000"))
+        check("…and so does one in the subgid file alone", refused(e, "audit-agent") and "subgid" in err, err)
+        e, _, err = boot("f12d", base_etc, snap_of("audit-agent", 1020, "265536:1000", "199000:1000"))
+        check("positive control: ranges that only touch the neighbour's edges are restored",
+              has(f"{e}/passwd", "audit-agent:") and "audit-agent:265536:1000" in lines(f"{e}/subuid")
+              and "audit-agent:199000:1000" in lines(f"{e}/subgid") and "enable-linger audit-agent" in read(log), err + read(f"{e}/subuid"))
+        two = {k: v + {"passwd": "second:x:1021:1021::/home/second:/bin/bash\n", "shadow": "second:$6$h:1::::::\n",
+                       "group": "second:x:1021:\n", "gshadow": "second:!::\n", "subuid": "second:400100:10\n",
+                       "subgid": "second:400100:10\n"}[k] for k, v in snap_of("first", 1020, "400000:65536").items()}
+        e, _, err = boot("f12e", base_etc, two)
+        check("two proposed accounts that overlap each other: the first is restored, the second refused",
+              has(f"{e}/passwd", "first:") and refused(e, "second") and "first" in err, err)
+        mal = snap_of("audit-agent", 1020, "soon:65536")
+        e, _, err = boot("f12f", base_etc, mal)
+        check("a range that is not numbers is refused, not guessed at", refused(e, "audit-agent") and err, err)
+        have = dict(base_etc, passwd=base_etc["passwd"] + "audit-agent:x:1020:1020::/home/audit-agent:/bin/bash\n")
+        e, _, err = boot("f12g", have, {"subuid": "audit-agent:200000:65536\n", "subgid": "audit-agent:200000:65536\n"})
+        check("an account already in /etc whose snapshot range collides gets no range appended",
+              not has(f"{e}/subuid", "audit-agent:") and not has(f"{e}/subgid", "audit-agent:") and "overlaps" in err, err)
+
         print("writer: one line per login per file, replace-or-append, the boot script installed once")
         os.makedirs(f"{t}/snap")
         put(log, "")
