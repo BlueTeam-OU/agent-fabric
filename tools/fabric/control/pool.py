@@ -66,7 +66,6 @@ import fcntl
 import functools
 import os
 import re
-import secrets
 import sys
 import tempfile
 import time
@@ -232,7 +231,7 @@ def _stamp_generation(doc: dict) -> bool:
     from a new job under an old id, whatever order the answers reached it in."""
     if "generation" in doc:
         return False
-    doc["generation"] = secrets.token_hex(16)
+    doc["generation"] = os.urandom(16).hex()      # not `secrets`: this directory has a module of that name
     return True
 
 
