@@ -103,8 +103,12 @@ read back before this was decided (§1).
   in `git diff --name-only base..head`, each `read` or `not read` with a
   reason, and each lens of the brief `applied` or `not applied`.
   `post-review` computes the path set itself and refuses a report whose
-  block omits one. A review with a `not read` path posts, says so in its
-  first lines, and the arm does not count it as coverage of the head.
+  block omits one. A block may instead carry a `default` entry, read or
+  not read with a reason, standing for every path of the range it does
+  not name; a named path keeps its own entry, and a path named outside
+  the range is still refused. A review with a `not read` path, or a
+  `not read` default, posts, says so in its first lines, and the arm
+  does not count it as coverage of the head.
 - *Checkpoint marker.* The marker becomes
   `<!-- agent-fabric-review v2 base=<sha> head=<sha> card=<sha> config=<sha256> -->`,
   where `base..head` is the range that review read, `card` the commit
@@ -192,8 +196,11 @@ means a full review.
    this review; an unproved sandbox runs nothing, and nothing names a
    wider one.
 4. A posted review carries the `v2` marker and a coverage block naming
-   every path of its range. `post-review` refuses a block that omits one;
-   a review with a path `not read` is not coverage of its head.
+   every path of its range, or naming some and carrying an optional
+   top-level `default` entry for every path it does not name.
+   `post-review` refuses a block that omits one without a default, or
+   names one outside the range; a review with a path `not read`, or a
+   `not read` default, is not coverage of its head.
 5. A re-review's base is the `head`, and its `card_base` the `card`, of
    the last `v2` marker on the PR that `post-review` posted, whose `head`
    is an ancestor of the current head and whose `config` matches;
@@ -272,3 +279,4 @@ The body above reads current; each change's full note is in [history/ADR-065-ame
 | Date | Amendment | Effect |
 |---|---|---|
 | 2026-10-31 | A full review carries the findings earlier chains left open | §5 rule 5: a PR's full-review brief lists the open findings of the PR's earlier review chains to judge by label, and numbers its own past every used label |
+| 2026-11-01 | A coverage block may carry a default entry | §2 C, §5 rule 4: an optional top-level `default` stands for every range path the block does not name; a `not read` default makes the review partial |
