@@ -121,3 +121,37 @@ with it false (agent-fabric-settings#9, gzapi-org/agent-fabric-settings#8).
 The word travels as an AUTHORIZES message naming the PR and its head,
 or the authority arms from its own bound session; neither skips the
 review.
+
+### Amendment 2026-11-01 — An arming is tied to its head by a status
+
+§5 rule 5. The owner's audit of 2026-11-01 (F02, P1) found that
+disarm-on-push kept auto-merge when the arming's `enabledAt` equalled the
+push's time: both are whole seconds, so an arming of the old head made in
+the push's second read as an arming of the new one, and the old head's
+arming merged the new, unreviewed head. The time it compared,
+`pull_request.updated_at`, also moves with any edit of the PR. The owner
+asked for the comparison to fail closed and for a required check that
+ties the authorization to the head's sha.
+
+Since then `fabric-pr arm` posts a commit status, the context the
+arming policy's new `armed_status` names (fleet default `fabric/armed`,
+`null` turns it off), state success, on exactly the sha its gates read,
+before it enables auto-merge; it refuses when pr-gate's row or a fresh
+read of the PR names another head. In mode `auto` the ruleset that
+`fabric-repo-policy` applies requires that status beside the policy's
+`required_checks`, never inside the list, because a repository's list
+replaces the fleet's on merge and would drop it. Mode `queue` and
+`owner-only` are left out: nothing posts the status on a merge-group
+commit, and an owner-only repository is never armed, so the owner's own
+merge would wait on a status nobody posts. disarm-on-push no longer
+compares times: it keeps auto-merge only when the pushed head carries
+`fabric/armed` success, and a status it cannot read is no tie.
+
+The status is trusted as the arming is: anyone with write access can
+post it, as anyone can enable auto-merge; it fences the accident of a
+late push, not the intent. Consequences: a merge made by hand in a mode
+`auto` repository (the coordinator's Dependabot pin bumps, an owner's
+merge in the UI) waits until the status is posted on the head it merges;
+a PR armed before its repository's ruleset carries the check waits on it
+and is armed again; and the order of rollout is merge, then apply each
+repository's ruleset, then re-arm what was open.
