@@ -241,7 +241,6 @@ def test_an_earlier_drains_correction_is_not_judged_as_this_drains(tmp: str) -> 
     for bundle in ([ORIGINAL], [CORRECTION_A]):
         assert run(bundle, "2026-10-12").returncode == 0
     # A later drain writes a section under the heading the old correction replaced: its own, new text.
-    reused = claim("t-new", "Status v1 of the thing", "A different finding that reuses the heading.", "h6")
     unrelated = claim("t2", "Other section here", "Text of another topic.", "h4")
     first = run([unrelated], "2026-10-31")
     assert first.returncode == 0, first.stderr
