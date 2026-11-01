@@ -156,7 +156,10 @@ address, where the relay's `sender` is a claim (ADR-033 §6).
    or, on the owner's word, accepted as known limits for that host; this
    rule does not stand in its way. The roster's port range is reserved on the host
    (`net.ipv4.ip_local_reserved_ports`), so no outgoing connection takes
-   one of its ports as a source port (A 2026-10-26).
+   one of its ports as a source port (A 2026-10-26). Provisioning makes
+   the reservation and keeps it across a reboot, from the roster's range:
+   `fabric-host <host> persist`, which a read that finds it missing and a
+   start that refuses for it both name (A 2026-11-01).
 2. The roster (`runtime/interweave/roster.json`) is the only source of a
    login's PeerId, endpoint and port. A row is keyed by agent id
    (ADR-039) and carries its login, PeerId, endpoint and port; it counts
@@ -349,3 +352,4 @@ The body above reads current; each change's full note is in [history/ADR-064-ame
 | 2026-10-28 | The pin moves to InterWeave v0.2.0; the record names the pin, not a version | §6, §8 |
 | 2026-10-28 | The control plane rides the profile's fabric-control endpoint through interweave-human | §3 first alternative; §5 rules 12 and 14; §6 |
 | 2026-10-31 | The archive is checked against the owner's minisign signature as well as its digest | §5 rule 4 |
+| 2026-11-01 | Provisioning makes the reserved ports and keeps them across a reboot | §5 rule 1 |

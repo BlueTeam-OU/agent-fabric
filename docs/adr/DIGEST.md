@@ -1421,28 +1421,29 @@ its record disagree, the record wins. Look it up, never read it whole:
 - One host, loopback only, first; a second host next, by
   amendment; control on its own `fabric-control` endpoint
   via `interweave-human` (rules 1, 12).
-- Dual run: both carriers, the relay of record (ADR-033 rule 7
-  unchanged); the journal collapses by MESSAGE-ID; switching: an
-  ADR-033 amendment on the owner's word over a parity report (rule 11).
+- Dual run: both carriers, relay of record (ADR-033 rule 7
+  unchanged); the journal collapses by MESSAGE-ID; switching:
+  ADR-033 amendment on owner's word over parity report (rule 11).
 - The carrier: the fabric's own client, not `interweave-human` or
   `claude-channel` (rule 5).
 - A roster keyed by agent id, each row signed by its login and
   countersigned by the coordinator, renders every profile's
   deny-by-default allowlist; keys minted in their own account; a
   tagged release pinned in release.json, signed (rules 2-4).
-- One direct send per recipient, no GossipSub; a receipt awaited,
-  retried under one message_id, abandoned only by its operator;
+- One direct send per recipient, no GossipSub; receipt awaited,
+  retried under one message_id, abandoned only by operator;
   compress, then chunk, past 48 KiB; FROM checked against the PeerId;
   no transport-native value as metadata (rules 6-10).
-- A 2026-10-24 — zlib; receipts; CARRIER-CONTRACT.md (rules 7, 8).
-- A 2026-10-25 — install, a checked control action (rule 14).
+- A 2026-10-24 — zlib; receipts; CARRIER-CONTRACT.md (rules 7/8).
+- A 2026-10-25 — install: checked control action (rule 14).
 - A 2026-10-26 — roster ports reserved (rule 1).
 - A 2026-10-26 — evidence (rule 11).
 - A 2026-10-27 — one host a milestone (rule 1).
 - A 2026-10-28 — pin v0.2.0 (§8).
-- A 2026-10-28 — control via `interweave-human` (§3, rules 12, 14).
+- A 2026-10-28 — control via `interweave-human` (§3, rules 12/14).
 - A 2026-10-31 — minisign signature (rule 4).
-- Parity from arrival logs: missed, duplicate, offline counts, a
+- A 2026-11-01 — kept by `fabric-host persist` (rule 1).
+- Parity from arrival logs: missed, duplicate, offline counts,
   rollback drill (rule 11).
 - Keywords: InterWeave, carrier, relay, P5.
 
