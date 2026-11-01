@@ -11,8 +11,13 @@ the card at card_base, not at the range's base) and `config` the hash of what pr
 text, never the review's.
 
 THE BLOCK, one fenced block whose info string is `agent-fabric-coverage v1`, JSON:
-    {"paths": {"<path>": {"status": "read"|"not read", "reason": str}}, "lenses": {"<lens>": "applied"|"not applied"}}
-`reason` is required when a path is "not read". Exactly one block per review: the report is model output, and a second
+    {"paths": {"<path>": {"status": "read"|"not read", "reason": str}}, "lenses": {"<lens>": "applied"|"not applied"},
+     "default": {"status": "read"|"not read", "reason": str}}
+`reason` is required when a path is "not read". `default` is optional: the entry of every path of the range the block
+does not name, so a block's size does not grow with the paths a reviewer treated alike (a memory drain's thousand).
+It is a key of its own, not a path called "*", because a file may be called that. A path named in "paths" is read by
+its own entry whatever the default says; a default that is "not read" makes the review partial (Coverage.complete),
+since the block alone cannot say that no path falls under it. Exactly one block per review: the report is model output, and a second
 block (in a longer fence, a blockquote or a list item included) leaves which one the reader means a guess, so any
 line that opens a second one makes the whole block unreadable.
 
@@ -86,14 +91,30 @@ def parse_marker(body: str) -> Marker | None:
 class Coverage:
     paths: dict[str, tuple[str, str]]   # path -> (status, reason)
     lenses: dict[str, str]
+    default: tuple[str, str] | None = None   # (status, reason) of every range path not named in `paths`
 
     @property
     def not_read(self) -> list[str]:
+        """The named paths that are not read; a default that is not read is `default_not_read`, not a path."""
         return [p for p, (status, _) in self.paths.items() if status != READ]
 
+    @property
+    def default_not_read(self) -> bool:
+        return self.default is not None and self.default[0] != READ
+
+    @property
+    def complete(self) -> bool:
+        return not self.not_read and not self.default_not_read
+
     def as_json(self) -> dict:
-        return {"paths": {p: {"status": s, "reason": r} if r else {"status": s} for p, (s, r) in sorted(self.paths.items())},
-                "lenses": dict(self.lenses)}
+        doc: dict = {"paths": {p: _entry_json(s, r) for p, (s, r) in sorted(self.paths.items())}, "lenses": dict(self.lenses)}
+        if self.default is not None:
+            doc["default"] = _entry_json(*self.default)
+        return doc
+
+
+def _entry_json(status: str, reason: str) -> dict:
+    return {"status": status, "reason": reason} if reason else {"status": status}
 
 
 def _unique_keys(pairs: list) -> dict:
@@ -119,6 +140,19 @@ def _plain(name: object, what: str) -> str:
     return name
 
 
+def _parse_entry(entry: object, what: str) -> tuple[str, str]:
+    if not isinstance(entry, dict) or not set(entry) <= {"status", "reason"} or "status" not in entry:
+        raise CoverageError(f'{what}: the entry is not an object of "status" and "reason"')
+    status, reason = entry["status"], entry.get("reason", "")
+    if status not in (READ, NOT_READ):
+        raise CoverageError(f'{what}: status {status!r} is neither "read" nor "not read"')
+    if not isinstance(reason, str) or len(reason) > MAX_REASON_CHARS:
+        raise CoverageError(f"{what}: the reason is not a string of at most {MAX_REASON_CHARS} characters")
+    if status == NOT_READ and not reason.strip():
+        raise CoverageError(f'{what}: "not read" needs a reason')
+    return status, reason
+
+
 def parse_block(text: str) -> Coverage:
     if len(text) > MAX_BLOCK_CHARS:
         raise CoverageError(f"the coverage block is {len(text)} characters, over the {MAX_BLOCK_CHARS} it may hold")
@@ -126,23 +160,14 @@ def parse_block(text: str) -> Coverage:
         doc = json.loads(text, object_pairs_hook=_unique_keys, parse_constant=_no_constant)
     except (ValueError, RecursionError) as e:
         raise CoverageError(f"the coverage block is not JSON with each key once ({e})") from None
-    if not isinstance(doc, dict) or set(doc) != {"paths", "lenses"}:
-        raise CoverageError('the coverage block is not an object with exactly "paths" and "lenses"')
+    if not isinstance(doc, dict) or not {"paths", "lenses"} <= set(doc) <= {"paths", "lenses", "default"}:
+        raise CoverageError('the coverage block is not an object of "paths" and "lenses" and, optionally, "default"')
     if not isinstance(doc["paths"], dict) or not isinstance(doc["lenses"], dict):
         raise CoverageError('"paths" and "lenses" must each be an object')
     paths: dict[str, tuple[str, str]] = {}
     for path, entry in doc["paths"].items():
         _plain(path, "a path")
-        if not isinstance(entry, dict) or not set(entry) <= {"status", "reason"} or "status" not in entry:
-            raise CoverageError(f'path {path!r}: the entry is not an object of "status" and "reason"')
-        status, reason = entry["status"], entry.get("reason", "")
-        if status not in (READ, NOT_READ):
-            raise CoverageError(f'path {path!r}: status {status!r} is neither "read" nor "not read"')
-        if not isinstance(reason, str) or len(reason) > MAX_REASON_CHARS:
-            raise CoverageError(f"path {path!r}: the reason is not a string of at most {MAX_REASON_CHARS} characters")
-        if status == NOT_READ and not reason.strip():
-            raise CoverageError(f'path {path!r}: "not read" needs a reason')
-        paths[path] = (status, reason)
+        paths[path] = _parse_entry(entry, f"path {path!r}")
     if len(doc["lenses"]) > MAX_LENSES:
         raise CoverageError(f"more than {MAX_LENSES} lenses")
     lenses: dict[str, str] = {}
@@ -151,7 +176,8 @@ def parse_block(text: str) -> Coverage:
         if state not in (APPLIED, NOT_APPLIED):
             raise CoverageError(f'lens {lens!r}: {state!r} is neither "applied" nor "not applied"')
         lenses[lens] = state
-    return Coverage(paths, lenses)
+    default = _parse_entry(doc["default"], "the default") if "default" in doc else None
+    return Coverage(paths, lenses, default)
 
 
 def find_blocks(lines: list[str]) -> list[tuple[int, int]]:
@@ -215,6 +241,8 @@ def without_block(body: str, span: tuple[int, int]) -> str:
 
 def partial_line(coverage: Coverage) -> str:
     n = len(coverage.not_read)
+    if coverage.default_not_read:
+        return f"partial coverage: {n} named path(s) and every path not named not read"
     return f"partial coverage: {n} path(s) not read" if n else ""
 
 
@@ -233,15 +261,15 @@ class Review:
 
     @property
     def counts(self) -> bool:
-        return bool(self.marker and self.coverage and not self.coverage.not_read)
+        return bool(self.marker and self.coverage and self.coverage.complete)
 
     @property
     def why_not(self) -> str:
         """Why it is not coverage, for the line that shows it; "" when it is."""
         if self.problem:
             return self.problem
-        if self.coverage and self.coverage.not_read:
-            return f"partial coverage: {len(self.coverage.not_read)} path(s) not read"
+        if self.coverage and not self.coverage.complete:
+            return partial_line(self.coverage)
         return ""
 
 
@@ -327,7 +355,8 @@ def check_paths(coverage: Coverage, expected: list[str], sources: list[str] | tu
     for p in expected:
         _plain(p, "a changed path")
     want, have = set(expected), set(coverage.paths)
-    missing, extra = sorted(want - have), sorted(have - want - set(sources))
+    # Without a default, a path left out is unaccounted for; with one, it is accounted for by the default.
+    missing, extra = sorted(want - have) if coverage.default is None else [], sorted(have - want - set(sources))
     if missing:
         return f"the coverage block omits {len(missing)} path(s) of the range, first {missing[0]!r}"
     if extra:

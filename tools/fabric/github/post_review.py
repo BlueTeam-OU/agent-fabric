@@ -654,7 +654,7 @@ def run(argv: list[str], stdin) -> int:
     # The marker goes FIRST so it survives any truncation a reader
     # applies, and so the first line identifies the review.
     header = marker.line()
-    if coverage.not_read:
+    if not coverage.complete:
         header += "\n" + review_coverage.partial_line(coverage)
     if model:
         header += f"\n<!-- model: {model} -->"
