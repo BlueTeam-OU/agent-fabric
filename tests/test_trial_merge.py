@@ -336,22 +336,44 @@ def main() -> int:
         print("cleanup scans again until a pass finds no one new: a scan is not atomic against fork")
         # Scripted /proc listings: 102 is forked by 101 after the first
         # listing, so only a second pass sees it (j128: a lease-run check's
-        # sleep outlived the run under a full tests/run.sh).
+        # sleep outlived the run under a full tests/run.sh). A pidfd is
+        # scripted as a real descriptor standing for the pid (cleanup closes
+        # it), and every process as never ending.
         listings = [[101], [101, 102], [101, 102]]
-        scans, ended = [], []
-        real_procs, real_terminate = tw.worktree_procs, tw.terminate
+        scans, sent = [], []
+        saved = {n: getattr(tw, n) for n in ("worktree_procs", "terminate", "claim", "send", "ended", "wait_ended", "unreaped")}
         tw.worktree_procs = lambda wt, cpid: scans.append(cpid) or list(listings[min(len(scans), len(listings)) - 1])
-        tw.terminate = lambda pid, group=False: ended.append((pid, group))
+        tw.terminate = lambda pid, group=False: sent.append((pid, "group"))
+        stands_for = {}
+
+        def fake_claim(pid, wt, cpid):
+            fd = os.open(os.devnull, os.O_RDONLY)
+            stands_for[fd] = pid
+            return fd
+        tw.claim = fake_claim
+        tw.send = lambda fd, sig: sent.append((stands_for[fd], sig))
+        tw.ended = lambda fd: False
+        tw.wait_ended = lambda fds, seconds: sent.append(("wait", seconds)) and False
+        tw.unreaped = lambda pid: True
         try:
             cleanup_here(tw.cleanup, repo, os.path.join(scratch, "no-such-wt"), 100)
-            check("the group, then each member once, the late child included",
-                  ended == [(100, True), (101, False), (102, False)])
-            check("…and it stops at the first pass with no one new", len(scans) == 3)
-            listings[:] = [list(range(1000, 1000 + n)) for n in range(1, tw.SWEEP_PASSES + 5)]
-            scans.clear()
+            T, K = signal.SIGTERM, signal.SIGKILL
+            check("the group, then each member once on TERM, the late child included, the grace, "
+                  "then each once on KILL, and the KILL waited for",
+                  sent == [(100, "group"), (101, T), (102, T), ("wait", tw.TERM_GRACE_S), (101, K), (102, K),
+                           ("wait", tw.KILL_WAIT_S)])
+            check("…and each pass stops at the first scan with no one new", len(scans) == 4)
+            sent.clear()
+            tw.unreaped = lambda pid: False
             cleanup_here(tw.cleanup, repo, os.path.join(scratch, "no-such-wt"), 100)
-            check(f"…and a check that keeps forking is scanned {tw.SWEEP_PASSES} times, no more",
-                  len(scans) == tw.SWEEP_PASSES)
+            check("…and a runner already reaped is never signalled as a group: its id may be a stranger's",
+                  (100, "group") not in sent)
+            listings[:] = [list(range(1000, 1000 + n)) for n in range(1, 2 * tw.SWEEP_PASSES + 5)]
+            scans.clear()
+            tw.wait_ended = lambda fds, seconds: True
+            cleanup_here(tw.cleanup, repo, os.path.join(scratch, "no-such-wt"), 100)
+            check(f"…and a check that keeps forking is scanned {tw.SWEEP_PASSES} times a pass, no more",
+                  len(scans) == 2 * tw.SWEEP_PASSES)
 
             def unlistable(wt, cpid):
                 raise OSError(24, "Too many open files")
@@ -366,7 +388,51 @@ def main() -> int:
                   not any(os.path.exists(p) for p in (wt3, wt3 + ".pid", wt3 + ".out")))
             check("…and the suite is not left deaf to TERM", signal.getsignal(signal.SIGTERM) is not signal.SIG_IGN)
         finally:
-            tw.worktree_procs, tw.terminate = real_procs, real_terminate
+            for n, v in saved.items():
+                setattr(tw, n, v)
+
+        print("cleanup: a member that ignores TERM is killed, and gone when cleanup returns (audit F15)")
+        stubborn_code = ("import os, signal, sys, time; signal.signal(signal.SIGTERM, signal.SIG_IGN); "
+                         "os.write(1, b'ready'); time.sleep(60)")
+        wt4 = os.path.join(scratch, "wt4")
+        os.makedirs(wt4)
+        stubborn = subprocess.Popen([sys.executable, "-c", stubborn_code], cwd=wt4, stdout=subprocess.PIPE,
+                                    start_new_session=True)
+        stranger = subprocess.Popen(["sleep", "30"], cwd=scratch, start_new_session=True)
+        real_grace = tw.TERM_GRACE_S
+        try:
+            stubborn.stdout.read(5)   # TERM is ignored from here on
+            tw.TERM_GRACE_S = 1.0
+            began = time.monotonic()
+            cleanup_here(tw.cleanup, repo, wt4, stubborn.pid)
+            took = time.monotonic() - began
+            # Read before poll(), which would reap it itself.
+            try:
+                os.waitid(os.P_PID, stubborn.pid, os.WEXITED | os.WNOHANG | os.WNOWAIT)
+                reaped = False
+            except ChildProcessError:
+                reaped = True
+            check("…and the runner, this process's child, is reaped by cleanup", reaped)
+            check(f"…gone (not merely signalled) when cleanup returns, after {took:.1f} s",
+                  stubborn.poll() is not None)
+            check("…and within the grace and the KILL wait", took < tw.TERM_GRACE_S + tw.KILL_WAIT_S + 2)
+            # A listing that named a pid the kernel has since given to
+            # another process: the pidfd holds the stranger, which is not the
+            # trial's, and is left alone.
+            tw.worktree_procs, real_procs = (lambda wt, cpid: [stranger.pid]), tw.worktree_procs
+            try:
+                cleanup_here(tw.cleanup, repo, os.path.join(scratch, "no-such-wt"), None)
+            finally:
+                tw.worktree_procs = real_procs
+            check("…and a listed pid that is not the trial's when claimed is never signalled",
+                  stranger.poll() is None)
+        finally:
+            tw.TERM_GRACE_S = real_grace
+            for p in (stubborn, stranger):
+                if p.poll() is None:
+                    p.kill()
+                p.wait()
+            stubborn.stdout.close()
 
         print("the free-space arithmetic and its refusals")
         old = os.environ.get("AGENT_FABRIC_TRIAL_MIN_FREE_KB")

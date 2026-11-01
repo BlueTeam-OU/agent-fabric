@@ -323,6 +323,14 @@ def main() -> int:
         check("a check that left a process behind and exited: its whole group is gone too", not alive)
         if alive:
             end_sentinel("sleep 41.75")
+        # …and one that ignores TERM: killed after the grace, and gone by the
+        # time the run returns, with no pause before the look (audit F15).
+        cfg('{"check": ["sh", "-c", "trap \'\' TERM; sleep 45.25 & exit 0"]}')
+        checked("h/a/one", "--check")
+        alive = sentinel_running("sleep 45.25")
+        check("a check that left a process ignoring TERM: it is gone when the run returns", not alive)
+        if alive:
+            end_sentinel("sleep 45.25")
         # A held lease (fabric-lease's exit 75) is unavailable, never a
         # failure.
         cfg('{"check": ["sh", "-c", "exit 75"]}')
