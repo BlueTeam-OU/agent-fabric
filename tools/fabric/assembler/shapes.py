@@ -226,7 +226,7 @@ def drop_replayed(run: Run) -> None:
     earlier = _earlier(run)
     applied = earlier["applied_corrections"]
     entries = [e for e in earlier["replaced_sections"] if all(isinstance(e.get(k), str) for k in ("home", "heading", "key"))]
-    # A correction applied before replaced_sections existed (the herdr one of 2026-10-18) is recorded only here: the slice it
+    # A correction applied before replaced_sections existed (one of the 2026-10-18 drain) is recorded only here: the slice it
     # wrote, the heading and the key of the text it replaced. Its home is read from the slice path, as _in_home reads it.
     legacy = [e for e in applied if all(isinstance(e.get(k), str) for k in ("slice", "replaced", "replaced_key"))]
     if not entries and not legacy:

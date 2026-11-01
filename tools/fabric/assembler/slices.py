@@ -115,7 +115,7 @@ def merge_reports(previous: dict[str, Any], current: dict[str, Any],
     merged["files_written"] = len(merged["files"])
     decisions = {d.get("key"): d for d in previous.get("collision_decisions") or [] if isinstance(d, dict)}
     # An entry a rerun states again keeps its place in the list: moving it to the end made a second pass over one drain's bundles
-    # reorder the report (j82; gzapp's language-culture decision, 2026-10-31).
+    # reorder the report (j82; a collision decision of the 2026-10-31 drain).
     for d in current["collision_decisions"]:
         decisions[d["key"]] = d
     merged["collision_decisions"] = list(decisions.values())
