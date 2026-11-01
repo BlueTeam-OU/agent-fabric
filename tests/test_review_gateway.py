@@ -77,8 +77,10 @@ S = %(state)r
 argv = sys.argv[1:]
 if argv[:1] == ["sandbox"]:
     # the engine proves the read-only sandbox first (review_codex.prove_sandbox): this stand-in answers as a sandbox that runs the
-    # command and refuses the write would - the start probe's own exit status (42), the write probe's refusal (43)
-    sys.exit(43 if "touch" in " ".join(argv[argv.index("--") + 1:]) else 42)
+    # command and refuses the write and a read outside its allowlist would - the start probe's own exit status (42), the
+    # write probe's and the read probe's refusal (43)
+    probe = " ".join(argv[argv.index("--") + 1:])
+    sys.exit(43 if "touch" in probe or "cat" in probe else 42)
 sys.stdin.read()
 home = os.environ.get("CODEX_HOME", "/nonexistent")
 serve = [json.loads(l) for l in open(os.path.join(S, "gw.log")) if '"serve"' in l]
