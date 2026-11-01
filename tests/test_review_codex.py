@@ -447,7 +447,6 @@ def main() -> int:
     _, cov = review_codex.parse_answer_full(default_answer(None, thousand[:3]))
     check("an answer with \"default\": null is the block it always was: no default key", cov.default is None
           and "default" not in json.loads(review_coverage.render_block(cov).split("\n", 1)[1].rsplit("\n```", 1)[0]), cov)
-    big = review_coverage.Coverage({p: (st, r) for p, st, r in thousand}, {})
     try:
         review_coverage.parse_block(json.dumps({"paths": {p: {"status": "read"} for p, _, _ in thousand}, "lenses": {}}))
         listed = "parsed"
