@@ -2561,6 +2561,8 @@ def case_the_fallback_validator_agrees_with_jsonschema() -> None:
         ({"type": "object", "minProperties": 1}, {"a": 1}, {}),
         ({"const": "x"}, "x", "y"),
         ({"oneOf": [{"type": "string"}, {"type": "integer"}]}, "s", 1.5),
+        # anyOf, unlike oneOf, holds when more than one branch matches.
+        ({"anyOf": [{"type": "integer"}, {"type": "number"}]}, 1, "s"),
         ({"type": "object", "patternProperties": {"^n_": {"type": "integer"}}}, {"n_a": 1}, {"n_a": "s"}),
         ({"type": "array", "minItems": 1, "maxItems": 2}, [1], []),
         ({"type": "array", "maxItems": 1}, [1], [1, 2]),

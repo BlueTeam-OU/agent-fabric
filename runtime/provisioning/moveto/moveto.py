@@ -393,6 +393,29 @@ def reset_terminal() -> None:
         pass
 
 
+def wait_for_exit(proc: subprocess.Popen) -> int:
+    """`proc.wait()` that also sees a stop. ssh's `~^Z` stops ssh alone; job control above us (the pane's bash) waits for
+    moveto, which would sit in a plain wait and leave the pane with no prompt. So moveto stops itself, and continues
+    ssh when it is continued. No reset is written on a stop: ssh puts the tty's termios back, but the modes the remote
+    switched on stay on, as they did when ssh was the job itself; resetting here would leave `fg` in a remote that
+    believes they are still set.
+
+    `Popen.send_signal` polls first, so the forwarded signals and the SIGCONT below can reap ssh behind this wait: the
+    code is then Popen's, and the raw waitpid has nothing left to wait for."""
+    while True:
+        try:
+            _, status = os.waitpid(proc.pid, os.WUNTRACED)
+        except ChildProcessError:
+            return proc.wait()
+        if os.WIFSTOPPED(status):
+            os.kill(os.getpid(), signal.SIGSTOP)
+            proc.send_signal(signal.SIGCONT)
+            continue
+        # waitpid reaped it behind Popen's back: record the code so Popen neither waits again nor warns.
+        proc.returncode = os.waitstatus_to_exitcode(status)
+        return proc.returncode
+
+
 def run_ssh(argv: list[str]) -> int:
     """ssh as a child, not an exec: nothing else runs after an exec, and the operator's terminal is left in whatever
     modes the remote program set. The signals a pane's hang-up sends are forwarded (ssh is in the pane's foreground
@@ -417,7 +440,7 @@ def run_ssh(argv: list[str]) -> int:
         child.append(proc)
         for signum in early:
             forward(signum, None)
-        rc = proc.wait()
+        rc = wait_for_exit(proc)
         # Before the handlers go: a second hang-up signal now must not kill moveto ahead of the write.
         reset_terminal()
     finally:
