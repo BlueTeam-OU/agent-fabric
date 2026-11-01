@@ -89,7 +89,10 @@ version. channel: the check of step 9 looked at once, now: "ok" | "off" (a unit
 runs and fails it) | "not-running" | "unknown" (it could not be made), with the
 units' states and a reason, so that an account off the channel is seen.
 reserved_ports (whatever the status above): the host's reservation of the roster's port_range, {status "covered" | "not-covered" |
-"unreadable", range [low, high] (absent when the roster cannot be read), reason?}; the fix for the last two is `fabric-host <host> persist`.
+"unreadable", range [low, high] (absent when the roster cannot be read), reason?}. The read reports the status only, never the fix (no reason
+on "not-covered"); the start's refusal names the step, `fabric-host <host> persist`, for not-covered and also for a live value it cannot read or
+parse (a hint, pinned by a test). The step fixes "not-covered" only: for "unreadable" it is no fix, a roster that cannot be read fails the same
+read (exit 1) and a live value it cannot parse is left as it is, not written over (rc 1).
 
 THE START (`<carrier>-start`, no arguments; agent-fabric ADR-064 rule 11: starting an account's units is the dual
 run's switch) writes the profile's config.yaml and brings the roster's profile up as two units of the user manager:
