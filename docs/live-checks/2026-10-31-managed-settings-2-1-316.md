@@ -42,3 +42,10 @@ The workspace's own copies of the guards stand down only while the managed file 
 - Any build but 2.1.316.
 
 **What it decides.** The plan for j509 stands on 2.1.316. The template sets both of rule 1's keys and carries the guards as managed hooks. `disableSideloadFlags` is safe to set now (rule 7 met). `fabric-ctl`'s in-force check reads `/etc/claude-code/managed-settings.json` and nothing else. Rule 6's own test is N2 (the session refuses `--plugin-dir`) and N1 or N3 (a managed hook answers). These are what the check runs on each host after the install, against the real `/etc`.
+
+**Since built, 2026-11-01 (#451; the measurements above stand, these lines of the reading do not).**
+- The managed entry is not a `bash -p` script. It is `/usr/local/bin/fabric-python -I -S <prefix>/managed/current/runtime/claude-code/managed/hook_entry.py <guard>`, exec form: ADR-043 rule 2 as amended (7a3bafc8), the pinned interpreter by its absolute path, isolated, clearing the environment itself.
+- The root-owned copy is a snapshot of one sha under `/usr/local/lib/agent-fabric/managed/fabric-<sha>`, reached through `managed/current`; there is no `/usr/local/lib/agent-fabric/hooks/`.
+- A workspace copy of a guard stands down only where `/usr/local/bin/fabric-python` is executable and the installed managed file names that guard, not on the file's presence alone (review of #451, F13).
+- `fabric-managed check`, which `fabric-ctl status` runs, reads more than `/etc/claude-code/managed-settings.json`: the snapshot and its MANIFEST, owners and modes, the kept boot copy, the `current` link and the interpreter, against a fresh render of main.
+- Still not measured: any build but 2.1.316, the fleet's pinned 2.1.286 included. Exec-form `command` plus `args`, and N11b's non-blocking failed spawn, are read back on 2.1.316 only.

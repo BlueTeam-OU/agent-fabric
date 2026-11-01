@@ -299,6 +299,14 @@ def _write_atomic(path: str, data: bytes, mode: int, root: bool) -> None:
         raise
 
 
+def _point(link: str, target: str, root: bool) -> None:
+    """`link` made to name `target` in one rename, never absent in between."""
+    tmp = os.path.join(os.path.dirname(link), f".{os.path.basename(link)}-{os.urandom(6).hex()}")
+    os.symlink(target, tmp)
+    _own(tmp, root)
+    os.replace(tmp, link)
+
+
 def _ensure_dir(path: str, root: bool) -> None:
     if not os.path.isdir(path):
         os.makedirs(path, 0o755, exist_ok=True)
@@ -451,20 +459,28 @@ def install(sha: str, repo: str = FABRIC, prefix: str = PREFIX, etc: str = ETC, 
         else:
             os.rename(built, final)
             say(f"snapshot {final} written")
-    link = os.path.join(managed, "current")
-    before = os.readlink(link) if os.path.islink(link) else None
-    tmp_link = os.path.join(managed, f".current-{os.urandom(6).hex()}")
-    os.symlink(os.path.basename(final), tmp_link)
-    _own(tmp_link, root)
-    os.replace(tmp_link, link)
-    say(f"{link} -> {os.path.basename(final)}" + (f" (was {before})" if before and before != os.path.basename(final)
-                                                  else ""))
+    # Everything that can refuse runs before `current` moves, and a failed /etc write moves it back: the managed
+    # file in force names hook_entry under `current`, so a swap left behind a failure would run the new snapshot's
+    # code from the old file (review of #451, F15). The kept copy, which only a reboot reads, is written last.
     with open(os.path.join(final, TEMPLATE), encoding="utf-8") as f:
         rendered = render(f.read(), prefix).encode()
+    _ensure_dir(etc, root)
+    link = os.path.join(managed, "current")
+    before = os.readlink(link) if os.path.islink(link) else None
+    _point(link, os.path.basename(final), root)
+    say(f"{link} -> {os.path.basename(final)}" + (f" (was {before})" if before and before != os.path.basename(final)
+                                                  else ""))
+    try:
+        _write_atomic(os.path.join(etc, "managed-settings.json"), rendered, 0o644, root)
+    except BaseException:
+        if before is not None:
+            _point(link, before, root)
+        else:
+            os.unlink(link)
+        say(f"{link} put back to {before or '(none)'}: the managed file could not be written")
+        raise
     kept = os.path.join(managed, "managed-settings.json")
     _write_atomic(kept, rendered, 0o644, root)
-    _ensure_dir(etc, root)
-    _write_atomic(os.path.join(etc, "managed-settings.json"), rendered, 0o644, root)
     say(f"{os.path.join(etc, 'managed-settings.json')} written (a copy kept at {kept})")
     if os.path.isdir(os.path.dirname(rc)):
         script = ("#!/bin/sh\n# agent-fabric ADR-043: /etc does not survive this AppVM's reboot and /usr/local does;"

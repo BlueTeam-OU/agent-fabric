@@ -36,7 +36,13 @@ import fabric_settings  # noqa: E402
 TOOL = os.path.join(ROOT, "tools", "fabric", "managed_settings.py")
 TEMPLATE = os.path.join(ROOT, ms.TEMPLATE)
 WORKSPACE = os.path.join(ROOT, "runtime", "claude-code", "workspace", "settings.json")
-GATE = "[ -e /etc/claude-code/managed-settings.json ] && [ -x /usr/local/bin/fabric-python ] && exit 0; "
+# Each moved entry stands down only where the installed file names its own guard (review of #451, F13): a file installed
+# from an older main lacks a guard added since, and that guard must keep running from the workspace until reinstall.
+GATE_HEAD = "[ -x /usr/local/bin/fabric-python ] && grep -qF "
+
+
+def gate(name: str) -> str:
+    return f"{GATE_HEAD}'\"{name}\"' /etc/claude-code/managed-settings.json 2>/dev/null && exit 0; "
 # The workspace scripts whose entries moved, and the managed guard each became.
 MOVED = {"agent-dispatch-guard.sh": "agent-dispatch-guard", "subagent-clone-guard.sh": "subagent-clone-guard",
          "pipe-status-guard.sh": "pipe-status-guard", "self-kill-guard.py": "self-kill-guard",
@@ -126,9 +132,9 @@ def main() -> int:
         script = next((s for s in MOVED if f"/runtime/claude-code/hooks/{s}" in h["command"]), None)
         if script:
             moved.append((event, matcher or "", h["timeout"], MOVED[script]))
-            if not h["command"].startswith(GATE):
+            if not h["command"].startswith(gate(MOVED[script])):
                 gated_wrong.append(h["command"][:80])
-        elif h["command"].startswith(GATE):
+        elif h["command"].startswith(GATE_HEAD):
             gated_wrong.append("a convenience is gated: " + h["command"][:80])
         if event == "SessionStart" and "ADR-043" in h["command"]:
             sentinel = h["command"]
@@ -157,8 +163,17 @@ def main() -> int:
         r1 = subprocess.run(["sh", "-c", gated], env=env, capture_output=True, timeout=30)
         r2 = subprocess.run(["sh", "-c", sentinel_cmd], env=env, capture_output=True, text=True, timeout=30)
         ran_absent = os.path.exists(os.path.join(tmp, "guard-ran"))
-        write(flag, "{}")
-        os.remove(os.path.join(tmp, "guard-ran")) if ran_absent else None
+
+        def ran_with(managed: str) -> bool:
+            write(flag, managed)
+            if os.path.exists(os.path.join(tmp, "guard-ran")):
+                os.remove(os.path.join(tmp, "guard-ran"))
+            subprocess.run(["sh", "-c", gated], env=env, capture_output=True, timeout=30)
+            return os.path.exists(os.path.join(tmp, "guard-ran"))
+
+        ran_empty = ran_with("{}")
+        ran_other = ran_with('{"hooks":{"PreToolUse":[{"hooks":[{"args":["-I","-S","e","self-kill-guard"]}]}]}}')
+        ran_named = ran_with('{"hooks":{"PreToolUse":[{"hooks":[{"args":["-I","-S","e","pipe-status-guard"]}]}]}}')
         r3 = subprocess.run(["sh", "-c", gated], env=env, capture_output=True, timeout=30)
         r4 = subprocess.run(["sh", "-c", sentinel_cmd], env=env, capture_output=True, text=True, timeout=30)
         try:
@@ -166,8 +181,10 @@ def main() -> int:
         except (ValueError, KeyError):
             said = {}
         check("managed file absent: the workspace guard runs as before", r1.returncode == 0 and ran_absent)
-        check("managed file present: the workspace entry exits 0 at once, the guard not run",
-              r3.returncode == 0 and not os.path.exists(os.path.join(tmp, "guard-ran")))
+        check("a managed file that names no guard: the workspace guard still runs", ran_empty)
+        check("a managed file that names another guard only: this one still runs", ran_other)
+        check("a managed file that names this guard: the workspace entry exits 0 at once, the guard not run",
+              r3.returncode == 0 and not ran_named)
         check("the sentinel: absent, one SessionStart context line naming ADR-043 and the operator's command",
               r2.returncode == 0 and said.get("hookEventName") == "SessionStart"
               and "ADR-043" in said.get("additionalContext", "") and "sudo fabric-managed install" in said["additionalContext"],
@@ -261,6 +278,37 @@ def main() -> int:
               and os.readlink(os.path.join(managed, "current")) == f"fabric-{sha_c}")
         out = inst(sha_c, rc_path=os.path.join(tmp, "no-rw", "x.rc"))
         check("no rc.local.d (not a Qubes AppVM): no boot script", not os.path.exists(os.path.join(tmp, "no-rw")))
+
+        # A failed install leaves the managed file in force running the snapshot it ran (review of #451, F15): the
+        # file names hook_entry under `current`, so `current` must not move when the render or the /etc write fails.
+        # Simulated in place: install chmods /etc 0755 itself, so a read-only directory would not stand.
+        in_force = open(os.path.join(etc, "managed-settings.json")).read()
+        kept_before = open(os.path.join(managed, "managed-settings.json")).read()
+        real_render, real_write = ms.render, ms._write_atomic
+
+        def refuse_render(*_a, **_k):
+            raise ms.Failed("the template at that sha is not an object")
+
+        def refuse_etc(path, *a, **k):
+            if path == os.path.join(etc, "managed-settings.json"):
+                raise OSError(28, "No space left on device")
+            return real_write(path, *a, **k)
+
+        for label, patch in (("the render refused", ("render", refuse_render)),
+                             ("the /etc write refused", ("_write_atomic", refuse_etc))):
+            setattr(ms, *patch)
+            try:
+                inst(sha_b)
+                raised = False
+            except (ms.Failed, OSError):
+                raised = True
+            finally:
+                ms.render, ms._write_atomic = real_render, real_write
+            check(f"install fails when {label}: current still the snapshot in force, /etc and the kept copy unchanged",
+                  raised and os.readlink(os.path.join(managed, "current")) == f"fabric-{sha_c}"
+                  and open(os.path.join(etc, "managed-settings.json")).read() == in_force
+                  and open(os.path.join(managed, "managed-settings.json")).read() == kept_before,
+                  (raised, os.readlink(os.path.join(managed, "current")), lines))
 
         print("managed settings: check")
         check("in force at the installed sha", state(sha_c)["state"] == "in force", state(sha_c))
