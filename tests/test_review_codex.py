@@ -433,6 +433,55 @@ def main() -> int:
         os.unlink(schema_file)
         os.rmdir(os.path.dirname(schema_file))
 
+    print("the default entry: a range too large to list (the schema as the coordinator ships it: default required, nullable)")
+    with_default = json.loads(json.dumps(real_schema))
+    with_default["properties"]["coverage"]["properties"]["default"] = {
+        "type": ["object", "null"], "additionalProperties": False, "required": ["status", "reason"],
+        "properties": {"status": {"type": "string", "enum": ["read", "not read"]}, "reason": {"type": "string"}}}
+    with_default["properties"]["coverage"]["required"].append("default")
+    schema_file = os.path.join(tempfile.mkdtemp(prefix="schema.", dir=os.environ.get("TMPDIR")), "answer.schema.json")
+    with open(schema_file, "w", encoding="utf-8") as fh:
+        json.dump(with_default, fh)
+    review_codex.SCHEMA_PATH = schema_file
+    try:
+        def default_answer(default, paths=(("a.py", "read", ""),)):
+            return json.dumps({"findings": [], "coverage": {
+                "paths": [{"path": p, "status": st, "reason": r} for p, st, r in paths], "lenses": [], "default": default}})
+        check("the prompt offers the default after the coverage shape, in the brief's terms",
+              review_codex.answer_shape().endswith(review_codex.COVERAGE_SHAPE + "\n" + review_codex.DEFAULT_SHAPE + "\n")
+              and "memory drain" in review_codex.DEFAULT_SHAPE)
+        thousand = [(f"memory/slices/{'d' * 40}/{i:04d}-{'x' * 60}.md", "read", "") for i in range(1242)]
+        _, cov = review_codex.parse_answer_full(default_answer(None, thousand[:3]))
+        check("an answer with \"default\": null is the block it always was: no default key", cov.default is None
+              and "default" not in json.loads(review_coverage.render_block(cov).split("\n", 1)[1].rsplit("\n```", 1)[0]), cov)
+        big = review_coverage.Coverage({p: (st, r) for p, st, r in thousand}, {})
+        try:
+            review_coverage.parse_block(json.dumps({"paths": {p: {"status": "read"} for p, _, _ in thousand}, "lenses": {}}))
+            listed = "parsed"
+        except review_coverage.CoverageError as e:
+            listed = str(e)
+        check("positive control: listing all 1242 paths is over the block's cap", "over the" in listed, listed)
+        _, cov = review_codex.parse_answer_full(default_answer({"status": "read", "reason": ""}, [("special.py", "not read", "binary")]))
+        check("a read default is carried into the block next to the one path named",
+              cov.default == ("read", "") and cov.paths == {"special.py": ("not read", "binary")}, cov)
+        check("…and its rendered block is far under the cap", len(review_coverage.render_block(cov)) < 2000)
+        _, cov = review_codex.parse_answer_full(default_answer({"status": "not read", "reason": "generated"}))
+        check("a not-read default is carried, and posts as partial", cov.default == ("not read", "generated") and not cov.complete, cov)
+        for label, d in (("a not-read default without a reason", {"status": "not read", "reason": ""}),
+                         ("a default with a status that is neither", {"status": "skimmed", "reason": ""})):
+            try:
+                review_codex.parse_answer_full(default_answer(d))
+                got = "accepted"
+            except review_codex.FailedReview as e:
+                got = str(e)
+            check(f"refused: {label}", got != "accepted" and "coverage" in got, got)
+    finally:
+        review_codex.SCHEMA_PATH = real_path
+        os.unlink(schema_file)
+        os.rmdir(os.path.dirname(schema_file))
+    check("the schema as shipped today has no default: its prompt does not ask for one",
+          review_codex.DEFAULT_SHAPE not in review_codex.answer_shape())
+
     base40, head40, card40, cfg64 = "1" * 40, "2" * 40, "3" * 40, "4" * 64
     fixture_header = ("```agent-fabric-dispatch v1\n" + json.dumps({
         "evidence_mode": "pinned", "engine": "codex", "base_sha": base40, "head_sha": head40, "card_base": card40, "config": cfg64}) + "\n```\n")
