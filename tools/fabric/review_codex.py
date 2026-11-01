@@ -546,7 +546,7 @@ def _blobs(repo: str, oids: list[str]):
             p.stdin.flush()
             head = p.stdout.readline().split()
             if len(head) != 3 or head[1] != b"blob" or head[0].decode("ascii") != oid:
-                raise Refused(f"git cat-file did not return blob {oid}: {b' '.join(head).decode('utf-8', 'replace')!r}")
+                raise Refused(f"git cat-file did not return blob {oid} (killed after {EXTRACT_TIMEOUT_S} s if it hung): {b' '.join(head).decode('utf-8', 'replace')!r}")
             data = p.stdout.read(int(head[2]))
             if len(data) != int(head[2]) or p.stdout.read(1) != b"\n":
                 raise Refused(f"git cat-file returned blob {oid} cut short")
@@ -575,9 +575,8 @@ def extract(repo: str, commit: str, dest: str) -> None:
             target = os.path.join(root, path)
             os.makedirs(os.path.dirname(target), exist_ok=True)
             if mode == "120000":
-                link = os.fsdecode(data)
-                if os.path.isabs(link) or os.path.normpath(os.path.join(os.path.dirname(os.fsdecode(path)), link)).startswith(".."):
-                    raise Refused(f"{os.fsdecode(path)!r} is a link out of the head: {link!r}")
+                if os.path.isabs(data):
+                    raise Refused(f"{os.fsdecode(path)!r} is a link out of the head: {os.fsdecode(data)!r}")
                 os.symlink(data, target)
             else:
                 with open(target, "xb") as f:
@@ -586,6 +585,15 @@ def extract(repo: str, commit: str, dest: str) -> None:
     for mode, _oid, path in entries:
         if mode == "160000":   # a submodule is an empty directory, as `git archive` leaves it
             os.makedirs(os.path.join(root, path), exist_ok=True)
+    # Resolved, not read off the text: a link may leave only through another link of the tree (p/q -> .., then
+    # x -> p/q/p/q/../../f), which no lexical test of one target sees. Codex reads some files of its working directory
+    # (AGENTS.md) outside the command sandbox, so a link there would carry an outside file to the model.
+    inside = os.path.realpath(root)
+    for mode, _oid, path in entries:
+        if mode == "120000":
+            resolved = os.path.realpath(os.path.join(root, path))
+            if os.path.commonpath([resolved, inside]) != inside:
+                raise Refused(f"{os.fsdecode(path)!r} is a link out of the head: it resolves to {os.fsdecode(resolved)!r}")
     verify_extract(dest, entries)
 
 

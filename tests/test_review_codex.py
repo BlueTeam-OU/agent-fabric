@@ -1775,6 +1775,28 @@ def main() -> int:
             review_codex._blobs = real_blobs
         check("extract itself verifies what it wrote: bytes that are not the blob's are refused", "differs from the head's" in wrong, wrong)
         check("a link out of the head is refused, as it was under `git archive`", "is a link out of the head" in verdict, verdict)
+        def link_tree(links: dict[str, str]) -> str:
+            lines = ""
+            for name, target in links.items():
+                b = fxgit("hash-object", "-w", "--stdin", data=target.encode())
+                lines += f"120000 blob {b}\t{name}\n"
+            t = subprocess.run(["git", "-C", fx, "mktree"], env=git_env(), input=lines.encode(), capture_output=True, check=True, timeout=30).stdout.decode().strip()
+            return fxgit("-c", "user.name=t", "-c", "user.email=t@t", "commit-tree", t, "-m", "links")
+
+        def extracted_links(links: dict[str, str], label: str) -> str:
+            try:
+                review_codex.extract(fx, link_tree(links), os.path.join(tmp, "work", f"fx-{label}", "head"))
+                return "extracted"
+            except review_codex.Refused as e:
+                return str(e)
+        outside = os.path.join(tmp, "work", "fx-chain")
+        os.makedirs(outside, exist_ok=True)
+        chain_verdict = extracted_links({"p": "..", "AGENTS.md": "p/" + os.path.basename(outside) + "/x/../../fx-chain-canary"}, "chain")
+        # p -> .. points at the extract's parent; the chain walks out of the extract through that link alone
+        check("a link that leaves the head only by way of another link of the tree is refused (resolved, not read off the text)",
+              "is a link out of the head" in chain_verdict, chain_verdict)
+        chain_verdict = extracted_links({"..data": "x", "x": "..data"}, "dots")
+        check("positive control: a target that merely begins with two dots, and a link to a link inside the head, are extracted", chain_verdict == "extracted", chain_verdict)
 
         print("refusals: nothing runs, nothing is posted")
         for label, change, why in (
