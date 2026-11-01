@@ -54,6 +54,41 @@ def main() -> int:
         episodic.out_final(conn, "D", "failed", None, "interweave")
         check("a failure never changes an accepted row", row("D") == ("accepted", "claude-bridge", 9), str(row("D")))
         conn.close()
+
+    # The interleaving itself: the other carrier's write lands after out_final
+    # has decided and before its UPDATE runs. now() is the last call between
+    # the two in both the old and the new shape, so wrapping it makes the
+    # interleaving deterministic.
+    with tempfile.TemporaryDirectory(prefix="gz-jr-race-") as d:
+        path = os.path.join(d, "e.db")
+        conn = episodic.connect(path, AGENT_ID)
+        other = episodic.connect(path, AGENT_ID)
+        for mid in ("R1", "R2"):
+            episodic.out_pending(conn, MSG.format(mid=mid))
+        real_now = episodic.now
+
+        def after_read(sql: str):
+            def hooked():
+                episodic.now = real_now
+                other.execute(sql)
+                return real_now()
+            episodic.now = hooked
+
+        try:
+            after_read("UPDATE episodes SET state='accepted', carrier='interweave', carrier_seq=5 WHERE message_id='R1'")
+            episodic.out_final(conn, "R1", "failed", None, "claude-bridge")
+            got = conn.execute("SELECT state, carrier, carrier_seq FROM episodes WHERE message_id='R1'").fetchone()
+            check("a failed after a concurrent accept leaves the row accepted", got == ("accepted", "interweave", 5), str(got))
+
+            after_read("UPDATE episodes SET state='accepted', carrier='interweave', carrier_seq=6 WHERE message_id='R2'")
+            episodic.out_final(conn, "R2", "accepted", 9, "claude-bridge")
+            got = conn.execute("SELECT state, carrier, carrier_seq FROM episodes WHERE message_id='R2'").fetchone()
+            check("a second accept after a concurrent first keeps the first carrier and sequence",
+                  got == ("accepted", "interweave", 6), str(got))
+        finally:
+            episodic.now = real_now
+        other.close()
+        conn.close()
     print(f"\ntest_gzcoord_carrier_journal: {'OK' if not fails else f'FAILED — {fails} check(s)'}")
     return 1 if fails else 0
 

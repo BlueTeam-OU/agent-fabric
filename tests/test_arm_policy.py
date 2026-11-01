@@ -119,6 +119,18 @@ class Document(unittest.TestCase):
             with self.assertRaises(arm_policy.PolicyError, msg=repr(bad)):
                 arm_policy.validate(bad)
 
+    def test_the_armed_status_is_a_context_name_set_by_default_and_null_turns_it_off(self):
+        # Mutation: validate accepting any value (the check removed) fails the refusals.
+        self.assertEqual(arm_policy.default()["armed_status"], "fabric/armed")
+        self.assertEqual(arm_policy.armed_status(arm_policy.default()), "fabric/armed")
+        self.assertIsNone(arm_policy.validate({"armed_status": None})["armed_status"])
+        self.assertIsNone(arm_policy.armed_status(arm_policy.validate({"armed_status": None})))
+        # One name (review of #454, F2): disarm-on-push reads fabric/armed and no policy. Mutation: any context accepted
+        # again fails "gate/armed".
+        for bad in ("gate/armed", "", " fabric/armed", "fabric/armed ", "fabric/\narmed", 3, True, ["fabric/armed"], {"context": "fabric/armed"}):
+            with self.assertRaises(arm_policy.PolicyError, msg=repr(bad)):
+                arm_policy.validate({"armed_status": bad})
+
     def test_the_boundary_authority_is_a_role_slug_absent_by_default_and_a_repositorys_to_set(self):
         self.assertNotIn("boundary_authority", arm_policy.default()["commits"])
         self.assertEqual(arm_policy.validate({"commits": {"boundary_authority": "architect-cto"}})["commits"]["boundary_authority"], "architect-cto")
@@ -200,7 +212,8 @@ class RealFiles(unittest.TestCase):
                  {"github": {"ruleset": "r", "branch": "main"}}, {"mode": "owner-only"}, {"mode": "direct"}, {"commits": {"below_min": "refuse"}},
                  {"commits": {"min": 20}}, {"queue": {"merge_min": 6}}, {"required_checks": [{"context": "c", "app": "Foo"}]},
                  {"github": {"ruleset": " "}}, {"commits": {"min": 1.0}}, {"description": "why"},
-                 {"reviews": ["claude", "codex"]}, {"reviews": ["codex"], "boundary_reviews": ["claude", "codex"]}]
+                 {"reviews": ["claude", "codex"]}, {"reviews": ["codex"], "boundary_reviews": ["claude", "codex"]},
+                 {"armed_status": None}, {"armed_status": "fabric/armed"}]
         invalid = [{"mode": "auto", "autoo": True}, {"queue": {"depth": 3}}, {"mode": "squash"}, {"method": "fast-forward"},
                    {"reviews": []}, {"reviews": ["gemini"]}, {"reviews": "codex"}, {"reviews": ["codex", "codex"]}, {"boundary_reviews": ["x"]},
                    {"commits": {"below_min": "warn"}}, {"commits": {"min": 0}}, {"commits": {"boundary_min": 0}}, {"commits": {"boundary_min": 2.5}}, {"commits": {"boundary_authority": "Architect"}}, {"commits": {"roles": {"devex-tooling": {"min": 0}}}},
@@ -208,7 +221,8 @@ class RealFiles(unittest.TestCase):
                    {"queue": {"grouping": "some"}}, {"queue": {"build": 2.5}}, {"required_checks": [{"app": "github-actions"}]},
                    {"bots": {"renovate": {"arm": ["patch"]}}}, {"bots": {"dependabot": {"arm": ["breaking"]}}}, {"signatures": "yes"},
                    {"protect": {"deletion": 1}}, {"required_checks": ["ci-ok"]}, {"$schema": "x"}, {"description": 5}, {"description": ""},
-                   {"commits": {"classes": {"docs": "^docs/"}}}, {"commits": {"classes": {"docs": {"paths": "^d"}}}}]
+                   {"commits": {"classes": {"docs": "^docs/"}}}, {"commits": {"classes": {"docs": {"paths": "^d"}}}},
+                   {"armed_status": ""}, {"armed_status": " x"}, {"armed_status": "gate/armed"}, {"armed_status": 3}, {"armed_status": ["fabric/armed"]}]
         with open(os.path.join(HERE, "policies", "arming.json"), encoding="utf-8") as fh:
             valid.append(json.load(fh))
         for doc in valid:
@@ -568,16 +582,46 @@ class Render(unittest.TestCase):
 
     def test_checks_apps_signatures_and_protection_are_each_a_rule_only_when_asked(self):
         types = lambda doc: [x["type"] for x in arm_policy.render(arm_policy.validate(doc))["ruleset"]["rules"]]  # noqa: E731
-        self.assertEqual(types({}), ["deletion", "non_fast_forward", "pull_request", "required_signatures"])
-        self.assertEqual(types({"protect": {"deletion": False, "force_push": False}, "signatures": False}), ["pull_request"])
-        self.assertEqual(types({"protect": {"force_push": False}, "required_checks": [{"context": "a"}], "signatures": False}),
+        self.assertEqual(types({}), ["deletion", "non_fast_forward", "pull_request", "required_status_checks", "required_signatures"])
+        self.assertEqual(types({"armed_status": None}), ["deletion", "non_fast_forward", "pull_request", "required_signatures"])
+        self.assertEqual(types({"protect": {"deletion": False, "force_push": False}, "signatures": False, "armed_status": None}), ["pull_request"])
+        self.assertEqual(types({"protect": {"force_push": False}, "required_checks": [{"context": "a"}], "signatures": False, "armed_status": None}),
                          ["deletion", "pull_request", "required_status_checks"])
-        rule = next(x for x in arm_policy.render(arm_policy.validate({"required_checks": [{"context": "a"}, {"context": "b"}]}))["ruleset"]["rules"]
+        rule = next(x for x in arm_policy.render(arm_policy.validate({"required_checks": [{"context": "a"}, {"context": "b"}],
+                                                                      "armed_status": None}))["ruleset"]["rules"]
                     if x["type"] == "required_status_checks")
         self.assertEqual(rule["parameters"]["required_status_checks"], [{"context": "a"}, {"context": "b"}], "no app: any, no integration id")
 
+    def required(self, doc: dict) -> list | None:
+        rendered = arm_policy.render(arm_policy.validate(doc))["ruleset"]
+        rule = next((x for x in rendered["rules"] if x["type"] == "required_status_checks"), None) if rendered else None
+        return rule["parameters"]["required_status_checks"] if rule else None
+
+    def test_the_armed_status_is_a_required_check_of_an_auto_ruleset_whatever_required_checks_says(self):
+        # A repository's required_checks list replaces the fleet's (lists replace on merge), so a context kept in the
+        # list would be dropped by any repository that names its own checks: render adds it after the list instead.
+        # Mutation: the armed status put in DEFAULT's required_checks rather than appended by render fails the second.
+        self.assertEqual(self.required({}), [{"context": "fabric/armed"}])
+        self.assertEqual(self.required({"required_checks": [{"context": "ci-ok", "app": "github-actions"}]}),
+                         [{"context": "ci-ok", "integration_id": 15368}, {"context": "fabric/armed"}])
+        merged = arm_policy.merge(arm_policy.default(), {"required_checks": [{"context": "build"}]})
+        self.assertEqual(self.required(merged), [{"context": "build"}, {"context": "fabric/armed"}], "a settings file's list")
+        # Named in the list as well, it is one check: GitHub refuses a ruleset that names a context twice.
+        self.assertEqual(self.required({"required_checks": [{"context": "fabric/armed"}]}), [{"context": "fabric/armed"}])
+
+    def test_the_armed_status_is_off_when_null_and_only_an_auto_ruleset_requires_it(self):
+        # direct has no ruleset; owner-only is merged by the owner's hand and queue merges the queue's own commit, and
+        # nothing posts the status on either, so a ruleset requiring it there would hold every merge for good.
+        # Mutation: render adding it for every mode with a ruleset fails the owner-only and queue lines.
+        self.assertIsNone(self.required({"armed_status": None}))
+        self.assertIsNone(arm_policy.render(arm_policy.validate({"mode": "direct"}))["ruleset"])
+        for mode in ("owner-only", "queue"):
+            self.assertIsNone(self.required({"mode": mode}), mode)
+            self.assertEqual(self.required({"mode": mode, "required_checks": [{"context": "ci-ok"}]}), [{"context": "ci-ok"}], mode)
+
     def test_an_app_is_its_integration_id_and_one_not_known_is_an_error_unless_given(self):
-        policy = arm_policy.validate({"required_checks": [{"context": "a", "app": "github-actions"}, {"context": "b", "app": "circleci"}]})
+        policy = arm_policy.validate({"required_checks": [{"context": "a", "app": "github-actions"}, {"context": "b", "app": "circleci"}],
+                                      "armed_status": None})
         with self.assertRaises(arm_policy.PolicyError):
             arm_policy.render(policy)
         rule = next(x for x in arm_policy.render(policy, {"circleci": 18001})["ruleset"]["rules"] if x["type"] == "required_status_checks")
@@ -786,7 +830,7 @@ class ArmRun(unittest.TestCase):
                 replay=None, presence=None, unresolved=0, reviewed=True, fleet=None, waiver_role=None, branch="h/me/feat/x",
                 whoami=None, review_doc=None, workflows=NOT_FOUND):
         pr = {"number": 7, "state": "OPEN", "isDraft": False, "headRefName": branch, "baseRefName": "main", "headRefOid": self.HEAD, "body": body, "title": "t"}
-        gate = [{"commits_known": True, "work_commits": work, "checks": checks}]
+        gate = [{"commits_known": True, "work_commits": work, "checks": checks, "head": self.HEAD[:8]}]
         review = {"blind": {"rows": [{"commit_sha8": self.HEAD[:8]}] if reviewed else []}, "unresolved_threads": unresolved}
         review = review_doc if review_doc is not None else review
         self.reads = reads = []

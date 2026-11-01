@@ -24,10 +24,13 @@ on:
 # contents: write as well: with pull-requests: write alone GitHub refuses
 # disablePullRequestAutoMerge ("Resource not accessible by integration",
 # live on #139, 2026-10-09). The job writes nothing else: one mutation and
-# one comment.
+# one comment. statuses: read is for the new head's fabric/armed status,
+# the one tie of an arming to a head; a token that cannot read it ties
+# nothing, and every arming would be taken off.
 permissions:
   contents: write
   pull-requests: write
+  statuses: read
 
 concurrency:
   group: disarm-on-push-${{ github.event.pull_request.number }}
@@ -51,27 +54,39 @@ jobs:
           PR: ${{ github.event.pull_request.number }}
           BEFORE: ${{ github.event.before }}
           AFTER: ${{ github.event.after }}
-          PUSHED_AT: ${{ github.event.pull_request.updated_at }}
         run: |
           set -euo pipefail
-          # Read now, not from the event, and compared with the push: an
-          # arming made after the push is an arming of the new head and
-          # stays. Both times are GitHub's UTC "…Z" form, so they order as
-          # strings.
-          read -r node armed_on < <(gh api graphql \
-            -f query='query($o:String!,$r:String!,$n:Int!){repository(owner:$o,name:$r){pullRequest(number:$n){id autoMergeRequest{enabledAt}}}}' \
+          read -r node head armed_on < <(gh api graphql \
+            -f query='query($o:String!,$r:String!,$n:Int!){repository(owner:$o,name:$r){pullRequest(number:$n){id headRefOid autoMergeRequest{enabledAt}}}}' \
             -f o="${GH_REPO%/*}" -f r="${GH_REPO#*/}" -F n="$PR" \
-            --jq '.data.repository.pullRequest | "\(.id) \(.autoMergeRequest.enabledAt // "-")"')
+            --jq '.data.repository.pullRequest | "\(.id) \(.headRefOid // "-") \(.autoMergeRequest.enabledAt // "-")"')
           if [[ "$armed_on" == "-" ]]; then
             echo "#$PR is not armed: nothing to take off"
             exit 0
           fi
-          if [[ ! "$armed_on" < "$PUSHED_AT" ]]; then
-            echo "#$PR was armed at $armed_on, at or after the push ($PUSHED_AT): an arming of the new head, kept"
+          # Which head an arming is of is told by the head, never by a clock:
+          # fabric-pr arm posts fabric/armed on the sha its gates read before
+          # it enables auto-merge, so that status on the PR's head is an
+          # arming of that head. enabledAt against the event's updated_at
+          # could not tell: both are whole seconds, and an arming of the old
+          # head in the push's second read as the new head's (audit F02);
+          # updated_at also moves with any edit of the PR. The head is the
+          # PR's head now, read with the arming, not the event's AFTER: a run
+          # that starts late or is re-run keeps its old event, and a later
+          # head's own arming must stay (review of #454, F1). Asked of the
+          # sha, not the branch. A read that fails is no tie: under set -e it
+          # would end the job with the arming still on.
+          tie="-"
+          if [[ "$head" != "-" ]]; then
+            tie="$(gh api "repos/$GH_REPO/commits/$head/status?per_page=100" \
+              --jq 'first(.statuses[] | select(.context == "fabric/armed") | .state) // "-"')" || tie="-"
+          fi
+          if [[ "$tie" == "success" ]]; then
+            echo "#$PR was armed at $armed_on and its head ${head:0:8} carries fabric/armed: an arming of that head, kept"
             exit 0
           fi
           gh api graphql -f query='mutation($id:ID!){disablePullRequestAutoMerge(input:{pullRequestId:$id}){clientMutationId}}' \
             -f id="$node" >/dev/null
-          body="Auto-merge taken off: the head moved from ${BEFORE:0:8} to ${AFTER:0:8} after the arming (armed $armed_on). A pull request is armed on a reviewed head (ADR-019); review the new range, then arm again with fabric-pr arm."
+          body="Auto-merge taken off: the head moved from ${BEFORE:0:8} to ${AFTER:0:8}, and the arming (armed $armed_on) is not one of the PR's head ${head:0:8}, which carries no fabric/armed status. A pull request is armed on a reviewed head (ADR-019); review the new range, then arm again with fabric-pr arm."
           gh api "repos/$GH_REPO/issues/$PR/comments" -f body="$body" >/dev/null
           echo "$body"

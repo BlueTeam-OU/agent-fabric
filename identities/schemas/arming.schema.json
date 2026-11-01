@@ -104,6 +104,10 @@
         }
       }
     },
+    "armed_status": {
+      "enum": [null, "fabric/armed"],
+      "description": "The status context fabric-pr arm posts, state success, on the head its gates read before it enables auto-merge; in mode auto the ruleset requires it beside required_checks (never through that list, which a repository's own replaces), so a head pushed after an arming waits for its own (audit F02). .github/workflows/disarm-on-push.yml keeps an arming only when the PR's head carries fabric/armed and reads no policy, so that is the one name; null turns it off for a repository whose merges nothing posts it for."
+    },
     "github": {
       "type": "object",
       "additionalProperties": false,

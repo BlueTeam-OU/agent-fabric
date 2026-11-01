@@ -150,10 +150,12 @@ class Differences(unittest.TestCase):
 
     def test_the_required_checks_are_compared_by_context_and_integration_id(self):
         g = Github(POLICY)
-        rule(g, "required_status_checks")["parameters"]["required_status_checks"] = [{"context": "ci-ok"}]
+        rule(g, "required_status_checks")["parameters"]["required_status_checks"] = [{"context": "ci-ok"}, {"context": "fabric/armed"}]
         self.assertEqual(len(self.check(g)), 1)
-        self.assertIn("required checks are [('ci-ok', None)], the policy wants [('ci-ok', 15368)]", self.check(g)[0])
-        rule(g, "required_status_checks")["parameters"]["required_status_checks"] = [{"context": "ci-ok", "integration_id": 15368}]
+        self.assertIn("required checks are [('ci-ok', None), ('fabric/armed', None)], the policy wants [('ci-ok', 15368), ('fabric/armed', None)]",
+                      self.check(g)[0])
+        rule(g, "required_status_checks")["parameters"]["required_status_checks"] = [{"context": "ci-ok", "integration_id": 15368},
+                                                                                     {"context": "fabric/armed"}]
         self.assertEqual(self.check(g), [])
 
     def test_the_ruleset_target_enforcement_conditions_and_bypass_actors_are_compared(self):
@@ -358,7 +360,7 @@ class Apply(unittest.TestCase):
         g.ruleset = None
         self.run_cli(["apply", REPO, "--yes"], g, policy)
         checks = next(r for r in g.writes[0][2]["rules"] if r["type"] == "required_status_checks")
-        self.assertEqual(checks["parameters"]["required_status_checks"], [{"context": "x", "integration_id": 18001}])
+        self.assertEqual(checks["parameters"]["required_status_checks"], [{"context": "x", "integration_id": 18001}, {"context": "fabric/armed"}])
 
     def test_fields_then_ruleset_in_that_order(self):
         g = self.drifted()
@@ -579,6 +581,29 @@ class Source(unittest.TestCase):
         rc, _, err = self.run_cli(["apply", REPO, "--yes"], g, None, settings_down=True)
         self.assertEqual((rc, g.writes), (2, []))
         self.assertIn("is not known to be absent", err)
+
+    def test_a_settings_file_whose_required_checks_omit_the_armed_status_still_gets_it_applied(self):
+        # The settings file's list replaces the fleet's, and the ruleset apply writes still requires fabric/armed:
+        # without it a push after an arming of the old head merges the new head on that arming. Mutation: render
+        # reading the armed status from required_checks (dropped with the list) fails both assertions.
+        g = Github(POLICY)
+        rc, out, _ = self.run_cli(["apply", REPO, "--yes"], g, {"required_checks": [{"context": "build"}]})
+        put = [w[2] for w in g.writes if w[0] == "PUT"]
+        self.assertEqual(rc, 0, out)
+        self.assertEqual([c for r in put[0]["rules"] if r["type"] == "required_status_checks"
+                          for c in r["parameters"]["required_status_checks"]],
+                         [{"context": "build"}, {"context": "fabric/armed"}], g.writes)
+        self.assertIn("the policy wants [('build', None), ('fabric/armed', None)]", out)
+
+    def test_a_ruleset_without_the_armed_status_is_a_blocking_difference(self):
+        # arm refuses on a blocking difference, so a repository whose ruleset lacks the context is not armed until
+        # apply writes it (the rollout's order). Mutation: required checks compared as a subset fails this.
+        g = Github(POLICY)
+        checks = rule(g, "required_status_checks")["parameters"]["required_status_checks"]
+        checks[:] = [c for c in checks if c["context"] != "fabric/armed"]
+        found = repo_policy.check(REPO, POLICY, g)
+        self.assertEqual(repo_policy.blocking(found), ["rule required_status_checks: required checks are [('ci-ok', 15368)], the policy"
+                                                       " wants [('ci-ok', 15368), ('fabric/armed', None)]"], found)
 
     def test_json_carries_the_source_for_every_verb(self):
         for verb in ("plan", "verify", "apply"):
