@@ -391,6 +391,53 @@ def test_a_forked_child_takes_the_flock_itself(tmp: str) -> None:
         del os.environ["AGENT_FABRIC_STATE_DIR"]
 
 
+def test_a_forked_child_leaves_the_inherited_descriptor_number_alone(tmp: str) -> None:
+    """A child forked inside a held block runs that block's exit too. The
+    descriptor it inherited is closed at the fork, so its number is the
+    next one the child opens; the block's exit must not close that file."""
+    os.environ["AGENT_FABRIC_STATE_DIR"] = os.path.join(tmp, "state")
+    r, w = os.pipe()
+    pid = -1
+    try:
+        reused = -1
+        with identity.agent_lock("forked-exit"):
+            inherited = identity._HOLDS["forked-exit"].fd
+            pid = os.fork()
+            if pid == 0:
+                os.close(r)
+                # Lower numbers free first; open until the inherited one is reused.
+                for _ in range(64):
+                    reused = os.open(os.devnull, os.O_RDONLY)
+                    if reused >= inherited:
+                        break
+        if pid == 0:                                        # the child, out of the block: report, never return into the runner
+            code = 1
+            try:
+                if reused != inherited:
+                    said = f"no reuse: {reused} for {inherited}\n"
+                else:
+                    try:
+                        os.fstat(reused)
+                        said = "open\n"
+                    except OSError:
+                        said = "closed by the block's exit\n"
+                os.write(w, said.encode())
+                code = 0
+            finally:
+                os._exit(code)
+        os.close(w)
+        w = -1
+        _, status = os.waitpid(pid, 0)
+        said = os.read(r, 100).decode()
+        assert said == "open\n", f"the forked child's exit touched a reused descriptor: {said!r}"
+        assert os.waitstatus_to_exitcode(status) == 0, status
+    finally:
+        os.close(r)
+        if w != -1:
+            os.close(w)
+        del os.environ["AGENT_FABRIC_STATE_DIR"]
+
+
 def test_a_binding_from_another_host_is_refused(tmp: str) -> None:
     """The login is the identity; the state is a runtime instance on one
     machine. A binding stamped by another host — a shared or synced home —
@@ -483,7 +530,7 @@ def main() -> int:
         test_a_second_thread_waits_for_the_holder,
         test_the_owner_thread_reenters_and_holds_to_the_outermost_exit,
         test_an_exclusive_request_inside_a_shared_hold_is_refused,
-        test_a_forked_child_takes_the_flock_itself,
+        test_a_forked_child_takes_the_flock_itself, test_a_forked_child_leaves_the_inherited_descriptor_number_alone,
         test_a_binding_from_another_host_is_refused,
         test_the_job_list_is_the_logins_and_serialized,
         test_launch_role_drift_is_one_sentence_or_none,

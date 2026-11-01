@@ -151,7 +151,7 @@ class _AgentHold:
     fence; `owner`, `depth`, `fd` and `shared` are written only by the
     thread holding `lock`, so a thread comparing `owner` to its own ident
     is never told yes by another thread's hold."""
-    __slots__ = ("lock", "owner", "depth", "fd", "shared")
+    __slots__ = ("lock", "owner", "depth", "fd", "shared", "forked")
 
     def __init__(self) -> None:
         self.lock = threading.Lock()
@@ -159,6 +159,7 @@ class _AgentHold:
         self.depth = 0
         self.fd: int | None = None
         self.shared = False
+        self.forked = False
 
 
 # Owned by a thread, not only keyed by agent (audit F03, 2026-11-01): keyed
@@ -179,11 +180,15 @@ def _forget_holds_in_child() -> None:
     # description, so the child must not LOCK_UN them (that would unlock
     # the parent); closing them is safe, since a flock lives until its last
     # descriptor goes and the parent still has its own.
+    # A child forked inside a held block still runs that block's exit; the
+    # hold is marked so the exit leaves the closed descriptor's number alone,
+    # which by then may be a file the child opened since.
     global _HOLDS_GUARD, _HOLDS
     for hold in _HOLDS.values():
         if hold.fd is not None:
             with contextlib.suppress(OSError):
                 os.close(hold.fd)
+        hold.forked = True
     _HOLDS_GUARD = threading.Lock()
     _HOLDS = {}
 
@@ -232,10 +237,11 @@ def agent_lock(agent: str | None = None, *, shared: bool = False):
             yield
         finally:
             hold.owner, hold.depth, hold.fd = None, 0, None
-            try:
-                fcntl.flock(fd, fcntl.LOCK_UN)
-            finally:
-                os.close(fd)
+            if not hold.forked:
+                try:
+                    fcntl.flock(fd, fcntl.LOCK_UN)
+                finally:
+                    os.close(fd)
     finally:
         # Last, after the flock and its descriptor: the next thread in
         # opens its own and finds nothing of this hold left.
