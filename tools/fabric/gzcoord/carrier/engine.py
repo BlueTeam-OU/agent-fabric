@@ -142,7 +142,8 @@ class Carrier:
                     # The records already written stay: they are durable and will be sent.
                     problem = f"{login}: {e}"
                     break
-                self._encoded[d.key] = payloads
+                if not d.receipt_at:         # a settled delivery is never sent again: nothing to cache
+                    self._encoded[d.key] = payloads
                 queued += 1
             posted = sum(1 for login in to if self.outbox.deliveries.get((mid, login)) is not None
                          and self.outbox.deliveries[(mid, login)].posted)
@@ -261,6 +262,7 @@ class Carrier:
                 if MID_RE.fullmatch(mid):
                     with self.lock:
                         if self.outbox.receipt(mid, row["login"]):
+                            self._encoded.pop((mid, row["login"]), None)
                             self.counters.receipts_in += 1
                 return
             if base == framing.MEDIA_MESSAGE:

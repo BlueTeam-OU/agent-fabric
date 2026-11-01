@@ -34,6 +34,7 @@ import json
 import os
 import secrets
 import tempfile
+from collections import deque
 from dataclasses import dataclass, field
 from typing import Callable
 
@@ -41,6 +42,13 @@ from . import jsonl
 
 BACKOFF_FIRST = 1.0
 BACKOFF_CAP = 300.0
+# 2 ** 30 s is far past the cap; the exponent stops here so the power is never
+# computed for an attempt count that overflows a float (attempt 1025 did).
+_BACKOFF_MAX_EXPONENT = 30
+# Settled deliveries kept in memory as dedup stubs (the same message asked again
+# after its delivery ended is that delivery). A message asked again after the
+# oldest stub is dropped is a new delivery: retention is bounded, not eternal.
+SETTLED_KEEP = 4096
 
 
 class RecordError(Exception):
@@ -48,7 +56,8 @@ class RecordError(Exception):
 
 
 def backoff(attempts: int) -> float:
-    return min(BACKOFF_FIRST * (2 ** max(attempts - 1, 0)), BACKOFF_CAP)
+    exponent = min(max(attempts - 1, 0), _BACKOFF_MAX_EXPONENT)
+    return min(BACKOFF_FIRST * (2 ** exponent), BACKOFF_CAP)
 
 
 @dataclass
@@ -89,6 +98,7 @@ class Outbox:
             os.close(self._fd)
             raise RecordError(f"{self.path} is held by another carrier") from None
         self.deliveries: dict[tuple[str, str], Delivery] = {}
+        self._settled: deque[tuple[str, str]] = deque()      # keys of settled deliveries, oldest first
         self._load()
 
     # -- storage ---------------------------------------------------------
@@ -150,6 +160,16 @@ class Outbox:
                     d.receipt_at = o.get("receipt") or o.get("abandoned") or "done"
                     d.abandoned_by = o.get("by")
                     self.deliveries[key] = d
+                    self._retain(key)
+
+    def _retain(self, key: tuple[str, str]) -> None:
+        """Count `key` among the settled stubs and drop the oldest beyond
+        SETTLED_KEEP. Only a settled delivery is ever dropped."""
+        self._settled.append(key)
+        while len(self._settled) > SETTLED_KEEP:
+            old = self.deliveries.get(self._settled.popleft())
+            if old is not None and old.receipt_at:
+                del self.deliveries[old.key]
 
     def _compact(self) -> None:
         done = [d for d in self.deliveries.values() if d.receipt_at]
@@ -250,6 +270,7 @@ class Outbox:
         t = self._iso()
         self._append({"e": "receipt", "mid": mid, "to": to, "t": t})
         d.receipt_at, d.text = t, ""
+        self._retain(d.key)
         return True
 
     def abandon(self, mid: str, to: str, by: str) -> bool:
@@ -260,6 +281,7 @@ class Outbox:
         t = self._iso()
         self._append({"e": "abandon", "mid": mid, "to": to, "by": by, "t": t})
         d.receipt_at, d.abandoned_by, d.text = t, by, ""
+        self._retain(d.key)
         return True
 
     def retry_after(self, d: Delivery, now: float) -> None:
