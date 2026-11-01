@@ -35,10 +35,12 @@ case "$q" in
   *"query("*)
     # Each field only when the query asks for it, as GitHub answers.
     id='null'; [[ "$q" == *"pullRequest(number:\$n){id "* ]] && id='"PR_NODE"'
+    # The PR's head now: FAKE_HEAD, the event's AFTER unless a case moved it on.
+    head='null'; [[ "$q" == *" headRefOid "* ]] && head='"'"${FAKE_HEAD:-$AFTER}"'"'
     if [[ "$q" == *"autoMergeRequest{enabledAt}"* && -n "${FAKE_ENABLED_AT:-}" ]]; then
-      doc='{"data":{"repository":{"pullRequest":{"id":'"$id"',"autoMergeRequest":{"enabledAt":"'"$FAKE_ENABLED_AT"'"}}}}}'
+      doc='{"data":{"repository":{"pullRequest":{"id":'"$id"',"headRefOid":'"$head"',"autoMergeRequest":{"enabledAt":"'"$FAKE_ENABLED_AT"'"}}}}}'
     else
-      doc='{"data":{"repository":{"pullRequest":{"id":'"$id"',"autoMergeRequest":null}}}}'
+      doc='{"data":{"repository":{"pullRequest":{"id":'"$id"',"headRefOid":'"$head"',"autoMergeRequest":null}}}}'
     fi
     if [[ -n "$jqx" ]]; then printf '%s' "$doc" | jq -r "$jqx"; else printf '%s\n' "$doc"; fi ;;
   *)
@@ -74,11 +76,12 @@ def run_script() -> str:
     return "\n".join(line[10:] for line in m.group(1).splitlines())
 
 
-BEFORE, AFTER = "aaaaaaaa11", "bbbbbbbb22"
+BEFORE, AFTER, LATER = "aaaaaaaa11", "bbbbbbbb22", "cccccccc33"
 
 
 def run(enabled_at: str | None, status_on: str | None = None,
-        status_state: str | None = None, status_fail: bool = False) -> tuple[int, str, str]:
+        status_state: str | None = None, status_fail: bool = False,
+        head: str | None = None) -> tuple[int, str, str]:
     with tempfile.TemporaryDirectory() as d:
         gh = os.path.join(d, "gh")
         with open(gh, "w") as f:
@@ -96,6 +99,8 @@ def run(enabled_at: str | None, status_on: str | None = None,
             env["FAKE_STATUS_STATE"] = status_state
         if status_fail:
             env["FAKE_STATUS_FAIL"] = "1"
+        if head is not None:
+            env["FAKE_HEAD"] = head
         p = subprocess.run(["bash", "-c", run_script()], env=env, capture_output=True, text=True, timeout=30)
         return p.returncode, p.stdout + p.stderr, open(log).read()
 
@@ -139,6 +144,18 @@ def main() -> int:
         rc, out, calls = run(when, status_on=AFTER)
         check(f"armed {when}, fabric/armed success on {AFTER[:8]}: exit 0, no mutation, no comment", kept(rc, calls), out + calls)
     check("the status is asked of the new head's sha, not of the branch", f"repos/o/r/commits/{AFTER}/status" in calls, calls)
+
+    # A run for the push to AFTER that starts late (queued behind a runner) or is re-run keeps its event, while the
+    # PR has moved on to LATER and LATER was armed through the gate: that arming stays (review of #454, F1).
+    # Mutation: the tie asked of AFTER, not of the PR's head, fails the first check.
+    print("disarm-on-push: a late or re-run job for an earlier push leaves a later head's own arming")
+    rc, out, calls = run("2026-10-09T06:30:00Z", status_on=LATER, head=LATER)
+    check("head moved on to a head carrying fabric/armed: kept", kept(rc, calls), out + calls)
+    check("the status is asked of the PR's head, not of the event's AFTER", f"repos/o/r/commits/{LATER}/status" in calls
+          and f"commits/{AFTER}/status" not in calls, calls)
+    rc, out, calls = run("2026-10-09T06:30:00Z", status_on=AFTER, head=LATER)
+    check("fabric/armed on the event's AFTER but the PR's head moved on without it: taken off", disarmed(rc, calls),
+          out + calls)
 
     # Mutation: the status asked of BEFORE (or any ref but AFTER) keeps this one and fails it.
     print("disarm-on-push: fabric/armed on the old head is the old head's arming, taken off")
