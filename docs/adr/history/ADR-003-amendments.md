@@ -111,3 +111,32 @@ can fail. The files named meet all three today. `O_NOFOLLOW` and
 `O_CLOEXEC`, which `pool.py` and `busy.py` add, are good practice, not
 conditions: `agent_lock` predates them, and the state directory is
 0700.
+
+### Amendment 2026-11-01 — The session hooks write through `identity.py`, under their own lock files
+
+Found while reading the per-agent writers for job j479: the two hooks
+that tell the control agent what each session is doing,
+`runtime/claude-code/hooks/session-state.py` (`session-state.json`) and
+`context-sample.py` (`session-context.json`), rewrote their files under
+`agents/<login>/` by a temporary and rename of their own, outside
+`runtime/identity.py` and unnamed in this record. The temporary,
+`<file>.<pid>`, was not removed when a write failed, so a full disk left
+one behind per failing process. Rule 1 asks a new state file for its
+writer in `identity.py`, not a writer class of its own, and the hooks
+can load it: both now replace their file with `atomic_write`, mode 0600,
+loading `identity.py` by the hook's own place in the tree only when there
+is something to write, since `PreToolUse` fires on every tool call and
+mostly writes nothing.
+
+Rule 2 is where they differ, and stay different: neither takes
+`agent_lock`. A hook may never stand in a session's way, and a binding
+writer holds that lock for as long as a bind takes. Each serializes its
+read-modify-write on a lock file of its own, `session-state.json.lock`
+(a 1 s wait, then the event is dropped) and `session-context.json.lock`
+(no wait), the same shape as `pool.json.lock`. Both lock files were
+opened with the umask's mode, 0644 under the usual 022; they are now
+created 0600, without `O_TRUNC`, with `O_NOFOLLOW` and `O_CLOEXEC`, which
+meets the 2026-10-31 conditions for a lock file that is not state.
+`tests/test_session_state.py` and `tests/test_context_sample.py` hold
+the writer, the lock file's mode and a failed write that leaves the
+previous file whole and no temporary.

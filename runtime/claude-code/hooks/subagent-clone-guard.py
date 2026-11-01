@@ -9,7 +9,7 @@ CONTRACT, frozen from the bash (ADR-040 §5 rule 3):
             "" made "-", the four joined by spaces, and the FIRST line of that split by bash's
             `read -r agent_id agent_type tool cwd` (runs of space and tab separate; the last name takes the
             rest, inner spaces kept)
-  env       PATH (jq's presence; the `bash` that runs the review fence); the review fence reads its own
+  env       PATH (jq's presence; the review fence runs under /bin/bash, never a bash on PATH); the fence reads its own
   stdout    nothing (allow); one compact deny line; for Bash, the review fence's answer passed through with
             no trailing newline (its own allow-with-updatedInput, or its deny, reworded below)
   stderr    nothing of its own
@@ -26,7 +26,7 @@ DECISIONS, in order, with their exact words:
   4. agent_type not exactly one of code-low code-medium code-high code-plan code-review general-purpose
      claude Explore Plan (a fork, a type this control plane does not dispatch) -> nothing
   5. cwd contains "/.claude/worktrees/" (isolated: it may write there) -> nothing
-  6. tool Bash: the payload (as `"$(cat)"` held it) is piped to `bash <this directory>/review-bash-guard.sh`;
+  6. tool Bash: the payload (as `"$(cat)"` held it) is piped to `/bin/bash <this directory>/review-bash-guard.sh`;
      for every type but code-review, an answer whose permissionDecision is deny has its reason prefixed with
      WHY + " The read-only fence says: "; the answer is printed as captured, without a trailing newline
   7. tool Write, Edit, MultiEdit or NotebookEdit -> deny:
@@ -160,7 +160,8 @@ def reworded(text: str, prefix: str) -> str:
 
 def fence(payload: bytes, agent_type: str, cwd: str) -> str:
     try:
-        r = subprocess.run(["bash", os.path.join(HERE, "review-bash-guard.sh")], input=payload,
+        # /bin/bash by its path: a hook inherits the session's PATH, and a `bash` found on it is the login's.
+        r = subprocess.run(["/bin/bash", os.path.join(HERE, "review-bash-guard.sh")], input=payload,
                            stdout=subprocess.PIPE, check=False)
         out = r.stdout
     except OSError:

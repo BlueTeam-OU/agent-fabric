@@ -566,20 +566,21 @@ def merged_provider(provider: str, role: str | None = None, agent: str | None = 
     return out
 
 
-def local_override_path(agent: str | None = None) -> str:
+def local_override_path(agent: str | None = None, root: str | None = None) -> str:
     """$STATE_DIR/model-profile.local.json for the agent — the login's own
     layer, gitignored, written by bin/fabric-model. Identity comes from
-    runtime/identity.py, the one resolver."""
+    runtime/identity.py, the one resolver, in `root` when the caller named
+    a tree (--fabric), as every other read of a subcommand is."""
     spec = importlib.util.spec_from_file_location(
-        "fabric_identity", os.path.join(FABRIC_ROOT, "runtime", "identity.py"))
+        "fabric_identity", os.path.join(root or FABRIC_ROOT, "runtime", "identity.py"))
     identity = importlib.util.module_from_spec(spec); spec.loader.exec_module(identity)
     return os.path.join(identity.agent_state_dir(agent), LOCAL_OVERRIDE)
 
 
-def load_local(agent: str | None = None, path: str | None = None) -> dict[str, Any]:
+def load_local(agent: str | None = None, path: str | None = None, root: str | None = None) -> dict[str, Any]:
     """The agent's local layer, {} when absent. Validated where it is
     merged (normalize_layer names the field), not here."""
-    path = path or local_override_path(agent)
+    path = path or local_override_path(agent, root)
     if not os.path.exists(path):
         return {}
     local = _load(path)
@@ -1073,7 +1074,7 @@ def main(argv: list[str] | None = None) -> int:
             agent = agent or identity.current_agent()
             role = role or identity.read_binding(agent).get("role")
         if args.local or args.me:
-            local = load_local(agent, args.local)
+            local = load_local(agent, args.local, root)
         return role, agent, local
 
     if args.cmd == "session-effort":

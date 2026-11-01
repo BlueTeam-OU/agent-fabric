@@ -244,8 +244,11 @@ def routing_map(provider: str, what: str, column: int) -> dict:
     # answer the gate compares (review of #72). Not -I: that also drops
     # routing.py's own directory, which it imports its siblings from.
     try:
-        r = subprocess.run([sys.executable, "-E", "-s", os.path.join(FABRIC, "tools", "fabric", "routing.py"), what, "--me",
-                            "--provider", provider], capture_output=True, text=True, timeout=PROBE_TIMEOUT_S,
+        # --fabric: the tree this guard runs from, never AGENT_FABRIC_ROOT, which a session may aim elsewhere;
+        # in the managed snapshot the two are the same tree (ADR-043 rule 2), outside it this file's own.
+        r = subprocess.run([sys.executable, "-E", "-s", os.path.join(FABRIC, "tools", "fabric", "routing.py"),
+                            "--fabric", FABRIC, what, "--me", "--provider", provider],
+                           capture_output=True, text=True, timeout=PROBE_TIMEOUT_S,
                            stdin=subprocess.DEVNULL)
     except (OSError, subprocess.TimeoutExpired):
         return {}

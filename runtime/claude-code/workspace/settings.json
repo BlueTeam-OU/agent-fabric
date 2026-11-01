@@ -1,5 +1,5 @@
 {
-  "_comment": "Template for <projects>/.claude/settings.json, written by runtime/claude-code/bootstrap.sh with $AGENT_FABRIC_ROOT substituted. Hooks resolve the agent from the OS and show the working copy as context; nothing here names an agent or a project. The GZCoord inbox drains here too: started in the workspace, a session is outside any checkout, and the inbox reads the project and its token from the binding. env disables the harness's own tab-title writer: it writes a prompt-derived topic after every turn, on top of what hooks/tab-title.sh set, so the tab named a conversation instead of the agent (db-admin, 2026-09-15); with it off the hook is the only writer. This scope reaches only a session started from the workspace itself; a session started inside a clone gets the switch from runtime/openrouter/launch, which exports it on every path (2026-09-16). plan-hold.sh runs on every tool call, every prompt and at session end: it marks the account's GZCoord inbox held while the session is in plan mode, and the watch (gzcoord-inbox --until-delivery) polls nothing while the marker names a live session (2026-09-16). model-fallback-note.sh runs after any model switch and, when the harness made it itself (a safeguard flagged a request), tells the session so with the contagion rule and leaves a marker gzcoord-send and fabric-status read (2026-09-16).",
+  "_comment": "Template for <projects>/.claude/settings.json, written by runtime/claude-code/bootstrap.sh with $AGENT_FABRIC_ROOT substituted. Hooks resolve the agent from the OS and show the working copy as context; nothing here names an agent or a project. The GZCoord inbox drains here too: started in the workspace, a session is outside any checkout, and the inbox reads the project and its token from the binding. env disables the harness's own tab-title writer: it writes a prompt-derived topic after every turn, on top of what hooks/tab-title.sh set, so the tab named a conversation instead of the agent (db-admin, 2026-09-15); with it off the hook is the only writer. This scope reaches only a session started from the workspace itself; a session started inside a clone gets the switch from runtime/openrouter/launch, which exports it on every path (2026-09-16). plan-hold.sh runs on every tool call, every prompt and at session end: it marks the account's GZCoord inbox held while the session is in plan mode, and the watch (gzcoord-inbox --until-delivery) polls nothing while the marker names a live session (2026-09-16). model-fallback-note.sh runs after any model switch and, when the harness made it itself (a safeguard flagged a request), tells the session so with the contagion rule and leaves a marker gzcoord-send and fabric-status read (2026-09-16). Each guard entry outside SessionStart moved to managed settings (runtime/claude-code/managed/managed-settings.template.json, ADR-043 rule 2) and starts with a test for /etc/claude-code/managed-settings.json: where the operator installed it, the managed copy answers and this entry exits at once; where it is absent, the entry runs the guard from this checkout as before, so nothing is lost while hosts move. The last SessionStart hook in the first group says so in the session's context while the managed file is absent (2026-10-31).",
   "env": {
     "CLAUDE_CODE_DISABLE_TERMINAL_TITLE": "1"
   },
@@ -20,6 +20,11 @@
             "type": "command",
             "command": "bash \"$AGENT_FABRIC_ROOT/runtime/claude-code/hooks/tab-title.sh\"",
             "timeout": 10
+          },
+          {
+            "type": "command",
+            "command": "{ [ -x /usr/local/bin/fabric-python ] && [ -e /etc/claude-code/managed-settings.json ]; } || printf '%s\\n' '{\"hookSpecificOutput\":{\"hookEventName\":\"SessionStart\",\"additionalContext\":\"ADR-043: rules 1-2 are not installed on this host; the workspace guards run from this checkout — operator: sudo fabric-managed install\"}}'; true",
+            "timeout": 5
           }
         ]
       },
@@ -51,7 +56,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "f=\"$AGENT_FABRIC_ROOT/runtime/claude-code/hooks/agent-dispatch-guard.sh\"; if [ -f \"$f\" ]; then bash \"$f\"; else printf '%s\\n' '{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"ask\",\"permissionDecisionReason\":\"The dispatch guard script was not found; approve only if you have checked model and isolation yourself.\"}}'; fi",
+            "command": "[ -x /usr/local/bin/fabric-python ] && grep -qF '\"agent-dispatch-guard\"' /etc/claude-code/managed-settings.json 2>/dev/null && exit 0; f=\"$AGENT_FABRIC_ROOT/runtime/claude-code/hooks/agent-dispatch-guard.sh\"; if [ -f \"$f\" ]; then bash \"$f\"; else printf '%s\\n' '{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"ask\",\"permissionDecisionReason\":\"The dispatch guard script was not found; approve only if you have checked model and isolation yourself.\"}}'; fi",
             "timeout": 10
           }
         ]
@@ -61,7 +66,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "f=\"$AGENT_FABRIC_ROOT/runtime/claude-code/hooks/subagent-clone-guard.sh\"; if [ -f \"$f\" ]; then bash \"$f\"; else printf '%s\\n' '{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"ask\",\"permissionDecisionReason\":\"The subagent clone guard script was not found; approve only if this tool call is not a subagent writing in the session clone.\"}}'; fi",
+            "command": "[ -x /usr/local/bin/fabric-python ] && grep -qF '\"subagent-clone-guard\"' /etc/claude-code/managed-settings.json 2>/dev/null && exit 0; f=\"$AGENT_FABRIC_ROOT/runtime/claude-code/hooks/subagent-clone-guard.sh\"; if [ -f \"$f\" ]; then bash \"$f\"; else printf '%s\\n' '{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"ask\",\"permissionDecisionReason\":\"The subagent clone guard script was not found; approve only if this tool call is not a subagent writing in the session clone.\"}}'; fi",
             "timeout": 10
           }
         ]
@@ -71,17 +76,22 @@
         "hooks": [
           {
             "type": "command",
-            "command": "f=\"$AGENT_FABRIC_ROOT/runtime/claude-code/hooks/pipe-status-guard.sh\"; [ -f \"$f\" ] && bash \"$f\"; true",
+            "command": "[ -x /usr/local/bin/fabric-python ] && grep -qF '\"pipe-status-guard\"' /etc/claude-code/managed-settings.json 2>/dev/null && exit 0; f=\"$AGENT_FABRIC_ROOT/runtime/claude-code/hooks/pipe-status-guard.sh\"; [ -f \"$f\" ] && bash \"$f\"; true",
             "timeout": 5
           },
           {
             "type": "command",
-            "command": "f=\"$AGENT_FABRIC_ROOT/runtime/claude-code/hooks/self-kill-guard.py\"; [ -f \"$f\" ] && python3 \"$f\"; true",
+            "command": "[ -x /usr/local/bin/fabric-python ] && grep -qF '\"self-kill-guard\"' /etc/claude-code/managed-settings.json 2>/dev/null && exit 0; f=\"$AGENT_FABRIC_ROOT/runtime/claude-code/hooks/self-kill-guard.py\"; [ -f \"$f\" ] && python3 \"$f\"; true",
             "timeout": 5
           },
           {
             "type": "command",
-            "command": "f=\"$AGENT_FABRIC_ROOT/runtime/claude-code/hooks/job-copy-guard.sh\"; if [ -f \"$f\" ]; then bash \"$f\"; else printf '%s\\n' '{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"ask\",\"permissionDecisionReason\":\"The job copy guard script was not found; approve only if this command does not commit or publish outside the working copy of the job this session works (agent-fabric ADR-037 rule 3).\"}}'; fi",
+            "command": "[ -x /usr/local/bin/fabric-python ] && grep -qF '\"post-review-shape-guard\"' /etc/claude-code/managed-settings.json 2>/dev/null && exit 0; f=\"$AGENT_FABRIC_ROOT/runtime/claude-code/hooks/post-review-shape-guard.py\"; [ -f \"$f\" ] && python3 \"$f\"; true",
+            "timeout": 5
+          },
+          {
+            "type": "command",
+            "command": "[ -x /usr/local/bin/fabric-python ] && grep -qF '\"job-copy-guard\"' /etc/claude-code/managed-settings.json 2>/dev/null && exit 0; f=\"$AGENT_FABRIC_ROOT/runtime/claude-code/hooks/job-copy-guard.sh\"; if [ -f \"$f\" ]; then bash \"$f\"; else printf '%s\\n' '{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"ask\",\"permissionDecisionReason\":\"The job copy guard script was not found; approve only if this command does not commit or publish outside the working copy of the job this session works (agent-fabric ADR-037 rule 3).\"}}'; fi",
             "timeout": 10
           }
         ]
@@ -90,7 +100,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "f=\"$AGENT_FABRIC_ROOT/runtime/claude-code/hooks/plan-hold.sh\"; [ -f \"$f\" ] && bash \"$f\"; true",
+            "command": "[ -x /usr/local/bin/fabric-python ] && grep -qF '\"plan-hold\"' /etc/claude-code/managed-settings.json 2>/dev/null && exit 0; f=\"$AGENT_FABRIC_ROOT/runtime/claude-code/hooks/plan-hold.sh\"; [ -f \"$f\" ] && bash \"$f\"; true",
             "timeout": 5
           }
         ]
@@ -101,7 +111,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "f=\"$AGENT_FABRIC_ROOT/runtime/claude-code/hooks/model-switch-guard.sh\"; if [ -f \"$f\" ]; then bash \"$f\"; else printf '%s\\n' '{\"hookSpecificOutput\":{\"hookEventName\":\"PreModelSwitch\",\"permissionDecision\":\"ask\",\"permissionDecisionReason\":\"The model-switch guard script was not found; in a broker session a bare model id runs without its family shim. Approve only if the target is a composite or needs no shim.\"}}'; fi",
+            "command": "[ -x /usr/local/bin/fabric-python ] && grep -qF '\"model-switch-guard\"' /etc/claude-code/managed-settings.json 2>/dev/null && exit 0; f=\"$AGENT_FABRIC_ROOT/runtime/claude-code/hooks/model-switch-guard.sh\"; if [ -f \"$f\" ]; then bash \"$f\"; else printf '%s\\n' '{\"hookSpecificOutput\":{\"hookEventName\":\"PreModelSwitch\",\"permissionDecision\":\"ask\",\"permissionDecisionReason\":\"The model-switch guard script was not found; in a broker session a bare model id runs without its family shim. Approve only if the target is a composite or needs no shim.\"}}'; fi",
             "timeout": 10,
             "statusMessage": "agent-fabric: checking the switch keeps its family shim…"
           }
@@ -113,7 +123,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "f=\"$AGENT_FABRIC_ROOT/runtime/claude-code/hooks/plan-hold.sh\"; [ -f \"$f\" ] && bash \"$f\"; true",
+            "command": "[ -x /usr/local/bin/fabric-python ] && grep -qF '\"plan-hold\"' /etc/claude-code/managed-settings.json 2>/dev/null && exit 0; f=\"$AGENT_FABRIC_ROOT/runtime/claude-code/hooks/plan-hold.sh\"; [ -f \"$f\" ] && bash \"$f\"; true",
             "timeout": 5
           }
         ]
@@ -124,7 +134,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "f=\"$AGENT_FABRIC_ROOT/runtime/claude-code/hooks/plan-hold.sh\"; [ -f \"$f\" ] && bash \"$f\"; true",
+            "command": "[ -x /usr/local/bin/fabric-python ] && grep -qF '\"plan-hold\"' /etc/claude-code/managed-settings.json 2>/dev/null && exit 0; f=\"$AGENT_FABRIC_ROOT/runtime/claude-code/hooks/plan-hold.sh\"; [ -f \"$f\" ] && bash \"$f\"; true",
             "timeout": 5
           }
         ]

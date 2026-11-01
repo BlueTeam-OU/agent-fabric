@@ -58,7 +58,7 @@ undrained_memories ({drainable, no_roles_class, oldest_ms, bound_days, since, di
 base_url_host, session_model, launch_profile, pins, credentials,
 claude_sign_in}), capabilities ({class: line}), engines ({"<provider> <class>":
 line}, the engine providers' classes), routing_check ("clean" or
-a list), host_tools ({moveto, python, journal, agentd}; agentd's status
+a list), host_tools ({moveto, python, journal, agentd, claude, inbox, account_switch, managed}; agentd's status
 python, refused, drift, none or unknown), control_plane.
 """
 from __future__ import annotations
@@ -531,6 +531,7 @@ def build_report(root, environ=None, cred_environ=None):
     python = pinned_python(root)
     drift = load("fabric_drift", os.path.join(root, "tools", "fabric", "drift.py"))
     claude = claude_state(drift, root)
+    managed = managed_state(root)
     inbox = inbox_state(drift, root, ctx)
     journal = episodic_journal(root)
     agentd = agentd_implementation(root, ctx["agent"], environ)
@@ -566,7 +567,7 @@ def build_report(root, environ=None, cred_environ=None):
         "engines": engines,
         "routing_check": "clean" if not checks else checks,
         "host_tools": {"moveto": moveto, "python": python, "journal": journal, "agentd": agentd, "claude": claude, "inbox": inbox,
-                       "account_switch": switch},
+                       "account_switch": switch, "managed": managed},
         "control_plane": root,
     }
     return report, base
@@ -634,6 +635,21 @@ def claude_state(drift, root):
     if h["pinned"] is None:
         return {"status": "unpinned", "detail": f"{h['installed']} (runtime/claude-code/harness.json pins none)", "installed": h["installed"], "pinned": None}
     return {"status": "ok", "detail": f"{h['installed']}, as pinned", "installed": h["installed"], "pinned": h["pinned"]}
+
+
+def managed_state(root, **check_opts):
+    """ADR-043 rules 1-2 on this host against the fabric's origin/main (tools/fabric/managed_settings.py): the
+    checker's own state and first reason, never a guess when it cannot run."""
+    try:
+        ms = load("fabric_managed_settings", os.path.join(root, "tools", "fabric", "managed_settings.py"))
+        c = ms.check(repo=root, ref="origin/main", **check_opts)
+    except Exception as e:  # noqa: BLE001 — a status line, never a traceback
+        return {"status": "unknown", "detail": str(e)[:200]}
+    snap = c["snapshot"]
+    head = f"{c['state']}" + (f" (fabric-{snap[:8]})" if snap else "")
+    reasons = c["reasons"]
+    return {"status": c["state"], "detail": head if c["state"] == "in force" or not reasons else f"{head}: {reasons[0]}",
+            "snapshot": snap, "reasons": reasons}
 
 
 def inbox_state(drift, root, ctx, relay=None, home=None):
@@ -796,6 +812,9 @@ def render(report, base):
         tool = report["host_tools"].get(name)
         if tool:
             p(f"{name:<12} {tool['detail']}" if tool["status"] in ("ok", "none", "unpinned") else f"{name:<12} {tool['status'].upper()}: {tool['detail']}")
+    managed = report["host_tools"].get("managed")
+    if managed:
+        p(f"managed      {managed['detail']}" if managed["status"] != "unknown" else f"managed      UNKNOWN: {managed['detail']}")
     agentd = report["host_tools"].get("agentd")
     if agentd:
         p(f"agentd       {agentd['detail']}" if agentd["status"] == "python"
