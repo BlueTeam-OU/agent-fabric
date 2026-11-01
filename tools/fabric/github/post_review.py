@@ -30,7 +30,7 @@ A REPORT WHOSE DISPATCH HEADERS NAME A RANGE IS POSTED AS v2 (agent-fabric ADR-0
 names the same base_sha, head_sha, card_base and config, or the report is refused, and the first line is
 <!-- agent-fabric-review v2 base=… head=… card=… config=… -->. The report then carries exactly one coverage block
 (review_coverage.py has its grammar), which is checked against `git diff --name-only base..head` run here, in the
-working copy (the source of a rename may be named, `--name-status` shows it): a path omitted, a path outside the range, a base that is not an ancestor of the head, a marker-like
+working copy (the source of a rename may be named, `--name-status` shows it): a path omitted (unless the block has a "default"), a path outside the range, a base that is not an ancestor of the head, a marker-like
 line in the body, a second block, or a block that is not that JSON refuses the report. A block with a path "not read"
 posts, and the line after the marker says so; no reader counts it as coverage of its head. The posted block is the
 parsed data re-written, not the model's text. A header with none of those fields (a report from before the change)
@@ -139,14 +139,19 @@ carries exactly one fenced block whose info string is `agent-fabric-coverage v1`
 
   ```agent-fabric-coverage v1
   {"paths": {"<path>": {"status": "read"}, "<path>": {"status": "not read", "reason": "…"}},
-   "lenses": {"<lens>": "applied" | "not applied"}}
+   "lenses": {"<lens>": "applied" | "not applied"},
+   "default": {"status": "read"} | {"status": "not read", "reason": "…"}}
   ```
+
+"default" is optional: the entry of every path of the range the block does not name, for a range too large to list
+(a memory drain's thousand). A named path keeps its own entry; a default "not read" makes the review partial.
 
 Its paths are those of `git diff --name-only <base>..<head>`, which this tool computes in the working copy (the source
 of a rename may also be named, and is never owed):
-a path omitted, a path outside the range, a base that is not an ancestor of the head, a second block, a marker-like
+a path omitted (unless the block has a "default"), a path outside the range, a base that is not an ancestor of the head, a second block, a marker-like
 line in the body, or a block that is not that JSON refuses the report. A path "not read" posts, and the line after the
-marker says "partial coverage: N path(s) not read"; the gate does not count a partial review as coverage of its head.
+marker says "partial coverage: N path(s) not read" (with a "not read" default: "N named path(s) and every path not
+named not read"); the gate does not count a partial review as coverage of its head.
 A report that with its block is over the 65000 characters a review may hold is posted as a PR comment FIRST, and the
 review, which keeps the marker, the partial line, the report's Finding:/Judgement: lines and the block, points at it
 (`posted review:` is then the only URL on stdout; the comment's is in the review). A report with no such lines, or one
