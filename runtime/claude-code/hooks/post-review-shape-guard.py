@@ -36,19 +36,27 @@ for a habit must not need a shell parser to be right (pipe-status-guard
 learned the same). So the question is turned round: the two words are
 looked for in everything except text the shell provably never runs —
   - a comment (`#` beginning a word, to the end of the line);
-  - a single-quoted string;
+  - a single-quoted string, or an ANSI-C `$'…'` one (a `\\'` in it does not
+    close it); a quote left open is live, so a misread cannot hide what
+    follows (review of #451, F10);
   - the body of a heredoc whose delimiter is quoted (`<<'EOF'`, `<<"EOF"`,
-    `<<\\EOF`), wherever it stands, inside a `"$(…)"` included;
-and those two last are live after all when the command names a shell,
-`eval` or `source` anywhere, since a `-c` string, a piped script or a
-heredoc fed to a shell runs. Everything else is live: unquoted words,
+    `<<\\EOF`), wherever it stands, inside a `"$(…)"` included, ended as
+    bash ends it: the delimiter alone on its line, leading tabs only after
+    `<<-`;
+and those two last are live after all when the command names a word that
+runs its arguments (RUNNERS: a shell, `eval`, `source`, `su`, `ssh`,
+`watch`, `flock`; by name, its quotes off, anywhere) or `.` as a command
+word, since a `-c` string, a piped script or a heredoc fed to a shell
+runs; `.` as an argument is a path (`grep -rn '…' .`, F9). Everything
+else is live: unquoted words,
 double-quoted strings (a `$(…)` in one runs), an unquoted heredoc's body.
 Over-reported, on purpose, and named in the deny so the session knows the
 way through: an unquoted or double-quoted mention (`echo fabric-pr
 post-review`, `git commit -m "… fabric-pr post-review …"`) — put the words
 in single quotes, a quoted heredoc or a file. Not seen: a script file that
 runs a post-review (`bash post.sh`), a command held in a variable and
-expanded (`$x`) — a fence against the habit of wrapping, not a sandbox.
+expanded (`$x`), `$SHELL -c` — a fence against the habit of wrapping, not
+a sandbox.
 
 COST. One pass over the text, no recursion and no backtracking: each
 character is looked at a bounded number of times, so the 5 s the settings
@@ -66,7 +74,11 @@ import sys
 
 # Greedy over classes that exclude `<`, so a match never backtracks: linear on any input (the lazy form was not).
 BARE = re.compile(r"fabric-pr\s+post-review(?:\s[^;&|$`()<>\n]*)?(?:<[^;&|$`()<>\n]*)?")
-RUNNERS = {"bash", "sh", "dash", "zsh", "ksh", "eval", "source", "."}
+# A word that runs its arguments as commands, wherever it stands: over-reported in argument position, which costs a
+# rephrase. `.` is `source` only as a command word: as an argument it is a path (`grep -rn '…' .`; review of #451, F9).
+RUNNERS = {"bash", "sh", "dash", "zsh", "ksh", "eval", "source", "su", "ssh", "watch", "flock"}
+WRAPPERS = {"sudo", "env", "exec", "command", "builtin", "nohup", "nice", "time", "timeout", "xargs", "then", "do",
+            "else", "if", "while", "until", "!"}
 WORD_END = set(" \t\n;&|()<>")
 REASON = ("Post the review as the bare command `fabric-pr post-review [--repo <owner/name>] [--model <m>] <n> < <report>`, "
           "and nothing else in the call: no `cd … &&` (use --repo for another repository), no `2>&1`, no pipe, no `;`, "
@@ -86,14 +98,26 @@ def live_text(cmd: str) -> str:
     word: list[str] = []
     stack = ["N"]               # N: unquoted (top level, $( … ) or ` … `); D: inside "…"
     depth = [0]                 # open parentheses inside each $( … )
-    pending: list[tuple[str, bool]] = []      # heredocs opened on this line: (delimiter, quoted)
+    pending: list[tuple[str, bool, bool]] = []      # heredocs opened on this line: (delimiter, quoted, <<-)
+    first, after_wrapper = True, False      # the next word is a command word; the last command word was a wrapper
     n, i = len(cmd), 0
 
     def end_word() -> None:
-        nonlocal runner
+        """Close the word: its quotes are already off (`"bash" -c` names bash), so it is a runner by its name."""
+        nonlocal runner, first, after_wrapper
         if word:
-            runner = runner or "".join(word).rsplit("/", 1)[-1] in RUNNERS
+            name = "".join(word).rsplit("/", 1)[-1]
+            runner = runner or name in RUNNERS or (first and name == ".")
+            if first:
+                option = after_wrapper and (name.startswith("-") or "=" in name or name.isdigit())
+                after_wrapper = name in WRAPPERS or option
+                first = after_wrapper or "=" in name     # an assignment leaves the command word still to come
             word.clear()
+
+    def separator() -> None:
+        nonlocal first, after_wrapper
+        end_word()
+        first, after_wrapper = True, False
 
     while i < n:
         c = cmd[i]
@@ -106,13 +130,17 @@ def live_text(cmd: str) -> str:
             if c == '"':
                 stack.pop()
             elif cmd.startswith("$(", i):
+                separator()
                 stack.append("S")
                 depth.append(0)
                 live.append("$(")
                 i += 2
                 continue
             elif c == "`":
+                separator()
                 stack.append("B")
+            else:
+                word.append(c)
             live.append(c)
             i += 1
             continue
@@ -122,12 +150,22 @@ def live_text(cmd: str) -> str:
             word.append(cmd[i + 1])
             i += 2
             continue
+        if cmd.startswith("$'", i):
+            j = i + 2                                    # ANSI-C quoting: \' does not close it (review of #451, F10)
+            while j < n and cmd[j] != "'":
+                j += 2 if cmd[j] == "\\" else 1
+            (inert if j < n else live).append(" " + cmd[i + 2:j] + " ")
+            live.append(" ")
+            word.append(cmd[i + 2:j])
+            i = j + 1
+            continue
         if c == "'":
             close = cmd.find("'", i + 1)
+            # A quote left open is live: bash refuses the command anyway, and an open quote must not hide what follows.
+            (inert if close != -1 else live).append(" " + cmd[i + 1:(n if close == -1 else close)] + " ")
             close = n if close == -1 else close
-            inert.append(" " + cmd[i + 1:close] + " ")
             live.append(" ")
-            word.append("'")
+            word.append(cmd[i + 1:close])
             i = close + 1
             continue
         if c == "#" and not word:
@@ -137,12 +175,13 @@ def live_text(cmd: str) -> str:
         if c == '"':
             stack.append("D")
             live.append(c)
-            word.append(c)
+            word.append("")                              # a word has begun: a `#` after it is no comment
             i += 1
             continue
         if cmd.startswith("<<", i) and not cmd.startswith("<<<", i):
             end_word()
-            j = i + 2 + (cmd.startswith("<<-", i))
+            dash = cmd.startswith("<<-", i)
+            j = i + 2 + dash
             while j < n and cmd[j] in " \t":
                 j += 1
             k = j
@@ -155,20 +194,22 @@ def live_text(cmd: str) -> str:
                 raw = cmd[j:k]
             delim = raw.replace("'", "").replace('"', "").replace("\\", "")
             if delim:
-                pending.append((delim, raw != delim))
+                pending.append((delim, raw != delim, dash))
             live.append(cmd[i:k])
             i = k
             continue
         if c == "\n" and pending:
-            end_word()
+            separator()
             live.append(c)
             i += 1
-            for delim, quoted in pending:
+            for delim, quoted, dash in pending:
                 body_start = i
                 while i < n:
                     nl = cmd.find("\n", i)
                     line_end = n if nl == -1 else nl
-                    if cmd[i:line_end].strip() == delim:
+                    line = cmd[i:line_end]
+                    # bash's own rule: the delimiter alone on its line, leading tabs only after <<- (review of #451, F10).
+                    if (line.lstrip("\t") if dash else line) == delim:
                         (inert if quoted else live).append(" " + cmd[body_start:i] + " ")
                         i = line_end
                         break
@@ -181,7 +222,7 @@ def live_text(cmd: str) -> str:
             depth[-1] += 1
         elif top == "S" and c == ")":
             if depth[-1] == 0:
-                end_word()
+                separator()
                 stack.pop()
                 depth.pop()
                 live.append(c)
@@ -189,25 +230,27 @@ def live_text(cmd: str) -> str:
                 continue
             depth[-1] -= 1
         elif top == "B" and c == "`":
-            end_word()
+            separator()
             stack.pop()
             live.append(c)
             i += 1
             continue
         elif c == "`":
-            end_word()
+            separator()
             stack.append("B")
             live.append(c)
             i += 1
             continue
         elif cmd.startswith("$(", i):
-            end_word()
+            separator()
             stack.append("S")
             depth.append(0)
             live.append("$(")
             i += 2
             continue
-        if c in WORD_END:
+        if c in ";&|(\n":
+            separator()
+        elif c in WORD_END:
             end_word()
         else:
             word.append(c)

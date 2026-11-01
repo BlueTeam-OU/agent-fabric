@@ -76,6 +76,16 @@ def main() -> int:
         ("a quoted heredoc fed to bash", "bash <<'EOF'\nfabric-pr post-review 12 < r.md\nEOF"),
         ("single quotes piped to a shell", "printf '%s' 'fabric-pr post-review 12 < r.md' | sh"),
         ("1500 nested evals (F7)", "eval " * 1500 + "fabric-pr post-review 1"),
+        # Round 3 of #451: quoting read differently from bash hid a later call (F10), and runners it did not name.
+        ("ANSI-C quoting with an escaped quote", "echo $'it\\'s' ; fabric-pr post-review 12 < r.md"),
+        ("an indented delimiter inside a quoted heredoc",
+         "cat > d.md <<'EOF'\n  EOF\nit's\nEOF\nfabric-pr post-review 12 < r.md"),
+        ("an indented delimiter after <<- is spaces, not tabs", "cat <<-'EOF'\n  EOF\nit's\n\tEOF\nfabric-pr post-review 1|x"),
+        ("su -c", "su -c 'fabric-pr post-review 12 < r.md' me"),
+        ("ssh", "ssh h 'fabric-pr post-review 12 < r.md'"),
+        ("the shell's name quoted", "\"bash\" -c 'fabric-pr post-review 12 < r.md'"),
+        ("source as a command word", ". /dev/stdin <<'EOF'\nfabric-pr post-review 12 < r.md\nEOF"),
+        ("a quote left open over the words", "cd /x; 'fabric-pr post-review 12 < r.md"),
     ]
     # Mentions the shell may run, refused on purpose: the deny names the way through (single quotes, a quoted heredoc,
     # a file). Pinned so a change to what is over-reported is a decision, not a drift.
@@ -106,6 +116,16 @@ def main() -> int:
          "git commit -m \"$(cat <<'EOF'\nit's the bare form: fabric-pr post-review 12 < r.md\nEOF\n)\""),
         ("a comment with an apostrophe", "cd x\n# don't use fabric-pr post-review wrapped\nls"),
         ("${VAR} before single-quoted words", "printf %s ${A} 'fabric-pr post-review'"),
+        # `.` as an argument is a path, not source (review of #451, F9).
+        ("a single-quoted grep of .", "grep -rn 'fabric-pr post-review' ."),
+        ("rg of .", "rg 'fabric-pr post-review' ."),
+        ("git grep -- .", "git grep -n 'fabric-pr post-review' -- ."),
+        ("find . piped to xargs grep", "find . -name '*.md' | xargs grep -l 'fabric-pr post-review'"),
+        ("git add . then a quoted-heredoc commit", "git add . && git commit -F- <<'EOF'\nfabric-pr post-review 12\nEOF"),
+        ("a <<- heredoc ended by a tab-indented delimiter", "cat <<-'EOF'\n\tfabric-pr post-review 1\n\tEOF\nls"),
+        # Each decided by one reading alone, so each is pinned on its own (the F10 cases above fall to the open quote too).
+        ("ANSI-C quoting, then a single-quoted mention", "echo $'a\\'b' 'fabric-pr post-review'"),
+        ("an indented line like the delimiter inside a quoted heredoc", "cat <<'EOF'\n  EOF\nfabric-pr post-review 1\nEOF\nls"),
     ]
     for label, cmd in refused:
         check(f"refused: {label}", g.refused(cmd), cmd[:200])
