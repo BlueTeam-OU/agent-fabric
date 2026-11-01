@@ -414,14 +414,57 @@ class Pieces(Scratch):
         self.assertEqual(open(f).read(), '{"h/user":1791461100000,"h/other":5}\n')
         self.assertEqual(os.stat(f).st_mode & 0o777, 0o600)
         self.assertEqual(os.listdir(os.path.dirname(f)), ["actions-seen.json"])
-        for text in ("{broken", "[1]", "null", '{"h/user": "soon"}'):
-            open(f, "w").write(text)
-            self.assertEqual(ledger.floor("h/user"), 0, text)
         os.unlink(f)
         os.makedirs(f)   # a directory where the file goes: the write fails, and says so
         with self.assertRaises(OSError):
             ledger.record("h/user", 1.0)
         self.assertEqual(os.listdir(os.path.dirname(f)), ["actions-seen.json"], "a failed write leaves no temporary file")
+
+    def test_audit_f09_a_ledger_that_exists_and_cannot_be_validated_refuses_every_action_and_only_a_missing_one_starts_empty(self):
+        d = self.scratch()
+        f = os.path.join(d, "state", "actions-seen.json")
+        ledger = agentd.action_ledger(f)
+        self.assertEqual(ledger.floor("h/user"), 0, "positive control: a missing ledger is empty")
+        self.assertTrue(ledger.claim("h/user", 100.0))
+        for raw in (b"{broken", b"[1]", b"null", b'{"h/user": "soon"}', b'{"h/user": true}', b"\xff\xfe", b""):
+            with open(f, "wb") as fh:
+                fh.write(raw)
+            with self.subTest(raw=raw):
+                self.assertEqual(ledger.floor("h/user"), float("inf"), "accept() sees no action as newer")
+                with self.assertRaises(OSError):
+                    ledger.claim("h/user", 50.0)
+                with self.assertRaises(OSError):
+                    ledger.record("h/user", 50.0)
+                self.assertEqual(open(f, "rb").read(), raw, "a refused claim does not rewrite the damaged file")
+        os.chmod(f, 0)
+        if os.geteuid() != 0:
+            self.assertEqual(ledger.floor("h/user"), float("inf"), "an unreadable ledger is not an empty one")
+            with self.assertRaises(OSError):
+                ledger.claim("h/user", 50.0)
+        os.chmod(f, 0o600)
+
+    def test_audit_f09_acceptance_is_synced_to_the_file_and_its_directory_before_claim_returns(self):
+        d = self.scratch()
+        f = os.path.join(d, "state", "actions-seen.json")
+        from unittest import mock
+        synced = []
+        real = os.fsync
+        real_rename = os.rename
+        order = []
+
+        def fsync(fd):
+            synced.append(os.readlink(f"/proc/self/fd/{fd}"))
+            order.append("fsync")
+            return real(fd)
+
+        def rename(a, b):
+            order.append("rename")
+            return real_rename(a, b)
+
+        with mock.patch("os.fsync", fsync), mock.patch("os.rename", rename):
+            self.assertTrue(agentd.action_ledger(f).claim("h/user", 7.0))
+        self.assertEqual(order, ["fsync", "rename", "fsync"], "file synced before the rename, directory after")
+        self.assertEqual(synced[1], os.path.dirname(f))
 
     def test_watch_source_a_changed_source_in_the_watched_files_fires_once_after_the_quiet_period_a_txt_does_not(self):
         d = self.scratch("agentd-src-")
