@@ -252,53 +252,57 @@ class Ensure(unittest.TestCase):
         # Round 2 F3: slow first calls, then a restored profile that churns until the step is nearly spent. A line
         # typed then would get a read-back cut short and fail a pane whose enter did start; it is not typed. Control:
         # with fewer churning reads the same start types the line and succeeds.
-        def run(churn):
+        def run(churn, slow=4):
             t, n = [0.0], [0]
             class Slow(FakeServer):
                 def __call__(self, argv, timeout):
                     n[0] += 1
-                    t[0] += 14 if n[0] <= 4 else 0.2
+                    t[0] += 14 if n[0] <= slow else 0.2
                     return super().__call__(argv, timeout)
             s = Slow([{"workspace_id": "w7", "label": "harness"}], answers_after=2,
                      startup=[{6000 + i} for i in range(churn)])
             return s, (lambda: hp.ensure(hp.Deck(s), "a", "/home/a", clock=lambda: t[0],
                                          sleep=lambda x: t.__setitem__(0, t[0] + x)))
         s, go = run(28)
-        with self.assertRaisesRegex(hp.Failed, rf"not typed into: less than the {hp.READBACK_S:g} s"):
+        with self.assertRaisesRegex(hp.Failed, rf"not typed into: less than the {hp.CALL_TIMEOUT_S + hp.READBACK_S:g} s"):
             go()
         self.assertEqual(s.typed, [])
-        s, go = run(0)
+        s, go = run(28, slow=0)
         self.assertIn("ran enter again", go())
         self.assertEqual(len(s.typed), 1)
 
-    def test_a_typed_line_always_has_its_whole_read_back_however_slow_pane_run(self):
-        # Round 3 F3: `pane run` itself may be slow; the read-back still gets READBACK_S after it returns. Swept over
-        # how long the restored profile churns, with calls that time out at the timeout they are given (as real_run's
-        # do): whenever a line was typed, the read-back window after `pane run` is whole. Control: some sweep typed.
+    def test_a_started_enter_is_never_failed_for_the_steps_time_however_slow_pane_run(self):
+        # Rounds 3-4 F3/F4: `pane run` may be slow, and a call that times out may still have delivered the line (only
+        # its reply was late). Swept over how long the restored profile churns and how slow `pane run` is, with calls
+        # that time out at the timeout they are given (as real_run's do) and deliver anyway: no step fails with enter
+        # running in the pane, and a `pane run` that returns leaves the whole read-back. Control: some runs typed.
         typed_any = False
-        for churn in range(0, 60):
-            t, n, ran_at = [0.0], [0], []
-            class Slow(FakeServer):
-                def __call__(self, argv, timeout):
-                    n[0] += 1
-                    latency = 14 if n[0] <= 3 or "run" in argv else 0.2
-                    if latency > timeout:
-                        t[0] += timeout
-                        raise hp.Failed("no answer")
-                    t[0] += latency
-                    out = super().__call__(argv, timeout)
-                    if "run" in argv:
-                        ran_at.append(t[0])
-                    return out
-            s = Slow([{"workspace_id": "w7", "label": "harness"}], answers_after=2,
-                     startup=[{6000 + i} for i in range(churn)])
-            try:
-                hp.ensure(hp.Deck(s), "a", "/home/a", clock=lambda: t[0], sleep=lambda x: t.__setitem__(0, t[0] + x))
-            except hp.Failed:
-                pass
-            for at in ran_at:
-                typed_any = True
-                self.assertLessEqual(at, hp.STEP_S - hp.READBACK_S, churn)
+        for run_latency in (0.2, 5, 14, 15):
+            for churn in range(0, 60):
+                t, n, ran_at = [0.0], [0], []
+                class Slow(FakeServer):
+                    def __call__(self, argv, timeout):
+                        n[0] += 1
+                        latency = run_latency if "run" in argv else 14 if n[0] <= 3 else 0.2
+                        out = super().__call__(argv, timeout) if "run" in argv or latency <= timeout else None
+                        if latency > timeout:
+                            t[0] += timeout
+                            raise hp.Failed("no answer")
+                        t[0] += latency
+                        if "run" in argv:
+                            ran_at.append(t[0])
+                        return out if out is not None else super().__call__(argv, timeout)
+                s = Slow([{"workspace_id": "w7", "label": "harness"}], answers_after=2,
+                         startup=[{6000 + i} for i in range(churn)])
+                failed = False
+                try:
+                    hp.ensure(hp.Deck(s), "a", "/home/a", clock=lambda: t[0], sleep=lambda x: t.__setitem__(0, t[0] + x))
+                except hp.Failed:
+                    failed = True
+                typed_any = typed_any or bool(s.typed)
+                self.assertFalse(failed and s.panes["w7"][0]["running"], (run_latency, churn))
+                for at in ran_at:
+                    self.assertLessEqual(at, hp.STEP_S - hp.READBACK_S, (run_latency, churn))
         self.assertTrue(typed_any)
 
     def test_a_wait_the_step_cut_short_says_so_not_its_own_window(self):
