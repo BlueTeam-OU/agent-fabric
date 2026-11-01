@@ -865,7 +865,7 @@ def main() -> int:
         set_pr(); mode("ok"); open(os.path.join(state, "read-fails"), "w").close()
         r = run("7", req)
         check("reviews that cannot be listed: refused, exit 1, nothing posted", r.returncode == 1 and not posted()
-              and "cannot be listed" in r.stderr and "leave pr out" not in r.stderr.split("(")[0], (r.returncode, r.stderr))
+              and "cannot be listed" in r.stderr and "leave pr out" not in r.stderr and "carried" not in r.stderr, (r.returncode, r.stderr))
         set_pr(); mode("ok"); open(os.path.join(state, "read-fails"), "w").close()
         r = run("7", req, "--no-post")
         check("…--no-post prints no report either", r.returncode == 1 and r.stdout == "", (r.returncode, r.stdout))
@@ -873,7 +873,8 @@ def main() -> int:
         seed_reviews(earlier(1, "Finding: F9 | P2 | certain | a.txt:1 | s9"), {"id": 2, "submitted_at": "2026-10-32T00:00:00Z", "body": None})
         r = run("7", req)
         check("a listed review that cannot be read: refused, exit 1, nothing posted", r.returncode == 1 and not posted()
-              and "cannot be read" in r.stderr, (r.returncode, r.stderr))
+              and "cannot be read" in r.stderr and "review 2" in r.stderr and "leave pr out" not in r.stderr
+              and "re-post" not in r.stderr, (r.returncode, r.stderr))
 
         print("the compaction heads-up: posted with the advisory line; with any other error or no command, a failed review")
         set_pr(); mode("compaction")

@@ -442,9 +442,11 @@ def label_start(req: dict, head: str, pr: str) -> int:
         return 1
     handed, refusals = review_brief.carried_findings(int(pr), head, req["repository"])
     if refusals:
-        # The brief's own refusal text advises leaving pr out, which cannot help here: the CLI's PR is read either way.
+        # Only each refusal's cause: the rest of the brief's text advises leaving pr out and speaks of findings carried
+        # into the review, neither of which means anything here (the CLI's PR is read either way, Codex carries none).
+        causes = "; ".join(re.split(r", so the findings|: what they left open", r.removeprefix("pr: "))[0] for r in refusals)
         raise Refused(f"PR #{pr}'s earlier labels are unknown, so this review's cannot be numbered past them; "
-                      f"nothing posted ({'; '.join(refusals)})")
+                      f"nothing posted ({causes})")
     return handed["next"]
 
 
