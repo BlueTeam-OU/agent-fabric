@@ -830,7 +830,7 @@ class ArmRun(unittest.TestCase):
                 replay=None, presence=None, unresolved=0, reviewed=True, fleet=None, waiver_role=None, branch="h/me/feat/x",
                 whoami=None, review_doc=None, workflows=NOT_FOUND):
         pr = {"number": 7, "state": "OPEN", "isDraft": False, "headRefName": branch, "baseRefName": "main", "headRefOid": self.HEAD, "body": body, "title": "t"}
-        gate = [{"commits_known": True, "work_commits": work, "checks": checks}]
+        gate = [{"commits_known": True, "work_commits": work, "checks": checks, "head": self.HEAD[:8]}]
         review = {"blind": {"rows": [{"commit_sha8": self.HEAD[:8]}] if reviewed else []}, "unresolved_threads": unresolved}
         review = review_doc if review_doc is not None else review
         self.reads = reads = []

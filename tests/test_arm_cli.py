@@ -78,6 +78,12 @@ def gh_mock(s: str, a: list[str], stdin: str) -> tuple[int, str, str]:
         if has("reviews_fail"):
             return 1, "", "gh: Bad Gateway (HTTP 502)"
         return 0, json.dumps([json.loads(_state(s, "reviews.json", "[]"))]), ""
+    # The armed status (arming policy armed_status): its body on stdin, logged as one line; `statusfail` a refusal.
+    if line.startswith("api repos/gzapi-org/gzapp/statuses/") and line.endswith(" --method POST --input -"):
+        if has("statusfail"):
+            return 1, "", "gh: Resource not accessible by integration (HTTP 403)"
+        _log(s, f"status {a[1].rsplit('/', 1)[1]} {stdin}\n")
+        return 0, json.dumps({"state": "success"}), ""
     if line.startswith("api repos/gzapi-org/gzapp"):
         sys.path.insert(0, os.path.join(ROOT, "tools", "fabric"))
         from github import arm_policy
@@ -104,6 +110,9 @@ def gh_mock(s: str, a: list[str], stdin: str) -> tuple[int, str, str]:
         if has("nohead"):
             del p["headRefOid"]
         return 0, json.dumps({"data": {"repository": {"pullRequest": p}}}), ""
+    if line == "pr view 7 --json headRefOid" and has("moved"):
+        # The head read again after the gates: a push landed while they ran.
+        return 0, json.dumps({"headRefOid": "fedcba9876543210fedcba9876543210fedcba98"}), ""
     if line.startswith("pr view "):
         if has("viewfail"):
             return 1, "", ""
@@ -244,7 +253,7 @@ def main() -> int:
             """A clean slate; `reviewed` (the default) a review-class review of the head, which every PR needs under
             claude_only (gate 4b): a case about a missing review says reviewed=False."""
             for n in ("calls", "armed", "queued", "merged", "closed", "noarm", "nohead", "pushed", "viewfail", "blind", "independent", "unresolved", "no_blind_field", "unavailable",
-                      "mergefail", "inbase", "unasked", "reviews.json", "reviews_fail", "jobs.json", "jobs_fail", "shows.json",
+                      "mergefail", "inbase", "unasked", "moved", "statusfail", "reviews.json", "reviews_fail", "jobs.json", "jobs_fail", "shows.json",
                       "waiver.out", "waiver_rc", "presence.out", "ctl_rc", "gh_repos"):
                 if os.path.exists(f"{state}/{n}"):
                     os.remove(f"{state}/{n}")
@@ -255,8 +264,10 @@ def main() -> int:
                                        "headRefOid": HEAD, "baseRefName": "main", "body": body, "files": files,
                                        "title": "the pr", "author": {"login": "gzbot"}}))
 
-        def set_gate(n: int | None, known: bool | None = True) -> None:
+        def set_gate(n: int | None, known: bool | None = True, head: str | None = HEAD[:8]) -> None:
             row: dict = {"number": 7, "checks": "green"}
+            if head is not None:
+                row["head"] = head
             if n is not None or known is not None:
                 row["work_commits"] = n
             if known is not None:
@@ -1065,6 +1076,56 @@ def main() -> int:
         rc, out = run("7", "--basis", "b")
         check("an armed read-back asks git nothing: the common path costs no fetch", rc == 0 and "landed" not in calls(),
               calls())
+
+        # The status is what the ruleset requires (arming policy armed_status), so it is the tie of the arming to ONE
+        # head: the head every gate read, posted before auto-merge is on. Audit F02.
+        print("arm: the armed status — posted on the head the gates read, before the arming")
+        reset(); set_pr(me, "plain", ["docs/a.md"]); set_gate(9)
+        rc, out = run("7", "--basis", "b")
+        posted = [ln for ln in calls().splitlines() if ln.startswith("status ")]
+        body = json.loads(posted[0].split(" ", 2)[2]) if posted else {}
+        # Mutation: the status posted on the branch (or any ref but the gates' sha) fails this.
+        check("armed, one fabric/armed success posted on the gates' sha",
+              rc == 0 and len(posted) == 1 and posted[0].split(" ")[1] == HEAD
+              and (body.get("context"), body.get("state")) == ("fabric/armed", "success"), out + calls())
+        check("…its description says it was armed through the gate", "fabric-pr arm" in body.get("description", "")
+              and len(body.get("description", "")) <= 140, body)
+        lines = calls().splitlines()
+        merge_at = next((i for i, ln in enumerate(lines) if ln.startswith("pr merge ")), -1)
+        status_at = next((i for i, ln in enumerate(lines) if ln.startswith("api repos/gzapi-org/gzapp/statuses/")), -1)
+        # Mutation: the status posted after gh pr merge fails this — a green PR merges on the call itself.
+        check("…before gh pr merge --auto", 0 <= status_at < merge_at, calls())
+        check("…and said", f"fabric/armed posted on {HEAD[:8]}" in out, out)
+        # Mutation: the head not read again (or not compared) fails this.
+        reset(); put("moved", "")
+        rc, out = run("7", "--basis", "b")
+        check("the head moved after the gates read it: refused, both heads named",
+              rc == 1 and "fedcba98" in out and "abcdef01" in out and "the head the gates read" in out, out)
+        check("…no status posted, no comment, nothing armed",
+              "statuses" not in calls() and "pr comment" not in calls() and "pr merge" not in calls(), calls())
+        # pr-gate reads the PR on its own: a count of another head is no count of this one. Mutation: the gate row's
+        # head not compared fails this.
+        reset(); set_gate(9, head="12345678")
+        rc, out = run("7", "--basis", "b")
+        check("pr-gate counted another head: refused, nothing armed",
+              rc == 1 and "12345678" in out and "pr merge" not in calls() and "statuses" not in calls(), out + calls())
+        reset(); set_gate(9, head=None)
+        rc, out = run("7", "--basis", "b")
+        check("pr-gate named no head: exit 2, nothing armed", rc == 2 and "pr merge" not in calls(), out + calls())
+        set_gate(9)
+        reset(); put("statusfail", "")
+        rc, out = run("7", "--basis", "b")
+        check("the status could not be posted: exit 2, nothing armed", rc == 2 and "fabric/armed" in out
+              and "pr merge" not in calls(), out + calls())
+        reset()
+        rc, out = run("7", "--basis", "b", policy=dict(claude_only, armed_status=None))
+        check("a repository with armed_status null: armed, no status posted", rc == 0 and "statuses" not in calls(), out + calls())
+        reset()
+        rc, out = run("7", "--basis", "b", "--dry-run")
+        check("a dry run posts no status and says it would", rc == 0 and "statuses" not in calls()
+              and f"DRY RUN — would post fabric/armed on {HEAD[:8]}" in out, out + calls())
+        rc, out = run("--help")
+        check("--help names the status and the refusal of a moved head", "fabric/armed" in out and "armed_status" in out, out)
 
         print("arm: a merge call that fails on a PR GitHub merges (agent-fabric #237)")
         reset(); put("mergefail", ""); put("merged", "")
