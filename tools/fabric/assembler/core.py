@@ -224,9 +224,10 @@ _ClaimKeys = TypedDict("_ClaimKeys", {  # identities/schemas/claims.schema.json'
 class Claim(_ClaimKeys, total=False):
     """One claim of a claims file (the schema's fields), and the three keys the
     drain adds in memory and never writes: `_role`, the claims file's role,
-    `_retire`, the headings a retitling supersede retires, and `_inferred_target`,
+    `_retire`, the headings a retitling supersede retires, `_inferred_target`,
     set when the drain (an owner's supersede, the same-agent rule) and not the
-    author named the `merge_target`."""
+    author named the `merge_target`, and `_body_as_written`, the body before the
+    drain pointed its links at renamed topics (set only when it did)."""
     title: str
     citations: dict[str, list[str]]
     knowledge_scope: str
@@ -236,6 +237,7 @@ class Claim(_ClaimKeys, total=False):
     _role: str
     _retire: list[str]
     _inferred_target: bool
+    _body_as_written: str
 
 
 class _OriginKeys(TypedDict):
@@ -393,6 +395,8 @@ class Run:
     # A claim whose text is the section a correction of the same run replaces: the correction's predecessor, harvested
     # again. Not written; each entry names its memory and the correcting memory so the author can update or delete it.
     superseded_harvests: list[str] = field(default_factory=list)
+    # A claim written under a heading an earlier correction replaced: a revert, or other text than the replaced section's (j82).
+    reharvested_replaced: list[str] = field(default_factory=list)
     applied_decisions: list[dict[str, str]] = field(default_factory=list)
     # ADR-050 rule 11: each section a retitle retires, one entry per old heading, so the report says what changed without stderr.
     retitles: list[dict[str, str]] = field(default_factory=list)
@@ -404,6 +408,12 @@ class Run:
     section_writers_gone: list[str] = field(default_factory=list)   # headings that left a slice this run: their writers go
     section_moves: dict[str, str] = field(default_factory=dict)     # slice moved this run, as the report names it: old path -> new
     applied_corrections: list[dict[str, Any]] = field(default_factory=list)
+    # Each section a claim's merge_target replaced under another heading, (claim key, file written, replaced heading): what
+    # shapes.verify_replacements looks for in the files afterwards.
+    replacements: list[tuple[str, str, str]] = field(default_factory=list)
+    # Each text a replacement took out (j82), {"home", "heading", "key"}: what later passes over the drain's bundles must not write
+    # back. `home` is the class's files as the report names them (report_home), not a slice, which a split or a move renames.
+    replaced_sections: list[dict[str, str]] = field(default_factory=list)
     index_entries: dict[str, list[IndexEntry]] = field(default_factory=lambda: defaultdict(list))
     clipped_descriptions: list[str] = field(default_factory=list)
     # A role whose crossref this run writes with an empty index. Said, not

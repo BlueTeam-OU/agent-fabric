@@ -12,7 +12,7 @@ from assembler.core import layout, yaml_scalar
 
 
 REPORT_LISTS = ("files", "hygiene_problems", "rejected_hygiene", "redactions", "retired_in_siblings",
-                "oversized_claims", "clipped_descriptions", "migrated", "merge_target_unresolved", "superseded_harvests", "held_back")
+                "oversized_claims", "clipped_descriptions", "migrated", "merge_target_unresolved", "superseded_harvests", "reharvested_replaced", "held_back")
 
 
 def drop_held(report: dict[str, Any], keys: list[str], paths: set[str]) -> None:
@@ -53,7 +53,7 @@ def merge_reports(previous: dict[str, Any], current: dict[str, Any],
     watermarks (a drain's blind review, 2026-09-25). A report of the SAME
     stamp is therefore the same drain and is merged into: roles and
     shared topics unioned, the lists appended without repeats, one
-    decision per key (the later run's, as the tree now reflects it), the
+    decision per key (the later run's, as the tree now reflects it, in the place the first run gave it), the
     telemetry kept per source (agent@host) so re-running a bundle
     replaces its counts instead of adding them twice. A report of another
     stamp is an earlier drain, replaced — except its watermarks: each says
@@ -92,6 +92,12 @@ def merge_reports(previous: dict[str, Any], current: dict[str, Any],
     for entry in [*(previous.get("applied_corrections") or []), *(current.get("applied_corrections") or [])]:
         if isinstance(entry, dict) and isinstance(entry.get("slice"), str) and exists(entry["slice"]):
             applied[(entry["slice"], entry.get("heading"), entry.get("applied_key"))] = entry
+    # j82: the texts replacements took out, across drains too — a later pass over an old bundle must not write them back.
+    replaced: dict[tuple, dict[str, Any]] = {}
+    for entry in [*(previous.get("replaced_sections") or []), *(current.get("replaced_sections") or [])]:
+        if isinstance(entry, dict) and all(isinstance(entry.get(k), str) for k in ("home", "heading", "key")):
+            replaced[(entry["home"], entry["heading"], entry["key"])] = entry
+    current = dict(current, replaced_sections=list(replaced.values()))
     if previous.get("stamp") != current["stamp"]:
         merged = dict(current, watermarks=marks, section_writers=writers, applied_corrections=list(applied.values()))
         merged["files"] = [f for f in current["files"] if exists(f)]
@@ -108,8 +114,9 @@ def merge_reports(previous: dict[str, Any], current: dict[str, Any],
     merged["files"] = [f for f in merged["files"] if exists(f)]
     merged["files_written"] = len(merged["files"])
     decisions = {d.get("key"): d for d in previous.get("collision_decisions") or [] if isinstance(d, dict)}
+    # An entry a rerun states again keeps its place in the list: moving it to the end made a second pass over one drain's bundles
+    # reorder the report (j82; a collision decision of the 2026-10-31 drain).
     for d in current["collision_decisions"]:
-        decisions.pop(d["key"], None)
         decisions[d["key"]] = d
     merged["collision_decisions"] = list(decisions.values())
     # A later run of the stamp finds the old section gone and lists nothing, so the earlier run's entries are carried.

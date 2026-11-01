@@ -79,7 +79,7 @@ def test_a_retire_beside_a_flat_file_clips_the_siblings_new_cue(tmp: str) -> Non
     base = ta.proj(out, "alpha")
     os.makedirs(base, exist_ok=True)
     with open(os.path.join(base, "solution.md"), "w", encoding="utf-8") as fh:
-        fh.write("---\nrole: alpha\nclass: solution\ndescription: Other\ntier: 2\n---\n\n## Other\n\nStays.\n")
+        fh.write("---\nrole: alpha\nclass: solution\ntopic: t\ndescription: Other\ntier: 2\n---\n\n## Other\n\nStays.\n")
     sibling = os.path.join(base, "solution-2.md")
     with open(sibling, "w", encoding="utf-8") as fh:
         fh.write("---\nrole: alpha\nclass: solution\ndescription: Target\ntier: 2\n---\n\n"
@@ -269,12 +269,12 @@ def test_d3_a_correction_replaces_the_kept_both_siblings_so_their_text_is_a_pred
     write_part(ta.dom(out, "alpha", "domain"), "grow.md", [("Heading H", "One."), ("Heading H (2)", "Two.")])
     ta.set_claims(claims_dir, "alpha", [
         {"class": "domain", "topic": "grow", "title": "Heading H", "body": "Two.", "evidence": ["h1"]},
-        {"class": "domain", "topic": "fix", "title": "Heading H, corrected", "body": "Corrected.", "evidence": ["h2"],
+        {"class": "domain", "topic": "fix", "title": "Heading H, corrected", "body": "Corrected text.", "evidence": ["h2"],
          "merge_target": "Heading H"}])
     proc = ta.run_assemble(drain, claims_dir, out)
     assert proc.returncode == 0, proc.stderr
     text = ta.read(ta.dom(out, "alpha", "domain", "grow.md"))
-    assert "Two." not in text and "Corrected." in text, text
+    assert "Two." not in text and "Corrected text." in text, text
     assert len(json.loads(ta.read(ta.report_path(out)))["superseded_harvests"]) == 1
 
 
@@ -292,7 +292,7 @@ def test_d4_a_merge_target_two_parts_of_one_topic_hold_is_ambiguous(tmp: str) ->
                      "origin:\n  - agent: unresolved\n    host: unknown\nderived_from:\n  - h1\n---\n\n"
                      f"## Heading H\n\n{text}\n")
     ta.set_claims(claims_dir, "alpha", [
-        {"class": "domain", "topic": "fix", "title": "Heading H, corrected", "body": "Corrected.", "evidence": ["h2"],
+        {"class": "domain", "topic": "fix", "title": "Heading H, corrected", "body": "Corrected text.", "evidence": ["h2"],
          "merge_target": "Heading H"}])
     before = tree_of(out)
     proc = ta.run_assemble(drain, claims_dir, out, "--budget", "500")
@@ -301,12 +301,12 @@ def test_d4_a_merge_target_two_parts_of_one_topic_hold_is_ambiguous(tmp: str) ->
     # The positive control: with one copy the same correction is applied.
     os.remove(os.path.join(directory, "grow-2.md"))
     assert ta.run_assemble(drain, claims_dir, out, "--budget", "500").returncode == 0
-    assert "Corrected." in ta.read(os.path.join(directory, "grow.md"))
+    assert "Corrected text." in ta.read(os.path.join(directory, "grow.md"))
     # The claim of the topic itself (its parts are one topic's, whichever part it lands in).
     write_part(directory, "grow.md", [("Heading H", "First text.")])
     write_part(directory, "grow-2.md", [("Heading H", "Second text.")])
     ta.set_claims(claims_dir, "alpha", [{"class": "domain", "topic": "grow", "title": "Heading H, corrected",
-                                         "body": "Corrected.", "evidence": ["h2"], "merge_target": "Heading H"}])
+                                         "body": "Corrected text.", "evidence": ["h2"], "merge_target": "Heading H"}])
     proc = ta.run_assemble(drain, claims_dir, out, "--budget", "500")
     assert proc.returncode == 1 and "MERGE TARGET AMBIGUOUS" in proc.stderr, (proc.returncode, proc.stderr)
 
