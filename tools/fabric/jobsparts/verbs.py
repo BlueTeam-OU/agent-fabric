@@ -26,7 +26,33 @@ def decide(doc: dict, nxt: dict, session: str | None) -> dict:
     session that has already worked a job always needs a fresh one, so each
     job reads the fabric anew (the owner, 2026-10-11, ADR-037 rule 3)."""
     worked = session_worked(doc, session)
-    return {"job": nxt["id"], "fresh": bool(worked), "worked": worked}
+    return {"job": nxt["id"], "fresh": bool(worked), "worked": worked, "reason": "worked" if worked else None}
+
+
+def standing() -> str | None:
+    """Where this session stands, as the job copy guard reads a directory: the real path of the cwd's git toplevel, the cwd itself
+    in no checkout. None when that cannot be told (git missing or hung, the cwd gone): read before the job list is locked, since
+    it runs git."""
+    try:
+        cwd = os.getcwd()
+        return os.path.realpath(vcs.toplevel(cwd) or cwd)
+    except (OSError, vcs.VcsError):
+        return None
+
+
+def outside_copy(job: dict, here: str | None) -> dict | None:
+    """The verdict's second reason for a fresh session: this one has worked no job, yet stands (`here`, from `standing`) where
+    the job copy guard refuses every commit of `job` (ADR-037 rule 3), so taking it in place would strand the session. None when
+    it stands inside, or when the job records no copy at all (the guard asks there, decision 8).
+    "Inside" is the guard's own, runtime/claude-code/hooks/job-copy-guard.py: equal to, or under, a real path of the job's
+    working_copy or worktree. A place that cannot be read (`here` None) counts as outside: a false fresh costs one launch, a
+    false in-place leaves a session that cannot commit."""
+    copies = [os.path.realpath(os.path.expanduser(c)) for c in dict.fromkeys(job.get(k) for k in ("working_copy", "worktree")) if c]
+    if not copies:
+        return None
+    if here is not None and any(here == c or here.startswith(c.rstrip("/") + "/") for c in copies):
+        return None
+    return {"fresh": True, "reason": "outside_copy" if here is not None else "place_unreadable", "here": here, "copies": copies}
 
 
 def held_refusal(record: dict, what: str) -> str:
@@ -258,6 +284,7 @@ def switch_job(args) -> int:
         raise Refused(held_refusal(hold, "no job started") + (f"; {old['id']} left ({settled})" if settled else ""))
     choice = choose(nxt, kind=args.type, needs_merged=args.needs_merged)
     verdict_for = {}
+    stands = standing()
 
     def commit(doc):
         again = pick(doc)
@@ -291,6 +318,8 @@ def switch_job(args) -> int:
         if settled:
             find(doc, old["id"]).setdefault("log", []).append(
                 {"at": identity.now_iso(), "kind": "switch", "note": f"switch to {job['id']}: {settled}; {where}"})   # no `state`: fleet.log_times reads the state of an entry as a transition
+        if not verdict["fresh"] and choice.kind != "blocked":
+            verdict.update(outside_copy(job, stands) or {})
         verdict_for.update(verdict=verdict, who=who, was_cleared=was_cleared, resumed=resumed, job=dict(job))
     try:
         mutate(commit)
@@ -329,7 +358,15 @@ def switch_job(args) -> int:
         print(f"  ranked blocking: {named(verdict_for['who'], stale)} {'waits' if len(verdict_for['who']) == 1 else 'wait'} on its request "
               f"(stored {stored_priority(job)})")
     if verdict["fresh"]:
-        print(f"fresh session: this one has already worked {verdict['worked']}; every job starts in a fresh one.")
+        if verdict["reason"] == "outside_copy":
+            print(f"fresh session: this one has worked no job, but stands in {verdict['here']}, outside the copies of {job['id']} "
+                  f"({', '.join(verdict['copies'])}); the job copy guard refuses a commit from there (ADR-037 rule 3).")
+        elif verdict["reason"] == "place_unreadable":
+            # Not the guard's refusal: it asks on a git timeout and reads the cwd as itself when git is missing.
+            print(f"fresh session: this one has worked no job, but could not tell where it stands (git gave no answer, or the directory "
+                  f"is gone), so it cannot be told to be inside the copies of {job['id']} ({', '.join(verdict['copies'])}); a fresh one is the safe answer.")
+        else:
+            print(f"fresh session: this one has already worked {verdict['worked']}; every job starts in a fresh one.")
         # The agent runs it, never the person: an agent once handed this line to the owner as a
         # "! command" instead of running it (the owner, 2026-10-11: "should not ask, should do").
         print(f"  run it yourself, now, once your work is committed (never hand it to the owner): fabric-fresh --job {job['id']}")

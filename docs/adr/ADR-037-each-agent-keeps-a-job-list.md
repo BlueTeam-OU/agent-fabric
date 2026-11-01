@@ -38,7 +38,7 @@ and managed with `fabric-jobs`. A job carries:
 
 **The restart rule.** At a job's end, `fabric-jobs next` decides whether
 the next job takes this session in place only when it has worked no job
-yet; otherwise it needs a fresh one. The agent confirms it with
+yet and stands in that job's working copy or worktree (rule 3); otherwise it needs a fresh one. The agent confirms it with
 `fabric-fresh --job <id>`. The launcher then starts the fresh session in
 that job's working copy, with the job in its opening prompt.
 
@@ -102,7 +102,11 @@ Why these choices:
      working copy with the job in its opening prompt, whatever the
      project, working copy and topic (A 2026-10-11);
    - a session that has worked none is already fresh and takes the job
-     in place.
+     in place when it stands inside the job's copy: the real path of
+     its directory's git toplevel is the job's working copy or worktree,
+     or under one, as the guard below reads it. Standing elsewhere, or
+     where that cannot be read, it gets a fresh session too, the
+     reason said (A 2026-10-31).
 
    A session works one job's working copy, and a hook enforces it
    (A 2026-10-20). The hook is `runtime/claude-code/hooks/job-copy-guard.sh`,
@@ -318,3 +322,4 @@ The body above reads current; each change's full note is in [history/ADR-037-ame
 | 2026-10-30 | While held, every start refuses | §5 rule 13: `start` refuses a delivered job too, not only a queued, paused or blocked one; `import` stays allowed, since it moves a list and starts nothing |
 | 2026-10-31 | A clock blocker | §5 rule 8: `block --on clock:<UTC time>` waits on a time and clears itself at it, built in #439 |
 | 2026-10-31 | Cleaning a left job's targets is built | §5 rule 10 step 1 reads as built (#350, `fabric-jobs switch`, jobsparts/leave_targets.py); no rule changes |
+| 2026-10-31 | In place only from inside the job's copy | §5 rule 3: a session that has worked no job takes the next in place only from inside its working copy or worktree; elsewhere, or unreadable, `switch` says fresh with the reason (`outside_copy`, `place_unreadable`) |
