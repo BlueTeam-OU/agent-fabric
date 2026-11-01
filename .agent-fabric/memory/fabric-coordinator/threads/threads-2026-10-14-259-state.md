@@ -5,7 +5,7 @@ topic: "threads-2026-10-14-259-state"
 description: "A re-review brief rendered by the fabric-review on PATH uses main's code (no dispatch header, no card): render a PR's brief with the PR worktree's own bin/; and the order before arming a security-boundary PR"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-18"
+distilled_at: "2026-10-31"
 origin:
   - agent: user
     host: "develop-qzapp"

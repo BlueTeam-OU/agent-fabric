@@ -5,7 +5,7 @@ topic: "workflow-charter-translation"
 description: "Translating a role's charter into Georgian: who writes it, who reviews it, how it is delivered"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-18"
+distilled_at: "2026-10-31"
 origin:
   - agent: "legal-expert-ge"
     host: "develop-qzapp"

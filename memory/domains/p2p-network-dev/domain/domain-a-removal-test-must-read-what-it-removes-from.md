@@ -5,7 +5,7 @@ topic: "domain-a-removal-test-must-read-what-it-removes-from"
 description: "A \"removed X is used no more\" test passes for free unless the path it observes actually reads the store X was removed from; mutate the removal and watch it fail"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-24"
+distilled_at: "2026-10-31"
 origin:
   - agent: "p2p-network-dev-02"
     host: "develop-qzapp"

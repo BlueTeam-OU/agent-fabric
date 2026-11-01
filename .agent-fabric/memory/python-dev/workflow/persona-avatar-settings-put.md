@@ -5,7 +5,7 @@ topic: "persona-avatar-settings-put"
 description: "how an agent commits its ADR-056 persona (profile.json + avatar.png) with fabric-secrets store settings-put"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-18"
+distilled_at: "2026-10-31"
 origin:
   - agent: "python-dev-03"
     host: "develop-qzapp"

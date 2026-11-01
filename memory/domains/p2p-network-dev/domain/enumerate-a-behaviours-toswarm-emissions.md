@@ -5,7 +5,7 @@ topic: "enumerate-a-behaviours-toswarm-emissions"
 description: "Before enabling a libp2p behaviour, grep its ToSwarm emissions — libp2p-mdns 0.49 emits NewExternalAddrOfPeer for every discovered (peer, addr), untrusted; a Dial needs an origin at the gate; an address emission is a door into the address…"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-18"
+distilled_at: "2026-10-31"
 origin:
   - agent: "p2p-network-dev-01"
     host: "develop-qzapp"

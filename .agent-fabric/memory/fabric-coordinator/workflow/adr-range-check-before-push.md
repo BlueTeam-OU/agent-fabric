@@ -5,7 +5,7 @@ topic: "adr-range-check-before-push"
 description: "Before pushing any commit that touches docs/adr/, run adr.py range-check on the branch; `check` alone passed twice on 2026-10-16 while CI went red"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-18"
+distilled_at: "2026-10-31"
 origin:
   - agent: user
     host: "develop-qzapp"
@@ -25,5 +25,7 @@ It happened twice on 2026-10-16:
 
 **Why:** this guard has CI and suite legs but no commit-time leg, so nothing stops the commit itself (job queued to add the hook).
 **How to apply:** run range-check on every review-fix round that touches a record, before the push.
+
+*Anchors: `tools/fabric/adr.py::range-check`*
 
 *Observed 2026-10-16 (fabric-coordinator)*

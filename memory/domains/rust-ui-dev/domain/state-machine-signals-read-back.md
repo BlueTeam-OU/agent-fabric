@@ -5,7 +5,7 @@ topic: "state-machine-signals-read-back"
 description: "Before encoding a UI state machine someone else specified -- read every signal back live; unobservable ones are a finding with an observable substitute"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-18"
+distilled_at: "2026-10-31"
 origin:
   - agent: "rust-ui-dev-01"
     host: "develop-qzapp"

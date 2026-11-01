@@ -5,7 +5,7 @@ topic: "fabric-sign-adr057-method"
 description: "ADR-057 fabric-sign (PR #239): how git calls gpg.program/gpg.ssh.program, SSH via gpg-agent, proof spool + notes, live-check recipe, traps"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-18"
+distilled_at: "2026-10-31"
 origin:
   - agent: "python-dev-03"
     host: "develop-qzapp"

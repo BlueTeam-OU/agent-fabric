@@ -5,7 +5,7 @@ topic: "slint-window-size-binding-loop"
 description: "Slint 1.18 reads a Window's width/height as its layout info, so a responsive flag on root.width loops; a placed child (x/y) leaves the root's layout info; SLINT_COMPILER_DENY_WARNINGS"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-24"
+distilled_at: "2026-10-31"
 origin:
   - agent: "rust-ui-dev-01"
     host: "develop-qzapp"

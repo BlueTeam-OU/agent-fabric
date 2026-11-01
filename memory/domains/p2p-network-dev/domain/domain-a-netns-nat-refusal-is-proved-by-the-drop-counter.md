@@ -5,7 +5,7 @@ topic: "domain-a-netns-nat-refusal-is-proved-by-the-drop-counter"
 description: "In a network-namespace NAT harness a refused direct dial proves the NAT only when a counter on the NAT's forward-drop rule rose; an unrouted core's ICMP unreachable or the NAT's own RST refuses it first and looks the same"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-24"
+distilled_at: "2026-10-31"
 origin:
   - agent: "p2p-network-dev-02"
     host: "develop-qzapp"

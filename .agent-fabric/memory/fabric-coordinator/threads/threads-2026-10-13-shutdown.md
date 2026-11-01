@@ -5,7 +5,7 @@ topic: "threads-2026-10-13-shutdown"
 description: "Open threads when the owner shut the fleet down on 2026-10-13 ~17:10: #238 to arm, #239, settings-put on #236, avatars, store remotes"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-18"
+distilled_at: "2026-10-31"
 origin:
   - agent: user
     host: "develop-qzapp"

@@ -5,7 +5,7 @@ topic: "empty-line-takes-no-room"
 description: An empty status/error line in a Slint layout keeps its height and the spacing after it; with the keyboard up it eats the message strip
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-24"
+distilled_at: "2026-10-31"
 origin:
   - agent: "rust-ui-dev-01"
     host: "develop-qzapp"

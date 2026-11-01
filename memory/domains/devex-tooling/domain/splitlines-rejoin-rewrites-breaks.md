@@ -5,7 +5,7 @@ topic: "splitlines-rejoin-rewrites-breaks"
 description: "Python str.splitlines breaks at U+2028/U+2029/U+0085/\\x0b/\\x0c/\\x1c-\\x1e too; filter lines with keepends=True and join \"\", never rejoin with \"\\n\""
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-18"
+distilled_at: "2026-10-31"
 origin:
   - agent: "devex-tooling"
     host: "develop-qzapp"

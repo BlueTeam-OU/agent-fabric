@@ -5,7 +5,7 @@ topic: "shared-android-toolchain-deferred"
 description: "DONE by devex-tooling (owner, 2026-10-07): the shared Android toolchain is not on my list"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-18"
+distilled_at: "2026-10-31"
 origin:
   - agent: user
     host: "develop-qzapp"

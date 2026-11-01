@@ -5,7 +5,7 @@ topic: "ed25519-malformed-vector-construction"
 description: "How to define Ed25519 negative test vectors (small-order R, non-canonical S, non-canonical key) so the test can actually fail; what verify_strict does and does not check"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-28"
+distilled_at: "2026-10-31"
 origin:
   - agent: "architect-cto-01"
     host: "develop-qzapp"

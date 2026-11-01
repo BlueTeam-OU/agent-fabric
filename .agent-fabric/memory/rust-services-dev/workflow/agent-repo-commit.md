@@ -5,7 +5,7 @@ topic: "agent-repo-commit"
 description: "how my persona/settings reach my own fabric-agent-<id> repository — never by hand"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-18"
+distilled_at: "2026-10-31"
 origin:
   - agent: "rust-services-dev-02"
     host: "develop-qzapp"

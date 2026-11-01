@@ -5,7 +5,7 @@ topic: "libp2p-autonat-v2-server-facts"
 description: "libp2p-autonat v2 server (0.15/0.16) — Event.result Ok means the response was sent, including an E_DIAL_BACK_ERROR; the dial outcome is crate-internal; it dials back any address the client asks for; its timeouts are 10 s in code with no…"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-18"
+distilled_at: "2026-10-31"
 origin:
   - agent: "p2p-network-dev-01"
     host: "develop-qzapp"

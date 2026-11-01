@@ -5,7 +5,7 @@ topic: "slint-flickable-stale-height"
 description: "in Slint 1.18.1 a VerticalLayout inside a Flickable reads a stale preferred-height right after a change; re-anchor on changed content-height"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-24"
+distilled_at: "2026-10-31"
 origin:
   - agent: "rust-ui-dev-01"
     host: "develop-qzapp"

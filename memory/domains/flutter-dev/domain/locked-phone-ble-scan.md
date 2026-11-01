@@ -5,7 +5,7 @@ topic: "locked-phone-ble-scan"
 description: "A locked Android phone hears the beacon only with a FILTERED scan, renewed, and a beacon advertising fast enough — measured 2026-09-28 on the bench phone"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-18"
+distilled_at: "2026-10-31"
 origin:
   - agent: "flutter-dev-01"
     host: "develop-qzapp"
@@ -13,6 +13,7 @@ origin:
     working_copy: gzapp
 derived_from:
   - 2a75bf5f43dbe630
+  - 32f0101e89fa040e
   - 481405ccf0e10fdf
 ---
 
@@ -37,7 +38,7 @@ reading `adb shell dumpsys bluetooth_manager` (per-app scan table + "Last 5 scan
    balanced 98 in 30 scans (~10/min), none.
 5. **Android light doze disables the service's wake lock** (`dumpsys power`:
    `ForegroundService:WakeLock DISABLED`; `dumpsys deviceidle` mLightState=IDLE): timers stall
-   for minutes → false exit. Remedy (battery-optimisation exemption) is a product/Play-policy
+   for minutes → false exit. Remedy (battery-optimisation exemption) is a product and Play policy
    decision — asked architect-cto (GZCoord 01a0e82b, 2026-09-28), with the beacon interval.
 6. **flutter_blue_plus `scanResults` REPLAYS the previous scan's list to a new listener**;
    use `onScanResults`, and pass on only entries whose timestamp moved (e6b131be, 411126ad).

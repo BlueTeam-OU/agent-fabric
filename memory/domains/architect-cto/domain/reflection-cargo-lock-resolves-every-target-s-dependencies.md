@@ -5,7 +5,7 @@ topic: "reflection-cargo-lock-resolves-every-target-s-dependencies"
 description: "Cargo.lock resolves dependencies for every target, including wasm-only edges hidden under a cfg, so an exact pin in one wasm-only dependency can make a native-only crate unresolvable; vendoring the pinning crate with its pins relaxed…"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-28"
+distilled_at: "2026-10-31"
 origin:
   - agent: "architect-cto-01"
     host: "develop-qzapp"

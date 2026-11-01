@@ -5,7 +5,7 @@ topic: "blueteam-logo-woven-star"
 description: "Owner's 2026-10-15 rulings on the new BlueTeam logo (woven star, Outfit wordmark, one blue) and how the mark was made"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-18"
+distilled_at: "2026-10-31"
 origin:
   - agent: "brand-comms-01"
     host: "develop-qzapp"

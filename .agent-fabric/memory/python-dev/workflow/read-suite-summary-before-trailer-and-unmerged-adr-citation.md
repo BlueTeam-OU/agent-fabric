@@ -5,7 +5,7 @@ topic: "read-suite-summary-before-trailer-and-unmerged-adr-citation"
 description: "j38 — a trailer claiming a green run.sh was written before its summary line was read; lint refuses \"agent-fabric ADR-N\" for an ADR not on main"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-18"
+distilled_at: "2026-10-31"
 origin:
   - agent: "python-dev-04"
     host: "develop-qzapp"

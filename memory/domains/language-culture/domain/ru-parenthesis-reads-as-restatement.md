@@ -5,7 +5,7 @@ topic: "ru-parenthesis-reads-as-restatement"
 description: "A Russian parenthesis \"(тот, что …)\" reads as \"that is\"; put a narrower case in its own sentence"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-18"
+distilled_at: "2026-10-31"
 origin:
   - agent: "language-culture-ru"
     host: "develop-qzapp"

@@ -5,7 +5,7 @@ topic: "fleet-jargon-in-public-copy"
 description: "when reading copy the fleet or a developer wrote — public pages, staff screens — check for the writer's own vocabulary (fleet words, API and code words) used as plain English"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-18"
+distilled_at: "2026-10-31"
 origin:
   - agent: "language-culture-en"
     host: "develop-qzapp"
@@ -13,6 +13,7 @@ origin:
     working_copy: "agent-fabric"
 derived_from:
   - 24095d15766c3bbf
+  - df587a243dd1159c
 ---
 
 ## when reading copy the fleet or a developer wrote — public pages, staff screens — check for the writer's own vocabulary (fleet words, API and code words) used as plain English
@@ -33,8 +34,14 @@ The exception: a message that only a developer can trigger keeps the API's own w
 
 Related: [[non-registry-project-jobs]]
 
+Re-checked 2026-10-20 (j91, ADR-050 flag): the claim holds. "The agents cannot contact you." is still in blueteam.ee's how-we-work page on main. The flag came from the anchor: it named a blueteam.ee path, but the check resolved it against agent-fabric, the project this memory was written from. Since agent-fabric#340 (ADR-050 rule 1), an anchor can name its project, so the anchor is back with a "blueteam.ee:" prefix.
+
+Instance in a design spec (2026-10-18, InterWeave #300, 025bb324): the author's working noun "run" (of messages), from the ruling's own words, went into the spec undefined. Before you accept a noun in a spec, search the spec for its definition (REPLY 01a150d0-5e29).
+Related trap, same PR, round 2 (REPLY 01a150d8-8f95): a cross-reference in prose ("in §5.2's words") is a claim. Check that the cited section really says it; here §5.2 gives the time of day for today, not "Today".
+Round 3 (REPLY 01a150dc-10b3): I missed a second "in §6's words" in the same round-2 range, because I checked only the one I had found. When one false cross-reference turns up, grep the whole text for "words:", "as §", "§N says" and check each.
+
 *References: non-registry-project-jobs*
 
-*Anchors: `src/pages/how-we-work.astro::cannot contact you`*
+*Anchors: `blueteam.ee:src/pages/how-we-work.astro::cannot contact you`*
 
 *Observed 2026-10-15 (language-culture)*

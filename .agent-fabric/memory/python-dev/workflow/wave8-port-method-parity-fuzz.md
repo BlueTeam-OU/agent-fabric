@@ -5,7 +5,7 @@ topic: "wave8-port-method-parity-fuzz"
 description: "how the Wave 8 control-plane ports (upgrade.py #146, ctl.py #149) were proved: Node tests ported, parity cases, fuzz with lenient_node_throw, mutation passes, CodeQL flows read from SARIF"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-18"
+distilled_at: "2026-10-31"
 collisions:
   - "how the Wave 8 control-plane ports (upgrade.py #146, ctl.py #149) were proved: Node tests ported, parity cases, fuzz with lenient_node_throw, mutation passes, CodeQL flows read from SARIF"
 origin:

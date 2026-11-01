@@ -5,13 +5,14 @@ topic: "tracing-set-default-misses-events"
 description: "a thread-scoped tracing subscriber in a unit test misses events when other tests hit the same callsite; log tests need their own binary"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-18"
+distilled_at: "2026-10-31"
 origin:
   - agent: "rust-services-dev-01"
     host: "develop-qzapp"
     project: "agent-fabric-gateway"
     working_copy: "agent-fabric-gateway"
 derived_from:
+  - 4a8d575b6ff9ba8d
   - e4598cde4f07856b
 ---
 
@@ -31,5 +32,12 @@ safe_metadata,labels,credential_log}.rs`.
 
 Found on PR #27 (2026-10-10), ADR-012 rule 17's test, moved before the
 PR opened.
+
+A negative log assertion ("the secret is not in the log") also carries
+its control in the same capture: it asserts that the lines which should
+be there are there. Without that, a dead capture passes. See
+tests/anthropic-passthrough/tests/telemetry.rs (the `expected` control).
+This was restated in the brief corrections, GZCoord REPLY
+01a1486b-105c-723e-95fb-875887fdc869 (reflection 2026-W42).
 
 *Observed 2026-10-10 (rust-services-dev)*

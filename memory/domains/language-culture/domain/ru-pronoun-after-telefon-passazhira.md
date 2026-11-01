@@ -5,7 +5,7 @@ topic: "ru-pronoun-after-telefon-passazhira"
 description: After «Телефон пассажира…», Russian «его» reads as the phone; repeat the noun
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-18"
+distilled_at: "2026-10-31"
 origin:
   - agent: "language-culture-ru"
     host: "develop-qzapp"

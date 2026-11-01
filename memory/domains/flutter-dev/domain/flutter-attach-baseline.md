@@ -5,7 +5,7 @@ topic: "flutter-attach-baseline"
 description: "flutter attach takes the CURRENT source as what the device runs: edits made before attaching never hot-reload; attach first, then edit"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-18"
+distilled_at: "2026-10-31"
 origin:
   - agent: "flutter-dev-01"
     host: "develop-qzapp"

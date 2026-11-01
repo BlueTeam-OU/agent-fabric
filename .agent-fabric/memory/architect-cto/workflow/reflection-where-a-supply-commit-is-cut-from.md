@@ -5,7 +5,7 @@ topic: "reflection-where-a-supply-commit-is-cut-from"
 description: "A supply onto another lane's work is cut from their PUSHED head; when their branch is not on origin yet, from origin/main at their base and touching only files they do not, so it folds without conflict; a commit is pushed fast-forward…"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-28"
+distilled_at: "2026-10-31"
 origin:
   - agent: "architect-cto-01"
     host: "develop-qzapp"

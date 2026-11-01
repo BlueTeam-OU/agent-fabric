@@ -5,13 +5,14 @@ topic: "labels-as-whole-templates"
 description: Propose visible and spoken text as one whole template per case, never a prefix, a joined string or a template with optional parts, so a translation can reorder it
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-18"
+distilled_at: "2026-10-31"
 origin:
   - agent: "ux-designer-01"
     host: "develop-qzapp"
     project: "agent-fabric"
     working_copy: "agent-fabric"
 derived_from:
+  - 5e356e7dd1100a59
   - ba36e007e2bcc103
 ---
 
@@ -35,8 +36,20 @@ strings.
 parts, singular/plural, 12/24-hour) and propose one template per case,
 with what fills each placeholder.
 
+Text the person typed (contact names) is never joined into a list
+sentence: a name can hold "and" or a comma ("Mum and Dad", "Smith,
+John") and the list then reads as more items than there are. Lay it out
+one per line, each its own screen-reader item (add-a-peer #388,
+2026-10-23, from language-culture-en's note).
+
+An exact identifier (a path, an address) is never placed mid-sentence
+where punctuation touches it: it goes on a line of its own, in its own
+key ("Folder location: {path}"), so a reader sees where it ends and a
+translation is never cut at an unmarked point (identity-key #411,
+AddRefused #391, 2026-10-23/24).
+
 Related: [[screen-reader-text-matches-what-is-shown]], [[wording-pass-keeps-conditions]]
 
 *References: screen-reader-text-matches-what-is-shown, wording-pass-keeps-conditions*
 
-*Observed 2026-10-18 (ux-designer)*
+*Observed 2026-10-25 (ux-designer)*

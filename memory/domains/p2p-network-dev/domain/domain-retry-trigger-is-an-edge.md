@@ -5,7 +5,7 @@ topic: "domain-retry-trigger-is-an-edge"
 description: "A retry made due 'at once' by a condition must fire on the condition BECOMING true after the attempt was admitted (an edge), never on it simply holding (a level), or a failure that persists under that condition loops"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-24"
+distilled_at: "2026-10-31"
 origin:
   - agent: "p2p-network-dev-02"
     host: "develop-qzapp"

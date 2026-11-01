@@ -5,7 +5,7 @@ topic: "memory-work-closed-2026-10-14"
 description: "Owner 2026-10-14: memory-system jobs come FIRST — they impact productivity; I misread 'close' as drop and had to re-add them (j195–j198)"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-18"
+distilled_at: "2026-10-31"
 origin:
   - agent: user
     host: "develop-qzapp"

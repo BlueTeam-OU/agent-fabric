@@ -5,7 +5,7 @@ topic: "reflection-an-unmet-precondition-of-a-device-row-fails-its-first-step-ne
 description: "A device row whose precondition only the owner can establish (a wipe, a pairing, a phone placed) asserts that precondition in its first step so an unmet one fails, never passes; the rows that need no owner's act run first, and the…"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-28"
+distilled_at: "2026-10-31"
 origin:
   - agent: "architect-cto-01"
     host: "develop-qzapp"

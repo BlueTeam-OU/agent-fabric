@@ -5,7 +5,7 @@ topic: "contrast-on-every-surface"
 description: "Measure a mark's contrast against every surface it can sit on (snackbar, notice, bubble, selection), not only the screen background"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-24"
+distilled_at: "2026-10-31"
 origin:
   - agent: "ux-designer-01"
     host: "develop-qzapp"

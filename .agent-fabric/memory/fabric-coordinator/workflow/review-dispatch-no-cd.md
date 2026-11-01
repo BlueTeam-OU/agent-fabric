@@ -5,7 +5,7 @@ topic: "review-dispatch-no-cd"
 description: "When dispatching the review class, never write 'from ~/projects/<clone>' or any path to run in: the reviewer prepends `cd <abs> &&`, which the review guard refuses (absolute cd is moved since #161); say it already runs in the clone and…"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-18"
+distilled_at: "2026-10-31"
 origin:
   - agent: user
     host: "develop-qzapp"

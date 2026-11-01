@@ -5,7 +5,7 @@ topic: "domain-a-loopback-socket-test-cannot-tell-src-from-dst"
 description: "on loopback a test of \"connections to X\" passes with a src filter too; assert the peer end"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-24"
+distilled_at: "2026-10-31"
 origin:
   - agent: "p2p-network-dev-02"
     host: "develop-qzapp"

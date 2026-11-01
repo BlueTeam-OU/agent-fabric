@@ -5,7 +5,7 @@ topic: "bounded-subprocess-three-seams"
 description: A subprocess with a timeout fails at three seams reviewers keep finding — TimeoutExpired uncaught at the entry, a kill that reaches only the wrapper, a bound printed from exc.timeout (3.12 reports the time left)
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-18"
+distilled_at: "2026-10-31"
 origin:
   - agent: "python-dev-01"
     host: "develop-qzapp"

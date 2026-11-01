@@ -5,7 +5,7 @@ topic: "j41-settle-reflection-cursor-merged"
 description: "#274 merged (6619345f): settle.py reflection cursor, reply:<id> by own id, retract, any-answer; follow-up list and traps"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-18"
+distilled_at: "2026-10-31"
 origin:
   - agent: "python-dev-02"
     host: "develop-qzapp"

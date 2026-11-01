@@ -5,7 +5,7 @@ topic: "fold-then-full-suite"
 description: "After folding a contributor's branch, run tests/run.sh python, not a hand-picked list: #242 went red on test_pr_counts.py, which I had not run"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-18"
+distilled_at: "2026-10-31"
 origin:
   - agent: user
     host: "develop-qzapp"

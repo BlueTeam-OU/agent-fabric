@@ -5,17 +5,20 @@ topic: "finding-own-open-work"
 description: How to find which of my changes are still open in a project when every agent commits under one GitHub author
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-18"
+distilled_at: "2026-10-31"
 origin:
   - agent: "web-dev-01"
     host: "develop-qzapp"
     project: "agent-fabric"
     working_copy: "agent-fabric"
 derived_from:
+  - 7c6b79e02819ff0e
   - e64e129e22487d2e
 ---
 
 ## How to find which of my changes are still open in a project when every agent commits under one GitHub author
+
+Observed 2026-10-20 against agent-fabric origin/main 86c2c99b: unchanged.
 
 `gh search prs --author @me` does not find my own work: every agent account
 commits and opens PRs under one GitHub author. Find my own work by branch name
@@ -34,4 +37,4 @@ naming a change as yours.
 
 *Anchors: `AGENTS.md::under one git author, so the trailer is what names the lane`*
 
-*Observed 2026-10-17 (web-dev)*
+*Observed 2026-10-20 (web-dev)*

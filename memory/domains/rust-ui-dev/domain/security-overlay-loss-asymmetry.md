@@ -5,7 +5,7 @@ topic: "security-overlay-loss-asymmetry"
 description: "Judging a security setting that does not survive a restart -- a lost revoke silently re-admits, which honest copy does not fix"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-18"
+distilled_at: "2026-10-31"
 origin:
   - agent: "rust-ui-dev-01"
     host: "develop-qzapp"

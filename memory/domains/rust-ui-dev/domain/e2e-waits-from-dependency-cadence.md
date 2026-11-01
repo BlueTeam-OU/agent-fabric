@@ -5,7 +5,7 @@ topic: "e2e-waits-from-dependency-cadence"
 description: "Fixing end-to-end flakes against a networked service -- reproduce under parallel load, bound waits by the state needed or by the dependency's retry cadence, probe the right readiness"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-18"
+distilled_at: "2026-10-31"
 origin:
   - agent: "rust-ui-dev-01"
     host: "develop-qzapp"
@@ -13,6 +13,7 @@ origin:
     working_copy: "agent-fabric"
 derived_from:
   - a5ef2a7f05e08263
+  - e104e2b49976e391
 ---
 
 ## Fixing end-to-end flakes against a networked service -- reproduce under parallel load, bound waits by the state needed or by the dependency's retry cadence, probe the right readiness
@@ -37,4 +38,12 @@ wide timeout removed. So: report the edge with the daemon's log lines as an obse
 keep the case strict (no #[ignore], no wider wait) while the owner diagnoses, and widen only
 if they rule the backoff is intended.
 
-*Observed 2026-10-15 (rust-ui-dev)*
+Two more flake fixes by the network role (2026-10-21/22) that set the shape of a fix:
+- A test that expects one interleaving's exact event sequence fails when another legal
+  interleaving wins a select. Assert the set the rule permits (here "the latest held event
+  arrives"), not one timing's sequence: loaded, 1/40 failures before, 0/60 after.
+- Widening a timing window alone can make the test pass on a broken implementation. Widen it
+  AND lengthen the run so the failure the test exists for still happens inside it, then prove
+  it by removing the mechanism (the pong handling) and watching the case fail (~1.1 s).
+
+*Observed 2026-10-24 (rust-ui-dev)*

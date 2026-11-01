@@ -5,7 +5,7 @@ topic: "domain-libp2p-reuse-dial-eaddrinuse"
 description: "libp2p-tcp's port-reuse dial falls back only on EADDRNOTAVAIL; EADDRINUSE fails the dial; kad's own dials are Reuse and a built DialOpts cannot change port use"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-24"
+distilled_at: "2026-10-31"
 origin:
   - agent: "p2p-network-dev-02"
     host: "develop-qzapp"

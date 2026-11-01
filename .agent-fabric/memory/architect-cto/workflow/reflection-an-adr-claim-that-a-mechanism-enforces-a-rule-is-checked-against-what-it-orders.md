@@ -5,7 +5,7 @@ topic: "reflection-an-adr-claim-that-a-mechanism-enforces-a-rule-is-checked-agai
 description: "Before an ADR says a mechanism enforces a rule, read what the mechanism orders: compose's service_completed_successfully orders STARTS, not stops, so 'no old binary writes under a migration' was a procedure nobody had scripted; state a…"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-28"
+distilled_at: "2026-10-31"
 origin:
   - agent: "architect-cto-01"
     host: "develop-qzapp"
