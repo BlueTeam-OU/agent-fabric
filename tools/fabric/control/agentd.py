@@ -375,14 +375,27 @@ class ActionLedger:
         self.file = os.path.join(state_dir(), "actions-seen.json") if file is None else file
 
     def _read(self) -> dict:
+        """Only a missing ledger is empty. One that exists and cannot be read,
+        parsed or validated would otherwise look new, and a signed action
+        still inside its TTL, gone from the in-memory seen set, would be
+        accepted a second time: it is an error, and every action is refused
+        until an operator repairs or removes the file."""
         try:
-            with open(self.file, encoding="utf-8", errors="replace") as fh:
+            with open(self.file, encoding="utf-8") as fh:
                 d = js.json_parse(fh.read())
-        except (OSError, ValueError):
+        except FileNotFoundError:
             return {}
-        return d if isinstance(d, dict) else {}
+        except NotADirectoryError:
+            return {}   # a file where the state directory goes: no ledger can exist, and the write names the error
+        except (OSError, ValueError) as e:   # UnicodeDecodeError is a ValueError
+            raise OSError(errno.EIO, f"the action ledger cannot be read ({self.file}): {type(e).__name__}") from None
+        if not isinstance(d, dict) or any(isinstance(v, bool) or not isinstance(v, (int, float)) or not math.isfinite(v) for v in d.values()):
+            raise OSError(errno.EIO, f"the action ledger is not a map of finite timestamps ({self.file})")
+        return d
 
     def floor(self, sender: str) -> float:
+        """accept()'s lock-free check. Raises OSError, naming the file, when the ledger is damaged: accept() turns
+        that into the refusal, so the operator is told which file to repair rather than that a request was a replay."""
         n = number_of(self._read().get(sender, js.UNDEFINED))
         return n if n == n and n else 0.0
 
@@ -421,7 +434,15 @@ class ActionLedger:
             fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
             with os.fdopen(fd, "w", encoding="utf-8") as fh:
                 fh.write(js.stringify(d) + "\n")
+                fh.flush()
+                os.fsync(fh.fileno())
             os.rename(tmp, self.file)
+            # The acceptance must survive a crash before the action runs: the renamed entry is durable only once its directory is.
+            dfd = os.open(os.path.dirname(self.file), os.O_RDONLY | os.O_DIRECTORY)
+            try:
+                os.fsync(dfd)
+            finally:
+                os.close(dfd)
         except BaseException:
             try:
                 os.unlink(tmp)
@@ -519,8 +540,13 @@ def accept(rec: dict, *, me: dict, operators: set, accounts: set | None = None, 
     # request signed on a fast clock locks the operator out (review of #34).
     if action and ts - now > ACTION_CLOCK_SKEW_MS:
         return {"ok": False, "why": f"{op}: dated {_round((ts - now) / 1000)} s in the future (the operator's clock?)"}
-    if action and not ts > action_floor(sender):
-        return {"ok": False, "why": f"{op}: not newer than the last action accepted from {short} (a replay)"}
+    if action:
+        try:
+            floor = action_floor(sender)
+        except OSError as e:
+            return {"ok": False, "why": f"{op}: refused: {e}"}
+        if not ts > floor:
+            return {"ok": False, "why": f"{op}: not newer than the last action accepted from {short} (a replay)"}
     return {"ok": True, "request": r, "ts": ts}
 
 

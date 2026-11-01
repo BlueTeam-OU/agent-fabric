@@ -320,6 +320,11 @@ def secrets_sync_once(
                                      util.sha12(tok) if tok else None,
                                      now().isoformat(timespec="milliseconds").replace("+00:00", "Z"))
         extra["gateway"] = proof["detail"]
+        if not proof["consistent"]:
+            # The sync wrote the store and the record, but the file the active gateway reads is not the synced token:
+            # that consumer is not on the new account, and "synced" would be read by fabric-accounts and the
+            # account switch as the move done. Nothing is stopped: a restart would not change the file.
+            return fail(f"synced, but {proof['session'].removeprefix('running (gateway): ')}; nothing stopped")
     stale = [p for p in running if p not in broker and p not in gateway and not _on_token(envs[p], tok)]
     if not stale:
         if len(broker) == len(running):

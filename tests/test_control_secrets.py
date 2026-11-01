@@ -361,20 +361,34 @@ class SecretsSync(unittest.TestCase):
                 fh.write(line + "\n")
             self.assertFalse(GS.confirmed(log, g), f"a line differing in {field} confirms nothing")
 
-    def test_a_token_file_that_does_not_hold_the_synced_token_or_is_not_there_is_said(self):
+    def test_a_token_file_that_does_not_hold_the_synced_token_or_is_not_there_is_failed_not_synced(self):
         f = Fixture(self)
         r = self.sync_gateway(f, self.token_file(f, OLD))
-        self.assertEqual((r["gateway"]["confirmed"], r["gateway"]["file_fingerprint"]), (None, fp(OLD)))
-        self.assertIn("does not hold the synced token", r["session"])
+        self.assertEqual((r["status"], r["gateway"]["confirmed"], r["gateway"]["file_fingerprint"]), ("failed", None, fp(OLD)))
+        self.assertIn("does not hold the synced token", r["reason"])
+        self.assertNotIn("session", r)
         self.assertEqual(GS.read_join(f.dir), [], "nothing is joined to a file that is not the synced token")
         g = Fixture(self)
         r = self.sync_gateway(g, self.token_file(g, None))
-        self.assertEqual((r["gateway"]["generation"], r["gateway"]["confirmed"]), (None, None))
-        self.assertIn("token file is absent", r["session"])
+        self.assertEqual((r["status"], r["gateway"]["generation"], r["gateway"]["confirmed"]), ("failed", None, None))
+        self.assertIn("token file is absent", r["reason"])
         h = Fixture(self, writes=None, code=2)
         r = h.sync({"id": "n", "from": "h/user", "args": {"restart": False}}, sessions=[80], me="h/db-admin",
                    env_of=env_with(None, "anthropic", "gateway"), kill=no_kill, gateway_file=self.token_file(h, None))
+        self.assertEqual(r["status"], "synced", "no token synced and no file there is the state the sync meant")
         self.assertIn("holds no token", r["session"])
+        i = Fixture(self, writes=None, code=2)
+        r = i.sync({"id": "n2", "from": "h/user", "args": {"restart": False}}, sessions=[80], me="h/db-admin",
+                   env_of=env_with(None, "anthropic", "gateway"), kill=no_kill, gateway_file=self.token_file(i, OLD))
+        self.assertEqual(r["status"], "failed", "no token synced but the gateway's file still holds one")
+        self.assertIn("keeps serving the old account", r["reason"])
+
+    def test_a_correctly_replaced_file_waiting_for_its_first_request_is_still_synced(self):
+        f = Fixture(self)
+        os.makedirs(f.dir)
+        open(os.path.join(f.dir, GS.LOG), "w").close()    # the gateway's log, with no credential.replaced line yet
+        r = self.sync_gateway(f, self.token_file(f))
+        self.assertEqual((r["status"], r["gateway"]["confirmed"]), ("synced", False))
 
     def test_a_log_that_exists_without_the_line_is_pending_and_one_that_cannot_be_read_is_unconfirmed(self):
         f = Fixture(self)
@@ -386,21 +400,17 @@ class SecretsSync(unittest.TestCase):
         self.assertIsNone(r["gateway"]["confirmed"], "no log at all: unconfirmed")
         self.assertIn("cannot be read, so unconfirmed", r["session"])
 
-    def test_a_mixed_set_that_needs_no_stop_or_cannot_be_stopped_still_reports_and_checks_the_gateway(self):
+    def test_a_mixed_set_still_reports_and_checks_the_gateway_and_a_file_that_is_not_the_synced_token_fails_it(self):
         f = Fixture(self)
         path = self.token_file(f, OLD)               # the sync did not put the synced token in the gateway's file
-        r = f.sync({"id": "m1", "from": "h/user", "args": {}}, sessions=[80, 81], me="h/db-admin",
-                   env_of=lambda pid: (env_with(None, "anthropic", "gateway") if pid == 80 else env_with(TPL))(pid),
-                   kill=no_kill, gateway_file=path)
-        self.assertEqual(r["gateway"]["file_fingerprint"], fp(OLD))
-        self.assertIn("does not hold the synced token", r["session"])
-        self.assertTrue(r["session"].startswith("running, already on it"), "the plain session already holds it")
-        for args, me, word in (({}, "h/db-admin", "running: relaunch to use it"), ({"restart": True}, "h/user", "yours: relaunch to use it")):
-            r = f.sync({"id": "m2", "from": "h/user", "args": args}, sessions=[80, 82], me=me,
-                       env_of=lambda pid: (env_with(None, "anthropic", "gateway") if pid == 80 else env_with(OLD))(pid),
+        for args, me, sessions in (({}, "h/db-admin", [80, 81]), ({}, "h/db-admin", [80, 82]), ({"restart": True}, "h/user", [80, 82])):
+            r = f.sync({"id": "m1", "from": "h/user", "args": args}, sessions=sessions, me=me,
+                       env_of=lambda pid: (env_with(None, "anthropic", "gateway") if pid == 80 else env_with(TPL if pid == 81 else OLD))(pid),
                        kill=no_kill, gateway_file=path)
-            self.assertTrue(r["session"].startswith(word) and "(gateway)" in r["session"], r["session"])
-            self.assertIn("gateway", r)
+            self.assertEqual(r["status"], "failed", args)
+            self.assertEqual(r["gateway"]["file_fingerprint"], fp(OLD))
+            self.assertIn("does not hold the synced token", r["reason"])
+            self.assertTrue(r["reason"].endswith("nothing stopped"))
 
     def test_only_a_credential_replaced_line_confirms_and_a_prefixed_key_is_not_the_key(self):
         f = Fixture(self)
