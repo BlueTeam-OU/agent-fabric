@@ -58,10 +58,12 @@ WHAT RUNS. The brief is review_brief.render() of REQUEST, byte for byte, with
 the engine's answer-shape section appended and nothing else (rule 1). The
 request must be a ranged one whose head is the PR's current head: post-review
 records the review on the commit Codex read (--head), so a review of any other
-commit would cover that commit and leave the head the gate reads unreviewed. That head is `git archive`d
-into a scratch directory (never the working copy) and `codex exec` runs there
-once per attempt (an attempt is repeated only when the model is at capacity,
-below) with --sandbox read-only, a time budget for each run (20 minutes unless
+commit would cover that commit and leave the head the gate reads unreviewed. That head is written from git's
+plumbing (ls-tree and cat-file, never `git archive`: its export-ignore and export-subst attributes drop and rewrite
+tracked files, audit F13) into a scratch directory (never the working copy), verified against `ls-tree` of the
+sha, and `codex exec` runs there once per attempt (an attempt is repeated only when the model is at capacity,
+below) under a permission profile that reads an allowlist (below) and writes nothing, never `--sandbox read-only`,
+which reads the whole filesystem (audit F01), a time budget for each run (20 minutes unless
 --timeout; it is not a total: see below), CODEX_HOME and HOME inside the
 scratch, and an environment built from an allowlist, so no ANTHROPIC_*/CLAUDE_*
 variable, no OPENAI_API_KEY and no ~/.codex reaches it (rules 2-3). CODEX_HOME holds a config.toml whose
@@ -71,6 +73,14 @@ api.openai.com. The scratch lives under the account's temporary directory
 (TMPDIR), outside every working copy and every home's hidden directories —
 the places the review class's bash guard refuses to read — and is removed on
 every path: success, refusal, failure, timeout, and SIGTERM/SIGHUP/SIGINT.
+
+WHAT THE RUN CAN READ. The profile `reviewer` in the scratch CODEX_HOME's config.toml grants read to Codex's
+platform defaults (`:minimal`: the system trees a program needs, /etc included), the extract, the codex
+binary and its tool host, and the repository's git history — objects, refs, HEAD, packed-refs, shallow and
+the worktree's own HEAD/commondir/gitdir, as review_mcp/sandbox.py binds them — and nothing else: not the
+account's home, its secret stores, the repository's files or config, nor the scratch. Before a review starts,
+prove_sandbox plants a canary in the scratch, outside that tree, and refuses the review when the canary can
+be read, as it refuses one whose sandbox lets a write through.
 
 WHAT THE RUN MUST SHOW. Codex runs with --json, its stdout the JSONL event
 stream (its own log lines on stderr, kept apart), and the run is a failed
@@ -145,6 +155,7 @@ the allowance), no review posted, the unavailable review above.
 from __future__ import annotations
 
 import contextlib
+import hashlib
 import json
 import os
 import re
@@ -153,8 +164,8 @@ import shutil
 import signal
 import subprocess
 import sys
-import tarfile
 import tempfile
+import threading
 import time
 from urllib.parse import urlsplit
 
@@ -180,6 +191,7 @@ SCHEMA_PATH = os.path.join(FABRIC_ROOT, "runtime", "claude-code", "review", "cod
 ENGINE = "codex"
 DEFAULT_TIMEOUT_MIN = 20.0
 PROVIDER_ID = "fabric-gateway"
+PROFILE = "reviewer"   # the permission profile in the scratch CODEX_HOME that codex_home writes
 ENV_BASE_URL, ENV_KEY, ENV_MODEL, ENV_BIN = (
     "AGENT_FABRIC_CODEX_BASE_URL", "AGENT_FABRIC_CODEX_KEY", "AGENT_FABRIC_CODEX_MODEL", "AGENT_FABRIC_CODEX_BIN")
 ENV_ACCOUNT_ID, ENV_EFFORT = "AGENT_FABRIC_CODEX_ACCOUNT_ID", "AGENT_FABRIC_CODEX_EFFORT"
@@ -225,8 +237,8 @@ RESET_TIME = re.compile(r"[Tt]ry again at ([^.\n]{1,60})")
 # (ADR-053 rule 1): where it stands and what to answer, never anything
 # about the change.
 ANSWER_SHAPE = """## Answer (the engine's shape, agent-fabric ADR-053 rule 4)
-Your working directory is an extract (`git archive`) of the range's head, without history; the
-range's history is in the repository named above. Both are read-only for you.
+Your working directory is an extract of the range's head, without history; the range's history
+is in the repository named above, whose git objects and refs are all of it you can read. Both are read-only for you.
 Answer with ONE JSON object and nothing else — no prose, no code fence:
 {"findings": [{"level": "P1|P2|P3", "file": "<path from the repository root>", "line": <line at the head, >= 1>,
   "scenario": "<the inputs or state and the steps that make it fail>",
@@ -482,40 +494,181 @@ def scratch_root(repo: str, environ: dict[str, str]) -> str:
     return root
 
 
-def extract(repo: str, commit: str, dest: str) -> None:
-    """`git archive` of the commit into dest; the working copy is only read."""
-    os.makedirs(dest, mode=0o700)
-    p = subprocess.Popen(["git", "-C", repo, "archive", "--format=tar", commit], stdout=subprocess.PIPE,
-                         stderr=subprocess.PIPE)
+GIT_COMMON_TREES = ("objects", "refs")
+GIT_COMMON_FILES = ("HEAD", "packed-refs", "shallow")
+GIT_OWN_FILES = ("HEAD", "commondir", "gitdir")
+EXTRACT_TIMEOUT_S = 300
+
+
+def _tree(repo: str, commit: str) -> list[tuple[str, str, bytes]]:
+    """(mode, oid, path) of every entry of the commit's tree, as `ls-tree` lists it: the committed tree itself, which no
+    attribute of the repository (export-ignore, export-subst) reads."""
+    r = subprocess.run(["git", "-C", repo, "ls-tree", "-r", "-z", "--full-tree", commit], capture_output=True, timeout=60)
+    if r.returncode != 0:
+        raise Refused(f"git ls-tree {commit[:12]} failed: {r.stderr.decode('utf-8', 'replace').strip()}")
+    entries = []
+    for rec in r.stdout.split(b"\0"):
+        if rec:
+            meta, path = rec.split(b"\t", 1)
+            mode, _kind, oid = meta.decode("ascii").split(" ")
+            entries.append((mode, oid, path))
+    return entries
+
+
+def _entry_path(path: bytes) -> bytes:
+    parts = path.split(b"/")
+    if any(p in (b"", b".", b"..") or p.lower() == b".git" for p in parts):
+        raise Refused(f"the head holds a path that cannot be extracted: {os.fsdecode(path)!r}")
+    return path
+
+
+def _blobs(repo: str, oids: list[str]):
+    """(oid, content) of each blob, one `cat-file --batch` asked and answered in turn so neither side's pipe fills."""
+    p = subprocess.Popen(["git", "-C", repo, "cat-file", "--batch"], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                         stderr=subprocess.DEVNULL)
+    watchdog = threading.Timer(EXTRACT_TIMEOUT_S, p.kill)
+    watchdog.start()
     try:
-        with tarfile.open(fileobj=p.stdout, mode="r|") as tar:
-            tar.extractall(dest, filter="data")
+        for oid in oids:
+            p.stdin.write(oid.encode("ascii") + b"\n")
+            p.stdin.flush()
+            head = p.stdout.readline().split()
+            if len(head) != 3 or head[1] != b"blob" or head[0].decode("ascii") != oid:
+                raise Refused(f"git cat-file did not return blob {oid}: {b' '.join(head).decode('utf-8', 'replace')!r}")
+            data = p.stdout.read(int(head[2]))
+            if len(data) != int(head[2]) or p.stdout.read(1) != b"\n":
+                raise Refused(f"git cat-file returned blob {oid} cut short")
+            yield oid, data
     finally:
+        watchdog.cancel()
+        p.stdin.close()
         p.stdout.close()
-        err = p.stderr.read().decode("utf-8", "replace")
-        p.stderr.close()
-        rc = p.wait(timeout=60)
-    if rc != 0:
-        raise Refused(f"git archive {commit[:12]} failed: {err.strip()}")
+        p.kill()
+        p.wait(timeout=60)
+
+
+def extract(repo: str, commit: str, dest: str) -> None:
+    """The commit's raw tree into dest, from git's plumbing (ls-tree, cat-file), then verified against `ls-tree` of the
+    same commit. Not `git archive`: that honours the repository's export-ignore and export-subst, so a tracked file
+    could vanish or change on the way to the reviewer (agent-fabric audit F13). The working copy is only read."""
+    os.makedirs(dest, mode=0o700)
+    entries = [(m, o, _entry_path(p)) for m, o, p in _tree(repo, commit)]
+    root = os.fsencode(dest)
+    by_oid: dict[str, list[tuple[str, bytes]]] = {}
+    for mode, oid, path in entries:
+        if mode != "160000":
+            by_oid.setdefault(oid, []).append((mode, path))
+    for oid, data in _blobs(repo, sorted(by_oid)):
+        for mode, path in by_oid[oid]:
+            target = os.path.join(root, path)
+            os.makedirs(os.path.dirname(target), exist_ok=True)
+            if mode == "120000":
+                link = os.fsdecode(data)
+                if os.path.isabs(link) or os.path.normpath(os.path.join(os.path.dirname(os.fsdecode(path)), link)).startswith(".."):
+                    raise Refused(f"{os.fsdecode(path)!r} is a link out of the head: {link!r}")
+                os.symlink(data, target)
+            else:
+                with open(target, "xb") as f:
+                    f.write(data)
+                os.chmod(target, 0o755 if mode == "100755" else 0o644)
+    for mode, _oid, path in entries:
+        if mode == "160000":   # a submodule is an empty directory, as `git archive` leaves it
+            os.makedirs(os.path.join(root, path), exist_ok=True)
+    verify_extract(dest, entries)
+
+
+def verify_extract(dest: str, entries: list[tuple[str, str, bytes]]) -> None:
+    """The directory holds exactly the tree's files, links and submodule directories, each file's bytes hashing to its
+    blob id and its mode as committed: what the reviewer reads is what was committed, or the review does not start."""
+    root = os.fsencode(dest)
+    want = {path: (mode, oid) for mode, oid, path in entries}
+    found: dict[bytes, tuple[str, bytes | None]] = {}
+    dirs: set[bytes] = set()
+
+    def walk(directory: bytes, prefix: bytes) -> None:
+        with os.scandir(directory) as it:
+            for e in it:
+                rel = prefix + e.name
+                if e.is_symlink():
+                    found[rel] = ("120000", os.readlink(e.path))
+                elif e.is_dir(follow_symlinks=False):
+                    dirs.add(rel)
+                    walk(e.path, rel + b"/")
+                else:
+                    found[rel] = ("100755" if os.stat(e.path).st_mode & 0o111 else "100644", None)
+    walk(root, b"")
+    leaves = {path for path, (mode, _) in want.items() if mode != "160000"}
+    submodules = {path for path, (mode, _) in want.items() if mode == "160000"}
+    parents = {b"/".join(path.split(b"/")[:i]) for path in want for i in range(1, len(path.split(b"/")))}
+    if set(found) != leaves or dirs != parents | submodules:
+        extra = sorted((set(found) - leaves) | (dirs - parents - submodules))
+        missing = sorted((leaves - set(found)) | ((parents | submodules) - dirs))
+        raise Refused(f"the extract of the head differs from its tree: missing {[os.fsdecode(p) for p in missing[:5]]}, "
+                      f"extra {[os.fsdecode(p) for p in extra[:5]]}")
+    for path in sorted(leaves):
+        mode, oid = want[path]
+        got_mode, link = found[path]
+        full = os.path.join(root, path)
+        algorithm = {40: "sha1", 64: "sha256"}.get(len(oid))
+        if algorithm is None:
+            raise Refused(f"{oid!r} is not an object id")
+        h = hashlib.new(algorithm)
+        h.update(b"blob %d\0" % (len(link) if link is not None else os.stat(full).st_size))
+        if link is not None:
+            h.update(link)
+        else:
+            with open(full, "rb") as f:
+                for chunk in iter(lambda: f.read(1 << 20), b""):
+                    h.update(chunk)
+        if h.hexdigest() != oid or got_mode != mode:
+            raise Refused(f"the extract of {os.fsdecode(path)!r} differs from the head's (mode {got_mode} against {mode}, or other bytes)")
+
+
+def history_paths(repo: str) -> list[str]:
+    """What of the repository the reviewer may read: its history and nothing of its files, config, hooks or logs — the
+    allowlist review_mcp/sandbox.py binds for the same reason. A path that is absent (no packed-refs, no shallow) is left out."""
+    common = os.path.realpath(_git(repo, "rev-parse", "--path-format=absolute", "--git-common-dir"))
+    own = os.path.realpath(_git(repo, "rev-parse", "--path-format=absolute", "--git-dir"))
+    wanted = [os.path.join(common, n) for n in GIT_COMMON_TREES + GIT_COMMON_FILES]
+    if own != common:
+        wanted += [os.path.join(own, n) for n in GIT_OWN_FILES]
+    dotgit = os.path.join(os.path.realpath(_git(repo, "rev-parse", "--show-toplevel")), ".git")
+    if os.path.isfile(dotgit):   # a linked worktree's pointer to its git directory
+        wanted.append(dotgit)
+    return [p for p in wanted if os.path.exists(p)]
+
+
+def readable_paths(binary: str, workdir: str, repo: str) -> list[str]:
+    """Every path the profile grants read beyond Codex's platform defaults, in order and once: the extract, Codex itself
+    (it runs its sandbox helper from its own binary) with its tool host beside it, and the repository's history."""
+    real = os.path.realpath(binary)
+    paths = [os.path.realpath(workdir), real, os.path.join(os.path.dirname(real), "codex-code-mode-host"), *history_paths(repo)]
+    return [p for p in dict.fromkeys(paths) if os.path.exists(p)]
 
 
 def _toml_str(s: str) -> str:
     return json.dumps(s)  # a JSON string is a valid TOML basic string for what is written here
 
 
-def codex_home(scratch: str, base_url: str, account: str | None = None) -> str:
+def codex_home(scratch: str, base_url: str, account: str | None = None, readable: tuple[str, ...] | list[str] = ()) -> str:
     """An isolated CODEX_HOME: the gateway as the one provider, the key read
     from ENV_KEY in Codex's environment, nothing persisted that outlives it.
     With an account id, the provider sends it as ChatGPT-Account-ID on every
     request: the ChatGPT backend needs it beside the bearer token, the gateway
     passes it through (it strips only credential carriers), and it is not a
-    secret, so a static header is where it belongs."""
+    secret, so a static header is where it belongs.
+
+    The permission profile PROFILE reads Codex's platform defaults (`:minimal`) and `readable`, and writes nothing. It
+    replaces `sandbox_mode = "read-only"`, which Codex 0.162.1 reads as read access to the whole filesystem (audit F01);
+    the two cannot be set together, so there is no `sandbox_mode` here and no --sandbox on the command line."""
     home = os.path.join(scratch, "codex-home")
     os.makedirs(home, mode=0o700)
     headers = f"http_headers = {{ {_toml_str('ChatGPT-Account-ID')} = {_toml_str(account)} }}\n" if account else ""
     with open(os.path.join(home, "config.toml"), "w", encoding="utf-8") as f:
         f.write(f"model_provider = {_toml_str(PROVIDER_ID)}\n"
-                'approval_policy = "never"\nsandbox_mode = "read-only"\n\n'
+                f'approval_policy = "never"\ndefault_permissions = {_toml_str(PROFILE)}\n\n'
+                f"[permissions.{PROFILE}.filesystem]\n" + '":minimal" = "read"\n'
+                + "".join(f"{_toml_str(path)} = \"read\"\n" for path in dict.fromkeys(readable)) + "\n"
                 '[history]\npersistence = "none"\n\n'
                 "[features]\n" + "".join(f"{name} = false\n" for name in EGRESS_FEATURES) + "\n"
                 f"[model_providers.{PROVIDER_ID}]\n"
@@ -540,42 +693,67 @@ def child_env(environ: dict[str, str], scratch: str, home: str, key: str) -> dic
 # --- running Codex once ------------------------------------------------------
 
 START_PROBE_EXIT, REFUSED_PROBE_EXIT, WRITTEN_PROBE_EXIT = 42, 43, 7
+READ_PROBE_EXIT, CONTROL_PROBE_EXIT = 9, 44   # the canary was read; the workspace's own file could not be
 
 
 def prove_sandbox(binary: str, workdir: str, env: dict[str, str]) -> None:
-    """The read-only sandbox must start and must refuse a write, or the review does not run. Codex's sandbox is bubblewrap, which needs
-    unprivileged user namespaces; a host that refuses them (CI's Ubuntu 24.04) fails the review with one line and runs nothing wider:
-    no fallback to a sandbox that writes or to none, and nothing in this module names one (ADR-053 rule 2).
+    """The review's sandbox must start, must refuse a write and must refuse a read outside its allowlist, or the review does not run.
+    Codex's sandbox is bubblewrap, which needs unprivileged user namespaces; a host that refuses them (CI's Ubuntu 24.04) fails the review
+    with one line and runs nothing wider: no fallback to a sandbox that writes or to none, and nothing in this module names one (ADR-053 rule 2).
 
     Each probe answers with an exit status of its own, which the sandbox hands back from the command it ran: a sandbox that exits 0
     without running anything proves nothing (the start probe wants START_PROBE_EXIT, the write probe REFUSED_PROBE_EXIT, and
     WRITTEN_PROBE_EXIT says the write happened). The write is tried at a path of a fresh random name in the extract, which the pull
     request controls: a fixed name could be planted (a file, a dangling link, a link to /dev/null) to make a sound sandbox look broken.
-    A probe that outlives SANDBOX_PROOF_TIMEOUT_S is ended with its whole process group, as run_codex ends Codex."""
-    probe = os.path.join(workdir, f".fabric-write-probe-{secrets.token_hex(8)}")
-    for label, command, wanted in (
-            ("start", ["/bin/sh", "-c", f"exit {START_PROBE_EXIT}"], START_PROBE_EXIT),
-            ("refuse a write", ["/bin/sh", "-c", f'touch "$1" 2>/dev/null && exit {WRITTEN_PROBE_EXIT}; exit {REFUSED_PROBE_EXIT}', "sh", probe],
-             REFUSED_PROBE_EXIT)):
-        argv = [binary, "sandbox", "-P", ":read-only", "-C", workdir, "--", *command]
-        p = subprocess.Popen(argv, env=env, cwd=workdir, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                             start_new_session=True)
-        try:
+    The read probe plants a canary of a fresh random name beside the extract, in the scratch and so outside the profile's allowlist, and
+    wants it unreadable (REFUSED_PROBE_EXIT) while a file of the extract, read in the same command, is readable: READ_PROBE_EXIT says
+    the canary was read, CONTROL_PROBE_EXIT that nothing could be, which would make a refusal mean nothing. A probe that outlives
+    SANDBOX_PROOF_TIMEOUT_S is ended with its whole process group, as run_codex ends Codex."""
+    token = secrets.token_hex(8)
+    probe = os.path.join(workdir, f".fabric-write-probe-{token}")
+    control = os.path.join(workdir, f".fabric-read-control-{token}")
+    canary = os.path.join(os.path.dirname(os.path.realpath(workdir)), f".fabric-read-canary-{token}")
+    sh = "/bin/sh"
+    probes = (
+        ("start", [sh, "-c", f"exit {START_PROBE_EXIT}"], START_PROBE_EXIT),
+        ("refuse a write", [sh, "-c", f'touch "$1" 2>/dev/null && exit {WRITTEN_PROBE_EXIT}; exit {REFUSED_PROBE_EXIT}', "sh", probe],
+         REFUSED_PROBE_EXIT),
+        ("refuse a read outside its allowlist",
+         [sh, "-c", f'cat "$2" >/dev/null 2>&1 || exit {CONTROL_PROBE_EXIT}; cat "$1" >/dev/null 2>&1 && exit {READ_PROBE_EXIT}; '
+                    f'exit {REFUSED_PROBE_EXIT}', "sh", canary, control], REFUSED_PROBE_EXIT))
+    with open(control, "w", encoding="utf-8") as f:
+        f.write("control\n")
+    with open(canary, "w", encoding="utf-8") as f:
+        f.write(f"canary {token}\n")
+    try:
+        for label, command, wanted in probes:
+            argv = [binary, "sandbox", "-P", PROFILE, "-C", workdir, "--", *command]
+            p = subprocess.Popen(argv, env=env, cwd=workdir, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                 start_new_session=True)
             try:
-                _, err = p.communicate(timeout=SANDBOX_PROOF_TIMEOUT_S)
-            except subprocess.TimeoutExpired:
-                raise FailedReview(f"the read-only sandbox did not {label} within {SANDBOX_PROOF_TIMEOUT_S} s; no wider one is used") from None
-        finally:
-            if p.poll() is None or _group_alive(p.pid):
-                _end_group(p)
-        if p.returncode != wanted:
-            why = re.sub(r"[\x00-\x1f\x7f-\x9f]", " ", err.decode("utf-8", "replace").replace(env.get(ENV_KEY, "\0"), "[key]"))[-200:].strip()
-            if p.returncode == WRITTEN_PROBE_EXIT and label == "refuse a write":
-                raise FailedReview("the read-only sandbox cannot refuse a write (exit 7); no wider one is used")
-            ran = "ran nothing it was asked" if p.returncode == 0 else f"exit {p.returncode}"
-            raise FailedReview(f"the read-only sandbox cannot {label} ({ran}: {why}); no wider one is used")
-    if os.path.lexists(probe):
-        raise FailedReview("the sandbox let a write through; no review is run in a writable tree")
+                try:
+                    _, err = p.communicate(timeout=SANDBOX_PROOF_TIMEOUT_S)
+                except subprocess.TimeoutExpired:
+                    raise FailedReview(f"the read-only sandbox did not {label} within {SANDBOX_PROOF_TIMEOUT_S} s; no wider one is used") from None
+            finally:
+                if p.poll() is None or _group_alive(p.pid):
+                    _end_group(p)
+            if p.returncode != wanted:
+                why = re.sub(r"[\x00-\x1f\x7f-\x9f]", " ", err.decode("utf-8", "replace").replace(env.get(ENV_KEY, "\0"), "[key]"))[-200:].strip()
+                if p.returncode == WRITTEN_PROBE_EXIT and label == "refuse a write":
+                    raise FailedReview("the read-only sandbox cannot refuse a write (exit 7); no wider one is used")
+                if p.returncode == READ_PROBE_EXIT and label.startswith("refuse a read"):
+                    raise FailedReview("the read-only sandbox lets a file outside its allowlist be read (the canary was); no wider one is used")
+                if p.returncode == CONTROL_PROBE_EXIT and label.startswith("refuse a read"):
+                    raise FailedReview("the read-only sandbox cannot read the extract it was given, so its refusal of a read proves nothing; no wider one is used")
+                ran = "ran nothing it was asked" if p.returncode == 0 else f"exit {p.returncode}"
+                raise FailedReview(f"the read-only sandbox cannot {label} ({ran}: {why}); no wider one is used")
+        if os.path.lexists(probe):
+            raise FailedReview("the sandbox let a write through; no review is run in a writable tree")
+    finally:
+        for path in (control, canary):
+            with contextlib.suppress(FileNotFoundError):
+                os.unlink(path)
 
 
 class Observed:
@@ -615,7 +793,7 @@ def _run_codex(binary: str, model: str, workdir: str, scratch: str, env: dict[st
     answer = os.path.join(scratch, "last-message.json")
     events = os.path.join(scratch, "codex-events.jsonl")
     log = os.path.join(scratch, "codex.log")
-    argv = [binary, "exec", "--json", "--sandbox", "read-only", "--skip-git-repo-check", "--cd", workdir,
+    argv = [binary, "exec", "--json", "--skip-git-repo-check", "--cd", workdir,
             "--model", model, *routing.effort_spelling(PROVIDER, effort_level),
             "--output-schema", SCHEMA_PATH, "--output-last-message", answer, "--color", "never", "-"]
     # stdout is the JSONL event stream and nothing else; Codex's own log lines go to stderr, kept apart.
@@ -1093,7 +1271,8 @@ def _review(pr: str, request: str, *, model_flag: str | None, timeout_min: float
             try:
                 workdir = os.path.join(scratch, "head")
                 extract(repo, head, workdir)
-                env = child_env(environ, scratch, codex_home(scratch, base_url, account_id(env_run)), key)
+                home = codex_home(scratch, base_url, account_id(env_run), readable_paths(binary, workdir, repo))
+                env = child_env(environ, scratch, home, key)
                 prompt = brief.rstrip("\n") + "\n" + answer_shape()
                 prove_sandbox(binary, workdir, env)
                 return parse_answer_full(run_codex(binary, model, workdir, scratch, env, prompt, timeout_min * 60, level, observed))
@@ -1213,7 +1392,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"fabric-review: stopped by signal {e.args[0]}; the scratch is removed, "
               + ("what was being posted (the review, or the unavailable statement) may have been posted: look at the PR" if _posting else "nothing posted"), file=sys.stderr)
         return 128 + int(e.args[0])
-    except (OSError, ValueError, subprocess.SubprocessError, tarfile.TarError) as e:
+    except (OSError, ValueError, subprocess.SubprocessError) as e:
         print(f"fabric-review: {e}; nothing posted", file=sys.stderr)
         return 1
 

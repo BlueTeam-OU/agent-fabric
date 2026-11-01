@@ -13,10 +13,14 @@ import json
 import re
 import os
 import pwd
+import http.server
+import shutil
 import signal
 import subprocess
 import sys
+import tarfile
 import tempfile
+import threading
 import time
 
 # Its own imports would write __pycache__ into the checkout (ADR-021): this file's run is a test's.
@@ -51,6 +55,7 @@ if argv[:1] == ["sandbox"]:
     smode = open(os.path.join(S, "sandbox-mode")).read().strip() if os.path.exists(os.path.join(S, "sandbox-mode")) else "ok"
     cmd = argv[argv.index("--") + 1:]
     is_write_probe = "touch" in " ".join(cmd)
+    is_read_probe = "cat" in " ".join(cmd)
     if smode == "fail":
         print("bwrap: No permissions to create a new namespace " + os.environ.get("AGENT_FABRIC_CODEX_KEY", ""), file=sys.stderr)
         sys.exit(1)
@@ -63,6 +68,12 @@ if argv[:1] == ["sandbox"]:
         sys.exit(0)                                   # a "sandbox" that runs nothing and says all is well
     if smode == "writable":
         sys.exit(subprocess.run(cmd).returncode)      # nothing refuses the write: the probe's touch succeeds and says 7
+    if is_read_probe and smode == "readable":
+        sys.exit(subprocess.run(cmd).returncode)      # nothing confines a read: the canary is read, and the probe says 9
+    if is_read_probe and smode == "blind":
+        sys.exit(44)                                  # the extract's own file cannot be read: a refusal would mean nothing
+    if is_read_probe and smode in ("ok", "leaky"):
+        sys.exit(43)                                  # the canary is outside the allowlist: refused
     if smode == "leaky":
         subprocess.run(cmd)                           # the write happens, and the sandbox still answers as if it were refused
         sys.exit(43 if is_write_probe else 42)
@@ -584,8 +595,8 @@ def main() -> int:
             check("codex ran exactly once", f.read() == "run\n")
         rec = record()
         argv = rec["argv"]
-        check("codex exec with --sandbox read-only", argv[:1] == ["exec"]
-              and argv[argv.index("--sandbox") + 1] == "read-only", argv)
+        check("codex exec names no --sandbox: the profile in CODEX_HOME's config.toml is the sandbox (audit F01)",
+              argv[:1] == ["exec"] and "--sandbox" not in argv and "-s" not in argv and "--dangerously-bypass-approvals-and-sandbox" not in argv, argv)
         check("--json: the event stream is what shows the run read the code", "--json" in argv, argv)
         check("--output-schema hands it the answer schema",
               argv[argv.index("--output-schema") + 1] == review_codex.SCHEMA_PATH, argv)
@@ -681,8 +692,8 @@ def main() -> int:
         check("a review runs", r.returncode == 0, r.stderr + r.stdout)
         with open(os.path.join(state, "sandbox-calls")) as f:
             probes = [json.loads(line) for line in f]
-        check("two probes in the extract, read-only profile: a command starts, a write is refused",
-              len(probes) == 2 and all(p[:3] == ["sandbox", "-P", ":read-only"] for p in probes)
+        check("three probes in the extract, the reviewer profile: a command starts, a write is refused, a read outside is refused",
+              len(probes) == 3 and all(p[:3] == ["sandbox", "-P", "reviewer"] for p in probes)
               and probes[0][-1] == "exit 42" and "touch" in probes[1][-3] and probes[1][-3].endswith("exit 43")
               and probes[0][probes[0].index("-C") + 1] == record()["cwd"], probes)
         probe_path = probes[1][-1]
@@ -1417,6 +1428,265 @@ def main() -> int:
         os.rmdir(ledger_file)
         fresh_ledger()
 
+        print("the reviewer reads only an allowlisted tree (audit F01): the profile, the canary probe, the refusals")
+        set_pr(); mode("ok")
+        with open(os.path.join(state, "sandbox-mode"), "w") as f:
+            f.write("ok")
+        r = run("7", req)
+        check("a review runs", r.returncode == 0, r.stderr + r.stdout)
+        cfg = record()["config"] or ""
+        cwd = record()["cwd"]
+        check("config.toml sets the reviewer profile as default and no sandbox_mode (the two cannot be set together)",
+              'default_permissions = "reviewer"\n' in cfg and "sandbox_mode" not in cfg and "[permissions.reviewer.filesystem]\n" in cfg, cfg)
+        granted = re.findall(r'^"([^"]+)" = "read"$', cfg.split("[permissions.reviewer.filesystem]\n", 1)[1].split("\n\n", 1)[0], re.M)
+        common = os.path.join(os.path.realpath(repo), ".git")
+        check("the profile reads the extract, the repository's history and nothing else of the repository or the account",
+              os.path.realpath(cwd) in granted and os.path.join(common, "objects") in granted and os.path.join(common, "refs") in granted
+              and not any(g == os.path.realpath(repo) or g.startswith(os.path.join(os.path.realpath(repo), "app.py"))
+                          or g in (os.path.join(common, "config"), os.path.join(common, "hooks"), os.path.realpath(home), os.path.realpath(tmp))
+                          for g in granted), granted)
+        check("…and the platform defaults", '":minimal" = "read"\n' in cfg, cfg)
+        with open(os.path.join(state, "sandbox-calls")) as f:
+            probes = [json.loads(line) for line in f]
+        read_probe = probes[2]
+        canary_path, control_path = read_probe[-2], read_probe[-1]
+        check("the read probe's canary lies beside the extract, outside every granted path, under a fresh random name",
+              os.path.dirname(canary_path) == os.path.dirname(cwd) and os.path.basename(canary_path).startswith(".fabric-read-canary-")
+              and not any(canary_path == g or canary_path.startswith(g.rstrip("/") + "/") for g in granted), (canary_path, granted))
+        check("…and its control is a file of the extract, which the same command must read",
+              os.path.dirname(control_path) == cwd and os.path.basename(control_path).startswith(".fabric-read-control-"), control_path)
+        check("the review's scratch is gone, canary included", scratch_empty(), os.listdir(scratch))
+        for label, smode, text in (("a sandbox that lets the canary be read", "readable", "lets a file outside its allowlist be read"),
+                                   ("a sandbox that cannot read the extract either", "blind", "its refusal of a read proves nothing")):
+            set_pr(); mode("ok")
+            with open(os.path.join(state, "sandbox-mode"), "w") as f:
+                f.write(smode)
+            r = run("7", req)
+            check(f"{label}: exit 1, said in one line, codex exec never started, nothing posted, the scratch removed",
+                  r.returncode == 1 and text in r.stderr and not codex_ran() and not posted() and scratch_empty(),
+                  (r.returncode, r.stderr[-400:], codex_ran(), posted(), os.listdir(scratch)))
+        work = tempfile.mkdtemp(prefix="extract.", dir=tmp)
+        verdict = prove("readable", work)
+        check("prove_sandbox called directly refuses a readable canary and leaves neither probe file behind",
+              "lets a file outside its allowlist be read" in verdict and not [n for n in os.listdir(work) if n.startswith(".fabric-read")]
+              and not [n for n in os.listdir(os.path.dirname(work)) if n.startswith(".fabric-read")], (verdict, os.listdir(work)))
+        check("positive control: the same proof passes where the canary is refused", prove("ok") == "ok")
+
+        print("the real Codex sandbox refuses a read outside the allowlist (skipped where no codex runs a sandbox here)")
+        real_codex = shutil.which("codex", path=os.environ.get("PATH", ""))
+        real_ok = False
+        if real_codex:
+            real_scratch = tempfile.mkdtemp(prefix="real.", dir=tmp)
+            real_work = os.path.join(real_scratch, "head")
+            review_codex.extract(repo, head, real_work)
+            real_home = review_codex.codex_home(real_scratch, "http://127.0.0.1:1", None,
+                                                review_codex.readable_paths(real_codex, real_work, repo))
+            real_env = review_codex.child_env({"PATH": os.environ.get("PATH", "")}, real_scratch, real_home, "k")
+            try:
+                review_codex.prove_sandbox(real_codex, real_work, real_env)
+                real_ok = True
+            except review_codex.FailedReview as e:
+                print(f"  skip the real sandbox does not start here: {e}")
+        else:
+            print("  skip no codex on PATH")
+        if real_ok:
+            check("the real sandbox passes the proof, canary probe included", True)
+            saved_profile = review_codex.PROFILE
+            review_codex.PROFILE = ":read-only"   # the profile main shipped: read access to the whole filesystem
+            try:
+                try:
+                    review_codex.prove_sandbox(real_codex, real_work, real_env)
+                    old = "proved"
+                except review_codex.FailedReview as e:
+                    old = str(e)
+            finally:
+                review_codex.PROFILE = saved_profile
+            check("negative control: under the old `:read-only` profile the same proof refuses the review, the canary being readable",
+                  "lets a file outside its allowlist be read" in old, old)
+
+            # A command the reviewer's model asks Codex to run, through the real `codex exec` and a stand-in Responses endpoint.
+            secret_dir = tempfile.mkdtemp(prefix="secrets.", dir=tmp)
+            secret = os.path.join(secret_dir, "id_ed25519")
+            with open(secret, "w") as f:
+                f.write("PRIVATE-KEY-MATERIAL\n")
+            wip = os.path.join(repo, "wip.txt")
+            command = (f"cat {secret}; echo ==; cat {wip}; echo ==; ls {os.path.realpath(home)}; echo ==; cat app.py; echo ==; "
+                       f"git -C {repo} log --oneline -1 | wc -l; echo ==; cat {repo}/.git/config; true")
+            asked: list[int] = []
+
+            class Responses(http.server.BaseHTTPRequestHandler):
+                def log_message(self, *a):
+                    pass
+
+                def do_POST(self):
+                    self.rfile.read(int(self.headers.get("content-length", 0)))
+                    asked.append(1)
+                    sse = lambda ev, d: f"event: {ev}\ndata: {json.dumps(d)}\n\n".encode()  # noqa: E731
+                    self.send_response(200)
+                    self.send_header("content-type", "text/event-stream")
+                    self.end_headers()
+                    self.wfile.write(sse("response.created", {"type": "response.created", "response": {"id": f"r{len(asked)}"}}))
+                    item = ({"type": "function_call", "call_id": "c1", "id": "fc1", "name": "exec_command",
+                             "arguments": json.dumps({"cmd": command})} if len(asked) == 1 else
+                            {"type": "message", "role": "assistant", "id": "m1",
+                             "content": [{"type": "output_text", "text": '{"findings": []}'}]})
+                    self.wfile.write(sse("response.output_item.done", {"type": "response.output_item.done", "output_index": 0, "item": item}))
+                    self.wfile.write(sse("response.completed", {"type": "response.completed", "response": {"id": f"r{len(asked)}", "usage": {
+                        "input_tokens": 1, "input_tokens_details": {"cached_tokens": 0}, "output_tokens": 1,
+                        "output_tokens_details": {"reasoning_tokens": 0}, "total_tokens": 2}}}))
+
+            server = http.server.HTTPServer(("127.0.0.1", 0), Responses)
+            threading.Thread(target=server.serve_forever, daemon=True).start()
+            try:
+                exec_scratch = tempfile.mkdtemp(prefix="exec.", dir=tmp)
+                exec_work = os.path.join(exec_scratch, "head")
+                review_codex.extract(repo, head, exec_work)
+                exec_home = review_codex.codex_home(exec_scratch, f"http://127.0.0.1:{server.server_port}", None,
+                                                    review_codex.readable_paths(real_codex, exec_work, repo))
+                exec_env = review_codex.child_env({"PATH": os.environ.get("PATH", "")}, exec_scratch, exec_home, "k")
+                try:
+                    review_codex.run_codex(real_codex, "gpt-test", exec_work, exec_scratch, exec_env, "review\n", 120)
+                except review_codex.FailedReview as e:   # Codex's complaint that a stand-in's model has no metadata; the run is what is read
+                    check("…the only thing Codex complained of is the stand-in's model name", "Model metadata for `gpt-test` not found" in str(e), str(e))
+                events = review_codex.read_events(os.path.join(exec_scratch, "codex-events.jsonl"))
+                with open(os.path.join(exec_scratch, "codex-events.jsonl"), encoding="utf-8") as f:
+                    outputs = [e["item"].get("aggregated_output", "") for e in map(json.loads, f.read().splitlines())
+                               if e.get("item", {}).get("type") == "command_execution" and e.get("type") == "item.completed"]
+            finally:
+                server.shutdown()
+            out = "".join(outputs)
+            check("the model's command ran in the real sandbox and finished", events.commands == 1 and out.count("==") == 5, (events.commands, out))
+            check("the account's key file, by absolute path, is not there for it to read",
+                  "PRIVATE-KEY-MATERIAL" not in out and "id_ed25519: No such file" in out, out)
+            refused = [ln for ln in out.splitlines() if "No such file" in ln]
+            check("neither are the repository's uncommitted files, its config, nor the home: each is as if absent",
+                  "not committed" not in out and "[core]" not in out
+                  and all(any(path in ln for ln in refused) for path in (wip, f"{repo}/.git/config", os.path.realpath(home))), out)
+            check("positive control: the extract's own file reads, and the repository's history is there to be read",
+                  "print(1)\nprint(2)\n==\n1\n==" in out, out)
+
+        print("the extract is the committed tree, byte for byte, verified against ls-tree (audit F13)")
+        fx = os.path.join(tmp, "work", "attrs")
+        os.makedirs(fx)
+
+        def fxgit(*a: str, data: bytes | None = None) -> str:
+            return subprocess.run(["git", "-C", fx, *a], env=git_env(), check=True, capture_output=True, input=data,
+                                  timeout=30).stdout.decode("utf-8", "surrogateescape").strip()
+
+        fxgit("init", "-q", "-b", "main")
+        files = {".gitattributes": b"skip.txt export-ignore\nstamp.txt export-subst\nvendored export-ignore\n",
+                 "skip.txt": b"tracked, and export-ignore'd\n", "stamp.txt": b"commit $Format:%H$ and $Format:%s$\n",
+                 "vendored/inner.txt": b"inside an export-ignore'd directory\n", "src/run.sh": b"#!/bin/sh\necho hi\n",
+                 "src/empty": b"", "caf\xc3\xa9 \xe2\x9c\x93.txt": b"non-ASCII name\n", "two\nlines.txt": b"a newline in the name\n",
+                 "bin.dat": bytes(range(256)) + b"\r\n\0\n"}
+        for name, data in files.items():
+            path = os.path.join(os.fsencode(fx), name.encode() if isinstance(name, str) else name)
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            with open(path, "wb") as f:
+                f.write(data)
+        os.chmod(os.path.join(fx, "src/run.sh"), 0o755)
+        os.symlink("run.sh", os.path.join(fx, "src/link"))
+        fxgit("add", "-A")
+        fxgit("update-index", "--add", "--cacheinfo", f"160000,{head},sub")   # a submodule: a commit id with no checkout
+        fxgit("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--no-gpg-sign", "-m", "attrs fixture")
+        fxhead = fxgit("rev-parse", "HEAD")
+        listing = fxgit("ls-tree", "-r", "-z", "--full-tree", fxhead).split("\0")
+        archived = tarfile.open(fileobj=io.BytesIO(subprocess.run(["git", "-C", fx, "archive", fxhead], env=git_env(), capture_output=True,
+                                                                 check=True, timeout=30).stdout)).getnames()
+        check("positive control: `git archive` of this commit really drops the export-ignore'd files",
+              "skip.txt" not in archived and "vendored/inner.txt" not in archived and "stamp.txt" in archived, archived)
+        dest = os.path.join(tmp, "fx-extract")
+        review_codex.extract(fx, fxhead, dest)
+        got = {}
+        for top, dirs, names in os.walk(dest):
+            for n in names + [d for d in dirs if os.path.islink(os.path.join(top, d))]:
+                got[os.path.relpath(os.path.join(top, n), dest)] = None
+        want_paths = [rec.split("\t", 1)[1] for rec in listing if rec and not rec.startswith("160000")]
+        check("every tracked file is in the extract, the export-ignore'd ones too (nothing vanishes)",
+              sorted(got) == sorted(want_paths) and "skip.txt" in got and "vendored/inner.txt" in got, (sorted(got), want_paths))
+        mismatches = []
+        for rec in listing:
+            if not rec or rec.startswith("160000"):
+                continue
+            meta, name = rec.split("\t", 1)
+            fmode, _kind, oid = meta.split(" ")
+            blob = subprocess.run(["git", "-C", fx, "cat-file", "blob", oid], env=git_env(), capture_output=True, check=True, timeout=30).stdout
+            target = os.path.join(dest, name)
+            if fmode == "120000":
+                same = os.path.islink(target) and os.fsencode(os.readlink(target)) == blob
+            else:
+                with open(target, "rb") as f:
+                    same = f.read() == blob and bool(os.stat(target).st_mode & 0o111) == (fmode == "100755")
+            if not same:
+                mismatches.append(name)
+        check("every file is the committed blob byte for byte, with the committed mode (export-subst expands nothing)", not mismatches, mismatches)
+        with open(os.path.join(dest, "stamp.txt"), "rb") as f:
+            check("the export-subst placeholder is left as committed", f.read() == files["stamp.txt"])
+        check("a submodule is an empty directory", os.path.isdir(os.path.join(dest, "sub")) and os.listdir(os.path.join(dest, "sub")) == [])
+        entries = review_codex._tree(fx, fxhead)
+
+        def tampered(change) -> str:
+            copy = os.path.join(tmp, "fx-tamper")
+            shutil.rmtree(copy, ignore_errors=True)
+            shutil.copytree(dest, copy, symlinks=True)
+            change(copy)
+            try:
+                review_codex.verify_extract(copy, entries)
+                return "verified"
+            except review_codex.Refused as e:
+                return str(e)
+
+        def rewrite(path):
+            def change(root):
+                with open(os.path.join(root, path), "r+b") as f:
+                    data = f.read()
+                    f.seek(0)
+                    f.write(data[:-1] + bytes([data[-1] ^ 1]))
+            return change
+        check("positive control: the untouched extract verifies", tampered(lambda root: None) == "verified")
+        check("a byte changed in a file is caught", "differs from the head's" in tampered(rewrite("src/run.sh")))
+        check("a file removed is caught", "missing" in tampered(lambda root: os.unlink(os.path.join(root, "skip.txt"))))
+        check("a file added is caught", "extra" in tampered(lambda root: open(os.path.join(root, "new.txt"), "w").close()))
+        check("a directory added is caught", "extra" in tampered(lambda root: os.mkdir(os.path.join(root, "src", "stray"))))
+        check("an executable bit flipped is caught", "differs from the head's" in tampered(lambda root: os.chmod(os.path.join(root, "src/run.sh"), 0o644)))
+        check("a link retargeted is caught", "differs from the head's" in tampered(
+            lambda root: (os.unlink(os.path.join(root, "src/link")), os.symlink("empty", os.path.join(root, "src/link")))))
+        check("a file turned into a link is caught", "differs from the head's" in tampered(
+            lambda root: (os.unlink(os.path.join(root, "src/empty")), os.symlink("run.sh", os.path.join(root, "src/empty")))))
+
+        def hostile(name_tree: str) -> tuple[str, str]:
+            """A commit whose tree holds a path git's own tools refuse to add but a pushed tree can carry, and what extract says to it."""
+            blob = fxgit("hash-object", "-w", "--stdin", data=b"payload\n")
+            inner = subprocess.run(["git", "-C", fx, "mktree"], env=git_env(), input=f"100644 blob {blob}\tconfig\n".encode(), capture_output=True,
+                                   check=True, timeout=30).stdout.decode().strip()
+            root_tree = subprocess.run(["git", "-C", fx, "mktree"], env=git_env(), input=f"040000 tree {inner}\t{name_tree}\n".encode(),
+                                       capture_output=True, check=True, timeout=30).stdout.decode().strip()
+            commit = fxgit("-c", "user.name=t", "-c", "user.email=t@t", "commit-tree", root_tree, "-m", "hostile")
+            out = os.path.join(tmp, "fx-hostile")
+            shutil.rmtree(out, ignore_errors=True)
+            try:
+                review_codex.extract(fx, commit, out)
+                return "extracted", out
+            except review_codex.Refused as e:
+                return str(e), out
+        verdict, out = hostile(".git")
+        check("a tree with a .git directory is refused, not written (the extract could carry a git config the reviewer's tools would read)",
+              "cannot be extracted" in verdict and not os.path.exists(os.path.join(out, ".git")), verdict)
+        verdict, out = hostile(".GIT")
+        check("…in any case", "cannot be extracted" in verdict, verdict)
+        verdict, out = hostile("sub")
+        check("positive control: the same shape under an ordinary name is extracted", verdict == "extracted" and os.path.isfile(os.path.join(out, "sub", "config")), verdict)
+        blob = fxgit("hash-object", "-w", "--stdin", data=b"/etc/passwd")
+        tree = subprocess.run(["git", "-C", fx, "mktree"], env=git_env(), input=f"120000 blob {blob}\tpasswd\n".encode(), capture_output=True,
+                              check=True, timeout=30).stdout.decode().strip()
+        link_commit = fxgit("-c", "user.name=t", "-c", "user.email=t@t", "commit-tree", tree, "-m", "link out")
+        try:
+            review_codex.extract(fx, link_commit, os.path.join(tmp, "fx-link"))
+            verdict = "extracted"
+        except review_codex.Refused as e:
+            verdict = str(e)
+        check("a link out of the head is refused, as it was under `git archive`", "is a link out of the head" in verdict, verdict)
+
         print("refusals: nothing runs, nothing is posted")
         for label, change, why in (
                 ("no base URL", {"AGENT_FABRIC_CODEX_BASE_URL": None}, "AGENT_FABRIC_CODEX_BASE_URL"),
@@ -1450,7 +1720,6 @@ def main() -> int:
         check("the working copy is untouched after every case", git("status", "--porcelain") == status_before)
     finally:
         subprocess.run(["chmod", "-R", "u+w", tmp], check=False)
-        import shutil
         shutil.rmtree(tmp, ignore_errors=True)
     print(f"\ntest_review_codex: {'OK' if not fails else f'{fails} FAILED'}")
     return 1 if fails else 0
