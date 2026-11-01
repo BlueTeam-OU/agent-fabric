@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
 # The operator key's forced command (agent-fabric ADR-048 §5 rules 3-4):
 # sshd runs this, whatever the client asked, as the account the key is for,
-# with the request in SSH_ORIGINAL_COMMAND. It accepts one of four exact
+# with the request in SSH_ORIGINAL_COMMAND. It accepts one of five exact
 # words and enters the account through moveto's installed `enter`.
 #
 # What this guarantees: the account's login files (~/.bash_profile,
 # ~/.bashrc) run FIRST, in the login shell, before `enter`, and may replace
 # it. enter-ssh and enter-ssh.conf are root-owned (never run from a
 # checkout, which the account could rewrite), so all that pair guarantees is
-# that the operator's key opens one of the four modes through that login
+# that the operator's key opens one of the five modes through that login
 # shell. What then runs is the account's, as on the sudo path, so a pane
 # shows what the account makes it show. The operator treats an agent's pane
 # as that agent's, never as a trusted channel.
@@ -38,7 +38,13 @@ EXPECTED_OWNER_UID=0
 case "${SSH_ORIGINAL_COMMAND-}" in
     --wait|--watch|--resume) mode=("$SSH_ORIGINAL_COMMAND") ;;
     shell) mode=() ;;
-    *) echo "enter-ssh: refused; ask for exactly one of --wait, --watch, shell, --resume" >&2; exit 2 ;;
+    # The fifth word is not a flag: the deck recognises its harness pane by this argv (`ssh … -- attach`). It is the
+    # mode --attach to enter, which draws the pane of the account's own FleetDeck server instead of starting a shell
+    # (agent-fabric-harness.service) and says in one line, exit 1, when there is no binary, server or pane. Going
+    # through enter keeps the whole fence above: the same root-owned conf and enter, the same login shell first, the
+    # same pid for record_client; the only thing enter-ssh adds is the word.
+    attach) mode=(--attach) ;;
+    *) echo "enter-ssh: refused; ask for exactly one of --wait, --watch, shell, --resume, attach" >&2; exit 2 ;;
 esac
 conf="$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/enter-ssh.conf"
 enter="$(head -n 1 "$conf" 2>/dev/null)"

@@ -115,6 +115,8 @@ EMPTY = json.dumps({"findings": [], "coverage": COV})
 OK = json.dumps({"coverage": COV, "findings": [
     {"level": "P3", "file": "app.py", "line": 2, "scenario": "a\nmulti-line scenario", "expected": "e3", "fix": "f3"},
     {"level": "P1", "file": "app.py", "line": 1, "scenario": "s1", "expected": "e1", "fix": "f1"}]})
+HEADSUP = ("Heads up: Long threads and multiple compactions can cause the model to be less accurate. "
+           "Start a new thread when possible to keep threads small and targeted.")
 HOST = ("Code Mode is unavailable because failed to spawn code-mode host /home/u/.local/bin/codex-code-mode-host: "
         "host executable was not found. Code mode will fail closed; enable `features.code_mode_host` and install "
         "`codex-code-mode-host`.")
@@ -149,6 +151,11 @@ elif mode == "cmdfailed":
 elif mode == "othererror":
     item("error", message="something else went wrong")
     answer(EMPTY)
+elif mode in ("compaction", "compaction-nocommand", "compaction-other"):
+    item("error", message=HEADSUP)
+    if mode == "compaction-other":
+        item("error", message="something else went wrong")
+    answer(EMPTY, commands=0 if mode == "compaction-nocommand" else 1)
 elif mode == "turnfailed":
     ev({"type": "turn.started"})
     ev({"type": "error", "message": "stream disconnected before completion: error sending request"})
@@ -218,6 +225,8 @@ if a[:1] == ["api"]:
             f.write(path + "\\n")
         if os.path.exists(os.path.join(S, "read-fails")):
             print("gh: HTTP 502: Bad Gateway", file=sys.stderr); sys.exit(1)
+        if "-i" in a:   # gh.api_list: the status line and headers, a blank line, one page of the list
+            sys.stdout.write("HTTP/2.0 200 OK\r\n\r\n" + json.dumps(state("reviews.json", []))); sys.exit(0)
         if path.split("?")[0].endswith("/reviews"):
             print(json.dumps([state("reviews.json", [])]))
         else:
@@ -317,6 +326,33 @@ def main() -> int:
     check("a run that ran a command and answered is accepted", judged(real_ok) == "ok", judged(real_ok))
     check("the live defect: the tool host missing is refused, and named",
           "its tool host is missing (codex-code-mode-host)" in judged(real_nohost), judged(real_nohost))
+    heads_up = ("Heads up: Long threads and multiple compactions can cause the model to be less accurate. "
+                "Start a new thread when possible to keep threads small and targeted.")
+    check("the advisory's phrase is pinned to Codex 0.162.1's message",
+          review_codex.COMPACTION_ADVISORY == "Long threads and multiple compactions"
+          and review_codex.COMPACTION_ADVISORY in heads_up)
+    advisory_item = ('{"type":"item.completed","item":{"id":"item_9","type":"error","message":"' + heads_up + '"}}\n')
+    other_item = '{"type":"item.completed","item":{"id":"item_8","type":"error","message":"something else went wrong"}}\n'
+
+    def read_stream(stream: str) -> "review_codex.CodexRun":
+        with tempfile.NamedTemporaryFile("w", suffix=".jsonl", delete=False) as fh:
+            fh.write(stream)
+        try:
+            return review_codex.read_events(fh.name)
+        finally:
+            os.unlink(fh.name)
+    with_advisory = real_ok.replace('{"type":"turn.started"}\n', '{"type":"turn.started"}\n' + advisory_item, 1)
+    check("the heads-up is counted as an advisory, not as an error",
+          (r := read_stream(with_advisory)).advisories == 1 and r.errors == [], (r.advisories, r.errors))
+    check("a run with the heads-up, a command and an answer is accepted", judged(with_advisory) == "ok", judged(with_advisory))
+    mixed = with_advisory.replace(advisory_item, advisory_item + other_item, 1)
+    check("any other error item beside it still refuses", "something else went wrong" in judged(mixed)
+          and "Long threads" not in judged(mixed), judged(mixed))
+    no_cmd_adv = "\n".join(ln for ln in with_advisory.splitlines() if "command_execution" not in ln)
+    check("the heads-up without a command is still 'ran no command'", "ran no command" in judged(no_cmd_adv), judged(no_cmd_adv))
+    check("the capacity message as an error item is not an advisory",
+          "at capacity" in judged(real_ok.replace('{"type":"turn.started"}\n', '{"type":"turn.started"}\n' + advisory_item.replace(
+              heads_up, "Selected model is at capacity"), 1)))
     no_cmd = "\n".join(ln for ln in real_ok.splitlines() if "command_execution" not in ln)
     check("a run with no command is refused", "ran no command" in judged(no_cmd), judged(no_cmd))
     check("a stream that is not JSON shows nothing, and is refused", "printed no events" in judged("not json\n"))
@@ -335,6 +371,14 @@ def main() -> int:
         "m", "a" * 40, "b..c", [], "high").split("\n")[0])
     check("…or that none was", "**effort:** Codex's default" in review_codex.render_review(
         "m", "a" * 40, "b..c", []).split("\n")[0])
+    check("no advisory, no advisory line", "compacted" not in review_codex.render_review("m", "a" * 40, "b..c", []))
+    adv_lines = review_codex.render_review("m", "a" * 40, "b..c", [], None, 2).split("\n")
+    check("the advisory is one line right after the header lines",
+          adv_lines[2].startswith("Each finding is judged") and adv_lines[3] == "" and adv_lines[4]
+          == "Codex compacted its context during the run (2 heads-up), so its reading of early files may be less exact."
+          and adv_lines[5] == "" and adv_lines[6] == "No findings.", adv_lines[:6])
+    check("the prompt tells a cut-off file to be read in parts", "sed -n 'a,bp'" in review_codex.answer_shape()
+          and "only then marked \"read\"" in review_codex.answer_shape())
 
     print("the coverage of the answer: the shipped schema requires it, and the post is a v2 review (agent-fabric ADR-065 §2 C)")
     from github import post_review, review_coverage  # noqa: E402
@@ -456,7 +500,7 @@ def main() -> int:
         def set_pr(oid: str = head) -> None:
             with open(os.path.join(state, "pr.json"), "w") as f:
                 json.dump({"number": 7, "state": "OPEN", "headRefName": f"{me}/feat/thing", "headRefOid": oid,
-                           "baseRefName": "main"}, f)
+                           "baseRefName": "main", "author": {"login": "fleet-account"}}, f)
             with open(os.path.join(state, "mergebase"), "w") as f:
                 f.write(base)
             for n in ("calls", "payload.json", "codex-run.json", "codex-calls", "grandchild", "sandbox-calls", "sandbox-mode",
@@ -776,6 +820,73 @@ def main() -> int:
         check("exit 0 and the body on stdout", r.returncode == 0 and shown(r.stdout).startswith("**Engine:** Codex")
               and "No findings." in r.stdout, r.stderr + r.stdout)
         check("nothing posted", not posted())
+
+        print("labels: a full review numbers its findings past every label the PR's reviews used (ADR-065 §5 rule 5)")
+        def labels(text: str) -> list[str]:
+            return re.findall(r"^Finding: (F\d+) ", text, re.M)
+
+        def seed_reviews(*reviews: dict) -> None:
+            with open(os.path.join(state, "reviews.json"), "w") as f:
+                json.dump([{"user": {"login": "fleet-account"}, "author_association": "OWNER", **r} for r in reviews], f)
+
+        def earlier(rid: int, *lines: str) -> dict:
+            # A v2 report of an earlier head, as the Claude reviews are: the reader skips a review with no marker.
+            marker = review_coverage.format_marker(chr(96 + rid) * 40, chr(97 + rid) * 40, "d" * 40, "e" * 64)
+            return {"id": rid, "submitted_at": f"2026-10-3{rid}T00:00:00Z", "body": marker + "\nreport\n" + "\n".join(lines) + "\n"}
+
+        set_pr(); mode("ok")
+        r = run("7", req, "--no-post")
+        check("control: a PR with no reviews starts at F1", r.returncode == 0 and labels(r.stdout) == ["F1", "F2"],
+              (r.stderr, r.stdout))
+        set_pr(); mode("ok")
+        seed_reviews(earlier(1, *(f"Finding: F{n} | P3 | likely | a.txt:1 | s{n}" for n in range(1, 6))),
+                     earlier(2, *(f"Judgement: F{n} | fixed | gone" for n in range(1, 6)),
+                             *(f"Finding: F{n} | P2 | certain | a.txt:1 | s{n}" for n in range(6, 10))))
+        r = run("7", req, "--no-post")
+        check("a PR whose reviews used up to F9: the Codex findings are F10 and F11", r.returncode == 0
+              and labels(r.stdout) == ["F10", "F11"], (r.stderr, r.stdout))
+        check("…and the prose list carries the same labels as the machine lines",
+              re.findall(r"^(F\d+)\. \*\*P\d\*\*", r.stdout, re.M) == ["F10", "F11"], r.stdout)
+        asked: list = []
+        saved_cf = review_codex.review_brief.carried_findings
+        review_codex.review_brief.carried_findings = lambda pr, head, repo: (asked.append(pr), ({"findings": [], "next": 4}, []))[1]
+        try:
+            check("the labels are read from the PR the review is posted to, not the one the request names",
+                  review_codex.label_start({"mode": "review", "pr": 12, "repository": "r"}, "h", "7") == 4 and asked == [7], asked)
+            check("a request that is no full review is not asked", review_codex.label_start({"mode": "re-review", "repository": "r"}, "h", "7") == 1
+                  and asked == [7], asked)
+        finally:
+            review_codex.review_brief.carried_findings = saved_cf
+        set_pr(); mode("ok")
+        seed_reviews(earlier(1, "Finding: F9 | P2 | certain | a.txt:1 | s9"))
+        r = run("7", req)
+        check("…and the posted review carries the same labels", r.returncode == 0 and posted()
+              and labels(payload_body()) == ["F10", "F11"], (r.stderr, payload_body()))
+        set_pr(); mode("ok"); open(os.path.join(state, "read-fails"), "w").close()
+        r = run("7", req)
+        check("reviews that cannot be listed: refused, exit 1, nothing posted", r.returncode == 1 and not posted()
+              and "cannot be listed" in r.stderr and "leave pr out" not in r.stderr and "carried" not in r.stderr, (r.returncode, r.stderr))
+        set_pr(); mode("ok"); open(os.path.join(state, "read-fails"), "w").close()
+        r = run("7", req, "--no-post")
+        check("…--no-post prints no report either", r.returncode == 1 and r.stdout == "", (r.returncode, r.stdout))
+        set_pr(); mode("ok")
+        seed_reviews(earlier(1, "Finding: F9 | P2 | certain | a.txt:1 | s9"), {"id": 2, "submitted_at": "2026-10-32T00:00:00Z", "body": None})
+        r = run("7", req)
+        check("a listed review that cannot be read: refused, exit 1, nothing posted", r.returncode == 1 and not posted()
+              and "cannot be read" in r.stderr and "review 2" in r.stderr and "leave pr out" not in r.stderr
+              and "re-post" not in r.stderr, (r.returncode, r.stderr))
+
+        print("the compaction heads-up: posted with the advisory line; with any other error or no command, a failed review")
+        set_pr(); mode("compaction")
+        r = run("7", req)
+        pbody = payload_body()
+        check("exit 0, posted, the report says Codex compacted", r.returncode == 0 and posted()
+              and "Codex compacted its context during the run (1 heads-up)" in pbody, r.stderr)
+        for m, why in (("compaction-other", "something else went wrong"),
+                       ("compaction-nocommand", "ran no command that succeeded (0 failed)")):
+            set_pr(); mode(m)
+            r = run("7", req)
+            check(f"{m}: exit 1, nothing posted, the reason said", r.returncode == 1 and not posted() and why in r.stderr, r.stderr)
 
         for m in ("retried", "eventonly"):
             print(f"a run that read the code ({m}) is posted")

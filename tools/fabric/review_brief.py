@@ -319,6 +319,54 @@ def checkpoint(pr: int, head_sha: str, repo: str, exclude_head: str | None = Non
                                   exclude_head=exclude_head)
 
 
+def earlier_reviews(pr: int, repo: str):
+    """arm_findings' Reading of every review the PR has, from the accounts gate 4c reads (the PR's author and
+    AGENT_FABRIC_REVIEW_POSTERS), or None when they cannot be listed. A seam: tests replace it, since the real one
+    asks GitHub."""
+    import gh  # noqa: PLC0415 — only a PR's full review asks GitHub
+    from github import arm_findings  # noqa: PLC0415
+    from github.review_status.base import Die  # noqa: PLC0415
+    from github.review_status.config import read_config  # noqa: PLC0415
+    try:
+        slug = gh.this_repo(repo)
+        author = (gh.pr_view(pr, ["author"], repo=slug).get("author") or {}).get("login")
+        trusted = set(read_config(os.environ).review_posters) | ({author} if isinstance(author, str) and author else set())
+        return arm_findings.read(gh.api_list(f"repos/{slug}/pulls/{pr}/reviews"), trusted)
+    except (gh.GhError, Die, ValueError, TypeError, AttributeError, OSError):
+        return None
+
+
+def carried_findings(pr: int, head_sha: str, repo: str) -> tuple[dict | None, list[str]]:
+    """({"findings": the open findings to carry, "next": the first free label number}, refusals) for a PR's full
+    review. #425 merged with F5 open: a fresh full review starts a chain of its own, so a finding an earlier chain
+    left open is judged by nothing unless the brief hands it over, and gate 4c refuses the arm on it. Its own labels
+    start past every label the PR's reviews used, closed ones included: a judgement goes to its own chain whenever
+    that chain raised the label (arm_findings), so a new F5 would take the judgement meant for the old one. A finding
+    raised on this head is another engine's same round, which is not this review's to see (blind review, ADR-020),
+    but its label still counts."""
+    got = earlier_reviews(pr, repo)
+    if got is None:
+        return None, [f"pr: #{pr}'s reviews cannot be listed, so the findings earlier reviews left open cannot be "
+                      "carried into this review; render again when GitHub answers, or leave pr out"]
+    if got.unknown:
+        # Listed but unread is the same gap as not listed: its open findings would go uncarried and its labels reused.
+        return None, [f"pr: #{pr} has {len(got.unknown)} review(s) whose findings cannot be read — "
+                      f"{'; '.join(got.unknown[:3])}{' …' if len(got.unknown) > 3 else ''}: what they left open and the "
+                      "labels they used are unknown; re-post them with their machine lines (Finding:/Judgement:), or leave pr out"]
+    numbers = [int(f.label[1:]) for f in got.findings]
+    return {"findings": [f for f in got.open if f.head != head_sha], "next": max(numbers, default=0) + 1}, []
+
+
+def carried_for(req: dict, info: dict) -> tuple[dict | None, list[str]]:
+    """carried_findings for a PR's full review of a resolved range; (None, []) for anything else, which asks nothing.
+    Claude's only: Codex answers findings and its renderer numbers them (review_codex.render_review), so a lookup
+    for it would only add a way to fail."""
+    pr = _count(req.get("pr"))
+    if not pr or req.get("mode") != "review":
+        return None, []
+    return carried_findings(pr, info["head_sha"], req["repository"])
+
+
 def resolve_range(req: dict) -> tuple[dict | None, list[str]]:
     """({base_sha, head_sha, card_base}, refusals) for a ranged request: both
     ends resolved now, and the card's base (the request's `card_base`, which
@@ -463,6 +511,8 @@ def validate(req: dict, lenses_dir: str | None = None, engine: str = "claude") -
         problems += refused
         if info and (refusal := card(repo, info["card_base"])[1]):
             problems.append(refusal)
+        if info and engine == "claude":
+            problems += carried_for(req, info)[1]
     elif isinstance(diff, str) and diff and not rng and isinstance(repo, str) and repo \
             and (refusal := card(repo, _default_tip(repo))[1]):
         # render reads a diff file's card at the default tip and drops the
@@ -611,7 +661,10 @@ COVERAGE_RULE = (
     "Before the machine lines, one fenced block whose info string is `agent-fabric-coverage v1`, holding JSON "
     '{"paths": {"<path>": {"status": "read" or "not read", "reason": "<why, when not read>"}}, '
     '"lenses": {"<lens>": "applied" or "not applied"}}: every path `git diff --name-only` lists for the range, '
-    "once, and every lens above. A path not read keeps the review from counting as coverage of the head.")
+    "once, and every lens above. For paths you treated alike (a memory drain's thousand), the block may instead carry "
+    '"default": {"status": ..., "reason": ...} beside "paths", the entry of every changed path it does not name; a '
+    "path you name keeps its own entry, and a path outside the range is refused. A path not read, or a default not "
+    "read, keeps the review from counting as coverage of the head.")
 
 
 class EvidenceRefused(Exception):
@@ -852,6 +905,23 @@ def render(req: dict, lenses_dir: str | None = None, allow_rationale: bool = Fal
         out += [f"## {heading}", _items(req.get(key))]
     text, _ = card(req["repository"], info["card_base"] if info else _default_tip(req["repository"]))
     out += ["## Project review card", text if text else "(none)"]
+    handed = None
+    if info and engine == "claude":
+        handed, refused = carried_for(req, info)
+        if refused:
+            # refusals() read the reviews once; this second read can fail where that one passed, and a brief without
+            # the carried findings would have the reviewer reuse their labels (#437 round 4 F9).
+            raise RequestError(refused)
+    if handed and handed["next"] > 1:
+        pr = _count(req.get("pr"))
+        out.append("## Open findings from earlier reviews")
+        if handed["findings"]:
+            out += [f"Earlier reviews of #{pr} left these findings open, each with the head it was raised on. Answer "
+                    f"each by its label in a `{review_lines.JUDGEMENT_SHAPE}` line: fixed or not-real where the range's "
+                    "head no longer has it, real, partly or not-fixed where it does."]
+            out += [f"- {f.label} | {f.level} | {f.path} | {f.summary} (raised on {f.head[:12]})" for f in handed["findings"]]
+        out.append(f"Earlier reviews of #{pr} used the labels up to F{handed['next'] - 1}: number your own findings "
+                   f"from F{handed['next']}.")
     if mode == "re-review" or (mode == "finding-adjudication" and req.get("previous_findings")):
         # Fenced: the previous report carries headings at the brief's own
         # level, and verbatim inside a fence is still verbatim. The fence

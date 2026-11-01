@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import io
 import os
+import pty
 import shutil
 import signal
 import subprocess
@@ -289,6 +290,88 @@ for a in $accounts; do echo "${{a%%:*}}:x:${{a#*:}}:${{a#*:}}::{fx}/home/${{a%%:
               r.returncode == 1 and r.stderr == "moveto: unknown option '--bogus' (try --help)\n", r.stderr)
         r = cli("mult", "a", "b")
         check("two clones are refused: one at a time", r.returncode == 1 and r.stderr == "moveto: one clone at a time\n")
+
+        print("the terminal after ssh (j103)")
+        # The fake ssh switches on what Claude Code switches on in the operator's terminal, then ends as asked;
+        # moveto's stdout is a pty, which is what the deck's pane is. The wanted sequences are spelt out here
+        # and not taken from the module, so a changed reset cannot agree with itself.
+        sshd = f"{tmp}/sshfx"
+        for name, body in (
+            ("fabric-host", "#!/bin/sh\necho \"ssh $FX_ADDR $FX_PORT\"\n"),
+            ("fabric-ssh-hosts", "#!/bin/sh\necho \"$FX_ADDR ssh-ed25519 AAAAfixture\"\n"),
+            ("getent", f"#!/bin/sh\necho \"$2:x:2000:2000::{sshd}/home:/bin/bash\"\n"),
+            ("ssh", "#!/bin/sh\nprintf '%s\\n' \"$*\" > \"$FX_ARGV\"\n"
+                    "printf '\\033[>1u\\033[?1000h\\033[?1006h\\033[?1004h\\033[?2004h\\033[>4;2m\\033[?25l'\n"
+                    "case $FX_END in exit0) exit 0;; drop) exit 255;; hup) : > \"$FX_READY\"; exec sleep 60;; nap) : > \"$FX_READY\"; exec sleep 1;; esac\n"),
+        ):
+            put(f"{sshd}/bin/{name}", body, 0o755)
+        put(f"{sshd}/home/.ssh/fabric_deck", "")
+        enabled = "\x1b[>1u\x1b[?1000h\x1b[?1006h\x1b[?1004h\x1b[?2004h\x1b[>4;2m\x1b[?25l"
+        wanted = ["\x1b[<u\x1b[<u", "\x1b[=0;1u", *(f"\x1b[?{n}l" for n in (1000, 1002, 1003, 1005, 1006, 1015, 1004, 2004)),
+                  "\x1b[>4;0m", "\x1b[?25h"]
+
+        def via_ssh(end: str, host: str = "127.0.0.1", port: str = "22", tty: bool = True, sig: int = signal.SIGHUP,
+                    ignored: tuple = ()) -> tuple[int, str, str]:
+            env = clean_env(PATH=f"{sshd}/bin:/usr/bin:/bin", HOME=f"{sshd}/home", XDG_STATE_HOME=f"{sshd}/state",
+                            FX_ADDR=host, FX_PORT=port, FX_END=end, FX_ARGV=f"{sshd}/argv", FX_READY=f"{sshd}/ready")
+            if os.path.exists(f"{sshd}/ready"):
+                os.remove(f"{sshd}/ready")
+            if tty:
+                master, slave = pty.openpty()
+            else:
+                master, slave = os.pipe()
+            p = subprocess.Popen([sys.executable, os.path.join(SRC, "moveto.py"), "acct", "--via", "ssh"], env=env,
+                                 stdin=subprocess.DEVNULL, stdout=slave, stderr=subprocess.DEVNULL,
+                                 preexec_fn=lambda: [signal.signal(i, signal.SIG_IGN) for i in ignored])
+            os.close(slave)
+            try:
+                if end in ("hup", "nap"):
+                    for _ in range(300):
+                        if os.path.exists(f"{sshd}/ready"):
+                            break
+                        time.sleep(0.05)
+                    p.send_signal(sig)      # as the deck's hang-up does, to moveto
+                rc = p.wait(timeout=60)
+                got = b""
+                while True:
+                    try:
+                        chunk = os.read(master, 4096)
+                    except OSError:                   # EIO: the pty's other side is closed
+                        break
+                    if not chunk:
+                        break
+                    got += chunk
+            finally:
+                os.close(master)
+            return rc, got.decode("utf-8", "replace").replace("\r\n", "\n"), open(f"{sshd}/argv", encoding="utf-8").read()
+
+        def reset_after_enabling(out: str) -> bool:
+            if not out.startswith(enabled):
+                return False
+            tail, at = out[len(enabled):], 0
+            for seq in wanted:
+                at = tail.find(seq, at)
+                if at < 0:
+                    return False
+            return True
+        for end, rc_want, label in (("exit0", 0, "ssh exits 0"), ("drop", 255, "ssh exits 255, a dropped connection"),
+                                    ("hup", 129, "ssh is SIGHUP'd through moveto, as the deck does")):
+            rc, out, argv = via_ssh(end)
+            check(f"{label}: the modes are switched off on moveto's stdout, ssh's status kept ({rc_want})",
+                  rc == rc_want and reset_after_enabling(out), f"rc={rc} out={out!r}")
+        for sig, want in ((signal.SIGTERM, 143), (signal.SIGINT, 130)):
+            rc, out, argv = via_ssh("hup", sig=sig)
+            check(f"{sig.name} to moveto is forwarded: ssh dies of it, {want}, and the reset is still written",
+                  rc == want and reset_after_enabling(out), f"rc={rc} out={out!r}")
+        rc, out, argv = via_ssh("nap", sig=signal.SIGINT, ignored=(signal.SIGINT,))
+        check("a SIGINT the caller ignored stays ignored for ssh (nohup, a background job): ssh runs on to its own exit 0",
+              rc == 0 and reset_after_enabling(out), f"rc={rc} out={out!r}")
+        rc, out, argv = via_ssh("exit0", host="10.0.0.7", port="2222")
+        check("a host that is not loopback, as --via ssh to a second host: the same reset, and ssh's argv names it",
+              rc == 0 and reset_after_enabling(out) and "-p 2222" in argv and "acct@10.0.0.7" in argv, f"{out!r} {argv!r}")
+        for end, rc_want in (("exit0", 0), ("drop", 255)):
+            rc, out, argv = via_ssh(end, tty=False)
+            check(f"stdout a pipe ({end}): ssh's output only, no reset, status {rc_want}", rc == rc_want and out == enabled, f"rc={rc} out={out!r}")
 
         print("an installed copy")
         prefix = f"{tmp}/usr-local"

@@ -1,0 +1,51 @@
+# runtime/control/agent-fabric-harness.service — the account's FleetDeck
+# server as a systemd USER unit: one per account, run as the login, alive
+# whether or not a deck is attached. Its one pane (labelled `harness`) runs
+# moveto's enter --wait, so the session lives here and a deck only attaches to
+# it, over the pinned sshd (enter-ssh's `attach`), while its tab is focused.
+# Not installed or enabled by this file: bootstrap does that, as for the
+# control agent (agent-fabric-agentd.service).
+#
+# An account without the binary (tools/fabric/provisioning/install_fleetdeck.py
+# puts it there) is skipped, not looped on: ConditionPathExists makes the
+# start a no-op that leaves the unit inactive, which `fabric-ctl harness-start`
+# reports as a failed row naming the binary.
+[Unit]
+Description=agent-fabric harness: the account's FleetDeck server and its session pane
+ConditionPathExists=/usr/local/bin/agent-fabric-fleetdeck
+# A layout the pane step does not understand (two harness workspaces, a pane
+# count other than one) fails the same way on every restart: five starts in five
+# minutes leave the unit `failed`, for a person to read, not looped on.
+StartLimitIntervalSec=300
+StartLimitBurst=5
+
+[Service]
+Type=simple
+# The user manager's PATH is minimal; ~/.local/bin is where the account's own tools are (claude).
+# HERDR_CONFIG_PATH: the server reads the fabric's file, whose update checks are
+# off, instead of the account's config.toml (the file says why).
+Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin HERDR_CONFIG_PATH=%h/projects/agent-fabric/runtime/control/fleetdeck-harness.toml
+WorkingDirectory=%h/projects
+ExecStart=/usr/local/bin/agent-fabric-fleetdeck --session harness server
+# Type=simple: this runs as soon as the server is forked, not once it listens;
+# the step waits for it. A failure here fails the unit, and Restart= tries again.
+ExecStartPost=/usr/local/bin/fabric-python %h/projects/agent-fabric/tools/fabric/control/harness_pane.py ensure
+Restart=on-failure
+RestartSec=5
+# A stop ends the session the way `fabric-ctl restart` does: SIGTERM, which the
+# launcher forwards to claude (tools/fabric/launcher/session.py), so `--resume`
+# still finds the session. control-group sends it to every process of the unit
+# at once — the launcher, claude and the pane's shells — and not to the server
+# alone (mixed), whose pane hang-ups would then be the only signal claude gets.
+# SendSIGHUP stays off: the hang-up belongs to the pane's closing, after claude
+# is gone. TimeoutStopSec exceeds the 90 s the upgrade path gives a session to
+# stop (control/upgrade.py STOP_WAIT_MS) before systemd's SIGKILL.
+KillMode=control-group
+KillSignal=SIGTERM
+SendSIGHUP=no
+TimeoutStopSec=100
+# No NoNewPrivileges: the unit hosts an interactive session, whose tools
+# (sudo-less accounts included) may rely on set-id programs.
+
+[Install]
+WantedBy=default.target

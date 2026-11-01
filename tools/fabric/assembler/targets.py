@@ -35,6 +35,11 @@ def existing_sections(paths: list[str]) -> dict[str, str]:
     return found
 
 
+def parts_holding(run: Run, role: str | None, klass: str, topic: str, heading: str) -> list[str]:
+    """The files of one topic (its budget parts) that hold a section under `heading`."""
+    return [p for p in slice_candidates(run, role, klass, topic) if heading in read_existing_slice(p)[1]]
+
+
 def plan_classes(run: Run) -> None:
     # THE LAYOUT OF EACH CLASS IS DECIDED ONCE, from the drain as it
     # arrived, before any claim moves between topics (a correction whose
@@ -47,8 +52,9 @@ def plan_classes(run: Run) -> None:
     #   flat_topic — whose sections the flat `<class>.md` holds this run:
     #                the drain's one topic when the flat file stays, else
     #                the stem it is moved to (the topic the file records;
-    #                for an older file the one topic the crossref names,
-    #                or `<class>-carried-<stamp>` for several)
+    #                for an older file that records none, the one topic the
+    #                crossref names when it names exactly the drain's topics,
+    #                else the carried file, `<class>-carried-<stamp>`)
     for role, topics in run.per_role.items():
         for klass in sorted({k for (k, _t) in topics}):
             base = layout.class_home(klass, role, run.project)
@@ -64,18 +70,30 @@ def plan_classes(run: Run) -> None:
                 held = read_existing_slice(flat_file)[0].get("topic")
                 held = held if isinstance(held, str) and held else None
             # Only a file that records its topic is known to hold that one: an older flat file may hold memories the
-            # crossref (referenced slices only) never named, and keeps its reading, split by more than one topic.
+            # crossref (referenced slices only) never named, so it is not read as the drain's topic's (see `unclaimed`).
             known = {held} if held else set()
             # A SECOND TOPIC MOVES THE CLASS INTO ITS DIRECTORY. The flat file has one INDEX row and one description,
             # so a topic written into it lost its cue (a drain's blind review, 2026-10-24).
+            #
+            # A FLAT FILE THAT RECORDS NO TOPIC IS NOT KNOWN TO HOLD THE ONE THE DRAIN BRINGS. Per-bundle runs each see
+            # one topic, so a file written before topics were recorded took every unrelated topic of its class as its
+            # own: brand-comms' domain.md piled them up in the 2026-10-31 drain (#437 round 5, F13). Only the crossref
+            # can say whose it is, and only when it names exactly the drain's topics; otherwise the file moves into the
+            # directory as the carried file and the new topic gets a file of its own. Refusing instead would stop every
+            # drain of a class whose file predates the field (half of the corpus's flat files).
+            unclaimed = bool(os.path.exists(flat_file) and not held and set(here) != set(prior))
             split = (os.path.isdir(os.path.join(base, CLASS_FILES[klass])) or len(here) > 1
                      or bool(known and os.path.exists(flat_file) and not set(here) <= known))
+            # Moved as the carried file, never named for a topic from the crossref, which lists referenced slices only: the
+            # file may hold memories it never named, and labelling them one topic's wrote them twice (review of #368, F1).
+            carry = unclaimed and not split
+            split = split or unclaimed
             if os.path.exists(flat_file):
                 if not split:
                     flat_topic = here[0]
                 elif held:
                     flat_topic = held
-                elif len(prior) == 1:
+                elif len(prior) == 1 and not carry:
                     flat_topic = prior[0]
                 else:
                     stamp = read_existing_slice(flat_file)[0].get("distilled_at") or "earlier"
@@ -220,6 +238,16 @@ def resolve_targets(run: Run, role: str | None, label: str,
             if not target and role is None:
                 continue   # shared/ has no carried file
             own = existing_sections(slice_candidates(run, role, klass, topic))
+            where = f"{label}/{klass}:{topic}#{claim_heading(claim)}"
+            # A HEADING TWO PARTS OF ONE TOPIC HOLD is as ambiguous as one two topics hold. Which part the claim is
+            # written into is split_by_budget's grouping, not the target's, and the other part's copy stood: in
+            # a project's drain of 2026-10-28 (j481) the correction replaced the heading in part 2 only, and the
+            # text it replaced came back from part 1's side. Refused like the two-topic case, nothing written; the
+            # author or the owner leaves one copy in the corpus.
+            if target and len(parts_holding(run, role, klass, topic, target)) > 1:
+                run.ambiguous_targets.append(f"{where}: merge_target {target!r} is a section of more than one part of "
+                                             f"{klass}:{topic}: " + ", ".join(in_report(run, p) for p in parts_holding(run, role, klass, topic, target)))
+                continue
             if target and target in own:
                 continue
             if klass not in on_disk_by_class:
@@ -245,8 +273,12 @@ def resolve_targets(run: Run, role: str | None, label: str,
                     buckets[(klass, holders[0])].append(claim)
                     moved.append((role, claim["topic"], written_stem(run, role, klass, holders[0])))
                 continue
-            where = f"{label}/{klass}:{topic}#{heading}"
             holders = sorted(t for t, sections in on_disk.items() if target in sections and t != topic)
+            if len(holders) == 1 and len(parts_holding(run, role, klass, holders[0], target)) > 1:
+                run.ambiguous_targets.append(f"{where}: merge_target {target!r} is a section of more than one part of "
+                                             f"{klass}:{holders[0]}: "
+                                             + ", ".join(in_report(run, p) for p in parts_holding(run, role, klass, holders[0], target)))
+                continue
             if len(holders) > 1:
                 run.ambiguous_targets.append(f"{where}: merge_target {target!r} is a section of "
                                          + ", ".join(f"{klass}:{t}" for t in holders))
@@ -286,6 +318,34 @@ def resolve_targets(run: Run, role: str | None, label: str,
             moved.append((role, claim["topic"], written_stem(run, role, klass, holders[0])))
             if role is None:
                 run.shared_owners[(klass, holders[0])] |= run.shared_owners[(klass, topic)]
+    # A CORRECTION FOLLOWS THE CLAIM IT CORRECTS WHEN THAT IS IN THE SAME RUN (j82): another correction (a chain) or the memory
+    # itself harvested with it. B names the heading A gives its section, which the corpus holds only once A is applied: in one run B was written as a topic of its own, "unresolved", and the next pass found A's
+    # heading and replaced it again, leaving B's text twice. Filed after A in A's slice, B replaces A's section in the order
+    # the writer applies them. Repeated until no claim moves, so a chain of any length (and the order of the topics) resolves.
+    moving = True
+    while moving:
+        moving = False
+        for (klass, topic), group in sorted(buckets.items()):
+            for claim in list(group):
+                target = (claim.get("merge_target") or "").strip()
+                own = existing_sections(slice_candidates(run, role, klass, topic))
+                if not target or is_retire(claim) or target in own or claim_heading(claim) in own:
+                    continue   # (its heading standing is a correction already applied, which the pass above sent home)
+                if any(target in sections for sections in (existing_sections(p) for p in topics_on_disk(run, role, klass).values())):
+                    continue   # a section some topic holds: resolved above, or ambiguous and already refused
+                predecessors = sorted({t for (k, t), g in buckets.items() if k == klass and any(
+                    c is not claim and claim_heading(c) == target for c in g)} - {topic})
+                if len(predecessors) != 1:
+                    continue
+                label_of = "shared" if role is None else role
+                where = f"{label_of}/{klass}:{topic}#{claim_heading(claim)}: merge_target {target!r} names no section"
+                run.unresolved_targets[:] = [n for n in run.unresolved_targets if not n.startswith(where)]
+                group.remove(claim)
+                buckets[(klass, predecessors[0])].append(claim)
+                moved.append((role, claim["topic"], written_stem(run, role, klass, predecessors[0])))
+                if role is None:
+                    run.shared_owners[(klass, predecessors[0])] |= run.shared_owners[(klass, topic)]
+                moving = True
     for key in [k for k, g in buckets.items() if not g]:
         del buckets[key]
     return moved
@@ -329,7 +389,12 @@ def point_links(run: Run, moved: list[tuple[str | None, str, str]]) -> None:
             return
         pattern = re.compile(r"\[\[(" + "|".join(re.escape(n) for n in sorted(names, key=len, reverse=True)) + r")\]\]")
         for claim in claims:
-            claim["body"] = pattern.sub(lambda m: f"[[{names[m.group(1)]}]]", claim["body"])
+            pointed_body = pattern.sub(lambda m: f"[[{names[m.group(1)]}]]", claim["body"])
+            if pointed_body != claim["body"]:
+                # The text as the memory wrote it: an applied correction's recorded key was taken over the section as written
+                # before any drain pointed its links (shapes.drop_replayed compares both).
+                claim.setdefault("_body_as_written", claim["body"])
+                claim["body"] = pointed_body
 
     def names_for(scopes: tuple[str | None, ...]) -> dict[str, str]:
         return {name: stem for (r, name), stem in unique.items() if r in scopes}
@@ -408,7 +473,7 @@ def resolve_all_targets(run: Run) -> int | None:
     moved += resolve_targets(run, None, "shared", run.shared)
     point_links(run, moved)
     if run.ambiguous_targets:
-        print("MERGE TARGET AMBIGUOUS — a correction names a heading more than one topic holds; "
+        print("MERGE TARGET AMBIGUOUS — a correction names a heading more than one topic, or more than one part of a topic, holds; "
               "the author names the section unambiguously (retitle one of them, or the memory). "
               "This run wrote NOTHING and exits 1.", file=sys.stderr)
         for note in run.ambiguous_targets:

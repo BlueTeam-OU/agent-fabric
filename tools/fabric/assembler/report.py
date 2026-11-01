@@ -14,6 +14,7 @@ import memory_horizons
 from assembler.core import layout, Run, in_report, hygiene_substitute, patterns_for
 from assembler.slices import merge_reports, scan_collisions, drop_held, read_existing_slice
 from corrections import section_key
+from assembler.shapes import still_replaced
 
 
 def store_of(hr: dict) -> str:
@@ -281,6 +282,7 @@ def report(run: Run) -> int:
         "section_writers_gone": run.section_writers_gone,
         "section_moves": run.section_moves,
         "applied_corrections": run.applied_corrections,
+        "replaced_sections": run.replaced_sections,
         "oversized_claims": run.oversized,
         "clipped_descriptions": run.clipped_descriptions,
         "migrated": run.migrated,
@@ -288,6 +290,8 @@ def report(run: Run) -> int:
         "collision_decisions": run.applied_decisions,
         "retitles": run.retitles,
         "merge_target_unresolved": run.unresolved_targets,
+        "superseded_harvests": run.superseded_harvests,
+        "reharvested_replaced": run.reharvested_replaced,
         "harvest": harvest_meta,
         "harvest_sources": {source: harvest_meta} if harvest_meta is not None else {},
         "watermarks": watermarks,
@@ -329,6 +333,7 @@ def report(run: Run) -> int:
                 return entry.get("heading") in sections and section_key(sections[entry["heading"]]) == entry.get("applied_key")
         return False
     report["applied_corrections"] = [e for e in report.get("applied_corrections") or [] if holds(e)]
+    report["replaced_sections"] = still_replaced(run, report.get("replaced_sections") or [])
     # A key an earlier run of the stamp held stays held only while no run
     # has written its slice since: this run writing it ends the hold.
     def written_now(key: str) -> bool:
@@ -385,6 +390,16 @@ def report(run: Run) -> int:
               "it is — retarget the memory if a stale section remains, drop the target if it was applied):",
               file=sys.stderr)
         for note in run.unresolved_targets:
+            print(f"  {note}", file=sys.stderr)
+    if run.superseded_harvests:
+        print("\nSUPERSEDED HARVESTS (a memory whose text is a section a correction replaced, in this run or an earlier "
+              "one; not written — update or delete the memory):", file=sys.stderr)
+        for note in run.superseded_harvests:
+            print(f"  {note}", file=sys.stderr)
+    if run.reharvested_replaced:
+        print("\nREHARVESTED UNDER A REPLACED HEADING (written; each note says why the text was no replay of the one a "
+              "correction replaced):", file=sys.stderr)
+        for note in run.reharvested_replaced:
             print(f"  {note}", file=sys.stderr)
     if run.empty_crossrefs:
         print("\nCROSSREF EMPTY (written with no entry: no observation behind the role's slices "

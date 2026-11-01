@@ -12,7 +12,7 @@ from assembler.core import layout, yaml_scalar
 
 
 REPORT_LISTS = ("files", "hygiene_problems", "rejected_hygiene", "redactions", "retired_in_siblings",
-                "oversized_claims", "clipped_descriptions", "migrated", "merge_target_unresolved", "held_back")
+                "oversized_claims", "clipped_descriptions", "migrated", "merge_target_unresolved", "superseded_harvests", "reharvested_replaced", "held_back")
 
 
 def drop_held(report: dict[str, Any], keys: list[str], paths: set[str]) -> None:
@@ -53,7 +53,7 @@ def merge_reports(previous: dict[str, Any], current: dict[str, Any],
     watermarks (a drain's blind review, 2026-09-25). A report of the SAME
     stamp is therefore the same drain and is merged into: roles and
     shared topics unioned, the lists appended without repeats, one
-    decision per key (the later run's, as the tree now reflects it), the
+    decision per key (the later run's, as the tree now reflects it, in the place the first run gave it), the
     telemetry kept per source (agent@host) so re-running a bundle
     replaces its counts instead of adding them twice. A report of another
     stamp is an earlier drain, replaced — except its watermarks: each says
@@ -92,6 +92,12 @@ def merge_reports(previous: dict[str, Any], current: dict[str, Any],
     for entry in [*(previous.get("applied_corrections") or []), *(current.get("applied_corrections") or [])]:
         if isinstance(entry, dict) and isinstance(entry.get("slice"), str) and exists(entry["slice"]):
             applied[(entry["slice"], entry.get("heading"), entry.get("applied_key"))] = entry
+    # j82: the texts replacements took out, across drains too — a later pass over an old bundle must not write them back.
+    replaced: dict[tuple, dict[str, Any]] = {}
+    for entry in [*(previous.get("replaced_sections") or []), *(current.get("replaced_sections") or [])]:
+        if isinstance(entry, dict) and all(isinstance(entry.get(k), str) for k in ("home", "heading", "key")):
+            replaced[(entry["home"], entry["heading"], entry["key"])] = entry
+    current = dict(current, replaced_sections=list(replaced.values()))
     if previous.get("stamp") != current["stamp"]:
         merged = dict(current, watermarks=marks, section_writers=writers, applied_corrections=list(applied.values()))
         merged["files"] = [f for f in current["files"] if exists(f)]
@@ -108,8 +114,9 @@ def merge_reports(previous: dict[str, Any], current: dict[str, Any],
     merged["files"] = [f for f in merged["files"] if exists(f)]
     merged["files_written"] = len(merged["files"])
     decisions = {d.get("key"): d for d in previous.get("collision_decisions") or [] if isinstance(d, dict)}
+    # An entry a rerun states again keeps its place in the list: moving it to the end made a second pass over one drain's bundles
+    # reorder the report (j82; a collision decision of the 2026-10-31 drain).
     for d in current["collision_decisions"]:
-        decisions.pop(d["key"], None)
         decisions[d["key"]] = d
     merged["collision_decisions"] = list(decisions.values())
     # A later run of the stamp finds the old section gone and lists nothing, so the earlier run's entries are carried.
@@ -426,6 +433,15 @@ def absorbed(sections: dict[str, str], claim: dict[str, Any]) -> list[str]:
 def claim_block(claim: dict[str, Any]) -> str:
     title = claim_heading(claim)
     body = demote_headings(claim["body"].strip())
+    # A BODY THAT CARRIES ITS OWN FOOTER (a memory copied from a slice, a correction memory) was given a second one
+    # whenever the claim had observed_at: two identical lines at the end of the section (a project's merged drain of
+    # 2026-10-28, j485). Every footer at the very end comes off before the claim's is built. The claim's own date and
+    # role win; a claim without observed_at keeps the body's last footer, once — a dated fact is never made undated.
+    # Only the end is touched: the pattern is anchored there, so an "Observed" sentence in the prose stays.
+    footers: list[str] = []
+    while (found := OBSERVED_RE.search(body)):
+        footers.append(found.group(0).strip())
+        body = body[:found.start()].rstrip()
     cites = claim.get("citations") or {}
     flat = [c for values in cites.values() for c in values]
     tail = ""
@@ -441,6 +457,8 @@ def claim_block(claim: dict[str, Any]) -> str:
     if claim.get("observed_at"):
         who = f" ({claim['_role']})" if claim.get("_role") else ""
         tail += f"\n\n*Observed {claim['observed_at']}{who}*"
+    elif footers:
+        tail += "\n\n" + footers[0]   # collected from the end, so [0] is the body's last
     scope = ""
     if claim.get("knowledge_scope") == "domain-only":
         scope = "\n\n> Learned outside this system; it describes the field, not our implementation.\n"

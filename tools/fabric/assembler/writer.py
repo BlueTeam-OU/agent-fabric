@@ -11,6 +11,7 @@ from typing import Callable, Any
 from corrections import section_key
 from assembler.core import layout, TIER1, CHARS_PER_TOKEN, CLASS_FILES, origin_key, render_frontmatter, hygiene_check, hygiene_substitute, patterns_for, DESCRIPTION_MAX, Run, base_for, in_report
 from assembler.slices import retire_in_siblings, remove_sections, restamp, read_existing_slice, OBSERVED_RE, undated, claim_heading, absorbed, claim_block, is_retire
+from assembler.shapes import report_home
 from assembler.targets import existing_sections, is_budget_part, slice_candidates, is_carried
 
 
@@ -30,7 +31,7 @@ def clip_description(run: Run, description: str, where: str) -> str:
 def write_slice(
     run: Run, directory: str, filename: str, role: str, klass: str, claims: list[dict[str, Any]],
     description: str, shared_with: list[str] | None = None, topic: str | None = None,
-    flat_topic: str | None = None,
+    flat_topic: str | None = None, cue: str | None = None,
 ) -> str | None:
     """`topic` is recorded in the frontmatter of every file that is one
     topic's (is_budget_part reads it); the flat class file records its one
@@ -207,6 +208,14 @@ def write_slice(
                     order.remove(stale)
                 sibling += 1
             resolved.append(target)
+            if heading != target:
+                evidence_head = (claim.get("evidence") or ["?"])[0][:12]
+                run.replacements.append((f"{role}/{klass}:{topic or flat_topic or claim['topic']}#{heading}@{evidence_head}", path, target))
+            if replaced_text is not None and section_key(replaced_text) != section_key(claim_block(claim).split("\n", 1)[1].strip()):
+                # Substituted like applied_corrections' headings: the report is committed, and a carried heading may predate a pattern.
+                run.replaced_sections.append({"home": report_home(run, None if role == "shared" else role, klass),
+                                              "heading": hygiene_substitute(target, "replaced section heading", patterns_for(klass))[0],
+                                              "key": section_key(replaced_text)})
         base_heading = heading
         rendered = claim_block(claim).split("\n", 1)[1].strip()
         if not authorised and heading in blocks and undated(blocks[heading]) != undated(rendered):
@@ -268,6 +277,13 @@ def write_slice(
     if retired_here:
         # The cue of a file is its first section's heading (remove_sections does the same): the retired claim's
         # own description named a section that is gone.
+        description = clip_description(run, order[0], path)
+        meta["description"] = description
+    elif cue is not None and order and cue not in order:
+        # THE CUE FOLLOWS THE SECTION THAT STANDS. The description is the heading of the first claim of the group, and
+        # a merge can leave that heading nowhere in the file: in a project's drain of 2026-10-28 (j481) a later claim
+        # overwrote the first one's section, and the description and the INDEX cue still named a heading the file did
+        # not hold. Only a description taken from a heading is tested; a slice whose heading stands keeps its cue.
         description = clip_description(run, order[0], path)
         meta["description"] = description
 
@@ -506,7 +522,8 @@ def write_shared(run: Run) -> None:
                 (group[0].get("title") if group else None)
                 or f"{topic.replace('-', ' ')} ({klass})",
                 os.path.join(shared_dir, filename))
-            written = write_slice(run, shared_dir, filename, "shared", klass, group, description, owners, topic=topic)
+            written = write_slice(run, shared_dir, filename, "shared", klass, group, description, owners, topic=topic,
+                                  cue=claim_heading(group[0]) if group and group[0].get("title") else None)
             if written is None:
                 continue          # every section of it was retired: nothing to list
             for owner in owners:
@@ -602,7 +619,9 @@ def write_role(run: Run, role: str) -> None:
                     (group[0].get("title") if group else None)
                     or f"{topic.replace('-', ' ')} ({klass})",
                     os.path.join(directory, filename))
+                cue = claim_heading(group[0]) if group and group[0].get("title") else None
                 if is_carried(klass, topic) and os.path.exists(os.path.join(directory, filename)):
+                    cue = None   # the carried file's cue is not a claim's heading
                     # The carried file's cue is the one it moved with:
                     # it names several topics, never one claim's title —
                     # unless a correction retitles its only section, when
@@ -619,7 +638,8 @@ def write_role(run: Run, role: str) -> None:
                     not os.path.exists(flat_path) or read_existing_slice(flat_path)[0].get("topic") == topic)
                 written = write_slice(run, directory, filename, role, klass, group, description,
                                       topic=topic if directory != base else None,
-                                      flat_topic=topic if records else None)
+                                      flat_topic=topic if records else None,
+                                      cue=cue)
                 if written is None:
                     continue      # every section of it was retired: nothing to list
                 run.index_entries[role].append(

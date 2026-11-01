@@ -464,8 +464,8 @@ def _blocker(job: dict, problems: list[str]) -> list[str]:
         return [f"blocked on {', '.join(specs)}"]
     if OWNER_DECISION.match(on):
         return [f"blocked on {on[:80]}"]
-    problems.append(f"{job['id']} is blocked on free text: name what it waits on with --on pr:<owner/repo>#<n>, request:<message-id> "
-                    "or job:<login>/j<n> (or --on-request), or state the owner's decision as \"owner: <what is awaited>\"")
+    problems.append(f"{job['id']} is blocked on free text: name what it waits on with --on pr:<owner/repo>#<n>, request:<message-id>, "
+                    "job:<login>/j<n> or clock:<YYYY-MM-DDTHH:MM[:SS]Z> (or --on-request), or state the owner's decision as \"owner: <what is awaited>\"")
     return []
 
 

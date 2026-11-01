@@ -147,7 +147,7 @@ def list_jobs(args) -> int:
     jobs = [j for j in doc["jobs"] if args.all or j["state"] in OPEN]
     waits, stale = stream_waits(doc, stored=args.stored)
     # Checkable blockers are re-checked here (cached: at most once per 10 minutes each); --stored and --cached read
-    # the cache and check nothing, which is what the control agent's `jobs` op and a hook want.
+    # the cache and check nothing (except a clock, which only reads now()), which is what the control agent's `jobs` op and a hook want.
     cache = bl.refresh(bl.all_specs(doc), check=not (args.stored or args.cached))
     if args.json:
         # The effective rank is the reader's, never stored: it is only
@@ -461,6 +461,10 @@ def change(args) -> int:
             if mid is not None and not MESSAGE_ID.fullmatch(mid):
                 raise Refused(f"--on-request takes a MESSAGE-ID (a UUID), not {args.on_request!r}")
             specs = list(dict.fromkeys([bl.normalise(s) for s in (args.on_spec or [])] + ([f"request:{mid}"] if mid else [])))
+            for spec in specs:
+                at = bl.clock_epoch(spec)
+                if at is not None and at <= bl.now():
+                    raise Refused(f"{spec} has already passed: a time that has gone by is no wait")
             text = " ".join(args.on.split()) if (args.on or "").strip() else None
             if text is None and not specs:
                 raise Refused("block needs what the job waits on: free text, --on <blocker> or --on-request <MESSAGE-ID>")

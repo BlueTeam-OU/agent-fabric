@@ -170,6 +170,28 @@ def main() -> int:
     check("a path omitted", "omits 1" in rc.check_paths(rc.Coverage({"a": ("read", "")}, {}), ["a", "b"]))
     check("a path outside the range", "outside the range" in rc.check_paths(rc.Coverage({"a": ("read", ""), "z": ("read", "")}, {}), ["a"]))
     check("an empty range with an empty block", rc.check_paths(rc.Coverage({}, {}), []) == "")
+    thousand = [f"memory/{i:04d}-{'n' * 80}.md" for i in range(1254)]
+    drain = rc.Coverage({}, {}, ("not read", "script"))
+    drain_text = rc.render_block(drain)
+    check("1254 paths under a default: the block is a few hundred characters and reads back", len(drain_text) < 300
+          and rc.read_block(drain_text)[0] == drain, len(drain_text))
+    check("  and accounts for every path of the range", rc.check_paths(drain, thousand) == "")
+    check("  positive control: without the default the same block omits them", "omits 1254" in rc.check_paths(rc.Coverage({}, {}), thousand))
+    check("  a path named outside the range is still refused", "outside the range" in rc.check_paths(rc.Coverage({"z": ("read", "")}, {}, ("read", "")), thousand))
+    check("a default 'not read' is not complete, a named 'read' path under it is read",
+          not drain.complete and rc.Coverage({"a": ("read", "")}, {}, ("not read", "x")).paths["a"] == ("read", "")
+          and not rc.Coverage({"a": ("read", "")}, {}, ("not read", "x")).complete and rc.Coverage({"a": ("read", "")}, {}, ("read", "")).complete)
+    check("a default 'read' with a named 'not read' path is not complete", not rc.Coverage({"a": ("not read", "x")}, {}, ("read", "")).complete)
+    check("an old-form block (no default) is as complete as before", rc.Coverage({"a": ("read", "")}, {}).complete and rc.Coverage({"a": ("read", "")}, {}).default is None
+          and "default" not in rc.Coverage({"a": ("read", "")}, {}).as_json())
+    for label, text in (("a default with no reason on not read", '{"paths": {}, "lenses": {}, "default": {"status": "not read"}}'),
+                        ("a default with another status", '{"paths": {}, "lenses": {}, "default": {"status": "maybe"}}'),
+                        ("a default that is a string", '{"paths": {}, "lenses": {}, "default": "read"}'),
+                        ("an unknown top-level key", '{"paths": {}, "lenses": {}, "defaults": {"status": "read"}}')):
+        check(f"{label}: refused", refused(text) != "", text)
+    check("a path called * is a path, not the default", rc.parse_block('{"paths": {"*": {"status": "read"}}, "lenses": {}}').default is None)
+    full_d = f"{MARKER}\n**Blind review**\n\n{rc.render_block(drain)}\n"
+    check("a review with a 'not read' default does not count, and says so", not rc.read_review(full_d).counts and "not named" in rc.read_review(full_d).why_not, rc.read_review(full_d))
     try:
         rc.check_paths(rc.Coverage({}, {}), ["a\nb"])
         check("a changed path with a newline is refused, not recorded", False)

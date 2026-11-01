@@ -26,7 +26,7 @@ found; nothing it prints is otherwise reported.
 an `install` pin into this account's ~/.local/bin (a tree pin: its tree
 under ~/.local/lib/agent-fabric-tools/<tool>/<version>/, with
 ~/.local/bin/<tool> a link into it), only on an account with
-a working copy of a project that declares it (tools_install.py has the
+a working copy of a project that declares it for the bound role (tools_install.py has the
 whole account; a `rustup-target` tool is proved by its target being listed, not by its proof's exit status). Its exit codes: 0 current, installed or skipped; 1 failed;
 2 refused.
 
@@ -187,7 +187,7 @@ def main(argv: list[str]) -> int:
             # Armed inside the try, and the verdict printed inside it: a
             # SIGTERM in the gaps around install() is still exit 143.
             tools_install.exit_on_sigterm()
-            verdict = tools_install.install(install_tool, reg=reg, home=os.path.expanduser("~"))
+            verdict = tools_install.install(install_tool, reg=reg, home=os.path.expanduser("~"), role=bound_role())
             if as_json:
                 print(json.dumps(verdict, indent=2))
             else:
