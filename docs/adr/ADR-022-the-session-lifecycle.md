@@ -191,7 +191,8 @@ the same command asks on one account and not on another.
     the launcher, which starts in the old directory and says why. The command decides
     and the agent confirms; nothing restarts a session on its own
     (A 2026-09-28). A session that has worked no job yet takes the
-    job in place, being already fresh (A 2026-10-11). Every launch hands
+    job in place, being already fresh (A 2026-10-11), when it stands
+    in the job's copy (ADR-037 rule 3). Every launch hands
     the session `AGENT_FABRIC_ROOT`, the fabric root it checked against
     origin/main, so a session started in another agent-fabric checkout
     runs the root's fabric code, not that checkout's; when that checkout
