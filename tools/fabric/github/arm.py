@@ -306,7 +306,11 @@ What it refuses, in order, and why:
      "No CI: <base> has no workflow...". Where it is not needed (a direct repository, a required check,
      green checks) it is said so and not read: no No CI sentence is added, the basis is posted as given.
 
-Then: posts the arming basis as a comment ("Arming basis: <text> —
+Then: reads the PR's head again and refuses when it is not the head the gates read (pr-gate's own read of
+the head included: a count of another head is no count of this one); posts the policy's armed_status
+(fabric/armed by default; none where a repository sets it null), state success, on that head — the
+check an auto repository's ruleset requires, so a head pushed after this arming waits for an arming
+of its own, and the one disarm-on-push keeps an arming by; posts the arming basis as a comment ("Arming basis: <text> —
 <W> work commits, head <sha>"; a security boundary armed at 8 or more
 without the owner's word adds a sentence saying so), runs `gh pr merge <n> --merge --auto
 --match-head-commit <head>` (--squash or --rebase where the policy's method is that; no --auto on a direct
@@ -373,6 +377,8 @@ def say(msg: str) -> None:
 
 
 ROLE_TRAILER = re.compile(r"^Fabric-Role:[ \t]*([a-z][a-z0-9-]*)[ \t]*$", re.M)
+# GitHub cuts a status description at 140 characters.
+ARMED_DESCRIPTION = "Armed through fabric-pr arm: this head passed its gates"
 # The merge method as the flag gh takes: a fixed table, not the policy's text put into an argument.
 MERGE_FLAGS = {"merge": "--merge", "squash": "--squash", "rebase": "--rebase"}
 # GitHub lists at most this many commits of a pull request; a role is not read from a part of them.
@@ -1133,6 +1139,14 @@ def arm(argv: list[str]) -> int:
     work = row.get("work_commits")
     if not isinstance(work, int) or isinstance(work, bool) or work < 0:
         raise Unanswered(f"pr-gate reported no commit count for #{num}")
+    # pr-gate reads the PR for itself, so its count and checks are of the head it read, which a push between
+    # the two reads makes another one than every other gate's.
+    gate_head = row.get("head")
+    if not isinstance(gate_head, str) or not gate_head:
+        raise Unanswered(f"pr-gate named no head for #{num}: its count cannot be tied to {head[:8]}")
+    if gate_head != head[:8]:
+        raise refuse(f"pr-gate read head {gate_head}, and the other gates {head[:8]}: a push landed while they ran;"
+                     f" review the new range, then arm again")
     # Over the policy's advice_over (16) is advice for the NEXT batch, never a gate at arming time
     # nor a reorganisation of the open PR.
     if work > advice_over:
@@ -1288,10 +1302,33 @@ def arm(argv: list[str]) -> int:
     # A direct repository has auto-merge off and nothing server-side to wait on, so --auto would be refused: the
     # gates above are the whole hold, and the merge happens now. The checks gate already required a green head there.
     merge_args = [MERGE_FLAGS[policy["method"]], *([] if policy["mode"] == "direct" else ["--auto"]), "--match-head-commit", head]
+    # --match-head-commit keeps the merge call off a moved head; the status below would still name the gated one,
+    # so the arming of a head nobody gated is refused here rather than left to fail on GitHub.
+    try:
+        now = str(json.loads(gh.run(["pr", "view", num, "--json", "headRefOid"], what=f"gh pr view {num}")).get("headRefOid") or "")
+    except (gh.GhError, ValueError, AttributeError):
+        raise Unanswered(f"cannot read #{num}'s head again before the arming") from None
+    if now != head:
+        raise refuse(f"its head is now {now[:8] or 'unknown'}, not {head[:8]}, the head the gates read: a push landed"
+                     f" while they ran; review the new range, then arm again")
+    armed_status = arm_policy.armed_status(policy)
     if dry:
+        if armed_status:
+            say(f"DRY RUN — would post {armed_status} on {head[:8]}")
         say(f"DRY RUN — would post: {comment}")
         say(f"DRY RUN — would run: gh pr merge {num} {' '.join(merge_args)}")
         return 0
+    # On the sha the gates read, never the PR's head as GitHub has it by then, and before auto-merge is on: a
+    # green PR merges on the merge call itself, and the ruleset holds a head without it (audit F02). No basis is
+    # posted for an arming that has not got its status.
+    if armed_status:
+        try:
+            gh.api(f"repos/{repo}/statuses/{head}", method="POST",
+                   body={"state": "success", "context": armed_status, "description": ARMED_DESCRIPTION})
+        except gh.GhError as e:
+            raise Unanswered(f"could not post {armed_status} on {head[:8]} ({e.reason}): nothing armed, since the"
+                             f" ruleset holds a head without it") from None
+        say(f"{armed_status} posted on {head[:8]}: the arming is tied to the head the gates read")
     # The body on stdin: a body is data (gh.py's invariant).
     try:
         gh.run(["pr", "comment", num, "--body-file", "-"], input=comment, what=f"gh pr comment {num}")

@@ -9,11 +9,14 @@ variables must leave it untouched — and must still resolve the CONTEXT
 """
 from __future__ import annotations
 
+import fcntl
 import json
 import os
+import select
 import subprocess
 import sys
 import tempfile
+import threading
 from instance_fixtures import own_instance_tree  # noqa: E402 — tests/, the script's own directory
 own_instance_tree()
 
@@ -248,6 +251,193 @@ for _ in range(25):
         del os.environ["AGENT_FABRIC_STATE_DIR"]
 
 
+def flock_is_free(state: str, agent: str) -> bool:
+    """Whether agents/<agent>/.lock can be taken right now through a
+    descriptor of its own — one this process holds conflicts with it."""
+    fd = os.open(os.path.join(state, "agents", agent, ".lock"), os.O_RDWR | os.O_CREAT, 0o600)
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        return False
+    else:
+        fcntl.flock(fd, fcntl.LOCK_UN)
+        return True
+    finally:
+        os.close(fd)
+
+
+def test_a_second_thread_waits_for_the_holder(tmp: str) -> None:
+    """Two threads of one process (agentd's actions): the second waits for
+    the first's exit, and holds the flock itself once in. Measured by the
+    order of events, not by a sleep: the holder marks `leaving` before it
+    lets go, so the waiter sees it set only if it waited."""
+    state = os.path.join(tmp, "state")
+    os.environ["AGENT_FABRIC_STATE_DIR"] = state
+    agent = "threads"
+    holder_in, waiter_tried, waiter_in, go, holder_gone = (threading.Event() for _ in range(5))
+    seen: dict = {}
+
+    def holder() -> None:
+        with identity.agent_lock(agent):
+            holder_in.set()
+            go.wait(30)
+            seen["leaving"] = True
+
+    def waiter() -> None:
+        waiter_tried.set()
+        with identity.agent_lock(agent):
+            seen["leaving_when_in"] = seen.get("leaving", False)
+            waiter_in.set()
+            holder_gone.wait(30)     # with the holder out, the flock must still be this thread's
+            seen["flock_free_inside"] = flock_is_free(state, agent)
+    try:
+        a = threading.Thread(target=holder)
+        a.start()
+        assert holder_in.wait(30)
+        b = threading.Thread(target=waiter)
+        b.start()
+        assert waiter_tried.wait(30)
+        # The wait only gives the defect time to show; the verdict is the order below.
+        early = waiter_in.wait(0.5)
+        go.set()
+        a.join(30)
+        holder_gone.set()
+        b.join(30)
+        assert not early and seen.get("leaving_when_in") is True, f"the second thread went in while the first held the lock: {seen}"
+        assert seen.get("flock_free_inside") is False, f"the second thread ran without the flock: {seen}"
+        assert flock_is_free(state, agent), "the flock outlived both holders"
+    finally:
+        go.set()
+        holder_gone.set()
+        del os.environ["AGENT_FABRIC_STATE_DIR"]
+
+
+def test_the_owner_thread_reenters_and_holds_to_the_outermost_exit(tmp: str) -> None:
+    state = os.path.join(tmp, "state")
+    os.environ["AGENT_FABRIC_STATE_DIR"] = state
+    try:
+        with identity.agent_lock("nest"):
+            with identity.agent_lock("nest"):
+                with identity.agent_lock("nest", shared=True):   # shared inside exclusive: no upgrade asked
+                    assert not flock_is_free(state, "nest")
+            assert not flock_is_free(state, "nest"), "an inner exit let the flock go"
+        assert flock_is_free(state, "nest"), "the outermost exit kept the flock"
+        # The hold is let go however the block ends, and the next one takes it again.
+        try:
+            with identity.agent_lock("nest"):
+                raise KeyError("x")
+        except KeyError:
+            pass
+        assert flock_is_free(state, "nest")
+        with identity.agent_lock("nest"):
+            assert not flock_is_free(state, "nest")
+    finally:
+        del os.environ["AGENT_FABRIC_STATE_DIR"]
+
+
+def test_an_exclusive_request_inside_a_shared_hold_is_refused(tmp: str) -> None:
+    """A nested exclusive request would otherwise run under the outer
+    shared flock: a writer beside other readers."""
+    state = os.path.join(tmp, "state")
+    os.environ["AGENT_FABRIC_STATE_DIR"] = state
+    try:
+        with identity.agent_lock("upgrade", shared=True):
+            try:
+                with identity.agent_lock("upgrade"):
+                    raise AssertionError("an exclusive lock ran inside a shared one")
+            except RuntimeError as exc:
+                assert "upgrade" in str(exc), exc
+            with identity.agent_lock("upgrade", shared=True):
+                pass
+        assert flock_is_free(state, "upgrade"), "the refusal left the flock held"
+    finally:
+        del os.environ["AGENT_FABRIC_STATE_DIR"]
+
+
+def test_a_forked_child_takes_the_flock_itself(tmp: str) -> None:
+    """A child forked while the parent holds the lock is another process:
+    it waits for the parent's exit, never inherits the hold. The parent
+    writes `released` before it lets go, so the child finds the file only
+    if it waited."""
+    state = os.path.join(tmp, "state")
+    os.environ["AGENT_FABRIC_STATE_DIR"] = state
+    marker = os.path.join(tmp, "released")
+    r, w = os.pipe()
+    try:
+        with identity.agent_lock("forked"):
+            pid = os.fork()
+            if pid == 0:                                    # the child: report, never return into the runner
+                code = 1
+                try:
+                    os.close(r)
+                    with identity.agent_lock("forked"):
+                        os.write(w, b"waited\n" if os.path.exists(marker) else b"went straight in\n")
+                    code = 0
+                finally:
+                    os._exit(code)
+            os.close(w)
+            w = -1
+            # The wait only gives the defect time to show; the verdict is what the child reports.
+            ready, _, _ = select.select([r], [], [], 0.5)
+            open(marker, "w").close()
+        _, status = os.waitpid(pid, 0)
+        said = os.read(r, 100).decode()
+        assert not ready and said == "waited\n", f"the forked child did not wait for the parent's lock: {said!r}"
+        assert os.waitstatus_to_exitcode(status) == 0, status
+    finally:
+        os.close(r)
+        if w != -1:
+            os.close(w)
+        del os.environ["AGENT_FABRIC_STATE_DIR"]
+
+
+def test_a_forked_child_leaves_the_inherited_descriptor_number_alone(tmp: str) -> None:
+    """A child forked inside a held block runs that block's exit too. The
+    descriptor it inherited is closed at the fork, so its number is the
+    next one the child opens; the block's exit must not close that file."""
+    os.environ["AGENT_FABRIC_STATE_DIR"] = os.path.join(tmp, "state")
+    r, w = os.pipe()
+    pid = -1
+    try:
+        reused = -1
+        with identity.agent_lock("forked-exit"):
+            inherited = identity._HOLDS["forked-exit"].fd
+            pid = os.fork()
+            if pid == 0:
+                os.close(r)
+                # Lower numbers free first; open until the inherited one is reused.
+                for _ in range(64):
+                    reused = os.open(os.devnull, os.O_RDONLY)
+                    if reused >= inherited:
+                        break
+        if pid == 0:                                        # the child, out of the block: report, never return into the runner
+            code = 1
+            try:
+                if reused != inherited:
+                    said = f"no reuse: {reused} for {inherited}\n"
+                else:
+                    try:
+                        os.fstat(reused)
+                        said = "open\n"
+                    except OSError:
+                        said = "closed by the block's exit\n"
+                os.write(w, said.encode())
+                code = 0
+            finally:
+                os._exit(code)
+        os.close(w)
+        w = -1
+        _, status = os.waitpid(pid, 0)
+        said = os.read(r, 100).decode()
+        assert said == "open\n", f"the forked child's exit touched a reused descriptor: {said!r}"
+        assert os.waitstatus_to_exitcode(status) == 0, status
+    finally:
+        os.close(r)
+        if w != -1:
+            os.close(w)
+        del os.environ["AGENT_FABRIC_STATE_DIR"]
+
+
 def test_a_binding_from_another_host_is_refused(tmp: str) -> None:
     """The login is the identity; the state is a runtime instance on one
     machine. A binding stamped by another host — a shared or synced home —
@@ -337,6 +527,10 @@ def main() -> int:
     cases = [
         test_atomic_write_leaves_the_old_file_whole_on_failure,
         test_agent_state_mutations_serialize_across_processes,
+        test_a_second_thread_waits_for_the_holder,
+        test_the_owner_thread_reenters_and_holds_to_the_outermost_exit,
+        test_an_exclusive_request_inside_a_shared_hold_is_refused,
+        test_a_forked_child_takes_the_flock_itself, test_a_forked_child_leaves_the_inherited_descriptor_number_alone,
         test_a_binding_from_another_host_is_refused,
         test_the_job_list_is_the_logins_and_serialized,
         test_launch_role_drift_is_one_sentence_or_none,

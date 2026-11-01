@@ -361,22 +361,24 @@ def out_final(conn: sqlite3.Connection, message_id: str, state: str, seq: int | 
               carrier: str = DEFAULT_CARRIER) -> None:
     if state not in ("accepted", "failed"):
         raise JournalError(f"state {state!r} is not accepted or failed")
-    # Only a pending row takes an outcome of failed: the same message sent
-    # again while the relay is down must not mark the copy it already
-    # delivered as failed (review of #78).
-    row = _row(conn, "outbound", message_id)
-    if not row:
+    # The state test is in the UPDATE, not in a read before it: the dual-run's
+    # other carrier (ADR-064 rule 7) or a resend through out_attempt can change
+    # the row between a read and a write, and a decision taken on the stale
+    # read let a failed overwrite an accepted or a later accept replace the
+    # first carrier's provenance. The connection autocommits, so the one
+    # statement is the atomic step.
+    #   failed:   only a pending row takes it; the same message sent again
+    #             while the relay is down must not mark the copy it already
+    #             delivered as failed (review of #78).
+    #   accepted: the first carrier sets the provenance, name and sequence
+    #             together; a later accept leaves them, and a failed row takes
+    #             the provenance of the accept that follows it.
+    only_if = "state='pending'" if state == "failed" else "state!='accepted'"
+    cur = conn.execute("UPDATE episodes SET state=?, carrier=?, carrier_seq=COALESCE(?, carrier_seq), recorded_at=? "
+                       f"WHERE source=? AND direction='outbound' AND message_id=? AND {only_if}",
+                       (state, carrier, seq, now(), SOURCE, message_id))
+    if cur.rowcount == 0 and not _row(conn, "outbound", message_id):
         raise JournalError(f"no outbound row for MESSAGE-ID {message_id} (a pending row comes first)")
-    if state == "failed" and row[2] != "pending":
-        return
-    # The first carrier to accept sets the row's provenance, name and sequence
-    # together; a later accept (the other carrier of the dual run, ADR-064
-    # rule 7) leaves them. A failed row takes the provenance of the accept
-    # that follows it.
-    if state == "accepted" and row[2] == "accepted":
-        return
-    conn.execute("UPDATE episodes SET state=?, carrier=?, carrier_seq=COALESCE(?, carrier_seq), recorded_at=? "
-                 "WHERE id=?", (state, carrier, seq, now(), row[0]))
 
 
 def inbound(conn: sqlite3.Connection, records: list[dict], carrier: str = DEFAULT_CARRIER,

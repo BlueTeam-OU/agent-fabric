@@ -109,6 +109,15 @@ check("a check with no context", mutated(DEFAULT, "required_checks", value=[{"ap
 check("an unknown bot", mutated(DEFAULT, "bots", "renovate", value={"arm": ["patch"]}), False, "renovate")
 check("an unknown update type", mutated(DEFAULT, "bots", "dependabot", value={"arm": ["breaking"]}), False, "")
 check("signatures as a word", mutated(DEFAULT, "signatures", value="yes"), False, "")
+# The armed status: a context name, or null for a repository that turns it off; the committed file sets it.
+check("armed_status off", mutated(DEFAULT, "armed_status", value=None), True)
+check("armed_status named", mutated(DEFAULT, "armed_status", value="fabric/armed"), True)
+check("armed_status empty", mutated(DEFAULT, "armed_status", value=""), False, "")
+check("armed_status padded", mutated(DEFAULT, "armed_status", value="fabric/armed "), False, "")
+check("armed_status a list", mutated(DEFAULT, "armed_status", value=["fabric/armed"]), False, "")
+ok = REAL.get("armed_status") == "fabric/armed"
+print(f"  {'ok  ' if ok else 'FAIL'} the committed policies/arming.json sets armed_status to fabric/armed" + ("" if ok else f": {REAL.get('armed_status')!r}"))
+failures += not ok
 
 print(f"\n{'all passed' if not failures else f'{failures} failed'}")
 sys.exit(1 if failures else 0)

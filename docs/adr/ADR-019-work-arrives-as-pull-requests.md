@@ -157,12 +157,22 @@ not on a pipe's exit status.
    findings; the session also has no open P1 or P2 finding before it arms
    (`policies/pull-requests/SKILL.md`). Arming is a separate command, run on a
    verdict read — never chained behind the gate's own run. An arming
-   holds for the head it was made on: a push after it takes auto-merge
-   off (`.github/workflows/disarm-on-push.yml`, which says so on the PR),
-   and the new head is armed again only through the gate.
+   holds for the head it was made on, and the head says so, never a
+   clock: before it enables auto-merge, `fabric-pr arm` posts the commit
+   status the arming policy's `armed_status` names (`fabric/armed`) on
+   exactly the sha its gates read, and refuses when pr-gate or a fresh
+   read of the PR shows another head. In a repository of mode `auto` the
+   ruleset requires that status beside `required_checks`, so a head
+   pushed after an arming cannot merge on it; and a push takes auto-merge
+   off unless the new head carries the status
+   (`.github/workflows/disarm-on-push.yml`, which says so on the PR). The
+   new head is armed again only through the gate. A merge made outside
+   `fabric-pr arm` in such a repository posts the status itself
+   (A 2026-11-01).
 6. What arming is depends on the repository. agent-fabric's `main` is
    held by a ruleset (`tools/fabric/github-ruleset-main.json`): a pull
-   request, CI's aggregate check `ci-ok` and signed commits are required,
+   request, CI's aggregate check `ci-ok`, the arming status `fabric/armed`
+   (rule 5) and signed commits are required,
    and deletion
    and force-pushes are refused. With auto-merge on, a PR there is armed
    with `gh pr merge --auto --merge`, which waits for green; every merge
@@ -258,3 +268,4 @@ The body above reads current; each change's full note is in [history/ADR-019-ame
 | 2026-10-10 | Brand repositories commit straight to main | §5 rule 1: a project's arm.json `direct` names the roles that push to the default branch and the `pr_paths` that still need a pull request; policies/githooks/pre-push enforces it |
 | 2026-10-11 | pre-push also checks signatures in every project | §5 rule 1: the hook refuses a push that adds an unsigned commit in any project; without `direct` it applies no other rule |
 | 2026-10-19 | an arming authority's word beside the owner's | §5 rule 4: below the minimum or at the boundary, the role the repository's arming policy names may give the word, by AUTHORIZES or its own bound session; the review gate unchanged |
+| 2026-11-01 | An arming is tied to its head by a status | §5 rule 5: `fabric-pr arm` posts `fabric/armed` on the gated sha; mode `auto` rulesets require it (`armed_status`, not `required_checks`); disarm-on-push keeps only an arming its new head carries, no longer compares times (audit F02) |
