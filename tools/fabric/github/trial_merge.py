@@ -352,8 +352,9 @@ def resolve_pr(top: str, r: str) -> tuple[str, str]:
     refs/pull/<n>/head and fetched from it. Never origin's branch of the
     head's name: a fork's PR has its branch in the fork, and a branch of
     that name on origin is another one at another commit (audit F14). The
-    pull ref is fetched without a destination or FETCH_HEAD, so no ref of
-    the caller's moves."""
+    pull ref is fetched without a destination, FETCH_HEAD or the remote's
+    configured refspecs (--refmap=: a clone mapping refs/pull/* would
+    otherwise store it, #454 F3), so no ref of the caller's moves."""
     if not shutil.which("gh"):
         raise Refused(f"#{r} needs gh to find its head; nothing tried")
     try:
@@ -371,7 +372,7 @@ def resolve_pr(top: str, r: str) -> tuple[str, str]:
     ref = f"refs/pull/{int(r)}/head"
     ls = git.run(top, "ls-remote", "origin", ref, check=False, timeout=FETCH_TIMEOUT_S)
     held = ls.stdout.split("	", 1)[0].strip() if ls.returncode == 0 else ""
-    if not held or git.run(top, "fetch", "-q", "--no-write-fetch-head", "origin", ref, check=False,
+    if not held or git.run(top, "fetch", "-q", "--no-write-fetch-head", "--refmap=", "origin", ref, check=False,
                            timeout=FETCH_TIMEOUT_S).returncode != 0:
         raise Refused(f"#{r}: {ref} cannot be fetched from origin; nothing tried")
     # A push between gh's answer and these reads: the trial would test a
