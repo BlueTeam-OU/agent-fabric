@@ -246,6 +246,12 @@ def main() -> int:
                 m = status.managed_state(HERE, prefix=os.path.join(scratch, "p"), etc=os.path.join(scratch, "e"))
                 check("managed_state asks the checker against a scratch prefix and etc: missing, the absent file first",
                       m["status"] == "missing" and m["detail"] == f"missing: {os.path.join(scratch, 'e', 'managed-settings.json')} is absent")
+                os.makedirs(os.path.join(scratch, "tools", "fabric"))
+                with open(os.path.join(scratch, "tools", "fabric", "managed_settings.py"), "w") as fh:
+                    fh.write('def check(**kw):\n    return {"state": "in force", "reasons": [], "snapshot": "0123456789abcdef", "ref": kw["ref"]}\n')
+                check("an in-force snapshot is named by its first eight, and the ref asked is origin/main",
+                      status.managed_state(scratch)["detail"] == "in force (fabric-01234567)")
+                os.remove(os.path.join(scratch, "tools", "fabric", "managed_settings.py"))
                 check("managed_state, given a root with no checker, is unknown rather than a default",
                       status.managed_state(scratch)["status"] == "unknown")
             report["jobs"] = {"error": "boom"}
