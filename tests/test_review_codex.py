@@ -1819,6 +1819,18 @@ def main() -> int:
             dup_verdict = "extracted"
         except review_codex.Refused as e:
             dup_verdict = str(e)
+        twice_a, twice_b = (fxgit("hash-object", "-w", "--stdin", data=d) for d in (b"one\n", b"two\n"))
+        twice_tree = subprocess.run(["git", "-C", fx, "mktree"], env=git_env(), capture_output=True, check=True, timeout=30,
+                                    input=f"100644 blob {twice_a}\tf\n100644 blob {twice_b}\tf\n".encode()).stdout.decode().strip()
+        twice_commit = fxgit("-c", "user.name=t", "-c", "user.email=t@t", "commit-tree", twice_tree, "-m", "twice")
+        try:
+            review_codex.extract(fx, twice_commit, os.path.join(tmp, "work", "fx-twice", "head"))
+            twice_verdict = "extracted"
+        except review_codex.Refused as e:
+            twice_verdict = str(e)
+        except OSError as e:
+            twice_verdict = f"OSError {e}"
+        check("a path listed twice is refused by name, not by whichever write meets it second", "twice" in twice_verdict, twice_verdict)
         check("a name that is both a link and a directory is refused, and nothing is written outside the head",
               "both an entry and a directory" in dup_verdict and os.listdir(target_dir) == [], (dup_verdict, os.listdir(target_dir)))
         chain_verdict = extracted_links({"..data/f": "x", "x": "..data/f", "y": "x"}, "dots")
