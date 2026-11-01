@@ -21,7 +21,7 @@ develop-qzapp is a Qubes AppVM, rw-only (`qubesdb-read /qubes-vm-persistence`): 
 
 ## What it decides
 
-On this host the reservation is now provisioning's: the boot script is generated from the roster, replaced the owner's hand copy under the same name, and is idempotent. The fix for a `reserved_ports` that reads `not-covered` or `unreadable`, and for a start refused for it, is `fabric-host <host> persist`, which is what both now name. ADR-064 rule 1 says so (A 2026-11-01).
+On this host the reservation is now provisioning's: the boot script is generated from the roster, replaced the owner's hand copy under the same name, and is idempotent. The fix for a `reserved_ports` that reads `not-covered`, and for a start refused for it, is `fabric-host <host> persist`, which the refusal names; the read reports only the status. For `unreadable` the step is no fix: it exits 1 on a roster it cannot read and leaves a live value it cannot parse as it is, and the read's `reason` names which. ADR-064 rule 1 says so (A 2026-11-01).
 
 ## Not verified
 

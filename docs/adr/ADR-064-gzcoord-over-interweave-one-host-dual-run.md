@@ -158,8 +158,8 @@ address, where the relay's `sender` is a claim (ADR-033 §6).
    (`net.ipv4.ip_local_reserved_ports`), so no outgoing connection takes
    one of its ports as a source port (A 2026-10-26). Provisioning makes
    the reservation and keeps it across a reboot, from the roster's range:
-   `fabric-host <host> persist`, which a read that finds it missing and a
-   start that refuses for it both name (A 2026-11-01).
+   `fabric-host <host> persist`, which a start refused for it names; the
+   read reports whether it is covered (A 2026-11-01).
 2. The roster (`runtime/interweave/roster.json`) is the only source of a
    login's PeerId, endpoint and port. A row is keyed by agent id
    (ADR-039) and carries its login, PeerId, endpoint and port; it counts

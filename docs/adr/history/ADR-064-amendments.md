@@ -183,8 +183,11 @@ reservation, and reads it back; where the root does not survive a reboot
 (a Qubes AppVM) it installs `/rw/config/rc.local.d/agent-fabric-interweave.rc`,
 which adds the range at boot, and elsewhere
 `/etc/sysctl.d/90-agent-fabric-interweave.conf`. `fabric-ctl <login>
-interweave` reports `reserved_ports`, and the read and the start's refusal
-name the step as the fix.
+interweave` reports `reserved_ports` (`covered`, `not-covered`, or
+`unreadable` with its reason), and a start refused for the reservation
+names the step as the fix. The step fixes `not-covered`; an `unreadable`
+roster or live value it refuses too, since writing over a value it cannot
+parse would drop whatever that value holds.
 
 Why: the 2026-10-26 amendment's reservation was a file the owner put in
 `/etc/sysctl.d/`, and develop-qzapp is an AppVM whose `/etc` comes back
