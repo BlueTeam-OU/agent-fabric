@@ -216,6 +216,26 @@ def main() -> int:
         rc, out, err = run([sys.executable, "-I", WRITER, "no-such-login"])
         check("an unknown login is refused, named", rc != 0 and "no such account" in out + err, out + err)
 
+        print("writer: the boot script's install is checked (audit F11)")
+        dst = f"{t}/rcd/agent-fabric-accounts.rc"
+        os.chmod(dst, 0o644)
+        rc, out, err = run([sys.executable, "-I", WRITER, "db-admin"])
+        check("an identical script that lost its execute bit is installed again, and the run is clean",
+              rc == 0 and os.access(dst, os.X_OK) and filecmp.cmp(RC, dst, shallow=False), out + err)
+        shutil.rmtree(f"{t}/rcd")
+        put(f"{t}/rcd", "a file where the directory goes\n")
+        put(log, "")
+        rc, out, err = run([sys.executable, "-I", WRITER, "db-admin"])
+        check("an install that cannot be made is said and counted, not reported as persisted",
+              rc == 1 and "boot script could not be installed" in err and "will not come back after a reboot" in err, f"{rc} {err}")
+        check("…the rest of the login's steps still ran", "enable-linger db-admin" in lines(log), read(log))
+        os.unlink(f"{t}/rcd")
+        os.makedirs(f"{t}/rcd")
+        os.symlink("/bin/true", f"{t}/rcd/agent-fabric-accounts.rc")
+        rc, out, err = run([sys.executable, "-I", WRITER, "db-admin"])
+        check("a symlink in the script's place is replaced by the real, executable copy",
+              rc == 0 and not os.path.islink(dst) and os.access(dst, os.X_OK) and filecmp.cmp(RC, dst, shallow=False), out + err)
+
         print("writer on a persistent platform: linger only, no snapshot")
         for d in ("snap", "rcd", "run"):
             shutil.rmtree(f"{t}/{d}", ignore_errors=True)
