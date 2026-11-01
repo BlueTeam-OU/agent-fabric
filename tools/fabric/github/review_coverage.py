@@ -349,8 +349,9 @@ def is_ancestor(repo: str, ancestor: str, descendant: str) -> bool:
 
 
 def check_paths(coverage: Coverage, expected: list[str], sources: list[str] | tuple[str, ...] = ()) -> str:
-    """Why the block does not name exactly the range's paths, or "". Both directions: a path left out is a path
-    unaccounted for, one named that the range does not change is a claim about nothing. `sources` (the source side of
+    """Why the block does not account for exactly the range's paths (named, or by its `default`), or "". Both
+    directions: without a `default` a path left out is unaccounted for; with one it is accounted for by the default.
+    A path named that the range does not change is a claim about nothing either way. `sources` (the source side of
     a rename) may be named and need not be: the range does change them, only `--name-only` does not say so."""
     for p in expected:
         _plain(p, "a changed path")
