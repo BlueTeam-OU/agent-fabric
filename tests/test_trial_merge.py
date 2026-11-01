@@ -164,7 +164,7 @@ def main() -> int:
         check("a pid-less worktree an hour old goes", not os.path.exists(stale))
         check("a pid-less fresh one stays", os.path.isdir(fresh))
 
-        print("refs: a PR by its head branch, a branch by name, origin/ once")
+        print("refs: a PR by the head gh names, fetched from refs/pull; a branch by name, origin/ once")
         origin = os.path.join(scratch, "origin.git")
         sh(scratch, "init", "-q", "--bare", "-b", "main", origin)
         sh(repo, "remote", "add", "origin", origin)
@@ -175,29 +175,71 @@ def main() -> int:
         sh(repo, "push", "-q", "origin", "main")
         sh(repo, "checkout", "-q", "-b", "h/a/feat")
         sh(repo, "commit", "-q", "--allow-empty", "-m", "feat")
-        sh(repo, "push", "-q", "origin", "h/a/feat")
+        sh(repo, "push", "-q", "origin", "h/a/feat", "h/a/feat:refs/pull/7/head", "h/a/feat:refs/pull/8/head",
+                           "h/a/feat:refs/pull/10/head", "h/a/feat:refs/pull/12/head", "h/a/feat:refs/pull/14/head")
+        sha = sh(repo, "rev-parse", "h/a/feat").strip()
+        # A fork's PR #11 whose branch shares its name with an origin branch
+        # at another commit: GitHub keeps the fork's head only as
+        # refs/pull/11/head, and no branch of origin holds it (audit F14).
+        # Made in another clone, so that only a fetch brings it here.
+        fork = os.path.join(scratch, "fork")
+        sh(scratch, "clone", "-q", origin, fork)
+        sh(fork, "commit", "-q", "--allow-empty", "-m", "fork's commit")
+        fork_sha = sh(fork, "rev-parse", "HEAD").strip()
+        sh(fork, "push", "-q", "origin", "HEAD:refs/pull/11/head")
+        shutil.rmtree(fork)
+        sh(repo, "checkout", "-q", "main")
         sh(repo, "fetch", "-q", "origin")
-        sha = sh(repo, "rev-parse", "origin/h/a/feat").strip()
+        main_sha = sh(repo, "rev-parse", "main").strip()
+        fetch_head = os.path.join(repo, ".git", "FETCH_HEAD")
+        with open(fetch_head) as fh:
+            fetch_head_before = fh.read()
         real_run, real_which = gh.run, shutil.which
         asked = []
+        same = {"headRefOid": sha, "isCrossRepository": False, "headRepositoryOwner": {"login": "o"}}
+        prs = {"7": {"headRefName": "h/a/feat", **same}, "0008": {"headRefName": "origin/h/a/feat", **same},
+               "9": {"headRefName": None, **same}, "10": {"headRefName": "h/a/gone", **same},
+               "11": {"headRefName": "h/a/feat", "headRefOid": fork_sha, "isCrossRepository": True,
+                      "headRepositoryOwner": {"login": "forker"}},
+               "12": {"headRefName": "h/a/feat", "headRefOid": "0" * 40, **{k: v for k, v in same.items() if k != "headRefOid"}},
+               "13": {"headRefName": "h/a/feat", **same},
+               # gh's head is a commit this clone has, but not the pull ref's.
+               "14": {"headRefName": "h/a/feat", "headRefOid": main_sha, **{k: v for k, v in same.items() if k != "headRefOid"}}}
 
         def fake_run(args, **kw):
             asked.append(args)
-            return json.dumps({"headRefName": {"7": "h/a/feat", "0008": "origin/h/a/feat", "9": None, "10": "h/a/gone"}.get(args[2])})
+            return json.dumps(prs.get(args[2]))
 
         gh.run = fake_run
         try:
             check("a branch by name", tm.resolve_refs(repo, ["h/a/feat"]) == (["h/a/feat"], [sha]))
             check("origin/ stripped", tm.resolve_refs(repo, ["origin/h/a/feat"]) == (["h/a/feat"], [sha]))
-            check("a PR number becomes its head branch", tm.resolve_refs(repo, ["7"]) == (["h/a/feat"], [sha]) and asked == [["pr", "view", "7", "--json", "headRefName"]])
-            check("the number as typed, and a head carrying origin/", tm.resolve_refs(repo, ["0008"]) == (["h/a/feat"], [sha]) and asked[-1][2] == "0008")
-            for ref, want in (("9", "is not a pull request gh can read"), ("10", "h/a/gone is not a branch on origin"),
+            check("a PR number becomes the head gh names",
+                  tm.resolve_refs(repo, ["7"]) == (["h/a/feat"], [sha])
+                  and asked == [["pr", "view", "7", "--json", "headRefName,headRefOid,isCrossRepository,headRepositoryOwner"]])
+            check("the number as typed to gh, and a head carrying origin/", tm.resolve_refs(repo, ["0008"]) == (["h/a/feat"], [sha]) and asked[-1][2] == "0008")
+            try:
+                got = tm.resolve_refs(repo, ["11"])
+            except tm.Refused as e:
+                got = str(e)
+            check(f"a fork's PR is its own head, never the origin branch of the same name, and is named as the fork's ({got})",
+                  got == (["forker:h/a/feat"], [fork_sha]))
+            for ref, want in (("9", "is not a pull request gh can read"),
+                              ("12", "#12's head 0000000000000000000000000000000000000000 is not what origin's refs/pull/12/head holds"),
+                              ("13", "#13: refs/pull/13/head cannot be fetched from origin"),
+                              ("14", f"#14's head {main_sha} is not what origin's refs/pull/14/head holds"),
                               ("nowhere", "nowhere is not a branch on origin"), ("", " is not a branch on origin")):
                 try:
                     tm.resolve_refs(repo, [ref])
                     check(f"refused: {ref!r}", False)
                 except tm.Refused as e:
-                    check(f"refused: {ref!r}", want in str(e) and "nothing tried" in str(e))
+                    check(f"refused: {ref!r} ({e})", want in str(e) and "nothing tried" in str(e))
+            check("…and a PR whose head branch is gone from origin still resolves by its pull ref",
+                  tm.resolve_refs(repo, ["10"]) == (["h/a/gone"], [sha]))
+            with open(fetch_head) as fh:
+                fetch_head_after = fh.read()
+            check("…and the caller's refs are as they were: no ref of refs/pull fetched into the clone, FETCH_HEAD unwritten",
+                  sh(repo, "for-each-ref", "refs/pull", "refs/remotes/origin/pull") == "" and fetch_head_after == fetch_head_before)
 
             def failing(args, **kw):
                 raise gh.GhError("gh pr view 7", "Not Found (HTTP 404)", 404)
@@ -213,7 +255,7 @@ def main() -> int:
                 tm.resolve_refs(repo, ["7"])
                 check("no gh installed is refused", False)
             except tm.Refused as e:
-                check("no gh installed: #7 needs gh to find its branch", "#7 needs gh to find its branch" in str(e))
+                check("no gh installed: #7 needs gh to find its head", "#7 needs gh to find its head" in str(e))
             check("...but a branch name never needs gh", tm.resolve_refs(repo, ["h/a/feat"]) == (["h/a/feat"], [sha]))
         finally:
             gh.run, shutil.which = real_run, real_which
@@ -294,22 +336,44 @@ def main() -> int:
         print("cleanup scans again until a pass finds no one new: a scan is not atomic against fork")
         # Scripted /proc listings: 102 is forked by 101 after the first
         # listing, so only a second pass sees it (j128: a lease-run check's
-        # sleep outlived the run under a full tests/run.sh).
+        # sleep outlived the run under a full tests/run.sh). A pidfd is
+        # scripted as a real descriptor standing for the pid (cleanup closes
+        # it), and every process as never ending.
         listings = [[101], [101, 102], [101, 102]]
-        scans, ended = [], []
-        real_procs, real_terminate = tw.worktree_procs, tw.terminate
+        scans, sent = [], []
+        saved = {n: getattr(tw, n) for n in ("worktree_procs", "terminate", "claim", "send", "ended", "wait_ended", "unreaped")}
         tw.worktree_procs = lambda wt, cpid: scans.append(cpid) or list(listings[min(len(scans), len(listings)) - 1])
-        tw.terminate = lambda pid, group=False: ended.append((pid, group))
+        tw.terminate = lambda pid, group=False: sent.append((pid, "group"))
+        stands_for = {}
+
+        def fake_claim(pid, wt, cpid):
+            fd = os.open(os.devnull, os.O_RDONLY)
+            stands_for[fd] = pid
+            return fd
+        tw.claim = fake_claim
+        tw.send = lambda fd, sig: sent.append((stands_for[fd], sig))
+        tw.ended = lambda fd: False
+        tw.wait_ended = lambda fds, seconds: sent.append(("wait", seconds)) and False
+        tw.unreaped = lambda pid: True
         try:
             cleanup_here(tw.cleanup, repo, os.path.join(scratch, "no-such-wt"), 100)
-            check("the group, then each member once, the late child included",
-                  ended == [(100, True), (101, False), (102, False)])
-            check("…and it stops at the first pass with no one new", len(scans) == 3)
-            listings[:] = [list(range(1000, 1000 + n)) for n in range(1, tw.SWEEP_PASSES + 5)]
-            scans.clear()
+            T, K = signal.SIGTERM, signal.SIGKILL
+            check("the group, then each member once on TERM, the late child included, the grace, "
+                  "then each once on KILL, and the KILL waited for",
+                  sent == [(100, "group"), (101, T), (102, T), ("wait", tw.TERM_GRACE_S), (101, K), (102, K),
+                           ("wait", tw.KILL_WAIT_S)])
+            check("…and each pass stops at the first scan with no one new", len(scans) == 4)
+            sent.clear()
+            tw.unreaped = lambda pid: False
             cleanup_here(tw.cleanup, repo, os.path.join(scratch, "no-such-wt"), 100)
-            check(f"…and a check that keeps forking is scanned {tw.SWEEP_PASSES} times, no more",
-                  len(scans) == tw.SWEEP_PASSES)
+            check("…and a runner already reaped is never signalled as a group: its id may be a stranger's",
+                  (100, "group") not in sent)
+            listings[:] = [list(range(1000, 1000 + n)) for n in range(1, 2 * tw.SWEEP_PASSES + 5)]
+            scans.clear()
+            tw.wait_ended = lambda fds, seconds: True
+            cleanup_here(tw.cleanup, repo, os.path.join(scratch, "no-such-wt"), 100)
+            check(f"…and a check that keeps forking is scanned {tw.SWEEP_PASSES} times a pass, no more",
+                  len(scans) == 2 * tw.SWEEP_PASSES)
 
             def unlistable(wt, cpid):
                 raise OSError(24, "Too many open files")
@@ -324,7 +388,51 @@ def main() -> int:
                   not any(os.path.exists(p) for p in (wt3, wt3 + ".pid", wt3 + ".out")))
             check("…and the suite is not left deaf to TERM", signal.getsignal(signal.SIGTERM) is not signal.SIG_IGN)
         finally:
-            tw.worktree_procs, tw.terminate = real_procs, real_terminate
+            for n, v in saved.items():
+                setattr(tw, n, v)
+
+        print("cleanup: a member that ignores TERM is killed, and gone when cleanup returns (audit F15)")
+        stubborn_code = ("import os, signal, sys, time; signal.signal(signal.SIGTERM, signal.SIG_IGN); "
+                         "os.write(1, b'ready'); time.sleep(60)")
+        wt4 = os.path.join(scratch, "wt4")
+        os.makedirs(wt4)
+        stubborn = subprocess.Popen([sys.executable, "-c", stubborn_code], cwd=wt4, stdout=subprocess.PIPE,
+                                    start_new_session=True)
+        stranger = subprocess.Popen(["sleep", "30"], cwd=scratch, start_new_session=True)
+        real_grace = tw.TERM_GRACE_S
+        try:
+            stubborn.stdout.read(5)   # TERM is ignored from here on
+            tw.TERM_GRACE_S = 1.0
+            began = time.monotonic()
+            cleanup_here(tw.cleanup, repo, wt4, stubborn.pid)
+            took = time.monotonic() - began
+            # Read before poll(), which would reap it itself.
+            try:
+                os.waitid(os.P_PID, stubborn.pid, os.WEXITED | os.WNOHANG | os.WNOWAIT)
+                reaped = False
+            except ChildProcessError:
+                reaped = True
+            check("…and the runner, this process's child, is reaped by cleanup", reaped)
+            check(f"…gone (not merely signalled) when cleanup returns, after {took:.1f} s",
+                  stubborn.poll() is not None)
+            check("…and within the grace and the KILL wait", took < tw.TERM_GRACE_S + tw.KILL_WAIT_S + 2)
+            # A listing that named a pid the kernel has since given to
+            # another process: the pidfd holds the stranger, which is not the
+            # trial's, and is left alone.
+            tw.worktree_procs, real_procs = (lambda wt, cpid: [stranger.pid]), tw.worktree_procs
+            try:
+                cleanup_here(tw.cleanup, repo, os.path.join(scratch, "no-such-wt"), None)
+            finally:
+                tw.worktree_procs = real_procs
+            check("…and a listed pid that is not the trial's when claimed is never signalled",
+                  stranger.poll() is None)
+        finally:
+            tw.TERM_GRACE_S = real_grace
+            for p in (stubborn, stranger):
+                if p.poll() is None:
+                    p.kill()
+                p.wait()
+            stubborn.stdout.close()
 
         print("the free-space arithmetic and its refusals")
         old = os.environ.get("AGENT_FABRIC_TRIAL_MIN_FREE_KB")
