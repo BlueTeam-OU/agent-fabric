@@ -21,7 +21,10 @@ on the account),
 in <state>/session-state.json (the directory runtime/identity.py and
 tools/fabric/control/upgrade.py's state dir name), mode 0600, rewritten whole
 under a lock and only when a session's state, reason or transcript changes: PreToolUse fires on
-every tool call and writes nothing while the session stays working.
+every tool call and writes nothing while the session stays working. The
+rewrite is identity.atomic_write's, the state layer's one writer (ADR-003
+rule 1), loaded only when there is something to write; the lock file
+beside it, session-state.json.lock, is a lock and never state (ADR-003 §2).
 
 Beside the state, the session's own `claude` process (the nearest
 ancestor of that name) and its start time: a session killed or crashed
@@ -41,6 +44,7 @@ but that one file; the control agent decides what leaves the account.
 from __future__ import annotations
 
 import fcntl
+import importlib.util
 import json
 import os
 import pwd
@@ -48,6 +52,9 @@ import sys
 import time
 
 FILE = "session-state.json"
+# runtime/identity.py, by this file's place in the tree rather than by
+# AGENT_FABRIC_ROOT: the hook that runs is the tree's, and so is its writer.
+IDENTITY = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.realpath(__file__)))), "identity.py")
 LOCK_WAIT_S = 1.0
 NEEDS_A_PERSON = {"permission_prompt", "worker_permission_prompt", "elicitation_dialog",
                   "elicitation_url_dialog", "agent_needs_input"}
@@ -59,6 +66,27 @@ def state_dir() -> str:
     root = os.path.abspath(root) if root else os.path.join(
         os.environ.get("XDG_STATE_HOME") or os.path.join(os.path.expanduser("~"), ".local", "state"), "agent-fabric")
     return os.path.join(root, "agents", login)
+
+
+_identity = None
+
+
+def identity():
+    """runtime/identity.py, loaded on the first write and kept: the load is
+    most of a hook's run, and most events write nothing."""
+    global _identity
+    if _identity is None:
+        spec = importlib.util.spec_from_file_location("fabric_identity", IDENTITY)
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        _identity = mod
+    return _identity
+
+
+def open_lock(path: str):
+    """The lock file `path`, created 0600 and never truncated, written or
+    removed: what makes it a lock and not state (ADR-003 §2)."""
+    return os.fdopen(os.open(path, os.O_WRONLY | os.O_CREAT | os.O_CLOEXEC | os.O_NOFOLLOW, 0o600), "w")
 
 
 def harness(proc: str = "/proc", pid: int | None = None) -> tuple[int, int] | None:
@@ -151,7 +179,7 @@ def record(payload: dict, directory: str | None = None, now: float | None = None
     directory = directory or state_dir()
     os.makedirs(directory, mode=0o700, exist_ok=True)
     path = os.path.join(directory, FILE)
-    with open(os.path.join(directory, FILE + ".lock"), "a") as held:
+    with open_lock(os.path.join(directory, FILE + ".lock")) as held:
         if not lock(held):
             return False
         try:
@@ -190,11 +218,7 @@ def record(payload: dict, directory: str | None = None, now: float | None = None
                     sessions[sid]["reason"] = reason
                 if transcript:
                     sessions[sid]["transcript"] = transcript
-        tmp = f"{path}.{os.getpid()}"
-        fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-        with os.fdopen(fd, "w", encoding="utf-8") as fh:
-            json.dump({"sessions": sessions}, fh, sort_keys=True)
-        os.replace(tmp, path)
+        identity().atomic_write(path, json.dumps({"sessions": sessions}, sort_keys=True), mode=0o600)
         return True
 
 

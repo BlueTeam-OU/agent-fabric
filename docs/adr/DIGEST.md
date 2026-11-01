@@ -140,27 +140,28 @@ its record disagree, the record wins. Look it up, never read it whole:
   `atomic_write`, `update_binding`, `append_history`; no caller opens a
   state file for writing. The control code (`tools/fabric/control/`)
   replaces its files by rename, appends its logs (§5 rule 1).
-- Every read-modify-write holds `agent_lock`, a flock, except
+- Every read-modify-write holds `agent_lock`, except
   the control code's own files (§5 rule 2).
 - A binding is per (agent, host); another host's is refused (§5 rule 3).
 - A working-copy rename merges history, never overwrites (§5 rule 4); the
   session-start hook stays non-blocking (§5 rule 5).
-- A 2026-09-28 — `fabric-fresh` is a second `restart.json` writer, through
-  `identity.py`; `fabric-branches` records its sweeps under `agent_lock`.
-- A 2026-09-28 — the job list, `jobs.json`, is per-agent state written by
-  `update_jobs` (§5 rule 1).
-- A 2026-10-05 — `episodic.db` is a second writer class, a self-contained
-  transactional store written only by `episodic.py` (§5 rule 1).
+- A 2026-09-28 — `fabric-fresh` writes `restart.json` too, through
+  `identity.py`; `fabric-branches` records its sweeps.
+- A 2026-09-28 — the job list, `jobs.json`, is written by `update_jobs`
+  (§5 rule 1).
+- A 2026-10-05 — `episodic.db`, a self-contained transactional store, is a
+  writer class: only `episodic.py` (§5 rule 1).
 - A 2026-10-05 — the GZCoord logs (`journal-bypass.jsonl`, the send ledger)
-  are a writer class; the ledger's unlocked trim is a named gap (§5 rule 1).
-- A 2026-10-30 — `actions-seen.json` has two writers, agentd and
-  `fabric-op`, whose claims hold a flock on the state directory, never
-  `agent_lock` (§2, §5 rules 1–2).
+  are a writer class; the unlocked trim is a named gap (§5 rule 1).
+- A 2026-10-30 — `actions-seen.json`'s two writers, agentd and
+  `fabric-op`, claim under a flock on the state directory (§2, §5 rules 1–2).
 - A 2026-10-30 — `pool.json` is rewritten under a flock on
   `pool.json.lock` (§2, §5 rule 2).
-- A 2026-10-31 — a lock file, held by `flock` only and never written,
-  read or removed, is not state (§2, §5 rule 1).
-- Keywords: atomic write, flock, XDG_STATE_HOME, actions-seen.json, action ledger, fabric-op.jsonl.
+- A 2026-10-31 — a lock file, only `flock`ed, never written, read or
+  removed, is not state (§2, §5 rule 1).
+- A 2026-11-01 — the session hooks write by `atomic_write`, under own
+  lock files (§2, §5 rule 2).
+- Keywords: atomic write, flock, XDG_STATE_HOME, actions-seen.json, action ledger, fabric-op.jsonl, session-state.json.
 
 ### ADR-004 — Adding a role without breaking anyone's CI (Accepted)
 
