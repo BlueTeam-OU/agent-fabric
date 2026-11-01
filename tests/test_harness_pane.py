@@ -34,12 +34,16 @@ class FakeServer:
     """What `agent-fabric-fleetdeck --session harness …` answers. `answers_after` calls fail first (a server not yet
     listening); `panes` maps workspace id to a list of pane dicts {id, running}."""
 
-    def __init__(self, workspaces=(), answers_after=0):
+    def __init__(self, workspaces=(), answers_after=0, startup=(), typed_lost=False):
+        """`startup`: the non-shell foreground pids of the first process-info reads, one set per read (a shell still
+        sourcing its profile), before the pane's own state answers; `typed_lost`: a `pane run` that never arrives."""
         self.workspaces = {w["workspace_id"]: dict(w) for w in workspaces}
         self.panes = {w["workspace_id"]: [{"pane_id": f"{w['workspace_id']}:p1", "running": w.get("running", False)}] for w in workspaces}
         self.calls, self.typed, self.refuse = [], [], answers_after
+        self.startup, self.typed_lost = list(startup), typed_lost
 
-    def __call__(self, argv):
+    def __call__(self, argv, timeout):
+        assert 0 < timeout <= hp.CALL_TIMEOUT_S, timeout
         assert argv[:3] == [hp.BINARY, "--session", "harness"], argv
         args = argv[3:]
         self.calls.append(args)
@@ -62,12 +66,15 @@ class FakeServer:
                 return 2, "", f"error: unknown option: {args[2]}\n"
             pane = next(p for ps in self.panes.values() for p in ps if p["pane_id"] == args[3])
             procs = [{"pid": SHELL_PID, "name": "bash", "argv": ["bash"]}]
-            if pane["running"]:
+            if self.startup:
+                procs += [{"pid": pid, "name": "grepconf.sh", "argv": ["/usr/bin/sh", "/usr/libexec/grepconf.sh", "-c"]} for pid in self.startup.pop(0)]
+            elif pane["running"]:
                 procs = [{"pid": SHELL_PID + 1, "name": "python", "argv": ["fabric-python", "-I", "/usr/local/share/moveto/moveto.py", "--enter"]}]
             return 0, json.dumps({"result": {"process_info": {"shell_pid": SHELL_PID, "foreground_pgid": 1, "foreground_processes": procs}}}), ""
         if args[:2] == ["pane", "run"]:
             self.typed.append((args[2], args[3]))
-            next(p for ps in self.panes.values() for p in ps if p["pane_id"] == args[2])["running"] = True
+            if not self.typed_lost:
+                next(p for ps in self.panes.values() for p in ps if p["pane_id"] == args[2])["running"] = True
             return 0, "{}", ""
         raise AssertionError(args)
 
@@ -138,7 +145,9 @@ class Ensure(unittest.TestCase):
         slept = []
         t = [0.0]
         hp.ensure(hp.Deck(s), "a", "/home/a", clock=lambda: t[0], sleep=lambda x: (slept.append(x), t.__setitem__(0, t[0] + x)))
-        self.assertEqual(slept, [hp.POLL_S] * 3)
+        first = [i for i, c in enumerate(s.calls) if c == ["workspace", "list"]]
+        self.assertEqual(first, [0, 1, 2, 3])    # three refused, then the answer: one poll's sleep between each
+        self.assertEqual(set(slept), {hp.POLL_S})
         self.assertEqual(len(s.typed), 1)
 
     def test_a_server_that_never_answers_is_an_error_naming_the_wait(self):
@@ -152,11 +161,11 @@ class Ensure(unittest.TestCase):
             def __init__(self, patch, *a):
                 super().__init__(*a)
                 self.patch = patch
-            def __call__(self, argv):
+            def __call__(self, argv, timeout):
                 for key, answer in self.patch.items():
                     if argv[3:5] == list(key):
                         return answer
-                return super().__call__(argv)
+                return super().__call__(argv, timeout)
         ws = [{"workspace_id": "w1", "label": "harness"}]
         for key, answer, why in ((("workspace", "list"), (0, "not json", ""), "not JSON"),
                                  (("workspace", "list"), (0, json.dumps({"workspaces": []}), ""), "no result object"),
@@ -175,6 +184,145 @@ class Ensure(unittest.TestCase):
                 hp.ensure(hp.Deck(s), "a", "/home/a", clock=lambda: 0.0, sleep=lambda x: None) if key != ("workspace", "list") else ensure(s)
             self.assertEqual(s.typed, [], why)
             self.assertEqual(len(s.workspaces), 1, why)    # none created
+
+    def test_a_restored_shell_still_sourcing_its_profile_is_waited_out_then_given_enter(self):
+        # Measured 2026-10-31: a restored pane's foreground held flatpak, grepconf.sh or readlink for a moment, each a
+        # new pid; read as "running a program", 5 of 12 panes were left at a bare shell and the deck pressed nothing.
+        s = FakeServer([{"workspace_id": "w7", "label": "harness"}], startup=[{5001}, {5002, 5003}, {5004}])
+        said = ensure(s)
+        self.assertEqual(s.typed, [("w7:p1", "/usr/local/share/moveto/enter /home/a/projects a --wait")])
+        self.assertIn("again", said)
+
+    def test_a_foreground_that_only_churns_is_an_error_and_nothing_is_typed(self):
+        churn = [{6000 + i} for i in range(int(hp.STARTUP_S / hp.POLL_S) + 5)]
+        s = FakeServer([{"workspace_id": "w7", "label": "harness"}], startup=churn)
+        with self.assertRaisesRegex(hp.Failed, rf"no program that stays in its foreground after {hp.STARTUP_S:g} s"):
+            ensure(s)
+        self.assertEqual(s.typed, [])
+
+    def test_a_pane_just_made_is_typed_into_once_its_profile_child_leaves_however_long_it_stayed(self):
+        # Round 1 F1: a profile child that outlasts SETTLE_S in a pane this step made is not a running program.
+        stays = int(hp.SETTLE_S / hp.POLL_S) + 3
+        s = FakeServer(startup=[{9001}] * stays)
+        self.assertIn("opened", ensure(s))
+        self.assertEqual(s.typed, [("w1:p1", "/usr/local/share/moveto/enter /home/a/projects a --wait")])
+
+    def test_a_pane_just_made_that_never_comes_to_its_shell_is_an_error_and_nothing_is_typed(self):
+        s = FakeServer(startup=[{9001}] * (int(hp.STARTUP_S / hp.POLL_S) + 5))
+        with self.assertRaisesRegex(hp.Failed, rf"has not come to its shell after {hp.STARTUP_S:g} s"):
+            ensure(s)
+        self.assertEqual((s.typed, s.pane_count()), ([], 1))
+
+    def test_a_program_that_stays_for_the_settle_window_is_a_running_one(self):
+        # Positive control for the waiting-out above: the same pid read across SETTLE_S is never typed over.
+        s = FakeServer([{"workspace_id": "w7", "label": "harness"}], startup=[{7000}] * (int(hp.SETTLE_S / hp.POLL_S) + 1))
+        self.assertIn("already running", ensure(s))
+        self.assertEqual(s.typed, [])
+
+    def test_a_line_that_never_starts_enter_fails_the_step_and_is_not_typed_twice(self):
+        # The unit's Restart=on-failure is the retry: a second line could land at enter's prompt as the activating Enter.
+        for ws in ((), ({"workspace_id": "w7", "label": "harness"},)):
+            s = FakeServer(ws, typed_lost=True)
+            with self.assertRaisesRegex(hp.Failed, rf"is still at its shell after {hp.READBACK_S:g} s"):
+                ensure(s)
+            self.assertEqual(len(s.typed), 1)
+
+    def test_the_step_ends_within_its_budget_however_slow_the_calls(self):
+        # Round 1 F2: systemd's default TimeoutStartSec (90 s) bounds the step as a whole, slow calls included. A call
+        # given less time than it takes times out at that time, as real_run's subprocess timeout does.
+        self.assertLess(hp.STEP_S + hp.POLL_S, 90)
+        for latency in (0.2, 5, 14, 20):
+            for ws, kw in (((), {"typed_lost": True}), (({"workspace_id": "w7", "label": "harness"},), {"typed_lost": True, "answers_after": 2}),
+                           (({"workspace_id": "w7", "label": "harness"},), {"startup": [{6000 + i} for i in range(200)]})):
+                t = [0.0]
+                class Slow(FakeServer):
+                    def __call__(self, argv, timeout):
+                        if latency > timeout:
+                            t[0] += timeout
+                            raise hp.Failed("no answer")
+                        t[0] += latency
+                        return super().__call__(argv, timeout)
+                s = Slow(ws, **kw)
+                with self.assertRaises(hp.Failed):
+                    hp.ensure(hp.Deck(s), "a", "/home/a", clock=lambda: t[0], sleep=lambda x: t.__setitem__(0, t[0] + x))
+                self.assertLessEqual(t[0], hp.STEP_S + hp.POLL_S, (latency, kw))
+                self.assertLessEqual(len(s.typed), 1)
+
+    def test_a_line_is_never_typed_with_less_than_its_read_back_left_of_the_step(self):
+        # Round 2 F3: slow first calls, then a restored profile that churns until the step is nearly spent. A line
+        # typed then would get a read-back cut short and fail a pane whose enter did start; it is not typed. Control:
+        # with fewer churning reads the same start types the line and succeeds.
+        def run(churn, slow=4):
+            t, n = [0.0], [0]
+            class Slow(FakeServer):
+                def __call__(self, argv, timeout):
+                    n[0] += 1
+                    t[0] += 14 if n[0] <= slow else 0.2
+                    return super().__call__(argv, timeout)
+            s = Slow([{"workspace_id": "w7", "label": "harness"}], answers_after=2,
+                     startup=[{6000 + i} for i in range(churn)])
+            return s, (lambda: hp.ensure(hp.Deck(s), "a", "/home/a", clock=lambda: t[0],
+                                         sleep=lambda x: t.__setitem__(0, t[0] + x)))
+        s, go = run(28)
+        with self.assertRaisesRegex(hp.Failed, rf"not typed into: less than the {hp.CALL_TIMEOUT_S + hp.READBACK_S:g} s"):
+            go()
+        self.assertEqual(s.typed, [])
+        s, go = run(28, slow=0)
+        self.assertIn("ran enter again", go())
+        self.assertEqual(len(s.typed), 1)
+
+    def test_a_started_enter_is_never_failed_for_the_steps_time_however_slow_pane_run(self):
+        # Rounds 3-4 F3/F4: `pane run` may be slow, and a call that times out may still have delivered the line (only
+        # its reply was late). Swept over how long the restored profile churns and how slow `pane run` is, with calls
+        # that time out at the timeout they are given (as real_run's do) and deliver anyway: no step fails with enter
+        # running in the pane, and a `pane run` that returns leaves the whole read-back. Control: some runs typed.
+        typed_any = False
+        for run_latency in (0.2, 5, 14, 15):
+            for churn in range(0, 60):
+                t, n, ran_at = [0.0], [0], []
+                class Slow(FakeServer):
+                    def __call__(self, argv, timeout):
+                        n[0] += 1
+                        latency = run_latency if "run" in argv else 14 if n[0] <= 3 else 0.2
+                        out = super().__call__(argv, timeout) if "run" in argv or latency <= timeout else None
+                        if latency > timeout:
+                            t[0] += timeout
+                            raise hp.Failed("no answer")
+                        t[0] += latency
+                        if "run" in argv:
+                            ran_at.append(t[0])
+                        return out if out is not None else super().__call__(argv, timeout)
+                s = Slow([{"workspace_id": "w7", "label": "harness"}], answers_after=2,
+                         startup=[{6000 + i} for i in range(churn)])
+                failed = False
+                try:
+                    hp.ensure(hp.Deck(s), "a", "/home/a", clock=lambda: t[0], sleep=lambda x: t.__setitem__(0, t[0] + x))
+                except hp.Failed:
+                    failed = True
+                typed_any = typed_any or bool(s.typed)
+                self.assertFalse(failed and s.panes["w7"][0]["running"], (run_latency, churn))
+                for at in ran_at:
+                    self.assertLessEqual(at, hp.STEP_S - hp.READBACK_S, (run_latency, churn))
+        self.assertTrue(typed_any)
+
+    def test_a_wait_the_step_cut_short_says_so_not_its_own_window(self):
+        # Round 2 F3: a call that ends past the step's deadline ends the wait; the message names the deadline and the
+        # time waited, not the window's nominal STARTUP_S. Control: the same wait with the step's time left names its
+        # own window's length and no deadline.
+        def wait(left, latency):
+            t = [0.0]
+            class Slow(FakeServer):
+                def __call__(self, argv, timeout):
+                    t[0] += latency
+                    return super().__call__(argv, timeout)
+            deck = hp.Deck(Slow([{"workspace_id": "w7", "label": "harness"}], startup=[{9001}] * 1000))
+            deck.start(lambda: t[0])
+            t[0] = hp.STEP_S - left
+            hp.shell_alone(deck, "w7:p1", lambda: t[0], lambda x: t.__setitem__(0, t[0] + x), hp.STARTUP_S)
+        with self.assertRaisesRegex(hp.Failed, rf"after 6 s, when the step's {hp.STEP_S:g} s ran out"):
+            wait(5, 6)
+        with self.assertRaisesRegex(hp.Failed, r"has not come to its shell after 2\d s$"):
+            wait(hp.STEP_S, 0.1)
 
     def test_the_typed_line_is_quoted_for_the_panes_shell(self):
         s = FakeServer()
@@ -246,12 +394,16 @@ elif a[2:4] == ["workspace", "create"]:
 elif a[2:4] == ["pane", "run"]:
     open(os.environ["HP_LOG"], "w").write(json.dumps(a))
     print("{}")
+elif a[2:4] == ["pane", "process-info"]:
+    procs = [{"pid": 10}] + ([{"pid": 11}] if os.path.exists(os.environ["HP_LOG"]) else [])
+    print(json.dumps({"result": {"process_info": {"shell_pid": 10, "foreground_processes": procs}}}))
 else:
     sys.exit(7)
 """)
         log = os.path.join(os.path.dirname(path), "log")
         out, err = io.StringIO(), io.StringIO()
-        with mock.patch.object(hp, "BINARY", path), mock.patch.dict(os.environ, {"HP_LOG": log}), redirect_stdout(out), redirect_stderr(err):
+        with mock.patch.object(hp, "BINARY", path), mock.patch.object(hp, "SETTLE_S", 0.2), mock.patch.object(hp, "POLL_S", 0.1), \
+                mock.patch.dict(os.environ, {"HP_LOG": log}), redirect_stdout(out), redirect_stderr(err):
             rc = hp.main(["ensure"])
         self.assertEqual((rc, err.getvalue()), (0, ""), out.getvalue())
         self.assertEqual(out.getvalue(), "opened the harness pane w1:p1\n")
