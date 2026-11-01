@@ -123,6 +123,8 @@ case "$1" in
   api)
     # post-review ties the range's base to the PR: `--jq .merge_base_commit.sha`
     case "$2" in */compare/*) cat "$S/mergebase"; exit 0 ;; esac
+    # gh.api_list, the PR's reviews for the labels a full review numbers past: the status line, a blank line, an empty page
+    case " $* " in *" -i "*) printf 'HTTP/2.0 200 OK\r\n\r\n[]'; exit 0 ;; esac
     env > "$S/gh-env.txt"
     for a in "$@"; do
       [ "$prev" = "--input" ] && cp "$a" "$S/payload.json"
@@ -224,7 +226,7 @@ def main() -> int:
         def reset(gw_mode: str = "ok", codex_mode: str = "ok", version: str = STAGE6) -> None:
             with open(os.path.join(state, "pr.json"), "w") as f:
                 json.dump({"number": 7, "state": "OPEN", "headRefName": f"{me}/feat/thing", "headRefOid": head,
-                           "baseRefName": "main"}, f)
+                           "baseRefName": "main", "author": {"login": "fleet-account"}}, f)
             with open(os.path.join(state, "mergebase"), "w") as f:
                 f.write(base)
             for n in ("calls", "payload.json", "codex-run.json", "gw.log", "plan-seen.json", "gh-env.txt", "codex-sleeping"):

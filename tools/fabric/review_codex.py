@@ -432,6 +432,24 @@ def range_head(req: dict) -> str:
     return _git(req["repository"], "rev-parse", "--verify", "-q", f"{head}^{{commit}}")
 
 
+def label_start(req: dict, head: str, pr: str) -> int:
+    """The label number a full review of PR `pr` starts at: past every label its reviews used, read by the reader and
+    the accounts the Claude brief uses (review_brief.carried_findings). `pr` is the one the review is posted to, not
+    the request's own (load_request lets a request name another): the labels that matter are the posted-to PR's. 1 for
+    a request that is no full review. A PR whose reviews cannot be listed or read is refused: its labels are unknown,
+    and a guess would collide."""
+    if req.get("mode") != "review":
+        return 1
+    handed, refusals = review_brief.carried_findings(int(pr), head, req["repository"])
+    if refusals:
+        # Only each refusal's cause: the rest of the brief's text advises leaving pr out and speaks of findings carried
+        # into the review, neither of which means anything here (the CLI's PR is read either way, Codex carries none).
+        causes = "; ".join(re.split(r", so the findings|: what they left open", r.removeprefix("pr: "))[0] for r in refusals)
+        raise Refused(f"PR #{pr}'s earlier labels are unknown, so this review's cannot be numbered past them; "
+                      f"nothing posted ({causes})")
+    return handed["next"]
+
+
 def pr_head(repo: str, pr: str) -> str:
     """The PR's head commit as GitHub has it now: the one a request must name, as the commit the gate reads."""
     out = ""
@@ -888,10 +906,11 @@ def announce_unavailable(repo: str, pr: str, head: str, e: "ModelUnavailable") -
 
 
 def render_review(model: str, head: str, rng: str, findings: list[dict], effort_level: str | None = None,
-                  advisories: int = 0) -> str:
+                  advisories: int = 0, first_label: int = 1) -> str:
     """The body post-review gets. Its first line names the engine, the model
     that ran (rule 4) and the level sent, or that none was; post-review puts
-    its marker above it."""
+    its marker above it. `first_label` is the number of its first finding's label: past every label the PR's
+    reviews used (ADR-065 §5 rule 5), or two different findings read under one label."""
     order = {"P1": 0, "P2": 1, "P3": 2}
     counts = {lv: sum(f["level"] == lv for f in findings) for lv in order}
     level = f"`{effort_level}`" if effort_level else "Codex's default"
@@ -911,7 +930,7 @@ def render_review(model: str, head: str, rng: str, findings: list[dict], effort_
         out.append("")
         ordered = sorted(findings, key=lambda f: order[f["level"]])
         for n, f in enumerate(ordered, 1):
-            out += [f"{n}. **{f['level']}** `{_one_line(f['file'])}:{f['line']}`",
+            out += [f"F{first_label + n - 1}. **{f['level']}** `{_one_line(f['file'])}:{f['line']}`",
                     f"   - **Scenario:** {_one_line(f['scenario'])}",
                     f"   - **Expected:** {_one_line(f['expected'])}",
                     f"   - **Fix:** {_one_line(f['fix'])}"]
@@ -919,19 +938,19 @@ def render_review(model: str, head: str, rng: str, findings: list[dict], effort_
     # The answer carries no confidence, and a finding read from code and not run is `likely` by the review class's
     # own definition.
     out.append("")
-    out += ([review_lines.finding_line(f"F{n}", f["level"], "likely", _one_line(f["file"]), f["scenario"], f["line"])
+    out += ([review_lines.finding_line(f"F{first_label + n - 1}", f["level"], "likely", _one_line(f["file"]), f["scenario"], f["line"])
              for n, f in enumerate(ordered, 1)] if findings else [review_lines.NO_FINDINGS])
     return "\n".join(out) + "\n"
 
 
 def report_body(brief: str, model: str, head: str, rng: str, findings: list[dict], level: str | None,
-                coverage: review_coverage.Coverage | None, advisories: int = 0) -> str:
+                coverage: review_coverage.Coverage | None, advisories: int = 0, first_label: int = 1) -> str:
     """What post-review is given. With the coverage the answer states, the brief's own dispatch header goes ahead of the
     report, as the review class's does: post-review takes the range and the config of the v2 marker from it, strips it,
     and checks the block against `git diff --name-only`. No coverage in the answer (a schema without the field) or no
     header in the brief: the bare report is returned, and post-review refuses it (a review is posted as v2 only, and
     its range comes from the header), so nothing is posted."""
-    body = render_review(model, head, rng, findings, level, advisories)
+    body = render_review(model, head, rng, findings, level, advisories, first_label)
     header = post_review.first_dispatch_header(brief)
     if not coverage or not header:
         return body
@@ -1107,7 +1126,10 @@ def _review(pr: str, request: str, *, model_flag: str | None, timeout_min: float
     if not no_post and pr_head(repo, pr) != head:
         raise Refused(f"PR #{pr} moved while Codex read {head[:12]}; nothing posted — run it on the new head")
     # run_codex handed the answering run's events over on its way out, so it is the last one observed.
-    body = report_body(brief, model, head, req["range"], findings, level, coverage, observed.runs[-1].advisories)
+    # Read after the run, not before: an unavailable model posts a statement whatever GitHub answers, and a review
+    # posted while Codex read has used labels too. A refusal here costs the run; nothing is posted.
+    body = report_body(brief, model, head, req["range"], findings, level, coverage, observed.runs[-1].advisories,
+                       label_start(req, head, pr))
     if no_post:
         sys.stdout.write(body)
         return 0
