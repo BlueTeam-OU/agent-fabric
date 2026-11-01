@@ -187,6 +187,23 @@ def test_other_text_under_a_replaced_heading_is_named_with_both_keys(tmp: str) -
     assert "carries other text than the section 'Status v1 of the thing' a correction replaced" in proc.stderr, proc.stderr
 
 
+def test_a_decision_stated_again_by_a_rerun_keeps_its_place_in_the_report(tmp: str) -> None:
+    """The second pass of the 2026-10-31 gzapp drain moved one collision decision to the end of the list: the same entry, the
+    report's bytes different. The later run's value stands; the first run's place does."""
+    sys.path.insert(0, os.path.join(os.path.dirname(HERE), "tools", "fabric"))
+    from assembler.slices import merge_reports
+    def decision(key: str, text: str) -> dict:
+        return {"key": key, "decision": text}
+    def run_report(*decisions: dict) -> dict:
+        return {"stamp": "s", "files": [], "roles": [], "shared_topics": [], "retitles": [], "telemetry_sources": {},
+                "collision_decisions": list(decisions)}
+    first = merge_reports(run_report(decision("a", "keep-both")), run_report(decision("a", "keep-both")))
+    both = merge_reports(first, run_report(decision("b", "drop")))
+    again = merge_reports(both, run_report(decision("a", "keep-both, restated")))
+    assert [d["key"] for d in again["collision_decisions"]] == ["a", "b"], again["collision_decisions"]
+    assert again["collision_decisions"][0]["decision"] == "keep-both, restated", "the later run's value stands"
+
+
 def main() -> int:
     cases = [
         test_a_second_pass_over_two_bundles_with_a_chained_correction_and_a_flat_class_file_changes_nothing,
@@ -198,6 +215,7 @@ def main() -> int:
         test_a_correction_recorded_before_replaced_sections_existed_drops_the_replayed_original,
         test_a_correction_replayed_after_its_revert_is_written_and_named,
         test_other_text_under_a_replaced_heading_is_named_with_both_keys,
+        test_a_decision_stated_again_by_a_rerun_keeps_its_place_in_the_report,
     ]
     # A case written and not listed passes silently and forever (test_assemble_seams.py's registry guard).
     declared = {name for name, obj in sorted(globals().items()) if name.startswith("test_") and callable(obj)}

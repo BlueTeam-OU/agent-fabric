@@ -53,7 +53,7 @@ def merge_reports(previous: dict[str, Any], current: dict[str, Any],
     watermarks (a drain's blind review, 2026-09-25). A report of the SAME
     stamp is therefore the same drain and is merged into: roles and
     shared topics unioned, the lists appended without repeats, one
-    decision per key (the later run's, as the tree now reflects it), the
+    decision per key (the later run's, as the tree now reflects it, in the place the first run gave it), the
     telemetry kept per source (agent@host) so re-running a bundle
     replaces its counts instead of adding them twice. A report of another
     stamp is an earlier drain, replaced — except its watermarks: each says
@@ -114,8 +114,9 @@ def merge_reports(previous: dict[str, Any], current: dict[str, Any],
     merged["files"] = [f for f in merged["files"] if exists(f)]
     merged["files_written"] = len(merged["files"])
     decisions = {d.get("key"): d for d in previous.get("collision_decisions") or [] if isinstance(d, dict)}
+    # An entry a rerun states again keeps its place in the list: moving it to the end made a second pass over one drain's bundles
+    # reorder the report (j82; gzapp's language-culture decision, 2026-10-31).
     for d in current["collision_decisions"]:
-        decisions.pop(d["key"], None)
         decisions[d["key"]] = d
     merged["collision_decisions"] = list(decisions.values())
     # A later run of the stamp finds the old section gone and lists nothing, so the earlier run's entries are carried.
