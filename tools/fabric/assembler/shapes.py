@@ -196,15 +196,21 @@ def drop_replayed(run: Run) -> None:
     is a real replacement and stays: a revert is one."""
     try:
         with open(layout.project_report_path(run.project), encoding="utf-8") as fh:
-            earlier = json.load(fh).get("replaced_sections") or []
+            report = json.load(fh)
+        earlier = report.get("replaced_sections") or []
+        applied = report.get("applied_corrections") or []
     except (OSError, ValueError, AttributeError):
-        earlier = []
+        earlier, applied = [], []
     entries = [e for e in earlier if isinstance(e, dict) and all(isinstance(e.get(k), str) for k in ("home", "heading", "key"))]
-    if not entries:
+    # A correction applied before replaced_sections existed (the herdr one of 2026-10-18) is recorded only here: the slice it
+    # wrote, the heading and the key of the text it replaced. Its home is read from the slice path, as _in_home reads it.
+    legacy = [e for e in applied if isinstance(e, dict) and all(isinstance(e.get(k), str) for k in ("slice", "replaced", "replaced_key"))]
+    if not entries and not legacy:
         return
     for role, label, klass, topic, group in _groups(run):
         home = report_home(run, role, klass)
-        mine = [e for e in entries if e["home"] == home]
+        mine = [e for e in entries if e["home"] == home] + [
+            {"heading": e["replaced"], "key": e["replaced_key"]} for e in legacy if _in_home(home, e["slice"])]
         if not mine:
             continue
         present = existing_sections(slice_candidates(run, role, klass, topic))
@@ -217,4 +223,4 @@ def drop_replayed(run: Run) -> None:
                 group.remove(claim)
                 run.superseded_harvests.append(
                     f"{label}/{klass}:{topic}#{claim_heading(claim)}: memory {claim['topic']!r} is text an applied correction or "
-                    f"supersede replaced (last-drain-report.json replaced_sections); not written — update or delete {claim['topic']!r}")
+                    f"supersede replaced (last-drain-report.json replaced_sections or applied_corrections); not written — update or delete {claim['topic']!r}")

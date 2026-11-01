@@ -135,6 +135,27 @@ def test_a_replayed_text_is_named_in_the_report_and_not_written(tmp: str) -> Non
     assert "Original text" not in held(ta.tree(out))
 
 
+def test_a_correction_recorded_before_replaced_sections_existed_drops_the_replayed_original(tmp: str) -> None:
+    """The herdr drain of 2026-11-01: the correction was applied by a drain of 2026-10-18, whose report has applied_corrections
+    and no replaced_sections, and another agent of the role carried the original memory again. Not a collision: the original."""
+    drain, claims_dir, out = ta.build(tmp, {"alpha": ta.claims("alpha", [])})
+    ta.with_agents(drain, AGENTS)
+    for bundle in ([ORIGINAL], [CORRECTION_A]):
+        ta.set_claims(claims_dir, "alpha", bundle)
+        assert ta.run_assemble(drain, claims_dir, out).returncode == 0
+    before = ta.tree(out)
+    report = json.loads(ta.read(ta.report_path(out)))
+    assert report["applied_corrections"] and report["replaced_sections"], "precondition: this run's report records both"
+    del report["replaced_sections"]
+    with open(ta.report_path(out), "w", encoding="utf-8") as fh:
+        json.dump(report, fh, indent=2)
+    other_agent = claim("t-other", "Status v1 of the thing", "Original text of the finding.", "h6", observed_at="2026-09-01")
+    ta.set_claims(claims_dir, "alpha", [other_agent])
+    proc = ta.run_assemble(drain, claims_dir, out)
+    assert proc.returncode == 0, proc.stderr
+    assert held(ta.tree(out)) == held(before) and "Original text" not in held(ta.tree(out)), held(ta.tree(out))
+
+
 def main() -> int:
     cases = [
         test_a_second_pass_over_two_bundles_with_a_chained_correction_and_a_flat_class_file_changes_nothing,
@@ -143,6 +164,7 @@ def main() -> int:
         test_an_older_text_of_the_same_agent_is_no_collision_on_the_second_pass,
         test_a_revert_is_not_dropped_and_its_original_then_stands,
         test_a_replayed_text_is_named_in_the_report_and_not_written,
+        test_a_correction_recorded_before_replaced_sections_existed_drops_the_replayed_original,
     ]
     # A case written and not listed passes silently and forever (test_assemble_seams.py's registry guard).
     declared = {name for name, obj in sorted(globals().items()) if name.startswith("test_") and callable(obj)}
