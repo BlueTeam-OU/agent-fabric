@@ -66,9 +66,10 @@
       "additionalProperties": false,
       "required": [
         "paths",
-        "lenses"
+        "lenses",
+        "default"
       ],
-      "description": "What the review read of its range (agent-fabric ADR-065 §2 C): every path `git diff --name-only` lists for the range, once, and every lens of the brief. Arrays, not objects keyed by path: a strict structured output has no open-ended keys.",
+      "description": "What the review read of its range (agent-fabric ADR-065 §2 C): every path `git diff --name-only` lists for the range, once, and every lens of the brief. Arrays, not objects keyed by path: a strict structured output has no open-ended keys. \"default\" stands for every path of the range that \"paths\" does not name (agent-fabric ADR-065, the optional default entry of #447): null when \"paths\" names them all, which strict structured outputs need because every property is required.",
       "properties": {
         "paths": {
           "type": "array",
@@ -125,6 +126,36 @@
               }
             }
           }
+        },
+        "default": {
+          "anyOf": [
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "status",
+                "reason"
+              ],
+              "properties": {
+                "status": {
+                  "type": "string",
+                  "enum": [
+                    "read",
+                    "not read"
+                  ],
+                  "description": "read only when every unnamed path was read in full."
+                },
+                "reason": {
+                  "type": "string",
+                  "description": "How the unnamed paths were treated, or why they were not read."
+                }
+              }
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The entry of every path of the range not named in paths, or null."
         }
       }
     }
