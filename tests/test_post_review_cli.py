@@ -655,6 +655,26 @@ def main() -> int:
         check("a path that is no rename's source and not in the range: still refused",
               rc == 2 and not posted() and "outside the range" in out, out)
 
+        def defaulted(default: dict, named: dict) -> str:
+            doc = {"paths": named, "lenses": {}, "default": default}
+            return f"```{rcov.BLOCK_INFO}\n{json.dumps(doc, separators=(',', ':'))}\n```\n"
+
+        v2_pr(cr, listed=(c0, cb, cr))
+        rc, out = v2_post(report + defaulted({"status": "read"}, {}), header=big)
+        check("a default 'read' and no path named: posts, and the gate counts it", rc == 0 and posted() and gate_counts(body_of(), cr), out)
+        check("  the posted block is the default alone, not the 401 paths", len(body_of()) < 2000 and "memory/drain" not in body_of(), len(body_of()))
+        v2_pr(cr, listed=(c0, cb, cr))
+        rc, out = v2_post(report + defaulted({"status": "not read", "reason": "script"}, {only[0]: {"status": "read"}}), header=big)
+        check("a default 'not read' with one path named read: posts, and is partial", rc == 0 and posted()
+              and body_of().split("\n")[1].startswith("partial coverage:") and not gate_counts(body_of(), cr), out)
+        v2_pr(cr, listed=(c0, cb, cr))
+        rc, out = v2_post(report + defaulted({"status": "read"}, {only[0]: {"status": "not read", "reason": "binary"}}), header=big)
+        check("a path named 'not read' under a default 'read' stays not read", rc == 0 and posted() and not gate_counts(body_of(), cr)
+              and rcov.read_review(body_of()).coverage.not_read == [only[0]], out)
+        v2_pr(cr, listed=(c0, cb, cr))
+        rc, out = v2_post(report + defaulted({"status": "read"}, {"memory/drain/never-there.md": {"status": "read"}}), header=big)
+        check("a default does not excuse a path named outside the range", rc == 2 and not posted() and "outside the range" in out, out)
+
         v2_pr(cr, listed=(c0, cb, cr))
         prose = "Finding F1: " + "a long account of what was read. " * 1200 + "\n\n"
         bare = prose

@@ -1458,6 +1458,10 @@ its record disagree, the record wins. Look it up, never read it whole:
   unisolated classes (§5 rules 6–7).
 - A 2026-10-31 — a PR's full review is handed earlier chains' open
   findings to judge, and numbers past their labels (§5 rule 5).
+- A 2026-11-01 — a coverage block may carry a `default` entry for every
+  range path it does not name; a `not read` default makes the review
+  partial (§2 C, §5 rule 4).
 - Keywords: review class, reviewer, Bash guard, pinned tools, MCP,
   read-only, bubblewrap, sandbox, checks, coverage manifest, checkpoint
-  marker, re-review, card_base, open findings, open-code-review, P3.
+  marker, coverage default, re-review, card_base, open findings,
+  open-code-review, P3.

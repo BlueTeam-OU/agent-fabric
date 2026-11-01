@@ -213,8 +213,9 @@ brief:
  "lenses": {"security": "applied", "performance": "not applied"}}
 ```
 
-No path of the range is left out: a review with a `not read` path is not
-coverage of the head.
+No path of the range is left out, unless a top-level `"default":
+{"status": ..., "reason": ...}` covers each path not named. A
+`not read` path or default uncounts the review.
 
 **Machine lines.** A tool reads the report's counts from these, not
 from your prose, so end the report with one block of them, each at the
