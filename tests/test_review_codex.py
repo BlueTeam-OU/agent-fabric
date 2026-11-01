@@ -460,7 +460,8 @@ def main() -> int:
     check("…and its rendered block is far under the cap", len(review_coverage.render_block(cov)) < 2000)
     _, cov = review_codex.parse_answer_full(default_answer({"status": "not read", "reason": "generated"}))
     check("a not-read default is carried, and posts as partial", cov.default == ("not read", "generated") and not cov.complete, cov)
-    for label, d in (("a not-read default without a reason", {"status": "not read", "reason": ""}),
+    for label, d in (("a default with a key the schema does not list", {"status": "read", "reason": "", "extra": "x"}),
+                     ("a not-read default without a reason", {"status": "not read", "reason": ""}),
                      ("a default with a status that is neither", {"status": "skimmed", "reason": ""})):
         try:
             review_codex.parse_answer_full(default_answer(d))
@@ -468,6 +469,26 @@ def main() -> int:
         except review_codex.FailedReview as e:
             got = str(e)
         check(f"refused: {label}", got != "accepted" and "coverage" in got, got)
+    # The pinned interpreter has no jsonschema: the stdlib validator must refuse what the schema does not allow.
+    real_jsonschema = sys.modules.get("jsonschema", False)
+    sys.modules["jsonschema"] = None   # an import then raises ImportError
+    try:
+        for label, d in (("a default with a key the schema does not list", {"status": "read", "reason": "", "extra": "x"}),
+                         ("a default whose reason is not a string", {"status": "read", "reason": 0}),
+                         ("a default with a status that is neither", {"status": "skimmed", "reason": ""})):
+            try:
+                review_codex.parse_answer_full(default_answer(d))
+                got = "accepted"
+            except review_codex.FailedReview as e:
+                got = str(e)
+            check(f"without jsonschema, refused: {label}", got != "accepted", got)
+        check("positive control: without jsonschema a valid default is still accepted",
+              review_codex.parse_answer_full(default_answer({"status": "read", "reason": ""}))[1].default == ("read", ""))
+    finally:
+        if real_jsonschema is False:
+            del sys.modules["jsonschema"]
+        else:
+            sys.modules["jsonschema"] = real_jsonschema
     # The control: a schema that predates the field. Its answers parse as before and its prompt does not ask for one.
     old_schema = json.loads(json.dumps(real_schema))
     del old_schema["properties"]["coverage"]["properties"]["default"]

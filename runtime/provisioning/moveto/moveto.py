@@ -396,9 +396,17 @@ def reset_terminal() -> None:
 def wait_for_exit(proc: subprocess.Popen) -> int:
     """`proc.wait()` that also sees a stop. ssh's `~^Z` stops ssh alone; job control above us (the pane's bash) waits for
     moveto, which would sit in a plain wait and leave the pane with no prompt. So moveto stops itself, and continues
-    ssh when it is continued. The terminal needs no reset here: ssh restores its own modes before it stops."""
+    ssh when it is continued. No reset is written on a stop: ssh puts the tty's termios back, but the modes the remote
+    switched on stay on, as they did when ssh was the job itself; resetting here would leave `fg` in a remote that
+    believes they are still set.
+
+    `Popen.send_signal` polls first, so the forwarded signals and the SIGCONT below can reap ssh behind this wait: the
+    code is then Popen's, and the raw waitpid has nothing left to wait for."""
     while True:
-        _, status = os.waitpid(proc.pid, os.WUNTRACED)
+        try:
+            _, status = os.waitpid(proc.pid, os.WUNTRACED)
+        except ChildProcessError:
+            return proc.wait()
         if os.WIFSTOPPED(status):
             os.kill(os.getpid(), signal.SIGSTOP)
             proc.send_signal(signal.SIGCONT)

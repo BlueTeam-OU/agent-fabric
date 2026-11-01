@@ -302,7 +302,7 @@ for a in $accounts; do echo "${{a%%:*}}:x:${{a#*:}}:${{a#*:}}::{fx}/home/${{a%%:
             ("getent", f"#!/bin/sh\necho \"$2:x:2000:2000::{sshd}/home:/bin/bash\"\n"),
             ("ssh", "#!/bin/sh\nprintf '%s\\n' \"$*\" > \"$FX_ARGV\"\n"
                     "printf '\\033[>1u\\033[?1000h\\033[?1006h\\033[?1004h\\033[?2004h\\033[>4;2m\\033[?25l'\n"
-                    "case $FX_END in exit0) exit 0;; drop) exit 255;; hup) : > \"$FX_READY\"; exec sleep 60;; nap) : > \"$FX_READY\"; exec sleep 1;; stop) : > \"$FX_READY\"; kill -STOP $$; exit 7;; esac\n"),
+                    "case $FX_END in exit0) exit 0;; drop) exit 255;; hup) : > \"$FX_READY\"; exec sleep 60;; nap) : > \"$FX_READY\"; exec sleep 1;; stop) : > \"$FX_READY\"; kill -STOP $$; exit 7;; stopdie) echo $$ > \"$FX_READY\"; kill -STOP $$; exit 7;; esac\n"),
         ):
             put(f"{sshd}/bin/{name}", body, 0o755)
         put(f"{sshd}/home/.ssh/fabric_deck", "")
@@ -399,6 +399,62 @@ for a in $accounts; do echo "${{a%%:*}}:x:${{a#*:}}:${{a#*:}}::{fx}/home/${{a%%:
                 p.wait()
             os.close(master)
         check("…and continued, moveto continues ssh, which runs on to its own status (7)", rc == 7, f"rc={rc}")
+        # ssh dies while stopped (kill -9, the OOM killer, bash's kill %1): the SIGCONT moveto sends makes Popen reap it,
+        # and the raw waitpid then has no child. moveto must still return ssh's status and write the reset.
+        env["FX_END"] = "stopdie"
+        os.remove(f"{sshd}/ready")
+        master, slave = pty.openpty()
+        p = subprocess.Popen([sys.executable, os.path.join(SRC, "moveto.py"), "acct", "--via", "ssh"], env=env,
+                             stdin=subprocess.DEVNULL, stdout=slave, stderr=subprocess.PIPE)
+        os.close(slave)
+        try:
+            for _ in range(200):
+                try:
+                    state = open(f"/proc/{p.pid}/stat", encoding="ascii").read().rsplit(")", 1)[1].split()[0]
+                    ssh_pid = int(open(f"{sshd}/ready", encoding="ascii").read().strip() or 0)
+                except (OSError, ValueError):
+                    state, ssh_pid = "?", 0
+                if state == "T" and ssh_pid:
+                    break
+                time.sleep(0.05)
+            check("positive control: ssh and moveto are both stopped before ssh is killed", state == "T" and ssh_pid > 0, state)
+            if ssh_pid:
+                os.kill(ssh_pid, signal.SIGKILL)
+            p.send_signal(signal.SIGCONT)
+            rc = p.wait(timeout=60)
+            err = p.stderr.read().decode("utf-8", "replace")
+            got = b""
+            while True:
+                try:
+                    chunk = os.read(master, 4096)
+                except OSError:
+                    break
+                if not chunk:
+                    break
+                got += chunk
+        finally:
+            if p.poll() is None:
+                p.kill()
+                p.wait()
+            p.stderr.close()
+            os.close(master)
+        check("ssh killed while stopped: moveto returns its status (137), writes the reset, and prints no traceback",
+              rc == 137 and reset_after_enabling(got.decode("utf-8", "replace").replace("\r\n", "\n")) and "Traceback" not in err,
+              f"rc={rc} err={err[-300:]!r}")
+        # A forwarded signal's Popen.send_signal polls first and can reap ssh behind the raw waitpid: no child is left to wait for.
+        reaped = subprocess.Popen(["sh", "-c", "exit 3"])
+        for _ in range(200):
+            if os.path.exists(f"/proc/{reaped.pid}") and open(f"/proc/{reaped.pid}/stat", encoding="ascii").read().rsplit(")", 1)[1].split()[0] == "Z":
+                break
+            time.sleep(0.05)
+        reaped.poll()
+        try:
+            got_rc = mv.wait_for_exit(reaped)
+            note = ""
+        except ChildProcessError as exc:
+            got_rc, note = None, repr(exc)
+        check("a child that Popen already reaped is not waited for again: ssh's code comes back, no ChildProcessError",
+              got_rc == 3 and not note, f"{got_rc} {note}")
         for end, rc_want in (("exit0", 0), ("drop", 255)):
             rc, out, argv = via_ssh(end, tty=False)
             check(f"stdout a pipe ({end}): ssh's output only, no reset, status {rc_want}", rc == rc_want and out == enabled, f"rc={rc} out={out!r}")
