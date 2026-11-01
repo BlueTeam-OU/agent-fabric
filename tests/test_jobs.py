@@ -913,6 +913,33 @@ def main() -> int:
         check("python unable to start: a claim that never left (sent False), never 'may be claimed'",
               got is not None and got.sent is False and "python could not run" in str(got), got)
 
+        # Audit F06: two claims of one pool job by one login, their answers read in the reverse order (the repeat's
+        # first). The old rule listed a first claim as a new job whatever was listed, so p1 became j1 and j2.
+        pdoc = {"seq": 0, "jobs": []}
+        pjob = {"id": "p1", "title": "one", "priority": "normal", "topic": None, "project": None}
+        gen_a, gen_b = "a" * 32, "b" * 32
+        j1, added1 = jobs_mod.pool_job(pdoc, pjob, "h/user", again=True, generation=gen_a)
+        j2, added2 = jobs_mod.pool_job(pdoc, pjob, "h/user", again=False, generation=gen_a)
+        check("one remote claim is one local job, whichever answer is applied first",
+              added1 and not added2 and j2 is j1 and len(pdoc["jobs"]) == 1, repr(pdoc["jobs"]))
+        j3, added3 = jobs_mod.pool_job(pdoc, pjob, "h/user", again=False, generation=gen_b)
+        check("a recreated pool (another generation) restarting its ids is a new job, even for a repeat-looking answer",
+              added3 and j3 is not j1 and len(pdoc["jobs"]) == 2, repr([j["source"] for j in pdoc["jobs"]]))
+        j1["state"] = "done"
+        j4, added4 = jobs_mod.pool_job(pdoc, pjob, "h/user", again=False, generation=gen_a)
+        check("the claim is recognised in any state of its job", not added4 and j4 is j1)
+        legacy = {"seq": 0, "jobs": []}
+        l1, _ = jobs_mod.pool_job(legacy, pjob, "h/user", again=False)
+        l2, added = jobs_mod.pool_job(legacy, pjob, "h/user", again=True, generation=gen_a)
+        check("a job listed before generations existed is found by a repeat that now names one", not added and l2 is l1)
+        try:
+            jobs_mod.claim_generation({"generation": "../x"})
+            bad = False
+        except jobs_mod.Refused:
+            bad = True
+        check("a generation that is not one is refused, absent is None",
+              bad and jobs_mod.claim_generation({}) is None and jobs_mod.claim_generation({"generation": gen_a}) == gen_a)
+
         replay_wait = sys.modules["fabric_jobs.records"].replay_wait
         saved_wait = os.environ.pop("FABRIC_INBOX_REPLAY_WAIT_S", None)
         try:

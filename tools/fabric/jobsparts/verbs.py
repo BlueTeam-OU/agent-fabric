@@ -17,7 +17,7 @@ from fabric_jobs.base import MESSAGE_ID, Job, hold_view, NothingQueued, OPEN, PO
 from fabric_jobs.ranking import effective_priority, named, queue_order, stored_priority, waiters
 from fabric_jobs.records import active, fetch_message, find, listed_request, named_working_copy, new_job, request_id_of, request_job, SENDER_ADD_LABEL, session_id, session_worked, transition
 from fabric_jobs.queue import stream_waits
-from fabric_jobs.pool import Unanswered, ask_pool, claimed_job, pool_job, pool_line, pool_offer, printable
+from fabric_jobs.pool import Unanswered, ask_pool, claim_generation, claimed_job, pool_job, pool_line, pool_offer, printable
 from fabric_jobs.render import blockers_note, line, show, summary
 
 
@@ -131,8 +131,9 @@ def pool_claim(args) -> int:
     if answer.get("status") != "claimed":
         raise Refused(f"{holder} refused: {printable(answer.get('reason') or answer.get('status'))}")
     claimed = claimed_job(answer, args.id)
+    generation = claim_generation(answer)
     try:
-        job, added = mutate(lambda doc: pool_job(doc, claimed, holder, again=answer.get("again") is True,
+        job, added = mutate(lambda doc: pool_job(doc, claimed, holder, again=answer.get("again") is True, generation=generation,
                                                  topic=args.topic, working_copy=args.working_copy))
     except Refused as e:
         raise Refused(f"{args.id} is claimed at {holder}, but this list did not take it ({e}); "

@@ -11,6 +11,7 @@ and continues the Node's file.
 from __future__ import annotations
 
 import json
+import re
 import os
 import subprocess
 import sys
@@ -19,6 +20,8 @@ import tempfile
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(HERE, "tools", "fabric"))
 from control import pool as cp  # noqa: E402
+
+GEN = re.compile(r"[0-9a-f]{32}")
 
 HOLDER = "h/user"
 KNOWN = {"python-dev", "web-dev"}
@@ -132,6 +135,18 @@ def main() -> int:
         check("another claimant is refused", "p1 is claimed by h/py" in claim("h/py2", {"id": "p1"}, {"h/py2": "python-dev"})["reason"])
         again = claim("h/py", {"id": "p1"}, {"h/py": "python-dev"})
         check("the claimant again gets it again", [again["status"], again.get("again")] == ["claimed", True], again)
+        check("a claim names its pool's generation, the same on a repeat (audit F06)",
+              GEN.fullmatch(won.get("generation", "")) and again["generation"] == won["generation"]
+              and cp.read_pool(file)["generation"] == won["generation"], (won, again))
+        os.unlink(file)
+        add({"role": "python-dev", "title": "x"})
+        recreated = claim("h/py", {"id": "p1"}, {"h/py": "python-dev"})
+        check("a recreated pool restarts its ids under another generation",
+              recreated["job"]["id"] == "p1" and recreated["generation"] != won["generation"] and "again" not in recreated, recreated)
+        with open(file, "w", encoding="utf-8") as fh:
+            json.dump({"seq": 1, "generation": "../x", "jobs": []}, fh)
+        check("a generation that is not one makes the pool unreadable, not a new one",
+              "not a pool" in claim("h/py", {"id": "p1"}, {"h/py": "python-dev"})["reason"])
         check("no state stream: refused",
               "reads no state stream" in cp.pool_claim({"from": "h/py", "args": {"id": "p1"}}, me=HOLDER, holder=HOLDER, file=file)["reason"])
 
@@ -268,8 +283,11 @@ def main() -> int:
                 cp.pool_claim({"from": s[2], "args": {"id": s[1]}}, me="h/user", holder="h/user", file=py_file, now=stamp,
                               role_of=lambda a: {"role": "python-dev"})
         node_bytes = open(node_file, "rb").read()
-        check("the same adds and claim write the bytes the Node wrote", open(py_file, "rb").read() == node_bytes,
-              (node_bytes[:200], open(py_file, "rb").read()[:200]))
+        written = open(py_file, "rb").read()
+        # The one addition to the Node's file: the pool's generation (audit F06), last in the file; the rest is its bytes.
+        bare = re.sub(rb',\n  "generation": "[0-9a-f]{32}"', b"", written)
+        check("the same adds and claim write the bytes the Node wrote, and a generation after them",
+              bare == node_bytes and bare != written, (node_bytes[:200], written[:200]))
         cp.pool_add({"from": "h/user", "to": ["h/user"], "args": {"role": "python-dev", "title": "third"}}, me="h/user", holder="h/user",
                     file=node_file, known=KNOWN, now=lambda: "t")
         doc = cp.read_pool(node_file)

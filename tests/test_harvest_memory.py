@@ -371,7 +371,7 @@ def test_an_applied_correction_is_not_harvested_again_and_the_original_it_replac
     assert "superseded: orig.md" in r.stderr and "retire this memory" in r.stderr and "'fix'" in r.stderr, r.stderr
     assert "plain.md" not in r.stderr and "fix2.md" not in r.stderr, r.stderr
     assert not (os.path.exists(os.path.join(out, "claims", "architect-cto.json")) and claims_of(out)), "everything was older than the watermark"
-    newest = time.time() + 86400          # only the skipped correction is this new: the watermark passes it or it does not
+    newest = time.time() - 60             # only the skipped correction is this new (and before the scan: one written after it waits, F04)
     os.utime(os.path.join(mem, "fix.md"), (newest, newest))
     far_back = {"watermarks": {f"{LOGIN}@hostA": 1}, "applied_corrections": [entry]}
     with open(os.path.join(wc, ".agent-fabric", "memory", "last-drain-report.json"), "w", encoding="utf-8") as fh:
@@ -798,6 +798,103 @@ def test_the_watermark_round_trips_through_the_committed_report(tmp: str) -> Non
     assert hr["since_watermark"] == 0 and len(claims_of(out4)) == 2, hr
 
 
+def _scan_in_process(mem: str, out: str, wc: str) -> dict:
+    """One scan, in this process, so a test can act between its steps; the harvest report it wrote."""
+    sys.path.insert(0, os.path.join(ROOT, "tools", "fabric"))
+    import harvest_memory as hm
+    saved = sys.argv
+    sys.argv = [TOOL, "--role", "architect-cto", "--memory", mem, "--out", out, "--working-copy", wc,
+                "--project", "demo", "--host", "hostA"]
+    try:
+        assert hm.main() == 0
+    finally:
+        sys.argv = saved
+    with open(os.path.join(out, "harvest-report.json"), encoding="utf-8") as fh:
+        return json.load(fh)
+
+
+def _record_watermark(wc: str, report: dict) -> None:
+    with open(os.path.join(wc, ".agent-fabric", "memory", "last-drain-report.json"), "w", encoding="utf-8") as fh:
+        json.dump({"watermarks": {f"{report['agent']}@hostA": report["next_watermark"]}}, fh)
+
+
+def test_a_file_made_after_the_listing_is_not_skipped_by_a_listed_one_rewritten_later(tmp: str) -> None:
+    """Audit F04. The scan lists a, b; while a is read, c is created and b rewritten. The old watermark was the
+    newest mtime read (b's rewrite), which passed c: c was never drained. The watermark stays at the cutoff taken
+    when the scan began, and what was written after it is read by the next scan."""
+    import harvest_memory as hm
+    wc = os.path.join(tmp, "wc-f04"); os.makedirs(os.path.join(wc, ".agent-fabric", "memory"))
+    mem = os.path.join(tmp, "m-f04"); os.makedirs(mem)
+    for n in ("a", "b"):
+        write_memory(mem, n, "project", roles_class="solution")
+    began = time.time()
+    real = hm.parse_memory
+
+    def interleaved(path):
+        if path.endswith("/a.md") and not os.path.exists(os.path.join(mem, "c.md")):
+            write_memory(mem, "c", "project", roles_class="solution")
+            os.utime(os.path.join(mem, "c.md"), (began + 5, began + 5))
+            write_memory(mem, "b", "project", body="rewritten", roles_class="solution")
+            os.utime(os.path.join(mem, "b.md"), (began + 10, began + 10))
+        return real(path)
+    hm.parse_memory = interleaved
+    try:
+        first = _scan_in_process(mem, os.path.join(tmp, "o-f04a"), wc)
+    finally:
+        hm.parse_memory = real
+    assert first["next_watermark"] <= int(time.time() * 1000), first
+    assert first["next_watermark"] < int((began + 5) * 1000), "the watermark passed a file written after the scan began"
+    assert first["after_cutoff"] == ["b.md"], first
+    _record_watermark(wc, first)
+    for n in ("b", "c"):                    # the clock has caught up with the files the interleaving dated ahead
+        os.utime(os.path.join(mem, f"{n}.md"), (time.time(), time.time()))
+    second = _scan_in_process(mem, os.path.join(tmp, "o-f04b"), wc)
+    assert {c["topic"] for c in claims_of(os.path.join(tmp, "o-f04b"))} == {"b", "c"}, second
+
+
+def test_a_file_that_changes_while_it_is_read_is_not_taken_and_pins_the_watermark(tmp: str) -> None:
+    """Audit F04, second half: the content read and the mtime must be of one state. A file rewritten under the read
+    is named, not harvested, and the watermark stays below its new time."""
+    import harvest_memory as hm
+    wc = os.path.join(tmp, "wc-f04c"); os.makedirs(os.path.join(wc, ".agent-fabric", "memory"))
+    mem = os.path.join(tmp, "m-f04c"); os.makedirs(mem)
+    write_memory(mem, "a", "project", roles_class="solution")
+    old = time.time() - 100
+    os.utime(os.path.join(mem, "a.md"), (old, old))
+    real_open = open
+    hit = []
+
+    class Rewriting:
+        """The file object, whose read is the moment the file changes: after the open and the stat, before the end."""
+        def __init__(self, fh):
+            self.fh = fh
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            self.fh.close()
+
+        def fileno(self):
+            return self.fh.fileno()
+
+        def read(self):
+            first = self.fh.read(10)
+            write_memory(mem, "a", "project", body="a longer body than before", roles_class="solution")
+            return first + self.fh.read()
+
+    def rewriting_open(path, *a, **k):
+        fh = real_open(path, *a, **k)
+        return Rewriting(fh) if str(path).endswith("/a.md") and not hit and not hit.append(1) else fh
+    hm.open = rewriting_open
+    try:
+        rep = _scan_in_process(mem, os.path.join(tmp, "o-f04c"), wc)
+    finally:
+        del hm.open
+    assert rep["changed_while_read"] == ["a.md"] and rep["claims"] == 0, rep
+    assert rep["next_watermark"] < int(os.path.getmtime(os.path.join(mem, "a.md")) * 1000), rep
+
+
 def _ms(stamp: str) -> int:
     return int(datetime.datetime.fromisoformat(stamp.replace("Z", "+00:00")).timestamp() * 1000)
 
@@ -1182,6 +1279,8 @@ def main() -> int:
         test_a_reflection_memory_that_is_held_applied_or_before_the_watermark_is_not_counted,
         test_an_author_s_merge_target_supersedes_without_a_question,
         test_the_watermark_round_trips_through_the_committed_report,
+        test_a_file_made_after_the_listing_is_not_skipped_by_a_listed_one_rewritten_later,
+        test_a_file_that_changes_while_it_is_read_is_not_taken_and_pins_the_watermark,
         test_a_bundle_round_trips_and_a_damaged_one_is_refused_by_file,
         test_a_claim_carries_the_date_the_memory_was_written,
         test_a_quoted_description_is_read_as_yaml_reads_it,
