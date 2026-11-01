@@ -17,7 +17,7 @@ derived_from:
 
 ## bndr: MIT Go one-binary Linux dashboard that finds loopback HTTP dev servers via /proc/net/tcp and bridges them onto the LAN; not adopted (shared host namespace = every login's ports incl. relay/agentd/InterWeave exposed, no auth, 0 stars); borrow socket->uid discovery for a FleetDeck 'what is serving' view, Host-header pinning, preview origin filter, installer shape
 
-https://github.com/tonyrowles/bndr (read 2026-10-28 through moli). MIT, © 2026 Tony Rowles, 12 commits, 0 stars, a v0.2.0 installer, and a self-written security audit dated 2026-10-24. It was ported from Node to Go: one static binary with the dashboard embedded, built for Linux x86-64 and ARM64.
+The bndr repository on GitHub (its author's personal account; read 2026-10-28 through moli). MIT, 12 commits, 0 stars, a v0.2.0 installer, and a self-written security audit dated 2026-10-24. It was ported from Node to Go: one static binary with the dashboard embedded, built for Linux x86-64 and ARM64.
 
 **What it does:**
 - Every 3 s it reads `/proc/net/tcp` and `/proc/net/tcp6` in its own network namespace and probes `GET /` with a 1 s timeout. Any HTTP answer qualifies.

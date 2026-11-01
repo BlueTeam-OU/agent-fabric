@@ -17,7 +17,7 @@ derived_from:
 
 ## paparats-mcp: self-hosted MIT MCP server for semantic code search across many repos (tree-sitter chunks, call graph, change_impact, git history per chunk, agent architectural memory) on Docker+Qdrant+llama.cpp; not adopted now (host load, ADR-049 no embeddings for memory); borrow change_impact and per-chunk history; maybe a gzapp/InterWeave spike
 
-https://github.com/IBazylchuk/paparats-mcp (read 2026-10-28 through moli). MIT, 21 stars, 578 commits, npm `@paparats/cli`, Node 24 and Docker Compose. It is a self-hosted MCP server that gives Claude Code, Cursor, Codex and other clients semantic code search across many repositories. Code is chunked by tree-sitter AST for 11 languages (Rust, TypeScript, Python, Go and others), embedded locally (bge-code-v1 for code and Qwen3-Embedding-0.6B for prose, both through llama.cpp) and stored in Qdrant. Cloud embeddings (Voyage, OpenAI) are opt-in, and by default nothing leaves the machine.
+The paparats-mcp repository on GitHub (its author's personal account; read 2026-10-28 through moli). MIT, 21 stars, 578 commits, npm `@paparats/cli`, Node 24 and Docker Compose. It is a self-hosted MCP server that gives Claude Code, Cursor, Codex and other clients semantic code search across many repositories. Code is chunked by tree-sitter AST for 11 languages (Rust, TypeScript, Python, Go and others), embedded locally (bge-code-v1 for code and Qwen3-Embedding-0.6B for prose, both through llama.cpp) and stored in Qdrant. Cloud embeddings (Voyage, OpenAI) are opt-in, and by default nothing leaves the machine.
 
 **Tools:**
 - `search_code`: by meaning, across a group of repositories.

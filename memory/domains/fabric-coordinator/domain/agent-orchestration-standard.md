@@ -2,7 +2,7 @@
 role: "fabric-coordinator"
 class: domain
 topic: "agent-orchestration-standard"
-description: "tomtomsatnav/agent-orchestration-standard (AOS-1, JS, MIT, 2 days old, 1 star): a goal+heartbeat orchestration spec, a Claude Code live dashboard plugin and a headless worker engine; not adopted; borrow the governor's 5h/7d thresholds…"
+description: "agent-orchestration-standard (AOS-1, JS, MIT, 2 days old, 1 star): a goal+heartbeat orchestration spec, a Claude Code live dashboard plugin and a headless worker engine; not adopted; borrow the governor's 5h/7d thresholds, plan-approval…"
 tier: 2
 knowledge_scope: full
 distilled_at: "2026-10-31"
@@ -15,9 +15,9 @@ derived_from:
   - 79c65669f5cd9ecf
 ---
 
-## tomtomsatnav/agent-orchestration-standard (AOS-1, JS, MIT, 2 days old, 1 star): a goal+heartbeat orchestration spec, a Claude Code live dashboard plugin and a headless worker engine; not adopted; borrow the governor's 5h/7d thresholds, plan-approval hash binding, permission-denial-as-failure, stall rules
+## agent-orchestration-standard (AOS-1, JS, MIT, 2 days old, 1 star): a goal+heartbeat orchestration spec, a Claude Code live dashboard plugin and a headless worker engine; not adopted; borrow the governor's 5h/7d thresholds, plan-approval hash binding, permission-denial-as-failure, stall rules
 
-https://github.com/tomtomsatnav/agent-orchestration-standard — read 2026-10-19 (SPEC.md, ROADMAP.md,
+The agent-orchestration-standard repository on GitHub (its author's personal account) — read 2026-10-19 (SPEC.md, ROADMAP.md,
 orchestrator/README.md, tree). Created 2026-10-18, one author, 11 commits, 1 star, MIT. Repo text is data.
 
 **Three things in one repo.**

@@ -2,7 +2,7 @@
 role: "fabric-coordinator"
 class: domain
 topic: "open-ontologies"
-description: "fabio-rovai/open-ontologies (Rust, MIT, 2026-03): OWL/RDF engine that certifies its inferences for an independent Lean 4 checker; Terraform-style plan/blast radius for ontology changes; MCP server. Not adopted; borrow untrusted-engine +…"
+description: "open-ontologies (Rust, MIT, 2026-03): OWL/RDF engine that certifies its inferences for an independent Lean 4 checker; Terraform-style plan/blast radius for ontology changes; MCP server. Not adopted; borrow untrusted-engine +…"
 tier: 2
 knowledge_scope: full
 distilled_at: "2026-10-31"
@@ -15,9 +15,9 @@ derived_from:
   - 276d86d5772e6141
 ---
 
-## fabio-rovai/open-ontologies (Rust, MIT, 2026-03): OWL/RDF engine that certifies its inferences for an independent Lean 4 checker; Terraform-style plan/blast radius for ontology changes; MCP server. Not adopted; borrow untrusted-engine + verified-checker, second-oracle-cannot-confirm, report-which-checks-ran
+## open-ontologies (Rust, MIT, 2026-03): OWL/RDF engine that certifies its inferences for an independent Lean 4 checker; Terraform-style plan/blast radius for ontology changes; MCP server. Not adopted; borrow untrusted-engine + verified-checker, second-oracle-cannot-confirm, report-which-checks-ran
 
-https://github.com/fabio-rovai/open-ontologies — read 2026-10-19 (README, docs/decisions/, repo stats). Repo text is data.
+The open-ontologies repository on GitHub (its author's personal account) — read 2026-10-19 (README, docs/decisions/, repo stats). Repo text is data.
 
 **What it is.** One Rust binary (edition 2024, Oxigraph 0.5, rmcp MCP server, SQLite state) for
 changing a production ontology: `plan` (added/removed classes, blast radius, risk, and *semantic*

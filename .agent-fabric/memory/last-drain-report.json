@@ -715,14 +715,14 @@
     ".agent-fabric/memory/fabric-coordinator/workflow/blind-review-loop.md: description clipped from 294 to 235 characters",
     ".agent-fabric/memory/fabric-coordinator/workflow/prompt-change-readback.md: description clipped from 271 to 231 characters",
     ".agent-fabric/memory/fabric-coordinator/workflow/skills-no-prs-no-dates.md: description clipped from 245 to 237 characters",
-    "memory/domains/fabric-coordinator/domain/agent-orchestration-standard.md: description clipped from 305 to 235 characters",
+    "memory/domains/fabric-coordinator/domain/agent-orchestration-standard.md: description clipped from 292 to 237 characters",
     "memory/domains/fabric-coordinator/domain/bndr.md: description clipped from 369 to 233 characters",
     "memory/domains/fabric-coordinator/domain/cliproxyapi.md: description clipped from 468 to 237 characters",
     "memory/domains/fabric-coordinator/domain/cloudflare-tsrs-upstream-sync.md: description clipped from 280 to 236 characters",
     "memory/domains/fabric-coordinator/domain/edgextract.md: description clipped from 328 to 237 characters",
     "memory/domains/fabric-coordinator/domain/harness2.md: description clipped from 271 to 236 characters",
     "memory/domains/fabric-coordinator/domain/headlong.md: description clipped from 274 to 235 characters",
-    "memory/domains/fabric-coordinator/domain/open-ontologies.md: description clipped from 308 to 237 characters",
+    "memory/domains/fabric-coordinator/domain/open-ontologies.md: description clipped from 296 to 225 characters",
     "memory/domains/fabric-coordinator/domain/otari.md: description clipped from 361 to 238 characters",
     "memory/domains/fabric-coordinator/domain/overgraph.md: description clipped from 260 to 239 characters",
     "memory/domains/fabric-coordinator/domain/paparats-mcp.md: description clipped from 348 to 238 characters",
@@ -7686,7 +7686,7 @@
       "host": "develop-qzapp",
       "observed": "2026-10-19"
     },
-    "memory/domains/fabric-coordinator/domain/agent-orchestration-standard.md#tomtomsatnav/agent-orchestration-standard (AOS-1, JS, MIT, 2 days old, 1 star): a goal+heartbeat orchestration spec, a Claude Code live dashboard plugin and a headless worker engine; not adopted; borrow the governor's 5h/7d thresholds, plan-approval hash binding, permission-denial-as-failure, stall rules": {
+    "memory/domains/fabric-coordinator/domain/agent-orchestration-standard.md#agent-orchestration-standard (AOS-1, JS, MIT, 2 days old, 1 star): a goal+heartbeat orchestration spec, a Claude Code live dashboard plugin and a headless worker engine; not adopted; borrow the governor's 5h/7d thresholds, plan-approval hash binding, permission-denial-as-failure, stall rules": {
       "agent": "user",
       "host": "develop-qzapp",
       "observed": "2026-10-19"
@@ -7761,7 +7761,7 @@
       "host": "develop-qzapp",
       "observed": "2026-10-21"
     },
-    "memory/domains/fabric-coordinator/domain/open-ontologies.md#fabio-rovai/open-ontologies (Rust, MIT, 2026-03): OWL/RDF engine that certifies its inferences for an independent Lean 4 checker; Terraform-style plan/blast radius for ontology changes; MCP server. Not adopted; borrow untrusted-engine + verified-checker, second-oracle-cannot-confirm, report-which-checks-ran": {
+    "memory/domains/fabric-coordinator/domain/open-ontologies.md#open-ontologies (Rust, MIT, 2026-03): OWL/RDF engine that certifies its inferences for an independent Lean 4 checker; Terraform-style plan/blast radius for ontology changes; MCP server. Not adopted; borrow untrusted-engine + verified-checker, second-oracle-cannot-confirm, report-which-checks-ran": {
       "agent": "user",
       "host": "develop-qzapp",
       "observed": "2026-10-19"
