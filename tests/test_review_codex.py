@@ -1776,12 +1776,20 @@ def main() -> int:
         check("extract itself verifies what it wrote: bytes that are not the blob's are refused", "differs from the head's" in wrong, wrong)
         check("a link out of the head is refused, as it was under `git archive`", "is a link out of the head" in verdict, verdict)
         def link_tree(links: dict[str, str]) -> str:
-            lines = ""
-            for name, target in links.items():
-                b = fxgit("hash-object", "-w", "--stdin", data=target.encode())
-                lines += f"120000 blob {b}\t{name}\n"
-            t = subprocess.run(["git", "-C", fx, "mktree"], env=git_env(), input=lines.encode(), capture_output=True, check=True, timeout=30).stdout.decode().strip()
-            return fxgit("-c", "user.name=t", "-c", "user.email=t@t", "commit-tree", t, "-m", "links")
+            def build(flat: dict[str, str]) -> str:
+                lines, subdirs = "", {}
+                for name, target in flat.items():
+                    head_, _, rest = name.partition("/")
+                    if rest:
+                        subdirs.setdefault(head_, {})[rest] = target
+                    else:
+                        b = fxgit("hash-object", "-w", "--stdin", data=target.encode())
+                        lines += f"120000 blob {b}\t{name}\n"
+                for name, inner in subdirs.items():
+                    lines += f"040000 tree {build(inner)}\t{name}\n"
+                return subprocess.run(["git", "-C", fx, "mktree"], env=git_env(), input=lines.encode(), capture_output=True, check=True,
+                                      timeout=30).stdout.decode().strip()
+            return fxgit("-c", "user.name=t", "-c", "user.email=t@t", "commit-tree", build(links), "-m", "links")
 
         def extracted_links(links: dict[str, str], label: str) -> str:
             try:
@@ -1789,13 +1797,31 @@ def main() -> int:
                 return "extracted"
             except review_codex.Refused as e:
                 return str(e)
-        outside = os.path.join(tmp, "work", "fx-chain")
-        os.makedirs(outside, exist_ok=True)
-        chain_verdict = extracted_links({"p": "..", "AGENTS.md": "p/" + os.path.basename(outside) + "/x/../../fx-chain-canary"}, "chain")
-        # p -> .. points at the extract's parent; the chain walks out of the extract through that link alone
-        check("a link that leaves the head only by way of another link of the tree is refused (resolved, not read off the text)",
-              "is a link out of the head" in chain_verdict, chain_verdict)
-        chain_verdict = extracted_links({"..data": "x", "x": "..data"}, "dots")
+        # Each target is lexically inside the head; the escape is only through the chain (p/q is the head itself).
+        chain_verdict = extracted_links({"p/q": "..", "AGENTS.md": "p/q/p/q/../../canary"}, "chain")
+        check("a link that leaves the head only by way of another link of the tree is refused, and the refusal names that link",
+              "'AGENTS.md' is a link out of the head" in chain_verdict, chain_verdict)
+        old_lexical = [os.path.normpath(os.path.join(os.path.dirname(p), t)).startswith("..")
+                       for p, t in (("p/q", ".."), ("AGENTS.md", "p/q/p/q/../../canary"))]
+        check("positive control: a check of each target's text alone passes both of those links", old_lexical == [False, False], old_lexical)
+        # d is a link to a directory outside, and d/evil a file: written through the link, it would land outside.
+        target_dir = os.path.join(tmp, "work", "fx-dup-outside")
+        os.makedirs(target_dir, exist_ok=True)
+        dup_blob = fxgit("hash-object", "-w", "--stdin", data=b"evil\n")
+        dup_link = fxgit("hash-object", "-w", "--stdin", data=target_dir.encode())
+        dup_inner = subprocess.run(["git", "-C", fx, "mktree"], env=git_env(), input=f"100644 blob {dup_blob}\tevil\n".encode(),
+                                   capture_output=True, check=True, timeout=30).stdout.decode().strip()
+        dup_tree = subprocess.run(["git", "-C", fx, "mktree", "--missing"], env=git_env(), capture_output=True, check=True, timeout=30,
+                                  input=f"120000 blob {dup_link}\td\n040000 tree {dup_inner}\td\n".encode()).stdout.decode().strip()
+        dup_commit = fxgit("-c", "user.name=t", "-c", "user.email=t@t", "commit-tree", dup_tree, "-m", "dup")
+        try:
+            review_codex.extract(fx, dup_commit, os.path.join(tmp, "work", "fx-dup", "head"))
+            dup_verdict = "extracted"
+        except review_codex.Refused as e:
+            dup_verdict = str(e)
+        check("a name that is both a link and a directory is refused, and nothing is written outside the head",
+              "both an entry and a directory" in dup_verdict and os.listdir(target_dir) == [], (dup_verdict, os.listdir(target_dir)))
+        chain_verdict = extracted_links({"..data/f": "x", "x": "..data/f", "y": "x"}, "dots")
         check("positive control: a target that merely begins with two dots, and a link to a link inside the head, are extracted", chain_verdict == "extracted", chain_verdict)
 
         print("refusals: nothing runs, nothing is posted")

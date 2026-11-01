@@ -566,20 +566,33 @@ def extract(repo: str, commit: str, dest: str) -> None:
     os.makedirs(dest, mode=0o700)
     entries = [(m, o, _entry_path(p)) for m, o, p in _tree(repo, commit)]
     root = os.fsencode(dest)
+    # A name that is both an entry and the directory of another (d a link, d/evil a file) would have the file written
+    # through the link, outside the extract, before any check of the link could run: refused before anything is written.
+    seen = set()
+    for _mode, _oid, path in entries:
+        parts = path.split(b"/")
+        if path in seen or any(b"/".join(parts[:i]) in seen for i in range(1, len(parts))):
+            raise Refused(f"the head names {os.fsdecode(path)!r} twice, or as both an entry and a directory")
+        seen.add(path)
+    if any(path.startswith(other + b"/") for path in seen for other in seen):
+        raise Refused("the head names a path as both an entry and a directory")
     by_oid: dict[str, list[tuple[str, bytes]]] = {}
     for mode, oid, path in entries:
         if mode != "160000":
             by_oid.setdefault(oid, []).append((mode, path))
+    links: list[tuple[bytes, bytes]] = []
     for oid, data in _blobs(repo, sorted(by_oid)):
         for mode, path in by_oid[oid]:
             target = os.path.join(root, path)
             os.makedirs(os.path.dirname(target), exist_ok=True)
             if mode == "120000":
-                os.symlink(data, target)
+                links.append((data, target))   # after every file and directory exists, never before: see the check above
             else:
                 with open(target, "xb") as f:
                     f.write(data)
                 os.chmod(target, 0o755 if mode == "100755" else 0o644)
+    for data, target in links:
+        os.symlink(data, target)
     for mode, _oid, path in entries:
         if mode == "160000":   # a submodule is an empty directory, as `git archive` leaves it
             os.makedirs(os.path.join(root, path), exist_ok=True)
