@@ -263,10 +263,26 @@ def scalar(value: str) -> str:
     return v
 
 
+class ChangedWhileRead(Exception):
+    """The file was rewritten or replaced between the first byte read and the
+    end of the read: what was read may be a mixture, and its mtime names a
+    state this read did not see."""
+
+    def __init__(self, mtime_ms: int) -> None:
+        super().__init__(f"changed while it was read (now {mtime_ms} ms)")
+        self.mtime_ms = mtime_ms
+
+
 def parse_memory(path: str) -> dict[str, Any] | None:
-    """Parse one memory file. Returns None for a file that is not one."""
+    """Parse one memory file. Returns None for a file that is not one; raises
+    ChangedWhileRead for one that changed under the read. The mtime is the one
+    of the file that was read (fstat of the open file), not a later look at the path."""
     with open(path, encoding="utf-8") as fh:
+        before = os.fstat(fh.fileno())
         raw = fh.read()
+    after = os.stat(path)
+    if (before.st_ino, before.st_size, before.st_mtime_ns) != (after.st_ino, after.st_size, after.st_mtime_ns):
+        raise ChangedWhileRead(int(after.st_mtime * 1000))
     m = FRONTMATTER_RE.match(raw)
     if not m:
         return None                     # MEMORY.md, or a stray note
@@ -343,8 +359,8 @@ def parse_memory(path: str) -> dict[str, Any] | None:
                                meta.get("metadata.shared_with") or meta.get("shared_with", "")) if r}),
         "links": sorted(set(WIKILINK_RE.findall(body))),
         "path": path,
-        "mtime": int(os.path.getmtime(path)),
-        "mtime_ms": int(os.path.getmtime(path) * 1000),
+        "mtime": int(before.st_mtime),
+        "mtime_ms": int(before.st_mtime * 1000),
         # When the fact was written, as the memory itself says (the
         # harness stamps `modified` in its metadata); the file's mtime is
         # the fallback. A section rendered from this claim carries the
@@ -504,6 +520,8 @@ def main() -> int:
     skipped: list[str] = []
     needs_rendering: list[str] = []
     unrendered_ms: list[int] = []
+    changed_while_read: list[str] = []
+    after_cutoff: list[str] = []
     drainable_ms: list[int] = []   # every in-scope memory with a roles_class that still waits: held or harvested
     refusals: list[str] = []
     anchor_warnings: list[str] = []
@@ -517,9 +535,20 @@ def main() -> int:
     for name in sorted(os.listdir(memory_dir)):
         if not name.endswith(".md"):
             continue
-        parsed = parse_memory(os.path.join(memory_dir, name))
+        try:
+            parsed = parse_memory(os.path.join(memory_dir, name))
+        except ChangedWhileRead as e:
+            # Not read this scan, and the watermark stays below its new time: the next scan reads it whole.
+            changed_while_read.append(name)
+            unrendered_ms.append(e.mtime_ms)
+            continue
         if parsed is None:
             continue                    # no frontmatter: the index, not a memory
+        if parsed["mtime_ms"] > scan_start_ms:
+            # Written after this scan began (a file made after the listing, or a listed one rewritten): the
+            # watermark may never pass the cutoff, so a file past it waits for the next scan.
+            after_cutoff.append(name)
+            continue
         total += 1
         # ADR-050 rule 10, whatever the watermark says: an original memory whose section a merged correction replaced is
         # named to its author, who retires it. Looked for in every memory with a class: the watermark only spares re-reading.
@@ -632,6 +661,8 @@ def main() -> int:
                                      until_ms=scan_start_ms)
         if use is not None:
             next_ms = max(next_ms, use["until_ms"])
+    # The watermark never passes the cutoff taken at the scan's start: a memory past it is skipped above, so every
+    # mtime that raised next_ms is at or below it.
     # The watermark stops below the oldest unrendered memory, whatever drained
     # after it: the next incremental drain names it again (the charter:
     # "never dropped"), at the price of re-reading what came after — which
@@ -650,6 +681,8 @@ def main() -> int:
         "needs_rendering": needs_rendering,
         # Anchors the harvest dropped, and why (ADR-050 rule 1): named, so the memory's holder can fix it.
         **({"anchor_warnings": anchor_warnings} if anchor_warnings else {}),
+        **({"changed_while_read": changed_while_read} if changed_while_read else {}),
+        **({"after_cutoff": after_cutoff} if after_cutoff else {}),
         **({"applied_corrections_skipped": applied_skipped} if applied_skipped else {}),
         **({"superseded_originals": superseded_originals} if superseded_originals else {}),
         # The window this drain read, in the shape the assembler carries

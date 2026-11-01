@@ -2,9 +2,13 @@
 A part of tools/fabric/jobs.py, whose docstring is the contract."""
 from __future__ import annotations
 
+import re
+
 from fabric_jobs.base import Job, PRIORITIES, PROJECT_SLUG, Refused
 from fabric_jobs.records import new_job
 from fabric_jobs.queue import Unreachable, ask_queue
+
+GENERATION = re.compile(r"[0-9a-f]{32}")      # as control/pool.py makes it
 
 
 class Unanswered(Refused):
@@ -65,19 +69,38 @@ def claimed_job(answer: dict, asked: str) -> dict:
     return job
 
 
-def pool_job(doc: dict, job: dict, holder: str, *, again: bool, topic=None, working_copy=None) -> tuple[Job, bool]:
-    """The claimed job on this list: (job, added). Only a claim the holder
-    says this claimant held already (`again`) can be a job listed before —
-    the same holder's, by pool id, in any state; a first claim is always a
-    new job, since pool ids restart with a new holder or a new pool file
-    and an id alone names nothing."""
-    listed = next((j for j in doc["jobs"]
-                   if (j.get("source") or {}).get("kind") == "pool" and j["source"].get("from") == holder
-                   and j["source"].get("pool_id") == job["id"]), None) if again else None
+def claim_generation(answer: dict) -> str | None:
+    """The generation of the pool that made the claim, when the holder names one (a holder from before it did not:
+    None, and the claim is told apart only by `again`). Anything else is refused, never read as absent."""
+    if "generation" not in answer:
+        return None
+    gen = answer["generation"]
+    if not (isinstance(gen, str) and GENERATION.fullmatch(gen)):
+        raise Refused("the holder's answer to the claim names a generation that is not one")
+    return gen
+
+
+def pool_job(doc: dict, job: dict, holder: str, *, again: bool, generation: str | None = None,
+             topic=None, working_copy=None) -> tuple[Job, bool]:
+    """The claimed job on this list: (job, added). A claim is named by (holder, generation, pool id): a job already
+    listed under it, in any state, is the same claim however many answers reached us and in whatever order — the
+    answer to the first claim can arrive after the answer to its repeat. Where the holder names no generation
+    (older holder), only a claim it says this claimant held already (`again`) can be a job listed before, and a
+    first claim is a new job, since pool ids restart with a new pool file and an id alone names nothing. A job
+    listed before generations existed carries none: a repeat (`again`) still finds it."""
+    def same_claim(j: dict) -> bool:
+        src = j.get("source") or {}
+        if src.get("kind") != "pool" or src.get("from") != holder or src.get("pool_id") != job["id"]:
+            return False
+        if generation is None:
+            return again
+        return src.get("generation") == generation or ("generation" not in src and again)
+    listed = next((j for j in doc["jobs"] if same_claim(j)), None)
     if listed:
         return listed, False
     return new_job(doc, job["title"], topic=topic or job.get("topic"), project=job.get("project"),
-                   working_copy=working_copy, source={"kind": "pool", "pool_id": job["id"], "from": holder},
+                   working_copy=working_copy,
+                   source={"kind": "pool", "pool_id": job["id"], "from": holder, **({"generation": generation} if generation else {})},
                    priority=job["priority"]), True
 
 
