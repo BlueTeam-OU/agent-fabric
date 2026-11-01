@@ -568,14 +568,10 @@ def extract(repo: str, commit: str, dest: str) -> None:
     root = os.fsencode(dest)
     # A name that is both an entry and the directory of another (d a link, d/evil a file) would have the file written
     # through the link, outside the extract, before any check of the link could run: refused before anything is written.
-    seen = set()
-    for _mode, _oid, path in entries:
-        parts = path.split(b"/")
-        if path in seen or any(b"/".join(parts[:i]) in seen for i in range(1, len(parts))):
-            raise Refused(f"the head names {os.fsdecode(path)!r} twice, or as both an entry and a directory")
-        seen.add(path)
-    if any(path.startswith(other + b"/") for path in seen for other in seen):
-        raise Refused("the head names a path as both an entry and a directory")
+    names = [path for _mode, _oid, path in entries]
+    taken = set(names)
+    if len(taken) != len(names) or any(b"/".join(path.split(b"/")[:i]) in taken for path in names for i in range(1, path.count(b"/") + 1)):
+        raise Refused("the head names a path twice, or as both an entry and a directory")
     by_oid: dict[str, list[tuple[str, bytes]]] = {}
     for mode, oid, path in entries:
         if mode != "160000":
