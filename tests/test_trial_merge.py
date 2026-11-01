@@ -191,7 +191,11 @@ def main() -> int:
         sh(repo, "checkout", "-q", "main")
         sh(repo, "fetch", "-q", "origin")
         main_sha = sh(repo, "rev-parse", "main").strip()
-        fetch_head = os.path.join(repo, ".git", "FETCH_HEAD")
+        # A clone that maps the pull refs: git applies a configured refspec
+        # matching a command-line ref with no destination, so without
+        # --refmap= the fetch would write refs/remotes/origin/pull/<n> (#454 F3).
+        sh(repo, "config", "--add", "remote.origin.fetch", "+refs/pull/*/head:refs/remotes/origin/pull/*")
+        fetch_head =os.path.join(repo, ".git", "FETCH_HEAD")
         with open(fetch_head) as fh:
             fetch_head_before = fh.read()
         real_run, real_which = gh.run, shutil.which
