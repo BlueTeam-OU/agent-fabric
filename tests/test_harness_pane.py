@@ -267,9 +267,39 @@ class Ensure(unittest.TestCase):
         with self.assertRaisesRegex(hp.Failed, rf"not typed into: less than the {hp.READBACK_S:g} s"):
             go()
         self.assertEqual(s.typed, [])
-        s, go = run(2)
+        s, go = run(0)
         self.assertIn("ran enter again", go())
         self.assertEqual(len(s.typed), 1)
+
+    def test_a_typed_line_always_has_its_whole_read_back_however_slow_pane_run(self):
+        # Round 3 F3: `pane run` itself may be slow; the read-back still gets READBACK_S after it returns. Swept over
+        # how long the restored profile churns, with calls that time out at the timeout they are given (as real_run's
+        # do): whenever a line was typed, the read-back window after `pane run` is whole. Control: some sweep typed.
+        typed_any = False
+        for churn in range(0, 60):
+            t, n, ran_at = [0.0], [0], []
+            class Slow(FakeServer):
+                def __call__(self, argv, timeout):
+                    n[0] += 1
+                    latency = 14 if n[0] <= 3 or "run" in argv else 0.2
+                    if latency > timeout:
+                        t[0] += timeout
+                        raise hp.Failed("no answer")
+                    t[0] += latency
+                    out = super().__call__(argv, timeout)
+                    if "run" in argv:
+                        ran_at.append(t[0])
+                    return out
+            s = Slow([{"workspace_id": "w7", "label": "harness"}], answers_after=2,
+                     startup=[{6000 + i} for i in range(churn)])
+            try:
+                hp.ensure(hp.Deck(s), "a", "/home/a", clock=lambda: t[0], sleep=lambda x: t.__setitem__(0, t[0] + x))
+            except hp.Failed:
+                pass
+            for at in ran_at:
+                typed_any = True
+                self.assertLessEqual(at, hp.STEP_S - hp.READBACK_S, churn)
+        self.assertTrue(typed_any)
 
     def test_a_wait_the_step_cut_short_says_so_not_its_own_window(self):
         # Round 2 F3: a call that ends past the step's deadline ends the wait; the message names the deadline and the

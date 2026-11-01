@@ -37,8 +37,9 @@ CONTRACT
             fails and Restart=on-failure starts it again, never a second line
             typed into a pane whose first one may yet arrive (it would land
             at enter's prompt as the Enter that activates the account). The
-            line is typed only while READBACK_S of the step is left; less is
-            an error with nothing typed.
+            line is typed only while READBACK_S of the step, and a little for
+            the call, is left; `pane run` never uses the read-back's time.
+            Less is an error with nothing typed.
   wait      The unit is Type=simple: this runs once the server is forked, not
             once its socket answers. `workspace list` is asked until it
             answers, for at most WAIT_S; a server that never answers is an
@@ -71,6 +72,8 @@ SESSION = "harness"
 LABEL = "harness"
 ENTER = "/usr/local/share/moveto/enter"
 CALL_TIMEOUT_S = 15
+# The least time a call is started with: `pane run` given less would time out with the line's arrival unknown.
+MIN_CALL_S = 2
 WAIT_S = 30
 POLL_S = 0.5
 # systemd's default TimeoutStartSec (90 s) bounds the unit's start, the ExecStartPost included; the 10 s left over are
@@ -121,8 +124,9 @@ class Deck:
         waited = f"after {self.clock() - started:.0f} s"
         return f"{waited}, when the step's {STEP_S:g} s ran out" if until >= self.until else waited
 
-    def _run(self, args: tuple[str, ...]) -> tuple[int, str, str]:
-        left = self.until - self.clock()
+    def _run(self, args: tuple[str, ...], keep: float = 0) -> tuple[int, str, str]:
+        """`keep`: seconds of the step this call may not use, left for what must follow it."""
+        left = self.until - self.clock() - keep
         if left <= 0:
             raise Failed(f"{' '.join(args[:2])}: the step's {STEP_S:g} s are spent")
         return self.run([*self.prefix, *args], min(CALL_TIMEOUT_S, left))
@@ -142,8 +146,8 @@ class Deck:
             raise Failed(f"{what}: the answer has no result object")
         return result
 
-    def text(self, *args: str) -> None:
-        rc, out, err = self._run(args)
+    def text(self, *args: str, keep: float = 0) -> None:
+        rc, out, err = self._run(args, keep)
         if rc != 0:
             last = (err.strip().splitlines() or out.strip().splitlines() or [f"exit {rc}"])[-1][:160]
             raise Failed(f"{' '.join(args[:2])}: {last}")
@@ -262,12 +266,13 @@ def ensure(deck: Deck, login: str, home: str, clock: Callable[[], float] = time.
         said = f"ran enter again in the restored {LABEL} pane {pane}"
         if settled(deck, pane, clock, sleep, STARTUP_S, shell_waits=False):
             return f"the {LABEL} pane {pane} is already running a program (enter, or the session it started)"
-    # The line is typed only with READBACK_S of the step left to read enter back: a read-back cut short would fail a
-    # pane whose enter did start, and the restart then kills it. Not typing is the safe side: the restart types it.
-    if deck.until - clock() < READBACK_S:
+    # The read-back keeps READBACK_S of the step whatever `pane run` takes: the call may use only what is left beyond
+    # it, and with too little left for the call the line is not typed. A read-back cut short would fail a pane whose
+    # enter did start, and the restart then kills it; not typing is the safe side, since the restart types it.
+    if deck.until - clock() < READBACK_S + MIN_CALL_S:
         raise Failed(f"the {LABEL} pane {pane} was not typed into: less than the {READBACK_S:g} s its read-back needs "
                      f"is left of the step's {STEP_S:g} s")
-    deck.text("pane", "run", pane, command)
+    deck.text("pane", "run", pane, command, keep=READBACK_S)
     settled(deck, pane, clock, sleep, READBACK_S, shell_waits=True)
     return said
 
