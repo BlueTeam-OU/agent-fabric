@@ -78,7 +78,8 @@ class Case(unittest.TestCase):
 class Now(Case):
     def test_an_uncovered_value_gets_the_range_added_and_read_back(self):
         for before, after in (("", RANGE), (f"{LOW}-{HIGH - 1}", RANGE), (f"{LOW + 1}-{HIGH}", RANGE), ("32768", f"32768,{RANGE}"),
-                              ("1000-2000,30000", f"1000-2000,30000,{RANGE}")):
+                              ("1000-2000,30000", f"1000-2000,30000,{RANGE}"),
+                              (f"{LOW + 50}-{LOW + 60}", RANGE)):          # a span inside the range must not shorten it
             self.set_live(before + "\n")
             rc, out, err = self.go()
             self.assertEqual((rc, err, self.get_live()), (0, "", after), before)
