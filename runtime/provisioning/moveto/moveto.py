@@ -410,17 +410,19 @@ def run_ssh(argv: list[str]) -> int:
         else:
             early.append(signum)
 
-    saved = {s: signal.signal(s, forward) for s in FORWARDED_SIGNALS}
+    # A signal the caller ignored (nohup, a background job) stays ignored here and in ssh, as the exec kept it.
+    saved = {s: signal.signal(s, forward) for s in FORWARDED_SIGNALS if signal.getsignal(s) != signal.SIG_IGN}
     try:
         proc = subprocess.Popen(argv, restore_signals=False)    # an OSError (no ssh) is main's one line, as the exec's was
         child.append(proc)
         for signum in early:
             forward(signum, None)
         rc = proc.wait()
+        # Before the handlers go: a second hang-up signal now must not kill moveto ahead of the write.
+        reset_terminal()
     finally:
         for s, handler in saved.items():
             signal.signal(s, handler)
-    reset_terminal()
     return 128 - rc if rc < 0 else rc
 
 
