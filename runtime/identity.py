@@ -29,8 +29,9 @@ The state layer (ADR-003). Every file under
 `agents/<login>/` is written by this module and by nothing else:
 `atomic_write` (a temporary beside the target, fsync, os.replace — the old
 file stays whole through a crash or a full disk), `agent_lock` (a
-re-entrant flock on `agents/<login>/.lock`; every read-modify-write of
-per-agent state holds it, across processes), `update_binding` and
+flock on `agents/<login>/.lock`, re-entrant only in the thread holding
+it; every read-modify-write of per-agent state holds it, across processes
+and threads), `update_binding` and
 `append_history` on top of both. A binding is per (agent, host): one
 written on another machine is refused by `read_binding` the way another
 agent's is, so a shared home never carries a role from one host to the
@@ -50,6 +51,7 @@ import re
 import socket
 import sys
 import tempfile
+import threading
 from typing import TypedDict
 
 # The repository this module lives in. AGENT_FABRIC_ROOT lets a test point
@@ -144,40 +146,100 @@ def atomic_write(path: str, data: "bytes | str", mode: int | None = None) -> Non
             os.unlink(tmp)
 
 
-_LOCKS: dict[str, list] = {}   # agent -> [fd, depth]: re-entrant within one process
+class _AgentHold:
+    """One agent's lock as this process holds it. `lock` is the thread
+    fence; `owner`, `depth`, `fd` and `shared` are written only by the
+    thread holding `lock`, so a thread comparing `owner` to its own ident
+    is never told yes by another thread's hold."""
+    __slots__ = ("lock", "owner", "depth", "fd", "shared")
+
+    def __init__(self) -> None:
+        self.lock = threading.Lock()
+        self.owner: int | None = None
+        self.depth = 0
+        self.fd: int | None = None
+        self.shared = False
+
+
+# Owned by a thread, not only keyed by agent (audit F03, 2026-11-01): keyed
+# by agent alone, a second thread of agentd or fabric-op took the first
+# one's hold for its own and ran its read-modify-write unserialized, and
+# the first one's exit unlocked the flock under it. _HOLDS_GUARD only makes
+# the per-agent entry once; it is never held across a flock wait.
+_HOLDS_GUARD = threading.Lock()
+_HOLDS: dict[str, _AgentHold] = {}
+
+
+def _forget_holds_in_child() -> None:
+    # A forked child is another process and must take the flock itself.
+    # What it inherited is the parent's view: a hold "owned" by the forking
+    # thread (same ident in the child, so it would skip the flock), or a
+    # thread lock another parent thread held that nobody in the child will
+    # ever release. The inherited descriptors share the parent's open file
+    # description, so the child must not LOCK_UN them (that would unlock
+    # the parent); closing them is safe, since a flock lives until its last
+    # descriptor goes and the parent still has its own.
+    global _HOLDS_GUARD, _HOLDS
+    for hold in _HOLDS.values():
+        if hold.fd is not None:
+            with contextlib.suppress(OSError):
+                os.close(hold.fd)
+    _HOLDS_GUARD = threading.Lock()
+    _HOLDS = {}
+
+
+os.register_at_fork(after_in_child=_forget_holds_in_child)
 
 
 @contextlib.contextmanager
 def agent_lock(agent: str | None = None, *, shared: bool = False):
     """Serialize the mutations of one agent's runtime state — the binding,
     the role history, the model profile, a role activation — across
-    processes: an exclusive flock on agents/<login>/.lock, held for the
-    block. Re-entrant within a process (an activation appends history
-    under the lock it already holds): flock conflicts with itself across
-    two descriptors, so the lock is taken once and nested uses count. A
-    reader that wants a consistent snapshot may take it `shared`."""
+    processes and across the threads of one: an exclusive flock on
+    agents/<login>/.lock, held for the block, behind a per-agent thread
+    lock. Re-entrant within the thread that holds it (an activation
+    appends history under the lock it already holds): flock conflicts
+    with itself across two descriptors, so the lock is taken once and
+    nested uses count. Another thread waits for the holder's outermost
+    exit. A reader that wants a consistent snapshot may take it `shared`;
+    an exclusive request nested in a shared hold is refused, because the
+    flock cannot be upgraded without letting go of it in between."""
     agent = agent or current_agent()
-    held = _LOCKS.get(agent)
-    if held:
-        held[1] += 1
+    with _HOLDS_GUARD:
+        hold = _HOLDS.setdefault(agent, _AgentHold())
+    me = threading.get_ident()
+    if hold.owner == me:
+        if hold.shared and not shared:
+            raise RuntimeError(f"identity: an exclusive agent_lock({agent!r}) inside a shared one; take it exclusive at the outermost level")
+        hold.depth += 1
         try:
             yield
         finally:
-            held[1] -= 1
+            hold.depth -= 1
         return
-    directory = agent_state_dir(agent)
-    os.makedirs(directory, exist_ok=True)
-    fd = os.open(os.path.join(directory, ".lock"), os.O_RDWR | os.O_CREAT, 0o600)
-    _LOCKS[agent] = [fd, 1]
+    hold.lock.acquire()
     try:
-        fcntl.flock(fd, fcntl.LOCK_SH if shared else fcntl.LOCK_EX)
-        yield
-    finally:
-        _LOCKS.pop(agent, None)
+        directory = agent_state_dir(agent)
+        os.makedirs(directory, exist_ok=True)
+        fd = os.open(os.path.join(directory, ".lock"), os.O_RDWR | os.O_CREAT, 0o600)
         try:
-            fcntl.flock(fd, fcntl.LOCK_UN)
-        finally:
+            fcntl.flock(fd, fcntl.LOCK_SH if shared else fcntl.LOCK_EX)
+        except BaseException:
             os.close(fd)
+            raise
+        hold.owner, hold.depth, hold.fd, hold.shared = me, 1, fd, shared
+        try:
+            yield
+        finally:
+            hold.owner, hold.depth, hold.fd = None, 0, None
+            try:
+                fcntl.flock(fd, fcntl.LOCK_UN)
+            finally:
+                os.close(fd)
+    finally:
+        # Last, after the flock and its descriptor: the next thread in
+        # opens its own and finds nothing of this hold left.
+        hold.lock.release()
 
 
 def read_binding(agent: str | None = None) -> Binding | dict:
@@ -348,9 +410,11 @@ def set_hold(reason: str, set_by: str, decision: str | None = None, agent: str |
         raise ValueError(f"a hold's reason is one non-empty line of at most {HOLD_REASON_MAX} characters")
     if decision is not None and not HOLD_DECISION.fullmatch(decision):
         raise ValueError("a hold's decision is a MESSAGE-ID (a lowercase UUID)")
-    record = {"agent": agent, "host": current_host(), "reason": reason.strip(),
-              "decision": decision, "set_by": set_by, "set_at": now_iso()}
     with agent_lock(agent):
+        # Stamped under the lock: of two holds racing, the one left standing
+        # is the one with the later set_at.
+        record = {"agent": agent, "host": current_host(), "reason": reason.strip(),
+                  "decision": decision, "set_by": set_by, "set_at": now_iso()}
         path = hold_path(agent)
         os.makedirs(os.path.dirname(path), exist_ok=True)
         atomic_write(path, json.dumps(record, ensure_ascii=False, indent=2, sort_keys=True) + "\n")
