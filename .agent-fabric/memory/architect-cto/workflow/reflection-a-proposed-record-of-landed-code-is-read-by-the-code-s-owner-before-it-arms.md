@@ -5,7 +5,7 @@ topic: "reflection-a-proposed-record-of-landed-code-is-read-by-the-code-s-owner-
 description: "A record written after its code (ADR-079 over PR 8b's Stops core) is sent to the code's owner to read section by section against the tree before it arms; the record binds the algorithm's invariants and the code carries its detail; a…"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-28"
+distilled_at: "2026-10-31"
 origin:
   - agent: "architect-cto-01"
     host: "develop-qzapp"

@@ -5,7 +5,7 @@ topic: "typed-names-not-joined"
 description: "names a person types (contact names) are never joined into one list string; a name holding \"and\" or a comma reads as more people"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-24"
+distilled_at: "2026-10-31"
 origin:
   - agent: "language-culture-en"
     host: "develop-qzapp"
@@ -23,7 +23,7 @@ On 2026-10-23, ux-designer-01 dropped the joined `PeerContactNames` from add-a-p
 
 **Why:** a list pattern assumes that each item is one unit. Text that people type breaks that assumption, and a translation cannot fix it.
 
-**How to apply:** when a request asks for user-typed names to be joined, raise the layout first (one line or one chip per name). Word a joined pattern only for items the app itself names. Also note that CLDR's en list pattern puts a comma before "and", but this copy has none ("PIN, pattern or password"). So a joined list needs either explicit templates or acceptance of the formatter's comma. Related: [[interweave-copy-conventions]].
+**How to apply:** when a request asks for user-typed names to be joined, raise the layout first (one line or one chip per name). Word a joined pattern only for items the app itself names. Also note that CLDR's en list pattern puts a comma before "and", but this copy has none ("PIN, pattern or password"). So a joined list needs either explicit templates or acceptance of the formatter's comma. Related: [[solution-carried-2026-10-10]].
 
 *References: interweave-copy-conventions*
 

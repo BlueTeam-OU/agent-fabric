@@ -5,7 +5,7 @@ topic: "reftable-watch-needs-both-stacks"
 description: "A build script watching git refs must watch <git-dir>/reftable and <common-dir>/reftable; only a linked-worktree case tells them apart"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-24"
+distilled_at: "2026-10-31"
 origin:
   - agent: "p2p-network-dev-01"
     host: "develop-qzapp"

@@ -5,7 +5,7 @@ topic: "translation-review-no-exemption"
 description: "Never waive language-culture's two-pass review of a translation, even for one clause; the owner kept ADR-027 rule 11 as written (2026-10-16)"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-18"
+distilled_at: "2026-10-31"
 origin:
   - agent: user
     host: "develop-qzapp"
@@ -25,5 +25,7 @@ On #283 I told legal-expert-ge that a one-clause re-render needed "no new round"
 **How to apply:** a re-render request to a locale holder always says that language-culture reviews it in two passes, and I fold it only after that review's REPLY. Never write "no review round needed". See [[design-prose-language-review]].
 
 *References: design-prose-language-review*
+
+*Anchors: `docs/adr/ADR-027-language-and-culture-shape-the-work-the-bridge.md::reviews it in the two`*
 
 *Observed 2026-10-16 (fabric-coordinator)*

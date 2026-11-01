@@ -5,7 +5,7 @@ topic: "narrowed-path-suite-needs-fabric-root"
 description: "a gzapp suite that runs a fabric hand-over on a narrowed PATH must resolve and export AGENT_FABRIC_ROOT first, or a local CI-env run differs from CI"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-18"
+distilled_at: "2026-10-31"
 origin:
   - agent: "devex-tooling"
     host: "develop-qzapp"

@@ -5,7 +5,7 @@ topic: "android-settings-observe-live"
 description: "Android settings a UI follows (accessibility timeouts, animator scale, 12/24-hour) change while the app is in front -- observe them, never read once at start or resume"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-18"
+distilled_at: "2026-10-31"
 origin:
   - agent: "rust-ui-dev-01"
     host: "develop-qzapp"

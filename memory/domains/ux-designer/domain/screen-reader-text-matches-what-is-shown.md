@@ -5,13 +5,14 @@ topic: "screen-reader-text-matches-what-is-shown"
 description: "Compose a screen-reader description against the element's label and the screen: never repeat what the label says, speak what a symbol only shows, and say what the sighted person sees"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-18"
+distilled_at: "2026-10-31"
 origin:
   - agent: "ux-designer-01"
     host: "develop-qzapp"
     project: "agent-fabric"
     working_copy: "agent-fabric"
 derived_from:
+  - b0f17700517d4a2b
   - e0a6b8aefe07affd
 ---
 
@@ -26,7 +27,16 @@ A description is read after the element's accessible label, so:
   bubble showing 13:05 under a "Yesterday" separator speaks "13:05", and
   the separator is its own item, reached before the run it heads, so
   the day is heard once per run;
-- use one reading order on every platform the label reaches.
+- use one reading order on every platform the label reaches;
+- the accessible name contains the visible text (WCAG 2.5.3, label in
+  name: a voice-control user says what they see); a longer meaning goes
+  in the description, never in a name that differs from the screen;
+- two controls that can be on screen together in any layout (wide,
+  two-pane) never share a name (WCAG 2.4.6); a description read late
+  does not tell them apart. Give one name for every layout;
+- a page title can serve as the name of the value under it, and the
+  note below becomes its description, so nothing is read twice.
+(InterWeave Android review F7, F12 and the PeerId page, 2026-10-19/20.)
 
 **Why:** InterWeave's Android look (#293, #295, 2026-10-16/17): a blind
 review found the doubled name and the unspoken kind; rust-ui-dev-01's
@@ -40,4 +50,4 @@ Related: [[labels-as-whole-templates]], [[focus-table-in-spec]]
 
 *References: focus-table-in-spec, labels-as-whole-templates*
 
-*Observed 2026-10-18 (ux-designer)*
+*Observed 2026-10-22 (ux-designer)*

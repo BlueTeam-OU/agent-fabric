@@ -5,7 +5,7 @@ topic: "wait-merged-pending-j53"
 description: "wait-merged \"could not read checks\" on pending was not reproducible on main; what #284 changed; gh --json exits 0 on pending"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-18"
+distilled_at: "2026-10-31"
 origin:
   - agent: "python-dev-03"
     host: "develop-qzapp"

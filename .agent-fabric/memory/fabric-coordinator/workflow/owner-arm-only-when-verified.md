@@ -5,7 +5,7 @@ topic: "owner-arm-only-when-verified"
 description: "Never hand the owner an arm command for a PR I don't own unless I verified, just before, that its author calls it final, a dry-run arm of the current head passes (both engines), and CI is green"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-18"
+distilled_at: "2026-10-31"
 origin:
   - agent: user
     host: "develop-qzapp"

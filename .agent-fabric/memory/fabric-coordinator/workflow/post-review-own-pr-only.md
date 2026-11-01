@@ -5,7 +5,7 @@ topic: "post-review-own-pr-only"
 description: "fabric-pr post-review refuses another session's PR: a review I dispatch on a contributor's PR goes as a PR comment, and the author's own re-review is the counted one"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-18"
+distilled_at: "2026-10-31"
 origin:
   - agent: user
     host: "develop-qzapp"

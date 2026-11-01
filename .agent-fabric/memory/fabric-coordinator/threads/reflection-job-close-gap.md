@@ -5,7 +5,7 @@ topic: "reflection-job-close-gap"
 description: "A weekly reflection job (ADR-058) cannot be closed by fabric-jobs until settle.py takes the fabric-reflect cursor as evidence"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-18"
+distilled_at: "2026-10-31"
 origin:
   - agent: user
     host: "develop-qzapp"

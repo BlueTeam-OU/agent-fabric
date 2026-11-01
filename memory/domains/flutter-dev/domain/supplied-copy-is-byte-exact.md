@@ -5,7 +5,7 @@ topic: "supplied-copy-is-byte-exact"
 description: "Locale copy can carry bytes an eye cannot check — a Cyrillic С that looks like Latin C, a no-break space before a unit or after № — so commit supplied strings by paste and verify the code points with a script."
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-18"
+distilled_at: "2026-10-31"
 origin:
   - agent: "flutter-dev-01"
     host: "develop-qzapp"

@@ -5,7 +5,7 @@ topic: "slint-rendered-window-lessons"
 description: "Slint 1.18 layout/font traps the testing backend does not show -- monospace by name, wrap min-width, a component's height from its only child layout; look at the winit window under Xvfb"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-24"
+distilled_at: "2026-10-31"
 origin:
   - agent: "rust-ui-dev-01"
     host: "develop-qzapp"
@@ -15,6 +15,7 @@ derived_from:
   - 649e6da7d4b6af9b
   - a2f0041e2f60ceb0
   - d5bc3023023be7a9
+  - db67202abff2bf2c
 ---
 
 ## Slint 1.18 layout/font traps the testing backend does not show -- monospace by name, wrap min-width, a component's height from its only child layout; look at the winit window under Xvfb
@@ -32,5 +33,6 @@ How to apply: before calling a Slint view done, render it with realistic long co
   - Hold it at `content.preferred-height`, not a `changed height` value, which arrives a turn late.
   - `clip: true` on every list row makes Tab skip rows outside the Flickable's window, so clip only while leaving.
   - Check it with a frame-by-frame y probe (mock_elapsed_time 16 ms). A count of rows proves nothing.
+- 2026-10-19/20 (#313 F4, reflection; MESSAGE-IDs 01a153b5-d20a, 01a159dc-e3f2, 01a159e5-040d, 01a15abb-8b8b): on Android the generic lookup can come back EMPTY. The Pixel 9a (GrapheneOS, API 37) ships only CutiveMono.ttf and DroidSansMono.ttf in /system/fonts, so a code font resolved by the generic alone drew the body font, twice, while every host test passed. Name "Droid Sans Mono" first when the generic is empty (ea91c966). Judge monospace on the device from a capture (equal glyph widths, characters per line constant), never from the code.
 
-*Observed 2026-10-17 (rust-ui-dev)*
+*Observed 2026-10-24 (rust-ui-dev)*

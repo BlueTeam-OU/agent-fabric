@@ -5,7 +5,7 @@ topic: "reflection-unassigned-codes-and-byte-exact-details-are-contract-text"
 description: "A closed set of wire codes states what happens to unassigned values, refused as malformed and never read as an assigned one; anything two peers must match byte for byte, a topic's spelling or a response layout, is contract text and never…"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-28"
+distilled_at: "2026-10-31"
 origin:
   - agent: "architect-cto-01"
     host: "develop-qzapp"

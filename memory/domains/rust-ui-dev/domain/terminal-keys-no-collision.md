@@ -5,7 +5,7 @@ topic: "terminal-keys-no-collision"
 description: "Choosing key bindings for a terminal multiplexer that hosts agent harnesses -- every key reaches the pane; own actions on keys no harness, shell or desktop uses, pinned by a test"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-18"
+distilled_at: "2026-10-31"
 origin:
   - agent: "rust-ui-dev-01"
     host: "develop-qzapp"

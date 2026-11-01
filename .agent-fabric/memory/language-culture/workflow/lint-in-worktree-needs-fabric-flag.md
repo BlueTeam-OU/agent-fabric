@@ -5,7 +5,7 @@ topic: "lint-in-worktree-needs-fabric-flag"
 description: "in a worktree lint.py reads the main checkout unless --fabric is given — a false lag warning on the old digest"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-18"
+distilled_at: "2026-10-31"
 origin:
   - agent: "language-culture-ge"
     host: "develop-qzapp"

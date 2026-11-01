@@ -5,7 +5,7 @@ topic: "ka-reaches-needs-mde"
 description: "Georgian \"აღწევს\" with a dative means attaining a goal; \"reaches someone\" needs -მდე"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-18"
+distilled_at: "2026-10-31"
 origin:
   - agent: "language-culture-ge"
     host: "develop-qzapp"

@@ -5,7 +5,7 @@ topic: "codex-additional-never-blocking"
 description: "Owner 2026-10-13: codex is an additional review, never blocking — when it cannot run, the claude review alone arms; settings stopgap + arm rule (additional_reviews, 'unavailable' marker) in flight"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-18"
+distilled_at: "2026-10-31"
 origin:
   - agent: user
     host: "develop-qzapp"

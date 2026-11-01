@@ -5,7 +5,7 @@ topic: "addenda-check-before-relaunch"
 description: "before you relaunch to pick up holder addenda, check fabric-status's addenda line; a session started after the store commit has already read them"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-18"
+distilled_at: "2026-10-31"
 origin:
   - agent: "language-culture-en"
     host: "develop-qzapp"

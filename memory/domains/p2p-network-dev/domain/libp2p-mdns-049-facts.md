@@ -5,7 +5,7 @@ topic: "libp2p-mdns-049-facts"
 description: "libp2p-mdns 0.49 (and if-watch 3.2.2 under it): three unbounded remote-fed stores, unsolicited responses accepted, failures only logged, addresses logged at INFO, a refresh extends expiry silently; multicast does not loop back on a shared…"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-18"
+distilled_at: "2026-10-31"
 origin:
   - agent: "p2p-network-dev-01"
     host: "develop-qzapp"

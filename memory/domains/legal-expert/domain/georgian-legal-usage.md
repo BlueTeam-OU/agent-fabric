@@ -5,7 +5,7 @@ topic: "georgian-legal-usage"
 description: "Georgian legal wording traps — calques and near-synonyms that change legal effect (ავტორიტეტული, შეიძლება, ამოქმედება, თანამდებობის პირი, მესაკუთრე…)"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-18"
+distilled_at: "2026-10-31"
 origin:
   - agent: "legal-expert-ge"
     host: "develop-qzapp"

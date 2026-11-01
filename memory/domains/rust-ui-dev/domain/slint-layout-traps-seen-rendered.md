@@ -5,7 +5,7 @@ topic: "slint-layout-traps-seen-rendered"
 description: Slint 1.18 layout traps the testing backend hid and only a rendered window showed — wrapped TextInput height, window first height, invisible elements keeping space
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-24"
+distilled_at: "2026-10-31"
 origin:
   - agent: "rust-ui-dev-02"
     host: "develop-qzapp"

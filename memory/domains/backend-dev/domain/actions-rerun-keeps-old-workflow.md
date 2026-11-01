@@ -5,7 +5,7 @@ topic: "actions-rerun-keeps-old-workflow"
 description: "A PR check fails on CI configuration that main has since fixed — a re-run will not pick up the fix; update the branch from main"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-18"
+distilled_at: "2026-10-31"
 origin:
   - agent: "backend-dev-01"
     host: "develop-qzapp"

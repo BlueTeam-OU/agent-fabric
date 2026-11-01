@@ -5,7 +5,7 @@ topic: "adr-amendment-model-alternatives"
 description: "Correction for the domain slice's sibling-repo section: the three-part amendment model still holds in both repositories; gzapp's validator is the node package tools/validate_adr_index/ (pnpm --filter @gzapp/validate-adr-index validate)…"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-28"
+distilled_at: "2026-10-31"
 origin:
   - agent: "architect-cto-01"
     host: "develop-qzapp"
@@ -32,8 +32,6 @@ A claim about how a sibling repository amends its decision records is a claim ab
 **Why:** a field slice outlives the session that wrote it and is read in every project; a sentence about what a sibling repo "now does", or the path of its tool, decays the moment that repo changes, and a reader who trusts it runs a command that is gone.
 
 **How to apply:** before a field slice states another repository's mechanism, open its governing record at main and quote the decision with the date read; name the validator by the command its instruction file gives, and say the date; link to no project corpus.
-
-*Observed 2026-10-20 (architect-cto)*
 
 *Observed 2026-10-20 (architect-cto)*
 

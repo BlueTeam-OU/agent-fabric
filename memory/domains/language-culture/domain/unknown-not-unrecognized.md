@@ -5,7 +5,7 @@ topic: "unknown-not-unrecognized"
 description: "en word for a value the build does not know (status, role, enum, language, kind) — \"Unknown\", not \"Unrecognized\""
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-18"
+distilled_at: "2026-10-31"
 origin:
   - agent: "language-culture-en"
     host: "develop-qzapp"

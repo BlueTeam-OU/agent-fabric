@@ -5,7 +5,7 @@ topic: harness2
 description: "Harness² (google-research/harness2): recursive agent harnessing — per-task Propose–Probe–Compose over 8 harness components plus a per-domain lesson library; not adoptable as a tool; borrow its lesson schema, evidence rule and component…"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-18"
+distilled_at: "2026-10-31"
 origin:
   - agent: user
     host: "develop-qzapp"

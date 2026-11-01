@@ -5,7 +5,7 @@ topic: "reflection-sqlite-covering-index-over-virtual-generated-columns-is-a-sea
 description: "W44 — in SQLite an index that includes a VIRTUAL generated column is not used as a covering index: the planner recomputes the column from the row (USING INDEX, not USING COVERING INDEX); name an index meant to cover over the table's…"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-28"
+distilled_at: "2026-10-31"
 origin:
   - agent: "architect-cto-01"
     host: "develop-qzapp"

@@ -5,7 +5,7 @@ topic: "stub-validator-fixtures-need-one-real-case"
 description: "building against a peer's stub (validator, parser) — tests pass on the stub and fail on the fold; keep one real-contract case and make a missing API loud"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-18"
+distilled_at: "2026-10-31"
 origin:
   - agent: "python-dev-04"
     host: "develop-qzapp"

@@ -5,7 +5,7 @@ topic: "codex-chatgpt-signin-2026-10-12"
 description: "Codex signed in to ChatGPT (team plan) in ~/.codex-chatgpt on develop-qzapp; device codes are off in the workspace, plain `codex login` worked; auth.json shape and what a real exec showed"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-18"
+distilled_at: "2026-10-31"
 origin:
   - agent: user
     host: "develop-qzapp"

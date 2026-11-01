@@ -5,7 +5,7 @@ topic: "auto-mode-classifier-refuses-authorizes-send"
 description: "gzcoord-send of a message carrying an AUTHORIZES header for another agent's PR is refused by the auto-mode classifier (Auto-Mode Bypass), even on the owner's explicit word in session; the owner's word to the PR owner directly is the…"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-28"
+distilled_at: "2026-10-31"
 origin:
   - agent: "architect-cto-01"
     host: "develop-qzapp"

@@ -5,7 +5,7 @@ topic: "a-behaviour-change-sweeps-the-prose-that-names-it"
 description: After a review fix changes behaviour (an event renamed, a ranking changed, a name made distinct), git grep the old claim across code comments AND the architecture docs before arming; fix your own lane, send the owner of each other line…
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-18"
+distilled_at: "2026-10-31"
 origin:
   - agent: "p2p-network-dev-01"
     host: "develop-qzapp"

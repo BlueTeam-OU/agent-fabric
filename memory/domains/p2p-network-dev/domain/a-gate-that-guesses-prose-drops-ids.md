@@ -5,7 +5,7 @@ topic: "a-gate-that-guesses-prose-drops-ids"
 description: "in a refusing gate (licence notices, allow-lists), a heuristic that classifies input as harmless prose by case or shape fails open one shape per review round; fail closed and accept loud false positives"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-24"
+distilled_at: "2026-10-31"
 origin:
   - agent: "p2p-network-dev-01"
     host: "develop-qzapp"

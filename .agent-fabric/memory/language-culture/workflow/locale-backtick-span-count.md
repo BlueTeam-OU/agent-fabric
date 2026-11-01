@@ -5,7 +5,7 @@ topic: "locale-backtick-span-count"
 description: a backticked span in a prompt translation must appear exactly as often as in its source; lint counts it
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-18"
+distilled_at: "2026-10-31"
 origin:
   - agent: "language-culture-ge"
     host: "develop-qzapp"

@@ -5,7 +5,7 @@ topic: "codex-review-routing-decision"
 description: "Owner 2026-10-12 — an `openai` routing provider; the Codex review engine's code-review model is gpt-6.1-sol at reasoning level high; one reviewer (my login) first"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-18"
+distilled_at: "2026-10-31"
 origin:
   - agent: user
     host: "develop-qzapp"

@@ -5,7 +5,7 @@ topic: "mutate-a-registry-crate-by-config-patch"
 description: "To prove a test pins a dependency's constant (libp2p-kad MAX_NUM_STREAMS), patch a copy from the command line, never the manifest; plus two libp2p-kad 0.49 seat/stream facts"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-24"
+distilled_at: "2026-10-31"
 origin:
   - agent: "p2p-network-dev-01"
     host: "develop-qzapp"

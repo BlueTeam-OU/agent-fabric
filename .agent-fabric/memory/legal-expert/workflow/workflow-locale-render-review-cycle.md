@@ -5,7 +5,7 @@ topic: "workflow-locale-render-review-cycle"
 description: Order of a Georgian locale render of a role text — two passes, cold read of the fix, then one delivery; budget cuts never drop a rule
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-18"
+distilled_at: "2026-10-31"
 origin:
   - agent: "legal-expert-ge"
     host: "develop-qzapp"
@@ -13,6 +13,7 @@ origin:
     working_copy: "agent-fabric"
 derived_from:
   - 4a6def1f45ae0287
+  - 6f8f12b4c95e4bd5
 ---
 
 ## Order of a Georgian locale render of a role text — two passes, cold read of the fix, then one delivery; budget cuts never drop a rule
@@ -29,6 +30,12 @@ When legal-expert-ge renders a role text into Georgian (a locale charter, brief,
 **Budget cuts** (fabric-coordinator's rule, REPLY 01a148cc): a locale file has a lint token cap (`LOCALE_BUDGET_FACTOR × TIER1_BUDGET_TOKENS`, `tools/fabric/lint_rules/prompts.py`). Tighter Georgian for the same rule is fine; a clause whose rule disappears is not. List every cut against its English line in the request to language-culture-ge and in the last commit's record. If a rule cannot fit, keep it and ask fabric-coordinator for a shorter English text, never a thinner translation.
 
 **How to apply:** before telling fabric-coordinator a head is ready to fold, check that the cold read of the last fix range has come back. Also check that the base the coordinator named already contains my previous delivery (`git merge-base --is-ancestor <prev> <base>`). Related: [[workflow-charter-translation]], [[holder-launch-check]].
+
+**When language-culture-ge renders the same English change in its own Georgian file** (e.g. identities/prompt/locale/ge/team.md, which sits beside my identities/roles/legal-expert/locale/ge/team.md), its proposed fix may be word for word its already cold-read sentence. If the sentence and the lines before it are identical in both files (check with `git show <its branch>:<path>`), that cold read stands in for mine. Say so in the fix commit and name the passes as `Translation-Review-Pass-1/-2` trailers. That made one delivery possible in j19 (2026-10-19, d1e6f072; REPLY 01a1542d). Answer each finding first for legal effect: in j19, "უფლებამოსილი" takes "-ზე", not the genitive, and a bare Latin "dry-run" reads as a noun, so refer back to the command instead (იგივე ბრძანება).
+
+**An ambiguous English noun is rendered by its antecedent, not literally** (j21, 2026-10-24, e22c351c; REPLY 01a16f23). "A decision written only on your own screen" (team.md, after "Blocked on another agent's decision") left both readings open in English. A literal "გადაწყვეტილება, რომელიც … შენს ეკრანზე წერია" reads in Georgian as the reader's own decision and loses the antecedent. language-culture-ge's "საკითხი, რომლის გადაწყვეტასაც ელოდები, თუ …" keeps the rule. Keeping a source ambiguity is right only if the Georgian keeps it too; check what the literal noun picks. The opposite holds as well: a condition a draft adds ("თუ მის REQUEST-ზე მუშაობ") is dropped when the source has none. One request-acceptance commit: amend the local commit with the trailers and push once. A job blocked on the review request must be `fabric-jobs start`ed again before the commit hook allows the commit.
+
+**Look for language-culture-ge's branch of the same request first** (j24, 2026-10-28, c8212802; REPLY 01a181d1). A coordinator request that makes both ge copies lag usually goes to both holders with the same branch suffix (`…/language-culture-ge/for/user/j412-team-background`). Fetch it before asking for passes. If its paragraph is already two-pass reviewed and the lines before it match, adopt it word for word and cite its commit in the trailers. That makes one delivery possible with no review round trip. In j24 its wording also avoided a Latin `cpu` (პროცესორის სლოტი).
 
 *References: holder-launch-check, workflow-charter-translation*
 
