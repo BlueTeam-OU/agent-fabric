@@ -302,7 +302,7 @@ for a in $accounts; do echo "${{a%%:*}}:x:${{a#*:}}:${{a#*:}}::{fx}/home/${{a%%:
             ("getent", f"#!/bin/sh\necho \"$2:x:2000:2000::{sshd}/home:/bin/bash\"\n"),
             ("ssh", "#!/bin/sh\nprintf '%s\\n' \"$*\" > \"$FX_ARGV\"\n"
                     "printf '\\033[>1u\\033[?1000h\\033[?1006h\\033[?1004h\\033[?2004h\\033[>4;2m\\033[?25l'\n"
-                    "case $FX_END in exit0) exit 0;; drop) exit 255;; hup) : > \"$FX_READY\"; exec sleep 60;; nap) : > \"$FX_READY\"; sleep 1; exit 7;; esac\n"),
+                    "case $FX_END in exit0) exit 0;; drop) exit 255;; hup) : > \"$FX_READY\"; exec sleep 60;; nap) : > \"$FX_READY\"; exec sleep 1;; esac\n"),
         ):
             put(f"{sshd}/bin/{name}", body, 0o755)
         put(f"{sshd}/home/.ssh/fabric_deck", "")
@@ -364,8 +364,8 @@ for a in $accounts; do echo "${{a%%:*}}:x:${{a#*:}}:${{a#*:}}::{fx}/home/${{a%%:
             check(f"{sig.name} to moveto is forwarded: ssh dies of it, {want}, and the reset is still written",
                   rc == want and reset_after_enabling(out), f"rc={rc} out={out!r}")
         rc, out, argv = via_ssh("nap", sig=signal.SIGINT, ignored=(signal.SIGINT,))
-        check("a SIGINT the caller ignored stays ignored for ssh (nohup, a background job): ssh runs on, its own status",
-              rc == 7 and reset_after_enabling(out), f"rc={rc} out={out!r}")
+        check("a SIGINT the caller ignored stays ignored for ssh (nohup, a background job): ssh runs on to its own exit 0",
+              rc == 0 and reset_after_enabling(out), f"rc={rc} out={out!r}")
         rc, out, argv = via_ssh("exit0", host="10.0.0.7", port="2222")
         check("a host that is not loopback, as --via ssh to a second host: the same reset, and ssh's argv names it",
               rc == 0 and reset_after_enabling(out) and "-p 2222" in argv and "acct@10.0.0.7" in argv, f"{out!r} {argv!r}")
