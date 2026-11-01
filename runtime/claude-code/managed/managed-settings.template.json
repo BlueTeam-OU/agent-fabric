@@ -50,6 +50,12 @@
           {
             "type": "command",
             "command": "/usr/local/bin/fabric-python",
+            "args": ["-I", "-S", "@ENTRY@", "post-review-shape-guard"],
+            "timeout": 5
+          },
+          {
+            "type": "command",
+            "command": "/usr/local/bin/fabric-python",
             "args": ["-I", "-S", "@ENTRY@", "job-copy-guard"],
             "timeout": 10
           }

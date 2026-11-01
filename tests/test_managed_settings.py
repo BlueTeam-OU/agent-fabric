@@ -40,6 +40,7 @@ GATE = "[ -e /etc/claude-code/managed-settings.json ] && [ -x /usr/local/bin/fab
 # The workspace scripts whose entries moved, and the managed guard each became.
 MOVED = {"agent-dispatch-guard.sh": "agent-dispatch-guard", "subagent-clone-guard.sh": "subagent-clone-guard",
          "pipe-status-guard.sh": "pipe-status-guard", "self-kill-guard.py": "self-kill-guard",
+         "post-review-shape-guard.py": "post-review-shape-guard",
          "job-copy-guard.sh": "job-copy-guard", "plan-hold.sh": "plan-hold", "model-switch-guard.sh": "model-switch-guard"}
 CONVENIENCES = ("statusline", "session-start", "tab-title", "model-fallback-note", "gzcoord-inbox")
 

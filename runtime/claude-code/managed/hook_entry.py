@@ -63,6 +63,9 @@ GUARDS = {
     "self-kill-guard": ("runtime/claude-code/hooks/self-kill-guard.py", "PreToolUse",
                         "Approve only if this command kills nothing of this session's own: its claude, its shell "
                         "or its inbox watch."),
+    "post-review-shape-guard": ("runtime/claude-code/hooks/post-review-shape-guard.py", "PreToolUse",
+                                "Approve only if this command runs no `fabric-pr post-review`, or runs it as the bare "
+                                "`fabric-pr post-review <n> < <report>`."),
     "job-copy-guard": ("runtime/claude-code/hooks/job-copy-guard.py", "PreToolUse",
                        "Approve only if this command does not commit or publish outside the working copy of this "
                        "session's job. See agent-fabric ADR-037 rule 3."),
@@ -75,6 +78,7 @@ GUARDS = {
 }
 LABEL = {"agent-dispatch-guard": "The dispatch guard", "subagent-clone-guard": "The subagent clone guard",
          "pipe-status-guard": "The pipe-status guard", "self-kill-guard": "The self-kill guard",
+         "post-review-shape-guard": "The post-review shape guard",
          "job-copy-guard": "The job copy guard", "model-switch-guard": "The model-switch guard",
          "review-fence": "The review-class fence"}
 
