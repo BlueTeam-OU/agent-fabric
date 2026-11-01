@@ -57,7 +57,7 @@ def _structural_check(schema: dict[str, Any], doc: Any, where: str, path: str = 
     properties, patternProperties, additionalProperties, propertyNames,
     minProperties, items, minItems, maxItems, uniqueItems, enum, const,
     pattern, minLength, maxLength, minimum, maximum, and the composition
-    the schemas here use — local `$ref` (#/$defs/…), `allOf`, `oneOf` and
+    the schemas here use — local `$ref` (#/$defs/…), `allOf`, `anyOf`, `oneOf` and
     `if`/`then`/`else`. SCHEMA_KEYWORDS lists them, and schema_keyword_findings
     refuses a schema that uses any other: a keyword this cannot check
     would pass unchecked wherever jsonschema is absent (two lint cases did,
@@ -83,6 +83,11 @@ def _structural_check(schema: dict[str, Any], doc: Any, where: str, path: str = 
         branch = schema.get("then") if not _structural_check(schema["if"], doc, where, path, root) else schema.get("else")
         problems = _structural_check(branch, doc, where, path, root) if isinstance(branch, dict) else []
         rest = {k: v for k, v in schema.items() if k not in ("if", "then", "else")}
+        return problems + (_structural_check(rest, doc, where, path, root) if rest else [])
+    if "anyOf" in schema:
+        matched = any(not _structural_check(sub, doc, where, path, root) for sub in schema["anyOf"])
+        problems = [] if matched else [f"{where}{path}: matches none of its anyOf schemas"]
+        rest = {k: v for k, v in schema.items() if k != "anyOf"}
         return problems + (_structural_check(rest, doc, where, path, root) if rest else [])
     if "oneOf" in schema:
         matched = sum(1 for sub in schema["oneOf"] if not _structural_check(sub, doc, where, path, root))
@@ -165,7 +170,7 @@ SCHEMA_KEYWORDS = {
     "$schema", "$id", "$ref", "$defs", "$comment", "title", "description", "examples", "default",
     "type", "required", "properties", "patternProperties", "additionalProperties", "propertyNames",
     "minProperties", "items", "minItems", "maxItems", "uniqueItems", "enum", "const", "pattern",
-    "minLength", "maxLength", "minimum", "maximum", "allOf", "oneOf", "if", "then", "else",
+    "minLength", "maxLength", "minimum", "maximum", "allOf", "anyOf", "oneOf", "if", "then", "else",
 }
 
 
@@ -282,7 +287,7 @@ def schema_keyword_findings(root: str) -> list[str]:
                     walk(sub, rel, f"{at}/{key}/{name}")
             elif key in ("items", "additionalProperties", "propertyNames", "if", "then", "else"):
                 walk(value, rel, f"{at}/{key}")
-            elif key in ("allOf", "oneOf"):
+            elif key in ("allOf", "anyOf", "oneOf"):
                 walk(value, rel, f"{at}/{key}")
 
     for rel in _tracked(root):
