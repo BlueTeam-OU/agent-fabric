@@ -71,7 +71,8 @@ if argv[:1] == ["sandbox"]:
     if is_read_probe and smode == "readable":
         sys.exit(subprocess.run(cmd).returncode)      # nothing confines a read: the canary is read, and the probe says 9
     if is_read_probe and smode == "blind":
-        sys.exit(44)                                  # the extract's own file cannot be read: a refusal would mean nothing
+        # the extract's own file cannot be read (the canary can, as nothing confines it): the probe's own script must see that first
+        sys.exit(subprocess.run(cmd[:-1] + ["/nonexistent-control"]).returncode)
     if is_read_probe and smode in ("ok", "leaky"):
         sys.exit(43)                                  # the canary is outside the allowlist: refused
     if smode == "leaky":
@@ -1486,7 +1487,10 @@ def main() -> int:
                 review_codex.prove_sandbox(real_codex, real_work, real_env)
                 real_ok = True
             except review_codex.FailedReview as e:
-                print(f"  skip the real sandbox does not start here: {e}")
+                if "cannot start" not in str(e) and "did not start" not in str(e):
+                    check("the real sandbox passes the proof", False, str(e))   # only a sandbox that will not start is a reason to skip
+                else:
+                    print(f"  skip the real sandbox does not start here: {e}")
         else:
             print("  skip no codex on PATH")
         if real_ok:
@@ -1685,6 +1689,16 @@ def main() -> int:
             verdict = "extracted"
         except review_codex.Refused as e:
             verdict = str(e)
+        real_blobs = review_codex._blobs
+        review_codex._blobs = lambda repo_, oids: ((oid, data + b"x") for oid, data in real_blobs(repo_, oids))
+        try:
+            review_codex.extract(fx, fxhead, os.path.join(tmp, "fx-wrong"))
+            wrong = "extracted"
+        except review_codex.Refused as e:
+            wrong = str(e)
+        finally:
+            review_codex._blobs = real_blobs
+        check("extract itself verifies what it wrote: bytes that are not the blob's are refused", "differs from the head's" in wrong, wrong)
         check("a link out of the head is refused, as it was under `git archive`", "is a link out of the head" in verdict, verdict)
 
         print("refusals: nothing runs, nothing is posted")
