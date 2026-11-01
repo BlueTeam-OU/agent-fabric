@@ -248,6 +248,48 @@ class Ensure(unittest.TestCase):
                 self.assertLessEqual(t[0], hp.STEP_S + hp.POLL_S, (latency, kw))
                 self.assertLessEqual(len(s.typed), 1)
 
+    def test_a_line_is_never_typed_with_less_than_its_read_back_left_of_the_step(self):
+        # Round 2 F3: slow first calls, then a restored profile that churns until the step is nearly spent. A line
+        # typed then would get a read-back cut short and fail a pane whose enter did start; it is not typed. Control:
+        # with fewer churning reads the same start types the line and succeeds.
+        def run(churn):
+            t, n = [0.0], [0]
+            class Slow(FakeServer):
+                def __call__(self, argv, timeout):
+                    n[0] += 1
+                    t[0] += 14 if n[0] <= 4 else 0.2
+                    return super().__call__(argv, timeout)
+            s = Slow([{"workspace_id": "w7", "label": "harness"}], answers_after=2,
+                     startup=[{6000 + i} for i in range(churn)])
+            return s, (lambda: hp.ensure(hp.Deck(s), "a", "/home/a", clock=lambda: t[0],
+                                         sleep=lambda x: t.__setitem__(0, t[0] + x)))
+        s, go = run(28)
+        with self.assertRaisesRegex(hp.Failed, rf"not typed into: less than the {hp.READBACK_S:g} s"):
+            go()
+        self.assertEqual(s.typed, [])
+        s, go = run(2)
+        self.assertIn("ran enter again", go())
+        self.assertEqual(len(s.typed), 1)
+
+    def test_a_wait_the_step_cut_short_says_so_not_its_own_window(self):
+        # Round 2 F3: a call that ends past the step's deadline ends the wait; the message names the deadline and the
+        # time waited, not the window's nominal STARTUP_S. Control: the same wait with the step's time left names its
+        # own window's length and no deadline.
+        def wait(left, latency):
+            t = [0.0]
+            class Slow(FakeServer):
+                def __call__(self, argv, timeout):
+                    t[0] += latency
+                    return super().__call__(argv, timeout)
+            deck = hp.Deck(Slow([{"workspace_id": "w7", "label": "harness"}], startup=[{9001}] * 1000))
+            deck.start(lambda: t[0])
+            t[0] = hp.STEP_S - left
+            hp.shell_alone(deck, "w7:p1", lambda: t[0], lambda x: t.__setitem__(0, t[0] + x), hp.STARTUP_S)
+        with self.assertRaisesRegex(hp.Failed, rf"after 6 s, when the step's {hp.STEP_S:g} s ran out"):
+            wait(5, 6)
+        with self.assertRaisesRegex(hp.Failed, r"has not come to its shell after 2\d s$"):
+            wait(hp.STEP_S, 0.1)
+
     def test_the_typed_line_is_quoted_for_the_panes_shell(self):
         s = FakeServer()
         ensure(s, home="/home/we ird$(id)", login="a")

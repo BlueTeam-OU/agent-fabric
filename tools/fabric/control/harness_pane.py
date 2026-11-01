@@ -36,7 +36,9 @@ CONTRACT
             READBACK_S; a pane still at its shell is an error, so the unit
             fails and Restart=on-failure starts it again, never a second line
             typed into a pane whose first one may yet arrive (it would land
-            at enter's prompt as the Enter that activates the account).
+            at enter's prompt as the Enter that activates the account). The
+            line is typed only while READBACK_S of the step is left; less is
+            an error with nothing typed.
   wait      The unit is Type=simple: this runs once the server is forked, not
             once its socket answers. `workspace list` is asked until it
             answers, for at most WAIT_S; a server that never answers is an
@@ -112,6 +114,12 @@ class Deck:
     def left(self, within: float) -> float:
         """The deadline of a wait of `within` seconds that starts now, never past the step's."""
         return min(self.clock() + within, self.until)
+
+    def after(self, started: float, until: float) -> str:
+        """How long a wait that ended at `until` lasted, said as what bound it: its own window, or the step's
+        deadline cutting it short (a window's nominal length would then name a wait that never happened)."""
+        waited = f"after {self.clock() - started:.0f} s"
+        return f"{waited}, when the step's {STEP_S:g} s ran out" if until >= self.until else waited
 
     def _run(self, args: tuple[str, ...]) -> tuple[int, str, str]:
         left = self.until - self.clock()
@@ -194,9 +202,9 @@ def settled(deck: Deck, pane: str, clock: Callable[[], float], sleep: Callable[[
     """True once one non-shell pid has stayed in the foreground for SETTLE_S: a program runs. With the shell alone in
     the foreground, False at once, or, with shell_waits, asked again until a program settles. Never settled within
     `within` is an error naming what was seen."""
-    until = deck.left(within)
+    started, until = clock(), deck.left(within)
     kept: set[int] | None = None    # the pids seen in every read since `since`
-    since = clock()
+    since = started
     while True:
         pids = foreground_programs(deck.call("pane", "process-info", "--pane", pane))
         if not pids:
@@ -211,17 +219,17 @@ def settled(deck: Deck, pane: str, clock: Callable[[], float], sleep: Callable[[
                 return True
         if clock() >= until:
             what = "is still at its shell" if not pids else "has no program that stays in its foreground"
-            raise Failed(f"the {LABEL} pane {pane} {what} after {within:g} s")
+            raise Failed(f"the {LABEL} pane {pane} {what} {deck.after(started, until)}")
         sleep(POLL_S)
 
 
 def shell_alone(deck: Deck, pane: str, clock: Callable[[], float], sleep: Callable[[float], None], within: float) -> None:
     """Returns at the first read with the shell alone in the pane's foreground. For a pane this step just made, where
     whatever else is there is its profile however long it stays: never read as a program already running."""
-    until = deck.left(within)
+    started, until = clock(), deck.left(within)
     while foreground_programs(deck.call("pane", "process-info", "--pane", pane)):
         if clock() >= until:
-            raise Failed(f"the {LABEL} pane {pane} has not come to its shell after {within:g} s")
+            raise Failed(f"the {LABEL} pane {pane} has not come to its shell {deck.after(started, until)}")
         sleep(POLL_S)
 
 
@@ -254,6 +262,11 @@ def ensure(deck: Deck, login: str, home: str, clock: Callable[[], float] = time.
         said = f"ran enter again in the restored {LABEL} pane {pane}"
         if settled(deck, pane, clock, sleep, STARTUP_S, shell_waits=False):
             return f"the {LABEL} pane {pane} is already running a program (enter, or the session it started)"
+    # The line is typed only with READBACK_S of the step left to read enter back: a read-back cut short would fail a
+    # pane whose enter did start, and the restart then kills it. Not typing is the safe side: the restart types it.
+    if deck.until - clock() < READBACK_S:
+        raise Failed(f"the {LABEL} pane {pane} was not typed into: less than the {READBACK_S:g} s its read-back needs "
+                     f"is left of the step's {STEP_S:g} s")
     deck.text("pane", "run", pane, command)
     settled(deck, pane, clock, sleep, READBACK_S, shell_waits=True)
     return said
