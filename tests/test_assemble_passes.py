@@ -204,6 +204,28 @@ def test_a_decision_stated_again_by_a_rerun_keeps_its_place_in_the_report(tmp: s
     assert again["collision_decisions"][0]["decision"] == "keep-both, restated", "the later run's value stands"
 
 
+def test_a_replayed_original_whose_links_the_run_points_is_still_a_replay(tmp: str) -> None:
+    """A correction memory merged into another topic's slice is linked by its new stem, in every claim of the run. The original
+    that a correction replaced was recorded with the links it had when it was written, so its replay arrives with other links
+    than the recorded text (herdr, 2026-11-01): the key of the body as the memory wrote it decides."""
+    original = claim("t", "Status v1 of the thing", "Original text of the finding. See [[fix-x]].", "h1")
+    other = claim("t2", "Other section here", "Text of another topic.", "h4")
+    fix_x = claim("fix-x", "Other section, corrected", "Corrected text of the other topic, in full.", "h6", "Other section here")
+    drain, claims_dir, out = ta.build(tmp, {"alpha": ta.claims("alpha", [])})
+    ta.with_agents(drain, AGENTS)
+    # The correction first, alone: the text it replaces is recorded with its links as written. The memory it links is merged
+    # into another slice only afterwards.
+    for bundle in ([original, other], [CORRECTION_A], [fix_x]):
+        ta.set_claims(claims_dir, "alpha", bundle)
+        assert ta.run_assemble(drain, claims_dir, out).returncode == 0
+    before = ta.tree(out)
+    ta.set_claims(claims_dir, "alpha", [original, fix_x])
+    proc = ta.run_assemble(drain, claims_dir, out)
+    assert proc.returncode == 0, proc.stderr
+    assert "Original text" not in held(ta.tree(out)), held(ta.tree(out))
+    assert held(ta.tree(out)) == held(before)
+
+
 def main() -> int:
     cases = [
         test_a_second_pass_over_two_bundles_with_a_chained_correction_and_a_flat_class_file_changes_nothing,
@@ -216,6 +238,7 @@ def main() -> int:
         test_a_correction_replayed_after_its_revert_is_written_and_named,
         test_other_text_under_a_replaced_heading_is_named_with_both_keys,
         test_a_decision_stated_again_by_a_rerun_keeps_its_place_in_the_report,
+        test_a_replayed_original_whose_links_the_run_points_is_still_a_replay,
     ]
     # A case written and not listed passes silently and forever (test_assemble_seams.py's registry guard).
     declared = {name for name, obj in sorted(globals().items()) if name.startswith("test_") and callable(obj)}

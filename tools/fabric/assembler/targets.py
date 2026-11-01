@@ -389,7 +389,12 @@ def point_links(run: Run, moved: list[tuple[str | None, str, str]]) -> None:
             return
         pattern = re.compile(r"\[\[(" + "|".join(re.escape(n) for n in sorted(names, key=len, reverse=True)) + r")\]\]")
         for claim in claims:
-            claim["body"] = pattern.sub(lambda m: f"[[{names[m.group(1)]}]]", claim["body"])
+            pointed_body = pattern.sub(lambda m: f"[[{names[m.group(1)]}]]", claim["body"])
+            if pointed_body != claim["body"]:
+                # The text as the memory wrote it: an applied correction's recorded key was taken over the section as written
+                # before any drain pointed its links (shapes.drop_replayed compares both).
+                claim.setdefault("_body_as_written", claim["body"])
+                claim["body"] = pointed_body
 
     def names_for(scopes: tuple[str | None, ...]) -> dict[str, str]:
         return {name: stem for (r, name), stem in unique.items() if r in scopes}

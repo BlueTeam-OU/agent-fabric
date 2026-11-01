@@ -246,6 +246,11 @@ def drop_replayed(run: Run) -> None:
             same_heading = [e for e in mine if e["heading"] == heading]
             if not same_heading:
                 continue
+            if "_body_as_written" in claim and not any(e["key"] == key for e in same_heading):
+                # Its links were pointed at renamed topics by this run; the replaced text's key predates that.
+                written = section_key(claim_block({**claim, "body": claim["_body_as_written"]}).split("\n", 1)[1].strip())
+                if any(e["key"] == written for e in same_heading):
+                    key = written
             where = f"{label}/{klass}:{topic}#{claim_heading(claim)}: memory {claim['topic']!r}"
             if (claim.get("merge_target") or "").strip() in present:
                 # Replaying a correction after a revert and a revert's first run are one claim to the corpus: nothing in it says
