@@ -430,7 +430,8 @@ class Pieces(Scratch):
             with open(f, "wb") as fh:
                 fh.write(raw)
             with self.subTest(raw=raw):
-                self.assertEqual(ledger.floor("h/user"), float("inf"), "accept() sees no action as newer")
+                with self.assertRaisesRegex(OSError, "action ledger"):
+                    ledger.floor("h/user")
                 with self.assertRaises(OSError):
                     ledger.claim("h/user", 50.0)
                 with self.assertRaises(OSError):
@@ -438,10 +439,30 @@ class Pieces(Scratch):
                 self.assertEqual(open(f, "rb").read(), raw, "a refused claim does not rewrite the damaged file")
         os.chmod(f, 0)
         if os.geteuid() != 0:
-            self.assertEqual(ledger.floor("h/user"), float("inf"), "an unreadable ledger is not an empty one")
+            with self.assertRaises(OSError):
+                ledger.floor("h/user")
             with self.assertRaises(OSError):
                 ledger.claim("h/user", 50.0)
         os.chmod(f, 0o600)
+
+    def test_audit_f09_a_signed_action_refused_for_a_damaged_ledger_is_told_which_file_and_not_called_a_replay(self):
+        key = sign.generate_operator_key()
+        pub = sign.public_key_from(key["publicKeySpec"])
+        d = self.scratch()
+        f = os.path.join(d, "state", "actions-seen.json")
+        ledger = agentd.action_ledger(f)
+
+        def accept():
+            body = request_body(op="upgrade", args={"piece": "claude"}, ttl_s=60)
+            return agentd.accept({"content": json.dumps(sign.sign_request(body, key["privateKeySpec"]))}, me=ME, operators=OPERATORS, ttl_s=30,
+                                 seen=agentd.Seen(), keys={"develop-qzapp/user": pub}, action_floor=ledger.floor)
+        self.assertTrue(accept()["ok"], "positive control: no ledger yet")
+        os.makedirs(os.path.dirname(f))
+        open(f, "w").write("{broken")
+        r = accept()
+        self.assertFalse(r["ok"])
+        self.assertIn(f, r["why"])
+        self.assertNotIn("replay", r["why"])
 
     def test_audit_f09_acceptance_is_synced_to_the_file_and_its_directory_before_claim_returns(self):
         d = self.scratch()

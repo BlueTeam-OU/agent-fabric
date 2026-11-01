@@ -394,13 +394,9 @@ class ActionLedger:
         return d
 
     def floor(self, sender: str) -> float:
-        """accept()'s lock-free check. A damaged ledger has no floor to give,
-        so it gives the highest: no action is newer, the reason says replay,
-        and claim() names the damage."""
-        try:
-            n = number_of(self._read().get(sender, js.UNDEFINED))
-        except OSError:
-            return math.inf
+        """accept()'s lock-free check. Raises OSError, naming the file, when the ledger is damaged: accept() turns
+        that into the refusal, so the operator is told which file to repair rather than that a request was a replay."""
+        n = number_of(self._read().get(sender, js.UNDEFINED))
         return n if n == n and n else 0.0
 
     @contextlib.contextmanager
@@ -544,8 +540,13 @@ def accept(rec: dict, *, me: dict, operators: set, accounts: set | None = None, 
     # request signed on a fast clock locks the operator out (review of #34).
     if action and ts - now > ACTION_CLOCK_SKEW_MS:
         return {"ok": False, "why": f"{op}: dated {_round((ts - now) / 1000)} s in the future (the operator's clock?)"}
-    if action and not ts > action_floor(sender):
-        return {"ok": False, "why": f"{op}: not newer than the last action accepted from {short} (a replay)"}
+    if action:
+        try:
+            floor = action_floor(sender)
+        except OSError as e:
+            return {"ok": False, "why": f"{op}: refused: {e}"}
+        if not ts > floor:
+            return {"ok": False, "why": f"{op}: not newer than the last action accepted from {short} (a replay)"}
     return {"ok": True, "request": r, "ts": ts}
 
 

@@ -212,8 +212,14 @@ def main() -> int:
         mal = snap_of("audit-agent", 1020, "soon:65536")
         e, _, err = boot("f12f", base_etc, mal)
         check("a range that is not numbers is refused, not guessed at", refused(e, "audit-agent") and err, err)
+        unterminated = {k: v.rstrip("\n") for k, v in snap_of("audit-agent", 1020, "200000:65536").items()}
+        e, _, err = boot("f12h", base_etc, unterminated)
+        check("a snapshot whose last line has no newline is refused whole all the same", refused(e, "audit-agent") and "overlaps" in err, err)
         have = dict(base_etc, passwd=base_etc["passwd"] + "audit-agent:x:1020:1020::/home/audit-agent:/bin/bash\n")
         e, _, err = boot("f12g", have, {"subuid": "audit-agent:200000:65536\n", "subgid": "audit-agent:200000:65536\n"})
+        e2, _, err2 = boot("f12i", have, {"subuid": "audit-agent:x:y\n", "subgid": "audit-agent:x:y\n"})
+        check("…and a malformed range of one is called malformed, not an overlap with a '?'",
+              "not a start and a count" in err2 and "range of ?" not in err2 and not has(f"{e2}/subuid", "audit-agent:"), err2)
         check("an account already in /etc whose snapshot range collides gets no range appended",
               not has(f"{e}/subuid", "audit-agent:") and not has(f"{e}/subgid", "audit-agent:") and "overlaps" in err, err)
 
@@ -287,7 +293,10 @@ def main() -> int:
         check("…the rest of the login's steps still ran", "enable-linger db-admin" in lines(log), read(log))
         os.unlink(f"{t}/rcd")
         os.makedirs(f"{t}/rcd")
-        os.symlink("/bin/true", f"{t}/rcd/agent-fabric-accounts.rc")
+        os.makedirs(f"{t}/elsewhere")
+        shutil.copy(RC, f"{t}/elsewhere/rc")   # identical content and executable: only lstat/S_ISREG tell it from the real file
+        os.chmod(f"{t}/elsewhere/rc", 0o755)
+        os.symlink(f"{t}/elsewhere/rc", f"{t}/rcd/agent-fabric-accounts.rc")
         rc, out, err = run([sys.executable, "-I", WRITER, "db-admin"])
         check("a symlink in the script's place is replaced by the real, executable copy",
               rc == 0 and not os.path.islink(dst) and os.access(dst, os.X_OK) and filecmp.cmp(RC, dst, shallow=False), out + err)

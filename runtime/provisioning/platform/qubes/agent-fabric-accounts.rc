@@ -61,7 +61,7 @@ overlap() {
 range_clash() {
     [ -f "$S/$1" ] || return 1
     clash=1
-    while IFS=: read -r rn rs rc_; do
+    while IFS=: read -r rn rs rc_ || [ -n "$rn" ]; do   # an unterminated last line is a line, as in the loop below
         [ "$rn" = "$2" ] || continue
         other="$(overlap "$1" "$2" "$rs" "$rc_")"
         [ -n "$other" ] || continue
@@ -122,7 +122,10 @@ for f in passwd shadow group gshadow subuid subgid; do
 $line
 EOF_RANGE
             other="$(overlap "$f" "$n" "$rs" "$rc_")"
-            if [ -n "$other" ]; then
+            if [ "$other" = '?' ]; then
+                printf 'agent-fabric-accounts: %s range %s:%s of %s is not a start and a count; not adding it\n' "$f" "$rs" "$rc_" "$n" >&2
+                continue
+            elif [ -n "$other" ]; then
                 printf 'agent-fabric-accounts: %s range of %s overlaps the range of %s in /etc/%s; not adding it\n' "$f" "$n" "$other" "$f" >&2
                 continue
             fi
