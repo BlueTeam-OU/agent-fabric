@@ -172,3 +172,29 @@ uses, since the fleet's pinned Python has no `cryptography` and no host
 is provisioned with `minisign`. The installer's check is python-dev's
 (agent-fabric j449); until it lands the pin's new fields are read by no
 code, and the digest stays the only check.
+
+### Amendment 2026-11-01 — Provisioning makes the reserved ports and keeps them across a reboot
+
+What changed: rule 1 adds who makes the reservation and keeps it:
+provisioning, from the roster's range, by `fabric-host <host> persist`
+(`tools/fabric/provisioning/persist_host_settings.py`, python-dev's #449,
+agent-fabric j469). It adds the range to the live value, keeping any other
+reservation, and reads it back; where the root does not survive a reboot
+(a Qubes AppVM) it installs `/rw/config/rc.local.d/agent-fabric-interweave.rc`,
+which adds the range at boot, and elsewhere
+`/etc/sysctl.d/90-agent-fabric-interweave.conf`. `fabric-ctl <login>
+interweave` reports `reserved_ports` (`covered`, `not-covered`, or
+`unreadable` with its reason), and a start refused for the reservation
+names the step as the fix. The step fixes `not-covered`; an `unreadable`
+roster or live value it refuses too, since writing over a value it cannot
+parse would drop whatever that value holds.
+
+Why: the 2026-10-26 amendment's reservation was a file the owner put in
+`/etc/sysctl.d/`, and develop-qzapp is an AppVM whose `/etc` comes back
+from the template: after the reboot of 2026-10-30 05:08Z the value was
+empty, and `fabric-ctl all interweave-start` refused all 30 accounts. The
+owner's hand copy under `/rw` restored it, written over any other
+reservation and from a range typed by hand. A setting the carrier cannot
+start without is provisioning's, like the accounts' own boot script
+(ADR-010). The measurement, with its controls and what it leaves for the
+next reboot, is `docs/live-checks/2026-11-01-reserved-ports-persist.md`.
