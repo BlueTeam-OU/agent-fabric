@@ -38,7 +38,9 @@ armed_status (a status context; null: off) ties an arming to one head on GitHub'
 state success, on the head its gates read before it enables auto-merge, and render() makes the ruleset of an auto
 repository require it, so a head pushed after the arming waits for an arming of its own whatever a workflow did with
 auto-merge (audit F02). It is its own key, not an entry of required_checks: a repository's list replaces the fleet's,
-and every repository that names its own checks would drop it.
+and every repository that names its own checks would drop it. Its one name is fabric/armed: disarm-on-push reads that
+context on the pushed head and cannot read a repository's policy, so another name would be an arming it takes off
+(review of #454, F2).
 
 threshold() IS THE ORDER OF SPECIFICITY: a stated class whose regex every file matches (commits.classes), then the
 author's role (commits.roles; arm.py takes it only when presence reports the branch's login bound to it), then
@@ -70,7 +72,7 @@ BELOW_MIN = ("owner-word", "refuse")
 # Absent from DEFAULT on purpose: absent is "no authority", which a default role slug would not be.
 AUTHORITY_KEYS = ("boundary_authority", "below_min_authority")
 GROUPING = ("allgreen", "headgreen")
-STATUS_CONTEXT = re.compile(r"[^\s](?:[^\n\r]*[^\s])?")
+ARMED_STATUS = "fabric/armed"
 UPDATE_TYPES = ("patch", "minor", "major")
 # GitHub's repository fields for the merge methods: the merge commit's is the odd one out.
 REPO_FIELD = {"merge": "allow_merge_commit", "squash": "allow_squash_merge", "rebase": "allow_rebase_merge"}
@@ -101,7 +103,7 @@ DEFAULT: dict[str, Any] = {
     "additional_reviews": ["codex"],
     "bots": {},
     "github": {"ruleset": "fabric arming policy"},
-    "armed_status": "fabric/armed",
+    "armed_status": ARMED_STATUS,
 }
 # The review engines (agent-fabric ADR-053 rule 6): "claude" is the review class's `fabric-pr post-review ... --model
 # fable`; "codex" is one posted with `--model codex`.
@@ -262,11 +264,10 @@ def validate(doc: Any, where: str = "the policy") -> dict:
     for k, v in g.items():
         if not isinstance(v, str) or not v:
             raise PolicyError(f"{where}: github.{k} is not a name")
-    # Compared byte for byte with the context GitHub reports and disarm-on-push reads, so a padded name would be a
-    # check that never comes.
+    # One name: disarm-on-push keeps an arming only when the head carries this very context, and reads no policy.
     a = p["armed_status"]
-    if a is not None and not (isinstance(a, str) and STATUS_CONTEXT.fullmatch(a)):
-        raise PolicyError(f"{where}: armed_status is a status context's name (no space at either end, one line) or null")
+    if a not in (None, ARMED_STATUS):
+        raise PolicyError(f"{where}: armed_status is {ARMED_STATUS!r} (the context disarm-on-push reads) or null")
     return p
 
 

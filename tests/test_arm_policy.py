@@ -125,8 +125,9 @@ class Document(unittest.TestCase):
         self.assertEqual(arm_policy.armed_status(arm_policy.default()), "fabric/armed")
         self.assertIsNone(arm_policy.validate({"armed_status": None})["armed_status"])
         self.assertIsNone(arm_policy.armed_status(arm_policy.validate({"armed_status": None})))
-        self.assertEqual(arm_policy.validate({"armed_status": "gate/armed"})["armed_status"], "gate/armed")
-        for bad in ("", " fabric/armed", "fabric/armed ", "fabric/\narmed", 3, True, ["fabric/armed"], {"context": "fabric/armed"}):
+        # One name (review of #454, F2): disarm-on-push reads fabric/armed and no policy. Mutation: any context accepted
+        # again fails "gate/armed".
+        for bad in ("gate/armed", "", " fabric/armed", "fabric/armed ", "fabric/\narmed", 3, True, ["fabric/armed"], {"context": "fabric/armed"}):
             with self.assertRaises(arm_policy.PolicyError, msg=repr(bad)):
                 arm_policy.validate({"armed_status": bad})
 
@@ -212,7 +213,7 @@ class RealFiles(unittest.TestCase):
                  {"commits": {"min": 20}}, {"queue": {"merge_min": 6}}, {"required_checks": [{"context": "c", "app": "Foo"}]},
                  {"github": {"ruleset": " "}}, {"commits": {"min": 1.0}}, {"description": "why"},
                  {"reviews": ["claude", "codex"]}, {"reviews": ["codex"], "boundary_reviews": ["claude", "codex"]},
-                 {"armed_status": None}, {"armed_status": "gate/armed"}]
+                 {"armed_status": None}, {"armed_status": "fabric/armed"}]
         invalid = [{"mode": "auto", "autoo": True}, {"queue": {"depth": 3}}, {"mode": "squash"}, {"method": "fast-forward"},
                    {"reviews": []}, {"reviews": ["gemini"]}, {"reviews": "codex"}, {"reviews": ["codex", "codex"]}, {"boundary_reviews": ["x"]},
                    {"commits": {"below_min": "warn"}}, {"commits": {"min": 0}}, {"commits": {"boundary_min": 0}}, {"commits": {"boundary_min": 2.5}}, {"commits": {"boundary_authority": "Architect"}}, {"commits": {"roles": {"devex-tooling": {"min": 0}}}},
@@ -221,7 +222,7 @@ class RealFiles(unittest.TestCase):
                    {"bots": {"renovate": {"arm": ["patch"]}}}, {"bots": {"dependabot": {"arm": ["breaking"]}}}, {"signatures": "yes"},
                    {"protect": {"deletion": 1}}, {"required_checks": ["ci-ok"]}, {"$schema": "x"}, {"description": 5}, {"description": ""},
                    {"commits": {"classes": {"docs": "^docs/"}}}, {"commits": {"classes": {"docs": {"paths": "^d"}}}},
-                   {"armed_status": ""}, {"armed_status": " x"}, {"armed_status": 3}, {"armed_status": ["fabric/armed"]}]
+                   {"armed_status": ""}, {"armed_status": " x"}, {"armed_status": "gate/armed"}, {"armed_status": 3}, {"armed_status": ["fabric/armed"]}]
         with open(os.path.join(HERE, "policies", "arming.json"), encoding="utf-8") as fh:
             valid.append(json.load(fh))
         for doc in valid:
@@ -605,7 +606,6 @@ class Render(unittest.TestCase):
                          [{"context": "ci-ok", "integration_id": 15368}, {"context": "fabric/armed"}])
         merged = arm_policy.merge(arm_policy.default(), {"required_checks": [{"context": "build"}]})
         self.assertEqual(self.required(merged), [{"context": "build"}, {"context": "fabric/armed"}], "a settings file's list")
-        self.assertEqual(self.required({"armed_status": "gate/armed"}), [{"context": "gate/armed"}])
         # Named in the list as well, it is one check: GitHub refuses a ruleset that names a context twice.
         self.assertEqual(self.required({"required_checks": [{"context": "fabric/armed"}]}), [{"context": "fabric/armed"}])
 
