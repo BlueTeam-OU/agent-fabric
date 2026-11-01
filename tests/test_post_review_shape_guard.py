@@ -63,7 +63,29 @@ def main() -> int:
         ("a backslash before the name", "\\fabric-pr post-review 12 < r.md"),
         ("the name quoted", '"fabric-pr" post-review 12 < r.md'),
         ("in backticks", "x=`fabric-pr post-review 12 < r.md`"),
-        ("wrapped, with an unclosed quote shlex cannot split", "cd /x && fabric-pr post-review 12 < 'r.md"),
+        ("wrapped, with an unclosed quote", "cd /x && fabric-pr post-review 12 < 'r.md"),
+        # Round 2 of #451: a quoted substitution (F5), and the wrappers a parse of command positions missed (F1).
+        ("a quoted substitution assigned", 'out="$(fabric-pr post-review 12 < r.md)"; echo "$out"'),
+        ("a quoted substitution echoed", 'echo "$(fabric-pr post-review 12 < r.md)"'),
+        ("quoted backticks", 'x="`fabric-pr post-review 12 < r.md`"'),
+        ("time -p", "time -p fabric-pr post-review 12 < r.md"),
+        ("sudo -E bash -c", 'sudo -E bash -c "fabric-pr post-review 12 < r.md"'),
+        ("env -i bash -c", 'env -i bash -c "fabric-pr post-review 12 < r.md"'),
+        ("nice -10 bash -c", 'nice -10 bash -c "fabric-pr post-review 12 < r.md"'),
+        ("a heredoc fed to bash", "bash <<EOF\nfabric-pr post-review 12 < r.md\nEOF"),
+        ("a quoted heredoc fed to bash", "bash <<'EOF'\nfabric-pr post-review 12 < r.md\nEOF"),
+        ("single quotes piped to a shell", "printf '%s' 'fabric-pr post-review 12 < r.md' | sh"),
+        ("1500 nested evals (F7)", "eval " * 1500 + "fabric-pr post-review 1"),
+    ]
+    # Mentions the shell may run, refused on purpose: the deny names the way through (single quotes, a quoted heredoc,
+    # a file). Pinned so a change to what is over-reported is a decision, not a drift.
+    over_reported = [
+        ("an unquoted echo", "echo fabric-pr post-review 12"),
+        ("an unquoted echo after a separator", "cd /x && echo fabric-pr post-review 12"),
+        ("an unquoted heredoc body", "cat > doc.md <<EOF\nPost with\nfabric-pr post-review 12 < r.md\nEOF"),
+        ("a double-quoted commit message", 'git commit -m "post-review: bare form\n\nfabric-pr post-review 12 < r.md"'),
+        ("a double-quoted grep", 'grep -E "arm|fabric-pr post-review" docs'),
+        ("a redirection target named post-review", "fabric-pr arm 3 > post-review.log"),
     ]
     allowed = [
         ("the bare form", "fabric-pr post-review 449 --model fable < /home/a/scratchpad/review1.md"),
@@ -72,27 +94,35 @@ def main() -> int:
         ("a quoted path with spaces", "fabric-pr post-review 12 < '/home/a/my report.md'"),
         ("no report redirected", "fabric-pr post-review 12"),
         ("another fabric-pr subcommand, wrapped", "cd /x && fabric-pr arm 12 --dry-run 2>&1 | tail -5"),
-        ("a grep for the words", "grep -rn 'fabric-pr post-review' docs/ | head"),
-        ("an echo of the words", "echo fabric-pr post-review 12"),
         ("post-review before fabric-pr", "grep -n post-review bin/fabric-pr"),
-        # Words that only name a post-review after a separator inside quotes or a heredoc (review of #451, F2).
-        ("a heredoc body line", "cat > doc.md <<EOF\nPost with\nfabric-pr post-review 12 < r.md\nEOF"),
+        # Mentions the shell never runs (review of #451, F2 and F8).
+        ("a single-quoted grep", "grep -rn 'fabric-pr post-review' docs/ | head"),
+        ("a single-quoted echo with a separator", "echo 'x; fabric-pr post-review 12'"),
+        ("a single-quoted gh comment body", "gh pr comment 1 --body '(fabric-pr post-review 12)'"),
         ("a quoted heredoc body, then a command", "cat > d.md <<'EOF'\nx; fabric-pr post-review 1\nEOF\ngit add d.md"),
-        ("a commit message body", 'git commit -m "post-review: bare form\n\nfabric-pr post-review 12 < r.md"'),
-        ("an echo with a separator inside quotes", 'echo "x; fabric-pr post-review 12"'),
-        ("a grep alternation", 'grep -E "arm|fabric-pr post-review" docs'),
-        ("a gh comment body", 'gh pr comment 1 --body "(fabric-pr post-review 12)"'),
-        ("an unquoted echo after a separator", "cd /x && echo fabric-pr post-review 12"),
-        ("a redirection target", "fabric-pr arm 3 > post-review.log"),
+        ("the commit idiom: a quoted heredoc in a quoted substitution",
+         "git commit -F- <<'EOF'\nit's the bare form\n\nfabric-pr post-review 12 < r.md\nEOF"),
+        ("the commit idiom with -m \"$(cat <<'EOF' … )\"",
+         "git commit -m \"$(cat <<'EOF'\nit's the bare form: fabric-pr post-review 12 < r.md\nEOF\n)\""),
+        ("a comment with an apostrophe", "cd x\n# don't use fabric-pr post-review wrapped\nls"),
+        ("${VAR} before single-quoted words", "printf %s ${A} 'fabric-pr post-review'"),
     ]
     for label, cmd in refused:
-        check(f"refused: {label}", g.refused(cmd), cmd)
+        check(f"refused: {label}", g.refused(cmd), cmd[:200])
+    for label, cmd in over_reported:
+        check(f"over-reported: {label}", g.refused(cmd), cmd)
     for label, cmd in allowed:
         check(f"passed: {label}", not g.refused(cmd), cmd)
 
-    # A long separator-dense command is decided well inside the 5 s the settings give the hook (review of #451, F3:
-    # the regex this replaced took 22 s on 100 000 separators, and a hook past its timeout is read as no objection).
-    for label, cmd in (("100 000 separators naming both words", ";" * 100000 + " fabric-pr post-review 1 | x"),
+    # Every command is decided well inside the 5 s the settings give the hook: a hook past its timeout is read as no
+    # objection. Each input below took a former version past it (review of #451: F3 22 s, F6 5.7 s and 21 s, F7 a
+    # RecursionError), and the last one would make a lazy BARE backtrack.
+    for label, cmd in (("100 000 glued separators", ";" * 100000 + " fabric-pr post-review 1 | x"),
+                       ("50 000 short commands", "x;" * 50000 + "fabric-pr post-review 1"),
+                       ("20 000 unterminated heredocs", "<<a\n" * 20000 + "fabric-pr post-review 1|x"),
+                       ("20 000 quoted heredocs and lines", "cat <<'E'\nx\nE\n" * 20000 + "fabric-pr post-review 1|x"),
+                       ("100 000 nested evals", "eval " * 100000 + "fabric-pr post-review 1"),
+                       ("100 000 spaces after the bare prefix", "fabric-pr post-review" + " " * 100000 + ";"),
                        ("100 000 separators, neither word", ";" * 100000)):
         t = time.monotonic()
         g.refused(cmd)
