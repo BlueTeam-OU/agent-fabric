@@ -8,7 +8,7 @@ host in runtime/hosts/registry.json, that host's operator. With several
 hosts and none configured no account holds it, and every pool op says
 so: which agentd orders the claims is never guessed.
 
-THE FILE is <state>/agents/<holder login>/pool.json, {seq, jobs: [...]},
+THE FILE is <state>/agents/<holder login>/pool.json, {seq, jobs: [...], generation},
 written whole through a temporary file and a rename, as JSON.stringify
 (doc, null, 2) lays it out: persisted state is frozen with the wire, and
 a Node and a Python agentd read each other's. A file that cannot be read
@@ -26,7 +26,8 @@ never a role the request names (the owner, 2026-10-08). No record from it
 within STATES_STALE_MS (or within the newest STATES_REPLAY records, when
 they reach back less) is a binding unknown, and the claim is refused. A
 job has one claimant: a claim of a job another account holds is refused;
-the same account claiming again gets it again.
+the same account claiming again gets it again. The pool's `generation` (a random token stamped at its first write, after the Node's bytes)
+answers every claim, so the claimant names a claim by (generation, id): ids restart with a recreated file.
 
 SERIALIZED, by a lock: every change to the file is one read-modify-write
 under flock on `pool.json.lock` (`_locked`). It is not serial by
@@ -84,6 +85,7 @@ from control.sessions import date_parse  # noqa: E402
 
 POOL_FILE = "pool.json"
 POOL_ID = re.compile(r"p[1-9][0-9]{0,8}")              # matched whole
+GENERATION = re.compile(r"[0-9a-f]{32}")                # matched whole
 ROLE_SLUG = re.compile(r"[a-z][a-z0-9-]{0,62}")         # matched whole
 # ctl.mjs's, until its port holds them (tests/test_control_pool.py holds
 # them to ctl.mjs's values).
@@ -138,7 +140,8 @@ def read_pool(file: str) -> dict:
     except ValueError:
         raise PoolError("the pool file is not JSON") from None
     if (not isinstance(doc, dict) or not isinstance(doc.get("jobs"), list) or not js.is_integer(doc.get("seq"))
-            or not all(isinstance(j, dict) for j in doc["jobs"])):
+            or not all(isinstance(j, dict) for j in doc["jobs"])
+            or ("generation" in doc and not (isinstance(doc["generation"], str) and GENERATION.fullmatch(doc["generation"])))):
         # A job that is not an object: Node's ops threw reading it ("Cannot
         # read properties of null"), a refusal too; here it is said once.
         raise PoolError("the pool file is not a pool")
@@ -222,6 +225,16 @@ def _by_priority(a: dict, b: dict) -> float:
 by_priority = functools.cmp_to_key(_by_priority)
 
 
+def _stamp_generation(doc: dict) -> bool:
+    """Give a pool that has none its generation; True when it was added (the caller writes). Pool ids restart
+    with a recreated pool file, so a claim is named by (generation, id): the claimant can tell a repeat of a claim
+    from a new job under an old id, whatever order the answers reached it in."""
+    if "generation" in doc:
+        return False
+    doc["generation"] = os.urandom(16).hex()      # not `secrets`: this directory has a module of that name
+    return True
+
+
 def _shown(j: dict) -> dict:
     # A key the stored job lacks is undefined in Node, and JSON.stringify drops it.
     return {k: (j[k] if k in j else js.UNDEFINED) for k in ("id", "role", "title", "topic", "project", "priority", "created")}
@@ -287,6 +300,7 @@ def pool_add(request: dict, *, me: str, holder: str | None, file: str, known=_UN
     try:
         with _locked(file):
             doc = read_pool(file)
+            _stamp_generation(doc)
             doc["seq"] += 1
             job = {"id": f"p{js.string(doc['seq'])}", "seq": doc["seq"], "role": a["role"], "title": _squash(a["title"]),
                    "topic": _squash(topic) if isinstance(topic, str) else None, "project": a.get("project"),
@@ -383,9 +397,13 @@ def pool_claim(request: dict, *, me: str, holder: str | None, file: str, role_of
                 at = claimed.get("at", js.UNDEFINED) if isinstance(claimed, dict) else js.UNDEFINED
                 return _refused(f"{pid} is claimed by {js.string(by)} ({js.string(at)})")
             again = js.truthy(claimed)
+            changed = _stamp_generation(doc)
             if not again:
                 job["claimed"] = {"by": sender, "at": now()}
+                changed = True
+            if changed:
                 _write_pool(file, doc)
-            return {"status": "claimed", "job": _shown(job), **({"again": True} if again else {})}
+            return {"status": "claimed", "job": _shown(job), "generation": doc["generation"],
+                    **({"again": True} if again else {})}
     except (PoolError, OSError) as e:
         return _refused(str(e))

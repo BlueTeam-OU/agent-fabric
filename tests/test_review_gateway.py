@@ -104,7 +104,7 @@ def answer(text, commands=1):
         f.write(text)
     ev({"type": "item.completed", "item": {"id": "item_1", "type": "agent_message", "text": text}})
     ev({"type": "turn.completed", "usage": {"input_tokens": 20, "output_tokens": 10}})
-COV = {"paths": [{"path": "app.py", "status": "read", "reason": ""}], "lenses": []}   # the schema requires coverage
+COV = {"paths": [{"path": "app.py", "status": "read", "reason": ""}], "lenses": [], "default": None}   # the schema requires coverage, and its default (null when not given)
 if mode == "sleep":
     with open(os.path.join(S, "codex-sleeping"), "w") as f:
         f.write(str(os.getpid()))

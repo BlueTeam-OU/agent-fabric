@@ -258,11 +258,23 @@ COVERAGE_SHAPE = """The object also carries "coverage", what you read of the ran
 Name every path of the range once, "read" only for a file you read in full. A file whose output was cut off
 is read in parts (for example `sed -n 'a,bp'`) until every line has been seen, and only then marked "read"."""
 
+# Same terms as review_brief.COVERAGE_RULE. Asked only when the schema's coverage object has the field, like
+# COVERAGE_SHAPE itself: a strict schema rejects what it does not list. Without it a range of a thousand paths cannot be
+# posted at all, the block over its size cap being the failure the answer cannot repair.
+DEFAULT_SHAPE = """For paths you treated alike (a memory drain's thousand), "coverage" may instead carry
+ "default": {"status": "read|not read", "reason": "<why, when not read; else an empty string>"}
+the entry of every path of the range the "paths" array does not name; a path you name keeps its own entry, and a path
+outside the range is refused. Name only the paths that differ, and "default" is then required. Otherwise "default" is
+null. A "not read" default keeps the review from counting as coverage of the head."""
+
 
 def answer_shape() -> str:
     with open(SCHEMA_PATH, encoding="utf-8") as f:
         props = json.load(f).get("properties", {})
-    return ANSWER_SHAPE + (COVERAGE_SHAPE + "\n" if "coverage" in props else "")
+    shape = ANSWER_SHAPE + (COVERAGE_SHAPE + "\n" if "coverage" in props else "")
+    if "default" in props.get("coverage", {}).get("properties", {}):
+        shape += DEFAULT_SHAPE + "\n"
+    return shape
 
 
 class Refused(Exception):
@@ -1020,7 +1032,13 @@ def answer_coverage(raw: object) -> review_coverage.Coverage | None:
             if entry["lens"] in lenses:
                 raise ValueError(f"lens {entry['lens']!r} given twice")
             lenses[entry["lens"]] = entry["status"]
-        return review_coverage.parse_block(json.dumps({"paths": paths, "lenses": lenses}))
+        block = {"paths": paths, "lenses": lenses}
+        # Null is the strict schema's "not given" (every property is required there); the block then has no key at all,
+        # so an answer without a default renders byte for byte as before.
+        default = raw.get("default")
+        if default is not None:
+            block["default"] = {"status": default["status"], **({"reason": default["reason"]} if default["reason"] else {})}
+        return review_coverage.parse_block(json.dumps(block))
     except (KeyError, TypeError, ValueError) as e:
         raise FailedReview(f"answer/coverage: {e}") from None
 

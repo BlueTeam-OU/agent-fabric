@@ -54,6 +54,40 @@ def main() -> int:
     check("the schedule is 1 s doubling to 5 min and stays there",
           [R.backoff(n) for n in (1, 2, 3, 4, 9, 10, 40)] == [1, 2, 4, 8, 256, 300, 300])
 
+    check("the cap applies before the power: attempt 1025 and far beyond still answer the cap (audit F07)",
+          [R.backoff(n) for n in (1024, 1025, 1026, 10**9)] == [300.0] * 4)
+
+    with tempfile.TemporaryDirectory(prefix="gz-inf-") as d:
+        box = R.Outbox(os.path.join(d, "iw"), iso_now=clock())
+        u = box.queue("U", "gone", "t", 1)
+        now = 0.0
+        for _ in range(1100):                      # one unreachable recipient, ~3.5 days of virtual time
+            box.retry_after(u, now)
+            now = u.next_at
+        check("an unreachable recipient is retried past attempt 1024 at the cap, never an error (audit F07)",
+              u.attempts == 1100 and u.next_at - (now - 300.0) == 300.0 and u in box.outstanding())
+        box.close()
+
+    with tempfile.TemporaryDirectory(prefix="gz-keep-") as d:
+        keep, R.SETTLED_KEEP = R.SETTLED_KEEP, 3
+        try:
+            box = R.Outbox(os.path.join(d, "iw"), iso_now=clock())
+            for i in range(5):
+                box.queue(f"K{i}", "beta", "t", 1)
+                box.receipt(f"K{i}", "beta")
+            box.queue("OPEN", "beta", "t", 1)
+            kept = {k[0] for k in box.deliveries}
+            check("settled stubs are kept only to the retention bound, oldest dropped; an outstanding delivery never",
+                  kept == {"K2", "K3", "K4", "OPEN"}, str(sorted(kept)))
+            box.close()
+            box = R.Outbox(os.path.join(d, "iw"), iso_now=clock())
+            kept = {k[0] for k in box.deliveries}
+            check("a restart reloads no more settled stubs than the bound",
+                  kept == {"K2", "K3", "K4", "OPEN"}, str(sorted(kept)))
+            box.close()
+        finally:
+            R.SETTLED_KEEP = keep
+
     with tempfile.TemporaryDirectory(prefix="gz-rec-") as d:
         wide = os.path.join(d, "wide")
         os.makedirs(wide, mode=0o755)

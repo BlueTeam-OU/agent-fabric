@@ -122,7 +122,7 @@ def answer(text, file=True, commands=1):
     usage_file = os.path.join(S, "usage.json")   # a case that means other counts writes them here
     ev({"type": "turn.completed", "usage": json.load(open(usage_file)) if os.path.exists(usage_file)
         else {"input_tokens": 20, "cached_input_tokens": 0, "output_tokens": 10}})
-COV = {"paths": [{"path": "app.py", "status": "read", "reason": ""}], "lenses": []}
+COV = {"paths": [{"path": "app.py", "status": "read", "reason": ""}], "lenses": [], "default": None}
 EMPTY = json.dumps({"findings": [], "coverage": COV})
 OK = json.dumps({"coverage": COV, "findings": [
     {"level": "P3", "file": "app.py", "line": 2, "scenario": "a\nmulti-line scenario", "expected": "e3", "fix": "f3"},
@@ -199,9 +199,9 @@ elif mode == "badschema":
 elif mode == "nocoverage":
     answer('{"findings": []}')
 elif mode == "partialcov":
-    answer(json.dumps({"findings": [], "coverage": {"paths": [{"path": "app.py", "status": "not read", "reason": "too long"}], "lenses": []}}))
+    answer(json.dumps({"findings": [], "coverage": {"paths": [{"path": "app.py", "status": "not read", "reason": "too long"}], "lenses": [], "default": None}}))
 elif mode == "wrongpaths":
-    answer(json.dumps({"findings": [], "coverage": {"paths": [{"path": "other.py", "status": "read", "reason": ""}], "lenses": []}}))
+    answer(json.dumps({"findings": [], "coverage": {"paths": [{"path": "other.py", "status": "read", "reason": ""}], "lenses": [], "default": None}}))
 elif mode == "exit1":
     print("backend said no", file=sys.stderr)
     sys.exit(3)
@@ -282,7 +282,7 @@ def main() -> int:
         except review_codex.FailedReview as e:
             return str(e)
 
-    cov0 = {"paths": [{"path": "a/b.py", "status": "read", "reason": ""}], "lenses": [{"lens": "security", "status": "applied"}]}
+    cov0 = {"paths": [{"path": "a/b.py", "status": "read", "reason": ""}], "lenses": [{"lens": "security", "status": "applied"}], "default": None}
     cov_json = json.dumps(cov0)
     wc = lambda doc: {"coverage": cov0, **doc}  # noqa: E731  # the schema requires coverage: an answer is built with it, so a refusal below is about its one defect
     check("a valid answer passes", verdict(json.dumps(wc({"findings": [good]}))) == "ok")
@@ -399,7 +399,7 @@ def main() -> int:
     def cov_answer(paths, lenses=(("security", "applied"),), findings=()):
         return json.dumps({"findings": list(findings), "coverage": {
             "paths": [{"path": p, "status": st, "reason": r} for p, st, r in paths],
-            "lenses": [{"lens": l, "status": st} for l, st in lenses]}})
+            "lenses": [{"lens": l, "status": st} for l, st in lenses], "default": None}})
 
     check("the schema as shipped requires coverage", "coverage" in real_schema["required"] and "coverage" in real_schema["properties"])
     found, cov = review_codex.parse_answer_full(cov_answer([("a.py", "read", ""), ("b.py", "not read", "binary")]))
@@ -409,15 +409,16 @@ def main() -> int:
     check("the prompt asks for coverage", review_codex.COVERAGE_SHAPE in review_codex.answer_shape()
           and review_codex.answer_shape().startswith(review_codex.ANSWER_SHAPE))
     check("positive control: the same answer with coverage passes", verdict(cov_answer([("a.py", "read", "")], findings=[good])) == "ok")
-    full = {"findings": [], "coverage": {"paths": [{"path": "a.py", "status": "read", "reason": ""}], "lenses": []}}
+    full = {"findings": [], "coverage": {"paths": [{"path": "a.py", "status": "read", "reason": ""}], "lenses": [], "default": None}}
     for label, doc in (("no coverage", {"findings": []}),
                        ("coverage null", {**full, "coverage": None}),
-                       ("coverage without paths", {**full, "coverage": {"lenses": []}}),
-                       ("coverage without lenses", {**full, "coverage": {"paths": full["coverage"]["paths"]}}),
-                       ("a path entry without its reason", {**full, "coverage": {"paths": [{"path": "a.py", "status": "read"}], "lenses": []}}),
+                       ("coverage without paths", {**full, "coverage": {"lenses": [], "default": None}}),
+                       ("coverage without its default (required, null when not given)", {**full, "coverage": {"paths": full["coverage"]["paths"], "lenses": []}}),
+                       ("coverage without lenses", {**full, "coverage": {"paths": full["coverage"]["paths"], "default": None}}),
+                       ("a path entry without its reason", {**full, "coverage": {"paths": [{"path": "a.py", "status": "read"}], "lenses": [], "default": None}}),
                        ("a lens entry that carries a reason", {**full, "coverage": {"paths": [], "lenses": [
-                           {"lens": "l", "status": "applied", "reason": "x"}]}}),
-                       ("an empty path", {**full, "coverage": {"paths": [{"path": " ", "status": "read", "reason": ""}], "lenses": []}})):
+                           {"lens": "l", "status": "applied", "reason": "x"}], "default": None}}),
+                       ("an empty path", {**full, "coverage": {"paths": [{"path": " ", "status": "read", "reason": ""}], "lenses": [], "default": None}})):
         check(f"refused: {label}", verdict(json.dumps(doc)) != "ok", verdict(json.dumps(doc)))
     for label, text in (("a path given twice", cov_answer([("a.py", "read", ""), ("a.py", "read", "")])),
                         ("a status that is neither", cov_answer([("a.py", "skimmed", "")])),
@@ -440,6 +441,80 @@ def main() -> int:
         check("a schema without the field: the answer's coverage is None and the prompt is the shape alone",
               review_codex.parse_answer_full(json.dumps({"findings": [good]}))[1] is None
               and review_codex.answer_shape() == review_codex.ANSWER_SHAPE)
+    finally:
+        review_codex.SCHEMA_PATH = real_path
+        os.unlink(schema_file)
+        os.rmdir(os.path.dirname(schema_file))
+
+    print("the default entry: a range too large to list (the shipped schema: default required, nullable)")
+    check("the schema as shipped has the nullable default, required", "default" in real_schema["properties"]["coverage"]["required"]
+          and {"type": "null"} in real_schema["properties"]["coverage"]["properties"]["default"]["anyOf"])
+    def default_answer(default, paths=(("a.py", "read", ""),)):
+        return json.dumps({"findings": [], "coverage": {
+            "paths": [{"path": p, "status": st, "reason": r} for p, st, r in paths], "lenses": [], "default": default}})
+    check("the prompt offers the default after the coverage shape, in the brief's terms",
+          review_codex.answer_shape().endswith(review_codex.COVERAGE_SHAPE + "\n" + review_codex.DEFAULT_SHAPE + "\n")
+          and "memory drain" in review_codex.DEFAULT_SHAPE)
+    thousand = [(f"memory/slices/{'d' * 40}/{i:04d}-{'x' * 60}.md", "read", "") for i in range(1242)]
+    _, cov = review_codex.parse_answer_full(default_answer(None, thousand[:3]))
+    check("an answer with \"default\": null is the block it always was: no default key", cov.default is None
+          and "default" not in json.loads(review_coverage.render_block(cov).split("\n", 1)[1].rsplit("\n```", 1)[0]), cov)
+    try:
+        review_coverage.parse_block(json.dumps({"paths": {p: {"status": "read"} for p, _, _ in thousand}, "lenses": {}}))
+        listed = "parsed"
+    except review_coverage.CoverageError as e:
+        listed = str(e)
+    check("positive control: listing all 1242 paths is over the block's cap", "over the" in listed, listed)
+    _, cov = review_codex.parse_answer_full(default_answer({"status": "read", "reason": ""}, [("special.py", "not read", "binary")]))
+    check("a read default is carried into the block next to the one path named",
+          cov.default == ("read", "") and cov.paths == {"special.py": ("not read", "binary")}, cov)
+    check("…and its rendered block is far under the cap", len(review_coverage.render_block(cov)) < 2000)
+    _, cov = review_codex.parse_answer_full(default_answer({"status": "not read", "reason": "generated"}))
+    check("a not-read default is carried, and posts as partial", cov.default == ("not read", "generated") and not cov.complete, cov)
+    for label, d in (("a default with a key the schema does not list", {"status": "read", "reason": "", "extra": "x"}),
+                     ("a not-read default without a reason", {"status": "not read", "reason": ""}),
+                     ("a default with a status that is neither", {"status": "skimmed", "reason": ""})):
+        try:
+            review_codex.parse_answer_full(default_answer(d))
+            got = "accepted"
+        except review_codex.FailedReview as e:
+            got = str(e)
+        check(f"refused: {label}", got != "accepted" and "coverage" in got, got)
+    # The pinned interpreter has no jsonschema: the stdlib validator must refuse what the schema does not allow.
+    real_jsonschema = sys.modules.get("jsonschema", False)
+    sys.modules["jsonschema"] = None   # an import then raises ImportError
+    try:
+        for label, d in (("a default with a key the schema does not list", {"status": "read", "reason": "", "extra": "x"}),
+                         ("a default whose reason is not a string", {"status": "read", "reason": 0}),
+                         ("a default with a status that is neither", {"status": "skimmed", "reason": ""})):
+            try:
+                review_codex.parse_answer_full(default_answer(d))
+                got = "accepted"
+            except review_codex.FailedReview as e:
+                got = str(e)
+            check(f"without jsonschema, refused: {label}", got != "accepted", got)
+        check("positive control: without jsonschema a valid default is still accepted",
+              review_codex.parse_answer_full(default_answer({"status": "read", "reason": ""}))[1].default == ("read", ""))
+    finally:
+        if real_jsonschema is False:
+            del sys.modules["jsonschema"]
+        else:
+            sys.modules["jsonschema"] = real_jsonschema
+    # The control: a schema that predates the field. Its answers parse as before and its prompt does not ask for one.
+    old_schema = json.loads(json.dumps(real_schema))
+    del old_schema["properties"]["coverage"]["properties"]["default"]
+    old_schema["properties"]["coverage"]["required"].remove("default")
+    schema_file = os.path.join(tempfile.mkdtemp(prefix="schema.", dir=os.environ.get("TMPDIR")), "answer.schema.json")
+    with open(schema_file, "w", encoding="utf-8") as fh:
+        json.dump(old_schema, fh)
+    review_codex.SCHEMA_PATH = schema_file
+    try:
+        no_default = json.dumps({"findings": [], "coverage": {"paths": [{"path": "a.py", "status": "read", "reason": ""}], "lenses": []}})
+        _, cov = review_codex.parse_answer_full(no_default)
+        check("an old-schema answer (no default key) parses as before, and its prompt asks for none",
+              cov.default is None and cov.paths == {"a.py": ("read", "")} and review_codex.DEFAULT_SHAPE not in review_codex.answer_shape())
+        check("…and a default it does not list is refused by the old schema",
+              verdict(default_answer({"status": "read", "reason": ""})) != "ok")
     finally:
         review_codex.SCHEMA_PATH = real_path
         os.unlink(schema_file)

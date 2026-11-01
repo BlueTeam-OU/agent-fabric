@@ -234,6 +234,13 @@ def main() -> int:
                   and {s["message_id"] for s in a.daemon.sends[n_sends - 1:]} == {first_id})
             check("beta journaled it once", len([r for r in b.journal_rows if r[0] == "M-2"]) == 1)
 
+            # -- a settled delivery holds no payload (audit F08) ------------
+            check("a receipt evicts the delivery's encoded payload",
+                  until(lambda: ("M-2", "beta") not in a.carrier._encoded), str(list(a.carrier._encoded)))
+            again = a.carrier.handle_request({"op": "send", "message_id": "M-2", "text": m2})
+            check("the same settled message asked again is accepted but its payload is not cached again",
+                  again["ok"] and ("M-2", "beta") not in a.carrier._encoded, str(again))
+
             # -- a copy that arrives twice: two arrival lines, one row, a receipt each time
             # The receipts for THIS message before and after, not the carrier's running total: how many resends of
             # earlier messages b answered by now depends on how the loop was scheduled.
