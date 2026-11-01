@@ -104,6 +104,9 @@ VERSION_TIMEOUT_MS = 30000
 # downtime. The wait is sixteen accounts (develop-qzapp's count) at up to
 # ~56 s a turn — the stop wait, the install and the read-back together; a
 # larger host needs a longer one.
+# ADR-043 rule 6: from this Claude Code version the sideload flags are closed by the managed settings, so a host
+# takes it only with rules 1-2 in force.
+MANAGED_FLOOR = (2, 1, 287)
 INSTALL_LEASE = "claude-install"
 LEASE_WAIT_S = 900
 LEASE_GRACE_S = 60
@@ -458,6 +461,26 @@ def upgrade(request: dict, **opts: Any) -> dict:
             _running = False
 
 
+def managed_refusal(root: str, check: Callable[..., dict] | None = None) -> str | None:
+    """ADR-043 rule 6: why this host may not take Claude Code at MANAGED_FLOOR or later, or None when rules 1-2 are
+    in force. A checker that cannot run is a refusal too: an unknown state is not "in force"."""
+    try:
+        if check is None:
+            import managed_settings
+            check = managed_settings.check
+        c = check(repo=root, ref="origin/main")
+        state, reasons = c["state"], c["reasons"]
+    except Exception as e:  # noqa: BLE001 — a gate that cannot answer holds the upgrade, with its cause
+        state, reasons = "unknown", [f"the check could not run: {str(e)[:120]}"]
+    if state == "in force":
+        return None
+    why = f": {reasons[0]}" if reasons else ""
+    # <main sha> stays a placeholder: ADR-043 rule 9 has the operator name it from the remote's main, not from this checkout.
+    return (f"the managed settings (ADR-043 rules 1-2) are {state} on this host{why}; Claude Code "
+            f"{'.'.join(map(str, MANAGED_FLOOR))} or later needs them in force; as root: "
+            f"sudo {root}/bin/fabric-managed install --sha <main sha>; nothing stopped or installed")
+
+
 def _alive(pid: int) -> bool:
     try:
         os.kill(pid, 0)
@@ -477,7 +500,9 @@ def upgrade_once(request: dict, *, home: str | None = None, root: str | None = N
                  kill: Callable[[int, int], None] = _kill, alive: Callable[[int], bool] = _alive,
                  sleep: Callable[[float], None] = time.sleep, now: Callable[[], datetime] | None = None,
                  clock: Callable[[], float] = time.monotonic, stop_wait_ms: float = STOP_WAIT_MS,
-                 sessions: list[int] | None = None, lease: Callable[[], Lease] | None = None) -> dict:
+                 sessions: list[int] | None = None, lease: Callable[[], Lease] | None = None,
+                 managed_gate: Callable[[str], str | None] | None = None) -> dict:
+    managed_gate = managed_gate or managed_refusal
     home = os.path.expanduser("~") if home is None else home
     root = root or os.environ.get("AGENT_FABRIC_ROOT") or os.path.join(home, "projects", "agent-fabric")
     directory = directory or state_dir(home)
@@ -511,6 +536,11 @@ def upgrade_once(request: dict, *, home: str | None = None, root: str | None = N
     own = bool(me) and request.get("from") == me
     if from_ == target:
         return {"status": "current", "piece": "claude", "version": from_, "session": "running" if pids else "none"}
+    # After "current" (nothing would be installed) and before the lease and any stop: a refusal leaves the host as it was.
+    if tuple(int(d) for d in target.split(".")) >= MANAGED_FLOOR:
+        refused = managed_gate(root)
+        if refused:
+            return {"status": "refused", "piece": "claude", "from": from_, "to": target, "reason": refused}
 
     try:
         held = lease()

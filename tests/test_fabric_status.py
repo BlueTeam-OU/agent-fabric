@@ -234,6 +234,20 @@ def main() -> int:
                   and status.oldest_note({"drainable": 1, "oldest_ms": None, "bound_days": 14}, now_ms) == ""
                   and status.oldest_note({"drainable": 1, "bound_days": 14}, now_ms) == "")
             check("moveto drift carries its detail", "moveto       drift: behind" in text)
+            report["host_tools"]["managed"] = {"status": "in force", "detail": "in force (fabric-0123abcd)", "snapshot": "0123abcdef", "reasons": []}
+            check("managed in force is one line with the snapshot's first eight", "managed      in force (fabric-0123abcd)\n" in "\n".join(status.render(report, "")) + "\n")
+            report["host_tools"]["managed"] = {"status": "drifted", "detail": "drifted (fabric-0123abcd): etc differs", "snapshot": "0123abcdef", "reasons": ["etc differs", "second"]}
+            check("managed not in force carries its first reason only", "managed      drifted (fabric-0123abcd): etc differs\n" in "\n".join(status.render(report, "")) + "\n"
+                  and "second" not in "\n".join(status.render(report, "")))
+            report["host_tools"]["managed"] = {"status": "unknown", "detail": "boom"}
+            check("a managed check that could not run is UNKNOWN with its cause", "managed      UNKNOWN: boom" in "\n".join(status.render(report, "")))
+            del report["host_tools"]["managed"]
+            with tempfile.TemporaryDirectory() as scratch:
+                m = status.managed_state(HERE, prefix=os.path.join(scratch, "p"), etc=os.path.join(scratch, "e"))
+                check("managed_state asks the checker against a scratch prefix and etc: missing, the absent file first",
+                      m["status"] == "missing" and m["detail"] == f"missing: {os.path.join(scratch, 'e', 'managed-settings.json')} is absent")
+                check("managed_state, given a root with no checker, is unknown rather than a default",
+                      status.managed_state(scratch)["status"] == "unknown")
             report["jobs"] = {"error": "boom"}
             check("an unreadable job list is said", "jobs         unreadable: boom" in "\n".join(status.render(report, "")))
             report["jobs"] = {"active": {"id": "j9", "title": "t" * 70, "working_copy": None}, "queued": 1, "paused": 4, "blocked": 2, "delivered": 3}
