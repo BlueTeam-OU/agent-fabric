@@ -141,14 +141,11 @@ def verify_replacements(run: Run) -> int | None:
             standing.append(f"{key}   (rule: replaced heading stands after the write)\n"
                             f"    {target!r} is still a section of {in_report(run, path)}")
     # Corrections an earlier run of this drain applied, which this run may have undone: the report keeps them while they hold.
-    # Only the report of this drain's own stamp: a heading reused by a later drain's claim is that drain's section, not
-    # an undone correction (whether an old text is harvested back across drains is the harvest's, corrections.py).
-    try:
-        with open(layout.project_report_path(run.project), encoding="utf-8") as fh:
-            previous = json.load(fh)
-        earlier = (previous.get("applied_corrections") or []) if previous.get("stamp") == run.args.stamp else []
-    except (OSError, ValueError, AttributeError):
-        earlier = []
+    # Only the entries stamped with this drain's own stamp: the report carries every earlier drain's corrections forward and
+    # restamps itself (slices.py), so its own stamp says nothing of an entry, and a heading reused by a later drain's claim
+    # is that drain's section, not an undone correction (whether an old text is harvested back across drains is the
+    # harvest's, corrections.py). An entry without a stamp predates the field: an earlier drain's.
+    earlier = [e for e in _earlier(run)["applied_corrections"] if e.get("stamp") == run.args.stamp]
     seen = {(path, target) for _key, path, target in run.replacements}
     # A correction of this run that writes the heading back is a revert, which the earlier correction's replaced heading
     # standing again is the point of.

@@ -226,6 +226,38 @@ def test_a_replayed_original_whose_links_the_run_points_is_still_a_replay(tmp: s
     assert held(ta.tree(out)) == held(before)
 
 
+def test_an_earlier_drains_correction_is_not_judged_as_this_drains(tmp: str) -> None:
+    """The report carries every earlier drain's applied corrections forward and restamps itself, so the second run of a new
+    stamp read the old drain's corrections as its own and refused over a replaced heading that a later drain's claim holds
+    (the 2026-10-31 drain, j84). The entry's own stamp decides. The control: a correction of this stamp that is undone is still
+    refused."""
+    drain, claims_dir, out = ta.build(tmp, {"alpha": ta.claims("alpha", [])})
+    ta.with_agents(drain, AGENTS)
+
+    def run(bundle: list[dict], stamp: str):
+        ta.set_claims(claims_dir, "alpha", bundle)
+        return ta.run_assemble(drain, claims_dir, out, "--stamp", stamp)
+
+    for bundle in ([ORIGINAL], [CORRECTION_A]):
+        assert run(bundle, "2026-10-12").returncode == 0
+    # A later drain writes a section under the heading the old correction replaced: its own, new text.
+    unrelated = claim("t2", "Other section here", "Text of another topic.", "h4")
+    first = run([unrelated], "2026-10-31")
+    assert first.returncode == 0, first.stderr
+    assert "Text A," in held(ta.tree(out)), "precondition: the old correction is applied"
+    # Writing the reused heading by hand stands in for the later drain's claim having been merged in an earlier run.
+    with open(ta.proj(out, "alpha", "solution.md"), "a", encoding="utf-8") as fh:
+        fh.write("\n## Status v1 of the thing\n\nA different finding that reuses the heading.\n")
+    proc = run([unrelated], "2026-10-31")
+    assert proc.returncode == 0, proc.stderr
+    # Control: the same stamp's correction, undone by reworded text, is refused.
+    other = claim("o", "Subject v1 here", "Original subject text.", "h1")
+    fix = claim("fix-o", "Subject v2 here", "Corrected subject text, longer.", "h2", "Subject v1 here")
+    assert run([other], "2026-10-31").returncode == 0 and run([fix], "2026-10-31").returncode == 0
+    proc = run([claim("o", "Subject v1 here", "Reworded subject text.", "h6")], "2026-10-31")
+    assert proc.returncode == 1 and "REPLACED SECTION STANDS" in proc.stderr, proc.stderr
+
+
 def main() -> int:
     cases = [
         test_a_second_pass_over_two_bundles_with_a_chained_correction_and_a_flat_class_file_changes_nothing,
@@ -239,6 +271,7 @@ def main() -> int:
         test_other_text_under_a_replaced_heading_is_named_with_both_keys,
         test_a_decision_stated_again_by_a_rerun_keeps_its_place_in_the_report,
         test_a_replayed_original_whose_links_the_run_points_is_still_a_replay,
+        test_an_earlier_drains_correction_is_not_judged_as_this_drains,
     ]
     # A case written and not listed passes silently and forever (test_assemble_seams.py's registry guard).
     declared = {name for name, obj in sorted(globals().items()) if name.startswith("test_") and callable(obj)}

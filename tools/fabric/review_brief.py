@@ -661,7 +661,10 @@ COVERAGE_RULE = (
     "Before the machine lines, one fenced block whose info string is `agent-fabric-coverage v1`, holding JSON "
     '{"paths": {"<path>": {"status": "read" or "not read", "reason": "<why, when not read>"}}, '
     '"lenses": {"<lens>": "applied" or "not applied"}}: every path `git diff --name-only` lists for the range, '
-    "once, and every lens above. A path not read keeps the review from counting as coverage of the head.")
+    "once, and every lens above. For paths you treated alike (a memory drain's thousand), the block may instead carry "
+    '"default": {"status": ..., "reason": ...} beside "paths", the entry of every changed path it does not name; a '
+    "path you name keeps its own entry, and a path outside the range is refused. A path not read, or a default not "
+    "read, keeps the review from counting as coverage of the head.")
 
 
 class EvidenceRefused(Exception):
