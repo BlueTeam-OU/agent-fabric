@@ -472,6 +472,8 @@ CONTRIBUTOR_NEVER = (
     "bin/fabric-review", "tools/fabric/review_brief.py", "tools/fabric/review_card.py",
     # Runs as root on every host and installs the interpreter every tool runs on.
     "tools/fabric/python_pin.py", "runtime/python.json",
+    # Runs as root on every host and installs the fleet's guards (ADR-043 rule 2).
+    "tools/fabric/managed_settings.py", "bin/fabric-managed", "runtime/claude-code/managed/",
     # Wires the fleet's hooks into a session started in this clone.
     ".claude/", "tools/fabric/fabric_settings.py",
     # Bootstrap runs it as every account, and it rewrites ~/.claude.json.

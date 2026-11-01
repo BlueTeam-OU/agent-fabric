@@ -170,7 +170,7 @@ def _read(name: str, about: str) -> Verb:
 
 
 VERBS: tuple[Verb, ...] = (
-    _read("status", "Everything at once: identity, usage, keys, fabric head, sessions, harness and inbox. The verb when none is given."),
+    _read("status", "Everything at once: identity, usage, keys, fabric head, sessions, harness, managed settings and inbox. The verb when none is given."),
     _read("usage", "Each account's Claude usage windows."),
     _read("identity", "Who each account is and which Claude account its sessions run on."),
     _read("keys", "Each account's key state: Claude credentials, the operator signing secret, the store and the Codex sign-in. Never a value."),
@@ -938,7 +938,7 @@ def rows(expected: list[dict], replies: list[dict]) -> list[dict]:
                     "jobsAdd": g("jobs-add"), "toolsInstall": g("tools-install"), "gateway": g("gateway"), "gatewayInstall": g("gateway-install"), CARRIER_NAME: g(CARRIER_NAME), f"{CARRIER_NAME}Install": g(INSTALL_OP), f"{CARRIER_NAME}Start": g(START_OP), f"{CARRIER_NAME}Stop": g(STOP_OP), "poolAdd": g("pool-add"), "local": g("local"),
                     "localPrune": g("local-prune"), "selftest": g("secrets-selftest"), "agentd": g("agentd"),
                     # Only where the control agent answered them (an older one does not): a row never says null for a section nobody asked.
-                    **{k: g(k) for k in ("harness", "inbox", "switch", "drift") if dig(d, k) is not UNDEFINED},
+                    **{k: g(k) for k in ("harness", "managed", "inbox", "switch", "drift") if dig(d, k) is not UNDEFINED},
                     **{key: g(op) for key, op in (("branches", "branches"), ("branchesSweep", "branches-sweep"), ("clone", "clone"), ("hold", "hold"), ("unhold", "unhold"), (f"{CARRIER_NAME}Evidence", EVIDENCE_OP)) if dig(d, op) is not UNDEFINED}})
     return out
 
@@ -1987,6 +1987,16 @@ def _drift_cells(r: dict) -> str:
             out += f"  claude {esc(h['installed'])} (no pin)"
         else:
             out += f"  claude {esc(h['installed'])}"
+    m = r.get("managed")
+    if isinstance(m, dict):
+        # Said whatever the state: ADR-043 rule 6 reads "in force" off every host before the pin moves.
+        st = m.get("state")
+        if not isinstance(st, str):
+            out += "  managed ?"
+        elif st == "in force":
+            out += "  managed in force"
+        else:
+            out += f"  managed {esc(st).upper()}"
     n = dig(r.get("session"), "on_old_sign_in")
     if isinstance(n, int) and not isinstance(n, bool) and n > 0:
         out += f"  OLD ACCOUNT: {n} session{'s' if n != 1 else ''} (relaunch)"

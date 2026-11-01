@@ -43,6 +43,7 @@ threads, as the Node ran them under one Promise.all.
 """
 from __future__ import annotations
 
+import os
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Callable, Mapping
 
@@ -76,6 +77,15 @@ PUBLIC_OPS = ["presence", "pool-list", "pool-claim"]
 def _harness(ctx: Mapping[str, Any]) -> Any:
     import drift
     return drift.harness(ctx.get("home"), ctx.get("root"), **_run_kw(ctx))
+
+
+def _managed(ctx: Mapping[str, Any]) -> Any:
+    """ADR-043 rules 1-2 on this host against this account's fabric checkout (tools/fabric/managed_settings.py):
+    the checker's own dict. The install is the host's, so every account on a host answers the same file state; the
+    ref is the account's own view of main."""
+    import managed_settings
+    root = ctx.get("root") or os.environ.get("AGENT_FABRIC_ROOT") or os.path.join(ctx.get("home") or os.path.expanduser("~"), "projects", "agent-fabric")
+    return managed_settings.check(repo=root, ref="origin/main", **(ctx.get("managed_opts") or {}))
 
 
 def _inbox(ctx: Mapping[str, Any]) -> Any:
@@ -202,6 +212,7 @@ SECTIONS: dict[str, Callable[[Mapping[str, Any]], Any]] = {
     "drift": _drift_section,
     "jobs": _jobs,
     "harness": _harness,
+    "managed": _managed,
     "inbox": _inbox,
     "tools": _tools,
     "gateway": _gateway,
@@ -213,7 +224,7 @@ SECTIONS: dict[str, Callable[[Mapping[str, Any]], Any]] = {
 
 def _wants(op: str) -> list[str]:
     if op == "status":
-        return ["identity", "usage", "keys", "fabric", "session", "harness", "inbox"]
+        return ["identity", "usage", "keys", "fabric", "session", "harness", "managed", "inbox"]
     if op == "tokens":
         return ["identity", "tokens"]
     return [op]

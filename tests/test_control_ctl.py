@@ -94,6 +94,15 @@ class Tables(unittest.TestCase):
         jt = ctl.table("status", ctl.rows(placed("db-admin"), [joined])).splitlines()
         self.assertRegex(jt[1], r"db-admin\s+mixed\s+abc1234")
         self.assertEqual(jt[1].index("abc1234"), jt[0].index("fabric"))
+        # ADR-043 rule 6 reads "in force" off every host: the managed state is a cell of the row, whatever it is.
+        def managed_row(m):
+            d = {**replies[0]["data"], "managed": m} if m is not None else replies[0]["data"]
+            return ctl.table("status", ctl.rows(placed("db-admin"), [{**replies[0], "data": d}])).splitlines()[1]
+        self.assertTrue(managed_row({"state": "in force", "reasons": []}).endswith("  managed in force"))
+        self.assertTrue(managed_row({"state": "drifted", "reasons": ["x"]}).endswith("  managed DRIFTED"))
+        self.assertTrue(managed_row({"status": "failed", "error": "e"}).endswith("  managed ?"), "a section that failed is not in force")
+        self.assertNotIn("managed", managed_row(None), "an older control agent does not answer it: no cell, not a guess")
+        self.assertEqual(ctl.rows(placed("db-admin"), [{**replies[0], "data": {**replies[0]["data"], "managed": {"state": "missing"}}}])[0]["managed"], {"state": "missing"})
         self.assertRegex(t, r"web-dev-01\s+no answer")
         self.assertRegex(ctl.table("ping", rs), r"db-admin\s+ok\s+120 ms")
         # The script table: the workers column — input and answers binned — and `-` when there are none.

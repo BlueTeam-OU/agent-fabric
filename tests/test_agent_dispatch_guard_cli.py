@@ -221,16 +221,27 @@ def main() -> int:
     # the runner's own binding and local layer out of these assertions, and a
     # scratch CLAUDE_CONFIG_DIR carries the reviewer file the guard checks.
     fabric_root = HERE
-    # The guard resolves through routing.py, which reads AGENT_FABRIC_ROOT: a
-    # root on the frozen column of 2026-09-24, where the five classes differ
-    # in model and level, so a guard that compared the wrong class's value
-    # would be caught. The committed column is two models at one level.
+    # The guard resolves through routing.py in its OWN tree (--fabric, never
+    # AGENT_FABRIC_ROOT, which a session may aim elsewhere; ADR-043 rule 2), so
+    # the fixture is a tree the guard itself runs from: its shim, module,
+    # routing.py and roots.py, on the frozen column of 2026-09-24, where the
+    # five classes differ in model and level, so a guard that compared the
+    # wrong class's value would be caught. The committed column is two models
+    # at one level.
     shutil.copytree(f"{fabric_root}/routing", f"{FIXTURE_ROOT}/routing")
     for n in ("capabilities.json", "effort.json"):
         shutil.copy(f"{fabric_root}/tests/fixtures/routing-distinct/{n}", f"{FIXTURE_ROOT}/routing/")
     os.makedirs(f"{FIXTURE_ROOT}/runtime/claude-code")
     shutil.copy(f"{fabric_root}/runtime/claude-code/aliases.json", f"{FIXTURE_ROOT}/runtime/claude-code/")
     shutil.copy(f"{fabric_root}/runtime/identity.py", f"{FIXTURE_ROOT}/runtime/")   # `pins --me` asks it who is running
+    os.makedirs(f"{FIXTURE_ROOT}/runtime/claude-code/hooks")
+    os.makedirs(f"{FIXTURE_ROOT}/tools/fabric/guards")
+    shutil.copy(UNDER_TEST, f"{FIXTURE_ROOT}/runtime/claude-code/hooks/agent-dispatch-guard.sh")
+    shutil.copy(os.path.join(os.path.dirname(UNDER_TEST), "..", "..", "..", "tools", "fabric", "guards", "dispatch_guard.py"),
+                f"{FIXTURE_ROOT}/tools/fabric/guards/")
+    for n in ("routing.py", "roots.py"):
+        shutil.copy(f"{fabric_root}/tools/fabric/{n}", f"{FIXTURE_ROOT}/tools/fabric/")
+    fixture_guard = f"{FIXTURE_ROOT}/runtime/claude-code/hooks/agent-dispatch-guard.sh"
 
     def reviewer_file(model: str) -> None:
         os.makedirs(f"{SCRATCH_HOME}/agents", exist_ok=True)
@@ -241,7 +252,7 @@ def main() -> int:
         env = base_env()
         env.update(AGENT_FABRIC_ROOT=FIXTURE_ROOT, AGENT_FABRIC_STATE_DIR=EMPTY_STATE,
                    CLAUDE_CONFIG_DIR=SCRATCH_HOME, AGENT_FABRIC_LAUNCH_PROVIDER=provider)
-        return run(["bash", UNDER_TEST], payload(tool_input), env)[1]
+        return run(["bash", fixture_guard], payload(tool_input), env)[1]
 
     def vanilla(tool_input: str) -> str:
         return launched("anthropic", tool_input)
