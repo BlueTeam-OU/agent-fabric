@@ -116,8 +116,9 @@ def _sections_around(path: str) -> dict[str, str]:
     directory, name = os.path.split(path)
     recorded = read_existing_slice(path)[0].get("topic")
     stem = name[:-3]
-    if recorded and recorded in stem:
-        stem = stem[:stem.index(recorded) + len(recorded)]
+    if isinstance(recorded, str) and recorded and recorded in stem:
+        # The last occurrence: a shared slice is `<class>-<topic>`, and a topic may itself be a word of the class's name.
+        stem = stem[:stem.rindex(recorded) + len(recorded)]
     else:
         stem = re.sub(r"-\d+$", "", stem)
     found: dict[str, str] = {}

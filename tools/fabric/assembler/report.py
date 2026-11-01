@@ -397,8 +397,8 @@ def report(run: Run) -> int:
         for note in run.superseded_harvests:
             print(f"  {note}", file=sys.stderr)
     if run.reharvested_replaced:
-        print("\nREHARVESTED UNDER A REPLACED HEADING (written; a replaced heading that stands after the write stops the "
-              "run):", file=sys.stderr)
+        print("\nREHARVESTED UNDER A REPLACED HEADING (written; each note says why the text was no replay of the one a "
+              "correction replaced):", file=sys.stderr)
         for note in run.reharvested_replaced:
             print(f"  {note}", file=sys.stderr)
     if run.empty_crossrefs:
