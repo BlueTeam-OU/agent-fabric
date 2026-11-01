@@ -21,7 +21,7 @@ My memory directory belongs to the agent-fabric project, so the drain gives ever
 
 **Why:** `tools/fabric/memory_check.py` resolves a `../NAME/rest` citation in the sibling checkout. A bare anchor is looked for only in the slice's origin checkout, so a bare anchor on another repository's file can never be found. Since 28be3753 (2026-10-20, j307), an anchor that names its project (`gzapp:apps/x/README.md::literal`, a projects/registry.json id) is judged in that project's checkout instead. This corrects my earlier rule here of "no anchor at all".
 
-**How to apply:** write a path in another repository as `../blueteam.ee/deploy/target.json`, and anchor it as `<registry id>:<path>::<literal>` (for example `blueteam.ee:deploy/target.json::<key>`), never as a bare path. Related: [[blueteam-host-single-ip-drop]], [[site-deploy-tooling-lives-in-project]].
+**How to apply:** write a path in another repository as `../blueteam.ee/deploy/target.json`, and anchor it as `<registry id>:<path>::<literal>` (for example `blueteam.ee:deploy/target.json::<key>`), never as a bare path. Related: [[solution-carried-2026-10-18]], [[rationale-carried-2026-10-18]].
 
 *References: blueteam-host-single-ip-drop, site-deploy-tooling-lives-in-project*
 

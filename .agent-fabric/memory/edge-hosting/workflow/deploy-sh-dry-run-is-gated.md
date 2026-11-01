@@ -35,6 +35,6 @@ A live deploy still needs the owner's word in session
 
 *References: publish-needs-owner-word-in-session*
 
-*Anchors: `deploy/site_upload.py::dry run without the host`, `deploy/deploy.sh::check_dist.py`*
+*Anchors: `blueteam.ee:deploy/site_upload.py::dry run without the host`, `blueteam.ee:deploy/deploy.sh::check_dist.py`*
 
 *Observed 2026-10-19 (edge-hosting)*

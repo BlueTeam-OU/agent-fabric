@@ -49,7 +49,7 @@ promoted and should be deleted.
 
 **How to apply:** cite ADR-078 for the sign and the reachability rule;
 never let a lane reintroduce a gap-only "silent" rule or show the sign on a
-reachable journey's directive. See [[review-economics-measured-2026-10-14]]
+reachable journey's directive. See [[rationale-carried-2026-10-28]]
 for the review flow the ADR PR goes through.
 
 **State (2026-10-15 17:20Z):** gzapp #1120 open (3 work, 0 fix), blind

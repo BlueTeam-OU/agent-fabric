@@ -42,6 +42,6 @@ so it can write against it now, and give the other job its next step with
 blocks the job with a warning and never clears by itself; a checkable blocker that has already cleared keeps the job
 eligible at the next switch while still carrying the note.
 
-*Anchors: `bin/fabric-fresh::--job`*
+*Anchors: `tools/fabric/fresh.py::--job`*
 
 *Observed 2026-10-30 (fabric-coordinator)*

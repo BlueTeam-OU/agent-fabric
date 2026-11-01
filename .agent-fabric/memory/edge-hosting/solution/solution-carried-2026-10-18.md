@@ -1,6 +1,7 @@
 ---
 role: "edge-hosting"
 class: solution
+topic: "solution-carried-2026-10-18"
 description: "blueteam.ee unreachable from develop-qzapp but up elsewhere — 1984 Hosting firewall dropping our one egress IP"
 tier: 2
 knowledge_scope: full

@@ -1,6 +1,7 @@
 ---
 role: "language-culture"
 class: solution
+topic: "solution-carried-2026-10-18"
 description: "header/team/memory/brief-missing-ის ქართული თარგმანი identities/prompt/locale/ge/-ში გადავიდა; ქარტია და ბრიფი როლთან რჩება"
 tier: 2
 knowledge_scope: full

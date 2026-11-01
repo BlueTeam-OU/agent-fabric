@@ -35,7 +35,7 @@ control plane checked out beside it.
 
 ## solution
 
-- [`.agent-fabric/memory/legal-expert/solution.md`](.agent-fabric/memory/legal-expert/solution.md) — Which providers hold Blueteam's personal data (email, hosting, accounting, payments, AI) and their GDPR role, as the owner stated on 2026-10-15
+- [`.agent-fabric/memory/legal-expert/solution/solution-carried-2026-10-18.md`](.agent-fabric/memory/legal-expert/solution/solution-carried-2026-10-18.md) — Which providers hold Blueteam's personal data (email, hosting, accounting, payments, AI) and their GDPR role, as the owner stated on 2026-10-15
 
 ## workflow
 
@@ -48,7 +48,7 @@ control plane checked out beside it.
 - [`.agent-fabric/memory/legal-expert/workflow/refused-shared-write-handoff-by-message.md`](.agent-fabric/memory/legal-expert/workflow/refused-shared-write-handoff-by-message.md) — What to do when my permission check refuses writing a deliverable into a shared folder another login reads
 - [`.agent-fabric/memory/legal-expert/workflow/review-fix-branch-off-integrator-pr-head.md`](.agent-fabric/memory/legal-expert/workflow/review-fix-branch-off-integrator-pr-head.md) — Which base a contributor's review-fix for/ branch takes when its files exist only on the integrator's open PR
 - [`.agent-fabric/memory/legal-expert/workflow/second-pass-before-proposing-words.md`](.agent-fabric/memory/legal-expert/workflow/second-pass-before-proposing-words.md) — Before sending proposed legal wording for adoption (an addendum line, a notice clause), do the independent second pass yourself: the act's scope, the exceptions, and the case law
-- [`.agent-fabric/memory/legal-expert/workflow/workflow-carried-2026-10-18.md`](.agent-fabric/memory/legal-expert/workflow/workflow-carried-2026-10-18.md) — Reading Swiss federal law from Fedlex needs moli with --wait-selector '#art_1'; WebFetch and moli's default wait get only the splash screen
+- [`.agent-fabric/memory/legal-expert/workflow/workflow-carried-2026-10-18.md`](.agent-fabric/memory/legal-expert/workflow/workflow-carried-2026-10-18.md) — Reading Swiss federal law from Fedlex needs a JavaScript browser; WebFetch gets only the splash screen, so without moli every Swiss citation goes out unverified
 - [`.agent-fabric/memory/legal-expert/workflow/workflow-charter-translation.md`](.agent-fabric/memory/legal-expert/workflow/workflow-charter-translation.md) — Translating a role's charter into Georgian: who writes it, who reviews it, how it is delivered
 - [`.agent-fabric/memory/legal-expert/workflow/workflow-locale-render-review-cycle.md`](.agent-fabric/memory/legal-expert/workflow/workflow-locale-render-review-cycle.md) — Order of a Georgian locale render of a role text — two passes, cold read of the fix, then one delivery; budget cuts never drop a rule
 - [`.agent-fabric/memory/legal-expert/workflow/workflow-watch-reaped-memory.md`](.agent-fabric/memory/legal-expert/workflow/workflow-watch-reaped-memory.md) — Inbox watch killed by Claude Code for low memory: re-arming is the fabric's standing rule; do it in the same turn, after checking free memory

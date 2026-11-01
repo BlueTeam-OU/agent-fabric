@@ -50,8 +50,6 @@ the same round, each with DELIVER-TO: a commit on a
 `for/<caller>` branch to you, no PR of their own. When cold reads come
 back with meaning questions, collect them all before re-requesting.
 
-*Anchors: `product/i18n/en-US.json::journey.call-sign.hint`, `product/i18n/en-US.json::journey.wake.alighting.title-on-request`*
-
 *References: notification-title-carries-the-action*
 
 *Anchors: `gzapp:product/i18n/en-US.json::journey.call-sign.hint`, `gzapp:product/i18n/en-US.json::journey.wake.alighting.title-on-request`*

@@ -31,6 +31,6 @@ derived_from:
 
 *References: type-into-ssh-pane*
 
-*Anchors: `tools/fabric/control/restart.py::--resume`*
+*Anchors: `tools/fabric/control/restart.py::its launcher resumes it`*
 
 *Observed 2026-10-18 (fabric-coordinator)*

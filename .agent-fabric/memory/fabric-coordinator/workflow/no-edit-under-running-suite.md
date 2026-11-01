@@ -25,6 +25,6 @@ derived_from:
 
 *References: checks-need-a-control, no-worktree-remove-under-running-suite, suite-snapshots-git-config*
 
-*Anchors: `tests/run.sh::FAILED_SUITES=`*
+*Anchors: `tests/run_python_suites.py::FAILED_SUITES=`*
 
 *Observed 2026-10-24 (fabric-coordinator)*

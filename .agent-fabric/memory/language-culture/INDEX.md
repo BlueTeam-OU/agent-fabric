@@ -70,7 +70,7 @@ control plane checked out beside it.
 
 - [`.agent-fabric/memory/language-culture/solution/roster-row-signature-blocked-in-message.md`](.agent-fabric/memory/language-culture/solution/roster-row-signature-blocked-in-message.md) — gzcoord-carrier roster-row JSON carries the login's PGP signature, which the auto-mode classifier blocks over GZCoord as Credential Leakage until an autoMode.allow entry names the row non-secret
 - [`.agent-fabric/memory/language-culture/solution/shadow-evidence-terminology-ru.md`](.agent-fabric/memory/language-culture/solution/shadow-evidence-terminology-ru.md) — Russian terms for gzapp's shadow-results page: vehicle, stopping point, feasibility policy, dataset, current system, new stop planning
-- [`.agent-fabric/memory/language-culture/solution/solution-carried-2026-10-31.md`](.agent-fabric/memory/language-culture/solution/solution-carried-2026-10-31.md) — header/team/memory/brief-missing-ის ქართული თარგმანი identities/prompt/locale/ge/-ში გადავიდა; ქარტია და ბრიფი როლთან რჩება
+- [`.agent-fabric/memory/language-culture/solution/solution-carried-2026-10-18.md`](.agent-fabric/memory/language-culture/solution/solution-carried-2026-10-18.md) — header/team/memory/brief-missing-ის ქართული თარგმანი identities/prompt/locale/ge/-ში გადავიდა; ქარტია და ბრიფი როლთან რჩება
 
 ## workflow
 

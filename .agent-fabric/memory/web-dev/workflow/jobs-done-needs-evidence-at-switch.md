@@ -34,6 +34,6 @@ job's memory before `switch`. To skip a paused job, name the target:
 
 *References: paused-job-needs-its-branch-on-origin*
 
-*Anchors: `bin/fabric-jobs::switch`*
+*Anchors: `tools/fabric/jobs.py::fabric-jobs switch`*
 
 *Observed 2026-10-25 (web-dev)*

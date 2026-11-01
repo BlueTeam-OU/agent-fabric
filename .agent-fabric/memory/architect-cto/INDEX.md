@@ -81,7 +81,7 @@ control plane checked out beside it.
 
 ## rationale
 
-- [`.agent-fabric/memory/architect-cto/rationale.md`](.agent-fabric/memory/architect-cto/rationale.md) — What the review pipeline costs and why (measured 2026-10-14): the fixed preamble re-sent per turn is 59-76% of a reviewer's prompt tokens; turns, not diff size, set the cost; re-reviews read more outside the fix range than inside it…
+- [`.agent-fabric/memory/architect-cto/rationale/rationale-carried-2026-10-28.md`](.agent-fabric/memory/architect-cto/rationale/rationale-carried-2026-10-28.md) — What the review pipeline costs and why (measured 2026-10-14): the fixed preamble re-sent per turn is 59-76% of a reviewer's prompt tokens; turns, not diff size, set the cost; re-reviews read more outside the fix range than inside it…
 
 ## workflow
 

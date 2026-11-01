@@ -30,6 +30,6 @@ held_back, oversized_claims), or use the summary the assembler prints once pytho
 
 *References: fold-then-full-suite*
 
-*Anchors: `tools/fabric/assemble.py::last-drain-report.json`*
+*Anchors: `tools/fabric/assembler/shapes.py::last-drain-report.json`*
 
 *Observed 2026-10-18 (fabric-coordinator)*

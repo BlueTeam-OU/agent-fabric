@@ -34,6 +34,6 @@ its schema is vendored. Error lists are sorted by file (Node: glob walk order).
 build-glyphs.mjs is exempt (fontnik: native Node addon, no Python binding, and
 `--check` byte-compares committed SDF ranges) — coordinator accepted 2026-10-19.
 
-*Anchors: `tools/validate_api_surface/validate.py::Draft202012Validator`, `tools/validate_api_surface/requirements.txt::jsonschema==4.23.0`*
+*Anchors: `gzapp:tools/validate_api_surface/validate.py::Draft202012Validator`, `gzapp:tools/validate_api_surface/requirements.txt::jsonschema==4.23.0`*
 
 *Observed 2026-10-19 (devex-tooling)*

@@ -32,6 +32,6 @@ and [[job-guard-judges-session-cwd]].
 
 *References: job-guard-judges-session-cwd, settings-repo-job-needs-own-working-copy*
 
-*Anchors: `tools/fabric/jobsparts/blockers.py::a host operators op`*
+*Anchors: `tools/fabric/jobsparts/blockers.py::a host operator's op`*
 
 *Observed 2026-10-24 (devex-tooling)*

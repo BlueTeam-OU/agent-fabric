@@ -22,6 +22,6 @@ After a security-boundary PR is authorized: `fabric-pr arm N --basis "<line>" --
 **Why:** j59 (PR 351, 2026-10-21) needed three switch attempts for these three reasons.
 **How to apply:** do deliver/done, answer pending REQUESTs and write the memory before the first `fabric-jobs switch`.
 
-*Anchors: `bin/fabric-pr::basis`*
+*Anchors: `tools/fabric/github/arm.py::--basis`*
 
 *Observed 2026-10-22 (python-dev)*

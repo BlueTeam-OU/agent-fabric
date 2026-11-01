@@ -1,6 +1,7 @@
 ---
 role: "edge-hosting"
 class: rationale
+topic: "rationale-carried-2026-10-18"
 description: "Where a site's deploy/upload tooling goes — the site's own repository, generic core; never agent-fabric"
 tier: 2
 knowledge_scope: full

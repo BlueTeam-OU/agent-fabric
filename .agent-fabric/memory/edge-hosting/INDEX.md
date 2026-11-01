@@ -37,11 +37,11 @@ control plane checked out beside it.
 
 ## solution
 
-- [`.agent-fabric/memory/edge-hosting/solution.md`](.agent-fabric/memory/edge-hosting/solution.md) — blueteam.ee unreachable from develop-qzapp but up elsewhere — 1984 Hosting firewall dropping our one egress IP
+- [`.agent-fabric/memory/edge-hosting/solution/solution-carried-2026-10-18.md`](.agent-fabric/memory/edge-hosting/solution/solution-carried-2026-10-18.md) — blueteam.ee unreachable from develop-qzapp but up elsewhere — 1984 Hosting firewall dropping our one egress IP
 
 ## rationale
 
-- [`.agent-fabric/memory/edge-hosting/rationale.md`](.agent-fabric/memory/edge-hosting/rationale.md) — Where a site's deploy/upload tooling goes — the site's own repository, generic core; never agent-fabric
+- [`.agent-fabric/memory/edge-hosting/rationale/rationale-carried-2026-10-18.md`](.agent-fabric/memory/edge-hosting/rationale/rationale-carried-2026-10-18.md) — Where a site's deploy/upload tooling goes — the site's own repository, generic core; never agent-fabric
 
 ## workflow
 

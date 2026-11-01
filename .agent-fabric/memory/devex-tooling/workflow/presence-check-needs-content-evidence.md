@@ -56,6 +56,6 @@ evidence only that something ran at some point, not that this step ran against t
 Before trusting a skip condition, reproduce the broken state once (empty the tables, plant the
 0-byte file) and check that the step does not skip.
 
-*Anchors: `Makefile::GZAPP_GTFS_SRC`, `infra/local/sample-data/build.sh::tiles_stamp_of`, `infra/local/sample-data/build.sh::osm-sha`*
+*Anchors: `gzapp:Makefile::GZAPP_GTFS_SRC`, `gzapp:infra/local/sample-data/build.sh::tiles_stamp_of`, `gzapp:infra/local/sample-data/build.sh::osm-sha`*
 
 *Observed 2026-10-18 (devex-tooling)*

@@ -34,6 +34,6 @@ Related: [[tmpdir-in-home-2026-10-17]], [[own-checkout-is-fleet-tooling]].
 
 *References: own-checkout-is-fleet-tooling, tmpdir-in-home-2026-10-17*
 
-*Anchors: `bin/fabric-branches::--sweep`*
+*Anchors: `tools/fabric/branches.py::--sweep`*
 
 *Observed 2026-10-19 (fabric-coordinator)*

@@ -36,6 +36,6 @@ Two traps:
 
 *References: flutter-safe-directory*
 
-*Anchors: `apps/passenger_flutter/android/gradle/wrapper/gradle-wrapper.properties::gradle-8.14`, `apps/passenger_flutter/android/app/build.gradle.kts::isCoreLibraryDesugaringEnabled`*
+*Anchors: `gzapp:apps/passenger_flutter/android/gradle/wrapper/gradle-wrapper.properties::gradle-8.14`, `gzapp:apps/passenger_flutter/android/app/build.gradle.kts::isCoreLibraryDesugaringEnabled`*
 
 *Observed 2026-10-19 (flutter-dev)*

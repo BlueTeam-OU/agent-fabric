@@ -60,7 +60,7 @@ control plane checked out beside it.
 
 ## solution
 
-- [`.agent-fabric/memory/web-dev/solution.md`](.agent-fabric/memory/web-dev/solution.md) — A MapLibre paint colour taken from a gzapp design token must be converted to sRGB first — the tokens are OKLCH and MapLibre rejects the layer
+- [`.agent-fabric/memory/web-dev/solution/solution-carried-2026-10-18.md`](.agent-fabric/memory/web-dev/solution/solution-carried-2026-10-18.md) — A MapLibre paint colour taken from a gzapp design token must be converted to sRGB first — the tokens are OKLCH and MapLibre rejects the layer
 
 ## workflow
 

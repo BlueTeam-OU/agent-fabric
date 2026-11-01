@@ -199,6 +199,17 @@
       "stamp": "2026-10-18"
     },
     {
+      "agent": "python-dev-01",
+      "applied_key": "dba1813789d28d7a",
+      "heading": "an until-pgrep -f wait loop whose pattern is in its own command line never ends",
+      "host": "develop-qzapp",
+      "memory": "fix-pgrep-wait-loop-kill-probe",
+      "replaced": "an until-pgrep -f wait loop whose pattern is in its own command line never ends",
+      "replaced_key": "df9e6fd55d42ee4e",
+      "slice": "memory/domains/python-dev/domain/pgrep-wait-loop-matches-itself.md",
+      "stamp": "2026-10-18"
+    },
+    {
       "agent": "brand-comms-01",
       "applied_key": "02f66f177d9240b0",
       "heading": "Owner standing instruction 2026-10-16 — a new agent gets its avatar drawn as soon as it can be, and the fleet sheet is rebuilt after every draw",
@@ -217,7 +228,7 @@
       "memory": "site-deploy-tooling-lives-in-project",
       "replaced": "Where a site's deploy/upload tooling goes — the site's own repository, generic core; never agent-fabric",
       "replaced_key": "a4f577b45c875f15",
-      "slice": ".agent-fabric/memory/edge-hosting/rationale.md",
+      "slice": ".agent-fabric/memory/edge-hosting/rationale/rationale-carried-2026-10-18.md",
       "stamp": "2026-10-31"
     },
     {
@@ -228,7 +239,7 @@
       "memory": "blueteam-host-single-ip-drop",
       "replaced": "blueteam.ee unreachable from develop-qzapp but up elsewhere — 1984 Hosting firewall dropping our one egress IP",
       "replaced_key": "6fb93cef54419aef",
-      "slice": ".agent-fabric/memory/edge-hosting/solution.md",
+      "slice": ".agent-fabric/memory/edge-hosting/solution/solution-carried-2026-10-18.md",
       "stamp": "2026-10-31"
     },
     {
@@ -265,17 +276,6 @@
       "stamp": "2026-10-31"
     },
     {
-      "agent": "legal-expert-ch",
-      "applied_key": "5e7ebaa484bfc322",
-      "heading": "Reading Swiss federal law from Fedlex needs moli with --wait-selector '#art_1'; WebFetch and moli's default wait get only the splash screen",
-      "host": "develop-qzapp",
-      "memory": "fedlex-needs-js-browser",
-      "replaced": "Reading Swiss federal law from Fedlex needs a JavaScript browser; WebFetch gets only the splash screen, so without moli every Swiss citation goes out unverified",
-      "replaced_key": "0089045d4fdc423b",
-      "slice": ".agent-fabric/memory/legal-expert/workflow/workflow-carried-2026-10-18.md",
-      "stamp": "2026-10-31"
-    },
-    {
       "agent": "legal-expert-ee-eu",
       "applied_key": "9a326a3cb62cbcd7",
       "heading": "Where legal-expert-ee-eu's Estonia/EU specifics live after ADR-060 (holder addenda), and their state",
@@ -295,17 +295,6 @@
       "replaced": "What to do when my permission check refuses writing a deliverable into a shared folder another login reads",
       "replaced_key": "a3d2f64dd47d9ad9",
       "slice": ".agent-fabric/memory/legal-expert/workflow/refused-shared-write-handoff-by-message.md",
-      "stamp": "2026-10-31"
-    },
-    {
-      "agent": "python-dev-02",
-      "applied_key": "00f8cc602a040b93",
-      "heading": "#274 merged (6619345f): settle.py reflection cursor, reply:<id> by own id, retract, any-answer; follow-up list and traps",
-      "host": "develop-qzapp",
-      "memory": "j41-settle-reflection-cursor-checked",
-      "replaced": "#274 merged (6619345f): settle.py reflection cursor, reply:<id> by own id, retract, any-answer; follow-up list and traps",
-      "replaced_key": "9b142d66ca2d7928",
-      "slice": ".agent-fabric/memory/python-dev/solution/j41-settle-reflection-cursor-merged.md",
       "stamp": "2026-10-31"
     },
     {
@@ -672,7 +661,7 @@
     "memory/domains/architect-cto/domain/reflection-a-write-new-then-remove-old-invariant-needs-two-slots.md: description clipped from 346 to 239 characters",
     "memory/domains/architect-cto/domain/reflection-an-unmet-precondition-of-a-device-row-fails-its-first-step-never-passes.md: description clipped from 308 to 231 characters",
     "memory/domains/architect-cto/domain/reflection-forged-identifier-guarantee-is-the-narrow-one.md: description clipped from 261 to 231 characters",
-    ".agent-fabric/memory/architect-cto/rationale.md: description clipped from 263 to 233 characters",
+    ".agent-fabric/memory/architect-cto/rationale/rationale-carried-2026-10-28.md: description clipped from 263 to 233 characters",
     ".agent-fabric/memory/architect-cto/solution/reflection-corpus-lint-drift-blocks-every-project-pr-fold-main-not-re-run.md: description clipped from 358 to 231 characters",
     ".agent-fabric/memory/architect-cto/workflow/auto-mode-classifier-refuses-authorizes-send.md: description clipped from 245 to 233 characters",
     ".agent-fabric/memory/architect-cto/workflow/gzapp-active-contract-member-needs-dto-in-same-pr.md: description clipped from 303 to 239 characters",
@@ -767,12 +756,6 @@
       "key": "brand-comms/solution:brand-tools-on-develop-qzapp#Where the logo, icon and font tools live on develop-qzapp (resvg, vtracer, scour, fonttools, uharfbuzz), so no throwaway venv is built.",
       "observed_at": "2026-10-19",
       "rule": "same-agent"
-    },
-    {
-      "agent": "brand-comms-01",
-      "decision": "drop",
-      "key": "brand-comms/workflow:fleet-avatars-kept-current#Owner standing instruction 2026-10-16 — a new agent gets its avatar drawn as soon as it can be, and the fleet sheet is rebuilt after every draw@61c44c768838",
-      "observed_at": "2026-10-15"
     },
     {
       "agent": "devex-tooling",
@@ -923,18 +906,6 @@
     },
     {
       "agent": "python-dev-01",
-      "decision": "drop",
-      "key": "python-dev/workflow:answers-trailer-marks-a-fix#never put Answers: on a work commit — pr-gate counts any commit carrying it as a review fix, dropping the work count below the arming threshold@41eeb75a0c38",
-      "observed_at": "2026-10-07"
-    },
-    {
-      "agent": "python-dev-01",
-      "decision": "drop",
-      "key": "python-dev/solution:j57-job-queue-contract#the job queue (ADR-037 rules 7-10) — merged in #118, what was carried, where its parts live@9fac11d993a1",
-      "observed_at": "2026-10-08"
-    },
-    {
-      "agent": "python-dev-01",
       "decision": "supersede",
       "key": "python-dev/solution:jobs-branch-evidence-258#fabric-jobs settles a contributor branch (done: on default branch; delivered: on origin); deliver on a done job appends evidence (#258)",
       "observed_at": "2026-10-20",
@@ -953,49 +924,6 @@
       "key": "python-dev/solution:ledger-p1-supply-state#j112 review-economics P1 ledger supply: where it lives, the decisions, traps met (empty-body INFOs, unknown vs 0, windowed by_pr, stale-mutation hang)",
       "observed_at": "2026-10-14",
       "rule": "same-agent"
-    },
-    {
-      "agent": "python-dev-01",
-      "decision": "drop",
-      "key": "python-dev/workflow:never-edit-while-the-suite-runs#tests/run.sh reads each suite's files when it reaches it; an edit made mid-run is what a late section tests — a green that never covered the pushed head@a29c274da9d6",
-      "observed_at": "2026-10-09"
-    },
-    {
-      "agent": "python-dev-01",
-      "decision": "supersede",
-      "key": "python-dev/domain:pgrep-wait-loop-matches-itself#an until-pgrep -f wait loop whose pattern is in its own command line never ends",
-      "observed_at": "2026-10-18",
-      "rule": "same-agent"
-    },
-    {
-      "agent": "python-dev-01",
-      "decision": "drop",
-      "key": "python-dev/workflow:python-dev-merges-flag#once develop-qzapp/user/feat/python-dev-merges is on main, python-dev opens its own PRs in agent-fabric (ADR-018 merges flag)@5196d69873dd",
-      "observed_at": "2026-10-07"
-    },
-    {
-      "agent": "python-dev-01",
-      "decision": "drop",
-      "key": "python-dev/threads:stripped-run-and-the-nightly-skip-list#tests/stripped_run.py (merged #137, fede47d7) runs tests on a copy without instance data; the coordinator's nightly job reads tests/stripped_skip.txt, which only shrinks — j74/j75 remove their lines in the same PR@4768453dd302",
-      "observed_at": "2026-10-09"
-    },
-    {
-      "agent": "python-dev-01",
-      "decision": "drop",
-      "key": "python-dev/domain:typeddict-notrequired-under-future-annotations#typing a dict-convention record in this fabric — NotRequired is silently required under `from __future__ import annotations`; hold each type to real values by test@41e2d84915aa",
-      "observed_at": "2026-10-06"
-    },
-    {
-      "agent": "python-dev-03",
-      "decision": "drop",
-      "key": "python-dev/solution:fabric-pr-and-tools-install#What PR 126 built (bin/fabric-pr, bin/fabric-query, tools-install) and the traps it hit@ee9548a802a4",
-      "observed_at": "2026-10-09"
-    },
-    {
-      "agent": "python-dev-03",
-      "decision": "drop",
-      "key": "python-dev/solution:tools-report-and-pr-lessons#What the tools report (#123) built, and what two PRs taught about main moving under an open PR, review loops and CI flakes@f78fa3b34b4b",
-      "observed_at": "2026-10-08"
     },
     {
       "agent": "python-dev-04",
@@ -1062,16 +990,16 @@
     },
     {
       "agent": "rust-ui-dev-01",
-      "decision": "supersede",
-      "key": "rust-ui-dev/solution:undo-restores-the-record#an Undo of a destructive outbound action restores the deleted record (ids + stored bytes), never a re-composed copy; held in session memory only",
-      "observed_at": "2026-10-16",
-      "rule": "same-agent"
-    },
-    {
-      "agent": "rust-ui-dev-01",
       "decision": "drop",
       "key": "rust-ui-dev/domain:vuln-ignore-entries-checked#Accepting a known vulnerability in a build-tool classpath (OSV/cargo-deny ignore) -- the entry names what was checked and when, and ends early on a new stable release@326fe6464833",
       "observed_at": "2026-10-15"
+    },
+    {
+      "agent": "rust-ui-dev-01",
+      "decision": "supersede",
+      "key": "rust-ui-dev/solution:solution-carried-2026-10-18#an Undo of a destructive outbound action restores the deleted record (ids + stored bytes), never a re-composed copy; held in session memory only",
+      "observed_at": "2026-10-16",
+      "rule": "same-agent"
     },
     {
       "agent": "user",
@@ -1240,6 +1168,7 @@
     ".agent-fabric/memory/rust-ui-dev/INDEX.md",
     ".agent-fabric/memory/ux-designer/INDEX.md",
     ".agent-fabric/memory/web-dev/INDEX.md",
+    ".agent-fabric/memory/architect-cto/workflow/gzapp-journey-call-sign-decision-2026-10-15.md",
     "memory/domains/architect-cto/domain/antique-anthropic-code-review-surface.md",
     "memory/domains/architect-cto/domain/reflection-a-command-line-token-is-host-wide-never-account-bound.md",
     "memory/domains/architect-cto/domain/reflection-a-device-run-s-far-end-lives-only-while-its-case-runs.md",
@@ -1254,7 +1183,7 @@
     "memory/domains/architect-cto/domain/reflection-forged-identifier-guarantee-is-the-narrow-one.md",
     "memory/domains/architect-cto/domain/reflection-peer-defeatable-bound-is-the-contracts.md",
     "memory/domains/architect-cto/domain/reflection-sender-carrying-types-never-enter-the-rule-bearing-crate.md",
-    ".agent-fabric/memory/architect-cto/rationale.md",
+    ".agent-fabric/memory/architect-cto/rationale/rationale-carried-2026-10-28.md",
     ".agent-fabric/memory/architect-cto/solution/reflection-corpus-lint-drift-blocks-every-project-pr-fold-main-not-re-run.md",
     ".agent-fabric/memory/architect-cto/solution/solution-carried-2026-10-18.md",
     ".agent-fabric/memory/architect-cto/threads.md",
@@ -1262,7 +1191,6 @@
     ".agent-fabric/memory/architect-cto/workflow/drain-heading-comes-from-description.md",
     ".agent-fabric/memory/architect-cto/workflow/fold-by-merge-breaks-follow-on-a-rename.md",
     ".agent-fabric/memory/architect-cto/workflow/gzapp-active-contract-member-needs-dto-in-same-pr.md",
-    ".agent-fabric/memory/architect-cto/workflow/gzapp-journey-call-sign-decision-2026-10-15.md",
     ".agent-fabric/memory/architect-cto/workflow/gzcoord-info-skeleton-headings.md",
     ".agent-fabric/memory/architect-cto/workflow/owner-merge-asap-on-another-roles-pr-is-a-drive.md",
     ".agent-fabric/memory/architect-cto/workflow/reflection-a-corrected-rule-is-swept-tree-wide-on-the-first-correction.md",
@@ -1361,9 +1289,7 @@
     ".agent-fabric/memory/devex-tooling/workflow/review-brief-json-request.md",
     ".agent-fabric/memory/devex-tooling/workflow/review-class-cannot-read-scratchpad-diff.md",
     ".agent-fabric/memory/devex-tooling/workflow/review-class-leaves-run-user-scratch.md",
-    ".agent-fabric/memory/devex-tooling/workflow/review-post-no-repo-flag.md",
     ".agent-fabric/memory/devex-tooling/workflow/role-tools-on-qubes-host.md",
-    ".agent-fabric/memory/devex-tooling/workflow/scripted-edit-anchor-on-block.md",
     ".agent-fabric/memory/devex-tooling/workflow/settings-repo-job-needs-own-working-copy.md",
     ".agent-fabric/memory/devex-tooling/workflow/sibling-file-header-carries-sibling-reason.md",
     ".agent-fabric/memory/devex-tooling/workflow/supplied-fix-of-callers-review-is-answers.md",
@@ -1373,11 +1299,12 @@
     ".agent-fabric/memory/domain-transit/workflow/inbox-watch-only-as-tracked-task.md",
     ".agent-fabric/memory/domain-transit/workflow/job-intake-homes-project-requests-in-agent-fabric.md",
     ".agent-fabric/memory/domain-transit/workflow/pin-to-what-the-consumer-resolves.md",
+    ".agent-fabric/memory/edge-hosting/workflow/publish-needs-owner-word-in-session.md",
     "memory/domains/edge-hosting/domain/cloudflare-52x-wildcard-fallthrough.md",
     "memory/domains/edge-hosting/domain/cloudflare-worker-has-no-pause.md",
     "memory/domains/edge-hosting/domain/node-to-python-port-parity-traps.md",
-    ".agent-fabric/memory/edge-hosting/rationale.md",
-    ".agent-fabric/memory/edge-hosting/solution.md",
+    ".agent-fabric/memory/edge-hosting/rationale/rationale-carried-2026-10-18.md",
+    ".agent-fabric/memory/edge-hosting/solution/solution-carried-2026-10-18.md",
     ".agent-fabric/memory/edge-hosting/threads/threads-carried-2026-10-18.md",
     ".agent-fabric/memory/edge-hosting/threads/gzapp-status-hostnames-2026-10-19.md",
     ".agent-fabric/memory/edge-hosting/workflow/agent-store-tool-only.md",
@@ -1386,7 +1313,6 @@
     ".agent-fabric/memory/edge-hosting/workflow/deploy-sh-dry-run-is-gated.md",
     ".agent-fabric/memory/edge-hosting/workflow/home-disk-footprint.md",
     ".agent-fabric/memory/edge-hosting/workflow/inbox-watch-only-via-background-tool.md",
-    ".agent-fabric/memory/edge-hosting/workflow/publish-needs-owner-word-in-session.md",
     "memory/domains/flutter-dev/domain/a-green-check-is-evidence-only-once-seen-red.md",
     "memory/domains/flutter-dev/domain/display-only-control-is-not-a-button.md",
     "memory/domains/flutter-dev/domain/flutter-no-guarded-zone-two-handlers.md",
@@ -1450,6 +1376,7 @@
     "memory/domains/language-culture/domain/ka-tvis-before-participle-binds-to-it.md",
     "memory/domains/language-culture/domain/ka-your-stop-names-two-stops.md",
     "memory/domains/language-culture/domain/miss-copy-with-two-causes.md",
+    ".agent-fabric/memory/language-culture/solution/solution-carried-2026-10-18.md",
     ".agent-fabric/memory/language-culture/threads.md",
     ".agent-fabric/memory/language-culture/workflow/every-charter-change-gets-two-passes.md",
     ".agent-fabric/memory/language-culture/workflow/first-pass-fix-needs-source.md",
@@ -1461,7 +1388,6 @@
     ".agent-fabric/memory/language-culture/workflow/recheck-my-own-fixes-next-round.md",
     ".agent-fabric/memory/language-culture/workflow/switch-needs-replies.md",
     "memory/domains/language-culture/domain/ru-pronoun-antecedent-check.md",
-    ".agent-fabric/memory/language-culture/solution/solution-carried-2026-10-31.md",
     ".agent-fabric/memory/language-culture/solution/roster-row-signature-blocked-in-message.md",
     ".agent-fabric/memory/language-culture/solution/shadow-evidence-terminology-ru.md",
     ".agent-fabric/memory/language-culture/workflow/agent-fabric-checkout-back-to-main.md",
@@ -1477,17 +1403,15 @@
     ".agent-fabric/memory/language-culture/workflow/sibling-key-wording-wins.md",
     ".agent-fabric/memory/language-culture/workflow/supply-refetch-branch-before-push.md",
     ".agent-fabric/memory/language-culture/workflow/worker-first-pass-adds-content.md",
-    ".agent-fabric/memory/legal-expert/threads/addenda-unverified-swiss-claims.md",
     "memory/domains/legal-expert/domain/bger-relevancy-host.md",
     "memory/domains/legal-expert/domain/ch-treaty-precedence.md",
     ".agent-fabric/memory/legal-expert/workflow/disk-cleanup-at-job-end.md",
     ".agent-fabric/memory/legal-expert/workflow/inbox-exit-6-rearm.md",
     ".agent-fabric/memory/legal-expert/workflow/inbox-watch-only-via-harness.md",
     ".agent-fabric/memory/legal-expert/workflow/second-pass-before-proposing-words.md",
-    ".agent-fabric/memory/legal-expert/workflow/workflow-carried-2026-10-18.md",
-    "memory/domains/legal-expert/domain/instrument-binding-shared-text.md",
     "memory/domains/legal-expert/domain/official-text-channels.md",
-    ".agent-fabric/memory/legal-expert/solution.md",
+    "memory/domains/legal-expert/domain/instrument-binding-shared-text.md",
+    ".agent-fabric/memory/legal-expert/solution/solution-carried-2026-10-18.md",
     ".agent-fabric/memory/legal-expert/workflow/holder-addenda-ee-eu.md",
     ".agent-fabric/memory/legal-expert/workflow/jobs-deliver-reply-artifact.md",
     ".agent-fabric/memory/legal-expert/workflow/refused-shared-write-handoff-by-message.md",
@@ -1559,7 +1483,6 @@
     "memory/domains/python-dev/domain/lazy-fetch-and-bytecode-in-review-mcp.md",
     "memory/domains/python-dev/domain/no-token-case-needs-root-and-ceiling.md",
     "memory/domains/python-dev/domain/openssl-ed25519-pkeyutl-measured.md",
-    "memory/domains/python-dev/domain/pgrep-wait-loop-matches-itself.md",
     "memory/domains/python-dev/domain/python-defaults-that-differ-from-node.md",
     "memory/domains/python-dev/domain/reading-git-objects-under-a-hostile-git-dir.md",
     "memory/domains/python-dev/domain/relay-text-and-state-file-hazards.md",
@@ -1602,7 +1525,6 @@
     ".agent-fabric/memory/python-dev/solution/mask-on-the-resolved-path.md",
     ".agent-fabric/memory/python-dev/solution/named-anchor-j307-merged-340.md",
     ".agent-fabric/memory/python-dev/solution/retry-sleep-capped-at-deadline.md",
-    ".agent-fabric/memory/python-dev/solution/review-mcp-sandbox-binds-j154.md",
     ".agent-fabric/memory/python-dev/solution/root-relative-tools-write-the-running-clone.md",
     ".agent-fabric/memory/python-dev/solution/rustup-target-pin-shared-proof.md",
     ".agent-fabric/memory/python-dev/solution/store-rerun-after-put-pushes-stale-head.md",
@@ -1656,7 +1578,6 @@
     "memory/domains/python-dev/domain/regex-redos-fix-needs-old-new-comparison.md",
     "memory/domains/python-dev/domain/verify-incoming-needs-head-behind.md",
     ".agent-fabric/memory/python-dev/solution/j101-fleet-hold-merged.md",
-    ".agent-fabric/memory/python-dev/solution/j102-fresh-job-worktree-merged.md",
     ".agent-fabric/memory/python-dev/solution/j103-start-held-any-state-merged.md",
     ".agent-fabric/memory/python-dev/solution/j41-settle-reflection-cursor-merged.md",
     ".agent-fabric/memory/python-dev/solution/j47-settle-answer-accepted-merged.md",
@@ -1726,18 +1647,15 @@
     ".agent-fabric/memory/python-dev/solution/operator-words-in-command-words-j77.md",
     ".agent-fabric/memory/python-dev/solution/post-review-large-review-j79.md",
     ".agent-fabric/memory/python-dev/solution/repo-moved-to-blueteam-ou.md",
-    ".agent-fabric/memory/python-dev/solution/roots-seam-method.md",
     ".agent-fabric/memory/python-dev/solution/roster-host-render-j87.md",
     ".agent-fabric/memory/python-dev/solution/roster-row-admit-j83.md",
     ".agent-fabric/memory/python-dev/solution/settle-memory-candidates-j51.md",
     ".agent-fabric/memory/python-dev/solution/stripped-gateway-plan-fixture-j62.md",
     ".agent-fabric/memory/python-dev/solution/stripped-hosts-registry-and-operator-j64.md",
-    ".agent-fabric/memory/python-dev/solution/stripped-operator-fixture-j63.md",
     ".agent-fabric/memory/python-dev/solution/stripped-skip-list-j61.md",
     ".agent-fabric/memory/python-dev/solution/sweep-liveness-and-remote-proof-j70.md",
     ".agent-fabric/memory/python-dev/solution/sweep-registry-unreadable-j72.md",
     ".agent-fabric/memory/python-dev/solution/switch-cargo-targets-j75.md",
-    ".agent-fabric/memory/python-dev/solution/unreadable-registry-unknown-j96.md",
     ".agent-fabric/memory/python-dev/solution/wait-merged-pending-j53.md",
     ".agent-fabric/memory/python-dev/workflow/arming-on-relayed-owner-word.md",
     ".agent-fabric/memory/python-dev/workflow/check-main-before-redoing-review-fix.md",
@@ -1790,7 +1708,6 @@
     ".agent-fabric/memory/python-dev/workflow/review-next-needs-card-base-and-json-request.md",
     ".agent-fabric/memory/python-dev/workflow/review-report-extract-walk-json-strings.md",
     ".agent-fabric/memory/python-dev/workflow/review-report-post-extract-from-transcript.md",
-    ".agent-fabric/memory/python-dev/workflow/review-rounds-pin-commit-ids-run-in-worktree.md",
     ".agent-fabric/memory/python-dev/workflow/review-rounds-save-first-range-is-last-head-start-delivered-job.md",
     ".agent-fabric/memory/python-dev/workflow/security-boundary-arm-needs-architect-authorization.md",
     ".agent-fabric/memory/python-dev/workflow/stale-agent-fabric-root-worktree-breaks-fabric-commands.md",
@@ -1869,7 +1786,7 @@
     "memory/domains/rust-ui-dev/domain/unbounded-reader-remove-not-withhold.md",
     "memory/domains/rust-ui-dev/domain/uncertain-outcome-state-and-copy.md",
     "memory/domains/rust-ui-dev/domain/untrusted-text-in-terminal-views.md",
-    ".agent-fabric/memory/rust-ui-dev/solution.md",
+    ".agent-fabric/memory/rust-ui-dev/solution/solution-carried-2026-10-18.md",
     ".agent-fabric/memory/rust-ui-dev/workflow/apk-install-same-signer.md",
     ".agent-fabric/memory/rust-ui-dev/workflow/request-acceptance-may-already-hold.md",
     ".agent-fabric/memory/rust-ui-dev/workflow/review-posted-by-dispatcher.md",
@@ -1992,7 +1909,6 @@
     ".agent-fabric/memory/fabric-coordinator/solution/ssh-pane-link-via-state-record.md",
     ".agent-fabric/memory/fabric-coordinator/solution/tmpdir-in-home-2026-10-17.md",
     ".agent-fabric/memory/fabric-coordinator/solution/trusted-base-orphaned-by-reset.md",
-    ".agent-fabric/memory/fabric-coordinator/solution/wave-9-landed-where.md",
     ".agent-fabric/memory/fabric-coordinator/solution/worktree-reads-main-checkout-approval.md",
     ".agent-fabric/memory/fabric-coordinator/threads/adr-064-waits-on-interweave-tag.md",
     ".agent-fabric/memory/fabric-coordinator/threads/arm-policy-fails-per-checkout.md",
@@ -2190,12 +2106,12 @@
     ".agent-fabric/memory/web-dev/workflow/pr-status-names-its-head.md",
     ".agent-fabric/memory/web-dev/workflow/repeat-a-transition-to-test-the-server-guard.md",
     ".agent-fabric/memory/web-dev/workflow/workflow-trigger-comments-move-with-workflow.md",
-    ".agent-fabric/memory/web-dev/solution.md",
+    ".agent-fabric/memory/web-dev/solution/solution-carried-2026-10-18.md",
     ".agent-fabric/memory/web-dev/workflow/workflow-carried-2026-10-12.md",
     ".agent-fabric/memory/web-dev/workflow/ci-red-fixed-on-main-needs-a-fold.md",
     ".agent-fabric/memory/web-dev/workflow/jobs-done-needs-evidence-at-switch.md"
   ],
-  "files_written": 972,
+  "files_written": 960,
   "harvest": {
     "host": "develop-qzapp",
     "in_scope": 3,
@@ -2619,10 +2535,20 @@
   "held_back": [
     "backend-dev/workflow:fabric-review-rereview-card-base",
     "devex-tooling/solution:arm-findings-same-head-engines",
+    "devex-tooling/workflow:review-post-no-repo-flag",
+    "devex-tooling/workflow:scripted-edit-anchor-on-block",
+    "fabric-coordinator/solution:wave-9-landed-where",
+    "legal-expert/workflow:fedlex-needs-js-browser",
+    "python-dev/solution:j102-fresh-job-worktree-merged",
+    "python-dev/solution:j41-settle-reflection-cursor-checked",
+    "python-dev/solution:review-mcp-sandbox-binds-j154",
     "python-dev/solution:settled-fabric-sign-adr057",
     "python-dev/solution:settled-settle-memory-candidates",
     "python-dev/solution:settled-wait-merged-pending",
+    "python-dev/solution:stripped-operator-fixture-j63",
+    "python-dev/solution:unreadable-registry-unknown-j96",
     "python-dev/workflow:read-suite-summary-anchor-moved-to-run-py",
+    "python-dev/workflow:review-rounds-pin-commit-ids-run-in-worktree",
     "python-dev/workflow:settled-persona-avatar-settings-put",
     "python-dev/workflow:settled-wave8-port-method"
   ],
@@ -3446,16 +3372,25 @@
     "fabric-coordinator/workflow:corr-smoke-container-before-ci#Run a platform smoke job under podman as an unprivileged login before pushing a CI change that adds a container job: merge_target \"Run a platform smoke job under podman on this host, as an unprivileged login, before pushing a CI change that adds a container job — the containers find host facts (a missing cmp, Debian's /etc/profile resetting PATH, dash as sh) that the ubuntu runners never do\" names no section of fabric-coordinator/workflow; the claim stands in its own topic — if it replaced that section before, drop the merge_target"
   ],
   "migrated": [
+    ".agent-fabric/memory/architect-cto/workflow/gzapp-journey-call-sign-decision-2026-10-15.md: links to corrected memories pointed at the slice they were written into",
+    "memory/domains/architect-cto/domain/antique-anthropic-code-review-surface.md: links to corrected memories pointed at the slice they were written into",
+    "architect-cto/rationale: rationale.md -> rationale/rationale-carried-2026-10-28.md",
     ".agent-fabric/memory/devex-tooling/workflow/cli-suite-audit-pattern.md: links to corrected memories pointed at the slice they were written into",
     ".agent-fabric/memory/devex-tooling/workflow/run-python-suites-names-no-failure.md: links to corrected memories pointed at the slice they were written into",
+    ".agent-fabric/memory/edge-hosting/workflow/publish-needs-owner-word-in-session.md: links to corrected memories pointed at the slice they were written into",
+    "edge-hosting/rationale: rationale.md -> rationale/rationale-carried-2026-10-18.md",
+    "edge-hosting/solution: solution.md -> solution/solution-carried-2026-10-18.md",
     "edge-hosting/threads: threads.md -> threads/threads-carried-2026-10-18.md",
-    "language-culture/solution: solution.md -> solution/solution-carried-2026-10-31.md",
-    ".agent-fabric/memory/legal-expert/threads/addenda-unverified-swiss-claims.md: links to corrected memories pointed at the slice they were written into",
+    "language-culture/solution: solution.md -> solution/solution-carried-2026-10-18.md",
+    "memory/domains/legal-expert/domain/official-text-channels.md: links to corrected memories pointed at the slice they were written into",
+    "legal-expert/solution: solution.md -> solution/solution-carried-2026-10-18.md",
     "p2p-network-dev/solution: solution.md -> solution/solution-carried-2026-10-18.md",
-    "rust-services-dev/threads: threads.md -> threads/threads-carried-2026-10-18.md"
+    "rust-services-dev/threads: threads.md -> threads/threads-carried-2026-10-18.md",
+    "rust-ui-dev/solution: solution.md -> solution/solution-carried-2026-10-18.md",
+    "web-dev/solution: solution.md -> solution/solution-carried-2026-10-18.md"
   ],
   "oversized_claims": [
-    "architect-cto/rationale:review-economics-measured-2026-10-14: one claim is ~2074 tokens, over the 1800 budget; split the memory it came from"
+    "architect-cto/rationale:rationale-carried-2026-10-28: one claim is ~2074 tokens, over the 1800 budget; split the memory it came from"
   ],
   "project": "agent-fabric",
   "redactions": [
@@ -3500,7 +3435,392 @@
     "fabric-coordinator/threads:threads-2026-10-14-259-state body: a /home/<login>/ path -- write the path from the repository root or ~/ -> '~/'",
     "fabric-coordinator/threads:threads-2026-10-14-259-state body: a /home/<login>/ path -- write the path from the repository root or ~/ -> '~/'"
   ],
+  "reharvested_replaced": [
+    "python-dev/workflow:wave8-port-method-parity-fuzz#how the Wave 8 control-plane ports (upgrade.py #146, ctl.py #149) were proved: Node tests ported, parity cases, fuzz with lenient_node_throw, mutation passes, CodeQL flows read from SARIF: memory 'wave8-port-method-parity-fuzz' carries other text than the section 'how the Wave 8 control-plane ports (upgrade.py #146, ctl.py #149) were proved: Node tests ported, parity cases, fuzz with lenient_node_throw, mutation passes, CodeQL flows read from SARIF' a correction replaced (claim key a33dd67532bf3af2, replaced 655d4b20938fe774); written"
+  ],
   "rejected_hygiene": [],
+  "replaced_sections": [
+    {
+      "heading": "Where the logo, icon and font tools live on develop-qzapp (resvg, vtracer, scour, fonttools, uharfbuzz), so no throwaway venv is built.",
+      "home": ".agent-fabric/memory/brand-comms/solution",
+      "key": "4868a4f8a1e2622b"
+    },
+    {
+      "heading": "Owner standing instruction 2026-10-16 — a new agent gets its avatar drawn as soon as it can be, and the fleet sheet is rebuilt after every draw",
+      "home": ".agent-fabric/memory/brand-comms/workflow",
+      "key": "152c970fb74b74ba"
+    },
+    {
+      "heading": "j146 fabric-pr --repo design survey: where each verb reads repo and project from the cwd, what to reuse, the worktree/branch already set up",
+      "home": ".agent-fabric/memory/devex-tooling/threads",
+      "key": "3e242d077db97a8d"
+    },
+    {
+      "heading": "a supply outside my authority entry cannot be committed, so no format-patch; stage it in a worktree, review INDEX..WORKTREE, send git diff --binary + message",
+      "home": ".agent-fabric/memory/devex-tooling/workflow",
+      "key": "9dd463e161581fb8"
+    },
+    {
+      "heading": "fabric-review brief takes a JSON request (no render verb); card_base when the base is off main, previous_findings for a re-review, fixed lens names",
+      "home": ".agent-fabric/memory/devex-tooling/workflow",
+      "key": "77fda6ffb324c142"
+    },
+    {
+      "heading": "how a role's extra host tools (not the fabric's host contract) get onto develop-qzapp, and who has to run the install",
+      "home": ".agent-fabric/memory/devex-tooling/workflow",
+      "key": "c05c6f76fab063b7"
+    },
+    {
+      "heading": "Where a site's deploy/upload tooling goes — the site's own repository, generic core; never agent-fabric",
+      "home": ".agent-fabric/memory/edge-hosting/rationale",
+      "key": "a4f577b45c875f15"
+    },
+    {
+      "heading": "blueteam.ee unreachable from develop-qzapp but up elsewhere — 1984 Hosting firewall dropping our one egress IP",
+      "home": ".agent-fabric/memory/edge-hosting/solution",
+      "key": "6fb93cef54419aef"
+    },
+    {
+      "heading": "What fills the edge-hosting home on develop-qzapp, what is safe to remove in a disk cleanup, and how to record a cleanup that has no repository artifact",
+      "home": ".agent-fabric/memory/edge-hosting/workflow",
+      "key": "a2244cefa7ce0074"
+    },
+    {
+      "heading": "A live upload of a site goes only on the owner's word given in my own session, for exactly the commit being uploaded",
+      "home": ".agent-fabric/memory/edge-hosting/workflow",
+      "key": "d5d01f1d869a5db0"
+    },
+    {
+      "heading": "A copy placeholder carries one bare value whose grammar the formatter fixes — a day or other qualifier gets its own key chosen by a local-date comparison, and the date skeleton is the locale holder's call because intl's forms carry case and abbreviations.",
+      "home": "memory/domains/flutter-dev/domain",
+      "key": "10b2c7866e3b763c"
+    },
+    {
+      "heading": "\"Tomorrow at the same wall clock\" is DateTime(y, m, d + 1, h, min), never add(Duration(days: 1)) — and a test of it can only fail when run in a DST-observing zone.",
+      "home": "memory/domains/flutter-dev/domain",
+      "key": "ddd70237f2e8a8fa"
+    },
+    {
+      "heading": "how a cold read is dispatched — read-only Explore on model sonnet, never opus; report a miss with its example",
+      "home": ".agent-fabric/memory/language-culture/workflow",
+      "key": "ab58fabeb32d8e55"
+    },
+    {
+      "heading": "before changing or renaming a dictionary value or a UI term, find every reader of the old text — tests, comments, other values that quote it — and sweep by concept, not by string",
+      "home": ".agent-fabric/memory/language-culture/workflow",
+      "key": "ee4089089827c877"
+    },
+    {
+      "heading": "when reading copy the fleet or a developer wrote — public pages, staff screens — check for the writer's own vocabulary (fleet words, API and code words) used as plain English",
+      "home": ".agent-fabric/memory/language-culture/workflow",
+      "key": "6cf07996607de1aa"
+    },
+    {
+      "heading": "before writing a key's value, read the code path that shows it — the value must be true in every state, platform and reader that path reaches",
+      "home": ".agent-fabric/memory/language-culture/workflow",
+      "key": "f1dcae65f41ab5fb"
+    },
+    {
+      "heading": "auto mode refuses this holder writing its own addendum file for install (Instruction Poisoning); report it and block, do not route around it",
+      "home": ".agent-fabric/memory/language-culture/workflow",
+      "key": "3f7f6813038b7706"
+    },
+    {
+      "heading": "this account cannot run gzapp's i18n validator or the web suites (no pnpm, no node_modules); what to check by script instead and how to say it in a delivery",
+      "home": ".agent-fabric/memory/language-culture/workflow",
+      "key": "fa8f8fe73cc53f60"
+    },
+    {
+      "heading": "A translation's translates_digest hashes the body, not the file; a lagging digest silently skips the token check; another role's locale is delivered in a REPLY",
+      "home": ".agent-fabric/memory/language-culture/workflow",
+      "key": "7570d5ea17b5f7d1"
+    },
+    {
+      "heading": "Re-checking a re-render includes the lines my own earlier fixes produced, and the author's budget cuts; both introduce defects",
+      "home": ".agent-fabric/memory/language-culture/workflow",
+      "key": "a34e9274b5271e18"
+    },
+    {
+      "heading": "this account cannot run gzapp's i18n validator or the web suites (no pnpm, no node_modules); what to check by script instead and how to say it in a delivery",
+      "home": ".agent-fabric/memory/language-culture/workflow",
+      "key": "cfe520618a3d68c0"
+    },
+    {
+      "heading": "A locale-worker first pass also flags file-wide terms; on a re-render, act only on findings in the changed text",
+      "home": ".agent-fabric/memory/language-culture/workflow",
+      "key": "3a7040ff7439f568"
+    },
+    {
+      "heading": "In a translated prompt piece, angle-bracket tags (<First>, <role>) stay byte-identical — the lint counts them against the source",
+      "home": ".agent-fabric/memory/language-culture/workflow",
+      "key": "98285badfacc8cb6"
+    },
+    {
+      "heading": "Where legal-expert-ee-eu's Estonia/EU specifics live after ADR-060 (holder addenda), and their state",
+      "home": ".agent-fabric/memory/legal-expert/workflow",
+      "key": "05198b2da780d4f1"
+    },
+    {
+      "heading": "What to do when my permission check refuses writing a deliverable into a shared folder another login reads",
+      "home": ".agent-fabric/memory/legal-expert/workflow",
+      "key": "a3d2f64dd47d9ad9"
+    },
+    {
+      "heading": "Order of a Georgian locale render of a role text — two passes, cold read of the fix, then one delivery; budget cuts never drop a rule",
+      "home": ".agent-fabric/memory/legal-expert/workflow",
+      "key": "f60235796b189021"
+    },
+    {
+      "heading": "fabric-jobs settles a contributor branch (done: on default branch; delivered: on origin); deliver on a done job appends evidence (#258)",
+      "home": ".agent-fabric/memory/python-dev/solution",
+      "key": "1a3091f8e606d84d"
+    },
+    {
+      "heading": "fabric-jobs switch/pause built in #255 (2026-10-14); the settle rules, the test world, and the traps the reviews and the stripped suite found",
+      "home": ".agent-fabric/memory/python-dev/solution",
+      "key": "c8b530790ff8cd73"
+    },
+    {
+      "heading": "j112 review-economics P1 ledger supply: where it lives, the decisions, traps met (empty-body INFOs, unknown vs 0, windowed by_pr, stale-mutation hang)",
+      "home": ".agent-fabric/memory/python-dev/solution",
+      "key": "3fb5240010ed732f"
+    },
+    {
+      "heading": "settle.py's answer predicate (accepted + non-empty IN-REPLY-TO) merged in #277; what stays open for the coordinator",
+      "home": ".agent-fabric/memory/python-dev/solution",
+      "key": "d4c791ea29020e19"
+    },
+    {
+      "heading": "j49 / PR #282 fabric-jobs sweep: what it reads and closes, review findings fixed, what the owner/coordinator still add on the branch",
+      "home": ".agent-fabric/memory/python-dev/solution",
+      "key": "f5a90cf13b1f6c8c"
+    },
+    {
+      "heading": "Fence untrusted text with an unguessable terminator, not a deny-list of spellings; a security-boundary file under 8 work commits arms only on the owner's word",
+      "home": ".agent-fabric/memory/python-dev/solution",
+      "key": "3761db4178ccbf09"
+    },
+    {
+      "heading": "A validator's findings name the key and the expected value, never the value read; test every rewritten message on well-formed values, not only on a credential",
+      "home": ".agent-fabric/memory/python-dev/solution",
+      "key": "b48652f950c76b40"
+    },
+    {
+      "heading": "fabric-reflect (ADR-058) cursor design lessons: rowid position, failed sends, closing exactly the shown pass",
+      "home": ".agent-fabric/memory/python-dev/solution",
+      "key": "eb91a22038d97f33"
+    },
+    {
+      "heading": "Run lint.py and mutation harnesses with AGENT_FABRIC_* stripped and a scratch TMPDIR — the session env makes lint check the main checkout and mutations leak into the account TMPDIR",
+      "home": ".agent-fabric/memory/python-dev/workflow",
+      "key": "fc0af50e636cfcc8"
+    },
+    {
+      "heading": "tests/parity/launch_print.py (the --print comparison against the deleted bash launcher) is gone; compare --print output by running the launcher with its fake ori and claude as tests/test_launch_cli.py does",
+      "home": ".agent-fabric/memory/python-dev/workflow",
+      "key": "e10b6cd8bb83197c"
+    },
+    {
+      "heading": "On develop-qzapp `grep` resolves to ugrep — tests/static.sh's sh-shebang check passed locally and failed in CI; verify a grep-based guard with /usr/bin/grep before trusting a local green",
+      "home": ".agent-fabric/memory/shared/workflow",
+      "key": "5fac467f69e1c593"
+    },
+    {
+      "heading": "A derived serde struct also deserializes from a JSON array; a field probe that must only accept objects needs a map-only visitor",
+      "home": "memory/domains/rust-services-dev/domain",
+      "key": "93904a725952200a"
+    },
+    {
+      "heading": "clean a finished job's worktree target/ when the job ends; the fleet's disks fill up",
+      "home": ".agent-fabric/memory/rust-services-dev/workflow",
+      "key": "f701d063df6152e4"
+    },
+    {
+      "heading": "an e2e assertion on connection-scoped UI state (route indicator) must read it while the peer is still connected; a phone's case ends its runtime when it answers",
+      "home": "memory/domains/rust-ui-dev/domain",
+      "key": "c571d763f8e65595"
+    },
+    {
+      "heading": "Fixing end-to-end flakes against a networked service -- reproduce under parallel load, bound waits by the state needed or by the dependency's retry cadence, probe the right readiness",
+      "home": "memory/domains/rust-ui-dev/domain",
+      "key": "2594e28088ac1612"
+    },
+    {
+      "heading": "A client choosing among server-side resources (which endpoint to claim) -- use the operation's own answer as the effective state, not a separate list read",
+      "home": "memory/domains/rust-ui-dev/domain",
+      "key": "bf3b75932fb518f1"
+    },
+    {
+      "heading": "One shared UI text table across desktop and mobile when the remedy differs by platform -- one key per situation, per-platform values chosen at the composition root",
+      "home": "memory/domains/rust-ui-dev/domain",
+      "key": "c4d11863ebed5444"
+    },
+    {
+      "heading": "Rendering rich message text in Slint -- StyledText links are pointer-only and from_markdown is a second parser; draw from your own tree, links as separate controls",
+      "home": "memory/domains/rust-ui-dev/domain",
+      "key": "80aa2996c5a9a444"
+    },
+    {
+      "heading": "How a client shows an operation whose outcome is unknown -- classify by dispatch state, monotone may-have-reached, copy that never claims nothing changed",
+      "home": "memory/domains/rust-ui-dev/domain",
+      "key": "67a0a25fba0ae1fd"
+    },
+    {
+      "heading": "A claude setup-token token is inference-only; account templates live in the coordinator's store, usage of such accounts comes from rate-limit headers",
+      "home": ".agent-fabric/memory/fabric-coordinator/solution",
+      "key": "51fe533e2fbcf5c1"
+    },
+    {
+      "heading": "Codex 0.162.1 installed as the single npm-tarball member bin/codex cannot run tools (missing codex-code-mode-host) and still answers {\"findings\":[]} — an empty Codex review is not evidence until its event log shows commands ran",
+      "home": ".agent-fabric/memory/fabric-coordinator/solution",
+      "key": "568d14d2ec7d8fd0"
+    },
+    {
+      "heading": "Fleet facts come from fabric-ctl (a control agent per account, tools/fabric/control/agentd.py); the Node agent and agentd.json are gone",
+      "home": ".agent-fabric/memory/fabric-coordinator/solution",
+      "key": "3b166f7e2effc8fb"
+    },
+    {
+      "heading": "Fleet boot asks the fabric_deck passphrase in every pane: herdr's pane agent link herdr.sock.agent points at .unavailable when the terminal that started/attached the deck had no working ssh-agent",
+      "home": ".agent-fabric/memory/fabric-coordinator/solution",
+      "key": "394ab5ee1f21cc69"
+    },
+    {
+      "heading": "Removing an override from agent-fabric-settings hands the repo the fleet default of whatever agent-fabric checkout arms it, not the validate pin's; check the fleet's version before merging",
+      "home": ".agent-fabric/memory/fabric-coordinator/solution",
+      "key": "7d93b16ad2789313"
+    },
+    {
+      "heading": "What a Claude Code custom agent file's tools line really does (empty = every tool; none is refused), and what a subagent's transcript and sidecar carry — read back live 2026-09-17",
+      "home": ".agent-fabric/memory/fabric-coordinator/solution",
+      "key": "f933cdf5415338d8"
+    },
+    {
+      "heading": "What --system-prompt-file replaces and what the harness still injects (read back live 2026-09-17), and the identifier rule a translated prompt must keep",
+      "home": ".agent-fabric/memory/fabric-coordinator/solution",
+      "key": "5365c2388644054d"
+    },
+    {
+      "heading": "Launcher TMPDIR is ~/agent-fabric-tmp (on /rw), pruned weekly; /var/tmp on the Qubes root volume filled and crashed the fleet",
+      "home": ".agent-fabric/memory/fabric-coordinator/solution",
+      "key": "2cc09f2520a924e7"
+    },
+    {
+      "heading": "A store's trusted base can point at a commit a reset orphaned; ADR-060 addenda.load then refuses the launch for every role",
+      "home": ".agent-fabric/memory/fabric-coordinator/solution",
+      "key": "5021498dab5a505f"
+    },
+    {
+      "heading": "tests/run.sh owns a fresh TMPDIR per run and fails naming what is left in it; concurrent runs no longer share scratch",
+      "home": ".agent-fabric/memory/fabric-coordinator/threads",
+      "key": "a9797febdf5383f9"
+    },
+    {
+      "heading": "gzcoord-inbox --history lists the relay's recent records addressed to this login in one call; presence records are not history",
+      "home": ".agent-fabric/memory/fabric-coordinator/threads",
+      "key": "d6fefb86081a9476"
+    },
+    {
+      "heading": "Re-issuing holder addenda (against_digest only) — the parent builds the files from its mirror; a holder's auto mode may refuse writing them",
+      "home": ".agent-fabric/memory/fabric-coordinator/workflow",
+      "key": "04c163703041c9b9"
+    },
+    {
+      "heading": "fabric-pr arm does not gate on CI results: #247 armed with platform-smoke (debian) failed; arm only after every check reads pass",
+      "home": ".agent-fabric/memory/fabric-coordinator/workflow",
+      "key": "8e901af3ef62c3c3"
+    },
+    {
+      "heading": "auto mode may refuse fleet-wide account moves, pane reads and fabric upgrades that earlier sessions ran; state the command and let the owner decide, never retry or hand it over",
+      "home": ".agent-fabric/memory/fabric-coordinator/workflow",
+      "key": "9e4bb8f2986e3ddd"
+    },
+    {
+      "heading": "I run and name fabric commands by bare name (fabric-pr verbs, fabric-query), never a script path",
+      "home": ".agent-fabric/memory/fabric-coordinator/workflow",
+      "key": "06cb4ff4702dfe82"
+    },
+    {
+      "heading": "On the coordinator's login grep is ugrep; verify a grep-based guard with /usr/bin/grep before trusting a local green",
+      "home": ".agent-fabric/memory/fabric-coordinator/workflow",
+      "key": "91d77be9cd802c29"
+    },
+    {
+      "heading": "A fabric push that changes what a project's index must list is safe once the project pins .agent-fabric/fabric-ref; never chain a commit behind a piped test run",
+      "home": ".agent-fabric/memory/fabric-coordinator/workflow",
+      "key": "0f19b98dcefadeab"
+    },
+    {
+      "heading": "How the whole fleet was shut down on 2026-10-13 (no command exists): end sessions, deck, herdr, control agents — and how to bring it back",
+      "home": ".agent-fabric/memory/fabric-coordinator/workflow",
+      "key": "16445ff1b3618767"
+    },
+    {
+      "heading": "amending an agent-fabric-gateway ADR — the four places validate_adr.py checks, and a re-review brief whose base is off main needs card_base",
+      "home": ".agent-fabric/memory/fabric-coordinator/workflow",
+      "key": "51f80d3e3ece079e"
+    },
+    {
+      "heading": "Watch the GZCoord inbox with a background `gzcoord-inbox --until-delivery` (no loop; one watch per login) that exits on a delivery, not a 30-minute Monitor: every Monitor expiry woke the session and rang the deck's job-end sound (the owner, 2026-10-10)",
+      "home": ".agent-fabric/memory/fabric-coordinator/workflow",
+      "key": "d453bc9b934dd8d2"
+    },
+    {
+      "heading": "launch --help installs no agent files; it still passes through to claude, so read usage from the launcher source",
+      "home": ".agent-fabric/memory/fabric-coordinator/workflow",
+      "key": "63d5e73018a34ac6"
+    },
+    {
+      "heading": "A guard lint whose fix is always safe should over-report on the language's static scoping, not model runtime order — #143's $ rule took four review rounds learning this",
+      "home": ".agent-fabric/memory/fabric-coordinator/workflow",
+      "key": "27a4decb6d4b92fa"
+    },
+    {
+      "heading": "A PR in a managed project (gzapp, InterWeave) under its 8-work-commit minimum: when the owner says 'arm N', give the one-line command; the owner runs it, I do not",
+      "home": ".agent-fabric/memory/fabric-coordinator/workflow",
+      "key": "9ac0eb8248af510c"
+    },
+    {
+      "heading": "A writing subagent resumed by SendMessage runs in the session clone, not its worktree: dispatch a new isolated agent for each writing step",
+      "home": ".agent-fabric/memory/fabric-coordinator/workflow",
+      "key": "636b23cac5429e29"
+    },
+    {
+      "heading": "A suite run piped into tail/grep reports the pipe's exit, not the suite's: read the suite's own verdict line (FAILED_SUITES=, N suite(s) FAILED) before saying it passed",
+      "home": ".agent-fabric/memory/fabric-coordinator/workflow",
+      "key": "93e0df945ec4ceba"
+    },
+    {
+      "heading": "How to type the owner's words into another agent's session when its deck pane is an ssh link; why language-culture-ge sat idle on 11 queued jobs",
+      "home": ".agent-fabric/memory/fabric-coordinator/workflow",
+      "key": "c3ddf383f25a45c3"
+    },
+    {
+      "heading": "Propose visible and spoken text as one whole template per case, never a prefix, a joined string or a template with optional parts, so a translation can reorder it",
+      "home": "memory/domains/ux-designer/domain",
+      "key": "fe30c0c10e2a74e9"
+    },
+    {
+      "heading": "Compose a screen-reader description against the element's label and the screen: never repeat what the label says, speak what a symbol only shows, and say what the sighted person sees",
+      "home": "memory/domains/ux-designer/domain",
+      "key": "1fa8b8710ea40ccc"
+    },
+    {
+      "heading": "How to put files (persona, avatar) into my own fabric-agent-<id> repository — never by cloning it",
+      "home": ".agent-fabric/memory/web-dev/workflow",
+      "key": "5fc99f211428dee0"
+    },
+    {
+      "heading": "How to find which of my changes are still open in a project when every agent commits under one GitHub author",
+      "home": ".agent-fabric/memory/web-dev/workflow",
+      "key": "46e1fffbe7ba4d02"
+    },
+    {
+      "heading": "Before telling anyone a PR is green, reviewed or 'gate met': which head that was true of, and what a later push does to it",
+      "home": ".agent-fabric/memory/web-dev/workflow",
+      "key": "8911fe7a705b2ab0"
+    }
+  ],
   "retired_in_siblings": [
     ".agent-fabric/memory/flutter-dev/workflow/settle-meaning-before-requesting-copy.md: 'Before a copy REQUEST goes to three locale holders, settle with the meaning owner what each line tells the reader AND what the reader should do — otherwise every cold read reopens the meaning and each round costs three re-requests.' retired by its owner",
     ".agent-fabric/memory/flutter-dev/workflow/supply-branch-shas-on-origin-and-ranges.md: 'In a supply hand-off, a sha is named only after `git ls-remote` shows it on origin, and the caller folds the NAMED sha after reading base..sha for commits that are not the supply.' retired by its owner",
@@ -3636,7 +3956,7 @@
     "web-dev"
   ],
   "section_writers": {
-    ".agent-fabric/memory/architect-cto/rationale.md#What the review pipeline costs and why (measured 2026-10-14): the fixed preamble re-sent per turn is 59-76% of a reviewer's prompt tokens; turns, not diff size, set the cost; re-reviews read more outside the fix range than inside it; Codex usage is never recorded": {
+    ".agent-fabric/memory/architect-cto/rationale/rationale-carried-2026-10-28.md#What the review pipeline costs and why (measured 2026-10-14): the fixed preamble re-sent per turn is 59-76% of a reviewer's prompt tokens; turns, not diff size, set the cost; re-reviews read more outside the fix range than inside it; Codex usage is never recorded": {
       "agent": "architect-cto-01",
       "host": "develop-qzapp",
       "observed": "2026-10-14"
@@ -4091,11 +4411,6 @@
       "host": "develop-qzapp",
       "observed": "2026-10-11"
     },
-    ".agent-fabric/memory/devex-tooling/workflow/review-post-no-repo-flag.md#who posts a review: the PR's own session runs fabric-pr post-review --repo with the report on stdin; the review class posts nothing": {
-      "agent": "devex-tooling",
-      "host": "develop-qzapp",
-      "observed": "2026-10-19"
-    },
     ".agent-fabric/memory/devex-tooling/workflow/role-tools-on-qubes-host.md#how a role's extra host tools (not the fabric's host contract) get onto develop-qzapp, and who has to run the install": {
       "agent": "devex-tooling",
       "host": "develop-qzapp",
@@ -4105,11 +4420,6 @@
       "agent": "devex-tooling",
       "host": "develop-qzapp",
       "observed": "2026-10-13"
-    },
-    ".agent-fabric/memory/devex-tooling/workflow/scripted-edit-anchor-on-block.md#A scripted str.replace/index edit of a workflow or config file must anchor on the enclosing block and assert one match — duplicated comments land the edit in the wrong block": {
-      "agent": "devex-tooling",
-      "host": "develop-qzapp",
-      "observed": "2026-10-19"
     },
     ".agent-fabric/memory/devex-tooling/workflow/settings-repo-job-needs-own-working-copy.md#a REQUEST whose commits land in a settings repo is queued under agent-fabric; job-copy-guard refuses the commit — add a job per settings clone": {
       "agent": "devex-tooling",
@@ -4156,12 +4466,12 @@
       "host": "develop-qzapp",
       "observed": "2026-10-22"
     },
-    ".agent-fabric/memory/edge-hosting/rationale.md#Where a site's deploy/upload tooling goes — the site's own repository, generic core; never agent-fabric": {
+    ".agent-fabric/memory/edge-hosting/rationale/rationale-carried-2026-10-18.md#Where a site's deploy/upload tooling goes — the site's own repository, generic core; never agent-fabric": {
       "agent": "edge-hosting",
       "host": "develop-qzapp",
       "observed": "2026-10-20"
     },
-    ".agent-fabric/memory/edge-hosting/solution.md#blueteam.ee unreachable from develop-qzapp but up elsewhere — 1984 Hosting firewall dropping our one egress IP": {
+    ".agent-fabric/memory/edge-hosting/solution/solution-carried-2026-10-18.md#blueteam.ee unreachable from develop-qzapp but up elsewhere — 1984 Hosting firewall dropping our one egress IP": {
       "agent": "edge-hosting",
       "host": "develop-qzapp",
       "observed": "2026-10-15"
@@ -4490,11 +4800,6 @@
       "agent": "user",
       "host": "develop-qzapp",
       "observed": "2026-10-23"
-    },
-    ".agent-fabric/memory/fabric-coordinator/solution/wave-9-landed-where.md#which PR landed each ADR-040 Wave 9 batch, and what of Wave 9 is still open (2026-10-24)": {
-      "agent": "user",
-      "host": "develop-qzapp",
-      "observed": "2026-10-24"
     },
     ".agent-fabric/memory/fabric-coordinator/solution/worktree-reads-main-checkout-approval.md#In a linked git worktree Claude Code (2.1.286, claude -p) reads hasClaudeMdExternalIncludesApproved from the main checkout's ~/.claude.json entry, never the worktree's own path": {
       "agent": "user",
@@ -5496,7 +5801,7 @@
       "host": "develop-qzapp",
       "observed": "2026-10-26"
     },
-    ".agent-fabric/memory/language-culture/solution/solution-carried-2026-10-31.md#header/team/memory/brief-missing-ის ქართული თარგმანი identities/prompt/locale/ge/-ში გადავიდა; ქარტია და ბრიფი როლთან რჩება": {
+    ".agent-fabric/memory/language-culture/solution/solution-carried-2026-10-18.md#header/team/memory/brief-missing-ის ქართული თარგმანი identities/prompt/locale/ge/-ში გადავიდა; ქარტია და ბრიფი როლთან რჩება": {
       "agent": "language-culture-ge",
       "host": "develop-qzapp",
       "observed": "2026-10-17"
@@ -5701,7 +6006,7 @@
       "host": "develop-qzapp",
       "observed": "2026-10-31"
     },
-    ".agent-fabric/memory/legal-expert/solution.md#Which providers hold Blueteam's personal data (email, hosting, accounting, payments, AI) and their GDPR role, as the owner stated on 2026-10-15": {
+    ".agent-fabric/memory/legal-expert/solution/solution-carried-2026-10-18.md#Which providers hold Blueteam's personal data (email, hosting, accounting, payments, AI) and their GDPR role, as the owner stated on 2026-10-15": {
       "agent": "legal-expert-ee-eu",
       "host": "develop-qzapp",
       "observed": "2026-10-15"
@@ -5766,10 +6071,10 @@
       "host": "develop-qzapp",
       "observed": "2026-10-22"
     },
-    ".agent-fabric/memory/legal-expert/workflow/workflow-carried-2026-10-18.md#Reading Swiss federal law from Fedlex needs moli with --wait-selector '#art_1'; WebFetch and moli's default wait get only the splash screen": {
+    ".agent-fabric/memory/legal-expert/workflow/workflow-carried-2026-10-18.md#Reading Swiss federal law from Fedlex needs a JavaScript browser; WebFetch gets only the splash screen, so without moli every Swiss citation goes out unverified": {
       "agent": "legal-expert-ch",
       "host": "develop-qzapp",
-      "observed": "2026-10-20"
+      "observed": "2026-10-18"
     },
     ".agent-fabric/memory/legal-expert/workflow/workflow-charter-translation.md#Translating a role's charter into Georgian: who writes it, who reviews it, how it is delivered": {
       "agent": "legal-expert-ge",
@@ -5971,11 +6276,6 @@
       "host": "develop-qzapp",
       "observed": "2026-10-30"
     },
-    ".agent-fabric/memory/python-dev/solution/j102-fresh-job-worktree-merged.md#j102/j474 #432 merged — fresh job starts in worktree, AGENT_FABRIC_ROOT stamped, working_copy follows worktree; the sweep/settle consequences and test traps": {
-      "agent": "python-dev-02",
-      "host": "develop-qzapp",
-      "observed": "2026-10-30"
-    },
     ".agent-fabric/memory/python-dev/solution/j103-start-held-any-state-merged.md#j103 #434 merged; start refuses under a hold in any state; re-review brief needs card_base, post-review needs a report file with the dispatch header": {
       "agent": "python-dev-02",
       "host": "develop-qzapp",
@@ -6059,7 +6359,7 @@
     ".agent-fabric/memory/python-dev/solution/j41-settle-reflection-cursor-merged.md##274 merged (6619345f): settle.py reflection cursor, reply:<id> by own id, retract, any-answer; follow-up list and traps": {
       "agent": "python-dev-02",
       "host": "develop-qzapp",
-      "observed": "2026-10-20"
+      "observed": "2026-10-15"
     },
     ".agent-fabric/memory/python-dev/solution/j47-settle-answer-accepted-merged.md#settle.py's answer predicate (accepted + non-empty IN-REPLY-TO) merged in #277; what stays open for the coordinator": {
       "agent": "python-dev-02",
@@ -6271,11 +6571,6 @@
       "host": "develop-qzapp",
       "observed": "2026-10-16"
     },
-    ".agent-fabric/memory/python-dev/solution/review-mcp-sandbox-binds-j154.md#review_mcp sandbox bind rules (#358 round 3), the etc=/usr= seams, and the job-switch trap after a follow-up request lands": {
-      "agent": "python-dev-01",
-      "host": "develop-qzapp",
-      "observed": "2026-10-24"
-    },
     ".agent-fabric/memory/python-dev/solution/root-relative-tools-write-the-running-clone.md#a test that runs a tool finding its root from its own path (bootstrap.sh) writes the clone running the suite; invisible under projects/, seen only from a scratch clone": {
       "agent": "python-dev-01",
       "host": "develop-qzapp",
@@ -6331,11 +6626,6 @@
       "host": "develop-qzapp",
       "observed": "2026-10-19"
     },
-    ".agent-fabric/memory/python-dev/solution/stripped-operator-fixture-j63.md#j63 — a tool that finds a project's settings repo through registry/clients fails on a stripped copy; fix is a fixture operator tree via AGENT_FABRIC_OPERATOR": {
-      "agent": "python-dev-03",
-      "host": "develop-qzapp",
-      "observed": "2026-10-19"
-    },
     ".agent-fabric/memory/python-dev/solution/stripped-skip-list-j61.md#stripped_run --skip-list design, which files were red and why, and the long-TMPDIR trap for AF_UNIX tests": {
       "agent": "python-dev-03",
       "host": "develop-qzapp",
@@ -6370,11 +6660,6 @@
       "agent": "python-dev-01",
       "host": "develop-qzapp",
       "observed": "2026-10-11"
-    },
-    ".agent-fabric/memory/python-dev/solution/unreadable-registry-unknown-j96.md#j96 #430 — strict registry read for presence/ctl, lenient for the daemon; re-review brief needs card_base; boundary PR arming word": {
-      "agent": "python-dev-03",
-      "host": "develop-qzapp",
-      "observed": "2026-10-30"
     },
     ".agent-fabric/memory/python-dev/solution/wait-merged-pending-j53.md#wait-merged \"could not read checks\" on pending was not reproducible on main; what #284 changed; gh --json exits 0 on pending": {
       "agent": "python-dev-03",
@@ -6846,11 +7131,6 @@
       "host": "develop-qzapp",
       "observed": "2026-10-30"
     },
-    ".agent-fabric/memory/python-dev/workflow/review-rounds-pin-commit-ids-run-in-worktree.md#fabric-review next and fabric-pr post-review traps — range must be full commit ids, run from the PR's worktree, any later commit voids head coverage": {
-      "agent": "python-dev-04",
-      "host": "develop-qzapp",
-      "observed": "2026-10-18"
-    },
     ".agent-fabric/memory/python-dev/workflow/review-rounds-save-first-range-is-last-head-start-delivered-job.md#fabric-review next order (post, save, range = last reviewed head), a delivered job cannot commit until started, a second intake path hides in gzcoord/intake.py": {
       "agent": "python-dev-04",
       "host": "develop-qzapp",
@@ -7081,7 +7361,7 @@
       "host": "develop-qzapp",
       "observed": "2026-10-19"
     },
-    ".agent-fabric/memory/rust-ui-dev/solution.md#an Undo of a destructive outbound action restores the deleted record (ids + stored bytes), never a re-composed copy; held in session memory only": {
+    ".agent-fabric/memory/rust-ui-dev/solution/solution-carried-2026-10-18.md#an Undo of a destructive outbound action restores the deleted record (ids + stored bytes), never a re-composed copy; held in session memory only": {
       "agent": "rust-ui-dev-01",
       "host": "develop-qzapp",
       "observed": "2026-10-16"
@@ -7181,7 +7461,7 @@
       "host": "develop-qzapp",
       "observed": "2026-10-25"
     },
-    ".agent-fabric/memory/web-dev/solution.md#A MapLibre paint colour taken from a gzapp design token must be converted to sRGB first — the tokens are OKLCH and MapLibre rejects the layer": {
+    ".agent-fabric/memory/web-dev/solution/solution-carried-2026-10-18.md#A MapLibre paint colour taken from a gzapp design token must be converted to sRGB first — the tokens are OKLCH and MapLibre rejects the layer": {
       "agent": "web-dev-02",
       "host": "develop-qzapp",
       "observed": "2026-10-10"
@@ -8559,14 +8839,25 @@
   ],
   "stamp": "2026-10-31",
   "superseded_harvests": [
-    "python-dev/solution:j41-settle-reflection-cursor-merged##274 merged (6619345f): settle.py reflection cursor, reply:<id> by own id, retract, any-answer; follow-up list and traps: memory 'j41-settle-reflection-cursor-merged' is the text of the section memory 'j41-settle-reflection-cursor-checked' corrects ('#274 merged (6619345f): settle.py reflection cursor, reply:<id> by own id, retract, any-answer; follow-up list and traps') in this drain; not written — update or delete 'j41-settle-reflection-cursor-merged'",
+    "brand-comms/workflow:fleet-avatars-kept-current#Owner standing instruction 2026-10-16 — a new agent gets its avatar drawn as soon as it can be, and the fleet sheet is rebuilt after every draw: memory 'fleet-avatars-kept-current' is text an applied correction or supersede replaced (last-drain-report.json replaced_sections or applied_corrections); not written — update or delete 'fleet-avatars-kept-current'",
+    "python-dev/workflow:answers-trailer-marks-a-fix#never put Answers: on a work commit — pr-gate counts any commit carrying it as a review fix, dropping the work count below the arming threshold: memory 'answers-trailer-marks-a-fix' is text an applied correction or supersede replaced (last-drain-report.json replaced_sections or applied_corrections); not written — update or delete 'answers-trailer-marks-a-fix'",
+    "python-dev/solution:j57-job-queue-contract#the job queue (ADR-037 rules 7-10) — merged in #118, what was carried, where its parts live: memory 'j57-job-queue-contract' is text an applied correction or supersede replaced (last-drain-report.json replaced_sections or applied_corrections); not written — update or delete 'j57-job-queue-contract'",
+    "python-dev/workflow:never-edit-while-the-suite-runs#tests/run.sh reads each suite's files when it reaches it; an edit made mid-run is what a late section tests — a green that never covered the pushed head: memory 'never-edit-while-the-suite-runs' is text an applied correction or supersede replaced (last-drain-report.json replaced_sections or applied_corrections); not written — update or delete 'never-edit-while-the-suite-runs'",
+    "python-dev/domain:pgrep-wait-loop-matches-itself#an until-pgrep -f wait loop whose pattern is in its own command line never ends: memory 'pgrep-wait-loop-matches-itself' is text an applied correction or supersede replaced (last-drain-report.json replaced_sections or applied_corrections); not written — update or delete 'pgrep-wait-loop-matches-itself'",
+    "python-dev/workflow:python-dev-merges-flag#once develop-qzapp/user/feat/python-dev-merges is on main, python-dev opens its own PRs in agent-fabric (ADR-018 merges flag): memory 'python-dev-merges-flag' is text an applied correction or supersede replaced (last-drain-report.json replaced_sections or applied_corrections); not written — update or delete 'python-dev-merges-flag'",
+    "python-dev/threads:stripped-run-and-the-nightly-skip-list#tests/stripped_run.py (merged #137, fede47d7) runs tests on a copy without instance data; the coordinator's nightly job reads tests/stripped_skip.txt, which only shrinks — j74/j75 remove their lines in the same PR: memory 'stripped-run-and-the-nightly-skip-list' is text an applied correction or supersede replaced (last-drain-report.json replaced_sections or applied_corrections); not written — update or delete 'stripped-run-and-the-nightly-skip-list'",
+    "python-dev/domain:typeddict-notrequired-under-future-annotations#typing a dict-convention record in this fabric — NotRequired is silently required under `from __future__ import annotations`; hold each type to real values by test: memory 'typeddict-notrequired-under-future-annotations' is text an applied correction or supersede replaced (last-drain-report.json replaced_sections or applied_corrections); not written — update or delete 'typeddict-notrequired-under-future-annotations'",
     "python-dev/solution:j47-settle-answer-accepted-merged#settle.py's answer predicate (accepted + non-empty IN-REPLY-TO) merged in #277; what stays open for the coordinator: memory 'j47-settle-answer-accepted-merged' is the text of the section memory 'j47-settle-answer-checked' corrects (\"settle.py's answer predicate (accepted + non-empty IN-REPLY-TO) merged in #277; what stays open for the coordinator\") in this drain; not written — update or delete 'j47-settle-answer-accepted-merged'",
     "python-dev/solution:j49-fabric-jobs-sweep-state#j49 / PR #282 fabric-jobs sweep: what it reads and closes, review findings fixed, what the owner/coordinator still add on the branch: memory 'j49-fabric-jobs-sweep-state' is the text of the section memory 'j49-sweep-checked' corrects ('j49 / PR #282 fabric-jobs sweep: what it reads and closes, review findings fixed, what the owner/coordinator still add on the branch') in this drain; not written — update or delete 'j49-fabric-jobs-sweep-state'",
     "python-dev/solution:j51-nonce-fence-merged#Fence untrusted text with an unguessable terminator, not a deny-list of spellings; a security-boundary file under 8 work commits arms only on the owner's word: memory 'j51-nonce-fence-merged' is the text of the section memory 'j51-nonce-fence-checked' corrects (\"Fence untrusted text with an unguessable terminator, not a deny-list of spellings; a security-boundary file under 8 work commits arms only on the owner's word\") in this drain; not written — update or delete 'j51-nonce-fence-merged'",
     "python-dev/solution:j55-addenda-p3-delivered#A validator's findings name the key and the expected value, never the value read; test every rewritten message on well-formed values, not only on a credential: memory 'j55-addenda-p3-delivered' is the text of the section memory 'j55-addenda-p3-checked' corrects (\"A validator's findings name the key and the expected value, never the value read; test every rewritten message on well-formed values, not only on a credential\") in this drain; not written — update or delete 'j55-addenda-p3-delivered'",
     "python-dev/workflow:launcher-print-comparison-script-deleted#tests/parity/launch_print.py (the --print comparison against the deleted bash launcher) is gone; compare --print output by running the launcher with its fake ori and claude as tests/test_launch_cli.py does: memory 'launcher-print-comparison-script-deleted' is the text of the section memory 'launcher-print-comparison-checked' corrects ('tests/parity/launch_print.py (the --print comparison against the deleted bash launcher) is gone; compare --print output by running the launcher with its fake ori and claude as tests/test_launch_cli.py does') in this drain; not written — update or delete 'launcher-print-comparison-script-deleted'",
     "python-dev/solution:reflect-cursor-design#fabric-reflect (ADR-058) cursor design lessons: rowid position, failed sends, closing exactly the shown pass: memory 'reflect-cursor-design' is the text of the section memory 'reflect-cursor-checked' corrects ('fabric-reflect (ADR-058) cursor design lessons: rowid position, failed sends, closing exactly the shown pass') in this drain; not written — update or delete 'reflect-cursor-design'",
-    "python-dev/threads:j19-resume-state#Where j19 (last Node in agent-fabric, PR 181) stood when paused for live check 7 on 2026-10-10: what is done, what to run, what waits: memory 'j19-resume-state' is the text of the section memory 'settled-j19-resume-state' retires ('Where j19 (last Node in agent-fabric, PR 181) stood when paused for live check 7 on 2026-10-10: what is done, what to run, what waits') in this drain; not written — update or delete 'j19-resume-state'"
+    "python-dev/solution:fabric-pr-and-tools-install#What PR 126 built (bin/fabric-pr, bin/fabric-query, tools-install) and the traps it hit: memory 'fabric-pr-and-tools-install' is text an applied correction or supersede replaced (last-drain-report.json replaced_sections or applied_corrections); not written — update or delete 'fabric-pr-and-tools-install'",
+    "python-dev/solution:roots-seam-method#How the engine/operator roots seam (tools/fabric/roots.py, runtime/control/roots.mjs, PR #119) was built and what the review found — the engine= trap and fixture rules: memory 'roots-seam-method' is text an applied correction or supersede replaced (last-drain-report.json replaced_sections or applied_corrections); not written — update or delete 'roots-seam-method'",
+    "python-dev/solution:tools-report-and-pr-lessons#What the tools report (#123) built, and what two PRs taught about main moving under an open PR, review loops and CI flakes: memory 'tools-report-and-pr-lessons' is text an applied correction or supersede replaced (last-drain-report.json replaced_sections or applied_corrections); not written — update or delete 'tools-report-and-pr-lessons'",
+    "python-dev/threads:j19-resume-state#Where j19 (last Node in agent-fabric, PR 181) stood when paused for live check 7 on 2026-10-10: what is done, what to run, what waits: memory 'j19-resume-state' is the text of the section memory 'settled-j19-resume-state' retires ('Where j19 (last Node in agent-fabric, PR 181) stood when paused for live check 7 on 2026-10-10: what is done, what to run, what waits') in this drain; not written — update or delete 'j19-resume-state'",
+    "shared/workflow:local-grep-is-ugrep#On develop-qzapp `grep` resolves to ugrep — tests/static.sh's sh-shebang check passed locally and failed in CI; verify a grep-based guard with /usr/bin/grep before trusting a local green: memory 'local-grep-is-ugrep' is text an applied correction or supersede replaced (last-drain-report.json replaced_sections or applied_corrections); not written — update or delete 'local-grep-is-ugrep'"
   ],
   "telemetry": {
     "architect-cto": {
@@ -9017,7 +9308,7 @@
     "brand-comms-01@develop-qzapp#projects-root": 1793107005058,
     "db-admin@develop-qzapp": 1792901144086,
     "develop-qzapp": 1790347048334,
-    "devex-tooling@develop-qzapp": 1793435568999,
+    "devex-tooling@develop-qzapp": 1792402763999,
     "domain-transit@develop-qzapp": 1793338964154,
     "edge-hosting@develop-qzapp": 1793335046678,
     "flutter-dev-01@develop-qzapp": 1792916625664,
@@ -9026,16 +9317,16 @@
     "language-culture-en@develop-qzapp": 1792906013116,
     "language-culture-ge@develop-qzapp": 1792159914514,
     "language-culture-ru@develop-qzapp": 1793437409670,
-    "legal-expert-ch@develop-qzapp": 1793354886364,
+    "legal-expert-ch@develop-qzapp": 1792683585999,
     "legal-expert-ee-eu@develop-qzapp": 1792959520072,
     "legal-expert-ge@develop-qzapp": 1793179373144,
     "p2p-network-dev-01@develop-qzapp": 1792969015857,
     "p2p-network-dev-01@develop-qzapp#projects-root": 1792403189859,
-    "python-dev-01@develop-qzapp": 1793386137720,
-    "python-dev-02@develop-qzapp": 1793400130941,
+    "python-dev-01@develop-qzapp": 1792808964999,
+    "python-dev-02@develop-qzapp": 1792474510999,
     "python-dev-02@develop-qzapp#projects-root": 1791434674140,
-    "python-dev-03@develop-qzapp": 1792478546999,
-    "python-dev-04@develop-qzapp": 1792483376999,
+    "python-dev-03@develop-qzapp": 1792400914999,
+    "python-dev-04@develop-qzapp": 1792351305999,
     "rust-services-dev-01@develop-qzapp": 1792919237479,
     "rust-services-dev-02@develop-qzapp": 1792681371016,
     "rust-ui-dev-01@develop-qzapp": 1793102150595,

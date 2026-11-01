@@ -30,6 +30,6 @@ Related: [[suites-inherit-launch-stamps]], [[suite-red-check-df-first]].
 
 *References: suite-red-check-df-first, suites-inherit-launch-stamps*
 
-*Anchors: `tools/fabric/control/carrier_install.py::RENDER_LEASE`, `tools/fabric/lint.py::names a managed project`*
+*Anchors: `tools/fabric/control/carrier_install.py::RENDER_LEASE`, `tools/fabric/lint_rules/docs.py::names a managed project`*
 
 *Observed 2026-10-26 (python-dev)*

@@ -34,6 +34,6 @@ expect it to go stale. When the workflow owner asks, say yes, set the
 acceptance (the trigger as the workflow states it, nothing else changed),
 and check the wording in their PR's review.
 
-*Anchors: `apps/advertiser_web/vite.config.ts::coverage.yml`, `apps/admin_web/vite.config.ts::coverage.yml`, `packages/web-shared/vitest.config.ts::test:coverage`*
+*Anchors: `gzapp:apps/advertiser_web/vite.config.ts::coverage.yml`, `gzapp:apps/admin_web/vite.config.ts::coverage.yml`, `gzapp:packages/web-shared/vitest.config.ts::test:coverage`*
 
 *Observed 2026-10-19 (web-dev)*

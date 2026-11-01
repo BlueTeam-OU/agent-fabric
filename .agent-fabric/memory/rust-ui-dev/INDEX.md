@@ -108,7 +108,7 @@ control plane checked out beside it.
 
 ## solution
 
-- [`.agent-fabric/memory/rust-ui-dev/solution.md`](.agent-fabric/memory/rust-ui-dev/solution.md) — an Undo of a destructive outbound action restores the deleted record (ids + stored bytes), never a re-composed copy; held in session memory only
+- [`.agent-fabric/memory/rust-ui-dev/solution/solution-carried-2026-10-18.md`](.agent-fabric/memory/rust-ui-dev/solution/solution-carried-2026-10-18.md) — an Undo of a destructive outbound action restores the deleted record (ids + stored bytes), never a re-composed copy; held in session memory only
 
 ## workflow
 

@@ -24,6 +24,6 @@ Audited 2026-10-18 (j144, gzapp #1126).
 - **Cancelled shards.** Cancelled run 38371677110 shows the upload step running in all four cancelled test shards. A job timeout is reported as a cancellation, so a `cancelled()`-guarded upload still runs. No reviewer could run the timeout case directly.
 - **Billing.** The org billing endpoint `orgs/<org>/settings/billing/actions` returns 410 (moved). `repos/<r>/actions/cache/usage` still works.
 
-*Anchors: `.github/workflows/_backend.yml::Upload .NET test results`, `.github/workflows/cache-warm.yml::cron`*
+*Anchors: `gzapp:.github/workflows/_backend.yml::Upload .NET test results`, `gzapp:.github/workflows/cache-warm.yml::cron`*
 
 *Observed 2026-10-18 (devex-tooling)*

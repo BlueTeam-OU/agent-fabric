@@ -24,6 +24,6 @@ derived_from:
 
 *References: guard-counts-session-cwd*
 
-*Anchors: `runtime/claude-code/hooks/job-copy-guard.py::runs stdin`*
+*Anchors: `runtime/claude-code/hooks/job-copy-guard.py::Every heredoc body in the command is read as commands`*
 
 *Observed 2026-10-30 (fabric-coordinator)*

@@ -27,6 +27,6 @@ Testing herdr's bun suites on develop-qzapp:
 - The integration fixtures tag under the account's git config, which signs tags, so run them with `GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1`.
 - The host has no `bun` and no `just`. Install the pinned bun 1.3.14 with npm into the scratchpad.
 
-*Anchors: `docs/fleetdeck/UPSTREAM.md::Selective-import ledger`*
+*Anchors: `herdr:docs/fleetdeck/UPSTREAM.md::Selective-import ledger`*
 
 *Observed 2026-10-19 (rust-ui-dev)*

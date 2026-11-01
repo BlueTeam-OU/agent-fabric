@@ -39,6 +39,6 @@ quoting a project's file in a remit, read that file on `origin/<default>` today,
 
 *References: fold-then-full-suite*
 
-*Anchors: `policies/githooks/commit-msg::Answers`, `policies/hygiene.json::refer_as`*
+*Anchors: `tools/fabric/github/commit_class.py::trailer_values(body, "Answers")`, `policies/hygiene.json::refer_as`*
 
 *Observed 2026-10-19 (fabric-coordinator)*

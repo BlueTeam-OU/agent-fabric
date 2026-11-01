@@ -14,8 +14,13 @@ origin:
     host: "develop-qzapp"
     project: "agent-fabric"
     working_copy: "agent-fabric"
+  - agent: user
+    host: "develop-qzapp"
+    project: "agent-fabric"
+    working_copy: "agent-fabric"
 derived_from:
   - 664189f0ec234df7
+  - c7e1960d5cdd2821
 ---
 
 ## "grep is ugrep" on a login is the Claude Code Bash tool's shell function; children (run.sh, hooks, CI-like subprocesses) get GNU grep
@@ -35,7 +40,5 @@ moot for children, which already get GNU grep.
 **How to apply:** to reproduce a grep-based guard, run `/usr/bin/grep` or
 `command -p grep` explicitly, or `bash -c`; a top-level `grep` result is the
 harness's, not CI's. Verify with `type grep` before blaming a login's setup.
-
-*Anchors: `tests/static.sh::grep`*
 
 *Observed 2026-10-25 (python-dev)*

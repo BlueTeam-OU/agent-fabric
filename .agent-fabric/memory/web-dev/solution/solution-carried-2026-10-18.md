@@ -1,6 +1,7 @@
 ---
 role: "web-dev"
 class: solution
+topic: "solution-carried-2026-10-18"
 description: A MapLibre paint colour taken from a gzapp design token must be converted to sRGB first — the tokens are OKLCH and MapLibre rejects the layer
 tier: 2
 knowledge_scope: full

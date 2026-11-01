@@ -21,7 +21,7 @@ Antique is Anthropic's internal code review tool, named in the engineering post 
 
 Public facts (the post, plus Simon Willison's chart reading): Antique "change requests" replaced pull requests internally between late May and mid-July 2026; it has a merge queue with no global lock (conflicts are caught by post-merge and pre-deploy testing, and fixed by Claude); its approval rules "can express complex semantic constraints on approvals", so comment-only changes are separated from sensitive logical changes and human reviewers review intent rather than every line; Anthropic "makes extensive use of adversarial review", not tied to Antique in the text. Volume context: monorepo merges grew from about 2,500 to over 30,000 a day.
 
-Not public: who reviews (humans vs agents), stacking, review cost or token accounting, how a review gates a merge. Nothing to copy from it yet for [[review-economics-measured-2026-10-14]]; the one transferable idea is approval constraints that classify a change by what it touches, which our arming policy does only by work-commit count and security-boundary paths.
+Not public: who reviews (humans vs agents), stacking, review cost or token accounting, how a review gates a merge. Nothing to copy from it yet for [[rationale-carried-2026-10-28]]; the one transferable idea is approval constraints that classify a change by what it touches, which our arming policy does only by work-commit count and security-boundary paths.
 
 *References: review-economics-measured-2026-10-14*
 

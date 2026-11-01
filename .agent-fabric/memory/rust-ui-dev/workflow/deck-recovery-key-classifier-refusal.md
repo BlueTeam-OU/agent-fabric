@@ -45,6 +45,6 @@ can quote anything.
 
 *References: diagnosis-evidence-before-cause*
 
-*Anchors: `fleet-deck/fabric_deck.py::SAFEGUARD_MARKS`, `fleet-deck/fabric_deck.py::_safeguard`*
+*Anchors: `herdr:fleet-deck/fabric_deck.py::SAFEGUARD_MARKS`, `herdr:fleet-deck/fabric_deck.py::_safeguard`*
 
 *Observed 2026-10-18 (rust-ui-dev)*
