@@ -129,7 +129,8 @@ def run_hostexec(argv: list[str]) -> int:
 
 def run_hostexec_step(argv: list[str]) -> int:
     """hostexec as a child, for a subcommand that runs more than one: its exit status, a signal's as the shell's 128+n; a step that
-    outlives PERSIST_TIMEOUT_S is killed and counts as failed."""
+    outlives PERSIST_TIMEOUT_S is given up on and counts as failed: only the
+    child is killed, and the step under sudo or ssh may still be running there."""
     import subprocess
     try:
         status = subprocess.run([HX, *argv], stdin=subprocess.DEVNULL, timeout=PERSIST_TIMEOUT_S).returncode
@@ -140,7 +141,7 @@ def run_hostexec_step(argv: list[str]) -> int:
         print(f"fabric-host: {HX}: {e.strerror or e}", file=sys.stderr)
         return 126
     except subprocess.TimeoutExpired:
-        print(f"fabric-host: {argv[-1] if argv else 'hostexec'}: still running after {PERSIST_TIMEOUT_S} s, stopped", file=sys.stderr)
+        print(f"fabric-host: {argv[-1] if argv else 'hostexec'}: no answer after {PERSIST_TIMEOUT_S} s, stopped waiting (it may still be running on the host)", file=sys.stderr)
         return 1
     return 128 - status if status < 0 else status
 

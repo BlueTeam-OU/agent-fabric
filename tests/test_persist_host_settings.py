@@ -157,10 +157,31 @@ class AcrossAReboot(Case):
             self.assertEqual((rc, err), (0, ""), platform)
             self.assertEqual(stat.S_IMODE(os.stat(self.conf_file).st_mode), 0o644)
             with open(self.conf_file) as fh:
-                self.assertEqual(fh.read(), phs.sysctl_conf(LOW, HIGH))
-            self.assertIn(f"net.ipv4.ip_local_reserved_ports = {RANGE}\n", phs.sysctl_conf(LOW, HIGH))
+                self.assertEqual(fh.read(), phs.sysctl_conf([(LOW, HIGH)]))
+            self.assertIn(f"net.ipv4.ip_local_reserved_ports = {RANGE}\n", phs.sysctl_conf([(LOW, HIGH)]))
             self.assertFalse(os.path.exists(self.rcd), platform)
             os.unlink(self.conf_file)
+
+    def test_the_sysctl_file_carries_every_reservation_since_the_last_file_for_a_key_wins_at_boot(self):
+        for live in ("8080", f"8080,{RANGE}", f"{LOW + 5}-{LOW + 9},9000"):
+            self.set_live(live)
+            self.assertEqual(self.go("fedora")[0], 0, live)
+            with open(self.conf_file) as fh:
+                body = fh.read()
+            self.assertIn(f"= {self.get_live()}\n", body, live)
+            self.assertIn("8080" if "8080" in live else "9000", body, live)
+            self.assertIn(RANGE, body)
+            os.unlink(self.conf_file)
+
+    def test_an_unreadable_value_gets_no_sysctl_file_on_a_persistent_root_and_is_a_failure(self):
+        self.set_live("junk")
+        rc, out, err = self.go("fedora")
+        self.assertEqual(rc, 1)
+        self.assertFalse(os.path.exists(self.conf_file), "a file of the range alone would drop what the value holds")
+        self.assertIn("not installed", err)
+        self.set_live("")
+        self.assertEqual(self.go("fedora")[0], 0, "positive control")
+        self.assertTrue(os.path.isfile(self.conf_file))
 
     def test_an_identical_file_is_untouched_a_differing_one_replaced_whole(self):
         self.go()
