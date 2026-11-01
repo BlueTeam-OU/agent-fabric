@@ -575,8 +575,6 @@ def extract(repo: str, commit: str, dest: str) -> None:
             target = os.path.join(root, path)
             os.makedirs(os.path.dirname(target), exist_ok=True)
             if mode == "120000":
-                if os.path.isabs(data):
-                    raise Refused(f"{os.fsdecode(path)!r} is a link out of the head: {os.fsdecode(data)!r}")
                 os.symlink(data, target)
             else:
                 with open(target, "xb") as f:
