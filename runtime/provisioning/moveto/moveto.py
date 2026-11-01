@@ -53,12 +53,16 @@ CONTRACT, frozen from the bash (ADR-040 §5 rule 3):
             on entry, and removed before the shell is entered.
   signals   the entered shell gets SIGPIPE as the caller gave it to the
             shim, as the bash's exec passed it on: Python ignores it at
-            start-up, and an exec keeps an ignored signal ignored.
+            start-up, and an exec keeps an ignored signal ignored. Over ssh
+            moveto stays ssh's parent and forwards SIGHUP, SIGTERM and SIGINT.
   stdout    USAGE, the --list lines, or --print's path, `title: …` and,
             with a mode, `then: …` (and `via: ssh` when it would go by ssh).
   stderr    `moveto: …` for a refusal, and one line naming the account (and,
             by sudo, the directory) before the shell is entered.
-  exit      0; 1 for every refusal; otherwise the entered shell's (exec).
+  terminal  when ssh ends, any way, and stdout is a terminal, the modes a
+            remote program may have set are switched off (TERMINAL_RESET).
+  exit      0; 1 for every refusal; otherwise the entered shell's (exec), or
+            over ssh ssh's own, a signal death as 128+n.
 Names that reach the terminal pass display_safe() at every point they are
 displayed; a path that is used keeps the raw name.
 
@@ -310,7 +314,7 @@ def ssh_pin(account: str) -> tuple[str, int] | None:
 
 def known_hosts_file() -> str:
     """The generated known_hosts, replaced whole at every entry from `fabric-ssh-hosts known-hosts`; its path.
-    Under the state directory, private to this account: ssh is exec'd and cannot clean up behind itself."""
+    Under the state directory, private to this account: replaced at the next entry, not removed after this one."""
     try:
         r = subprocess.run(["fabric-ssh-hosts", "known-hosts"], capture_output=True, text=True, timeout=TIMEOUT_S,
                            stdin=subprocess.DEVNULL)
@@ -362,8 +366,62 @@ def enter_over_ssh(account: str, target: str, print_only: bool, mode: str, pin: 
     argv = ssh_argv(account, mode, pin, known_hosts_file(), key)
     print(f"moveto: {account} over ssh  (exit returns here)", file=sys.stderr, flush=True)
     sys.stdout.flush()
+    # Set here, spawned with restore_signals off: ssh inherits the caller's SIGPIPE as the exec used to pass it on.
     signal.signal(signal.SIGPIPE, signal.SIG_IGN if os.environ.pop(PIPE_IGNORED_ENV, "") == "1" else signal.SIG_DFL)
-    os.execvp(argv[0], argv)
+    return run_ssh(argv)
+
+
+# Programs on the far side (Claude Code) switch these modes on in the operator's terminal and cannot switch them off
+# when ssh is hung up or drops; the shell that then reads the terminal shows the leftovers as text. The pops come
+# before the final set-to-zero so a stack the remote pushed onto cannot restore a non-zero flag set.
+TERMINAL_RESET = (
+    "\x1b[<u" * 8 + "\x1b[=0;1u"                       # kitty keyboard protocol
+    + "".join(f"\x1b[?{n}l" for n in (1000, 1002, 1003, 1005, 1006, 1015, 1004, 2004))   # mouse, focus, bracketed paste
+    + "\x1b[>4;0m"                                      # modifyOtherKeys
+    + "\x1b[?25h"                                       # cursor shown
+)
+FORWARDED_SIGNALS = (signal.SIGHUP, signal.SIGTERM, signal.SIGINT)
+
+
+def reset_terminal() -> None:
+    """Only a terminal gets the escapes: --print and a pipe carry data. A terminal that is already gone
+    (EIO after a hang-up) has nothing left to restore."""
+    try:
+        if os.isatty(1):
+            os.write(1, TERMINAL_RESET.encode("ascii"))
+    except OSError:
+        pass
+
+
+def run_ssh(argv: list[str]) -> int:
+    """ssh as a child, not an exec: nothing else runs after an exec, and the operator's terminal is left in whatever
+    modes the remote program set. The signals a pane's hang-up sends are forwarded (ssh is in the pane's foreground
+    group and gets the terminal's own copy too; a second delivery is harmless). The status is ssh's, a signal death
+    128+n as a shell reports it."""
+    child: list[subprocess.Popen] = []
+    early: list[int] = []
+
+    def forward(signum: int, _frame: object) -> None:
+        if child:
+            try:
+                child[0].send_signal(signum)
+            except ProcessLookupError:
+                pass
+        else:
+            early.append(signum)
+
+    saved = {s: signal.signal(s, forward) for s in FORWARDED_SIGNALS}
+    try:
+        proc = subprocess.Popen(argv, restore_signals=False)    # an OSError (no ssh) is main's one line, as the exec's was
+        child.append(proc)
+        for signum in early:
+            forward(signum, None)
+        rc = proc.wait()
+    finally:
+        for s, handler in saved.items():
+            signal.signal(s, handler)
+    reset_terminal()
+    return 128 - rc if rc < 0 else rc
 
 
 HARNESS_ID = re.compile(r"[A-Za-z0-9_.:][A-Za-z0-9_.:-]*")  # never a leading "-": it would be read as an option
