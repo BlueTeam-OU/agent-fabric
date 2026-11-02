@@ -9,6 +9,12 @@
 # with the fleet's pinned Python missing, a module that is not where it
 # should be, or a run that fails, it ASKS, and the person at the keyboard
 # sees why. Bash builtins only, so nothing it needs can be missing.
+# Stand down where the managed settings run this guard: hook_entry.py runs its module directly, never this
+# file, so a caller here is a second run. A project's settings rendered before the template learned the same
+# test still call this file by path, and a second run of a guard that rewrites the call judges its own
+# answer, not the call (j549). The workspace template's test, in builtins.
+managed=/etc/claude-code/managed-settings.json
+[[ -x /usr/local/bin/fabric-python && -r "$managed" && "$(<"$managed")" == *'"agent-dispatch-guard"'* ]] && exit 0
 here="${BASH_SOURCE[0]%/*}"; [[ "$here" == "${BASH_SOURCE[0]}" ]] && here=.
 module="$here/../../../tools/fabric/guards/dispatch_guard.py"
 cannot_run() {

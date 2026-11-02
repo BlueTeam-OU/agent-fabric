@@ -24,7 +24,8 @@ for _k in [k for k in os.environ if k.startswith("AGENT_FABRIC_LAUNCH_")]:
     del os.environ[_k]
 from guards import dispatch_guard as dg  # noqa: E402
 
-SHIM = os.path.join(HERE, "runtime", "claude-code", "hooks", "agent-dispatch-guard.sh")
+import hook_harness  # noqa: E402
+SHIM = hook_harness.unmanaged("agent-dispatch-guard.sh")
 
 
 def verdict(out: bytes) -> str:

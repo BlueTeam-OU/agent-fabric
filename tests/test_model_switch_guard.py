@@ -35,7 +35,8 @@ FABRIC = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(FABRIC, "tests"))
 from instance_fixtures import own_instance_tree  # noqa: E402 — tests/, the script's own directory
 own_instance_tree()
-HOOK = os.path.abspath(os.environ.get("MODEL_SWITCH_GUARD_HOOK") or os.path.join(FABRIC, "runtime", "claude-code", "hooks", "model-switch-guard.sh"))
+import hook_harness  # noqa: E402 — tests/, the script's own directory
+HOOK = os.path.abspath(os.environ.get("MODEL_SWITCH_GUARD_HOOK") or hook_harness.unmanaged("model-switch-guard.sh"))
 if not os.path.isfile(HOOK):
     sys.exit(f"test: not found: {HOOK}")
 # The tracked hook is what the harness runs as `bash <path>`; an override is run as a program (its shebang), the way

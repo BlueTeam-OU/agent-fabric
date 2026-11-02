@@ -27,8 +27,8 @@ from instance_fixtures import own_instance_tree  # noqa: E402 — tests/, the sc
 own_instance_tree()
 
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-UNDER_TEST = os.path.abspath(os.environ.get("DISPATCH_GUARD") or os.path.join(
-    HERE, "runtime", "claude-code", "hooks", "agent-dispatch-guard.sh"))
+import hook_harness  # noqa: E402
+UNDER_TEST = os.path.abspath(os.environ.get("DISPATCH_GUARD") or hook_harness.unmanaged("agent-dispatch-guard.sh"))
 if not os.path.isfile(UNDER_TEST):
     sys.exit(f"test: not found: {UNDER_TEST}")
 
