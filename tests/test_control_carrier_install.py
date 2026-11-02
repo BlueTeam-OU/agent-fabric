@@ -2026,6 +2026,7 @@ class StartStop(Case):
         r = self.start()
         self.assertEqual(r["status"], "refused")
         self.assertIn("cannot be read", r["reason"])
+        self.assertIn("`fabric-host <host> persist`", r["reason"])
         for text in ("47100-47199", "47000-47300", "47100-47150,47151-47199", "47100-47199,50000", "47100-47120\n47121-47199"):
             self.reserve(text)
             self.assertEqual(self.start()["status"], "started", text)
