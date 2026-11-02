@@ -259,6 +259,8 @@ def main() -> int:
         shutil.copytree(f"{ROOT}/runtime/hostexec", f"{fab}/runtime/hostexec", symlinks=True)
         shutil.copytree(f"{HERE}/platform", f"{fab}/runtime/provisioning/platform", symlinks=True)
         shutil.copy(f"{ROOT}/runtime/claude-code/harness.json", f"{fab}/runtime/claude-code/")
+        # gh_ledger takes the account's state directory from identity.
+        shutil.copy2(f"{ROOT}/runtime/identity.py", f"{fab}/runtime/")
         # hostexec and the worker are shims for their modules (ADR-040 §5 rule 5).
         # launch_record.py (j125) records the first launch's provider with the launcher's own writer
         # (launch_provider_record.py) in the account's state directory (fabric_writes).
