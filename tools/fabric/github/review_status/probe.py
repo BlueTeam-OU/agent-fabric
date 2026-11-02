@@ -2,9 +2,10 @@
 A part of tools/fabric/github/pr_review_status.py, whose docstring is the contract."""
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING
 import gh
+from github import review_posters
 from github.review_status.base import jstr, jkey, listed, obj
 from github.review_status.verdicts import PASS_LINE, Buckets, classify, verdicts_of, newest, refusal_of, request_of, head_covered
 
@@ -307,7 +308,8 @@ def probe(ctx: "Ctx") -> Probe | None:
         # script documents that thread replies create review objects, so the
         # count climbs with correspondence rather than with coverage.
         reviews = gh.api_list(f"repos/{ctx.repo}/pulls/{ctx.pr}/reviews") or []
-        p.buckets = classify(reviews, ctx.author, cfg)
+        posters = review_posters.for_pr(meta.get("author"), cfg.review_posters)
+        p.buckets = classify(reviews, ctx.author, replace(cfg, review_posters=posters))
 
         # VERDICT COMMENTS. Unreadable rather than empty, for the same reason
         # the reviews call is: a swallowed failure here would report a clean

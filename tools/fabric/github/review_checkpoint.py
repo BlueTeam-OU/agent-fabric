@@ -26,7 +26,7 @@ import sys
 HERE = os.path.dirname(os.path.realpath(__file__))
 sys.path.insert(0, os.path.dirname(HERE))
 import gh  # noqa: E402
-from github import review_coverage  # noqa: E402
+from github import review_coverage, review_posters  # noqa: E402
 from github.review_status.base import Die, jkey, login_of  # noqa: E402
 from github.review_status.config import read_config  # noqa: E402
 
@@ -77,8 +77,9 @@ def _checkpoint(pr: int, current_head: str, config_for, repo: str | None, cwd: s
     if not isinstance(author, str) or not author:
         return None
     reviews = gh.api_list(f"repos/{repo}/pulls/{pr}/reviews")
+    posters = review_posters.for_pr(meta.get("author"), cfg.review_posters)
     posted = [r for r in reviews if isinstance(r, dict) and (r.get("body") or "").startswith(review_coverage.V2_PREFIX)
-              and (login_of(r) == author or login_of(r) in cfg.review_posters)
+              and (login_of(r) == author or login_of(r) in posters)
               and not (exclude_head and _marker_head(r) == exclude_head)]
     if not posted:
         return None

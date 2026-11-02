@@ -31,7 +31,8 @@ nothing wrote a false record.
             binding), AGENT_FABRIC_JOBS (fabric-jobs, run as a program:
             <it> list --all --json, <it> show <id> --json),
             AGENT_FABRIC_REVIEW_POSTERS (who besides the PR's author posts
-            a counted review; gate 4c), AGENT_FABRIC_ROOT
+            a counted review; gate 4c; on an app's PR the account gh acts
+            as is added), AGENT_FABRIC_ROOT
   stdout    `arm: ` lines — what each gate found, and the watcher line
             (none for a PR that merged on the arming)
   stderr    `arm: REFUSED #N — <why>` on a refusal; `arm: <why>` when a
@@ -187,7 +188,7 @@ sys.path.insert(0, os.path.dirname(HERE))
 import gh  # noqa: E402
 import git  # noqa: E402
 import roots  # noqa: E402
-from github import arm_findings, arm_policy, common, landed, pr_gate, repo_policy  # noqa: E402
+from github import arm_findings, arm_policy, common, landed, pr_gate, repo_policy, review_posters as posters_of  # noqa: E402
 # The rules' names stay importable from here, where the oracle and callers
 # reach them as arm.<name>.
 from github.arm_rules import (  # noqa: E402, F401
@@ -255,8 +256,8 @@ What it refuses, in order, and why:
      object on the head, from the account a blind review counts from.
   4c. a finding left open in ANY review chain, not only the latest: every
      review object whose first line is the v2 marker, from an account the
-     blind review counts from (the PR's author, AGENT_FABRIC_REVIEW_POSTERS),
-     read oldest first; a review whose base= is an earlier one's head=
+     blind review counts from (the PR's author, AGENT_FABRIC_REVIEW_POSTERS,
+     on an app's PR the account gh acts as), read oldest first; a review whose base= is an earlier one's head=
      continues its chain, any other starts one. A `Finding:` stays open until
      a LATER review's `Judgement:` of its label says fixed or not-real (the
      latest judgement wins; it goes to the newest earlier finding of that
@@ -770,7 +771,11 @@ def check_open_findings(repo: str, num: str, pr: dict, defers: list, refuse) -> 
     P-level; a --defer lifts one named finding, and one naming no open finding is refused, so a typo cannot pass.
     Returns what the comment records of the deferrals, or ""."""
     author = str((pr.get("author") or {}).get("login") or "")
-    trusted = review_posters() | ({author} if author else set())
+    try:
+        trusted = set(posters_of.for_pr(pr.get("author"), review_posters())) | ({author} if author else set())
+    except gh.GhError as e:
+        raise Unanswered(f"cannot read the account this session posts as ({e.reason}): #{num} is an app's, and gate 4c"
+                         f" reads its reviews from that account") from None
     try:
         reviews = gh.api(f"repos/{repo}/pulls/{num}/reviews?per_page=100", paginate=True)
     except gh.GhError as e:
