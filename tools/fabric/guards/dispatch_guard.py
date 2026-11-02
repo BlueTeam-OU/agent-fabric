@@ -34,11 +34,13 @@ TWO CLASSES OF DISPATCH, decided in this order:
   REVIEW class    -> subagent_type "code-review" AND description
                      beginning "review" / "re-review" (any word
                      form: Reviewing, Re-review of ...) AND model
-                     "fable" (under a fabric launch, or no model at
+                     "fable" (or, under a fabric launch that
+                     resolves a code-review pin only, no model at
                      all: the guard's own answer, which the harness
-                     runs through it again, and the reviewer's agent
-                     file still held to routing) AND NO isolation AND
-                     a session not on a
+                     runs through it again, the reviewer's agent file
+                     still held to routing; anywhere else an unset
+                     model is denied) AND NO isolation AND a session
+                     not on a
                      <host>/<login>/for/ branch nor inside the active
                      job's worktree or working copy when that job has a
                      deliver_to (a supplier reviews nothing of its own
