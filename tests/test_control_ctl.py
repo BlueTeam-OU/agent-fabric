@@ -1482,6 +1482,15 @@ class Help(unittest.TestCase):
     # no relay, no token. The golden usage text is the one the verbs had before the table (tests/fixtures/ctl-usage.txt).
     NOT_VERBS = {"pool-list", "pool-claim", "branches-sweep"}   # ops the parser refuses or reaches through branches --sweep
 
+    def setUp(self):
+        # parse_args checks a pool-add role against identities/roles/catalog.json, instance data a stripped tree does not carry: the
+        # catalogue is a stand-in here, so the parser's own refusal of a flag is what the cases below judge.
+        from unittest import mock
+        from control import pool
+        patcher = mock.patch.object(ctl, "check_pool_args", lambda args: pool.check_pool_args(args, known={"python-dev"}))
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
     def bare(self, args: list[str]) -> subprocess.CompletedProcess:
         home = tempfile.mkdtemp(prefix="ctl-help-")
         self.addCleanup(lambda: __import__("shutil").rmtree(home, ignore_errors=True))
