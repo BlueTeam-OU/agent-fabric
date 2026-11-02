@@ -433,8 +433,8 @@ def main() -> int:
     # pattern matching a child does not match "claude" too.
     tmp = tempfile.mkdtemp()
     os.symlink("/bin/bash", os.path.join(tmp, "claude"))
-    os.symlink("/bin/sleep", os.path.join(tmp, INBOX := "gzcoord-inbox"))
-    script = ('(exec -a "$SIB" sleep 3600) & s=$!; "$INB" 3601 & i=$!; echo "$s $i"; '
+    INBOX = "gzcoord-inbox"
+    script = ('(exec -a "$SIB" sleep 3600) & s=$!; (exec -a "$INB" sleep 3601) & i=$!; echo "$s $i"; '
               'while read -r f; do sh -c \'python3 "$0" < "$1"\' "$HOOK" "$f"; echo @@END; done; '
               'kill "$s" "$i"; wait')
     # The hook runs as the harness runs it, in its own process, so the
