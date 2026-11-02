@@ -332,6 +332,16 @@ def main() -> int:
     check("...or the independent one", rs.head_evidence(pi).startswith(" — an independent review (someone, abc123de"))
     check("...or says a verdict comment", rs.head_evidence(rs.Probe(head=HEAD, head_reviewed=True)) == " — a verdict comment on this head")
     check("an unreviewed head names nothing", rs.head_evidence(rs.Probe(head=HEAD)) == "")
+    # agent-fabric-fleetdeck#57: GitHub served a submitted_at in the future, out of the order the reviews were posted in.
+    early = dict(review("me", at="2099-01-01T00:00:00Z"), id=5727234329)
+    late = dict(review("me", at="2026-11-01T10:00:00Z"), id=5727518390)
+    pf = rs.Probe(head=HEAD, head_reviewed=True, buckets=rs.Buckets(blind=[late, early]))
+    check("the head line names the review posted last (the id), not the one GitHub dated in the future",
+          rs.head_evidence(pf).endswith("abc123de, 2026-11-01T10:00:00Z (posted under the account every session pushes as)"))
+    check("review order: the id before submitted_at; a row without an id first, then by time",
+          sorted([late, early, review("x", at="2026-01-02"), review("y", at="2026-01-01")], key=rs.review_order)
+          == [review("y", at="2026-01-01"), review("x", at="2026-01-02"), early, late])
+    check("...a bool is not an id", rs.review_order(dict(review("x"), id=True))[0] is False)
 
     ctx = rs.Ctx("77", "o/r", c, rs.Args())
     x = rs.Extras([{"path": "a.sh", "isOutdated": True}], 1, 2, 1)
