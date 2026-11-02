@@ -10,8 +10,7 @@
 # file, so a caller here is a second run. A project's settings rendered before the template learned the same
 # test still call this file by path, and a second run of a guard that rewrites the call judges its own
 # answer, not the call (j549). The workspace template's test, in builtins.
-managed=/etc/claude-code/managed-settings.json
-[[ -x /usr/local/bin/fabric-python && -r "$managed" && "$(<"$managed")" == *'"job-copy-guard"'* ]] && exit 0
+[[ -x /usr/local/bin/fabric-python && "$(</etc/claude-code/managed-settings.json)" == *'"job-copy-guard"'* ]] 2>/dev/null && exit 0
 here="${BASH_SOURCE[0]%/*}"; [[ "$here" == "${BASH_SOURCE[0]}" ]] && here=.
 module="$here/job-copy-guard.py"
 cannot_run() {
@@ -25,5 +24,4 @@ py=/usr/local/bin/fabric-python
 [[ -f "$module" ]] || cannot_run "its module is not beside it"
 # -I: no PYTHONPATH or user site can put a module of its own under the guard; -S: no site import.
 out="$("$py" -I -S "$module" 2>/dev/null)" || cannot_run "the guard failed"
-[[ -z "$out" ]] || printf '%s\n' "$out"
-exit 0
+[[ -z "$out" ]] || printf '%s\n' "$out"; exit 0

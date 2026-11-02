@@ -13,8 +13,7 @@
 # file, so a caller here is a second run. A project's settings rendered before the template learned the same
 # test still call this file by path, and a second run of a guard that rewrites the call judges its own
 # answer, not the call (j549). The workspace template's test, in builtins.
-managed=/etc/claude-code/managed-settings.json
-[[ -x /usr/local/bin/fabric-python && -r "$managed" && "$(<"$managed")" == *'"agent-dispatch-guard"'* ]] && exit 0
+[[ -x /usr/local/bin/fabric-python && "$(</etc/claude-code/managed-settings.json)" == *'"agent-dispatch-guard"'* ]] 2>/dev/null && exit 0
 here="${BASH_SOURCE[0]%/*}"; [[ "$here" == "${BASH_SOURCE[0]}" ]] && here=.
 module="$here/../../../tools/fabric/guards/dispatch_guard.py"
 cannot_run() {
@@ -32,5 +31,4 @@ py=/usr/local/bin/fabric-python
 # the same reason (the module says why not -I). -S: no site import, which
 # the stdlib-only guard never needs.
 out="$("$py" -I -S "$module" 2>/dev/null)" || cannot_run "the guard failed"
-[[ -z "$out" ]] || printf '%s\n' "$out"
-exit 0
+[[ -z "$out" ]] || printf '%s\n' "$out"; exit 0
