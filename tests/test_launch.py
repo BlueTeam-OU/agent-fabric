@@ -530,6 +530,8 @@ def main() -> int:
             launch.reexec = lambda env, args: calls.append((env, args)) or (_ for _ in ()).throw(SystemExit(0))
             saved = dict(os.environ)
             os.environ["AGENT_FABRIC_RESTART_WAIT_S"] = wait
+            # The running login's real declaration (an anthropic account adds --provider) must not reach the arguments.
+            os.environ["AGENT_FABRIC_RESUME_PROFILES"] = f"{tmp}/no-profiles.json"
             err = io.StringIO()
             try:
                 with redirect_stderr(err):
