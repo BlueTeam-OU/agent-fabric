@@ -488,15 +488,15 @@ its record disagree, the record wins. Look it up, never read it whole:
   review covers a head (rules 9–10).
 - A 2026-10-15 — pinned reads a detached head worktree (rule 10).
 - A 2026-10-16 — a review covers the commit it read (rule 6).
-- A 2026-10-22 — a supplier reviews none of its own part; the caller
-  reviews the folded head (rule 11).
-- A 2026-10-24 — pinned read tools in a proved sandbox, no Bash (rules
-  4/6; ADR-065).
-- A 2026-10-25 — the guard knows a supplier by its job's `deliver_to`
-  (rule 11).
+- A 2026-10-22 — a supplier dispatches no review of its own part; the
+  caller reviews the folded head (rule 11).
+- A 2026-10-24 — pinned read tools, proved sandbox, no Bash (rules 4/6;
+  ADR-065).
+- A 2026-10-25 — the guard also knows a supplier by its active job's
+  `deliver_to` (rule 11).
 - A 2026-10-30 — pre-commit hook and lint judge the card cap (rule
   9).
-- A 2026-11-02 — under a launch no model passes too (rule 2).
+- A 2026-11-02 — under a launch no model passes (rule 2).
 - Keywords: blind review, fabric-review, pr-review-status, coverage,
   review card, run_in_background.
 
