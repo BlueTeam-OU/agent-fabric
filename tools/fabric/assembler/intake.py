@@ -65,6 +65,10 @@ def open_layout(args: argparse.Namespace) -> str:
     working copy are, and the hygiene lists of all of them loaded."""
     if args.fabric:
         layout.FABRIC_ROOT = os.path.abspath(args.fabric)
+        # roots.operator_root() lets an exported AGENT_FABRIC_OPERATOR outrank the engine tree a caller was
+        # handed, so a run that named its tree wrote the domain and shared slices into the operator's instead
+        # (found 2026-11-02, j88). --fabric is the one tree this run reads and writes.
+        os.environ[layout.roots.ENV_OPERATOR] = layout.FABRIC_ROOT
     project = args.project
     if args.working_copy:
         layout.set_working_copy(project, args.working_copy)
