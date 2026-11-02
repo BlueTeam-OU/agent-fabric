@@ -540,6 +540,10 @@ def main() -> int:
         root = f"{sandbox}/repo"
         for src, _ in install_cpu_shims.PAYLOAD:
             os.makedirs(os.path.dirname(f"{root}/{src}"), exist_ok=True)
+            if src == "policies/host-load.json":
+                # instance data, absent from a stripped tree: the installer copies whatever the policy holds, so a stand-in will do
+                write_json(f"{root}/{src}", {"cores_per_slot": 4, "hosts": {HOST: {"cpu_slots": 2}}})
+                continue
             shutil.copy(f"{HERE}/{src}", f"{root}/{src}")
         first = install_cpu_shims.install(pfx, root)
         again = install_cpu_shims.install(pfx, root)
