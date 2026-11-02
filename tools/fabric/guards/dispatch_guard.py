@@ -277,7 +277,8 @@ def launch_pins(review: bool) -> tuple[dict, str, dict, dict]:
     # agent file (install-agent-files.sh writes it there at launch, for the
     # launch's provider, merged for this login — `pins --me`), and this
     # guard — AFTER the review rules have held, `model: fable` included —
-    # allows the dispatch with `model` removed, so the file's pin applies.
+    # allows the dispatch with `model` removed, so the file's pin applies,
+    # and allows that call again when the harness hands it back (j549).
     # The file is checked against the same resolution first: another launch
     # of this account on the other provider rewrites it, and a reviewer on a
     # model nothing chose for this session is denied, not run. Only under a
@@ -365,7 +366,14 @@ def decide(call) -> dict | None:
             return deny("code-review dispatch whose description does not BEGIN with review or re-review. The review "
                         "class is read-only and unisolated; a writing task under this type would run in the session "
                         "clone. Describe a review as one, or dispatch a normal agent with isolation worktree. " + SKILL)
-        if model != "fable":
+        pinned, file_model, routed_effort, file_effort = launch_pins(review=True)
+        pin = alt(pinned.get("code-review"), "")
+        # This guard's own answer must pass it again. With run_in_background set, Claude Code 2.1.286 runs the
+        # managed Agent hook a second time on the first run's updatedInput, the call below with `model` removed
+        # (docs/live-checks/2026-11-02-dispatch-hook-reruns-on-updated-input.md). Under a fabric launch that is
+        # no unset model: the reviewer runs on its agent file's pin, which the checks after this one hold to
+        # routing. Anywhere else unset still means the session model, and is denied.
+        if model != "fable" and not (raw_model is None and pin != ""):
             return deny(f'Review dispatch with model "{shown_model}". The review class rides the fable alias, always: '
                         "set model: fable. Not opus -- code-high rides opus, and one alias carries one exported "
                         "model, so a reviewer on opus is whatever code-high resolves to (on the broker, whatever the "
@@ -381,8 +389,6 @@ def decide(call) -> dict | None:
                         "it hurts: worktree.baseRef is head, so a reviewer in a worktree cannot see uncommitted work. "
                         "Omit isolation, pass the repository path, and tell the agent the tree is read-only and it "
                         "runs no git writes. " + SKILL)
-        pinned, file_model, routed_effort, file_effort = launch_pins(review=True)
-        pin = alt(pinned.get("code-review"), "")
         if pin != "" and file_model != pin:
             return deny(f'Review dispatch under a fabric launch, but the agent file of the reviewer says model '
                         f'"{file_model}" while this launch resolves code-review to "{pin}". Either another launch of '
