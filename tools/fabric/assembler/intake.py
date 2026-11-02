@@ -67,7 +67,8 @@ def open_layout(args: argparse.Namespace) -> str:
         layout.FABRIC_ROOT = os.path.abspath(args.fabric)
         # roots.operator_root() lets an exported AGENT_FABRIC_OPERATOR outrank the engine tree a caller was
         # handed, so a run that named its tree wrote the domain and shared slices into the operator's instead
-        # (found 2026-11-02, j88). --fabric is the one tree this run reads and writes.
+        # (found 2026-11-02, j88). --fabric is the one tree this run reads and writes; the flag phase's
+        # children (fabric-ctl, gzcoord-send) inherit it, so they read the fleet from --fabric too.
         os.environ[layout.roots.ENV_OPERATOR] = layout.FABRIC_ROOT
     project = args.project
     if args.working_copy:

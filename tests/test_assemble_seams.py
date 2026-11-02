@@ -350,7 +350,9 @@ def test_j485_a_slice_re_rendered_from_a_body_with_its_footer_carries_one(tmp: s
 def test_j88_a_run_writes_only_into_the_fabric_and_working_copy_it_names(tmp: str) -> None:
     """Every root a session can export, and the directory the command runs in, names another tree (a source
     account's checkout, in the incident): the run still writes into --fabric and --working-copy alone. Before the
-    fix an exported AGENT_FABRIC_OPERATOR outranked --fabric for the domain and shared slices."""
+    fix an exported AGENT_FABRIC_OPERATOR outranked --fabric for the domain and shared slices. Not covered, by
+    design (ADR-050 rule 8): the reads-state file, which lives in the login's state directory, never a tree;
+    isolated_state points that at a scratch directory, so HOME is not aimed at the decoy."""
     drain, claims_dir, out = ta.build(tmp, {"alpha": ta.claims("alpha", [
         {"class": "domain", "topic": "t", "title": "D", "body": "Domain text.", "evidence": ["h1"]},
         {"class": "solution", "topic": "t", "title": "S", "body": "Solution text.", "evidence": ["h1"]},
@@ -372,7 +374,7 @@ def test_j88_a_run_writes_only_into_the_fabric_and_working_copy_it_names(tmp: st
 
     before = tree(elsewhere)
     env = {**os.environ, "AGENT_FABRIC_ROOT": elsewhere, "AGENT_FABRIC_OPERATOR": elsewhere,
-           "AGENT_FABRIC_WORKING_COPY": elsewhere, "HOME": elsewhere}
+           "AGENT_FABRIC_WORKING_COPY": elsewhere}
     wc = ta.working_copy(out)
     os.makedirs(os.path.join(wc, ".agent-fabric"), exist_ok=True)
     proc = subprocess.run(
