@@ -5,6 +5,11 @@
 #
 # The fleet's pinned Python (runtime/python.json, ADR-040), one per host;
 # AGENT_FABRIC_PYTHON points elsewhere for a test or a host without it.
+# Stand down where the managed settings run this guard: hook_entry.py runs its module directly, never this
+# file, so a caller here is a second run. A project's settings rendered before the template learned the same
+# test still call this file by path, and a second run of a guard that rewrites the call judges its own
+# answer, not the call (j549). The workspace template's test, in builtins.
+[[ -x /usr/local/bin/fabric-python && "$(</etc/claude-code/managed-settings.json)" == *'"plan-hold"'* ]] 2>/dev/null && exit 0
 py="${AGENT_FABRIC_PYTHON:-/usr/local/bin/fabric-python}"
 # A hook keeps the script's contract, exit 0: a non-zero hook is an error notice on every call. The status line
 # shows the missing pin; this one says it on stderr and does nothing.

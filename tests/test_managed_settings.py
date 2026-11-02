@@ -191,6 +191,40 @@ def main() -> int:
               r2.stdout)
         check("…present, nothing", r4.returncode == 0 and r4.stdout == "", r4.stdout)
 
+        # A project's settings rendered before the template had the gate call the forwarder by path, ungated (j549):
+        # the forwarder carries the same test. Its managed file and pinned interpreter are aimed at scratch, the
+        # interpreter one that marks it ran; alone in scratch a forwarder that checks for its module asks instead.
+        fake_py = os.path.join(tmp, "fabric-python")
+        write(fake_py, f"#!/bin/sh\ntouch {tmp}/forwarder-ran\n", 0o755)
+        stale = {}
+        for script, name in MOVED.items():
+            if not script.endswith(".sh"):
+                continue
+            text = open(os.path.join(ROOT, "runtime", "claude-code", "hooks", script), encoding="utf-8").read()
+            copy = os.path.join(tmp, "stale", script)
+            write(copy, text.replace("/etc/claude-code/managed-settings.json", flag)
+                  .replace("/usr/local/bin/fabric-python", fake_py), 0o755)
+
+            def forwarded(managed: str | None) -> bool:
+                if managed is None:
+                    if os.path.exists(flag):
+                        os.remove(flag)
+                else:
+                    write(flag, managed)
+                if os.path.exists(os.path.join(tmp, "forwarder-ran")):
+                    os.remove(os.path.join(tmp, "forwarder-ran"))
+                r = subprocess.run(["bash", copy], input="{}", env={"PATH": "/usr/bin:/bin"}, capture_output=True,
+                                   text=True, timeout=30)
+                return r.returncode != 0 or r.stdout != "" or os.path.exists(os.path.join(tmp, "forwarder-ran"))
+
+            other = "self-kill-guard"
+            stale[script] = (forwarded(None), forwarded(json.dumps({"x": [other]})),
+                             forwarded(json.dumps({"hooks": {"PreToolUse": [{"hooks": [{"args": ["-I", "-S", "e", name]}]}]}})))
+        check("every moved forwarder: no managed file, it forwards; one naming only another guard, it forwards",
+              all(a and o for a, o, _n in stale.values()) and len(stale) == 6, stale)
+        check("every moved forwarder: a managed file naming its guard, it exits 0 at once and nothing runs",
+              not any(n for _a, _o, n in stale.values()), stale)
+
         print("managed settings: install")
         repo = os.path.join(tmp, "repo")
         os.makedirs(repo)

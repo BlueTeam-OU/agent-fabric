@@ -27,8 +27,8 @@ from instance_fixtures import own_instance_tree  # noqa: E402 — tests/, the sc
 own_instance_tree()
 
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-UNDER_TEST = os.path.abspath(os.environ.get("DISPATCH_GUARD") or os.path.join(
-    HERE, "runtime", "claude-code", "hooks", "agent-dispatch-guard.sh"))
+import hook_harness  # noqa: E402
+UNDER_TEST = os.path.abspath(os.environ.get("DISPATCH_GUARD") or hook_harness.unmanaged("agent-dispatch-guard.sh"))
 if not os.path.isfile(UNDER_TEST):
     sys.exit(f"test: not found: {UNDER_TEST}")
 
@@ -272,8 +272,16 @@ def main() -> int:
     check("the reason names the pinned model", "claude-opus-5[1m]" in out, out)
     out = vanilla('{"subagent_type":"code-review","model":"opus","description":"Review PR 626 diff"}')
     check("the fable rule still holds first: a review on opus is denied even here", dec(out) == "deny", out)
-    out = vanilla('{"subagent_type":"code-review","description":"Review PR 626 diff"}')
-    check("…and an unset model is still denied (the dispatcher writes fable; the guard drops it)", dec(out) == "deny", out)
+    # The harness hands the guard its own answer back: with run_in_background set, Claude Code 2.1.286 runs the
+    # managed hook again on the first run's updatedInput (docs/live-checks/2026-11-02-dispatch-hook-reruns-on-updated-
+    # input.md). Outside a fabric launch the unset model stays denied (above, "review type with model unset").
+    out = vanilla(json.dumps(ui))
+    check("the guard's own answer, run through it again: allowed, still without a model", dec(out) == "allow"
+          and "model" not in (field(out, "hookSpecificOutput", "updatedInput") or {"model": 1}), out)
+    reviewer_file("claude-sonnet-5")
+    out = vanilla(json.dumps(ui))
+    check("…but the reviewer file is still held to routing on that second run", dec(out) == "deny" and "rewritten" in out, out)
+    reviewer_file("claude-opus-5[1m]")
     out = vanilla('{"subagent_type":"code-high","model":"opus","isolation":"worktree","description":"Fix the parser"}')
     check("a coding class is untouched: code-high still asks and keeps its alias (its pin is the export)", dec(out) == "ask", out)
     out = vanilla('{"subagent_type":"code-plan","model":"fable","isolation":"worktree","description":"Plan the migration"}')

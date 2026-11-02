@@ -140,3 +140,20 @@ committer's commit that stages the card over the cap and judges no
 commit that leaves the card alone; and lint, which a project CI that
 lints its `.agent-fabric/` already runs, for what passed the hook
 (a `--no-verify` commit, a web edit). j475.
+
+### Amendment 2026-11-02 — The guard passes its own answer
+
+§5 rule 2 had the guard drop `model: fable` under a fabric launch, so
+the reviewer's agent file decides, and deny every other shape. Claude
+Code 2.1.286 runs the managed Agent hook a second time on that answer
+when the dispatch sets `run_in_background`
+(docs/live-checks/2026-11-02-dispatch-hook-reruns-on-updated-input.md),
+and the guard denied its own answer as an unset model, so no review
+could be dispatched in the background. Under a fabric launch that
+resolves a `code-review` pin, a dispatch with no `model` now passes;
+the agent file's model and effort are still checked against routing,
+so the reviewer runs on nothing routing did not choose. The guard
+cannot tell that second run from a first call with no model, and needs
+not: both run on the routed model. Anywhere else an unset model means
+the session model and is still denied. Raised by #458's blind review,
+F1. j549.

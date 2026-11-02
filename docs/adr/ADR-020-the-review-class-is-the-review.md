@@ -89,7 +89,10 @@ outage procedure.
    `agent-dispatch-guard.sh` denies any other shape, and under a fabric
    launch drops the alias so the agent file's routed model decides,
    denying the dispatch when that file's model or effort no longer
-   matches the launch.
+   matches the launch. Under a fabric launch that resolves a pin for
+   the class, a dispatch with no `model` passes the same checks: it is
+   the guard's own answer, which the harness runs through it again;
+   anywhere else an unset model is denied.
 3. The reviewer's model is chosen by routing for the `code-review`
    capability within `routing/policies/review-grade.json`'s closed set;
    lint refuses a committed profile outside it and the launcher refuses
@@ -258,3 +261,4 @@ The body above reads current; each change's full note is in [history/ADR-020-ame
 | 2026-10-24 | The reviewer reads through pinned tools and posts nothing headerless | §5 rule 4: no Bash, the fabric-review tools and a proved sandbox (ADR-065); rule 6: no headerless `--head` post |
 | 2026-10-25 | The guard also knows a supplier by its job | §5 rule 11: the dispatch guard denies a review from inside the active job's worktree or working copy when the job has a `deliver_to`, on any branch |
 | 2026-10-30 | The card's cap is judged at commit and in CI | §5 rule 9: `CARD_CAP` lives in `tools/fabric/review_card.py`; the pre-commit hook refuses a commit that stages the card over it, whoever commits, and lint refuses a tree that holds one, so a project CI catches what passed the hook; a project's card had grown past it over two commits that nothing refused |
+| 2026-11-02 | The guard passes its own answer | §5 rule 2: under a fabric launch that resolves a `code-review` pin, a review dispatch with no `model` passes, the agent file still held to routing; the harness runs the managed hook again on its `updatedInput` when the dispatch sets `run_in_background`; elsewhere an unset model is denied |

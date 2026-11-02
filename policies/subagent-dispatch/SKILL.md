@@ -54,7 +54,10 @@ decision into a hook that cannot read `routing/`.
 Pinning the tier on every call is also what keeps a campaign
 reproducible: if the session model changes while a batch is in flight,
 unset-field agents change with it. The hook denies an unset `model`, a
-class on the wrong alias, and prompts on a premium one.
+class on the wrong alias, and prompts on a premium one. One exception:
+under a fabric launch a review with no `model` passes, because that is
+the guard's own answer when the harness runs it a second time; write
+`fable` all the same.
 
 ### Review is the standing premium-alias exception (`fable`)
 
@@ -134,7 +137,11 @@ workspace settings bootstrap writes register (the `PreToolUse` hook for `Agent`;
    whose charter is review-only;
 2. `description` that BEGINS with `review` or `re-review`;
 3. `model: "fable"` — the review class's alias, checked and then, under
-   a fabric launch, removed so the agent file's pinned model applies;
+   a fabric launch, removed so the agent file's pinned model applies.
+   There a call with no `model` passes too: with `run_in_background`
+   set, Claude Code runs the hook again on that answer
+   (read back on 2.1.286, in docs/live-checks/),
+   and the agent file's model is still checked against routing;
 4. **no `isolation`** at all;
 5. a session **not on a `<host>/<login>/for/` branch**: a supplier
    dispatches no review of its own part, the integrator's review covers

@@ -486,20 +486,19 @@ its record disagree, the record wins. Look it up, never read it whole:
   (rule 4).
 - A 2026-10-14 — the card governs from the base; only a `pinned`
   review covers a head (rules 9–10).
-- A 2026-10-15 — a pinned review reads a detached head worktree (rule
-  10).
+- A 2026-10-15 — pinned reads a detached head worktree (rule 10).
 - A 2026-10-16 — a review covers the commit it read (rule 6).
 - A 2026-10-22 — a supplier dispatches no review of its own part; the
   caller reviews the folded head (rule 11).
-- A 2026-10-24 — pinned read tools in a proved sandbox, no Bash (rules
-  4, 6; ADR-065).
+- A 2026-10-24 — pinned read tools, proved sandbox, no Bash (rules 4/6;
+  ADR-065).
 - A 2026-10-25 — the guard also knows a supplier by its active job's
   `deliver_to` (rule 11).
 - A 2026-10-30 — pre-commit hook and lint judge the card cap (rule
   9).
-- Keywords: review, blind review, code-review, re-review, brief,
-  fabric-review, post-review, pr-review-status, marker, coverage,
-  review card, pinned, supplier.
+- A 2026-11-02 — under a launch no model passes (rule 2).
+- Keywords: blind review, fabric-review, pr-review-status, coverage,
+  review card, run_in_background.
 
 ### ADR-021 — A test run leaves nothing it did not find (Accepted)
 

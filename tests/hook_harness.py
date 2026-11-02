@@ -18,6 +18,7 @@ locale or proxy.
 """
 from __future__ import annotations
 
+import atexit
 import os
 import shutil
 import subprocess
@@ -32,11 +33,53 @@ TIMEOUT_S = 60
 
 
 def entry(variable: str, filename: str) -> str:
-    """The hook under test: $<variable> when set, else the tracked one. Exits when it is not there."""
-    path = os.path.abspath(os.environ.get(variable) or os.path.join(HOOKS, filename))
+    """The hook under test: $<variable> when set, else the tracked one, through unmanaged(). Exits when it is not
+    there."""
+    path = os.path.abspath(os.environ.get(variable) or unmanaged(filename))
     if not os.path.isfile(path):
         sys.exit(f"test: not found: {path}")
     return path
+
+
+# A forwarder whose guard the managed settings also run stands down where the host's managed file names that guard
+# (j549). A fleet host has the file, so the tracked forwarder would exit 0 there before its guard ran, and CI has
+# none: the same test would judge two different programs. A test reaches the guard through a copy whose managed path
+# names no file, in an overlay that is otherwise the tree itself (symlinks), so every path the forwarder walks from
+# its own directory lands where it would.
+MANAGED_FILE = "/etc/claude-code/managed-settings.json"
+_overlay: list[str] = []
+
+
+def unmanaged(filename: str) -> str:
+    """The forwarder runtime/claude-code/hooks/<filename> as a host without managed settings runs it; a hook that
+    reads no managed file is its tracked path."""
+    tracked = os.path.join(HOOKS, filename)
+    try:
+        with open(tracked, encoding="utf-8") as f:
+            text = f.read()
+    except OSError:
+        return tracked
+    if MANAGED_FILE not in text:
+        return tracked
+    if not _overlay:
+        top = tempfile.mkdtemp(prefix="unmanaged-hooks-")
+        atexit.register(shutil.rmtree, top, True)
+        _overlay.append(top)
+        here, mirror = ROOT, top
+        for part in ("runtime", "claude-code", "hooks", None):
+            for name in os.listdir(here):
+                if name != part:
+                    os.symlink(os.path.join(here, name), os.path.join(mirror, name))
+            if part:
+                here, mirror = os.path.join(here, part), os.path.join(mirror, part)
+                os.mkdir(mirror)
+    copy = os.path.join(_overlay[0], "runtime", "claude-code", "hooks", filename)
+    if os.path.islink(copy):
+        os.remove(copy)
+        with open(copy, "w", encoding="utf-8") as f:
+            f.write(text.replace(MANAGED_FILE, os.path.join(_overlay[0], "no-managed-settings.json")))
+        shutil.copymode(tracked, copy)
+    return copy
 
 
 def sandbox(prefix: str) -> str:
