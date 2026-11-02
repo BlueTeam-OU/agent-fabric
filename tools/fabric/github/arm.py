@@ -104,7 +104,9 @@ that role, carrying
 for this repository, PR and current head. The same checks and exit codes as a waiver; unlike a waiver it drops no
 gate: the head's review and the open threads are judged first, whatever it says. A policy with no boundary_authority
 refuses it for a security-boundary change; one with no below_min_authority does not read it for any other PR, which
-then needs the owner's word. The comment records who authorized it and the message. arm.json's waiver_role stays the
+then needs the owner's word. The comment records who authorized it and the message. Beside a basis that gives the
+owner's word on a PR under its minimum it is that word as relayed: read and checked the same way but for the role (the
+owner holds none), it can only refuse, and the comment records who relayed it. arm.json's waiver_role stays the
 waiver's.
 THE WORD OF A ROLE UNDER THE MINIMUM (the owner, 2026-10-19). A PR under its minimum arms without the owner's word on
 the word of the policy's authority role: commits.boundary_authority for a security-boundary change,
@@ -592,6 +594,9 @@ def verify_grant(ref: str, num: str, repo: str, head: str, session: str, role: s
 
     def deny(why: str):
         """The refusal, with whom to ask for a message that would hold."""
+        if not role:
+            return refuse(f"{why} — ask whoever relayed the owner's word to send you, TO this session, a DECISION or REPLY"
+                          f" carrying `{field}: {repo}#{num}@{head[:8]}`, or arm on the basis alone without {option}")
         return refuse(f"{why} — {ask_a_holder(role, field, repo, num, head, option, (session.split('/')[-1], author))}")
     rc, out = run_reader(program("AGENT_FABRIC_GZCOORD_INBOX",
                                  os.path.join(FABRIC, "bin", "gzcoord-inbox")),
@@ -641,6 +646,8 @@ def verify_grant(ref: str, num: str, repo: str, head: str, session: str, role: s
         raise deny(f"the {word} {ref} {field} head {m.group(3)}, and #{num}'s head is now {head[:12]}"
                      f" — an approval of one head arms no other")
     host, login = sender.split("/", 1)
+    if not role:
+        return login, mid
     held = held_role(host, login, f"the {word}")
     if held != role:
         raise deny(f"the {word} {ref} is from {login}, who holds {held or 'no role'}, not {role}")
@@ -1186,7 +1193,7 @@ def arm(argv: list[str]) -> int:
     authority = policy["commits"].get(authority_key)
     own_prs = policy["commits"].get("authority_own_prs", False)
     author = author_of(branch)
-    authorized_by = ""
+    authorized_by = relayed_by = ""
     if under and not has_owner_word(basis):
         # The basis claims the role's word only by the phrase, as the owner's does; the claim is then checked against
         # the session's binding, never taken as said.
@@ -1219,6 +1226,15 @@ def arm(argv: list[str]) -> int:
                                  f" not {authority}: {lift_hint(authority, authority_key, repo, num, head, session, author, own_prs)}")
                 authorized_by = f"{label} lifted by {login}, holding {authority} by its binding."
                 say(f"count gate lifted by {login}, who holds {authority} by its binding, in the owner's place")
+    elif authorization and under:
+        # The basis gives the owner's word, and a message is named as well: the word as it was relayed. Dropped
+        # unread, its AUTHORIZES head was checked by nobody (REQUEST 01a19b05, 2026-11-01), so it is
+        # read as any authorization is, but for the role: the owner holds none, and the basis is what arms. It can
+        # only refuse, never lift a minimum the basis did not.
+        login, mid = verify_grant(authorization, num, repo, head, session, "", refuse,
+                                  word="authorization", field="AUTHORIZES", author="" if own_prs else author)
+        relayed_by = f"The owner's word relayed by {login} ({mid})."
+        say(f"the owner's word, as {login} relayed it ({mid}), authorizes {repo}#{num}@{head[:8]}")
     elif authorization:
         say(f"no authorization is needed: the authorization {authorization} is not read, and not recorded")
     word = has_owner_word(basis) or bool(authorized_by)
@@ -1289,8 +1305,8 @@ def arm(argv: list[str]) -> int:
         comment += f" No CI: {base} has no workflow and the head carries no check; armed on the owner's no-CI word."
     if waived_by:
         comment += f" {waived_by}"
-    if authorized_by:
-        comment += f" {authorized_by}"
+    if authorized_by or relayed_by:
+        comment += f" {authorized_by or relayed_by}"
     if engines_out:
         comment += f" {engines_out}"
     if deferred:
