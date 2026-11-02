@@ -753,7 +753,7 @@ def sandbox_cases(server, call, head, base, clone, evidence, scratch, home, secr
                              capture_output=True, text=True, timeout=30)
     accepted = subprocess.run(["bwrap", "--unshare-all", "--ro-bind", "/", "/", "--ro-bind", mount_scratch, "/mnt", "--tmpfs", "/mnt/dir", "--", "/usr/bin/true"],
                               capture_output=True, text=True, timeout=30)
-    check("control: this bwrap refuses a tmpfs on a symlink destination and accepts one on a directory",
+    check("control: this bwrap refuses a tmpfs on a symlink destination and accepts one on a directory" + f" DIAG {refused.returncode} {refused.stderr!r} {accepted.returncode} {accepted.stderr!r}",
           refused.returncode != 0 and "symlink" in refused.stderr and accepted.returncode == 0, refused.stderr + accepted.stderr)
     link_usr = os.path.join(scratch, "usr-link")
     where = {k: subprocess.run(["git", "-C", d, "rev-parse", "--path-format=absolute", flag], capture_output=True, text=True, timeout=30).stdout.strip()
