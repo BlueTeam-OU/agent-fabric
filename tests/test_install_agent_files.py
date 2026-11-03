@@ -36,12 +36,17 @@ if os.path.exists(os.path.join(d, "fail-" + sys.argv[1])):
     sys.exit(3)
 sys.stdout.write(open(os.path.join(d, sys.argv[1] + ".txt")).read())
 """
+# Run, it is `identity.py --role`, answering role.txt; imported (fabric_writes
+# resolves the state directory through it), it is the real module beside it.
 IDENTITY_STUB = """\
 import os, sys
-p = os.path.join(os.path.dirname(os.path.abspath(__file__)), "role.txt")
-if not os.path.exists(p):
-    sys.exit(1)
-print(open(p).read().strip())
+if __name__ != "__main__":
+    from identity_real import *  # noqa: F401,F403
+else:
+    p = os.path.join(os.path.dirname(os.path.abspath(__file__)), "role.txt")
+    if not os.path.exists(p):
+        sys.exit(1)
+    print(open(p).read().strip())
 """
 INSTALL_STUB = """\
 import json, os, sys
@@ -89,6 +94,7 @@ def main() -> int:
             for sibling in ("fabric_writes.py", "launch_locale.py", "roots.py"):
                 shutil.copy(os.path.join(os.path.dirname(MODULE), sibling), os.path.join(root, "tools", "fabric"))
             shutil.copytree(AGENTS, os.path.join(root, "runtime", "claude-code", "agents"))
+            shutil.copy(os.path.join(HERE, "runtime", "identity.py"), os.path.join(root, "runtime", "identity_real.py"))
             for rel, body in (("tools/fabric/routing.py", ROUTING_STUB), ("runtime/identity.py", IDENTITY_STUB),
                               ("runtime/mcp/websearch-locale/install.py", INSTALL_STUB), ("runtime/mcp/fabric-memory/install.py", MEMORY_STUB),
                               ("runtime/mcp/fabric-review/install.py", REVIEW_STUB)):

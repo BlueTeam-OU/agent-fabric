@@ -4,7 +4,7 @@ differs from what the fabric wrote — ok, edited, missing, unreadable and
 stale, the streams and the exit status, and that it only reads.
 
 Two kinds of fixture. The classes are driven through the installed wrapper
-copied, with the module and fabric_writes.py, into a scratch checkout whose
+copied, with the module, fabric_writes.py and runtime/identity.py, into a scratch checkout whose
 tools/fabric/bootstrap.py is a stand-in printing the dry run's lines the case
 chooses (its output grammar is the contract the module reads; the real one
 is run in the last cases, against a scratch HOME). Nothing here reads this
@@ -71,6 +71,9 @@ class World:
         shutil.copy(os.path.join(ROOT, "bin", "fabric-drift"), os.path.join(self.root, "bin", "fabric-drift"))
         for m in ("account_drift.py", "fabric_writes.py"):
             shutil.copy(os.path.join(ROOT, "tools", "fabric", m), os.path.join(self.root, "tools", "fabric", m))
+        # fabric_writes.py resolves the state directory through identity (ADR-003 rule 1)
+        os.makedirs(os.path.join(self.root, "runtime"))
+        shutil.copy(os.path.join(ROOT, "runtime", "identity.py"), os.path.join(self.root, "runtime", "identity.py"))
         with open(os.path.join(self.root, "tools", "fabric", "bootstrap.py"), "w") as f:
             f.write(STUB)
         self.dry("", rc=0)

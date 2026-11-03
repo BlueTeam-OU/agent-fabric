@@ -469,6 +469,8 @@ def main() -> int:
         for f in ("provisioning/launch_record.py", "fabric_writes.py", "launch_provider_record.py"):
             os.makedirs(os.path.dirname(f"{src}/tools/fabric/{f}"), exist_ok=True)
             shutil.copy2(f"{ROOT}/tools/fabric/{f}", f"{src}/tools/fabric/{f}")
+        os.makedirs(f"{src}/runtime", exist_ok=True)
+        shutil.copy2(f"{ROOT}/runtime/identity.py", f"{src}/runtime/identity.py")  # fabric_writes.py resolves the state dir through it
         # Step 7b runs the carrier's client-unit installer from the account's clone, which reads its source beside it.
         for f in ("tools/fabric/gzcoord/carrier/install_client.py", "runtime/interweave/client"):
             os.makedirs(os.path.dirname(f"{src}/{f}"), exist_ok=True)

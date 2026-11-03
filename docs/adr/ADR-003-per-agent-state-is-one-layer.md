@@ -4,7 +4,7 @@
 **Status:** Accepted
 **Ratified:** owner, 2026-09-27, by arming agent-fabric #51 (ratification by merge, the owner's rule of 2026-09-27)
 **Decision Makers:** fabric-coordinator, on the review of 2026-09-16 (items 1, 2, 5, 6)
-**Scope:** everything under `${XDG_STATE_HOME:-~/.local/state}/agent-fabric/agents/<login>/`; runtime/identity.py; tools/fabric/role.py, runtime/claude-code/hooks/session-start.py, runtime/provisioning/rename_history.py and rename-working-copy.sh; the session hooks' state (runtime/claude-code/hooks/session-state.py, context-sample.py); the control code's state writers (tools/fabric/control/: upgrade.py's restart.json, agentd.py's ActionLedger, pool.py, breakglass.py's and switch_log.py's logs)
+**Scope:** everything under `${XDG_STATE_HOME:-~/.local/state}/agent-fabric/agents/<login>/`; runtime/identity.py; tools/fabric/role.py, tools/fabric/state_writes.py and policies/state-writers.json, runtime/claude-code/hooks/session-start.py, runtime/provisioning/rename_history.py and rename-working-copy.sh; the session hooks' state (runtime/claude-code/hooks/session-state.py, context-sample.py); the control code's state writers (tools/fabric/control/: upgrade.py's restart.json, agentd.py's ActionLedger, pool.py, breakglass.py's and switch_log.py's logs)
 **Pillar:** P1
 
 ## 1. Context and Problem
@@ -155,7 +155,18 @@ state file an obvious place to get its writer.
    `agent_lock` yet (a known gap, to close) (A 2026-10-05). A lock
    file (§2) is not a write of state: one opened only to hold a
    `flock`, never written, read, truncated or removed, mode 0600, needs
-   no writer in `identity.py` (A 2026-10-31).
+   no writer in `identity.py` (A 2026-10-31). Rule 1 is checked, not
+   only stated: `tools/fabric/state_writes.py` finds a module that
+   resolves the per-agent state directory (through `identity`, as a
+   `state_dir` parameter, or by reading `AGENT_FABRIC_STATE_DIR` itself,
+   a copy of the resolution) and writes a file, and a `.lock` opened off
+   a lock file's terms;
+   lint judges the tree and the pre-commit hook the staged modules.
+   Such a module is named in `policies/state-writers.json` with why: the
+   clause above that admits it, `not state:` and what it writes, or
+   `gap (jNNN):` and the job that closes it. An entry that admits
+   nothing is itself a finding, so a gap's entry leaves with its fix
+   (A 2026-11-03).
 2. Every read-modify-write of per-agent state holds `agent_lock`, except
    the control code's own files (§2), which only it writes and the
    launcher only consumes; `restart.json` has a second writer,
@@ -188,6 +199,8 @@ state file an obvious place to get its writer.
 
 - `tests/test_identity.py` proves the lock with four processes racing one
   counter and one history file; `tests/test_rename_history.py` the merge.
+- `tests/test_state_writes.py` holds rule 1's guard and its lint part;
+  `tests/test_githook_pre_commit.py` (`StateWrites`) its pre-commit leg.
 - A shared home no longer carries a role between hosts; the cost is a
   rebind on each host an account is used from.
 
@@ -209,6 +222,8 @@ Accepted and in force.
   `runtime/provisioning/rename-working-copy.sh`.
 - `tests/test_identity.py`, `tests/test_rename_history.py`,
   `tests/test_session_state.py`, `tests/test_context_sample.py`.
+- `tools/fabric/state_writes.py`, `tools/fabric/lint_rules/state.py`,
+  `policies/state-writers.json`, `tests/test_state_writes.py`.
 - ADR-002 (the dimensions this state belongs to).
 
 ## Amendments
@@ -225,3 +240,4 @@ The body above reads current; each change's full note is in [history/ADR-003-ame
 | 2026-10-30 | The role pool is rewritten under its own lock | §2, §5 rule 2: `pool.json`'s read-modify-write holds a flock on `pool.json.lock` (#423); the gap is closed |
 | 2026-10-31 | A lock file is not state | §2, §5 rule 1: a file opened `O_CREAT` only to hold a `flock` (`.lock`, `pool.json.lock`, `busy-*`), never written, read, truncated or removed, mode 0600, is outside rule 1 |
 | 2026-11-01 | The session hooks write through `identity.py`, under their own lock files | §2, §5 rule 2: `session-state.json` and `session-context.json` replaced by `atomic_write`, read-modify-write under a `flock` on their `.lock` beside them, never `agent_lock`; both lock files 0600 |
+| 2026-11-03 | Rule 1 has a guard, and its exceptions a list | §5 rule 1: `state_writes.py` in lint and at pre-commit; `policies/state-writers.json` names each admitted module and why, gaps with their jobs; `fabric_writes.py` writes through `identity` |

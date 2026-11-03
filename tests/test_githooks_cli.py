@@ -215,7 +215,7 @@ def run() -> None:
     shutil.copy2(f"{FABRIC}/tools/fabric/guards/commit_hooks.py", f"{REPO}/tools/fabric/guards/")
     shutil.copy2(f"{FABRIC}/tools/fabric/guards/secret_values.py", f"{REPO}/tools/fabric/guards/")   # the value check it runs first
     shutil.copy2(f"{FABRIC}/tools/fabric/roots.py", f"{REPO}/tools/fabric/")   # which commit_hooks.py spells its policy path with
-    for m in ("agent_text.py", "hidden_unicode.py", "review_card.py"):   # the hidden-text and card checks commit_hooks.py runs for every committer
+    for m in ("agent_text.py", "hidden_unicode.py", "review_card.py", "state_writes.py"):   # the hidden-text, card and state-write checks commit_hooks.py runs for every committer
         shutil.copy2(f"{FABRIC}/tools/fabric/{m}", f"{REPO}/tools/fabric/")
     git("config", "core.hooksPath", f"{REPO}/policies/githooks")
     git("add", "-A"); git("-c", "core.hooksPath=/dev/null", "commit", "-qm", "hooks in place")

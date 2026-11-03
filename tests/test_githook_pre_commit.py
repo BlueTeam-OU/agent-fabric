@@ -638,5 +638,85 @@ class HiddenUnicode(PreCommit):
         self.assertEqual((r.returncode, r.stderr), (0, ""))
 
 
+class StateWrites(PreCommit):
+    """In agent-fabric itself a staged module that resolves the per-agent state directory and writes a file, or opens a lock
+    file off its terms, is refused whoever commits, unless the policy the commit stages names it (ADR-003 rule 1,
+    tools/fabric/state_writes.py). Mutations: the call removed from pre_commit (the refusal cases); the policy read from
+    the work tree instead of the index (the unstaged-entry case); the check run in a managed project too (the project case);
+    a removed entry's module left unjudged (the drop case); the not-JSON refusal turned into an empty list (the not-JSON case)."""
+
+    WRITER = "import identity\n\ndef save(doc):\n    with open(identity.agent_state_dir() + '/x.json', 'w') as f:\n        f.write(doc)\n"
+    POLICY = "policies/state-writers.json"
+
+    def setUp(self):
+        self.build(owner_role="fabric-coordinator")
+
+    def test_a_staged_writer_is_refused_for_the_owner_too(self):
+        repo = self.fabric.itself()
+        repo.stage("tools/fabric/x.py", self.WRITER)
+        self.fabric.bind("fabric-coordinator")
+        r = self.run_hook(repo)
+        self.assertEqual(r.returncode, 1, r.stderr)
+        self.assertIn("tools/fabric/x.py:4: open(..., 'w') in a module that resolves the per-agent state directory", r.stderr)
+        self.assertIn("ADR-003 rule 1", r.stderr)
+
+    def test_a_lock_off_its_terms_is_refused_in_any_module(self):
+        repo = self.fabric.itself()
+        repo.stage("tools/fabric/y.py", "import fcntl\n\ndef hold(p):\n    return open(p + '.lock', 'a')\n")
+        self.fabric.bind("fabric-coordinator")
+        r = self.run_hook(repo)
+        self.assertEqual(r.returncode, 1, r.stderr)
+        self.assertIn("tools/fabric/y.py:4: a .lock file opened by builtin open() takes the umask", r.stderr)
+
+    def test_the_staged_policy_admits_and_an_unstaged_entry_does_not(self):
+        repo = self.fabric.itself()
+        repo.stage("tools/fabric/x.py", self.WRITER)
+        repo.write(self.POLICY, json.dumps({"writers": {"tools/fabric/x.py": "not state: a test"}}))
+        self.fabric.bind("fabric-coordinator")
+        self.assertEqual(self.run_hook(repo).returncode, 1)
+        repo.git("add", self.POLICY)
+        r = self.run_hook(repo)
+        self.assertEqual((r.returncode, r.stderr), (0, ""))
+
+    def test_a_commit_that_only_drops_an_entry_judges_its_module(self):
+        # Mutation: the module of a removed entry not judged (a commit staging only the list returns early).
+        entry = json.dumps({"writers": {"tools/fabric/x.py": "not state: a test"}})
+        repo = self.fabric.itself({"tools/fabric/x.py": self.WRITER, self.POLICY: entry})
+        repo.write(self.POLICY, json.dumps({"writers": {}}))
+        repo.git("add", self.POLICY)
+        self.fabric.bind("fabric-coordinator")
+        r = self.run_hook(repo)
+        self.assertEqual(r.returncode, 1, r.stderr)
+        self.assertIn("tools/fabric/x.py:4: open(..., 'w')", r.stderr)
+
+    def test_a_list_that_is_not_json_refuses(self):
+        repo = self.fabric.itself()
+        repo.stage("tools/fabric/x.py", "x = 1\n")
+        repo.stage(self.POLICY, "{")
+        self.fabric.bind("fabric-coordinator")
+        r = self.run_hook(repo)
+        self.assertEqual(r.returncode, 1, r.stderr)
+        self.assertIn("pre-commit: the staged policies/state-writers.json is not JSON — not committed", r.stderr)
+
+    def test_a_module_that_is_not_utf8_is_said(self):
+        repo = self.fabric.itself()
+        full = os.path.join(repo.path, "tools", "fabric", "z.py")
+        os.makedirs(os.path.dirname(full), exist_ok=True)
+        with open(full, "wb") as fh:
+            fh.write(b"x = '\xff'\n")
+        repo.git("add", "-A")
+        self.fabric.bind("fabric-coordinator")
+        r = self.run_hook(repo)
+        self.assertEqual(r.returncode, 1, r.stderr)
+        self.assertIn("tools/fabric/z.py: not UTF-8; ADR-003 rule 1 is not judged", r.stderr)
+
+    def test_a_managed_projects_python_is_not_judged(self):
+        repo = self.fabric.project()
+        repo.stage("tools/x.py", self.WRITER)
+        self.fabric.bind("backend-dev")
+        r = self.run_hook(repo)
+        self.assertEqual((r.returncode, r.stderr), (0, ""))
+
+
 if __name__ == "__main__":
     unittest.main()
