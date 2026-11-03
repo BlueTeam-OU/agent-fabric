@@ -65,8 +65,8 @@ SHOW_WIDTH = 400   # the text report cuts a message here; --json keeps it whole
 
 _STAMP = re.compile(r"^(\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d)(?:\.\d+)?Z ?")
 _ANSI = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
-_MARKED = re.compile(r"^##\[(warning|notice)\](.*)$")
-_GROUP = re.compile(r"^##\[group\](.*)$")
+_MARKED = re.compile(r"##\[(warning|notice)\](.*)")
+_GROUP = re.compile(r"##\[group\](.*)")
 # The groups the runner and a `run:` step open for what they echo — the header's
 # image and permissions, the script, the env — whose lines are not the step's output.
 _ECHO_GROUP = re.compile(r"^(?:Run |Runner Image|Operating System|GITHUB_TOKEN Permissions|Job defined at)")
@@ -103,13 +103,13 @@ def parse_log(text: str) -> list[tuple[dt.datetime | None, str, str]]:
         stamp = _STAMP.match(raw)
         when = _second(stamp.group(1) + "Z") if stamp else None
         line = raw[stamp.end():] if stamp else raw
-        marked = _MARKED.match(line)
+        marked = _MARKED.fullmatch(line)
         if marked:
             message = clean(marked.group(2))
             if message:
                 found.append((when, marked.group(1), message))
             continue
-        group = _GROUP.match(line)
+        group = _GROUP.fullmatch(line)
         if group:
             in_group, in_echo = True, bool(_ECHO_GROUP.match(group.group(1)))
             continue
