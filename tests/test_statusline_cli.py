@@ -255,6 +255,7 @@ def main() -> int:
     os.makedirs(modules)
     for name in ("statusline.py", "hook_common.py", "git.py", "gh.py", "gh_ledger.py"):
         shutil.copy(os.path.join(h.ROOT, "tools", "fabric", name), modules)
+    shutil.copy(os.path.join(h.ROOT, "runtime", "identity.py"), os.path.join(fake, "runtime"))   # gh_ledger imports it
     shutil.copy(os.path.join(h.HOOKS, "statusline.sh"), hooks_dir)
     sampler = os.path.join(hooks_dir, "context-sample.py")
     drawn = os.path.join(modules if ENTRY.endswith(".py") else hooks_dir, os.path.basename(ENTRY))

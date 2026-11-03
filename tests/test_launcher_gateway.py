@@ -248,6 +248,9 @@ def main() -> int:
         check("an unreadable or non-object record: none", resume.last_launch_transport(record("{")) == "" and resume.last_launch_transport(record("[]")) == ""
               and resume.last_launch_transport(os.path.join(tmp, "absent")) == "")
         saved = (resume.last_launch_transport, resume.install_agent_files.last_launch_provider)
+        # No profile to read: provider_args takes the running login's own launch_provider before the last launch's.
+        saved_profiles = os.environ.get("AGENT_FABRIC_RESUME_PROFILES")
+        os.environ["AGENT_FABRIC_RESUME_PROFILES"] = os.path.join(tmp, "no-profiles.json")
         try:
             resume.last_launch_transport = lambda record=None: "gateway"
             resume.install_agent_files.last_launch_provider = lambda: "anthropic"
@@ -257,6 +260,10 @@ def main() -> int:
             check("…and a gateway record beside an openrouter provider is not read as the gateway", resume.provider_args([]) == ["--provider", "openrouter"])
         finally:
             resume.last_launch_transport, resume.install_agent_files.last_launch_provider = saved
+            if saved_profiles is None:
+                del os.environ["AGENT_FABRIC_RESUME_PROFILES"]
+            else:
+                os.environ["AGENT_FABRIC_RESUME_PROFILES"] = saved_profiles
         prof = os.path.join(tmp, "profiles.json")
         with open(prof, "w") as fh:
             json.dump({"agents": {"alice": {"launch_provider": "gateway"}}, "roles": {"r": {"launch_provider": "openrouter"}},

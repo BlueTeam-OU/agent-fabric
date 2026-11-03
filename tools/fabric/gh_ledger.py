@@ -35,11 +35,16 @@ import collections
 import datetime
 import json
 import os
-import pwd
 import re
 import subprocess
 import sys
 import time
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+for _p in (HERE, os.path.join(os.path.dirname(os.path.dirname(HERE)), "runtime")):
+    if _p not in sys.path:
+        sys.path.insert(0, _p)
+import identity  # noqa: E402
 
 LEDGER = "gh-ledger.jsonl"
 RATE = "gh-rate.json"
@@ -57,20 +62,12 @@ _SHA = re.compile(r"\b[0-9a-f]{40}\b|\b[0-9a-f]{7,12}\b")
 
 
 def state_dir() -> str | None:
-    """This login's state directory, as runtime/identity.agent_state_dir
-    names it (the effective user's login). None when the account has no
-    passwd entry: no ledger then."""
+    """This login's state directory: identity.agent_state_dir, the one resolution (ADR-003 rule 1), not a copy of
+    it. None when the account has no passwd entry: no ledger then."""
     try:
-        login = pwd.getpwuid(os.geteuid()).pw_name
+        return identity.agent_state_dir()
     except KeyError:
         return None
-    root = os.environ.get("AGENT_FABRIC_STATE_DIR")
-    if root:
-        root = os.path.abspath(root)
-    else:
-        root = os.path.join(os.environ.get("XDG_STATE_HOME") or os.path.join(os.path.expanduser("~"), ".local", "state"),
-                            "agent-fabric")
-    return os.path.join(root, "agents", login)
 
 
 def classify(args: list[str]) -> tuple[str, str]:
@@ -118,10 +115,15 @@ def _rotate(path: str) -> None:
         if os.path.getsize(path) <= MAX_BYTES:
             return
         import fcntl
-        with open(path + ".lock", "a") as lock:
-            fcntl.flock(lock, fcntl.LOCK_EX)
+        # 0600 whatever the umask (ADR-003 rule 1, the 2026-10-31 amendment), and fchmod for a lock an older build made 0644.
+        fd = os.open(path + ".lock", os.O_WRONLY | os.O_CREAT, 0o600)
+        try:
+            os.fchmod(fd, 0o600)
+            fcntl.flock(fd, fcntl.LOCK_EX)
             if os.path.getsize(path) > MAX_BYTES:
                 os.replace(path, path + ".1")
+        finally:
+            os.close(fd)
     except OSError:
         return
 
@@ -193,10 +195,7 @@ def rate_limit(*, max_age: float = RATE_MAX_AGE_S, now=time.time, persist: bool 
     if path and persist:
         try:
             os.makedirs(directory, mode=0o700, exist_ok=True)
-            tmp = f"{path}.{os.getpid()}"
-            with open(tmp, "w", encoding="utf-8") as fh:
-                json.dump({"at": now(), "resources": resources}, fh)
-            os.replace(tmp, path)
+            identity.atomic_write(path, json.dumps({"at": now(), "resources": resources}), 0o600)
         except OSError:
             pass
     return resources
