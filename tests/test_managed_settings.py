@@ -2,7 +2,7 @@
 """tools/fabric/managed_settings.py (agent-fabric ADR-043 rules 1-2) against scratch git repositories and a scratch
 prefix, as a non-root login with the test overrides: the render byte-stable with every @ENTRY@ filled; the
 template carrying every guard and no convenience, the workspace's moved entries each made a no-op by the managed
-file; an install read from the object store, with its MANIFEST, modes, `current` swapped, the managed file and the
+file, the shell seal's left ungated; an install read from the object store, with its MANIFEST, modes, `current` swapped, the managed file and the
 boot script written, a second install of the same sha changing nothing and another sha swapping; a planted object
 that does not hash to its name refused; the refusals (a sha that is not hex, unknown, not a commit, older than the
 template, a non-root caller without the overrides); check's five states; restore. Ownership cannot be root in a
@@ -122,10 +122,13 @@ def main() -> int:
           names ^ set(hook_entry.GUARDS))
     check("each guard's module is in the tree",
           all(os.path.isfile(os.path.join(ROOT, rel)) for rel, _e, _a in hook_entry.GUARDS.values()))
-    check("no convenience in the template: no status line, no SessionStart or Post* event, none of their scripts",
-          "statusLine" not in tpl and set(tpl["hooks"]) <= {"PreToolUse", "PreModelSwitch", "UserPromptSubmit",
-                                                            "SessionEnd"}
+    check("no convenience in the template: no status line, no Post* event, none of their scripts",
+          "statusLine" not in tpl and set(tpl["hooks"]) <= {"SessionStart", "PreToolUse", "PreModelSwitch",
+                                                            "UserPromptSubmit", "SessionEnd"}
           and not any(c in json.dumps(tpl["hooks"]) for c in CONVENIENCES))
+    check("SessionStart carries only session-seal, the shell seal (ADR-038 rule 9), once and with no matcher",
+          [(m, h["args"][3]) for e, m, h in hooks_of(tpl) if e == "SessionStart"] == [(None, "session-seal")],
+          [(m, h["args"]) for e, m, h in hooks_of(tpl) if e == "SessionStart"])
     ws = json.load(open(WORKSPACE, encoding="utf-8"))
     moved, gated_wrong, sentinel = [], [], None
     for event, matcher, h in hooks_of(ws):
@@ -138,7 +141,8 @@ def main() -> int:
             gated_wrong.append("a convenience is gated: " + h["command"][:80])
         if event == "SessionStart" and "ADR-043" in h["command"]:
             sentinel = h["command"]
-    theirs = sorted((e, m or "", h["timeout"], h["args"][3]) for e, m, h in hooks_of(tpl) if h["args"][3] != "review-fence")
+    theirs = sorted((e, m or "", h["timeout"], h["args"][3]) for e, m, h in hooks_of(tpl)
+                    if h["args"][3] not in ("review-fence", "session-seal"))
     check("matchers, events and timeouts are the workspace's, guard for guard", sorted(moved) == theirs,
           (sorted(moved), theirs))
     check("every moved workspace entry, and only those, starts with the managed-file test", not gated_wrong,
@@ -146,6 +150,13 @@ def main() -> int:
     check("review-fence is the one new entry: PreToolUse on Bash and the writing tools",
           [(e, m) for e, m, h in hooks_of(tpl) if h["args"][3] == "review-fence"] ==
           [("PreToolUse", "Bash|Write|Edit|MultiEdit|NotebookEdit")])
+    # The seal's workspace copy never stands down: whether a managed SessionStart hook is handed CLAUDE_ENV_FILE is
+    # not yet read back, and the seal is once per file, so both copies running costs nothing (j510).
+    seals = [(e, h["command"]) for e, _m, h in hooks_of(ws) if "/runtime/claude-code/hooks/session-seal.py" in h["command"]]
+    check("the workspace's seal: one SessionStart entry, carrying no managed-file gate",
+          [e for e, _c in seals] == ["SessionStart"]
+          and not any(c.startswith(GATE_HEAD) or "managed-settings.json" in c or "exit 0" in c for _e, c in seals),
+          seals)
     check(".claude/settings.json is the workspace template re-rendered",
           open(os.path.join(ROOT, ".claude", "settings.json"), encoding="utf-8").read() == fabric_settings.render(ROOT))
 

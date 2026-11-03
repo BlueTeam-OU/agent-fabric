@@ -653,7 +653,7 @@ def main() -> int:
     check("the shell model escapes single quotes as the harness does",
           g.shell_texts("echo 'a'")[0].endswith("eval 'echo '\"'\"'a'\"'\"'' < /dev/null && pwd -P >| /tmp/claude-cwd"))
     # The fabric's own part of the shell: the session's SessionStart env
-    # files, in their order, else session-start.py's lines (review of #242).
+    # files, in their order, else the fabric's lines rebuilt (review of #242).
     with tempfile.TemporaryDirectory() as cfg:
         sid = "0000-planted-session"
         envd = os.path.join(cfg, "session-env", sid)
@@ -672,7 +672,7 @@ def main() -> int:
             check("…and not without the env file", g.decision("pkill -f '[z]z-planted-root'", CLAUDE, shell=True,
                                                               session_id="no-such-session") is None)
             fallback = g.shell_prefix("no-such-session")
-            check("shell_prefix without env files: session-start.py's seal",
+            check("shell_prefix without env files: session-seal.py's seal",
                   "unset CLAUDE_CODE_OAUTH_TOKEN" in fallback and "no secret in the session shell" in fallback, fallback)
             check("shell_prefix: a session id that is a path is not followed", g.shell_prefix("..") == fallback)
         finally:

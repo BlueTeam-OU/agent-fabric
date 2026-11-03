@@ -5,8 +5,8 @@ CONTRACT:
   argv    one guard name from GUARDS; the managed file runs it in exec form as
           /usr/local/bin/fabric-python -I -S <prefix>/managed/current/runtime/claude-code/managed/hook_entry.py <name>
   stdin   the hook payload, handed to the guard untouched (this program never reads it)
-  stdout  the guard's answer; an ask when the name is unknown, or the guard is missing or cannot run (plan-hold:
-          nothing, it never refuses)
+  stdout  the guard's answer; an ask when the name is unknown, or the guard is missing or cannot run (plan-hold and
+          session-seal: nothing, they never refuse)
   exit    0
 
 Claude Code 2.1.316 spawns a managed hook with the session's own environment
@@ -25,7 +25,9 @@ did beyond forwarding is carried here. Those forwarders did not exec: a guard th
 nothing on stdout, and the harness reads that as no objection, so a gate's failed run becomes its ask (their
 cannot_run line). Their stderr went to /dev/null, and so does it here. plan-hold.sh exec'd plan_hold.py, which
 only marks the inbox held and exits 0 whatever happens, so it is exec'd here too, keeping the harness its parent
-(plan_hold.py reads the harness pid as its parent when CLAUDE_PID is unset).
+(plan_hold.py reads the harness pid as its parent when CLAUDE_PID is unset). session-seal.py, the SessionStart
+shell seal (ADR-038 rule 9), is exec'd the same way: it answers nothing and never refuses, and it reads
+CLAUDE_ENV_FILE and HOME, both carried.
 
 The names are a fixed table, never a path: a name not in it asks, so a managed file and a snapshot that disagree
 show it on the next call instead of passing it. A gate whose module is missing asks, the pipe-status and self-kill
@@ -70,6 +72,7 @@ GUARDS = {
                        "Approve only if this command does not commit or publish outside the working copy of this "
                        "session's job. See agent-fabric ADR-037 rule 3."),
     "plan-hold": ("tools/fabric/plan_hold.py", None, None),
+    "session-seal": ("runtime/claude-code/hooks/session-seal.py", None, None),
     "model-switch-guard": ("runtime/claude-code/hooks/model-switch-guard.py", "PreModelSwitch",
                            "In a broker session a bare model id runs without its family shim; approve only if the "
                            "target is a composite or a family that needs none."),
