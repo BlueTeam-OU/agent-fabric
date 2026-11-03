@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 from typing import TYPE_CHECKING
-from github.review_status.base import out, jstr, sha8, jkey, login_of
+from github.review_status.base import out, jstr, sha8, login_of, review_order
 from github.review_status.probe import Probe, Extras
 from github.review_status.verdicts import engine_of, unavailable_of, uncounted_v2
 
@@ -62,7 +62,7 @@ def head_evidence(p: Probe) -> str:
         return ""
 
     def at_head(rows):
-        hit = sorted((r for r in rows if r.get("commit_id") == p.head), key=lambda r: jkey(r.get("submitted_at")))
+        hit = sorted((r for r in rows if r.get("commit_id") == p.head), key=review_order)
         return hit[-1] if hit else None
 
     r = at_head(p.buckets.blind)

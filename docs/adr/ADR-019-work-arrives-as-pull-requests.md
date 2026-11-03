@@ -147,7 +147,10 @@ not on a pipe's exit status.
    message to the arming session naming the PR and its head, or by
    arming from a session bound to the role, and on its own PR only where
    `commits.authority_own_prs` is true; the review gate binds every word
-   alike (A 2026-10-19). Sixteen is the size a batch is opened at; a PR over
+   alike (A 2026-10-19). An `AUTHORIZES` message named beside the owner's
+   word is that word as relayed: read and checked as any authorization,
+   but for the role, it can only refuse, and the arming comment records
+   who relayed it (A 2026-11-03). Sixteen is the size a batch is opened at; a PR over
    it is armed on the gate all the same, and the count is advice for the
    next batch.
 5. The gate is `fabric-pr gate`'s verdict for the PR, read
@@ -269,3 +272,4 @@ The body above reads current; each change's full note is in [history/ADR-019-ame
 | 2026-10-11 | pre-push also checks signatures in every project | §5 rule 1: the hook refuses a push that adds an unsigned commit in any project; without `direct` it applies no other rule |
 | 2026-10-19 | an arming authority's word beside the owner's | §5 rule 4: below the minimum or at the boundary, the role the repository's arming policy names may give the word, by AUTHORIZES or its own bound session; the review gate unchanged |
 | 2026-11-01 | An arming is tied to its head by a status | §5 rule 5: `fabric-pr arm` posts `fabric/armed` on the gated sha; mode `auto` rulesets require it (`armed_status`, not `required_checks`); disarm-on-push keeps only an arming its new head carries, no longer compares times (audit F02) |
+| 2026-11-03 | The owner's word as relayed is read | §5 rule 4: an `--authorization` beside a basis giving the owner's word under the minimum is checked (addressee, sender, PR, head) and recorded as the word relayed; before, it was dropped unread |

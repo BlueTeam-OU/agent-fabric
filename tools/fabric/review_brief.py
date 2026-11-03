@@ -320,17 +320,20 @@ def checkpoint(pr: int, head_sha: str, repo: str, exclude_head: str | None = Non
 
 
 def earlier_reviews(pr: int, repo: str):
-    """arm_findings' Reading of every review the PR has, from the accounts gate 4c reads (the PR's author and
-    AGENT_FABRIC_REVIEW_POSTERS), or None when they cannot be listed. A seam: tests replace it, since the real one
-    asks GitHub."""
+    """arm_findings' Reading of every review the PR has, from the accounts gate 4c reads (the PR's author,
+    AGENT_FABRIC_REVIEW_POSTERS and, on an app's PR, the account gh acts as: review_posters, the one reader), or None
+    when they cannot be listed or that account cannot be read. A seam: tests replace it, since the real one asks
+    GitHub."""
     import gh  # noqa: PLC0415 — only a PR's full review asks GitHub
-    from github import arm_findings  # noqa: PLC0415
+    from github import arm_findings, review_posters  # noqa: PLC0415
     from github.review_status.base import Die  # noqa: PLC0415
     from github.review_status.config import read_config  # noqa: PLC0415
     try:
         slug = gh.this_repo(repo)
-        author = (gh.pr_view(pr, ["author"], repo=slug).get("author") or {}).get("login")
-        trusted = set(read_config(os.environ).review_posters) | ({author} if isinstance(author, str) and author else set())
+        author_of = gh.pr_view(pr, ["author"], repo=slug).get("author") or {}
+        author = author_of.get("login")
+        trusted = (set(review_posters.for_pr(author_of, read_config(os.environ).review_posters))
+                   | ({author} if isinstance(author, str) and author else set()))
         return arm_findings.read(gh.api_list(f"repos/{slug}/pulls/{pr}/reviews"), trusted)
     except (gh.GhError, Die, ValueError, TypeError, AttributeError, OSError):
         return None
@@ -359,8 +362,8 @@ def carried_findings(pr: int, head_sha: str, repo: str) -> tuple[dict | None, li
 
 def carried_for(req: dict, info: dict) -> tuple[dict | None, list[str]]:
     """carried_findings for a PR's full review of a resolved range; (None, []) for anything else, which asks nothing.
-    Claude's only: Codex answers findings and its renderer numbers them (review_codex.render_review), so a lookup
-    for it would only add a way to fail."""
+    The Claude brief's only: Codex's brief carries no findings, and its labels are numbered past the PR's used ones by
+    review_codex.label_start, which reads carried_findings itself and refuses on the same failures."""
     pr = _count(req.get("pr"))
     if not pr or req.get("mode") != "review":
         return None, []
@@ -894,7 +897,12 @@ def render(req: dict, lenses_dir: str | None = None, allow_rationale: bool = Fal
     # A review always carries general; a re-review verifies the new hunks
     # against the previous findings and carries only a lens it names.
     names = list(dict.fromkeys(([] if mode == "re-review" else ["general"]) + list(req.get("lenses") or [])))
-    info, _ = resolve_range(req)
+    info, refused = resolve_range(req)
+    if refused:
+        # A PR's re-review asks GitHub for its checkpoint again here, and refusals() read it once; a read that now
+        # finds none would leave no previous report and fall through to a previous_findings the request must leave
+        # out (j573, a KeyError).
+        raise RequestError(refused)
     out = dispatch_header(req, info, engine, purpose, dispatch_id, started_at)
     out += [f"# Review brief ({BRIEF_VERSION})", "## Mode", mode,
             "## Repository", f"{req['repository']} (the live clone; read-only for you)", _evidence_line(req, info, evidence_path) or EVIDENCE_LINE[evidence_mode(req)],

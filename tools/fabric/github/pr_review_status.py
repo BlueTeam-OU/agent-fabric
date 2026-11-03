@@ -87,8 +87,9 @@ WHAT COUNTS. Three buckets, reported on their own lines:
       trusted" and is not coverage;
   blind reviews — the review class's reviews, posted by fabric-pr post-review as
       review objects whose FIRST LINE is REVIEW_MARKER, BY the account the
-      sessions push as — the PR author, or one named in
-      AGENT_FABRIC_REVIEW_POSTERS: the fabric's review of every PR,
+      sessions push as — the PR author, one named in
+      AGENT_FABRIC_REVIEW_POSTERS, or on a PR an app opened (Dependabot)
+      the account gh acts as here: the fabric's review of every PR,
       dispatched by the session that owns it and judged before it is
       answered. A marked review by any other account is reported, with its
       login, and is NOT coverage: the marker is published in every tree,
@@ -147,7 +148,7 @@ from github import common  # noqa: E402
 # Every name the parts define, from here as before: callers and tests reach
 # them as pr_review_status.<name> (pr_gate; tests/test_pr_review_status.py,
 # test_post_review.py, test_pr_gate.py).
-from github.review_status.base import PROG, Die, out, err, jstr, sha8, jkey, login_of  # noqa: E402, F401
+from github.review_status.base import PROG, Die, out, err, jstr, sha8, jkey, login_of, review_order  # noqa: E402, F401
 from github.review_status.cli import HELP, OctalError, bash_int, as_seconds, Args, parse  # noqa: E402, F401
 from github.review_status.config import REVIEW_MARKER, BUILTIN_LEGACY_MARKER  # noqa: E402, F401
 from github.review_status.config import TRUSTED_ASSOCIATIONS, POSIX_CLASSES, onig_to_py  # noqa: E402, F401

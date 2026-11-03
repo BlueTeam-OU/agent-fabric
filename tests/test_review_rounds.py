@@ -106,7 +106,10 @@ def main() -> int:
                 json.dump({"reviews": reviews, "commits": commits}, fh)
 
         def posted_review(text: str, rhead: str, at: str) -> dict:
-            return {"user": {"login": "me"}, "commit_id": rhead, "submitted_at": at, "body": text}
+            # GitHub's id is the posting order the checkpoint reads (review_status.base.review_order): from the time
+            # here, so the cases' order and same-time ties stay as written.
+            return {"id": int("".join(c for c in at if c.isdigit())), "user": {"login": "me"}, "commit_id": rhead,
+                    "submitted_at": at, "body": text}
 
         round1 = review_body(base, head1, base, "## Round 1\n\n1. **P2:** a finding.")
         req = os.path.join(tmp, "scratch", "REQUEST.yaml")

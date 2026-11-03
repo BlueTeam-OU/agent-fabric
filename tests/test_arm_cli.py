@@ -59,6 +59,11 @@ def gh_mock(s: str, a: list[str], stdin: str) -> tuple[int, str, str]:
         _log(s, f"pr comment {a[2]} --body {stdin}\n")
         return 0, "", ""
     pr = json.load(open(os.path.join(s, "pr.json")))
+    # Whom gh acts as (`viewer`, "pusher" without it; `viewer_fail` a failed call): asked only on an app's PR.
+    if line.startswith("api user "):
+        if has("viewer_fail"):
+            return 1, "", "gh: Bad Gateway (HTTP 502)"
+        return 0, json.dumps({"login": _state(s, "viewer", "pusher")}), ""
     if line.startswith("api repos/gzapi-org/gzapp/pulls/7/files") and "--paginate --slurp" in line:
         def entry(f):
             old, _, new = f.rpartition("->")
@@ -227,7 +232,7 @@ def main() -> int:
 
     sys.path.insert(0, os.path.join(ROOT, "tools", "fabric"))
     import gh
-    from github import arm, arm_policy, repo_policy
+    from github import arm, arm_policy, repo_policy, review_posters
 
     base_env = {k: v for k, v in os.environ.items()
                 if not k.startswith(("GITHUB_", "AGENT_FABRIC_", "CLAUDE_", "ANTHROPIC_", "GZAPP_")) and k != "GIT_DIR"}
@@ -253,11 +258,13 @@ def main() -> int:
             """A clean slate; `reviewed` (the default) a review-class review of the head, which every PR needs under
             claude_only (gate 4b): a case about a missing review says reviewed=False."""
             for n in ("calls", "armed", "queued", "merged", "closed", "noarm", "nohead", "pushed", "viewfail", "blind", "independent", "unresolved", "no_blind_field", "unavailable",
-                      "mergefail", "inbase", "unasked", "moved", "statusfail", "reviews.json", "reviews_fail", "jobs.json", "jobs_fail", "shows.json",
+                      "mergefail", "inbase", "unasked", "moved", "statusfail", "reviews.json", "reviews_fail", "viewer", "viewer_fail", "jobs.json", "jobs_fail", "shows.json",
                       "waiver.out", "waiver_rc", "presence.out", "ctl_rc", "gh_repos"):
                 if os.path.exists(f"{state}/{n}"):
                     os.remove(f"{state}/{n}")
             put("review_rc", "0" if reviewed else "1")
+            # arm.main() runs in this process, and the push account is read once per process.
+            review_posters.push_account.cache_clear()
 
         def set_pr(branch: str, body: str, files: list[str], st: str = "OPEN", draft: bool = False) -> None:
             put("pr.json", json.dumps({"number": 7, "state": st, "isDraft": draft, "headRefName": branch,
@@ -776,6 +783,21 @@ def main() -> int:
         plain(); reviews(review(5710450123, h2, HEAD, "Judgement: F5 | fixed | the lease is removed\nFinding: none"), fresh, first)
         rc, out = run("7", "--basis", "b")
         check("…listed newest first by the API: read oldest first, the same answer", rc == 0 and "ARMED #7" in out, out)
+        # agent-fabric-fleetdeck#57: GitHub served a submitted_at in the future, out of the order the reviews were
+        # posted in. Ordered by it, F5's review read as after the judgement that fixed it, and F5 as open.
+        future = {**first, "submitted_at": "2099-01-01T00:00:00Z"}
+        plain(); reviews(future, fresh, review(5710450123, h2, HEAD, "Judgement: F5 | fixed | the lease is removed\nFinding: none"))
+        rc, out = run("7", "--basis", "b")
+        check("F5's review dated in the future by GitHub: read in posting order (the id), judged fixed after it: armed",
+              rc == 0 and "no finding open across 3 review(s) in 2 chain(s)" in out and "ARMED #7" in out, out)
+        plain(); reviews(future, fresh)
+        rc, out = run("7", "--basis", "b")
+        check("…control: the same future-dated F5 unjudged is still open: refused",
+              rc == 1 and "review 5709892041" in out and "pr merge" not in calls(), out)
+        plain(); reviews(first, fresh, {**review(0, h2, HEAD, "Judgement: F5 | fixed | done\nFinding: none"), "id": None})
+        rc, out = run("7", "--basis", "b")
+        check("a review with no id from the API: its place unknown, refused naming it, never read as fixing F5",
+              rc == 1 and "the API returned no id" in out and "pr merge" not in calls(), out)
         plain(); reviews(first, fresh, review(5710450123, HEAD, HEAD, "Judgement: F5 | not-real | not on the change\nFinding: none"))
         rc, out = run("7", "--basis", "b")
         check("a not-real judgement in a later chain clears the earlier chain's F5: armed", rc == 0 and "ARMED #7" in out, out)
@@ -814,27 +836,29 @@ def main() -> int:
         # #437 round 3 F5: Codex and Claude both review HEAD on base B, two chains begun after chain A at H0. Claude's
         # F1/F2 fixed judges A's, never Codex's F1/F2 raised on its own head, whichever of the two was posted first.
         h0 = "cccc0001" + "7" * 32
-        a12 = review(5721000001, "a" * 40, h0, "Finding: F1 | P2 | likely | x.py:1 | A's F1\n"
+        a12 = review(5721000000, "a" * 40, h0, "Finding: F1 | P2 | likely | x.py:1 | A's F1\n"
                                                 "Finding: F2 | P3 | likely | x.py:2 | A's F2", at="2026-10-30T01:00:00Z")
         codex = review(5721000002, b2, HEAD, "Finding: F1 | P1 | certain | z.py:1 | codex's F1\n"
                                               "Finding: F2 | P2 | likely | z.py:2 | codex's F2", at="2026-10-30T02:00:00Z")
         judged = "Judgement: F1 | fixed | done\nJudgement: F2 | fixed | done\nFinding: none"
-        for when, at in (("posted after codex", "2026-10-30T03:00:00Z"), ("posted before codex", "2026-10-30T01:30:00Z")):
-            plain(); reviews(a12, codex, review(5721000003, b2, HEAD, judged, at=at))
+        for when, rid, at in (("posted after codex", 5721000003, "2026-10-30T03:00:00Z"),
+                              ("posted before codex", 5721000001, "2026-10-30T01:30:00Z")):
+            plain(); reviews(a12, codex, review(rid, b2, HEAD, judged, at=at))
             rc, out = run("7", "--basis", "b")
             check(f"a judgement {when} on its own head closes chain A's F1/F2, never codex's F1/F2 of that head: refused",
                   rc == 1 and "2 finding(s) open" in out and "z.py:1" in out and "z.py:2" in out
-                  and "review 5721000001" not in out and "pr merge" not in calls(), out)
+                  and "review 5721000000" not in out and "pr merge" not in calls(), out)
         # #437 round 4 F8: Codex and Claude both review base h0 (chain A's head), head HEAD: one chain, A's. Codex raises
         # its own F1 on HEAD; Claude's F1 fixed judges A's F1 raised on h0, never Codex's, whichever was posted first.
-        a1 = review(5722000001, "a" * 40, h0, "Finding: F1 | P2 | likely | x.py:1 | A's F1", at="2026-10-30T01:00:00Z")
+        a1 = review(5722000000, "a" * 40, h0, "Finding: F1 | P2 | likely | x.py:1 | A's F1", at="2026-10-30T01:00:00Z")
         codex1 = review(5722000002, h0, HEAD, "Finding: F1 | P1 | certain | z.py:1 | codex's F1", at="2026-10-30T02:00:00Z")
-        for when, at in (("posted after codex", "2026-10-30T03:00:00Z"), ("posted before codex", "2026-10-30T01:30:00Z")):
-            plain(); reviews(a1, codex1, review(5722000003, h0, HEAD, "Judgement: F1 | fixed | done\nFinding: none", at=at))
+        for when, rid, at in (("posted after codex", 5722000003, "2026-10-30T03:00:00Z"),
+                              ("posted before codex", 5722000001, "2026-10-30T01:30:00Z")):
+            plain(); reviews(a1, codex1, review(rid, h0, HEAD, "Judgement: F1 | fixed | done\nFinding: none", at=at))
             rc, out = run("7", "--basis", "b")
             check(f"one chain, a judgement {when} on head HEAD closes h0's F1, never codex's F1 of HEAD: refused",
                   rc == 1 and "1 finding(s) open" in out and "z.py:1" in out and "review 5722000002" in out
-                  and "review 5722000001" not in out and "pr merge" not in calls(), out)
+                  and "review 5722000000" not in out and "pr merge" not in calls(), out)
         plain(); reviews(a1, codex1, review(5722000003, h0, HEAD, "Judgement: F1 | fixed | done\nFinding: none",
                                             at="2026-10-30T03:00:00Z"),
                          review(5722000004, HEAD, HEAD, "Judgement: F1 | fixed | adjudicated\nFinding: none",
@@ -885,6 +909,24 @@ def main() -> int:
         plain(); reviews(review(5709892041, h1, h2, f5, login="poster"), fresh)
         rc, out = run("7", "--basis", "b", env={"AGENT_FABRIC_REVIEW_POSTERS": '["poster"]'})
         check("…one from a login in AGENT_FABRIC_REVIEW_POSTERS is: refused", rc == 1 and "F5 | P3" in out, out)
+        def dependabot() -> None:
+            plain(); pr = json.load(open(f"{state}/pr.json"))
+            put("pr.json", json.dumps(dict(pr, author={"login": "app/dependabot", "is_bot": True})))
+        dependabot(); reviews(review(5709892041, h1, h2, f5, login="pusher"), fresh)
+        rc, out = run("7", "--basis", "b")
+        check("on a Dependabot PR the push account's review is read, nothing configured: refused on its F5",
+              rc == 1 and "F5 | P3" in out and "api user" in calls(), out)
+        dependabot(); reviews(review(5709892041, h1, h2, f5, login="drive-by"), fresh)
+        rc, out = run("7", "--basis", "b")
+        check("…another account's on that PR is still not read: armed", rc == 0 and "ARMED #7" in out, out)
+        plain(); reviews(review(5709892041, h1, h2, f5, login="pusher"), fresh)
+        rc, out = run("7", "--basis", "b")
+        check("…a person's PR asks nobody whom gh acts as, and the push account's review is not read there",
+              rc == 0 and "ARMED #7" in out and "api user" not in calls(), out)
+        dependabot(); reviews(review(5709892041, h1, h2, f5, login="pusher"), fresh); put("viewer_fail", "")
+        rc, out = run("7", "--basis", "b")
+        check("…on the Dependabot PR a push account GitHub cannot name: exit 2, nothing armed",
+              rc == 2 and "cannot read the account this session posts as" in out and "pr merge" not in calls(), out)
         plain(); rc, out = run("7", "--basis", "b", env={"AGENT_FABRIC_REVIEW_POSTERS": "poster"})
         check("AGENT_FABRIC_REVIEW_POSTERS not a JSON array: exit 2, never fewer posters", rc == 2 and "REVIEW_POSTERS" in out, out)
         plain(); put("reviews_fail", "")

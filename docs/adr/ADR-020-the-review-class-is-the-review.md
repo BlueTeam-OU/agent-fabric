@@ -42,7 +42,8 @@ is nothing it substitutes for.
   at the head whose first line is `<!-- agent-fabric-review v1 -->`.
 - It is **counted** by `fabric-pr review-status`: a head is
   reviewed when a blind review — marked, and posted by the PR's author
-  account or a login in `AGENT_FABRIC_REVIEW_POSTERS` — or an independent
+  account, a login in `AGENT_FABRIC_REVIEW_POSTERS`, or on an app's PR
+  the account `gh` acts as — or an independent
   review by a trusted account targets it.
 - The reader **assumes no automated reviewer.** The machinery that read
   one stays, generic and off: `AGENT_FABRIC_VERDICT_AUTHORS` (default
@@ -120,7 +121,9 @@ outage procedure.
    refused and nothing is posted. A review of an older head therefore
    leaves the current head uncovered for the gate and the arm.
 7. `pr-review-status.sh` counts as coverage: a marked review posted by the
-   PR's author account or a login in `AGENT_FABRIC_REVIEW_POSTERS`; an
+   PR's author account or a login in `AGENT_FABRIC_REVIEW_POSTERS`, and on
+   a PR an app opened (Dependabot) the account `gh` acts as, read from
+   GitHub, never typed (A 2026-11-03); an
    unmarked review from the repository owner, an organisation member or a
    collaborator, or a login in `AGENT_FABRIC_VERDICT_AUTHORS`. Any other
    marked review is listed with its login and is not coverage; the
@@ -262,3 +265,4 @@ The body above reads current; each change's full note is in [history/ADR-020-ame
 | 2026-10-25 | The guard also knows a supplier by its job | §5 rule 11: the dispatch guard denies a review from inside the active job's worktree or working copy when the job has a `deliver_to`, on any branch |
 | 2026-10-30 | The card's cap is judged at commit and in CI | §5 rule 9: `CARD_CAP` lives in `tools/fabric/review_card.py`; the pre-commit hook refuses a commit that stages the card over it, whoever commits, and lint refuses a tree that holds one, so a project CI catches what passed the hook; a project's card had grown past it over two commits that nothing refused |
 | 2026-11-02 | The guard passes its own answer | §5 rule 2: under a fabric launch that resolves a `code-review` pin, a review dispatch with no `model` passes, the agent file still held to routing; the harness runs the managed hook again on its `updatedInput` when the dispatch sets `run_in_background`; elsewhere an unset model is denied |
+| 2026-11-03 | On an app's PR the push account posts the review | §5 rule 7: on a PR an app opened, a marked review from the account `gh` acts as is coverage in review-status, the checkpoint, arm's gate 4c and pr-counts; an account it cannot read stops the reader |

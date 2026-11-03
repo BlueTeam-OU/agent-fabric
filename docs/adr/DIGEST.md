@@ -456,38 +456,39 @@ its record disagree, the record wins. Look it up, never read it whole:
 - Arm only on `pr-gate.sh`'s `MERGEABLE`, no open P1/P2 (§5 rules 5–6).
 - No machine attribution (§5 rule 7). GitHub settings: §6.
 - A 2026-10-04 — `main`'s ruleset (§5 rule 6).
-- A 2026-10-05 — the ruleset requires `ci-ok` (§5 rule 6).
-- A 2026-10-05 — 8+ arm on the gate alone (§5 rule 4).
-- A 2026-10-06 — one open PR at a time (§5 rule 2).
-- A 2026-10-08 — every commit declares its `Kind:` (§5 rule 3).
-- A 2026-10-08 — a fold's review fixes are fixes (§5 rule 3).
-- A 2026-10-09 — results.py reads a fold (§5 rule 3).
+- A 2026-10-05 — the ruleset requires `ci-ok` (rule 6).
+- A 2026-10-05 — 8+ arm on the gate alone (rule 4).
+- A 2026-10-06 — one open PR at a time (rule 2).
+- A 2026-10-08 — every commit declares its `Kind:` (rule 3).
+- A 2026-10-08 — a fold's review fixes are fixes (rule 3).
+- A 2026-10-09 — results.py reads a fold (rule 3).
 - A 2026-10-09 — a push disarms (§5 rule 5).
-- A 2026-10-10 — arm.json `direct`, fenced by pre-push (§5 rule 1).
-- A 2026-10-11 — pre-push refuses unsigned commits (§5 rule 1).
-- A 2026-10-19 — an authority's word (§5 rule 4).
-- A 2026-11-01 — `fabric/armed` status required (§5 rule 5).
+- A 2026-10-10 — arm.json `direct`, fenced by pre-push (rule 1).
+- A 2026-10-11 — pre-push refuses unsigned commits (rule 1).
+- A 2026-10-19 — an authority's word (rule 4).
+- A 2026-11-01 — `fabric/armed` status required (rule 5).
+- A 2026-11-03 — relayed owner's word read (rule 4).
 - Keywords: Answers, armed_status.
 
 ### ADR-020 — The review class is the review (Accepted)
 
 - The review class's blind review is the review of every PR: each head,
-  each finding's judgement, each fix range; no automated reviewer
-  assumed (§5 rule 1).
-- Dispatch: `code-review`, `model: fable`, description "review…" or
-  "re-review…", no isolation; the agent file's routed model decides
+  finding's judgement, fix range; no automated reviewer assumed
+  (§5 rule 1).
+- Dispatch: `code-review`, `model: fable`, description "review…"/
+  "re-review…", no isolation; agent file's routed model decides
   (rules 2–3).
 - The reviewer writes nothing; its brief is facts, never conclusions
   (rules 4–5).
 - Posted by `fabric-pr post-review` with the marker; counted when marked
   by the PR's account or a named poster, or unmarked from a trusted
-  account (§5 rules 6–7); legacy markers until the sunset (rule 8).
-- A 2026-10-05 — the reviewer inherits no secret: a clean environment
+  account (§5 rules 6–7); legacy markers until sunset (rule 8).
+- A 2026-10-05 — reviewer inherits no secret: clean environment
   (rule 4).
-- A 2026-10-14 — the card governs from the base; only a `pinned`
+- A 2026-10-14 — card governs from base; only `pinned`
   review covers a head (rules 9–10).
 - A 2026-10-15 — pinned reads a detached head worktree (rule 10).
-- A 2026-10-16 — a review covers the commit it read (rule 6).
+- A 2026-10-16 — review covers the commit it read (rule 6).
 - A 2026-10-22 — a supplier dispatches no review of its own part; the
   caller reviews the folded head (rule 11).
 - A 2026-10-24 — pinned read tools, proved sandbox, no Bash (rules 4/6;
@@ -497,6 +498,7 @@ its record disagree, the record wins. Look it up, never read it whole:
 - A 2026-10-30 — pre-commit hook and lint judge the card cap (rule
   9).
 - A 2026-11-02 — under a launch no model passes (rule 2).
+- A 2026-11-03 — Dependabot PRs: push account posts (rule 7).
 - Keywords: blind review, fabric-review, pr-review-status, coverage,
   review card, run_in_background.
 

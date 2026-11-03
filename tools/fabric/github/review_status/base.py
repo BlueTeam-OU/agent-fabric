@@ -54,6 +54,23 @@ def jkey(v):
     return (v is not None, "" if v is None else v)
 
 
+def review_id(row: dict) -> int | None:
+    """A review object's id, or None when it has none that orders (bool is an int to Python, never an id)."""
+    rid = row.get("id")
+    return rid if isinstance(rid, int) and not isinstance(rid, bool) else None
+
+
+def review_order(row: dict):
+    """Oldest first: GitHub's review id, which it assigns as a review is created, then submitted_at only between
+    rows without one. Never submitted_at first: GitHub has served it in the future, out of the order the reviews
+    were posted in (agent-fabric-fleetdeck#57), and a review fabric-pr posts is created and submitted in one call,
+    so the id is its submission order too; a person's review begun as pending keeps the id of its beginning, which
+    only the report's display reads (probe, render). Where the choice decides something, a row without an id is a
+    doubt of the caller's (review_checkpoint, arm_findings); this order only places it."""
+    rid = review_id(row)
+    return (rid is not None, -1 if rid is None else rid, jkey(row.get("submitted_at")))
+
+
 def login_of(row: dict):
     return (row.get("user") or {}).get("login")
 

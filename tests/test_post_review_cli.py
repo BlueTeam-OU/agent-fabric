@@ -850,7 +850,10 @@ def main() -> int:
                              for p in ("a.py", "sub/c.py")}, "lenses": {}}
             text = (f"<!-- agent-fabric-review v2 base={base} head={head} card={CARD} config={cfg} -->\nround 1\n\n"
                     f"```{rcov.BLOCK_INFO}\n{json.dumps(doc)}\n```\n")
-            return {"user": {"login": "me"}, "commit_id": head, "submitted_at": at, "body": text}
+            # GitHub's id is the posting order the checkpoint reads (review_status.base.review_order): from the time
+            # here, so the cases' order and same-time ties stay as written.
+            return {"id": int("".join(c for c in at if c.isdigit())), "user": {"login": "me"}, "commit_id": head,
+                    "submitted_at": at, "body": text}
 
         narrow = fence_header(base_sha=c1, head_sha=c2)
         v2_pr(c2, listed=(c0, c1, c2))

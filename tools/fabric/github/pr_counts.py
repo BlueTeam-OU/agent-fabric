@@ -31,10 +31,11 @@ legacy_review_markers from its pr-tools.json) and that engine's model line is
 posted on the head; `head reviewed: ` opens it only when all are (a
 boundary's extra engines are fabric-pr arm's to judge). An engine in
 `additional_reviews` is marked as well: ✓, `unavailable (<reason>)` when its
-marker for the head, from the PR's author or AGENT_FABRIC_REVIEW_POSTERS, is
-the first line of a review on it, or `absent` with neither, which never keeps
-`head reviewed: ` off. When a boundary also requires it, no marker stands in:
-`✗ (boundary only)` replaces `absent`, or follows `unavailable (<reason>)`;
+marker for the head, from the PR's author or AGENT_FABRIC_REVIEW_POSTERS (and
+on an app's PR the account gh acts as), is the first line of a review on it,
+or `absent` with neither, which never keeps `head reviewed: ` off. When a
+boundary also requires it, no marker stands in: `✗ (boundary only)` replaces
+`absent`, or follows `unavailable (<reason>)`;
 `fabric-pr review-status`, which also counts a configured reviewer's verdict,
 is the gate's reading and costs several calls a pull request. `checks` is the
 head's rollup state (green, red, pending, none yet). A pull request over 100
@@ -63,7 +64,7 @@ HERE = os.path.dirname(os.path.realpath(__file__))
 sys.path.insert(0, os.path.dirname(HERE))
 import gh  # noqa: E402
 import roots  # noqa: E402
-from github import arm_policy, commit_class, review_coverage  # noqa: E402
+from github import arm_policy, commit_class, review_coverage, review_posters  # noqa: E402
 from github.pr_split import split_rows  # noqa: E402
 from github.review_status.config import BUILTIN_LEGACY_MARKER, REVIEW_MARKER  # noqa: E402
 from github.review_status.verdicts import engine_of, unavailable_of  # noqa: E402
@@ -74,7 +75,7 @@ PER_QUERY = 10
 REST_COMMIT_CAP = 250
 REF = re.compile(r"(?:(?P<where>[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)?)?#|(?=[0-9]))(?P<n>[1-9][0-9]*)")
 REPO = re.compile(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+")
-FIELDS = """number state isDraft mergedAt headRefOid baseRefName author { login }
+FIELDS = """number state isDraft mergedAt headRefOid baseRefName author { __typename login }
   autoMergeRequest { enabledAt } mergeQueueEntry { state }
   mergeCommit { parents(first: 2) { nodes { oid } } }
   commits(first: 100) { totalCount pageInfo { hasNextPage } nodes { commit { oid message parents(first: 3) { totalCount } } } }
@@ -293,16 +294,25 @@ def engines_on_head(pr: dict, markers: list[str]) -> set[str]:
             if (r.get("commit") or {}).get("oid") == head and marked(r)}
 
 
-def engines_unavailable(pr: dict) -> dict[str, str]:
+def engines_unavailable(pr: dict, timeout: Callable[[], float]) -> dict[str, str]:
     """{engine: reason} of the unavailable markers for the head, from the PR's author or a login in
-    AGENT_FABRIC_REVIEW_POSTERS, as pr-review-status binds them (arm_policy.engines_unavailable reads the same). A
-    posters list that is not a JSON array of strings is none: this line is a report, and none asks more."""
+    AGENT_FABRIC_REVIEW_POSTERS, and on an app's PR the push account, as pr-review-status binds them
+    (arm_policy.engines_unavailable reads the same). A posters list that is not a JSON array of strings is none: this
+    line is a report, and none asks more. A push account GitHub cannot name within `timeout()` is Unreadable, never
+    none: its marker would read "absent", a confident answer from a lookup that failed (ADR-020 A 2026-11-03).
+    `timeout` is asked only on an app's PR: a person's asks GitHub nothing here, so a budget spent by now leaves its
+    line built from what was already read (#465 F8)."""
     try:
         posters = json.loads(os.environ.get("AGENT_FABRIC_REVIEW_POSTERS") or "[]")
     except ValueError:
         posters = []
     if not isinstance(posters, list) or not all(isinstance(x, str) for x in posters):
         posters = []
+    if review_posters.is_bot(pr.get("author")):
+        try:
+            posters = review_posters.for_pr(pr.get("author"), posters, timeout())
+        except gh.GhError as e:
+            raise Unreadable(f"the push account cannot be read ({e.reason})") from None
     author = ((pr.get("author") or {}).get("login") or "")
     rows = []
     for r in (pr.get("reviews") or {}).get("nodes") or []:
@@ -400,7 +410,7 @@ def describe(label: str, repo: str, pid: str | None, number: int, pr: dict, budg
             engines, unread = required()
             review = arm_policy.review_summary(engines_on_head(pr, markers), list(engines), str(pr.get("headRefOid") or ""),
                                                unread=unread, additional=list(additional()),
-                                               unavailable=engines_unavailable(pr))
+                                               unavailable=engines_unavailable(pr, budget.left))
             review = review if arm_policy.is_head_reviewed(review) else "review " + review
         row.update(draft=bool(pr.get("isDraft")), armed=armed, checks=checks_word(pr), review=review)
         parts.append(f"{'draft' if row['draft'] else 'open'}, {armed}, checks {row['checks']}, {review}")

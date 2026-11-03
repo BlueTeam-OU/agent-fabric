@@ -157,3 +157,20 @@ cannot tell that second run from a first call with no model, and needs
 not: both run on the routed model. Anywhere else an unset model means
 the session model and is still denied. Raised by #458's blind review,
 F1. j549.
+
+### Amendment 2026-11-03 — On an app's PR the push account posts the review
+
+§5 rule 7 counted a marked review from the PR's author or a login in
+`AGENT_FABRIC_REVIEW_POSTERS`. Every session pushes and posts as one
+account, the author of each PR it opens, so the list stayed empty. A
+Dependabot PR has no session for an author: its blind review is posted
+by the push account and read "marked, other login", not coverage, and
+agent-fabric #408 and #409 were armed on 2026-11-01 only with the list
+set by hand. On a PR an app opened, the account `gh` acts as is now a
+poster, read from GitHub and never typed, by one reader
+(`tools/fabric/github/review_posters.py`) that review-status, the review
+checkpoint, arm's gate 4c and pr-counts share. An account other than the
+fleet's that runs these tools trusts only its own posts, as it already
+does on the PRs it authors; when GitHub cannot name the account, the
+reader stops (exit 2), never reads the review as another login's.
+Supplied by devex-tooling (j271). j527.

@@ -4,7 +4,9 @@ judged it, and a fresh full review of the head started a new chain the review ga
 
 The rule, as the request states it:
   - the reviews read are the review objects whose first line is the v2 marker (review_coverage.MARKER_V2), from an
-    account the blind review counts from (the PR's author, or a login in AGENT_FABRIC_REVIEW_POSTERS), oldest first;
+    account the blind review counts from (the PR's author, a login in AGENT_FABRIC_REVIEW_POSTERS, or on an app's
+    PR the account gh acts as: review_posters), oldest first by GitHub's review id, never by submitted_at
+    (review_status.base.review_order);
   - a review whose base= is the head= of an earlier review continues that review's chain; any other starts one;
   - each body is read by errors.parse_machine_lines, the one reader of the Finding:/Judgement: lines;
   - a Finding is open until a LATER review judges its label fixed or not-real; the latest judgement of it wins, so a
@@ -17,7 +19,7 @@ The rule, as the request states it:
     findings are not what this one judged; a review whose base is that head (H..H, the next round) has read them.
     Two findings that share a label are told apart by nothing but that order: a judgement may close the wrong one and leave the right one open, which over-blocks —
     the accepted cost; under-blocking is the defect this gate exists for;
-  - a review read as nothing — no body from the API, a body with no machine lines, a malformed line — is unknown,
+  - a review read as nothing — no body or no id from the API, a body with no machine lines, a malformed line — is unknown,
     never "no findings": the gate refuses naming it.
 Pure: the caller (arm.py) reads the reviews and decides what to do with the answer.
 """
@@ -31,6 +33,7 @@ HERE = os.path.dirname(os.path.realpath(__file__))
 sys.path.insert(0, os.path.dirname(HERE))
 import errors  # noqa: E402 — python-dev's file: imported, never copied (a change to it is a supply request)
 from github import review_coverage  # noqa: E402
+from github.review_status.base import review_id, review_order  # noqa: E402
 
 CLEARS = ("fixed", "not-real")
 
@@ -90,12 +93,16 @@ def read(reviews: list, trusted: set[str]) -> Reading:
         marker = review_coverage.parse_marker(body)
         if marker is None:
             continue
-        rows.append((str(r.get("submitted_at") or ""), int(r["id"]) if isinstance(r.get("id"), int) else 0, rid, marker, body))
-    # Oldest first: GitHub's submitted_at, the id breaking a tie (ids grow with time).
-    rows.sort(key=lambda x: (x[0], x[1]))
+        if review_id(r) is None:
+            # Its place in the order is unknown, and with it which judgement comes after which Finding.
+            out.unknown.append(f"review {rid} (the API returned no id: its place among the reviews is unknown)")
+            continue
+        rows.append((review_order(r), rid, marker, body))
+    # Oldest first, by GitHub's review id: never its submitted_at, which it has served in the future (review_order).
+    rows.sort(key=lambda x: x[0])
     chain_of_head: dict[str, int] = {}
     chain_first: list[int] = []
-    for order, (_, _, rid, marker, body) in enumerate(rows):
+    for order, (_, rid, marker, body) in enumerate(rows):
         out.reviews += 1
         chain = chain_of_head.get(marker.base)
         if chain is None:
