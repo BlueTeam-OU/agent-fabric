@@ -145,8 +145,8 @@ def scan(rel: str, text: str, writers: dict[str, str]) -> list[str]:
     """Findings for one Python module, each `<rel>:<line>: <what> (ADR-003 rule 1)`."""
     try:
         tree = ast.parse(text, filename=rel)
-    except SyntaxError as exc:
-        return [f"{rel}:{exc.lineno or 0}: cannot be parsed; ADR-003 rule 1 is not judged"]
+    except SyntaxError:
+        return []   # ruff refuses it in CI; a commit of a half-merged module is not this rule's to stop
     judged = rel != IDENTITY
     constants = _lock_constants(tree)
     copies: list[int] = []

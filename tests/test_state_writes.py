@@ -6,6 +6,7 @@ Stdlib only; runnable as `python3 tests/test_state_writes.py`. **Each case names
 
   writer_is_found            <- _write_kind's open() branch dropped, or RESOLVERS emptied
   writer_without_state_passes <- the write findings raised without `resolves or copies`
+  unparseable_is_not_this_rules <- a SyntaxError turned into a finding
   each_write_kind            <- one of os.open flags / mkstemp / os.replace / sqlite3.connect / an unknown mode dropped
   copy_is_found              <- _reads_env dropped, or a setting (env[...] = ...) counted as a read
   identity_is_not_judged     <- the IDENTITY exemption dropped
@@ -54,6 +55,11 @@ def case_writer_is_found() -> None:
 
 def case_writer_without_state_passes() -> None:
     assert sw.scan("tools/x.py", "open('/tmp/a', 'w')\nimport os\nos.replace('a', 'b')\n", {}) == []
+
+
+def case_unparseable_is_not_this_rules() -> None:
+    """A half-merged module is ruff's to refuse; refusing it here stood in the way of the contributor fence's own refusal."""
+    assert sw.scan("tools/x.py", "<<<<<<< HEAD\nopen(D, 'w')\n", {}) == []
 
 
 def case_each_write_kind() -> None:
