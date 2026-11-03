@@ -12,9 +12,10 @@ it skipped would never be read), its marker names another commit than it is on, 
 not an ancestor of `current_head` (a force-push), its base is not an ancestor of its head, its config differs from
 `config_for(its card)`, or any lookup failed. Never a default: an API error is not "no review yet", it is "not known", which the caller reads as a full review.
 
-NEWEST means newest by submission time among the trusted v2 reviews, and the newest one decides: when it fails a
-check there is no fallback to an older one (two reviews with the same time are a doubt too). v1 reviews are never a
-checkpoint, and a v2 marker from any other account is not read at all.
+NEWEST means last posted among the trusted v2 reviews, by GitHub's review id (review_status.base.review_order: its
+submitted_at has been served in the future, out of posting order), and the newest one decides: when it fails a check
+there is no fallback to an older one (a review without an id, or two with the same one, is a doubt too, and so is a
+newest one never submitted). v1 reviews are never a checkpoint, and a v2 marker from any other account is not read at all.
 
 `config_for` is the caller's: an exception it raises is not caught here (it is a bug of the caller's, not a doubt about the PR).
 """
@@ -27,7 +28,7 @@ HERE = os.path.dirname(os.path.realpath(__file__))
 sys.path.insert(0, os.path.dirname(HERE))
 import gh  # noqa: E402
 from github import review_coverage, review_posters  # noqa: E402
-from github.review_status.base import Die, jkey, login_of  # noqa: E402
+from github.review_status.base import Die, login_of, review_id, review_order  # noqa: E402
 from github.review_status.config import read_config  # noqa: E402
 
 # GitHub lists at most 250 commits of a pull request: a list that long may be cut, and a head not found in a cut
@@ -83,9 +84,11 @@ def _checkpoint(pr: int, current_head: str, config_for, repo: str | None, cwd: s
               and not (exclude_head and _marker_head(r) == exclude_head)]
     if not posted:
         return None
-    ordered = sorted(posted, key=lambda r: jkey(r.get("submitted_at")))
+    if any(review_id(r) is None for r in posted):
+        return None
+    ordered = sorted(posted, key=review_order)
     newest = ordered[-1]
-    if newest.get("submitted_at") is None or (len(ordered) > 1 and ordered[-2].get("submitted_at") == newest["submitted_at"]):
+    if newest.get("submitted_at") is None or (len(ordered) > 1 and review_id(ordered[-2]) == review_id(newest)):
         return None
     v2 = review_coverage.read_review(newest.get("body") or "")
     if v2 is None or not v2.counts:

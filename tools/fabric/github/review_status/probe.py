@@ -6,7 +6,7 @@ from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING
 import gh
 from github import review_posters
-from github.review_status.base import jstr, jkey, listed, obj
+from github.review_status.base import jstr, listed, obj, review_order
 from github.review_status.verdicts import PASS_LINE, Buckets, classify, verdicts_of, newest, refusal_of, request_of, head_covered
 
 if TYPE_CHECKING:
@@ -328,7 +328,7 @@ def probe(ctx: "Ctx") -> Probe | None:
     qualifying = p.buckets.qualifying
     p.head_reviewed = head_covered(p.head, p.verdicts, qualifying)
     if qualifying:
-        p.newest_ind_commit = jstr(sorted(qualifying, key=lambda r: jkey(r.get("submitted_at")))[-1].get("commit_id"))
+        p.newest_ind_commit = jstr(sorted(qualifying, key=review_order)[-1].get("commit_id"))
 
     # A refusal only speaks for the CURRENT state. The reviewer recovers —
     # whatever made it decline passes — and a verdict or review arriving
