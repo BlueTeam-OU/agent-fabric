@@ -886,25 +886,26 @@ its record disagree, the record wins. Look it up, never read it whole:
 ### ADR-038 — Each agent owns its key and its secrets (Accepted)
 
 - One key per login, a subkey per use; its private half leaves only as
-  an encrypted recovery copy (§5 rules 1, 6).
+  an encrypted recovery copy (§5 r1/r6).
 - A key is an agent's when committed at `identities/keys/<id>.asc`,
-  certified by its parent (§5 rule 2).
+  certified by its parent (§5 r2).
 - Secrets are pass(1) entries in `fabric-agent-<id>`, encrypted to
-  that key alone; the parent writes, never reads (§5 rule 3).
-- No shared host (§5 rules 4–5); `sync` reads only the store (§5 rules 7–8).
+  that key alone; the parent writes, never reads (§5 r3).
+- No shared host (§5 r4–5); `sync` reads only the store (§5 r7–8).
 - A 2026-09-29 — recovery copies and backups to Proton Drive.
 - A 2026-09-29 — recovery copies encrypted to the recovery key.
 - A 2026-09-29 — named by agent id (ADR-039).
-- A 2026-09-29 — one identity key with a subkey per use (§5 rule 1, §7).
-- A 2026-09-30 — no Doppler; `provision` fills a child's store (§5 rules 3, 7–8).
-- A 2026-10-01 — a new account's store travels as a bundle (§5 rule 5).
-- A 2026-10-06 — no shell holds a secret (§5 rule 9).
+- A 2026-09-29 — one identity key with a subkey per use (§5 r1, §7).
+- A 2026-09-30 — no Doppler; `provision` fills a child's store (§5 r3, r7–8).
+- A 2026-10-01 — a new account's store travels as a bundle (§5 r5).
+- A 2026-10-06 — no shell holds a secret (§5 r9).
 - A 2026-10-07 — the Doppler CLI stays (§6).
 - A 2026-10-13 — one repository per agent (§2).
 - A 2026-10-13 — agents sign commits with own subkeys (§6, ADR-057).
-- A 2026-10-15 — company stores (§5 rule 10).
-- A 2026-10-15 — only agent and parent write (§5 rule 3).
-- A 2026-10-17 — `settings/roles/`: parent only (§5 rule 3).
+- A 2026-10-15 — company stores (§5 r10).
+- A 2026-10-15 — only agent and parent write (§5 r3).
+- A 2026-10-17 — `settings/roles/`: parent only (§5 r3).
+- A 2026-11-03 — the seal is a managed hook (§5 r9).
 - Keywords: secrets, settings, GPG, pass, env.sh, lineage, custody,
   Doppler, provision, company store.
 ### ADR-039 — The agent id is a UUIDv7 minted at birth (Accepted)
@@ -1020,9 +1021,11 @@ its record disagree, the record wins. Look it up, never read it whole:
 - A 2026-10-31 — rules 1–2 built: exec-form guards through a root-owned
   hook_entry.py, snapshot of a named main; `fabric-managed` install and check;
   operator reinstall per guard change; AppVM boot restore (§5 rules 2, 9).
+- A 2026-11-03 — the session seal (ADR-038 rule 9) is a managed
+  `SessionStart` hook; its workspace copy keeps running (§5 rules 2, 9).
 - Keywords: mods, plugin, managed settings, allowManagedModsOnly,
   disableSideloadFlags, prependPlugins, sec-default, guard, redaction,
-  MCP server, sandbox, fabric-managed, hook_entry.py.
+  MCP server, sandbox, fabric-managed, hook_entry.py, session seal.
 
 ### ADR-044 — Identity kinds: an agent and a human (Accepted)
 

@@ -203,3 +203,7 @@ writes only from its writers. No behaviour changes.
 ### Amendment 2026-10-17 — Holder addenda (ADR-060)
 
 ADR-060 §5 rule 3: a holder's addenda are its permanent instructions, so the agent may not write them itself. The parent installs them with its own command; the agent's settings-put refuses any path under settings/roles/.
+
+### Amendment 2026-11-03 — The session seal is a managed hook
+
+Rule 9's last bullet was carried out by `session-start.py`, a hook in the workspace's settings, which every login renders into its own `.claude/settings.json` and can edit. A login, or a session writing its own settings, could drop the seal and every later Bash call and subagent would inherit the harness's credential again. The design of ADR-043's rules 1–2 (job j509) found this. The seal is now its own program, `runtime/claude-code/hooks/session-seal.py`, run as a managed `SessionStart` hook through `hook_entry.py`. Its workspace copy is kept and runs too. The seal writes once per file, so two copies cost nothing, and whether 2.1.316 gives a managed `SessionStart` hook the harness's env file has not been read back. Until it is, the workspace copy is what certainly runs, and the managed copy is what a login cannot remove. What rule 9 does not do is unchanged: a session that reads `secrets.env` still has the secrets.
