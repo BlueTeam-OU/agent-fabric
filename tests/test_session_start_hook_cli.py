@@ -147,10 +147,10 @@ def main() -> int:
         body = fh.read()
     n = body.count(b"export AGENT_FABRIC_ROOT=")
     t.check("an env file that is not UTF-8: the export written, and once across two runs", n == 1, f"{n}")
-    # The seal (ADR-038 rule 9: the harness's credentials unset in the
-    # session's shell) is searched as bytes too: written, and once.
-    seals = sum(1 for line in body.splitlines() if line.startswith(b"unset ") and b"agent-fabric" in line)
-    t.check("an env file that is not UTF-8: the seal written, and once across two runs", seals == 1, f"{seals} {body!r}")
+    # The seal (ADR-038 rule 9) is session-seal.py's, a hook of its own
+    # (tests/test_session_seal.py, a non-UTF-8 file included): this one writes no unset.
+    seals = sum(1 for line in body.splitlines() if line.startswith(b"unset "))
+    t.check("…and no seal: that is session-seal.py's", seals == 0, f"{seals} {body!r}")
     false_py = shutil.which("false") or "/bin/false"
     r = h.run(ENTRY, PAYLOAD, {**environment(), "AGENT_FABRIC_PYTHON": false_py})
     t.check("an interpreter that exits non-zero: the forwarder still exits 0", r.rc == 0, f"{r.rc} {r.err!r}")

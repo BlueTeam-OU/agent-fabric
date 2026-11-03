@@ -119,6 +119,13 @@ def main() -> int:
         f.write(b"\xff\xfe not utf-8\n")
     subprocess.run([sys.executable, SEAL], capture_output=True, timeout=30, env=base_env(home, env_file))
     check("…a file that is not UTF-8 is still searched", open(env_file, "rb").read().count(MARKER.encode()) == 1)
+    latin = os.path.join(tmp, "latin1.env")
+    with open(latin, "wb") as f:
+        f.write(b"export OTHER=caf\xe9\n")
+    for _ in range(2):
+        subprocess.run([sys.executable, SEAL], capture_output=True, timeout=30, env=base_env(home, latin))
+    check("an env file not UTF-8 before the seal: written, once across two runs",
+          open(latin, "rb").read().count(MARKER.encode()) == 1 and probe(latin) == WANT, probe(latin))
     r = subprocess.run([sys.executable, SEAL], capture_output=True, text=True, timeout=30, env=base_env(home, None))
     check("no CLAUDE_ENV_FILE: exit 0, nothing said", (r.returncode, r.stdout, r.stderr) == (0, "", ""), r.stderr)
     r = subprocess.run([sys.executable, SEAL], capture_output=True, text=True, timeout=30,
