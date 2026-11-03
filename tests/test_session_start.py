@@ -361,32 +361,81 @@ def test_hook_exports_the_control_plane_into_the_session_shell(tmp: str) -> None
     assert run_hook({"cwd": "/"}, env).returncode == 0
 
 
-def test_hook_unsets_every_secret_in_the_session_shell(tmp: str) -> None:
-    """The env file the harness sources into every Bash call unsets the
-    harness's credentials and each name sync wrote, but the plain values
-    (ADR-038 rule 9). Asked as set/unset per name, in a clean shell: a
-    check about secrets prints no value, even when it fails."""
-    home = os.path.join(tmp, "home-secrets")
+SEAL_MARKER = "# agent-fabric: no secret in the session shell"
+SEAL_NAMES = ("CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "OPENROUTER_API_KEY", "GH_TOKEN",
+              "CLAUDE_BRIDGE_AUTH_TOKEN", "OPENAI_API_KEY", "DEMO_PORT_OFFSET")
+
+
+def seal_home(tmp: str, name: str) -> str:
+    home = os.path.join(tmp, name)
     cfg = os.path.join(home, ".config", "agent-fabric")
     os.makedirs(cfg)
     with open(os.path.join(cfg, "secrets.env"), "w", encoding="utf-8") as fh:
-        fh.write("# agent-fabric secrets\nexport GH_TOKEN=x\nexport OPENAI_API_KEY='y z'\nexport DEMO_PORT_OFFSET=640\n")
+        fh.write("# agent-fabric secrets\nexport GH_TOKEN=x-secret-gh\nexport OPENAI_API_KEY='y z secret'\n"
+                 "export DEMO_PORT_OFFSET=640\n")
     with open(os.path.join(cfg, "env.sh"), "w", encoding="utf-8") as fh:
         fh.write("# agent-fabric secrets\nexport DEMO_PORT_OFFSET=640\n")
+    return home
+
+
+def seal_env(home: str) -> dict:
+    """Built from scratch: the fixture HOME alone, no credential of the host's, no bytecode written."""
+    env = {"PATH": os.environ["PATH"], "HOME": home, "LANG": "C.UTF-8", "PYTHONDONTWRITEBYTECODE": "1"}
+    if "AGENT_FABRIC_PYTHON" in os.environ:
+        env["AGENT_FABRIC_PYTHON"] = os.environ["AGENT_FABRIC_PYTHON"]
+    return env
+
+
+def seal_state(env_file: str) -> list[str]:
+    """Each name, set or unset, after sourcing the env file in a clean shell where all were planted: a failure
+    prints a name, never a value."""
+    script = "; ".join(f'[ -n "${{{n}+x}}" ] && echo {n}=set || echo {n}=unset' for n in SEAL_NAMES)
+    return subprocess.run(["bash", "-c", f'source "{env_file}"; {script}'], capture_output=True, text=True, timeout=30,
+                          env={"PATH": "/usr/bin:/bin", **{n: "planted" for n in SEAL_NAMES}}).stdout.split()
+
+
+SEAL_WANT = [f"{n}=unset" for n in SEAL_NAMES[:-1]] + ["DEMO_PORT_OFFSET=set"]
+
+
+def test_hook_seals_the_session_shell(tmp: str) -> None:
+    """The shell seal (ADR-038 rule 9) runs from this workspace hook: rendered settings change only on bootstrap
+    and a launcher pull carries code alone, so a separate workspace entry would be missing on an account that pulled
+    without bootstrapping (review of #464, F1). Credentials and synced names unset, env.sh's plain value kept, the
+    marker once across two runs; asked as set/unset per name, never as a value."""
+    home = seal_home(tmp, "home-secrets")
     env_file = os.path.join(tmp, "claude-env-secrets")
-    env = {**os.environ, "HOME": home, "AGENT_FABRIC_STATE_DIR": os.path.join(tmp, "state-s"), "CLAUDE_ENV_FILE": env_file}
-    assert run_hook({"cwd": "/"}, env).returncode == 0
-    names = ("CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "OPENROUTER_API_KEY", "GH_TOKEN",
-             "CLAUDE_BRIDGE_AUTH_TOKEN", "OPENAI_API_KEY", "DEMO_PORT_OFFSET")
-    probe = "; ".join(f'[ -n "${{{n}+x}}" ] && echo {n}=set || echo {n}=unset' for n in names)
-    planted = {n: "planted" for n in names}
-    got = subprocess.run(["bash", "-c", f'source "{env_file}"; {probe}'], capture_output=True, text=True,
-                         env={"PATH": os.environ.get("PATH", "/usr/bin:/bin"), **planted}).stdout.split()
-    want = [f"{n}=unset" for n in names[:-1]] + ["DEMO_PORT_OFFSET=set"]
-    assert got == want, got
-    run_hook({"cwd": "/"}, env)
-    assert open(env_file, encoding="utf-8").read().count("no secret in the session shell") == 1
-    assert "planted" not in open(env_file, encoding="utf-8").read() and "y z" not in open(env_file, encoding="utf-8").read()
+    env = {**seal_env(home), "AGENT_FABRIC_STATE_DIR": os.path.join(tmp, "state-s"), "CLAUDE_ENV_FILE": env_file}
+    for _ in range(2):
+        assert run_hook({"cwd": "/"}, env).returncode == 0
+    text = open(env_file, encoding="utf-8").read()
+    assert "export AGENT_FABRIC_ROOT=" in text, "the hook did not run as far as its export"
+    assert seal_state(env_file) == SEAL_WANT, seal_state(env_file)
+    assert text.count(SEAL_MARKER) == 1, text.count(SEAL_MARKER)
+    assert not any(v in text for v in ("x-secret-gh", "y z secret", "=640")), "a value reached the env file"
+
+
+def test_hook_starts_without_the_seal_file(tmp: str) -> None:
+    """A hooks directory that lacks session-seal.py (or whose seal raises) never blocks the start: exit 0, the
+    export still written, at most a line on stderr."""
+    hooks = os.path.join(tmp, "copy", "runtime", "claude-code", "hooks")
+    shutil.copytree(os.path.join(ROOT, "runtime", "claude-code", "hooks"), hooks)
+    os.remove(os.path.join(hooks, "session-seal.py"))
+    env_file = os.path.join(tmp, "claude-env-noseal")
+    env = {**seal_env(seal_home(tmp, "home-noseal")), "AGENT_FABRIC_ROOT": ROOT,
+           "AGENT_FABRIC_STATE_DIR": os.path.join(tmp, "state-ns"), "CLAUDE_ENV_FILE": env_file}
+    proc = subprocess.run(["bash", os.path.join(hooks, "session-start.sh")], input=json.dumps({"cwd": "/"}),
+                          capture_output=True, text=True, env=env, timeout=120)
+    assert proc.returncode == 0, proc.stderr
+    assert "export AGENT_FABRIC_ROOT=" in open(env_file, encoding="utf-8").read(), "the export was lost"
+    assert len(proc.stderr.strip().splitlines()) <= 1, proc.stderr
+    with open(os.path.join(hooks, "session-seal.py"), "w", encoding="utf-8") as fh:
+        fh.write("raise RuntimeError('seal broke')\n")
+    env_file2 = os.path.join(tmp, "claude-env-brokenseal")
+    proc = subprocess.run(["bash", os.path.join(hooks, "session-start.sh")], input=json.dumps({"cwd": "/"}),
+                          capture_output=True, text=True, env={**env, "CLAUDE_ENV_FILE": env_file2}, timeout=120)
+    assert proc.returncode == 0, proc.stderr
+    assert "export AGENT_FABRIC_ROOT=" in open(env_file2, encoding="utf-8").read(), "the export was lost"
+    assert "SessionStart" in proc.stdout, "the context was lost"
 
 
 def test_hook_says_when_the_session_has_no_inbox_watch(tmp: str) -> None:
@@ -859,7 +908,8 @@ def main() -> int:
              test_hook_says_when_the_working_copy_trails_its_origin,
              test_hook_reports_a_bad_marker_and_still_starts,
              test_hook_never_blocks, test_hook_exports_the_control_plane_into_the_session_shell,
-             test_hook_unsets_every_secret_in_the_session_shell,
+             test_hook_seals_the_session_shell,
+             test_hook_starts_without_the_seal_file,
              test_hook_says_when_the_session_has_no_inbox_watch,
              test_hook_says_when_the_branch_sweep_is_due,
              test_hook_says_the_job_list,

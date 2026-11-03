@@ -61,28 +61,6 @@ def is_subagent(payload, cwd: str) -> bool:
         return False
 
 
-# No secret in the session's shell (ADR-038 rule 9). The harness holds its
-# own credential in its environment, and every Bash call and subagent
-# inherited it, with whatever else the launch's shell carried; a reviewer
-# printed its environment and a key was rotated (#95). The file the
-# harness sources into every Bash call unsets the harness's credentials
-# and every name sync wrote into secrets.env, but the plain values in
-# env.sh. Names only, never a value; the harness keeps what it signs in
-# with. Once per file: the hook runs again on resume and compaction.
-SHELL_SEAL = "# agent-fabric: no secret in the session shell"
-HARNESS_CREDENTIALS = ("CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN",
-                       "OPENROUTER_API_KEY", "GH_TOKEN", "CLAUDE_BRIDGE_AUTH_TOKEN")
-EXPORT_NAME = re.compile(r"^export ([A-Za-z_][A-Za-z0-9_]*)=")
-
-
-def synced_names(path: str) -> list[str]:
-    try:
-        with open(path, encoding="utf-8") as fh:
-            return [m.group(1) for m in map(EXPORT_NAME.match, fh) if m]
-    except OSError:
-        return []
-
-
 def export_fabric_root(env_file: str | None, root: str) -> None:
     """Make AGENT_FABRIC_ROOT real in the session's own shell: the harness
     sources $CLAUDE_ENV_FILE into every later Bash call, and without the line
@@ -111,31 +89,25 @@ def export_fabric_root(env_file: str | None, root: str) -> None:
         pass
 
 
-def seal_session_shell(env_file: str | None, home: str) -> None:
-    if not env_file:
-        return
+def seal_session_shell() -> None:
+    """Load session-seal.py from this hook's own directory and run its seal; a failure never blocks the start."""
     try:
-        with open(env_file, "rb") as fh:   # bytes: a file that is not UTF-8 is still searched
-            if any(line.rstrip(b"\n").endswith(SHELL_SEAL.encode()) for line in fh):
-                return
-    except FileNotFoundError:
-        pass
-    except OSError:
-        return
-    cfg = os.path.join(home, ".config", "agent-fabric")
-    plain = set(synced_names(os.path.join(cfg, "env.sh")))
-    names = list(HARNESS_CREDENTIALS)
-    names += [n for n in synced_names(os.path.join(cfg, "secrets.env")) if n not in names and n not in plain]
-    try:
-        with open(env_file, "a", encoding="utf-8") as fh:
-            fh.write(f"unset {' '.join(names)}  {SHELL_SEAL}\n")
-    except OSError:
-        pass
+        spec = importlib.util.spec_from_file_location(
+            "fabric_session_seal", os.path.join(os.path.dirname(os.path.abspath(__file__)), "session-seal.py"))
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        mod.seal_session_shell(os.environ.get("CLAUDE_ENV_FILE"), os.path.expanduser("~"))
+    except Exception as exc:  # noqa: BLE001 - the seal is best effort here; the start is not
+        print(f"session-start: shell seal skipped: {exc}", file=sys.stderr)
 
 
 def main() -> int:
     export_fabric_root(os.environ.get("CLAUDE_ENV_FILE"), FABRIC_ROOT)
-    seal_session_shell(os.environ.get("CLAUDE_ENV_FILE"), os.path.expanduser("~"))
+    # The workspace copy of the shell seal (ADR-038 rule 9) runs from here, not from an entry of its own in the
+    # workspace settings: rendered settings change only on bootstrap and a launcher pull carries code alone, so a
+    # separate workspace entry would be missing on every account that pulled without bootstrapping (review of
+    # #464, F1). The managed SessionStart hook is the copy a login cannot drop.
+    seal_session_shell()
     try:
         raw = sys.stdin.read() if not sys.stdin.isatty() else ""
         payload = json.loads(raw) if raw.strip() else {}

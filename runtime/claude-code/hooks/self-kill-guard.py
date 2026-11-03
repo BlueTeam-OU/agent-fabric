@@ -662,8 +662,8 @@ HOOKS_DIR = os.path.dirname(os.path.abspath(__file__))
 def shell_prefix(session_id: str | None) -> str:
     """What the harness puts between the snapshot and its guards: the
     session's SessionStart env files, in order (the fabric's own:
-    `export AGENT_FABRIC_ROOT=…` and session-start.py's sealing unset).
-    Without them, the fabric's lines rebuilt from session-start.py; with
+    `export AGENT_FABRIC_ROOT=…` and session-seal.py's sealing unset).
+    Without them, the fabric's lines rebuilt from session-seal.py; with
     neither, nothing. A pattern matching only these words still kills the
     shell (review of #242)."""
     if session_id and re.fullmatch(r"[A-Za-z0-9_-][A-Za-z0-9._-]*", session_id):
@@ -680,7 +680,7 @@ def shell_prefix(session_id: str | None) -> str:
         except OSError:
             pass
     try:
-        spec = importlib.util.spec_from_file_location("fabric_session_start", os.path.join(HOOKS_DIR, "session-start.py"))
+        spec = importlib.util.spec_from_file_location("fabric_session_seal", os.path.join(HOOKS_DIR, "session-seal.py"))
         mod = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(mod)
         root = os.environ.get("AGENT_FABRIC_ROOT") or os.path.dirname(os.path.dirname(os.path.dirname(HOOKS_DIR)))

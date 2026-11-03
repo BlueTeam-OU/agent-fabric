@@ -147,8 +147,8 @@ def main() -> int:
         body = fh.read()
     n = body.count(b"export AGENT_FABRIC_ROOT=")
     t.check("an env file that is not UTF-8: the export written, and once across two runs", n == 1, f"{n}")
-    # The seal (ADR-038 rule 9: the harness's credentials unset in the
-    # session's shell) is searched as bytes too: written, and once.
+    # The seal (ADR-038 rule 9: the harness's credentials unset in the session's shell) is searched as bytes
+    # too: written, and once. It runs from this hook (review of #464, F1), so the latin-1 file proves it.
     seals = sum(1 for line in body.splitlines() if line.startswith(b"unset ") and b"agent-fabric" in line)
     t.check("an env file that is not UTF-8: the seal written, and once across two runs", seals == 1, f"{seals} {body!r}")
     false_py = shutil.which("false") or "/bin/false"
