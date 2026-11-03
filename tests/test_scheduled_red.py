@@ -12,7 +12,7 @@ import tempfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
-from instance_fixtures import own_instance_tree  # noqa: E402
+from instance_fixtures import own_instance_tree, write_registry  # noqa: E402
 
 own_instance_tree()
 ROOT = os.path.dirname(HERE)
@@ -59,8 +59,12 @@ def main() -> int:
         with open(os.path.join(bindir, "gh"), "w", encoding="utf-8") as fh:
             fh.write(GH)
         os.chmod(os.path.join(bindir, "gh"), 0o755)
+        # The registry is instance data a stripped tree lacks: the repository resolves through one this test plants.
+        fixture_root = os.path.join(tmp, "root")
+        write_registry(os.path.join(fixture_root, "projects"),
+                       {"version": 1, "projects": {"agent-fabric": {"remotes": [f"https://github.com/{REPO}"]}}})
         env = {"PATH": f"{bindir}:/usr/bin:/bin", "HOME": home, "MOCK_STATE": mock, "AGENT_FABRIC_STATE_DIR": state,
-               "AGENT_FABRIC_ROOT": ROOT, "LC_ALL": "C.UTF-8", "GH_REPO": REPO}
+               "AGENT_FABRIC_ROOT": ROOT, "AGENT_FABRIC_OPERATOR": fixture_root, "LC_ALL": "C.UTF-8", "GH_REPO": REPO}
 
         def feed(runs: list[dict], mode: str = "ok") -> None:
             with open(os.path.join(mock, "runs.json"), "w", encoding="utf-8") as fh:
