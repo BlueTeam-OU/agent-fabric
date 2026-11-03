@@ -76,7 +76,7 @@ class Unfiled(Exception):
 
 @dataclass(frozen=True)
 class Run:
-    id: int
+    id: int | None  # None: an older run whose id was not an integer; never invented
     conclusion: str
     date: str  # YYYY-MM-DD, UTC
 
@@ -120,7 +120,8 @@ def parse_runs(data: object) -> list[Run]:
         except Unreadable:
             if not runs:
                 raise
-            run = Run(raw.get("id", 0) if isinstance(raw, dict) else 0, UNKNOWN, "")
+            rid = raw.get("id") if isinstance(raw, dict) else None
+            run = Run(rid if isinstance(rid, int) and not isinstance(rid, bool) else None, UNKNOWN, "")
         if run:
             runs.append(run)
     if not runs:
@@ -135,7 +136,8 @@ def red_since(runs: list[Run]) -> str:
         if r.conclusion == "success":
             return streak[-1].date if streak else r.date
         if r.conclusion == UNKNOWN:
-            return f"{streak[-1].date} or earlier (run {r.id} before it has a conclusion this does not read)"
+            which = f"run {r.id}" if r.id is not None else "a run"
+            return f"{streak[-1].date} or earlier ({which} before it is one this does not read)"
         if r.conclusion in RED:
             streak.append(r)
     return f"{streak[-1].date} or earlier (no success in the last {len(runs)} completed runs)"

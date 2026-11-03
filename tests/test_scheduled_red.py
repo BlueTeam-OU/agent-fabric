@@ -183,6 +183,9 @@ def main() -> int:
         p = tool("--dry-run")
         check("a red newest run is still red when an older one concluded startup_failure; red since says where the count ended",
               p.returncode == 0 and "would add" in p.stdout and "red since 2026-10-31 or earlier (run 290" in p.stdout, p)
+        feed([RED[0], {"status": "completed", "conclusion": "failure"}] + RED[4:])
+        p = tool("--dry-run")
+        check("...an older run with no id is said as \"a run\", never given a number", p.returncode == 0 and "(a run before it" in p.stdout and "run 0" not in p.stdout, p)
         feed([run("2026-11-02T03:17:04Z", "startup_failure", 300), RED[2]])
         p = tool()
         check("...but the NEWEST run's undefined conclusion is still unreadable, exit 3, nothing added", p.returncode == 3 and len(jobs()) == n, p)
