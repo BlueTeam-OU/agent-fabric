@@ -112,6 +112,15 @@ def main() -> int:
           ci_warnings.step_names(steps, when["Node.js 20 actions are deprecated. Use node24."]) == "Install")
     check("a second two steps share names both, never one of them",
           ci_warnings.step_names(steps, when["shared second"]) == "Lint | Test")
+    carried = ci_warnings.job_findings({"steps": []}, "2026-11-03T01:00:00.0Z ##[notice]ok\n",
+                                       [{"annotation_level": "warning", "message": "image is deprecated; look at the notice"},
+                                        {"annotation_level": "notice", "message": "ok"}])
+    check("a short log message does not hide a longer annotation; an equal one at its level is carried",
+          [(l, m) for _, l, m in carried] == [("notice", "ok"), ("warning", "image is deprecated; look at the notice")],
+          str(carried))
+    dirty = ci_warnings.clean("a\x1b]0;pwned\x07b\x1b[?25lc\x1b[33md")
+    check("terminal escapes other than colours are made inert; colours are still stripped",
+          not any(c in dirty for c in "\x1b\x07") and dirty.endswith("cd"), repr(dirty))
     check("a line outside every step has none, and so has an unstamped one",
           ci_warnings.step_names(steps, None) == "(no step)"
           and ci_warnings.step_names(steps[:1], when["shared second"]) == "(no step)")
@@ -182,9 +191,12 @@ def main() -> int:
 
         rc, out, err, _ = run(base_tab, "--repo", REPO, "--level", "warning,log")
         check("--level keeps the named levels only",
-              rc == 0 and "[notice]" not in out and "[warning]" in out and "[log]" in out and "5 distinct" not in out, out)
+              rc == 0 and "[notice]" not in out and "[warning]" in out and "[log]" in out and "4 distinct" in out, out)
         rc, out, err, calls = run(base_tab, "--repo", REPO, "--level", "warning,loud")
         check("--level with an unknown level: exit 2, nothing sent", rc == 2 and not calls and "--level" in err, err)
+
+        rc, out, err, calls = run(base_tab, "--repo", REPO, "--branch", "feat+x&y")
+        check("--branch is percent-encoded whole (+ and & included)", "branch=feat%2Bx%26y" in calls[0]["query"], str(calls[:1]))
 
         bad = json.loads(json.dumps(base_tab))
         bad["fail"][f"repos/{REPO}/actions/jobs/31/logs"] = "gh: Not Found (HTTP 404)"
@@ -218,7 +230,8 @@ def main() -> int:
 
         for args in (["--runs", "0"], ["--runs", "101"], ["--runs", "x"], ["--repo", "nope"], ["--fix"]):
             rc, out, err, calls = run(base_tab, *args)
-            check(f"usage {args}: exit 2, nothing sent to GitHub", rc == 2 and not calls and out == "", f"{rc} {err}")
+            check(f"usage {args}: exit 2, one stderr line, nothing sent to GitHub",
+                  rc == 2 and not calls and out == "" and err.count("\n") == 1, f"{rc} {err}")
         rc, out, err, calls = run(base_tab, "--help")
         check("--help: exit 0, names the options and the exit codes",
               rc == 0 and all(w in out for w in ("--repo", "--runs", "--workflow", "--branch", "--level", "--json", "exit:")) and not calls)

@@ -6,7 +6,7 @@ recent CI runs print, each once, with its workflow, job, step and count.
 
 Read-only: it lists the repository's latest completed workflow runs, their
 jobs, each job's check-run annotations and its run log, through gh (gh.py),
-and writes nothing anywhere. The owner of a repository's `.github/` runs it
+sends only GETs and changes nothing on GitHub or here, bar the line each gh call leaves in the local gh ledger like every tool's. The owner of a repository's `.github/` runs it
 and fixes what it names (the owner's rule of 2026-11-01: every managed
 repository's CI warnings and deprecations are cleared by its owner).
 
@@ -36,7 +36,8 @@ What is a finding, and its limits.
     only); it has no step.
   - An unmarked log line outside the runner's echo of a step's script and
     environment that has the word "deprecated" or "deprecation" in it, or starts
-    with warn/warning/npm warn: level `log`. This is a text match, so a program that prints such a word in its own
+    with warn/warning/npm warn: level `log`. A step's own `::group::Run …` is taken
+    for the runner's echo and its unmarked lines are not read. This is a text match, so a program that prints such a word in its own
     output is reported too; the finding names the line for a person to judge.
   - The step is found from the line's timestamp against the job's step times, which
     GitHub gives to the second. A second shared by two steps names both, joined by
@@ -54,6 +55,7 @@ import json
 import os
 import re
 import sys
+import urllib.parse
 
 sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
 import gh  # noqa: E402
@@ -80,8 +82,13 @@ class Unread(Exception):
     """One job's log or annotations could not be read: said, never skipped."""
 
 
+# What is left of a control character after colours are gone (an OSC title, a private CSI, a bell) must not
+# reach a terminal: log text is a stranger's.
+_CONTROL = re.compile(r"[\x00-\x08\x0b-\x1f\x7f-\x9f]")
+
+
 def clean(text: str) -> str:
-    return " ".join(_ANSI.sub("", text).split())
+    return " ".join(_CONTROL.sub("?", _ANSI.sub("", text)).split())
 
 
 def _second(stamp: str | None) -> dt.datetime | None:
@@ -136,7 +143,7 @@ def step_names(steps: list[dict], when: dt.datetime | None) -> str:
     for step in steps:
         start, end = _second(step.get("started_at")), _second(step.get("completed_at"))
         if start is not None and end is not None and start <= when <= end:
-            names.append(str(step.get("name", "?")))
+            names.append(clean(str(step.get("name", "?"))))
     return " | ".join(names) if names else "(no step)"
 
 
@@ -166,14 +173,15 @@ def job_findings(job: dict, log: str, annotations: list[dict]) -> list[tuple[str
     """(step, level, message) for one job: its log's findings, plus the annotations the log does not carry."""
     steps = job.get("steps") or []
     out = [(step_names(steps, when), level, message) for when, level, message in parse_log(log)]
-    carried = [message for _, level, message in out if level != "log"]
+    carried = {(level, message) for _, level, message in out if level != "log"}
     for note in annotations:
         level = note.get("annotation_level")
         if level not in ("warning", "notice"):
             continue
         text = str(note.get("message") or "")
         first = clean(text.strip().splitlines()[0]) if text.strip() else ""
-        if first and not any(first in c or c in first for c in carried):
+        # Equal, not contained: a short log message ("ok") is inside any longer annotation.
+        if first and (level, first) not in carried:
             out.append(("(no step)", level, clean(text)))
     return out
 
@@ -205,7 +213,7 @@ def collect(repo: str, runs: int, workflow: str | None, branch: str | None):
     """(runs read, jobs read, Findings, unread descriptions). A GhError listing runs or jobs propagates."""
     query = f"per_page={MAX_RUNS if workflow else runs}&status=completed"
     if branch:
-        query += "&branch=" + branch.replace("%", "%25").replace("&", "%26").replace("#", "%23").replace(" ", "%20")
+        query += "&branch=" + urllib.parse.quote(branch, safe="")
     answer = gh.api(f"repos/{repo}/actions/runs?{query}")
     listed = answer.get("workflow_runs") if isinstance(answer, dict) else None
     if not isinstance(listed, list):
@@ -226,7 +234,7 @@ def collect(repo: str, runs: int, workflow: str | None, branch: str | None):
                 continue
             jobs_read += 1
             for step, level, message in job_findings(job, log, notes):
-                findings.add(label, str(job.get("name", "?")), step, level, message, int(run_id))
+                findings.add(label, clean(str(job.get("name", "?"))), step, level, message, int(run_id))
     return len(chosen), jobs_read, findings, unread
 
 
@@ -243,8 +251,15 @@ def render(repo: str, nruns: int, njobs: int, rows: list[dict], unread: list[str
     return "\n".join(lines) + "\n"
 
 
+class _Parser(argparse.ArgumentParser):
+    def error(self, message):
+        # One line, as every other refusal here: the usage block is what --help is for.
+        print(f"fabric-ci-warnings: {message}", file=sys.stderr)
+        raise SystemExit(2)
+
+
 def build_parser() -> argparse.ArgumentParser:
-    p = argparse.ArgumentParser(
+    p = _Parser(
         prog="fabric-ci-warnings",
         description="Print the warnings and deprecations a repository's recent CI runs print, each once, with "
                     "workflow, job, step and count. Read-only: runs, jobs, annotations and logs through gh; "
