@@ -359,8 +359,8 @@ def carried_findings(pr: int, head_sha: str, repo: str) -> tuple[dict | None, li
 
 def carried_for(req: dict, info: dict) -> tuple[dict | None, list[str]]:
     """carried_findings for a PR's full review of a resolved range; (None, []) for anything else, which asks nothing.
-    Claude's only: Codex answers findings and its renderer numbers them (review_codex.render_review), so a lookup
-    for it would only add a way to fail."""
+    The Claude brief's only: Codex's brief carries no findings, and its labels are numbered past the PR's used ones by
+    review_codex.label_start, which reads carried_findings itself and refuses on the same failures."""
     pr = _count(req.get("pr"))
     if not pr or req.get("mode") != "review":
         return None, []
