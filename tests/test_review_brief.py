@@ -842,6 +842,16 @@ def test_a_prs_re_review_starts_at_its_last_checkpoint(tmp: str) -> None:
         rb.checkpoint = lambda pr, h, r, exclude_head=None: (mid, head, base, "X") if exclude_head is None else None
         info, refused = rb.resolve_range(req)
         assert info is None and any("has no review a re-review can start from" in r for r in refused), refused
+        # j573: render reads the checkpoint again after refusals() passed; a second read that finds
+        # none is refused with its reason, never a KeyError on the previous_findings a PR's re-review must leave out
+        answers = [(base, mid, base, "<!-- marker -->\nPOSTED REPORT\n")]
+        rb.checkpoint = lambda pr, h, r, exclude_head=None: answers.pop() if answers else None
+        try:
+            rb.render(req)
+            raise AssertionError("render briefed a re-review whose checkpoint was gone")
+        except rb.RequestError as e:
+            assert "has no review a re-review can start from" in str(e), e
+        assert not answers, "the first read (refusals) took the checkpoint, so the refusal is the second read's"
         rb.checkpoint = lambda pr, h, r, exclude_head=None: (base, mid, base, "<!-- marker -->\nPOSTED REPORT\n")
         # a diff file names no commits to look a checkpoint up against: refused, not a KeyError
         diff = os.path.join(tmp, "pr.diff"); open(diff, "w").write("")

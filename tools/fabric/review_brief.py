@@ -897,7 +897,12 @@ def render(req: dict, lenses_dir: str | None = None, allow_rationale: bool = Fal
     # A review always carries general; a re-review verifies the new hunks
     # against the previous findings and carries only a lens it names.
     names = list(dict.fromkeys(([] if mode == "re-review" else ["general"]) + list(req.get("lenses") or [])))
-    info, _ = resolve_range(req)
+    info, refused = resolve_range(req)
+    if refused:
+        # A PR's re-review asks GitHub for its checkpoint again here, and refusals() read it once; a read that now
+        # finds none would leave no previous report and fall through to a previous_findings the request must leave
+        # out (j573, a KeyError).
+        raise RequestError(refused)
     out = dispatch_header(req, info, engine, purpose, dispatch_id, started_at)
     out += [f"# Review brief ({BRIEF_VERSION})", "## Mode", mode,
             "## Repository", f"{req['repository']} (the live clone; read-only for you)", _evidence_line(req, info, evidence_path) or EVIDENCE_LINE[evidence_mode(req)],
