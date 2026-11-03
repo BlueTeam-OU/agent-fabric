@@ -3,8 +3,9 @@
 
 CONTRACT:
   argv    none; the managed file runs it through hook_entry.py (`session-seal`)
-  module  seal_session_shell(env_file, home): the workspace copy, which session-start.py loads from this file by
-          path and calls (keep the signature)
+  module  loaded by path, so keep these names: seal_session_shell(env_file, home), the workspace copy
+          session-start.py calls; HARNESS_CREDENTIALS and SHELL_SEAL, which self-kill-guard.py reads to model the
+          shell when no env file exists
   stdin   ignored (the hook payload is never read)
   stdout  nothing
   exit    0, whatever happens: it must never block or fail a session start
@@ -37,16 +38,16 @@ import sys
 SHELL_SEAL = "# agent-fabric: no secret in the session shell"
 HARNESS_CREDENTIALS = ("CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN",
                        "OPENROUTER_API_KEY", "GH_TOKEN", "CLAUDE_BRIDGE_AUTH_TOKEN")
-EXPORT_NAME = re.compile(r"^export ([A-Za-z_][A-Za-z0-9_]*)=")
+EXPORT_NAME = re.compile(rb"^export ([A-Za-z_][A-Za-z0-9_]*)=")
 
 
 def synced_names(path: str) -> list[str]:
     try:
-        with open(path, encoding="utf-8") as fh:
-            return [m.group(1) for m in map(EXPORT_NAME.match, fh) if m]
-    # ValueError: a file that is not UTF-8 (UnicodeDecodeError) must not cost the harness's own credentials
-    # their unset; its names are skipped instead (review of #464, round 2).
-    except (OSError, ValueError):
+        # Bytes, never decoded: a name is ASCII by EXPORT_NAME, and a value that is not UTF-8 must cost neither
+        # its own name nor any other its unset (review of #464, rounds 2 and 3).
+        with open(path, "rb") as fh:
+            return [m.group(1).decode("ascii") for m in map(EXPORT_NAME.match, fh) if m]
+    except OSError:
         return []
 
 
