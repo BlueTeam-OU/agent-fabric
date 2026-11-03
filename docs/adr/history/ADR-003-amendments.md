@@ -140,3 +140,37 @@ meets the 2026-10-31 conditions for a lock file that is not state.
 `tests/test_session_state.py` and `tests/test_context_sample.py` hold
 the writer, the lock file's mode and a failed write that leaves the
 previous file whole and no temporary.
+
+### Amendment 2026-11-03 — Rule 1 has a guard, and its exceptions a list
+
+Found on job j487 and swept on j535: `tools/fabric/fabric_writes.py`
+and `gh_ledger.py` each resolved the per-agent state directory with a
+copy of `identity.state_root()` and opened their lock file with
+`open(..., "a")`, which takes the umask, 0644, not the 0600 the
+2026-10-31 amendment asks of a lock file. Rule 1 lived in prose only, so
+nothing had seen either. `gh_ledger.py` was fixed first (4a898459);
+`fabric_writes.py` now asks `identity.agent_state_dir()`, replaces its
+record with `atomic_write` at 0600 and opens its lock `O_CREAT`, without
+`O_TRUNC`, at 0600.
+
+The sweep for the rest is a guard, `tools/fabric/state_writes.py`. A
+static reader cannot see where a path points, so it over-reports: a
+module that resolves the per-agent state directory, or reads
+`AGENT_FABRIC_STATE_DIR` itself, and writes a file at all is a finding
+until `policies/state-writers.json` names it, with the clause of rule 1
+that admits it, `not state:` and what it writes, or `gap (jNNN):` and
+the job that closes it. A `.lock` opened by builtin `open()`, with
+`O_TRUNC` or without mode 0600 is a finding wherever it is. Lint judges
+the tracked tree, and finds an entry for a gone module, one with no
+stated ground, and one that admits nothing, so a gap's entry leaves the
+list when its fix lands. The pre-commit hook judges the staged modules
+of agent-fabric itself against the staged list.
+
+The first list holds 26 modules: the five writer classes this record
+already names, six that write no state, and fifteen gaps. Five are in
+`runtime/claude-code/` and the guards, with an append-only writer for
+the per-agent logs still to add to `identity.py` (j576). Ten are in the
+contributor lane (j577): hand-made replaces, `O_APPEND` logs, copies of
+the resolution, `resume.lock` truncated and given the holder's pid, and
+a snapshot lock opened `"w"`.
+
