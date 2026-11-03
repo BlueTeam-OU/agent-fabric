@@ -175,6 +175,26 @@ def main() -> int:
         p = tool("--dry-run")
         check("red since is said to be the oldest seen or earlier", "red since 2026-11-01 or earlier" in p.stdout, p)
 
+        print("an older run this does not read")
+        for j in jobs():
+            set_state(j["id"], "done")
+        n = len(jobs())
+        feed([RED[0], run("2026-10-31T03:16:58Z", "failure", 298), run("2026-10-20T03:16:00Z", "startup_failure", 290)] + RED[4:])
+        p = tool("--dry-run")
+        check("a red newest run is still red when an older one concluded startup_failure; red since says where the count ended",
+              p.returncode == 0 and "would add" in p.stdout and "red since 2026-10-31 or earlier (run 290" in p.stdout, p)
+        feed([run("2026-11-02T03:17:04Z", "startup_failure", 300), RED[2]])
+        p = tool()
+        check("...but the NEWEST run's undefined conclusion is still unreadable, exit 3, nothing added", p.returncode == 3 and len(jobs()) == n, p)
+
+        print("a dropped marked job")
+        feed(RED)
+        tool()
+        set_state(jobs()[-1]["id"], "dropped")
+        n = len(jobs())
+        p = tool()
+        check("dropped is closed, as fabric-jobs counts it: red files a new job (decision recorded in the PR)", p.returncode == 0 and len(jobs()) == n + 1, (p, jobs()[-1:]))
+
         print("the control: the fixture is what is read")
         for j in jobs():
             set_state(j["id"], "done")

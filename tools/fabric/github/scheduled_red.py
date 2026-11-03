@@ -27,8 +27,8 @@ the branch, newest first, through gh.api, so the gh ledger counts it.
                                 open job whose title carries the marker
                                 [scheduled-red:<org/repo>/<file.yml>] (any
                                 state but done or dropped) and nothing added
-  any other conclusion          unreadable (exit 3): what the contract does not
-                                define is never read as green
+  any other conclusion          of the NEWEST run: unreadable (exit 3), never green; an older
+                                run this cannot read only ends the red-since count
 
 Exit codes:
   0  read; the line says whether a job was added
@@ -40,7 +40,7 @@ Exit codes:
 # Red-since is the first failed run after the newest success in the page
 # read (30 runs), not the first red of the streak by any other count: when
 # the page holds no success the date is "or earlier" than the oldest red in
-# it, said so. The dated line is the evidence a person reads a week later.
+# it, said so; so it is when an older run cannot be read (it ends the count). The dated line is the evidence a person reads a week later.
 from __future__ import annotations
 
 import argparse
@@ -60,6 +60,7 @@ PROG = "scheduled_red"
 PAGE = 30
 GREEN = ("success", "skipped", "cancelled")
 RED = ("failure", "timed_out")
+UNKNOWN = "unknown"  # an older run parse_runs could not read; never a verdict
 REPOSITORY = re.compile(r"[A-Za-z0-9._-]+/[A-Za-z0-9._-]+")
 WORKFLOW = re.compile(r"[A-Za-z0-9._-]+\.ya?ml")
 BRANCH = re.compile(r"[A-Za-z0-9._/-]+")
@@ -84,29 +85,44 @@ def marker(repository: str, workflow: str) -> str:
     return f"[scheduled-red:{repository}/{workflow}]"
 
 
+def parse_run(raw: object) -> Run | None:
+    """One run of the answer: None when it is not completed; Unreadable when it is not a run this
+    understands (an id, a status, a defined conclusion and a dated, zoned created_at)."""
+    if not isinstance(raw, dict):
+        raise Unreadable("a run is not an object")
+    run_id, status, conclusion, created = (raw.get(k) for k in ("id", "status", "conclusion", "created_at"))
+    if not isinstance(run_id, int) or isinstance(run_id, bool) or not isinstance(status, str):
+        raise Unreadable("a run has no integer id and a status")
+    if status != "completed":
+        return None
+    if not isinstance(conclusion, str) or conclusion not in GREEN + RED:
+        raise Unreadable(f"run {run_id} concluded {conclusion!r}, which this does not define as green or red")
+    try:
+        when = datetime.datetime.fromisoformat(created.replace("Z", "+00:00"))  # type: ignore[union-attr]
+    except (AttributeError, ValueError):
+        raise Unreadable(f"run {run_id} has no readable created_at") from None
+    if when.tzinfo is None:
+        raise Unreadable(f"run {run_id} has a created_at with no zone")
+    return Run(run_id, conclusion, when.astimezone(datetime.timezone.utc).date().isoformat())
+
+
 def parse_runs(data: object) -> list[Run]:
-    """The completed runs of an answer, newest first as GitHub sends them; a shape not
-    known is Unreadable, never an empty list."""
+    """The completed runs of an answer, newest first as GitHub sends them; a shape not known is
+    Unreadable, never an empty list. Only the newest completed run is the verdict, so only it is held
+    to the contract: an older run this cannot read (startup_failure is what a broken workflow file
+    records) ends the red-since count as an UNKNOWN run, and never hides a red newest one."""
     if not isinstance(data, dict) or not isinstance(data.get("workflow_runs"), list):
         raise Unreadable("the answer has no workflow_runs list")
-    runs = []
+    runs: list[Run] = []
     for raw in data["workflow_runs"]:
-        if not isinstance(raw, dict):
-            raise Unreadable("a run is not an object")
-        run_id, status, conclusion, created = (raw.get(k) for k in ("id", "status", "conclusion", "created_at"))
-        if not isinstance(run_id, int) or isinstance(run_id, bool) or not isinstance(status, str):
-            raise Unreadable("a run has no integer id and a status")
-        if status != "completed":
-            continue
-        if not isinstance(conclusion, str) or conclusion not in GREEN + RED:
-            raise Unreadable(f"run {run_id} concluded {conclusion!r}, which this does not define as green or red")
         try:
-            when = datetime.datetime.fromisoformat(created.replace("Z", "+00:00"))  # type: ignore[union-attr]
-        except (AttributeError, ValueError):
-            raise Unreadable(f"run {run_id} has no readable created_at") from None
-        if when.tzinfo is None:
-            raise Unreadable(f"run {run_id} has a created_at with no zone")
-        runs.append(Run(run_id, conclusion, when.astimezone(datetime.timezone.utc).date().isoformat()))
+            run = parse_run(raw)
+        except Unreadable:
+            if not runs:
+                raise
+            run = Run(raw.get("id", 0) if isinstance(raw, dict) else 0, UNKNOWN, "")
+        if run:
+            runs.append(run)
     if not runs:
         raise Unreadable("no completed scheduled run on the branch to judge")
     return runs
@@ -118,6 +134,8 @@ def red_since(runs: list[Run]) -> str:
     for r in runs:
         if r.conclusion == "success":
             return streak[-1].date if streak else r.date
+        if r.conclusion == UNKNOWN:
+            return f"{streak[-1].date} or earlier (run {r.id} before it has a conclusion this does not read)"
         if r.conclusion in RED:
             streak.append(r)
     return f"{streak[-1].date} or earlier (no success in the last {len(runs)} completed runs)"
