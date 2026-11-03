@@ -473,8 +473,8 @@ its record disagree, the record wins. Look it up, never read it whole:
 ### ADR-020 — The review class is the review (Accepted)
 
 - The review class's blind review is the review of every PR: each head,
-  finding's judgement, fix range; no automated reviewer assumed (§5
-  rule 1).
+  finding's judgement, fix range; no automated reviewer assumed
+  (§5 rule 1).
 - Dispatch: `code-review`, `model: fable`, description "review…"/
   "re-review…", no isolation; agent file's routed model decides
   (rules 2–3).
