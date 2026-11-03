@@ -68,6 +68,13 @@ Writes, idempotently, and only machine-local files:
                                      ONLY on that same account: the relay database's copy to
                                      Proton Drive every 6 h (fabric-secrets relay backup;
                                      agent-fabric ADR-034 §7), the timer enabled likewise
+  <units>/agent-fabric-drain.{service,timer}
+  <units>/agent-fabric-scheduled-red.{service,timer}
+                                     ONLY on an account bound to fabric-coordinator: the weekly
+                                     collection of undrained memory (fabric-drain-due; ADR-034 §7)
+                                     and the daily read of the stripped nightly's scheduled run
+                                     (scheduled_red.py; j109), the timers enabled likewise; on any
+                                     other role the fabric's own copies are disabled and removed
   ~/.cache/agent-fabric/langid/venv/ the language detector (pycld2) for the control agent's
                                      script op (runtime/langid/), best effort
   (removes ~/.config/agent-fabric/secrets-source, the fabric's own leftover; the Doppler CLI and its config stay, a project may use them:
@@ -268,6 +275,10 @@ RELAY_UNIT = "gzcoord-relay"
 BACKUP_UNIT = "agent-fabric-state-backup"
 RELAY_BACKUP_UNIT = "agent-fabric-relay-backup"
 TIDY_UNIT = "agent-fabric-tidy"
+# The timers whose work is the coordinator's: each files a job only a
+# coordinator acts on (the drain, a red nightly's fixes to contract).
+COORDINATOR_UNITS = ("agent-fabric-drain", "agent-fabric-scheduled-red")
+COORDINATOR_ROLE = "fabric-coordinator"
 HARNESS_UNIT = "agent-fabric-harness"
 RELAY_STATUS = "http://127.0.0.1:8765/status"
 JOURNAL_IMPORT_TIMEOUT = 20
@@ -545,7 +556,8 @@ class Bootstrap:
         # sending a message, and receiving one (the watch, and what a delivery is).
         for name, rel in SKILLS:
             self.put_file(os.path.join(self.claude_home, "skills", name, "SKILL.md"), rel)
-        self.tree_skills(self.role())
+        role = self.role()
+        self.tree_skills(role)
         self.checkout_hooks()
         trusted = self.working_copy_hooks()
         self.trust(trusted)
@@ -555,6 +567,7 @@ class Bootstrap:
         self.harness()
         self.relay()
         self.relay_backup()
+        self.coordinator_timers(role)
         self.langid()
         self.retire_doppler()
         self.journal_import()
@@ -1234,6 +1247,52 @@ class Bootstrap:
             run_quiet(["systemctl", "--user", "restart", f"{RELAY_BACKUP_UNIT}.timer"])
         say(f"  *  {RELAY_BACKUP_UNIT}.timer: {answer(['systemctl', '--user', 'is-active', f'{RELAY_BACKUP_UNIT}.timer'])} "
             f"(systemctl --user list-timers {RELAY_BACKUP_UNIT}.timer)")
+
+    def coordinator_timers(self, role: str) -> None:
+        # 6d. The coordinator's timers (COORDINATOR_UNITS): installed on an
+        #     account whose binding holds fabric-coordinator, mechanics the state
+        #     backup's (6a). Elsewhere a job they file lands where nobody acts on
+        #     it, so an account rebound away has the fabric's copies disabled and
+        #     removed; a file the fabric did not write is a person's and stays,
+        #     as tree_skills keeps one. The role is the binding at bootstrap: a
+        #     rebind takes effect at the next `fabric-ctl upgrade fabric`.
+        for unit in COORDINATOR_UNITS:
+            files = [os.path.join(self.units, f"{unit}.{suffix}") for suffix in ("service", "timer")]
+            if role == COORDINATOR_ROLE:
+                self.coordinator_timer(unit, files)
+                continue
+            ours = [f for f in files if os.path.isfile(f) and fabric_writes.written(f)]
+            if not ours:
+                continue
+            if self.dry_run:
+                for f in ours:
+                    say(f"  -  {f} (would remove: role is {role or 'unbound'})")
+                continue
+            if self.user_manager():
+                run_quiet(["systemctl", "--user", "disable", "--now", f"{unit}.timer"])
+            for f in ours:
+                try:
+                    os.remove(f)
+                except OSError as e:
+                    raise Stop(1, f"bootstrap: cannot remove {f}: {e.strerror or e}") from None
+                say(f"  -  {f} (removed: role is {role or 'unbound'})")
+                self.changed += 1
+
+    def coordinator_timer(self, unit: str, files: list[str]) -> None:
+        before = self.changed
+        for f in files:
+            self.put_file(f, f"runtime/control/{os.path.basename(f)}")
+        if self.dry_run:
+            return
+        if not self.user_manager():
+            say(f"  !  {unit}.timer: installed, not enabled — no user manager at "
+                f"{os.environ['XDG_RUNTIME_DIR']}/bus (systemd absent, or no login session; the next bootstrap with one enables it)")
+            return
+        run_quiet(["systemctl", "--user", "enable", "--now", f"{unit}.timer"])
+        if self.changed > before:
+            run_quiet(["systemctl", "--user", "restart", f"{unit}.timer"])
+        say(f"  *  {unit}.timer: {answer(['systemctl', '--user', 'is-active', f'{unit}.timer'])} "
+            f"(systemctl --user list-timers {unit}.timer)")
 
     def langid(self) -> None:
         # 7. The language detector for the control agent's `script` op

@@ -26,7 +26,9 @@ import hashlib
 import json
 import os
 import pwd
+import re
 import shutil
+import socket
 import stat
 import subprocess
 import sys
@@ -52,6 +54,8 @@ RELAY = "gzcoord-relay"
 RBK = "agent-fabric-relay-backup"
 TIDY = "agent-fabric-tidy"
 HARNESS = "agent-fabric-harness"
+COORDINATOR_UNITS = ("agent-fabric-drain", "agent-fabric-scheduled-red")
+SCHEDULED_RED = "agent-fabric-scheduled-red"
 HOOK_REL = "policies/githooks"
 # The plain tools the script and what it runs call. Anything not here, and
 # not a fake, is "command not found": a port that starts calling something
@@ -1127,6 +1131,62 @@ def user_manager() -> None:
               in r.lines, r.out)
 
 
+def coordinator_timers() -> None:
+    print("bootstrap: step 6d, the coordinator's timers")
+    a = Account("coordinator", wcs=False)
+
+    def bind(role: str | None) -> None:
+        put(f"{a.state}/agent-fabric/agents/{LOGIN}/binding.json",
+            json.dumps({"agent": LOGIN, "host": socket.gethostname().split(".")[0], "updated_at": "2026-11-03T00:00:00Z", "role": role}))
+
+    files = [f"{a.units}/{u}.{x}" for u in COORDINATOR_UNITS for x in ("service", "timer")]
+    r = bootstrap(a)
+    check("unbound: neither unit installed, nothing said of them (the control: the step reads the role)",
+          r.rc == 0 and not any(os.path.exists(f) for f in files) and not any(u in r.out for u in COORDINATOR_UNITS), r)
+    bind("fabric-coordinator")
+    r = bootstrap(a)
+    check("fabric-coordinator, no user manager: both units' files installed, the fabric's, mode 644",
+          r.rc == 0 and all(f"  +  {f}" in r.lines and mode(f) == 0o644
+                            and read(f) == read(f"{a.fr}/runtime/control/{os.path.basename(f)}") for f in files), r)
+    check("…each timer's enabling refused for want of a manager, said",
+          all(f"  !  {u}.timer: installed, not enabled — no user manager at {a.run}/bus "
+              f"(systemd absent, or no login session; the next bootstrap with one enables it)" in r.lines
+              for u in COORDINATOR_UNITS), r.out)
+    a.bus()
+    a.clear_log()
+    r = bootstrap(a)
+    check("with a manager: each timer enabled, unchanged so not restarted, its state said",
+          all(["systemctl", "--user", "enable", "--now", f"{u}.timer"] in a.calls("systemctl")
+              and ["systemctl", "--user", "restart", f"{u}.timer"] not in a.calls("systemctl")
+              and f"  *  {u}.timer: active (systemctl --user list-timers {u}.timer)" in r.lines for u in COORDINATOR_UNITS),
+          f"{a.calls('systemctl')}\n{r.out}")
+    svc = read(f"{a.units}/{SCHEDULED_RED}.service")
+    wf = re.search(r"--workflow (\S+)", svc)
+    check("the scheduled-red service runs the command on a workflow that exists, with a schedule",
+          wf is not None and "--repository BlueTeam-OU/agent-fabric " in svc
+          and "ExecStart=/usr/local/bin/fabric-python %h/projects/agent-fabric/tools/fabric/github/scheduled_red.py " in svc
+          and "schedule:" in read(f"{a.fr}/.github/workflows/{wf.group(1)}"), svc)
+    check("…and its timer daily, in UTC, persistent",
+          "OnCalendar=*-*-* 07:00:00 UTC\n" in read(f"{a.units}/{SCHEDULED_RED}.timer")
+          and "Persistent=true\n" in read(f"{a.units}/{SCHEDULED_RED}.timer"), read(f"{a.units}/{SCHEDULED_RED}.timer"))
+    bind("python-dev")
+    mine = f"{a.units}/{SCHEDULED_RED}.timer"
+    put(mine, "[Timer]\nOnCalendar=hourly\n")
+    before = snapshot(a.root)
+    r = bootstrap(a, "--dry-run")
+    check("rebound, --dry-run: the fabric's files would be removed, nothing touched",
+          snapshot(a.root) == before and all(f"  -  {f} (would remove: role is python-dev)" in r.lines
+                                             for f in files if f != mine), r.out)
+    a.clear_log()
+    r = bootstrap(a)
+    check("rebound away: each timer disabled, the fabric's files removed and said",
+          all(["systemctl", "--user", "disable", "--now", f"{u}.timer"] in a.calls("systemctl") for u in COORDINATOR_UNITS)
+          and all(not os.path.exists(f) and f"  -  {f} (removed: role is python-dev)" in r.lines for f in files if f != mine),
+          f"{a.calls('systemctl')}\n{r.out}")
+    check("…a file the fabric did not write stays, unsaid", read(mine) == "[Timer]\nOnCalendar=hourly\n"
+          and not any(mine in x for x in r.lines), r.out)
+
+
 def relay() -> None:
     print("bootstrap: step 6b, the relay's account")
     a = Account("relay", relay=True, wcs=False)
@@ -1366,7 +1426,7 @@ def failures() -> None:
 # The cases are independent (each makes its own account under the scratch root), so they run as GROUPS, each in a process of
 # its own with its own scratch fabric: the same cases, the wall time of the longest group. Balanced by what each costs on a
 # loaded host (every case is a run of the script, and `failures` and `relay` are the long ones).
-GROUPS = ((failures,), (relay, user_manager), (first_run, record_current, journal, store_trust_base),
+GROUPS = ((failures,), (relay, user_manager, coordinator_timers), (first_run, record_current, journal, store_trust_base),
           (arguments, existing_files, no_config_dir, local_bin_override, completion_dir, dry_run, fabric_worktree))
 
 
