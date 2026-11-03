@@ -2,7 +2,7 @@
 """tools/fabric/ci_warnings.py — the warnings and deprecations a repository's
 recent CI runs print, each once, with its workflow, job, step and count.
 
-    fabric-ci-warnings [--repo OWNER/NAME] [--runs N] [--workflow NAME] [--branch B] [--json]
+    fabric-ci-warnings [--repo OWNER/NAME] [--runs N] [--workflow NAME] [--branch B] [--level L[,L]] [--json]
 
 Read-only: it lists the repository's latest completed workflow runs, their
 jobs, each job's check-run annotations and its run log, through gh (gh.py),
@@ -14,7 +14,10 @@ Contract.
   argv     --repo defaults to this working copy's origin (gh.this_repo, never gh's
            own default); --runs 1..100 (default 10) is how many of the newest
            completed runs are read; --workflow keeps the runs whose workflow name
-           or file name equals it; --branch keeps one branch's runs; --json prints
+           or file name equals it; --branch keeps one branch's runs; --level keeps the
+           findings of those levels (warning, notice, log; default all three — `log`
+           is the text match, which a build that prints hundreds of its own
+           "warning:" lines makes long); --json prints
            the findings as one JSON object. Anything else is a usage error.
   stdout   the report. One finding per distinct (workflow, job, step, level,
            message); `count` is how many times it was printed over the runs read,
@@ -55,6 +58,7 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
 import gh  # noqa: E402
 
+LEVELS = ("warning", "notice", "log")
 MAX_RUNS = 100
 DEFAULT_RUNS = 10
 SHOW_WIDTH = 400   # the text report cuts a message here; --json keeps it whole
@@ -252,6 +256,9 @@ def build_parser() -> argparse.ArgumentParser:
                    help=f"how many of the newest completed runs to read, 1..{MAX_RUNS} (default {DEFAULT_RUNS})")
     p.add_argument("--workflow", metavar="NAME", help="only runs of the workflow with this name or file name")
     p.add_argument("--branch", metavar="B", help="only runs on this branch")
+    p.add_argument("--level", metavar="L[,L]", default=",".join(LEVELS),
+                   help="only findings of these levels: warning, notice (as GitHub marks them) and log (a text "
+                        "match on an unmarked line); default all")
     p.add_argument("--json", action="store_true", help="print the findings as one JSON object")
     return p
 
@@ -265,6 +272,10 @@ def main(argv: list[str], out=None, err=None) -> int:
     if not 1 <= args.runs <= MAX_RUNS:
         print(f"fabric-ci-warnings: --runs must be 1..{MAX_RUNS}, not {args.runs}", file=err)
         return 2
+    levels = args.level.split(",")
+    if not set(levels) <= set(LEVELS) or "" in levels:
+        print(f"fabric-ci-warnings: --level takes {', '.join(LEVELS)} separated by commas, not {args.level!r}", file=err)
+        return 2
     try:
         repo = args.repo or gh.this_repo()
         if not _REPO.fullmatch(repo):
@@ -274,7 +285,7 @@ def main(argv: list[str], out=None, err=None) -> int:
     except gh.GhError as e:
         print(f"fabric-ci-warnings: {e}", file=err)
         return 1
-    rows = findings.ordered()
+    rows = [r for r in findings.ordered() if r["level"] in levels]
     if args.json:
         json.dump({"repo": repo, "runs_read": nruns, "jobs_read": njobs, "findings": rows, "not_read": unread},
                   out, indent=2, sort_keys=True)

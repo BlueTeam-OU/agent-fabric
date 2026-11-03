@@ -180,6 +180,12 @@ def main() -> int:
         check("--workflow (by file name) keeps one workflow's runs; --branch is sent escaped",
               rc == 0 and "1 run(s), 1 job(s)" in out and "branch=a%20b" in calls[0]["query"], out + err)
 
+        rc, out, err, _ = run(base_tab, "--repo", REPO, "--level", "warning,log")
+        check("--level keeps the named levels only",
+              rc == 0 and "[notice]" not in out and "[warning]" in out and "[log]" in out and "5 distinct" not in out, out)
+        rc, out, err, calls = run(base_tab, "--repo", REPO, "--level", "warning,loud")
+        check("--level with an unknown level: exit 2, nothing sent", rc == 2 and not calls and "--level" in err, err)
+
         bad = json.loads(json.dumps(base_tab))
         bad["fail"][f"repos/{REPO}/actions/jobs/31/logs"] = "gh: Not Found (HTTP 404)"
         rc, out, err, _ = run(bad, "--repo", REPO)
@@ -215,7 +221,7 @@ def main() -> int:
             check(f"usage {args}: exit 2, nothing sent to GitHub", rc == 2 and not calls and out == "", f"{rc} {err}")
         rc, out, err, calls = run(base_tab, "--help")
         check("--help: exit 0, names the options and the exit codes",
-              rc == 0 and all(w in out for w in ("--repo", "--runs", "--workflow", "--branch", "--json", "exit:")) and not calls)
+              rc == 0 and all(w in out for w in ("--repo", "--runs", "--workflow", "--branch", "--level", "--json", "exit:")) and not calls)
 
     print(f"\ntest_ci_warnings: {'OK' if not fails else f'FAILED — {fails} check(s)'}")
     return 1 if fails else 0
