@@ -21,6 +21,7 @@ sys.path.insert(0, os.path.join(HERE, "tools", "fabric"))
 import gh  # noqa: E402
 from github import review_checkpoint as cp  # noqa: E402
 from github import review_coverage as rcov  # noqa: E402
+from github import review_posters  # noqa: E402
 
 CARD, CONFIG = "5" * 40, "6" * 64
 
@@ -77,7 +78,7 @@ def main() -> int:
             return CONFIG
 
         def ask(reviews, *, current=c2, listed=None, cfg=config_for, author="me", cwd=tmp, environ=None, pr_error=None,
-                list_error=None, commits_error=None, over_cap=False, exclude_head=None):
+                list_error=None, commits_error=None, over_cap=False, exclude_head=None, push_account=None):
             commits = [{"sha": c} for c in (listed if listed is not None else (c1, c2))]
 
             def api_list(path, **kw):
@@ -92,9 +93,17 @@ def main() -> int:
             def pr_view(number, fields, **kw):
                 if pr_error:
                     raise pr_error
-                return {"author": {"login": author}}
+                return {"author": author if isinstance(author, dict) else {"login": author}}
 
-            with mock.patch.object(cp.gh, "api_list", api_list), mock.patch.object(cp.gh, "pr_view", pr_view):
+            def api(path, **kw):
+                # `gh api user`, whom gh acts as: the push account an app's PR reads, or GitHub cannot say.
+                if path == "user" and push_account:
+                    return {"login": push_account}
+                raise gh.GhError("gh api", "HTTP 502", 502, True)
+
+            review_posters.push_account.cache_clear()
+            with mock.patch.object(cp.gh, "api_list", api_list), mock.patch.object(cp.gh, "pr_view", pr_view), \
+                    mock.patch.object(cp.gh, "api", api):
                 kw = dict(repo="o/r", cwd=cwd, environ={} if environ is None else environ, exclude_head=exclude_head)
                 found = cp.last_checkpoint(7, current, cfg, **kw)
                 with_body = cp.last_checkpoint_review(7, current, cfg, **kw)
@@ -125,6 +134,13 @@ def main() -> int:
         check("the newest of several decides", ask([rv(body(c0, c1), at="2026-10-23T09:00:00Z"),
                                                     rv(body(c1, c2), commit_id=c2, at="2026-10-23T11:00:00Z")], listed=(c1, c2)) == (c1, c2, CARD))
         check("a named poster counts", ask([rv(body(), login="ci")], environ={"AGENT_FABRIC_REVIEW_POSTERS": '["ci"]'}) == (c0, c1, CARD))
+        dependabot = {"login": "app/dependabot", "is_bot": True}
+        check("on an app's PR the push account's review counts, nothing configured",
+              ask([rv(body(), login="ci")], author=dependabot, push_account="ci") == (c0, c1, CARD))
+        check("…a person's PR does not take it from whom gh acts as",
+              ask([rv(body(), login="ci")], author="me", push_account="ci") is None)
+        check("…another login's review on the app's PR is still not read",
+              ask([rv(body(), login="rando")], author=dependabot, push_account="ci") is None)
 
         print("last_checkpoint: exclude_head sets a head's reviews aside before the newest decides")
         round1, round2 = (body(c0, c1), "2026-10-23T09:00:00Z"), (body(c1, c2), "2026-10-23T11:00:00Z")
@@ -169,6 +185,11 @@ def main() -> int:
         check("an API error reading the reviews", ask([rv(body())], list_error=err) is None)
         check("an API error reading the commits", ask([rv(body())], commits_error=err) is None)
         check("a PR with no author login", ask([rv(body())], author="") is None)
+        # A failed `gh api user` is a doubt about the whole list, not a list without the push account: the configured
+        # poster's review would be a checkpoint if the failure were read as "no push account".
+        check("an app's PR whose push account GitHub cannot name (gh api user fails): None, not the configured list's",
+              ask([rv(body(), login="ops")], author={"login": "app/dependabot", "is_bot": True},
+                  environ={"AGENT_FABRIC_REVIEW_POSTERS": '["ops"]'}) is None)
         check("a review list that is not reviews", ask(["x", None, 3]) is None)
 
     print(f"\ntest_review_checkpoint: {'OK' if not fails else f'FAILED — {fails} check(s)'}")
