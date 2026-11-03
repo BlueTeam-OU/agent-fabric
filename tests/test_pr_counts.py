@@ -56,6 +56,7 @@ class Hub:
 
     def __init__(self, repos: dict, rest: dict | None = None, fail_batches: bool = False):
         self.repos, self.rest, self.graphql_calls, self.api_calls, self.fail_batches = repos, rest or {}, [], [], fail_batches
+        self.api_timeouts: list = []
 
     def graphql(self, query, *, timeout=None, **variables):
         numbers = [int(n) for n in re.findall(r"\bp(\d+): pullRequest", query)]
@@ -72,6 +73,7 @@ class Hub:
 
     def api(self, path, *, paginate=False, timeout=None, **kw):
         self.api_calls.append(path)
+        self.api_timeouts.append((path, timeout))
         if path in self.rest:
             return self.rest[path]
         raise gh.GhError("gh api", "HTTP 404")
@@ -267,19 +269,28 @@ def main() -> int:
         del os.environ["AGENT_FABRIC_REVIEW_POSTERS"]
     check("…unless AGENT_FABRIC_REVIEW_POSTERS names it", "codex unavailable (allowance)" in line, line)
     # A Dependabot PR (GraphQL spells the app {"__typename": "Bot", "login": "dependabot"}): the marker is the push
-    # account's, whom `gh api user` names; a push account GitHub cannot name (no `user` in the hub) leaves the line as
-    # it was.
+    # account's, whom `gh api user` names, asked within what is left of the time; a push account GitHub cannot name
+    # (no `user` in the hub) is a line that cannot be read, never "absent" (ADR-020 A 2026-11-03).
     bot = {"__typename": "Bot", "login": "dependabot"}
     for rest, want in (({"user": {"login": "ci"}}, True), ({}, False)):
         doc = dict(pr_doc(4, [commit("a" * 40, "x")], head=hx, reviews=[rv(claude_r["body"]), rv(gone_line, login="ci")]),
                    author=bot)
+        hub = Hub({"o/this": {4: doc}}, rest=rest)
         review_posters.push_account.cache_clear()
         try:
-            line = run_counts(["4"], Hub({"o/this": {4: doc}}, rest=rest), policy=extra)[0]["line"]
+            row = run_counts(["4"], hub, timeout=7, policy=extra)[0]
         finally:
             review_posters.push_account.cache_clear()
-        check(f"…on a Dependabot PR, {'the push account' if want else 'a push account GitHub cannot name'}: "
-              f"{'unavailable' if want else 'absent'}", ("codex unavailable (allowance)" in line) == want, line)
+        if want:
+            check("…on a Dependabot PR, the push account: unavailable", row["ok"] and "codex unavailable (allowance)" in row["line"],
+                  row["line"])
+            asked = [t for path, t in hub.api_timeouts if path == "user"]
+            check("…the push account is asked within what is left of the time, at most the whole",
+                  len(asked) == 1 and asked[0] is not None and 0 < asked[0] <= 7, hub.api_timeouts)
+        else:
+            check("…on a Dependabot PR, a push account GitHub cannot name: cannot be read (exit 2), never absent",
+                  not row["ok"] and row["line"].startswith("#4 cannot be read: the push account cannot be read (")
+                  and "absent" not in row["line"], row["line"])
     check("the GraphQL read asks the author's type, so an app's PR can be told", "author { __typename login }" in pr_counts.FIELDS)
 
     print("legacy markers")

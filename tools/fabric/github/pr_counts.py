@@ -31,10 +31,11 @@ legacy_review_markers from its pr-tools.json) and that engine's model line is
 posted on the head; `head reviewed: ` opens it only when all are (a
 boundary's extra engines are fabric-pr arm's to judge). An engine in
 `additional_reviews` is marked as well: ✓, `unavailable (<reason>)` when its
-marker for the head, from the PR's author or AGENT_FABRIC_REVIEW_POSTERS, is
-the first line of a review on it, or `absent` with neither, which never keeps
-`head reviewed: ` off. When a boundary also requires it, no marker stands in:
-`✗ (boundary only)` replaces `absent`, or follows `unavailable (<reason>)`;
+marker for the head, from the PR's author or AGENT_FABRIC_REVIEW_POSTERS (and
+on an app's PR the account gh acts as), is the first line of a review on it,
+or `absent` with neither, which never keeps `head reviewed: ` off. When a
+boundary also requires it, no marker stands in: `✗ (boundary only)` replaces
+`absent`, or follows `unavailable (<reason>)`;
 `fabric-pr review-status`, which also counts a configured reviewer's verdict,
 is the gate's reading and costs several calls a pull request. `checks` is the
 head's rollup state (green, red, pending, none yet). A pull request over 100
@@ -293,11 +294,12 @@ def engines_on_head(pr: dict, markers: list[str]) -> set[str]:
             if (r.get("commit") or {}).get("oid") == head and marked(r)}
 
 
-def engines_unavailable(pr: dict) -> dict[str, str]:
+def engines_unavailable(pr: dict, timeout: float) -> dict[str, str]:
     """{engine: reason} of the unavailable markers for the head, from the PR's author or a login in
     AGENT_FABRIC_REVIEW_POSTERS, and on an app's PR the push account, as pr-review-status binds them
-    (arm_policy.engines_unavailable reads the same). A posters list that is not a JSON array of strings is none, and
-    so is a push account GitHub cannot name: this line is a report, and none asks more."""
+    (arm_policy.engines_unavailable reads the same). A posters list that is not a JSON array of strings is none: this
+    line is a report, and none asks more. A push account GitHub cannot name within `timeout` is Unreadable, never
+    none: its marker would read "absent", a confident answer from a lookup that failed (ADR-020 A 2026-11-03)."""
     try:
         posters = json.loads(os.environ.get("AGENT_FABRIC_REVIEW_POSTERS") or "[]")
     except ValueError:
@@ -305,9 +307,9 @@ def engines_unavailable(pr: dict) -> dict[str, str]:
     if not isinstance(posters, list) or not all(isinstance(x, str) for x in posters):
         posters = []
     try:
-        posters = review_posters.for_pr(pr.get("author"), posters)
-    except gh.GhError:
-        pass
+        posters = review_posters.for_pr(pr.get("author"), posters, timeout)
+    except gh.GhError as e:
+        raise Unreadable(f"the push account cannot be read ({e.reason})") from None
     author = ((pr.get("author") or {}).get("login") or "")
     rows = []
     for r in (pr.get("reviews") or {}).get("nodes") or []:
@@ -405,7 +407,7 @@ def describe(label: str, repo: str, pid: str | None, number: int, pr: dict, budg
             engines, unread = required()
             review = arm_policy.review_summary(engines_on_head(pr, markers), list(engines), str(pr.get("headRefOid") or ""),
                                                unread=unread, additional=list(additional()),
-                                               unavailable=engines_unavailable(pr))
+                                               unavailable=engines_unavailable(pr, budget.left()))
             review = review if arm_policy.is_head_reviewed(review) else "review " + review
         row.update(draft=bool(pr.get("isDraft")), armed=armed, checks=checks_word(pr), review=review)
         parts.append(f"{'draft' if row['draft'] else 'open'}, {armed}, checks {row['checks']}, {review}")
