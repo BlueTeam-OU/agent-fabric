@@ -1,13 +1,14 @@
-# runtime/control/agent-fabric-scheduled-red.timer — once a day, for agent-fabric-scheduled-red.service. 07:00 UTC:
-# the nightly is scheduled at 03:17 UTC (.github/workflows/stripped-nightly.yml), Actions starts a scheduled run
-# late, and its job is bounded at 90 min, so by 07:00 the night's run has concluded. Clear of the state backup
-# (midnight plus up to 1 h), the relay backup (03, 09, 15, 21 plus up to 15 min) and the drain (Monday 06:00 UTC plus
-# up to 15 min). Persistent: a host that was off at the hour reads at its next start.
+# runtime/control/agent-fabric-scheduled-red.timer — once a day, for agent-fabric-scheduled-red.service. 17:00 UTC:
+# the nightly is scheduled at 03:17 UTC (.github/workflows/stripped-nightly.yml), but Actions starts a scheduled run
+# hours late — the eight scheduled runs to 2026-11-03 started between 08:56 and 10:58 UTC — and its job is bounded at
+# 90 min, so 07:00 read the day before's run. By 17:00 the day's run has concluded with hours to spare. Clear of the
+# state backup (midnight plus up to 1 h), the relay backup (03, 09, 15, 21 host time plus up to 15 min) and the drain
+# (Monday 06:00 UTC plus up to 15 min). Persistent: a host that was off at the hour reads at its next start.
 [Unit]
 Description=agent-fabric: daily check of the stripped nightly's scheduled run
 
 [Timer]
-OnCalendar=*-*-* 07:00:00 UTC
+OnCalendar=*-*-* 17:00:00 UTC
 RandomizedDelaySec=15min
 Persistent=true
 
