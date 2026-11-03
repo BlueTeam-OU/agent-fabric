@@ -67,8 +67,13 @@ def main() -> int:
             block = f"```{rcov.BLOCK_INFO}\n{json.dumps({'paths': paths, 'lenses': {}})}\n```\n" * blocks
             return f"{m}\n**Blind review**\n\n{block}"
 
-        def rv(text: str, *, login: str = "me", commit_id: str = c1, at: str | None = "2026-10-23T10:00:00Z") -> dict:
-            return {"user": {"login": login}, "commit_id": commit_id, "submitted_at": at, "body": text}
+        ids = iter(range(5727000000, 5728000000))
+
+        def rv(text: str, *, login: str = "me", commit_id: str = c1, at: str | None = "2026-10-23T10:00:00Z",
+               rid: int | None = None) -> dict:
+            # The id grows in the order the case lists its reviews: GitHub's posting order, which decides.
+            return {"id": next(ids) if rid is None else rid, "user": {"login": login}, "commit_id": commit_id,
+                    "submitted_at": at, "body": text}
 
         seen: list[str] = []
         bodies: list[str | None] = []
@@ -133,6 +138,13 @@ def main() -> int:
         check("a review of the current head is a checkpoint too", ask([rv(body())], current=c1) == (c0, c1, CARD))
         check("the newest of several decides", ask([rv(body(c0, c1), at="2026-10-23T09:00:00Z"),
                                                     rv(body(c1, c2), commit_id=c2, at="2026-10-23T11:00:00Z")], listed=(c1, c2)) == (c1, c2, CARD))
+        # agent-fabric-fleetdeck#57: GitHub served a submitted_at in the future, out of the order the reviews were posted in.
+        check("the newest is the one posted last (the id), not one GitHub dated in the future",
+              ask([rv(body(c0, c1), at="2099-01-01T00:00:00Z"), rv(body(c1, c2), commit_id=c2, at="2026-10-23T11:00:00Z")],
+                  listed=(c1, c2)) == (c1, c2, CARD))
+        check("…listed in any order by the API, the same answer",
+              ask([rv(body(c1, c2), commit_id=c2, rid=5727999999), rv(body(c0, c1), at="2099-01-01T00:00:00Z", rid=5727000001)],
+                  listed=(c1, c2)) == (c1, c2, CARD))
         check("a named poster counts", ask([rv(body(), login="ci")], environ={"AGENT_FABRIC_REVIEW_POSTERS": '["ci"]'}) == (c0, c1, CARD))
         dependabot = {"login": "app/dependabot", "is_bot": True}
         check("on an app's PR the push account's review counts, nothing configured",
@@ -176,8 +188,12 @@ def main() -> int:
         check("a base that is not an ancestor of the head", ask([rv(body(base=forced))]) is None)
         check("a config that changed since", ask([rv(body())], cfg=lambda card: "7" * 64) is None)
         check("a review without a submission time", ask([rv(body(), at=None)]) is None)
-        check("two reviews at the same time: which is newest is unknown",
-              ask([rv(body(c0, c1)), rv(body(c1, c2), commit_id=c2)], listed=(c1, c2)) is None)
+        check("two reviews at the same time: the id still orders them, the later posted decides",
+              ask([rv(body(c0, c1)), rv(body(c1, c2), commit_id=c2)], listed=(c1, c2)) == (c1, c2, CARD))
+        check("two reviews with the same id: which is newest is unknown",
+              ask([rv(body(c0, c1), rid=9), rv(body(c1, c2), commit_id=c2, rid=9)], listed=(c1, c2)) is None)
+        check("a review without an id: its place is unknown, even an older one's",
+              ask([{**rv(body(c0, c1)), "id": None}, rv(body(c1, c2), commit_id=c2)], listed=(c1, c2)) is None)
         check("a clone that lacks the commits", ask([rv(body())], cwd=elsewhere) is None)
         check("a bad poster list in the environment", ask([rv(body())], environ={"AGENT_FABRIC_REVIEW_POSTERS": "nope"}) is None)
         err = gh.GhError("gh api", "HTTP 502", 502, True)
