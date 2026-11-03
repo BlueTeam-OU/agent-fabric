@@ -59,10 +59,11 @@ def main() -> int:
         with open(os.path.join(bindir, "gh"), "w", encoding="utf-8") as fh:
             fh.write(GH)
         os.chmod(os.path.join(bindir, "gh"), 0o755)
-        # The registry is instance data a stripped tree lacks: the repository resolves through one this test plants.
+        # The registry is instance data a stripped tree lacks: the repository resolves through one this test plants, under an id
+        # no live registry holds, so a reader of the live one fails the case in a full tree too.
         fixture_root = os.path.join(tmp, "root")
         write_registry(os.path.join(fixture_root, "projects"),
-                       {"version": 1, "projects": {"agent-fabric": {"remotes": [f"https://github.com/{REPO}"]}}})
+                       {"version": 1, "projects": {"fixture-proj": {"remotes": [f"https://github.com/{REPO}"]}}})
         env = {"PATH": f"{bindir}:/usr/bin:/bin", "HOME": home, "MOCK_STATE": mock, "AGENT_FABRIC_STATE_DIR": state,
                "AGENT_FABRIC_ROOT": ROOT, "AGENT_FABRIC_OPERATOR": fixture_root, "LC_ALL": "C.UTF-8", "GH_REPO": REPO}
 
@@ -145,7 +146,7 @@ def main() -> int:
         set_state("j2", "done")
         set_state("j3", "done")
         p = tool(project=False)
-        check("a registered repository files under its id", p.returncode == 0 and jobs()[-1]["project"] == "agent-fabric", (p, jobs()[-1:]))
+        check("a registered repository files under its id", p.returncode == 0 and jobs()[-1]["project"] == "fixture-proj", (p, jobs()[-1:]))
         n = len(jobs())
         p = subprocess.run([sys.executable, TOOL, "--repository", "nobody/unregistered", "--workflow", FLOW],
                            env=env, cwd=tmp, capture_output=True, text=True, timeout=120)
