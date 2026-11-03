@@ -32,8 +32,8 @@ What is a finding, and its limits.
     carries (the runner's own notices, such as an image migration, are annotations
     only); it has no step.
   - An unmarked log line outside the runner's echo of a step's script and
-    environment that mentions "deprecat" or starts with warn/warning/npm warn: level
-    `log`. This is a text match, so a program that prints such a word in its own
+    environment that has the word "deprecated" or "deprecation" in it, or starts
+    with warn/warning/npm warn: level `log`. This is a text match, so a program that prints such a word in its own
     output is reported too; the finding names the line for a person to judge.
   - The step is found from the line's timestamp against the job's step times, which
     GitHub gives to the second. A second shared by two steps names both, joined by
@@ -66,7 +66,8 @@ _GROUP = re.compile(r"^##\[group\](.*)$")
 # The groups the runner and a `run:` step open for what they echo — the header's
 # image and permissions, the script, the env — whose lines are not the step's output.
 _ECHO_GROUP = re.compile(r"^(?:Run |Runner Image|Operating System|GITHUB_TOKEN Permissions|Job defined at)")
-_DEPRECATED = re.compile(r"deprecat", re.IGNORECASE)
+# The word, not the stem: apt lists node-util-deprecate and a hundred lines about it.
+_DEPRECATED = re.compile(r"\b(?:deprecated|deprecation\w*)\b", re.IGNORECASE)
 _WARN_START = re.compile(r"^\s*(?:npm warn\b|warn(?:ing)?\s*[:\]])", re.IGNORECASE)
 _REPO = re.compile(r"^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$")
 

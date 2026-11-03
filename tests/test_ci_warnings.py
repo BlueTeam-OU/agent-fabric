@@ -63,6 +63,8 @@ LOG = "\n".join([
     "2026-11-03T01:00:04.4000000Z npm warn deprecated glob@7.2.3: Glob versions prior to v9 are no longer supported",
     '2026-11-03T01:00:04.5000000Z   "title" : "DEPRECATED - a dumped option",',
     "2026-11-03T01:00:05.6000000Z ##[warning]shared second",
+    "2026-11-03T01:00:06.0000000Z Setting up node-util-deprecate (1.0.2-3) ...",
+    "2026-11-03T01:00:07.0000000Z tests/t.py:3: DeprecationWarning: ssl.TLSVersion.TLSv1 is deprecated",
     "2026-11-03T01:00:09.0000000Z all good",
 ]) + "\n"
 
@@ -100,9 +102,10 @@ def main() -> int:
     check("marked warning and notice, an unmarked deprecation; ANSI stripped",
           got == [("warning", "Node.js 20 actions are deprecated. Use node24."), ("notice", "cache miss"),
                   ("log", "npm warn deprecated glob@7.2.3: Glob versions prior to v9 are no longer supported"),
-                  ("warning", "shared second")], str(got))
-    check("the runner's header group and a step's echoed script are not read; a dumped option is not a warning",
-          not any("Image" in m or "echo" in m or "dumped" in m for _, _, m in found), str(got))
+                  ("warning", "shared second"),
+                  ("log", "tests/t.py:3: DeprecationWarning: ssl.TLSVersion.TLSv1 is deprecated")], str(got))
+    check("the runner's header group and a step's echoed script are not read; a dumped option and a package named *-deprecate are not warnings",
+          not any("Image" in m or "echo" in m or "dumped" in m or "util-deprecate" in m for _, _, m in found), str(got))
     steps = JOB["steps"]
     when = {m: w for w, _, m in found}
     check("a line is attributed to its step by second",
@@ -169,7 +172,7 @@ def main() -> int:
 
         rc, out, err, _ = run(base_tab, "--repo", REPO)
         check("text report: head line, the finding with its count, workflow / job / step and level",
-              rc == 0 and out.startswith(f"fabric-ci-warnings: {REPO} — 3 run(s), 3 job(s) read; 5 distinct finding(s)\n")
+              rc == 0 and out.startswith(f"fabric-ci-warnings: {REPO} — 3 run(s), 3 job(s) read; 6 distinct finding(s)\n")
               and "2x  ci / static / Install  [warning]\n    Node.js 20 actions are deprecated. Use node24.\n" in out
               and "in 2 of 3 run(s); latest run 2" in out, out)
 
