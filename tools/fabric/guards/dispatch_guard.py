@@ -374,7 +374,7 @@ def decide(call) -> dict | None:
                         "clone. Describe a review as one, or dispatch a normal agent with isolation worktree. " + SKILL)
         pinned, file_model, routed_effort, file_effort = launch_pins(review=True)
         pin = alt(pinned.get("code-review"), "")
-        # This guard's own answer must pass it again. With run_in_background set, Claude Code 2.1.286 runs the
+        # This guard's own answer must pass it again. With run_in_background set, Claude Code (2.1.286, 2.1.311) runs the
         # managed Agent hook a second time on the first run's updatedInput, the call below with `model` removed
         # (docs/live-checks/2026-11-02-dispatch-hook-reruns-on-updated-input.md). Under a fabric launch that is
         # no unset model: the reviewer runs on its agent file's pin, which the checks after this one hold to

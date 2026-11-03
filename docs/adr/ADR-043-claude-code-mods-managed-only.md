@@ -60,7 +60,7 @@ The GZCoord inbox as a mod with a timer and a pane, replacing the monitor a sess
 
 ## 8. Decision Status
 
-Accepted by the owner's merge of agent-fabric #97, which carried it. Rules 1 and 2 are built (A 2026-10-31): the template, `fabric-managed` and its check, read back on 2.1.316 (`docs/live-checks/2026-10-31-managed-settings-2-1-316.md`, which also meets rule 7). They are in force on every host: `fabric-ctl all status` reports them for all 30 accounts on develop-qzapp, the only host, and the pin has moved to 2.1.311 (`docs/live-checks/2026-11-03-claude-code-2-1-311-readback.md`). Installing them, and reinstalling after a guard change (rule 9), needs root on each host and is the owner's. The redaction mod (rules 3–4) is not built.
+Accepted by the owner's merge of agent-fabric #97, which carried it. Rules 1 and 2 are built (A 2026-10-31): the template, `fabric-managed` and its check, read back on 2.1.316 (`docs/live-checks/2026-10-31-managed-settings-2-1-316.md`, which also meets rule 7). They were in force on every host when the pin moved to 2.1.311 (snapshot `1853a2d1`, all 30 accounts on develop-qzapp, the only host: `docs/live-checks/2026-11-03-claude-code-2-1-311-readback.md`). A merge that touches the snapshot's paths leaves each host drifted until the operator reinstalls, and while it is, `fabric-ctl` refuses to upgrade Claude Code. Installing them, and reinstalling after a guard change (rule 9), needs root on each host and is the owner's. The redaction mod (rules 3–4) is not built.
 
 ## References
 
