@@ -2,8 +2,9 @@
 """runtime/claude-code/hooks/session-seal.py — the shell seal, a SessionStart hook (agent-fabric ADR-038 rule 9).
 
 CONTRACT:
-  argv    none; the managed file runs it through hook_entry.py (`session-seal`), the workspace settings as
-          python3 <this file>
+  argv    none; the managed file runs it through hook_entry.py (`session-seal`)
+  module  seal_session_shell(env_file, home): the workspace copy, which session-start.py loads from this file by
+          path and calls (keep the signature)
   stdin   ignored (the hook payload is never read)
   stdout  nothing
   exit    0, whatever happens: it must never block or fail a session start
@@ -12,8 +13,10 @@ Appends one line to $CLAUDE_ENV_FILE, the file the harness sources into every la
 `unset <the harness's credentials and every name sync wrote into secrets.env>  # agent-fabric: no secret in the
 session shell`. Names only, never a value.
 
-A hook of its own, not a step of session-start.py: that one is a workspace hook a login drops by editing its
-settings, and the seal is a guard, so it runs from the managed file too (ADR-043 rule 2). Stdlib only and no
+Two copies run it. The managed one is what a login cannot drop: session-start.py is a workspace hook a login can
+remove from its settings, and the seal is a guard (ADR-043 rule 2). The workspace one is session-start.py calling
+seal_session_shell, never a settings entry of its own: rendered settings change only at bootstrap, and a launcher
+pull carries code alone (review of #464, F1). Stdlib only and no
 import from the tree: hook_entry runs it as `fabric-python -I -S`, where only the standard library is on the path.
 """
 from __future__ import annotations
@@ -41,7 +44,9 @@ def synced_names(path: str) -> list[str]:
     try:
         with open(path, encoding="utf-8") as fh:
             return [m.group(1) for m in map(EXPORT_NAME.match, fh) if m]
-    except OSError:
+    # ValueError: a file that is not UTF-8 (UnicodeDecodeError) must not cost the harness's own credentials
+    # their unset; its names are skipped instead (review of #464, round 2).
+    except (OSError, ValueError):
         return []
 
 

@@ -136,6 +136,14 @@ def main() -> int:
                    env=base_env(os.path.join(tmp, "empty-home"), bare))
     check("no secrets.env: the harness's credentials still unset",
           probe(bare)[:len(CREDENTIALS)] == WANT[:len(CREDENTIALS)], probe(bare))
+    bad_home = os.path.join(tmp, "bad-home")
+    write(os.path.join(bad_home, ".config", "agent-fabric", "env.sh"), "")
+    with open(os.path.join(bad_home, ".config", "agent-fabric", "secrets.env"), "wb") as f:
+        f.write(b"export GH_TOKEN=x\nexport OTHER=caf\xe9\n")
+    bad = os.path.join(tmp, "bad-secrets.env")
+    r = subprocess.run([sys.executable, SEAL], capture_output=True, text=True, timeout=30, env=base_env(bad_home, bad))
+    check("a secrets.env that is not UTF-8: the harness's credentials still unset, exit 0",
+          r.returncode == 0 and probe(bad)[:len(CREDENTIALS)] == WANT[:len(CREDENTIALS)], probe(bad))
 
     print("session-seal: the workspace copy, session-start.sh as the workspace settings run it")
     ws = json.load(open(WORKSPACE, encoding="utf-8"))

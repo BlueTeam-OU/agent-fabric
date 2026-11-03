@@ -152,11 +152,10 @@ def main() -> int:
           [("PreToolUse", "Bash|Write|Edit|MultiEdit|NotebookEdit")])
     # The seal's workspace copy is session-start.py's, not an entry of its own: rendered settings change only on
     # bootstrap and a launcher pull carries code alone, so a new entry would be missing on every account that
-    # pulled without bootstrapping (review of #464, F1). tests/test_session_seal.py runs that copy.
+    # pulled without bootstrapping (review of #464, F1). That the copy seals is tests/test_session_seal.py's, which runs it.
     seals = [(e, h["command"]) for e, _m, h in hooks_of(ws) if "session-seal" in h["command"]]
     check("no workspace entry names session-seal.py; the seal's workspace copy is session-start.py's",
-          not seals and "session-seal.py" in open(os.path.join(ROOT, "runtime", "claude-code", "hooks",
-                                                               "session-start.py"), encoding="utf-8").read(), seals)
+          not seals, seals)
     check(".claude/settings.json is the workspace template re-rendered",
           open(os.path.join(ROOT, ".claude", "settings.json"), encoding="utf-8").read() == fabric_settings.render(ROOT))
 
