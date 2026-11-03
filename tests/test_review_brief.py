@@ -861,6 +861,51 @@ def test_a_prs_re_review_starts_at_its_last_checkpoint(tmp: str) -> None:
         rb.earlier_reviews = saved_reviews
 
 
+def test_earlier_reviews_reads_the_accounts_gate_4c_reads() -> None:
+    """#465 round 1 F1: gate 4c reads an app's PR's reviews from the account gh acts as (review_posters), so the
+    brief's carried findings read them from the same accounts, or a finding gate 4c refuses on is never handed over
+    and its label is reused. An account GitHub cannot name is no listing: refused, never read as no reviews."""
+    import gh  # noqa: PLC0415
+    from github import review_posters  # noqa: PLC0415
+    marker = review_coverage.format_marker("a" * 40, "b" * 40, "d" * 40, "e" * 64)
+    reviews = [{"id": 1, "user": {"login": "pusher"}, "submitted_at": "2026-11-03T00:00:00Z",
+                "body": marker + "\nreport\nFinding: F1 | P2 | certain | a.txt:1 | the push account's\n"},
+               {"id": 2, "user": {"login": "stranger"}, "submitted_at": "2026-11-03T01:00:00Z",
+                "body": marker + "\nreport\nFinding: F2 | P2 | certain | a.txt:1 | another login's\n"}]
+    author, viewer = {"login": "app/dependabot", "is_bot": True}, {"login": "pusher"}
+    saved = {k: getattr(gh, k) for k in ("this_repo", "pr_view", "api_list", "api")}
+    env0 = os.environ.pop("AGENT_FABRIC_REVIEW_POSTERS", None)
+    def user(path, *a, **k):
+        if path != "user":
+            raise AssertionError(f"asked {path}")
+        if viewer is None:
+            raise gh.GhError("gh api GET user", "HTTP 502")
+        return viewer
+    try:
+        gh.this_repo = lambda repo: "o/r"
+        gh.pr_view = lambda pr, fields, repo=None: {"author": author}
+        gh.api_list = lambda path, *a, **k: reviews
+        gh.api = user
+        review_posters.push_account.cache_clear()
+        got = rb.earlier_reviews(9, "/x")
+        assert got is not None and [f.label for f in got.findings] == ["F1"], got
+        # a person's PR: the account gh acts as is not asked, and its review is another login's
+        author = {"login": "someone"}
+        review_posters.push_account.cache_clear()
+        got = rb.earlier_reviews(9, "/x")
+        assert got is not None and got.findings == [], got
+        # an app's PR whose push account GitHub cannot name: no listing
+        author, viewer = {"login": "dependabot[bot]", "type": "Bot"}, None
+        review_posters.push_account.cache_clear()
+        assert rb.earlier_reviews(9, "/x") is None
+    finally:
+        for k, v in saved.items():
+            setattr(gh, k, v)
+        review_posters.push_account.cache_clear()
+        if env0 is not None:
+            os.environ["AGENT_FABRIC_REVIEW_POSTERS"] = env0
+
+
 def test_a_prs_full_review_carries_the_findings_earlier_reviews_left_open(tmp: str) -> None:
     """#425 merged with F5 open: a fresh full review starts its own chain, so the brief hands it every finding an
     earlier chain left open, to judge by label, and has it number its own past every label the PR used. A finding
@@ -947,6 +992,7 @@ def main() -> int:
              test_the_yaml_subset_and_the_cli, test_the_parser_refuses_what_it_cannot_keep,
              test_the_readme_example_renders_as_documented, test_the_config_fingerprint_follows_the_card_and_the_agent_file,
              test_a_prs_re_review_starts_at_its_last_checkpoint, test_a_prs_full_review_carries_the_findings_earlier_reviews_left_open,
+             test_earlier_reviews_reads_the_accounts_gate_4c_reads,
              test_the_report_lines_ask_for_the_coverage_block]
     failures = 0
     # Removed when the run ends, however it ends: tests/run.sh names every

@@ -320,17 +320,20 @@ def checkpoint(pr: int, head_sha: str, repo: str, exclude_head: str | None = Non
 
 
 def earlier_reviews(pr: int, repo: str):
-    """arm_findings' Reading of every review the PR has, from the accounts gate 4c reads (the PR's author and
-    AGENT_FABRIC_REVIEW_POSTERS), or None when they cannot be listed. A seam: tests replace it, since the real one
-    asks GitHub."""
+    """arm_findings' Reading of every review the PR has, from the accounts gate 4c reads (the PR's author,
+    AGENT_FABRIC_REVIEW_POSTERS and, on an app's PR, the account gh acts as: review_posters, the one reader), or None
+    when they cannot be listed or that account cannot be read. A seam: tests replace it, since the real one asks
+    GitHub."""
     import gh  # noqa: PLC0415 — only a PR's full review asks GitHub
-    from github import arm_findings  # noqa: PLC0415
+    from github import arm_findings, review_posters  # noqa: PLC0415
     from github.review_status.base import Die  # noqa: PLC0415
     from github.review_status.config import read_config  # noqa: PLC0415
     try:
         slug = gh.this_repo(repo)
-        author = (gh.pr_view(pr, ["author"], repo=slug).get("author") or {}).get("login")
-        trusted = set(read_config(os.environ).review_posters) | ({author} if isinstance(author, str) and author else set())
+        author_of = gh.pr_view(pr, ["author"], repo=slug).get("author") or {}
+        author = author_of.get("login")
+        trusted = (set(review_posters.for_pr(author_of, read_config(os.environ).review_posters))
+                   | ({author} if isinstance(author, str) and author else set()))
         return arm_findings.read(gh.api_list(f"repos/{slug}/pulls/{pr}/reviews"), trusted)
     except (gh.GhError, Die, ValueError, TypeError, AttributeError, OSError):
         return None
