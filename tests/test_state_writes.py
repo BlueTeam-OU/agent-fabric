@@ -81,9 +81,10 @@ def case_each_write_kind() -> None:
             "shutil.move('s', D)\n"
             "os.link('s', D)\n"
             "pathlib.Path(D).open()\n"         # a read
-            "os.open(os.devnull, os.O_WRONLY)\n")   # stdout to devnull: not a write
+            "os.open(os.devnull, os.O_WRONLY)\n"    # stdout to devnull: not a write
+            "os.open(self.devnull, os.O_WRONLY)\n")  # os's devnull only
     got = sw.scan("tools/x.py", RESOLVE + body, {})
-    assert lines(got) == [4, 5, 6, 7, 8, 13, 14, 15, 16], got
+    assert lines(got) == [4, 5, 6, 7, 8, 13, 14, 15, 16, 19], got
 
 
 def case_state_dir_parameter_resolves() -> None:

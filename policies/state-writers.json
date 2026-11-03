@@ -26,7 +26,7 @@
     "tools/fabric/query.py": "gap (j577): reads the binding through a copy of the resolution",
     "tools/fabric/gzcoord/gzmsg.py": "gap (j577): reads binding.json through a copy of the resolution",
     "tools/fabric/provisioning/persist_accounts.py": "gap (j577): the snapshot's .lock opened by open(..., 'w'), truncated and at the umask's 0644",
-    "tools/fabric/control/gateway_switch.py": "ADR-003 §2, rule 1: the control code; the gateway switch record by temporary and rename",
+    "tools/fabric/control/gateway_switch.py": "ADR-003 §2, rule 1: the control code; the switch and gateway records §2 names, by temporary and rename",
     "tools/fabric/fabric_writes.py": "not state: keeps a person's file under .before-agent-fabric beside it; its record goes through identity.atomic_write",
     "tools/fabric/secretstore/statecopy.py": "not state: reads the state directory (episodic.db by SQLite's online backup) and writes into the login's own store",
     "tools/fabric/launch_provider_record.py": "gap (j577): launch-provider.json replaced by hand, not identity.atomic_write",

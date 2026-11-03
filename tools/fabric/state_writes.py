@@ -35,7 +35,6 @@ from __future__ import annotations
 
 import ast
 import json
-import os
 
 POLICY = "policies/state-writers.json"
 IDENTITY = "runtime/identity.py"
@@ -61,15 +60,6 @@ def parse_writers(text: str) -> dict[str, str]:
     writers = doc.get("writers") if isinstance(doc, dict) else None
     return {k: v for k, v in writers.items() if isinstance(k, str) and isinstance(v, str)} \
         if isinstance(writers, dict) else {}
-
-
-def load_writers(root: str) -> dict[str, str]:
-    """The work tree's policy; {} when it is missing or not JSON, so every writer is a finding."""
-    try:
-        with open(os.path.join(root, POLICY), encoding="utf-8") as fh:
-            return parse_writers(fh.read())
-    except (OSError, ValueError):
-        return {}
 
 
 def _name(fn: ast.AST) -> str:
@@ -130,7 +120,7 @@ def _write_kind(call: ast.Call) -> str | None:
         return "open(..., <mode>)" if mode is not None else None
     if name == "open" and _owner(fn) == "os":
         path, flags = _arg(call, 0, "path"), _arg(call, 1, "flags")
-        if isinstance(path, ast.Attribute) and path.attr == "devnull":
+        if isinstance(path, ast.Attribute) and path.attr == "devnull" and _name(path.value) == "os":
             return None   # a child's or a closed pipe's stdout pointed at os.devnull
         return "os.open for writing" if flags is not None and _names(flags) & WRITE_FLAGS else None
     if name in OS_WRITES and _owner(fn) == "os":

@@ -394,7 +394,11 @@ def _check_state_writes(root: str) -> None:
             was = state_writes.parse_writers(before.stdout) if before.returncode == 0 else {}
         except ValueError:
             was = {}   # HEAD's list unreadable admitted nothing then either
-        tracked = set(_git("ls-files", "-z").stdout.split("\0"))
+        listed = _git("ls-files", "-z")
+        if listed.returncode != 0:
+            raise Refuse("pre-commit: cannot read the index to judge the modules whose state-writers entries this commit "
+                         "removes — not committed")
+        tracked = set(listed.stdout.split("\0"))
         judged += [m for m in state_writes.removed_entries(was, writers) if m in tracked and m not in judged
                    and state_writes.judged_path(m)]
     lines: list[str] = []
