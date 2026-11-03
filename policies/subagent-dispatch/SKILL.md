@@ -140,7 +140,7 @@ workspace settings bootstrap writes register (the `PreToolUse` hook for `Agent`;
    a fabric launch, removed so the agent file's pinned model applies.
    There a call with no `model` passes too: with `run_in_background`
    set, Claude Code runs the hook again on that answer
-   (read back on 2.1.286, in docs/live-checks/),
+   (read back on 2.1.286 and 2.1.311, in docs/live-checks/),
    and the agent file's model is still checked against routing;
 4. **no `isolation`** at all;
 5. a session **not on a `<host>/<login>/for/` branch**: a supplier

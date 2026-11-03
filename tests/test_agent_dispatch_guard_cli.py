@@ -272,7 +272,7 @@ def main() -> int:
     check("the reason names the pinned model", "claude-opus-5[1m]" in out, out)
     out = vanilla('{"subagent_type":"code-review","model":"opus","description":"Review PR 626 diff"}')
     check("the fable rule still holds first: a review on opus is denied even here", dec(out) == "deny", out)
-    # The harness hands the guard its own answer back: with run_in_background set, Claude Code 2.1.286 runs the
+    # The harness hands the guard its own answer back: with run_in_background set, Claude Code (2.1.286, 2.1.311) runs the
     # managed hook again on the first run's updatedInput (docs/live-checks/2026-11-02-dispatch-hook-reruns-on-updated-
     # input.md). Outside a fabric launch the unset model stays denied (above, "review type with model unset").
     out = vanilla(json.dumps(ui))
