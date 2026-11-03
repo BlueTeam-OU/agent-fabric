@@ -190,8 +190,8 @@ sharing a machine.
      credentials and every synced secret in the file the harness sources
      into each Bash call, so no Bash call or subagent inherits one. It is
      a managed hook (ADR-043 rule 2), so a login's own settings cannot
-     drop it, and its workspace copy also runs, once per file whichever
-     comes first (A 2026-11-03); `fabric-status` reads the session's
+     drop it, and its workspace copy also runs: an unset run twice does
+     nothing (A 2026-11-03); `fabric-status` reads the session's
      sign-in from the harness process, fingerprinted.
    This keeps secrets out of what a session prints by accident. It does
    not keep them from a session that reads the file: the store's key has
