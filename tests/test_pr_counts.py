@@ -291,6 +291,24 @@ def main() -> int:
             check("…on a Dependabot PR, a push account GitHub cannot name: cannot be read (exit 2), never absent",
                   not row["ok"] and row["line"].startswith("#4 cannot be read: the push account cannot be read (")
                   and "absent" not in row["line"], row["line"])
+    # A budget spent by the time the line is built: a person's PR asks GitHub nothing more, so its line is built from
+    # what was read; only an app's PR, which asks whom gh acts as, cannot be read (#465 F8).
+    for author, want in (({"login": "me"}, "line"), (bot, "cannot be read")):
+        doc = dict(pr_doc(4, [commit("a" * 40, "x")], head=hx, reviews=[rv(claude_r["body"])]), author=author)
+        clock = iter([0.0] + [99.0] * 20)
+        spent = pr_counts.Budget(5, clock=lambda: next(clock))
+        review_posters.push_account.cache_clear()
+        try:
+            got = pr_counts.describe("#4", "o/this", None, 4, doc, spent, lambda: (["claude"], ""), lambda: ["codex"])["line"]
+        except pr_counts.Unreadable as e:
+            got = f"cannot be read: {e}"
+        finally:
+            review_posters.push_account.cache_clear()
+        if want == "line":
+            check("a spent budget leaves a person's PR its review line, read from what was fetched",
+                  got.endswith("head reviewed: claude ✓ codex absent (head abcdef12)"), got)
+        else:
+            check("…an app's PR, which would ask whom gh acts as, cannot be read", got == "cannot be read: the time allowed ran out", got)
     check("the GraphQL read asks the author's type, so an app's PR can be told", "author { __typename login }" in pr_counts.FIELDS)
 
     print("legacy markers")

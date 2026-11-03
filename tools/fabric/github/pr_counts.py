@@ -294,22 +294,25 @@ def engines_on_head(pr: dict, markers: list[str]) -> set[str]:
             if (r.get("commit") or {}).get("oid") == head and marked(r)}
 
 
-def engines_unavailable(pr: dict, timeout: float) -> dict[str, str]:
+def engines_unavailable(pr: dict, timeout: Callable[[], float]) -> dict[str, str]:
     """{engine: reason} of the unavailable markers for the head, from the PR's author or a login in
     AGENT_FABRIC_REVIEW_POSTERS, and on an app's PR the push account, as pr-review-status binds them
     (arm_policy.engines_unavailable reads the same). A posters list that is not a JSON array of strings is none: this
-    line is a report, and none asks more. A push account GitHub cannot name within `timeout` is Unreadable, never
-    none: its marker would read "absent", a confident answer from a lookup that failed (ADR-020 A 2026-11-03)."""
+    line is a report, and none asks more. A push account GitHub cannot name within `timeout()` is Unreadable, never
+    none: its marker would read "absent", a confident answer from a lookup that failed (ADR-020 A 2026-11-03).
+    `timeout` is asked only on an app's PR: a person's asks GitHub nothing here, so a budget spent by now leaves its
+    line built from what was already read (#465 F8)."""
     try:
         posters = json.loads(os.environ.get("AGENT_FABRIC_REVIEW_POSTERS") or "[]")
     except ValueError:
         posters = []
     if not isinstance(posters, list) or not all(isinstance(x, str) for x in posters):
         posters = []
-    try:
-        posters = review_posters.for_pr(pr.get("author"), posters, timeout)
-    except gh.GhError as e:
-        raise Unreadable(f"the push account cannot be read ({e.reason})") from None
+    if review_posters.is_bot(pr.get("author")):
+        try:
+            posters = review_posters.for_pr(pr.get("author"), posters, timeout())
+        except gh.GhError as e:
+            raise Unreadable(f"the push account cannot be read ({e.reason})") from None
     author = ((pr.get("author") or {}).get("login") or "")
     rows = []
     for r in (pr.get("reviews") or {}).get("nodes") or []:
@@ -407,7 +410,7 @@ def describe(label: str, repo: str, pid: str | None, number: int, pr: dict, budg
             engines, unread = required()
             review = arm_policy.review_summary(engines_on_head(pr, markers), list(engines), str(pr.get("headRefOid") or ""),
                                                unread=unread, additional=list(additional()),
-                                               unavailable=engines_unavailable(pr, budget.left()))
+                                               unavailable=engines_unavailable(pr, budget.left))
             review = review if arm_policy.is_head_reviewed(review) else "review " + review
         row.update(draft=bool(pr.get("isDraft")), armed=armed, checks=checks_word(pr), review=review)
         parts.append(f"{'draft' if row['draft'] else 'open'}, {armed}, checks {row['checks']}, {review}")
