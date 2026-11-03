@@ -7,15 +7,18 @@ Stdlib only; runnable as `python3 tests/test_state_writes.py`. **Each case names
   writer_is_found            <- _write_kind's open() branch dropped, or RESOLVERS emptied
   writer_without_state_passes <- the write findings raised without `resolves or copies`
   unparseable_is_not_this_rules <- a SyntaxError turned into a finding
-  each_write_kind            <- one of os.open flags / mkstemp / os.replace / sqlite3.connect / an unknown mode dropped
-  copy_is_found              <- _reads_env dropped, or a setting (env[...] = ...) counted as a read
+  each_write_kind            <- one of os.open flags / mkstemp / os.replace / sqlite3.connect / an unknown mode / Path.open /
+                                shutil.copy, move / os.link dropped, or os.devnull counted
+  state_dir_parameter_resolves <- STATE_PARAM not counted as resolving
+  copy_is_found              <- _reads_env dropped or its Compare branch, or a setting (env[...] = ...) counted as a read
   identity_is_not_judged     <- the IDENTITY exemption dropped
   lock_terms                 <- _lock_finding's O_TRUNC or mode test dropped, the builtin-open branch dropped, or the module
                                 constant not followed
   lock_on_terms_is_not_a_write <- the `elif kind == "os.open for writing"` exemption dropped
   listed_module_is_admitted  <- scan ignoring `writers`
   policy_entries             <- policy_findings' tracked test or reason test dropped
-  lint_is_wired              <- state_write_findings not called from lint.main; tests/ judged; the admits-nothing finding dropped
+  lint_is_wired              <- state_write_findings not called from lint.main; tests/ judged; either admits-nothing finding
+                                dropped; an unreadable list read as empty
   tree_is_clean              <- (none: the tree itself, so a new writer in the fabric fails here before CI)
 """
 from __future__ import annotations
@@ -71,9 +74,23 @@ def case_each_write_kind() -> None:
             "open(D, mode)\n"
             "open(D)\n"                      # a read: not a write
             "os.open(D, os.O_RDONLY)\n"       # a read: not a write
-            "'x'.replace('a', 'b')\n")        # str.replace: not a rename
+            "'x'.replace('a', 'b')\n"         # str.replace: not a rename
+            "import pathlib, shutil\n"
+            "pathlib.Path(D, 'a').open('w')\n"
+            "shutil.copy('s', D)\n"
+            "shutil.move('s', D)\n"
+            "os.link('s', D)\n"
+            "pathlib.Path(D).open()\n"         # a read
+            "os.open(os.devnull, os.O_WRONLY)\n")   # stdout to devnull: not a write
     got = sw.scan("tools/x.py", RESOLVE + body, {})
-    assert lines(got) == [4, 5, 6, 7, 8], got
+    assert lines(got) == [4, 5, 6, 7, 8, 13, 14, 15, 16], got
+
+
+def case_state_dir_parameter_resolves() -> None:
+    """A writer handed the directory by its caller (relaycopy.relay_backup(db, state_dir)) is judged where it writes."""
+    body = "import os\ndef log(db, state_dir):\n    open(os.path.join(state_dir, 'l.jsonl'), 'a')\n"
+    assert lines(sw.scan("tools/x.py", body, {})) == [3]
+    assert sw.scan("tools/x.py", body.replace("state_dir", "where"), {}) == []
 
 
 def case_copy_is_found() -> None:
@@ -84,10 +101,11 @@ def case_copy_is_found() -> None:
             "env = {}\n"
             "env['AGENT_FABRIC_STATE_DIR'] = '/x'\n"          # setting it for a child is not a copy
             "os.environ['AGENT_FABRIC_STATE_DIR'] = '/x'\n"
-            "open(a, 'w')\n")
+            "open(a, 'w')\n"
+            "if 'AGENT_FABRIC_STATE_DIR' in os.environ: pass\n")
     got = sw.scan("tools/x.py", body, {})
     copies = [f for f in got if "a copy of identity.state_root()" in f]
-    assert lines(copies) == [2, 3, 4], got
+    assert lines(copies) == [2, 3, 4, 9], got
     assert [f for f in got if "open(..., 'w')" in f], "a copy resolves state, so its module's writes are judged: " + str(got)
 
 
@@ -142,14 +160,21 @@ def case_lint_is_wired() -> None:
     write(os.path.join(fabric, "tools", "fabric", "w.py"), RESOLVE + "open(D, 'w')\n")
     write(os.path.join(fabric, "tests", "test_w.py"), RESOLVE + "open(D, 'w')\n")
     write(os.path.join(fabric, "tools", "fabric", "clean.py"), "x = 1\n")
-    write(os.path.join(fabric, sw.POLICY), json.dumps({"writers": {"tools/fabric/clean.py": "not state: a test"}}))
+    write(os.path.join(fabric, sw.POLICY), json.dumps({"writers": {"tools/fabric/clean.py": "not state: a test",
+                                                                  "tests/test_w.py": "not state: a fixture"}}))
     subprocess.run(["git", "-C", fabric, "init", "-q"], check=True, env=git_env())
     subprocess.run(["git", "-C", fabric, "add", "-A"], check=True, env=git_env())
     rc, out = run_lint(fabric)
     assert rc != 0, out
     assert "tools/fabric/w.py:3: open(..., 'w')" in out, out
-    assert "tests/test_w.py" not in out, out
+    assert "tests/test_w.py:" not in out, out
     assert "tools/fabric/clean.py admits nothing" in out, out
+    assert "tests/test_w.py admits nothing — rule 1 does not judge that path" in out, out
+    # A list that is not JSON is said once, not as a finding per module it would have admitted.
+    write(os.path.join(fabric, sw.POLICY), "{")
+    subprocess.run(["git", "-C", fabric, "add", "-A"], check=True, env=git_env())
+    rc, out = run_lint(fabric)
+    assert "policies/state-writers.json: cannot be read as JSON" in out and "tools/fabric/w.py:3" not in out, out
 
 
 def case_tree_is_clean() -> None:

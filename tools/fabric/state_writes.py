@@ -14,9 +14,13 @@ names it with the record's clause that admits it. Three findings:
   and gh_ledger.py each carried one, j487). Setting it for a child is not
   reading it.
 - **write**: the module resolves the state directory (calls
-  `agent_state_dir`, `state_root` or `agent_lock`, or is a copy) and opens a
-  file for writing, makes a temporary, renames, or connects to SQLite, and
-  the policy does not name it.
+  `agent_state_dir`, `state_root` or `agent_lock`, takes a parameter named
+  `state_dir`, or is a copy) and opens a file for writing (builtin, `os` or
+  any `.open` given a writing mode), makes a temporary, renames, copies,
+  moves or links into place, or connects to SQLite, and the policy does not
+  name it. The judgement is per module: a module that only passes a state
+  directory to a function elsewhere is seen only where that function takes
+  it as `state_dir`.
 - **lock**: anywhere, a `.lock` file opened by builtin `open` (it takes the
   umask, 0644), or by `os.open` with `O_TRUNC` or a mode other than 0o600:
   a lock file is outside rule 1 only on those terms (ADR-003 §2,
@@ -39,6 +43,15 @@ ENV = "AGENT_FABRIC_STATE_DIR"
 RESOLVERS = frozenset({"agent_state_dir", "state_root", "agent_lock"})
 WRITE_FLAGS = frozenset({"O_WRONLY", "O_RDWR", "O_CREAT", "O_APPEND", "O_TRUNC"})
 WRITE_CALLS = frozenset({"mkstemp", "NamedTemporaryFile", "write_text", "write_bytes"})
+STATE_PARAM = "state_dir"
+OS_WRITES = frozenset({"replace", "rename", "link", "symlink", "mkfifo"})
+SHUTIL_WRITES = frozenset({"copy", "copy2", "copyfile", "copytree", "move"})
+_MODE_CHARS = set("rwaxbt+")
+
+
+def _writing_mode(node: ast.AST | None) -> bool:
+    return isinstance(node, ast.Constant) and isinstance(node.value, str) and bool(node.value) \
+        and set(node.value) <= _MODE_CHARS and bool(set(node.value) & set("wax+"))
 
 
 def parse_writers(text: str) -> dict[str, str]:
@@ -92,12 +105,16 @@ def _arg(call: ast.Call, pos: int, kw: str) -> ast.AST | None:
 
 
 def _reads_env(node: ast.AST) -> bool:
-    """os.environ.get(ENV), os.getenv(ENV), environ[ENV] read (not stored), ENV in environ."""
+    """os.environ.get(ENV) (or .get on a mapping named env or environment), os.getenv(ENV), environ[ENV] read (not
+    stored), ENV in environ."""
     if isinstance(node, ast.Call) and _name(node.func) in ("get", "getenv") and node.args:
         a = node.args[0]
         return isinstance(a, ast.Constant) and a.value == ENV and (
             _name(node.func) == "getenv" or _name(node.func.value) in ("environ", "env", "environment")
             if isinstance(node.func, ast.Attribute) else False)
+    if isinstance(node, ast.Compare) and isinstance(node.left, ast.Constant) and node.left.value == ENV:
+        return any(isinstance(op, (ast.In, ast.NotIn)) for op in node.ops) and \
+            any(_name(c) == "environ" for c in node.comparators)
     if isinstance(node, ast.Subscript) and isinstance(node.ctx, ast.Load):
         s = node.slice
         return isinstance(s, ast.Constant) and s.value == ENV and _name(node.value) == "environ"
@@ -112,10 +129,18 @@ def _write_kind(call: ast.Call) -> str | None:
             return f"open(..., {mode.value!r})" if set(mode.value) & set("wax+") else None
         return "open(..., <mode>)" if mode is not None else None
     if name == "open" and _owner(fn) == "os":
-        flags = _arg(call, 1, "flags")
+        path, flags = _arg(call, 0, "path"), _arg(call, 1, "flags")
+        if isinstance(path, ast.Attribute) and path.attr == "devnull":
+            return None   # a child's or a closed pipe's stdout pointed at os.devnull
         return "os.open for writing" if flags is not None and _names(flags) & WRITE_FLAGS else None
-    if name in ("replace", "rename") and _owner(fn) == "os":
+    if name in OS_WRITES and _owner(fn) == "os":
         return f"os.{name}"
+    if name in SHUTIL_WRITES and _owner(fn) == "shutil":
+        return f"shutil.{name}"
+    if name == "open" and isinstance(fn, ast.Attribute):   # Path(...).open("w"), tarfile.open(p, "w"), …
+        modes = [_arg(call, 0, "mode"), call.args[1] if len(call.args) > 1 else None]
+        return f".open(..., {next(m.value for m in modes if _writing_mode(m))!r})" \
+            if any(_writing_mode(m) for m in modes) else None
     if name == "connect" and _owner(fn) == "sqlite3":
         return "sqlite3.connect"
     if name in WRITE_CALLS and isinstance(fn, ast.Attribute):
@@ -154,6 +179,8 @@ def scan(rel: str, text: str, writers: dict[str, str]) -> list[str]:
     writes: list[tuple[int, str]] = []
     locks: list[str] = []
     for node in ast.walk(tree):
+        if isinstance(node, ast.arg) and node.arg == STATE_PARAM:
+            resolves = True
         if judged and _reads_env(node):
             copies.append(node.lineno)
         if not isinstance(node, ast.Call):
@@ -192,6 +219,12 @@ def policy_findings(writers: dict[str, str], present: set[str]) -> list[str]:
     out += [f"{POLICY}: {m}'s reason starts with none of {', '.join(repr(r) for r in REASONS)}"
             for m, why in sorted(writers.items()) if not why.startswith(REASONS)]
     return out
+
+
+def removed_entries(before: dict[str, str], after: dict[str, str]) -> list[str]:
+    """The modules an entry admitted before and does not now: a commit that only drops an entry still changes what they
+    may do, so they are judged with it."""
+    return sorted(set(before) - set(after))
 
 
 def judged_path(rel: str) -> bool:

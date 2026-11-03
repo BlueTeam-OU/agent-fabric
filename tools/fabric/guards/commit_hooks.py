@@ -370,21 +370,33 @@ def _check_hidden_unicode(root: str) -> None:
 
 def _check_state_writes(root: str) -> None:
     """In agent-fabric itself, whoever commits: a staged module of the fabric's own Python is judged against ADR-003 rule 1
-    (tools/fabric/state_writes.py), with the policy the commit stages — an entry removed in this commit admits nothing.
+    (tools/fabric/state_writes.py), with the policy the commit stages; a module whose entry this commit removes is judged
+    too, staged or not.
     Lint judges the whole tree in CI; this stops the module that adds a write before it is recorded."""
     if not same_repository(root):
         return
     r = _git("diff", "--cached", "-z", "--no-renames", "--name-only", "--diff-filter=ACMRT")
     if r.returncode != 0:
         raise Refuse("pre-commit: cannot list the staged files to judge them for ADR-003 rule 1 — not committed")
-    judged = [p for p in r.stdout.split("\0") if p and state_writes.judged_path(p)]
-    if not judged:
+    staged = [p for p in r.stdout.split("\0") if p]
+    judged = [p for p in staged if state_writes.judged_path(p)]
+    if not judged and state_writes.POLICY not in staged:
         return
     policy = _git("cat-file", "blob", f":{state_writes.POLICY}")
     try:
         writers = state_writes.parse_writers(policy.stdout) if policy.returncode == 0 else {}
     except ValueError:
         raise Refuse(f"pre-commit: the staged {state_writes.POLICY} is not JSON — not committed") from None
+    if state_writes.POLICY in staged:
+        # An entry dropped in this commit, its module unchanged: judge that module too, from the index.
+        before = _git("cat-file", "blob", f"HEAD:{state_writes.POLICY}")
+        try:
+            was = state_writes.parse_writers(before.stdout) if before.returncode == 0 else {}
+        except ValueError:
+            was = {}   # HEAD's list unreadable admitted nothing then either
+        tracked = set(_git("ls-files", "-z").stdout.split("\0"))
+        judged += [m for m in state_writes.removed_entries(was, writers) if m in tracked and m not in judged
+                   and state_writes.judged_path(m)]
     lines: list[str] = []
     for path, data in _staged_blobs(judged, "for ADR-003 rule 1").items():
         try:

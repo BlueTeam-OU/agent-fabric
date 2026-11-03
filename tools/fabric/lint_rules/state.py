@@ -27,9 +27,20 @@ state_writes = _load("state_writes")
 def state_write_findings(root: str) -> list[str]:
     tracked = _tracked(root)
     not_ours = _not_ours(root)
-    writers = state_writes.load_writers(root)
-    out = state_writes.policy_findings(writers, set(tracked))
-    for rel in sorted(r for r in tracked if state_writes.judged_path(r) and not _is_under(r, not_ours)):
+    out: list[str] = []
+    try:
+        with open(os.path.join(root, state_writes.POLICY), encoding="utf-8") as fh:
+            writers = state_writes.parse_writers(fh.read())
+    except FileNotFoundError:
+        writers = {}
+    except (OSError, ValueError) as exc:
+        # Said once, not as one finding per module the list would have admitted.
+        return [f"{state_writes.POLICY}: cannot be read as JSON ({exc.__class__.__name__}); ADR-003 rule 1 is not judged"]
+    out += state_writes.policy_findings(writers, set(tracked))
+    scanned = {r for r in tracked if state_writes.judged_path(r) and not _is_under(r, not_ours)}
+    out += [f"{state_writes.POLICY}: {m} admits nothing — rule 1 does not judge that path (a test, not Python, or not ours); "
+            "remove the entry" for m in sorted(writers) if m in set(tracked) and m not in scanned]
+    for rel in sorted(scanned):
         try:
             with open(os.path.join(root, rel), encoding="utf-8") as fh:
                 text = fh.read()

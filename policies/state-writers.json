@@ -8,7 +8,6 @@
     "tools/fabric/gzcoord/send.py": "ADR-003 rule 1: gzcoord-sent.jsonl, the send ledger, a GZCoord log; its unlocked trim the record's named gap (A 2026-10-05)",
     "runtime/claude-code/hooks/session-start.py": "not state: appends to the harness's CLAUDE_ENV_FILE",
     "tools/fabric/assembler/report.py": "not state: a project's last-drain-report.json and a caller-named commit message file",
-    "tools/fabric/branches.py": "not state: os.devnull, for a child's descriptors",
     "tools/fabric/review_codex.py": "not state: the review's scratch under the account's temporary directory",
     "tools/fabric/review_rounds.py": "not state: a review request beside the caller's own request file; the saved rounds go through identity.atomic_write",
     "tools/fabric/role.py": "not state: moves a role activation's workspace files, never agents/<login>/",
@@ -24,8 +23,17 @@
     "tools/fabric/resume.py": "gap (j577): resume.lock truncated and written with the holder's pid, which a lock file never is",
     "tools/fabric/memory_flagrun.py": "gap (j577): a transient request.txt in a scratch directory under agents/<login>/; its report write is a project's, not state",
     "tools/fabric/harvest_memory.py": "gap (j577): writes its bundle in place under --out, which drain_due.py puts under agents/<login>/drain/",
-    "tools/fabric/query.py": "gap (j577): reads the binding through a copy of the resolution; its os.open is os.devnull",
+    "tools/fabric/query.py": "gap (j577): reads the binding through a copy of the resolution",
     "tools/fabric/gzcoord/gzmsg.py": "gap (j577): reads binding.json through a copy of the resolution",
-    "tools/fabric/provisioning/persist_accounts.py": "gap (j577): the snapshot's .lock opened by open(..., 'w'), truncated and at the umask's 0644"
+    "tools/fabric/provisioning/persist_accounts.py": "gap (j577): the snapshot's .lock opened by open(..., 'w'), truncated and at the umask's 0644",
+    "tools/fabric/control/gateway_switch.py": "ADR-003 §2, rule 1: the control code; the gateway switch record by temporary and rename",
+    "tools/fabric/fabric_writes.py": "not state: keeps a person's file under .before-agent-fabric beside it; its record goes through identity.atomic_write",
+    "tools/fabric/secretstore/statecopy.py": "not state: reads the state directory (episodic.db by SQLite's online backup) and writes into the login's own store",
+    "tools/fabric/launch_provider_record.py": "gap (j577): launch-provider.json replaced by hand, not identity.atomic_write",
+    "tools/fabric/launcher/gateway.py": "gap (j577): the gateway record replaced by hand under state_dir; its log and the harness config are not state",
+    "tools/fabric/launcher/gateway_usage.py": "gap (j577): gateway-usage.json replaced by hand, not identity.atomic_write",
+    "tools/fabric/launcher/session.py": "not state: marks the harness's onboarding done in <CLAUDE_CONFIG_DIR or home>/.claude.json; a state_dir it takes goes to launch_provider_record",
+    "tools/fabric/memory_mcp/calls.py": "gap (j577): append_line appends a JSON line under state_dir outside identity",
+    "tools/fabric/secretstore/relaycopy.py": "gap (j577): relay-backup.jsonl appended under the state directory by builtin open(); its other writes are scratch"
   }
 }

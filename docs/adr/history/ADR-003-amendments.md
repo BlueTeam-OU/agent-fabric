@@ -155,22 +155,29 @@ record with `atomic_write` at 0600 and opens its lock `O_CREAT`, without
 
 The sweep for the rest is a guard, `tools/fabric/state_writes.py`. A
 static reader cannot see where a path points, so it over-reports: a
-module that resolves the per-agent state directory, or reads
-`AGENT_FABRIC_STATE_DIR` itself, and writes a file at all is a finding
-until `policies/state-writers.json` names it, with the clause of rule 1
-that admits it, `not state:` and what it writes, or `gap (jNNN):` and
-the job that closes it. A `.lock` opened by builtin `open()`, with
-`O_TRUNC` or without mode 0600 is a finding wherever it is. Lint judges
-the tracked tree, and finds an entry for a gone module, one with no
-stated ground, and one that admits nothing, so a gap's entry leaves the
-list when its fix lands. The pre-commit hook judges the staged modules
-of agent-fabric itself against the staged list.
+module that resolves the per-agent state directory (through `identity`,
+as a parameter named `state_dir`, or by reading `AGENT_FABRIC_STATE_DIR`
+itself) and writes a file at all (opens one for writing, makes a
+temporary, renames, copies, moves or links into place, connects to
+SQLite) is a finding until `policies/state-writers.json` names it, with
+the clause of rule 1 that admits it, `not state:` and what it writes, or
+`gap (jNNN):` and the job that closes it. A `.lock` opened by builtin
+`open()`, with `O_TRUNC` or without mode 0600 is a finding in any module
+the list does not name. The judgement is per module: a directory one
+module resolves and another writes under is seen only where the writer
+takes it as `state_dir`, which is how `secretstore/relaycopy.py`'s
+`relay-backup.jsonl` was found (review of #467, F2). Lint judges the
+tracked tree, and finds an entry for a gone module, one with no stated
+ground, one for a path the rule does not judge, and one that admits
+nothing, so a gap's entry leaves the list when its fix lands. The
+pre-commit hook judges the staged modules of agent-fabric itself against
+the staged list, and with a staged list also every module whose entry
+the commit removes.
 
-The first list holds 26 modules: the five writer classes this record
-already names, six that write no state, and fifteen gaps. Five are in
+The first list holds 34 modules: six writer classes this record already
+names, eight that write no per-agent state, and twenty gaps. Five are in
 `runtime/claude-code/` and the guards, with an append-only writer for
-the per-agent logs still to add to `identity.py` (j576). Ten are in the
-contributor lane (j577): hand-made replaces, `O_APPEND` logs, copies of
-the resolution, `resume.lock` truncated and given the holder's pid, and
-a snapshot lock opened `"w"`.
-
+the per-agent logs still to add to `identity.py` (j576). Fifteen are in
+the contributor lane (j577): hand-made replaces, `O_APPEND` logs, copies
+of the resolution, `resume.lock` truncated and given the holder's pid,
+and a snapshot lock opened `"w"`.

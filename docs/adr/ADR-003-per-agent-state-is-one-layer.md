@@ -157,9 +157,10 @@ state file an obvious place to get its writer.
    `flock`, never written, read, truncated or removed, mode 0600, needs
    no writer in `identity.py` (A 2026-10-31). Rule 1 is checked, not
    only stated: `tools/fabric/state_writes.py` finds a module that
-   resolves the per-agent state directory (through `identity`, or by
-   reading `AGENT_FABRIC_STATE_DIR` itself, a copy of the resolution)
-   and writes a file, and a `.lock` opened off a lock file's terms;
+   resolves the per-agent state directory (through `identity`, as a
+   `state_dir` parameter, or by reading `AGENT_FABRIC_STATE_DIR` itself,
+   a copy of the resolution) and writes a file, and a `.lock` opened off
+   a lock file's terms;
    lint judges the tree and the pre-commit hook the staged modules.
    Such a module is named in `policies/state-writers.json` with why: the
    clause above that admits it, `not state:` and what it writes, or
