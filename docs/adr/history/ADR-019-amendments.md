@@ -155,3 +155,18 @@ merge in the UI) waits until the status is posted on the head it merges;
 a PR armed before its repository's ruleset carries the check waits on it
 and is armed again; and the order of rollout is merge, then apply each
 repository's ruleset, then re-arm what was open.
+
+### Amendment 2026-11-03 — The owner's word as relayed is read
+
+§5 rule 4 reads an `AUTHORIZES` message only where it stands in the
+owner's place. Where the basis already gave the owner's word, `fabric-pr
+arm` printed "no authorization is needed" and dropped the message unread,
+so a relayed approval naming the wrong PR or head would have armed all
+the same: kutaisi-shop-transit #4 was armed that way, its head checked
+by hand by the arming session. The message is now read as the owner's
+word as it was relayed: addressed to the arming session, from another
+login, a DECISION or REPLY naming this repository, PR and head. No role
+is asked of its sender, since the owner holds none, and the basis is
+what arms, so it can only refuse; the comment records who relayed it.
+Without the owner's word, a policy with no `below_min_authority` still
+does not read one. Supplied by devex-tooling (j271). j527.
