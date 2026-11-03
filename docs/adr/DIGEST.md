@@ -472,34 +472,35 @@ its record disagree, the record wins. Look it up, never read it whole:
 
 ### ADR-020 — The review class is the review (Accepted)
 
-- The review class's blind review reviews every PR: each head, finding
-  judgement and fix range; no automated reviewer assumed (rule 1).
-- Dispatch: `code-review`, `model: fable`, description "review…" or
+- The review class's blind review is the review of every PR: each head,
+  finding's judgement, fix range; no automated reviewer assumed (§5
+  rule 1).
+- Dispatch: `code-review`, `model: fable`, description "review…"/
   "re-review…", no isolation; the agent file's routed model decides
   (rules 2–3).
 - The reviewer writes nothing; its brief is facts, never conclusions
   (rules 4–5).
 - Posted by `fabric-pr post-review` with the marker; counted when marked
   by the PR's account or a named poster, or unmarked from a trusted
-  account (rules 6–7); legacy markers until the sunset (rule 8).
-- A 2026-10-05 — the reviewer inherits no secret: clean environment
+  account (rules 6–7); legacy markers until sunset (rule 8).
+- A 2026-10-05 — reviewer inherits no secret: clean environment
   (rule 4).
 - A 2026-10-14 — the card governs from the base; only `pinned`
   review covers a head (rules 9–10).
 - A 2026-10-15 — pinned reads a detached head worktree (rule 10).
 - A 2026-10-16 — a review covers the commit it read (rule 6).
-- A 2026-10-22 — no supplier reviews its own part; the caller reviews
-  the folded head (rule 11).
+- A 2026-10-22 — a supplier dispatches no review of its own part; the
+  caller reviews the folded head (rule 11).
 - A 2026-10-24 — pinned read tools, proved sandbox, no Bash (rules 4/6;
   ADR-065).
-- A 2026-10-25 — the guard knows a supplier by its job's `deliver_to`
-  (rule 11).
+- A 2026-10-25 — the guard also knows a supplier by its active job's
+  `deliver_to` (rule 11).
 - A 2026-10-30 — pre-commit hook and lint judge the card cap (rule
   9).
 - A 2026-11-02 — under a launch no model passes (rule 2).
-- A 2026-11-03 — app PRs: the push account posts (rule 7).
-- Keywords: blind review, fabric-review, pr-review-status, coverage,
-  review card, run_in_background, Dependabot.
+- A 2026-11-03 — app PRs: push account posts (rule 7).
+- Keywords: fabric-review, pr-review-status, coverage,
+  run_in_background, Dependabot.
 
 ### ADR-021 — A test run leaves nothing it did not find (Accepted)
 
