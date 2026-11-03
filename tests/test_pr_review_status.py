@@ -23,6 +23,7 @@ sys.path.insert(0, os.path.join(HERE, "tools", "fabric"))
 import gh  # noqa: E402
 from github import pr_review_status as rs  # noqa: E402
 from github import review_coverage as rcov  # noqa: E402
+from github import review_posters  # noqa: E402
 
 HEAD = "abc123def4567890"
 
@@ -72,19 +73,24 @@ def suite(at, ref=REF, prs=(77,)):
 def scripted_gh(polls=(("OPEN", "abc123", 0),), reviews=(), comments=(), threads=(), threads_fail=False,
                 checks=CHECKS_TABLE, reviews_fail=False, reviews_fail_after=None, comments_fail=False,
                 formal=(), suites=None, page2=(), head_date="2026-08-10T00:00:00Z", head_ref=REF,
-                reviews_limited=None):
+                reviews_limited=None, author=None, viewer="me"):
     """gh as one run of the command sees it, in place of gh.py's calls.
 
     polls     one per `gh pr view`, the last repeating: (state, head, requests)
               with requests a count of the configured reviewer or a list of
               logins, or the word FAIL for a call gh fails.
     formal    (date, login) per REVIEW_REQUESTED_EVENT on the timeline.
+    author    the PR's author object as `gh pr view` gives it, default the
+              session's {"login": "me"}; viewer is whom `gh api user` names,
+              or FAIL for a call gh fails.
     suites    the check suites of the head, default this PR's own, born at
               head_date; page2 is served only to a caller that paginates,
               which is how the earliest suite across pages stays pinned.
     The clock is fake: sleep advances time.time() and is recorded, so a wait
     of an hour costs nothing and the naps can be asserted."""
-    seen = SimpleNamespace(polls=0, naps=[], suite_calls=0, commit_calls=0)
+    seen = SimpleNamespace(polls=0, naps=[], suite_calls=0, commit_calls=0, user_calls=0)
+    # The push account is read once per process; each scripted run is a process of its own.
+    review_posters.push_account.cache_clear()
     clock = [1_000_000.0]
     own = [suite(head_date, ref=head_ref)] if suites is None else list(suites)
 
@@ -96,10 +102,15 @@ def scripted_gh(polls=(("OPEN", "abc123", 0),), reviews=(), comments=(), threads
         state, head, requests = poll
         who = ["reviewer[bot]"] * requests if isinstance(requests, int) else requests
         return {"state": state, "mergeStateStatus": "CLEAN", "headRefOid": head, "headRefName": head_ref,
-                "author": {"login": "me"}, "isDraft": False,
+                "author": author or {"login": "me"}, "isDraft": False,
                 "reviewRequests": [{"__typename": "User", "login": w} for w in who]}
 
     def api(path, *, method="GET", body=None, paginate=False, timeout=0, items_key=None):
+        if path == "user":
+            seen.user_calls += 1
+            if viewer == "FAIL":
+                raise gh.GhError("gh api GET user", "exit 1")
+            return {"login": viewer}
         if "/reviews" in path:
             # polls counts this probe's own `pr view`, so it IS the poll number.
             if reviews_fail or (reviews_fail_after is not None and seen.polls > reviews_fail_after):
@@ -167,7 +178,7 @@ def go(*argv, env=None, **world):
             rc = d.code
             print(f"{rs.PROG}: {d}", file=sys.stderr)
     return SimpleNamespace(rc=rc, out=out.getvalue(), err=err.getvalue(), all=out.getvalue() + err.getvalue(),
-                           polls=seen.polls, naps=seen.naps, suite_calls=seen.suite_calls, commit_calls=seen.commit_calls)
+                           polls=seen.polls, user_calls=seen.user_calls, naps=seen.naps, suite_calls=seen.suite_calls, commit_calls=seen.commit_calls)
 
 
 def rev(login, commit="abc123", **kw):
@@ -451,6 +462,29 @@ def main() -> int:
     r = go(reviews=[rev("somebodyelse", at=T, body=blind_body)], env={"AGENT_FABRIC_REVIEW_POSTERS": '["somebodyelse"]'})
     check("a poster named in AGENT_FABRIC_REVIEW_POSTERS IS coverage, as a blind review, login shown",
           r.rc == 0 and says(r, "blind reviews       : 1", "- somebodyelse  commit=abc123"))
+    # AN APP'S PR (Dependabot): no session is its author, so the blind review is the push account's. It counts with
+    # nothing configured, on every spelling of an app author, and only from the account gh acts as.
+    dependabot = {"login": "app/dependabot", "is_bot": True}
+    r = go(reviews=[rev("pusher", at=T, body=blind_body)], author=dependabot, viewer="pusher")
+    check("on a Dependabot PR the push account's marked review IS coverage, unconfigured, as a blind review",
+          r.rc == 0 and r.user_calls == 1 and says(r, "blind reviews       : 1", "- pusher  commit=abc123")
+          and "marked, other login" not in r.all)
+    for shape in ({"login": "dependabot[bot]", "type": "Bot"}, {"login": "dependabot", "__typename": "Bot"},
+                  {"login": "app/renovate"}):
+        check(f"...and with the author spelt {shape}",
+              go(reviews=[rev("pusher", at=T, body=blind_body)], author=shape, viewer="pusher").rc == 0)
+    r = go(reviews=[rev("somebodyelse", at=T, body=blind_body)], author=dependabot, viewer="pusher")
+    check("on a Dependabot PR another account's marked review is still NOT coverage",
+          r.rc == 1 and says(r, "blind reviews       : 0", "marked, other login : 1"))
+    r = go(reviews=[rev("pusher", at=T, body=blind_body)], author={"login": "dependabot", "is_bot": False}, viewer="pusher")
+    check("a person's PR asks nobody whom gh acts as: the push account is the author's rule, as before",
+          r.rc == 1 and r.user_calls == 0 and says(r, "marked, other login : 1"))
+    r = go(reviews=[rev("pusher", at=T, body=blind_body)], author=dependabot, viewer="FAIL")
+    check("on a Dependabot PR a push account GitHub cannot name is an unreadable PR (exit 2), never other login",
+          r.rc == 2 and "marked, other login : 1" not in r.all)
+    r = go(reviews=[rev("pusher", at=T, body=blind_body)], author=dependabot, viewer="pusher",
+           env={"AGENT_FABRIC_REVIEW_POSTERS": '["pusher"]'})
+    check("the push account configured by hand as well counts once", r.rc == 0 and says(r, "blind reviews       : 1"))
     check("the author's own marked review is blind, login shown", says(go(reviews=[rev("me", at=T, body=blind_body)]), "- me  commit=abc123"))
     r = go(reviews=[rev("stranger", at=T, assoc="NONE")])
     check("a stranger's review is NOT coverage, not independent, listed as not trusted with its association",

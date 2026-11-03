@@ -41,8 +41,10 @@ WHAT COUNTS. Three buckets, reported on their own lines:
   blind reviews       — the review class's reviews, posted by
                         fabric-pr post-review as review objects whose FIRST
                         LINE is REVIEW_MARKER (below), BY the account
-                        the sessions push as — the PR author, or one
-                        named in AGENT_FABRIC_REVIEW_POSTERS: the
+                        the sessions push as — the PR author, one
+                        named in AGENT_FABRIC_REVIEW_POSTERS, or on a
+                        PR an app opened (Dependabot) the account gh
+                        acts as here: the
                         fabric's review of every PR, dispatched by the
                         session that owns it and judged before it is
                         answered. A marked review by any other account

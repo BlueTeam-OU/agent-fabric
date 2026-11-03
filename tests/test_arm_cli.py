@@ -59,6 +59,11 @@ def gh_mock(s: str, a: list[str], stdin: str) -> tuple[int, str, str]:
         _log(s, f"pr comment {a[2]} --body {stdin}\n")
         return 0, "", ""
     pr = json.load(open(os.path.join(s, "pr.json")))
+    # Whom gh acts as (`viewer`, "pusher" without it; `viewer_fail` a failed call): asked only on an app's PR.
+    if line.startswith("api user "):
+        if has("viewer_fail"):
+            return 1, "", "gh: Bad Gateway (HTTP 502)"
+        return 0, json.dumps({"login": _state(s, "viewer", "pusher")}), ""
     if line.startswith("api repos/gzapi-org/gzapp/pulls/7/files") and "--paginate --slurp" in line:
         def entry(f):
             old, _, new = f.rpartition("->")
@@ -227,7 +232,7 @@ def main() -> int:
 
     sys.path.insert(0, os.path.join(ROOT, "tools", "fabric"))
     import gh
-    from github import arm, arm_policy, repo_policy
+    from github import arm, arm_policy, repo_policy, review_posters
 
     base_env = {k: v for k, v in os.environ.items()
                 if not k.startswith(("GITHUB_", "AGENT_FABRIC_", "CLAUDE_", "ANTHROPIC_", "GZAPP_")) and k != "GIT_DIR"}
@@ -253,11 +258,13 @@ def main() -> int:
             """A clean slate; `reviewed` (the default) a review-class review of the head, which every PR needs under
             claude_only (gate 4b): a case about a missing review says reviewed=False."""
             for n in ("calls", "armed", "queued", "merged", "closed", "noarm", "nohead", "pushed", "viewfail", "blind", "independent", "unresolved", "no_blind_field", "unavailable",
-                      "mergefail", "inbase", "unasked", "moved", "statusfail", "reviews.json", "reviews_fail", "jobs.json", "jobs_fail", "shows.json",
+                      "mergefail", "inbase", "unasked", "moved", "statusfail", "reviews.json", "reviews_fail", "viewer", "viewer_fail", "jobs.json", "jobs_fail", "shows.json",
                       "waiver.out", "waiver_rc", "presence.out", "ctl_rc", "gh_repos"):
                 if os.path.exists(f"{state}/{n}"):
                     os.remove(f"{state}/{n}")
             put("review_rc", "0" if reviewed else "1")
+            # arm.main() runs in this process, and the push account is read once per process.
+            review_posters.push_account.cache_clear()
 
         def set_pr(branch: str, body: str, files: list[str], st: str = "OPEN", draft: bool = False) -> None:
             put("pr.json", json.dumps({"number": 7, "state": st, "isDraft": draft, "headRefName": branch,
@@ -885,6 +892,24 @@ def main() -> int:
         plain(); reviews(review(5709892041, h1, h2, f5, login="poster"), fresh)
         rc, out = run("7", "--basis", "b", env={"AGENT_FABRIC_REVIEW_POSTERS": '["poster"]'})
         check("…one from a login in AGENT_FABRIC_REVIEW_POSTERS is: refused", rc == 1 and "F5 | P3" in out, out)
+        def dependabot() -> None:
+            plain(); pr = json.load(open(f"{state}/pr.json"))
+            put("pr.json", json.dumps(dict(pr, author={"login": "app/dependabot", "is_bot": True})))
+        dependabot(); reviews(review(5709892041, h1, h2, f5, login="pusher"), fresh)
+        rc, out = run("7", "--basis", "b")
+        check("on a Dependabot PR the push account's review is read, nothing configured: refused on its F5",
+              rc == 1 and "F5 | P3" in out and "api user" in calls(), out)
+        dependabot(); reviews(review(5709892041, h1, h2, f5, login="drive-by"), fresh)
+        rc, out = run("7", "--basis", "b")
+        check("…another account's on that PR is still not read: armed", rc == 0 and "ARMED #7" in out, out)
+        plain(); reviews(review(5709892041, h1, h2, f5, login="pusher"), fresh)
+        rc, out = run("7", "--basis", "b")
+        check("…a person's PR asks nobody whom gh acts as, and the push account's review is not read there",
+              rc == 0 and "ARMED #7" in out and "api user" not in calls(), out)
+        dependabot(); reviews(review(5709892041, h1, h2, f5, login="pusher"), fresh); put("viewer_fail", "")
+        rc, out = run("7", "--basis", "b")
+        check("…on the Dependabot PR a push account GitHub cannot name: exit 2, nothing armed",
+              rc == 2 and "cannot read the account this session posts as" in out and "pr merge" not in calls(), out)
         plain(); rc, out = run("7", "--basis", "b", env={"AGENT_FABRIC_REVIEW_POSTERS": "poster"})
         check("AGENT_FABRIC_REVIEW_POSTERS not a JSON array: exit 2, never fewer posters", rc == 2 and "REVIEW_POSTERS" in out, out)
         plain(); put("reviews_fail", "")

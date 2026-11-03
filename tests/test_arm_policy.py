@@ -1073,9 +1073,46 @@ class ArmRun(unittest.TestCase):
             self.assertIn("no authorization is needed: the authorization ref-1 is not read, and not recorded", out)
             self.assertNotIn("authorized by", out)
             self.assertEqual(self.reads, [])
-        rc, out = self.authorized(basis="the owner's word")
+        rc, out = self.authorized(basis="the owner's word", work=9)
         self.assertEqual(rc, 0, out)
+        self.assertIn("no authorization is needed", out)
         self.assertEqual(self.reads, [])
+
+    # gzapi-org/kutaisi-shop-transit#4 (2026-11-01): the owner's word in the basis and the DECISION that relayed it on
+    # --authorization, under the fleet's policy, which names no authority. The message was dropped unread, so the head
+    # its AUTHORIZES names was checked by nobody.
+    def owner_relay(self, **kw):
+        kw.setdefault("replay", grant(sender="h/user"))
+        return self.authorized(policy=claude_only(), files=("docs/a.md",), work=2, basis="the owner's word (DECISION 01a19617)",
+                               presence=None, **kw)
+
+    def test_the_owners_word_relayed_on_authorization_is_read_and_bound_to_the_head_and_recorded(self):
+        rc, out = self.owner_relay()
+        self.assertEqual(rc, 0, out)
+        self.assertEqual([r[0] for r in self.reads], ["replay"], "read, and no role asked of presence: the owner holds none")
+        self.assertIn("the owner's word, as user relayed it (01a12-grant), authorizes O/R#7@abcdef12", out)
+        self.assertIn("count rule: 2 work commits — under 8, on the owner's word", out)
+        self.assertIn("The owner's word relayed by user (01a12-grant).", out)
+        self.assertNotIn("no authorization is needed", out)
+
+    def test_the_owners_word_relayed_for_another_head_pr_or_session_is_refused_not_dropped(self):
+        for label, replay, words in (
+                ("a stale head", grant(sender="h/user", target="O/R#7@0123456789ab"), "head 0123456789ab"),
+                ("another pr", grant(sender="h/user", target=f"O/R#8@{self.HEAD[:12]}"), "AUTHORIZES O/R#8"),
+                ("no AUTHORIZES line", grant(sender="h/user", field="WAIVES"), "has no AUTHORIZES"),
+                ("a broadcast", grant(sender="h/user", to=""), "a broadcast or a role address"),
+                ("the arming login itself", grant(sender="h/me"), "the login arming"),
+                ("a message not addressed", grant(sender="h/user", addressed=False), "not addressed to this session")):
+            rc, _ = self.owner_relay(replay=replay)
+            self.assertTrue(str(rc).startswith("refused"), (label, rc))
+            self.assertIn(words, str(rc), label)
+            self.assertIn("or arm on the basis alone without --authorization", str(rc), label)
+            self.assertEqual([r[0] for r in self.reads], ["replay"], label)
+        rc, _ = self.owner_relay(replay=(1, ""))
+        self.assertTrue(str(rc).startswith("unanswered"), rc)
+        rc, out = self.run_arm(claude_only(), 2, basis="the owner's word", extra=("--dry-run",))
+        self.assertEqual(rc, 0, out)
+        self.assertEqual(self.reads, [], "without --authorization the basis alone arms, as before")
 
     def test_below_min_refuse_is_not_lifted_by_an_authorization(self):
         p = claude_only({"commits": {"min": 1, "below_min": "refuse", "boundary_authority": "architect-cto"}})
@@ -1757,9 +1794,13 @@ class ArmRun(unittest.TestCase):
         self.assertTrue(str(rc).startswith("unanswered"), rc)
 
     def test_the_owners_word_still_arms_and_the_authority_is_not_read(self):
-        rc, out = self.below(basis="the owner's word", extra=(*self.AUTH, "--dry-run"))
+        rc, out = self.below(basis="the owner's word", extra=("--dry-run",))
         self.assertEqual(rc, 0, out)
         self.assertEqual(self.reads, [])
+        # A message named beside it is the word as relayed: read for its head, never for the authority's role.
+        rc, out = self.below(basis="the owner's word", extra=(*self.AUTH, "--dry-run"), replay=grant(sender="h/user"))
+        self.assertEqual(rc, 0, out)
+        self.assertEqual([r[0] for r in self.reads], ["replay"])
 
     def test_below_min_refuse_is_not_lifted_by_the_below_min_authority(self):
         rc, _ = self.below({"below_min": "refuse"}, basis="architect-cto's word", extra=("--any-owner", "--dry-run"), whoami=whoami_of(), branch="h/dev/feat/x")

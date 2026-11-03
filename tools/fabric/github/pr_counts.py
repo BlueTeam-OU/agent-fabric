@@ -63,7 +63,7 @@ HERE = os.path.dirname(os.path.realpath(__file__))
 sys.path.insert(0, os.path.dirname(HERE))
 import gh  # noqa: E402
 import roots  # noqa: E402
-from github import arm_policy, commit_class, review_coverage  # noqa: E402
+from github import arm_policy, commit_class, review_coverage, review_posters  # noqa: E402
 from github.pr_split import split_rows  # noqa: E402
 from github.review_status.config import BUILTIN_LEGACY_MARKER, REVIEW_MARKER  # noqa: E402
 from github.review_status.verdicts import engine_of, unavailable_of  # noqa: E402
@@ -74,7 +74,7 @@ PER_QUERY = 10
 REST_COMMIT_CAP = 250
 REF = re.compile(r"(?:(?P<where>[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)?)?#|(?=[0-9]))(?P<n>[1-9][0-9]*)")
 REPO = re.compile(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+")
-FIELDS = """number state isDraft mergedAt headRefOid baseRefName author { login }
+FIELDS = """number state isDraft mergedAt headRefOid baseRefName author { __typename login }
   autoMergeRequest { enabledAt } mergeQueueEntry { state }
   mergeCommit { parents(first: 2) { nodes { oid } } }
   commits(first: 100) { totalCount pageInfo { hasNextPage } nodes { commit { oid message parents(first: 3) { totalCount } } } }
@@ -295,14 +295,19 @@ def engines_on_head(pr: dict, markers: list[str]) -> set[str]:
 
 def engines_unavailable(pr: dict) -> dict[str, str]:
     """{engine: reason} of the unavailable markers for the head, from the PR's author or a login in
-    AGENT_FABRIC_REVIEW_POSTERS, as pr-review-status binds them (arm_policy.engines_unavailable reads the same). A
-    posters list that is not a JSON array of strings is none: this line is a report, and none asks more."""
+    AGENT_FABRIC_REVIEW_POSTERS, and on an app's PR the push account, as pr-review-status binds them
+    (arm_policy.engines_unavailable reads the same). A posters list that is not a JSON array of strings is none, and
+    so is a push account GitHub cannot name: this line is a report, and none asks more."""
     try:
         posters = json.loads(os.environ.get("AGENT_FABRIC_REVIEW_POSTERS") or "[]")
     except ValueError:
         posters = []
     if not isinstance(posters, list) or not all(isinstance(x, str) for x in posters):
         posters = []
+    try:
+        posters = review_posters.for_pr(pr.get("author"), posters)
+    except gh.GhError:
+        pass
     author = ((pr.get("author") or {}).get("login") or "")
     rows = []
     for r in (pr.get("reviews") or {}).get("nodes") or []:

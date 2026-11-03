@@ -17,7 +17,7 @@ import tempfile
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(HERE, "tools", "fabric"))
 import gh  # noqa: E402
-from github import pr_counts, pr_split  # noqa: E402
+from github import pr_counts, pr_split, review_posters  # noqa: E402
 
 REGISTRY = {
     "gzapp": {"remotes": ["git@github.com:gzapi-org/gzapp.git", "https://github.com/gzapi-org/gzapp"]},
@@ -266,6 +266,21 @@ def main() -> int:
     finally:
         del os.environ["AGENT_FABRIC_REVIEW_POSTERS"]
     check("…unless AGENT_FABRIC_REVIEW_POSTERS names it", "codex unavailable (allowance)" in line, line)
+    # A Dependabot PR (GraphQL spells the app {"__typename": "Bot", "login": "dependabot"}): the marker is the push
+    # account's, whom `gh api user` names; a push account GitHub cannot name (no `user` in the hub) leaves the line as
+    # it was.
+    bot = {"__typename": "Bot", "login": "dependabot"}
+    for rest, want in (({"user": {"login": "ci"}}, True), ({}, False)):
+        doc = dict(pr_doc(4, [commit("a" * 40, "x")], head=hx, reviews=[rv(claude_r["body"]), rv(gone_line, login="ci")]),
+                   author=bot)
+        review_posters.push_account.cache_clear()
+        try:
+            line = run_counts(["4"], Hub({"o/this": {4: doc}}, rest=rest), policy=extra)[0]["line"]
+        finally:
+            review_posters.push_account.cache_clear()
+        check(f"…on a Dependabot PR, {'the push account' if want else 'a push account GitHub cannot name'}: "
+              f"{'unavailable' if want else 'absent'}", ("codex unavailable (allowance)" in line) == want, line)
+    check("the GraphQL read asks the author's type, so an app's PR can be told", "author { __typename login }" in pr_counts.FIELDS)
 
     print("legacy markers")
     old = {"body": "<!-- agent-fabric-substitute-review v1 -->", "commit": {"oid": "h" * 40}}
