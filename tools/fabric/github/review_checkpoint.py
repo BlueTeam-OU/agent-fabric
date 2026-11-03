@@ -6,11 +6,11 @@
 for review_brief, which derives `card_base` and the re-review's base from it, and (the second) the previous findings:
 the checkpoint review's posted body is the previous report (ADR-065 §2 C). The two answer from the same checks. The answer is the range of the newest v2
 review on the PR when EVERY check holds, and None, a full review, on any doubt: the review is not by an account
-pr_review_status trusts (the PR's author or AGENT_FABRIC_REVIEW_POSTERS), its marker or block does not read, a path
-is "not read" (a partial review is no checkpoint: the paths it skipped would never be read), its marker names another
-commit than it is on, its head is not a commit of the PR or not an ancestor of `current_head` (a force-push), its
-base is not an ancestor of its head, its config differs from `config_for(its card)`, or any lookup failed. Never a
-default: an API error is not "no review yet", it is "not known", which the caller reads as a full review.
+pr_review_status trusts (the PR's author, AGENT_FABRIC_REVIEW_POSTERS, and on an app's PR the account gh acts as:
+review_posters), its marker or block does not read, a path is "not read" (a partial review is no checkpoint: the paths
+it skipped would never be read), its marker names another commit than it is on, its head is not a commit of the PR or
+not an ancestor of `current_head` (a force-push), its base is not an ancestor of its head, its config differs from
+`config_for(its card)`, or any lookup failed. Never a default: an API error is not "no review yet", it is "not known", which the caller reads as a full review.
 
 NEWEST means newest by submission time among the trusted v2 reviews, and the newest one decides: when it fails a
 check there is no fallback to an older one (two reviews with the same time are a doubt too). v1 reviews are never a

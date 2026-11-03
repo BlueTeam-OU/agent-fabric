@@ -4,7 +4,8 @@ judged it, and a fresh full review of the head started a new chain the review ga
 
 The rule, as the request states it:
   - the reviews read are the review objects whose first line is the v2 marker (review_coverage.MARKER_V2), from an
-    account the blind review counts from (the PR's author, or a login in AGENT_FABRIC_REVIEW_POSTERS), oldest first;
+    account the blind review counts from (the PR's author, a login in AGENT_FABRIC_REVIEW_POSTERS, or on an app's
+    PR the account gh acts as: review_posters), oldest first;
   - a review whose base= is the head= of an earlier review continues that review's chain; any other starts one;
   - each body is read by errors.parse_machine_lines, the one reader of the Finding:/Judgement: lines;
   - a Finding is open until a LATER review judges its label fixed or not-real; the latest judgement of it wins, so a
