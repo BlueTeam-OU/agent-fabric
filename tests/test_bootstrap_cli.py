@@ -1167,7 +1167,7 @@ def coordinator_timers() -> None:
           and "ExecStart=/usr/local/bin/fabric-python %h/projects/agent-fabric/tools/fabric/github/scheduled_red.py " in svc
           and "schedule:" in read(f"{a.fr}/.github/workflows/{wf.group(1)}"), svc)
     check("…and its timer daily, in UTC, persistent",
-          "OnCalendar=*-*-* 07:00:00 UTC\n" in read(f"{a.units}/{SCHEDULED_RED}.timer")
+          "OnCalendar=*-*-* 17:00:00 UTC\n" in read(f"{a.units}/{SCHEDULED_RED}.timer")
           and "Persistent=true\n" in read(f"{a.units}/{SCHEDULED_RED}.timer"), read(f"{a.units}/{SCHEDULED_RED}.timer"))
     bind("python-dev")
     mine = f"{a.units}/{SCHEDULED_RED}.timer"
