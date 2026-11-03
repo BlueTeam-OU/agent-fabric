@@ -121,6 +121,10 @@ def main() -> int:
     dirty = ci_warnings.clean("a\x1b]0;pwned\x07b\x1b[?25lc\x1b[33md")
     check("terminal escapes other than colours are made inert; colours are still stripped",
           not any(c in dirty for c in "\x1b\x07") and dirty.endswith("cd"), repr(dirty))
+    check("CRLF in an annotation folds to a space, not a '?'",
+          ci_warnings.clean("a\r\nb\x0bc") == "a b c", repr(ci_warnings.clean("a\r\nb\x0bc")))
+    check("a workflow name is cleaned too",
+          ci_warnings.workflow_label({"name": "x\x1b]0;t\x07y"}) == "x?]0;t?y", ci_warnings.workflow_label({"name": "x\x1b]0;t\x07y"}))
     check("a line outside every step has none, and so has an unstamped one",
           ci_warnings.step_names(steps, None) == "(no step)"
           and ci_warnings.step_names(steps[:1], when["shared second"]) == "(no step)")

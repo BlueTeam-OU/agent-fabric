@@ -88,7 +88,8 @@ _CONTROL = re.compile(r"[\x00-\x08\x0b-\x1f\x7f-\x9f]")
 
 
 def clean(text: str) -> str:
-    return " ".join(_CONTROL.sub("?", _ANSI.sub("", text)).split())
+    # Whitespace is folded first: a CRLF is a line ending, not an escape to show as "?".
+    return " ".join(_CONTROL.sub("?", word) for word in _ANSI.sub("", text).split())
 
 
 def _second(stamp: str | None) -> dt.datetime | None:
@@ -199,7 +200,7 @@ def read_job(repo: str, job: dict) -> tuple[str, list[dict]]:
 
 
 def workflow_label(run: dict) -> str:
-    return str(run.get("name") or os.path.basename(str(run.get("path") or "").split("@")[0]) or "?")
+    return clean(str(run.get("name") or os.path.basename(str(run.get("path") or "").split("@")[0]) or "?"))
 
 
 def wanted(run: dict, workflow: str | None) -> bool:
@@ -230,7 +231,7 @@ def collect(repo: str, runs: int, workflow: str | None, branch: str | None):
             try:
                 log, notes = read_job(repo, job)
             except Unread as e:
-                unread.append(f"{label} / {job.get('name', '?')} (run {run_id}): {e}")
+                unread.append(f"{label} / {clean(str(job.get('name', '?')))} (run {run_id}): {clean(str(e))}")
                 continue
             jobs_read += 1
             for step, level, message in job_findings(job, log, notes):
