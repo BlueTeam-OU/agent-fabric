@@ -433,8 +433,8 @@ def main() -> int:
     # pattern matching a child does not match "claude" too.
     tmp = tempfile.mkdtemp()
     os.symlink("/bin/bash", os.path.join(tmp, "claude"))
-    os.symlink("/bin/sleep", os.path.join(tmp, INBOX := "gzcoord-inbox"))
-    script = ('(exec -a "$SIB" sleep 3600) & s=$!; "$INB" 3601 & i=$!; echo "$s $i"; '
+    INBOX = "gzcoord-inbox"
+    script = ('(exec -a "$SIB" sleep 3600) & s=$!; (exec -a "$INB" sleep 3601) & i=$!; echo "$s $i"; '
               'while read -r f; do sh -c \'python3 "$0" < "$1"\' "$HOOK" "$f"; echo @@END; done; '
               'kill "$s" "$i"; wait')
     # The hook runs as the harness runs it, in its own process, so the
@@ -457,9 +457,10 @@ def main() -> int:
     outside = subprocess.Popen(["zzout-unrelated-qx", "3600"], executable="/bin/sleep")
     try:
         sib, inbox = map(int, session.stdout.readline().split())
-        # The subshell is `bash` until its exec -a lands, and the symlinked
-        # inbox watch is a `sleep` until then too: the cases read their argv
-        # from /proc, so wait for those, not a fixed 0.2 s.
+        # Both subshells are `bash` until their exec -a lands (the inbox
+        # stand-in is no symlink: a multi-call sleep may not run under that
+        # name, so its comm is `sleep`; is_inbox reads argv): the cases read
+        # their argv from /proc, so wait for those, not a fixed 0.2 s.
         deadline = time.monotonic() + 120
         while time.monotonic() < deadline and not (
                 "".join(g.read_argv(sib)[:1]).startswith("zzsib-bg-task-qx") and g.is_inbox(g.read_argv(inbox))):

@@ -22,13 +22,18 @@ import sys
 import tarfile
 import tempfile
 import time
-from instance_fixtures import own_instance_tree  # noqa: E402 — tests/, the script's own directory
+from instance_fixtures import own_instance_tree, write_registry  # noqa: E402 — tests/, the script's own directory
 own_instance_tree()
 # The harvest reads the login's memory-server logs from its state directory (memory_use.py): a suite that did not
 # name one would drain the running session's own marks and calls into its fixtures.
 STATE = tempfile.mkdtemp(prefix="harvest-state-")
 atexit.register(shutil.rmtree, STATE, ignore_errors=True)
 os.environ["AGENT_FABRIC_STATE_DIR"] = STATE
+# The projects a named anchor may carry (`gzapp:…`) are the registry's ids, instance data a stripped tree does not carry:
+# the harvest reads this operator tree's, not the checkout's.
+OPERATOR = tempfile.mkdtemp(prefix="harvest-operator-")
+atexit.register(shutil.rmtree, OPERATOR, ignore_errors=True)
+write_registry(os.path.join(OPERATOR, "projects"), {"projects": {"gzapp": {}, "blueteam.ee": {}}})
 LOGIN = pwd.getpwuid(os.geteuid()).pw_name
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -62,7 +67,7 @@ def run(mem: str, out: str, *extra: str):
     return subprocess.run(
         [sys.executable, TOOL, "--role", "architect-cto", "--memory", mem,
          "--out", out, *extra],
-        capture_output=True, text=True)
+        capture_output=True, text=True, env={**os.environ, "AGENT_FABRIC_OPERATOR": OPERATOR})
 
 
 def claims_of(out: str) -> list[dict]:

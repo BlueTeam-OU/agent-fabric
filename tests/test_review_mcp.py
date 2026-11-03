@@ -753,8 +753,10 @@ def sandbox_cases(server, call, head, base, clone, evidence, scratch, home, secr
                              capture_output=True, text=True, timeout=30)
     accepted = subprocess.run(["bwrap", "--unshare-all", "--ro-bind", "/", "/", "--ro-bind", mount_scratch, "/mnt", "--tmpfs", "/mnt/dir", "--", "/usr/bin/true"],
                               capture_output=True, text=True, timeout=30)
+    # The refusal names the destination, not the word "symlink": the Ubuntu 26.04 runner's bubblewrap says "No such file or directory" for a
+    # dangling link, older ones "symlink"; the directory case accepting beside it is what ties the refusal to the link.
     check("control: this bwrap refuses a tmpfs on a symlink destination and accepts one on a directory",
-          refused.returncode != 0 and "symlink" in refused.stderr and accepted.returncode == 0, refused.stderr + accepted.stderr)
+          refused.returncode != 0 and "/mnt/link" in refused.stderr and accepted.returncode == 0, refused.stderr + accepted.stderr)
     link_usr = os.path.join(scratch, "usr-link")
     where = {k: subprocess.run(["git", "-C", d, "rev-parse", "--path-format=absolute", flag], capture_output=True, text=True, timeout=30).stdout.strip()
              for k, d, flag in (("common", clone, "--git-common-dir"), ("own", evidence, "--git-dir"))}
