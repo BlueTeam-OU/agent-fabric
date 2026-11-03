@@ -1,0 +1,22 @@
+# runtime/control/agent-fabric-scheduled-red.service — a red scheduled run of the stripped nightly becomes a job on
+# this login (tools/fabric/github/scheduled_red.py; j109, j562), run by agent-fabric-scheduled-red.timer. A systemd
+# USER unit, installed by bootstrap.py on the fabric-coordinator account(s) only, beside the drain's: the job it adds
+# is a coordinator's ("read the failing files, contract each fix to its holder"), and on any other account it would
+# file that job where nobody contracts it.
+# Oneshot: exit 3 (the runs unreadable) and 4 (red, the job list unusable) fail the unit, which is the journal's;
+# the next day's run tries again, and a red that persists is still red then. An open job already carrying the
+# marker adds nothing, so a daily run never stacks jobs.
+# gh reads this login's token from its own configuration (the keyring), which a user unit reaches: read back live on
+# 2026-11-03 with systemd-run --user. 5 min bounds one API read and one job write.
+[Unit]
+Description=agent-fabric: a red scheduled run of the stripped nightly becomes a coordinator job
+
+[Service]
+Type=oneshot
+Environment=AGENT_FABRIC_ROOT=%h/projects/agent-fabric
+Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin
+WorkingDirectory=%h/projects/agent-fabric
+ExecStart=/usr/local/bin/fabric-python %h/projects/agent-fabric/tools/fabric/github/scheduled_red.py --repository BlueTeam-OU/agent-fabric --workflow stripped-nightly.yml
+TimeoutStartSec=5min
+Nice=10
+NoNewPrivileges=yes
