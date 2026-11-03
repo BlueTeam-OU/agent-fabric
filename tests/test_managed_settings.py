@@ -2,7 +2,7 @@
 """tools/fabric/managed_settings.py (agent-fabric ADR-043 rules 1-2) against scratch git repositories and a scratch
 prefix, as a non-root login with the test overrides: the render byte-stable with every @ENTRY@ filled; the
 template carrying every guard and no convenience, the workspace's moved entries each made a no-op by the managed
-file, the shell seal's left ungated; an install read from the object store, with its MANIFEST, modes, `current` swapped, the managed file and the
+file, the workspace holding no entry for the shell seal (session-start.py runs its copy); an install read from the object store, with its MANIFEST, modes, `current` swapped, the managed file and the
 boot script written, a second install of the same sha changing nothing and another sha swapping; a planted object
 that does not hash to its name refused; the refusals (a sha that is not hex, unknown, not a commit, older than the
 template, a non-root caller without the overrides); check's five states; restore. Ownership cannot be root in a
@@ -150,13 +150,13 @@ def main() -> int:
     check("review-fence is the one new entry: PreToolUse on Bash and the writing tools",
           [(e, m) for e, m, h in hooks_of(tpl) if h["args"][3] == "review-fence"] ==
           [("PreToolUse", "Bash|Write|Edit|MultiEdit|NotebookEdit")])
-    # The seal's workspace copy never stands down: whether a managed SessionStart hook is handed CLAUDE_ENV_FILE is
-    # not yet read back, and the seal is once per file, so both copies running costs nothing (j510).
-    seals = [(e, h["command"]) for e, _m, h in hooks_of(ws) if "/runtime/claude-code/hooks/session-seal.py" in h["command"]]
-    check("the workspace's seal: one SessionStart entry, carrying no managed-file gate",
-          [e for e, _c in seals] == ["SessionStart"]
-          and not any(c.startswith(GATE_HEAD) or "managed-settings.json" in c or "exit 0" in c for _e, c in seals),
-          seals)
+    # The seal's workspace copy is session-start.py's, not an entry of its own: rendered settings change only on
+    # bootstrap and a launcher pull carries code alone, so a new entry would be missing on every account that
+    # pulled without bootstrapping (review of #464, F1). tests/test_session_seal.py runs that copy.
+    seals = [(e, h["command"]) for e, _m, h in hooks_of(ws) if "session-seal" in h["command"]]
+    check("no workspace entry names session-seal.py; the seal's workspace copy is session-start.py's",
+          not seals and "session-seal.py" in open(os.path.join(ROOT, "runtime", "claude-code", "hooks",
+                                                               "session-start.py"), encoding="utf-8").read(), seals)
     check(".claude/settings.json is the workspace template re-rendered",
           open(os.path.join(ROOT, ".claude", "settings.json"), encoding="utf-8").read() == fabric_settings.render(ROOT))
 

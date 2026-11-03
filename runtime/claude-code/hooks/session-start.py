@@ -89,10 +89,25 @@ def export_fabric_root(env_file: str | None, root: str) -> None:
         pass
 
 
+def seal_session_shell() -> None:
+    """Load session-seal.py from this hook's own directory and run its seal; a failure never blocks the start."""
+    try:
+        spec = importlib.util.spec_from_file_location(
+            "fabric_session_seal", os.path.join(os.path.dirname(os.path.abspath(__file__)), "session-seal.py"))
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        mod.seal_session_shell(os.environ.get("CLAUDE_ENV_FILE"), os.path.expanduser("~"))
+    except Exception as exc:  # noqa: BLE001 - the seal is best effort here; the start is not
+        print(f"session-start: shell seal skipped: {exc}", file=sys.stderr)
+
+
 def main() -> int:
-    # The shell seal (ADR-038 rule 9) is not here: it is session-seal.py, a hook of its own that the managed
-    # file runs too, since this one is a workspace convenience a login can drop from its settings.
     export_fabric_root(os.environ.get("CLAUDE_ENV_FILE"), FABRIC_ROOT)
+    # The workspace copy of the shell seal (ADR-038 rule 9) runs from here, not from an entry of its own in the
+    # workspace settings: rendered settings change only on bootstrap and a launcher pull carries code alone, so a
+    # separate workspace entry would be missing on every account that pulled without bootstrapping (review of
+    # #464, F1). The managed SessionStart hook is the copy a login cannot drop.
+    seal_session_shell()
     try:
         raw = sys.stdin.read() if not sys.stdin.isatty() else ""
         payload = json.loads(raw) if raw.strip() else {}

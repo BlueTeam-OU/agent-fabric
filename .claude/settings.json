@@ -12,11 +12,6 @@
         "hooks": [
           {
             "type": "command",
-            "command": "f=\"$CLAUDE_PROJECT_DIR/runtime/claude-code/hooks/session-seal.py\"; [ -f \"$f\" ] && python3 \"$f\"; true",
-            "timeout": 5
-          },
-          {
-            "type": "command",
             "command": "bash \"$CLAUDE_PROJECT_DIR/runtime/claude-code/hooks/session-start.sh\"",
             "timeout": 15
           },

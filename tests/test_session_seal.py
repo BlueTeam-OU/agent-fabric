@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """runtime/claude-code/hooks/session-seal.py, the shell seal (agent-fabric ADR-038 rule 9), run each way a session
-runs it: directly, as the workspace entry runs it (sh -c, python3 by name), and as the managed file runs it
+runs it: directly, as the workspace settings' session-start entry runs it (sh -c, session-start.py loading the seal), and as the managed file runs it
 (`python -I -S hook_entry.py session-seal` on a scratch snapshot reached through `current`, from a hostile session
 environment: a fake python3 first on PATH, PYTHONPATH naming marker-writing modules, AGENT_FABRIC_ROOT naming a
 hostile tree). Each way the env file unsets the harness's credentials and every synced secret's name but the plain
@@ -137,21 +137,30 @@ def main() -> int:
     check("no secrets.env: the harness's credentials still unset",
           probe(bare)[:len(CREDENTIALS)] == WANT[:len(CREDENTIALS)], probe(bare))
 
-    print("session-seal: the workspace entry, as the harness runs it")
+    print("session-seal: the workspace copy, session-start.sh as the workspace settings run it")
     ws = json.load(open(WORKSPACE, encoding="utf-8"))
-    entries = [h["command"] for g in ws["hooks"]["SessionStart"] for h in g["hooks"]
-               if "/hooks/session-seal.py" in h["command"]]
-    check("one SessionStart entry runs the seal", len(entries) == 1, entries)
-    ws_cmd = entries[0] if entries else "false"
+    commands = [h["command"] for g in ws["hooks"]["SessionStart"] for h in g["hooks"]]
+    # F1 of #464: a rendered settings file changes only on bootstrap and a launcher pull carries code alone, so the
+    # seal needs no settings entry that a settings file rendered before this one lacks.
+    check("the seal needs no settings entry that a pre-range rendered file lacks: none names session-seal.py",
+          not any("session-seal" in c for c in commands), [c for c in commands if "session-seal" in c])
+    starts = [c for c in commands if c.endswith("/hooks/session-start.sh\"")]
+    check("one SessionStart entry runs session-start.sh", len(starts) == 1, starts)
+    ws_cmd = starts[0] if starts else "false"
 
     def run_workspace(env_file: str) -> subprocess.CompletedProcess:
-        env = {**base_env(home, env_file), "AGENT_FABRIC_ROOT": ROOT}
-        return subprocess.run(["sh", "-c", ws_cmd], input="{}", capture_output=True, text=True, timeout=30, env=env)
+        env = {**base_env(home, env_file), "AGENT_FABRIC_ROOT": ROOT, "AGENT_FABRIC_PYTHON": sys.executable,
+               "AGENT_FABRIC_STATE_DIR": os.path.join(tmp, "ws-state")}
+        return subprocess.run(["sh", "-c", ws_cmd], input='{"cwd": "/"}', capture_output=True, text=True, timeout=60,
+                              env=env)
 
     ws_file = os.path.join(tmp, "workspace.env")
     r = run_workspace(ws_file)
-    check("it seals: exit 0, nothing on stdout, the names unset", (r.returncode, r.stdout) == (0, "")
-          and probe(ws_file) == WANT, (r.returncode, r.stdout, probe(ws_file)))
+    check("that command alone seals: exit 0, the names unset, the plain value kept", r.returncode == 0
+          and probe(ws_file) == WANT, (r.returncode, r.stderr, probe(ws_file)))
+    check("...names only", no_value(ws_file))
+    run_workspace(ws_file)
+    check("...once across two runs", text_of(ws_file).count(MARKER) == 1, text_of(ws_file).count(MARKER))
 
     print("session-seal: the managed hook, through hook_entry from a hostile environment")
     marks = os.path.join(tmp, "marks")
