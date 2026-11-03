@@ -1015,16 +1015,17 @@ its record disagree, the record wins. Look it up, never read it whole:
 - The fleet's own mods load first from a root-owned marketplace; the first
   one redacts the login's secret values from tool results, failing closed
   (§5 rules 3–4).
-- The Claude Code pin moves to 2.1.287 or later only after every host reports
-  rules 1 and 2 in force (§5 rule 6).
-- A 2026-10-09 — a mod or MCP server that runs code passes the fleet's
-  guards as a Bash call would, or is refused at review (§5 rule 8).
+- The Claude Code pin moves past 2.1.286 only once every host reports
+  rules 1–2 in force (§5 rule 6).
+- A 2026-10-09 — code a mod or MCP server runs passes the fleet's guards,
+  or is refused at review (§5 rule 8).
 - A 2026-10-09 — rule 8's gate: the managed MCP allowlist, versions pinned.
 - A 2026-10-31 — rules 1–2 built: exec-form guards through a root-owned
-  hook_entry.py, snapshot of a named main; `fabric-managed` install and check;
+  hook_entry.py, snapshot of a named main; `fabric-managed`;
   operator reinstall per guard change; AppVM boot restore (§5 rules 2, 9).
 - A 2026-11-03 — the session seal (ADR-038 rule 9) is a managed
   `SessionStart` hook; its workspace copy keeps running (§5 rules 2, 9).
+- A 2026-11-03 — rule 6 met; the pin moves to 2.1.311 (§8).
 - Keywords: mods, plugin, managed settings, allowManagedModsOnly,
   disableSideloadFlags, prependPlugins, sec-default, guard, redaction,
   MCP server, sandbox, fabric-managed, hook_entry.py, session seal.

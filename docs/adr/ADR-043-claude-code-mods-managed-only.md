@@ -60,7 +60,7 @@ The GZCoord inbox as a mod with a timer and a pane, replacing the monitor a sess
 
 ## 8. Decision Status
 
-Accepted by the owner's merge of agent-fabric #97, which carried it. Not yet in force on any host. Rules 1 and 2 are built (A 2026-10-31): the template, `fabric-managed` and its check, read back on 2.1.316 (`docs/live-checks/2026-10-31-managed-settings-2-1-316.md`, which also meets rule 7). Installing them needs root on each host and is the owner's, and the pin stays at 2.1.286 until `fabric-ctl all` reports them in force (rule 6). The redaction mod (rules 3–4) is not built.
+Accepted by the owner's merge of agent-fabric #97, which carried it. Rules 1 and 2 are built (A 2026-10-31): the template, `fabric-managed` and its check, read back on 2.1.316 (`docs/live-checks/2026-10-31-managed-settings-2-1-316.md`, which also meets rule 7). They were in force on every host when the pin moved to 2.1.311 (snapshot `1853a2d1`, all 30 accounts on develop-qzapp, the only host: `docs/live-checks/2026-11-03-claude-code-2-1-311-readback.md`). A merge that touches the snapshot's paths leaves each host drifted until the operator reinstalls, and while it is, `fabric-ctl` refuses to upgrade Claude Code. Installing them, and reinstalling after a guard change (rule 9), needs root on each host and is the owner's. The redaction mod (rules 3–4) is not built.
 
 ## References
 
@@ -78,3 +78,4 @@ The body above reads current; each change's full note is in [history/ADR-043-ame
 | 2026-10-09 | Rule 8 names its gate: the managed MCP allowlist | §5 rule 8: the gate is managed `allowManagedMcpServersOnly` + `allowedMcpServers` after a rule 5 review, version pinned; servers a managed project already configures stand until reviewed; the Bash-matched guards, not every hook, are what an MCP call escapes |
 | 2026-10-31 | Rules 1–2 built: exec-form guards through one root-owned entry, a snapshot of a named main, `fabric-managed` | §5 rule 2: exec form, `hook_entry.py`, environment cleared, snapshot by git plumbing, review fence by `agent_type`, informing hooks stay; rule 9 added: operator install per guard change (owner, 2026-10-31), AppVM boot restore, the five-state check; §8 status |
 | 2026-11-03 | The session seal is a managed hook | §5 rule 2: the seal (ADR-038 rule 9) joins the managed hooks as a `SessionStart` entry; rule 9: its workspace copy never stands down |
+| 2026-11-03 | Rule 6 met: the pin moves to 2.1.311 | §8 status: rules 1–2 in force on every host; the pin moves to 2.1.311 (owner, 2026-11-03) after the read-back on that build |
