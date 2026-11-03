@@ -66,6 +66,7 @@ import hidden_unicode  # noqa: E402  the one definition of what such text may no
 import review_card  # noqa: E402  the card's path and cap, as the brief renderer refuses it
 import roots  # noqa: E402  the hook's own checkout is the root it is given; roots spells the policy's path (test_roots_seam)
 import secret_values  # noqa: E402  the account's own secret values, searched in what a commit records (ADR-012 §5 rule 9)
+import state_writes  # noqa: E402  ADR-003 rule 1's predicate, as lint asks it (tools/fabric/state_writes.py)
 
 ITSELF = "agent-fabric itself"
 AGENT_FABRIC_DIR = ".agent-fabric/"
@@ -316,6 +317,32 @@ def _check_decision_records(root: str) -> None:
         shutil.rmtree(scratch, ignore_errors=True)
 
 
+def _staged_blobs(paths: list[str], check: str) -> dict[str, bytes]:
+    """Each staged path's blob by the object id the index holds for it, never by `:<path>`: that is revision syntax, and a
+    file named `0:README.md` read as `:0:README.md` is README.md's stage-0 blob (re-review of #346). A blob git does not
+    give refuses: judging nothing would admit."""
+    oids: dict[str, str] = {}
+    if paths:
+        idx = _git("ls-files", "-s", "-z", "--full-name")
+        if idx.returncode != 0:
+            raise Refuse(f"pre-commit: cannot read the index to judge staged files {check} — not committed")
+        for entry in (e for e in idx.stdout.split("\0") if e):
+            meta, _, name = entry.partition("\t")
+            fields = meta.split()
+            if len(fields) == 3 and fields[2] == "0":
+                oids[name] = fields[1]
+    out: dict[str, bytes] = {}
+    for path in paths:
+        if path not in oids:
+            raise Refuse(f"pre-commit: {path} is staged but has no stage-0 entry in the index — not committed")
+        blob = subprocess.run(["git", "cat-file", "blob", oids[path]], capture_output=True, timeout=GIT_TIMEOUT_S,
+                              stdin=subprocess.DEVNULL)
+        if blob.returncode != 0:
+            raise Refuse(f"pre-commit: cannot read the staged {path} to judge it {check} — not committed")
+        out[path] = blob.stdout
+    return out
+
+
 def _check_hidden_unicode(root: str) -> None:
     """Before any carve-out is consulted: hidden text is refused whoever commits it, the coordinator included. The staged
     blob is judged, not the work tree. Every staged path that differs from HEAD is judged, a merge included: the authority
@@ -328,28 +355,10 @@ def _check_hidden_unicode(root: str) -> None:
     if r.returncode != 0:
         raise Refuse("pre-commit: cannot list the staged files to check them for hidden Unicode — not committed")
     judged = [p for p in r.stdout.split("\0") if p and agent_text.is_agent_text(p, itself=itself)]
-    # Each blob by the object id the index holds for the path, never by `:<path>`: that is revision syntax, and a file
-    # named `0:README.md` read as `:0:README.md` is README.md's stage-0 blob (re-review of #346).
-    oids: dict[str, str] = {}
-    if judged:
-        idx = _git("ls-files", "-s", "-z", "--full-name")
-        if idx.returncode != 0:
-            raise Refuse("pre-commit: cannot read the index to check staged files for hidden Unicode — not committed")
-        for entry in (e for e in idx.stdout.split("\0") if e):
-            meta, _, name = entry.partition("\t")
-            fields = meta.split()
-            if len(fields) == 3 and fields[2] == "0":
-                oids[name] = fields[1]
     lines: list[str] = []
-    for path in judged:
-        if path not in oids:
-            raise Refuse(f"pre-commit: {path} is staged but has no stage-0 entry in the index — not committed")
-        blob = subprocess.run(["git", "cat-file", "blob", oids[path]], capture_output=True, timeout=GIT_TIMEOUT_S,
-                              stdin=subprocess.DEVNULL)
-        if blob.returncode != 0:
-            raise Refuse(f"pre-commit: cannot read the staged {path} to check it for hidden Unicode — not committed")
+    for path, data in _staged_blobs(judged, "for hidden Unicode").items():
         try:
-            text = blob.stdout.decode("utf-8")
+            text = data.decode("utf-8")
         except UnicodeDecodeError:
             lines.append(f"{path}: not UTF-8")
             continue
@@ -357,6 +366,35 @@ def _check_hidden_unicode(root: str) -> None:
     if lines:
         raise Refuse("\n".join(lines) + "\npre-commit: staged text an agent reads holds characters the reader does not see "
                      "— not committed. What is refused, and what is allowed, is defined in tools/fabric/hidden_unicode.py.")
+
+
+def _check_state_writes(root: str) -> None:
+    """In agent-fabric itself, whoever commits: a staged module of the fabric's own Python is judged against ADR-003 rule 1
+    (tools/fabric/state_writes.py), with the policy the commit stages — an entry removed in this commit admits nothing.
+    Lint judges the whole tree in CI; this stops the module that adds a write before it is recorded."""
+    if not same_repository(root):
+        return
+    r = _git("diff", "--cached", "-z", "--no-renames", "--name-only", "--diff-filter=ACMRT")
+    if r.returncode != 0:
+        raise Refuse("pre-commit: cannot list the staged files to judge them for ADR-003 rule 1 — not committed")
+    judged = [p for p in r.stdout.split("\0") if p and state_writes.judged_path(p)]
+    if not judged:
+        return
+    policy = _git("cat-file", "blob", f":{state_writes.POLICY}")
+    try:
+        writers = state_writes.parse_writers(policy.stdout) if policy.returncode == 0 else {}
+    except ValueError:
+        raise Refuse(f"pre-commit: the staged {state_writes.POLICY} is not JSON — not committed") from None
+    lines: list[str] = []
+    for path, data in _staged_blobs(judged, "for ADR-003 rule 1").items():
+        try:
+            lines += state_writes.scan(path, data.decode("utf-8"), writers)
+        except UnicodeDecodeError:
+            lines.append(f"{path}: not UTF-8; ADR-003 rule 1 is not judged")
+    if lines:
+        raise Refuse("\n".join(lines) + f"\npre-commit: a module writes per-agent state outside runtime/identity.py, or "
+                     f"opens a lock file off its terms — not committed. Write through identity, or name the module and "
+                     f"the record's clause in {state_writes.POLICY} (agent-fabric ADR-003 rule 1).")
 
 
 def _check_review_card() -> None:
@@ -397,6 +435,7 @@ def pre_commit(root: str) -> int:
     _check_decision_records(root)
     _check_hidden_unicode(root)
     _check_review_card()
+    _check_state_writes(root)
     what, staged = guarded_change(root)
     if not staged:
         return 0
