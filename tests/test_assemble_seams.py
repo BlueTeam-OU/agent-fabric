@@ -347,6 +347,47 @@ def test_j485_a_slice_re_rendered_from_a_body_with_its_footer_carries_one(tmp: s
     assert ta.run_assemble(drain, claims_dir, out).returncode == 0 and tree_of(out) == first
 
 
+def test_j88_a_run_writes_only_into_the_fabric_and_working_copy_it_names(tmp: str) -> None:
+    """Every root a session can export, and the directory the command runs in, names another tree (a source
+    account's checkout, in the incident): the run still writes into --fabric and --working-copy alone. Before the
+    fix an exported AGENT_FABRIC_OPERATOR outranked --fabric for the domain and shared slices. Not covered, by
+    design (ADR-050 rule 8): the reads-state file, which lives in the login's state directory, never a tree;
+    isolated_state points that at a scratch directory, so HOME is not aimed at the decoy."""
+    drain, claims_dir, out = ta.build(tmp, {"alpha": ta.claims("alpha", [
+        {"class": "domain", "topic": "t", "title": "D", "body": "Domain text.", "evidence": ["h1"]},
+        {"class": "solution", "topic": "t", "title": "S", "body": "Solution text.", "evidence": ["h1"]},
+    ])})
+    elsewhere = os.path.join(tmp, "elsewhere")
+    os.makedirs(os.path.join(elsewhere, "memory", "domains"))
+    os.makedirs(os.path.join(elsewhere, ".agent-fabric", "memory"))
+    for sub in ("identities", "projects", "policies", "runtime"):
+        if os.path.isdir(os.path.join(out, sub)):
+            shutil.copytree(os.path.join(out, sub), os.path.join(elsewhere, sub))
+
+    def tree(root: str) -> dict[str, bytes]:
+        found = {}
+        for dirpath, _dirs, names in os.walk(root):
+            for name in names:
+                with open(os.path.join(dirpath, name), "rb") as fh:
+                    found[os.path.join(dirpath, name)] = fh.read()
+        return found
+
+    before = tree(elsewhere)
+    env = {**os.environ, "AGENT_FABRIC_ROOT": elsewhere, "AGENT_FABRIC_OPERATOR": elsewhere,
+           "AGENT_FABRIC_WORKING_COPY": elsewhere}
+    wc = ta.working_copy(out)
+    os.makedirs(os.path.join(wc, ".agent-fabric"), exist_ok=True)
+    proc = subprocess.run(
+        [sys.executable, ta.ASSEMBLE, "--claims", claims_dir, "--drain", drain, "--fabric", out,
+         "--project", ta.PROJECT, "--working-copy", wc, "--stamp", "2026-01-01"],
+        capture_output=True, text=True, env=env, cwd=elsewhere)
+    assert proc.returncode == 0, proc.stderr
+    # The positive control: the run did write, and into the trees it named.
+    assert os.path.exists(ta.dom(out, "alpha", "domain.md")), "the domain slice is not in --fabric"
+    assert os.path.exists(ta.proj(out, "alpha", "solution.md")), "the project slice is not in --working-copy"
+    assert tree(elsewhere) == before, sorted(set(tree(elsewhere)) ^ set(before)) or "a file there changed"
+
+
 def main() -> int:
     cases = [
         test_an_owner_named_only_in_shared_with_gets_its_index,
@@ -362,6 +403,7 @@ def main() -> int:
         test_d4_a_merge_target_two_parts_of_one_topic_hold_is_ambiguous,
         test_j485_a_body_that_carries_its_own_observed_footer_gets_one_footer,
         test_j485_a_slice_re_rendered_from_a_body_with_its_footer_carries_one,
+        test_j88_a_run_writes_only_into_the_fabric_and_working_copy_it_names,
     ]
     # Cases run because they are listed, so one written and not listed
     # would pass forever unrun (test_assemble.py's registry rule).
