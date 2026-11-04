@@ -22,6 +22,7 @@ HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(HERE, "tools", "fabric"))
 from control import jobs as cj  # noqa: E402
 import jobs as jobs_tool  # noqa: E402
+from registry_id import REGISTRY_ID_DESCRIPTION  # noqa: E402
 
 from node_oracle import Oracle  # noqa: E402 — tests/, the script's own directory
 
@@ -50,6 +51,14 @@ def main() -> int:
     check("a title of two lines", "title is one line" in c({"title": "a\nb"}))
     check("a title of 301", "title is one line" in c({"title": "x" * 301}))
     check("a project that is a path", "registry id" in c({"title": "x", "project": "../etc"}))
+    refusal = f"project is a registry id ({REGISTRY_ID_DESCRIPTION})"
+    check("a project with an empty segment", c({"title": "x", "project": "a..b"}) == refusal, c({"title": "x", "project": "a..b"}))
+    check("a project in capitals", c({"title": "x", "project": "A.b"}) == refusal, c({"title": "x", "project": "A.b"}))
+    check("a dotted project", c({"title": "x", "project": "gzapp.ee"}) is None)
+    check("a project ending in a dash", c({"title": "x", "project": "a.b-"}) == refusal and "not ending in a dash" in refusal)
+    check("a project of 64 characters", c({"title": "x", "project": "a" * 64}) == refusal and "at most 63 characters" in refusal)
+    check("a project of 63 characters", c({"title": "x", "project": "a" * 63}) is None)
+    check("the refusal names dot-joined segments", "dot-joined segments" in refusal, refusal)
     check("no arguments", "takes { title" in c(None))
     check("a priority", c({"title": "x", "priority": "blocking"}) is None)
     check("a priority not on the list", "priority is one of blocking, high, normal, low" in c({"title": "x", "priority": "urgent"}))
@@ -68,6 +77,10 @@ def main() -> int:
                {"title": "x", "2": 1, "1": 2, "b": 3, "a": 4}, {"title": "x", "01": 1, "4294967295": 2, "4294967294": 3},
                {"title": "x\u007f"}, {"title": "x\u00a0"}, {"title": "x", "topic": "\u2028"}]
     want = node("return input.map(a => m.checkJobArgs(a));", battery)
+    # The Node's project refusal describes a grammar without the dot; the rule now
+    # is registry_id.py's, so its words are compared in their place.
+    node_project_text = "project is a registry id (lowercase, digits, dashes)"
+    want = [f"project is a registry id ({REGISTRY_ID_DESCRIPTION})" if w == node_project_text else w for w in want]
     got = [c(a) for a in battery]
     differ = [(a, w, g) for a, w, g in zip(battery, want, got) if w != g]
     check(f"check_job_args says what checkJobArgs says, on {len(battery)} argument sets", not differ, differ[:4])
