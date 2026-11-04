@@ -494,10 +494,12 @@ _STORE_PATH_RE = re.compile(
     r"|env/[A-Z][A-Z0-9_]{0,63}\.gpg"
     r"|state/[0-9a-f-]{36}\.(?:tar\.gpg|meta)"
     r"|recovery/[0-9a-f-]{36}\.(?:key\.gpg|recipient)")
-# git's own empty tree: the base of a tree judged from the root. `--root` is
-# no substitute: it compares a non-root commit with its first parent, and a
-# merge with nothing.
-_EMPTY_TREE = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
+# A tree judged from the root is diffed against the empty tree; `--root` is no
+# substitute: it compares a non-root commit with its first parent, and a merge
+# with nothing. The empty tree's id is the store's own object format's (a
+# sha256 store has another), so git is asked for it.
+def _empty_tree(store: str) -> str:
+    return git(store, "hash-object", "-t", "tree", "/dev/null").stdout.decode().strip()
 
 
 def _settings_ok(path: str) -> bool:
@@ -514,7 +516,7 @@ def _tree_reason(store: str, base: str | None, tip: str) -> str | None:
     a regular non-executable file; a link, a submodule or an executable is
     refused before any checkout can write through it. Deletions of a path are
     judged by the path alone."""
-    out = git(store, "diff-tree", "-r", "--no-renames", "--raw", "-z", base or _EMPTY_TREE, tip).stdout
+    out = git(store, "diff-tree", "-r", "--no-renames", "--raw", "-z", base or _empty_tree(store), tip).stdout
     fields = out.split(b"\0")
     for meta, raw in zip(fields[0::2], fields[1::2]):
         mode = meta.split()[1].decode()
@@ -532,7 +534,9 @@ def require_tree(store: str, tip: str) -> None:
     StoreError, nothing applied."""
     reason = _tree_reason(store, None, tip)
     if reason:
-        raise StoreError(f"{tip[:12]} refused: {reason}; nothing applied (ADR-042)")
+        commit = _full(store, tip)
+        _record_refusal(store, commit, reason)
+        raise StoreError(f"commit {commit[:12]} refused: {reason}; nothing applied (ADR-042)")
 
 
 def _verify_incoming(store: str, tip: str, agent_id: str | None = None, fabric: str | None = None,

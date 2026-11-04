@@ -201,6 +201,38 @@ def main() -> int:
             required = str(e)
         check("require_tree (first contact, fresh clone) refuses it, nothing applied", "nothing applied" in required, required)
         g("checkout", "-q", "-f", "-B", "local", base)
+        # require_tree records its refusal, and a sha256 store is judged like any other.
+        rec: list = []
+        real_rec = trust._record_refusal
+        trust._record_refusal = lambda store, commit, reason: rec.append((commit, reason))
+        try:
+            refused(trust.require_tree, repo, "rooted")
+        finally:
+            trust._record_refusal = real_rec
+        check("require_tree records the refusal under the full commit id",
+              len(rec) == 1 and len(rec[0][0]) == 40 and "mode 120000" in rec[0][1], rec)
+        sha256 = os.path.join(tmp, "sha256")
+        os.makedirs(sha256)
+        probe = subprocess.run(["git", "-C", sha256, "init", "-q", "--object-format=sha256", "-b", "main"], env=env,
+                               capture_output=True)
+        if probe.returncode == 0:
+            def g2(*a: str) -> str:
+                return subprocess.run(["git", "-C", sha256, "-c", "user.name=t", "-c", "user.email=t@t",
+                                       "-c", "commit.gpgsign=false", *a], env=env, check=True,
+                                      capture_output=True).stdout.decode().strip()
+            os.makedirs(os.path.join(sha256, "env"))
+            open(os.path.join(sha256, "env", "OK.gpg"), "w").write("x")
+            g2("add", "-A")
+            g2("commit", "-q", "-m", "one")
+            check("a sha256 store: judged from the root, not an unknown-revision error",
+                  trust._tree_reason(sha256, None, "HEAD") is None, trust._tree_reason(sha256, None, "HEAD"))
+            open(os.path.join(sha256, "stray"), "w").write("x")
+            g2("add", "-A")
+            g2("commit", "-q", "-m", "two")
+            check("…and its stray path is found", "'stray'" in (trust._tree_reason(sha256, None, "HEAD") or ""))
+        else:
+            check("a sha256 store can be made here", False, probe.stderr)
+
         # The wiring: _verify_incoming refuses a signed-but-bad tree. The
         # signature step is stubbed (test_store_signing proves it with real
         # keys); what is under test is that the tree is judged after it.

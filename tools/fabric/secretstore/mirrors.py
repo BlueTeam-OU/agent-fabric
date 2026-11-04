@@ -244,6 +244,11 @@ def seed_child(agent_id: str, remote: str, text: str) -> dict:
                 require_tree(mirror, "refs/remotes/origin/main")
             except StoreError:
                 # Not left behind: the next call would find a mirror and take it as one.
+                # Its refusal record outlives it, beside it, as _rebuild_mirror's does.
+                record, kept = os.path.join(mirror, ".git", REFUSAL_FILE), _kept_refusal(mirror)
+                if kept and os.path.lexists(record):
+                    with contextlib.suppress(OSError):
+                        os.replace(record, kept)
                 shutil.rmtree(mirror, ignore_errors=True)
                 raise
             git(mirror, "checkout", "-q", "-B", "main", "refs/remotes/origin/main")
