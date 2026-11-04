@@ -396,7 +396,7 @@ def test_j112_every_link_and_references_topic_that_resolves_to_no_slice_is_repor
     drain, claims_dir, out = ta.build(tmp, {"alpha": ta.claims("alpha", [
         {"class": "solution", "topic": "here", "title": "Here", "evidence": ["h1"],
          "body": "Good [[here]] and [[unwritten-note]] and [[no-such-memory]] and `[[in-a-span]]` and ``[[in-a-double]]``.\n\n"
-                 "```\n[[in-a-fence]]\n```\n\nPress the ` key.\n\nReal [[lone-dead]].\n\n  ```\n[[in-indent-fence]]\n  ```\n[[after-fence-dead]]\n",
+                 "```\n[[in-a-fence]]\n```\n\nPress the ` key.\n\nReal [[lone-dead]] and `x`.\n\n  ```\n[[in-indent-fence]]\n  ```\n[[after-fence-dead]]\n",
          # What the harvest derives from the body: it cites every [[x]], code or not (harvest_memory.WIKILINK_RE).
          "citations": {"memories": ["in-a-span", "in-a-fence", "in-indent-fence", "unwritten-note"]}},
         {"class": "solution", "topic": "cited", "title": "Cited", "evidence": ["h1"], "body": "Text.",
