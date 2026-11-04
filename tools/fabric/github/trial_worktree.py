@@ -12,16 +12,36 @@ import select
 import shutil
 import signal
 import string
+import subprocess
 import sys
 import time
 
 HERE = os.path.dirname(os.path.realpath(__file__))
 sys.path.insert(0, os.path.dirname(HERE))
 import git  # noqa: E402
+from provisioning import bounded  # noqa: E402
 
 
 class Refused(Exception):
     pass
+
+
+def run_git(repo: str, *args: str, timeout: float = git.TIMEOUT_S) -> subprocess.CompletedProcess:
+    """git.run(repo, *args, check=False), except that a timeout ends git's
+    whole process tree before GitError is raised (bounded.run_bounded):
+    git.run's subprocess.run kills git alone, and what git started (a
+    fetch's remote helper and its ssh, a merge's driver, a filter) ran on
+    past the trial (#477's sibling list). Every git call of a trial goes
+    through it; none of them checks its status through an exception."""
+    what = "git " + (args[0] if args else "")
+    try:
+        return bounded.run_bounded(["git", "-C", repo, *args], timeout=timeout, label="trial-merge",
+                                   stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                   text=True, errors="surrogateescape")
+    except FileNotFoundError:
+        raise git.GitError(what, "git is not installed") from None
+    except subprocess.TimeoutExpired:
+        raise git.GitError(what, f"no answer within {timeout:g} s") from None
 
 
 # A fresh worktree of a large base is a checkout; a merge rewrites files.
@@ -85,7 +105,7 @@ def sweep(top: str, scratch: str) -> None:
                     continue
             except OSError:
                 continue
-        git.run(top, *NO_HOOKS, "worktree", "remove", "--force", d, check=False)
+        run_git(top, *NO_HOOKS, "worktree", "remove", "--force", d)
         remove_tree(d)
         for suffix in (".pid", ".pid.tmp", ".out"):
             remove_file(d + suffix)
@@ -277,11 +297,11 @@ def cleanup(top: str, wt: str, cpid: int | None) -> None:
             os.waitpid(cpid, os.WNOHANG)
         except ChildProcessError:
             pass
-    # Each step on its own: a git that times out (git.py's bound) must not
+    # Each step on its own: a git that times out (run_git's bound) must not
     # keep the scratch tree and the pid file from going (review of #71).
-    for step in (lambda: git.run(top, *NO_HOOKS, "worktree", "remove", "--force", wt, check=False),
+    for step in (lambda: run_git(top, *NO_HOOKS, "worktree", "remove", "--force", wt),
                  lambda: remove_tree(wt), lambda: remove_file(wt + ".pid"), lambda: remove_file(wt + ".out"),
-                 lambda: git.run(top, "worktree", "prune", check=False)):
+                 lambda: run_git(top, "worktree", "prune")):
         try:
             step()
         except (git.GitError, OSError):
@@ -291,11 +311,11 @@ def cleanup(top: str, wt: str, cpid: int | None) -> None:
 def add_worktree(top: str, wt: str, base_sha: str) -> None:
     err = ""
     for pause in ADD_PAUSES:
-        r = git.run(top, *NO_HOOKS, "worktree", "add", "-q", "--detach", wt, base_sha, check=False, timeout=WORKTREE_TIMEOUT_S)
+        r = run_git(top, *NO_HOOKS, "worktree", "add", "-q", "--detach", wt, base_sha, timeout=WORKTREE_TIMEOUT_S)
         if r.returncode == 0:
             return
         err = (r.stderr or r.stdout).strip()
-        git.run(top, *NO_HOOKS, "worktree", "remove", "--force", wt, check=False)
+        run_git(top, *NO_HOOKS, "worktree", "remove", "--force", wt)
         os.makedirs(wt, exist_ok=True)
         time.sleep(pause)
     raise Refused(f"git worktree add failed ({err.split(chr(10))[-1]}); nothing tried")
@@ -305,13 +325,13 @@ def merge_all(wt: str, shas: list[str], names: list[str]) -> tuple[str, str, lis
     """(result, failed_ref, conflicted, tree, merge_err). The clone's hooks
     are not run: this merge is never committed anywhere (NO_HOOKS)."""
     for name, sha in zip(names, shas):
-        r = git.run(wt, "-c", "user.name=trial-merge", "-c", "user.email=trial-merge@invalid",
+        r = run_git(wt, "-c", "user.name=trial-merge", "-c", "user.email=trial-merge@invalid",
                     "-c", "commit.gpgsign=false", *NO_HOOKS,
                     "merge", "-q", "--no-ff", "--no-edit", "--no-verify", sha,
-                    check=False, timeout=WORKTREE_TIMEOUT_S)
+                    timeout=WORKTREE_TIMEOUT_S)
         if r.returncode != 0:
-            d = git.run(wt, "diff", "--name-only", "--diff-filter=U", check=False).stdout
+            d = run_git(wt, "diff", "--name-only", "--diff-filter=U").stdout
             conflicted = [p for p in d.split("\n") if p]
-            git.run(wt, *NO_HOOKS, "merge", "--abort", check=False)
+            run_git(wt, *NO_HOOKS, "merge", "--abort")
             return ("conflicts" if conflicted else "could not merge"), name, conflicted, "", r.stderr.rstrip("\n")
-    return "combines", "", [], git.run(wt, "rev-parse", "HEAD^{tree}", check=False).stdout.strip(), ""
+    return "combines", "", [], run_git(wt, "rev-parse", "HEAD^{tree}").stdout.strip(), ""

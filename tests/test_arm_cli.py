@@ -798,6 +798,12 @@ def main() -> int:
         rc, out = run("7", "--basis", "b")
         check("a review with no id from the API: its place unknown, refused naming it, never read as fixing F5",
               rc == 1 and "the API returned no id" in out and "pr merge" not in calls(), out)
+        check("…named by its marker's head, which a person can find it by, never \"review ?\"",
+              f"review marked for head {HEAD[:8]} (the API returned no id" in out and "review ?" not in out, out)
+        plain(); reviews(first, fresh, {**review(0, h2, HEAD, None), "id": None})
+        rc, out = run("7", "--basis", "b")
+        check("…with no body either: refused, named by the commit GitHub says it reviewed",
+              rc == 1 and f"review of commit {HEAD[:8]} (the API returned no body)" in out and "pr merge" not in calls(), out)
         plain(); reviews(first, fresh, review(5710450123, HEAD, HEAD, "Judgement: F5 | not-real | not on the change\nFinding: none"))
         rc, out = run("7", "--basis", "b")
         check("a not-real judgement in a later chain clears the earlier chain's F5: armed", rc == 0 and "ARMED #7" in out, out)

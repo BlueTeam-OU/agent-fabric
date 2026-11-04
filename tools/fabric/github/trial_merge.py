@@ -66,7 +66,7 @@ import roots  # noqa: E402
 # reach them as trial_merge.<name>, as before the split.
 from github.trial_worktree import (  # noqa: E402, F401
     ADD_PAUSES, NO_HOOKS, WORKTREE_TIMEOUT_S, Refused, add_worktree, cleanup, make_worktree_dir, merge_all, pid_alive,
-    remove_file, remove_tree, sweep, terminate, worktree_procs)
+    remove_file, remove_tree, run_git, sweep, terminate, worktree_procs)
 
 HELP = """Do these branches combine? Merge them, in the order given, onto the
 base in a throwaway worktree, optionally run the project's own check
@@ -130,6 +130,8 @@ DEFAULT_MIN_FREE_KB = 1048576
 DEFAULT_CHECK_TIMEOUT = "1800"
 # A fetch is the one call that scales with the remote, not the clone.
 FETCH_TIMEOUT_S = 600
+# A signal is an exit, with the shell's status for it, so that the cleanup always runs.
+EXIT_SIGNALS = {signal.SIGINT: 130, signal.SIGTERM: 143, signal.SIGHUP: 129}
 
 
 
@@ -292,14 +294,21 @@ def run_check(wt: str, argv: list[str], timeout: str, lease: str, fabric: str, s
         runner = [shutil.which("fabric-lease") or os.path.join(fabric, "bin", "fabric-lease"), lease, "--", *runner]
     out_path = wt + ".out"
     with open(out_path, "wb") as out_fh:
+        # A signal whose handler ran between the spawn and `started` would
+        # end the run with the check's session unrecorded, signalled only by
+        # the cwd backstop (#477's sibling list). Held across both, it is
+        # delivered at the unblock, once the pid is known.
+        held = signal.pthread_sigmask(signal.SIG_BLOCK, EXIT_SIGNALS.keys())
         try:
             proc = subprocess.Popen([*runner, *argv], cwd=wt, stdin=subprocess.DEVNULL, stdout=out_fh,
                                     stderr=subprocess.STDOUT, start_new_session=True)
+            started(proc.pid)
         except PermissionError:
             return 126, ""
         except OSError:
             return 127, ""
-        started(proc.pid)
+        finally:
+            signal.pthread_sigmask(signal.SIG_SETMASK, held)
         rc = proc.wait()
     with open(out_path, "rb") as fh:
         out = fh.read().replace(b"\0", b"").decode("utf-8", "surrogateescape").rstrip("\n")
@@ -309,7 +318,7 @@ def run_check(wt: str, argv: list[str], timeout: str, lease: str, fabric: str, s
 def need_kb_for(top: str, base_sha: str) -> int:
     """Room for a checkout of the base, plus a margin."""
     total = 0
-    for line in git.run(top, "ls-tree", "-r", "-l", base_sha, check=False).stdout.split("\n"):
+    for line in run_git(top, "ls-tree", "-r", "-l", base_sha).stdout.split("\n"):
         meta = line.split("\t", 1)[0].split()
         if len(meta) >= 4 and meta[3] != "-":
             total += int(meta[3])
@@ -339,7 +348,7 @@ def resolve_refs(top: str, refs: list[str]) -> tuple[list[str], list[str]]:
             shas.append(sha)
             continue
         b = r[len("origin/"):] if r.startswith("origin/") else r
-        s = git.out(top, "rev-parse", "-q", "--verify", f"refs/remotes/origin/{b}^{{commit}}", check=False)
+        s = run_git(top, "rev-parse", "-q", "--verify", f"refs/remotes/origin/{b}^{{commit}}").stdout.strip()
         if not s:
             raise Refused(f"{b} is not a branch on origin; nothing tried")
         names.append(b)
@@ -370,16 +379,16 @@ def resolve_pr(top: str, r: str) -> tuple[str, str]:
     b = b[len("origin/"):] if b.startswith("origin/") else b
     name = f"{owner}:{b}" if pr.get("isCrossRepository") is True else b
     ref = f"refs/pull/{int(r)}/head"
-    ls = git.run(top, "ls-remote", "origin", ref, check=False, timeout=FETCH_TIMEOUT_S)
+    ls = run_git(top, "ls-remote", "origin", ref, timeout=FETCH_TIMEOUT_S)
     held = ls.stdout.split("	", 1)[0].strip() if ls.returncode == 0 else ""
-    if not held or git.run(top, "fetch", "-q", "--no-write-fetch-head", "--refmap=", "origin", ref, check=False,
+    if not held or run_git(top, "fetch", "-q", "--no-write-fetch-head", "--refmap=", "origin", ref,
                            timeout=FETCH_TIMEOUT_S).returncode != 0:
         raise Refused(f"#{r}: {ref} cannot be fetched from origin; nothing tried")
     # A push between gh's answer and these reads: the trial would test a
     # commit that is not the head gh named. Asked again, the two agree.
     if held != oid:
         raise Refused(f"#{r}'s head {oid} is not what origin's {ref} holds ({held}); nothing tried")
-    if git.out(top, "rev-parse", "-q", "--verify", f"{oid}^{{commit}}", check=False) != oid:
+    if run_git(top, "rev-parse", "-q", "--verify", f"{oid}^{{commit}}").stdout.strip() != oid:
         raise Refused(f"#{r}: fetching {ref} did not bring its head {oid}; nothing tried")
     return name, oid
 
@@ -426,11 +435,11 @@ def run(argv: list[str]) -> int:
     os.chdir(top)
     fabric = os.environ.get("AGENT_FABRIC_ROOT") or os.path.dirname(os.path.dirname(os.path.dirname(HERE)))
 
-    if git.run(top, "fetch", "-q", "--prune", "origin", check=False, timeout=FETCH_TIMEOUT_S).returncode != 0:
+    if run_git(top, "fetch", "-q", "--prune", "origin", timeout=FETCH_TIMEOUT_S).returncode != 0:
         raise Refused("git fetch origin failed; nothing tried")
     if not base:
-        base = git.out(top, "symbolic-ref", "-q", "--short", "refs/remotes/origin/HEAD", check=False) or "origin/main"
-    base_sha = git.out(top, "rev-parse", "-q", "--verify", f"{base}^{{commit}}", check=False)
+        base = run_git(top, "symbolic-ref", "-q", "--short", "refs/remotes/origin/HEAD").stdout.strip() or "origin/main"
+    base_sha = run_git(top, "rev-parse", "-q", "--verify", f"{base}^{{commit}}").stdout.strip()
     if not base_sha:
         raise Refused(f"the base {base} is not in this clone; nothing tried")
     names, shas = resolve_refs(top, refs)
@@ -447,12 +456,11 @@ def run(argv: list[str]) -> int:
     if free_kb < need_kb:
         raise Refused(f"{scratch} has {free_kb} KB free, the worktree needs {need_kb}; nothing tried")
     sweep(top, scratch)
-    git.run(top, "worktree", "prune", check=False)
+    run_git(top, "worktree", "prune")
 
     wt = make_worktree_dir(scratch)
     started: list[int] = []
-    # A signal is an exit, so that the cleanup below always runs.
-    for sig, code in ((signal.SIGINT, 130), (signal.SIGTERM, 143), (signal.SIGHUP, 129)):
+    for sig, code in EXIT_SIGNALS.items():
         signal.signal(sig, lambda _s, _f, code=code: sys.exit(code))
     try:
         # Written whole under another name, then moved: a concurrent run's

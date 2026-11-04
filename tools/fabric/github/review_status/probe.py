@@ -2,11 +2,12 @@
 A part of tools/fabric/github/pr_review_status.py, whose docstring is the contract."""
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING
 import gh
 from github import review_posters
-from github.review_status.base import jstr, listed, obj, review_order
+from github.review_status.base import jkey, jstr, listed, obj, review_order
 from github.review_status.verdicts import PASS_LINE, Buckets, classify, verdicts_of, newest, refusal_of, request_of, head_covered
 
 if TYPE_CHECKING:
@@ -315,6 +316,7 @@ def probe(ctx: "Ctx") -> Probe | None:
         # the reviews call is: a swallowed failure here would report a clean
         # review as no review, which is the whole defect this fetch fixes.
         comments = gh.api_list(f"repos/{ctx.repo}/issues/{ctx.pr}/comments") or []
+        read_at = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
     except (gh.GhError, ValueError, TypeError, AttributeError) as e:
         # A call refused on the rate limit is not an unreadable PR: the caller waits for the reset
         # rather than count it toward "could not read".
@@ -336,7 +338,12 @@ def probe(ctx: "Ctx") -> Probe | None:
     # has landed; otherwise a refusal from last week would end every wait on
     # this PR forever.
     if p.refusal_at:
-        evidence = newest([r.get("submitted_at") for r in qualifying] + [v["at"] for v in p.verdicts])
+        # A review GitHub dates after this read is dated in the future (agent-fabric-fleetdeck#57): its date says
+        # nothing of whether it came before the refusal, and taken as written it superseded every refusal made
+        # until then, so a declined wait never ended. It is no evidence here; the verdicts are comments, on the
+        # refusal's own clock. Ids cannot order a review against a comment: they are two sequences.
+        evidence = newest([r.get("submitted_at") for r in qualifying if jkey(r.get("submitted_at")) <= jkey(read_at)]
+                          + [v["at"] for v in p.verdicts])
         # ...and to a request made AFTER it. The cause passes and the
         # environment gets created, so asking again once the cause is gone
         # is the normal recovery — a decline that predates the re-ask is
