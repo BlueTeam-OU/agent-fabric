@@ -276,6 +276,7 @@ def _mkdir(path: str, root: bool) -> None:
 
 def _write_new(path: str, data: bytes, mode: int, root: bool) -> None:
     fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+    written = False
     try:
         view = memoryview(data)
         while view:
@@ -283,8 +284,12 @@ def _write_new(path: str, data: bytes, mode: int, root: bool) -> None:
         os.fchmod(fd, mode)
         _own(fd, root)
         os.fsync(fd)
+        written = True
     finally:
         os.close(fd)
+        if not written:
+            # Its name is random: no later run would find it to sweep (#484 F3).
+            os.unlink(path)
 
 
 def _write_atomic(path: str, data: bytes, mode: int, root: bool) -> None:
@@ -472,7 +477,11 @@ def install(sha: str, repo: str = FABRIC, prefix: str = PREFIX, etc: str = ETC, 
     _write_new(staged_kept, rendered, 0o644, root)
     link = os.path.join(managed, "current")
     before = os.readlink(link) if os.path.islink(link) else None
-    _point(link, os.path.basename(final), root)
+    try:
+        _point(link, os.path.basename(final), root)
+    except BaseException:
+        os.unlink(staged_kept)
+        raise
     say(f"{link} -> {os.path.basename(final)}" + (f" (was {before})" if before and before != os.path.basename(final)
                                                   else ""))
     try:

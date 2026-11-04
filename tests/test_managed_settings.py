@@ -339,14 +339,29 @@ def main() -> int:
             return real_write(path, *a, **k)
 
         def refuse_kept(path, *a, **k):
-            # The kept copy, F19: refused before /etc moves, never after it.
+            # The kept copy, F19: refused before /etc moves, never after it; and
+            # refused mid-write, once the file exists, so a leftover shows (#484 F3).
             if os.path.dirname(path) == managed and os.path.basename(path).startswith(".managed-settings.json.tmp-"):
-                raise OSError(28, "No space left on device")
+                real_own = ms._own
+
+                def full(*_a, **_k):
+                    raise OSError(28, "No space left on device")
+                ms._own = full
+                try:
+                    return real_new(path, *a, **k)
+                finally:
+                    ms._own = real_own
             return real_new(path, *a, **k)
+
+        real_point = ms._point
+
+        def refuse_point(*_a, **_k):
+            raise OSError(28, "No space left on device")
 
         for label, patch in (("the render refused", ("render", refuse_render)),
                              ("the /etc write refused", ("_write_atomic", refuse_etc)),
-                             ("the kept copy refused", ("_write_new", refuse_kept))):
+                             ("the kept copy refused", ("_write_new", refuse_kept)),
+                             ("the current swap refused", ("_point", refuse_point))):
             setattr(ms, *patch)
             try:
                 inst(sha_b)
@@ -354,7 +369,7 @@ def main() -> int:
             except (ms.Failed, OSError):
                 raised = True
             finally:
-                ms.render, ms._write_atomic, ms._write_new = real_render, real_write, real_new
+                ms.render, ms._write_atomic, ms._write_new, ms._point = real_render, real_write, real_new, real_point
             check(f"install fails when {label}: current still the snapshot in force, /etc and the kept copy unchanged",
                   raised and os.readlink(os.path.join(managed, "current")) == f"fabric-{sha_c}"
                   and open(os.path.join(etc, "managed-settings.json")).read() == in_force
