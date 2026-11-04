@@ -1,10 +1,12 @@
 """tools/fabric/jobsparts/branching.py — the branch a job starts on, chosen before any work (ADR-037 rule 10, step 3).
 A part of tools/fabric/jobs.py, whose docstring is the contract.
 
-The order: the for/ branch a supply job's request names (job["deliver_to"]), unless a pull request from it merged; else the job's own recorded branch when it was begun and is still unmerged (a paused or a blocked job taken back); else this agent's open pull request in the
-repository, when it is still addable; else, for a job that needs that pull request merged first, a block on it; else a new branch
-off the freshly fetched default branch. Whatever is chosen is never behind the default branch: an existing branch gets the default
-merged into it, locally and unpushed, in a worktree of its own."""
+The order: the for/ branch a supply job's request names (job["deliver_to"]), unless a pull request from it merged; else the job's own
+recorded branch, always: a job that records a branch is resumed on it (its worktree recreated from the branch when gone) and is never
+given another job's, so a branch that has landed or is gone from this clone and origin is refused, said, never replaced; only a job
+with no branch gets one: this agent's open pull request in the repository, when it is still addable; else, for a job that needs that
+pull request merged first, a block on it; else a new branch off the freshly fetched default branch. Whatever is chosen is never behind
+the default branch: an existing branch gets the default merged into it, locally and unpushed, in a worktree of its own."""
 from __future__ import annotations
 
 import os
@@ -44,6 +46,10 @@ def _worktree_path(wc: str, branch: str) -> str:
 def _checkout(wc: str, branch: str) -> str:
     """The worktree that has `branch` checked out, made beside the working copy when there is none."""
     have = vcs.worktree_of(wc, branch)
+    if have and not os.path.isdir(have):
+        # A swept worktree stays registered until pruned, and `worktree add` refuses a branch it still shows checked out there.
+        vcs.run(wc, "worktree", "prune")
+        have = None
     if have:
         return have
     path = _worktree_path(wc, branch)
@@ -95,25 +101,42 @@ def _addable(repo: str, number: int) -> str | None:
     return None
 
 
-def _begun(wc: str, repo: str, branch: str) -> bool:
-    """Whether `branch` exists (here or on origin) and none of its pull requests merged: work begun, not landed. Git alone cannot say
-    it: a branch with no commit of its own is an ancestor of the default branch, as a merged one is."""
-    if not (vcs.local_branch_exists(wc, branch) or vcs.remote_tip(wc, branch)):
-        return False
-    return not vcs.gh.pr_list(["number"], repo=repo, state="merged", search=f"head:{branch}")
-
-
 def _landed(wc: str, repo: str, branch: str) -> bool:
     """Whether a pull request from `branch` merged: its delivery is on the default branch and the name is spent."""
     return bool(vcs.gh.pr_list(["number"], repo=repo, state="merged", search=f"head:{branch}"))
 
 
+def _resume(wc: str, repo: str, job: dict, default: str) -> Choice:
+    """The job's recorded branch, prepared. One that is on neither this clone nor origin, or that a pull request landed, is refused
+    and said: replacing it would hand the job a branch that is another's work (j511 got j513's)."""
+    own = job["branch"]
+    if not (vcs.local_branch_exists(wc, own) or vcs.remote_tip(wc, own)):
+        raise Refused(f"{job['id']} records branch {own}, which is on neither this clone nor origin: it is not replaced; restore the branch, "
+                      f"or drop {job['id']} and add its work again")
+    if _landed(wc, repo, own):
+        raise Refused(f"{job['id']} records branch {own}, which a pull request has landed: it is not replaced; close {job['id']} "
+                      "(fabric-jobs done or drop), or switch to another job by its id")
+    return Choice("own", own, bring_up_to_date(wc, own, default), note="the job's own branch, work already begun")
+
+
+def _checkout_of(job: dict) -> str:
+    """A git checkout to ask in: the job's working copy, or, for a job with a branch of its own whose worktree is gone (a sweep removed
+    it), the checkout it was made beside (`_worktree_path` names a worktree <checkout>-<last segment of the branch>), where it is made again."""
+    wc = job.get("working_copy")
+    if wc and vcs.toplevel(wc):
+        return wc
+    own = job.get("branch")
+    suffix = f"-{own.rsplit('/', 1)[-1]}" if own else None
+    for path in (job.get("worktree"), wc):
+        if suffix and path and path.endswith(suffix) and vcs.toplevel(path[:-len(suffix)]):
+            return path[:-len(suffix)]
+    raise Refused(f"{job['id']} has no working copy that is a git checkout ({wc or 'none recorded'}): no branch can be chosen; "
+                      f"name one with fabric-jobs project {job['id']} {job.get('project') or '<project>'} --working-copy DIR")
+
+
 def choose(job: dict, *, kind: str, needs_merged: bool) -> Choice:
     """The branch for `job`, prepared: fetched, checked out in a worktree and up to date. Refused when it cannot be one."""
-    wc = job.get("working_copy")
-    if not wc or not vcs.toplevel(wc):
-        raise Refused(f"{job['id']} has no working copy that is a git checkout ({wc or 'none recorded'}): no branch can be chosen; "
-                      f"name one with fabric-jobs project {job['id']} {job.get('project') or '<project>'} --working-copy DIR")
+    wc = _checkout_of(job)
     try:
         vcs.fetch(wc)
         default = vcs.default_branch(wc)
@@ -129,8 +152,8 @@ def choose(job: dict, *, kind: str, needs_merged: bool) -> Choice:
                 raise Refused(f"{path} exists but does not have {supply} checked out: move it away, or check the branch out there")
             vcs.run(wc, "worktree", "add", "--no-track", "-b", supply, path, f"origin/{default}")
             return Choice("new", supply, path, note=f"the for/ branch the request names, new off origin/{default}")
-        if own and _begun(wc, repo, own):
-            return Choice("own", own, bring_up_to_date(wc, own, default), note="the job's own branch, work already begun")
+        if own:
+            return _resume(wc, repo, job, default)
         mine = _my_open_prs(repo)
         if len(mine) > 1:
             raise Refused(f"{len(mine)} open pull requests of this login in {repo} ({', '.join('#' + str(p['number']) for p in mine)}): "

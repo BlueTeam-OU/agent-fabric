@@ -1218,6 +1218,81 @@ def main() -> int:
         check("a job that has a branch of its own goes back to it, not to a new one", rc == 0 and out.startswith(j2)
               and w.job(j2)["branch"] == w2["branch"] and f"{w2['branch']} (the job's own branch" in out, out + err)
 
+        print("a job that records its own branch is never given another's (j201, the owner 2026-11-04: j511 got j513's)")
+
+        def gitc(repo: str, *argv: str) -> None:
+            subprocess.run(["git", "-C", repo, *argv], check=True, env=git_env(), capture_output=True)
+
+        def two_with_branches():
+            """Two paused jobs, each on a pushed branch of its own, and an open pull request of this login that could take more commits."""
+            w = World()
+            subprocess.run(["git", "-C", w.repo, "checkout", "-q", "-b", mine], check=True, env=git_env())
+            subprocess.run(["git", "-C", w.repo, "commit", "-q", "--allow-empty", "-m", "on the pull request"], check=True, env=git_env())
+            subprocess.run(["git", "-C", w.repo, "push", "-q", "origin", mine], check=True, env=git_env())
+            subprocess.run(["git", "-C", w.repo, "checkout", "-q", "main"], check=True, env=git_env())
+            first = w.working("first")
+            w.sw("drop", first, "x")
+            jobs_on = []
+            for title in ("alpha", "beta"):
+                jid = w.add(title)
+                rc, out, err = w.switch(jid, cwd=jobs_on[-1][1]["worktree"] if jobs_on else w.repo)
+                assert rc == 0, out + err
+                rec = w.job(jid)
+                assert rec.get("worktree"), out + err + repr(rec)
+                gitc(rec["worktree"], "commit", "-q", "--allow-empty", "-m", f"{title} begun")
+                gitc(rec["worktree"], "push", "-q", "origin", rec["branch"])
+                w.sw("pause", jid, "later", cwd=rec["worktree"])
+                jobs_on.append((jid, rec))
+            gh_says(open_prs=[{"number": 40, "headRefName": mine, "isDraft": False}])
+            return w, jobs_on
+
+        w, ((ja, a), (jb, b)) = two_with_branches()
+        check("two jobs with branches of their own got two different ones, neither the open pull request's", a["branch"] != b["branch"] and mine not in (a["branch"], b["branch"]), repr((a, b)))
+        rc, out, err = w.switch(ja, cwd=b["worktree"])
+        check("switching to the first resumes it on its own branch and worktree, the open pull request left alone",
+              rc == 0 and w.job(ja)["branch"] == a["branch"] and w.job(ja)["worktree"] == a["worktree"], out + err + repr(w.job(ja)))
+        w.sw("pause", ja, "later", cwd=a["worktree"])
+        rc, out, err = w.switch(jb, cwd=a["worktree"])
+        check("…and from it to the second, each keeps its own",
+              rc == 0 and w.job(jb)["branch"] == b["branch"] and w.job(ja)["branch"] == a["branch"], out + err + repr((w.job(ja), w.job(jb))))
+        w.sw("pause", jb, "later", cwd=b["worktree"])
+        jc = w.add("gamma")
+        rc, out, err = w.switch(jc, cwd=b["worktree"])
+        check("a job with no branch still gets one (a pull request of this login that can take it, as before)",
+              rc == 0 and w.job(jc).get("branch") == mine, out + err + repr(w.job(jc)))
+
+        w, ((ja, a), (jb, b)) = two_with_branches()
+        gh_says(merged_heads=[a["branch"]], open_prs=[{"number": 40, "headRefName": mine, "isDraft": False}])
+        rc, out, err = w.switch(ja, cwd=b["worktree"])
+        check("a recorded branch that a pull request landed is refused and said, not replaced by the open pull request's",
+              rc == 1 and "landed" in err and a["branch"] in err and w.job(ja)["branch"] == a["branch"] and w.job(ja)["state"] == "paused",
+              out + err + repr(w.job(ja)))
+        rc, out, err = w.switch(jb, cwd=b["worktree"])
+        check("…and another job switches as before (the positive control)", rc == 0 and w.job(jb)["branch"] == b["branch"], out + err)
+
+        w, ((ja, a), (jb, b)) = two_with_branches()
+        gitc(w.repo, "worktree", "remove", "--force", b["worktree"])
+        gitc(w.repo, "branch", "-q", "-D", b["branch"])
+        gitc(w.repo, "push", "-q", "origin", "--delete", b["branch"])
+        gitc(w.repo, "fetch", "-q", "--prune", "origin")
+        rc, out, err = w.switch(jb, cwd=a["worktree"])
+        check("a recorded branch on neither this clone nor origin is refused and said, not replaced",
+              rc == 1 and "neither this clone nor origin" in err and w.job(jb)["branch"] == b["branch"] and w.job(jb)["state"] == "paused",
+              out + err + repr(w.job(jb)))
+
+        for how in ("git worktree remove", "directory deleted"):
+            w, ((ja, a), (jb, b)) = two_with_branches()
+            if how == "git worktree remove":
+                gitc(w.repo, "worktree", "remove", "--force", b["worktree"])
+            else:
+                shutil.rmtree(b["worktree"])
+            rc, out, err = w.switch(jb, cwd=a["worktree"])
+            check(f"a worktree gone ({how}) is made again from the recorded branch, at the recorded place",
+                  rc == 0 and w.job(jb)["branch"] == b["branch"] and w.job(jb)["worktree"] == b["worktree"]
+                  and os.path.isdir(b["worktree"]) and subprocess.run(["git", "-C", b["worktree"], "rev-parse", "--abbrev-ref", "HEAD"],
+                                                                      capture_output=True, text=True).stdout.strip() == b["branch"],
+                  out + err + repr(w.job(jb)))
+
         print("…an open pull request of this login, when it is still addable")
         w = World()
         subprocess.run(["git", "-C", w.repo, "checkout", "-q", "-b", mine], check=True, env=git_env())
