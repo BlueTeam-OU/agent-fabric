@@ -42,8 +42,14 @@ class Fleet:
             return 0, f"{l}:x:{1000 + self.logins.index(l)}:100::/home/{l}:/bin/bash\n", ""
         login = argv[3]
         if argv[4] != "env":
-            assert argv == ["sudo", "-n", "-u", login, "/usr/local/bin/fabric-python",
-                            f"/home/{login}/projects/agent-fabric/tools/fabric/control/harness_pane.py", "mark-resume"], argv
+            pane = f"/home/{login}/projects/agent-fabric/tools/fabric/control/harness_pane.py"
+            assert argv[:6] == ["sudo", "-n", "-u", login, "/usr/local/bin/fabric-python", pane] and len(argv) == 7, argv
+            if argv[6] == "drop-resume":
+                if self.broken.get(login) == "drop":
+                    return 1, "", "harness_pane: cannot remove x: Operation not permitted\n"
+                self.marked.discard(login)
+                return 0, "no resume marker\n", ""
+            assert argv[6] == "mark-resume", argv
             if self.broken.get(login) == "mark":
                 return 1, "", "harness_pane: cannot write x: Permission denied\n"
             self.marked.add(login)
@@ -164,8 +170,10 @@ class Restart(unittest.TestCase):
         rows = self.run_all(fleet, ["a", "b", "c"])
         self.assertEqual([r["state"] for r in rows], ["restarted", "failed", "not-run"])
         self.assertIn("b failed before it", rows[2]["detail"])
-        self.assertEqual((fleet.verbs("c"), fleet.marked), ([], {"a", "b"}))
+        # a completed restart leaves its marker to the pane step; the failed one's is removed, so no later start resumes
+        self.assertEqual((fleet.verbs("c"), fleet.marked), ([], {"a"}))
         self.assertIn("the unit is stopped, not started", rows[1]["detail"])
+        self.assertIn("the resume marker is removed", rows[1]["detail"])
 
     def test_a_refusal_does_not_stop_all_it_left_its_account_as_it_was(self):
         fleet = Fleet(["a", "b"])
@@ -184,7 +192,33 @@ class Restart(unittest.TestCase):
         fleet = Fleet(["a"], broken={"a": "stop"})
         rows = self.run_all(fleet, ["a"])
         self.assertEqual(rows[0]["state"], "failed")
-        self.assertIn("resume marker is written, the unit was not stopped", rows[0]["detail"])
+        self.assertIn("the unit may not have stopped", rows[0]["detail"])
+        self.assertIn("the resume marker is removed", rows[0]["detail"])
+        self.assertEqual(fleet.marked, set())
+
+    def test_every_failure_after_the_marker_removes_it_and_says_when_it_cannot(self):
+        for step, fleet_kw in (("stop", {"broken": {"a": "stop"}}), ("start", {"broken": {"a": "start"}}), ("pid", {"same_pid": ["a"]})):
+            fleet = Fleet(["a"], **fleet_kw)
+            rows = self.run_all(fleet, ["a"])
+            self.assertEqual((rows[0]["state"], fleet.marked), ("failed", set()), step)
+        gone = {"a": lambda clock: {"status": "ok", "online": False, "sessions": 0, "since": None}}
+        fleet = Fleet(["a"])
+        self.assertEqual((self.run_all(fleet, ["a"], presence=gone)[0]["state"], fleet.marked), ("failed", set()))
+        stuck = Fleet(["a"], broken={"a": "stop"})
+        orig = stuck.__call__
+
+        def no_drop(host, argv, timeout):
+            if argv[-1] == "drop-resume":
+                return 1, "", "harness_pane: cannot remove x: Operation not permitted\n"
+            return orig(host, argv, timeout)
+        rows = hr.run_all([{"login": "a", "host": "h"}], run=no_drop, me=None, timeout=5, states_of=lambda l: {"state": "idle"},
+                          presence_of=lambda l: {}, sleep=self.clock.sleep, now=self.clock.now)
+        self.assertIn("the resume marker could not be removed (exit 1: harness_pane: cannot remove x", rows[0]["detail"])
+
+    def test_a_failure_before_the_marker_runs_no_drop(self):
+        fleet = Fleet(["a"], broken={"a": "mark"})
+        self.run_all(fleet, ["a"])
+        self.assertFalse([c for c in fleet.calls if c[-1] == "drop-resume"])
 
     def test_a_server_with_the_old_pid_is_not_a_new_server(self):
         fleet = Fleet(["a"], same_pid=["a"])
@@ -308,7 +342,7 @@ class Verb(unittest.TestCase):
         self.assertEqual([r["op"] for r in sent], ["presence"])
         self.assertEqual(fleet.verbs("a"), ["stop", "start"])
 
-    def test_the_default_timeout_is_the_units_and_json_rows_have_three_keys(self):
+    def test_the_default_timeout_is_the_units(self):
         self.assertEqual(ctl.parse_args(["a", "harness-restart"])["timeout"], units.STEP_TIMEOUT_S)
 
 

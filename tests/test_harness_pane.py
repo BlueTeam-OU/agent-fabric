@@ -394,6 +394,49 @@ class Resume(unittest.TestCase):
         self.assertTrue(os.path.exists(target))
         self.assertIn("not a plain file", said)
 
+    def test_a_file_of_another_owner_is_removed_and_never_resumes(self):
+        self.mark()
+        s = FakeServer([{"workspace_id": "w7", "label": "harness"}])
+        with mock.patch.object(hp.os, "getuid", return_value=os.getuid() + 1):
+            said = ensure(s, self.home)
+        self.assertEqual(s.typed, [("w7:p1", self.line("--wait"))])
+        self.assertFalse(os.path.lexists(self.marker))
+        self.assertIn("not a plain file", said)
+
+    def test_a_marker_dated_in_the_future_is_removed_and_never_resumes(self):
+        self.mark(age=-(hp.RESUME_TTL_S + 60))
+        s = FakeServer([{"workspace_id": "w7", "label": "harness"}])
+        said = ensure(s, self.home)
+        self.assertEqual(s.typed, [("w7:p1", self.line("--wait"))])
+        self.assertFalse(os.path.lexists(self.marker))
+        self.assertIn("future", said)
+
+    def test_a_marker_entry_that_cannot_be_removed_or_read_still_types_wait_and_says_so(self):
+        os.makedirs(self.marker)
+        open(os.path.join(self.marker, "x"), "w").close()      # a non-empty directory: rmdir refuses
+        s = FakeServer([{"workspace_id": "w7", "label": "harness"}])
+        said = ensure(s, self.home)
+        self.assertEqual(s.typed, [("w7:p1", self.line("--wait"))])
+        self.assertIn("cannot remove", said)
+        __import__("shutil").rmtree(self.marker)
+        open(os.path.join(self.home, ".local", "state", "agent-fabric", "agents", "a", "harness-resume"), "w").close()
+        os.chmod(os.path.dirname(self.marker), 0)
+        self.addCleanup(os.chmod, os.path.dirname(self.marker), 0o700)
+        s = FakeServer([{"workspace_id": "w7", "label": "harness"}])
+        if os.getuid() != 0:                                   # root reads through a mode 0 directory
+            said = ensure(s, self.home)
+            self.assertEqual(s.typed, [("w7:p1", self.line("--wait"))])
+            self.assertIn("cannot read", said)
+
+    def test_main_drop_resume_removes_the_marker_and_is_quiet_when_there_is_none(self):
+        entry = pwd.struct_passwd(("a", "x", os.getuid(), os.getgid(), "", self.home, "/bin/sh"))
+        self.mark()
+        for _ in range(2):
+            out = io.StringIO()
+            with mock.patch.object(hp.pwd, "getpwuid", return_value=entry), redirect_stdout(out):
+                self.assertEqual(hp.main(["drop-resume"]), 0)
+            self.assertFalse(os.path.lexists(self.marker))
+
     def test_a_step_that_fails_keeps_the_marker_for_the_units_restart(self):
         self.mark()
         s = FakeServer([{"workspace_id": "w7", "label": "harness"}], typed_lost=True)

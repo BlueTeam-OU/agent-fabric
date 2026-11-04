@@ -6,6 +6,7 @@ in it.
 
     fabric-python harness_pane.py ensure
     fabric-python harness_pane.py mark-resume
+    fabric-python harness_pane.py drop-resume
 
 CONTRACT
   what      The server (`agent-fabric-fleetdeck --session harness`) holds one
@@ -44,7 +45,13 @@ CONTRACT
             unit's restart, which is why the marker has a lifetime. No marker,
             an old one, or anything that is not a plain file of the login's
             own: `--wait`, as at a boot, a crash restart or harness-start; an
-            old or foreign one is removed and said. The path is built from the
+            old or foreign one is removed and said. A marker entry that
+            cannot be read or removed is never fatal: the step types --wait
+            and says so, because a unit that cannot start is worse than a
+            pane that waits for an Enter. `drop-resume` removes the marker:
+            harness-restart runs it as the account when any step after the
+            write fails, so a restart that did not complete leaves no
+            resume behind for a later boot. The path is built from the
             passwd home, never $HOME or XDG_STATE_HOME: the writer runs
             under sudo and the reader under the user manager, and two
             environments must name one file.
@@ -223,7 +230,7 @@ def read_marker(login: str, home: str, wall: Callable[[], float]) -> tuple[bool,
     except FileNotFoundError:
         return False, ""
     except OSError as e:
-        raise Failed(f"cannot read {path}: {e.strerror or e}") from None
+        return False, f"cannot read the resume marker {path}: {e.strerror or e}; --wait"
     if not stat.S_ISREG(st.st_mode) or st.st_uid != os.getuid():
         why = "is not a plain file of this login's"
     elif wall() - st.st_mtime > RESUME_TTL_S:
@@ -232,7 +239,10 @@ def read_marker(login: str, home: str, wall: Callable[[], float]) -> tuple[bool,
         why = "is dated in the future"
     else:
         return True, ""
-    drop_marker(login, home)
+    try:
+        drop_marker(login, home)
+    except Failed as e:
+        return False, f"the resume marker {why}, {e}; --wait"
     return False, f"the resume marker {why}; removed, --wait"
 
 
@@ -316,8 +326,11 @@ def ensure(deck: Deck, login: str, home: str, clock: Callable[[], float] = time.
     resume, note = read_marker(login, home, wall)
     said = _ensure(deck, login, home, clock, sleep, "--resume" if resume else "--wait")
     if resume:
-        drop_marker(login, home)
-        said += " (the resume marker of harness-restart consumed)"
+        try:
+            drop_marker(login, home)
+            said += " (the resume marker of harness-restart consumed)"
+        except Failed as e:
+            note = f"{e}; it stays until its {RESUME_TTL_S} s are over"
     return said + (f"; {note}" if note else "")
 
 
@@ -363,13 +376,16 @@ def _ensure(deck: Deck, login: str, home: str, clock: Callable[[], float], sleep
 
 def main(argv: list[str] | None = None) -> int:
     args = sys.argv[1:] if argv is None else argv
-    if args not in (["ensure"], ["mark-resume"]):
-        print("usage: harness_pane.py ensure | mark-resume", file=sys.stderr)
+    if args not in (["ensure"], ["mark-resume"], ["drop-resume"]):
+        print("usage: harness_pane.py ensure | mark-resume | drop-resume", file=sys.stderr)
         return 2
     try:
         entry = pwd.getpwuid(os.getuid())
         if args == ["mark-resume"]:
             print(f"wrote {mark_resume(entry.pw_name, entry.pw_dir)}")
+        elif args == ["drop-resume"]:
+            drop_marker(entry.pw_name, entry.pw_dir)
+            print(f"no resume marker at {marker_path(entry.pw_name, entry.pw_dir)}")
         else:
             print(ensure(Deck(), entry.pw_name, entry.pw_dir))
     except Failed as e:

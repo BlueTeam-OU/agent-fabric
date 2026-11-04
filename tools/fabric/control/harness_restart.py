@@ -21,7 +21,9 @@ CONTRACT
     4  the marker is written BY THE ACCOUNT (`sudo -u <login> fabric-python
        <its checkout>/harness_pane.py mark-resume`): nothing of this verb ever
        writes into another login's home. It is written before the stop so that
-       a marker that cannot be written leaves the unit running
+       a marker that cannot be written leaves the unit running; a restart
+       that fails after it removes the marker again (`drop-resume`, the same
+       way), so only a completed restart leaves the pane step a resume
     5  stop, read back by is-active; start, read back by is-active and a new,
        non-zero MainPID
     6  presence (`fabric-ctl <login> presence`, the account's own agent): a
@@ -100,11 +102,26 @@ def write_marker(run: Run, host: str, login: str, home: str, timeout: float) -> 
         raise StepFailed(f"mark-resume exit {rc}: {units._say(err) or units._say(out) or 'no output'}")
 
 
+def drop_marker(run: Run, host: str, login: str, home: str, timeout: float) -> str:
+    """The marker removed again, as the account, after a restart that did not complete: what the next boot, crash restart or
+    harness-start would otherwise resume. Said in the row, never raised: the row already carries a failure."""
+    argv = ["sudo", "-n", "-u", login, PANE_STEP, f"{home}/{PANE_FILE}", "drop-resume"]
+    try:
+        rc, out, err = units._call(run, host, argv, timeout, "drop-resume")
+    except StepFailed as e:
+        return f"the resume marker could not be removed ({e}); it lapses in 10 minutes"
+    if rc != 0:
+        return f"the resume marker could not be removed (exit {rc}: {units._say(err) or units._say(out) or 'no output'}); it lapses in 10 minutes"
+    return "the resume marker is removed"
+
+
 def one(placed: dict, run: Run, timeout: float, *, states_of: Probe, presence_of: Probe,
         sleep: Callable[[float], None] = time.sleep, now: Callable[[], float] = time.time) -> dict:
     login, host = placed["login"], placed["host"]
     row = lambda state, detail="": {"login": login, "state": state, "detail": detail}  # noqa: E731
     done = "nothing was stopped"
+    home = None
+    marked = False
     try:
         if not units.LOGIN.fullmatch(login):
             raise StepFailed(f"{login!r} is not a login name")
@@ -119,7 +136,8 @@ def one(placed: dict, run: Run, timeout: float, *, states_of: Probe, presence_of
         pid_before = main_pid(run, host, login, uid, timeout)
         home = home_of(run, host, login, timeout)
         write_marker(run, host, login, home, timeout)
-        done = "the resume marker is written, the unit was not stopped"
+        marked = True
+        done = "the resume marker is written, the unit may not have stopped"
         began = now()
         units._act(run, host, login, uid, "stop", timeout, units.HARNESS_UNIT)
         after = units.is_active(run, host, login, uid, timeout, units.HARNESS_UNIT)
@@ -148,7 +166,8 @@ def one(placed: dict, run: Run, timeout: float, *, states_of: Probe, presence_of
                 raise StepFailed(f"no new session within {RESUME_WAIT_S} s ({last})")
             sleep(POLL_S)
     except StepFailed as e:
-        return row("failed", f"{e}; {done}")
+        after = drop_marker(run, host, login, home, timeout) if marked else ""
+        return row("failed", f"{e}; {done}" + (f"; {after}" if after else ""))
 
 
 def run_all(expected: list[dict], *, run: Run, me: str | None, include_self: bool = False, timeout: float = units.STEP_TIMEOUT_S,
