@@ -1858,6 +1858,12 @@ echo "CLAUDE-ENDED:$(date +%s.%N)"
                   rc == 1 and "speaks runtime contract 2" in out and "CLAUDE-EXECCED" not in out
                   and has(r"^launch: RESTART NOT COMPLETED: the session that finished its job was not brought back fresh", out)
                   and "run fabric-fresh --job j1, which brings job j1 fresh" in out, f"rc={rc}\n{out}")
+            # A launcher from before the job rode the flag hands this one a bare "fresh" and the job beside it (#485 F1).
+            rm(gw_log)
+            rc, out = run("--provider", "gateway", plant={**relaunch, "AGENT_FABRIC_RESTARTING": "fresh", "FAKE_GW_MODE": "contract2"})
+            check("…an older launcher's bare fresh flag: the refusal after the opening prompt still names the job",
+                  rc == 1 and "speaks runtime contract 2" in out
+                  and "run fabric-fresh --job j1, which brings job j1 fresh" in out, f"rc={rc}\n{out}")
             rm(gw_log)
             rc, out = run("--provider", "gateway", plant=relaunch)
             check("…the control: the same relaunch the gateway accepts had the job in its opening prompt",

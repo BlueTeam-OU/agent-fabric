@@ -573,6 +573,12 @@ def restart(state_dir: str, started: int, opening: bool, status: int, orig_args:
 def launch(argv: list[str]) -> int:
     orig_args = list(argv)   # for the re-exec after a pull, below
     started = int(time.time())   # a restart marker older than this is not this session's
+    # A launcher from before the job rode the flag restarts into this one after
+    # a pull with a bare "fresh" and the job beside it; carried onto the flag
+    # here, before opening_prompt drops AGENT_FABRIC_FRESH_JOB, so a refusal
+    # after it still names the job (#485 F1).
+    if os.environ.get(RESTARTING) == "fresh" and os.environ.get("AGENT_FABRIC_FRESH_JOB"):
+        os.environ[RESTARTING] = f"fresh:{os.environ['AGENT_FABRIC_FRESH_JOB']}"
     print_only, provider, args = parse_argv(argv)
     if provider not in ("openrouter", "anthropic", "gateway"):
         say(f"launch: --provider must be openrouter, anthropic or gateway, not '{provider}'")
@@ -926,9 +932,9 @@ def main(argv: list[str]) -> int:
         say(f"launch: {exc}")
         stopped = os.environ.get(RESTARTING, "")
         if stopped == "fresh" or stopped.startswith("fresh:"):
-            # A bare "fresh" is a launcher from before the job rode the flag,
-            # restarting into this one after a pull.
-            job = stopped.partition(":")[2] or os.environ.get("AGENT_FABRIC_FRESH_JOB", "")
+            # A bare "fresh" is an older launcher's with no job beside it;
+            # launch() has carried any job onto the flag.
+            job = stopped.partition(":")[2]
             then = (f"start a new session here and run fabric-fresh --job {job}, which brings job {job} fresh"
                     if job else "start a new session here")
             say("launch: RESTART NOT COMPLETED: the session that finished its job was not brought back fresh; the "
