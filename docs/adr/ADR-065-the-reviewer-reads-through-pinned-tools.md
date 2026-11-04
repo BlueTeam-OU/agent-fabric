@@ -124,7 +124,12 @@ read back before this was decided (§1).
   review. `card_base` and `previous_findings` are then derived, not
   typed: a typed `card_base` that disagrees is refused, and so is any
   typed `previous_findings`, since the previous report is that review's
-  posted body.
+  posted body. For a report `post-review` moved to a PR comment (one
+  over the 65000 characters a review holds) that body is the marker,
+  the partial line, the report's `Finding:` and `Judgement:` lines, the
+  block and the comment's link: the re-review answers each finding by
+  its line and the tree, and its brief does not fetch the comment
+  (A 2026-11-04).
 - *Posting is the dispatcher's.* The reviewer returns its report; the
   session posts it. The post-review admission in the guard goes, since the
   reviewer has no shell to post with.
@@ -205,8 +210,10 @@ means a full review.
    the last `v2` marker on the PR that `post-review` posted, whose `head`
    is an ancestor of the current head and whose `config` matches;
    otherwise the review is a full one. A typed `card_base` that disagrees
-   is refused; the previous findings are that review's posted body, and a
-   typed `previous_findings` on a PR's re-review is refused. A PR's full
+   is refused; the previous findings are that review's posted body (for a
+   report moved to a comment, its `Finding:` and `Judgement:` lines, never
+   the comment), and a typed `previous_findings` on a PR's re-review is
+   refused. A PR's full
    review starts a chain of its own, so its brief carries every finding
    an earlier chain of the PR left open (the reading `fabric-pr arm`'s
    gate 4c refuses on), except one raised on the head under review, for
@@ -280,3 +287,4 @@ The body above reads current; each change's full note is in [history/ADR-065-ame
 |---|---|---|
 | 2026-10-31 | A full review carries the findings earlier chains left open | §5 rule 5: a PR's full-review brief lists the open findings of the PR's earlier review chains to judge by label, and numbers its own past every used label |
 | 2026-11-01 | A coverage block may carry a default entry | §2 C, §5 rule 4: an optional top-level `default` stands for every range path the block does not name; a `not read` default makes the review partial |
+| 2026-11-04 | A moved report's re-review reads its machine lines | §2 C, §5 rule 5: for a report moved to a PR comment, the previous findings are the posted body's `Finding:`/`Judgement:` lines; the brief does not fetch the comment |

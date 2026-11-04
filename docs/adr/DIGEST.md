@@ -1463,17 +1463,18 @@ its record disagree, the record wins. Look it up, never read it whole:
   filesystem, fresh `/tmp`, no network, proved by a start probe and a
   refused write per review; unproved, nothing runs (§2 B, §5 rule 3).
 - A posted review carries a `v2` marker (base, head, card, config hash) and a
-  coverage block naming every path of the range; a path `not read`
-  uncounts it, and a re-review's base is derived from the last marker,
-  fail-closed (§2 C, §5 rules 4–5).
-- The session posts the report; `review-bash-guard` stays only for other
+  coverage block naming every range path; a path `not read` uncounts
+  it; a re-review's base is derived from the last marker, fail-closed (§2 C,
+  §5 rules 4–5).
+- The session posts the report; `review-bash-guard` stays for other
   unisolated classes (§5 rules 6–7).
-- A 2026-10-31 — a PR's full review is handed earlier chains' open
-  findings to judge, and numbers past their labels (§5 rule 5).
-- A 2026-11-01 — a coverage block may carry a `default` entry for every
-  range path it does not name; a `not read` default makes the review
-  partial (§2 C, §5 rule 4).
+- A 2026-10-31 — a full review judges earlier chains' open findings and
+  numbers past their labels (§5 rule 5).
+- A 2026-11-01 — a coverage block's `default` entry stands for every
+  unnamed range path; `not read` makes it partial (§2 C, §5 rule 4).
+- A 2026-11-04 — a moved report's re-review reads the posted body's
+  `Finding:`/`Judgement:` lines, never the comment (§2 C, §5 rule 5).
 - Keywords: review class, reviewer, Bash guard, pinned tools, MCP,
   read-only, bubblewrap, sandbox, checks, coverage manifest, checkpoint
-  marker, coverage default, re-review, card_base, open findings,
-  open-code-review, P3.
+  marker, coverage default, moved report, re-review, card_base, open
+  findings, open-code-review, P3.
