@@ -606,6 +606,14 @@ GENERIC_FILES = ("policies/*/SKILL.md",)
 FABRIC_SELF = ("gzapi-org/agent-fabric", "BlueTeam-OU/agent-fabric")
 
 
+# The carrier's pin and roster, fenced in lint.py's CONTRIBUTOR_NEVER: every
+# account installs what they name. Spelled out here, in a file lint fences,
+# rather than built from the carrier package's CARRIER_NAME, which sits in a
+# contributor's entry and would move the fence with it. Exempt from the
+# project-name rule as exactly these strings, as FABRIC_SELF is.
+CARRIER_FENCE = ("runtime/interweave/roster.json", "runtime/interweave/release.json")
+
+
 # A skill carries rules, not the occasion that produced them (ADR-016 §5):
 # no dates, no pull-request numbers, no one account's login — the reader
 # cannot check them and they read as stale the week after. Its description
@@ -703,7 +711,7 @@ def project_name_findings(root: str) -> list[str]:
             with open(full, encoding="utf-8") as fh:
                 for n, line in enumerate(fh, 1):
                     probe = line
-                    for exempt in FABRIC_SELF:
+                    for exempt in FABRIC_SELF + CARRIER_FENCE:
                         probe = probe.replace(exempt, "")
                     for pat in pats:
                         m = pat.search(probe)

@@ -75,6 +75,9 @@ where this plan and that note differ, the note is right.
    count as one), the original launch's `--model`, `--fallback-model` and
    `--effort` are dropped, said in one line, so model, effort and shim are
    the new provider's (j417: a broker `--model` once reached plain claude).
+   Within one provider a replayed `--model` or `--fallback-model` that
+   provider cannot run is dropped too, said in one line; a valid one stays
+   (j179).
    The launcher refuses a session model its provider cannot serve, and a
    relaunch refused after a restart ends with a `launch: RESTART NOT
    COMPLETED: …` line, so the pane says why it is at a shell.
