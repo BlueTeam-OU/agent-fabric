@@ -261,6 +261,11 @@ class CtlStatus(unittest.TestCase):
         for quiet in ({"on_old_sign_in": 0}, {"claude_processes": 1}, {"on_old_sign_in": True}):
             self.assertNotIn("OLD ACCOUNT", self.line(session=quiet))
 
+    def test_a_server_older_than_its_binary_is_named_with_the_remedy_and_zero_or_unknown_is_silent(self):
+        self.assertTrue(self.line(session={"harness_server_replaced": 1}).endswith("  HARNESS SERVER OLDER THAN ITS BINARY (fabric-ctl a harness-restart)"))
+        for quiet in ({"harness_server_replaced": 0}, {"claude_processes": 1}, {"harness_server_replaced": True}):
+            self.assertNotIn("HARNESS SERVER", self.line(session=quiet))
+
     def test_drift_is_named_with_both_versions(self):
         line = self.line(harness={"status": "ok", "installed": "2.1.288", "pinned": "2.1.286", "drift": True})
         self.assertTrue(line.endswith("  claude 2.1.288 DRIFT (pin 2.1.286)"), line)
