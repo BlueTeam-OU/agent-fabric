@@ -2,7 +2,7 @@
 A part of tools/fabric/assemble.py, whose docstring is the contract.
 
 Nothing else in the drain looks at a `[[link]]` or a `*References:*` topic, so a link to a memory that was never drained, into
-another project's corpus or to a misspelled name shipped silently (blueteam.ee #16 F3; InterWeave #529 round 1 F2). This reports,
+another project's corpus or to a misspelled name shipped silently (two project reviews, j112). This reports,
 never rewrites: the author or the owner decides what a dead link should have been.
 
 A name resolves by a slice's file name, as targets.written_stem builds it, or by its `topic:`; a shared slice is also known without its class prefix.
