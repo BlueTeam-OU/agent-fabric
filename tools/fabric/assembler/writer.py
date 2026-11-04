@@ -10,7 +10,7 @@ from collections import defaultdict
 from typing import Callable, Any
 from corrections import section_key
 from assembler.core import layout, TIER1, CHARS_PER_TOKEN, CLASS_FILES, origin_key, render_frontmatter, hygiene_check, hygiene_substitute, patterns_for, DESCRIPTION_MAX, Run, base_for, in_report
-from assembler.slices import retire_in_siblings, remove_sections, restamp, read_existing_slice, OBSERVED_RE, undated, claim_heading, absorbed, claim_block, is_retire
+from assembler.slices import retire_in_siblings, sibling_parts, remove_sections, restamp, read_existing_slice, OBSERVED_RE, undated, claim_heading, absorbed, claim_block, is_retire
 from assembler.shapes import report_home
 from assembler.targets import existing_sections, is_budget_part, slice_candidates, is_carried
 
@@ -83,6 +83,19 @@ def write_slice(
     order: list[str] = list(previous_sections)
     elsewhere_text: dict[str, str] = {}      # the text of a section retire_elsewhere removed from another part (rule 10)
 
+    def held_in_sibling(heading: str, rendered: str) -> bool:
+        """Whether another part of this topic already holds `heading` with this very text. A second pass groups the claims
+        afresh (a replayed memory drops out, the budget groups shift), so a claim the first pass wrote into one part came to
+        be written into another as well, and its text stood twice in the topic."""
+        owner = None if role == "shared" else role
+        stem = None if topic is None else (f"{klass}-{topic}" if owner is None else topic)
+        is_part = None if topic is None else (lambda p: is_budget_part(run, owner, klass, p, topic))
+        for sibling in sibling_parts(directory, filename, stem, is_part):
+            text = read_existing_slice(sibling)[1].get(heading)
+            if text is not None and undated(text) == undated(rendered):
+                return True
+        return False
+
     def retire_elsewhere(target: str) -> bool:
         """THE SECTION LIVES IN ANOTHER PART of this topic (a slice
         split by budget): the owner's supersede retires it there and
@@ -125,6 +138,7 @@ def write_slice(
         return bool(touched)
 
     retired_here = False
+    already_elsewhere: list[dict[str, Any]] = []
     for claim in claims:
         if is_retire(claim):
             # A claim with a merge_target and no body retires that section and renders nothing: the section
@@ -223,6 +237,9 @@ def write_slice(
                                               "key": section_key(replaced_text)})
         base_heading = heading
         rendered = claim_block(claim).split("\n", 1)[1].strip()
+        if not authorised and heading not in blocks and held_in_sibling(heading, rendered):
+            already_elsewhere.append(claim)    # its provenance belongs to the part that holds it
+            continue
         if not authorised and heading in blocks and undated(blocks[heading]) != undated(rendered):
             # A heading that already holds DIFFERENT text is a second
             # claim, not this one again. Overwriting on a bare title match
@@ -271,6 +288,11 @@ def write_slice(
             run.section_writers[f"{in_report(run, path)}#{heading}"] = {
                 "agent": origin["agent"], **({"host": origin["host"]} if origin.get("host") else {}),
                 **({"observed": claim["observed_at"]} if claim.get("observed_at") else {})}
+
+    if already_elsewhere:
+        kept = [c for c in claims if not any(c is e for e in already_elsewhere)]
+        evidence = sorted({h for c in kept for h in c.get("evidence", [])})
+        origin_set = {origin_key(run.origins.get(h) or {"agent": "unresolved", "host": "unknown"}) for h in evidence}
 
     if not blocks and retired_here:
         # Every section of the file was retired: the file goes, and its callers list nothing for it.
