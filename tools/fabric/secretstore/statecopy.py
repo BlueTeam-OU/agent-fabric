@@ -51,7 +51,7 @@ import stat
 import tarfile
 import tempfile
 
-from .core import StoreError, login, own_agent_id, store_dir, gpg
+from .core import check_confined, write_confined, StoreError, login, own_agent_id, store_dir, gpg
 from .keys import key_of_store, _key_file_fingerprint
 from .trust import _commit
 from .entries import _require_clean, _before_write, _push_if_ahead, _after_commit
@@ -236,12 +236,12 @@ def state_copy(state_dir: str, claude_dir: str) -> dict:
         if same:
             _push_if_ahead(store)
             return {"path": path, "changed": False, "files": len(files), "skipped": skipped}
-        os.makedirs(os.path.dirname(path), mode=0o700, exist_ok=True)
-        gpg("--trust-model", "always", "--no-encrypt-to", "--encrypt", "--recipient", mine, *rargs,
-            "--output", path + ".tmp", stdin=tar)
-        os.replace(path + ".tmp", path)
-        with open(meta, "w", encoding="utf-8") as fh:
-            fh.write(meta_line)
+        for rel in (f"state/{aid}.tar.gpg", f"state/{aid}.meta"):
+            check_confined(store, rel)   # both before either: a refusal on the second must not follow a replaced first
+        sealed = gpg("--trust-model", "always", "--no-encrypt-to", "--encrypt", "--recipient", mine, *rargs,
+                     stdin=tar).stdout
+        write_confined(store, f"state/{aid}.tar.gpg", sealed)
+        write_confined(store, f"state/{aid}.meta", meta_line.encode("utf-8"), 0o644)
         git(store, "add", os.path.relpath(path, store), os.path.relpath(meta, store))
         _commit(store, f"agent {login()}: working-state backup, {len(files)} file(s)")
         _after_commit(store)

@@ -4,7 +4,10 @@ from __future__ import annotations
 
 import os
 import pwd
+import contextlib
+import errno
 import re
+import stat
 import subprocess
 
 import roots  # noqa: E402
@@ -157,3 +160,74 @@ def gpg(*args: str, stdin: bytes | None = None, homedir: str | None = None, chec
 
 def git(store: str, *args: str, check: bool = True):
     return _run(["git", "-C", store, *args], check=check, label=f"git {args[0] if args else ''}")
+
+
+def write_confined(store: str, rel: str, data: bytes, mode: int = 0o600) -> str:
+    """`data` into <store>/<rel>, whole or not at all, and never through a
+    link: every directory on the way is opened O_NOFOLLOW from its parent
+    (made 0700 when absent) and the file is created and renamed relative to
+    that descriptor, so a path swapped for a link after a check, or a link
+    that a fetched tree carried in, cannot carry the write out of the
+    store. An existing target that is not a regular file is refused."""
+    *dirs, name = rel.split("/")
+    if not name or name in (".", "..") or any(d in ("", ".", "..") for d in dirs):
+        raise StoreError(f"{rel!r} is not a path inside the store")
+    flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC
+    held = [os.open(store, os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC)]
+    try:
+        for part in dirs:
+            try:
+                os.mkdir(part, 0o700, dir_fd=held[-1])
+            except FileExistsError:
+                pass
+            try:
+                held.append(os.open(part, flags, dir_fd=held[-1]))
+            except OSError as e:
+                if e.errno in (errno.ELOOP, errno.ENOTDIR):
+                    raise StoreError(f"{part} in {os.path.join(store, rel)} is a link or not a directory; nothing written") from None
+                raise
+        parent = held[-1]
+        tmp = f".{name}.tmp"
+        try:
+            old = os.stat(name, dir_fd=parent, follow_symlinks=False)
+        except FileNotFoundError:
+            old = None
+        if old is not None and not stat.S_ISREG(old.st_mode):
+            raise StoreError(f"{os.path.join(store, rel)} is a link or not a regular file; nothing written")
+        with contextlib.suppress(FileNotFoundError):
+            os.unlink(tmp, dir_fd=parent)
+        fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC, mode, dir_fd=parent)
+        try:
+            with os.fdopen(fd, "wb") as fh:
+                fh.write(data)
+            os.rename(tmp, name, src_dir_fd=parent, dst_dir_fd=parent)
+        except BaseException:
+            with contextlib.suppress(FileNotFoundError):
+                os.unlink(tmp, dir_fd=parent)
+            raise
+    finally:
+        for fd in held:
+            os.close(fd)
+    return os.path.join(store, rel)
+
+
+def check_confined(store: str, rel: str) -> None:
+    """What write_confined would refuse about <store>/<rel>, asked without
+    writing, so a caller that writes two files learns of a refusal before
+    it has replaced the first."""
+    *dirs, name = rel.split("/")
+    here = store
+    for part in dirs:
+        here = os.path.join(here, part)
+        try:
+            st = os.lstat(here)
+        except FileNotFoundError:
+            return
+        if not stat.S_ISDIR(st.st_mode):
+            raise StoreError(f"{part} in {os.path.join(store, rel)} is a link or not a directory; nothing written")
+    try:
+        st = os.lstat(os.path.join(here, name))
+    except FileNotFoundError:
+        return
+    if not stat.S_ISREG(st.st_mode):
+        raise StoreError(f"{os.path.join(store, rel)} is a link or not a regular file; nothing written")
