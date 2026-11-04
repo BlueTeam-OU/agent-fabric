@@ -55,6 +55,28 @@ def main() -> int:
         check("a synced secret: a secrets.env name that is not plain, or a harness credential",
               {"OPENAI_API_KEY", "CLAUDE_BRIDGE_AUTH_TOKEN", "GH_TOKEN"} <= s and "DEMO_PORT_OFFSET" not in s, sorted(s))
 
+        # A value that is not UTF-8 must cost neither its own name nor any other; the positive control is the
+        # same file read as text, which raises.
+        with open(os.path.join(home, ".config", "agent-fabric", "secrets.env"), "ab") as fh:
+            fh.write(b"export LATIN_KEY='caf\xe9'\nexport AFTER_KEY=1\n")
+        try:
+            open(os.path.join(home, ".config", "agent-fabric", "secrets.env"), encoding="utf-8").read()
+            check("control: the planted byte is not UTF-8", False)
+        except UnicodeDecodeError:
+            check("control: the planted byte is not UTF-8", True)
+        s = ls.secret_names(home)
+        check("a non-UTF-8 byte in secrets.env: report's names keep the line's own and the later ones",
+              {"LATIN_KEY", "AFTER_KEY", "OPENAI_API_KEY"} <= s, sorted(s))
+
+        put("latin", {"env": {"LATIN_KEY": VALUE, "AFTER_KEY": VALUE, "MY_FLAG": "1"}})
+        rl = ls.report(home)["files"][0]
+        check("…report names the secrets on both sides of the bad line", rl["secrets"] == ["AFTER_KEY", "LATIN_KEY"], rl)
+        pl = ls.prune(home)["files"][0]
+        check("…prune removes them and keeps the rest", pl["status"] == "pruned" and pl["removed"] == ["AFTER_KEY", "LATIN_KEY"], pl)
+        os.unlink(os.path.join(home, "projects", "latin", ".claude", "settings.local.json"))
+        os.rmdir(os.path.join(home, "projects", "latin", ".claude"))
+        os.rmdir(os.path.join(home, "projects", "latin"))
+
         put("alpha", {"env": {"CLAUDE_BRIDGE_AUTH_TOKEN": VALUE, "DEMO_PORT_OFFSET": "640", "MY_FLAG": "1"},
                       "permissions": {"allow": ["Bash(ls)", "Read"], "deny": ["Bash(rm)"]}, "enableAllProjectMcpServers": True})
         put("beta", {})

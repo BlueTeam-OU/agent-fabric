@@ -36,18 +36,21 @@ import re
 import stat
 import sys
 
+# The one credential tuple: runtime/claude-code/hooks/session-seal.py holds a copy until it is pointed here.
 HARNESS_CREDENTIALS = ("CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN",
                        "OPENROUTER_API_KEY", "GH_TOKEN", "CLAUDE_BRIDGE_AUTH_TOKEN")
-EXPORT_NAME = re.compile(r"^export ([A-Za-z_][A-Za-z0-9_]*)=")
+EXPORT_NAME = re.compile(rb"^export ([A-Za-z_][A-Za-z0-9_]*)=")
 SETTINGS = os.path.join(".claude", "settings.local.json")
 ROOT_LABEL = "(projects root)"
 USAGE = "usage: local_settings.py report|prune [--home H]"
 
 
 def exported_names(path: str) -> list[str]:
+    """Copy of session-seal.py's synced_names: bytes, never decoded, so a value that is not UTF-8 costs
+    neither its own name nor any other (review of #464, rounds 2 and 3)."""
     try:
-        with open(path, encoding="utf-8") as fh:
-            return [m.group(1) for m in map(EXPORT_NAME.match, fh) if m]
+        with open(path, "rb") as fh:
+            return [m.group(1).decode("ascii") for m in map(EXPORT_NAME.match, fh) if m]
     except OSError:
         return []
 
