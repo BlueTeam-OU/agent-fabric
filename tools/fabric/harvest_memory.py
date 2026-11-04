@@ -534,10 +534,10 @@ def main() -> int:
     pointing = {"own": corrections_mod.names_in(stems, (role, None)), "shared": corrections_mod.names_in(stems, (None,))}
 
     def keys_of(body: str, shared_with: list[str]) -> list[str]:
-        # A memory with co-owners is routed to a shared slice, where the assembler points with the shared names only.
+        # A memory with a co-owner other than this role is routed to a shared slice, where the assembler points with the shared names only.
         written = corrections_mod.memory_key(body)
         as_rendered = corrections_mod.memory_key(
-            corrections_mod.point_text(body, pointing["shared" if shared_with else "own"]))
+            corrections_mod.point_text(body, pointing["shared" if set(shared_with) - {role} else "own"]))
         return [written] if as_rendered == written else [written, as_rendered]
     applied_skipped: list[str] = []
     superseded_originals: list[str] = []

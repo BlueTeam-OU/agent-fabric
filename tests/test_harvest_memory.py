@@ -461,6 +461,8 @@ def test_a_memory_is_recognised_by_its_body_as_written_or_as_the_assembler_point
         ("applied-early", "Early: see [[mover]] now.", "H-early"),
         # routed to a shared slice (co-owners), where only shared names are pointed: this role's move is not applied
         ("shared-owned", "New: see [[mover]] now.", "H-shared"),
+        # a shared_with naming only this role stays in its own slice (the assembler discards the role from the owners)
+        ("self-owned", "New: see [[mover]] now.", "H-shared"),
         # the same words aimed at another heading are another correction
         ("applied-elsewhere", "New: see [[mover]] now.", "H-other"),
         # differing from the applied text only in a link target: another text, filed
@@ -477,13 +479,14 @@ def test_a_memory_is_recognised_by_its_body_as_written_or_as_the_assembler_point
         write_memory(mem, name, "project", body=body, roles_class="solution")
         if target:
             path = os.path.join(mem, f"{name}.md")
-            extra = "\n  shared_with: web-dev" if name == "shared-owned" else ""
+            extra = {"shared-owned": "\n  shared_with: web-dev", "self-owned": "\n  shared_with: architect-cto"}.get(name, "")
             text = open(path, encoding="utf-8").read().replace("roles_class: solution", f"roles_class: solution\n  merge_target: {target}{extra}")
             with open(path, "w", encoding="utf-8") as fh:
                 fh.write(text)
     r = run(mem, out, "--working-copy", wc, "--project", "demo", "--host", "hostA")
     assert r.returncode == 0, r.stderr
     assert "applied correction: applied.md: already applied" in r.stderr, r.stderr
+    assert "applied correction: self-owned.md: already applied" in r.stderr, r.stderr
     assert "applied correction: applied-early.md: already applied" in r.stderr, r.stderr
     assert "superseded: orig.md" in r.stderr and "'fix-orig'" in r.stderr and "orig-unmoved.md" not in r.stderr, r.stderr
     got = sorted(c["topic"] for c in claims_of(out))
