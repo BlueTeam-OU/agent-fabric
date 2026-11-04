@@ -24,3 +24,10 @@ REGISTRY_ID_MAX = 63
 # trailing hyphen of the whole id that the last segment's `[a-z0-9-]*` would
 # otherwise allow; an inner segment's trailing hyphen is not checked.
 REGISTRY_ID = re.compile(r"(?!.{%d})[a-z0-9][a-z0-9-]*(?:\.[a-z0-9][a-z0-9-]*)*(?<!-)" % (REGISTRY_ID_MAX + 1), re.ASCII)
+
+# What a refusal says about REGISTRY_ID, so a sender refused for "A.b" is not told
+# that dots are not allowed. Written beside the pattern: change one, read the other.
+REGISTRY_ID_DESCRIPTION = (
+    "dot-joined segments of lowercase letters, digits and dashes, each starting with a letter or digit, "
+    "at most %d characters" % REGISTRY_ID_MAX
+)
