@@ -387,7 +387,7 @@ def resolve_range(req: dict) -> tuple[dict | None, list[str]]:
         # Gate 4c of fabric-pr arm (github/arm_findings.py) lets a review judge
         # the findings raised on its own head only when its base is that head,
         # so an adjudication of base..H rendered, was posted and closed nothing
-        # (blueteam.ee #16, j558). Refused, not derived: the brief prints the
+        # (a client project's PR, 2026-11-02; j558). Refused, not derived: the brief prints the
         # range as typed, and the marker the post writes carries it.
         return None, [f"range: a finding-adjudication judges the findings raised on its head, and fabric-pr arm counts "
                       f"its judgements only from a review of head..head; the range is {head}..{head}, with card_base "
