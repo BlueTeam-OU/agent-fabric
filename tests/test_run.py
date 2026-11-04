@@ -118,6 +118,25 @@ def ours(needle: bytes) -> list[int]:
     return found
 
 
+def ended(pid: int) -> bool:
+    """`pid` has exited or is a zombie. One read, never an exists() then an open(): the process can be reaped between
+    the two (FileNotFoundError, seen under load on 2026-11-04)."""
+    try:
+        with open(f"/proc/{pid}/stat", "rb") as fh:
+            return fh.read().rsplit(b")", 1)[1].split()[0] == b"Z"
+    except OSError:
+        return True
+
+
+def cmdline(pid: int) -> str:
+    """`pid`'s command line, or "" for a process already gone (the same race as ended())."""
+    try:
+        with open(f"/proc/{pid}/cmdline") as fh:
+            return fh.read()
+    except OSError:
+        return ""
+
+
 def run(base: str, *args: str, **extra: str) -> subprocess.CompletedProcess:
     return subprocess.run([sys.executable, os.path.join(base, "tests", "run.py"), *args], cwd=base, env=env(base, **extra),
                           capture_output=True, text=True, timeout=120, stdin=subprocess.DEVNULL)
@@ -381,8 +400,7 @@ def main() -> int:
                 results.append((wait_until(hung, lambda: False, "its suites started", timeout=1.0, own_group=new_session), list(seen), hung.poll()))
                 seen[:] = []
                 # Not "alive": a killed child stays a zombie until its parent is reaped.
-                dead = poll_until(lambda: not os.path.exists(f"/proc/{child}")
-                                  or open(f"/proc/{child}/stat").read().rsplit(")", 1)[1].split()[0] == "Z", 10.0)
+                dead = poll_until(lambda: ended(child), 10.0)
                 results[-1] += (dead if new_session else True,)
                 if not new_session:
                     os.kill(child, signal.SIGKILL)     # the shell was only asked to stop; its child holds this file's stdout
@@ -431,7 +449,7 @@ def main() -> int:
             want = 128 + int(sig)
             check(f"{name}: the run made its directory, then exits {want} within the bound", made and rc == want, (made, rc))
             check(f"{name}: the directory is gone and the suite's grandchild is ended", not runs_left(base)
-                  and (gc == 0 or not os.path.exists(f"/proc/{gc}") or open(f"/proc/{gc}/stat").read().rsplit(")", 1)[1].split()[0] == "Z"),
+                  and (gc == 0 or ended(gc)),
                   (runs_left(base), gc))
         # More suites than slots: the runner starts the next one the moment a slot frees, and a stop frees them all. The
         # runner prints a suite's output when the suite ends, so a stop that kills it instead of asking loses what the
@@ -503,7 +521,7 @@ def main() -> int:
             def children(pid: int) -> list[int]:
                 r = subprocess.run(["pgrep", "-P", str(pid)], capture_output=True, text=True)
                 return [int(x) for x in r.stdout.split()]
-            runner = next((c for c in children(p.pid) if "run_python_suites" in open(f"/proc/{c}/cmdline").read()), 0)
+            runner = next((c for c in children(p.pid) if "run_python_suites" in cmdline(c)), 0)
             for pid in [runner, *children(runner)] if runner else []:
                 os.kill(pid, signal.SIGINT)
             try:
@@ -600,8 +618,7 @@ def main() -> int:
         check("a suite past its budget is ended within about that time and counted: FAILED_SUITES=1, exit 1, what it printed kept",
               r.returncode == 1 and time.monotonic() - t0 < 30 and "FAILED_SUITES=1" in r.stdout and "STARTED" in r.stdout
               and "still running after its 2 s budget" in r.stdout, (r.returncode, time.monotonic() - t0, r.stdout, r.stderr))
-        check("…the suite's own child is ended with it", gc != 0 and (not os.path.exists(f"/proc/{gc}")
-              or open(f"/proc/{gc}/stat").read().rsplit(")", 1)[1].split()[0] == "Z"), gc)
+        check("…the suite's own child is ended with it", gc != 0 and ended(gc), gc)
         check("…the other suite still ran and passed", "fine" in r.stdout)
         # A descendant that left the suite's tree (double fork, reparented to init) and still holds its stdout pipe.
         base = fresh(files={"tests/test_daemon.py": suite(
