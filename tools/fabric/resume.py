@@ -424,7 +424,14 @@ def plan() -> tuple[list[str], str, str]:
     why = ("no session recorded" if not session else
            f"no transcript of session {session}" if not transcript else
            f"session {session}'s directory is gone, or not this account's")
-    start = working_copy if os.path.isdir(working_copy) else os.path.expanduser("~")
+    # The same ownership predicate as the resume branch: the binding's working
+    # copy can be the very directory own_dir() just rejected, and a fresh
+    # launch there loads its CLAUDE.md and settings all the same.
+    home = os.path.expanduser("~")
+    start = next((d for d in (working_copy, home) if own_dir(d)), None)
+    if start is None:
+        raise Refused(f"{why}; neither the working copy {working_copy} nor {home} is a directory this "
+                      "account owns, so there is nowhere to start")
     return [], start, f"{why}; starting fresh in {start}"
 
 
@@ -467,7 +474,11 @@ def main(argv: list[str]) -> int:
     except OSError as exc:
         say(f"cannot take {lock_path}: {exc.strerror or exc}")
         return 1
-    suffix, cwd, line = plan()
+    try:
+        suffix, cwd, line = plan()
+    except Refused as exc:
+        say(f"refused: {exc}")
+        return REFUSED
     argv = [LAUNCHER, *provider_args(extra), *extra, *suffix]
     if show:
         print(f"{line}: {' '.join(argv[1:]) or '(no arguments)'}")

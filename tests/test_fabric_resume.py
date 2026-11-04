@@ -282,6 +282,31 @@ def main() -> int:
         check("…not a file", not resume.own_dir(os.path.join(bdir, "binding.json")))
         check("…not a path that is gone", not resume.own_dir(os.path.join(tmp, "gone")))
 
+        # The fallback applies the same predicate: with the transcript's
+        # directory and the working copy both rejected, and home too, nothing
+        # is planned (positive control: the same binding plans when owned).
+        bind(SID)
+        transcript(wc)
+        saved = {k: os.environ.get(k) for k in ("HOME", "AGENT_FABRIC_STATE_DIR", "CLAUDE_CONFIG_DIR")}
+        os.environ.update(HOME=tmp, AGENT_FABRIC_STATE_DIR=state, CLAUDE_CONFIG_DIR=cfg)
+        try:
+            check("control: owned working copy plans a resume there",
+                  resume.plan()[0] == ["--resume", SID] and resume.plan()[1] == wc)
+            with mock.patch.object(resume.os, "getuid", lambda: os.stat(tmp).st_uid + 1):
+                try:
+                    resume.plan()
+                    refused = ""
+                except resume.Refused as exc:
+                    refused = str(exc)
+            check("transcript dir, working copy and home all not ours: refused, no fresh launch there",
+                  "nowhere to start" in refused, refused)
+        finally:
+            for k, v in saved.items():
+                if v is None:
+                    os.environ.pop(k, None)
+                else:
+                    os.environ[k] = v
+
         root = os.path.join(tmp, "fabric")
         os.makedirs(os.path.join(root, "routing"))
 
