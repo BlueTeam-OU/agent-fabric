@@ -490,6 +490,23 @@ def claimed(ledger: ActionLedger, request: dict, ts: float, say: Callable[[str],
     return True
 
 
+def _shown(v: Any, n: int | None = None) -> str:
+    """A field of an unverified record as the log names it. Only a scalar is formatted: js.string
+    recurses into arrays, so a nested one raised RecursionError here, before any sender or
+    signature check, and the poll loop took that for the relay failing (external review S02)."""
+    if isinstance(v, list):
+        return "array"
+    if isinstance(v, dict):
+        return "object"
+    text = js.string(v)
+    return text if n is None else js.slice(text, n)
+
+
+def _scalar_or_nan(v: Any) -> Any:
+    """A composite is no timestamp and no number: NaN, which the callers already refuse or default."""
+    return math.nan if isinstance(v, (list, dict)) else v
+
+
 def accept(rec: dict, *, me: dict, operators: set, accounts: set | None = None, keys: dict | Callable[[], dict] | None = None, ttl_s: float,
            seen: set, now: float | None = None, action_floor: Callable[[str], float] = lambda _from: 0) -> dict:
     """Is this record a request this agent answers? The reason when not, for
@@ -499,14 +516,17 @@ def accept(rec: dict, *, me: dict, operators: set, accounts: set | None = None, 
     # openssl, which only an action's signature check needs.
     keys = {} if keys is None else keys
     now = time.time() * 1000 if now is None else now
+    content = rec.get("content", js.UNDEFINED)
+    if isinstance(content, (list, dict)):
+        return {"ok": False, "why": "not json"}
     try:
-        r = js.json_parse(js.string(rec.get("content", js.UNDEFINED)))
+        r = js.json_parse(js.string(content))
     except ValueError:
         return {"ok": False, "why": "not json"}
     if not isinstance(r, dict) or r.get("kind") != "request":
         return {"ok": False, "why": "not a request"}
     if not _is_one(r.get("v")):
-        return {"ok": False, "why": f"v {js.string(r.get('v', js.UNDEFINED))}"}
+        return {"ok": False, "why": f"v {_shown(r.get('v', js.UNDEFINED), 40)}"}
     rid = r.get("id")
     if not isinstance(rid, str) or not rid:
         return {"ok": False, "why": "no id"}
@@ -517,11 +537,11 @@ def accept(rec: dict, *, me: dict, operators: set, accounts: set | None = None, 
         return {"ok": False, "why": "not for me"}
     op = r.get("op", js.UNDEFINED)
     if not (isinstance(op, str) and op in ops.OPS):
-        return {"ok": False, "why": f"op {js.slice(js.string(op), 20)}"}
+        return {"ok": False, "why": f"op {_shown(op, 20)}"}
     public = op in ops.PUBLIC_OPS
     sender = r.get("from")
     if not (isinstance(sender, str) and (sender in operators or (public and sender in accounts))):
-        return {"ok": False, "why": f"from {js.slice(js.string(r.get('from', js.UNDEFINED)), 40)} is not an operator"
+        return {"ok": False, "why": f"from {_shown(r.get('from', js.UNDEFINED), 40)} is not an operator"
                                     f"{' or a placed account' if public else ''}"}
     action = op in ACTION_OPS
     short = js.slice(js.string(sender), 40)
@@ -530,8 +550,8 @@ def accept(rec: dict, *, me: dict, operators: set, accounts: set | None = None, 
     if action and not verify_request(r, (keys() if callable(keys) else keys).get(sender)):
         return {"ok": False, "why": f"{op}: not signed by {short}'s key"}
     from control.sessions import date_parse
-    ts = date_parse(js.string(r.get("ts", js.UNDEFINED)))
-    n = number_of(r.get("ttl_s", js.UNDEFINED))
+    ts = date_parse(_shown(_scalar_or_nan(r.get("ts", js.UNDEFINED))))
+    n = number_of(_scalar_or_nan(r.get("ttl_s", js.UNDEFINED)))
     ttl = min(n, ACTION_TTL_MAX_S if action else 3600) if n > 0 else ttl_s
     if not math.isfinite(ts) or ts + ttl * 1000 < now:
         return {"ok": False, "why": "expired"}
@@ -1059,8 +1079,12 @@ def main(argv: list[str] | None = None) -> int:
                 raise TypeError("the relay's messages are not an array")
             for rec in rows:
                 state["last"] = rec.get("id")
-                a = accept(rec, me=me, operators=operator_addresses(), accounts=account_addresses(), keys=operator_keys,
-                           ttl_s=cfg["ttl_s"], seen=seen, action_floor=ledger.floor)
+                try:
+                    a = accept(rec, me=me, operators=operator_addresses(), accounts=account_addresses(), keys=operator_keys,
+                               ttl_s=cfg["ttl_s"], seen=seen, action_floor=ledger.floor)
+                except Exception as e:  # noqa: BLE001 — a record the decision cannot read is that record's fault; the outer handler is for the relay and would back off 30 s
+                    _stderr(f"agentd: ignored a record that could not be read ({type(e).__name__})")
+                    continue
                 if not a["ok"]:
                     if a["why"] not in QUIET:
                         _stderr(f"agentd: ignored a record {js.stringify(a['why'])}")
