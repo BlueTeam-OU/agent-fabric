@@ -100,6 +100,24 @@ class Renamer:
         if self.as_account(argv).returncode != 0:
             _die(f"step failed: as {' '.join(argv)} — nothing after it ran; the tree and the history are as they were")
 
+    def other_worktrees(self, path: str) -> list[str]:
+        """The checkouts of the same repository that are not `path`, as git lists them before the move. A prunable one is
+        already a stale record, not a checkout to keep open."""
+        got = self.as_account(["git", "-C", path, "worktree", "list", "--porcelain"], capture=True)
+        if got.returncode != 0:
+            _die(f"{self.login}: git worktree list failed in {path}; nothing moved")
+        found = []
+        for block in (got.stdout or "").split("\n\n"):
+            lines = block.strip().split("\n")
+            if not lines[0].startswith("worktree "):
+                continue
+            if any(ln == "bare" or ln.startswith("prunable") for ln in lines):
+                continue
+            where = lines[0][len("worktree "):]
+            if where != path:
+                found.append(where)
+        return found
+
     def is_dir(self, path: str) -> bool:
         return _run([*self.sudo, "test", "-d", path]).returncode == 0
 
@@ -145,8 +163,18 @@ class Renamer:
             if self.dry:
                 _say(f"would: mv {oldp} {newp}")
             else:
+                others = self.other_worktrees(oldp)
                 self.must(["mv", oldp, newp])
+                after = [newp, *[newp + o[len(oldp):] if o.startswith(oldp + os.sep) else o for o in others]]
+                # Both ends of a worktree link hold an absolute path: the moved checkout's .git file (or the main's
+                # .git/worktrees/<n>/gitdir) and the other side's record of it. `repair`, given every checkout's new
+                # path, rewrites the ends the move broke; `prune` alone would drop the record of a worktree that
+                # still exists.
+                self.must(["git", "-C", newp, "worktree", "repair", *after])
                 self.must(["git", "-C", newp, "worktree", "prune"])
+                for path in after:
+                    if self.as_account(["git", "-C", path, "status", "--porcelain", "--untracked-files=no"], capture=True).returncode != 0:
+                        _die(f"{self.login}: moved to {newp}, but git cannot open the worktree {path} afterwards; history left under its old key — repair it by hand")
                 _say(f"{self.login}: moved to {newp}")
         # The history follows the tree, and only a tree that is where the new key
         # says: a dry run reports; a real run past this line has newp in place.

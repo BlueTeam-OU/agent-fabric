@@ -140,6 +140,51 @@ def main() -> int:
         rc, out = rename()
         check("…and the retry completes", rc == 0 and os.path.isdir(key("new")), out)
 
+        # F04: a linked worktree is a second place that holds the clone's absolute path; a rename that leaves either end stale
+        # exits 0 with a checkout git no longer opens.
+        def git_status(path: str) -> int:
+            return subprocess.run(["git", "-C", path, "status", "--porcelain"], env=env, stdout=subprocess.DEVNULL,
+                                  stderr=subprocess.DEVNULL, timeout=30).returncode
+
+        def git_ok(*args: str) -> None:
+            subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false", *args],
+                           env=env, check=True, timeout=30, stdout=subprocess.DEVNULL)
+
+        print("rename: a checkout with linked worktrees")
+        reset()
+        linked = f"{home}/projects/linked"
+        git_ok("-C", f"{home}/projects/old", "worktree", "add", "-q", "-b", "side", linked)
+        rc, out = rename()
+        check("a main checkout moved with a linked worktree: both open afterwards",
+              rc == 0 and git_status(f"{home}/projects/new") == 0 and git_status(linked) == 0,
+              f"rc={rc} new={git_status(f'{home}/projects/new')} linked={git_status(linked)}\n{out}")
+        check("…and the worktree list names the new path",
+              f"worktree {home}/projects/new\n" in subprocess.run(["git", "-C", linked, "worktree", "list", "--porcelain"], env=env,
+                                                                 capture_output=True, text=True, timeout=30).stdout)
+        reset()
+        git_ok("-C", f"{home}/projects/old", "worktree", "add", "-q", "-b", "side", linked)
+        put(f"{home}/projects/old/.git/worktrees/linked/index", "not an index\n")
+        rc, out = rename()
+        check("a worktree git cannot open afterwards fails the run, and the history stays under its old key",
+              rc == 1 and "cannot open the worktree" in out and os.path.isdir(key("old")) and not os.path.isdir(key("new")), f"rc={rc}\n{out}")
+        reset()
+        git_ok("-C", f"{home}/projects/old", "worktree", "add", "-q", "-b", "side", f"{home}/projects/old/inner")
+        rc, out = rename()
+        check("a linked worktree inside the moved checkout: both open afterwards",
+              rc == 0 and git_status(f"{home}/projects/new") == 0 and git_status(f"{home}/projects/new/inner") == 0,
+              f"rc={rc}\n{out}")
+        reset()
+        mainco = f"{home}/projects/mainco"
+        shutil.move(f"{home}/projects/old", mainco)
+        git_ok("-C", mainco, "worktree", "add", "-q", "-b", "side", f"{home}/projects/old")
+        rc, out = rename()
+        check("a linked worktree moved: it and its main checkout open afterwards",
+              rc == 0 and git_status(f"{home}/projects/new") == 0 and git_status(mainco) == 0,
+              f"rc={rc} new={git_status(f'{home}/projects/new')} main={git_status(mainco)}\n{out}")
+        check("…and the main checkout lists the worktree at its new path",
+              f"worktree {home}/projects/new\n" in subprocess.run(["git", "-C", mainco, "worktree", "list", "--porcelain"], env=env,
+                                                                 capture_output=True, text=True, timeout=30).stdout)
+
         print("rename: dry run")
         reset()
         rc, out = rename("--dry-run")
