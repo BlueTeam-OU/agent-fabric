@@ -62,12 +62,42 @@ def quiet(argv: list[str], timeout: int) -> bool:
     non-zero exit are all "no": the caller says one failure line for each.
     The child leads its own process group so a timeout takes pip's compiler
     children with it, not only pip."""
+    # An interrupt that lands inside Popen, or between it and the try below,
+    # would unwind past the only handle of a child that already leads a session
+    # of its own and that nothing else signals. So SIGINT is held from before
+    # the spawn until the try is entered, then delivered through its cleanup.
+    # Off the main thread, or with SIGINT ignored (a background job), there is
+    # no handler of ours to swap in.
+    interrupted = False
+
+    def note(signum: int, frame: object) -> None:
+        nonlocal interrupted
+        interrupted = True
+
+    previous: object = None
+    with contextlib.suppress(ValueError):
+        previous = signal.signal(signal.SIGINT, note)
+    if previous is signal.SIG_IGN:
+        signal.signal(signal.SIGINT, signal.SIG_IGN)
+        previous = None
     try:
         proc = subprocess.Popen(argv, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
                                 stderr=subprocess.DEVNULL, start_new_session=True)
     except OSError:
+        if previous is not None:
+            signal.signal(signal.SIGINT, previous)
+            if interrupted:
+                raise KeyboardInterrupt from None
         return False
+    except BaseException:
+        if previous is not None:
+            signal.signal(signal.SIGINT, previous)
+        raise
     try:
+        if previous is not None:
+            signal.signal(signal.SIGINT, previous)
+        if interrupted:
+            raise KeyboardInterrupt
         return proc.wait(timeout=timeout) == 0
     except BaseException as exc:
         # An interrupt reaches only the foreground group, and the child left it:
