@@ -1083,7 +1083,8 @@ def main(argv: list[str] | None = None) -> int:
                     a = accept(rec, me=me, operators=operator_addresses(), accounts=account_addresses(), keys=operator_keys,
                                ttl_s=cfg["ttl_s"], seen=seen, action_floor=ledger.floor)
                 except Exception as e:  # noqa: BLE001 — a record the decision cannot read is that record's fault; the outer handler is for the relay and would back off 30 s
-                    _stderr(f"agentd: ignored a record that could not be read ({type(e).__name__})")
+                    _stderr(f"agentd: ignored a record {_shown(state['last'], 40)} that could not be decided on "
+                            f"({type(e).__name__}: {js.slice(str(e), 200)})")
                     continue
                 if not a["ok"]:
                     if a["why"] not in QUIET:

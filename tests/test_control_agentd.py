@@ -25,12 +25,14 @@ import signal
 import subprocess
 import sys
 import tempfile
+import textwrap
 import threading
 import time
 import unittest
 import urllib.parse
 import zlib
 from types import SimpleNamespace
+from unittest import mock
 
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(HERE, "tools", "fabric"))
@@ -1082,6 +1084,30 @@ class Actions(Daemon):
         self.assertNotIn("relay unreachable", out.stderr)
         self.assertEqual(out.status, 0, out.stderr)
         self.assertEqual([x["in_reply_to"] for x in r.replies()], ["good-after"], "the record after the bad one is answered")
+
+    def test_once_a_record_whose_decision_raises_is_skipped_by_id_and_is_not_the_relays_failure(self):
+        # The guard around accept(): whatever the decision on one record raises (a signing failure, a
+        # key lookup) must not reach the relay handler ("relay unreachable", 30 s). The driver makes
+        # accept() raise for one id and run the real decision for every other.
+        driver = os.path.join(self.scratch("agentd-driver-"), "driver.py")
+        executable(driver, textwrap.dedent(f"""\
+            import json, sys
+            sys.path.insert(0, {os.path.join(HERE, "tools", "fabric")!r})
+            from control import agentd
+            real = agentd.accept
+            def accept(rec, **kw):
+                if json.loads(rec["content"]).get("id") == "raises-1":
+                    raise RuntimeError("decision failed")
+                return real(rec, **kw)
+            agentd.accept = accept
+            sys.exit(agentd.main(sys.argv[1:]))
+            """))
+        r = self.with_relay()
+        with mock.patch.object(sys.modules[__name__], "AGENTD", driver):
+            out = self.once_after_wait(r, [(SELF, request(id="raises-1")), (SELF, request(id="good-after"))])
+        self.assertNotIn("relay unreachable", out.stderr)
+        self.assertRegex(out.stderr, r"ignored a record id-\d+ that could not be decided on \(RuntimeError: decision failed\)")
+        self.assertEqual([x["in_reply_to"] for x in r.replies()], ["good-after"], "the record after it is answered")
 
     def test_once_an_action_whose_ledger_cannot_be_written_is_refused_by_name_not_blamed_on_the_relay(self):
         k = sign.generate_operator_key()
