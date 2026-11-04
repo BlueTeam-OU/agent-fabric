@@ -300,8 +300,8 @@ def engines_unavailable(pr: dict, timeout: Callable[[], float]) -> dict[str, str
     (arm_policy.engines_unavailable reads the same). A posters list that is not a JSON array of strings is none: this
     line is a report, and none asks more. A push account GitHub cannot name within `timeout()` is Unreadable, never
     none: its marker would read "absent", a confident answer from a lookup that failed (ADR-020 A 2026-11-03).
-    `timeout` is asked only on an app's PR: a person's asks GitHub nothing here, so a budget spent by now leaves its
-    line built from what was already read (#465 F8)."""
+    `timeout` is asked only when GitHub is: a person's PR asks nothing here, nor an app's once the push account is
+    known, so a budget spent by now leaves its line built from what was already read (#465 F8, round 3)."""
     try:
         posters = json.loads(os.environ.get("AGENT_FABRIC_REVIEW_POSTERS") or "[]")
     except ValueError:
@@ -310,7 +310,7 @@ def engines_unavailable(pr: dict, timeout: Callable[[], float]) -> dict[str, str
         posters = []
     if review_posters.is_bot(pr.get("author")):
         try:
-            posters = review_posters.for_pr(pr.get("author"), posters, timeout())
+            posters = review_posters.for_pr(pr.get("author"), posters, timeout)
         except gh.GhError as e:
             raise Unreadable(f"the push account cannot be read ({e.reason})") from None
     author = ((pr.get("author") or {}).get("login") or "")

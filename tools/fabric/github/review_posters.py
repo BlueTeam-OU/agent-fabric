@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import os
 import sys
+from typing import Callable
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.realpath(__file__))))
 import gh  # noqa: E402
@@ -34,13 +35,14 @@ def is_bot(author: object) -> bool:
 _login: list[str] = []
 
 
-def push_account(timeout: float = gh.TIMEOUT_S) -> str:
-    """The login `gh` acts as, asked of GitHub within `timeout` (a caller's budget, pr-counts' `--timeout`). gh.GhError
+def push_account(timeout: float | Callable[[], float] = gh.TIMEOUT_S) -> str:
+    """The login `gh` acts as, asked of GitHub within `timeout` (a caller's budget, pr-counts' `--timeout`; a callable is
+    read only when GitHub is asked, so a budget spent by a later call does not stop one that asks nothing). gh.GhError
     when GitHub cannot say: never "" taken as nobody, which would read the bot PR's blind review as another login's
     and say so as a fact. Read once per process: the login is kept apart from the timeout, which a cache keyed on the
     arguments would ask again under every budget left; a failure is not kept, so the next call asks again."""
     if not _login:
-        who = gh.api("user", timeout=timeout)
+        who = gh.api("user", timeout=timeout() if callable(timeout) else timeout)
         login = who.get("login") if isinstance(who, dict) else None
         if not isinstance(login, str) or not login:
             raise gh.GhError("gh api GET user", "the answer names no login")
@@ -52,7 +54,7 @@ def push_account(timeout: float = gh.TIMEOUT_S) -> str:
 push_account.cache_clear = _login.clear  # type: ignore[attr-defined]
 
 
-def for_pr(author: object, configured, timeout: float = gh.TIMEOUT_S) -> list[str]:
+def for_pr(author: object, configured, timeout: float | Callable[[], float] = gh.TIMEOUT_S) -> list[str]:
     """The posters besides the author for a PR whose author is `author` (its author object, as read): the
     configured logins, and the push account when an app opened the PR, asked within `timeout`."""
     posters = list(configured)
