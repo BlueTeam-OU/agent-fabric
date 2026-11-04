@@ -295,6 +295,31 @@ class WorkspaceTransaction:
                 pass
 
 
+def read_for_rebind(ctx: dict) -> tuple[dict, str | None, str | None]:
+    """The binding a bind or unbind is about to replace, under the agent
+    lock: (binding, its host when another host wrote it, its file's text).
+    Another host's binding is read, never trusted — the copies it lists are
+    still checked for adaptation where they are — and a rollback restores
+    that text byte for byte, since write_binding would stamp it as ours."""
+    binding = identity.read_binding(ctx["agent"], other_host=True)
+    host = binding.get("host")
+    if host in (None, ctx["host"]):
+        return binding, None, None
+    with open(identity.binding_path(ctx["agent"]), encoding="utf-8") as fh:
+        text = fh.read()
+    print(f"role: replacing a binding written on host {host!r}; this is {ctx['host']!r}", file=sys.stderr)
+    return binding, host, text
+
+
+def restore_binding(ctx: dict, binding: dict, foreign_text: str | None) -> None:
+    if foreign_text is not None:
+        identity.atomic_write(identity.binding_path(ctx["agent"]), foreign_text)
+    elif binding:
+        identity.write_binding(binding, ctx["agent"])
+    else:
+        _remove(identity.binding_path(ctx["agent"]))
+
+
 def append_history(state_dir: str, record: dict) -> None:
     # The agent's history file, appended under the agent lock (identity.py).
     identity.append_history(record, os.path.basename(state_dir))
@@ -375,7 +400,7 @@ def cmd_deactivate(ctx: dict, force: bool = False) -> int:
 
 
 def _deactivate_locked(ctx: dict, force: bool) -> int:
-    binding = identity.read_binding(ctx["agent"])
+    binding, foreign_host, foreign_text = read_for_rebind(ctx)
     workspace = binding.get("workspace")
     if not binding.get("role"):
         print("no role active for this agent")
@@ -399,7 +424,7 @@ def _deactivate_locked(ctx: dict, force: bool) -> int:
         tx.rollback()
         if workspace:
             write_exclude_block(workspace, [item["path"] for item in previous])
-        identity.write_binding(binding, ctx["agent"])
+        restore_binding(ctx, binding, foreign_text)
         print("role: deactivation failed; the workspace and the binding were restored", file=sys.stderr)
         raise
     tx.commit()
@@ -407,7 +432,7 @@ def _deactivate_locked(ctx: dict, force: bool) -> int:
         "agent": ctx["agent"], "host": ctx["host"], "role": None,
         "previous_role": binding.get("role"), "project": binding.get("project"),
         "working_copy": binding.get("working_copy"), "valid_from": identity.now_iso(),
-        "reason": "deactivate",
+        "reason": "deactivate", **({"previous_host": foreign_host} if foreign_host else {}),
     })
     active = os.path.join(ctx["state_dir"], "active")
     if os.path.islink(active) or os.path.exists(active):
@@ -443,7 +468,7 @@ def _activate_locked(ctx: dict, role: str, workspace: str, force: bool, project:
             print("available roles: " + ", ".join(available), file=sys.stderr)
         return 2
 
-    binding = identity.read_binding(ctx["agent"])
+    binding, foreign_host, foreign_text = read_for_rebind(ctx)
     previous = binding.get("installed", []) or []
     previous_workspace = binding.get("workspace") or workspace
 
@@ -487,7 +512,7 @@ def _activate_locked(ctx: dict, role: str, workspace: str, force: bool, project:
     # context, and saying so beats silently keeping a stale one.
     if not project and ctx.get("project_source") == "working-copy":
         project = ctx["project"]
-    changed = binding.get("role") != role or binding.get("project") != project
+    changed = binding.get("role") != role or binding.get("project") != project or bool(foreign_host)
 
     # 2–4 are one transaction: stage the new copies, move the previous ones
     # out (never a sweep, never a delete), swap the staged ones in by rename,
@@ -516,10 +541,7 @@ def _activate_locked(ctx: dict, role: str, workspace: str, force: bool, project:
         write_exclude_block(previous_workspace, [item["path"] for item in previous])
         if previous_workspace != workspace:
             write_exclude_block(workspace, [])
-        if binding:
-            identity.write_binding(binding, ctx["agent"])
-        else:
-            _remove(identity.binding_path(ctx["agent"]))
+        restore_binding(ctx, binding, foreign_text)
         print(f"role: activation of {role} failed; the workspace and the binding were restored",
               file=sys.stderr)
         raise
@@ -530,6 +552,7 @@ def _activate_locked(ctx: dict, role: str, workspace: str, force: bool, project:
             "previous_role": binding.get("role"), "project": project,
             "working_copy": ctx["working_copy"], "valid_from": identity.now_iso(),
             "reason": "initial" if not binding.get("role") else "role-change",
+            **({"previous_host": foreign_host} if foreign_host else {}),
         })
     active = os.path.join(ctx["state_dir"], "active")
     if os.path.islink(active) or os.path.exists(active):
@@ -577,9 +600,11 @@ def main(argv: list[str] | None = None) -> int:
     args = ap.parse_args(argv)
 
     workspace = os.path.abspath(args.workspace or os.environ.get("CLAUDE_PROJECT_DIR") or os.getcwd())
-    ctx = identity.resolve_context(cwd=workspace)
-
     command, role = args.command, args.role
+    # Only a bind or unbind may read another host's binding: it replaces it.
+    rebind = not args.status and command not in (None, "status", "list")
+    ctx = identity.resolve_context(cwd=workspace, rebind=rebind)
+
     if args.status or command in (None, "status"):
         return cmd_status(ctx)
     if command == "list":

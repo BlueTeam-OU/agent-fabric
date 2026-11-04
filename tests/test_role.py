@@ -508,6 +508,35 @@ def test_a_failed_deactivation_restores_the_copies(f: Fixture) -> None:
     assert _tree(f.ws) == before_tree and {**f.binding(), "updated_at": None} == {**before_binding, "updated_at": None}
 
 
+def test_a_binding_from_another_host_is_replaced_by_a_bind_there(f: Fixture) -> None:
+    """ADR-002 rule 7: a move between hosts is a rebind there. read_binding
+    refuses the moved binding and names fabric-role bind, so the bind must
+    read it to replace it (external review F10); a failed one puts its
+    bytes back, never re-stamped as this host's."""
+    path = os.path.join(f.state, "agents", id_un(), "binding.json")
+    b = f.binding(); b["host"] = "another-machine"
+    with open(path, "w", encoding="utf-8") as fh:
+        json.dump(b, fh)
+    with open(path, encoding="utf-8") as fh:
+        foreign = fh.read()
+    status = f.run("status")
+    assert status.returncode != 0 and "another-machine" in status.stderr, status.stderr
+    f.env["AGENT_FABRIC_FAULT"] = "role:after-binding"
+    try:
+        failed = f.run("backend-dev")
+    finally:
+        f.env.pop("AGENT_FABRIC_FAULT", None)
+    assert failed.returncode != 0 and "restored" in failed.stderr, failed.stderr
+    with open(path, encoding="utf-8") as fh:
+        assert fh.read() == foreign, "a rollback re-stamped another host's binding"
+    proc = f.run("backend-dev")
+    assert proc.returncode == 0, proc.stderr
+    assert "another-machine" in proc.stderr, proc.stderr
+    assert f.binding()["host"] != "another-machine" and f.binding()["role"] == "backend-dev"
+    assert f.history()[-1]["previous_host"] == "another-machine", f.history()[-1]
+    assert f.run("status").returncode == 0
+
+
 def main() -> int:
     failures = 0
     with tempfile.TemporaryDirectory() as tmp:
@@ -540,6 +569,7 @@ def main() -> int:
             test_a_failure_anywhere_in_the_switch_restores_everything,
             test_a_backup_left_by_a_crash_is_stashed_not_dropped,
             test_a_failed_deactivation_restores_the_copies,
+            test_a_binding_from_another_host_is_replaced_by_a_bind_there,
         ]
         for case in cases:
             try:
