@@ -2570,16 +2570,18 @@ def case_a_contributor_entry_never_reaches_a_definition() -> None:
             assert loaded in lint.CONTRIBUTOR_NEVER, f"{loaded} is loaded by lint by path: it is fenced like lint.py"
         got = findings({**good, "paths": good["paths"] + ["policies/"]})
         assert any("rule 'policies/' reaches policies/" in f for f in got), got
-        # The carrier's pin and roster: held by lint, not only by the
-        # entry's own exclusions (review of #376, §2).
-        carrier = os.path.dirname(lint.CARRIER_FENCE[0])
-        os.makedirs(os.path.join(root, carrier))
-        fenced = {**good, "paths": good["paths"] + [carrier + "/"], "excluding": excl + list(lint.CARRIER_FENCE)}
-        assert findings(fenced) == [], findings(fenced)
-        for pinned in lint.CARRIER_FENCE:
-            got = findings({**fenced, "excluding": [e for e in fenced["excluding"] if e != pinned]})
-            assert got == [f"policies/authority.json: contributors[0] (python-dev): rule '{carrier}/' reaches "
-                           f"{pinned}, which defines what a role is or enforces the fence (ADR-018 §5 rule 8)"], got
+        # The carrier's pin and roster and GitHub's host keys: held by lint,
+        # not only by the entry's own exclusions (review of #376, §2).
+        host_keys = ("runtime/provisioning/github-host-keys", "runtime/provisioning/github-host-keys.fingerprints")
+        for pinned_set in (lint.CARRIER_FENCE, host_keys):
+            parent = os.path.dirname(pinned_set[0])
+            os.makedirs(os.path.join(root, parent), exist_ok=True)
+            fenced = {**good, "paths": good["paths"] + [parent + "/"], "excluding": excl + list(pinned_set)}
+            assert findings(fenced) == [], findings(fenced)
+            for pinned in pinned_set:
+                got = findings({**fenced, "excluding": [e for e in fenced["excluding"] if e != pinned]})
+                assert got == [f"policies/authority.json: contributors[0] (python-dev): rule '{parent}/' reaches "
+                               f"{pinned}, which defines what a role is or enforces the fence (ADR-018 §5 rule 8)"], got
         # Review of #75: rules narrower than any sample file, each one a
         # definition or a guard.
         for narrow in ("identities/roles/python-dev/", "identities/roles/python-dev/charter.md",

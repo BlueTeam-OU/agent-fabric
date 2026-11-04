@@ -490,6 +490,8 @@ CONTRIBUTOR_NEVER = (
     "tools/fabric/review_rounds.py",
     # The carrier release every account installs, and who it admits (ADR-064).
     *CARRIER_FENCE,
+    # GitHub's published host keys, appended to every account's known_hosts.
+    "runtime/provisioning/github-host-keys", "runtime/provisioning/github-host-keys.fingerprints",
 )
 # The one path under a never-prefix an entry may name: the list the port
 # shrinks, which lint itself holds to shrinking (ADR-040 §5 rule 2).
