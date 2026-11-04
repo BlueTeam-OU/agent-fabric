@@ -41,8 +41,11 @@ CONTRACT
             finds the marker younger than RESUME_TTL_S types `--resume` in
             place of `--wait`, so the session comes back without a person
             pressing Enter, and removes the marker once the line has started
-            (or the pane was found running): a failed step keeps it for the
-            unit's restart, which is why the marker has a lifetime. No marker,
+            (or the pane was found running). A step that fails keeps it, but
+            harness-restart's own start sees that failure and has the marker
+            dropped at once, so the unit's automatic restart types --wait;
+            the lifetime bounds a marker nothing could drop (the drop itself
+            failed, or the verb died between its write and its end). No marker,
             an old one, or anything that is not a plain file of the login's
             own: `--wait`, as at a boot, a crash restart or harness-start; an
             old or foreign one is removed and said. A marker entry that

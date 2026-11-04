@@ -50,7 +50,7 @@ import re
 import time
 from typing import Any, Callable
 
-from control import units
+from control import harness_pane, units
 from control.units import Run, StepFailed
 
 OP = units.RESTART_OP
@@ -66,6 +66,8 @@ POLL_S = 5
 CLOCK_SLACK_S = 5
 
 Probe = Callable[[str], dict]
+# harness_pane.RESUME_TTL_S, said, so the text cannot drift from the lifetime.
+LAPSES = f"{harness_pane.RESUME_TTL_S // 60} minutes after it was written"
 
 
 def iso_seconds(value: Any) -> float | None:
@@ -109,9 +111,9 @@ def drop_marker(run: Run, host: str, login: str, home: str, timeout: float) -> s
     try:
         rc, out, err = units._call(run, host, argv, timeout, "drop-resume")
     except StepFailed as e:
-        return f"the resume marker could not be removed ({e}); it lapses in 10 minutes"
+        return f"the resume marker could not be removed ({e}); it lapses {LAPSES}"
     if rc != 0:
-        return f"the resume marker could not be removed (exit {rc}: {units._say(err) or units._say(out) or 'no output'}); it lapses in 10 minutes"
+        return f"the resume marker could not be removed (exit {rc}: {units._say(err) or units._say(out) or 'no output'}); it lapses {LAPSES}"
     return "the resume marker is removed"
 
 
