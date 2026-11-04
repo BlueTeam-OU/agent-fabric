@@ -461,10 +461,15 @@ def install(sha: str, repo: str = FABRIC, prefix: str = PREFIX, etc: str = ETC, 
             say(f"snapshot {final} written")
     # Everything that can refuse runs before `current` moves, and a failed /etc write moves it back: the managed
     # file in force names hook_entry under `current`, so a swap left behind a failure would run the new snapshot's
-    # code from the old file (review of #451, F15). The kept copy, which only a reboot reads, is written last.
+    # code from the old file (review of #451, F15). The kept copy, which only a reboot reads, is written beside
+    # its name first and renamed after /etc: written after /etc, its failure left a reboot to restore the old file
+    # under the new `current` (#451 fold, F19).
     with open(os.path.join(final, TEMPLATE), encoding="utf-8") as f:
         rendered = render(f.read(), prefix).encode()
     _ensure_dir(etc, root)
+    kept = os.path.join(managed, "managed-settings.json")
+    staged_kept = os.path.join(managed, f".managed-settings.json.tmp-{os.urandom(6).hex()}")
+    _write_new(staged_kept, rendered, 0o644, root)
     link = os.path.join(managed, "current")
     before = os.readlink(link) if os.path.islink(link) else None
     _point(link, os.path.basename(final), root)
@@ -477,10 +482,10 @@ def install(sha: str, repo: str = FABRIC, prefix: str = PREFIX, etc: str = ETC, 
             _point(link, before, root)
         else:
             os.unlink(link)
+        os.unlink(staged_kept)
         say(f"{link} put back to {before or '(none)'}: the managed file could not be written")
         raise
-    kept = os.path.join(managed, "managed-settings.json")
-    _write_atomic(kept, rendered, 0o644, root)
+    os.replace(staged_kept, kept)
     say(f"{os.path.join(etc, 'managed-settings.json')} written (a copy kept at {kept})")
     if os.path.isdir(os.path.dirname(rc)):
         script = ("#!/bin/sh\n# agent-fabric ADR-043: /etc does not survive this AppVM's reboot and /usr/local does;"

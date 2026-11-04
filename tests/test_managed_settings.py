@@ -328,7 +328,7 @@ def main() -> int:
         # Simulated in place: install chmods /etc 0755 itself, so a read-only directory would not stand.
         in_force = open(os.path.join(etc, "managed-settings.json")).read()
         kept_before = open(os.path.join(managed, "managed-settings.json")).read()
-        real_render, real_write = ms.render, ms._write_atomic
+        real_render, real_write, real_new = ms.render, ms._write_atomic, ms._write_new
 
         def refuse_render(*_a, **_k):
             raise ms.Failed("the template at that sha is not an object")
@@ -338,8 +338,15 @@ def main() -> int:
                 raise OSError(28, "No space left on device")
             return real_write(path, *a, **k)
 
+        def refuse_kept(path, *a, **k):
+            # The kept copy, F19: refused before /etc moves, never after it.
+            if os.path.dirname(path) == managed and os.path.basename(path).startswith(".managed-settings.json.tmp-"):
+                raise OSError(28, "No space left on device")
+            return real_new(path, *a, **k)
+
         for label, patch in (("the render refused", ("render", refuse_render)),
-                             ("the /etc write refused", ("_write_atomic", refuse_etc))):
+                             ("the /etc write refused", ("_write_atomic", refuse_etc)),
+                             ("the kept copy refused", ("_write_new", refuse_kept))):
             setattr(ms, *patch)
             try:
                 inst(sha_b)
@@ -347,11 +354,12 @@ def main() -> int:
             except (ms.Failed, OSError):
                 raised = True
             finally:
-                ms.render, ms._write_atomic = real_render, real_write
+                ms.render, ms._write_atomic, ms._write_new = real_render, real_write, real_new
             check(f"install fails when {label}: current still the snapshot in force, /etc and the kept copy unchanged",
                   raised and os.readlink(os.path.join(managed, "current")) == f"fabric-{sha_c}"
                   and open(os.path.join(etc, "managed-settings.json")).read() == in_force
-                  and open(os.path.join(managed, "managed-settings.json")).read() == kept_before,
+                  and open(os.path.join(managed, "managed-settings.json")).read() == kept_before
+                  and not [n for n in os.listdir(managed) if n.startswith(".managed-settings.json.tmp-")],
                   (raised, os.readlink(os.path.join(managed, "current")), lines))
 
         print("managed settings: check")
