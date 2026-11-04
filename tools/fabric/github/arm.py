@@ -311,7 +311,7 @@ What it refuses, in order, and why:
 
 Then: reads the PR's head again and refuses when it is not the head the gates read (pr-gate's own read of
 the head included: a count of another head is no count of this one); posts the policy's armed_status
-(fabric/armed by default; none where a repository sets it null), state success, on that head — the
+(always fabric/armed, the one name disarm-on-push reads; none where a repository sets it null), state success, on that head — the
 check an auto repository's ruleset requires, so a head pushed after this arming waits for an arming
 of its own, and the one disarm-on-push keeps an arming by; posts the arming basis as a comment ("Arming basis: <text> —
 <W> work commits, head <sha>"; a security boundary armed at 8 or more
