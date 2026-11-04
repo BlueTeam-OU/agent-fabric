@@ -487,14 +487,25 @@ def verify_signed_by(store: str, commit: str, keys: dict[str, bytes], *, unknown
     return commit
 
 
-# What a store holds (entries.py, statecopy.py, backup.py, settings.py, the
-# store's own two id files); anything else in an incoming tree is refused.
+# What a store holds (entries.py, statecopy.py, backup.py, the store's own two
+# id files); settings/ takes any name settings_put can commit (_settings_ok).
 _STORE_PATH_RE = re.compile(
     r"\.gpg-id|\.agent-id"
     r"|env/[A-Z][A-Z0-9_]{0,63}\.gpg"
     r"|state/[0-9a-f-]{36}\.(?:tar\.gpg|meta)"
-    r"|recovery/[0-9a-f-]{36}\.(?:key\.gpg|recipient)"
-    r"|settings(?:/[A-Za-z0-9_][A-Za-z0-9_.@+=-]*)+")
+    r"|recovery/[0-9a-f-]{36}\.(?:key\.gpg|recipient)")
+# git's own empty tree: the base of a tree judged from the root. `--root` is
+# no substitute: it compares a non-root commit with its first parent, and a
+# merge with nothing.
+_EMPTY_TREE = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
+
+
+def _settings_ok(path: str) -> bool:
+    """settings_put's own rule (settings._read_tree): any name that git does
+    not read as its own, in directories; never a dot part."""
+    parts = path.split("/")
+    return parts[0] == "settings" and len(parts) > 1 and not any(
+        p in ("", ".", "..") or p.startswith(".git") for p in parts)
 
 
 def _tree_reason(store: str, base: str | None, tip: str) -> str | None:
@@ -503,17 +514,25 @@ def _tree_reason(store: str, base: str | None, tip: str) -> str | None:
     a regular non-executable file; a link, a submodule or an executable is
     refused before any checkout can write through it. Deletions of a path are
     judged by the path alone."""
-    cmd = ["diff-tree", "-r", "--no-renames", "--raw", "-z", "--no-commit-id"]
-    out = git(store, *cmd, base, tip).stdout if base else git(store, *cmd, "--root", tip).stdout
+    out = git(store, "diff-tree", "-r", "--no-renames", "--raw", "-z", base or _EMPTY_TREE, tip).stdout
     fields = out.split(b"\0")
     for meta, raw in zip(fields[0::2], fields[1::2]):
         mode = meta.split()[1].decode()
         path = raw.decode("utf-8", "replace")
-        if not _STORE_PATH_RE.fullmatch(path) or ".." in path.split("/"):
+        if not (_STORE_PATH_RE.fullmatch(path) or _settings_ok(path)):
             return f"it holds {path!r}, which is no path of a store"
         if mode not in ("100644", "000000"):
             return f"it holds {path!r} as mode {mode}, not a regular file"
     return None
+
+
+def require_tree(store: str, tip: str) -> None:
+    """The whole tree of `tip` judged, for a head taken without a signature
+    check (a first-contact bundle, a fresh clone of a verified remote):
+    StoreError, nothing applied."""
+    reason = _tree_reason(store, None, tip)
+    if reason:
+        raise StoreError(f"{tip[:12]} refused: {reason}; nothing applied (ADR-042)")
 
 
 def _verify_incoming(store: str, tip: str, agent_id: str | None = None, fabric: str | None = None,

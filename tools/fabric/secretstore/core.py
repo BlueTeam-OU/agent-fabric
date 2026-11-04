@@ -209,3 +209,25 @@ def write_confined(store: str, rel: str, data: bytes, mode: int = 0o600) -> str:
         for fd in held:
             os.close(fd)
     return os.path.join(store, rel)
+
+
+def check_confined(store: str, rel: str) -> None:
+    """What write_confined would refuse about <store>/<rel>, asked without
+    writing, so a caller that writes two files learns of a refusal before
+    it has replaced the first."""
+    *dirs, name = rel.split("/")
+    here = store
+    for part in dirs:
+        here = os.path.join(here, part)
+        try:
+            st = os.lstat(here)
+        except FileNotFoundError:
+            return
+        if not stat.S_ISDIR(st.st_mode):
+            raise StoreError(f"{part} in {os.path.join(store, rel)} is a link or not a directory; nothing written")
+    try:
+        st = os.lstat(os.path.join(here, name))
+    except FileNotFoundError:
+        return
+    if not stat.S_ISREG(st.st_mode):
+        raise StoreError(f"{os.path.join(store, rel)} is a link or not a regular file; nothing written")

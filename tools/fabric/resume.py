@@ -10,9 +10,10 @@ session id the session-start hook last recorded), finds that session's
 transcript under ~/.claude/projects/, and runs the fabric's launcher with
 `--resume <id>` in the directory the session ran in (the transcript's own
 `cwd`), so the harness finds it. With no binding session, no transcript or
-no directory left, it starts a fresh session in the binding's working copy
-and says so: a resume that cannot happen is a fresh start said, never a
-failure (architect-cto's plan for Fleet Deck, 2026-10-07; the upgrade
+no directory left, it starts a fresh session in the binding's working copy,
+else home, each only if this account owns it, and says so: a resume that
+cannot happen is a fresh start said, never a failure — unless no owned
+directory is left to start in (exit 3) (architect-cto's plan for Fleet Deck, 2026-10-07; the upgrade
 path's relaunch made first-class).
 
 NEVER A SECOND SESSION (docs/fleet-deck/tab-states.md, "What must hold
@@ -45,7 +46,8 @@ both pass it. A person who runs the launcher by hand bypasses both.
 its own or one passed to the launcher after --, no lock is taken: the lock
 is read from /proc/locks, and a refusal is said as a real run says it.
 Exit codes: the launcher's when it runs; 2 inside a session or for a bad
-argument; 3 refused (a lock held, a session alive, its state unreadable),
+argument; 3 refused (a lock held, a session alive, its state unreadable, no directory
+this account owns to start in),
 said in one `fabric-resume: refused: …` line on stderr; 1 when the lock
 cannot be taken for any other reason.
 

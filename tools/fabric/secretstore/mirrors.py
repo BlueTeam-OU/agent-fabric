@@ -43,6 +43,7 @@ from .trust import (
     _kept_refusal,
     _clear_refusal,
     _verify_incoming,
+    require_tree,
     FIRST_CONTACT_KEY,
     on_main,
     _take_verified,
@@ -239,6 +240,12 @@ def seed_child(agent_id: str, remote: str, text: str) -> dict:
             # `clone -b main` would resolve the name again, on its own rules;
             # the checkout names the one ref the id was read from.
             _run(["git", "clone", "-q", "--no-checkout", path, mirror], label="git clone")
+            try:
+                require_tree(mirror, "refs/remotes/origin/main")
+            except StoreError:
+                # Not left behind: the next call would find a mirror and take it as one.
+                shutil.rmtree(mirror, ignore_errors=True)
+                raise
             git(mirror, "checkout", "-q", "-B", "main", "refs/remotes/origin/main")
             git(mirror, "remote", "set-url", "origin", remote)
         # The mirror is new or rebuilt under _mirror_lock; its write lock
@@ -257,6 +264,7 @@ def _seed_take(mirror: str, path: str, remote: str, agent_id: str) -> None:
     # mirror's trusted base. Only from a bundle, and only for a mirror
     # with none: a fetch never sets a base.
     if trusted_base(mirror) is None:
+        require_tree(mirror, "refs/first-contact/main")   # the base is taken unsigned: its tree is judged instead
         _set_base(mirror, _full(mirror, "refs/first-contact/main"))
     # Whatever the remote already has, then the child's commit, each only
     # as a verified fast-forward — a fresh clone included: a mirror deleted
@@ -318,6 +326,7 @@ def take_bundle(text: str) -> dict:
                         raise StoreError(f"agent {own} is not yet on the fabric's main, and this store has had its "
                                          "first contact: nothing more is taken until its keys are merged — fetch the fabric")
                     tip = _full(store, "refs/agent-fabric/incoming")
+                    require_tree(store, tip)   # no signature is checked here, so the tree must be
                     git(store, "merge", "-q", "--ff-only", tip)
                     _set_base(store, tip)
                     git(store, "config", FIRST_CONTACT_KEY, tip)

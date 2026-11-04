@@ -292,6 +292,14 @@ def main() -> int:
         try:
             check("control: owned working copy plans a resume there",
                   resume.plan()[0] == ["--resume", SID] and resume.plan()[1] == wc)
+            # The working copy not ours but home is: the fresh start goes to home, said.
+            real_own = resume.own_dir
+            with mock.patch.object(resume, "own_dir", lambda d: d != wc and real_own(d)):
+                bind(None)
+                suffix, start, said = resume.plan()
+            check("working copy rejected, home accepted: a fresh start in home, said",
+                  suffix == [] and start == tmp and f"starting fresh in {tmp}" in said, (suffix, start, said))
+            bind(SID)
             with mock.patch.object(resume.os, "getuid", lambda: os.stat(tmp).st_uid + 1):
                 try:
                     resume.plan()

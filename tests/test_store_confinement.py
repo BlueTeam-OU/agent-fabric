@@ -71,8 +71,18 @@ def main() -> int:
         check("a path with .. is no path of the store",
               "not a path inside" in refused(core.write_confined, store, "env/../../x", b"x") and os.listdir(outside) == [])
 
+        # A two-file write learns of a refusal on the second target before the first is replaced.
+        two = os.path.join(tmp, "two")
+        os.makedirs(os.path.join(two, "state"))
+        os.symlink(os.path.join(outside, "m"), os.path.join(two, "state", "x.meta"))
+        why = refused(core.check_confined, two, "state/x.meta")
+        check("check_confined: a link as the second target is refused without writing",
+              "not a regular file" in why and os.listdir(os.path.join(two, "state")) == ["x.meta"], why)
+        check("…control: an absent target and an absent directory pass",
+              refused(core.check_confined, two, "state/none.tar.gpg") == "" and refused(core.check_confined, two, "new/x") == "")
+
         # The entry path itself, with sealing stubbed.
-        real = entries.gpg
+        real, real_git = entries.gpg, entries.git
         entries.gpg = lambda *a, **k: SimpleNamespace(stdout=b"sealed")
         entries.git = lambda *a, **k: None
         try:
@@ -88,7 +98,7 @@ def main() -> int:
             check("env a link (as a fetched tree could carry it): refused, nothing written outside",
                   bool(why) and os.listdir(outside) == [], (why, os.listdir(outside)))
         finally:
-            entries.gpg = real
+            entries.gpg, entries.git = real, real_git
 
         # The incoming tree.
         repo = os.path.join(tmp, "repo")
@@ -125,6 +135,12 @@ def main() -> int:
         gone = commit({"env/OK.gpg": None}, "delete")
         check("…a deletion of an entry", trust._tree_reason(repo, base, gone) is None)
 
+        for name in ("my notes.md", ".editorconfig", "café.md", "notes~", "-x.md"):
+            commit({f"settings/roles/dev/{name}": "x"}, "name")
+        check("settings names settings_put can commit (spaces, dots, non-ASCII, ~, -) are a store's",
+              trust._tree_reason(repo, good, g("rev-parse", "HEAD")) is None,
+              trust._tree_reason(repo, good, g("rev-parse", "HEAD")))
+
         def bad(label: str, tip: str, needle: str) -> None:
             why = trust._tree_reason(repo, base, tip) or ""
             check(label, needle in why, why)
@@ -146,12 +162,45 @@ def main() -> int:
         bad("a lower-case entry name: refused", commit({"env/lower.gpg": "x"}, "name"), "'env/lower.gpg'")
         g("checkout", "-q", "-f", "-B", "evil", base)
         bad("a path outside the layout reached through a .. part: refused", commit({"settings/../x": "x"}, "dots"), "'x'")
+        # A tree object can name ".." though git add cannot: made with mktree.
+        blob = g("hash-object", "-w", "--stdin", inp=b"x")
+        inner = g("mktree", inp=f"100644 blob {blob}\t..\n".encode())
+        dotted = g("mktree", inp=f"040000 tree {inner}\tsettings\n".encode())
+        dotted_c = g("commit-tree", dotted, "-p", base, "-m", "dotdot")
+        bad("a tree naming a .. part under settings/: refused by the part, not the regex", dotted_c, "'settings/..'")
         g("checkout", "-q", "-f", "-B", "evil", base)
         link2 = g("hash-object", "-w", "--stdin", inp=b"../..")
         g("update-index", "--add", "--cacheinfo", f"120000,{link2},settings/up")
         g("commit", "-q", "-m", "settings link")
         bad("a link under settings/: refused", g("rev-parse", "HEAD"), "mode 120000")
+        g("checkout", "-q", "-f", "-B", "evil", base)
+        bad("a .git* name under settings/ is refused, as settings_put refuses it", commit({"settings/.gitmodules": "x"}, "gm"),
+            "'settings/.gitmodules'")
 
+        # From the root the WHOLE tree is judged: a bad entry in an early commit the tip does not touch,
+        # and a merge tip (which a plain diff-tree shows as nothing).
+        g("checkout", "-q", "-f", "--orphan", "rooted")
+        g("rm", "-rq", "--cached", ".")
+        link3 = g("hash-object", "-w", "--stdin", inp=b"/etc")
+        g("update-index", "--add", "--cacheinfo", f"120000,{link3},env/LINK.gpg")
+        g("commit", "-q", "-m", "root with a link")
+        benign = commit({"env/NEW.gpg": "x"}, "benign on top")
+        check("from the root: a link added by an early commit the tip does not touch is found",
+              "mode 120000" in (trust._tree_reason(repo, None, benign) or ""), trust._tree_reason(repo, None, benign))
+        g("checkout", "-q", "-f", "-B", "side", benign)
+        side = commit({"env/SIDE.gpg": "x"}, "side")
+        g("checkout", "-q", "-f", "-B", "rooted", benign)
+        g("merge", "-q", "--no-ff", "-m", "merge", side)
+        merged = g("rev-parse", "HEAD")
+        check("from the root: a merge tip is judged on its tree, not shown as nothing",
+              "mode 120000" in (trust._tree_reason(repo, None, merged) or ""), trust._tree_reason(repo, None, merged))
+        try:
+            trust.require_tree(repo, merged)
+            required = ""
+        except StoreError as e:
+            required = str(e)
+        check("require_tree (first contact, fresh clone) refuses it, nothing applied", "nothing applied" in required, required)
+        g("checkout", "-q", "-f", "-B", "local", base)
         # The wiring: _verify_incoming refuses a signed-but-bad tree. The
         # signature step is stubbed (test_store_signing proves it with real
         # keys); what is under test is that the tree is judged after it.

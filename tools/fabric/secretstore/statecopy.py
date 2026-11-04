@@ -51,7 +51,7 @@ import stat
 import tarfile
 import tempfile
 
-from .core import write_confined, StoreError, login, own_agent_id, store_dir, gpg
+from .core import check_confined, write_confined, StoreError, login, own_agent_id, store_dir, gpg
 from .keys import key_of_store, _key_file_fingerprint
 from .trust import _commit
 from .entries import _require_clean, _before_write, _push_if_ahead, _after_commit
@@ -236,6 +236,8 @@ def state_copy(state_dir: str, claude_dir: str) -> dict:
         if same:
             _push_if_ahead(store)
             return {"path": path, "changed": False, "files": len(files), "skipped": skipped}
+        for rel in (f"state/{aid}.tar.gpg", f"state/{aid}.meta"):
+            check_confined(store, rel)   # both before either: a refusal on the second must not follow a replaced first
         sealed = gpg("--trust-model", "always", "--no-encrypt-to", "--encrypt", "--recipient", mine, *rargs,
                      stdin=tar).stdout
         write_confined(store, f"state/{aid}.tar.gpg", sealed)
