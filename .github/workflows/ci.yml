@@ -184,7 +184,10 @@ jobs:
           pkgs="$(bash runtime/provisioning/platform/packages.sh ${{ matrix.platform }} | tr '\n' ' ')"
           echo "installing: $pkgs"
           ${{ matrix.install }} $pkgs ${{ matrix.extra }}
-          python3 -m pip install --quiet --disable-pip-version-check --break-system-packages ruff==0.16.7 jsonschema || python3 -m pip install --quiet --disable-pip-version-check ruff==0.16.7 jsonschema
+          # Root in a throwaway container is the point of this step, so pip's
+          # root-user warning is answered, not fixed (fabric-ci-warnings, j542).
+          pipi="python3 -m pip install --quiet --disable-pip-version-check --root-user-action=ignore"
+          $pipi --break-system-packages ruff==0.16.7 jsonschema || $pipi ruff==0.16.7 jsonschema
       - name: the fleet's pinned Python, as a host installs it (as root, before the unprivileged login)
         run: /usr/bin/python3 tools/fabric/python_pin.py install && /usr/bin/python3 tools/fabric/python_pin.py check
       - name: every tool of the contract answers
