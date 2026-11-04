@@ -1280,6 +1280,16 @@ def main() -> int:
               rc == 1 and "neither this clone nor origin" in err and w.job(jb)["branch"] == b["branch"] and w.job(jb)["state"] == "paused",
               out + err + repr(w.job(jb)))
 
+        w, ((ja, a), (jb, b)) = two_with_branches()
+        gh_says(merged_heads=[b["branch"]], open_prs=[{"number": 40, "headRefName": mine, "isDraft": False}])
+        gitc(w.repo, "worktree", "remove", "--force", b["worktree"])
+        gitc(w.repo, "branch", "-q", "-D", b["branch"])
+        gitc(w.repo, "push", "-q", "origin", "--delete", b["branch"])
+        gitc(w.repo, "fetch", "-q", "--prune", "origin")
+        rc, out, err = w.switch(jb, cwd=a["worktree"])
+        check("a recorded branch that landed and was then deleted is said to have landed, not to be restored",
+              rc == 1 and "landed" in err and "restore" not in err and w.job(jb)["branch"] == b["branch"], out + err)
+
         for how in ("git worktree remove", "directory deleted"):
             w, ((ja, a), (jb, b)) = two_with_branches()
             if how == "git worktree remove":

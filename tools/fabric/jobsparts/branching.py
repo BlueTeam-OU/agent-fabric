@@ -110,12 +110,13 @@ def _resume(wc: str, repo: str, job: dict, default: str) -> Choice:
     """The job's recorded branch, prepared. One that is on neither this clone nor origin, or that a pull request landed, is refused
     and said: replacing it would hand the job a branch that is another's work (j511 got j513's)."""
     own = job["branch"]
-    if not (vcs.local_branch_exists(wc, own) or vcs.remote_tip(wc, own)):
-        raise Refused(f"{job['id']} records branch {own}, which is on neither this clone nor origin: it is not replaced; restore the branch, "
-                      f"or drop {job['id']} and add its work again")
+    # Landed is asked first: a merged branch is usually deleted too, and "restore it" would be the wrong advice for it.
     if _landed(wc, repo, own):
         raise Refused(f"{job['id']} records branch {own}, which a pull request has landed: it is not replaced; close {job['id']} "
                       "(fabric-jobs done or drop), or switch to another job by its id")
+    if not (vcs.local_branch_exists(wc, own) or vcs.remote_tip(wc, own)):
+        raise Refused(f"{job['id']} records branch {own}, which is on neither this clone nor origin: it is not replaced; restore the branch, "
+                      f"or drop {job['id']} and add its work again")
     return Choice("own", own, bring_up_to_date(wc, own, default), note="the job's own branch, work already begun")
 
 
@@ -165,7 +166,7 @@ def choose(job: dict, *, kind: str, needs_merged: bool) -> Choice:
                 return Choice("open-pr", head, bring_up_to_date(wc, head, default), number, repo, f"your open pull request #{number}")
             if needs_merged:
                 return Choice("blocked", None, None, number, repo, f"{why}; the job needs it merged")
-        # A branch of the generated name may exist: this job's earlier one that a pull request landed, or one a refused
+        # A branch of the generated name may exist: one a pull request landed that no job records, or one a refused
         # switch left. A new name is made beside it, never a refusal the agent has no command to clear.
         base = branch_name(job, kind)
         name = next((n for n in [base] + [f"{base}-{i}" for i in range(2, 10)]
