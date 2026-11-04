@@ -1565,6 +1565,39 @@ def test_a_correction_of_a_section_in_another_budget_part_is_listed(tmp: str) ->
     assert (entry["replaced"], entry["heading"]) == ("More", "More, corrected"), entry
 
 
+def test_a_repointed_link_takes_the_references_line_with_it(tmp: str) -> None:
+    """The harvest lists a memory's links on its *References:* line. A correction written into another slice repoints the
+    `[[link]]`; the line named the old topic beside it (fleetdeck #61 round 1): in the run's own claims and in the slice
+    an earlier run left on disk."""
+    base = {"class": "workflow", "topic": "supplier", "title": "Supplier", "body": "Text.", "evidence": ["h1"]}
+    fix = {"class": "workflow", "topic": "reserved", "title": "Supplier, reserved", "body": "Reserved. In full, with its reason.",
+           "evidence": ["h2"], "merge_target": "Supplier"}
+    user = {"class": "solution", "topic": "placement", "title": "Placement", "body": "See [[reserved]] and [[other]].",
+            "citations": {"memories": ["other", "reserved"]}, "evidence": ["h3"]}
+    # the link arrives after the correction
+    drain, claims_dir, out = build(tmp, {"alpha": claims("alpha", [base])})
+    assert run_assemble(drain, claims_dir, out).returncode == 0
+    set_claims(claims_dir, "alpha", [fix, user])
+    proc = run_assemble(drain, claims_dir, out)
+    assert proc.returncode == 0, proc.stderr
+    placed = read(proj(out, "alpha", "solution.md"))
+    assert "See [[supplier]] and [[other]]." in placed and "*References: other, supplier*" in placed, placed
+    # the link drained before the correction is pointed on disk
+    os.makedirs(os.path.join(tmp, "order"))
+    d2, c2, out2 = build(os.path.join(tmp, "order"), {"alpha": claims("alpha", [base, user])})
+    assert run_assemble(d2, c2, out2).returncode == 0
+    assert "*References: other, reserved*" in read(proj(out2, "alpha", "solution.md"))
+    set_claims(c2, "alpha", [fix])
+    assert run_assemble(d2, c2, out2).returncode == 0
+    placed = read(proj(out2, "alpha", "solution.md"))
+    assert "[[supplier]]" in placed and "*References: other, supplier*" in placed and "reserved" not in placed, placed
+    # the unchanged memory harvested again with its correction is the same claim, not a collision
+    set_claims(c2, "alpha", [fix, user])
+    proc = run_assemble(d2, c2, out2)
+    assert proc.returncode == 0 and "SUPERSED" not in proc.stderr, proc.stderr
+    assert "*References: other, supplier*" in read(proj(out2, "alpha", "solution.md"))
+
+
 def test_a_retired_heading_takes_its_writer_with_it_while_the_file_stays_and_a_fabric_slice_routes_through_the_real_report(tmp: str) -> None:
     drain, claims_dir, out = build(tmp, {"alpha": claims("alpha", [
         {"class": "solution", "topic": "one", "title": "Keep me", "body": "Stays.", "evidence": ["h1"], "observed_at": "2026-09-18"},
@@ -4117,6 +4150,7 @@ def main() -> int:
         test_a_carried_heading_with_a_banned_term_is_substituted_in_the_applied_correction_entry,
         test_a_projects_own_name_in_a_corrected_heading_does_not_end_its_entry,
         test_a_correction_of_a_section_in_another_budget_part_is_listed,
+        test_a_repointed_link_takes_the_references_line_with_it,
         test_a_retired_heading_takes_its_writer_with_it_while_the_file_stays_and_a_fabric_slice_routes_through_the_real_report,
         test_anchors_that_could_not_be_rendered_or_are_banned_are_refused_or_dropped,
         test_a_real_reports_section_writers_route_a_flag_to_the_agent_that_wrote_the_section,

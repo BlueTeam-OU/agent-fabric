@@ -222,12 +222,12 @@ _ClaimKeys = TypedDict("_ClaimKeys", {  # identities/schemas/claims.schema.json'
 
 
 class Claim(_ClaimKeys, total=False):
-    """One claim of a claims file (the schema's fields), and the three keys the
+    """One claim of a claims file (the schema's fields), and the keys the
     drain adds in memory and never writes: `_role`, the claims file's role,
     `_retire`, the headings a retitling supersede retires, `_inferred_target`,
     set when the drain (an owner's supersede, the same-agent rule) and not the
     author named the `merge_target`, and `_body_as_written`, the body before the
-    drain pointed its links at renamed topics (set only when it did)."""
+    drain pointed its links at renamed topics, and `_citations_as_written`, the citations before it did (set only when it did)."""
     title: str
     citations: dict[str, list[str]]
     knowledge_scope: str
@@ -238,6 +238,7 @@ class Claim(_ClaimKeys, total=False):
     _retire: list[str]
     _inferred_target: bool
     _body_as_written: str
+    _citations_as_written: dict[str, list[str]]
 
 
 class _OriginKeys(TypedDict):

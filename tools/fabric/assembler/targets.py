@@ -370,6 +370,26 @@ def applied_stems(run: Run) -> list[tuple[str | None, str, str]]:
     return found
 
 
+REFERENCES_RE = re.compile(r"^\*References: (.*)\*$", re.M)
+
+
+def point_text(text: str, names: dict[str, str]) -> str:
+    """`text` with every `[[name]]` and every name on a `*References: …*` line pointed at the slice it was written into.
+    The References line lists the memories a claim links (harvest_memory), so a link repointed and its citation left naming
+    the old topic would disagree inside one section (fleetdeck #61 round 1). A rewritten line is sorted and deduplicated as
+    claim_block renders it; a line naming none of `names` is untouched."""
+    if not names:
+        return text
+    link = re.compile(r"\[\[(" + "|".join(re.escape(n) for n in sorted(names, key=len, reverse=True)) + r")\]\]")
+
+    def references(found: re.Match[str]) -> str:
+        items = found.group(1).split(", ")
+        if not any(i in names for i in items):
+            return found.group(0)
+        return "*References: " + ", ".join(sorted({names.get(i, i) for i in items})) + "*"
+    return REFERENCES_RE.sub(references, link.sub(lambda m: f"[[{names[m.group(1)]}]]", text))
+
+
 def point_links(run: Run, moved: list[tuple[str | None, str, str]]) -> None:
     """A `[[memory]]` names a memory, and a claim filed in another topic's slice (a correction) is written under that
     slice's file name, so the link resolved nowhere (a drain's blind review, 2026-10-24). The claims of the role that
@@ -387,14 +407,18 @@ def point_links(run: Run, moved: list[tuple[str | None, str, str]]) -> None:
         names = {name: stem for (r, name), stem in unique.items() if r in scopes}
         if not names:
             return
-        pattern = re.compile(r"\[\[(" + "|".join(re.escape(n) for n in sorted(names, key=len, reverse=True)) + r")\]\]")
         for claim in claims:
-            pointed_body = pattern.sub(lambda m: f"[[{names[m.group(1)]}]]", claim["body"])
-            if pointed_body != claim["body"]:
+            pointed_body = point_text(claim["body"], names)
+            cites = (claim.get("citations") or {}).get("memories")
+            pointed_cites = sorted({names.get(c, c) for c in cites}) if cites and any(c in names for c in cites) else None
+            if pointed_body != claim["body"] or pointed_cites is not None:
                 # The text as the memory wrote it: an applied correction's recorded key was taken over the section as written
                 # before any drain pointed its links (shapes.drop_replayed compares both).
                 claim.setdefault("_body_as_written", claim["body"])
                 claim["body"] = pointed_body
+                if pointed_cites is not None:
+                    claim.setdefault("_citations_as_written", claim["citations"])
+                    claim["citations"] = {**claim["citations"], "memories": pointed_cites}
 
     def names_for(scopes: tuple[str | None, ...]) -> dict[str, str]:
         return {name: stem for (r, name), stem in unique.items() if r in scopes}
@@ -421,7 +445,7 @@ def pointed(run: Run, role: str | None, text: str) -> str:
     section will say, so an unchanged memory arriving in the correction's own run is the same claim, not a collision."""
     for owner, _bases, names in run.disk_links:
         if names and owner == role:   # a role's map already holds the shared names: a second pass would chain them
-            text = re.sub(r"\[\[(" + "|".join(re.escape(n) for n in names) + r")\]\]", lambda m: f"[[{names[m.group(1)]}]]", text)
+            text = point_text(text, names)
     return text
 
 
@@ -431,7 +455,6 @@ def point_disk_in(run: Run, bases: list[str], names: dict[str, str]) -> None:
     again must read as the text on disk, not as another claim. Only the body is edited, and only a link a map names."""
     if not names:
         return
-    pattern = re.compile(r"\[\[(" + "|".join(re.escape(n) for n in sorted(names, key=len, reverse=True)) + r")\]\]")
     for base in sorted(set(bases)):
         for dirpath, _dirs, files in os.walk(base):
             for name in sorted(files):
@@ -442,7 +465,7 @@ def point_disk_in(run: Run, bases: list[str], names: dict[str, str]) -> None:
                     text = fh.read()
                 head = re.match(r"^---\n.*?\n---\n", text, re.S)
                 cut = head.end() if head else 0
-                body = pattern.sub(lambda m: f"[[{names[m.group(1)]}]]", text[cut:])
+                body = point_text(text[cut:], names)
                 if body == text[cut:]:
                     continue
                 with open(path, "w", encoding="utf-8") as fh:
