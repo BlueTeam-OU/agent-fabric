@@ -32,7 +32,7 @@ if a[:2] == ["pr", "view"] and "--repo" in a:
     with open(os.path.join(fake, "calls.log"), "a") as fh:
         fh.write(key + "\\n")
     if key in doc["states"]:
-        print(json.dumps({"state": doc["states"][key]}))
+        print(json.dumps({"state": doc["states"][key], **doc.get("heads", {}).get(key, {})}))
         sys.exit(0)
     sys.stderr.write("GraphQL: Could not resolve to a PullRequest (HTTP 404)\\n")
     sys.exit(1)
@@ -89,9 +89,9 @@ def main() -> int:
         git("push", "-q", "origin", "dev/host/feat/ahead")
         git("checkout", "-q", "main")
 
-        def gh_says(states: dict[str, str]) -> None:
+        def gh_says(states: dict[str, str], heads: dict[str, dict] | None = None) -> None:
             with open(os.path.join(fake, "gh.json"), "w", encoding="utf-8") as fh:
-                json.dump({"states": states}, fh)
+                json.dump({"states": states, "heads": heads or {}}, fh)
             open(os.path.join(fake, "calls.log"), "w").close()
 
         def run(*argv: str) -> tuple[int, str, str]:
@@ -274,6 +274,17 @@ def main() -> int:
         finally:
             vcs_part.fetch = real_fetch
         check("one attempt, both stay, and the line says git could not tell", len(fetched) == 1 and all("stays" in line(out, j) and "the remote is gone" in line(out, j) for j in ids), (fetched, out))
+
+        print("an un-folded branch is excused by a merged pull request that ended at its tip, and by no other")
+        gh_says({f"{REPO}#30": "MERGED", f"{REPO}#31": "MERGED"},
+                {f"{REPO}#30": {"headRefOid": ahead_tip}, f"{REPO}#31": {"headRefOid": main_tip}})
+        ids = seed([("delivered", [f"{REPO}#30", "branch:dev/host/feat/ahead"]),
+                    ("delivered", [f"{REPO}#31", "branch:dev/host/feat/ahead"]),
+                    ("delivered", ["branch:dev/host/feat/folded", "branch:dev/host/feat/ahead"])])
+        rc, out, err = run("sweep")
+        check("a merged PR that ended at the branch's tip closes the job", "closed" in line(out, ids[0]), out + err)
+        check("a merged PR that ended elsewhere leaves the branch unsettled", "stays" in line(out, ids[1]) and "feat/ahead is not on origin/main" in line(out, ids[1]), out)
+        check("a folded branch beside an un-folded one leaves the job delivered", "stays" in line(out, ids[2]) and "feat/ahead is not on origin/main" in line(out, ids[2]), out)
 
         print("commits and branches on origin's default branch")
         gh_says({})
