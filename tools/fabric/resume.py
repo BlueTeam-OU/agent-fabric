@@ -10,9 +10,10 @@ session id the session-start hook last recorded), finds that session's
 transcript under ~/.claude/projects/, and runs the fabric's launcher with
 `--resume <id>` in the directory the session ran in (the transcript's own
 `cwd`), so the harness finds it. With no binding session, no transcript or
-no directory left, it starts a fresh session in the binding's working copy
-and says so: a resume that cannot happen is a fresh start said, never a
-failure (architect-cto's plan for Fleet Deck, 2026-10-07; the upgrade
+no directory left, it starts a fresh session in the binding's working copy,
+else home, each only if this account owns it, and says so: a resume that
+cannot happen is a fresh start said, never a failure — unless no owned
+directory is left to start in (exit 3) (architect-cto's plan for Fleet Deck, 2026-10-07; the upgrade
 path's relaunch made first-class).
 
 NEVER A SECOND SESSION (docs/fleet-deck/tab-states.md, "What must hold
@@ -45,7 +46,8 @@ both pass it. A person who runs the launcher by hand bypasses both.
 its own or one passed to the launcher after --, no lock is taken: the lock
 is read from /proc/locks, and a refusal is said as a real run says it.
 Exit codes: the launcher's when it runs; 2 inside a session or for a bad
-argument; 3 refused (a lock held, a session alive, its state unreadable),
+argument; 3 refused (a lock held, a session alive, its state unreadable, no directory
+this account owns to start in),
 said in one `fabric-resume: refused: …` line on stderr; 1 when the lock
 cannot be taken for any other reason.
 
@@ -424,7 +426,14 @@ def plan() -> tuple[list[str], str, str]:
     why = ("no session recorded" if not session else
            f"no transcript of session {session}" if not transcript else
            f"session {session}'s directory is gone, or not this account's")
-    start = working_copy if os.path.isdir(working_copy) else os.path.expanduser("~")
+    # The same ownership predicate as the resume branch: the binding's working
+    # copy can be the very directory own_dir() just rejected, and a fresh
+    # launch there loads its CLAUDE.md and settings all the same.
+    home = os.path.expanduser("~")
+    start = next((d for d in (working_copy, home) if own_dir(d)), None)
+    if start is None:
+        raise Refused(f"{why}; neither the working copy {working_copy} nor {home} is a directory this "
+                      "account owns, so there is nowhere to start")
     return [], start, f"{why}; starting fresh in {start}"
 
 
@@ -467,7 +476,11 @@ def main(argv: list[str]) -> int:
     except OSError as exc:
         say(f"cannot take {lock_path}: {exc.strerror or exc}")
         return 1
-    suffix, cwd, line = plan()
+    try:
+        suffix, cwd, line = plan()
+    except Refused as exc:
+        say(f"refused: {exc}")
+        return REFUSED
     argv = [LAUNCHER, *provider_args(extra), *extra, *suffix]
     if show:
         print(f"{line}: {' '.join(argv[1:]) or '(no arguments)'}")
