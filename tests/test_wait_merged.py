@@ -305,6 +305,20 @@ def main() -> int:
     code, text, _, _ = watch(Fake(c, ["OPEN:BLOCKED"], checks=["no required checks reported on the 'x' branch"],
                                   runs=0), c, interval=1, timeout=600)
     check("…so it feeds the missing-run diagnosis like []", code == 6 and "no workflow run exists" in text, text)
+    # An auto repository's ruleset requires the arming's status beside its checks, with no App (arm_policy.render);
+    # agent-fabric's main read [ci-ok by Actions, fabric/armed] when this was written.
+    armed = {"context": "fabric/armed"}
+    for label, contexts, stalls in (
+            ("an Actions check beside fabric/armed is still a required check no run reports", [
+                {"context": "ci-ok", "integration_id": 15368}, armed], True),
+            ("fabric/armed alone is no workflow's check", [armed], False),
+            ("(control) another App's check beside fabric/armed still declines", [
+                {"context": "ci-ok", "integration_id": 15368}, {"context": "lint", "integration_id": 99}, armed], False)):
+        c = Clock()
+        rules = [{"type": "required_status_checks", "parameters": {"required_status_checks": contexts}}]
+        code, text, _, _ = watch(Fake(c, ["OPEN:BLOCKED"], checks=[[]], rules=rules, runs=0), c, interval=30,
+                                 timeout=60)
+        check(label, (code == 6 and "no workflow run exists" in text) if stalls else code == 4, f"{code} {text}")
     for said in ("HTTP 502", "error: no required checks reported on the 'x' branch",
                  "no required checks reported on the 'x' branch, and more",
                  "gh: Bad Gateway (HTTP 502)\nno required checks reported on the 'x' branch"):

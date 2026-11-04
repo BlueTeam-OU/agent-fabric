@@ -39,7 +39,7 @@ state success, on the head its gates read before it enables auto-merge, and rend
 repository require it, so a head pushed after the arming waits for an arming of its own whatever a workflow did with
 auto-merge (audit F02). It is its own key, not an entry of required_checks: a repository's list replaces the fleet's,
 and every repository that names its own checks would drop it. Its one name is fabric/armed: disarm-on-push reads that
-context on the pushed head and cannot read a repository's policy, so another name would be an arming it takes off
+context on the PR's head and cannot read a repository's policy, so another name would be an arming it takes off
 (review of #454, F2).
 
 threshold() IS THE ORDER OF SPECIFICITY: a stated class whose regex every file matches (commits.classes), then the
