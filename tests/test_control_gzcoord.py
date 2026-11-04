@@ -309,7 +309,7 @@ def main() -> int:
 
     def weak(*a, **k):
         c = real_default(*a, **k)
-        c.minimum_version = _ssl.TLSVersion.TLSv1
+        c.minimum_version = _ssl.TLSVersion.MINIMUM_SUPPORTED   # the floor the default context may give: below 1.2, the constant TLSv1 is deprecated
         return c
     _ssl.create_default_context = weak
     try:
