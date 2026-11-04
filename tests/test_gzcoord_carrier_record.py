@@ -14,6 +14,7 @@ import json
 import os
 import sys
 import tempfile
+import threading
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, "tools", "fabric"))
@@ -202,6 +203,57 @@ def main() -> int:
             fh.write(b"garbage\n" + raw)
         check("a damaged line before the end refuses the record rather than guess",
               raises(lambda: R.Outbox(iw, iso_now=clock())))
+
+    # F01 (external review, 2026-11-04): the journal was its own lock, so a second carrier that
+    # had opened the path before a compaction's replace and locked after the first closed its
+    # old descriptor held a lock on an unlinked inode and appended there. The contender is
+    # paused between its open and its lock; whichever way the record resolves, an accepted
+    # record must survive a restart, or the contender must have been refused.
+    with tempfile.TemporaryDirectory(prefix="gz-inf-") as d:
+        iw = os.path.join(d, "iw")
+        seed = R.Outbox(iw, iso_now=clock())
+        seed.queue("D1", "beta", "done one", 1)
+        seed.receipt("D1", "beta")
+        seed.close()
+        open_for_lock, may_lock, outcome = threading.Event(), threading.Event(), {}
+        real_fcntl = R.fcntl
+
+        class PausedFcntl:
+            def __getattr__(self, name):
+                return getattr(real_fcntl, name)
+
+            def flock(self, fd, op):
+                if threading.current_thread().name == "contender":
+                    open_for_lock.set()
+                    may_lock.wait(10)
+                return real_fcntl.flock(fd, op)
+
+        def contend() -> None:
+            try:
+                box = R.Outbox(iw, iso_now=clock())
+                box.queue("C1", "beta", "accepted by the contender", 1)
+                box.close()
+                outcome["box"] = "accepted"
+            except R.RecordError:
+                outcome["box"] = "refused"
+
+        R.fcntl = PausedFcntl()
+        try:
+            t = threading.Thread(target=contend, name="contender")
+            t.start()
+            open_for_lock.wait(10)
+            first = R.Outbox(iw, iso_now=clock())     # compacts D1 away: the journal is replaced
+            first.queue("F1", "beta", "accepted by the first", 1)
+            first.close()
+            may_lock.set()
+            t.join(10)
+        finally:
+            R.fcntl = real_fcntl
+        back = R.Outbox(iw, iso_now=clock())
+        check("a carrier that opened the journal before a compaction is refused or its records survive a restart",
+              outcome.get("box") == "refused" or ("C1", "beta") in back.deliveries, str(outcome))
+        check("  and the first carrier's records survive", ("F1", "beta") in back.deliveries)
+        back.close()
 
     print(f"\ntest_gzcoord_carrier_record: {'OK' if not fails else f'FAILED — {fails} check(s)'}")
     return 1 if fails else 0
