@@ -124,18 +124,24 @@ class Quiet(unittest.TestCase):
         self.assertIsNotNone(spawned[0].poll(), "the child was not reaped")
         self.assertIs(signal.getsignal(signal.SIGINT), signal.default_int_handler, "the handler was not restored")
 
-    def test_an_ignored_sigint_stays_ignored_even_if_one_arrives_during_spawn(self) -> None:
-        real_popen = subprocess.Popen
+    def test_an_ignored_sigint_stays_ignored_even_if_one_arrives_while_the_hold_is_installed(self) -> None:
+        # The defect was a SIGINT landing between installing the hold over SIG_IGN and putting SIG_IGN back:
+        # send one right after any handler of quiet's goes in, and require it never goes in over SIG_IGN.
+        real_signal = signal.signal
+        installed: list[object] = []
 
-        def popen_then_sigint(*args, **kw):
-            proc = real_popen(*args, **kw)
-            os.kill(os.getpid(), signal.SIGINT)
-            return proc
+        def signal_then_sigint(signum, handler):
+            old = real_signal(signum, handler)
+            if signum == signal.SIGINT and handler not in (signal.SIG_IGN, signal.SIG_DFL, signal.default_int_handler, old):
+                installed.append(handler)
+                os.kill(os.getpid(), signal.SIGINT)
+            return old
 
-        previous = signal.signal(signal.SIGINT, signal.SIG_IGN)
-        self.addCleanup(signal.signal, signal.SIGINT, previous)
-        with mock.patch.object(langid_install.subprocess, "Popen", popen_then_sigint):
+        previous = real_signal(signal.SIGINT, signal.SIG_IGN)
+        self.addCleanup(real_signal, signal.SIGINT, previous)
+        with mock.patch.object(langid_install.signal, "signal", signal_then_sigint):
             self.assertTrue(langid_install.quiet(["true"], 10))
+        self.assertEqual(installed, [], "the hold was installed over an ignored SIGINT")
         self.assertIs(signal.getsignal(signal.SIGINT), signal.SIG_IGN)
 
 
