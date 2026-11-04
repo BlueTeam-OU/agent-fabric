@@ -433,7 +433,8 @@ def run(argv: list[str]) -> int:
         raise Refused("name at least one PR number or branch (try --help)")
     if not shutil.which("git"):
         raise Refused("git is required")
-    top = git.toplevel(os.getcwd())
+    r = run_git(os.getcwd(), "rev-parse", "--show-toplevel")
+    top = r.stdout.strip() if r.returncode == 0 else ""
     if not top:
         raise Refused("not inside a git working copy")
     os.chdir(top)
