@@ -159,17 +159,17 @@ def _keys(ctx: Mapping[str, Any]) -> Any:
 def _session(ctx: Mapping[str, Any]) -> Any:
     """session, plus how many of its sessions still run on an account the login has since been moved off
     (`on_old_sign_in`, absent where that cannot be told, and `old_sign_in_started`, their start times): a status reader sees an `assign --no-restart` not yet
-    taken up. Additive to the frozen reply. A context that injects `run` has faked the process table, and the
+    taken up; and `harness_server_replaced`, how many harness servers run an executable replaced since they started (absent when none or unknown). Additive to the frozen reply. A context that injects `run` has faked the process table, and the
     count reads the real one, so it is left out there unless the context gives its own `session_opts`."""
     from control import secrets
     out = session(ctx.get("uid"), **_run_kw(ctx))
     opts = ctx.get("session_opts")
-    # Its own reader of /proc, not the pgrep one below: a context that fakes the process table gives its own proc.
+    if ctx.get("run") and opts is None:
+        return out
+    # Its own reader of /proc, not the pgrep one below, but under the same rule: the real table is not read beside a faked one.
     stale = replaced_harness_servers(ctx.get("uid"), (opts or {}).get("proc", "/proc"))
     if stale:
         out["harness_server_replaced"] = stale   # absent when none, or when /proc cannot be read: only a positive is said
-    if ctx.get("run") and opts is None:
-        return out
     try:
         opts = dict(opts or {})
         proc = opts.pop("proc", "/proc")

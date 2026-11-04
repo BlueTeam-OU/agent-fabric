@@ -13,6 +13,7 @@ from gzcoord.inbox_parts import hold, tokens  # noqa: E402
 
 PGREP_TIMEOUT_S = 5
 FLEETDECK = "agent-fabric-fleetdeck"
+SERVER_ARGV = [b"--session", b"harness", b"server"]
 
 
 def identity(home: str | None = None, who: dict | None = None) -> dict:
@@ -114,9 +115,15 @@ def replaced_harness_servers(uid: int | None = None, proc: str = "/proc") -> int
             if os.stat(path).st_uid != uid:
                 continue
             exe = os.readlink(os.path.join(path, "exe"))
+            if not (exe.endswith(" (deleted)") and os.path.basename(exe[:-len(" (deleted)")]) == FLEETDECK):
+                continue
+            with open(os.path.join(path, "cmdline"), "rb") as fh:
+                argv = fh.read().split(b"\0")
         except OSError:
             continue    # gone since the listing, or not ours to read
-        if exe.endswith(" (deleted)") and os.path.basename(exe[:-len(" (deleted)")]) == FLEETDECK:
+        # The binary also runs as `terminal attach` clients and as a controller's own deck server, which the
+        # harness unit's restart does not replace: only the unit's command (ExecStart) is the server it cures.
+        if argv[1:4] == SERVER_ARGV:
             n += 1
     return n
 
