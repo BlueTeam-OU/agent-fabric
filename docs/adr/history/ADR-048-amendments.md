@@ -33,3 +33,23 @@ sudo. Built in agent-fabric #435; the read-back against the real binary
 (the unit starts, attach draws, killing the ssh leaves claude, a stop
 ends it with SIGTERM) waits for the owner's install of the binary
 (install_fleetdeck.py) and goes to `docs/live-checks/`.
+
+### Amendment 2026-11-04 — the harness pane's one `--resume`: after an idle account's `harness-restart`
+
+§5 rule 4 says what the harness pane runs: `enter --wait`, which waits for
+a person's Enter, at every start of `agent-fabric-harness.service` but one.
+Restarting an account's harness to take a new fabric left its pane
+waiting for an Enter until the owner went to it. The owner's word, 2026-11-04: a
+restart that resumes the pane by itself, one account at a time, only an
+idle one. `fabric-ctl <login|all> harness-restart` (python-dev-03's,
+agent-fabric #478) checks the unit is active and every session in the
+account's state record idle, has the account write a one-shot marker in
+its own state directory (`harness_pane.py mark-resume`, as that login:
+nothing writes into another login's home), restarts the unit, and reads
+back a session that began after the restart; the unit's pane step that
+finds the marker runs `--resume` and removes it. A marker older than ten
+minutes, unreadable or not the account's own reads as none, and a restart
+that fails after writing it removes it, so a later boot still waits. The
+word set of `enter-ssh` is unchanged: `--resume` was already one of its
+five. Run on 26 accounts on 2026-11-04 12:02–12:10Z; three that were
+working were refused and left as they were.
