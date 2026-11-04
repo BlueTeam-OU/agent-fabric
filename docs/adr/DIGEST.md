@@ -1226,13 +1226,14 @@ its record disagree, the record wins. Look it up, never read it whole:
   arming policy names (`reviews`, `boundary_reviews`; data, not this
   record) has reviewed the head with no open P1/P2 (§5 rule 6). Codex is
   pinned (§5 rule 7).
-- A 2026-10-13 — the sandbox proven before the run; Codex's own fetches off (§5 rules 2-3).
-- A 2026-10-13 — every login on a synced access token; both engines by default (§5 rules 6, 8).
-- A 2026-10-13 — a review is required; the arming policy names the engines (§5 rule 6).
+- A 2026-10-13 — sandbox proven before the run; Codex's fetches off (§5 rules 2-3).
+- A 2026-10-13 — every login on a synced access token; both engines by default (§5 rules 6/8).
+- A 2026-10-13 — review required; arming policy names the engines (§5 rule 6).
 - A 2026-10-13 — codex additional: its review or unavailable marker per head (§5 rule 6, ADR-055 rule 8).
-- A 2026-10-14 — findings judged once per head, one dispatch for both engines (§5 rule 5).
-- A 2026-10-16 — the post names the commit read (`--head`) (§5 rule 4).
-- A 2026-10-24 — v2 posts: header and coverage block (§5 rule 4).
+- A 2026-10-14 — findings judged once per head, one dispatch (§5 rule 5).
+- A 2026-10-16 — post names the commit read (`--head`) (§5 rule 4).
+- A 2026-10-24 — v2 posts: header, coverage block (§5 rule 4).
+- A 2026-11-05 — ls-tree/cat-file extract, verified; read-allowlist profile, canary (§5 rule 2).
 
 ### ADR-054 — Codex as an alternative session harness: AGENTS.md is the instruction file, a harness is an adapter (Accepted)
 

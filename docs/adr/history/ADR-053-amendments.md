@@ -96,3 +96,35 @@ on its own context-compaction warning, which the engine refuses (a
 compacted run cannot vouch for what it read), and once posted partial;
 under ADR-055 rule 8 Codex stays additional, so a partial or failed
 Codex run does not block an arm.
+
+### Amendment 2026-11-05 — the extract is git's raw tree, verified; Codex reads an allowlist
+
+§5 rule 2 said the head was a `git archive` extract and the sandbox was
+read-only, proved by a write probe. An external audit found both unsound,
+and python-dev-02 reproduced each on main before fixing it in #455
+(merged 2026-11-02, d56a133c):
+
+- F13: `git archive` honours the repository's own `export-ignore` and
+  `export-subst` attributes, so a PR could hide a tracked file from the
+  reviewer or show it a rewritten blob. The extract is now written from
+  `ls-tree` and `cat-file --batch` and verified against `ls-tree` (file
+  list, modes, blob ids); a `.git` component, `..` or a link out of the
+  extract refuses the review.
+- F01: `codex sandbox -P :read-only`, the profile the engine ran under,
+  read a canary outside the workspace by absolute path: read-only meant
+  no writes, not a narrow read. Codex now runs under a permission
+  profile (`default_permissions` in the scratch Codex home, no
+  `--sandbox`) that reads Codex's platform defaults (`:minimal`), the
+  extract, the Codex binary and tool host and the repository's git
+  history. The sandbox proof gains a canary planted in the scratch,
+  outside the allowlist, which must not be readable, and a control file
+  in the extract, which must be, so a refusal means something.
+
+Evidence (#455's description): a real `codex exec` 0.162.1 against a
+stand-in Responses endpoint could not read a key file, an uncommitted
+file, the repository's config or the home, and could run `git log`; the
+same proof refuses under the old `:read-only` profile. Known limit:
+`:minimal` makes the system's `/etc` readable (a profile naming only
+`/usr` did not exec); no account file or secret store is. The review of
+#455 raised the stale rule as a P3 (F3), and python-dev-02 routed it to
+fabric-coordinator (OBSERVATION 01a1981f).
