@@ -1143,8 +1143,14 @@ class Bootstrap:
         #       inactive by its ConditionPathExists, which is no failure here.
         #       Never restarted, not even when the unit file changed: its stop
         #       ends the session running in the pane, which is a person's call
-        #       (fabric-ctl <login> harness-stop, then harness-start).
+        #       (fabric-ctl <login> harness-stop, then harness-start). For the
+        #       same reason only a first install starts it: harness-stop does
+        #       not disable, so `enable --now` on every run started again what
+        #       a person stopped (j490). Enabled, the next boot starts it. The
+        #       start is --no-block: it waits on ExecStartPost (the pane step),
+        #       unbounded, inside moveto's 30 s bootstrap budget.
         before = self.changed
+        first_install = not os.path.lexists(os.path.join(self.units, f"{HARNESS_UNIT}.service"))
         self.put_file(os.path.join(self.units, f"{HARNESS_UNIT}.service"), f"runtime/control/{HARNESS_UNIT}.service")
         if self.dry_run:
             return
@@ -1152,7 +1158,9 @@ class Bootstrap:
             say(f"  !  {HARNESS_UNIT}: installed, not started — no user manager at {os.environ['XDG_RUNTIME_DIR']}/bus "
                 f"(loginctl enable-linger {login()}, or the next login starts it)")
             return
-        run_quiet(["systemctl", "--user", "enable", "--now", HARNESS_UNIT])
+        run_quiet(["systemctl", "--user", "enable", HARNESS_UNIT])
+        if first_install:
+            run_quiet(["systemctl", "--user", "start", "--no-block", HARNESS_UNIT])
         state = answer(["systemctl", "--user", "is-active", HARNESS_UNIT])
         if self.changed > before and state == "active":
             say(f"  *  {HARNESS_UNIT}: unit changed; not restarted, a restart ends the session in its pane "
