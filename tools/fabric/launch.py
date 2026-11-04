@@ -42,9 +42,9 @@ CONTRACT, frozen from the bash (ADR-040 §5 rule 3):
             AGENT_FABRIC_PULLED, AGENT_FABRIC_RESTART_WAIT_S,
             AGENT_FABRIC_LAUNCH_TMPDIR (the TMPDIR the launcher itself assigned, which
             a restart inherits and still prunes; any other value is the account's own),
-            AGENT_FABRIC_RESTARTING (set by a restart for its relaunch,
-            dropped before that session starts: a refusal while it is set
-            is followed by a `launch: RESTART NOT COMPLETED: …` line),
+            AGENT_FABRIC_RESTARTING (set by a restart for its relaunch, 1 or
+            fresh:<job>, dropped before that session starts: a refusal while
+            it is set is followed by a `launch: RESTART NOT COMPLETED: …` line),
             AGENT_FABRIC_FRESH_NOTE, AGENT_FABRIC_FRESH_JOB,
             AGENT_FABRIC_GW_BIN (the gateway executable, else the pin's in
             ~/.local/bin or on PATH), AGENT_FABRIC_GW_READY_TIMEOUT_S (its
@@ -508,9 +508,7 @@ def restart(state_dir: str, started: int, opening: bool, status: int, orig_args:
         return
     nxt = relaunch_args(without_resume(orig_args), fabric_root)
     base = {k: v for k, v in os.environ.items() if k != "AGENT_FABRIC_PULLED"}
-    # "fresh" says which way a refused relaunch is mended: fabric-resume would
-    # reopen the finished job's conversation, the one thing a fresh start is not.
-    base[RESTARTING] = "fresh" if resume.startswith("fresh:") else "1"
+    base[RESTARTING] = "1"
     if resume.startswith("fresh:"):
         if not opening:
             # A marker not written by fabric-fresh's own check: never
@@ -521,6 +519,12 @@ def restart(state_dir: str, started: int, opening: bool, status: int, orig_args:
         job = rest.split(":", 1)[0]
         note = rest.split(":", 1)[1] if ":" in rest else rest
         base["AGENT_FABRIC_FRESH_NOTE"] = note
+        # "fresh" says which way a refused relaunch is mended: fabric-resume would
+        # reopen the finished job's conversation, the one thing a fresh start is
+        # not. The job rides the flag too: opening_prompt drops
+        # AGENT_FABRIC_FRESH_JOB before the gateway's refusals, which must still
+        # name it (#395 re-review F3).
+        base[RESTARTING] = f"fresh:{job}"
         if job:
             base["AGENT_FABRIC_FRESH_JOB"] = job
             # The job's worktree (where its branch lives) before its working
@@ -920,9 +924,11 @@ def main(argv: list[str]) -> int:
         return status
     except Refused as exc:
         say(f"launch: {exc}")
-        stopped = os.environ.get(RESTARTING)
-        if stopped == "fresh":
-            job = os.environ.get("AGENT_FABRIC_FRESH_JOB", "")
+        stopped = os.environ.get(RESTARTING, "")
+        if stopped == "fresh" or stopped.startswith("fresh:"):
+            # A bare "fresh" is a launcher from before the job rode the flag,
+            # restarting into this one after a pull.
+            job = stopped.partition(":")[2] or os.environ.get("AGENT_FABRIC_FRESH_JOB", "")
             then = (f"start a new session here and run fabric-fresh --job {job}, which brings job {job} fresh"
                     if job else "start a new session here")
             say("launch: RESTART NOT COMPLETED: the session that finished its job was not brought back fresh; the "
