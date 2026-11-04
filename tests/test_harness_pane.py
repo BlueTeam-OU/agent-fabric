@@ -330,6 +330,153 @@ class Ensure(unittest.TestCase):
         self.assertEqual(s.typed[0][1], "/usr/local/share/moveto/enter '/home/we ird$(id)/projects' a --wait")
 
 
+class Resume(unittest.TestCase):
+    """harness-restart's one-shot exception to --wait: the marker the account wrote, read by the next ensure."""
+
+    def setUp(self):
+        self.home = tempfile.mkdtemp(prefix="hp-resume-")
+        self.addCleanup(__import__("shutil").rmtree, self.home, True)
+        self.marker = hp.marker_path("a", self.home)
+
+    def mark(self, age=0.0):
+        hp.mark_resume("a", self.home)
+        if age:
+            old = os.stat(self.marker).st_mtime - age
+            os.utime(self.marker, (old, old))
+
+    def line(self, mode):
+        return f"/usr/local/share/moveto/enter {self.home}/projects a {mode}"
+
+    def test_a_fresh_marker_types_resume_and_is_gone_after(self):
+        self.mark()
+        s = FakeServer([{"workspace_id": "w7", "label": "harness"}])
+        said = ensure(s, self.home)
+        self.assertEqual(s.typed, [("w7:p1", self.line("--resume"))])
+        self.assertFalse(os.path.lexists(self.marker))
+        self.assertIn("consumed", said)
+
+    def test_no_marker_types_wait_as_at_a_boot(self):
+        s = FakeServer([{"workspace_id": "w7", "label": "harness"}])
+        ensure(s, self.home)
+        self.assertEqual(s.typed, [("w7:p1", self.line("--wait"))])
+
+    def test_the_marker_is_for_one_ensure_only(self):
+        self.mark()
+        ensure(FakeServer([{"workspace_id": "w7", "label": "harness"}]), self.home)
+        s = FakeServer([{"workspace_id": "w7", "label": "harness"}])
+        ensure(s, self.home)
+        self.assertEqual(s.typed, [("w7:p1", self.line("--wait"))])
+
+    def test_a_marker_for_a_pane_made_new_resumes_too(self):
+        self.mark()
+        s = FakeServer()
+        ensure(s, self.home)
+        self.assertEqual(s.typed, [("w1:p1", self.line("--resume"))])
+
+    def test_an_old_marker_is_removed_and_said_and_does_not_resume(self):
+        self.mark(age=hp.RESUME_TTL_S + 5)
+        s = FakeServer([{"workspace_id": "w7", "label": "harness"}])
+        said = ensure(s, self.home)
+        self.assertEqual(s.typed, [("w7:p1", self.line("--wait"))])
+        self.assertFalse(os.path.lexists(self.marker))
+        self.assertIn("older than", said)
+
+    def test_a_marker_that_is_not_a_plain_file_is_removed_and_never_followed(self):
+        target = os.path.join(self.home, "elsewhere")
+        with open(target, "w") as fh:
+            fh.write("keep")
+        os.makedirs(os.path.dirname(self.marker))
+        os.symlink(target, self.marker)
+        s = FakeServer([{"workspace_id": "w7", "label": "harness"}])
+        said = ensure(s, self.home)
+        self.assertEqual(s.typed, [("w7:p1", self.line("--wait"))])
+        self.assertFalse(os.path.lexists(self.marker))
+        self.assertTrue(os.path.exists(target))
+        self.assertIn("not a plain file", said)
+
+    def test_a_file_of_another_owner_is_removed_and_never_resumes(self):
+        self.mark()
+        s = FakeServer([{"workspace_id": "w7", "label": "harness"}])
+        with mock.patch.object(hp.os, "getuid", return_value=os.getuid() + 1):
+            said = ensure(s, self.home)
+        self.assertEqual(s.typed, [("w7:p1", self.line("--wait"))])
+        self.assertFalse(os.path.lexists(self.marker))
+        self.assertIn("not a plain file", said)
+
+    def test_a_marker_dated_in_the_future_is_removed_and_never_resumes(self):
+        self.mark(age=-(hp.RESUME_TTL_S + 60))
+        s = FakeServer([{"workspace_id": "w7", "label": "harness"}])
+        said = ensure(s, self.home)
+        self.assertEqual(s.typed, [("w7:p1", self.line("--wait"))])
+        self.assertFalse(os.path.lexists(self.marker))
+        self.assertIn("future", said)
+
+    def test_a_marker_entry_that_cannot_be_removed_or_read_still_types_wait_and_says_so(self):
+        os.makedirs(self.marker)
+        open(os.path.join(self.marker, "x"), "w").close()      # a non-empty directory: rmdir refuses
+        s = FakeServer([{"workspace_id": "w7", "label": "harness"}])
+        said = ensure(s, self.home)
+        self.assertEqual(s.typed, [("w7:p1", self.line("--wait"))])
+        self.assertIn("cannot remove", said)
+        __import__("shutil").rmtree(self.marker)
+        open(os.path.join(self.home, ".local", "state", "agent-fabric", "agents", "a", "harness-resume"), "w").close()
+        os.chmod(os.path.dirname(self.marker), 0)
+        self.addCleanup(os.chmod, os.path.dirname(self.marker), 0o700)
+        s = FakeServer([{"workspace_id": "w7", "label": "harness"}])
+        if os.getuid() != 0:                                   # root reads through a mode 0 directory
+            said = ensure(s, self.home)
+            self.assertEqual(s.typed, [("w7:p1", self.line("--wait"))])
+            self.assertIn("cannot read", said)
+
+    def test_main_drop_resume_removes_the_marker_and_is_quiet_when_there_is_none(self):
+        entry = pwd.struct_passwd(("a", "x", os.getuid(), os.getgid(), "", self.home, "/bin/sh"))
+        self.mark()
+        for _ in range(2):
+            out = io.StringIO()
+            with mock.patch.object(hp.pwd, "getpwuid", return_value=entry), redirect_stdout(out):
+                self.assertEqual(hp.main(["drop-resume"]), 0)
+            self.assertFalse(os.path.lexists(self.marker))
+
+    def test_a_step_that_fails_keeps_the_marker_for_the_units_restart(self):
+        self.mark()
+        s = FakeServer([{"workspace_id": "w7", "label": "harness"}], typed_lost=True)
+        with self.assertRaises(hp.Failed):
+            ensure(s, self.home)
+        self.assertTrue(os.path.lexists(self.marker))
+        s = FakeServer([{"workspace_id": "w7", "label": "harness"}])
+        ensure(s, self.home)
+        self.assertEqual(s.typed, [("w7:p1", self.line("--resume"))])
+
+    def test_a_pane_found_running_consumes_the_marker_and_types_nothing(self):
+        self.mark()
+        s = FakeServer([{"workspace_id": "w7", "label": "harness", "running": True}])
+        ensure(s, self.home)
+        self.assertEqual(s.typed, [])
+        self.assertFalse(os.path.lexists(self.marker))
+
+    def test_the_marker_is_private_and_a_second_mark_is_a_new_lifetime(self):
+        self.mark(age=hp.RESUME_TTL_S - 1)
+        self.assertEqual(os.stat(self.marker).st_mode & 0o777, 0o600)
+        self.assertEqual(os.stat(os.path.dirname(self.marker)).st_mode & 0o777 & 0o077, 0)
+        self.mark()
+        self.assertTrue(hp.read_marker("a", self.home, __import__("time").time)[0])
+        self.assertEqual(os.listdir(os.path.dirname(self.marker)), [hp.RESUME_MARKER])
+
+    def test_a_marker_that_cannot_be_written_is_one_line_not_a_traceback(self):
+        open(os.path.join(self.home, ".local"), "w").close()
+        with self.assertRaises(hp.Failed):
+            hp.mark_resume("a", self.home)
+
+    def test_main_mark_resume_writes_under_the_passwd_home_never_the_environment(self):
+        entry = pwd.struct_passwd(("a", "x", os.getuid(), os.getgid(), "", self.home, "/bin/sh"))
+        out = io.StringIO()
+        with mock.patch.object(hp.pwd, "getpwuid", return_value=entry), mock.patch.dict(os.environ, {"HOME": "/nonexistent", "XDG_STATE_HOME": "/nonexistent"}), \
+                redirect_stdout(out):
+            rc = hp.main(["mark-resume"])
+        self.assertEqual((rc, out.getvalue()), (0, f"wrote {self.marker}\n"))
+        self.assertTrue(os.path.isfile(self.marker))
+
+
 class WaitLine(unittest.TestCase):
     """The deck's boot presses Enter only at `<login> - Enter to activate` (fork PR #50, interface point c): the unit's
     pane runs exactly the line this module types, so the line is read from moveto's own enter run with those arguments."""
@@ -402,7 +549,11 @@ else:
 """)
         log = os.path.join(os.path.dirname(path), "log")
         out, err = io.StringIO(), io.StringIO()
+        home = tempfile.mkdtemp(prefix="hp-home-")
+        self.addCleanup(__import__("shutil").rmtree, home, True)
+        entry = pwd.struct_passwd(("a", "x", os.getuid(), os.getgid(), "", home, "/bin/sh"))
         with mock.patch.object(hp, "BINARY", path), mock.patch.object(hp, "SETTLE_S", 0.2), mock.patch.object(hp, "POLL_S", 0.1), \
+                mock.patch.object(hp.pwd, "getpwuid", return_value=entry), \
                 mock.patch.dict(os.environ, {"HP_LOG": log}), redirect_stdout(out), redirect_stderr(err):
             rc = hp.main(["ensure"])
         self.assertEqual((rc, err.getvalue()), (0, ""), out.getvalue())
@@ -414,13 +565,17 @@ else:
 
     def test_a_missing_binary_is_one_line_exit_1_and_no_traceback(self):
         out, err = io.StringIO(), io.StringIO()
-        with mock.patch.object(hp, "BINARY", "/nonexistent/agent-fabric-fleetdeck"), mock.patch.object(hp, "WAIT_S", 0), redirect_stdout(out), redirect_stderr(err):
+        home = tempfile.mkdtemp(prefix="hp-home-")
+        self.addCleanup(__import__("shutil").rmtree, home, True)
+        entry = pwd.struct_passwd(("a", "x", os.getuid(), os.getgid(), "", home, "/bin/sh"))
+        with mock.patch.object(hp, "BINARY", "/nonexistent/agent-fabric-fleetdeck"), mock.patch.object(hp, "WAIT_S", 0), \
+                mock.patch.object(hp.pwd, "getpwuid", return_value=entry), redirect_stdout(out), redirect_stderr(err):
             rc = hp.main(["ensure"])
         self.assertEqual((rc, out.getvalue()), (1, ""))
         self.assertTrue(err.getvalue().startswith("harness_pane: ") and err.getvalue().count("\n") == 1 and "Traceback" not in err.getvalue(), err.getvalue())
 
     def test_any_other_argv_is_a_usage_line_and_exit_2(self):
-        for argv in ([], ["ensure", "x"], ["stop"]):
+        for argv in ([], ["ensure", "x"], ["stop"], ["mark-resume", "x"]):
             err = io.StringIO()
             with redirect_stderr(err):
                 self.assertEqual(hp.main(argv), 2)

@@ -1500,7 +1500,7 @@ class Help(unittest.TestCase):
     def test_the_table_has_every_verb_the_ops_and_the_unit_ops_and_keygen_have(self):
         from control.ops import OPS
         from control import units
-        expected = (set(OPS) - self.NOT_VERBS) | {"states", "keygen", *units.UNIT_OPS}
+        expected = (set(OPS) - self.NOT_VERBS) | {"states", "keygen", *units.UNIT_OPS, units.RESTART_OP}
         self.assertEqual(set(ctl.VERB), expected)
 
     def test_usage_is_the_rendered_table_byte_for_byte_as_before_the_table(self):

@@ -188,7 +188,7 @@ class Units(unittest.TestCase):
 
     def test_refusals_run_nothing(self):
         fake = FakeSystemd({"a": "inactive"})
-        for argv, want in ((["a", "control-start", "--include-self"], "control-stop and harness-stop only"), (["nobody", "control-stop"], "not a placed account")):
+        for argv, want in ((["a", "control-start", "--include-self"], "control-stop, harness-stop and harness-restart only"), (["nobody", "control-stop"], "not a placed account")):
             fake.calls.clear()
             rc, out, err = self.ctl(argv, fake)
             self.assertEqual((rc, out, fake.calls), (2, [], []), argv)
