@@ -112,6 +112,8 @@ check("signatures as a word", mutated(DEFAULT, "signatures", value="yes"), False
 # The armed status: a context name, or null for a repository that turns it off; the committed file sets it.
 check("armed_status off", mutated(DEFAULT, "armed_status", value=None), True)
 check("armed_status named", mutated(DEFAULT, "armed_status", value="fabric/armed"), True)
+# Another name is refused: disarm-on-push keeps an arming only by fabric/armed and reads no policy (review of #454, F2).
+check("armed_status another name", mutated(DEFAULT, "armed_status", value="gate/armed"), False, "")
 check("armed_status empty", mutated(DEFAULT, "armed_status", value=""), False, "")
 check("armed_status padded", mutated(DEFAULT, "armed_status", value="fabric/armed "), False, "")
 check("armed_status a list", mutated(DEFAULT, "armed_status", value=["fabric/armed"]), False, "")
