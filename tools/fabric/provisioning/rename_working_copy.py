@@ -24,6 +24,8 @@ path, as the account:
   ~/.claude.json  projects["<old path>"] -> projects["<new path>"]
   ~/.claude/history.jsonl "project"      -> the new path
   the agent's binding (working_copy, workspace)
+  the agent's jobs.json: working_copy and worktree of every unfinished job
+  every linked worktree's link to the clone (git worktree repair)
 Nothing else holds the path: hooks resolve the fabric from $CLAUDE_PROJECT_DIR,
 core.hooksPath is absolute to the fabric checkout, secrets come from the
 environment, and a GZCoord address is the login.
@@ -31,7 +33,8 @@ environment, and a GZCoord address is the login.
 Refused when the account has a live `claude` process: a session mid-flight
 would keep writing under the old key. Idempotent: a step already done is
 skipped. It stops where it fails (review, 2026-09-16): a `mv` that did not
-happen, or a prune that failed, ends the run before any history is rewritten
+happen, a `worktree repair` or prune that failed, or a worktree of the clone
+that git cannot open afterwards, ends the run before any history is rewritten
 — the history step runs only once the tree is at its new path, so the two
 never disagree about where the clone is.
 
@@ -100,6 +103,40 @@ class Renamer:
         if self.as_account(argv).returncode != 0:
             _die(f"step failed: as {' '.join(argv)} — nothing after it ran; the tree and the history are as they were")
 
+    def other_worktrees(self, path: str) -> list[str]:
+        """The checkouts of the same repository that are not `path`, as git lists them before the move. A prunable one is
+        already a stale record, not a checkout to keep open."""
+        got = self.as_account(["git", "-C", path, "worktree", "list", "--porcelain"], capture=True)
+        if got.returncode != 0:
+            _die(f"{self.login}: git worktree list failed in {path}; nothing moved")
+        found = []
+        for block in (got.stdout or "").split("\n\n"):
+            lines = block.strip().split("\n")
+            if not lines[0].startswith("worktree "):
+                continue
+            if any(ln == "bare" or ln.startswith("prunable") for ln in lines):
+                continue
+            where = lines[0][len("worktree "):]
+            if where != path:
+                found.append(where)
+        return found
+
+    def settle_worktrees(self, newp: str, moved: list[str], *, prune: bool) -> None:
+        """Both ends of a worktree link hold an absolute path: the moved checkout's .git file (or the main's
+        .git/worktrees/<n>/gitdir) and the other side's record of it. `repair`, given every checkout's new path
+        (`moved`), rewrites the ends the move broke; `prune` alone would drop the record of a worktree that still exists.
+        Every worktree git then lists must open, or the run stops before the history moves."""
+        self.must(["git", "-C", newp, "worktree", "repair", *moved])
+        if prune:
+            self.must(["git", "-C", newp, "worktree", "prune"])
+        got = self.as_account(["git", "-C", newp, "worktree", "list", "--porcelain"], capture=True)
+        if got.returncode != 0:
+            _die(f"{self.login}: git worktree list failed in {newp}; history left under its old key")
+        listed = [ln[len("worktree "):] for ln in (got.stdout or "").split("\n") if ln.startswith("worktree ")]
+        for path in dict.fromkeys([newp, *moved, *listed]):
+            if self.as_account(["git", "-C", path, "status", "--porcelain", "--untracked-files=no"], capture=True).returncode != 0:
+                _die(f"{self.login}: {newp} is in place, but git cannot open the worktree {path}; history left under its old key — repair it by hand, then run again")
+
     def is_dir(self, path: str) -> bool:
         return _run([*self.sudo, "test", "-d", path]).returncode == 0
 
@@ -124,6 +161,11 @@ class Renamer:
         if not self.is_dir(oldp):
             if self.is_dir(newp):
                 _say(f"{self.login}: already at {newp}")
+                # A first run that stopped after the mv (repair or a worktree that would not open) leaves exactly this
+                # state; "already done" must not skip what it was stopped on. No prune: it would drop the record of a
+                # worktree repair could not reach, and the verification below is what must see it.
+                if not self.dry:
+                    self.settle_worktrees(newp, [], prune=False)
             else:
                 _die(f"{self.login}: no {oldp}")
         if self.is_dir(oldp):
@@ -145,8 +187,10 @@ class Renamer:
             if self.dry:
                 _say(f"would: mv {oldp} {newp}")
             else:
+                others = self.other_worktrees(oldp)
                 self.must(["mv", oldp, newp])
-                self.must(["git", "-C", newp, "worktree", "prune"])
+                after = [newp, *[newp + o[len(oldp):] if o.startswith(oldp + os.sep) else o for o in others]]
+                self.settle_worktrees(newp, after, prune=True)
                 _say(f"{self.login}: moved to {newp}")
         # The history follows the tree, and only a tree that is where the new key
         # says: a dry run reports; a real run past this line has newp in place.

@@ -33,8 +33,11 @@ a = sys.argv[1:]
 doc = json.load(open(os.path.join(os.environ["FAKE_DIR"], "gh.json")))
 if a[:2] == ["pr", "view"] and "--repo" in a:
     key = a[a.index("--repo") + 1] + "#" + a[2]
+    if key in doc["states"] and a[a.index("--json") + 1] == "headRefOid" and key in doc.get("head_fails", []):
+        sys.stderr.write("GraphQL: head unavailable (HTTP 502)\\n")
+        sys.exit(1)
     if key in doc["states"]:
-        print(json.dumps({"state": doc["states"][key]}))
+        print(json.dumps({"state": doc["states"][key], **doc["heads"].get(key, {})}))
         sys.exit(0)
     sys.stderr.write("GraphQL: Could not resolve to a PullRequest (HTTP 404)\\n")
     sys.exit(1)
@@ -90,9 +93,9 @@ def main() -> int:
         mine = f"{host}/{login}/feat/earlier"      # a branch of this login with an open pull request, where a case has one
         n_worlds = 0
 
-        def gh_says(states=None, open_prs=None, merged_heads=None) -> None:
+        def gh_says(states=None, open_prs=None, merged_heads=None, heads=None, head_fails=None) -> None:
             with open(os.path.join(fake, "gh.json"), "w", encoding="utf-8") as fh:
-                json.dump({"states": states or {}, "open_prs": open_prs or [], "merged_heads": merged_heads or []}, fh)
+                json.dump({"states": states or {}, "open_prs": open_prs or [], "merged_heads": merged_heads or [], "heads": heads or {}, "head_fails": head_fails or []}, fh)
 
         class World:
             """A fresh state directory and a fresh checkout with its origin."""
@@ -451,12 +454,61 @@ def main() -> int:
         w = World()
         j1 = w.working("squash-merged, its branch left un-folded")
         pushed_branch(w)
-        gh_says({f"{jobs_world.GH_REPO}#2": "MERGED"})
+        tip = subprocess.run(["git", "-C", w.repo, "rev-parse", f"origin/{contrib}"], capture_output=True, text=True, check=True).stdout.strip()
+        gh_says({f"{jobs_world.GH_REPO}#2": "MERGED"}, heads={f"{jobs_world.GH_REPO}#2": {"headRefName": contrib, "headRefOid": tip}})
         w.sw("deliver", j1, f"{jobs_world.GH_REPO}#2", contrib)
         w.sw("done", j1)
         w.add("the next job")
         rc, out, err = w.switch()
-        check("a merged pull request settles a done job although its branch was squashed, not folded", rc == 0 and "#2 merged" in out, out + err)
+        check("a merged pull request whose head is the branch's tip settles a done job although the branch was squashed, not folded", rc == 0 and "#2 merged" in out, out + err)
+
+        # F03: the exception holds for the branch the merged pull request carried, not for any branch beside it.
+        other = "host/agent/for/user/unmerged-work"
+        w = World()
+        j1 = w.working("one branch folded, one with work absent from main")
+        pushed_branch(w, fold=True)
+        git(w, "checkout", "-q", "-b", other)
+        git(w, "commit", "-q", "--allow-empty", "-m", "work that is on no merged pull request")
+        git(w, "push", "-q", "origin", other)
+        git(w, "checkout", "-q", "main")
+        w.sw("deliver", j1, contrib, other)
+        w.sw("done", j1)
+        settles(w, j1, "a folded branch does not settle a sibling branch whose work is absent from main", f"branch {other} is not on origin/main")
+        w = World()
+        j1 = w.working("positive control: the sibling branch is on a merged pull request")
+        pushed_branch(w, fold=True)
+        git(w, "checkout", "-q", "-b", other)
+        git(w, "commit", "-q", "--allow-empty", "-m", "squashed elsewhere")
+        git(w, "push", "-q", "origin", other)
+        git(w, "checkout", "-q", "main")
+        tip = subprocess.run(["git", "-C", w.repo, "rev-parse", f"origin/{other}"], capture_output=True, text=True, check=True).stdout.strip()
+        gh_says({f"{jobs_world.GH_REPO}#2": "MERGED"}, heads={f"{jobs_world.GH_REPO}#2": {"headRefName": other, "headRefOid": tip}})
+        w.sw("deliver", j1, contrib, other, f"{jobs_world.GH_REPO}#2")
+        w.sw("done", j1)
+        w.add("the next job")
+        rc, out, err = w.switch()
+        check("…while the same pair with a merged pull request ending at that sibling's tip settles", rc == 0, out + err)
+
+        w = World()
+        j1 = w.working("a merged pull request whose head gh cannot tell")
+        pushed_branch(w)
+        gh_says({f"{jobs_world.GH_REPO}#2": "MERGED"}, head_fails=[f"{jobs_world.GH_REPO}#2"])
+        w.sw("deliver", j1, f"{jobs_world.GH_REPO}#2", contrib)
+        w.sw("done", j1)
+        settles(w, j1, "a head gh cannot read is could not tell, never settled", "could not tell where")
+
+        w = World()
+        j1 = w.working("a merged pull request, then more work pushed on its branch")
+        pushed_branch(w)
+        old_tip = subprocess.run(["git", "-C", w.repo, "rev-parse", f"origin/{contrib}"], capture_output=True, text=True, check=True).stdout.strip()
+        git(w, "checkout", "-q", contrib)
+        git(w, "commit", "-q", "--allow-empty", "-m", "after the merge")
+        git(w, "push", "-q", "origin", contrib)
+        git(w, "checkout", "-q", "main")
+        gh_says({f"{jobs_world.GH_REPO}#2": "MERGED"}, heads={f"{jobs_world.GH_REPO}#2": {"headRefName": contrib, "headRefOid": old_tip}})
+        w.sw("deliver", j1, f"{jobs_world.GH_REPO}#2", contrib)
+        w.sw("done", j1)
+        settles(w, j1, "a merged pull request that ended at an older head does not settle the branch pushed past it", f"branch {contrib} is not on origin/main")
 
         w = World()
         j1 = w.working("delivered, then the branch was deleted on origin")

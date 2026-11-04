@@ -93,22 +93,30 @@ def branch_view(job: Job) -> Job:
 
 class PrStates:
     """gh's answer per distinct pull request, asked once for the whole run; a failed answer is remembered too, so a PR that cannot
-    be read is not asked again by every job that names it."""
+    be read is not asked again by every job that names it. The head is a second question, asked only for a merged PR beside an
+    un-folded branch."""
 
     def __init__(self) -> None:
         self.answers: dict[tuple[str, str], str | Exception] = {}
+        self.heads: dict[tuple[str, str], str | Exception] = {}
 
-    def __call__(self, repo: str, number: str) -> str:
+    def _ask(self, cache: dict, field: str, repo: str, number: str) -> str:
         key = (repo.lower(), number)
-        if key not in self.answers:
+        if key not in cache:
             try:
-                self.answers[key] = str(vcs.gh.pr_view(int(number), ["state"], repo=repo, timeout=GH_TIMEOUT_S).get("state") or "")
+                cache[key] = str(vcs.gh.pr_view(int(number), [field], repo=repo, timeout=GH_TIMEOUT_S).get(field) or "")
             except (vcs.gh.GhError, ValueError) as e:
-                self.answers[key] = e
-        answer = self.answers[key]
+                cache[key] = e
+        answer = cache[key]
         if isinstance(answer, Exception):
             raise answer
         return answer
+
+    def __call__(self, repo: str, number: str) -> str:
+        return self._ask(self.answers, "state", repo, number)
+
+    def head(self, repo: str, number: str) -> str:
+        return self._ask(self.heads, "headRefOid", repo, number)
 
 
 def verdict(job: Job, repos: dict[str, str], named: re.Pattern | None, states: PrStates) -> tuple[list[str], list[str]]:
@@ -117,7 +125,7 @@ def verdict(job: Job, repos: dict[str, str], named: re.Pattern | None, states: P
     problems: list[str] = []
     if not job.get("artifacts") and job.get("topic") != "reflection":
         return [], ["no artifacts"]
-    landed = st._landed(branch_view(job), found, problems, pr_state=states)
+    landed = st._landed(branch_view(job), found, problems, pr_state=states, pr_head=states.head)
     # settle's done path asks the same of a reflection job: a pass lands no PR, its evidence is the closed cursor (ADR-058).
     landed += st._reflected(job, problems)
     problems += [f"unresolved: {u}" for u in unresolved]
