@@ -5,7 +5,7 @@ with it. test_langid_install.py, the oracle for the shell's contract, cannot
 reach either: its pip stand-in always returns at once.
 
 Mutations this fails on: start_new_session dropped, the killpg dropped,
-the BaseException handler narrowed back to TimeoutExpired, == 0 turned
+the BaseException handler narrowed back to TimeoutExpired, the SIGINT hold across Popen dropped, == 0 turned
 into != 0."""
 from __future__ import annotations
 
@@ -18,6 +18,7 @@ import sys
 import tempfile
 import time
 import unittest
+from unittest import mock
 
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(HERE, "tools", "fabric"))
@@ -95,6 +96,53 @@ class Quiet(unittest.TestCase):
         self.assertEqual(parent.wait(timeout=30), -signal.SIGINT)
         time.sleep(0.2)
         self.assertFalse(alive(pid), "an interrupt left the child running")
+
+    def test_interrupt_landing_inside_spawn_still_kills_the_child(self) -> None:
+        # The signal arrives after the child exists and before Popen has handed
+        # it back — a window a rerun cannot hit on demand, so Popen is wrapped to
+        # raise it there. The child must not outlive the interrupt.
+        real_popen = subprocess.Popen
+        spawned: list[subprocess.Popen] = []
+
+        def popen_then_sigint(*args, **kw):
+            proc = real_popen(*args, **kw)
+            spawned.append(proc)
+            self.grandchild()  # the child is really running its own child before the signal
+            os.kill(os.getpid(), signal.SIGINT)
+            return proc
+
+        previous = signal.signal(signal.SIGINT, signal.default_int_handler)
+        self.addCleanup(signal.signal, signal.SIGINT, previous)
+        self.addCleanup(lambda: [self.reap_group(p) for p in spawned])
+        with mock.patch.object(langid_install.subprocess, "Popen", popen_then_sigint):
+            with self.assertRaises(KeyboardInterrupt):
+                langid_install.quiet(self.hang, 300)
+        self.assertEqual(len(spawned), 1)
+        pid = self.grandchild()
+        time.sleep(0.2)
+        self.assertFalse(alive(pid), "an interrupt during spawn left the child's child running")
+        self.assertIsNotNone(spawned[0].poll(), "the child was not reaped")
+        self.assertIs(signal.getsignal(signal.SIGINT), signal.default_int_handler, "the handler was not restored")
+
+    def test_an_ignored_sigint_stays_ignored_even_if_one_arrives_while_the_hold_is_installed(self) -> None:
+        # The defect was a SIGINT landing between installing the hold over SIG_IGN and putting SIG_IGN back:
+        # send one right after any handler of quiet's goes in, and require it never goes in over SIG_IGN.
+        real_signal = signal.signal
+        installed: list[object] = []
+
+        def signal_then_sigint(signum, handler):
+            old = real_signal(signum, handler)
+            if signum == signal.SIGINT and handler not in (signal.SIG_IGN, signal.SIG_DFL, signal.default_int_handler, old):
+                installed.append(handler)
+                os.kill(os.getpid(), signal.SIGINT)
+            return old
+
+        previous = real_signal(signal.SIGINT, signal.SIG_IGN)
+        self.addCleanup(real_signal, signal.SIGINT, previous)
+        with mock.patch.object(langid_install.signal, "signal", signal_then_sigint):
+            self.assertTrue(langid_install.quiet(["true"], 10))
+        self.assertEqual(installed, [], "the hold was installed over an ignored SIGINT")
+        self.assertIs(signal.getsignal(signal.SIGINT), signal.SIG_IGN)
 
 
 class HalfMadeVenv(unittest.TestCase):

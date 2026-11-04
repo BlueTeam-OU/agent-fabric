@@ -149,6 +149,33 @@ class TmpdirTest(unittest.TestCase):
         self.assertEqual(os.listdir(own), ["old"])
         self.assertFalse(os.path.exists(session.default_tmpdir(env)), "the default is not made beside it")
 
+    def test_a_restart_inherits_the_launchers_own_default_and_still_prunes_it(self):
+        # restart() relaunches with os.environ, which now holds the TMPDIR the first launch assigned:
+        # the second settle must know that value is the launcher's own, not the account's choice.
+        first = {"HOME": self.home}
+        session.settle_tmpdir(first, now=self.later())
+        tmp = first["TMPDIR"]
+        put(f"{tmp}/stale")
+        second = dict(first)   # what a re-exec carries over
+        session.settle_tmpdir(second, now=self.later())
+        self.assertEqual((second["TMPDIR"], os.listdir(tmp)), (tmp, []), "the inherited default was taken for the account's own")
+
+    def test_the_provenance_marker_does_not_excuse_an_account_set_value(self):
+        own = os.path.join(self.sandbox, "own")
+        put(f"{own}/old")
+        env = {"HOME": self.home}
+        session.settle_tmpdir(env)
+        env["TMPDIR"] = own   # the account then points TMPDIR elsewhere, the launcher's marker still inherited
+        session.settle_tmpdir(env, now=self.later())
+        self.assertEqual((env["TMPDIR"], os.listdir(own)), (own, ["old"]))
+
+    def test_a_marker_naming_a_path_other_than_the_default_is_ignored(self):
+        own = os.path.join(self.sandbox, "own")
+        put(f"{own}/old")
+        env = {"HOME": self.home, "TMPDIR": own, session.LAUNCH_TMPDIR: own}
+        session.settle_tmpdir(env, now=self.later())
+        self.assertEqual((env["TMPDIR"], os.listdir(own)), (own, ["old"]), "an environment can name any path; only the default is pruned")
+
     def test_this_logins_pre_292_default_is_replaced_by_the_home_default(self):
         env = {"HOME": self.home, "TMPDIR": "/var/tmp/agent-fabric-alice"}
         session.settle_tmpdir(env, login="alice")
