@@ -293,6 +293,10 @@ def main() -> int:
         check("text report says N cleared by the file, with each reason",
               rc == 0 and f"3 line(s) cleared (3 distinct) by {ci_warnings.CLEARED_FILE}:" in out
               and "— self-test label" in out and "0x  /never printed/ — stale" in out and "3 distinct finding(s)" in out, out)
+        evil = {"cleared": [{"regex": "deprecated-refs: OK", "reason": "ok\n\n9x  forged\x1b[2J\x1b]0;t\x07"}]}
+        rc, out, _, _ = run(declare(tab2, evil), "--repo", REPO)
+        check("a declaration's reason cannot send an escape or forge a finding line",
+              rc == 0 and "\x1b" not in out and "\x07" not in out and "\n9x  forged" not in out and "1x  /deprecated-refs: OK/ — ok 9x forged" in out, repr(out[-200:]))
         rc, out, _, _ = run(declare(tab2, {"cleared": [{"regex": ".*", "reason": "all"}]}), "--repo", REPO, "--level", "warning")
         check("with --level excluding log nothing is cleared or counted as cleared",
               rc == 0 and "cleared" not in out, out)

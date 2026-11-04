@@ -47,7 +47,8 @@ What is a finding, and its limits.
     the contents API, absent (HTTP 404) meaning nothing is declared:
         {"cleared": [{"regex": "<pattern>", "reason": "<why this is not a warning>"}]}
     `regex` must match the whole message (re.fullmatch, after the cleaning below) and
-    `reason` is required; no other key is accepted, so a typo is refused, not ignored.
+    `reason` is required, and both are shown with control characters made inert; a
+    pattern is run unbounded, so one that backtracks catastrophically stalls the run; no other key is accepted, so a typo is refused, not ignored.
     Only level `log` is clearable: a line GitHub marks warning or notice stays a
     finding until the workflow stops printing it. A cleared finding leaves the list
     and is counted and said: "N cleared by <file>" with each entry's reason and its
@@ -102,7 +103,7 @@ CLEARED_FILE = ".github/ci-warnings-cleared.json"
 
 
 class Unread(Exception):
-    """One job's log or annotations could not be read: said, never skipped."""
+    """A job's log or annotations, or the repository's cleared-file, could not be read: said, never skipped."""
 
 
 # What is left of a control character after colours are gone (an OSC title, a private CSI, a bell) must not
@@ -333,7 +334,7 @@ def render(repo: str, nruns: int, njobs: int, rows: list[dict], unread: list[str
                   f"    in {r['runs']} of {nruns} run(s); latest run {r['latest_run']}"]
     if cleared and cleared["entries"]:
         lines += ["", f"{cleared['count']} line(s) cleared ({cleared['distinct']} distinct) by {cleared['file']}:"]
-        lines += [f"  {e['count']}x  /{e['regex']}/ — {e['reason']}" for e in cleared["entries"]]
+        lines += [f"  {e['count']}x  /{clean(e['regex'])}/ — {clean(e['reason'])}" for e in cleared["entries"]]
     if unread:
         lines += ["", f"NOT READ ({len(unread)}) — these jobs are unknown, not clean:"] + [f"  {u}" for u in unread]
     return "\n".join(lines) + "\n"
@@ -352,7 +353,7 @@ def build_parser() -> argparse.ArgumentParser:
         description="Print the warnings and deprecations a repository's recent CI runs print, each once, with "
                     "workflow, job, step and count. Read-only: runs, jobs, annotations and logs through gh; "
                     "fixes nothing.",
-        epilog="exit: 0 read in full; 1 runs could not be listed; 2 usage; 3 some job was not read (listed in "
+        epilog="exit: 0 read in full; 1 runs could not be listed, or the cleared-file could not be read or is invalid; 2 usage; 3 some job was not read (listed in "
                "the report).")
     p.add_argument("--repo", metavar="OWNER/NAME", help="the repository (default: this working copy's origin)")
     p.add_argument("--runs", type=int, default=DEFAULT_RUNS, metavar="N",
