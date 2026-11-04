@@ -533,6 +533,20 @@ def main() -> int:
                     except OSError:
                         pass
 
+        print("the check runs with the mask it was called with, not the one held at its spawn (PR 482 round 1 F1)")
+        def sig_blk(status: str) -> int:
+            return int(next(l for l in status.split("\n") if l.startswith("SigBlk:")).split()[1], 16)
+        before = sig_blk(open("/proc/self/status").read())
+        room4 = os.path.join(scratch, "mask-room")
+        os.makedirs(room4)
+        rc, out = tm.run_check(room4, ["cat", "/proc/self/status"], "60", "", HERE, lambda _pid: None)
+        check("the mask probe ran", rc == 0 and "SigBlk:" in out)
+        check("the check's SigBlk is the caller's", rc == 0 and sig_blk(out) == before)
+        check("the caller's mask is back after the spawn", sig_blk(open("/proc/self/status").read()) == before)
+        started_at = time.monotonic()
+        rc, _ = tm.run_check(room4, ["sleep", "30"], "1", "", HERE, lambda _pid: None)
+        check("a 1 s bound ends the check in about 1 s", rc == 124 and time.monotonic() - started_at < 5)
+
         print("the help is the bash's header, nothing else")
         check("first and last line", tm.HELP.startswith("Do these branches combine?") and tm.HELP.endswith("(default 1 GiB)"))
 
