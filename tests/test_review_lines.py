@@ -69,7 +69,7 @@ def test_the_brief_states_the_lines_for_each_mode(tmp: str) -> None:
     prev = os.path.join(tmp, "lines-previous.md")
     open(prev, "w").write("## Findings on the change\n1. P2 likely: a.txt:1 ...\n")
     review = review_brief.render(trb.base_request(repo))
-    judge = review_brief.render({**trb.base_request(repo), "mode": "finding-adjudication", "previous_findings": prev})
+    judge = review_brief.render({**trb.adjudication_request(repo), "previous_findings": prev})
     assert review.count("\n## Report lines\n") == 1 and judge.count("\n## Report lines\n") == 1
     for mode, out in (("review", review), ("finding-adjudication", judge)):
         assert out.endswith("## Report lines\n" + "\n".join(review_lines.report_rules(mode)) + "\n"), (mode, out[-600:])
