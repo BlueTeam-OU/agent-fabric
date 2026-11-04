@@ -37,7 +37,9 @@ WHAT IS NOT NODE'S: PROJECT_SLUG is registry_id.py's grammar, shared with the
 job list and the intake. It admits a dot inside an id (the registry has ids
 that Node refused), refuses a trailing hyphen Node admitted, and a number
 as `project` now reads as its text ("1.5") and passes; tests/test_registry_id.py
-holds the registry to it. The refusal text is Node's.
+holds the registry to it. The project refusal's words are registry_id.py's
+(Node's said "lowercase, digits, dashes", which a dot made untrue); every other
+refusal text is Node's.
 
 WHAT IS NOT NODE'S, where Node's refusal said nothing: its reason was
 its error's stderr, the empty string, when jobs.py gave no answer within
@@ -67,7 +69,7 @@ else:
     sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.realpath(__file__))))
 from control import js  # noqa: E402
 import hold_view  # noqa: E402
-from registry_id import REGISTRY_ID as PROJECT_SLUG  # noqa: E402 — one grammar for jobs-add, the job list and the intake
+from registry_id import REGISTRY_ID as PROJECT_SLUG, REGISTRY_ID_DESCRIPTION  # noqa: E402 — one grammar for jobs-add, the job list and the intake
 
 JOBS_TIMEOUT_S = 15
 TITLE_MAX = 300
@@ -168,7 +170,7 @@ def check_job_args(args) -> str | None:
         if not _plain(topic) or not js.trim(topic) or js.length(topic) > TOPIC_MAX:
             return f"topic is one line of 1 to {TOPIC_MAX} characters"
     if "project" in args and not PROJECT_SLUG.fullmatch(js.string(args["project"])):
-        return "project is a registry id (lowercase, digits, dashes)"
+        return f"project is a registry id ({REGISTRY_ID_DESCRIPTION})"
     if "priority" in args and not (isinstance(args["priority"], str) and args["priority"] in PRIORITIES):
         return f"priority is one of {', '.join(PRIORITIES)}"
     return None
