@@ -107,7 +107,10 @@
         "tests/test_run_suite.py",
         "tests/test_semantic_collisions.py",
         "tests/test_wait_merged.py",
-        "tests/test_workflows_lint.py"
+        "tests/test_workflows_lint.py",
+        "tests/test_review_checkpoint.py",
+        "tests/test_review_coverage.py",
+        "tests/test_github_common.py"
       ],
       "excluding": [
         "tools/fabric/guards/",

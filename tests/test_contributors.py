@@ -89,6 +89,14 @@ def main() -> int:
     check("another role", not ok(["tools/a.py"], role="web-dev"))
     check("the owner role is no contributor", not ok(["tools/a.py"], role="fabric-coordinator"))
 
+    print("the fabric's own authority.json")
+    with open(os.path.join(HERE, "policies", "authority.json"), encoding="utf-8") as f:
+        real = f.read()
+    github_suites = ["tests/test_review_checkpoint.py", "tests/test_review_coverage.py", "tests/test_github_common.py"]
+    check("devex-tooling commits the suites that test only tools/fabric/github/ beside it (j574: the fence refused a test on #465)",
+          co.admitted(real, "devex-tooling", ["tools/fabric/github/review_checkpoint.py", *github_suites]))
+    check("…never the fence's own suite", not co.admitted(real, "devex-tooling", ["tests/test_contributors.py"]))
+
     print("branch_problem: <host>/<login>/for/<caller>/<what>")
     check("the shape", co.branch_problem(f"h/{LOGIN}/for/user/x", LOGIN) is None)
     check("a deeper what", co.branch_problem(f"h/{LOGIN}/for/user/x/y", LOGIN) is None)
