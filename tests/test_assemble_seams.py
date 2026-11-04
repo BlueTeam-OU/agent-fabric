@@ -388,6 +388,43 @@ def test_j88_a_run_writes_only_into_the_fabric_and_working_copy_it_names(tmp: st
     assert tree(elsewhere) == before, sorted(set(tree(elsewhere)) ^ set(before)) or "a file there changed"
 
 
+def test_j112_every_link_and_references_topic_that_resolves_to_no_slice_is_reported(tmp: str) -> None:
+    """A `[[link]]` or References topic names a slice by its file name. One that names a memory the harvest skipped
+    (undrained), a slice only another corpus holds (a field slice linking a project's), or nothing, is listed in the
+    report and said in the run's summary; a link in a code span or a fence is an example and is not read. Reported, never
+    rewritten: the slice carries the text as the memory wrote it."""
+    drain, claims_dir, out = ta.build(tmp, {"alpha": ta.claims("alpha", [
+        {"class": "solution", "topic": "here", "title": "Here", "evidence": ["h1"],
+         "body": "Good [[here]] and [[unwritten-note]] and [[no-such-memory]] and `[[in-a-span]]` and ``[[in-a-double]]``.\n\n"
+                 "```\n[[in-a-fence]]\n```\n\nPress the ` key.\n\nReal [[lone-dead]] and `x`.\n\n  ```\n[[in-indent-fence]]\n  ```\n[[after-fence-dead]]\n",
+         # What the harvest derives from the body: it cites every [[x]], code or not (harvest_memory.WIKILINK_RE).
+         "citations": {"memories": ["in-a-span", "in-a-fence", "in-indent-fence", "unwritten-note"]}},
+        {"class": "solution", "topic": "cited", "title": "Cited", "evidence": ["h1"], "body": "Text.",
+         "citations": {"memories": ["mispelled-topic", "here"]}},
+        {"class": "domain", "topic": "field", "title": "Field", "evidence": ["h1"], "body": "Reaches [[here]] and [[field]]."},
+    ])})
+    with open(os.path.join(drain, "harvest-report.json"), "w", encoding="utf-8") as fh:
+        json.dump({"host": "hostA", "next_watermark": 1, "counts": {}, "skipped_no_roles_class": ["unwritten-note.md"]}, fh)
+    proc = ta.run_assemble(drain, claims_dir, out)
+    assert proc.returncode == 0, proc.stderr
+    report = json.loads(ta.read(os.path.join(ta.working_copy(out), ".agent-fabric", "memory", "last-drain-report.json")))
+    found = sorted((r["slice"].rsplit("/", 1)[1], r["heading"], r["target"], r["why"], r["in"]) for r in report["unresolved_links"])
+    assert found == [
+        ("cited.md", "Cited", "mispelled-topic", "no such topic", "references"),
+        ("domain.md", "Field", "here", "other corpus", "link"),
+        ("here.md", "Here", "after-fence-dead", "no such topic", "link"),
+        ("here.md", "Here", "lone-dead", "no such topic", "link"),
+        ("here.md", "Here", "no-such-memory", "no such topic", "link"),
+        ("here.md", "Here", "unwritten-note", "undrained", "link"),
+    ], found
+    for line in ("UNRESOLVED LINKS", "[[unwritten-note]]", "undrained", "[[mispelled-topic]]"):
+        assert line in proc.stderr, proc.stderr
+    assert "in-a-span" not in proc.stderr and "in-a-fence" not in proc.stderr and "in-a-double" not in proc.stderr \
+        and "in-indent-fence" not in proc.stderr
+    # The positive control: a link that does resolve is not listed.
+    assert "[[here]] and [[unwritten-note]]" in ta.read(ta.proj(out, "alpha", "solution", "here.md"))
+
+
 def main() -> int:
     cases = [
         test_an_owner_named_only_in_shared_with_gets_its_index,
@@ -404,6 +441,7 @@ def main() -> int:
         test_j485_a_body_that_carries_its_own_observed_footer_gets_one_footer,
         test_j485_a_slice_re_rendered_from_a_body_with_its_footer_carries_one,
         test_j88_a_run_writes_only_into_the_fabric_and_working_copy_it_names,
+        test_j112_every_link_and_references_topic_that_resolves_to_no_slice_is_reported,
     ]
     # Cases run because they are listed, so one written and not listed
     # would pass forever unrun (test_assemble.py's registry rule).
