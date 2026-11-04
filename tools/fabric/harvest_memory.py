@@ -530,11 +530,14 @@ def main() -> int:
     replaced_by_key = {e["replaced_key"]: e for e in applied}
     # The assembler renders a body with its [[links]] to moved memories pointed at the slice they were written into, and
     # the report's keys are over that text: a memory is recognised by the key of its body as written or as pointed.
-    pointing = corrections_mod.names_in(corrections_mod.unique_stems(corrections_mod.applied_stems(applied)), (role, None))
+    stems = corrections_mod.unique_stems(corrections_mod.applied_stems(applied))
+    pointing = {"own": corrections_mod.names_in(stems, (role, None)), "shared": corrections_mod.names_in(stems, (None,))}
 
-    def keys_of(body: str) -> list[str]:
+    def keys_of(body: str, shared_with: list[str]) -> list[str]:
+        # A memory with co-owners is routed to a shared slice, where the assembler points with the shared names only.
         written = corrections_mod.memory_key(body)
-        as_rendered = corrections_mod.memory_key(corrections_mod.point_text(body, pointing))
+        as_rendered = corrections_mod.memory_key(
+            corrections_mod.point_text(body, pointing["shared" if shared_with else "own"]))
         return [written] if as_rendered == written else [written, as_rendered]
     applied_skipped: list[str] = []
     superseded_originals: list[str] = []
@@ -564,7 +567,7 @@ def main() -> int:
         # a body the assembler changed otherwise (a banned term substituted) or that drains through an English rendering
         # is not recognised, which errs toward not naming.
         if parsed["roles_class"] and parsed["body"].strip() and not parsed["merge_target"]:
-            hit = next((replaced_by_key[k] for k in keys_of(parsed["body"]) if k in replaced_by_key), None)
+            hit = next((replaced_by_key[k] for k in keys_of(parsed["body"], parsed["shared_with"]) if k in replaced_by_key), None)
             if hit:
                 superseded_originals.append(f"{name}: section {hit['replaced']!r} of {hit['slice']} was replaced by the "
                                             f"correction {hit['memory']!r} (now {hit['heading']!r}); retire this memory")
@@ -590,7 +593,7 @@ def main() -> int:
             continue
         text, language, title = judged["text"], judged["language"], judged["title"]
         # Skipped only for the section it targets: the same words aimed at another heading are another correction.
-        done = next((applied_by_key[(k, parsed["merge_target"])] for k in keys_of(text)
+        done = next((applied_by_key[(k, parsed["merge_target"])] for k in keys_of(text, parsed["shared_with"])
                      if (k, parsed["merge_target"]) in applied_by_key), None) if parsed["merge_target"] else None
         if done:
             # A correction whose text is already the corpus's section: filed again it would replace a section that has

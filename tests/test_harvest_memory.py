@@ -441,6 +441,7 @@ def test_a_memory_is_recognised_by_its_body_as_written_or_as_the_assembler_point
         entry("fix", "solution", "H-fix", "Old see [[other-topic]].", "New: see [[other-topic]] now."),
         entry("fix-twice", "solution", "H-two", "Old two.", "New: see [[stem-one]] now."),
         entry("fix-early", "solution", "H-early", "Old early.", "Early: see [[mover]] now."),
+        entry("fix-shared", "solution", "H-shared", "Old shared.", "New: see [[other-topic]] now."),
         entry("fix-link", "solution", "H-link", "Old link.", "New: see [[other-topic]] now."),
         entry("fix-foreign", "solution", "H-foreign", "Old foreign.", "New: see [[elsewhere-stem]] now."),
         entry("fix-orig", "solution", "H-orig", "Was: see [[other-topic]].", "Now."),
@@ -458,6 +459,8 @@ def test_a_memory_is_recognised_by_its_body_as_written_or_as_the_assembler_point
         ("applied", "New: see [[mover]] now.", "H-fix"),
         # applied before its link target moved: the key is over the text as written, and still hits
         ("applied-early", "Early: see [[mover]] now.", "H-early"),
+        # routed to a shared slice (co-owners), where only shared names are pointed: this role's move is not applied
+        ("shared-owned", "New: see [[mover]] now.", "H-shared"),
         # the same words aimed at another heading are another correction
         ("applied-elsewhere", "New: see [[mover]] now.", "H-other"),
         # differing from the applied text only in a link target: another text, filed
@@ -474,7 +477,8 @@ def test_a_memory_is_recognised_by_its_body_as_written_or_as_the_assembler_point
         write_memory(mem, name, "project", body=body, roles_class="solution")
         if target:
             path = os.path.join(mem, f"{name}.md")
-            text = open(path, encoding="utf-8").read().replace("roles_class: solution", f"roles_class: solution\n  merge_target: {target}")
+            extra = "\n  shared_with: web-dev" if name == "shared-owned" else ""
+            text = open(path, encoding="utf-8").read().replace("roles_class: solution", f"roles_class: solution\n  merge_target: {target}{extra}")
             with open(path, "w", encoding="utf-8") as fh:
                 fh.write(text)
     r = run(mem, out, "--working-copy", wc, "--project", "demo", "--host", "hostA")
@@ -483,7 +487,7 @@ def test_a_memory_is_recognised_by_its_body_as_written_or_as_the_assembler_point
     assert "applied correction: applied-early.md: already applied" in r.stderr, r.stderr
     assert "superseded: orig.md" in r.stderr and "'fix-orig'" in r.stderr and "orig-unmoved.md" not in r.stderr, r.stderr
     got = sorted(c["topic"] for c in claims_of(out))
-    assert got == ["applied-elsewhere", "foreign-role", "link-differs", "orig", "orig-unmoved", "twice-stems"], (got, r.stderr)
+    assert got == ["applied-elsewhere", "foreign-role", "link-differs", "orig", "orig-unmoved", "shared-owned", "twice-stems"], (got, r.stderr)
 
 
 def test_role_knowledge_is_opt_in(tmp: str) -> None:
