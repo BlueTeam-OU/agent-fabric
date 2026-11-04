@@ -383,6 +383,15 @@ def resolve_range(req: dict) -> tuple[dict | None, list[str]]:
     problems = [f"range: {end!r} is not a commit in {repo}" for end, sha in ((base, base_sha), (head, head_sha)) if not sha]
     if problems:
         return None, problems
+    if req.get("mode") == "finding-adjudication" and base_sha != head_sha:
+        # Gate 4c of fabric-pr arm (github/arm_findings.py) lets a review judge
+        # the findings raised on its own head only when its base is that head,
+        # so an adjudication of base..H rendered, was posted and closed nothing
+        # (a client project's PR, 2026-11-02; j558). Refused, not derived: the brief prints the
+        # range as typed, and the marker the post writes carries it.
+        return None, [f"range: a finding-adjudication judges the findings raised on its head, and fabric-pr arm counts "
+                      f"its judgements only from a review of head..head; the range is {head}..{head}, with card_base "
+                      f"{base_sha} (this range's base) for the project review card"]
     wanted = req.get("card_base")
     card_base = _commit_of(repo, wanted) if isinstance(wanted, str) and wanted else base_sha
     if not card_base:

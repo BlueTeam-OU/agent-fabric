@@ -131,6 +131,7 @@ its record disagree, the record wins. Look it up, never read it whole:
 - Drift is printed by `fabric-status`; a binding is per (agent, host)
   (§5 rules 6–7). Brief is identifier-free, the remit anchored (§5 rule 8).
 - A 2026-10-17 — the holder's charter and brief addenda follow the role's (§5 rule 4, ADR-060).
+- A 2026-11-04 — bind and unbind read another host's binding to replace it (§5 rule 7).
 - Keywords: identity, login, whoami, role, bind, launch prompt, charter,
   brief, remit, drift, binding, dimensions.
 

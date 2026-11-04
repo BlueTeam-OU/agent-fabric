@@ -126,6 +126,11 @@ FAKE_BODIES = {
 case "$*" in
   "--user daemon-reload") exit "${FAKE_RELOAD_RC:-0}" ;;
   "--user is-active "*) u="${*: -1}"; v="FAKE_ACTIVE_${u//[-.]/_}"; s="${!v:-active}"; echo "$s"; [[ "$s" == active ]]; exit ;;
+  # Never active (0) until this fake has started the unit once; FAKE_ENTERED_<unit> overrides.
+  "--user show -p ActiveEnterTimestampMonotonic --value "*) u="${*: -1}"; v="FAKE_ENTERED_${u//[-.]/_}"
+    if [[ -n "${!v:-}" ]]; then echo "${!v}"; elif [[ -e "$FAKE_LOG.started-$u" ]]; then echo 1234; else echo 0; fi; exit ;;
+  "--user show -p SubState --value "*) u="${*: -1}"; v="FAKE_SUBSTATE_${u//[-.]/_}"; echo "${!v:-running}"; exit ;;
+  "--user start --no-block "*) : >"$FAKE_LOG.started-${*: -1}" ;;
 esac
 exit 0
 ''',
@@ -1036,10 +1041,12 @@ def user_manager() -> None:
                                    ["systemctl", "--user", "restart", f"{BACKUP}.timer"], ["systemctl", "--user", "is-active", f"{BACKUP}.timer"],
                                    ["systemctl", "--user", "daemon-reload"], ["systemctl", "--user", "enable", "--now", f"{TIDY}.timer"],
                                    ["systemctl", "--user", "restart", f"{TIDY}.timer"], ["systemctl", "--user", "is-active", f"{TIDY}.timer"],
-                                   ["systemctl", "--user", "daemon-reload"], ["systemctl", "--user", "enable", "--now", HARNESS],
+                                   ["systemctl", "--user", "daemon-reload"], ["systemctl", "--user", "enable", HARNESS],
+                                   ["systemctl", "--user", "show", "-p", "ActiveEnterTimestampMonotonic", "--value", HARNESS],
+                                   ["systemctl", "--user", "start", "--no-block", HARNESS],
                                    ["systemctl", "--user", "is-active", HARNESS]],
           a.calls("systemctl"))
-    check("the harness: a new unit started, never restarted, its state said; no 'changed' line for a first install's inactive unit",
+    check("the harness: a new unit enabled and started without waiting on its pane step, never restarted, its state said; no 'changed' line for a first install's inactive unit",
           f"  *  {HARNESS}: active (systemctl --user status {HARNESS})" in r.lines, r.out)
     check("the tidy timer's line says its state",
           f"  *  {TIDY}.timer: active (systemctl --user list-timers {TIDY}.timer)" in r.lines, r.out)
@@ -1060,7 +1067,8 @@ def user_manager() -> None:
                                    ["systemctl", "--user", "enable", "--now", f"{TIDY}.timer"],
                                    ["systemctl", "--user", "is-active", f"{TIDY}.timer"],
                                    ["systemctl", "--user", "daemon-reload"],
-                                   ["systemctl", "--user", "enable", "--now", HARNESS],
+                                   ["systemctl", "--user", "enable", HARNESS],
+                                   ["systemctl", "--user", "show", "-p", "ActiveEnterTimestampMonotonic", "--value", HARNESS],
                                    ["systemctl", "--user", "is-active", HARNESS]], a.calls("systemctl"))
     check("…and an inactive unit says so", f"  *  {UNIT}: inactive (systemctl --user status {UNIT})" in r.lines, r.out)
     # A changed unit under the daemon's own upgrade: the restart is its caller's.
@@ -1118,7 +1126,7 @@ def user_manager() -> None:
     r = bootstrap(a)
     check("a changed harness unit, running: restored, enabled, never restarted nor stopped, the way to apply it said",
           read(f"{a.units}/{HARNESS}.service") == read(f"{a.fr}/runtime/control/{HARNESS}.service")
-          and ["systemctl", "--user", "enable", "--now", HARNESS] in a.calls("systemctl")
+          and ["systemctl", "--user", "enable", HARNESS] in a.calls("systemctl")
           and not [c for c in a.calls("systemctl") if HARNESS in c and c[2] in ("restart", "stop", "try-restart", "reload-or-restart")]
           and f"  *  {HARNESS}: unit changed; not restarted, a restart ends the session in its pane "
               f"(fabric-ctl {LOGIN} harness-stop, then harness-start)" in r.lines, f"{a.calls('systemctl')}\n{r.out}")
@@ -1129,6 +1137,21 @@ def user_manager() -> None:
           not any(x.startswith(f"  *  {HARNESS}: unit changed") for x in r.lines)
           and f"  *  {HARNESS}: inactive (systemctl --user status {HARNESS}; it starts only where install_fleetdeck.py put the binary)"
               in r.lines, r.out)
+    check("…and a harness a person stopped is not started again: only one never active starts, never blocking (j490)",
+          not [c for c in a.calls("systemctl") if HARNESS in c and (c[2] == "start" or "--now" in c)], a.calls("systemctl"))
+    # #484 F1: a unit file already there whose unit was never active (its first
+    # start found no binary, or no manager) is started, unlike a stopped one.
+    a.clear_log()
+    r = bootstrap(a, env=a.env(FAKE_ENTERED_agent_fabric_harness="0", FAKE_ACTIVE_agent_fabric_harness="activating"))
+    check("a harness never active is started without blocking, though its unit file was there",
+          ["systemctl", "--user", "start", "--no-block", HARNESS] in a.calls("systemctl"), a.calls("systemctl"))
+    check("…and 'activating' after the --no-block start says it is starting, not that the binary is missing (#484 F2)",
+          f"  *  {HARNESS}: activating (systemctl --user status {HARNESS}; starting, its pane step still running)" in r.lines, r.out)
+    a.clear_log()
+    r = bootstrap(a, env=a.env(FAKE_ENTERED_agent_fabric_harness="0", FAKE_ACTIVE_agent_fabric_harness="activating",
+                               FAKE_SUBSTATE_agent_fabric_harness="auto-restart"))
+    check("…and 'activating' while it waits to restart after a failure says so, not that it is starting (#484 F5)",
+          f"  *  {HARNESS}: activating (systemctl --user status {HARNESS}; restarting after a failure — read its journal)" in r.lines, r.out)
 
 
 def coordinator_timers() -> None:

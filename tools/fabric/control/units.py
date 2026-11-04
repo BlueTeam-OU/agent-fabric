@@ -39,8 +39,10 @@ instead: exit 2, nothing run.
 
 Exit: 0 every row is active (start) or stopped/skipped (stop); 1 any failed
 row; 2 a refusal (an unknown or human login, a bad option) with nothing run.
-The units stay enabled: they come back at boot, or at the next bootstrap /
-moveto entry of the account, which runs `enable --now`.
+The units stay enabled: they come back at boot. The control agent also
+comes back at the next bootstrap / moveto entry of the account, which runs
+`enable --now`; the harness does not, since bootstrap starts it only while it
+has never been active, so a stopped harness waits for harness-start or a boot.
 
 --timeout is the bound of each host call, not of the run: an account takes up to
 four calls, accounts one after another.

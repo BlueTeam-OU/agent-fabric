@@ -140,6 +140,13 @@ def commit(repo: str, msg: str, files: dict | None = None) -> str:
     return g(repo, "rev-parse", "HEAD")
 
 
+def adjudication_request(repo: str) -> dict:
+    """An adjudication judges its head's findings: head..head, the card read
+    at main (gate 4c counts a judgement on that head only then, j558)."""
+    return {**base_request(repo), "mode": "finding-adjudication", "range": "HEAD..HEAD",
+            "card_base": g(repo, "rev-parse", "main")}
+
+
 def mkrepo(tmp: str, name: str) -> str:
     """A working copy whose main has one commit and a feature commit ahead of it
     on a branch, checked out: the range main..HEAD is a real one."""
@@ -279,7 +286,7 @@ def test_the_dispatch_header(tmp: str) -> None:
         h = _header(rb.render({**base_request(repo), "pr": 7, "review_id": "R-9"}))
         assert h["pr"] == 7 and h["review_id"] == "R-9", h
         # the mode names the purpose; the second engine writes its own
-        h = _header(rb.render({**base_request(repo), "mode": "finding-adjudication"}))
+        h = _header(rb.render(adjudication_request(repo)))
         assert h["purpose"] == "finding-adjudication", h
         h = _header(rb.render(base_request(repo), engine="codex", purpose="second-engine-review"))
         assert h["engine"] == "codex" and h["purpose"] == "second-engine-review", h
@@ -729,7 +736,7 @@ def test_a_finding_adjudication_carries_the_findings_it_judges(tmp: str) -> None
     repo = mkrepo(tmp, "adjudicated")
     prev = os.path.join(tmp, "adjudicated-findings.md")
     open(prev, "w").write("## Findings on the change\n1. P2 likely: a.txt:1 ...\n```\n+hunk\n```\n")
-    req = {**base_request(repo), "mode": "finding-adjudication", "previous_findings": prev}
+    req = {**adjudication_request(repo), "previous_findings": prev}
     assert refusals(req) == [], refusals(req)
     out = rb.render(req)
     assert "## Findings to judge\nThese are the findings to judge" in out and "## Previous findings" not in out, out
@@ -737,8 +744,11 @@ def test_a_finding_adjudication_carries_the_findings_it_judges(tmp: str) -> None
     assert "## Re-review diff" not in out, "no re-review delta on an adjudication"
     assert "### general" in out, "an adjudication carries general as a review does"
     assert refusals({**req, "previous_findings": "/nope"}) and any("does not exist" in p for p in refusals({**req, "previous_findings": "/nope"}))
-    assert refusals({**base_request(repo), "mode": "finding-adjudication"}) == [], "the findings are optional on an adjudication"
-    assert any("previous_findings: only on a re-review" in p for p in refusals({**req, "mode": "review"})), "still refused on a review"
+    assert refusals(adjudication_request(repo)) == [], "the findings are optional on an adjudication"
+    assert any("previous_findings: only on a re-review" in p for p in refusals({**req, "mode": "review", "range": "main..HEAD"})), "still refused on a review"
+    ranged = refusals({**req, "range": "main..HEAD"})
+    assert any("the range is HEAD..HEAD, with card_base" in p for p in ranged), \
+        f"an adjudication of base..head closes nothing at the arm (j558): {ranged}"
 
 
 def test_a_diff_file_reads_the_card_at_the_default_branch_tip(tmp: str) -> None:
@@ -973,7 +983,7 @@ def test_a_prs_full_review_carries_the_findings_earlier_reviews_left_open(tmp: s
         # no PR, or not a full review: nothing is asked
         asked.clear(); rb.earlier_reviews = answer
         rb.render(base_request(repo))
-        rb.render({**req, "mode": "finding-adjudication"})
+        rb.render({**req, **adjudication_request(repo), "pr": req.get("pr")})
         assert asked == [], asked
     finally:
         rb.earlier_reviews = saved
@@ -987,7 +997,7 @@ def test_the_report_lines_ask_for_the_coverage_block(tmp: str) -> None:
     section = out.split("## Coverage\n", 1)[1].split("\n## ", 1)[0]
     assert "`agent-fabric-coverage v1`" in section and out.index("## Coverage") < out.index("## Report lines"), out[-800:]
     report = os.path.join(tmp, "judged.md"); open(report, "w").write("1. a finding\n")
-    adj = rb.render({**base_request(repo), "mode": "finding-adjudication", "previous_findings": report})
+    adj = rb.render({**adjudication_request(repo), "previous_findings": report})
     assert "## Coverage" not in adj and "agent-fabric-coverage" not in adj.split("## Findings to judge", 1)[0], adj[-400:]
 
 

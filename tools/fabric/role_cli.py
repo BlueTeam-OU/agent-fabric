@@ -5,7 +5,7 @@ library only; it runs no logic of role.py's, it execs it.
 
 CONTRACT, frozen from the bash (tests/test_fabric_role_cli.py is the oracle):
   argv      [bind <role> [--project ID] [--workspace DIR] [--force]
-            | status | unbind | list | -h | --help | help]; no argument,
+            | status | unbind [--force] | list | -h | --help | help]; no argument,
             or an empty first one, is `status`.
   env       AGENT_FABRIC_PYTHON (default /usr/local/bin/fabric-python), the
             interpreter role.py runs on; AGENT_FABRIC_ROOT, exported to this
@@ -34,7 +34,7 @@ rebind here and a relaunch.
 
   agent-fabric/bin/fabric-role bind <role> [--project ID] [--workspace DIR] [--force]
   agent-fabric/bin/fabric-role status         what is this agent right now?
-  agent-fabric/bin/fabric-role unbind         drop the role
+  agent-fabric/bin/fabric-role unbind [--force]  drop the role
   agent-fabric/bin/fabric-role list           the roles available
 
 bind and unbind refuse inside a harness session (the environment a Claude Code

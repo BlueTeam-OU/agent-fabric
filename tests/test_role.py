@@ -320,6 +320,27 @@ def test_status_reports_agent_and_role(f: Fixture) -> None:
     assert "clone_id" not in proc.stdout and "dir_basename" not in proc.stdout
 
 
+def test_locally_adapted_copy_blocks_an_unbind_and_force_stashes_it(f: Fixture) -> None:
+    """Bind, edit, unbind: an unbind removes the installed copies, so it
+    gives the switch's refusal, and --force stashes before it removes."""
+    assert f.binding()["role"] == "flutter-dev"
+    target = os.path.join(f.ws, ".claude/skills/widget-testing/SKILL.md")
+    with open(target, "a", encoding="utf-8") as fh:
+        fh.write("\nunbind adaptation\n")
+    proc = f.run("deactivate")
+    assert proc.returncode == 1, "an adapted copy must stop the unbind"
+    assert "adapted" in proc.stderr.lower() and "--force" in proc.stderr, proc.stderr
+    assert os.path.isfile(target) and f.binding()["role"] == "flutter-dev"
+    proc = f.run("deactivate", "--force")
+    assert proc.returncode == 0, proc.stderr
+    assert not os.path.exists(target) and f.binding()["role"] is None
+    stash_root = os.path.join(f.state, "agents", id_un(), "stash")
+    kept = [os.path.join(d, n) for d, _, names in os.walk(stash_root) for n in names
+            if os.path.join(d, n).endswith("widget-testing/SKILL.md")]
+    assert any("unbind adaptation" in open(k, encoding="utf-8").read() for k in kept), kept
+    assert f.run("flutter-dev").returncode == 0
+
+
 def test_deactivate_clears_role_keeps_agent(f: Fixture) -> None:
     proc = f.run("deactivate")
     assert proc.returncode == 0, proc.stderr
@@ -477,14 +498,54 @@ def test_a_backup_left_by_a_crash_is_stashed_not_dropped(f: Fixture) -> None:
 
 def test_a_failed_deactivation_restores_the_copies(f: Fixture) -> None:
     assert f.binding()["role"] == "flutter-dev"
-    before_tree, before_binding = _tree(f.ws), f.binding()
+    # An old stamp, so a rollback through write_binding (a new updated_at) shows in the bytes (#484 review).
+    path = os.path.join(f.state, "agents", id_un(), "binding.json")
+    b = f.binding(); b["updated_at"] = "2026-01-01T00:00:00Z"
+    with open(path, "w", encoding="utf-8") as fh:
+        json.dump(b, fh)
+    with open(path, "rb") as fh:
+        before_bytes = fh.read()
+    before_tree = _tree(f.ws)
     f.env["AGENT_FABRIC_FAULT"] = "role:after-binding"
     try:
         proc = f.run("deactivate")
     finally:
         f.env.pop("AGENT_FABRIC_FAULT", None)
     assert proc.returncode != 0 and "restored" in proc.stderr, proc.stderr
-    assert _tree(f.ws) == before_tree and {**f.binding(), "updated_at": None} == {**before_binding, "updated_at": None}
+    with open(path, "rb") as fh:
+        assert fh.read() == before_bytes, "a failed unbind did not restore the binding byte for byte"
+    assert _tree(f.ws) == before_tree
+
+
+def test_a_binding_from_another_host_is_replaced_by_a_bind_there(f: Fixture) -> None:
+    """ADR-002 rule 7: a move between hosts is a rebind there. read_binding
+    refuses the moved binding and names fabric-role bind, so the bind must
+    read it to replace it (external review F10); a failed one puts its
+    bytes back, never re-stamped as this host's."""
+    path = os.path.join(f.state, "agents", id_un(), "binding.json")
+    b = f.binding(); b["host"] = "another-machine"
+    with open(path, "w", encoding="utf-8") as fh:
+        json.dump(b, fh)
+    with open(path, encoding="utf-8") as fh:
+        foreign = fh.read()
+    status = f.run("status")
+    assert status.returncode != 0 and "another-machine" in status.stderr, status.stderr
+    listed = f.run("list")
+    assert listed.returncode == 0 and "available roles" in listed.stdout, listed.stderr
+    f.env["AGENT_FABRIC_FAULT"] = "role:after-binding"
+    try:
+        failed = f.run("backend-dev")
+    finally:
+        f.env.pop("AGENT_FABRIC_FAULT", None)
+    assert failed.returncode != 0 and "restored" in failed.stderr, failed.stderr
+    with open(path, encoding="utf-8") as fh:
+        assert fh.read() == foreign, "a rollback re-stamped another host's binding"
+    proc = f.run("backend-dev")
+    assert proc.returncode == 0, proc.stderr
+    assert "another-machine" in proc.stderr, proc.stderr
+    assert f.binding()["host"] != "another-machine" and f.binding()["role"] == "backend-dev"
+    assert f.history()[-1]["previous_host"] == "another-machine", f.history()[-1]
+    assert f.run("status").returncode == 0
 
 
 def main() -> int:
@@ -510,6 +571,7 @@ def main() -> int:
             test_outside_a_working_copy_only_the_charter_loads,
             test_explicit_project_binds_even_without_a_working_copy,
             test_status_reports_agent_and_role,
+            test_locally_adapted_copy_blocks_an_unbind_and_force_stashes_it,
             test_deactivate_clears_role_keeps_agent,
             test_binding_is_refused_inside_a_session,
             test_a_role_change_announces_nothing,
@@ -518,6 +580,7 @@ def main() -> int:
             test_a_failure_anywhere_in_the_switch_restores_everything,
             test_a_backup_left_by_a_crash_is_stashed_not_dropped,
             test_a_failed_deactivation_restores_the_copies,
+            test_a_binding_from_another_host_is_replaced_by_a_bind_there,
         ]
         for case in cases:
             try:
