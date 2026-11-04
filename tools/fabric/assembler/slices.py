@@ -193,6 +193,24 @@ def decode_scalar(text: str) -> str:
     return text
 
 
+def sibling_parts(directory: str, filename: str, stem: str | None = None,
+                  is_part: Callable[[str], bool] | None = None) -> list[str]:
+    """The paths of every OTHER budget part of the topic that `filename` belongs to (see retire_in_siblings for `stem`, `is_part`)."""
+    if stem is None:
+        stem = re.sub(r"(-\d+)?\.md$", "", filename)
+    if is_part is None:
+        def is_part(path: str) -> bool:
+            return bool(re.fullmatch(re.escape(stem) + r"-\d+\.md", os.path.basename(path)))
+    found: list[str] = []
+    for name in sorted(os.listdir(directory)) if os.path.isdir(directory) else []:
+        if name == filename or not name.endswith(".md"):
+            continue
+        if name != f"{stem}.md" and not is_part(os.path.join(directory, name)):
+            continue
+        found.append(os.path.join(directory, name))
+    return found
+
+
 def retire_in_siblings(directory: str, filename: str, target: str,
                        clip: Callable[[str, str], str] = lambda d, _where: d,
                        stem: str | None = None,
@@ -220,18 +238,8 @@ def retire_in_siblings(directory: str, filename: str, target: str,
 
     `removed`, when given, receives the text of the section `target` itself that was removed (ADR-050 rule 10 keys it).
     `victims_by_path`, when given, receives every heading removed, by the file it left: the caller retires those headings' writers."""
-    if stem is None:
-        stem = re.sub(r"(-\d+)?\.md$", "", filename)
-    if is_part is None:
-        def is_part(path: str) -> bool:
-            return bool(re.fullmatch(re.escape(stem) + r"-\d+\.md", os.path.basename(path)))
     touched: list[tuple[str, str]] = []
-    for name in sorted(os.listdir(directory)) if os.path.isdir(directory) else []:
-        if name == filename or not name.endswith(".md"):
-            continue
-        if name != f"{stem}.md" and not is_part(os.path.join(directory, name)):
-            continue
-        path = os.path.join(directory, name)
+    for path in sibling_parts(directory, filename, stem, is_part):
         _meta, sections = read_existing_slice(path)
         victims = [h for h in sections if h == target or re.fullmatch(re.escape(target) + r" \(\d+\)", h)]
         if victims:

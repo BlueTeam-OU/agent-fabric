@@ -59,8 +59,9 @@ if argv[:1] == ["sandbox"]:
     if smode == "fail":
         print("bwrap: No permissions to create a new namespace " + os.environ.get("AGENT_FABRIC_CODEX_KEY", ""), file=sys.stderr)
         sys.exit(1)
-    if smode == "sleep":
-        gc = subprocess.Popen(["sleep", "300"])
+    if smode in ("sleep", "sleep-detached"):
+        # "-detached": the helper made a session of its own, which the probe's process-group kill cannot reach.
+        gc = subprocess.Popen(["sleep", "300"], start_new_session=smode == "sleep-detached")
         with open(os.path.join(S, "sandbox-grandchild"), "w") as f:
             f.write(f"{os.getpid()} {gc.pid}")
         time.sleep(300)
@@ -864,6 +865,23 @@ def main() -> int:
             if alive:
                 time.sleep(0.05)
         check("…and the probe's whole process group is ended, the grandchild too", not alive, alive)
+
+        review_codex.SANDBOX_PROOF_TIMEOUT_S = 1
+        try:
+            prove("sleep-detached")
+        finally:
+            review_codex.SANDBOX_PROOF_TIMEOUT_S = saved_timeout
+        with open(os.path.join(state, "sandbox-grandchild")) as f:
+            pids = [int(x) for x in f.read().split()]
+        deadline = time.time() + 10
+        alive = list(pids)
+        while alive and time.time() < deadline:
+            alive = [pid for pid in alive if running(pid)]
+            if alive:
+                time.sleep(0.05)
+        for pid in alive:
+            os.kill(pid, signal.SIGKILL)
+        check("…and a helper that moved into a session of its own is ended with the probe", not alive, alive)
 
         print("the account id and the effort")
         acct = "0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d"
