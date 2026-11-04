@@ -976,9 +976,13 @@ def _end_group(p: subprocess.Popen) -> None:
     that made a session of its own is in no group of ours, and only the parentage finds it, so the walk comes before
     any signal (a group TERM first would kill the parent and orphan the helper out of the walk). The group KILL takes
     a member orphaned to init, which the walk cannot see."""
+    helpers = bounded.descendants(p.pid)   # noted first: a signal inside stop_tree's grace skips its own KILL
     try:
         bounded.stop_tree(p, "fabric-review")
     finally:
+        for pid in helpers:
+            with contextlib.suppress(ProcessLookupError, PermissionError):
+                os.kill(pid, signal.SIGKILL)
         with contextlib.suppress(ProcessLookupError):
             os.killpg(p.pid, signal.SIGKILL)
 

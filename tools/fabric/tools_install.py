@@ -699,7 +699,6 @@ RUSTUP_INIT_ARGV = ("-y", "--no-modify-path", "--profile", "minimal", "--default
 # project's rust-toolchain.toml names.
 RUSTUP_LINKS = ("rustup", "cargo", "rustc")
 RUN_TIMEOUT_S = {"installer": 300, "cargo": 780, "rustup-target": 780}
-STOP_GRACE_S = 5
 def cargo_home(home: str) -> str:
     return os.path.join(home, ".cargo")
 
@@ -730,9 +729,17 @@ def run_program(argv: list[str], env: dict[str, str], cwd: str, timeout: float) 
             # the walk. The group KILL after it takes what the walk cannot see, a member orphaned to init. KILL
             # always follows, also when a second signal interrupts the grace wait: a build that ignores TERM must
             # not outlive the run. The group id cannot be reused while a member is left, and ESRCH says none is.
+            # The descendants are noted first: an interrupt inside stop_tree's grace skips its own KILL, and a
+            # helper in a session of its own is out of the group KILL's reach.
+            helpers = bounded.descendants(proc.pid)
             try:
                 bounded.stop_tree(proc, "tools-install")
             finally:
+                for pid in helpers:
+                    try:
+                        os.kill(pid, signal.SIGKILL)
+                    except (ProcessLookupError, PermissionError):
+                        pass
                 try:
                     os.killpg(proc.pid, signal.SIGKILL)
                 except ProcessLookupError:
