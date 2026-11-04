@@ -2006,6 +2006,9 @@ def _drift_cells(r: dict) -> str:
     n = dig(r.get("session"), "on_old_sign_in")
     if isinstance(n, int) and not isinstance(n, bool) and n > 0:
         out += f"  OLD ACCOUNT: {n} session{'s' if n != 1 else ''} (relaunch)"
+    n = dig(r.get("session"), "harness_server_replaced")
+    if isinstance(n, int) and not isinstance(n, bool) and n > 0:
+        out += f"  HARNESS SERVER OLDER THAN ITS BINARY (fabric-ctl {esc(r.get('account'))} harness-restart)"
     i = r.get("inbox")
     if isinstance(i, dict) and i.get("status") != "none":
         if i.get("status") != "ok" or i.get("lagging") is None:

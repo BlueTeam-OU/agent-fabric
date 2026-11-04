@@ -12,6 +12,7 @@ from gzcoord import gzmsg  # noqa: E402 — util puts tools/fabric on sys.path
 from gzcoord.inbox_parts import hold, tokens  # noqa: E402
 
 PGREP_TIMEOUT_S = 5
+FLEETDECK = "agent-fabric-fleetdeck"
 
 
 def identity(home: str | None = None, who: dict | None = None) -> dict:
@@ -93,6 +94,31 @@ def session(uid: int | None = None, run: Callable[..., Any] = subprocess.run) ->
     except (subprocess.SubprocessError, OSError):
         n = 0
     return {"claude_processes": n, "planning": hold.hold_status()["held"]}
+
+
+def replaced_harness_servers(uid: int | None = None, proc: str = "/proc") -> int | None:
+    """How many FleetDeck servers of this account run an executable replaced on disk since they started, or None
+    where the process table cannot be read. An install renames a new binary over the old one, and the kernel
+    then reports the running server's exe as "<path> (deleted)": the server keeps serving the old build, and
+    nothing else says so (measured 2026-11-02, every account, two days). The account reads its own
+    processes: another account's exe link is not readable, and is skipped, not counted."""
+    uid = os.getuid() if uid is None else uid
+    try:
+        names = [n for n in os.listdir(proc) if n.isdigit()]
+    except OSError:
+        return None
+    n = 0
+    for name in names:
+        path = os.path.join(proc, name)
+        try:
+            if os.stat(path).st_uid != uid:
+                continue
+            exe = os.readlink(os.path.join(path, "exe"))
+        except OSError:
+            continue    # gone since the listing, or not ours to read
+        if exe.endswith(" (deleted)") and os.path.basename(exe[:-len(" (deleted)")]) == FLEETDECK:
+            n += 1
+    return n
 
 
 def _pgrep_failure(e: BaseException, uid: int) -> str:

@@ -304,6 +304,24 @@ class FabricAndSession(Base):
             raise FileNotFoundError(2, "No such file", cmd[0])
         self.assertEqual(ops.session(4242, gone)["claude_processes"], 0)
 
+    def test_a_harness_server_whose_executable_was_replaced_is_counted_by_the_account_itself(self):
+        # An install renames a new binary over the old; the kernel then reads the running server's exe as "<path> (deleted)".
+        with tempfile.TemporaryDirectory(prefix="ops-proc-") as proc:
+            def pid(n, exe):
+                os.makedirs(os.path.join(proc, str(n)))
+                os.symlink(exe, os.path.join(proc, str(n), "exe"))
+            pid(11, "/usr/local/bin/agent-fabric-fleetdeck (deleted)")
+            pid(12, "/usr/local/bin/agent-fabric-fleetdeck")                  # the control: a current server is not counted
+            pid(13, "/usr/bin/sleep (deleted)")                               # another program replaced is not this server
+            os.makedirs(os.path.join(proc, "self"))                           # not a pid
+            self.assertEqual(ops.replaced_harness_servers(os.getuid(), proc), 1)
+            self.assertEqual(ops.replaced_harness_servers(os.getuid() + 1, proc), 0, "another account's processes are not read")
+            self.assertIsNone(ops.replaced_harness_servers(os.getuid(), os.path.join(proc, "none")), "an unreadable table is unknown, not zero")
+            ctx = {"uid": os.getuid(), "run": lambda cmd, **kw: done("", "", 1), "session_opts": {"proc": proc, "pids": []}}
+            self.assertEqual(ops.collect("session", ctx)["session"]["harness_server_replaced"], 1)
+            ctx["session_opts"]["proc"] = os.path.join(proc, "none")
+            self.assertNotIn("harness_server_replaced", ops.collect("session", ctx)["session"])
+
 
 class Script(Base):
     def test_letters_by_script_thinking_and_text_apart_nothing_of_the_text_leaves(self):
