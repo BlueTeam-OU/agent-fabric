@@ -143,6 +143,7 @@ from typing import Callable
 
 import tools_check
 import workingcopy
+from provisioning import bounded
 
 TOOL_NAME = re.compile(r"[a-z0-9][a-z0-9._-]{0,63}")
 SHA256 = re.compile(r"[0-9a-f]{64}")
@@ -698,7 +699,6 @@ RUSTUP_INIT_ARGV = ("-y", "--no-modify-path", "--profile", "minimal", "--default
 # project's rust-toolchain.toml names.
 RUSTUP_LINKS = ("rustup", "cargo", "rustc")
 RUN_TIMEOUT_S = {"installer": 300, "cargo": 780, "rustup-target": 780}
-STOP_GRACE_S = 5
 def cargo_home(home: str) -> str:
     return os.path.join(home, ".cargo")
 
@@ -724,15 +724,22 @@ def run_program(argv: list[str], env: dict[str, str], cwd: str, timeout: float) 
     with subprocess.Popen(argv, env=env, cwd=cwd, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
                           stderr=subprocess.STDOUT, start_new_session=True) as proc:
         def stop() -> None:
-            # KILL always follows TERM, also when a second signal interrupts the grace wait: a build that
-            # ignores TERM must not outlive the run. The group id cannot be reused while a member is
-            # left, and ESRCH says none is.
+            # stop_tree walks the program's descendants before it signals anything, so a helper that left the
+            # group (setsid) is ended too; a group TERM first would kill the parent and orphan the helper out of
+            # the walk. The group KILL after it takes what the walk cannot see, a member orphaned to init. KILL
+            # always follows, also when a second signal interrupts the grace wait: a build that ignores TERM must
+            # not outlive the run. The group id cannot be reused while a member is left, and ESRCH says none is.
+            # The descendants are noted first: an interrupt inside stop_tree's grace skips its own KILL, and a
+            # helper in a session of its own is out of the group KILL's reach.
+            helpers = bounded.descendants(proc.pid)
             try:
-                os.killpg(proc.pid, signal.SIGTERM)
-                proc.wait(timeout=STOP_GRACE_S)
-            except (ProcessLookupError, subprocess.TimeoutExpired):
-                pass
+                bounded.stop_tree(proc, "tools-install")
             finally:
+                for pid in helpers:
+                    try:
+                        os.kill(pid, signal.SIGKILL)
+                    except (ProcessLookupError, PermissionError):
+                        pass
                 try:
                     os.killpg(proc.pid, signal.SIGKILL)
                 except ProcessLookupError:
