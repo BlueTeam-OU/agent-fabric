@@ -29,5 +29,5 @@ REGISTRY_ID = re.compile(r"(?!.{%d})[a-z0-9][a-z0-9-]*(?:\.[a-z0-9][a-z0-9-]*)*(
 # that dots are not allowed. Written beside the pattern: change one, read the other.
 REGISTRY_ID_DESCRIPTION = (
     "dot-joined segments of lowercase letters, digits and dashes, each starting with a letter or digit, "
-    "at most %d characters" % REGISTRY_ID_MAX
+    "the whole not ending in a dash, at most %d characters" % REGISTRY_ID_MAX
 )
