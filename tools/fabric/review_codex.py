@@ -176,6 +176,7 @@ import ledger  # noqa: E402
 import review_brief  # noqa: E402
 import review_gateway  # noqa: E402
 import review_lines  # noqa: E402
+from provisioning import bounded  # noqa: E402
 import routing  # noqa: E402
 from github.review_status.base import Die  # noqa: E402
 from github.review_status.config import read_config  # noqa: E402
@@ -971,17 +972,15 @@ def _group_alive(pgid: int) -> bool:
 
 
 def _end_group(p: subprocess.Popen) -> None:
-    for sig, wait in ((signal.SIGTERM, 5), (signal.SIGKILL, 5)):
-        try:
-            os.killpg(p.pid, sig)
-        except ProcessLookupError:
-            break
-        try:
-            p.wait(timeout=wait)
-        except subprocess.TimeoutExpired:
-            continue
-        if not _group_alive(p.pid):
-            break
+    """The child's descendants by parentage (stop_tree: TERM, then KILL for the TERM-deaf), then its group: a helper
+    that made a session of its own is in no group of ours, and only the parentage finds it, so the walk comes before
+    any signal (a group TERM first would kill the parent and orphan the helper out of the walk). The group KILL takes
+    a member orphaned to init, which the walk cannot see."""
+    try:
+        bounded.stop_tree(p, "fabric-review")
+    finally:
+        with contextlib.suppress(ProcessLookupError):
+            os.killpg(p.pid, signal.SIGKILL)
 
 
 def _tail(path: str, limit: int = 1500) -> str:
