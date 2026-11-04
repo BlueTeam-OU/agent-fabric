@@ -528,6 +528,14 @@ def main() -> int:
     applied = applied_corrections_of(working_copy)
     applied_by_key = {(e["applied_key"], e["replaced"]): e for e in applied}
     replaced_by_key = {e["replaced_key"]: e for e in applied}
+    # The assembler renders a body with its [[links]] to moved memories pointed at the slice they were written into, and
+    # the report's keys are over that text: a memory is recognised by the key of its body as written or as pointed.
+    pointing = corrections_mod.names_in(corrections_mod.unique_stems(corrections_mod.applied_stems(applied)), (role, None))
+
+    def keys_of(body: str) -> list[str]:
+        written = corrections_mod.memory_key(body)
+        as_rendered = corrections_mod.memory_key(corrections_mod.point_text(body, pointing))
+        return [written] if as_rendered == written else [written, as_rendered]
     applied_skipped: list[str] = []
     superseded_originals: list[str] = []
     reflection = 0
@@ -552,10 +560,11 @@ def main() -> int:
         total += 1
         # ADR-050 rule 10, whatever the watermark says: an original memory whose section a merged correction replaced is
         # named to its author, who retires it. Looked for in every memory with a class: the watermark only spares re-reading.
-        # The key is over the memory's text as written: a body the assembler changed (a banned term substituted) or that
-        # drains through an English rendering is not recognised, which errs toward not naming.
+        # The key is over the memory's text as written or with its links pointed as the assembler points them (keys_of);
+        # a body the assembler changed otherwise (a banned term substituted) or that drains through an English rendering
+        # is not recognised, which errs toward not naming.
         if parsed["roles_class"] and parsed["body"].strip() and not parsed["merge_target"]:
-            hit = replaced_by_key.get(corrections_mod.memory_key(parsed["body"]))
+            hit = next((replaced_by_key[k] for k in keys_of(parsed["body"]) if k in replaced_by_key), None)
             if hit:
                 superseded_originals.append(f"{name}: section {hit['replaced']!r} of {hit['slice']} was replaced by the "
                                             f"correction {hit['memory']!r} (now {hit['heading']!r}); retire this memory")
@@ -581,7 +590,8 @@ def main() -> int:
             continue
         text, language, title = judged["text"], judged["language"], judged["title"]
         # Skipped only for the section it targets: the same words aimed at another heading are another correction.
-        done = applied_by_key.get((corrections_mod.memory_key(text), parsed["merge_target"])) if parsed["merge_target"] else None
+        done = next((applied_by_key[(k, parsed["merge_target"])] for k in keys_of(text)
+                     if (k, parsed["merge_target"]) in applied_by_key), None) if parsed["merge_target"] else None
         if done:
             # A correction whose text is already the corpus's section: filed again it would replace a section that has
             # since moved on, and be counted as new evidence. The watermark passes it; its author may retire it.

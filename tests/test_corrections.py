@@ -8,7 +8,7 @@ import unittest
 
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(HERE, "tools", "fabric"))
-from corrections import demote_headings, memory_key, section_key  # noqa: E402
+from corrections import applied_stems, demote_headings, memory_key, names_in, point_text, section_key, unique_stems  # noqa: E402
 
 
 class BodyKey(unittest.TestCase):
@@ -41,6 +41,26 @@ class BodyKey(unittest.TestCase):
         self.assertEqual(section_key("x"), section_key("x"))
         self.assertRegex(section_key("x"), r"^[0-9a-f]{16}$")
         self.assertEqual(section_key(""), section_key("  \n"))
+
+
+class Pointing(unittest.TestCase):
+    ENTRIES = [{"memory": "m", "slice": ".agent-fabric/memory/architect-cto/solution.md"},
+               {"memory": "s", "slice": "memory/domains/shared/domain/topic.md"},
+               {"memory": "bad"}, "junk"]
+
+    def test_a_stem_comes_from_the_slice_path_and_the_role_from_its_directory(self):
+        self.assertEqual(applied_stems(self.ENTRIES), [("architect-cto", "m", "solution"), (None, "s", "topic")])
+
+    def test_a_name_two_stems_claim_is_left_as_written_and_a_name_that_is_its_stem_is_not_moved(self):
+        found = [("r", "a", "one"), ("r", "a", "two"), ("r", "b", "b"), ("r", "c", "three"), (None, "c", "four")]
+        unique = unique_stems(found)
+        self.assertEqual(unique, {("r", "c"): "three", (None, "c"): "four"})
+        self.assertEqual(names_in(unique, ("r",)), {"c": "three"})
+
+    def test_links_and_the_references_line_are_pointed_and_other_text_is_not(self):
+        text = "See [[m]] and [[mm]].\n\n*References: m, other*"
+        self.assertEqual(point_text(text, {"m": "solution"}), "See [[solution]] and [[mm]].\n\n*References: other, solution*")
+        self.assertEqual(point_text(text, {}), text)
 
 
 if __name__ == "__main__":

@@ -419,6 +419,73 @@ def test_an_applied_correction_is_not_harvested_again_and_the_original_it_replac
     assert sorted(c["topic"] for c in claims_of(out3)) == ["fix", "fix2", "orig", "plain"]
 
 
+def test_a_memory_is_recognised_by_its_body_as_written_or_as_the_assembler_points_its_links(tmp: str) -> None:
+    """The report's keys are over the text the assembler rendered, whose [[links]] to a moved memory name the slice it was
+    written into (assembler targets.point_links). A correction whose body links such a memory, and an original whose
+    replaced section was pointed, are recognised by that text as well as by their own. A key stays "this text": a
+    correction that differs only in a link target is another correction; a name two slices claim is not pointed."""
+    sys.path.insert(0, os.path.join(ROOT, "tools", "fabric"))
+    from corrections import memory_key
+    wc = os.path.join(tmp, "wc-pt")
+    os.makedirs(os.path.join(wc, ".agent-fabric", "memory"))
+    base = ".agent-fabric/memory/architect-cto/"
+
+    def entry(memory: str, stem: str, replaced: str, replaced_text: str, applied_text: str) -> dict:
+        return {"slice": f"{base}{stem}.md", "heading": f"{replaced} (new)", "replaced": replaced, "memory": memory,
+                "replaced_key": memory_key(replaced_text), "applied_key": memory_key(applied_text)}
+
+    applied = [
+        entry("mover", "other-topic", "H-mover", "x", "y"),
+        entry("twice", "stem-one", "H-twice-a", "x2", "y2"),
+        entry("twice", "stem-two", "H-twice-b", "x3", "y3"),
+        entry("fix", "solution", "H-fix", "Old see [[other-topic]].", "New: see [[other-topic]] now."),
+        entry("fix-twice", "solution", "H-two", "Old two.", "New: see [[stem-one]] now."),
+        entry("fix-early", "solution", "H-early", "Old early.", "Early: see [[mover]] now."),
+        entry("fix-link", "solution", "H-link", "Old link.", "New: see [[other-topic]] now."),
+        entry("fix-foreign", "solution", "H-foreign", "Old foreign.", "New: see [[elsewhere-stem]] now."),
+        entry("fix-orig", "solution", "H-orig", "Was: see [[other-topic]].", "Now."),
+    ]
+    # a moved memory of another role: its name is not pointed in this role's memories
+    applied.append({"slice": ".agent-fabric/memory/web-dev/elsewhere-stem.md", "heading": "h", "replaced": "r",
+                    "memory": "mover-elsewhere", "replaced_key": memory_key("p"), "applied_key": memory_key("q")})
+    far_back = {"watermarks": {f"{LOGIN}@hostA": 1}, "applied_corrections": applied}
+    with open(os.path.join(wc, ".agent-fabric", "memory", "last-drain-report.json"), "w", encoding="utf-8") as fh:
+        json.dump(far_back, fh)
+    mem, out = os.path.join(tmp, "mpt"), os.path.join(tmp, "ompt")
+    os.makedirs(mem)
+    cases = (
+        # an applied correction whose body links a moved memory: its applied_key is over the pointed text
+        ("applied", "New: see [[mover]] now.", "H-fix"),
+        # applied before its link target moved: the key is over the text as written, and still hits
+        ("applied-early", "Early: see [[mover]] now.", "H-early"),
+        # the same words aimed at another heading are another correction
+        ("applied-elsewhere", "New: see [[mover]] now.", "H-other"),
+        # differing from the applied text only in a link target: another text, filed
+        ("link-differs", "New: see [[unmoved]] now.", "H-link"),
+        # a name two slices claim is left as written, so it cannot match the pointed text
+        ("twice-stems", "New: see [[twice]] now.", "H-two"),
+        # a name moved in another role's slices is not this role's
+        ("foreign-role", "New: see [[mover-elsewhere]] now.", "H-foreign"),
+        # an original whose replaced section was pointed
+        ("orig", "Was: see [[mover]].", None),
+        ("orig-unmoved", "Was: see [[unmoved]].", None),
+    )
+    for name, body, target in cases:
+        write_memory(mem, name, "project", body=body, roles_class="solution")
+        if target:
+            path = os.path.join(mem, f"{name}.md")
+            text = open(path, encoding="utf-8").read().replace("roles_class: solution", f"roles_class: solution\n  merge_target: {target}")
+            with open(path, "w", encoding="utf-8") as fh:
+                fh.write(text)
+    r = run(mem, out, "--working-copy", wc, "--project", "demo", "--host", "hostA")
+    assert r.returncode == 0, r.stderr
+    assert "applied correction: applied.md: already applied" in r.stderr, r.stderr
+    assert "applied correction: applied-early.md: already applied" in r.stderr, r.stderr
+    assert "superseded: orig.md" in r.stderr and "'fix-orig'" in r.stderr and "orig-unmoved.md" not in r.stderr, r.stderr
+    got = sorted(c["topic"] for c in claims_of(out))
+    assert got == ["applied-elsewhere", "foreign-role", "link-differs", "orig", "orig-unmoved", "twice-stems"], (got, r.stderr)
+
+
 def test_role_knowledge_is_opt_in(tmp: str) -> None:
     """A memory reaches the shared corpus only if it says so. Nothing is
     inferred from `type`: memory has four types, .roles/ has nine classes,
@@ -1326,6 +1393,7 @@ def main() -> int:
         test_the_marks_reach_the_committed_report_through_the_assembler,
         test_anchors_travel_from_a_solution_or_workflow_memory_to_its_claim,
         test_an_applied_correction_is_not_harvested_again_and_the_original_it_replaced_is_named,
+        test_a_memory_is_recognised_by_its_body_as_written_or_as_the_assembler_points_its_links,
         test_anchors_on_another_class_or_malformed_are_dropped_with_a_warning_and_the_claim_stays,
         test_an_anchors_block_list_is_read_like_the_inline_form,
         test_a_block_list_a_dumper_wrapped_or_commented_is_read_whole_and_a_block_scalar_is_said,
