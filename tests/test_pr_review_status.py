@@ -749,6 +749,13 @@ def main() -> int:
     r = go(polls=one, comments=refused, formal=[("2026-08-25T10:00:00Z", "reviewer[bot]")])
     check("a request of the reviewer itself after the refusal clears it", r.rc == 1)
     check("an unreadable timeline leaves the refusal standing", go(polls=one, comments=refused, formal=[]).rc == 5)
+    # agent-fabric-fleetdeck#57: GitHub served a submitted_at in the future. A date no review can have yet says
+    # nothing of whether it came before the refusal or after it; a review dated in the past still does.
+    r = go(polls=one, reviews=[rev("reviewer-a", commit="aaaaaaaaaa", at="2099-01-01T00:00:00Z")], comments=refused, formal=[])
+    check("a review GitHub dates in the future does not supersede a later refusal: exit 5",
+          r.rc == 5 and says(r, "the reviewer declined", "(nothing has superseded it)"))
+    r = go(polls=one, reviews=[rev("reviewer-a", commit="aaaaaaaaaa", at="2026-08-21T10:00:00Z")], comments=refused, formal=[])
+    check("  a review dated after the refusal, and not in the future, still does", r.rc == 1 and says(r, "superseded by later coverage"))
     r = go(polls=ff, reviews=stale, comments=refused)
     check("a CURRENT refusal outranks the stale-review message: names the DECLINE, does not send the caller to re-review",
           r.rc == 5 and says(r, "the reviewer declined") and not says(r, "dispatch a re-review (exit 5)"))
