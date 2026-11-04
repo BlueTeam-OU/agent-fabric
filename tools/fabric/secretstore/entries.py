@@ -6,7 +6,7 @@ import os
 import subprocess
 import sys
 
-from .core import NAME_RE, UID_DOMAIN, StoreError, login, AGENT_ID_RE, own_agent_id, store_dir, _run, gpg, git
+from .core import write_confined, NAME_RE, UID_DOMAIN, StoreError, login, AGENT_ID_RE, own_agent_id, store_dir, _run, gpg, git
 from .keys import fingerprints, key_of_store, _ensure_use_subkeys, uid_of, _signing_args
 from .trust import _git_env, _commit, trusted_base, _full, _set_base, _verify_incoming, _taken, _keep_base
 from .lock import write_lock, require_write_lock, lock_wait_s
@@ -99,11 +99,8 @@ def _write_entry(store: str, name: str, value: bytes, recipient_args: list[str])
     secret on the first line. --no-encrypt-to: a gpg.conf naming an extra
     recipient never adds one."""
     _check_name(name)
-    path = os.path.join(store, "env", f"{name}.gpg")
-    os.makedirs(os.path.dirname(path), mode=0o700, exist_ok=True)
-    gpg("--trust-model", "always", "--no-encrypt-to", "--encrypt", *recipient_args, "--output", path + ".tmp",
-        stdin=value)
-    os.replace(path + ".tmp", path)
+    sealed = gpg("--trust-model", "always", "--no-encrypt-to", "--encrypt", *recipient_args, stdin=value).stdout
+    path = write_confined(store, f"env/{name}.gpg", sealed)
     git(store, "add", os.path.relpath(path, store))
     return path
 

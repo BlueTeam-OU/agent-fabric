@@ -487,6 +487,35 @@ def verify_signed_by(store: str, commit: str, keys: dict[str, bytes], *, unknown
     return commit
 
 
+# What a store holds (entries.py, statecopy.py, backup.py, settings.py, the
+# store's own two id files); anything else in an incoming tree is refused.
+_STORE_PATH_RE = re.compile(
+    r"\.gpg-id|\.agent-id"
+    r"|env/[A-Z][A-Z0-9_]{0,63}\.gpg"
+    r"|state/[0-9a-f-]{36}\.(?:tar\.gpg|meta)"
+    r"|recovery/[0-9a-f-]{36}\.(?:key\.gpg|recipient)"
+    r"|settings(?:/[A-Za-z0-9_][A-Za-z0-9_.@+=-]*)+")
+
+
+def _tree_reason(store: str, base: str | None, tip: str) -> str | None:
+    """Why the tree `tip` is not one to apply, or None: every path it adds or
+    changes since `base` (everything, from the root) is one a store holds, as
+    a regular non-executable file; a link, a submodule or an executable is
+    refused before any checkout can write through it. Deletions of a path are
+    judged by the path alone."""
+    cmd = ["diff-tree", "-r", "--no-renames", "--raw", "-z", "--no-commit-id"]
+    out = git(store, *cmd, base, tip).stdout if base else git(store, *cmd, "--root", tip).stdout
+    fields = out.split(b"\0")
+    for meta, raw in zip(fields[0::2], fields[1::2]):
+        mode = meta.split()[1].decode()
+        path = raw.decode("utf-8", "replace")
+        if not _STORE_PATH_RE.fullmatch(path) or ".." in path.split("/"):
+            return f"it holds {path!r}, which is no path of a store"
+        if mode not in ("100644", "000000"):
+            return f"it holds {path!r} as mode {mode}, not a regular file"
+    return None
+
+
 def _verify_incoming(store: str, tip: str, agent_id: str | None = None, fabric: str | None = None,
                      *, from_root: bool = False) -> str:
     """Every commit `tip` would bring that the store neither holds nor trusts
@@ -521,6 +550,12 @@ def _verify_incoming(store: str, tip: str, agent_id: str | None = None, fabric: 
             reason = _unsigned_reason(store, c, allowed, subkeys, env)
             if reason:
                 raise refuse(c, reason)
+    # A writer's signature vouches for who wrote the tree, not for what is in
+    # it: a signed link or a path outside the store's layout would be written
+    # through by the checkout that follows.
+    reason = _tree_reason(store, None if from_root else base, tip)
+    if reason:
+        raise refuse(tip, reason)
     return tip
 
 
