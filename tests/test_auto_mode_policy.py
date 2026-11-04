@@ -27,6 +27,13 @@ def main() -> int:
           "PUBLIC: BlueTeam-OU/agent-fabric and BlueTeam-OU/InterWeave" in POLICY["environment"]["Repository visibility"])
     check("lists hold prose, never \"$defaults\" (the writer adds it)",
           all("$defaults" not in POLICY[k] for k in ("allow", "soft_deny", "hard_deny")))
+    # The apply writes GitHub's rulesets: the entry must keep it to the policy's keeper and to registered
+    # projects, or the classifier reads it as a licence for any session and any repository.
+    applies = [a for a in POLICY["allow"] if "fabric-repo-policy apply" in a]
+    check("one entry allows fabric-repo-policy apply", len(applies) == 1, applies)
+    check("the apply entry is bound to fabric-coordinator, registered projects, never --fleet-default",
+          all("bound to fabric-coordinator" in a and "projects/registry.json" in a and "never with --fleet-default" in a
+              for a in applies), applies)
 
     print(f"\n{'FAILED' if fails else 'all passed'}")
     return 1 if fails else 0
