@@ -1144,13 +1144,15 @@ class Bootstrap:
         #       Never restarted, not even when the unit file changed: its stop
         #       ends the session running in the pane, which is a person's call
         #       (fabric-ctl <login> harness-stop, then harness-start). For the
-        #       same reason only a first install starts it: harness-stop does
-        #       not disable, so `enable --now` on every run started again what
-        #       a person stopped (j490). Enabled, the next boot starts it. The
+        #       same reason it is started only while it has never been active
+        #       under this manager: harness-stop does not disable, so `enable
+        #       --now` on every run started again what a person stopped (j490),
+        #       and a person's stop always follows an active run. A unit whose
+        #       first start found no binary, or that was installed with no
+        #       manager, has never been active and is started (#484 F1). The
         #       start is --no-block: it waits on ExecStartPost (the pane step),
         #       unbounded, inside moveto's 30 s bootstrap budget.
         before = self.changed
-        first_install = not os.path.lexists(os.path.join(self.units, f"{HARNESS_UNIT}.service"))
         self.put_file(os.path.join(self.units, f"{HARNESS_UNIT}.service"), f"runtime/control/{HARNESS_UNIT}.service")
         if self.dry_run:
             return
@@ -1159,13 +1161,20 @@ class Bootstrap:
                 f"(loginctl enable-linger {login()}, or the next login starts it)")
             return
         run_quiet(["systemctl", "--user", "enable", HARNESS_UNIT])
-        if first_install:
+        entered = answer(["systemctl", "--user", "show", "-p", "ActiveEnterTimestampMonotonic", "--value", HARNESS_UNIT])
+        if entered == "0":
             run_quiet(["systemctl", "--user", "start", "--no-block", HARNESS_UNIT])
         state = answer(["systemctl", "--user", "is-active", HARNESS_UNIT])
         if self.changed > before and state == "active":
             say(f"  *  {HARNESS_UNIT}: unit changed; not restarted, a restart ends the session in its pane "
                 f"(fabric-ctl {login()} harness-stop, then harness-start)")
-        hint = "" if state == "active" else "; it starts only where install_fleetdeck.py put the binary"
+        if state == "activating":
+            # The --no-block start returns while ExecStartPost (the pane step) still runs.
+            hint = "; starting, its pane step still running"
+        elif state == "active":
+            hint = ""
+        else:
+            hint = "; it starts only where install_fleetdeck.py put the binary"
         say(f"  *  {HARNESS_UNIT}: {state} (systemctl --user status {HARNESS_UNIT}{hint})")
 
     def agentd_unit(self) -> bytes:
