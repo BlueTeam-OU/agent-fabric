@@ -49,7 +49,7 @@ def descendants(pid: int) -> list[int]:
     return found
 
 
-def stop_tree(proc: subprocess.Popen) -> None:
+def stop_tree(proc: subprocess.Popen, label: str = "new-agent") -> None:
     def alive(pid: int) -> bool:
         f = _stat_fields(pid)
         return bool(f) and f[0] != "Z"
@@ -95,28 +95,37 @@ def stop_tree(proc: subprocess.Popen) -> None:
     while running():
         if time.monotonic() >= deadline:
             left = " ".join(str(p) for p in running())
-            print(f"new-agent:    {proc.args[0]}: still running after SIGKILL: pid {left}", file=sys.stderr)
+            print(f"{label}:    {proc.args[0]}: still running after SIGKILL: pid {left}", file=sys.stderr)
             break
         time.sleep(0.02)
     unreached = " ".join(str(p) for p in tree if alive(p) and reach(p) == "theirs")
     if unreached:
-        print(f"new-agent:    {proc.args[0]}: could not be signalled (another account's): pid {unreached}", file=sys.stderr)
+        print(f"{label}:    {proc.args[0]}: could not be signalled (another account's): pid {unreached}", file=sys.stderr)
 
 
-def run_bounded(cmd: list[str], *, timeout: float, input: bytes | None = None, **popen) -> subprocess.CompletedProcess:
+def run_bounded(cmd: list[str], *, timeout: float, input: bytes | None = None, label: str = "new-agent",
+                **popen) -> subprocess.CompletedProcess:
     """subprocess.run(cmd, input=…, timeout=…), the timeout ending the
     command's whole process tree (stop_tree) before TimeoutExpired is
     raised. The exception carries the bound the call was given: before
-    3.13, the one communicate() raises holds what was left of it."""
+    3.13, the one communicate() raises holds what was left of it. It also
+    carries what the command had written, as subprocess.run's does: a caller
+    builds its one-line reason from it. `label` is what stop_tree's own
+    stderr lines are prefixed with."""
     with subprocess.Popen(cmd, **popen) as proc:
         try:
             out, err = proc.communicate(input, timeout=timeout)
         except subprocess.TimeoutExpired:
-            stop_tree(proc)
-            raise subprocess.TimeoutExpired(cmd, timeout) from None
+            stop_tree(proc, label)
+            # The tree is gone, so the pipes reach EOF; the bound is for a process stop_tree could not signal.
+            try:
+                out, err = proc.communicate(timeout=STOP_GRACE_S)
+            except subprocess.TimeoutExpired:
+                out = err = None
+            raise subprocess.TimeoutExpired(cmd, timeout, output=out, stderr=err) from None
         except BaseException:
             # An interrupt ends the tree too: Popen's __exit__ only waits for the direct child.
-            stop_tree(proc)
+            stop_tree(proc, label)
             raise
     return subprocess.CompletedProcess(cmd, proc.returncode, out, err)
 

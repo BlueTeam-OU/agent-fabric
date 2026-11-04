@@ -827,6 +827,21 @@ class InstallTimeoutOwnsDescendants(unittest.TestCase):
             U.default_run(self.hang, timeout=1)
         self.assertFalse(running(self.pid()), "the timed-out command's own child kept running")
 
+    def test_a_timeout_carries_what_the_command_had_written(self):
+        cmd = ["sh", "-c", "echo partial-out; echo partial-err >&2; exec sleep 300"]
+        with self.assertRaises(subprocess.TimeoutExpired) as cm:
+            U.default_run(cmd, timeout=1)
+        self.assertEqual((cm.exception.stdout, cm.exception.stderr), (b"partial-out\n", b"partial-err\n"))
+        self.assertEqual(U.last_line(cm.exception), "partial-err")
+
+    def test_the_tree_stop_speaks_as_upgrade_not_as_new_agent(self):
+        seen: list[str] = []
+        real = U.bounded.stop_tree
+        with mock.patch.object(U.bounded, "stop_tree", lambda proc, label="new-agent": (seen.append(label), real(proc, label))):
+            with self.assertRaises(subprocess.TimeoutExpired):
+                U.default_run(self.hang, timeout=1)
+        self.assertEqual(seen, ["upgrade"])
+
     def test_default_run_interrupt_ends_the_command_s_descendants_too(self):
         real = subprocess.Popen.communicate
 

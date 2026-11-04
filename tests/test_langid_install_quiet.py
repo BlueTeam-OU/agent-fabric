@@ -124,6 +124,20 @@ class Quiet(unittest.TestCase):
         self.assertIsNotNone(spawned[0].poll(), "the child was not reaped")
         self.assertIs(signal.getsignal(signal.SIGINT), signal.default_int_handler, "the handler was not restored")
 
+    def test_an_ignored_sigint_stays_ignored_even_if_one_arrives_during_spawn(self) -> None:
+        real_popen = subprocess.Popen
+
+        def popen_then_sigint(*args, **kw):
+            proc = real_popen(*args, **kw)
+            os.kill(os.getpid(), signal.SIGINT)
+            return proc
+
+        previous = signal.signal(signal.SIGINT, signal.SIG_IGN)
+        self.addCleanup(signal.signal, signal.SIGINT, previous)
+        with mock.patch.object(langid_install.subprocess, "Popen", popen_then_sigint):
+            self.assertTrue(langid_install.quiet(["true"], 10))
+        self.assertIs(signal.getsignal(signal.SIGINT), signal.SIG_IGN)
+
 
 class HalfMadeVenv(unittest.TestCase):
     def test_a_venv_that_fails_midway_is_removed_not_left_to_poison_the_next_run(self) -> None:

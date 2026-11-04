@@ -75,11 +75,9 @@ def quiet(argv: list[str], timeout: int) -> bool:
         interrupted = True
 
     previous: object = None
-    with contextlib.suppress(ValueError):
-        previous = signal.signal(signal.SIGINT, note)
-    if previous is signal.SIG_IGN:
-        signal.signal(signal.SIGINT, signal.SIG_IGN)
-        previous = None
+    if signal.getsignal(signal.SIGINT) is not signal.SIG_IGN:
+        with contextlib.suppress(ValueError):
+            previous = signal.signal(signal.SIGINT, note)
     try:
         proc = subprocess.Popen(argv, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
                                 stderr=subprocess.DEVNULL, start_new_session=True)

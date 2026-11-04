@@ -182,7 +182,7 @@ def default_run(cmd: list[str], **kw: Any) -> subprocess.CompletedProcess:
     if kw.pop("capture_output", True):
         kw["stdout"] = kw["stderr"] = subprocess.PIPE
     kw.setdefault("stdin", subprocess.DEVNULL)
-    r = bounded.run_bounded(cmd, timeout=timeout, **kw)
+    r = bounded.run_bounded(cmd, timeout=timeout, label="upgrade", **kw)
     if check and r.returncode:
         raise subprocess.CalledProcessError(r.returncode, cmd, r.stdout, r.stderr)
     return r
