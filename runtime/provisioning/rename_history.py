@@ -10,7 +10,9 @@ beside the target, fsync, os.replace) and the binding through
 identity.update_binding under the agent lock — a crash, a full disk or a
 kill leaves the previous file whole (review, 2026-09-16; before this,
 transcripts, history.jsonl, ~/.claude.json and binding.json were
-rewritten in place, the binding bypassing write_binding). A merge into
+rewritten in place, the binding bypassing write_binding). The job list
+follows the same way: the working_copy and worktree of every unfinished job
+that names the old checkout or a path below it. A merge into
 an existing history directory is planned before anything moves and
 never overwrites: same name and bytes, one copy; same name and
 different bytes, both kept, the incoming one suffixed .from-<old key>;

@@ -167,6 +167,12 @@ def main() -> int:
         rc, out = rename()
         check("a worktree git cannot open afterwards fails the run, and the history stays under its old key",
               rc == 1 and "cannot open the worktree" in out and os.path.isdir(key("old")) and not os.path.isdir(key("new")), f"rc={rc}\n{out}")
+        rc, out = rename()
+        check("…and the run again, the tree being in place, fails the same way instead of reading as already done",
+              rc == 1 and "cannot open the worktree" in out and os.path.isdir(key("old")) and not os.path.isdir(key("new")), f"rc={rc}\n{out}")
+        os.remove(f"{home}/projects/new/.git/worktrees/linked/index")
+        rc, out = rename()
+        check("…and once the worktree opens again, the run again completes", rc == 0 and os.path.isdir(key("new")), f"rc={rc}\n{out}")
         reset()
         git_ok("-C", f"{home}/projects/old", "worktree", "add", "-q", "-b", "side", f"{home}/projects/old/inner")
         rc, out = rename()

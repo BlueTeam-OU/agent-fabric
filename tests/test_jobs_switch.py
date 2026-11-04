@@ -33,6 +33,9 @@ a = sys.argv[1:]
 doc = json.load(open(os.path.join(os.environ["FAKE_DIR"], "gh.json")))
 if a[:2] == ["pr", "view"] and "--repo" in a:
     key = a[a.index("--repo") + 1] + "#" + a[2]
+    if key in doc["states"] and a[a.index("--json") + 1] == "headRefOid" and key in doc.get("head_fails", []):
+        sys.stderr.write("GraphQL: head unavailable (HTTP 502)\\n")
+        sys.exit(1)
     if key in doc["states"]:
         print(json.dumps({"state": doc["states"][key], **doc["heads"].get(key, {})}))
         sys.exit(0)
@@ -90,9 +93,9 @@ def main() -> int:
         mine = f"{host}/{login}/feat/earlier"      # a branch of this login with an open pull request, where a case has one
         n_worlds = 0
 
-        def gh_says(states=None, open_prs=None, merged_heads=None, heads=None) -> None:
+        def gh_says(states=None, open_prs=None, merged_heads=None, heads=None, head_fails=None) -> None:
             with open(os.path.join(fake, "gh.json"), "w", encoding="utf-8") as fh:
-                json.dump({"states": states or {}, "open_prs": open_prs or [], "merged_heads": merged_heads or [], "heads": heads or {}}, fh)
+                json.dump({"states": states or {}, "open_prs": open_prs or [], "merged_heads": merged_heads or [], "heads": heads or {}, "head_fails": head_fails or []}, fh)
 
         class World:
             """A fresh state directory and a fresh checkout with its origin."""
@@ -485,6 +488,14 @@ def main() -> int:
         w.add("the next job")
         rc, out, err = w.switch()
         check("…while the same pair with a merged pull request ending at that sibling's tip settles", rc == 0, out + err)
+
+        w = World()
+        j1 = w.working("a merged pull request whose head gh cannot tell")
+        pushed_branch(w)
+        gh_says({f"{jobs_world.GH_REPO}#2": "MERGED"}, head_fails=[f"{jobs_world.GH_REPO}#2"])
+        w.sw("deliver", j1, f"{jobs_world.GH_REPO}#2", contrib)
+        w.sw("done", j1)
+        settles(w, j1, "a head gh cannot read is could not tell, never settled", "could not tell where")
 
         w = World()
         j1 = w.working("a merged pull request, then more work pushed on its branch")
