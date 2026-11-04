@@ -266,8 +266,10 @@ def test_a_correction_that_fell_in_another_budget_part_than_its_memory_is_not_wr
     third = ta.claims("alpha", [])
     big = "y " * 900
     claims = [
-        {"class": "domain", "topic": "grow", "title": "Third", "body": "Small.", "evidence": ["h1"]},
-        {"class": "domain", "topic": "grow", "title": "Second", "body": big, "evidence": ["h1"]},
+        {"class": "domain", "topic": "grow", "title": "Third", "body": "Small.", "evidence": ["h1"],
+         "knowledge_scope": "domain-only"},
+        {"class": "domain", "topic": "grow", "title": "Second", "body": big, "evidence": ["h1"],
+         "knowledge_scope": "domain-only"},
         {"class": "domain", "topic": "grow", "title": "Second, corrected", "body": "z " * 900, "evidence": ["h3"],
          "merge_target": "Second"}]
     drain, claims_dir, out = ta.build(tmp, {"alpha": third})

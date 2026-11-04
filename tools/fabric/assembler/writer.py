@@ -293,6 +293,8 @@ def write_slice(
         kept = [c for c in claims if not any(c is e for e in already_elsewhere)]
         evidence = sorted({h for c in kept for h in c.get("evidence", [])})
         origin_set = {origin_key(run.origins.get(h) or {"agent": "unresolved", "host": "unknown"}) for h in evidence}
+        # The scope labels what this part holds; a claim written in a sibling part must not widen it.
+        meta["knowledge_scope"] = "domain-only" if all(c.get("knowledge_scope") == "domain-only" for c in kept) else "full"
 
     if not blocks and retired_here:
         # Every section of the file was retired: the file goes, and its callers list nothing for it.
