@@ -222,7 +222,7 @@ _ClaimKeys = TypedDict("_ClaimKeys", {  # identities/schemas/claims.schema.json'
 
 
 class Claim(_ClaimKeys, total=False):
-    """One claim of a claims file (the schema's fields), and the three keys the
+    """One claim of a claims file (the schema's fields), and the keys the
     drain adds in memory and never writes: `_role`, the claims file's role,
     `_retire`, the headings a retitling supersede retires, `_inferred_target`,
     set when the drain (an owner's supersede, the same-agent rule) and not the
