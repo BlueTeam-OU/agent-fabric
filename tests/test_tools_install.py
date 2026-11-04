@@ -1178,6 +1178,15 @@ ln -sf rustup "$CARGO_HOME/bin/cargo"; ln -sf rustup "$CARGO_HOME/bin/rustc"
             check("SIGTERM during the grace wait after a timeout still ends a TERM-deaf program with KILL (its child runs 300 s)",
                   stopped and took < 15 and not alive(os.path.join(home, "init-child.pid")), (stopped, took))
 
+            print("a timeout ends a helper that left the program's session")
+            helper_pid = os.path.join(tmp, "detached-helper.pid")
+            status, _ = tools_install.run_program(
+                ["sh", "-c", f"setsid sleep 300 & echo $! > {helper_pid}; sleep 300"], {"PATH": saved_path}, tmp, 1)
+            time.sleep(0.2)
+            leftover = alive(helper_pid)   # kills a live one itself
+            check("a program that ran out its bound leaves no helper behind, also one in a session of its own",
+                  status is None and not leftover, (status, leftover))
+
             print("an end to the run ends the program")
             home = account("pa")
             tools_install.exit_on_sigterm()

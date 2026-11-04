@@ -143,6 +143,7 @@ from typing import Callable
 
 import tools_check
 import workingcopy
+from provisioning import bounded
 
 TOOL_NAME = re.compile(r"[a-z0-9][a-z0-9._-]{0,63}")
 SHA256 = re.compile(r"[0-9a-f]{64}")
@@ -724,14 +725,13 @@ def run_program(argv: list[str], env: dict[str, str], cwd: str, timeout: float) 
     with subprocess.Popen(argv, env=env, cwd=cwd, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
                           stderr=subprocess.STDOUT, start_new_session=True) as proc:
         def stop() -> None:
-            # KILL always follows TERM, also when a second signal interrupts the grace wait: a build that
-            # ignores TERM must not outlive the run. The group id cannot be reused while a member is
-            # left, and ESRCH says none is.
+            # stop_tree walks the program's descendants before it signals anything, so a helper that left the
+            # group (setsid) is ended too; a group TERM first would kill the parent and orphan the helper out of
+            # the walk. The group KILL after it takes what the walk cannot see, a member orphaned to init. KILL
+            # always follows, also when a second signal interrupts the grace wait: a build that ignores TERM must
+            # not outlive the run. The group id cannot be reused while a member is left, and ESRCH says none is.
             try:
-                os.killpg(proc.pid, signal.SIGTERM)
-                proc.wait(timeout=STOP_GRACE_S)
-            except (ProcessLookupError, subprocess.TimeoutExpired):
-                pass
+                bounded.stop_tree(proc, "tools-install")
             finally:
                 try:
                     os.killpg(proc.pid, signal.SIGKILL)
