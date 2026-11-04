@@ -24,7 +24,7 @@ def init(remote: str | None = None, agent_id: str | None = None) -> dict:
         raise StoreError(f"this store is agent {held}; an agent id is never replaced")
     aid = held or agent_id
     if not aid or not AGENT_ID_RE.fullmatch(aid):
-        raise StoreError("no agent id: the parent mints it at enrolment (store-enroll.sh), and init takes --agent-id")
+        raise StoreError("no agent id: the parent mints it at enrolment (store_enroll.py), and init takes --agent-id")
     uid = uid_of(aid, me)
     gpg_id = os.path.join(store, ".gpg-id")
     fpr = key_of_store(store) if os.path.exists(gpg_id) else next(iter(fingerprints(secret=True, query=f"<{aid}@{UID_DOMAIN}>")), None)

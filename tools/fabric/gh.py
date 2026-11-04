@@ -30,10 +30,17 @@ fifty. Read the list's numbers first and each item alone (results.py).
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import re
 import subprocess
+import sys
+import time
+
+# The ledger beside THIS file, whichever checkout loaded it by path (jobsparts/vcs.py does).
+sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+import gh_ledger  # noqa: E402
 
 TIMEOUT_S = 60
 _STATUS = re.compile(r"\(HTTP (\d{3})\)")
@@ -57,10 +64,13 @@ class GhError(Exception):
     ran and exited."""
 
     def __init__(self, what: str, reason: str, status: int | None = None, transient: bool = False,
-                 stdout: str = "", stderr: str = "", code: int | None = None):
+                 stdout: str = "", stderr: str = "", code: int | None = None, reset: float | None = None):
         super().__init__(f"{what}: {reason}")
         self.what, self.reason, self.status, self.transient = what, reason, status, transient
         self.stdout, self.stderr, self.code = stdout, stderr, code
+        # When the call was refused on the primary rate limit: the epoch at
+        # which the budget comes back. A poller waits until then.
+        self.reset = reset
 
 
 # `gh pr checks` with nothing to list prints no table and no JSON — not
@@ -164,7 +174,7 @@ def _scoped(args: list[str]) -> bool:
     return bool(args) and args[0] in _REPO_SCOPED
 
 
-def _env(args: list[str], what: str) -> dict[str, str] | None:
+def _env(args: list[str], what: str, cwd: str | None = None) -> dict[str, str] | None:
     """The environment for gh: GH_REPO pinned to this_repo(), so a command
     that takes no --repo (gh pr view N, gh pr merge N, gh api's {owner}/
     {repo}) targets this working copy's repository, never gh's default.
@@ -174,35 +184,61 @@ def _env(args: list[str], what: str) -> dict[str, str] | None:
     if os.environ.get("GH_REPO"):
         return None
     try:
-        return {**os.environ, "GH_REPO": this_repo()}
+        return {**os.environ, "GH_REPO": this_repo(cwd)}
     except GhError as e:
         if _scoped(args):
             raise GhError(what, e.reason) from None
         return None
 
 
-def run(args: list[str], *, input: str | None = None, timeout: float = TIMEOUT_S, what: str | None = None) -> str:
+def run(args: list[str], *, input: str | None = None, timeout: float = TIMEOUT_S, what: str | None = None,
+        cwd: str | None = None, record: bool = True, lookups: bool = True) -> str:
     """`gh <args>`, its stdout; a failure is a GhError naming `what` (by
     default the first two words of the call)."""
     what = what or "gh " + " ".join(args[:2])
+    caller = gh_ledger.caller_module(__file__)
+    started = time.monotonic()
     try:
         # No input is an empty stdin, never the caller's: a gh that reads
         # stdin would otherwise wait on it for the whole bound.
         stdin = {"input": input} if input is not None else {"stdin": subprocess.DEVNULL}
-        env = _env(args, what)
-        r = subprocess.run(["gh", *args], capture_output=True, text=True, timeout=timeout, env=env, **stdin)
+        # lookups=False: no helper process of ours (git for the repository, rate_limit for a reason) may add to
+        # the caller's own time bound; the statusline's answer is due within its seconds.
+        if lookups:
+            env = _env(args, what, cwd)
+        elif not os.environ.get("GH_REPO") and _scoped(args):
+            # No git to learn the repository from, so a call gh would aim by guessing is refused outright
+            # (see _env); a caller that names one (--repo) or sets GH_REPO is unaffected.
+            raise GhError(what, "no repository is named and this call may not look one up (lookups=False)")
+        else:
+            env = None
+        r = subprocess.run(["gh", *args], capture_output=True, text=True, timeout=timeout, env=env, cwd=cwd, **stdin)
     except FileNotFoundError:
         raise GhError(what, "gh is not installed") from None
     except subprocess.TimeoutExpired:
+        if record:
+            gh_ledger.record(args, caller, "timeout", time.monotonic() - started)
         raise GhError(what, f"no answer within {timeout:g} s", transient=True) from None
     if r.returncode != 0:
         lines = [l for l in r.stderr.strip().splitlines() if l.strip()] or [f"exit {r.returncode}"]
         m = _STATUS.search(r.stderr)
         status = int(m.group(1)) if m else None
         low = r.stderr.lower()
+        limited = "rate limit" in low or status == 429
         transient = status is not None and (status >= 500 or status == 429) \
-            or "rate limit" in low or any(t in low for t in NETWORK_FAILURES)
-        raise GhError(what, lines[-1], status, transient, r.stdout, r.stderr, r.returncode)
+            or limited or any(t in low for t in NETWORK_FAILURES)
+        if record:
+            gh_ledger.record(args, caller, status or "error", time.monotonic() - started)
+        reset = None
+        if limited and lookups:
+            # Said as what it is, with the time it ends, never as "could not
+            # read PR": the next call is wasted until then.
+            # The budget that was spent is the transport the call rides (gh pr view and checks are GraphQL).
+            reason, reset = gh_ledger.limited_reason("graphql" if gh_ledger.classify(args)[0] == "graphql" else "core")
+            lines = [reason]
+        raise GhError(what, lines[-1], status, transient, r.stdout, r.stderr, r.returncode, reset)
+    if record:
+        gh_ledger.record(args, caller, "ok", time.monotonic() - started)
     return r.stdout
 
 
@@ -242,6 +278,113 @@ def api(path: str, *, method: str = "GET", body: dict | list | None = None, pagi
                               f" (pass items_key= for an endpoint whose pages are objects)")
         return items
     return data
+
+
+_HEAD_END = re.compile(r"\r?\n\r?\n")
+_NEXT = re.compile(r'<[^>]*>\s*;\s*rel="next"', re.IGNORECASE)
+
+
+def _etag_file(path: str) -> str | None:
+    directory = gh_ledger.state_dir()
+    if directory is None:
+        return None
+    return os.path.join(directory, "gh-etag", hashlib.sha256(path.encode()).hexdigest()[:32] + ".json")
+
+
+def _forget(cache: str | None) -> None:
+    """Drop a cached answer the latest read says can no longer be trusted."""
+    if cache:
+        try:
+            os.remove(cache)
+        except OSError:
+            pass
+
+
+def api_list(path: str, *, timeout: float = TIMEOUT_S) -> list:
+    """A REST list that polls cheaply: every item, like `api(path, paginate=True)`, but when the list fits
+    one page it is asked with the ETag of the last answer, and GitHub answers "304 Not Modified" without
+    counting the request against the rate limit. A poll of a review thread that has not changed costs
+    nothing.
+
+    Only a list that fits ONE page is cached: a list that grows at its end (reviews, comments) leaves page
+    one's ETag unchanged while page two changes, so a conditional read of a first page would answer
+    "unchanged" about a list that is not. A page with a `next` link is read in full, uncached, as `api` does.
+
+    The cache is this account's own (state directory), keyed by path: the answers of one token are the
+    answers of every session on it, and nothing is trusted past the validator GitHub itself accepts. A
+    missing, unreadable or damaged cache is simply a full read."""
+    sep = "&" if "?" in path else "?"
+    first = f"{path}{sep}per_page=100"
+    cache = _etag_file(first)
+    held = None
+    if cache:
+        try:
+            with open(cache, encoding="utf-8") as fh:
+                held = json.load(fh)
+            if not (isinstance(held, dict) and isinstance(held.get("etag"), str) and isinstance(held.get("items"), list)):
+                held = None
+            elif len(held["items"]) >= 100:
+                held = None   # an entry no current build would write: never trusted
+        except (OSError, ValueError):
+            held = None
+    args = ["api", "-i", first]
+    if held:
+        args += ["-H", f"If-None-Match: {held['etag']}"]
+    what = f"gh api GET {path.split('?')[0]}"
+    caller = gh_ledger.caller_module(__file__)
+    started = time.monotonic()
+    try:
+        out = run(args, timeout=timeout, what=what, record=False)
+    except GhError as e:
+        if held and (e.status == 304 or "HTTP 304" in e.stderr):
+            gh_ledger.record(args, caller, 304, time.monotonic() - started)
+            return held["items"]
+        gh_ledger.record(args, caller, e.status or "error", time.monotonic() - started)
+        raise
+    cut = _HEAD_END.search(out)
+    head, body = (out[:cut.start()], out[cut.end():]) if cut else (out, "")
+    status_line = head.splitlines()[0] if head else ""
+    parts = status_line.split()
+    code = int(parts[1]) if len(parts) > 1 and parts[1].isdigit() else None
+    if code == 304 and held:
+        gh_ledger.record(args, caller, 304, time.monotonic() - started)
+        return held["items"]
+    if code != 200:
+        gh_ledger.record(args, caller, code or "error", time.monotonic() - started)
+        raise GhError(what, f"unexpected answer {status_line.strip()[:80]!r}", transient=True)
+    gh_ledger.record(args, caller, "ok", time.monotonic() - started)
+    try:
+        items = json.loads(body)
+    except ValueError:
+        raise GhError(what, "the answer is not JSON", transient=True) from None
+    if not isinstance(items, list):
+        raise GhError(what, "the answer is not a list", transient=True)
+    if _NEXT.search(head):
+        _forget(cache)
+        return api(path + sep + "per_page=100", paginate=True, timeout=timeout) or []
+    etag = next((l.split(":", 1)[1].strip() for l in head.splitlines()[1:] if l.lower().startswith("etag:")), "")
+    # A full page is never trusted under a validator: an item appended as the 101st leaves page one's ETag
+    # unchanged, and the next conditional read would answer 304 for a list that now has a second page.
+    if len(items) >= 100:
+        _forget(cache)
+    if cache and etag and len(items) < 100:
+        try:
+            os.makedirs(os.path.dirname(cache), mode=0o700, exist_ok=True)
+            tmp = f"{cache}.{os.getpid()}"
+            with open(tmp, "w", encoding="utf-8") as fh:
+                json.dump({"etag": etag, "items": items}, fh)
+            os.replace(tmp, cache)
+        except OSError:
+            pass   # a cache that cannot be written is a full read next time
+    return items
+
+
+def budget_wait(floor: int = 100) -> float:
+    """Seconds a poller should wait before its next call so as not to spend the last of the rate limit: the
+    longer of the REST (core) and GraphQL waits, 0 while both have more than `floor` calls left and when the
+    budget cannot be read (see gh_ledger.wait_seconds). Costs no quota."""
+    res = gh_ledger.rate_limit()
+    return max(gh_ledger.wait_seconds(name, floor, resources=res) for name in ("core", "graphql"))
 
 
 def graphql(query: str, *, timeout: float = TIMEOUT_S, **variables) -> dict:

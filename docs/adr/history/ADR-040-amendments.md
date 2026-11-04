@@ -162,3 +162,142 @@ hold a Python helper to Node's own answers (`tests/test_control_js.py`).
 §7's Wave 8 bullets stay as the record of how the cutover was run, with
 a closing bullet; §8 states Waves 0 to 8 done and Wave 9 in progress, as
 batch 1 (#200) and later batches have landed.
+
+### Amendment 2026-10-19 — Wave 10: the managed projects' Node scripts move to Python
+
+The owner asked, in the coordinator's session on 2026-10-19, for a plan
+to move every remaining `.mjs` to Python, and then: "yes write adr
+amendment and dispatch jobs to migrate the remaining". Rule 9 had kept
+projects out of port waves, porting a script only when it next changed;
+for Node this record now runs one wave. Measured on each project's
+default branch that day: gzapp 7 files (1,696 lines), gzapp.decks 8
+(1,092), blueteam.ee 1 (109), plus `astro.config.mjs` in blueteam.ee
+and gzapi.ge, a framework's own configuration and so exempt. herdr's
+three docs scripts came from its upstream (herdrdev/herdr, 8a6d6973):
+the owner, asked, ruled that only the JavaScript we wrote is ported,
+never a fork's upstream code, and the herdr port (#47) was closed. The owner added
+that a project's TypeScript apps (gzapp's) are application code, not
+scripts, and are never migrated.
+Two scripts import a Node library with no obvious Python counterpart
+(gzapp's glyph builder, fontnik; gzapp.decks' `doc.mjs`, puppeteer):
+their holders decide port or exemption, and an exemption is added to
+§7's table with why. gzapp's `apps/admin_web/scripts/import-table.mjs` is the first:
+its holder showed it walks the pinned TypeScript compiler's AST, which
+has no Python binding, and the coordinator accepted the exemption. Each port goes to the holder of its path in the
+project's taxonomy, as a request from the coordinator. Rule 10 added,
+§7's Wave 10 table, §8.
+
+### Amendment 2026-10-19 — Wave 10: build-glyphs exempt; validate.js joins the wave
+
+§7's Wave 10 table. The holder of both rows, devex-tooling, checked them
+before porting (REPLY 01a15310, 2026-10-19), and the coordinator read the
+files at gzapp's origin/HEAD:
+
+- `tools/build_glyphs/build-glyphs.mjs` imports `fontnik` (FreeType and
+  an SDF distance field, a native addon) and `@mapbox/glyph-pbf-composite`;
+  PyPI has a binding for neither. Its `check` byte-compares the 256
+  committed glyph ranges with a fresh render, so a Python rasteriser would
+  change every range and need the Georgian labels checked again by eye, to
+  change the language of a 271-line build script. The row's condition
+  ("exempt if fontnik has no Python path") is met: exempt.
+- The row said "its three tests". Only `deprecated-refs.test.mjs` tests
+  `deprecated-refs.mjs`; `inline.test.mjs` and `success-body.test.mjs`
+  import `inlineExternalRefs`, `MAX_REF_CHAIN`, `checkDocument` and
+  `undescribedSuccessBodies` from `validate.js`, a `.js` script that rule
+  10 left under rule 9. Ported alone they would need a Node bridge, a
+  second harness for code still in Node. The holder offered two
+  options: keep them beside `validate.js` under rule 9, or port
+  `validate.js` (660 lines) now with them.
+- The owner chose the second, and widened rule 10 with it: a `.js`
+  or `.cjs` script of ours may join the wave, and one that is to be
+  updated or fixed is ported instead of being changed in Node (in the
+  coordinator's session, 2026-10-19). `validate.js` and its two tests
+  are ported; the old script is the oracle on the four real documents.
+  Its check 4 runs `@seriousme/openapi-schema-validator`; which Python
+  validator replaces it (jsonschema with the OAS 3.1 meta-schema, or
+  openapi-spec-validator) is the holder's choice, and a difference the
+  oracle shows is reported, not hidden.
+
+### Amendment 2026-10-19 — the provisioning entries are their modules
+
+§5 rules 1 and 7. The owner asked devex-tooling to propose retiring
+`runtime/provisioning/new-agent.sh`, a 16-line forwarder whose only work
+beyond the exec was printing the pin's install command (REQUEST
+01a15372); `store-enroll.sh` had the same shape. The coordinator took it
+for both: the hint moves into the module, which re-execs itself under
+the pin when it is present and prints the install command and exits 127
+when it is not, so the provisioning a person runs has no shell in front
+of it. A `bin/` command was not chosen, since every `bin/` entry is
+itself a bash forwarder. python-dev-03 built it (#315); the old paths
+say on stderr what replaces them for one release and are then deleted,
+as rule 7's shim steps say.
+
+### Amendment 2026-10-19 — a forwarder checks the pin before the module reads anything
+
+§5 rule 5's fourth departure. Porting
+`policies/check_repo_settings_carry_no_model_pins.sh` (Wave 9 batch 3),
+the oracle's case "the python is asked for only once the file exists"
+failed against the forwarder: the bash ran Python only when a settings
+file was there, so a host without the pin and without the file exited 0,
+while a forwarder of rule 1 checks the pin first and exits 127. That is
+the departure the rule already allowed for an unknown verb, met through
+a file instead; the rule now names any input, so each later port meets
+it as a cited case instead of a fresh decision.
+
+### Amendment 2026-10-19 — Wave 9 batch 5: the three Claude Code guards run on the pin
+
+§5 rule 4. Wave 9 batch 5 ports the three Claude Code guards
+(`model-switch-guard.sh`, `pipe-status-guard.sh`,
+`subagent-clone-guard.sh`) to modules beside them, run on the pinned
+interpreter; each `.sh` stays the path settings register, a forwarder
+that fails closed with an ask when the pin or its module is missing
+or the run fails. So `model-switch-guard.sh` is
+no longer among the hooks that keep the host's `python3`. Their bash
+tests are retired for the Python oracles of #320, which ran unchanged
+against both.
+
+### Amendment 2026-10-19 — Wave 9 batches 4, 6 and 9: the git hooks, the fallback note and the host check run on the pin
+
+§5 rule 4. Batch 4 makes the git hooks one module,
+`tools/fabric/guards/commit_hooks.py`: `pre-commit`, `commit-msg` and
+`post-commit` are forwarders to it on the pin (the first two refuse the
+commit when the pin is missing, `post-commit` never fails one), and
+`guarded-change.sh` and `locale-carve-out.sh` stay as rule 4's sourced
+shims, because their oracles source them by path. Batch 6 makes
+`model-fallback-note.sh` a forwarder to `model_fallback_note.py`, batch
+9 gzapp's `host-check.sh` a forwarder to `host_check.py` beside it, which
+the provisioning worker runs on the pin. `pre-push` keeps the host's
+`python3`: its oracle pins that, as the hook is installed in every
+account's checkouts, and moving it is its own decision.
+
+### Amendment 2026-10-24 — fabric-ctl's bash completion joins the closed list
+
+What changed: §5 rule 1's closed pre-Python list gains
+`tools/fabric/control/completion.bash`, the bash completion of `fabric-ctl`.
+
+Why: a completion script is read by bash and nothing else, as the list's
+`moveto/completion.bash` already is; rule 1 lists only those two kinds of
+bash and the forwarder, and the completion was neither. Found when the lint
+first enforced rule 2 as amended on 2026-10-11 (j368): 82 of the 93 tracked
+bash files are forwarders, 10 are the list, and this one was left over. §7, §8, rule 4's list
+of hooks on the host's `python3` and §7's batch-6 row now say the lint
+change landed and `session-start.sh` was ported, both in this batch. Accepted by the owner, 2026-10-24 ("1 accepted", in the
+coordinator's session).
+
+### Amendment 2026-10-24 — the pin moves to 3.14; no third-party wheel
+
+What changed: the pin moves from 3.13.15 to python-build-standalone
+3.14.9+20261021, where `compression.zstd` is standard library; §2's "3.13
+today" reads 3.14. The floor does not move: the code stays valid on 3.13
+and newer (rule 1), Debian 13's system python3 among them.
+
+Why: the owner asked for zstd and brotli in the fleet's Python
+(2026-10-24). devex-tooling measured and supplied the change (j212):
+both builds' sha256 against upstream, `_zstd` built in, the install and
+the suite on 3.14. Brotli was left out on the owner's word ("as you
+recommend"): ADR-064's carrier compresses with zlib since its amendment of
+the same day, nothing else needs brotli, and a pinned wheel would be the
+fleet's first third-party package, which rule 1's standard-library rule
+does not allow. The installer keeps the wheel machinery the change added,
+with no wheel pinned; pinning one is a change of rule 1, not of the pin. Accepted by the owner,
+2026-10-24 ("2 as you recommend", in the coordinator's session).

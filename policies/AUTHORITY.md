@@ -141,7 +141,8 @@ this for a Python developer sharing the port of the fabric's bash
   against the entry **as the base has it**: a branch that widens its
   own entry is judged by main's.
 - **The contributor opens no pull request** unless its entry carries
-  `"merges": true`. Otherwise it tells fabric-coordinator the branch is
+  `"merges": true`, and dispatches no review of what it supplies (ADR-020
+  §5 rule 11). Otherwise it tells fabric-coordinator the branch is
   ready; the coordinator folds it unrebased into its own pull request,
   the blind review covers it, and the coordinator merges. A finding on a
   contributed hunk goes back to the contributor. A role that merges
@@ -210,7 +211,7 @@ and let it through, with the folding account's role as its trailer like
 any commit. The CI tripwire judges merge commits the same way. What a
 conflict resolution or a hand edit changes in a merge, including keeping
 one side's guarded tree where the other moved it, is the merge's own
-change and is judged like any other (`policies/githooks/guarded-change.sh`,
+change and is judged like any other (`tools/fabric/guards/commit_hooks.py`,
 `tools/fabric/guards/agent_fabric_dir_authority.py`).
 
 ## What the tripwire can and cannot do
@@ -257,7 +258,7 @@ Each agent's secrets are its own store, `BlueTeam-OU/fabric-agent-<id>`
 (its agent id, ADR-039), encrypted to its key alone (ADR-038): the login writes and reads it; its parent,
 the `fabric-coordinator` login that provisioned it, may add an entry
 (`fabric-secrets store put`) and certifies its key, and reads nothing.
-Making a key and store (`store-enroll.sh`), certifying keys
+Making a key and store (`tools/fabric/store_enroll.py`), certifying keys
 (`identities/keys/`), and the Claude-account templates in the
 coordinator's store are `fabric-coordinator`'s, and so is filling a
 child's store (`fabric-secrets provision`: identity, the shared names,

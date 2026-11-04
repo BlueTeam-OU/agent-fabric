@@ -606,7 +606,7 @@ class Memory(Base):
 
     def test_memory_one_harvester_run_per_directory_gzipped_base64_in_parts_a_failure_and_a_stray_are_rows(self):
         tar = os.urandom(3000)   # incompressible: the parts are real
-        report = {"role": "db-admin", "claims": 2, "counts": {"in_scope": 3, "total": 3}, "needs_rendering": ["ka-note"], "skipped_no_roles_class": ["private"], "memory_dir": "/never/leaves"}
+        report = {"role": "db-admin", "claims": 2, "oldest_drainable_ms": 1700000000000, "counts": {"in_scope": 3, "total": 3}, "needs_rendering": ["ka-note"], "skipped_no_roles_class": ["private"], "memory_dir": "/never/leaves"}
         calls: list = []
 
         def run(cmd, **kw):
@@ -630,7 +630,7 @@ class Memory(Base):
         with mock.patch("time.time", return_value=time.time() + 86400):
             later = ops.memory("/home/x", root="/r", run=lambda c, **k: subprocess.CompletedProcess(c, 0, tar, json.dumps(report).encode()), dirs=[dirs[0]], all=True, part_bytes=1000)["bundles"][0]["_parts"]
         self.assertEqual(later, ok["_parts"], "the gzip header carries no clock: the same tar is the same bytes")
-        self.assertEqual(ok["report"], {"claims": 2, "counts": {"in_scope": 3, "total": 3}, "needs_rendering": ["ka-note"], "skipped_no_roles_class": ["private"]})
+        self.assertEqual(ok["report"], {"claims": 2, "oldest_drainable_ms": 1700000000000, "counts": {"in_scope": 3, "total": 3}, "needs_rendering": ["ka-note"], "skipped_no_roles_class": ["private"]})
         self.assertNotIn("memory_dir", ok["report"], "only the whitelisted report keys travel")
         self.assertEqual(stray, {"slug": "s-stray", "files": 1, "status": "no-working-copy"})
         self.assertEqual(broken["status"], "harvest-failed")
@@ -802,7 +802,10 @@ class Tokens(Base):
         finally:
             usage_mod.ledger_tokens = real
         self.assertEqual((kept["status"], list(kept["models"]), kept["ledger"]), ("ok", ["claude-opus-5"], {"status": "unreadable", "error": "OverflowError"}))
-        c = ops.collect("tokens", {"home": self.home(), "who": WHO, "state": state})
+        # collect() reads the real clock, and the rows are dated at the fixed `now` above: the window is named wide enough to hold them
+        # whenever this runs (the default 7-day window stopped holding them on 2026-10-20 12:00 UTC, which red-lit every CI run).
+        days = (time.time() * 1000 - now) / DAY + 7       # the counted rows sit a day before `now`, a4 thirty: 7 days holds the first and excludes a4 by 23, whatever the two clock reads differ by
+        c = ops.collect("tokens", {"home": self.home(), "who": WHO, "state": state, "days": days})
         self.assertEqual(c["tokens"]["ledger"]["rows"], 6, "the section reads the state directory the context names")
 
 
@@ -814,11 +817,15 @@ class Collect(Base):
         def run(cmd, **kw):
             calls.append(" ".join(cmd))
             raise OSError("boom")
-        ctx = {"home": h, "who": WHO, "fetch": lambda *a, **k: usage_mod.Response(200, {}, b"{}"), "root": "/r", "run": run, "uid": 1}
+        ctx = {"home": h, "who": WHO, "fetch": lambda *a, **k: usage_mod.Response(200, {}, b"{}"), "root": "/r", "run": run, "uid": 1,
+               "managed_opts": {"prefix": os.path.join(h, "no-prefix"), "etc": os.path.join(h, "no-etc")}}
         allr = ops.collect("status", ctx)
         # harness and inbox (tools/fabric/drift.py) ride with status since j113: Claude Code against the pin, and the read position.
-        self.assertEqual(sorted(allr), ["fabric", "harness", "identity", "inbox", "keys", "session", "usage"])
+        self.assertEqual(sorted(allr), ["fabric", "harness", "identity", "inbox", "keys", "managed", "session", "usage"])
         self.assertEqual(allr["harness"]["status"], "failed", "run raises: claude --version could not run")
+        # ADR-043 rules 1-2 (tools/fabric/managed_settings.py) ride with status: its dict, pointed here at a scratch prefix and etc.
+        self.assertEqual((allr["managed"]["state"], allr["managed"]["ref"]), ("missing", "origin/main"))
+        self.assertIn(os.path.join(h, "no-etc", "managed-settings.json") + " is absent", allr["managed"]["reasons"])
         self.assertEqual(allr["inbox"], {"status": "none", "reason": "no relay reader in this context"}, "no relay in a bare context")
         self.assertEqual(allr["fabric"]["status"], "not-a-checkout")
         self.assertEqual(allr["session"]["claude_processes"], 0)

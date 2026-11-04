@@ -161,6 +161,68 @@ def main() -> int:
                          AGENT_FABRIC_LEASES=f"{t}/nowhere/deep/leases")
         check("a fallback that cannot set the mode says so", "not made 1777" in err, err)
 
+        print("boot script: a subordinate id range that overlaps another account's is refused, never renumbered (audit F12)")
+
+        def boot(name: str, etc_files: dict[str, str], snap_files: dict[str, str]) -> tuple[str, str, str]:
+            e, sn = f"{t}/{name}-etc", f"{t}/{name}-snap"
+            os.makedirs(e)
+            os.makedirs(sn)
+            for fname, text in etc_files.items():
+                put(f"{e}/{fname}", text)
+            for fname, text in snap_files.items():
+                put(f"{sn}/{fname}", text)
+            put(log, "")
+            _, _, err = run(["sh", RC], AGENT_FABRIC_ETC=e, AGENT_FABRIC_ACCOUNTS_SNAPSHOT=sn)
+            return e, sn, err
+
+        base_etc = {"passwd": "root:x:0:0:root:/root:/bin/bash\ntemplate-user:x:1000:1000::/home/t:/bin/bash\n",
+                    "shadow": "root:*:1::::::\n", "group": "root:x:0:\ntemplate-user:x:1000:\n", "gshadow": "root:::\n",
+                    "subuid": "template-user:200000:65536\n", "subgid": "template-user:200000:65536\n"}
+
+        def snap_of(login: str, uid: int, sub: str, subgid: str | None = None) -> dict[str, str]:
+            return {"passwd": f"{login}:x:{uid}:{uid}::/home/{login}:/bin/bash\n", "shadow": f"{login}:$6$h:1::::::\n",
+                    "group": f"{login}:x:{uid}:\n", "gshadow": f"{login}:!::\n",
+                    "subuid": f"{login}:{sub}\n", "subgid": f"{login}:{subgid or sub}\n"}
+
+        def has(path: str, prefix: str) -> bool:
+            return any(ln.startswith(prefix) for ln in lines(path))
+
+        def refused(e: str, login: str) -> bool:
+            return not any(has(f"{e}/{f}", f"{login}:") for f in ("passwd", "shadow", "group", "gshadow", "subuid", "subgid"))
+
+        e, _, err = boot("f12a", base_etc, snap_of("audit-agent", 1020, "200000:65536"))
+        check("the very range another account holds: refused whole, named on stderr",
+              refused(e, "audit-agent") and "audit-agent" in err and "template-user" in err and "200000" in err, err)
+        check("…the existing range stands as it was, and no linger for the refused", read(f"{e}/subuid") == base_etc["subuid"]
+              and "audit-agent" not in read(log), read(f"{e}/subuid"))
+        e, _, err = boot("f12b", base_etc, snap_of("audit-agent", 1020, "100000:100200", "265000:1000"))
+        check("a partial overlap in the subuid file alone refuses the account", refused(e, "audit-agent") and "overlaps" in err, err)
+        e, _, err = boot("f12c", base_etc, snap_of("audit-agent", 1020, "300000:100", "265000:1000"))
+        check("…and so does one in the subgid file alone", refused(e, "audit-agent") and "subgid" in err, err)
+        e, _, err = boot("f12d", base_etc, snap_of("audit-agent", 1020, "265536:1000", "199000:1000"))
+        check("positive control: ranges that only touch the neighbour's edges are restored",
+              has(f"{e}/passwd", "audit-agent:") and "audit-agent:265536:1000" in lines(f"{e}/subuid")
+              and "audit-agent:199000:1000" in lines(f"{e}/subgid") and "enable-linger audit-agent" in read(log), err + read(f"{e}/subuid"))
+        two = {k: v + {"passwd": "second:x:1021:1021::/home/second:/bin/bash\n", "shadow": "second:$6$h:1::::::\n",
+                       "group": "second:x:1021:\n", "gshadow": "second:!::\n", "subuid": "second:400100:10\n",
+                       "subgid": "second:400100:10\n"}[k] for k, v in snap_of("first", 1020, "400000:65536").items()}
+        e, _, err = boot("f12e", base_etc, two)
+        check("two proposed accounts that overlap each other: the first is restored, the second refused",
+              has(f"{e}/passwd", "first:") and refused(e, "second") and "first" in err, err)
+        mal = snap_of("audit-agent", 1020, "soon:65536")
+        e, _, err = boot("f12f", base_etc, mal)
+        check("a range that is not numbers is refused, not guessed at", refused(e, "audit-agent") and err, err)
+        unterminated = {k: v.rstrip("\n") for k, v in snap_of("audit-agent", 1020, "200000:65536").items()}
+        e, _, err = boot("f12h", base_etc, unterminated)
+        check("a snapshot whose last line has no newline is refused whole all the same", refused(e, "audit-agent") and "overlaps" in err, err)
+        have = dict(base_etc, passwd=base_etc["passwd"] + "audit-agent:x:1020:1020::/home/audit-agent:/bin/bash\n")
+        e, _, err = boot("f12g", have, {"subuid": "audit-agent:200000:65536\n", "subgid": "audit-agent:200000:65536\n"})
+        e2, _, err2 = boot("f12i", have, {"subuid": "audit-agent:x:y\n", "subgid": "audit-agent:x:y\n"})
+        check("…and a malformed range of one is called malformed, not an overlap with a '?'",
+              "not a start and a count" in err2 and "range of ?" not in err2 and not has(f"{e2}/subuid", "audit-agent:"), err2)
+        check("an account already in /etc whose snapshot range collides gets no range appended",
+              not has(f"{e}/subuid", "audit-agent:") and not has(f"{e}/subgid", "audit-agent:") and "overlaps" in err, err)
+
         print("writer: one line per login per file, replace-or-append, the boot script installed once")
         os.makedirs(f"{t}/snap")
         put(log, "")
@@ -215,6 +277,29 @@ def main() -> int:
         check("other logins' lines kept", sum(1 for ln in lines(f"{t}/snap/passwd") if ln.startswith("db-admin:")) == 1)
         rc, out, err = run([sys.executable, "-I", WRITER, "no-such-login"])
         check("an unknown login is refused, named", rc != 0 and "no such account" in out + err, out + err)
+
+        print("writer: the boot script's install is checked (audit F11)")
+        dst = f"{t}/rcd/agent-fabric-accounts.rc"
+        os.chmod(dst, 0o644)
+        rc, out, err = run([sys.executable, "-I", WRITER, "db-admin"])
+        check("an identical script that lost its execute bit is installed again, and the run is clean",
+              rc == 0 and os.access(dst, os.X_OK) and filecmp.cmp(RC, dst, shallow=False), out + err)
+        shutil.rmtree(f"{t}/rcd")
+        put(f"{t}/rcd", "a file where the directory goes\n")
+        put(log, "")
+        rc, out, err = run([sys.executable, "-I", WRITER, "db-admin"])
+        check("an install that cannot be made is said and counted, not reported as persisted",
+              rc == 1 and "boot script could not be installed" in err and "will not come back after a reboot" in err, f"{rc} {err}")
+        check("…the rest of the login's steps still ran", "enable-linger db-admin" in lines(log), read(log))
+        os.unlink(f"{t}/rcd")
+        os.makedirs(f"{t}/rcd")
+        os.makedirs(f"{t}/elsewhere")
+        shutil.copy(RC, f"{t}/elsewhere/rc")   # identical content and executable: only lstat/S_ISREG tell it from the real file
+        os.chmod(f"{t}/elsewhere/rc", 0o755)
+        os.symlink(f"{t}/elsewhere/rc", f"{t}/rcd/agent-fabric-accounts.rc")
+        rc, out, err = run([sys.executable, "-I", WRITER, "db-admin"])
+        check("a symlink in the script's place is replaced by the real, executable copy",
+              rc == 0 and not os.path.islink(dst) and os.access(dst, os.X_OK) and filecmp.cmp(RC, dst, shallow=False), out + err)
 
         print("writer on a persistent platform: linger only, no snapshot")
         for d in ("snap", "rcd", "run"):

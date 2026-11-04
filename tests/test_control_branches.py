@@ -44,7 +44,11 @@ class Scratch(unittest.TestCase):
         os.chmod(os.path.join(bindir, "gh"), 0o755)
         env = {k: v for k, v in os.environ.items() if not k.startswith(("AGENT_FABRIC_", "GITHUB_", "GIT_"))}
         env.update(PATH=bindir + os.pathsep + os.environ["PATH"], AGENT_FABRIC_STATE_DIR=self.state, GIT_CONFIG_GLOBAL=os.devnull,
-                   GIT_CONFIG_SYSTEM=os.devnull, GH_TOKEN="", GH_REPO="o/r", AGENT_FABRIC_ROOT=HERE, HOME=self.home)
+                   GIT_CONFIG_SYSTEM=os.devnull, GH_TOKEN="", GH_REPO="o/r", AGENT_FABRIC_ROOT=HERE, HOME=self.home,
+                   CLAUDE_CONFIG_DIR=os.path.join(self.dir, "claude-config"),
+                   TMPDIR=os.path.join(self.dir, "tmp"), CLAUDE_CODE_TMPDIR=os.path.join(self.dir, "tmp"))   # an empty registry reads every session as ended, and a sweep removes a worktree only when it can read one: the scratch it may remove is this test's own
+        os.makedirs(os.path.join(self.dir, "claude-config", "sessions"))
+        os.makedirs(os.path.join(self.dir, "tmp"))
         self.env = env
         patcher = mock.patch.dict(os.environ, env, clear=True)
         patcher.start()
@@ -131,6 +135,16 @@ class Read(Scratch):
             fh.write("x")
         r = self.row(self.read(), "alpha")
         self.assertEqual((r["worktrees"], r["removable_worktrees"]), (1, 0), "an untracked file keeps it")
+
+    def test_a_clean_worktree_with_commits_on_the_remote_is_removable_as_the_sweep_now_removes_it(self):
+        alpha = self.clone("alpha")
+        pushed = os.path.join(self.dir, "wt-pushed")
+        self.git(alpha, "worktree", "add", "-q", pushed, "-b", "pushed", "main")
+        self.git(pushed, "commit", "-q", "--allow-empty", "-m", "pushed work")
+        self.git(pushed, "push", "-q", "origin", "pushed:pushed")
+        self.git(pushed, "fetch", "-q", "origin")
+        r = self.row(self.read(), "alpha")
+        self.assertEqual((r["worktrees"], r["removable_worktrees"]), (1, 1), "not on the default branch, but on the remote")
 
     def test_a_worktree_a_process_stands_in_is_not_counted_removable(self):
         alpha = self.clone("alpha")

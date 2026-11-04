@@ -38,7 +38,12 @@ where bash died on an unbound variable with 1; git's own `error:` line for a
 ref such as `x^{tree}` is not echoed. A declared `verdict` is an extended
 regular expression for grep -E: Python's re reads it, with the POSIX bracket
 classes translated, so a construct the two dialects spell differently
-(a word-boundary `<`, a leading `{`) can differ.
+(a word-boundary `<`, a leading `{`) can differ. A PR number is the head
+gh names, checked against and fetched from origin's refs/pull/<n>/head,
+where the bash took origin's branch of the head's name: a fork's PR tested
+whatever origin's branch of that name held (audit F14). The check's
+processes are killed once a grace after TERM runs out, and cleanup returns
+only when they are gone, where the bash sent TERM and left (audit F15).
 """
 from __future__ import annotations
 
@@ -325,27 +330,58 @@ def free_kb_of(path: str) -> int:
 
 
 def resolve_refs(top: str, refs: list[str]) -> tuple[list[str], list[str]]:
-    """Each ref as the sha on origin: a PR by its head branch, a branch by name."""
+    """Each ref as the sha on origin: a PR by its head, a branch by name."""
     names, shas = [], []
     for r in refs:
-        b = r
         if re.fullmatch("[0-9]+", r):
-            if not shutil.which("gh"):
-                raise Refused(f"#{r} needs gh to find its branch; nothing tried")
-            try:
-                # The number as typed: "0007" is what the caller gave gh.
-                b = json.loads(gh.run(["pr", "view", r, "--json", "headRefName"], what=f"gh pr view {r}")).get("headRefName") or ""
-            except (gh.GhError, ValueError, AttributeError):
-                b = ""
-            if not b:
-                raise Refused(f"#{r} is not a pull request gh can read; nothing tried")
-        b = b[len("origin/"):] if b.startswith("origin/") else b
+            name, sha = resolve_pr(top, r)
+            names.append(name)
+            shas.append(sha)
+            continue
+        b = r[len("origin/"):] if r.startswith("origin/") else r
         s = git.out(top, "rev-parse", "-q", "--verify", f"refs/remotes/origin/{b}^{{commit}}", check=False)
         if not s:
             raise Refused(f"{b} is not a branch on origin; nothing tried")
         names.append(b)
         shas.append(s)
     return names, shas
+
+
+def resolve_pr(top: str, r: str) -> tuple[str, str]:
+    """A PR as the commit gh names as its head, checked against origin's
+    refs/pull/<n>/head and fetched from it. Never origin's branch of the
+    head's name: a fork's PR has its branch in the fork, and a branch of
+    that name on origin is another one at another commit (audit F14). The
+    pull ref is fetched without a destination, FETCH_HEAD or the remote's
+    configured refspecs (--refmap=: a clone mapping refs/pull/* would
+    otherwise store it, #454 F3), so no ref of the caller's moves."""
+    if not shutil.which("gh"):
+        raise Refused(f"#{r} needs gh to find its head; nothing tried")
+    try:
+        # The number as typed: "0007" is what the caller gave gh.
+        pr = json.loads(gh.run(["pr", "view", r, "--json", "headRefName,headRefOid,isCrossRepository,headRepositoryOwner"],
+                               what=f"gh pr view {r}"))
+        b, oid = pr.get("headRefName") or "", pr.get("headRefOid") or ""
+        owner = (pr.get("headRepositoryOwner") or {}).get("login") or ""
+    except (gh.GhError, ValueError, AttributeError):
+        b = oid = ""
+    if not b or not oid:
+        raise Refused(f"#{r} is not a pull request gh can read; nothing tried")
+    b = b[len("origin/"):] if b.startswith("origin/") else b
+    name = f"{owner}:{b}" if pr.get("isCrossRepository") is True else b
+    ref = f"refs/pull/{int(r)}/head"
+    ls = git.run(top, "ls-remote", "origin", ref, check=False, timeout=FETCH_TIMEOUT_S)
+    held = ls.stdout.split("	", 1)[0].strip() if ls.returncode == 0 else ""
+    if not held or git.run(top, "fetch", "-q", "--no-write-fetch-head", "--refmap=", "origin", ref, check=False,
+                           timeout=FETCH_TIMEOUT_S).returncode != 0:
+        raise Refused(f"#{r}: {ref} cannot be fetched from origin; nothing tried")
+    # A push between gh's answer and these reads: the trial would test a
+    # commit that is not the head gh named. Asked again, the two agree.
+    if held != oid:
+        raise Refused(f"#{r}'s head {oid} is not what origin's {ref} holds ({held}); nothing tried")
+    if git.out(top, "rev-parse", "-q", "--verify", f"{oid}^{{commit}}", check=False) != oid:
+        raise Refused(f"#{r}: fetching {ref} did not bring its head {oid}; nothing tried")
+    return name, oid
 
 
 def project_trial_config(top: str, fabric: str) -> str:

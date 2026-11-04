@@ -186,10 +186,13 @@ sharing a machine.
    - the launcher gives the harness its own credential, from the file,
      and the relay token a project's `.mcp.json` header expands, and
      drops every other synced name it inherited;
-   - the SessionStart hook unsets the harness's credentials and every
-     synced secret in the file the harness sources into each Bash call,
-     so no Bash call or subagent inherits one; `fabric-status` reads the
-     session's sign-in from the harness process, fingerprinted.
+   - a SessionStart hook, the session seal, unsets the harness's
+     credentials and every synced secret in the file the harness sources
+     into each Bash call, so no Bash call or subagent inherits one. It is
+     a managed hook (ADR-043 rule 2), so a login's own settings cannot
+     drop it, and its workspace copy also runs: an unset run twice does
+     nothing (A 2026-11-03); `fabric-status` reads the session's
+     sign-in from the harness process, fingerprinted.
    This keeps secrets out of what a session prints by accident. It does
    not keep them from a session that reads the file: the store's key has
    no passphrase, and anything running as the login can decrypt the
@@ -352,3 +355,4 @@ The body above reads current; each change's full note is in [history/ADR-038-ame
 | 2026-10-15 | What belongs to a company is kept in that company's store | Scope, §2, §5 rules 3 and 10, §8: a store per client, read by the fabric-coordinator holders and the recovery key; its names reach an agent by put, a client's for that client's working copies only |
 | 2026-10-15 | Only the agent and its parent write an entry | §5 rule 3: `put` is the parent's, and a store takes in commits only from the agent and its parent, as ADR-042 rule 2 says; holding the public key admits no one |
 | 2026-10-17 | Holder addenda (ADR-060) | §5 rule 3: under settings/roles/ only the parent writes; settings-put refuses it |
+| 2026-11-03 | The session seal is a managed hook | §5 rule 9: the SessionStart unset of the session's secrets runs as a managed hook (ADR-043 rule 2), its workspace copy kept beside it |

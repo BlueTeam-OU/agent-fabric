@@ -5,7 +5,8 @@ the account's control agent reads it (fleet-deck-attention s3).
 Called by statusline.sh with the status line's JSON on stdin: no hook payload carries the context window's use,
 the status line's input does (`context_window.used_percentage`: input, cache-read and cache-write tokens over
 the window; null early in a session and after /compact). Keeps, per session id, in
-<state>/session-context.json (the directory session-state.py names), mode 0600:
+<state>/session-context.json (the directory session-state.py names), mode 0600, through identity.atomic_write as
+session-state.py loads it (ADR-003 rule 1), beside a lock file that is never state:
 
     {"sessions": {"<id>": {"pct": 0..100, "at": "<ISO UTC>"}}}
 
@@ -35,13 +36,20 @@ REFRESH_S = 300
 KEEP_S = 24 * 3600
 
 
-def _state_dir() -> str:
-    # One definition of where the account's state lives: session-state.py's.
-    path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "session-state.py")
-    spec = importlib.util.spec_from_file_location("session_state", path)
-    mod = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(mod)
-    return mod.state_dir()
+_session_state = None
+
+
+def _ss():
+    # One definition of where the account's state lives, how its lock file is opened and which writer replaces
+    # it: session-state.py's.
+    global _session_state
+    if _session_state is None:
+        path = os.path.join(os.path.dirname(os.path.realpath(__file__)), "session-state.py")
+        spec = importlib.util.spec_from_file_location("session_state", path)
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        _session_state = mod
+    return _session_state
 
 
 def sample_of(payload: object) -> tuple[str, int] | None:
@@ -72,10 +80,10 @@ def record(payload: object, directory: str | None = None, now: float | None = No
         return False
     sid, pct = got
     now = time.time() if now is None else now
-    directory = directory or _state_dir()
+    directory = directory or _ss().state_dir()
     os.makedirs(directory, mode=0o700, exist_ok=True)
     path = os.path.join(directory, FILE)
-    with open(os.path.join(directory, FILE + ".lock"), "a") as held:
+    with _ss().open_lock(os.path.join(directory, FILE + ".lock")) as held:
         try:
             fcntl.flock(held, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except OSError:
@@ -93,11 +101,7 @@ def record(payload: object, directory: str | None = None, now: float | None = No
             return False
         kept[sid] = {"pct": pct, "at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(now))}
         kept = {k: v for k, v in kept.items() if k == sid or (isinstance(v, dict) and (_parse_at(v.get("at")) or 0) > now - KEEP_S)}
-        tmp = f"{path}.{os.getpid()}"
-        fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-        with os.fdopen(fd, "w", encoding="utf-8") as fh:
-            json.dump({"sessions": kept}, fh, sort_keys=True)
-        os.replace(tmp, path)
+        _ss().identity().atomic_write(path, json.dumps({"sessions": kept}, sort_keys=True), mode=0o600)
         return True
 
 

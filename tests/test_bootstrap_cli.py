@@ -26,7 +26,9 @@ import hashlib
 import json
 import os
 import pwd
+import re
 import shutil
+import socket
 import stat
 import subprocess
 import sys
@@ -34,6 +36,7 @@ import tempfile
 
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(HERE, "tests"))
+import section_groups  # noqa: E402 — tests/, the script's own directory
 from instance_fixtures import strip_instance  # noqa: E402
 from instance_fixtures import own_instance_tree  # noqa: E402 — tests/, the script's own directory
 own_instance_tree()
@@ -48,6 +51,11 @@ REAL_HOME = pwd.getpwuid(os.geteuid()).pw_dir
 UNIT = "agent-fabric-agentd"
 BACKUP = "agent-fabric-state-backup"
 RELAY = "gzcoord-relay"
+RBK = "agent-fabric-relay-backup"
+TIDY = "agent-fabric-tidy"
+HARNESS = "agent-fabric-harness"
+COORDINATOR_UNITS = ("agent-fabric-drain", "agent-fabric-scheduled-red")
+SCHEDULED_RED = "agent-fabric-scheduled-red"
 HOOK_REL = "policies/githooks"
 # The plain tools the script and what it runs call. Anything not here, and
 # not a fake, is "command not found": a port that starts calling something
@@ -353,9 +361,12 @@ def bootstrap(acct: Account, *args: str, env: dict[str, str] | None = None, cwd:
     e = env if env is not None else acct.env()
     # The one guard that matters before anything runs: nothing points at
     # this account's own home or configuration.
-    for k in ("HOME", "CLAUDE_CONFIG_DIR", "XDG_STATE_HOME", "XDG_CONFIG_HOME", "XDG_RUNTIME_DIR", "TMPDIR"):
-        if k in e and not os.path.realpath(e[k]).startswith(T + "/"):
-            sys.exit(f"test: refusing to run: {k}={e[k]} is outside {T}")
+    for k in ("HOME", "CLAUDE_CONFIG_DIR", "XDG_STATE_HOME", "XDG_CONFIG_HOME", "XDG_RUNTIME_DIR", "TMPDIR",
+              "XDG_DATA_HOME", "BASH_COMPLETION_USER_DIR"):
+        # BASH_COMPLETION_USER_DIR is a ':' list; an empty entry names nothing.
+        for part in filter(None, e.get(k, "").split(":")):
+            if not os.path.realpath(part).startswith(T + "/"):
+                sys.exit(f"test: refusing to run: {k}={e[k]} is outside {T}")
     if not os.path.realpath(e["HOME"]).startswith(T + "/") or os.path.realpath(e["HOME"]) == os.path.realpath(REAL_HOME):
         sys.exit("test: refusing to run: HOME is not the scratch home")
     for k in e:
@@ -556,10 +567,12 @@ def first_run() -> None:
     guard_line = f"  +  {CH}/hooks/review-bash-guard.sh"
     block = between(L, f"  +  {P}/.claude/settings.json", f"  +  {CH}/hooks/review-bash-guard.py")
     agent_lines = [f"  +  {CH}/agents/{c}.md" for c in ("code-low", "code-medium", "code-high", "code-plan", "code-review")]
-    # The fabric-memory MCP entry is the sixth thing the installer writes (ADR-049): its line, then the summary counting it.
-    check("the capability-class agent files: installed and said, then the memory server's entry, then the installer's summary",
+    # The fabric-memory MCP entry is the sixth thing the installer writes (ADR-049) and fabric-review's the seventh
+    # (ADR-065): their lines, then the summary counting them.
+    check("the capability-class agent files: installed and said, then the memory and review servers' entries, then the installer's summary",
           block[:5] == agent_lines and block[5] == f"  +  {CH}/.claude.json mcpServers.fabric-memory"
-          and block[-1] == "agent files (anthropic): 6 written, 0 already current.", "\n".join(block))
+          and block[6] == f"  +  {CH}/.claude.json mcpServers.fabric-review"
+          and block[-1] == "agent files (anthropic): 7 written, 0 already current.", "\n".join(block))
     for c in ("code-low", "code-medium", "code-high", "code-plan", "code-review"):
         check(f"…{c}.md under CLAUDE_CONFIG_DIR/agents, mode 644",
               os.path.isfile(f"{CH}/agents/{c}.md") and mode(f"{CH}/agents/{c}.md") == 0o644)
@@ -576,8 +589,12 @@ def first_run() -> None:
           i >= 0 and L[i + 1:i + 1 + len(cmds)] == want, "\n".join(L[i + 1:i + 1 + len(cmds)]))
     check("…each a symlink to the checkout's script, by absolute path",
           all(os.path.islink(f"{LB}/{n}") and os.readlink(f"{LB}/{n}") == f"{FR}/{rel}" for n, rel in cmds))
+    comp = f"{H}/.local/share/bash-completion/completions/fabric-ctl"
+    check("fabric-ctl's completion: linked after the commands, under bash-completion's user directory",
+          i >= 0 and L[i + 1 + len(cmds)] == f"  +  {comp} -> {FR}/tools/fabric/control/completion.bash"
+          and os.readlink(comp) == f"{FR}/tools/fabric/control/completion.bash", L[i + 1 + len(cmds):i + 2 + len(cmds)])
     us = f"  +  {CH}/settings.json fabric user settings"
-    check("the user settings: said after the links", i >= 0 and L[i + 1 + len(cmds)] == us, L[i + 1 + len(cmds):i + 2 + len(cmds)])
+    check("the user settings: said after the links", i >= 0 and L[i + 2 + len(cmds)] == us, L[i + 2 + len(cmds):i + 3 + len(cmds)])
     doc = json.load(open(f"{CH}/settings.json"))
     check("…the attribution reminder off at its source",
           doc.get("attribution") == {"commit": "", "pr": "", "sessionUrl": False}, doc.get("attribution"))
@@ -590,7 +607,7 @@ def first_run() -> None:
     check("…mode 600", mode(f"{CH}/settings.json") == 0o600, oct(mode(f"{CH}/settings.json")))
     check("…asked of claude once: auto-mode defaults", a.calls("claude") == [["claude", "auto-mode", "defaults"]], a.calls("claude"))
 
-    j = i + 2 + len(cmds)
+    j = i + 3 + len(cmds)
     want = [f"  +  {CH}/skills/{n}/SKILL.md" for n, _ in SKILLS]
     check("every skill: one line each, in order", L[j:j + len(SKILLS)] == want, "\n".join(L[j:j + len(SKILLS)]))
     for n, src in SKILLS:
@@ -651,6 +668,28 @@ def first_run() -> None:
     check("step 6a: …both the fabric's files, mode 644",
           all(read(f"{bk}.{x}") == read(f"{FR}/runtime/control/{BACKUP}.{x}") and mode(f"{bk}.{x}") == 0o644
               for x in ("service", "timer")))
+    td = f"{a.units}/{TIDY}"
+    check("step 6a': the tidy's service and timer installed on every account, the timer's enabling refused for want of a manager, said",
+          L[k + 5:k + 8] == [f"  +  {td}.service", f"  +  {td}.timer",
+                             f"  !  {TIDY}.timer: installed, not enabled — no user manager at {a.run}/bus "
+                             f"(systemd absent, or no login session; the next bootstrap with one enables it)"], "\n".join(L[k + 5:k + 8]))
+    check("step 6a': …both the fabric's files, mode 644",
+          all(read(f"{td}.{x}") == read(f"{FR}/runtime/control/{TIDY}.{x}") and mode(f"{td}.{x}") == 0o644
+              for x in ("service", "timer")))
+    svc, tmr = read(f"{td}.service"), read(f"{td}.timer")
+    check("step 6a': …a oneshot running `jobs.py tidy` under the pinned Python, bounded, niced, idle I/O",
+          "Type=oneshot\n" in svc and "ExecStart=/usr/local/bin/fabric-python %h/projects/agent-fabric/tools/fabric/jobs.py tidy\n" in svc
+          and "TimeoutStartSec=30min\n" in svc and "Nice=10\n" in svc and "IOSchedulingClass=idle\n" in svc, svc)
+    check("step 6a': …the timer daily at 05:30 with a 30 min delay, persistent, clear of both backups",
+          "OnCalendar=*-*-* 05:30:00\n" in tmr and "RandomizedDelaySec=30min\n" in tmr and "Persistent=true\n" in tmr
+          and "WantedBy=timers.target\n" in tmr, tmr)
+    hu = f"{a.units}/{HARNESS}.service"
+    check("step 6a'': the harness unit installed on every account, its start refused for want of a manager, said",
+          L[k + 8:k + 10] == [f"  +  {hu}",
+                              f"  !  {HARNESS}: installed, not started — no user manager at {a.run}/bus "
+                              f"(loginctl enable-linger {LOGIN}, or the next login starts it)"], "\n".join(L[k + 8:k + 10]))
+    check("step 6a'': …the fabric's file, mode 644",
+          read(hu) == read(f"{FR}/runtime/control/{HARNESS}.service") and mode(hu) == 0o644)
     check("step 6: no user manager: systemctl and loginctl never called", a.calls("systemctl") == [] and a.calls("loginctl") == [],
           a.calls())
     check("step 6b: no relay venv: no relay unit, no relay line",
@@ -658,7 +697,7 @@ def first_run() -> None:
 
     # Step 7.
     check("step 7: the detector's venv made and its package installed, said",
-          L[k + 5] == f"  +  {VENV} ({pkg})", L[k + 5:k + 6])
+          L[k + 10] == f"  +  {VENV} ({pkg})", L[k + 10:k + 11])
     check("step 7: …by the venv's own pip, quietly, the pinned package",
           a.calls("pip") == [["pip", "install", "-q", pkg]] and a.calls("python3") == [["python3", "-m", "venv", VENV]],
           a.calls())
@@ -667,10 +706,10 @@ def first_run() -> None:
 
     # The summary counts the script's own puts, links, the user settings and
     # step 5's lines; the agent files, steps 4, 5b and 7 are not in it.
-    n_written = 2 + 2 + len(cmds) + 1 + len(SKILLS) + 2 + 1 + 2
+    n_written = 2 + 2 + len(cmds) + 1 + 1 + len(SKILLS) + 4 + 1 + 2 + 1
     check("the summary counts what was written",
-          L[k + 6:] == [f"bootstrap: {n_written} written, 2 already current.",
-                        f"Launch from {P}: cd \"{P}\" && claude   — the session starts as {LOGIN}."], "\n".join(L[k + 6:]))
+          L[k + 11:] == [f"bootstrap: {n_written} written, 2 already current.",
+                         f"Launch from {P}: cd \"{P}\" && claude   — the session starts as {LOGIN}."], "\n".join(L[k + 11:]))
     check("curl, ss, pgrep, uv and sudo never called",
           not [c for c in a.calls() if c[0] in ("curl", "ss", "pgrep", "uv", "sudo", "pip3")], a.calls())
     check("the script's own temporary directory is gone", os.listdir(a.tmp) == [], os.listdir(a.tmp))
@@ -684,7 +723,7 @@ def first_run() -> None:
     check("second run: the tree is unchanged (paths, modes, content)", before == after, diff(before, after))
     plus = [x for x in r2.lines if x.startswith("  +  ") or x.startswith("  -  ")]
     check("second run: nothing said written or removed", plus == [], "\n".join(plus))
-    n_same = 2 + 2 + len(cmds) + 1 + len(SKILLS) + 4 + 1 + 2
+    n_same = 2 + 2 + len(cmds) + 1 + 1 + len(SKILLS) + 6 + 1 + 2 + 1
     check("second run: the summary says all of it current",
           f"bootstrap: 0 written, {n_same} already current." in r2.lines, r2.out)
     check("second run: step 4 says =", f"  =  {FR}: core.hooksPath = {HOOK_REL}" in r2.lines)
@@ -710,6 +749,8 @@ def dry_run() -> None:
                  f"  +  {CH}/hooks/review-bash-guard.py (would write)",
                  f"  +  {CH}/hooks/review-bash-guard.sh (would write)",
                  f"  +  {a.lb}/fabric-status -> {FR}/bin/fabric-status (would link)",
+                 f"  +  {a.home}/.local/share/bash-completion/completions/fabric-ctl -> "
+                 f"{FR}/tools/fabric/control/completion.bash (would link)",
                  f"  +  {CH}/settings.json fabric user settings (would write)",
                  f"  +  {FR}: core.hooksPath = {HOOK_REL}",
                  f"  +  {a.wc['alpha']} (alpha): core.hooksPath = {FR}/{HOOK_REL}",
@@ -898,6 +939,90 @@ def local_bin_override() -> None:
           os.path.islink(f"{lb}/fabric-status") and not os.path.lexists(f"{a.lb}/fabric-status"))
 
 
+def completion_dir() -> None:
+    print("bootstrap: fabric-ctl's completion, where bash-completion looks")
+    default = "{}/.local/share/bash-completion/completions/fabric-ctl"
+    target = lambda acct: f"{acct.fr}/tools/fabric/control/completion.bash"
+    a = Account("compxdg", wcs=False)
+    r = bootstrap(a, env=a.env(XDG_DATA_HOME=f"{a.root}/data"))
+    check("XDG_DATA_HOME: the link under it and under ~/.local/share",
+          r.rc == 0 and os.readlink(f"{a.root}/data/bash-completion/completions/fabric-ctl") == target(a)
+          and os.readlink(default.format(a.home)) == target(a), r)
+    b = Account("compuser", wcs=False)
+    r = bootstrap(b, env=b.env(XDG_DATA_HOME=f"{b.root}/data", BASH_COMPLETION_USER_DIR=f"{b.root}/bc"))
+    check("BASH_COMPLETION_USER_DIR wins over XDG_DATA_HOME, as in bash-completion; the default too",
+          r.rc == 0 and os.readlink(f"{b.root}/bc/completions/fabric-ctl") == target(b)
+          and os.readlink(default.format(b.home)) == target(b)
+          and not os.path.lexists(f"{b.root}/data/bash-completion"), r)
+    d = Account("compsplit", wcs=False)
+    r = bootstrap(d, env=d.env(BASH_COMPLETION_USER_DIR=f"{d.root}/x:{d.root}/y"))
+    check("BASH_COMPLETION_USER_DIR=x:y: the link under x/completions, none under y nor the literal 'x:y'",
+          r.rc == 0 and os.readlink(f"{d.root}/x/completions/fabric-ctl") == target(d)
+          and not os.path.lexists(f"{d.root}/y") and not os.path.lexists(f"{d.root}/x:{d.root}/y")
+          and os.readlink(default.format(d.home)) == target(d), r)
+    e = Account("compcolons", wcs=False)
+    r = bootstrap(e, env=e.env(BASH_COMPLETION_USER_DIR="::", XDG_DATA_HOME=f"{e.root}/data"))
+    check("a value of only colons counts as unset: XDG_DATA_HOME applies",
+          r.rc == 0 and os.path.islink(f"{e.root}/data/bash-completion/completions/fabric-ctl"), r)
+    f = Account("compdrift", wcs=False)
+    wide = f.env(XDG_DATA_HOME=f"{f.root}/data", BASH_COMPLETION_USER_DIR=f"{f.root}/bc")
+    bootstrap(f, env=wide)
+    r = bootstrap(f, "--dry-run", env=f.env())
+    check("bootstrapped with the variables, dry run without: no completion line would change",
+          r.rc == 0 and not [l for l in r.lines if "completions/fabric-ctl" in l and "(would" in l], r)
+    r = bootstrap(f, "--dry-run", env=wide)
+    check("…and with them again, none either",
+          r.rc == 0 and not [l for l in r.lines if "completions/fabric-ctl" in l and "(would" in l], r)
+    g = Account("compdrift2", wcs=False)
+    bootstrap(g)
+    r = bootstrap(g, "--dry-run", env=g.env(BASH_COMPLETION_USER_DIR=f"{g.root}/bc"))
+    check("the converse: bootstrapped without, dry run with the variable: only the new location would link",
+          r.rc == 0 and [l for l in r.lines if "completions/fabric-ctl" in l and "(would" in l]
+          == [f"  +  {g.root}/bc/completions/fabric-ctl -> {target(g)} (would link)"], r)
+    c = Account("compmine", wcs=False)
+    mine = default.format(c.home)
+    put(mine, "complete -W mine fabric-ctl\n")
+    r = bootstrap(c)
+    check("a person's own completion file left alone, said on stderr, counted NOT written",
+          r.rc == 0 and read(mine) == "complete -W mine fabric-ctl\n"
+          and r.err.splitlines() == [f"  !  {mine} is not a link this fabric made — left alone; fabric-ctl has no tab completion"]
+          and r.lines[-2].endswith(", 1 NOT written (above)."), r)
+    os.remove(mine)
+    os.symlink("/elsewhere/agent-fabric/tools/fabric/control/completion.bash", mine)
+    r = bootstrap(c)
+    check("…another checkout's link of ours refreshed to this one",
+          r.rc == 0 and os.readlink(mine) == f"{c.fr}/tools/fabric/control/completion.bash"
+          and f"  +  {mine} -> {c.fr}/tools/fabric/control/completion.bash" in r.lines, r)
+    d = Account("compminebc", wcs=False)
+    mine = default.format(d.home)
+    put(mine, "complete -W mine fabric-ctl\n")
+    seen = f"{d.root}/bc/completions/fabric-ctl"
+    r = bootstrap(d, env=d.env(BASH_COMPLETION_USER_DIR=f"{d.root}/bc"))
+    check("a person's own file at the default, the variable set: linked at the first, the warning names it",
+          r.rc == 0 and os.path.islink(seen) and read(mine) == "complete -W mine fabric-ctl\n"
+          and r.err.splitlines() == [f"  !  {mine} is not a link this fabric made — left alone; "
+                                     f"fabric-ctl's completion is linked at {seen} only"], r)
+    e = Account("compminedry", wcs=False)
+    mine = default.format(e.home)
+    put(mine, "complete -W mine fabric-ctl\n")
+    seen = f"{e.root}/bc/completions/fabric-ctl"
+    r = bootstrap(e, "--dry-run", env=e.env(BASH_COMPLETION_USER_DIR=f"{e.root}/bc"))
+    check("…in a dry run the warning says the first would be linked, and nothing is made",
+          r.rc == 0 and not os.path.lexists(seen)
+          and r.err.splitlines() == [f"  !  {mine} is not a link this fabric made — left alone; "
+                                     f"fabric-ctl's completion would be linked at {seen} only"], r)
+    f = Account("compmineboth", wcs=False)
+    mine = default.format(f.home)
+    seen = f"{f.root}/bc/completions/fabric-ctl"
+    put(mine, "complete -W mine fabric-ctl\n")
+    put(seen, "complete -W mine fabric-ctl\n")
+    r = bootstrap(f, env=f.env(BASH_COMPLETION_USER_DIR=f"{f.root}/bc"))
+    check("…a person's own file at both places: both left alone, neither warning claims a link",
+          r.rc == 0 and r.err.splitlines() == [
+              f"  !  {seen} is not a link this fabric made — left alone; fabric-ctl has no tab completion",
+              f"  !  {mine} is not a link this fabric made — left alone; fabric-ctl has no tab completion"], r)
+
+
 def user_manager() -> None:
     print("bootstrap: step 6 with a user manager")
     a = Account("manager", wcs=False)
@@ -908,8 +1033,16 @@ def user_manager() -> None:
           a.calls("systemctl") == [["systemctl", "--user", "daemon-reload"], ["systemctl", "--user", "enable", "--now", UNIT],
                                    ["systemctl", "--user", "restart", UNIT], ["systemctl", "--user", "is-active", UNIT],
                                    ["systemctl", "--user", "daemon-reload"], ["systemctl", "--user", "enable", "--now", f"{BACKUP}.timer"],
-                                   ["systemctl", "--user", "restart", f"{BACKUP}.timer"], ["systemctl", "--user", "is-active", f"{BACKUP}.timer"]],
+                                   ["systemctl", "--user", "restart", f"{BACKUP}.timer"], ["systemctl", "--user", "is-active", f"{BACKUP}.timer"],
+                                   ["systemctl", "--user", "daemon-reload"], ["systemctl", "--user", "enable", "--now", f"{TIDY}.timer"],
+                                   ["systemctl", "--user", "restart", f"{TIDY}.timer"], ["systemctl", "--user", "is-active", f"{TIDY}.timer"],
+                                   ["systemctl", "--user", "daemon-reload"], ["systemctl", "--user", "enable", "--now", HARNESS],
+                                   ["systemctl", "--user", "is-active", HARNESS]],
           a.calls("systemctl"))
+    check("the harness: a new unit started, never restarted, its state said; no 'changed' line for a first install's inactive unit",
+          f"  *  {HARNESS}: active (systemctl --user status {HARNESS})" in r.lines, r.out)
+    check("the tidy timer's line says its state",
+          f"  *  {TIDY}.timer: active (systemctl --user list-timers {TIDY}.timer)" in r.lines, r.out)
     check("the backup timer's line says its state",
           f"  *  {BACKUP}.timer: active (systemctl --user list-timers {BACKUP}.timer)" in r.lines, r.out)
     check("the line says its state",
@@ -922,7 +1055,13 @@ def user_manager() -> None:
                                    ["systemctl", "--user", "is-active", UNIT],
                                    ["systemctl", "--user", "daemon-reload"],
                                    ["systemctl", "--user", "enable", "--now", f"{BACKUP}.timer"],
-                                   ["systemctl", "--user", "is-active", f"{BACKUP}.timer"]], a.calls("systemctl"))
+                                   ["systemctl", "--user", "is-active", f"{BACKUP}.timer"],
+                                   ["systemctl", "--user", "daemon-reload"],
+                                   ["systemctl", "--user", "enable", "--now", f"{TIDY}.timer"],
+                                   ["systemctl", "--user", "is-active", f"{TIDY}.timer"],
+                                   ["systemctl", "--user", "daemon-reload"],
+                                   ["systemctl", "--user", "enable", "--now", HARNESS],
+                                   ["systemctl", "--user", "is-active", HARNESS]], a.calls("systemctl"))
     check("…and an inactive unit says so", f"  *  {UNIT}: inactive (systemctl --user status {UNIT})" in r.lines, r.out)
     # A changed unit under the daemon's own upgrade: the restart is its caller's.
     put(f"{a.units}/{UNIT}.service", "[Unit]\nDescription=agent-fabric old\n")
@@ -934,7 +1073,7 @@ def user_manager() -> None:
     a.clear_log()
     r = bootstrap(a, env=a.env(FAKE_RELOAD_RC="1"))
     check("a manager that will not reload: installed, not started, said; nothing enabled",
-          a.calls("systemctl") == [["systemctl", "--user", "daemon-reload"], ["systemctl", "--user", "daemon-reload"]]
+          a.calls("systemctl") == [["systemctl", "--user", "daemon-reload"]] * 4
           and f"  !  {UNIT}: installed, not started — no user manager at {a.run}/bus (loginctl enable-linger {LOGIN}, or the next login starts it)" in r.lines,
           f"{a.calls('systemctl')}\n{r.out}")
     a.clear_log()
@@ -945,6 +1084,10 @@ def user_manager() -> None:
           f"  !  {BACKUP}.timer: installed, not enabled — no user manager at {a.run}/bus "
           f"(systemd absent, or no login session; the next bootstrap with one enables it)" in r.lines
           and os.path.isfile(f"{a.units}/{BACKUP}.timer") and "NOT written" not in r.out, r)
+    check("…and the tidy timer the same",
+          f"  !  {TIDY}.timer: installed, not enabled — no user manager at {a.run}/bus "
+          f"(systemd absent, or no login session; the next bootstrap with one enables it)" in r.lines
+          and os.path.isfile(f"{a.units}/{TIDY}.timer"), r)
     # A timer whose file changed is restarted, so a new schedule takes effect; the service alone changed is not the timer's business.
     put(f"{a.units}/{BACKUP}.timer", "[Timer]\nOnCalendar=weekly\n")
     a.clear_log()
@@ -954,6 +1097,94 @@ def user_manager() -> None:
           and a.calls("systemctl").index(["systemctl", "--user", "restart", f"{BACKUP}.timer"])
           > a.calls("systemctl").index(["systemctl", "--user", "enable", "--now", f"{BACKUP}.timer"])
           and read(f"{a.units}/{BACKUP}.timer") == read(f"{a.fr}/runtime/control/{BACKUP}.timer"), a.calls("systemctl"))
+    put(f"{a.units}/{TIDY}.timer", "[Timer]\nOnCalendar=weekly\n")
+    a.clear_log()
+    r = bootstrap(a)
+    check("a changed tidy timer file: enabled, then restarted, and restored to the fabric's",
+          a.calls("systemctl").index(["systemctl", "--user", "restart", f"{TIDY}.timer"])
+          > a.calls("systemctl").index(["systemctl", "--user", "enable", "--now", f"{TIDY}.timer"])
+          and read(f"{a.units}/{TIDY}.timer") == read(f"{a.fr}/runtime/control/{TIDY}.timer"), a.calls("systemctl"))
+    a.clear_log()
+    r = bootstrap(a)
+    check("an unchanged tidy unit is not restarted",
+          ["systemctl", "--user", "restart", f"{TIDY}.timer"] not in a.calls("systemctl")
+          and ["systemctl", "--user", "enable", "--now", f"{TIDY}.timer"] in a.calls("systemctl"), a.calls("systemctl"))
+    check("…and an unchanged running harness says no 'changed' line",
+          not any(x.startswith(f"  *  {HARNESS}: unit changed") for x in r.lines), r.out)
+    # The harness's stop ends the session in its pane: a changed unit file is
+    # installed and said, never acted on while the unit runs.
+    put(f"{a.units}/{HARNESS}.service", "[Unit]\nDescription=agent-fabric old\n")
+    a.clear_log()
+    r = bootstrap(a)
+    check("a changed harness unit, running: restored, enabled, never restarted nor stopped, the way to apply it said",
+          read(f"{a.units}/{HARNESS}.service") == read(f"{a.fr}/runtime/control/{HARNESS}.service")
+          and ["systemctl", "--user", "enable", "--now", HARNESS] in a.calls("systemctl")
+          and not [c for c in a.calls("systemctl") if HARNESS in c and c[2] in ("restart", "stop", "try-restart", "reload-or-restart")]
+          and f"  *  {HARNESS}: unit changed; not restarted, a restart ends the session in its pane "
+              f"(fabric-ctl {LOGIN} harness-stop, then harness-start)" in r.lines, f"{a.calls('systemctl')}\n{r.out}")
+    put(f"{a.units}/{HARNESS}.service", "[Unit]\nDescription=agent-fabric old\n")
+    a.clear_log()
+    r = bootstrap(a, env=a.env(FAKE_ACTIVE_agent_fabric_harness="inactive"))
+    check("…inactive (no binary, or stopped): no 'changed' line, the state with where the binary comes from",
+          not any(x.startswith(f"  *  {HARNESS}: unit changed") for x in r.lines)
+          and f"  *  {HARNESS}: inactive (systemctl --user status {HARNESS}; it starts only where install_fleetdeck.py put the binary)"
+              in r.lines, r.out)
+
+
+def coordinator_timers() -> None:
+    print("bootstrap: step 6d, the coordinator's timers")
+    a = Account("coordinator", wcs=False)
+
+    def bind(role: str | None) -> None:
+        put(f"{a.state}/agent-fabric/agents/{LOGIN}/binding.json",
+            json.dumps({"agent": LOGIN, "host": socket.gethostname().split(".")[0], "updated_at": "2026-11-03T00:00:00Z", "role": role}))
+
+    files = [f"{a.units}/{u}.{x}" for u in COORDINATOR_UNITS for x in ("service", "timer")]
+    r = bootstrap(a)
+    check("unbound: neither unit installed, nothing said of them (the control: the step reads the role)",
+          r.rc == 0 and not any(os.path.exists(f) for f in files) and not any(u in r.out for u in COORDINATOR_UNITS), r)
+    bind("fabric-coordinator")
+    r = bootstrap(a)
+    check("fabric-coordinator, no user manager: both units' files installed, the fabric's, mode 644",
+          r.rc == 0 and all(f"  +  {f}" in r.lines and mode(f) == 0o644
+                            and read(f) == read(f"{a.fr}/runtime/control/{os.path.basename(f)}") for f in files), r)
+    check("…each timer's enabling refused for want of a manager, said",
+          all(f"  !  {u}.timer: installed, not enabled — no user manager at {a.run}/bus "
+              f"(systemd absent, or no login session; the next bootstrap with one enables it)" in r.lines
+              for u in COORDINATOR_UNITS), r.out)
+    a.bus()
+    a.clear_log()
+    r = bootstrap(a)
+    check("with a manager: each timer enabled, unchanged so not restarted, its state said",
+          all(["systemctl", "--user", "enable", "--now", f"{u}.timer"] in a.calls("systemctl")
+              and ["systemctl", "--user", "restart", f"{u}.timer"] not in a.calls("systemctl")
+              and f"  *  {u}.timer: active (systemctl --user list-timers {u}.timer)" in r.lines for u in COORDINATOR_UNITS),
+          f"{a.calls('systemctl')}\n{r.out}")
+    svc = read(f"{a.units}/{SCHEDULED_RED}.service")
+    wf = re.search(r"--workflow (\S+)", svc)
+    check("the scheduled-red service runs the command on a workflow that exists, with a schedule",
+          wf is not None and "--repository BlueTeam-OU/agent-fabric " in svc
+          and "ExecStart=/usr/local/bin/fabric-python %h/projects/agent-fabric/tools/fabric/github/scheduled_red.py " in svc
+          and "schedule:" in read(f"{a.fr}/.github/workflows/{wf.group(1)}"), svc)
+    check("…and its timer daily, in UTC, persistent",
+          "OnCalendar=*-*-* 17:00:00 UTC\n" in read(f"{a.units}/{SCHEDULED_RED}.timer")
+          and "Persistent=true\n" in read(f"{a.units}/{SCHEDULED_RED}.timer"), read(f"{a.units}/{SCHEDULED_RED}.timer"))
+    bind("python-dev")
+    mine = f"{a.units}/{SCHEDULED_RED}.timer"
+    put(mine, "[Timer]\nOnCalendar=hourly\n")
+    before = snapshot(a.root)
+    r = bootstrap(a, "--dry-run")
+    check("rebound, --dry-run: the fabric's files would be removed, nothing touched",
+          snapshot(a.root) == before and all(f"  -  {f} (would remove: role is python-dev)" in r.lines
+                                             for f in files if f != mine), r.out)
+    a.clear_log()
+    r = bootstrap(a)
+    check("rebound away: each timer disabled, the fabric's files removed and said",
+          all(["systemctl", "--user", "disable", "--now", f"{u}.timer"] in a.calls("systemctl") for u in COORDINATOR_UNITS)
+          and all(not os.path.exists(f) and f"  -  {f} (removed: role is python-dev)" in r.lines for f in files if f != mine),
+          f"{a.calls('systemctl')}\n{r.out}")
+    check("…a file the fabric did not write stays, unsaid", read(mine) == "[Timer]\nOnCalendar=hourly\n"
+          and not any(mine in x for x in r.lines), r.out)
 
 
 def relay() -> None:
@@ -968,6 +1199,23 @@ def relay() -> None:
     check("…after the control agent's lines", r.lines.index(f"  +  {unit}") > r.lines.index(
         f"  +  {a.units}/{UNIT}.service"), r.out)
 
+    ru = f"{a.units}/{RBK}"
+    check("step 6c: the relay backup's service and timer installed on the relay's account, the fabric's files, mode 644, said",
+          all(read(f"{ru}.{x}") == read(f"{a.fr}/runtime/control/{RBK}.{x}") and mode(f"{ru}.{x}") == 0o644 for x in ("service", "timer"))
+          and f"  !  {RBK}.timer: installed, not enabled — no user manager at {a.run}/bus "
+              f"(systemd absent, or no login session; the next bootstrap with one enables it)" in r.lines, r)
+    svc = read(f"{ru}.service")
+    tmr = read(f"{ru}.timer")
+    check("step 6c: the service is a oneshot running `relay backup` as the state backup runs its command, bounded at 30 min",
+          "Type=oneshot" in svc and "TimeoutStartSec=30min" in svc
+          and "ExecStart=/usr/local/bin/fabric-python %h/projects/agent-fabric/tools/fabric/fabric_secrets.py relay backup\n" in svc, svc)
+    check("step 6c: the service's scratch is ~/agent-fabric-tmp, made before the copy (/tmp is a small tmpfs)",
+          "Environment=TMPDIR=%h/agent-fabric-tmp\n" in svc
+          and "ExecStartPre=/usr/bin/install -d -m 700 %h/agent-fabric-tmp\n" in svc, svc)
+    check("step 6c: the timer's cadence: every 6 h from 03:00 (off midnight), 15 min of delay, persistent, wanted by timers.target",
+          "OnCalendar=*-*-* 03/6:00:00\n" in tmr and "RandomizedDelaySec=15min\n" in tmr and "Persistent=true\n" in tmr
+          and "WantedBy=timers.target" in tmr, tmr)
+
     b = Account("relay-up", relay=True, wcs=False)
     b.bus()
     r = bootstrap(b, env=b.env(FAKE_ACTIVE_gzcoord_relay="active"))
@@ -976,6 +1224,10 @@ def relay() -> None:
           rc == [["systemctl", "--user", "is-active", RELAY], ["systemctl", "--user", "enable", "--now", RELAY],
                  ["systemctl", "--user", "restart", RELAY], ["systemctl", "--user", "is-active", RELAY]], rc)
     check("…said", f"  *  {RELAY} (this workspace hosts the relay): active" in r.lines, r.out)
+    rb = [c for c in b.calls("systemctl") if c[-1] == f"{RBK}.timer"]
+    check("step 6c: with a manager the backup timer is enabled --now and restarted (new unit), then asked its state",
+          rb == [["systemctl", "--user", "enable", "--now", f"{RBK}.timer"], ["systemctl", "--user", "restart", f"{RBK}.timer"],
+                 ["systemctl", "--user", "is-active", f"{RBK}.timer"]], rb)
     check("…an active unit's port is not probed", b.calls("curl") == [], b.calls("curl"))
     b.clear_log()
     r = bootstrap(b, env=b.env(FAKE_ACTIVE_gzcoord_relay="inactive", FAKE_CURL_RC="0",
@@ -1015,6 +1267,9 @@ def relay() -> None:
           [c for c in b.calls("systemctl") if c[-1] == RELAY] == [["systemctl", "--user", "is-active", RELAY],
                                                                   ["systemctl", "--user", "enable", "--now", RELAY],
                                                                   ["systemctl", "--user", "is-active", RELAY]], b.calls("systemctl"))
+    check("the relay backup timer, units unchanged: enable --now then is-active, no restart",
+          [c for c in b.calls("systemctl") if c[-1] == f"{RBK}.timer"] == [["systemctl", "--user", "enable", "--now", f"{RBK}.timer"],
+                                                                         ["systemctl", "--user", "is-active", f"{RBK}.timer"]], b.calls("systemctl"))
 
     c = Account("relay-away", ws="work", relay=True, wcs=False)
     r = bootstrap(c)
@@ -1026,6 +1281,13 @@ def relay() -> None:
     r = bootstrap(d)
     check("a relay venv whose claude-bridge is not executable: no relay unit",
           not os.path.exists(f"{d.units}/{RELAY}.service") and not any(RELAY in x for x in r.lines), r)
+    check("…and no relay backup units; a workspace away from $HOME/projects gets none either",
+          not any(os.path.exists(f"{x.units}/{RBK}.{y}") for x in (c, d) for y in ("service", "timer"))
+          and not any(RBK in x for x in r.lines), r)
+    n = Account("client", wcs=False)
+    r = bootstrap(n)
+    check("an account that does not host the relay: no relay backup units, no line",
+          not any(os.path.exists(f"{n.units}/{RBK}.{y}") for y in ("service", "timer")) and not any(RBK in x for x in r.lines), r)
 
 
 def failures() -> None:
@@ -1161,8 +1423,19 @@ def failures() -> None:
           and any("python3 -m venv failed" in ln for ln in r.lines), r)
 
 
+# The cases are independent (each makes its own account under the scratch root), so they run as GROUPS, each in a process of
+# its own with its own scratch fabric: the same cases, the wall time of the longest group. Balanced by what each costs on a
+# loaded host (every case is a run of the script, and `failures` and `relay` are the long ones).
+GROUPS = ((failures,), (relay, user_manager, coordinator_timers), (first_run, record_current, journal, store_trust_base),
+          (arguments, existing_files, no_config_dir, local_bin_override, completion_dir, dry_run, fabric_worktree))
+
+
 def main() -> int:
     global T
+    if len(sys.argv) < 3 or sys.argv[1] != "--group":
+        return section_groups.drive(__file__, "test_bootstrap_cli", len(GROUPS), (0, 1, 2, 3), "BOOTSTRAP_CLI_JOBS", 1500)
+    selected = int(sys.argv[2])
+    section_groups.child_setup()
     T = os.path.realpath(tempfile.mkdtemp(prefix="test_bootstrap_cli."))
     try:
         if os.path.realpath(T).startswith(os.path.realpath(REAL_HOME) + "/projects/"):
@@ -1173,8 +1446,7 @@ def main() -> int:
         for name in ("systemctl", "loginctl", "curl", "ss", "pgrep", "claude", "pip", "uv"):
             if shutil.which(name, path=f"{T}/fakebin:{T}/sysbin") != f"{T}/fakebin/{name}":
                 sys.exit(f"test: refusing to run: {name} on the test PATH is not the fake")
-        for case in (first_run, dry_run, record_current, journal, store_trust_base, arguments, existing_files, no_config_dir, local_bin_override,
-                     user_manager, relay, failures, fabric_worktree):
+        for case in GROUPS[selected]:
             # A file the script did not write, or a line it did not print,
             # can raise in the case's own reading: that is a failure of the
             # script, counted, and the other cases still run.
@@ -1191,11 +1463,8 @@ def main() -> int:
                 except OSError:
                     pass
         shutil.rmtree(T, ignore_errors=True)
-    if fails:
-        print(f"test_bootstrap_cli: {fails} FAILED")
-        return 1
-    print("test_bootstrap_cli: all passed")
-    return 0
+    print(f"group {selected}: {'OK' if not fails else f'FAILED — {fails} check(s)'}")
+    return 1 if fails else 0
 
 
 if __name__ == "__main__":

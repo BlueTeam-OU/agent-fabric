@@ -93,3 +93,13 @@ for the last day, because another session of this role may have
 landed it. The inbox: what the roles reported is what you work from,
 verified against the tree before anything is done. `tests/run.sh`
 green before and after.
+
+## Your commands
+
+```sh
+fabric-ctl all status                     # the fleet, answered by each account's control agent (ADR-029)
+fabric-ctl <login|all> jobs               # every agent's open jobs; <login> jobs-add "<title>" adds one (ADR-037)
+fabric-ctl all upgrade claude|fabric      # every account to the pinned Claude Code, or to the merged fabric (ADR-009)
+fabric-accounts assign <login…> <account> # which Claude account those logins run on (ADR-031)
+fabric-usage                              # usage windows through the host executor, when control agents are down
+```

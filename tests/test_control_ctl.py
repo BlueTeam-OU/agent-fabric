@@ -84,7 +84,25 @@ class Tables(unittest.TestCase):
         rs = ctl.rows(expected, replies)
         self.assertEqual((rs[0]["status"], rs[0]["email"], rs[1]["status"]), ("ok", "x@y.z", "no answer"))
         t = ctl.table("status", rs)
-        self.assertRegex(t, r"db-admin\s+ok\s+x@y.z\s+12%\s+2026-09-17T10:50\s+80%\s+2026-09-21T16:00\s+db-admin\s+abc1234 \(2 behind\)")
+        self.assertRegex(t, r"db-admin\s+ok\s+x@y.z\s+12%\s+2026-09-17T10:50\s+80%\s+2026-09-21T16:00\s+db-admin\s+-\s+abc1234 \(2 behind\)")
+        self.assertRegex(t, r"role\s+provider\s+fabric")
+        with_provider = [{**replies[0], "data": {**replies[0]["data"], "session": {"provider": p}}} for p in ("openrouter", "gateway")]
+        for reply_, want in zip(with_provider, ("openrouter", "gateway")):
+            self.assertRegex(ctl.table("status", ctl.rows(placed("db-admin"), [reply_])), rf"db-admin\s+{want}\s+abc1234")
+        # A joined provider list shows as `mixed` so the fabric column stays under its header.
+        joined = {**replies[0], "data": {**replies[0]["data"], "session": {"provider": "anthropic,openrouter"}}}
+        jt = ctl.table("status", ctl.rows(placed("db-admin"), [joined])).splitlines()
+        self.assertRegex(jt[1], r"db-admin\s+mixed\s+abc1234")
+        self.assertEqual(jt[1].index("abc1234"), jt[0].index("fabric"))
+        # ADR-043 rule 6 reads "in force" off every host: the managed state is a cell of the row, whatever it is.
+        def managed_row(m):
+            d = {**replies[0]["data"], "managed": m} if m is not None else replies[0]["data"]
+            return ctl.table("status", ctl.rows(placed("db-admin"), [{**replies[0], "data": d}])).splitlines()[1]
+        self.assertTrue(managed_row({"state": "in force", "reasons": []}).endswith("  managed in force"))
+        self.assertTrue(managed_row({"state": "drifted", "reasons": ["x"]}).endswith("  managed DRIFTED"))
+        self.assertTrue(managed_row({"status": "failed", "error": "e"}).endswith("  managed ?"), "a section that failed is not in force")
+        self.assertNotIn("managed", managed_row(None), "an older control agent does not answer it: no cell, not a guess")
+        self.assertEqual(ctl.rows(placed("db-admin"), [{**replies[0], "data": {**replies[0]["data"], "managed": {"state": "missing"}}}])[0]["managed"], {"state": "missing"})
         self.assertRegex(t, r"web-dev-01\s+no answer")
         self.assertRegex(ctl.table("ping", rs), r"db-admin\s+ok\s+120 ms")
         # The script table: the workers column — input and answers binned — and `-` when there are none.
@@ -717,6 +735,17 @@ class Commands(unittest.TestCase):
         self.assertEqual(no.returncode, 2, no.stderr)
         self.assertRegex(no.stderr, r"not a host operator")
         self.assertEqual(len(r.rows), n, "nothing was sent")
+        # A registry that cannot be read leaves who is placed unknown: said so, nothing sent, and never "not a host operator".
+        d = os.path.dirname(reg)
+        bad = os.path.join(d, "notjson.json")
+        with open(bad, "w") as fh:
+            fh.write("{ not json")
+        for label, path in (("missing", os.path.join(d, "absent.json")), ("unreadable", d), ("not JSON", bad)):
+            un = run_ctl(self, r.url(), path, ["db-admin", "presence", "--timeout", "1"])
+            self.assertEqual(un.returncode, 1, (label, un.stderr))
+            self.assertIn("hosts registry could not be read", un.stderr, label)
+            self.assertNotIn("not a host operator", un.stderr, label)
+            self.assertEqual(len(r.rows), n, f"nothing was sent ({label})")
         # The relay lost the request (history cleared): said, and the run ends early.
         r.rows.clear()   # the earlier runs' records
         stop = threading.Event()
@@ -956,6 +985,16 @@ class Actions(unittest.TestCase):
             up("web-dev-01", status="upgraded", **{"from": "2.1.282"}, to="2.1.285", session="none", reason="r", settings="not refreshed: defaults unreadable")])).split("\n")
         self.assertRegex(settings[1], r"\snone\s+settings refreshed$", "the settings refresh is in the row")
         self.assertRegex(settings[2], r"\snone\s+r; settings not refreshed: defaults unreadable$", "…after the reason, and a failed one says why")
+
+    def test_jobs_add_listed_is_a_success_row_and_not_a_failed_action(self):
+        # jobs-add answers "listed" when the title names a REQUEST the list already holds (one request, one job):
+        # nothing failed, so the run exits 0 as for "added".
+        r = reply("db-admin", "jobs-add", {"jobs-add": {"status": "listed", "job": "j4 queued normal x: s"}})
+        row = ctl.table("jobs-add", ctl.rows(placed("db-admin"), [r])).split("\n")
+        self.assertRegex(row[0], r"^db-admin\s+listed\s+j4 queued", "the row names the job it found")
+        self.assertIn("listed", ctl.ACTION_OK["jobs-add"], "a listed answer is not a failed action")
+        self.assertIn("added", ctl.ACTION_OK["jobs-add"], "the control: an added answer still is not")
+        self.assertNotIn("refused", ctl.ACTION_OK["jobs-add"], "the control: a refusal still fails the run")
 
     def test_upgrade_fabric_no_version_its_own_wait_a_current_row_names_main_the_commit_sent_is_origin_main_never_head(self):
         a = ctl.parse_args(["all", "upgrade", "fabric"])
@@ -1436,6 +1475,154 @@ class Refusals(unittest.TestCase):
         dead = run_ctl(self, url, reg, ["db-admin", "ping", "--timeout", "1"])
         self.assertEqual(dead.returncode, 3, dead.stderr)
         self.assertRegex(dead.stderr, f"fabric-ctl: the relay is unreachable at {re.escape(url)}")
+
+
+class Help(unittest.TestCase):
+    # `fabric-ctl <login|all> <verb> --help`, `help <verb>` and `--verbs` read the verb table (ctl.VERBS) and nothing else: no registry,
+    # no relay, no token. The golden usage text is the one the verbs had before the table (tests/fixtures/ctl-usage.txt).
+    NOT_VERBS = {"pool-list", "pool-claim", "branches-sweep"}   # ops the parser refuses or reaches through branches --sweep
+
+    def setUp(self):
+        # parse_args checks a pool-add role against identities/roles/catalog.json, instance data a stripped tree does not carry: the
+        # catalogue is a stand-in here, so the parser's own refusal of a flag is what the cases below judge.
+        from unittest import mock
+        from control import pool
+        patcher = mock.patch.object(ctl, "check_pool_args", lambda args: pool.check_pool_args(args, known={"python-dev"}))
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def bare(self, args: list[str]) -> subprocess.CompletedProcess:
+        home = tempfile.mkdtemp(prefix="ctl-help-")
+        self.addCleanup(lambda: __import__("shutil").rmtree(home, ignore_errors=True))
+        return subprocess.run([sys.executable, CTL, *args], capture_output=True, text=True, env={"PATH": "/nonexistent", "HOME": home}, cwd=home,
+                              timeout=60, stdin=subprocess.DEVNULL, check=False)
+
+    def test_the_table_has_every_verb_the_ops_and_the_unit_ops_and_keygen_have(self):
+        from control.ops import OPS
+        from control import units
+        expected = (set(OPS) - self.NOT_VERBS) | {"states", "keygen", *units.UNIT_OPS}
+        self.assertEqual(set(ctl.VERB), expected)
+
+    def test_usage_is_the_rendered_table_byte_for_byte_as_before_the_table(self):
+        with open(os.path.join(HERE, "tests", "fixtures", "ctl-usage.txt"), encoding="utf-8") as fh:
+            self.assertEqual(ctl.USAGE, fh.read())
+
+    def test_every_verb_has_help_on_stdout_exit_0_with_no_registry_relay_or_token(self):
+        for name in ctl.VERB:
+            for args in (["all", name, "--help"], ["all", name, "-h"], ["help", name]):
+                r = self.bare(args)
+                self.assertEqual((r.returncode, r.stderr), (0, ""), args)
+                self.assertEqual(r.stdout, ctl.render_help(name) + "\n", args)
+                self.assertRegex(r.stdout, rf"(?m)^usage: fabric-ctl .*\b{re.escape(name)}\b", args)
+                self.assertRegex(r.stdout, r"(?m)^action: ")
+                self.assertRegex(r.stdout, r"(?m)^example:\n  fabric-ctl ")
+
+    def test_help_reads_neither_the_registry_nor_the_relay_nor_the_token(self):
+        # The registry is a file that is not JSON, the relay call and the identity raise: any of them read would fail the run.
+        reg = os.path.join(tempfile.mkdtemp(prefix="ctl-help-reg-"), "registry.json")
+        self.addCleanup(lambda: __import__("shutil").rmtree(os.path.dirname(reg), ignore_errors=True))
+        with open(reg, "w", encoding="utf-8") as fh:
+            fh.write("{ not json")
+
+        def boom(*a, **k):
+            raise AssertionError("help touched the relay or the identity")
+        for argv in (["all", "upgrade", "--help"], ["help", "keygen"], ["--verbs"], ["--verbs", "tokens"]):
+            seen: list[str] = []
+            rc = ctl.main(argv, registry=reg, call=boom, who=boom, token=None, out=seen.append, err=seen.append, sleep=boom)
+            self.assertEqual(rc, 0, argv)
+            self.assertTrue(seen, argv)
+        said: list[str] = []   # the positive control: this registry does fail a run that reads it
+        rc = ctl.main(["all", "ping"], registry=reg, call=boom, who={"host": "h", "agent": "a"}, token="t", out=lambda m: None, err=said.append)
+        self.assertEqual(rc, 1)
+        self.assertTrue(any("hosts registry could not be read" in m for m in said), said)
+
+    def test_help_names_every_option_the_verb_takes_and_whether_it_is_signed(self):
+        from control.sign import ACTION_OPS
+        for op in ACTION_OPS:
+            verb = ctl.VERB["branches" if op == "branches-sweep" else op]
+            self.assertEqual(verb.signed, '--sweep' if op == "branches-sweep" else "always", op)
+        self.assertEqual({v.name for v in ctl.VERBS if v.signed}, {op.replace("-sweep", "") for op in ACTION_OPS})
+        self.assertIn("--days N", ctl.render_help("tokens"))
+        self.assertIn("--expect SHA12", ctl.render_help("secrets-sync"))
+        self.assertIn("yes, signed", ctl.render_help("restart"))
+        self.assertIn("no, a read", ctl.render_help("drift"))
+        self.assertIn("only with --sweep", ctl.render_help("branches"))
+
+    # What a verb needs beside the option under test for parse_args to accept the line, and a value each option takes.
+    NEEDS = {"upgrade": ["claude"], "memory": ["--out", "d"], "gateway-install": ["--version", "1.2.3"], "jobs-add": ["a title"],
+             "pool-add": ["--role", "python-dev", "a title"], "tools-install": ["shellcheck"], "clone": ["gzapp"], "hold": ["--reason", "stop"],
+             "interweave-evidence": ["--since", "2026-10-26T00:00:00Z", "--until", "2026-10-27T00:00:00Z"]}
+    VALUES = {"--timeout": "5", "--days": "3", "--version": "1.2.3", "--expect": "0123456789ab", "--out": "d", "--topic": "t", "--project": "p",
+              "--priority": "normal", "--role": "python-dev", "--since": "2026-10-26T00:00:00Z", "--until": "2026-10-27T00:00:00Z",
+              "--section": "arrivals", "--reason": "stop", "--decision": "01a18d02-edd3-7bef-8fe9-965718c256b5"}
+
+    def takes(self, verb: str, flag: str) -> bool:
+        argv = ["alice", verb, *self.NEEDS.get(verb, [])]
+        try:
+            ctl.parse_args([*argv, flag, *([self.VALUES[flag]] if flag in self.VALUES else [])])
+        except ctl.CtlError:
+            return False
+        return True
+
+    def test_the_options_a_verb_lists_are_exactly_the_scoped_options_the_parser_takes_with_it(self):
+        # Every flag parse_args knows, read from its own source, so a flag the table leaves out of every row is still judged; bar the title
+        # separator and those it takes on every verb (--force and --out are accepted and ignored everywhere, which the parser cannot tell
+        # apart from "omitted").
+        import inspect
+        scoped = sorted(set(re.findall(r'a == "(--[a-z-]+)"', inspect.getsource(ctl.parse_args))) - {"--json", "--timeout", "--force", "--out"})
+        self.assertIn("--follow", scoped)   # the read found the parser's flags: an empty or short list would pass the loop below for nothing
+        for v in ctl.VERBS:
+            listed = {f.split()[0] for f, _ in v.options}
+            for flag in listed - {"--"}:
+                self.assertTrue(self.takes(v.name, flag), f"{v.name} lists {flag}, which parse_args refuses with it")
+            for flag in scoped:
+                self.assertEqual(flag in listed, self.takes(v.name, flag), f"{v.name} {flag}: the table and the parser disagree")
+        with self.assertRaisesRegex(ctl.CtlError, "unknown option --nope"):   # the positive control: the parser can refuse
+            ctl.parse_args(["x", "status", "--nope"])
+        self.assertFalse(self.takes("tokens", '--sweep'))   # …and a scoped option on the wrong verb is refused, which the first loop would catch
+
+    def test_the_full_usage_stays_on_stderr_for_help_without_a_verb(self):
+        for args in (["--help"], ["all", "--help"], ["help"]):
+            r = self.bare(args)
+            self.assertEqual((r.returncode, r.stdout, r.stderr), (0, "", ctl.USAGE + "\n"), args)
+
+    def test_an_unknown_verb_is_said_and_exits_2_with_nothing_on_stdout(self):
+        for args in (["all", "bogus", "--help"], ["help", "bogus"], ["--verbs", "bogus"]):
+            r = self.bare(args)
+            self.assertEqual((r.returncode, r.stdout), (2, ""), args)
+            self.assertEqual(r.stderr, "fabric-ctl: unknown verb 'bogus' (fabric-ctl --verbs lists them)\n", args)
+
+    def test_a_help_flag_after_a_title_stops_the_run_and_sends_nothing(self):
+        # The early scan stops at `--`; the flag after the title reaches parse_args, and main must still stop on it.
+        def boom(*a, **k):
+            raise AssertionError("a help request reached the registry, the relay or the identity")
+        for argv in (["db-admin", "jobs-add", "--", "fix the thing", "--help"], ["db-admin", "jobs-add", "--", "fix", "-h"],
+                     ["holder", "pool-add", "--role", "python-dev", "--", "fix", "--help"]):
+            self.assertIsNone(ctl.help_request(argv), argv)
+            seen: list[str] = []
+            rc = ctl.main(argv, registry="/nonexistent/registry.json", call=boom, who=boom, token="t", out=seen.append, err=seen.append, sleep=boom)
+            self.assertEqual((rc, seen), (0, [ctl.USAGE]), argv)
+
+    def test_two_words_before_help_name_a_verb_and_more_are_targets(self):
+        self.assertEqual(ctl.help_request(["alice", "bogus", "--help"]), ("unknown", "bogus"))
+        self.assertEqual(ctl.help_request(["alice", "bob", "carol", "--help"]), ("usage", None))
+        self.assertEqual(ctl.help_request(["alice", "bob", "status", "--help"]), ("help", "status"))
+
+    def test_a_title_after_dashes_is_not_a_help_request(self):
+        self.assertIsNone(ctl.help_request(["db-admin", "jobs-add", "--", "--help"]))
+        self.assertEqual(ctl.help_request(["db-admin", "jobs-add", "--help"]), ("help", "jobs-add"))
+        self.assertEqual(ctl.help_request(["all", "--timeout", "status", "--help"]), ("usage", None))   # the value of --timeout is not a word
+
+    def test_verbs_lists_names_sorted_one_per_line_and_a_verbs_options_and_fixed_words(self):
+        r = self.bare(["--verbs"])
+        self.assertEqual((r.returncode, r.stderr), (0, ""))
+        self.assertEqual(r.stdout.split("\n"), sorted(ctl.VERB) + [""])
+        r = self.bare(["--verbs", "upgrade"])
+        self.assertEqual(r.stdout.split("\n"), ["--json", "--timeout", "--version", "claude", "fabric", ""])
+        # Single quotes: this lists words and runs no sweep, and test_branches_sweep scans for the double-quoted flag to find suites that do.
+        self.assertEqual(self.bare(["--verbs", "branches"]).stdout.split("\n"), ["--json", '--sweep', "--timeout", ""])
+        self.assertEqual(self.bare(["--verbs", "keygen"]).stdout, "--force\n")
+        self.assertEqual(self.bare(["--verbs", "jobs-add"]).stdout.split("\n"), ["--json", "--priority", "--project", "--timeout", "--topic", ""])
 
 
 if __name__ == "__main__":

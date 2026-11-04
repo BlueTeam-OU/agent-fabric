@@ -24,7 +24,8 @@ for _k in [k for k in os.environ if k.startswith("AGENT_FABRIC_LAUNCH_")]:
     del os.environ[_k]
 from guards import dispatch_guard as dg  # noqa: E402
 
-SHIM = os.path.join(HERE, "runtime", "claude-code", "hooks", "agent-dispatch-guard.sh")
+import hook_harness  # noqa: E402
+SHIM = hook_harness.unmanaged("agent-dispatch-guard.sh")
 
 
 def verdict(out: bytes) -> str:
@@ -75,6 +76,88 @@ def main() -> int:
         # An allow: nothing, or under a fabric launch the pin's explicit one.
         check(f"U+{ord(sep):04X} is whitespace to both", rv is None
               or rv["hookSpecificOutput"]["permissionDecision"] == "allow")
+
+    print("a supplier dispatches no review of its own part (ADR-020 §5 rule 11)")
+    with tempfile.TemporaryDirectory() as tmp:
+        def repo(branch: str) -> str:
+            d = os.path.join(tmp, branch.replace("/", "_"))
+            subprocess.run(["git", "init", "-q", "-b", branch, d], check=True, capture_output=True, timeout=30,
+                           env={**os.environ, "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1"})
+            return d
+        review = {"subagent_type": "code-review", "model": "fable", "description": "review the batch"}
+
+        def denied(rv) -> bool:
+            return rv is not None and rv["hookSpecificOutput"]["permissionDecision"] == "deny"
+
+        rv = dg.decide({"tool_input": review, "cwd": repo("host/python-dev-03/for/user/j334-fix")})
+        check("a review from a for/ branch: denied, naming the rule",
+              denied(rv) and "§5 rule 11" in rv["hookSpecificOutput"]["permissionDecisionReason"])
+        for label, cwd in (("the integrator's own branch", repo("host/user/fix/guard-batch")),
+                           ("a branch named for/ at its root", repo("for/user/x")),
+                           ("a directory git does not know", tmp), ("no cwd at all", None)):
+            rv = dg.decide({"tool_input": review, **({"cwd": cwd} if cwd else {})})
+            check(f"{label}: this rule says nothing", not (denied(rv) and "rule 11" in
+                  rv["hookSpecificOutput"]["permissionDecisionReason"]))
+        rv = dg.decide({"tool_input": {"subagent_type": "code-medium", "model": "sonnet", "isolation": "worktree",
+                                       "description": "write the test"},
+                        "cwd": repo("host/python-dev-01/for/user/j337-x")})
+        check("a writing dispatch from a for/ branch: not this rule's", not (denied(rv) and "rule 11" in
+              rv["hookSpecificOutput"]["permissionDecisionReason"]))
+
+    print("a supplier is also the active job's DELIVER-TO, on any branch (ADR-020 §5 rule 11)")
+    import pwd
+    with tempfile.TemporaryDirectory() as tmp:
+        state = os.path.join(tmp, "state")
+        agent_dir = os.path.join(state, "agents", pwd.getpwuid(os.geteuid()).pw_name)
+        os.makedirs(agent_dir)
+        feat = os.path.join(tmp, "wc-feat")
+        other = os.path.join(tmp, "wc-other")
+        for d, b in ((feat, "host/me/feat/x"), (other, "host/me/feat/y")):
+            subprocess.run(["git", "init", "-q", "-b", b, d], check=True, capture_output=True, timeout=30,
+                           env={**os.environ, "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1"})
+        review = {"subagent_type": "code-review", "model": "fable", "description": "review the batch"}
+
+        def write_jobs(*jobs) -> None:
+            with open(os.path.join(agent_dir, "jobs.json"), "w", encoding="utf-8") as fh:
+                json.dump({"jobs": list(jobs)}, fh)
+
+        def judged(cwd: str):
+            saved = os.environ.get("AGENT_FABRIC_STATE_DIR")
+            os.environ["AGENT_FABRIC_STATE_DIR"] = state
+            try:
+                rv = dg.decide({"tool_input": review, "cwd": cwd})
+            finally:
+                if saved is None:
+                    del os.environ["AGENT_FABRIC_STATE_DIR"]
+                else:
+                    os.environ["AGENT_FABRIC_STATE_DIR"] = saved
+            return rv["hookSpecificOutput"]["permissionDecisionReason"] if (
+                rv is not None and rv["hookSpecificOutput"]["permissionDecision"] == "deny") else None
+
+        job = {"id": "j77", "state": "active", "working_copy": feat, "worktree": None, "deliver_to": "h/u/for/c/w"}
+        write_jobs(job)
+        why = judged(feat)
+        check("a feat/ branch, active job with deliver_to: denied, naming the job and its DELIVER-TO",
+              why is not None and "j77" in why and "h/u/for/c/w" in why and "rule 11" in why)
+        # The real layout: fabric-jobs makes a supply's worktree beside its
+        # working copy, so only the worktree key can match the cwd here.
+        write_jobs({**job, "working_copy": feat + "-clone", "worktree": feat})
+        check("the job's worktree contains the cwd: denied", judged(os.path.join(feat, ".git")) is not None)
+        write_jobs({k: v for k, v in job.items() if k != "deliver_to"})
+        check("the same branch, the job without deliver_to: a caller, as today", judged(feat) is None)
+        write_jobs({**job, "state": "delivered"})
+        check("a job that is not active: not consulted", judged(feat) is None)
+        write_jobs(job)
+        check("a job whose working copy does not contain the cwd: not consulted", judged(other) is None)
+        check("a sibling directory sharing the job's path prefix: not consulted",
+              judged(feat + "-sibling") is None)
+        with open(os.path.join(agent_dir, "jobs.json"), "w", encoding="utf-8") as fh:
+            fh.write("{not json")
+        check("an unreadable jobs file: no supplier, nothing guessed", judged(feat) is None)
+        os.unlink(os.path.join(agent_dir, "jobs.json"))
+        check("no jobs file: no supplier", judged(feat) is None)
+        write_jobs(job)
+        check("positive control: the same job is read again", judged(feat) is not None)
 
     print("a fault inside the guard asks")
     import io

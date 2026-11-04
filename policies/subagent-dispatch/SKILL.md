@@ -1,6 +1,6 @@
 ---
 name: subagent-dispatch
-description: "Why every writing subagent dispatch in this repo pins `model` and `isolation: \"worktree\"`, why the REVIEW CLASS (code-review, description beginning review/re-review, fable, NO isolation) is a standing authorisation the dispatch guard enforces rather than asks about, what the PreToolUse hook cannot see (a Workflow script's agent() calls), how worktree isolation actually behaves — what an agent sees, what survives, and why collection is a copy — and the review brief (base..head, revert test, quoted hunks, pre-existing section, re-review scoped to new hunks). Load it before dispatching agents or writing a Workflow script, when an agent reports files that \"do not exist\", when a worktree or worktree-agent branch is left behind, or when tempted to merge an agent's branch."
+description: "How to dispatch a subagent here: a writing class pins `model` and `isolation: \"worktree\"`, the review class (code-review) runs on fable with no isolation, and what worktree isolation does and does not keep. Load it before dispatching agents or writing a Workflow script, when an agent reports files that \"do not exist\", when a worktree or worktree-agent branch is left behind, or when tempted to merge an agent's branch."
 ---
 
 # Why dispatch looks like this
@@ -54,7 +54,10 @@ decision into a hook that cannot read `routing/`.
 Pinning the tier on every call is also what keeps a campaign
 reproducible: if the session model changes while a batch is in flight,
 unset-field agents change with it. The hook denies an unset `model`, a
-class on the wrong alias, and prompts on a premium one.
+class on the wrong alias, and prompts on a premium one. One exception:
+under a fabric launch a review with no `model` passes, because that is
+the guard's own answer when the harness runs it a second time; write
+`fable` all the same.
 
 ### Review is the standing premium-alias exception (`fable`)
 
@@ -125,7 +128,7 @@ at the keyboard on every review — a standing exception that still asks
 is not one, and the ask arrived at the least useful moment, mid-review-
 loop.
 
-So the carve-out is structural, and it is a CLASS with four conditions,
+So the carve-out is structural, and it is a CLASS with five conditions,
 enforced by `runtime/claude-code/hooks/agent-dispatch-guard.sh`, which the
 workspace settings bootstrap writes register (the `PreToolUse` hook for `Agent`; decision table in `tests/test_agent_dispatch_guard_cli.py`):
 
@@ -134,10 +137,20 @@ workspace settings bootstrap writes register (the `PreToolUse` hook for `Agent`;
    whose charter is review-only;
 2. `description` that BEGINS with `review` or `re-review`;
 3. `model: "fable"` — the review class's alias, checked and then, under
-   a fabric launch, removed so the agent file's pinned model applies;
-4. **no `isolation`** at all.
+   a fabric launch, removed so the agent file's pinned model applies.
+   There a call with no `model` passes too: with `run_in_background`
+   set, Claude Code runs the hook again on that answer
+   (read back on 2.1.286 and 2.1.311, in docs/live-checks/),
+   and the agent file's model is still checked against routing;
+4. **no `isolation`** at all;
+5. a session **not on a `<host>/<login>/for/` branch**: a supplier
+   dispatches no review of its own part, the integrator's review covers
+   it (ADR-020 §5 rule 11). The guard reads the dispatching session's
+   branch, and the login's active job: a cwd inside that job's worktree
+   or working copy, when the job has a `deliver_to`, is a supplier on any
+   branch. A supplier outside both is held by the rule alone.
 
-All four, or the dispatch is **denied** — never asked. These were
+All five, or the dispatch is **denied** — never asked. These were
 learned one at a time, and each was load-bearing on its own:
 
 - **The model condition was missing when this first shipped.** Keyed on
@@ -306,7 +319,8 @@ in; it can only report. The main session, a fork and an unknown type
 are untouched; whether a Workflow-spawned agent's tool calls carry the
 `agent_id` / `agent_type` / `cwd` fields the guard reads has not been
 observed live, and absent fields allow — it fails open there, not
-closed. Tested by `test_subagent-clone-guard.sh`.
+closed. Its decision is `subagent-clone-guard.py` beside it; tested by
+`tests/test_subagent_clone_guard.py`.
 
 ## Isolation — what an agent actually sees
 

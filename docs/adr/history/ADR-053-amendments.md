@@ -84,3 +84,15 @@ header unless `--head` names it. A Codex report carries no header, so
 passes the head it archived. A request whose head is not the PR's
 current one is still refused before the run, since its review would
 cover a commit the gate does not read.
+
+### Amendment 2026-10-24 — Codex posts a v2 review with its coverage
+
+§5 rule 4 posted Codex's report headerless with `--head`. ADR-065
+(accepted by the owner on 2026-10-23) makes post-review accept only a
+v2 review: the dispatch header and a coverage block naming every path
+of the range. The answer schema now requires `coverage`, and the report
+carries the brief's header. On #358 Codex's full-range runs twice ended
+on its own context-compaction warning, which the engine refuses (a
+compacted run cannot vouch for what it read), and once posted partial;
+under ADR-055 rule 8 Codex stays additional, so a partial or failed
+Codex run does not block an arm.

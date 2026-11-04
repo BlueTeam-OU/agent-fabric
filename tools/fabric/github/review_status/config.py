@@ -123,7 +123,8 @@ def read_config(env) -> Config:
     access may leave). Empty means no comment is ever a verdict. Who may
     post a blind review, besides the PR author: a JSON array of logins.
     Empty by default, because every session pushes AND posts as one
-    account, which is the author of every PR a session opens. The
+    account, which is the author of every PR a session opens; on a PR an
+    app opened, the probe adds that account itself (review_posters). The
     reviewer's own refusal wording (a regex over the comment body) and the
     phrase a request for it takes; both empty by default, so nothing reads
     as a decline and nothing as a pending request. A request never marks a

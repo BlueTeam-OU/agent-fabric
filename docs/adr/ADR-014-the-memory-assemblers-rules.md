@@ -69,8 +69,8 @@ correcting memory's own heading.
   were answered `supersede`: asking had become a formality that cost the
   owner's attention and taught nothing.
 - **Infer a retitle from any file one agent wrote.** Rejected:
-  the flat class file holds every memory of its class until
-  the class splits, so one agent's second memory there read as a retitle
+  the flat class file then held every memory of its class until
+  the class split, so one agent's second memory there read as a retitle
   of its first, and the rule deleted the first.
 
 ## 4. Rationale
@@ -97,7 +97,8 @@ case where it could be — two authors, a contested heading, an older text.
    (`<class>/<topic>.md` and its budget parts, or the shared
    `<class>-<topic>.md` and its parts) every origin names one agent, the
    claim's own. A retitle is never inferred from the flat `<class>.md` or
-   a carried `<class>-carried-<stamp>.md`, which hold several memories.
+   a carried `<class>-carried-<stamp>.md`, which may hold several memories
+   (a flat file written before agent-fabric #368 records no topic).
 3. A decision is `supersede`, `keep-both` or `drop`, keyed by the heading
    (`<role>/<class>:<topic>#<heading>`, for every pair under it) or by
    the claim (`…#<heading>@<first evidence hash>`), the claim's key

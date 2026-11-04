@@ -37,6 +37,8 @@ import tempfile
 HERE = os.path.dirname(os.path.realpath(__file__))
 sys.path.insert(0, os.path.dirname(HERE))
 import roots  # noqa: E402
+import gh  # noqa: E402
+
 GH_TIMEOUT_S = 60
 GPG_TIMEOUT_S = 60
 SCOPE_HINT = "gh auth refresh -h github.com -s admin:ssh_signing_key"
@@ -106,20 +108,19 @@ def ssh_form(keyfile: str) -> str:
 
 def _gh(*args: str) -> str:
     try:
-        p = subprocess.run(["gh", *args], capture_output=True, text=True, timeout=GH_TIMEOUT_S, stdin=subprocess.DEVNULL)
-    except FileNotFoundError:
-        raise Refused("gh is not installed") from None
-    except OSError as exc:  # PermissionError: a gh that is there and cannot be run
-        raise Refused(f"gh cannot be run: {exc.strerror or exc}") from None
-    except subprocess.TimeoutExpired:
-        raise Refused(f"gh did not answer within {GH_TIMEOUT_S} s") from None
-    if p.returncode != 0:
-        said = (p.stderr.strip().splitlines() or [f"exit {p.returncode}"])[-1]
+        return gh.run(list(args), timeout=GH_TIMEOUT_S)
+    except gh.GhError as e:
+        if e.reason == "gh is not installed":
+            raise Refused("gh is not installed") from None
+        if e.code is None:
+            raise Refused(f"gh did not answer within {GH_TIMEOUT_S} s") from None
+        said = (e.stderr.strip().splitlines() or [f"exit {e.code}"])[-1]
         # gh names the scope and its fix itself when it knows; a 403 or 404 is
         # what GitHub answers a token without the scope otherwise.
-        hint = f" (if the token lacks the scope: {SCOPE_HINT})" if "gh auth refresh" not in p.stderr and ("403" in said or "404" in said) else ""
-        raise Refused(f"gh {args[0]} failed: {said}{hint}")
-    return p.stdout
+        hint = f" (if the token lacks the scope: {SCOPE_HINT})" if "gh auth refresh" not in e.stderr and ("403" in said or "404" in said) else ""
+        raise Refused(f"gh {args[0]} failed: {said}{hint}") from None
+    except OSError as exc:  # PermissionError: a gh that is there and cannot be run
+        raise Refused(f"gh cannot be run: {exc.strerror or exc}") from None
 
 
 SCOPE = "admin:ssh_signing_key"

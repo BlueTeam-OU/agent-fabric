@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """A new account's first contact with its store (agent-fabric ADR-038): it
 has no GitHub key yet, since its SSH key reaches it from that store, so its
-first commit goes to its parent as a bundle (store-enroll.sh --born-now,
+first commit goes to its parent as a bundle (store_enroll.py --born-now,
 `store bundle | store seed-child`) and the filled store comes back the same
 way (`store child-bundle | store take-bundle`). python-dev-01, the first
 account made after the stores replaced Doppler, stopped at that push.
@@ -26,7 +26,7 @@ own_instance_tree()
 scrub_process_env()
 
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-ENROLL = os.path.join(HERE, "runtime", "provisioning", "secrets", "store-enroll.sh")
+ENROLL = os.path.join(HERE, "tools", "fabric", "store_enroll.py")
 STORE = os.path.join(HERE, "tools", "fabric", "secret_store.py")
 ACCOUNT_SECRETS = "projects/agent-fabric/bin/fabric-secrets"
 
@@ -114,7 +114,8 @@ esac
             os.chmod(p, os.stat(p).st_mode | stat.S_IXUSR)
         penv = {**BASE_ENV, "HOME": os.path.join(t, "parent"), "GNUPGHOME": gnupg["parent"], "AGENT_FABRIC_ROOT": fab,
                 "GIT_CONFIG_GLOBAL": os.path.join(t, "parent", ".gc"), "AGENT_FABRIC_HOSTS_REGISTRY": os.path.join(t, "hosts.json"),
-                "AGENT_FABRIC_HOSTEXEC": hx, "GH": gh, "AGENT_FABRIC_SECRETS_REMOTE_BASE": remotes}
+                "AGENT_FABRIC_HOSTEXEC": hx, "GH": gh, "AGENT_FABRIC_SECRETS_REMOTE_BASE": remotes,
+                "AGENT_FABRIC_PYTHON": sys.executable}
 
         def parent(*cmd: str, stdin: str | None = None) -> subprocess.CompletedProcess:
             return subprocess.run(list(cmd), env=penv, input=stdin, capture_output=True, text=True, timeout=300, cwd=t)
@@ -128,7 +129,7 @@ esac
                 return next((a for a, r in json.load(f).items() if r.get("login") == login), "")
 
         print("first contact: the parent, then the control")
-        r = parent(ENROLL, "--self")
+        r = parent(sys.executable, ENROLL, "--self")
         check("the parent's own store", r.returncode == 0, r.stderr)
         publish()
         pid = lineage_id(subprocess.run(["id", "-un"], capture_output=True, text=True).stdout.strip())
@@ -139,10 +140,10 @@ esac
               (r.returncode, r2.returncode, r.stderr))
 
         print("first contact: enrolment")
-        r = parent(ENROLL, "kid")
+        r = parent(sys.executable, ENROLL, "kid")
         check("without --born-now the account's own push fails, as python-dev-01's did",
               r.returncode == 1 and "kid: push failed" in r.stderr, r.stderr)
-        r = parent(ENROLL, "kid", "--born-now")
+        r = parent(sys.executable, ENROLL, "kid", "--born-now")
         kid_id = lineage_id("kid")
         publish()
         check("with --born-now the enrolment completes", r.returncode == 0 and bool(kid_id), r.stderr)
@@ -151,7 +152,7 @@ esac
         check("…its first commit reached its repository through the parent", shown.stdout.strip() == kid_id, shown.stderr)
         mirror = os.path.join(t, "parent", ".local", "share", "agent-fabric", "children", kid_id)
         check("…and the parent holds the mirror", os.path.isdir(os.path.join(mirror, ".git")))
-        r = parent(ENROLL, "kid", "--born-now")
+        r = parent(sys.executable, ENROLL, "kid", "--born-now")
         check("a second run converges", r.returncode == 0, r.stderr)
 
         print("first contact: the filled store comes back as a bundle")
@@ -247,8 +248,8 @@ esac
         check("…a put the account has not taken yet", r.returncode == 0, r.stderr)
         remote_head = subprocess.run(["git", "--git-dir", repo, "rev-parse", "main"], capture_output=True, text=True, env=git_env()).stdout
         shutil.rmtree(mirror)
-        r = parent(ENROLL, "kid", "--born-now")
-        r2 = parent(ENROLL, "kid", "--born-now")
+        r = parent(sys.executable, ENROLL, "kid", "--born-now")
+        r2 = parent(sys.executable, ENROLL, "kid", "--born-now")
         heads = (subprocess.run(["git", "--git-dir", repo, "rev-parse", "main"], capture_output=True, text=True, env=git_env()).stdout,
                  subprocess.run(["git", "-C", mirror, "rev-parse", "HEAD"], capture_output=True, text=True, env=git_env()).stdout)
         check("a re-run rebuilds the mirror at the remote's head, the parent's puts kept, and converges",

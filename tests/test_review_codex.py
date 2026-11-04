@@ -10,12 +10,17 @@ from __future__ import annotations
 import contextlib
 import io
 import json
+import re
 import os
 import pwd
+import http.server
+import shutil
 import signal
 import subprocess
 import sys
+import tarfile
 import tempfile
+import threading
 import time
 
 # Its own imports would write __pycache__ into the checkout (ADR-021): this file's run is a test's.
@@ -50,6 +55,7 @@ if argv[:1] == ["sandbox"]:
     smode = open(os.path.join(S, "sandbox-mode")).read().strip() if os.path.exists(os.path.join(S, "sandbox-mode")) else "ok"
     cmd = argv[argv.index("--") + 1:]
     is_write_probe = "touch" in " ".join(cmd)
+    is_read_probe = "cat" in " ".join(cmd)
     if smode == "fail":
         print("bwrap: No permissions to create a new namespace " + os.environ.get("AGENT_FABRIC_CODEX_KEY", ""), file=sys.stderr)
         sys.exit(1)
@@ -62,6 +68,13 @@ if argv[:1] == ["sandbox"]:
         sys.exit(0)                                   # a "sandbox" that runs nothing and says all is well
     if smode == "writable":
         sys.exit(subprocess.run(cmd).returncode)      # nothing refuses the write: the probe's touch succeeds and says 7
+    if is_read_probe and smode == "readable":
+        sys.exit(subprocess.run(cmd).returncode)      # nothing confines a read: the canary is read, and the probe says 9
+    if is_read_probe and smode == "blind":
+        # the extract's own file cannot be read (the canary can, as nothing confines it): the probe's own script must see that first
+        sys.exit(subprocess.run(cmd[:-1] + ["/nonexistent-control"]).returncode)
+    if is_read_probe and smode in ("ok", "leaky"):
+        sys.exit(43)                                  # the canary is outside the allowlist: refused
     if smode == "leaky":
         subprocess.run(cmd)                           # the write happens, and the sandbox still answers as if it were refused
         sys.exit(43 if is_write_probe else 42)
@@ -109,9 +122,13 @@ def answer(text, file=True, commands=1):
     usage_file = os.path.join(S, "usage.json")   # a case that means other counts writes them here
     ev({"type": "turn.completed", "usage": json.load(open(usage_file)) if os.path.exists(usage_file)
         else {"input_tokens": 20, "cached_input_tokens": 0, "output_tokens": 10}})
-OK = json.dumps({"findings": [
+COV = {"paths": [{"path": "app.py", "status": "read", "reason": ""}], "lenses": [], "default": None}
+EMPTY = json.dumps({"findings": [], "coverage": COV})
+OK = json.dumps({"coverage": COV, "findings": [
     {"level": "P3", "file": "app.py", "line": 2, "scenario": "a\nmulti-line scenario", "expected": "e3", "fix": "f3"},
     {"level": "P1", "file": "app.py", "line": 1, "scenario": "s1", "expected": "e1", "fix": "f1"}]})
+HEADSUP = ("Heads up: Long threads and multiple compactions can cause the model to be less accurate. "
+           "Start a new thread when possible to keep threads small and targeted.")
 HOST = ("Code Mode is unavailable because failed to spawn code-mode host /home/u/.local/bin/codex-code-mode-host: "
         "host executable was not found. Code mode will fail closed; enable `features.code_mode_host` and install "
         "`codex-code-mode-host`.")
@@ -124,28 +141,33 @@ elif mode == "ok":
     print("2026-10-12T10:00:00Z  WARN codex_core: a log line, on stderr", file=sys.stderr)
     answer(OK)
 elif mode == "empty":
-    answer('{"findings": []}')
+    answer(EMPTY)
 elif mode == "retried":
     ev({"type": "thread.started", "thread_id": "t"})
     ev({"type": "error", "message": "Reconnecting... 1/5 (stream disconnected before completion: error sending request)"})
-    answer('{"findings": []}')
+    answer(EMPTY)
 elif mode == "eventonly":
-    answer('{"findings": []}', file=False)
+    answer(EMPTY, file=False)
 elif mode == "nohost":
     # The live defect (2026-10-12): the tool host missing, no command run, an empty answer from the brief alone.
     print("ERROR codex_core::tools::router: error=failed to spawn code-mode host", file=sys.stderr)
     ev({"type": "thread.started", "thread_id": "t"})
     item("error", message=HOST)
-    answer('{"findings": []}', commands=0)
+    answer(EMPTY, commands=0)
 elif mode == "nocommand":
-    answer('{"findings": []}', commands=0)
+    answer(EMPTY, commands=0)
 elif mode == "cmdfailed":
     ev({"type": "turn.started"})
     command("cat nope", code=1)
-    answer('{"findings": []}', commands=0)
+    answer(EMPTY, commands=0)
 elif mode == "othererror":
     item("error", message="something else went wrong")
-    answer('{"findings": []}')
+    answer(EMPTY)
+elif mode in ("compaction", "compaction-nocommand", "compaction-other"):
+    item("error", message=HEADSUP)
+    if mode == "compaction-other":
+        item("error", message="something else went wrong")
+    answer(EMPTY, commands=0 if mode == "compaction-nocommand" else 1)
 elif mode == "turnfailed":
     ev({"type": "turn.started"})
     ev({"type": "error", "message": "stream disconnected before completion: error sending request"})
@@ -167,13 +189,19 @@ elif mode in ("capacity", "allowance", "allowance-notime", "capacity-lookalike")
     sys.exit(1)
 elif mode == "capacity-item":
     item("error", message="Selected model is at capacity. Please try a different model.")
-    answer('{"findings": []}')
+    answer(EMPTY)
 elif mode == "prose":
     answer("Looks good to me! No findings.")
 elif mode == "fence":
-    answer('```json\n{"findings": []}\n```')
+    answer('```json\n' + EMPTY + '\n```')
 elif mode == "badschema":
     answer('{"findings": [{"level": "P2", "file": "app.py", "line": 3, "scenario": "s", "expected": "e"}]}')
+elif mode == "nocoverage":
+    answer('{"findings": []}')
+elif mode == "partialcov":
+    answer(json.dumps({"findings": [], "coverage": {"paths": [{"path": "app.py", "status": "not read", "reason": "too long"}], "lenses": [], "default": None}}))
+elif mode == "wrongpaths":
+    answer(json.dumps({"findings": [], "coverage": {"paths": [{"path": "other.py", "status": "read", "reason": ""}], "lenses": [], "default": None}}))
 elif mode == "exit1":
     print("backend said no", file=sys.stderr)
     sys.exit(3)
@@ -183,7 +211,7 @@ elif mode == "noanswer":
     ev({"type": "turn.completed", "usage": {}})
 elif mode == "noevents":
     with open(out, "w") as f:
-        f.write('{"findings": []}')
+        f.write(EMPTY)
 '''
 
 GH_MOCK = r"""#!%(python)s
@@ -202,11 +230,15 @@ if a[:1] == ["pr"]:
 if a[:1] == ["api"]:
     path = a[1]
     method = a[a.index("--method") + 1] if "--method" in a else "POST" if "--input" in a else "GET"  # gh's own default
+    if method == "GET" and "/compare/" in path:   # post-review ties the range's base to the PR: --jq .merge_base_commit.sha
+        sys.stdout.write(open(os.path.join(S, "mergebase")).read()); sys.exit(0)
     if method == "GET":
         with open(os.path.join(S, "reads"), "a") as f:
             f.write(path + "\\n")
         if os.path.exists(os.path.join(S, "read-fails")):
             print("gh: HTTP 502: Bad Gateway", file=sys.stderr); sys.exit(1)
+        if "-i" in a:   # gh.api_list: the status line and headers, a blank line, one page of the list
+            sys.stdout.write("HTTP/2.0 200 OK\r\n\r\n" + json.dumps(state("reviews.json", []))); sys.exit(0)
         if path.split("?")[0].endswith("/reviews"):
             print(json.dumps([state("reviews.json", [])]))
         else:
@@ -250,23 +282,27 @@ def main() -> int:
         except review_codex.FailedReview as e:
             return str(e)
 
-    check("a valid answer passes", verdict(json.dumps({"findings": [good]})) == "ok")
-    check("no findings is a clean answer", verdict('{"findings": []}') == "ok")
-    for label, doc in (("a finding without fix", {"findings": [{k: v for k, v in good.items() if k != "fix"}]}),
-                       ("level P4", {"findings": [{**good, "level": "P4"}]}),
-                       ("line 0", {"findings": [{**good, "line": 0}]}),
-                       ("a line that is a string", {"findings": [{**good, "line": "4"}]}),
-                       ("an empty scenario", {"findings": [{**good, "scenario": "  "}]}),
-                       ("an extra key on a finding", {"findings": [{**good, "confidence": 1}]}),
-                       ("an extra top-level key", {"findings": [], "summary": "fine"}),
-                       ("no findings key", {}),
-                       ("an absolute file", {"findings": [{**good, "file": "/etc/passwd"}]}),
-                       ("a file climbing out", {"findings": [{**good, "file": "../x.py"}]})):
+    cov0 = {"paths": [{"path": "a/b.py", "status": "read", "reason": ""}], "lenses": [{"lens": "security", "status": "applied"}], "default": None}
+    cov_json = json.dumps(cov0)
+    wc = lambda doc: {"coverage": cov0, **doc}  # noqa: E731  # the schema requires coverage: an answer is built with it, so a refusal below is about its one defect
+    check("a valid answer passes", verdict(json.dumps(wc({"findings": [good]}))) == "ok")
+    check("no findings is a clean answer", verdict(json.dumps(wc({"findings": []}))) == "ok")
+    for label, doc in (("a finding without fix", wc({"findings": [{k: v for k, v in good.items() if k != "fix"}]})),
+                       ("level P4", wc({"findings": [{**good, "level": "P4"}]})),
+                       ("line 0", wc({"findings": [{**good, "line": 0}]})),
+                       ("a line that is a string", wc({"findings": [{**good, "line": "4"}]})),
+                       ("an empty scenario", wc({"findings": [{**good, "scenario": "  "}]})),
+                       ("an extra key on a finding", wc({"findings": [{**good, "confidence": 1}]})),
+                       ("an extra top-level key", wc({"findings": [], "summary": "fine"})),
+                       ("no findings key", wc({})),
+                       ("an absolute file", wc({"findings": [{**good, "file": "/etc/passwd"}]})),
+                       ("a file climbing out", wc({"findings": [{**good, "file": "../x.py"}]}))):
         check(f"refused: {label}", verdict(json.dumps(doc)) != "ok", verdict(json.dumps(doc)))
-    for label, text in (("prose", "No findings."), ("a fence", '```json\n{"findings": []}\n```'),
-                        ("two objects", '{"findings": []}{"findings": []}'), ("a list", "[]"), ("nothing", ""),
-                        ("a duplicate key", '{"findings": [], "findings": []}'),
-                        ("NaN", '{"findings": [{"level": "P1", "file": "a", "line": NaN, "scenario": "s", '
+    ok_text = '{"findings": [], "coverage": ' + cov_json + '}'
+    for label, text in (("prose", "No findings."), ("a fence", "```json\n" + ok_text + "\n```"),
+                        ("two objects", ok_text + ok_text), ("a list", "[]"), ("nothing", ""),
+                        ("a duplicate key", '{"findings": [], "findings": [], "coverage": ' + cov_json + '}'),
+                        ("NaN", '{"coverage": ' + cov_json + ', "findings": [{"level": "P1", "file": "a", "line": NaN, "scenario": "s", '
                                 '"expected": "e", "fix": "f"}]}')):
         check(f"refused: {label}", verdict(text) != "ok", verdict(text))
 
@@ -302,6 +338,33 @@ def main() -> int:
     check("a run that ran a command and answered is accepted", judged(real_ok) == "ok", judged(real_ok))
     check("the live defect: the tool host missing is refused, and named",
           "its tool host is missing (codex-code-mode-host)" in judged(real_nohost), judged(real_nohost))
+    heads_up = ("Heads up: Long threads and multiple compactions can cause the model to be less accurate. "
+                "Start a new thread when possible to keep threads small and targeted.")
+    check("the advisory's phrase is pinned to Codex 0.162.1's message",
+          review_codex.COMPACTION_ADVISORY == "Long threads and multiple compactions"
+          and review_codex.COMPACTION_ADVISORY in heads_up)
+    advisory_item = ('{"type":"item.completed","item":{"id":"item_9","type":"error","message":"' + heads_up + '"}}\n')
+    other_item = '{"type":"item.completed","item":{"id":"item_8","type":"error","message":"something else went wrong"}}\n'
+
+    def read_stream(stream: str) -> "review_codex.CodexRun":
+        with tempfile.NamedTemporaryFile("w", suffix=".jsonl", delete=False) as fh:
+            fh.write(stream)
+        try:
+            return review_codex.read_events(fh.name)
+        finally:
+            os.unlink(fh.name)
+    with_advisory = real_ok.replace('{"type":"turn.started"}\n', '{"type":"turn.started"}\n' + advisory_item, 1)
+    check("the heads-up is counted as an advisory, not as an error",
+          (r := read_stream(with_advisory)).advisories == 1 and r.errors == [], (r.advisories, r.errors))
+    check("a run with the heads-up, a command and an answer is accepted", judged(with_advisory) == "ok", judged(with_advisory))
+    mixed = with_advisory.replace(advisory_item, advisory_item + other_item, 1)
+    check("any other error item beside it still refuses", "something else went wrong" in judged(mixed)
+          and "Long threads" not in judged(mixed), judged(mixed))
+    no_cmd_adv = "\n".join(ln for ln in with_advisory.splitlines() if "command_execution" not in ln)
+    check("the heads-up without a command is still 'ran no command'", "ran no command" in judged(no_cmd_adv), judged(no_cmd_adv))
+    check("the capacity message as an error item is not an advisory",
+          "at capacity" in judged(real_ok.replace('{"type":"turn.started"}\n', '{"type":"turn.started"}\n' + advisory_item.replace(
+              heads_up, "Selected model is at capacity"), 1)))
     no_cmd = "\n".join(ln for ln in real_ok.splitlines() if "command_execution" not in ln)
     check("a run with no command is refused", "ran no command" in judged(no_cmd), judged(no_cmd))
     check("a stream that is not JSON shows nothing, and is refused", "printed no events" in judged("not json\n"))
@@ -320,6 +383,161 @@ def main() -> int:
         "m", "a" * 40, "b..c", [], "high").split("\n")[0])
     check("…or that none was", "**effort:** Codex's default" in review_codex.render_review(
         "m", "a" * 40, "b..c", []).split("\n")[0])
+    check("no advisory, no advisory line", "compacted" not in review_codex.render_review("m", "a" * 40, "b..c", []))
+    adv_lines = review_codex.render_review("m", "a" * 40, "b..c", [], None, 2).split("\n")
+    check("the advisory is one line right after the header lines",
+          adv_lines[2].startswith("Each finding is judged") and adv_lines[3] == "" and adv_lines[4]
+          == "Codex compacted its context during the run (2 heads-up), so its reading of early files may be less exact."
+          and adv_lines[5] == "" and adv_lines[6] == "No findings.", adv_lines[:6])
+    check("the prompt tells a cut-off file to be read in parts", "sed -n 'a,bp'" in review_codex.answer_shape()
+          and "only then marked \"read\"" in review_codex.answer_shape())
+
+    print("the coverage of the answer: the shipped schema requires it, and the post is a v2 review (agent-fabric ADR-065 §2 C)")
+    from github import post_review, review_coverage  # noqa: E402
+    real_schema = json.load(open(review_codex.SCHEMA_PATH, encoding="utf-8"))
+
+    def cov_answer(paths, lenses=(("security", "applied"),), findings=()):
+        return json.dumps({"findings": list(findings), "coverage": {
+            "paths": [{"path": p, "status": st, "reason": r} for p, st, r in paths],
+            "lenses": [{"lens": l, "status": st} for l, st in lenses], "default": None}})
+
+    check("the schema as shipped requires coverage", "coverage" in real_schema["required"] and "coverage" in real_schema["properties"])
+    found, cov = review_codex.parse_answer_full(cov_answer([("a.py", "read", ""), ("b.py", "not read", "binary")]))
+    check("the answer's coverage becomes the block's data", cov.paths == {"a.py": ("read", ""), "b.py": ("not read", "binary")}
+          and cov.lenses == {"security": "applied"} and found == [], cov)
+    check("parse_answer still gives the findings alone", review_codex.parse_answer(cov_answer([("a.py", "read", "")], findings=[good])) == [good])
+    check("the prompt asks for coverage", review_codex.COVERAGE_SHAPE in review_codex.answer_shape()
+          and review_codex.answer_shape().startswith(review_codex.ANSWER_SHAPE))
+    check("positive control: the same answer with coverage passes", verdict(cov_answer([("a.py", "read", "")], findings=[good])) == "ok")
+    full = {"findings": [], "coverage": {"paths": [{"path": "a.py", "status": "read", "reason": ""}], "lenses": [], "default": None}}
+    for label, doc in (("no coverage", {"findings": []}),
+                       ("coverage null", {**full, "coverage": None}),
+                       ("coverage without paths", {**full, "coverage": {"lenses": [], "default": None}}),
+                       ("coverage without its default (required, null when not given)", {**full, "coverage": {"paths": full["coverage"]["paths"], "lenses": []}}),
+                       ("coverage without lenses", {**full, "coverage": {"paths": full["coverage"]["paths"], "default": None}}),
+                       ("a path entry without its reason", {**full, "coverage": {"paths": [{"path": "a.py", "status": "read"}], "lenses": [], "default": None}}),
+                       ("a lens entry that carries a reason", {**full, "coverage": {"paths": [], "lenses": [
+                           {"lens": "l", "status": "applied", "reason": "x"}], "default": None}}),
+                       ("an empty path", {**full, "coverage": {"paths": [{"path": " ", "status": "read", "reason": ""}], "lenses": [], "default": None}})):
+        check(f"refused: {label}", verdict(json.dumps(doc)) != "ok", verdict(json.dumps(doc)))
+    for label, text in (("a path given twice", cov_answer([("a.py", "read", ""), ("a.py", "read", "")])),
+                        ("a status that is neither", cov_answer([("a.py", "skimmed", "")])),
+                        ("not read without a reason", cov_answer([("a.py", "not read", "")])),
+                        ("a lens state that is neither", cov_answer([("a.py", "read", "")], lenses=(("l", "maybe"),))),
+                        ("a lens given twice", cov_answer([], lenses=(("l", "applied"), ("l", "applied"))))):
+        check(f"refused: {label}", verdict(text) != "ok" and "coverage" in verdict(text), verdict(text))
+
+    # The dormant path, on a fixture schema without the field: a schema the shipped file no longer is, kept so that the
+    # v1 fallback a coverage-less schema takes stays pinned.
+    no_cov = json.loads(json.dumps(real_schema))
+    del no_cov["properties"]["coverage"]
+    no_cov["required"].remove("coverage")
+    schema_file = os.path.join(tempfile.mkdtemp(prefix="schema.", dir=os.environ.get("TMPDIR")), "answer.schema.json")
+    with open(schema_file, "w", encoding="utf-8") as fh:
+        json.dump(no_cov, fh)
+    real_path = review_codex.SCHEMA_PATH
+    review_codex.SCHEMA_PATH = schema_file
+    try:
+        check("a schema without the field: the answer's coverage is None and the prompt is the shape alone",
+              review_codex.parse_answer_full(json.dumps({"findings": [good]}))[1] is None
+              and review_codex.answer_shape() == review_codex.ANSWER_SHAPE)
+    finally:
+        review_codex.SCHEMA_PATH = real_path
+        os.unlink(schema_file)
+        os.rmdir(os.path.dirname(schema_file))
+
+    print("the default entry: a range too large to list (the shipped schema: default required, nullable)")
+    check("the schema as shipped has the nullable default, required", "default" in real_schema["properties"]["coverage"]["required"]
+          and {"type": "null"} in real_schema["properties"]["coverage"]["properties"]["default"]["anyOf"])
+    def default_answer(default, paths=(("a.py", "read", ""),)):
+        return json.dumps({"findings": [], "coverage": {
+            "paths": [{"path": p, "status": st, "reason": r} for p, st, r in paths], "lenses": [], "default": default}})
+    check("the prompt offers the default after the coverage shape, in the brief's terms",
+          review_codex.answer_shape().endswith(review_codex.COVERAGE_SHAPE + "\n" + review_codex.DEFAULT_SHAPE + "\n")
+          and "memory drain" in review_codex.DEFAULT_SHAPE)
+    thousand = [(f"memory/slices/{'d' * 40}/{i:04d}-{'x' * 60}.md", "read", "") for i in range(1242)]
+    _, cov = review_codex.parse_answer_full(default_answer(None, thousand[:3]))
+    check("an answer with \"default\": null is the block it always was: no default key", cov.default is None
+          and "default" not in json.loads(review_coverage.render_block(cov).split("\n", 1)[1].rsplit("\n```", 1)[0]), cov)
+    try:
+        review_coverage.parse_block(json.dumps({"paths": {p: {"status": "read"} for p, _, _ in thousand}, "lenses": {}}))
+        listed = "parsed"
+    except review_coverage.CoverageError as e:
+        listed = str(e)
+    check("positive control: listing all 1242 paths is over the block's cap", "over the" in listed, listed)
+    _, cov = review_codex.parse_answer_full(default_answer({"status": "read", "reason": ""}, [("special.py", "not read", "binary")]))
+    check("a read default is carried into the block next to the one path named",
+          cov.default == ("read", "") and cov.paths == {"special.py": ("not read", "binary")}, cov)
+    check("…and its rendered block is far under the cap", len(review_coverage.render_block(cov)) < 2000)
+    _, cov = review_codex.parse_answer_full(default_answer({"status": "not read", "reason": "generated"}))
+    check("a not-read default is carried, and posts as partial", cov.default == ("not read", "generated") and not cov.complete, cov)
+    for label, d in (("a default with a key the schema does not list", {"status": "read", "reason": "", "extra": "x"}),
+                     ("a not-read default without a reason", {"status": "not read", "reason": ""}),
+                     ("a default with a status that is neither", {"status": "skimmed", "reason": ""})):
+        try:
+            review_codex.parse_answer_full(default_answer(d))
+            got = "accepted"
+        except review_codex.FailedReview as e:
+            got = str(e)
+        check(f"refused: {label}", got != "accepted" and "coverage" in got, got)
+    # The pinned interpreter has no jsonschema: the stdlib validator must refuse what the schema does not allow.
+    real_jsonschema = sys.modules.get("jsonschema", False)
+    sys.modules["jsonschema"] = None   # an import then raises ImportError
+    try:
+        for label, d in (("a default with a key the schema does not list", {"status": "read", "reason": "", "extra": "x"}),
+                         ("a default whose reason is not a string", {"status": "read", "reason": 0}),
+                         ("a default with a status that is neither", {"status": "skimmed", "reason": ""})):
+            try:
+                review_codex.parse_answer_full(default_answer(d))
+                got = "accepted"
+            except review_codex.FailedReview as e:
+                got = str(e)
+            check(f"without jsonschema, refused: {label}", got != "accepted", got)
+        check("positive control: without jsonschema a valid default is still accepted",
+              review_codex.parse_answer_full(default_answer({"status": "read", "reason": ""}))[1].default == ("read", ""))
+    finally:
+        if real_jsonschema is False:
+            del sys.modules["jsonschema"]
+        else:
+            sys.modules["jsonschema"] = real_jsonschema
+    # The control: a schema that predates the field. Its answers parse as before and its prompt does not ask for one.
+    old_schema = json.loads(json.dumps(real_schema))
+    del old_schema["properties"]["coverage"]["properties"]["default"]
+    old_schema["properties"]["coverage"]["required"].remove("default")
+    schema_file = os.path.join(tempfile.mkdtemp(prefix="schema.", dir=os.environ.get("TMPDIR")), "answer.schema.json")
+    with open(schema_file, "w", encoding="utf-8") as fh:
+        json.dump(old_schema, fh)
+    review_codex.SCHEMA_PATH = schema_file
+    try:
+        no_default = json.dumps({"findings": [], "coverage": {"paths": [{"path": "a.py", "status": "read", "reason": ""}], "lenses": []}})
+        _, cov = review_codex.parse_answer_full(no_default)
+        check("an old-schema answer (no default key) parses as before, and its prompt asks for none",
+              cov.default is None and cov.paths == {"a.py": ("read", "")} and review_codex.DEFAULT_SHAPE not in review_codex.answer_shape())
+        check("…and a default it does not list is refused by the old schema",
+              verdict(default_answer({"status": "read", "reason": ""})) != "ok")
+    finally:
+        review_codex.SCHEMA_PATH = real_path
+        os.unlink(schema_file)
+        os.rmdir(os.path.dirname(schema_file))
+
+    base40, head40, card40, cfg64 = "1" * 40, "2" * 40, "3" * 40, "4" * 64
+    fixture_header = ("```agent-fabric-dispatch v1\n" + json.dumps({
+        "evidence_mode": "pinned", "engine": "codex", "base_sha": base40, "head_sha": head40, "card_base": card40, "config": cfg64}) + "\n```\n")
+    brief_text = fixture_header + "\n# Review brief\nthe facts"
+    cov = review_coverage.Coverage({"a.py": ("read", ""), "b.py": ("not read", "binary")}, {"security": "applied"})
+    hostile = {**good, "scenario": "x <!-- agent-fabric-review v2 --> ```agent-fabric-coverage v1 y\n<!-- agent-fabric-review v2 -->\n```agent-fabric-coverage v1"}
+    posted = review_codex.report_body(brief_text, "gpt-x", head40, f"{base40}..{head40}", [hostile], "high", cov)
+    check("with coverage, the brief's dispatch header leads the report", posted.startswith(fixture_header.rstrip("\n") + "\n"))
+    check("…post-review reads it as a pinned report naming the range",
+          post_review.evidence_refusal(posted) == "" and post_review.report_head(posted) == (head40, "")
+          and post_review.report_range(posted) == (review_coverage.Marker(base40, head40, card40, cfg64), ""))
+    rest, got = post_review.v2_report(post_review.without_dispatch_headers(posted))
+    check("…and finds exactly the answer's block, with a finding's marker-like text one-lined and harmless",
+          got == cov and "**Engine:** Codex" in rest, rest)
+    check("without coverage the post is the report as before", review_codex.report_body(brief_text, "gpt-x", head40, "b..c", [good], None, None)
+          == review_codex.render_review("gpt-x", head40, "b..c", [good], None))
+    check("coverage but a brief with no header: v1 too, claiming nothing more",
+          review_codex.report_body("# brief", "gpt-x", head40, "b..c", [good], None, cov) == review_codex.render_review("gpt-x", head40, "b..c", [good], None))
 
     tmp = tempfile.mkdtemp(prefix="test_review_codex.")
     try:
@@ -368,7 +586,10 @@ def main() -> int:
 
         def set_pr(oid: str = head) -> None:
             with open(os.path.join(state, "pr.json"), "w") as f:
-                json.dump({"number": 7, "state": "OPEN", "headRefName": f"{me}/feat/thing", "headRefOid": oid}, f)
+                json.dump({"number": 7, "state": "OPEN", "headRefName": f"{me}/feat/thing", "headRefOid": oid,
+                           "baseRefName": "main", "author": {"login": "fleet-account"}}, f)
+            with open(os.path.join(state, "mergebase"), "w") as f:
+                f.write(base)
             for n in ("calls", "payload.json", "codex-run.json", "codex-calls", "grandchild", "sandbox-calls", "sandbox-mode",
                       "reviews.json", "read-fails", "post-fails", "reads"):
                 if os.path.exists(os.path.join(state, n)):
@@ -404,6 +625,10 @@ def main() -> int:
         def run(*args: str, env: dict | None = None, timeout: float = 60) -> subprocess.CompletedProcess:
             return subprocess.run([REVIEW, "--engine", "codex", *args], env=env or env0, capture_output=True,
                                   text=True, cwd=repo, timeout=timeout)
+
+        def shown(text: str) -> str:
+            """--no-post prints the report as post-review is given it, the brief's dispatch header first (a v2 report)."""
+            return post_review.without_dispatch_headers(text)
 
         def scratch_empty() -> bool:
             return os.listdir(scratch) == []
@@ -446,8 +671,8 @@ def main() -> int:
             check("codex ran exactly once", f.read() == "run\n")
         rec = record()
         argv = rec["argv"]
-        check("codex exec with --sandbox read-only", argv[:1] == ["exec"]
-              and argv[argv.index("--sandbox") + 1] == "read-only", argv)
+        check("codex exec names no --sandbox: the profile in CODEX_HOME's config.toml is the sandbox (audit F01)",
+              argv[:1] == ["exec"] and "--sandbox" not in argv and "-s" not in argv and "--dangerously-bypass-approvals-and-sandbox" not in argv, argv)
         check("--json: the event stream is what shows the run read the code", "--json" in argv, argv)
         check("--output-schema hands it the answer schema",
               argv[argv.index("--output-schema") + 1] == review_codex.SCHEMA_PATH, argv)
@@ -461,7 +686,7 @@ def main() -> int:
         # In process, not through `fabric-review brief`: the CLI also checks the head out and names that worktree,
         # which the second engine does not (it reads its own extract, so the brief it sends names none).
         with open(req, encoding="utf-8") as fh:
-            brief = review_codex.review_brief.render(review_codex.review_brief.parse_request(fh.read()))
+            brief = review_codex.review_brief.render(review_codex.review_brief.parse_request(fh.read()), engine="codex")
         # The dispatch header differs per render (its id, its time) and per engine
         # (codex, second-engine-review); everything after it is the brief unchanged.
         def after_header(text: str) -> str:
@@ -470,7 +695,7 @@ def main() -> int:
         check("the prompt opens with a dispatch header naming the second engine",
               '"engine": "codex"' in sent_header and '"purpose": "second-engine-review"' in sent_header, sent_header)
         check("the prompt is the rendered brief, unchanged, then the answer shape",
-              bool(brief) and after_header(rec["prompt"]) == after_header(brief).rstrip("\n") + "\n" + review_codex.ANSWER_SHAPE, rec["prompt"][-400:])
+              bool(brief) and after_header(rec["prompt"]) == after_header(brief).rstrip("\n") + "\n" + review_codex.answer_shape(), rec["prompt"][-400:])
         cenv = rec["env"]
         leaked = sorted(k for k in cenv if k.startswith(("ANTHROPIC_", "CLAUDE", "OPENAI_"))
                         or k in ("FABRIC_SESSION_SECRET", "GH_STATE", "AGENT_FABRIC_CODEX_BASE_URL"))
@@ -500,8 +725,12 @@ def main() -> int:
               and git("rev-parse", "HEAD") == head)
         b = payload_body()
         lines = b.split("\n")
-        check("posted with the review marker and --model codex",
-              lines[:2] == ["<!-- agent-fabric-review v1 -->", "<!-- model: codex -->"], lines[:3])
+        check("posted with the v2 review marker and --model codex",
+              re.fullmatch(r"<!-- agent-fabric-review v2 base=[0-9a-f]{40} head=%s card=[0-9a-f]{40} config=[0-9a-f]{64} -->" % head, lines[0])
+              is not None and lines[1] == "<!-- model: codex -->", lines[:3])
+        rest_v2, block = post_review.v2_report("\n".join(lines[2:]))
+        check("…the answer's coverage is the posted block, and the dispatch header is not in the body",
+              block == review_coverage.Coverage({"app.py": ("read", "")}, {}) and "agent-fabric-dispatch" not in b, b[-500:])
         check("the post names Codex, not the review class", "Codex, the second review engine" in b, b[:400])
         check("recorded on the head Codex read (post-review --head, ADR-020 §5 rule 6)",
               json.load(open(os.path.join(state, "payload.json"))).get("commit_id") == head)
@@ -539,8 +768,8 @@ def main() -> int:
         check("a review runs", r.returncode == 0, r.stderr + r.stdout)
         with open(os.path.join(state, "sandbox-calls")) as f:
             probes = [json.loads(line) for line in f]
-        check("two probes in the extract, read-only profile: a command starts, a write is refused",
-              len(probes) == 2 and all(p[:3] == ["sandbox", "-P", ":read-only"] for p in probes)
+        check("three probes in the extract, the reviewer profile: a command starts, a write is refused, a read outside is refused",
+              len(probes) == 3 and all(p[:3] == ["sandbox", "-P", "reviewer"] for p in probes)
               and probes[0][-1] == "exit 42" and "touch" in probes[1][-3] and probes[1][-3].endswith("exit 43")
               and probes[0][probes[0].index("-C") + 1] == record()["cwd"], probes)
         probe_path = probes[1][-1]
@@ -660,12 +889,91 @@ def main() -> int:
         r = run("7", req, "--gateway", "openai")
         check("an unknown --gateway is a usage error", r.returncode == 2 and "chatgpt" in r.stderr and not codex_ran(), r.stderr)
 
+        print("coverage that post-review checks against the range: partial posts as partial, a wrong path set posts nothing")
+        set_pr(); mode("partialcov")
+        r = run("7", req)
+        pb = payload_body().split("\n")
+        check("a path not read: exit 0, posted v2 with the partial line after the marker",
+              r.returncode == 0 and posted() and pb[0].startswith("<!-- agent-fabric-review v2 ")
+              and pb[1] == "partial coverage: 1 path(s) not read", (r.stderr, pb[:3]))
+        set_pr(); mode("wrongpaths")
+        r = run("7", req)
+        check("a path set that is not the range's: refused by post-review, nothing posted",
+              r.returncode != 0 and not posted() and "not posting this report" in r.stderr, (r.returncode, r.stderr))
+
         print("--no-post prints the review and posts nothing")
         set_pr(); mode("empty")
         r = run("7", req, "--no-post")
-        check("exit 0 and the body on stdout", r.returncode == 0 and r.stdout.startswith("**Engine:** Codex")
+        check("exit 0 and the body on stdout", r.returncode == 0 and shown(r.stdout).startswith("**Engine:** Codex")
               and "No findings." in r.stdout, r.stderr + r.stdout)
         check("nothing posted", not posted())
+
+        print("labels: a full review numbers its findings past every label the PR's reviews used (ADR-065 §5 rule 5)")
+        def labels(text: str) -> list[str]:
+            return re.findall(r"^Finding: (F\d+) ", text, re.M)
+
+        def seed_reviews(*reviews: dict) -> None:
+            with open(os.path.join(state, "reviews.json"), "w") as f:
+                json.dump([{"user": {"login": "fleet-account"}, "author_association": "OWNER", **r} for r in reviews], f)
+
+        def earlier(rid: int, *lines: str) -> dict:
+            # A v2 report of an earlier head, as the Claude reviews are: the reader skips a review with no marker.
+            marker = review_coverage.format_marker(chr(96 + rid) * 40, chr(97 + rid) * 40, "d" * 40, "e" * 64)
+            return {"id": rid, "submitted_at": f"2026-10-3{rid}T00:00:00Z", "body": marker + "\nreport\n" + "\n".join(lines) + "\n"}
+
+        set_pr(); mode("ok")
+        r = run("7", req, "--no-post")
+        check("control: a PR with no reviews starts at F1", r.returncode == 0 and labels(r.stdout) == ["F1", "F2"],
+              (r.stderr, r.stdout))
+        set_pr(); mode("ok")
+        seed_reviews(earlier(1, *(f"Finding: F{n} | P3 | likely | a.txt:1 | s{n}" for n in range(1, 6))),
+                     earlier(2, *(f"Judgement: F{n} | fixed | gone" for n in range(1, 6)),
+                             *(f"Finding: F{n} | P2 | certain | a.txt:1 | s{n}" for n in range(6, 10))))
+        r = run("7", req, "--no-post")
+        check("a PR whose reviews used up to F9: the Codex findings are F10 and F11", r.returncode == 0
+              and labels(r.stdout) == ["F10", "F11"], (r.stderr, r.stdout))
+        check("…and the prose list carries the same labels as the machine lines",
+              re.findall(r"^(F\d+)\. \*\*P\d\*\*", r.stdout, re.M) == ["F10", "F11"], r.stdout)
+        asked: list = []
+        saved_cf = review_codex.review_brief.carried_findings
+        review_codex.review_brief.carried_findings = lambda pr, head, repo: (asked.append(pr), ({"findings": [], "next": 4}, []))[1]
+        try:
+            check("the labels are read from the PR the review is posted to, not the one the request names",
+                  review_codex.label_start({"mode": "review", "pr": 12, "repository": "r"}, "h", "7") == 4 and asked == [7], asked)
+            check("a request that is no full review is not asked", review_codex.label_start({"mode": "re-review", "repository": "r"}, "h", "7") == 1
+                  and asked == [7], asked)
+        finally:
+            review_codex.review_brief.carried_findings = saved_cf
+        set_pr(); mode("ok")
+        seed_reviews(earlier(1, "Finding: F9 | P2 | certain | a.txt:1 | s9"))
+        r = run("7", req)
+        check("…and the posted review carries the same labels", r.returncode == 0 and posted()
+              and labels(payload_body()) == ["F10", "F11"], (r.stderr, payload_body()))
+        set_pr(); mode("ok"); open(os.path.join(state, "read-fails"), "w").close()
+        r = run("7", req)
+        check("reviews that cannot be listed: refused, exit 1, nothing posted", r.returncode == 1 and not posted()
+              and "cannot be listed" in r.stderr and "leave pr out" not in r.stderr and "carried" not in r.stderr, (r.returncode, r.stderr))
+        set_pr(); mode("ok"); open(os.path.join(state, "read-fails"), "w").close()
+        r = run("7", req, "--no-post")
+        check("…--no-post prints no report either", r.returncode == 1 and r.stdout == "", (r.returncode, r.stdout))
+        set_pr(); mode("ok")
+        seed_reviews(earlier(1, "Finding: F9 | P2 | certain | a.txt:1 | s9"), {"id": 2, "submitted_at": "2026-10-32T00:00:00Z", "body": None})
+        r = run("7", req)
+        check("a listed review that cannot be read: refused, exit 1, nothing posted", r.returncode == 1 and not posted()
+              and "cannot be read" in r.stderr and "review 2" in r.stderr and "leave pr out" not in r.stderr
+              and "re-post" not in r.stderr, (r.returncode, r.stderr))
+
+        print("the compaction heads-up: posted with the advisory line; with any other error or no command, a failed review")
+        set_pr(); mode("compaction")
+        r = run("7", req)
+        pbody = payload_body()
+        check("exit 0, posted, the report says Codex compacted", r.returncode == 0 and posted()
+              and "Codex compacted its context during the run (1 heads-up)" in pbody, r.stderr)
+        for m, why in (("compaction-other", "something else went wrong"),
+                       ("compaction-nocommand", "ran no command that succeeded (0 failed)")):
+            set_pr(); mode(m)
+            r = run("7", req)
+            check(f"{m}: exit 1, nothing posted, the reason said", r.returncode == 1 and not posted() and why in r.stderr, r.stderr)
 
         for m in ("retried", "eventonly"):
             print(f"a run that read the code ({m}) is posted")
@@ -675,7 +983,8 @@ def main() -> int:
                   r.stderr)
 
         for m, why in (("prose", "not one JSON object"), ("fence", "not one JSON object"),
-                       ("badschema", "codex-answer.schema.json"), ("exit1", "exited 3: backend said no"),
+                       ("badschema", "codex-answer.schema.json"), ("nocoverage", "missing required 'coverage'"),
+                       ("exit1", "exited 3: backend said no"),
                        ("noanswer", "without an agent message"),
                        ("nohost", "Codex ran no command: its tool host is missing (codex-code-mode-host)"),
                        ("nocommand", "ran no command that succeeded (0 failed)"),
@@ -1003,10 +1312,10 @@ def main() -> int:
         rec = record() if codex_ran() else {"argv": []}
         check("no --model and no AGENT_FABRIC_CODEX_MODEL: routing's model runs (gpt-6.1-sol, the owner, 2026-10-12)",
               r.returncode == 0 and rec["argv"][rec["argv"].index("--model") + 1] == "gpt-6.1-sol", r.stderr)
-        check("…and the review's first line names it", "`gpt-6.1-sol`" in r.stdout.split("\n")[0], r.stdout[:300])
+        check("…and the review's first line names it", "`gpt-6.1-sol`" in shown(r.stdout).split("\n")[0], r.stdout[:300])
         check("the environment's gateway still gets no level unless one is asked for (review of #224, F2)",
               not any(a.startswith("model_reasoning_effort") for a in rec["argv"]) and "-c" not in rec["argv"]
-              and "**effort:** Codex's default" in r.stdout.split("\n")[0], rec["argv"])
+              and "**effort:** Codex's default" in shown(r.stdout).split("\n")[0], rec["argv"])
         set_pr(); mode("empty")
         r = run("7", req, "--no-post", "--effort", "medium", env=no_model)
         check("--effort still names the level beside a routed model",
@@ -1028,13 +1337,13 @@ def main() -> int:
             set_pr(); mode("empty")
             r = run("7", req, "--no-post")
             check(f"{label}: an explicit model does not read routing on the environment's gateway",
-                  r.returncode == 0 and "`gpt-test`" in r.stdout.split("\n")[0], r.stderr)
+                  r.returncode == 0 and "`gpt-test`" in shown(r.stdout).split("\n")[0], r.stderr)
         with open(local_layer, "w") as f:
             json.dump({"providers": {"openai": {"capabilities": {"code-review": "gpt-6.1-sol"}}}}, f)
         set_pr(); mode("empty")
         r = run("7", req, "--no-post", env=no_model)
         check("an admitted model in the local layer is what runs", r.returncode == 0
-              and "`gpt-6.1-sol`" in r.stdout.split("\n")[0], r.stderr)
+              and "`gpt-6.1-sol`" in shown(r.stdout).split("\n")[0], r.stderr)
         os.remove(local_layer)
 
         print("the ledger: one row v1 per review that started Codex, on every way out (review economics P1)")
@@ -1195,6 +1504,338 @@ def main() -> int:
         os.rmdir(ledger_file)
         fresh_ledger()
 
+        print("the reviewer reads only an allowlisted tree (audit F01): the profile, the canary probe, the refusals")
+        set_pr(); mode("ok")
+        with open(os.path.join(state, "sandbox-mode"), "w") as f:
+            f.write("ok")
+        r = run("7", req)
+        check("a review runs", r.returncode == 0, r.stderr + r.stdout)
+        cfg = record()["config"] or ""
+        cwd = record()["cwd"]
+        check("config.toml sets the reviewer profile as default and no sandbox_mode (the two cannot be set together)",
+              'default_permissions = "reviewer"\n' in cfg and "sandbox_mode" not in cfg and "[permissions.reviewer.filesystem]\n" in cfg, cfg)
+        granted = re.findall(r'^"([^"]+)" = "read"$', cfg.split("[permissions.reviewer.filesystem]\n", 1)[1].split("\n\n", 1)[0], re.M)
+        common = os.path.join(os.path.realpath(repo), ".git")
+        check("the profile reads the extract, the repository's history and nothing else of the repository or the account",
+              os.path.realpath(cwd) in granted and os.path.join(common, "objects") in granted and os.path.join(common, "refs") in granted
+              and not any(g == os.path.realpath(repo) or g.startswith(os.path.join(os.path.realpath(repo), "app.py"))
+                          or g in (os.path.join(common, "config"), os.path.join(common, "hooks"), os.path.realpath(home), os.path.realpath(tmp))
+                          for g in granted), granted)
+        check("…and the platform defaults", '":minimal" = "read"\n' in cfg, cfg)
+        with open(os.path.join(state, "sandbox-calls")) as f:
+            probes = [json.loads(line) for line in f]
+        read_probe = probes[2]
+        canary_path, control_path = read_probe[-2], read_probe[-1]
+        check("the read probe's canary lies beside the extract, outside every granted path, under a fresh random name",
+              os.path.dirname(canary_path) == os.path.dirname(cwd) and os.path.basename(canary_path).startswith(".fabric-read-canary-")
+              and not any(canary_path == g or canary_path.startswith(g.rstrip("/") + "/") for g in granted), (canary_path, granted))
+        check("…and its control is a file of the extract, which the same command must read",
+              os.path.dirname(control_path) == cwd and os.path.basename(control_path).startswith(".fabric-read-control-"), control_path)
+        check("the review's scratch is gone, canary included", scratch_empty(), os.listdir(scratch))
+        for label, smode, text in (("a sandbox that lets the canary be read", "readable", "lets a file outside its allowlist be read"),
+                                   ("a sandbox that cannot read the extract either", "blind", "its refusal of a read proves nothing")):
+            set_pr(); mode("ok")
+            with open(os.path.join(state, "sandbox-mode"), "w") as f:
+                f.write(smode)
+            r = run("7", req)
+            check(f"{label}: exit 1, said in one line, codex exec never started, nothing posted, the scratch removed",
+                  r.returncode == 1 and text in r.stderr and not codex_ran() and not posted() and scratch_empty(),
+                  (r.returncode, r.stderr[-400:], codex_ran(), posted(), os.listdir(scratch)))
+        work = tempfile.mkdtemp(prefix="extract.", dir=tmp)
+        verdict = prove("readable", work)
+        check("prove_sandbox called directly refuses a readable canary and leaves neither probe file behind",
+              "lets a file outside its allowlist be read" in verdict and not [n for n in os.listdir(work) if n.startswith(".fabric-read")]
+              and not [n for n in os.listdir(os.path.dirname(work)) if n.startswith(".fabric-read")], (verdict, os.listdir(work)))
+        check("positive control: the same proof passes where the canary is refused", prove("ok") == "ok")
+
+        print("the real Codex sandbox refuses a read outside the allowlist (skipped where no codex runs a sandbox here)")
+        real_codex = shutil.which("codex", path=os.environ.get("PATH", ""))
+        real_ok = False
+        if real_codex:
+            real_scratch = tempfile.mkdtemp(prefix="real.", dir=tmp)
+            real_work = os.path.join(real_scratch, "head")
+            review_codex.extract(repo, head, real_work)
+            real_home = review_codex.codex_home(real_scratch, "http://127.0.0.1:1", None,
+                                                review_codex.readable_paths(real_codex, real_work, repo))
+            real_env = review_codex.child_env({"PATH": os.environ.get("PATH", "")}, real_scratch, real_home, "k")
+            try:
+                review_codex.prove_sandbox(real_codex, real_work, real_env)
+                real_ok = True
+            except review_codex.FailedReview as e:
+                if "cannot start" not in str(e) and "did not start" not in str(e):
+                    check("the real sandbox passes the proof", False, str(e))   # only a sandbox that will not start is a reason to skip
+                else:
+                    print(f"  skip the real sandbox does not start here: {e}")
+        else:
+            print("  skip no codex on PATH")
+        if real_ok:
+            check("the real sandbox passes the proof, canary probe included", True)
+            saved_profile = review_codex.PROFILE
+            review_codex.PROFILE = ":read-only"   # the profile main shipped: read access to the whole filesystem
+            try:
+                try:
+                    review_codex.prove_sandbox(real_codex, real_work, real_env)
+                    old = "proved"
+                except review_codex.FailedReview as e:
+                    old = str(e)
+            finally:
+                review_codex.PROFILE = saved_profile
+            check("negative control: under the old `:read-only` profile the same proof refuses the review, the canary being readable",
+                  "lets a file outside its allowlist be read" in old, old)
+
+            # A command the reviewer's model asks Codex to run, through the real `codex exec` and a stand-in Responses endpoint.
+            secret_dir = tempfile.mkdtemp(prefix="secrets.", dir=tmp)
+            secret = os.path.join(secret_dir, "id_ed25519")
+            with open(secret, "w") as f:
+                f.write("PRIVATE-KEY-MATERIAL\n")
+            wip = os.path.join(repo, "wip.txt")
+            command = (f"cat {secret}; echo ==; cat {wip}; echo ==; ls {os.path.realpath(home)}; echo ==; cat app.py; echo ==; "
+                       f"git -C {repo} log --oneline -1 | wc -l; echo ==; cat {repo}/.git/config; true")
+            asked: list[int] = []
+
+            class Responses(http.server.BaseHTTPRequestHandler):
+                def log_message(self, *a):
+                    pass
+
+                def do_POST(self):
+                    self.rfile.read(int(self.headers.get("content-length", 0)))
+                    asked.append(1)
+                    sse = lambda ev, d: f"event: {ev}\ndata: {json.dumps(d)}\n\n".encode()  # noqa: E731
+                    self.send_response(200)
+                    self.send_header("content-type", "text/event-stream")
+                    self.end_headers()
+                    self.wfile.write(sse("response.created", {"type": "response.created", "response": {"id": f"r{len(asked)}"}}))
+                    item = ({"type": "function_call", "call_id": "c1", "id": "fc1", "name": "exec_command",
+                             "arguments": json.dumps({"cmd": command})} if len(asked) == 1 else
+                            {"type": "message", "role": "assistant", "id": "m1",
+                             "content": [{"type": "output_text", "text": '{"findings": []}'}]})
+                    self.wfile.write(sse("response.output_item.done", {"type": "response.output_item.done", "output_index": 0, "item": item}))
+                    self.wfile.write(sse("response.completed", {"type": "response.completed", "response": {"id": f"r{len(asked)}", "usage": {
+                        "input_tokens": 1, "input_tokens_details": {"cached_tokens": 0}, "output_tokens": 1,
+                        "output_tokens_details": {"reasoning_tokens": 0}, "total_tokens": 2}}}))
+
+            server = http.server.HTTPServer(("127.0.0.1", 0), Responses)
+            threading.Thread(target=server.serve_forever, daemon=True).start()
+            try:
+                exec_scratch = tempfile.mkdtemp(prefix="exec.", dir=tmp)
+                exec_work = os.path.join(exec_scratch, "head")
+                review_codex.extract(repo, head, exec_work)
+                exec_home = review_codex.codex_home(exec_scratch, f"http://127.0.0.1:{server.server_port}", None,
+                                                    review_codex.readable_paths(real_codex, exec_work, repo))
+                exec_env = review_codex.child_env({"PATH": os.environ.get("PATH", "")}, exec_scratch, exec_home, "k")
+                try:
+                    review_codex.run_codex(real_codex, "gpt-test", exec_work, exec_scratch, exec_env, "review\n", 120)
+                except review_codex.FailedReview as e:   # Codex's complaint that a stand-in's model has no metadata; the run is what is read
+                    check("…the only thing Codex complained of is the stand-in's model name", "Model metadata for `gpt-test` not found" in str(e), str(e))
+                events = review_codex.read_events(os.path.join(exec_scratch, "codex-events.jsonl"))
+                with open(os.path.join(exec_scratch, "codex-events.jsonl"), encoding="utf-8") as f:
+                    outputs = [e["item"].get("aggregated_output", "") for e in map(json.loads, f.read().splitlines())
+                               if e.get("item", {}).get("type") == "command_execution" and e.get("type") == "item.completed"]
+            finally:
+                server.shutdown()
+            out = "".join(outputs)
+            check("the model's command ran in the real sandbox and finished", events.commands == 1 and out.count("==") == 5, (events.commands, out))
+            check("the account's key file, by absolute path, is not there for it to read",
+                  "PRIVATE-KEY-MATERIAL" not in out and "id_ed25519: No such file" in out, out)
+            refused = [ln for ln in out.splitlines() if "No such file" in ln]
+            check("neither are the repository's uncommitted files, its config, nor the home: each is as if absent",
+                  "not committed" not in out and "[core]" not in out
+                  and all(any(path in ln for ln in refused) for path in (wip, f"{repo}/.git/config", os.path.realpath(home))), out)
+            check("positive control: the extract's own file reads, and the repository's history is there to be read",
+                  "print(1)\nprint(2)\n==\n1\n==" in out, out)
+
+        print("the extract is the committed tree, byte for byte, verified against ls-tree (audit F13)")
+        fx = os.path.join(tmp, "work", "attrs")
+        os.makedirs(fx)
+
+        def fxgit(*a: str, data: bytes | None = None) -> str:
+            return subprocess.run(["git", "-C", fx, *a], env=git_env(), check=True, capture_output=True, input=data,
+                                  timeout=30).stdout.decode("utf-8", "surrogateescape").strip()
+
+        fxgit("init", "-q", "-b", "main")
+        files = {".gitattributes": b"skip.txt export-ignore\nstamp.txt export-subst\nvendored export-ignore\n",
+                 "skip.txt": b"tracked, and export-ignore'd\n", "stamp.txt": b"commit $Format:%H$ and $Format:%s$\n",
+                 "vendored/inner.txt": b"inside an export-ignore'd directory\n", "src/run.sh": b"#!/bin/sh\necho hi\n",
+                 "src/empty": b"", "caf\xc3\xa9 \xe2\x9c\x93.txt": b"non-ASCII name\n", "two\nlines.txt": b"a newline in the name\n",
+                 "bin.dat": bytes(range(256)) + b"\r\n\0\n"}
+        for name, data in files.items():
+            path = os.path.join(os.fsencode(fx), name.encode() if isinstance(name, str) else name)
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            with open(path, "wb") as f:
+                f.write(data)
+        os.chmod(os.path.join(fx, "src/run.sh"), 0o755)
+        os.symlink("run.sh", os.path.join(fx, "src/link"))
+        fxgit("add", "-A")
+        fxgit("update-index", "--add", "--cacheinfo", f"160000,{head},sub")   # a submodule: a commit id with no checkout
+        fxgit("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--no-gpg-sign", "-m", "attrs fixture")
+        fxhead = fxgit("rev-parse", "HEAD")
+        listing = fxgit("ls-tree", "-r", "-z", "--full-tree", fxhead).split("\0")
+        archived = tarfile.open(fileobj=io.BytesIO(subprocess.run(["git", "-C", fx, "archive", fxhead], env=git_env(), capture_output=True,
+                                                                 check=True, timeout=30).stdout)).getnames()
+        check("positive control: `git archive` of this commit really drops the export-ignore'd files",
+              "skip.txt" not in archived and "vendored/inner.txt" not in archived and "stamp.txt" in archived, archived)
+        dest = os.path.join(tmp, "fx-extract")
+        review_codex.extract(fx, fxhead, dest)
+        got = {}
+        for top, dirs, names in os.walk(dest):
+            for n in names + [d for d in dirs if os.path.islink(os.path.join(top, d))]:
+                got[os.path.relpath(os.path.join(top, n), dest)] = None
+        want_paths = [rec.split("\t", 1)[1] for rec in listing if rec and not rec.startswith("160000")]
+        check("every tracked file is in the extract, the export-ignore'd ones too (nothing vanishes)",
+              sorted(got) == sorted(want_paths) and "skip.txt" in got and "vendored/inner.txt" in got, (sorted(got), want_paths))
+        mismatches = []
+        for rec in listing:
+            if not rec or rec.startswith("160000"):
+                continue
+            meta, name = rec.split("\t", 1)
+            fmode, _kind, oid = meta.split(" ")
+            blob = subprocess.run(["git", "-C", fx, "cat-file", "blob", oid], env=git_env(), capture_output=True, check=True, timeout=30).stdout
+            target = os.path.join(dest, name)
+            if fmode == "120000":
+                same = os.path.islink(target) and os.fsencode(os.readlink(target)) == blob
+            else:
+                with open(target, "rb") as f:
+                    same = f.read() == blob and bool(os.stat(target).st_mode & 0o111) == (fmode == "100755")
+            if not same:
+                mismatches.append(name)
+        check("every file is the committed blob byte for byte, with the committed mode (export-subst expands nothing)", not mismatches, mismatches)
+        with open(os.path.join(dest, "stamp.txt"), "rb") as f:
+            check("the export-subst placeholder is left as committed", f.read() == files["stamp.txt"])
+        check("a submodule is an empty directory", os.path.isdir(os.path.join(dest, "sub")) and os.listdir(os.path.join(dest, "sub")) == [])
+        entries = review_codex._tree(fx, fxhead)
+
+        def tampered(change) -> str:
+            copy = os.path.join(tmp, "fx-tamper")
+            shutil.rmtree(copy, ignore_errors=True)
+            shutil.copytree(dest, copy, symlinks=True)
+            change(copy)
+            try:
+                review_codex.verify_extract(copy, entries)
+                return "verified"
+            except review_codex.Refused as e:
+                return str(e)
+
+        def rewrite(path):
+            def change(root):
+                with open(os.path.join(root, path), "r+b") as f:
+                    data = f.read()
+                    f.seek(0)
+                    f.write(data[:-1] + bytes([data[-1] ^ 1]))
+            return change
+        check("positive control: the untouched extract verifies", tampered(lambda root: None) == "verified")
+        check("a byte changed in a file is caught", "differs from the head's" in tampered(rewrite("src/run.sh")))
+        check("a file removed is caught", "missing" in tampered(lambda root: os.unlink(os.path.join(root, "skip.txt"))))
+        check("a file added is caught", "extra" in tampered(lambda root: open(os.path.join(root, "new.txt"), "w").close()))
+        check("a directory added is caught", "extra" in tampered(lambda root: os.mkdir(os.path.join(root, "src", "stray"))))
+        check("an executable bit flipped is caught", "differs from the head's" in tampered(lambda root: os.chmod(os.path.join(root, "src/run.sh"), 0o644)))
+        check("a link retargeted is caught", "differs from the head's" in tampered(
+            lambda root: (os.unlink(os.path.join(root, "src/link")), os.symlink("empty", os.path.join(root, "src/link")))))
+        check("a file turned into a link is caught", "differs from the head's" in tampered(
+            lambda root: (os.unlink(os.path.join(root, "src/empty")), os.symlink("run.sh", os.path.join(root, "src/empty")))))
+
+        def hostile(name_tree: str) -> tuple[str, str]:
+            """A commit whose tree holds a path git's own tools refuse to add but a pushed tree can carry, and what extract says to it."""
+            blob = fxgit("hash-object", "-w", "--stdin", data=b"payload\n")
+            inner = subprocess.run(["git", "-C", fx, "mktree"], env=git_env(), input=f"100644 blob {blob}\tconfig\n".encode(), capture_output=True,
+                                   check=True, timeout=30).stdout.decode().strip()
+            root_tree = subprocess.run(["git", "-C", fx, "mktree"], env=git_env(), input=f"040000 tree {inner}\t{name_tree}\n".encode(),
+                                       capture_output=True, check=True, timeout=30).stdout.decode().strip()
+            commit = fxgit("-c", "user.name=t", "-c", "user.email=t@t", "commit-tree", root_tree, "-m", "hostile")
+            out = os.path.join(tmp, "fx-hostile")
+            shutil.rmtree(out, ignore_errors=True)
+            try:
+                review_codex.extract(fx, commit, out)
+                return "extracted", out
+            except review_codex.Refused as e:
+                return str(e), out
+        verdict, out = hostile(".git")
+        check("a tree with a .git directory is refused, not written (the extract could carry a git config the reviewer's tools would read)",
+              "cannot be extracted" in verdict and not os.path.exists(os.path.join(out, ".git")), verdict)
+        verdict, out = hostile(".GIT")
+        check("…in any case", "cannot be extracted" in verdict, verdict)
+        verdict, out = hostile("sub")
+        check("positive control: the same shape under an ordinary name is extracted", verdict == "extracted" and os.path.isfile(os.path.join(out, "sub", "config")), verdict)
+        blob = fxgit("hash-object", "-w", "--stdin", data=b"/etc/passwd")
+        tree = subprocess.run(["git", "-C", fx, "mktree"], env=git_env(), input=f"120000 blob {blob}\tpasswd\n".encode(), capture_output=True,
+                              check=True, timeout=30).stdout.decode().strip()
+        link_commit = fxgit("-c", "user.name=t", "-c", "user.email=t@t", "commit-tree", tree, "-m", "link out")
+        try:
+            review_codex.extract(fx, link_commit, os.path.join(tmp, "fx-link"))
+            verdict = "extracted"
+        except review_codex.Refused as e:
+            verdict = str(e)
+        real_blobs = review_codex._blobs
+        review_codex._blobs = lambda repo_, oids: ((oid, data + b"x") for oid, data in real_blobs(repo_, oids))
+        try:
+            review_codex.extract(fx, fxhead, os.path.join(tmp, "fx-wrong"))
+            wrong = "extracted"
+        except review_codex.Refused as e:
+            wrong = str(e)
+        finally:
+            review_codex._blobs = real_blobs
+        check("extract itself verifies what it wrote: bytes that are not the blob's are refused", "differs from the head's" in wrong, wrong)
+        check("a link out of the head is refused, as it was under `git archive`", "is a link out of the head" in verdict, verdict)
+        def link_tree(links: dict[str, str]) -> str:
+            def build(flat: dict[str, str]) -> str:
+                lines, subdirs = "", {}
+                for name, target in flat.items():
+                    head_, _, rest = name.partition("/")
+                    if rest:
+                        subdirs.setdefault(head_, {})[rest] = target
+                    else:
+                        b = fxgit("hash-object", "-w", "--stdin", data=target.encode())
+                        lines += f"120000 blob {b}\t{name}\n"
+                for name, inner in subdirs.items():
+                    lines += f"040000 tree {build(inner)}\t{name}\n"
+                return subprocess.run(["git", "-C", fx, "mktree"], env=git_env(), input=lines.encode(), capture_output=True, check=True,
+                                      timeout=30).stdout.decode().strip()
+            return fxgit("-c", "user.name=t", "-c", "user.email=t@t", "commit-tree", build(links), "-m", "links")
+
+        def extracted_links(links: dict[str, str], label: str) -> str:
+            try:
+                review_codex.extract(fx, link_tree(links), os.path.join(tmp, "work", f"fx-{label}", "head"))
+                return "extracted"
+            except review_codex.Refused as e:
+                return str(e)
+        # Each target is lexically inside the head; the escape is only through the chain (p/q is the head itself).
+        chain_verdict = extracted_links({"p/q": "..", "AGENTS.md": "p/q/p/q/../../canary"}, "chain")
+        check("a link that leaves the head only by way of another link of the tree is refused, and the refusal names that link",
+              "'AGENTS.md' is a link out of the head" in chain_verdict, chain_verdict)
+        old_lexical = [os.path.normpath(os.path.join(os.path.dirname(p), t)).startswith("..")
+                       for p, t in (("p/q", ".."), ("AGENTS.md", "p/q/p/q/../../canary"))]
+        check("positive control: a check of each target's text alone passes both of those links", old_lexical == [False, False], old_lexical)
+        # d is a link to a directory outside, and d/evil a file: written through the link, it would land outside.
+        target_dir = os.path.join(tmp, "work", "fx-dup-outside")
+        os.makedirs(target_dir, exist_ok=True)
+        dup_blob = fxgit("hash-object", "-w", "--stdin", data=b"evil\n")
+        dup_link = fxgit("hash-object", "-w", "--stdin", data=target_dir.encode())
+        dup_inner = subprocess.run(["git", "-C", fx, "mktree"], env=git_env(), input=f"100644 blob {dup_blob}\tevil\n".encode(),
+                                   capture_output=True, check=True, timeout=30).stdout.decode().strip()
+        dup_tree = subprocess.run(["git", "-C", fx, "mktree", "--missing"], env=git_env(), capture_output=True, check=True, timeout=30,
+                                  input=f"120000 blob {dup_link}\td\n040000 tree {dup_inner}\td\n".encode()).stdout.decode().strip()
+        dup_commit = fxgit("-c", "user.name=t", "-c", "user.email=t@t", "commit-tree", dup_tree, "-m", "dup")
+        try:
+            review_codex.extract(fx, dup_commit, os.path.join(tmp, "work", "fx-dup", "head"))
+            dup_verdict = "extracted"
+        except review_codex.Refused as e:
+            dup_verdict = str(e)
+        twice_a, twice_b = (fxgit("hash-object", "-w", "--stdin", data=d) for d in (b"one\n", b"two\n"))
+        twice_tree = subprocess.run(["git", "-C", fx, "mktree"], env=git_env(), capture_output=True, check=True, timeout=30,
+                                    input=f"100644 blob {twice_a}\tf\n100644 blob {twice_b}\tf\n".encode()).stdout.decode().strip()
+        twice_commit = fxgit("-c", "user.name=t", "-c", "user.email=t@t", "commit-tree", twice_tree, "-m", "twice")
+        try:
+            review_codex.extract(fx, twice_commit, os.path.join(tmp, "work", "fx-twice", "head"))
+            twice_verdict = "extracted"
+        except review_codex.Refused as e:
+            twice_verdict = str(e)
+        except OSError as e:
+            twice_verdict = f"OSError {e}"
+        check("a path listed twice is refused by name, not by whichever write meets it second", "twice" in twice_verdict, twice_verdict)
+        check("a name that is both a link and a directory is refused, and nothing is written outside the head",
+              "both an entry and a directory" in dup_verdict and os.listdir(target_dir) == [], (dup_verdict, os.listdir(target_dir)))
+        chain_verdict = extracted_links({"..data/f": "x", "x": "..data/f", "y": "x"}, "dots")
+        check("positive control: a target that merely begins with two dots, and a link to a link inside the head, are extracted", chain_verdict == "extracted", chain_verdict)
+
         print("refusals: nothing runs, nothing is posted")
         for label, change, why in (
                 ("no base URL", {"AGENT_FABRIC_CODEX_BASE_URL": None}, "AGENT_FABRIC_CODEX_BASE_URL"),
@@ -1228,7 +1869,6 @@ def main() -> int:
         check("the working copy is untouched after every case", git("status", "--porcelain") == status_before)
     finally:
         subprocess.run(["chmod", "-R", "u+w", tmp], check=False)
-        import shutil
         shutil.rmtree(tmp, ignore_errors=True)
     print(f"\ntest_review_codex: {'OK' if not fails else f'{fails} FAILED'}")
     return 1 if fails else 0

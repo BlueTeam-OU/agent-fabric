@@ -108,7 +108,8 @@ def problems(path: str) -> list[str]:
                      "dated line): git and the PR hold events, so write the lesson it taught (rubric test 6)")
     if parsed["roles_class"] in hm.ANCHOR_CLASSES and not parsed["anchors"]:
         found.append(f"a {parsed['roles_class']} memory with no anchors: add `anchors: [<path>::<symbol or literal>]` "
-                     "to its metadata so the next check can tell when the tree outgrows it (ADR-050 rule 1)"
+                     "to its metadata, `<project>:<path>::…` for a path in another registered project, so the next "
+                     "check can tell when the tree outgrows it (ADR-050 rule 1)"
                      + "".join(f"; {w}" for w in parsed["anchor_problems"]))
     target = unresolved_merge_target(hm, parsed)
     if target:

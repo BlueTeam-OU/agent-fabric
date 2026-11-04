@@ -259,6 +259,8 @@ print(json.dumps({"rc": rc, "claims": claims, "origins": list(run.origins.values
 # A role with one topic in its class, in both drains: the flat file the first
 # writes is the one the second's plan names (flat_topic).
 ONLY = {"class": "domain", "topic": "only", "title": "Only", "body": "One topic.", "evidence": ["a5"]}
+LINKED = {"class": "domain", "topic": "linked", "title": "Linked", "body": "See [[fixer]].", "evidence": ["a2"]}
+TARGET = {"class": "domain", "topic": "target", "title": "Target", "body": "The target.", "evidence": ["a1"]}
 
 
 @case("assemble: every claim, origin, class plan entry and index entry a drain builds is its type")
@@ -273,6 +275,7 @@ def _():
         {"class": "domain", "topic": "same", "title": "Same", "body": "One.", "evidence": ["a2"]},
         {"class": "domain", "topic": "both", "title": "Both", "body": "Shared.", "evidence": ["a3"],
          "shared_with": ["beta"], "citations": {"memories": ["x"]}, "knowledge_scope": "full"},
+        LINKED, TARGET,
     ]), "gamma": ta.claims("gamma", [ONLY])})
     ta.with_agents(drain, {h: "dev-01" for h in ("a1", "a2", "a3", "a4", "a5")})
     with open(os.path.join(drain, "observations.jsonl"), "a", encoding="utf-8") as fh:
@@ -291,6 +294,9 @@ def _():
         {"class": "domain", "topic": "same", "title": "Same", "body": "Two.", "evidence": ["a5"]},
         {"class": "domain", "topic": "both", "title": "Both", "body": "Shared.", "evidence": ["a3"],
          "shared_with": ["beta"], "citations": {"memories": ["x"]}, "knowledge_scope": "full"},
+        # A memory merged into another topic's slice: the run points the links to it (`_body_as_written`).
+        LINKED, {"class": "domain", "topic": "fixer", "title": "Target, corrected", "merge_target": "Target",
+                 "body": "The target, corrected in full.", "evidence": ["a5"]},
     ])
     r = subprocess.run([sys.executable, "-c", CAPTURE, ta.ASSEMBLE, "--claims", claims_dir, "--drain", drain,
                         "--fabric", out, "--project", ta.PROJECT, "--working-copy", ta.working_copy(out),

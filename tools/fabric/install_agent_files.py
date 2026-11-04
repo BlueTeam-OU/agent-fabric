@@ -5,8 +5,8 @@ capability-class agent files,
 from runtime/claude-code/agents/, with the routed pin and effort applied —
 and, on a language-culture login, the locale worker (below). Ported from
 runtime/claude-code/install-agent-files.sh (ADR-040 §5), which is now its
-shim; its bash test, runtime/claude-code/test_install-agent-files.sh, is the
-parity oracle.
+shim; tests/test_install_agent_files_cli.py is the parity oracle (its bash
+predecessor is gone, Wave 9 batch 8).
 
 CONTRACT, frozen from the bash (ADR-040 §5 rule 1):
 
@@ -23,7 +23,8 @@ CONTRACT, frozen from the bash (ADR-040 §5 rule 1):
                <state>/agents/<login>/launch-provider.json, which the
                launcher writes; else anthropic), the locale with no --locale
                from <state>/agents/<login>/launch-locale.json (launch_locale.py,
-               which the launcher writes), CLAUDE_CONFIG_DIR (else ~/.claude for the agent
+               which the launcher writes), else launch-holder.json's
+               holder.locale for a session that predates it, CLAUDE_CONFIG_DIR (else ~/.claude for the agent
                files and the user settings; else $HOME for .claude.json),
                HOME. AGENT_FABRIC_ROOT is SET for the children, to this
                checkout (the module's own location), never read.
@@ -32,7 +33,8 @@ CONTRACT, frozen from the bash (ADR-040 §5 rule 1):
                run), "     (kept the previous file as ...)", "  -  dest
                (removed: ...)" ("would remove" on a dry run), the lines of
                runtime/mcp/websearch-locale/install.py and
-               runtime/mcp/fabric-memory/install.py, and last
+               runtime/mcp/fabric-memory/install.py and
+               runtime/mcp/fabric-review/install.py, and last
                "agent files (P): N written, M already current."
   stderr       the routing and install.py children's own, and the refusals
   exit         0; 1 when routing.py pins or efforts fails (nothing is
@@ -53,14 +55,15 @@ CONTRACT, frozen from the bash (ADR-040 §5 rule 1):
                .claude.json and the WebSearch deny in settings.json (both
                through install.py), the fabric-memory MCP entry in
                .claude.json (every login, ADR-049; fabric-memory/install.py),
+               the fabric-review MCP entry beside it (ADR-065; fabric-review/install.py),
                and the removal of the retired
                blind-reviewer.md. All with mode 644. Nothing under
                --dry-run.
   calls        routing.py pins --me --provider P; routing.py efforts --me
                --provider P; runtime/identity.py --role; install.py
                <claude.json> set|remove, <settings.json>
-               deny-websearch|allow-websearch; fabric-memory/install.py
-               <claude.json> set
+               deny-websearch|allow-websearch; fabric-memory/install.py and
+               fabric-review/install.py <claude.json> set
   relied on    launcher (tools/fabric/launch.py): exit status only, stdout
                discarded; bootstrap.sh: plain and --dry-run, stdout shown;
                bin/fabric-model (tools/fabric/model_profile.py): stdout
@@ -265,7 +268,7 @@ class Installer:
         role = self.role()
         locale = self.locale or launch_locale.read(login())
         self.locale_worker(claude_home, role, locale)
-        rc = self.locale_search(claude_home, role, locale) or self.memory_search()
+        rc = self.locale_search(claude_home, role, locale) or self.mcp_entry("fabric-memory") or self.mcp_entry("fabric-review")
         if rc:
             return rc
         # The review class was installed as blind-reviewer.md until 2026-09-15; a
@@ -347,7 +350,7 @@ class Installer:
             if r.returncode == 3:
                 # The installer's UNUSABLE: the login's own file cannot be read or is not JSON, nothing was written.
                 # websearch-locale is not configured there; the step says so on both streams and goes on (as
-                # memory_search does), rather than failing every login's bootstrap on a file only it can fix.
+                # mcp_entry does), rather than failing every login's bootstrap on a file only it can fix.
                 for line in (ln for ln in r.stderr.split("\n") if ln != ""):
                     print(line, file=sys.stderr)
                     say(line)
@@ -365,11 +368,12 @@ class Installer:
                 self.same += 1
         return 0
 
-    def memory_search(self) -> int:
-        # The fabric-memory MCP server (ADR-049 §5 rule 1) on every login, whatever its role: the corpus is every
-        # login's. Its entry runs `fabric-memory-mcp` by bare name (ADR-040 rule 7), so no bin/ path is passed.
+    def mcp_entry(self, server: str) -> int:
+        # A fabric stdio MCP server on every login, whatever its role: fabric-memory (ADR-049 §5 rule 1, the corpus
+        # is every login's) and fabric-review (ADR-065, any session may dispatch the review class). Its entry runs
+        # `<server>-mcp` by bare name (ADR-040 rule 7), so no bin/ path is passed.
         claude_json = os.path.join(os.environ.get("CLAUDE_CONFIG_DIR") or home(), ".claude.json")
-        call = [sys.executable, os.path.join(self.root, "runtime", "mcp", "fabric-memory", "install.py"), claude_json, "set",
+        call = [sys.executable, os.path.join(self.root, "runtime", "mcp", server, "install.py"), claude_json, "set",
                 *(["--dry-run"] if self.dry_run else [])]
         r = subprocess.run(call, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, check=False)
         if r.returncode == 3:

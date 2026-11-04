@@ -959,7 +959,7 @@ def case_i18n_dictionary_is_complete_and_keeps_its_identifiers() -> None:
         # A control character in a value reaches a session's context. A
         # NEWLINE most of all: it prints a second line there, which the
         # reader cannot tell from a line the tool itself wrote.
-        for bad in ("\x07", "\n", "\t", "\u009b", "\u2028", "\u202e"):
+        for bad in ("\x07", "\n", "\t", "\u009b", "\u2028", "\u202e", "\u200b", "\U000E0041"):
             write(ident(fabric, "locale", "ge", "ka-GE.json"),
                   json.dumps({**good, "inbox.others-header": f"ᲐᲠ ᲐᲠᲘᲡ{bad} (SPEC §17):"}, ensure_ascii=False))
             code, out = run_lint(fabric)
@@ -1876,9 +1876,50 @@ def case_every_registered_project_declares_an_arm_json() -> None:
         assert lint.arm_declared_findings(root) == [], "an unreadable registry is reported elsewhere"
 
 
+def case_every_registered_project_declares_a_gzcoord_config() -> None:
+    """A project in projects/registry.json with no usable GZCoord config is
+    a finding naming it: gzcoord-inbox would exit 3 in its working copy
+    (j332)."""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("fabric_lint_under_test", LINT)
+    lint = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(lint)
+    good = json.dumps({"relay_url": "http://127.0.0.1:8765", "channel": "x:gzcoord"})
+    with tempfile.TemporaryDirectory() as root:
+        g = lambda *a: subprocess.run(["git", "-C", root, *a], check=True, capture_output=True, env=git_env())
+        cfg = lambda p: os.path.join(root, "projects", p, "integration", "gzcoord", "config.json")
+        g("init", "-q", "-b", "main")
+        write(os.path.join(root, "projects", "registry.json"),
+              json.dumps({"projects": {"has": {}, "lacks": {}}}))
+        write(cfg("has"), good)
+        g("add", "-A")
+        got = lint.gzcoord_declared_findings(root)
+        assert len(got) == 1 and "'lacks'" in got[0] and "'has'" not in got[0], ("one project lacks one", got)
+        write(cfg("lacks"), good)
+        assert any("'lacks'" in f for f in lint.gzcoord_declared_findings(root)), \
+            "an untracked config is not declared: lint reads what is tracked"
+        g("add", "-A")
+        assert lint.gzcoord_declared_findings(root) == [], "every project has one: no finding"
+        write(cfg("lacks"), json.dumps({"relay_url": "http://127.0.0.1:8765"}))
+        assert any("needs a relay_url and a channel" in f for f in lint.gzcoord_declared_findings(root)), \
+            "a config without a channel is what the inbox reads as not configured"
+        write(cfg("lacks"), json.dumps({"relay_url": "http://127.0.0.1:8765", "channel": ""}))
+        assert any("needs a relay_url and a channel" in f for f in lint.gzcoord_declared_findings(root)), \
+            "an empty channel is not configured either"
+        write(cfg("lacks"), "{ not json")
+        assert any("unreadable" in f for f in lint.gzcoord_declared_findings(root)), "an unreadable config is named"
+        write(cfg("lacks"), json.dumps({"relay_url": "http://127.0.0.1:8765", "channel": "x:control"}))
+        assert any("control channel" in f for f in lint.gzcoord_declared_findings(root)), "a control channel is refused"
+        write(os.path.join(root, "projects", "registry.json"), "{ not json")
+        assert lint.gzcoord_declared_findings(root) == [], "an unreadable registry is reported elsewhere"
+    with tempfile.TemporaryDirectory() as plain:
+        write(os.path.join(plain, "projects", "registry.json"), json.dumps({"projects": {"lacks": {}}}))
+        assert lint.gzcoord_declared_findings(plain) == [], "not a git checkout: absence proves nothing"
+
+
 def case_instance_files_are_read_from_the_operator_tree() -> None:
     """An exported AGENT_FABRIC_OPERATOR outranks the engine tree for a
-    project's arm.json and for the committed keys (ADR-045)."""
+    project's arm.json, its gzcoord config and the committed keys (ADR-045)."""
     import importlib.util
     spec = importlib.util.spec_from_file_location("fabric_lint_under_test", LINT)
     lint = importlib.util.module_from_spec(spec)
@@ -1891,13 +1932,23 @@ def case_instance_files_are_read_from_the_operator_tree() -> None:
         write(os.path.join(engine, "projects", "demo", "integration", "gh", "arm.json"), good)
         g("init", "-q", "-b", "main")
         g("add", "-A")
+        write(os.path.join(engine, "projects", "registry.json"), json.dumps({"projects": {"demo": {}}}))
+        write(os.path.join(engine, "projects", "demo", "integration", "gzcoord", "config.json"),
+              json.dumps({"relay_url": "http://127.0.0.1:8765", "channel": "a:gzcoord"}))
+        g("add", "-A")
+        write(os.path.join(operator, "projects", "registry.json"), json.dumps({"projects": {"demo": {}}}))
         write(os.path.join(operator, "projects", "demo", "integration", "gh", "arm.json"), "{}")
+        write(os.path.join(operator, "projects", "demo", "integration", "gzcoord", "config.json"),
+              json.dumps({"relay_url": "http://127.0.0.1:8765", "channel": "a:control"}))
         write(os.path.join(operator, "identities", "keys", "lineage.json"), "[]")
         saved = os.environ.get("AGENT_FABRIC_OPERATOR")
         try:
             os.environ.pop("AGENT_FABRIC_OPERATOR", None)
             assert lint.arm_boundary_findings(engine, base_ref="no-such-ref") == [], "the engine's own arm.json is usable"
+            assert lint.gzcoord_declared_findings(engine) == [], "the engine's own gzcoord config is usable"
             os.environ["AGENT_FABRIC_OPERATOR"] = operator
+            got = lint.gzcoord_declared_findings(engine)
+            assert any("control channel" in f for f in got), ("the operator's gzcoord config was not the one read", got)
             got = lint.arm_boundary_findings(engine, base_ref="no-such-ref")
             assert any("not a usable arm.json" in f for f in got), ("the operator's arm.json was not the one read", got)
             if shutil.which("gpg"):
@@ -1910,54 +1961,239 @@ def case_instance_files_are_read_from_the_operator_tree() -> None:
                 os.environ["AGENT_FABRIC_OPERATOR"] = saved
 
 
-def case_bash_over_160_lines_needs_the_allowlist() -> None:
-    """ADR-040 §5 rule 2: a tracked bash script over 160 lines is a finding
-    unless the allowlist names it; an entry whose script is gone or short
-    is stale; an entry the base list does not have is an addition."""
+def case_presence_is_judged_in_the_tree_the_file_is_read_from() -> None:
+    """With AGENT_FABRIC_OPERATOR exported, arm.json and the gzcoord config
+    are read from the operator's tree, so their presence is judged there
+    (j337): a project the operator declares and the engine lacks is no
+    finding; one the operator lacks and the engine has is (#352 review)."""
     import importlib.util
     spec = importlib.util.spec_from_file_location("fabric_lint_under_test", LINT)
     lint = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(lint)
+    good = json.dumps({"relay_url": "http://127.0.0.1:8765", "channel": "x:gzcoord"})
+    arm = lambda tree: os.path.join(tree, "projects", "demo", "integration", "gh", "arm.json")
+    cfg = lambda tree: os.path.join(tree, "projects", "demo", "integration", "gzcoord", "config.json")
+    registry = lambda tree: write(os.path.join(tree, "projects", "registry.json"), json.dumps({"projects": {"demo": {}}}))
+
+    def findings() -> list[str]:
+        return lint.arm_declared_findings(engine) + lint.gzcoord_declared_findings(engine)
+
+    saved = os.environ.get("AGENT_FABRIC_OPERATOR")
+    try:
+        for operator_is_git in (True, False):
+            with tempfile.TemporaryDirectory() as root:
+                engine, operator = os.path.join(root, "engine"), os.path.join(root, "operator")
+                g = lambda tree, *a: subprocess.run(["git", "-C", tree, *a], check=True, capture_output=True, env=git_env())
+                registry(engine)
+                g_init = lambda tree: (os.makedirs(tree, exist_ok=True), g(tree, "init", "-q", "-b", "main"))
+                g_init(engine)
+                g(engine, "add", "-A")
+                registry(operator)
+                write(arm(operator), "{}")
+                write(cfg(operator), good)
+                if operator_is_git:
+                    g_init(operator)
+                    g(operator, "add", "-A")
+                kind = "git" if operator_is_git else "non-git"
+                os.environ["AGENT_FABRIC_OPERATOR"] = operator
+                assert findings() == [], (kind, "the operator declares what the engine lacks", findings())
+                # positive control: the engine declares them, the operator does not
+                write(arm(engine), "{}")
+                write(cfg(engine), good)
+                g(engine, "add", "-A")
+                os.remove(arm(operator))
+                os.remove(cfg(operator))
+                if operator_is_git:
+                    g(operator, "add", "-A")
+                got = findings()
+                assert any("has no projects/demo/integration/gh/arm.json" in f for f in got), (kind, got)
+                assert any("has no projects/demo/integration/gzcoord/config.json" in f for f in got), (kind, got)
+                os.environ.pop("AGENT_FABRIC_OPERATOR")
+                assert findings() == [], (kind, "no operator: the engine's own index, unchanged", findings())
+    finally:
+        if saved is None:
+            os.environ.pop("AGENT_FABRIC_OPERATOR", None)
+        else:
+            os.environ["AGENT_FABRIC_OPERATOR"] = saved
+
+
+def case_read_tree_listing_and_its_two_edges() -> None:
+    """j147 (#354 round 1): the arm rules list arm.json from the tree they
+    open it from, so one only the operator has is checked; a checkout with
+    an empty index keeps the old answer (nothing tracked proves nothing);
+    an operator tree untracked inside a larger repository is judged by
+    existence, not by an index that is not its own."""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("fabric_lint_under_test", LINT)
+    lint = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(lint)
+    cfg = json.dumps({"relay_url": "http://127.0.0.1:8765", "channel": "x:gzcoord"})
+    registry = json.dumps({"projects": {"demo": {}}})
+    unusable = json.dumps({"boundary": {"paths": "("}, "direct": []})
+    arm = lambda tree: os.path.join(tree, "projects", "demo", "integration", "gh", "arm.json")
+    gz = lambda tree: os.path.join(tree, "projects", "demo", "integration", "gzcoord", "config.json")
+    git = lambda tree, *a: subprocess.run(["git", "-C", tree, *a], check=True, capture_output=True, env=git_env())
+
+    def both(engine: str) -> list[str]:
+        return (lint.arm_boundary_findings(engine, base_ref="no-such-ref") + lint.arm_direct_findings(engine)
+                + lint.arm_declared_findings(engine) + lint.gzcoord_declared_findings(engine))
+
+    saved = os.environ.get("AGENT_FABRIC_OPERATOR")
+    try:
+        os.environ.pop("AGENT_FABRIC_OPERATOR", None)
+        # 1. only the operator has an arm.json: both arm rules check it
+        for operator_is_git in (True, False):
+            with tempfile.TemporaryDirectory() as root:
+                engine, operator = os.path.join(root, "engine"), os.path.join(root, "operator")
+                write(os.path.join(engine, "projects", "registry.json"), registry)
+                git_init = lambda tree: (os.makedirs(tree, exist_ok=True), git(tree, "init", "-q", "-b", "main"))
+                git_init(engine)
+                git(engine, "add", "-A")
+                write(os.path.join(operator, "projects", "registry.json"), registry)
+                write(arm(operator), json.dumps({"boundary": {"paths": "^src/", "cases": ["src/a"]}, "direct": []}))
+                write(gz(operator), cfg)
+                if operator_is_git:
+                    git_init(operator)
+                    git(operator, "add", "-A")
+                os.environ["AGENT_FABRIC_OPERATOR"] = operator
+                kind = "git" if operator_is_git else "non-git"
+                assert any("direct must be an object" in f for f in lint.arm_direct_findings(engine)), \
+                    (kind, "arm_direct_findings never listed the operator's arm.json", lint.arm_direct_findings(engine))
+                write(arm(operator), unusable)
+                if operator_is_git:
+                    git(operator, "add", "-A")
+                got = lint.arm_boundary_findings(engine, base_ref="no-such-ref")
+                assert any("not a usable arm.json" in f for f in got), \
+                    (kind, "arm_boundary_findings never listed the operator's arm.json", got)
+                os.environ.pop("AGENT_FABRIC_OPERATOR")
+                assert lint.arm_direct_findings(engine) == [], (kind, "no operator: the engine has none to check")
+
+        # 2. empty index: the old answer, [] , in the engine and as the operator
+        for as_operator in (False, True):
+            with tempfile.TemporaryDirectory() as root:
+                tree = os.path.join(root, "tree")
+                write(os.path.join(tree, "projects", "registry.json"), registry)
+                git(tree, "init", "-q", "-b", "main")
+                engine = os.path.join(root, "engine") if as_operator else tree
+                if as_operator:
+                    write(os.path.join(engine, "projects", "registry.json"), registry)
+                    git(engine, "init", "-q", "-b", "main")
+                    git(engine, "add", "-A")
+                    os.environ["AGENT_FABRIC_OPERATOR"] = tree
+                assert both(engine) == [], (as_operator, "nothing tracked proves nothing", both(engine))
+                # positive control: the same tree with one file tracked is judged
+                git(tree, "add", "-A")
+                got = both(engine)
+                assert any("has no projects/demo/integration/gh/arm.json" in f for f in got), (as_operator, got)
+                os.environ.pop("AGENT_FABRIC_OPERATOR", None)
+
+        # 3. an operator tree untracked inside a larger repository
+        with tempfile.TemporaryDirectory() as root:
+            engine, outer = os.path.join(root, "engine"), os.path.join(root, "outer")
+            operator = os.path.join(outer, "ops")
+            write(os.path.join(engine, "projects", "registry.json"), registry)
+            git(engine, "init", "-q", "-b", "main")
+            git(engine, "add", "-A")
+            write(os.path.join(outer, "README"), "x")
+            git(outer, "init", "-q", "-b", "main")
+            git(outer, "add", "-A")      # the operator tree below is not added: untracked
+            write(os.path.join(operator, "projects", "registry.json"), registry)
+            write(arm(operator), unusable)
+            write(gz(operator), cfg)
+            os.environ["AGENT_FABRIC_OPERATOR"] = operator
+            got = both(engine)
+            assert not any("has no projects/demo" in f for f in got), ("existence, not the outer index", got)
+            assert any("not a usable arm.json" in f for f in got), ("and its arm.json is listed and read", got)
+            os.remove(gz(operator))      # positive control: a file really missing is still found
+            assert any("has no projects/demo/integration/gzcoord/config.json" in f for f in both(engine)), both(engine)
+    finally:
+        if saved is None:
+            os.environ.pop("AGENT_FABRIC_OPERATOR", None)
+        else:
+            os.environ["AGENT_FABRIC_OPERATOR"] = saved
+
+
+def case_bash_is_a_forwarder_or_on_the_allowlist() -> None:
+    """ADR-040 §5 rule 2 (A 2026-10-11): a tracked bash file (.sh, .bash, or
+    a bash/sh shebang) is a forwarder by rule 1's shape (at most 12 lines of
+    code, no loop, no case) or on bash-allowlist.json's `stays` (closed: an
+    addition is a finding) or `ports` (only shrinks; an entry now shaped as
+    a forwarder is ported). Stale entries, entries with no reason or batch,
+    and the retired `scripts` key are findings; additions are judged only
+    against a base that has the section."""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("fabric_lint_under_test", LINT)
+    lint = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(lint)
+    allow = lambda d: write(os.path.join(root, "policies", "bash-allowlist.json"), json.dumps(d))
     with tempfile.TemporaryDirectory() as root:
         g = lambda *a: subprocess.run(["git", "-C", root, *a], check=True, capture_output=True, env=git_env())
-        long = "#!/usr/bin/env bash\n" + "echo x\n" * 161
-        write(os.path.join(root, "bin", "long-tool"), long)                 # by shebang
-        write(os.path.join(root, "runtime", "long.sh"), "echo y\n" * 161)   # by extension
+        fwd = "#!/usr/bin/env bash\n# a comment\npy=/usr/local/bin/fabric-python\nexec \"$py\" -I m.py \"$@\"\n"
+        write(os.path.join(root, "bin", "fwd"), fwd)                                       # by shebang, forwarder
+        write(os.path.join(root, "bin", "long-tool"), "#!/usr/bin/env bash\n" + "echo x\n" * 13)   # 13 lines
+        write(os.path.join(root, "runtime", "loop.sh"), "for x in a b; do echo $x; done\n")    # by extension, a loop
+        write(os.path.join(root, "runtime", "c.bash"), "case $1 in a) :;; esac\n")           # by .bash, a case
+        write(os.path.join(root, "runtime", "keep.sh"), "while :; do :; done\n")
+        write(os.path.join(root, "runtime", "then.sh"), "if true; then for i in 1 2; do echo $i; done; fi\n")
+        write(os.path.join(root, "runtime", "brace.sh"), "{ while :; do :; done; }\n")
+        write(os.path.join(root, "runtime", "elcase.sh"), "if x; then :; else case $1 in a) :;; esac; fi\n")
+        for name, line in (("bang.sh", "! while :; do :; done\n"), ("elif.sh", "if a; then :; elif case $1 in x) true;; esac; then :; fi\n"),
+                           ("time.sh", "time for i in 1; do :; done\n"), ("dofor.sh", "eval x; do for i in 1; do :; done\n")):
+            write(os.path.join(root, "runtime", name), line)
         write(os.path.join(root, "tools", "long.py"), "#!/usr/bin/env python3\n" + "x = 1\n" * 200)
-        write(os.path.join(root, "runtime", "short.sh"), "#!/bin/sh\necho z\n")
-        write(os.path.join(root, "policies", "bash-allowlist.json"),
-              json.dumps({"scripts": {"runtime/long.sh": 1, "runtime/short.sh": 2}}))
+        allow({"stays": {"runtime/keep.sh": "pre-Python"}})
         g("init", "-q", "-b", "main")
         g("add", "-A")
         g("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "base")
         g("branch", "base")
-        got = lint.bash_size_findings(root, base_ref="base")
-        assert any(f.startswith("bin/long-tool: 162 lines of bash") for f in got), got
-        assert not any(f.startswith("runtime/long.sh:") or f.startswith("tools/long.py") for f in got), \
-            "a listed script, and a Python one, pass"
-        assert any("runtime/short.sh is gone or 160 lines or fewer" in f for f in got), "a stale entry is a finding"
-        write(os.path.join(root, "policies", "bash-allowlist.json"),
-              json.dumps({"scripts": {"runtime/long.sh": 1, "bin/long-tool": 3}}))
-        got = lint.bash_size_findings(root, base_ref="base")
-        assert any("bin/long-tool is added; the list only shrinks" in f for f in got), got
-        assert not any(f.startswith("bin/long-tool: 162") for f in got), "listed now, so not unlisted"
-        assert lint.bash_size_findings(root, base_ref="no-such-ref") == [], \
-            "without a base, additions are not judged and nothing else is wrong"
-        # A branch behind its base: the base has since dropped an entry the
-        # branch still carries. Not an addition — the branch forked with it.
-        g("checkout", "-q", "-b", "behind")
-        write(os.path.join(root, "policies", "bash-allowlist.json"),
-              json.dumps({"scripts": {"runtime/long.sh": 1}}))
-        g("checkout", "-q", "base")
-        write(os.path.join(root, "policies", "bash-allowlist.json"), json.dumps({"scripts": {}}))
+        got = lint.bash_shape_findings(root, base_ref="base")
+        assert any(f.startswith("bin/long-tool: bash that is not a forwarder (13 lines of code)") for f in got), got
+        assert any(f.startswith("runtime/loop.sh: bash that is not a forwarder (a loop)") for f in got), got
+        assert any(f.startswith("runtime/then.sh: bash that is not a forwarder (a loop)") for f in got), \
+            ("a loop after then", got)
+        assert any(f.startswith("runtime/brace.sh: bash that is not a forwarder (a loop)") for f in got), \
+            ("a loop in a brace group", got)
+        assert any(f.startswith("runtime/elcase.sh: bash that is not a forwarder (a case)") for f in got), \
+            ("a case after else", got)
+        for name in ("bang.sh", "elif.sh", "time.sh", "dofor.sh"):
+            assert any(f.startswith(f"runtime/{name}: bash that is not a forwarder") for f in got), \
+                (f"a compound command after the lead of {name}", got)
+        assert any(f.startswith("runtime/c.bash: bash that is not a forwarder (a case)") for f in got), \
+            ("a .bash file is bash", got)
+        assert not any(f.startswith(("bin/fwd:", "runtime/keep.sh:", "tools/long.py")) for f in got), \
+            ("a forwarder, a stays entry and a Python file pass", got)
+        assert lint.bash_size_findings is lint.bash_shape_findings
+        allow({"stays": {"runtime/keep.sh": "pre-Python", "bin/long-tool": "x"}, "ports": {"runtime/loop.sh": "b6"}})
+        got = lint.bash_shape_findings(root, base_ref="base")
+        assert any("stays entry bin/long-tool is added; the pre-Python list is closed" in f for f in got), got
+        assert not any("runtime/loop.sh" in f for f in got), ("ports added against a base without ports: not judged", got)
+        allow({"stays": {"runtime/keep.sh": "pre-Python"}, "ports": {"bin/fwd": "b6", "runtime/gone.sh": "b6",
+                                                                    "runtime/loop.sh": " "}})
+        got = lint.bash_shape_findings(root, base_ref="no-such-ref")
+        assert any("bin/fwd has the forwarder's shape now" in f for f in got), ("a ported entry", got)
+        assert any("ports entry runtime/gone.sh is gone or not bash" in f for f in got), ("a stale entry", got)
+        assert any("ports entry runtime/loop.sh gives no batch" in f for f in got), ("a blank batch", got)
+        allow({"scripts": {}, "stays": {"runtime/keep.sh": "pre-Python"}})
+        got = lint.bash_shape_findings(root, base_ref="no-such-ref")
+        assert any("`scripts` is the retired 160-line list" in f for f in got), got
+        # A base with `ports`: an addition there is a finding (the list only shrinks).
+        allow({"stays": {"runtime/keep.sh": "pre-Python"}, "ports": {"runtime/loop.sh": "b6"}})
         g("add", "-A")
-        g("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "base ports runtime/long.sh away")
+        g("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "ports")
+        g("branch", "-f", "base")
+        allow({"stays": {"runtime/keep.sh": "pre-Python"}, "ports": {"runtime/loop.sh": "b6", "runtime/c.bash": "b6"}})
+        got = lint.bash_shape_findings(root, base_ref="base")
+        assert any("ports entry runtime/c.bash is added; the ports list only shrinks" in f for f in got), got
+        # A branch behind its base: the base has since dropped a ports entry the
+        # branch still carries. Not an addition: the branch forked with it.
+        allow({"stays": {"runtime/keep.sh": "pre-Python"}, "ports": {"runtime/loop.sh": "b6"}})
+        g("checkout", "-q", "-b", "behind")
+        g("checkout", "-q", "base")
+        allow({"stays": {"runtime/keep.sh": "pre-Python"}, "ports": {}})
+        g("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qam", "ported upstream")
         g("checkout", "-q", "behind")
-        write(os.path.join(root, "policies", "bash-allowlist.json"),
-              json.dumps({"scripts": {"runtime/long.sh": 1}}))
-        got = lint.bash_size_findings(root, base_ref="base")
-        assert not any("is added" in f for f in got), f"an entry the fork point had is not an addition: {got}"
-
+        got = lint.bash_shape_findings(root, base_ref="base")
+        assert not any("runtime/loop.sh is added" in f for f in got), ("judged as forked, not against the tip", got)
 
 def case_a_dollar_anchored_pattern_is_not_called_with_match() -> None:
     """`$` also matches before one final newline, so `.match` accepts
@@ -2325,6 +2561,8 @@ def case_the_fallback_validator_agrees_with_jsonschema() -> None:
         ({"type": "object", "minProperties": 1}, {"a": 1}, {}),
         ({"const": "x"}, "x", "y"),
         ({"oneOf": [{"type": "string"}, {"type": "integer"}]}, "s", 1.5),
+        # anyOf, unlike oneOf, holds when more than one branch matches.
+        ({"anyOf": [{"type": "integer"}, {"type": "number"}]}, 1, "s"),
         ({"type": "object", "patternProperties": {"^n_": {"type": "integer"}}}, {"n_a": 1}, {"n_a": "s"}),
         ({"type": "array", "minItems": 1, "maxItems": 2}, [1], []),
         ({"type": "array", "maxItems": 1}, [1], [1, 2]),
@@ -2387,6 +2625,16 @@ def case_the_python_pin_is_checkable_and_what_ci_runs() -> None:
         assert any("64 hex" in f for f in got({**good, "builds": {"x86_64": {**good["builds"]["x86_64"], "sha256": "xyz"}}}))
         assert any("does not name Python" in f for f in got({**good, "python": "3.13.16"}))
         assert any("does not name Python" in f for f in got({**good, "python": "3.13.1"})), "3.13.1 is not 3.13.15's prefix match"
+        wheel = {"name": "Brotli", "version": "1.2.1", "url": "https://h/brotli-1.2.1-cp313-x.whl", "sha256": "b" * 64}
+        def with_wheel(**w):
+            return {**good, "imports": ["brotli"], "builds": {"x86_64": {**good["builds"]["x86_64"], "wheels": [{**wheel, **w}]}}}
+        assert any("a pinned wheel is a third-party package" in f for f in got(with_wheel())), got(with_wheel())
+        assert got(good) == [] or not any("third-party" in f for f in got(good)), "no wheel, no such finding"
+        assert any("an https .whl" in f for f in got(with_wheel(url="http://h/brotli.whl")))
+        assert any("an https .whl" in f for f in got(with_wheel(url="https://h/brotli.tar.gz")))
+        assert any("wheel Brotli: the sha256 must be 64 hex" in f for f in got(with_wheel(sha256="")))
+        assert any("needs a name and a version" in f for f in got(with_wheel(version="")))
+        assert any("imports must be a list" in f for f in got({**with_wheel(), "imports": "brotli"}))
         os.remove(os.path.join(root, "runtime", "python.json"))
         write(os.path.join(root, "tools", "fabric", "python_pin.py"), "")
         assert any("runtime/python.json: missing" in f for f in lint.python_pin_findings(root))
@@ -2521,10 +2769,11 @@ def main() -> int:
         case_project_tools_are_declared_and_never_retired,
         case_the_source_locale_translates_nothing,
         case_decision_records_are_lint_findings,
-        case_bash_over_160_lines_needs_the_allowlist,
+        case_bash_is_a_forwarder_or_on_the_allowlist,
         case_arm_boundary_cases_only_leave_retired,
         case_arm_direct_block,
         case_every_registered_project_declares_an_arm_json,
+        case_every_registered_project_declares_a_gzcoord_config,
         case_a_cited_fabric_document_must_resolve,
         case_a_committed_agent_key_needs_its_lineage,
         case_a_committed_agent_source_may_not_pin_effort,
@@ -2535,6 +2784,8 @@ def main() -> int:
         case_quoted_description_round_trips,
         case_the_callers_operator_is_not_part_of_a_fixture,
         case_instance_files_are_read_from_the_operator_tree,
+        case_presence_is_judged_in_the_tree_the_file_is_read_from,
+        case_read_tree_listing_and_its_two_edges,
         case_payload_is_exempt,
         case_hygiene_still_runs_over_payload,
         case_secrets_are_refused_by_shape,

@@ -58,10 +58,12 @@ WHAT RUNS. The brief is review_brief.render() of REQUEST, byte for byte, with
 the engine's answer-shape section appended and nothing else (rule 1). The
 request must be a ranged one whose head is the PR's current head: post-review
 records the review on the commit Codex read (--head), so a review of any other
-commit would cover that commit and leave the head the gate reads unreviewed. That head is `git archive`d
-into a scratch directory (never the working copy) and `codex exec` runs there
-once per attempt (an attempt is repeated only when the model is at capacity,
-below) with --sandbox read-only, a time budget for each run (20 minutes unless
+commit would cover that commit and leave the head the gate reads unreviewed. That head is written from git's
+plumbing (ls-tree and cat-file, never `git archive`: its export-ignore and export-subst attributes drop and rewrite
+tracked files, audit F13) into a scratch directory (never the working copy), verified against `ls-tree` of the
+sha, and `codex exec` runs there once per attempt (an attempt is repeated only when the model is at capacity,
+below) under a permission profile that reads an allowlist (below) and writes nothing, never `--sandbox read-only`,
+which reads the whole filesystem (audit F01), a time budget for each run (20 minutes unless
 --timeout; it is not a total: see below), CODEX_HOME and HOME inside the
 scratch, and an environment built from an allowlist, so no ANTHROPIC_*/CLAUDE_*
 variable, no OPENAI_API_KEY and no ~/.codex reaches it (rules 2-3). CODEX_HOME holds a config.toml whose
@@ -72,14 +74,29 @@ api.openai.com. The scratch lives under the account's temporary directory
 the places the review class's bash guard refuses to read — and is removed on
 every path: success, refusal, failure, timeout, and SIGTERM/SIGHUP/SIGINT.
 
+WHAT THE RUN CAN READ. The profile `reviewer` in the scratch CODEX_HOME's config.toml grants read to Codex's
+platform defaults (`:minimal`: the system trees a program needs, /etc included), the extract, the codex
+binary and its tool host, and the repository's git history — objects, refs, HEAD, packed-refs, shallow and
+the worktree's own HEAD/commondir/gitdir, as review_mcp/sandbox.py binds them — and nothing else: not the
+account's home, its secret stores, the repository's files or config, nor the scratch. Before a review starts,
+prove_sandbox plants a canary in the scratch, outside that tree, and refuses the review when the canary can
+be read, as it refuses one whose sandbox lets a write through.
+
 WHAT THE RUN MUST SHOW. Codex runs with --json, its stdout the JSONL event
 stream (its own log lines on stderr, kept apart), and the run is a failed
 review unless that stream shows it read the code: no `error` item (the
-missing tool host, codex-code-mode-host, is named as such), no failed turn,
+missing tool host, codex-code-mode-host, is named as such; the one exception is Codex's compaction
+heads-up, an advisory below), no failed turn,
 at least one command_execution that completed with exit code 0, and a final
 agent message. A Codex installed without its tool host ran no command and
 answered {"findings": []} from the brief alone, which was posted as a clean
 review (2026-10-12); a run that read nothing is never posted.
+
+The compaction heads-up ("Heads up: Long threads and multiple compactions can cause the model to be less
+accurate…", Codex 0.162.1) arrives as an `error` item and is no error: an item whose message contains
+COMPACTION_ADVISORY is counted apart, refuses nothing, and the run still has to pass every other check
+above. The posted report says it in one line after its header lines, because a model that compacted may
+have read the early files less exactly. Every other `error` item still refuses.
 
 WHAT IS POSTED. Codex's last message must be ONE JSON object valid against
 runtime/claude-code/review/codex-answer.schema.json (also handed to
@@ -138,6 +155,7 @@ the allowance), no review posted, the unavailable review above.
 from __future__ import annotations
 
 import contextlib
+import hashlib
 import json
 import os
 import re
@@ -146,8 +164,8 @@ import shutil
 import signal
 import subprocess
 import sys
-import tarfile
 import tempfile
+import threading
 import time
 from urllib.parse import urlsplit
 
@@ -157,9 +175,11 @@ import gh  # noqa: E402
 import ledger  # noqa: E402
 import review_brief  # noqa: E402
 import review_gateway  # noqa: E402
+import review_lines  # noqa: E402
 import routing  # noqa: E402
 from github.review_status.base import Die  # noqa: E402
 from github.review_status.config import read_config  # noqa: E402
+from github import post_review, review_coverage  # noqa: E402
 from github.review_status.verdicts import classify, engine_of, unavailable_of  # noqa: E402
 from lint_rules.schema import validate_json  # noqa: E402 — the fleet's no-dependency validator (ADR-040)
 
@@ -171,6 +191,7 @@ SCHEMA_PATH = os.path.join(FABRIC_ROOT, "runtime", "claude-code", "review", "cod
 ENGINE = "codex"
 DEFAULT_TIMEOUT_MIN = 20.0
 PROVIDER_ID = "fabric-gateway"
+PROFILE = "reviewer"   # the permission profile in the scratch CODEX_HOME that codex_home writes
 ENV_BASE_URL, ENV_KEY, ENV_MODEL, ENV_BIN = (
     "AGENT_FABRIC_CODEX_BASE_URL", "AGENT_FABRIC_CODEX_KEY", "AGENT_FABRIC_CODEX_MODEL", "AGENT_FABRIC_CODEX_BIN")
 ENV_ACCOUNT_ID, ENV_EFFORT = "AGENT_FABRIC_CODEX_ACCOUNT_ID", "AGENT_FABRIC_CODEX_EFFORT"
@@ -206,6 +227,9 @@ _sleep = time.sleep
 # What Codex 0.162.1 puts in a failed turn's message when the model cannot be had, read from its binary. The
 # apostrophe in "You’ve" is U+2019. Anything not listed is an ordinary failed turn, never retried.
 CAPACITY_MESSAGES = ("Selected model is at capacity",)
+# The fixed part of Codex 0.162.1's compaction heads-up, which it emits as an `error` item (read from its binary,
+# pinned by the test). An advisory about the run, not a failure of it; any other error item still refuses.
+COMPACTION_ADVISORY = "Long threads and multiple compactions"
 ALLOWANCE_MESSAGES = ("You\u2019ve hit your usage limit", "Quota exceeded", "Your workspace is out of credits",
                       "You hit your spend cap")
 RESET_TIME = re.compile(r"[Tt]ry again at ([^.\n]{1,60})")
@@ -213,8 +237,8 @@ RESET_TIME = re.compile(r"[Tt]ry again at ([^.\n]{1,60})")
 # (ADR-053 rule 1): where it stands and what to answer, never anything
 # about the change.
 ANSWER_SHAPE = """## Answer (the engine's shape, agent-fabric ADR-053 rule 4)
-Your working directory is an extract (`git archive`) of the range's head, without history; the
-range's history is in the repository named above. Both are read-only for you.
+Your working directory is an extract of the range's head, without history; the range's history
+is in the repository named above, whose git objects and refs are all of it you can read. Both are read-only for you.
 Answer with ONE JSON object and nothing else — no prose, no code fence:
 {"findings": [{"level": "P1|P2|P3", "file": "<path from the repository root>", "line": <line at the head, >= 1>,
   "scenario": "<the inputs or state and the steps that make it fail>",
@@ -223,6 +247,34 @@ P1 breaks a requirement or invariant on a path that runs; P2 is a defect a reach
 triggers; P3 is anything else worth fixing. A finding about code the range did not change is
 reported only if the range makes it reachable. No findings: {"findings": []}.
 """
+
+
+# Asked only when the answer schema has the field: a strict schema rejects what it does not list, so a prompt asking
+# for it before the schema carries it would fail every review (ADR-065 §2 C; the schema is fabric-coordinator's).
+COVERAGE_SHAPE = """The object also carries "coverage", what you read of the range:
+ "coverage": {"paths": [{"path": "<every path `git diff --name-only` of the range lists>", "status": "read|not read",
+  "reason": "<why, when not read; else an empty string>"}], "lenses": [{"lens": "<each lens of the brief>",
+  "status": "applied|not applied"}]}
+Name every path of the range once, "read" only for a file you read in full. A file whose output was cut off
+is read in parts (for example `sed -n 'a,bp'`) until every line has been seen, and only then marked "read"."""
+
+# Same terms as review_brief.COVERAGE_RULE. Asked only when the schema's coverage object has the field, like
+# COVERAGE_SHAPE itself: a strict schema rejects what it does not list. Without it a range of a thousand paths cannot be
+# posted at all, the block over its size cap being the failure the answer cannot repair.
+DEFAULT_SHAPE = """For paths you treated alike (a memory drain's thousand), "coverage" may instead carry
+ "default": {"status": "read|not read", "reason": "<why, when not read; else an empty string>"}
+the entry of every path of the range the "paths" array does not name; a path you name keeps its own entry, and a path
+outside the range is refused. Name only the paths that differ, and "default" is then required. Otherwise "default" is
+null. A "not read" default keeps the review from counting as coverage of the head."""
+
+
+def answer_shape() -> str:
+    with open(SCHEMA_PATH, encoding="utf-8") as f:
+        props = json.load(f).get("properties", {})
+    shape = ANSWER_SHAPE + (COVERAGE_SHAPE + "\n" if "coverage" in props else "")
+    if "default" in props.get("coverage", {}).get("properties", {}):
+        shape += DEFAULT_SHAPE + "\n"
+    return shape
 
 
 class Refused(Exception):
@@ -404,16 +456,36 @@ def range_head(req: dict) -> str:
     return _git(req["repository"], "rev-parse", "--verify", "-q", f"{head}^{{commit}}")
 
 
+def label_start(req: dict, head: str, pr: str) -> int:
+    """The label number a full review of PR `pr` starts at: past every label its reviews used, read by the reader and
+    the accounts the Claude brief uses (review_brief.carried_findings). `pr` is the one the review is posted to, not
+    the request's own (load_request lets a request name another): the labels that matter are the posted-to PR's. 1 for
+    a request that is no full review. A PR whose reviews cannot be listed or read is refused: its labels are unknown,
+    and a guess would collide."""
+    if req.get("mode") != "review":
+        return 1
+    handed, refusals = review_brief.carried_findings(int(pr), head, req["repository"])
+    if refusals:
+        # Only each refusal's cause: the rest of the brief's text advises leaving pr out and speaks of findings carried
+        # into the review, neither of which means anything here (the CLI's PR is read either way, Codex carries none).
+        causes = "; ".join(re.split(r", so the findings|: what they left open", r.removeprefix("pr: "))[0] for r in refusals)
+        raise Refused(f"PR #{pr}'s earlier labels are unknown, so this review's cannot be numbered past them; "
+                      f"nothing posted ({causes})")
+    return handed["next"]
+
+
 def pr_head(repo: str, pr: str) -> str:
     """The PR's head commit as GitHub has it now: the one a request must name, as the commit the gate reads."""
-    r = subprocess.run(["gh", "pr", "view", pr, "--json", "headRefOid,state"], cwd=repo, capture_output=True,
-                       text=True, timeout=60, stdin=subprocess.DEVNULL)
+    out = ""
     try:
-        oid = json.loads(r.stdout).get("headRefOid") if r.returncode == 0 else None
+        out = gh.run(["pr", "view", pr, "--json", "headRefOid,state"], cwd=repo, timeout=60, what=f"gh pr view {pr}")
+        oid = json.loads(out).get("headRefOid")
+    except gh.GhError as e:
+        raise Refused(f"could not read the head of PR #{pr}: {e.stderr.strip() or e.reason}") from None
     except (ValueError, AttributeError):
         oid = None
     if not isinstance(oid, str) or not re.fullmatch(r"[0-9a-f]{40}", oid):
-        raise Refused(f"could not read the head of PR #{pr}: {r.stderr.strip() or r.stdout.strip()[:200]}")
+        raise Refused(f"could not read the head of PR #{pr}: {out.strip()[:200]}")
     return oid
 
 
@@ -434,40 +506,196 @@ def scratch_root(repo: str, environ: dict[str, str]) -> str:
     return root
 
 
-def extract(repo: str, commit: str, dest: str) -> None:
-    """`git archive` of the commit into dest; the working copy is only read."""
-    os.makedirs(dest, mode=0o700)
-    p = subprocess.Popen(["git", "-C", repo, "archive", "--format=tar", commit], stdout=subprocess.PIPE,
-                         stderr=subprocess.PIPE)
+GIT_COMMON_TREES = ("objects", "refs")
+GIT_COMMON_FILES = ("HEAD", "packed-refs", "shallow")
+GIT_OWN_FILES = ("HEAD", "commondir", "gitdir")
+EXTRACT_TIMEOUT_S = 300
+
+
+def _tree(repo: str, commit: str) -> list[tuple[str, str, bytes]]:
+    """(mode, oid, path) of every entry of the commit's tree, as `ls-tree` lists it: the committed tree itself, which no
+    attribute of the repository (export-ignore, export-subst) reads."""
+    r = subprocess.run(["git", "-C", repo, "ls-tree", "-r", "-z", "--full-tree", commit], capture_output=True, timeout=60)
+    if r.returncode != 0:
+        raise Refused(f"git ls-tree {commit[:12]} failed: {r.stderr.decode('utf-8', 'replace').strip()}")
+    entries = []
+    for rec in r.stdout.split(b"\0"):
+        if rec:
+            meta, path = rec.split(b"\t", 1)
+            mode, _kind, oid = meta.decode("ascii").split(" ")
+            entries.append((mode, oid, path))
+    return entries
+
+
+def _entry_path(path: bytes) -> bytes:
+    parts = path.split(b"/")
+    if any(p in (b"", b".", b"..") or p.lower() == b".git" for p in parts):
+        raise Refused(f"the head holds a path that cannot be extracted: {os.fsdecode(path)!r}")
+    return path
+
+
+def _blobs(repo: str, oids: list[str]):
+    """(oid, content) of each blob, one `cat-file --batch` asked and answered in turn so neither side's pipe fills."""
+    p = subprocess.Popen(["git", "-C", repo, "cat-file", "--batch"], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                         stderr=subprocess.DEVNULL)
+    watchdog = threading.Timer(EXTRACT_TIMEOUT_S, p.kill)
+    watchdog.start()
     try:
-        with tarfile.open(fileobj=p.stdout, mode="r|") as tar:
-            tar.extractall(dest, filter="data")
+        for oid in oids:
+            p.stdin.write(oid.encode("ascii") + b"\n")
+            p.stdin.flush()
+            head = p.stdout.readline().split()
+            if len(head) != 3 or head[1] != b"blob" or head[0].decode("ascii") != oid:
+                raise Refused(f"git cat-file did not return blob {oid} (killed after {EXTRACT_TIMEOUT_S} s if it hung): {b' '.join(head).decode('utf-8', 'replace')!r}")
+            data = p.stdout.read(int(head[2]))
+            if len(data) != int(head[2]) or p.stdout.read(1) != b"\n":
+                raise Refused(f"git cat-file returned blob {oid} cut short")
+            yield oid, data
     finally:
+        watchdog.cancel()
+        p.stdin.close()
         p.stdout.close()
-        err = p.stderr.read().decode("utf-8", "replace")
-        p.stderr.close()
-        rc = p.wait(timeout=60)
-    if rc != 0:
-        raise Refused(f"git archive {commit[:12]} failed: {err.strip()}")
+        p.kill()
+        p.wait(timeout=60)
+
+
+def extract(repo: str, commit: str, dest: str) -> None:
+    """The commit's raw tree into dest, from git's plumbing (ls-tree, cat-file), then verified against `ls-tree` of the
+    same commit. Not `git archive`: that honours the repository's export-ignore and export-subst, so a tracked file
+    could vanish or change on the way to the reviewer (agent-fabric audit F13). The working copy is only read."""
+    os.makedirs(dest, mode=0o700)
+    entries = [(m, o, _entry_path(p)) for m, o, p in _tree(repo, commit)]
+    root = os.fsencode(dest)
+    # A name that is both an entry and the directory of another (d a link, d/evil a file) would have the file written
+    # through the link, outside the extract, before any check of the link could run: refused before anything is written.
+    names = [path for _mode, _oid, path in entries]
+    taken = set(names)
+    if len(taken) != len(names) or any(b"/".join(path.split(b"/")[:i]) in taken for path in names for i in range(1, path.count(b"/") + 1)):
+        raise Refused("the head names a path twice, or as both an entry and a directory")
+    by_oid: dict[str, list[tuple[str, bytes]]] = {}
+    for mode, oid, path in entries:
+        if mode != "160000":
+            by_oid.setdefault(oid, []).append((mode, path))
+    links: list[tuple[bytes, bytes]] = []
+    for oid, data in _blobs(repo, sorted(by_oid)):
+        for mode, path in by_oid[oid]:
+            target = os.path.join(root, path)
+            os.makedirs(os.path.dirname(target), exist_ok=True)
+            if mode == "120000":
+                links.append((data, target))   # after every file and directory exists, never before: see the check above
+            else:
+                with open(target, "xb") as f:
+                    f.write(data)
+                os.chmod(target, 0o755 if mode == "100755" else 0o644)
+    for data, target in links:
+        os.symlink(data, target)
+    for mode, _oid, path in entries:
+        if mode == "160000":   # a submodule is an empty directory, as `git archive` leaves it
+            os.makedirs(os.path.join(root, path), exist_ok=True)
+    # Resolved, not read off the text: a link may leave only through another link of the tree (p/q -> .., then
+    # x -> p/q/p/q/../../f), which no lexical test of one target sees. Codex reads some files of its working directory
+    # (AGENTS.md) outside the command sandbox, so a link there would carry an outside file to the model.
+    inside = os.path.realpath(root)
+    for mode, _oid, path in entries:
+        if mode == "120000":
+            resolved = os.path.realpath(os.path.join(root, path))
+            if os.path.commonpath([resolved, inside]) != inside:
+                raise Refused(f"{os.fsdecode(path)!r} is a link out of the head: it resolves to {os.fsdecode(resolved)!r}")
+    verify_extract(dest, entries)
+
+
+def verify_extract(dest: str, entries: list[tuple[str, str, bytes]]) -> None:
+    """The directory holds exactly the tree's files, links and submodule directories, each file's bytes hashing to its
+    blob id and its mode as committed: what the reviewer reads is what was committed, or the review does not start."""
+    root = os.fsencode(dest)
+    want = {path: (mode, oid) for mode, oid, path in entries}
+    found: dict[bytes, tuple[str, bytes | None]] = {}
+    dirs: set[bytes] = set()
+
+    def walk(directory: bytes, prefix: bytes) -> None:
+        with os.scandir(directory) as it:
+            for e in it:
+                rel = prefix + e.name
+                if e.is_symlink():
+                    found[rel] = ("120000", os.readlink(e.path))
+                elif e.is_dir(follow_symlinks=False):
+                    dirs.add(rel)
+                    walk(e.path, rel + b"/")
+                else:
+                    found[rel] = ("100755" if os.stat(e.path).st_mode & 0o111 else "100644", None)
+    walk(root, b"")
+    leaves = {path for path, (mode, _) in want.items() if mode != "160000"}
+    submodules = {path for path, (mode, _) in want.items() if mode == "160000"}
+    parents = {b"/".join(path.split(b"/")[:i]) for path in want for i in range(1, len(path.split(b"/")))}
+    if set(found) != leaves or dirs != parents | submodules:
+        extra = sorted((set(found) - leaves) | (dirs - parents - submodules))
+        missing = sorted((leaves - set(found)) | ((parents | submodules) - dirs))
+        raise Refused(f"the extract of the head differs from its tree: missing {[os.fsdecode(p) for p in missing[:5]]}, "
+                      f"extra {[os.fsdecode(p) for p in extra[:5]]}")
+    for path in sorted(leaves):
+        mode, oid = want[path]
+        got_mode, link = found[path]
+        full = os.path.join(root, path)
+        algorithm = {40: "sha1", 64: "sha256"}.get(len(oid))
+        if algorithm is None:
+            raise Refused(f"{oid!r} is not an object id")
+        h = hashlib.new(algorithm)
+        h.update(b"blob %d\0" % (len(link) if link is not None else os.stat(full).st_size))
+        if link is not None:
+            h.update(link)
+        else:
+            with open(full, "rb") as f:
+                for chunk in iter(lambda: f.read(1 << 20), b""):
+                    h.update(chunk)
+        if h.hexdigest() != oid or got_mode != mode:
+            raise Refused(f"the extract of {os.fsdecode(path)!r} differs from the head's (mode {got_mode} against {mode}, or other bytes)")
+
+
+def history_paths(repo: str) -> list[str]:
+    """What of the repository the reviewer may read: its history and nothing of its files, config, hooks or logs — the
+    allowlist review_mcp/sandbox.py binds for the same reason. A path that is absent (no packed-refs, no shallow) is left out."""
+    common = os.path.realpath(_git(repo, "rev-parse", "--path-format=absolute", "--git-common-dir"))
+    own = os.path.realpath(_git(repo, "rev-parse", "--path-format=absolute", "--git-dir"))
+    wanted = [os.path.join(common, n) for n in GIT_COMMON_TREES + GIT_COMMON_FILES]
+    if own != common:
+        wanted += [os.path.join(own, n) for n in GIT_OWN_FILES]
+    dotgit = os.path.join(os.path.realpath(_git(repo, "rev-parse", "--show-toplevel")), ".git")
+    if os.path.isfile(dotgit):   # a linked worktree's pointer to its git directory
+        wanted.append(dotgit)
+    return [p for p in wanted if os.path.exists(p)]
+
+
+def readable_paths(binary: str, workdir: str, repo: str) -> list[str]:
+    """Every path the profile grants read beyond Codex's platform defaults, in order and once: the extract, Codex itself
+    (it runs its sandbox helper from its own binary) with its tool host beside it, and the repository's history."""
+    real = os.path.realpath(binary)
+    paths = [os.path.realpath(workdir), real, os.path.join(os.path.dirname(real), "codex-code-mode-host"), *history_paths(repo)]
+    return [p for p in dict.fromkeys(paths) if os.path.exists(p)]
 
 
 def _toml_str(s: str) -> str:
     return json.dumps(s)  # a JSON string is a valid TOML basic string for what is written here
 
 
-def codex_home(scratch: str, base_url: str, account: str | None = None) -> str:
+def codex_home(scratch: str, base_url: str, account: str | None = None, readable: tuple[str, ...] | list[str] = ()) -> str:
     """An isolated CODEX_HOME: the gateway as the one provider, the key read
     from ENV_KEY in Codex's environment, nothing persisted that outlives it.
     With an account id, the provider sends it as ChatGPT-Account-ID on every
     request: the ChatGPT backend needs it beside the bearer token, the gateway
     passes it through (it strips only credential carriers), and it is not a
-    secret, so a static header is where it belongs."""
+    secret, so a static header is where it belongs.
+
+    The permission profile PROFILE reads Codex's platform defaults (`:minimal`) and `readable`, and writes nothing. It
+    replaces `sandbox_mode = "read-only"`, which Codex 0.162.1 reads as read access to the whole filesystem (audit F01);
+    the two cannot be set together, so there is no `sandbox_mode` here and no --sandbox on the command line."""
     home = os.path.join(scratch, "codex-home")
     os.makedirs(home, mode=0o700)
     headers = f"http_headers = {{ {_toml_str('ChatGPT-Account-ID')} = {_toml_str(account)} }}\n" if account else ""
     with open(os.path.join(home, "config.toml"), "w", encoding="utf-8") as f:
         f.write(f"model_provider = {_toml_str(PROVIDER_ID)}\n"
-                'approval_policy = "never"\nsandbox_mode = "read-only"\n\n'
+                f'approval_policy = "never"\ndefault_permissions = {_toml_str(PROFILE)}\n\n'
+                f"[permissions.{PROFILE}.filesystem]\n" + '":minimal" = "read"\n'
+                + "".join(f"{_toml_str(path)} = \"read\"\n" for path in dict.fromkeys(readable)) + "\n"
                 '[history]\npersistence = "none"\n\n'
                 "[features]\n" + "".join(f"{name} = false\n" for name in EGRESS_FEATURES) + "\n"
                 f"[model_providers.{PROVIDER_ID}]\n"
@@ -492,42 +720,67 @@ def child_env(environ: dict[str, str], scratch: str, home: str, key: str) -> dic
 # --- running Codex once ------------------------------------------------------
 
 START_PROBE_EXIT, REFUSED_PROBE_EXIT, WRITTEN_PROBE_EXIT = 42, 43, 7
+READ_PROBE_EXIT, CONTROL_PROBE_EXIT = 9, 44   # the canary was read; the workspace's own file could not be
 
 
 def prove_sandbox(binary: str, workdir: str, env: dict[str, str]) -> None:
-    """The read-only sandbox must start and must refuse a write, or the review does not run. Codex's sandbox is bubblewrap, which needs
-    unprivileged user namespaces; a host that refuses them (CI's Ubuntu 24.04) fails the review with one line and runs nothing wider:
-    no fallback to a sandbox that writes or to none, and nothing in this module names one (ADR-053 rule 2).
+    """The review's sandbox must start, must refuse a write and must refuse a read outside its allowlist, or the review does not run.
+    Codex's sandbox is bubblewrap, which needs unprivileged user namespaces; a host that refuses them (CI's Ubuntu 24.04) fails the review
+    with one line and runs nothing wider: no fallback to a sandbox that writes or to none, and nothing in this module names one (ADR-053 rule 2).
 
     Each probe answers with an exit status of its own, which the sandbox hands back from the command it ran: a sandbox that exits 0
     without running anything proves nothing (the start probe wants START_PROBE_EXIT, the write probe REFUSED_PROBE_EXIT, and
     WRITTEN_PROBE_EXIT says the write happened). The write is tried at a path of a fresh random name in the extract, which the pull
     request controls: a fixed name could be planted (a file, a dangling link, a link to /dev/null) to make a sound sandbox look broken.
-    A probe that outlives SANDBOX_PROOF_TIMEOUT_S is ended with its whole process group, as run_codex ends Codex."""
-    probe = os.path.join(workdir, f".fabric-write-probe-{secrets.token_hex(8)}")
-    for label, command, wanted in (
-            ("start", ["/bin/sh", "-c", f"exit {START_PROBE_EXIT}"], START_PROBE_EXIT),
-            ("refuse a write", ["/bin/sh", "-c", f'touch "$1" 2>/dev/null && exit {WRITTEN_PROBE_EXIT}; exit {REFUSED_PROBE_EXIT}', "sh", probe],
-             REFUSED_PROBE_EXIT)):
-        argv = [binary, "sandbox", "-P", ":read-only", "-C", workdir, "--", *command]
-        p = subprocess.Popen(argv, env=env, cwd=workdir, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                             start_new_session=True)
-        try:
+    The read probe plants a canary of a fresh random name beside the extract, in the scratch and so outside the profile's allowlist, and
+    wants it unreadable (REFUSED_PROBE_EXIT) while a file of the extract, read in the same command, is readable: READ_PROBE_EXIT says
+    the canary was read, CONTROL_PROBE_EXIT that nothing could be, which would make a refusal mean nothing. A probe that outlives
+    SANDBOX_PROOF_TIMEOUT_S is ended with its whole process group, as run_codex ends Codex."""
+    token = secrets.token_hex(8)
+    probe = os.path.join(workdir, f".fabric-write-probe-{token}")
+    control = os.path.join(workdir, f".fabric-read-control-{token}")
+    canary = os.path.join(os.path.dirname(os.path.realpath(workdir)), f".fabric-read-canary-{token}")
+    sh = "/bin/sh"
+    probes = (
+        ("start", [sh, "-c", f"exit {START_PROBE_EXIT}"], START_PROBE_EXIT),
+        ("refuse a write", [sh, "-c", f'touch "$1" 2>/dev/null && exit {WRITTEN_PROBE_EXIT}; exit {REFUSED_PROBE_EXIT}', "sh", probe],
+         REFUSED_PROBE_EXIT),
+        ("refuse a read outside its allowlist",
+         [sh, "-c", f'cat "$2" >/dev/null 2>&1 || exit {CONTROL_PROBE_EXIT}; cat "$1" >/dev/null 2>&1 && exit {READ_PROBE_EXIT}; '
+                    f'exit {REFUSED_PROBE_EXIT}', "sh", canary, control], REFUSED_PROBE_EXIT))
+    with open(control, "w", encoding="utf-8") as f:
+        f.write("control\n")
+    with open(canary, "w", encoding="utf-8") as f:
+        f.write(f"canary {token}\n")
+    try:
+        for label, command, wanted in probes:
+            argv = [binary, "sandbox", "-P", PROFILE, "-C", workdir, "--", *command]
+            p = subprocess.Popen(argv, env=env, cwd=workdir, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                 start_new_session=True)
             try:
-                _, err = p.communicate(timeout=SANDBOX_PROOF_TIMEOUT_S)
-            except subprocess.TimeoutExpired:
-                raise FailedReview(f"the read-only sandbox did not {label} within {SANDBOX_PROOF_TIMEOUT_S} s; no wider one is used") from None
-        finally:
-            if p.poll() is None or _group_alive(p.pid):
-                _end_group(p)
-        if p.returncode != wanted:
-            why = re.sub(r"[\x00-\x1f\x7f-\x9f]", " ", err.decode("utf-8", "replace").replace(env.get(ENV_KEY, "\0"), "[key]"))[-200:].strip()
-            if p.returncode == WRITTEN_PROBE_EXIT and label == "refuse a write":
-                raise FailedReview("the read-only sandbox cannot refuse a write (exit 7); no wider one is used")
-            ran = "ran nothing it was asked" if p.returncode == 0 else f"exit {p.returncode}"
-            raise FailedReview(f"the read-only sandbox cannot {label} ({ran}: {why}); no wider one is used")
-    if os.path.lexists(probe):
-        raise FailedReview("the sandbox let a write through; no review is run in a writable tree")
+                try:
+                    _, err = p.communicate(timeout=SANDBOX_PROOF_TIMEOUT_S)
+                except subprocess.TimeoutExpired:
+                    raise FailedReview(f"the read-only sandbox did not {label} within {SANDBOX_PROOF_TIMEOUT_S} s; no wider one is used") from None
+            finally:
+                if p.poll() is None or _group_alive(p.pid):
+                    _end_group(p)
+            if p.returncode != wanted:
+                why = re.sub(r"[\x00-\x1f\x7f-\x9f]", " ", err.decode("utf-8", "replace").replace(env.get(ENV_KEY, "\0"), "[key]"))[-200:].strip()
+                if p.returncode == WRITTEN_PROBE_EXIT and label == "refuse a write":
+                    raise FailedReview("the read-only sandbox cannot refuse a write (exit 7); no wider one is used")
+                if p.returncode == READ_PROBE_EXIT and label.startswith("refuse a read"):
+                    raise FailedReview("the read-only sandbox lets a file outside its allowlist be read (the canary was); no wider one is used")
+                if p.returncode == CONTROL_PROBE_EXIT and label.startswith("refuse a read"):
+                    raise FailedReview("the read-only sandbox cannot read the extract it was given, so its refusal of a read proves nothing; no wider one is used")
+                ran = "ran nothing it was asked" if p.returncode == 0 else f"exit {p.returncode}"
+                raise FailedReview(f"the read-only sandbox cannot {label} ({ran}: {why}); no wider one is used")
+        if os.path.lexists(probe):
+            raise FailedReview("the sandbox let a write through; no review is run in a writable tree")
+    finally:
+        for path in (control, canary):
+            with contextlib.suppress(FileNotFoundError):
+                os.unlink(path)
 
 
 class Observed:
@@ -567,7 +820,7 @@ def _run_codex(binary: str, model: str, workdir: str, scratch: str, env: dict[st
     answer = os.path.join(scratch, "last-message.json")
     events = os.path.join(scratch, "codex-events.jsonl")
     log = os.path.join(scratch, "codex.log")
-    argv = [binary, "exec", "--json", "--sandbox", "read-only", "--skip-git-repo-check", "--cd", workdir,
+    argv = [binary, "exec", "--json", "--skip-git-repo-check", "--cd", workdir,
             "--model", model, *routing.effort_spelling(PROVIDER, effort_level),
             "--output-schema", SCHEMA_PATH, "--output-last-message", answer, "--color", "never", "-"]
     # stdout is the JSONL event stream and nothing else; Codex's own log lines go to stderr, kept apart.
@@ -606,10 +859,12 @@ USAGE_FIELDS = ("input_tokens", "cached_input_tokens", "cache_write_input_tokens
 
 
 class CodexRun:
-    """What `codex exec --json` said it did: its error items, its commands, its last agent message."""
+    """What `codex exec --json` said it did: its error items (the compaction heads-up apart, as advisories), its
+    commands, its last agent message."""
 
     def __init__(self) -> None:
         self.errors: list[str] = []
+        self.advisories = 0          # error items that are Codex's compaction heads-up, which refuse nothing
         self.commands = 0            # command_execution items completed with exit code 0
         self.commands_failed = 0     # ...completed otherwise
         self.last_message: str | None = None
@@ -655,7 +910,11 @@ def read_events(path: str) -> CodexRun:
             if kind != "item.completed" or not isinstance(item, dict):
                 continue
             if item.get("type") == "error":
-                run.errors.append(str(item.get("message") or "(no message)"))
+                message = str(item.get("message") or "(no message)")
+                if COMPACTION_ADVISORY in message:
+                    run.advisories += 1
+                else:
+                    run.errors.append(message)
             elif item.get("type") == "command_execution":
                 if item.get("status") == "completed" and item.get("exit_code") == 0:
                     run.commands += 1
@@ -690,7 +949,7 @@ def judge_run(run: CodexRun) -> None:
     if host:
         raise FailedReview("Codex ran no command: its tool host is missing (codex-code-mode-host); install Codex whole "
                            f"with `fabric-tools --install codex` — Codex said: {_one_line(host)[:400]}")
-    # Every error item refuses, Codex's "Model metadata for `X` not found" among them: it falls back to generic
+    # Every error item refuses (the compaction heads-up was counted apart by read_events), Codex's "Model metadata for `X` not found" among them: it falls back to generic
     # metadata for a model outside its catalog, and the routed model (gpt-6.1-sol, routing/capabilities.json's
     # openai column) is in the catalog of the pinned 0.162.1, so on the routed path it is a misconfiguration.
     if run.errors:
@@ -739,6 +998,11 @@ def _tail(path: str, limit: int = 1500) -> str:
 
 def parse_answer(text: str) -> list[dict]:
     """The findings of ONE JSON object valid against the schema, or FailedReview."""
+    return parse_answer_full(text)[0]
+
+
+def parse_answer_full(text: str) -> tuple[list[dict], review_coverage.Coverage | None]:
+    """(the findings, the coverage the answer states or None when the schema has no such field), or FailedReview."""
     def no_duplicates(pairs):
         out: dict = {}
         for k, v in pairs:
@@ -763,7 +1027,35 @@ def parse_answer(text: str) -> list[dict]:
         file = finding["file"].strip()
         if file.startswith("/") or ".." in file.split("/"):
             raise FailedReview(f"answer/findings[{i}]/file: {file!r} is not a path inside the repository")
-    return doc["findings"]
+    return doc["findings"], answer_coverage(doc.get("coverage"))
+
+
+def answer_coverage(raw: object) -> review_coverage.Coverage | None:
+    """The answer's coverage as the posted block's data. The schema lists paths and lenses as arrays (a strict
+    structured output has no open-ended keys); the block is an object by path, so a path named twice is refused here
+    rather than collapsed to the last, and the rest is the block's own validation."""
+    if raw is None:
+        return None
+    try:
+        paths = {}
+        for entry in raw["paths"]:
+            if entry["path"] in paths:
+                raise ValueError(f"path {entry['path']!r} given twice")
+            paths[entry["path"]] = {"status": entry["status"], **({"reason": entry["reason"]} if entry["reason"] else {})}
+        lenses = {}
+        for entry in raw["lenses"]:
+            if entry["lens"] in lenses:
+                raise ValueError(f"lens {entry['lens']!r} given twice")
+            lenses[entry["lens"]] = entry["status"]
+        block = {"paths": paths, "lenses": lenses}
+        # Null is the strict schema's "not given" (every property is required there); the block then has no key at all,
+        # so an answer without a default renders byte for byte as before.
+        default = raw.get("default")
+        if default is not None:
+            block["default"] = {"status": default["status"], **({"reason": default["reason"]} if default["reason"] else {})}
+        return review_coverage.parse_block(json.dumps(block))
+    except (KeyError, TypeError, ValueError) as e:
+        raise FailedReview(f"answer/coverage: {e}") from None
 
 
 def _one_line(s: str) -> str:
@@ -824,10 +1116,12 @@ def announce_unavailable(repo: str, pr: str, head: str, e: "ModelUnavailable") -
     return "posted"
 
 
-def render_review(model: str, head: str, rng: str, findings: list[dict], effort_level: str | None = None) -> str:
+def render_review(model: str, head: str, rng: str, findings: list[dict], effort_level: str | None = None,
+                  advisories: int = 0, first_label: int = 1) -> str:
     """The body post-review gets. Its first line names the engine, the model
     that ran (rule 4) and the level sent, or that none was; post-review puts
-    its marker above it."""
+    its marker above it. `first_label` is the number of its first finding's label: past every label the PR's
+    reviews used (ADR-065 §5 rule 5), or two different findings read under one label."""
     order = {"P1": 0, "P2": 1, "P3": 2}
     counts = {lv: sum(f["level"] == lv for f in findings) for lv in order}
     level = f"`{effort_level}`" if effort_level else "Codex's default"
@@ -837,17 +1131,41 @@ def render_review(model: str, head: str, rng: str, findings: list[dict], effort_
            "",
            "Each finding is judged by the review class before it is answered (ADR-053 rule 5).",
            ""]
+    if advisories:
+        out += [f"Codex compacted its context during the run ({advisories} heads-up), so its reading of early files "
+                "may be less exact.", ""]
     if not findings:
         out.append("No findings.")
     else:
         out.append("Findings: " + ", ".join(f"{counts[lv]} {lv}" for lv in order if counts[lv]) + ".")
         out.append("")
-        for n, f in enumerate(sorted(findings, key=lambda f: order[f["level"]]), 1):
-            out += [f"{n}. **{f['level']}** `{_one_line(f['file'])}:{f['line']}`",
+        ordered = sorted(findings, key=lambda f: order[f["level"]])
+        for n, f in enumerate(ordered, 1):
+            out += [f"F{first_label + n - 1}. **{f['level']}** `{_one_line(f['file'])}:{f['line']}`",
                     f"   - **Scenario:** {_one_line(f['scenario'])}",
                     f"   - **Expected:** {_one_line(f['expected'])}",
                     f"   - **Fix:** {_one_line(f['fix'])}"]
+    # Rendered here, never asked of the model, so a malformed line cannot leave the report unparsed (errors.py).
+    # The answer carries no confidence, and a finding read from code and not run is `likely` by the review class's
+    # own definition.
+    out.append("")
+    out += ([review_lines.finding_line(f"F{first_label + n - 1}", f["level"], "likely", _one_line(f["file"]), f["scenario"], f["line"])
+             for n, f in enumerate(ordered, 1)] if findings else [review_lines.NO_FINDINGS])
     return "\n".join(out) + "\n"
+
+
+def report_body(brief: str, model: str, head: str, rng: str, findings: list[dict], level: str | None,
+                coverage: review_coverage.Coverage | None, advisories: int = 0, first_label: int = 1) -> str:
+    """What post-review is given. With the coverage the answer states, the brief's own dispatch header goes ahead of the
+    report, as the review class's does: post-review takes the range and the config of the v2 marker from it, strips it,
+    and checks the block against `git diff --name-only`. No coverage in the answer (a schema without the field) or no
+    header in the brief: the bare report is returned, and post-review refuses it (a review is posted as v2 only, and
+    its range comes from the header), so nothing is posted."""
+    body = render_review(model, head, rng, findings, level, advisories, first_label)
+    header = post_review.first_dispatch_header(brief)
+    if not coverage or not header:
+        return body
+    return header + "\n" + body + "\n" + review_coverage.render_block(coverage) + "\n"
 
 
 # Set once the post's child may have started: a signal after it cannot say "nothing posted", and a review
@@ -859,8 +1177,8 @@ def post(repo: str, pr: str, head: str, body: str) -> int:
     global _posting
     _posting = True
     r = subprocess.run([os.path.join(FABRIC_ROOT, "bin", "fabric-pr"), "post-review", pr, "--model", ENGINE,
-                        # The commit Codex read: the body carries no dispatch header, and post-review records a
-                        # report only on the head it names (ADR-020 §5 rule 6).
+                        # The commit Codex read: it must equal the head_sha of the dispatch header the body carries,
+                        # which post-review records the review on (ADR-020 §5 rule 6).
                         "--head", head],
                        cwd=repo, input=body, text=True, timeout=180)
     return r.returncode
@@ -972,7 +1290,7 @@ def _review(pr: str, request: str, *, model_flag: str | None, timeout_min: float
     root = scratch_root(repo, environ)
     observed.facts = {"brief": brief, "pr": pr, "head": head, "model": model, "level": level}
 
-    def attempt() -> list[dict]:
+    def attempt() -> tuple[list[dict], review_coverage.Coverage | None]:
         # Everything a run needs is made here and gone when it ends, so a retry is as fresh as the first run.
         # Every refusal of the gateway's (the sign-in, its token's lifetime, the installed gateway) comes before it starts.
         provider = (review_gateway.serve(review_gateway.prepare(gateway, environ, signin_home, timeout_min * 60), model, environ)
@@ -986,10 +1304,11 @@ def _review(pr: str, request: str, *, model_flag: str | None, timeout_min: float
             try:
                 workdir = os.path.join(scratch, "head")
                 extract(repo, head, workdir)
-                env = child_env(environ, scratch, codex_home(scratch, base_url, account_id(env_run)), key)
-                prompt = brief.rstrip("\n") + "\n" + ANSWER_SHAPE
+                home = codex_home(scratch, base_url, account_id(env_run), readable_paths(binary, workdir, repo))
+                env = child_env(environ, scratch, home, key)
+                prompt = brief.rstrip("\n") + "\n" + answer_shape()
                 prove_sandbox(binary, workdir, env)
-                return parse_answer(run_codex(binary, model, workdir, scratch, env, prompt, timeout_min * 60, level, observed))
+                return parse_answer_full(run_codex(binary, model, workdir, scratch, env, prompt, timeout_min * 60, level, observed))
             finally:
                 shutil.rmtree(scratch, ignore_errors=True)
 
@@ -997,7 +1316,7 @@ def _review(pr: str, request: str, *, model_flag: str | None, timeout_min: float
     while True:
         runs += 1
         try:
-            findings = attempt()
+            findings, coverage = attempt()
             break
         except ModelUnavailable as e:
             # An allowance is spent for hours: a wait of a minute cannot help, so only the provider's capacity is retried.
@@ -1018,7 +1337,11 @@ def _review(pr: str, request: str, *, model_flag: str | None, timeout_min: float
     observed.status = ("completed", "codex:answer")   # the run's; what happens to its answer after is not
     if not no_post and pr_head(repo, pr) != head:
         raise Refused(f"PR #{pr} moved while Codex read {head[:12]}; nothing posted — run it on the new head")
-    body = render_review(model, head, req["range"], findings, level)
+    # run_codex handed the answering run's events over on its way out, so it is the last one observed.
+    # Read after the run, not before: an unavailable model posts a statement whatever GitHub answers, and a review
+    # posted while Codex read has used labels too. A refusal here costs the run; nothing is posted.
+    body = report_body(brief, model, head, req["range"], findings, level, coverage, observed.runs[-1].advisories,
+                       label_start(req, head, pr))
     if no_post:
         sys.stdout.write(body)
         return 0
@@ -1102,7 +1425,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"fabric-review: stopped by signal {e.args[0]}; the scratch is removed, "
               + ("what was being posted (the review, or the unavailable statement) may have been posted: look at the PR" if _posting else "nothing posted"), file=sys.stderr)
         return 128 + int(e.args[0])
-    except (OSError, ValueError, subprocess.SubprocessError, tarfile.TarError) as e:
+    except (OSError, ValueError, subprocess.SubprocessError) as e:
         print(f"fabric-review: {e}; nothing posted", file=sys.stderr)
         return 1
 

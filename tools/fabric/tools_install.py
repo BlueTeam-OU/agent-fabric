@@ -58,18 +58,63 @@ whose target resolves inside the tree; a path never passes through a link;
 the file count and the unpacked size are bounded. Setuid, setgid and group- or
 world-write bits are dropped.
 
+Three pins run a program instead of placing a file, and say so in `kind`.
+
+    "install": {"kind": "installer", "version": "1.29.1", "url": "https://static.rust-lang.org/…/rustup-init",
+                "sha256": "…"}
+
+The asset (https, its sha256 checked before it runs, as for every pin) is the installer itself. It is staged
+as `rustup-init` in a directory of its own beside ~/.local/bin (the binary acts as its own name says), run
+once as `-y --no-modify-path --profile minimal --default-toolchain none`, as an argument list and never
+through a shell, with a fixed environment (HOME, PATH, CARGO_HOME and RUSTUP_HOME set to the account's
+~/.cargo and ~/.rustup; nothing of the caller's, proxy and CA variables included), a 300 s bound and
+its own process group, and removed afterwards. The toolchain is not installed: it stays each project's
+rust-toolchain.toml's, fetched by rustup on first use. The account's PATH reaches a tool through
+~/.local/bin, so the run ends by linking rustup, cargo and rustc there to the proxies under ~/.cargo/bin (a
+link is replaced; a file that is not a link is never), and the tool's proof runs with ~/.local/bin first.
+The pin is current only when the proof prints the version AND all three links are in place.
+
+    "install": {"kind": "cargo", "version": "4.1.2", "locked": true, "toolchain": "1.98.1"}
+
+`cargo +<toolchain> install --locked --version =<version> <tool>`, the tool being its own crate's name, through
+~/.cargo/bin/cargo (which an installer pin put there; without it the run fails and says so), 780 s, the
+same environment plus a TMPDIR of the run's own under ~/.cargo, removed after it. `locked` must be true, `version` and `toolchain` three plain numbers: a bare version is a
+caret range to cargo, and a channel name floats. The proof must start `cargo +<toolchain>`, the proxy having
+no default toolchain. Nothing here hashes the crate: cargo checks it against the crates.io index and
+Cargo.lock, and this installer cannot say more than that. A cargo pin is current when the proof prints the
+pinned version.
+
+    "install": {"kind": "rustup-target", "toolchain": "1.98.1", "target": "aarch64-linux-android"}
+
+`rustup target add <target> --toolchain <toolchain>` through ~/.cargo/bin/rustup (which an installer pin put
+there; without it the run fails and names the rustup tool), 780 s, the environment of a cargo pin. The std of
+a cross target is a component of a toolchain, not a program, so the tool has no version of its own: the pin
+names the toolchain (three plain numbers) and the target (a plain triple, matched by a pattern, never a
+shell word or an option). The proof must be `rustup target list --installed --toolchain <toolchain>`, and
+the pin is current only when the target is one of its output's lines; a command that exits 0 without it
+(the toolchain is there, the target is not) is absent, and fabric-tools reports the same.
+
 The verdict, one per run:
   current    the tool's proof already prints the pinned version (a tree
              pin: and ~/.local/bin/<tool> resolves into its whole tree)
   installed  fetched, hash verified, proved from its temporary file (a
              tree: its staged tree), then moved into ~/.local/bin in one
              rename (a tree: renamed into its version's directory, then
-             ~/.local/bin/<tool> switched to a link into it)
+             ~/.local/bin/<tool> switched to a link into it). An installer
+             pin: fetched, hash verified, run, linked, proved after the
+             fact; a cargo pin: built by cargo, proved after the fact; a
+             rustup-target pin: added by rustup, proved after the fact
   skipped    this account has no working copy of a project that declares
              the tool (the Doppler CLI stays off every other account: the
-             owner, 2026-10-08) — nothing was looked up, fetched or written
+             owner, 2026-10-08), or every such declaration names `roles`
+             and the account's bound role is not one of them (fabric-tools
+             does not check it there either) — nothing was looked up,
+             fetched or written
   failed     the fetch, the hash, the unpacking or the proof said no;
-             whatever was already installed is untouched
+             whatever was already installed is untouched (but for the
+             program-running kinds: a program that fails midway, or a link
+             that cannot be made after it ran, may have changed ~/.cargo or
+             ~/.local/bin, and a rerun completes it)
   refused    the request names no installable tool, a declaring project's
              pin cannot be acted on, or the projects that declare it
              disagree about the pin or the proof
@@ -88,6 +133,7 @@ import re
 import shlex
 import shutil
 import signal
+import subprocess
 import tarfile
 import urllib.error
 import urllib.parse
@@ -106,6 +152,14 @@ MEMBER = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*(/[A-Za-z0-9][A-Za-z0-9._-]*)*")
 # A tree pin's version names a directory, so it is one plain name.
 VERSION_DIR = re.compile(r"[A-Za-z0-9][A-Za-z0-9._+-]{0,63}")
 PIN_FIELDS = {"version", "url", "sha256", "member"}
+INSTALLER_FIELDS = {"kind", "version", "url", "sha256"}
+CARGO_FIELDS = {"kind", "version", "locked", "toolchain"}
+TARGET_FIELDS = {"kind", "toolchain", "target"}
+# A target triple as rustup lists them (aarch64-linux-android, armv7-linux-androideabi, x86_64-unknown-linux-gnu): lowercase
+# words joined by single hyphens, three to five of them, the first a letter. No option can start with one, no shell word fits.
+TARGET_TRIPLE = re.compile(r"[a-z][a-z0-9_]*(-[a-z0-9_]+){2,4}")
+# Cargo reads a bare "4.1" as ^4.1 and an operator-led string as a range; only three plain numbers name one release.
+PLAIN_VERSION = re.compile(r"\d{1,6}\.\d{1,6}\.\d{1,6}")
 TREE_FIELDS = {"root", "members", "whole", "entrypoint"}
 MAX_TREE_MEMBERS = 64
 # A whole tree has no list to bound it; Zig 0.16.0 is 20,832 entries and 358 MB.
@@ -182,19 +236,87 @@ def check_pin(pin: object) -> str | None:
     """Why this `install` object cannot be acted on, or None."""
     if not isinstance(pin, dict):
         return "the registry gives the tool no install pin"
-    version, url, digest, member = pin.get("version"), pin.get("url"), pin.get("sha256"), pin.get("member")
-    if not isinstance(version, str) or not version.strip():
-        return "the install pin has no version"
-    if not isinstance(url, str) or not url.startswith("https://"):
-        return "the install pin's url is not an https address"
-    if not isinstance(digest, str) or not SHA256.fullmatch(digest):
-        return "the install pin's sha256 is not 64 lowercase hex digits"
+    kind = pin.get("kind")
+    if kind == "installer":
+        return check_installer(pin)
+    if kind == "cargo":
+        return check_cargo(pin)
+    if kind == "rustup-target":
+        return check_target(pin)
+    if "kind" in pin:
+        return f"the install pin's kind {kind!r} is not one this installer knows"
+    bad = check_asset(pin)
+    if bad:
+        return bad
+    member = pin.get("member")
     if member is not None and (not isinstance(member, str) or not MEMBER.fullmatch(member)):
         return "the install pin's member is not a relative path of plain names"
     extra = sorted(set(pin) - PIN_FIELDS - TREE_FIELDS)
     if extra:
         return f"the install pin has fields this installer does not know: {', '.join(extra)}"
     return check_tree(pin) if is_tree(pin) else None
+
+
+def check_asset(pin: dict) -> str | None:
+    """Why the pin's version, url and sha256 cannot be acted on, or None: what every pin that fetches an asset shares."""
+    version, url, digest = pin.get("version"), pin.get("url"), pin.get("sha256")
+    if not isinstance(version, str) or not version.strip():
+        return "the install pin has no version"
+    if not isinstance(url, str) or not url.startswith("https://"):
+        return "the install pin's url is not an https address"
+    if not isinstance(digest, str) or not SHA256.fullmatch(digest):
+        return "the install pin's sha256 is not 64 lowercase hex digits"
+    return None
+
+
+def check_installer(pin: dict) -> str | None:
+    """An installer pin: the asset is a program that installs the tool, run once with argv this module fixes."""
+    extra = sorted(set(pin) - INSTALLER_FIELDS)
+    if extra:
+        return f"the installer pin has fields this installer does not know: {', '.join(extra)}"
+    bad = check_asset(pin)
+    if bad:
+        return bad
+    if not PLAIN_VERSION.fullmatch(pin["version"]):
+        return "the installer pin's version is not three dot-separated numbers"
+    return None
+
+
+def check_cargo(pin: dict) -> str | None:
+    """A cargo pin: `cargo install` of the tool's own crate at exactly this version, locked, built by this toolchain."""
+    extra = sorted(set(pin) - CARGO_FIELDS)
+    if extra:
+        return f"the cargo pin has fields this installer does not know: {', '.join(extra)}"
+    if pin.get("locked") is not True:
+        return "the cargo pin does not say locked: true; cargo install without --locked resolves newer dependencies than the crate was released with"
+    for field in ("version", "toolchain"):
+        value = pin.get(field)
+        if not isinstance(value, str) or not PLAIN_VERSION.fullmatch(value):
+            return f"the cargo pin's {field} is not three dot-separated numbers (a channel name floats)"
+    return None
+
+
+def check_target(pin: dict) -> str | None:
+    """A rustup-target pin: one target's std for one pinned toolchain; nothing else of the argv is the registry's."""
+    extra = sorted(set(pin) - TARGET_FIELDS)
+    if extra:
+        return f"the rustup-target pin has fields this installer does not know: {', '.join(extra)}"
+    toolchain, target = pin.get("toolchain"), pin.get("target")
+    if not isinstance(toolchain, str) or not PLAIN_VERSION.fullmatch(toolchain):
+        return "the rustup-target pin's toolchain is not three dot-separated numbers (a channel name floats)"
+    if not isinstance(target, str) or not TARGET_TRIPLE.fullmatch(target):
+        return "the rustup-target pin's target is not a plain target triple"
+    return None
+
+
+def target_proof(pin: dict) -> str:
+    return f"rustup target list --installed --toolchain {pin['toolchain']}"
+
+
+def target_listed(listing: str, target: str) -> bool:
+    """Whether `rustup target list --installed` printed this target as a line of its own: a whole line, so
+    that x86_64-linux-android is not found in x86_64-linux-androideabi."""
+    return target in (ln.strip() for ln in listing.splitlines())
 
 
 def archive_format(url: str) -> str:
@@ -305,11 +427,15 @@ def sweep_temporaries(bindir: str, tool: str) -> None:
     except OSError:
         return
     for name in names:
-        m = re.fullmatch(r"\." + re.escape(tool) + r"\.(\d{1,7})\.tmp", name)
+        m = re.fullmatch(r"\." + re.escape(tool) + r"\.(\d{1,7})\.(?:link\.)?tmp", name)
         if not m or not _dead(int(m.group(1))):
             continue
+        path = os.path.join(bindir, name)
+        if os.path.isdir(path) and not os.path.islink(path):  # an installer pin's staging directory
+            shutil.rmtree(path, ignore_errors=True)
+            continue
         try:
-            os.unlink(os.path.join(bindir, name))
+            os.unlink(path)
         except OSError:
             pass
 
@@ -564,8 +690,233 @@ def prove_file(proof: str, tool: str, path: str) -> tuple[str, str]:
     return tools_check.prove(shlex.join([path, *argv[1:]]))
 
 
+# What the two program-running kinds execute. The argv is this module's, never the registry's: a pin
+# names which release, and cannot add an argument to a program that runs on the account.
+RUSTUP_INIT_ARGV = ("-y", "--no-modify-path", "--profile", "minimal", "--default-toolchain", "none")
+# rustup's own proxies; `cargo` and `rustc` are linked as well because `cargo +<toolchain> …` is how the
+# toolchain is reached when no default is set, and a link to the proxy runs whatever toolchain a
+# project's rust-toolchain.toml names.
+RUSTUP_LINKS = ("rustup", "cargo", "rustc")
+RUN_TIMEOUT_S = {"installer": 300, "cargo": 780, "rustup-target": 780}
+STOP_GRACE_S = 5
+def cargo_home(home: str) -> str:
+    return os.path.join(home, ".cargo")
+
+
+def program_env(home: str, path: list[str], tmpdir: str | None = None) -> dict[str, str]:
+    """The environment a pinned program runs in: HOME, PATH, and cargo's and rustup's homes set
+    explicitly, so an account's own CARGO_HOME or RUSTUP_HOME cannot move the install somewhere
+    the links and the proof do not look. Nothing of the caller's is passed on: a proxy URL can carry
+    a password, and a caller's CA bundle plus a proxy could swap the crate or the toolchain that no
+    digest here covers. TMPDIR, when given, is the run's own, so a killed build leaves nothing in /tmp."""
+    env = {"HOME": home, "PATH": ":".join(path), "CARGO_HOME": cargo_home(home),
+           "RUSTUP_HOME": os.path.join(home, ".rustup"), "CARGO_TERM_COLOR": "never",
+           "RUSTUP_INIT_SKIP_PATH_CHECK": "yes"}
+    if tmpdir:
+        env["TMPDIR"] = tmpdir
+    return env
+
+
+def run_program(argv: list[str], env: dict[str, str], cwd: str, timeout: float) -> tuple[int | None, str]:
+    """(exit status, last line of its output); status None when the bound ran out. The program is a
+    group of its own, and an end of the run, timeout or SIGTERM to this process, ends the group with
+    it (TERM, then KILL after a grace): a cargo build left running would outlive the control agent's bound."""
+    with subprocess.Popen(argv, env=env, cwd=cwd, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                          stderr=subprocess.STDOUT, start_new_session=True) as proc:
+        def stop() -> None:
+            # KILL always follows TERM, also when a second signal interrupts the grace wait: a build that
+            # ignores TERM must not outlive the run. The group id cannot be reused while a member is
+            # left, and ESRCH says none is.
+            try:
+                os.killpg(proc.pid, signal.SIGTERM)
+                proc.wait(timeout=STOP_GRACE_S)
+            except (ProcessLookupError, subprocess.TimeoutExpired):
+                pass
+            finally:
+                try:
+                    os.killpg(proc.pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+                proc.wait()
+        try:
+            try:
+                out, _ = proc.communicate(timeout=timeout)
+            except subprocess.TimeoutExpired:
+                return None, ""
+        finally:
+            # Any way out with the program unreaped (the bound, SIGTERM, an error) ends its group; one
+            # `finally` rather than an except per way. A first SIGTERM can still land in the few bytecodes
+            # before stop() opens its own try; Python runs handlers at a call's start and this module does not mask it.
+            if proc.returncode is None:
+                stop()
+    lines = [ln.strip() for ln in out.decode("utf-8", "replace").splitlines() if ln.strip()]
+    return proc.returncode, (lines[-1][:200] if lines else "")
+
+
+def sweep_builds(cargohome: str, tool: str) -> None:
+    """The build directories of cargo runs that were killed outright (SIGKILL), as sweep_temporaries."""
+    try:
+        names = os.listdir(cargohome)
+    except OSError:
+        return
+    for name in names:
+        m = re.fullmatch(r"\.build\." + re.escape(tool) + r"\.(\d{1,7})", name)
+        if m and _dead(int(m.group(1))):
+            shutil.rmtree(os.path.join(cargohome, name), ignore_errors=True)
+
+
+def program_failed(tool: str, what: str, status: int | None, last: str, bound: float) -> dict:
+    if status is None:
+        return {"status": "failed", "tool": tool, "reason": f"{what} did not finish within {bound:g} s and was stopped"}
+    return {"status": "failed", "tool": tool, "reason": f"{what} exited {status}" + (f": {last}" if last else "")}
+
+
+def prove_with_links(entry: dict, home: str) -> tuple[str, str]:
+    """The tool's own proof, with ~/.local/bin first on PATH: how the account reaches what was installed."""
+    env = program_env(home, [os.path.join(home, ".local", "bin"), "/usr/local/bin", "/usr/bin", "/bin"])
+    return tools_check.prove(entry["proof"], env=env)
+
+
+def links_in_place(home: str) -> bool:
+    """Every proxy is linked in ~/.local/bin to its own name under ~/.cargo/bin. The proof alone cannot
+    tell: a run that failed after the first link leaves rustup answering and cargo not reachable."""
+    bindir = os.path.join(home, ".local", "bin")
+    return all(os.path.islink(os.path.join(bindir, n)) and os.readlink(os.path.join(bindir, n)) == os.path.join(cargo_home(home), "bin", n)
+               for n in RUSTUP_LINKS)
+
+
+def link_proxies(home: str, names: tuple[str, ...]) -> str | None:
+    """~/.local/bin/<name> -> ~/.cargo/bin/<name>, each replaced atomically; the reason one cannot be, or None.
+    A link is replaced, a file that is not a link never: it is not this installer's."""
+    bindir = os.path.join(home, ".local", "bin")
+    for name in names:
+        target = os.path.join(bindir, name)
+        if os.path.lexists(target) and not os.path.islink(target):
+            return f"{target} is a file, not a link; it is not replaced"
+        tmp = os.path.join(bindir, f".{name}.{os.getpid()}.link.tmp")
+        try:
+            os.symlink(os.path.join(cargo_home(home), "bin", name), tmp)
+            os.replace(tmp, target)
+        except OSError as e:
+            return f"{target}: {e.strerror or e}"
+        finally:
+            try:
+                os.unlink(tmp)  # still there only when the replace did not happen
+            except OSError:
+                pass
+    return None
+
+
+def install_installer(tool: str, entry: dict, body: bytes, home: str) -> dict:
+    """An installer pin's verified asset, run: staged as `rustup-init` (the binary behaves as its own
+    name says; under another name it is a proxy and installs nothing) in a directory of its own beside
+    ~/.local/bin, run once with RUSTUP_INIT_ARGV and a fixed environment, never through a shell, then
+    linked into ~/.local/bin and proved. The staged copy never outlives the run."""
+    pin = entry["install"]
+    bindir = os.path.join(home, ".local", "bin")
+    stage = os.path.join(bindir, f".{tool}.{os.getpid()}.tmp")
+    try:
+        os.makedirs(bindir, mode=0o755, exist_ok=True)
+        for name in {tool, *RUSTUP_LINKS}:
+            sweep_temporaries(bindir, name)
+        os.mkdir(stage, 0o700)
+        program = os.path.join(stage, "rustup-init")
+        fd = os.open(program, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o700)
+        with os.fdopen(fd, "wb") as fh:
+            fh.write(body)
+            fh.flush()
+            os.fsync(fh.fileno())
+        bound = RUN_TIMEOUT_S["installer"]
+        status, last = run_program([program, *RUSTUP_INIT_ARGV], program_env(home, ["/usr/local/bin", "/usr/bin", "/bin"]),
+                                   home, bound)
+        if status != 0:
+            return program_failed(tool, "the pinned installer", status, last, bound)
+        bad = link_proxies(home, RUSTUP_LINKS)
+        if bad:
+            return {"status": "failed", "tool": tool, "reason": bad}
+    except OSError as e:
+        return {"status": "failed", "tool": tool, "reason": f"{e.filename or bindir}: {e.strerror or e}"}
+    finally:
+        shutil.rmtree(stage, ignore_errors=True)
+    proved, said = prove_with_links(entry, home)
+    if proved != "ok" or not prints_version(said, pin["version"]):
+        why = said if proved != "ok" else f"it prints {said!r}, not {pin['version']}"
+        return {"status": "failed", "tool": tool, "reason": f"the installed tool does not prove as {pin['version']}: {why}"}
+    return {"status": "installed", "tool": tool, "version": pin["version"], "path": os.path.join(bindir, tool)}
+
+
+def install_cargo(tool: str, entry: dict, home: str) -> dict:
+    """A cargo pin: `cargo +<toolchain> install --locked --version =<version> <tool>` through rustup's cargo
+    proxy under ~/.cargo/bin, which must be there already. The tool is its own crate's name. `=` because
+    cargo reads a bare version as a caret range; the toolchain is named because the proxy has no default
+    (rustup-init ran with --default-toolchain none: the toolchain stays each project's rust-toolchain.toml's),
+    and the proxy fetches the named one on first use."""
+    pin = entry["install"]
+    cargo = os.path.join(cargo_home(home), "bin", "cargo")
+    if not os.access(cargo, os.X_OK):
+        return {"status": "failed", "tool": tool,
+                "reason": f"{cargo} is not there: install rustup first (fabric-ctl <login> tools-install rustup)"}
+    argv = [cargo, f"+{pin['toolchain']}", "install", "--locked", "--version", f"={pin['version']}", tool]
+    bound = RUN_TIMEOUT_S["cargo"]
+    # cargo builds in a temporary directory under TMPDIR and keeps it when the build fails; hundreds of MB,
+    # and a killed build never cleans it. So the build gets a directory of this run's own, removed after it.
+    build = os.path.join(cargo_home(home), f".build.{tool}.{os.getpid()}")
+    try:
+        os.makedirs(cargo_home(home), mode=0o755, exist_ok=True)
+        sweep_builds(cargo_home(home), tool)
+        shutil.rmtree(build, ignore_errors=True)  # a same-pid leftover of an earlier call in this process
+        os.mkdir(build, 0o700)
+        status, last = run_program(argv, program_env(home, [os.path.join(cargo_home(home), "bin"), "/usr/local/bin", "/usr/bin", "/bin"], build),
+                                   home, bound)
+    except OSError as e:
+        return {"status": "failed", "tool": tool, "reason": f"{e.filename or cargo}: {e.strerror or e}"}
+    finally:
+        shutil.rmtree(build, ignore_errors=True)
+    if status != 0:
+        return program_failed(tool, "cargo install", status, last, bound)
+    proved, said = prove_with_links(entry, home)
+    if proved != "ok" or not prints_version(said, pin["version"]):
+        why = said if proved != "ok" else f"it prints {said!r}, not {pin['version']}"
+        return {"status": "failed", "tool": tool, "reason": f"the installed tool does not prove as {pin['version']}: {why}"}
+    return {"status": "installed", "tool": tool, "version": pin["version"], "path": os.path.join(cargo_home(home), "bin", tool)}
+
+
+def target_proves(pin: dict, home: str) -> tuple[str, str]:
+    """('ok', what it found) when the target is installed for the toolchain, else (status, why)."""
+    env = program_env(home, [os.path.join(cargo_home(home), "bin"), os.path.join(home, ".local", "bin"), "/usr/local/bin", "/usr/bin", "/bin"])
+    status, said, listing = tools_check.prove_output(target_proof(pin), env=env)
+    if status != "ok":
+        return status, said
+    if not target_listed(listing, pin["target"]):
+        return "missing", f"{pin['target']} is not installed for toolchain {pin['toolchain']}"
+    return "ok", f"{pin['target']} for {pin['toolchain']}"
+
+
+def install_target(tool: str, entry: dict, home: str) -> dict:
+    """A rustup-target pin: `rustup target add <target> --toolchain <toolchain>` through the rustup under
+    ~/.cargo/bin, which must be there already. Proved by the list, not by the add's exit status."""
+    pin = entry["install"]
+    rustup = os.path.join(cargo_home(home), "bin", "rustup")
+    if not os.access(rustup, os.X_OK):
+        return {"status": "failed", "tool": tool,
+                "reason": f"{rustup} is not there: install rustup first (fabric-ctl <login> tools-install rustup)"}
+    argv = [rustup, "target", "add", pin["target"], "--toolchain", pin["toolchain"]]
+    bound = RUN_TIMEOUT_S["rustup-target"]
+    try:
+        status, last = run_program(argv, program_env(home, [os.path.join(cargo_home(home), "bin"), "/usr/local/bin", "/usr/bin", "/bin"]),
+                                   home, bound)
+    except OSError as e:
+        return {"status": "failed", "tool": tool, "reason": f"{e.filename or rustup}: {e.strerror or e}"}
+    if status != 0:
+        return program_failed(tool, "rustup target add", status, last, bound)
+    proved, said = target_proves(pin, home)
+    if proved != "ok":
+        return {"status": "failed", "tool": tool, "reason": f"the target is not there after rustup target add: {said}"}
+    return {"status": "installed", "tool": tool}
+
+
 def install(tool: str, *, reg: dict, home: str, projects_dir: str | None = None,
-            fetch: Fetch = fetch_https) -> dict:
+            fetch: Fetch = fetch_https, role: str | None = None) -> dict:
     if not TOOL_NAME.fullmatch(tool or ""):
         return {"status": "refused", "tool": tool, "reason": "not a tool name"}
     declared = declarations(reg, tool)
@@ -576,6 +927,13 @@ def install(tool: str, *, reg: dict, home: str, projects_dir: str | None = None,
     if not wanted:
         return {"status": "skipped", "tool": tool,
                 "reason": f"no working copy of {', '.join(pid for pid, _ in declared)} on this account"}
+    # The same rule as the check's: a role-scoped pin (impeccable is brand-comms') was placed on every
+    # account with a working copy, then never checked there (#421 review §2). No role is no role.
+    wanted = [(pid, e) for pid, e in wanted if not e.get("roles") or role in e["roles"]]
+    if not wanted:
+        return {"status": "skipped", "tool": tool,
+                "reason": f"the bound role {role or '(none)'} is not one of the roles "
+                          f"{', '.join(sorted({r for _, e in declared for r in e.get('roles') or ()}))} it is pinned for"}
     for pid, e in wanted:
         bad = check_pin(e.get("install"))
         if bad:
@@ -585,10 +943,27 @@ def install(tool: str, *, reg: dict, home: str, projects_dir: str | None = None,
                 "reason": f"{', '.join(pid for pid, _ in wanted)} pin different installs or proofs of it"}
     entry = wanted[0][1]
     pin = entry["install"]
+    kind = pin.get("kind")
+    if kind == "rustup-target":
+        # No version of its own: the tool is a component of the pinned toolchain, and the list is the proof.
+        if entry["proof"] != target_proof(pin):
+            return {"status": "refused", "tool": tool,
+                    "reason": f"{wanted[0][0]}: the proof is not {target_proof(pin)!r}, the list the pin is proved by"}
+        status, found = target_proves(pin, home)
+        if status == "ok":
+            return {"status": "current", "tool": tool, "found": found}
+        return install_target(tool, entry, home)
     version = pin["version"]
-    status, found = tools_check.prove(entry["proof"])
-    if status == "ok" and prints_version(found, version) and (not is_tree(pin) or tree_in_place(home, tool, pin)):
+    if kind == "cargo" and entry["proof"].split()[:2] != ["cargo", f"+{pin['toolchain']}"]:
+        # A proof that does not name the pin's toolchain runs the proxy with no default and can never pass.
+        return {"status": "refused", "tool": tool,
+                "reason": f"{wanted[0][0]}: the proof does not start with cargo +{pin['toolchain']}, the toolchain the pin builds with"}
+    status, found = prove_with_links(entry, home) if kind else tools_check.prove(entry["proof"])
+    if (status == "ok" and prints_version(found, version) and (not is_tree(pin) or tree_in_place(home, tool, pin))
+            and (kind != "installer" or links_in_place(home))):
         return {"status": "current", "tool": tool, "version": version, "found": found}
+    if kind == "cargo":
+        return install_cargo(tool, entry, home)
     try:
         body = fetch(pin["url"])
     except (OSError, ValueError, http.client.HTTPException) as e:
@@ -596,6 +971,8 @@ def install(tool: str, *, reg: dict, home: str, projects_dir: str | None = None,
         return {"status": "failed", "tool": tool, "reason": f"fetch: {reason if reason else repr(e)}"}
     if hashlib.sha256(body).hexdigest() != pin["sha256"]:
         return {"status": "failed", "tool": tool, "reason": "the asset's sha256 is not the pinned one; nothing was unpacked or placed"}
+    if kind == "installer":
+        return install_installer(tool, entry, body, home)
     if is_tree(pin):
         return install_tree(tool, entry, body, home)
     try:

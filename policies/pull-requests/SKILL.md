@@ -1,6 +1,6 @@
 ---
 name: pull-requests
-description: "How a change reaches main as a pull request in the fabric's projects: one change has one owner and the roles it needs supply it (commits or a for/ branch, never their own PR), the integrator folds unrebased and opens the one PR, fold then the full suite then one blind review then arm, a PR armed by its work-commit count against the repository's minimum (fabric-pr arm --dry-run) and below it only on the owner's word, and one open PR per agent and repository with the next piece of work as another commit on it. Load it before you open, supply, fold, add to or arm a pull request, or state a PR's status."
+description: "How a change reaches main as a pull request in the fabric's projects: one change has one owner and the roles it needs supply it (commits or a for/ branch, never their own PR), the integrator folds unrebased and opens the one PR, fold then the full suite then one blind review then arm, a PR armed by its work-commit count against the repository's minimum (fabric-pr arm --dry-run) and below it only on the owner's word or its arming authority's, and one open PR per agent and repository with the next piece of work as another commit on it. Load it before you open, supply, fold, add to or arm a pull request, or state a PR's status."
 ---
 
 # Pull requests
@@ -26,27 +26,57 @@ finding goes to the lane that owns the hunk. Independent work of
 the lane holding the consuming code, contract or screen — owns the
 branch, the PR and the arming. A supplier delivers one
 commit onto the caller's branch, or a contributor branch
-`<host>/<supplier>/for/<caller>/<what>` the caller folds unrebased;
+`<host>/<supplier>/for/<caller>/<what>` the caller folds unrebased
+(once the caller's PR is on main, the supplier's next
+`fabric-branches --sweep` deletes it from origin);
 where the composition is the caller's file (a template's markers, a
 dictionary's keys) it delivers the authored text by locator and the
 caller commits it, citing the message. A supplier never opens a PR for
-supplied work, reviews before hand-off (`Supplier-Review:`) and answers
-findings on its hunks there. The caller arms, never with an unanswered
+supplied work and dispatches no review of its own part: it hands off
+its own checks (the test failing before and passing after, the
+mutations, the full suite) under `Supplier-Review:`, and answers
+findings on its hunks from the caller's one review (ADR-020 §5 rule 11;
+the dispatch guard denies a review from a `for/` branch). The caller arms, never with an unanswered
 `REQUEST` of its own; person-facing copy is never self-authored (a
 caller's draft ships as a marked placeholder). The order is fixed: fold
 every supply, then the project's full suite as CI runs it, then one blind review, then
-arm — all on that head; a new supply starts again at the fold.
+arm — all on that head; a new supply starts again at the fold. The
+review is posted as one bare command, `fabric-pr post-review [--repo
+<owner/name>] <n> < <report>`, nothing chained before or after: a
+wrapped one goes to the auto-mode classifier, which refuses it as
+[Self-Approval] for the session, and a hook denies it first.
 
 ## Arming
 
 **A code PR is armed by its work-commit count** (review fixes excluded)
 against the repository's minimum, which `fabric-pr arm --dry-run` prints —
 never a number from memory. At it or above, arm once the review gate is
-met (a posted review of the head, no open P1/P2). Below it, ask the
-owner: their word ("arm <n>") goes in your basis as "the owner's word",
-unless the dry-run says the owner arms it by their own hand. Never
-without the gate. Any PR status you state carries its counts ("PR <n> is
-unarmed: 6 work, 2 fix, minimum 8").
+met (a posted review of the head, no open P1/P2 on it, and nothing
+open from an earlier round). That last part is gate 4c: a `Finding:` of
+any posted review chain stays open until a later `Judgement:` closes
+it, at any P-level, a fresh full review included, and a review it
+cannot read refuses; so does a blocked job of yours on the PR's
+branch, unless its blockers have all cleared. `--defer
+"<head8>:F<n>" "<why>"` lifts one finding and `--defer-job j<n>
+"<why>"` one job, each recorded in the arming comment. Below it, or for a
+security-boundary change under the boundary minimum, the dry-run names who
+may give the word: the owner, whose word ("arm <n>") goes in your basis as
+"the owner's word", or the repository's arming authority
+(`commits.below_min_authority`, `commits.boundary_authority`), whose
+holder sends you a DECISION or REPLY whose metadata, beside `TO:`, carries
+`AUTHORIZES: <owner/repo>#<n>@<head>` (arm reads the header, never the
+body), whose message id you pass with --authorization, or arms it from a
+session bound to that role (`fabric-pr arm <n> --basis "<role>'s word"`,
+with `--any-owner` when the PR is another session's, always where
+`authority_own_prs` is false). Ask the one it
+names, after the review; an authority vouches only for the head it names.
+Unless the dry-run says the owner arms it by their own hand. Never without
+the gate. On a PR-mode repository with no required check and no CI at
+all (no `.github/workflows` on the base, none added by the PR), a head
+with no check arms only on the owner's separate word, "owner's no-CI
+word" in the basis: "the owner's word" lifts the count, never the
+checks, and neither stands in for the other. Any PR status you state carries its counts ("PR <n> is unarmed:
+6 work, 2 fix, minimum 8").
 
 ## One open pull request
 

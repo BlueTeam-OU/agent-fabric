@@ -10,14 +10,18 @@ behind bin/fabric-jobs.
     fabric-jobs pause <id> "<why>"
     fabric-jobs block <id> "<on what>"
     fabric-jobs block <id> --on-request <MESSAGE-ID> ["<on what>"]
-    fabric-jobs block <id> --on <blocker> [--on <blocker>…] ["<on what>"]   blocker: pr:<owner/repo>#<n> | request:<message-id> | job:<login>/j<n>
+    fabric-jobs block <id> --on <blocker> [--on <blocker>…] ["<on what>"]   blocker: pr:<owner/repo>#<n> | request:<message-id> | job:<login>/j<n> | clock:<YYYY-MM-DDTHH:MM[:SS]Z>
     fabric-jobs deliver <id> <artifact>...
     fabric-jobs retract <id> <artifact>                          remove one artifact, exactly as recorded, in any state; noted in the log
     fabric-jobs done <id> [--no-artifact "<what was done>"]      the reason is the evidence of work that leaves no artifact
     fabric-jobs sweep [--dry-run]                                delivered jobs whose evidence has landed become done
+    fabric-jobs tidy [--dry-run]                                 build output (target, node_modules) of every checkout under ~/projects no open job holds
     fabric-jobs drop <id> "<why>"
+    fabric-jobs project <id> <project> [--working-copy W]        re-point a job that has no branch or worktree yet (or sync it to its own worktree); logged on the job
     fabric-jobs show <id> [--json]
-    fabric-jobs switch [<id>] [--json] [--type feat|fix|docs|chore|test|refactor] [--needs-merged]
+    fabric-jobs export                                           this login's whole list, every state, as one versioned JSON document on stdout
+    fabric-jobs import                                           that document on stdin into this login's EMPTY list; ids kept
+    fabric-jobs switch [<id>] [--json] [--type feat|fix|docs|chore|test|refactor] [--needs-merged] [--keep-targets]
     fabric-jobs next [<id>] ...                                  alias of switch
     fabric-jobs pool-list [--role R] [--json]
     fabric-jobs pool-claim <pool id> [--topic T] [--working-copy W]
@@ -31,8 +35,9 @@ doing" has one answer.
 
 `add --request` is how a receiver puts a GZCoord request it takes on its
 list: the title, sender and project are read from the message through the
-inbox's own replay (addressed to this login, or refused, SPEC §17), and
-a message already on the list is refused by name. Only the receiver runs
+inbox's own replay (addressed to this login, or refused, SPEC §17; it
+may take FABRIC_INBOX_REPLAY_WAIT_S seconds, 15 unless set, a malformed
+value refused by name; the automatic intake's own 20 s bound on the run still applies), and a message already on the list is refused by name. Only the receiver runs
 it (ADR-037 rule 4). The automatic intake in the GZCoord send
 (tools/fabric/gzcoord/send.py) calls it with
 --auto, which skips quietly what is not a REQUEST or is already listed;
@@ -40,9 +45,22 @@ that path runs only under AGENT_FABRIC_JOBS_AUTO_INTAKE=1, which nothing
 sets (rule 5). A REQUEST addressed to a login is another path, always on:
 the inbox queues it on delivery and the host operator's send asks the control
 plane's jobs-add for it (tools/fabric/gzcoord/intake.py), both under the
-title "<SUBJECT> (REQUEST <MESSAGE-ID>)"; `add --request` for a job
-the sender's half made (it records no message id) adds a second job, so look
-at `list` first.
+title "<SUBJECT> (REQUEST <MESSAGE-ID>)". One REQUEST is one job whichever
+path adds it and in whatever order or at once: every add checks, under the
+list's lock, for a job holding the message as its source or naming it in its
+title. `add --request` for such a message is refused by name; `add -- <title>`
+with such a title prints "already listed jN ..." and adds nothing.
+
+A REQUEST's project is, in order: --project; the project the registry maps the message's REPOSITORY to (the repository the
+work is in: gzcoord-compose stamps PROJECT from the sender's directory, which says nothing of it); PROJECT, only when
+REPOSITORY is absent, unregistered, registered by two projects, or the registry cannot be read; `show` then prints why. Nothing a
+REQUEST carries is a reason not to queue it.
+The working copy is this login's of that project; when there is none the job is still listed, with none, and `start` refuses
+by name until `project <id> <project> --working-copy DIR` names one (`switch` refuses a job with no working copy as before).
+`project` re-points a job whose headers were both wrong; it is refused while the job has a branch or a worktree, but for naming that worktree and its own project (the one-job guard
+and the sweep key on them) or is closed, and the old and new project are logged on the job. `show` prints "project from": the
+--project, REPOSITORY, PROJECT or re-pointing that decided it (a job added before it was recorded, from the pool, or in a working copy with no --project shows none; one the sending side added
+through the control plane says so, until the receiving side, which reads REPOSITORY, replaces that label while the job is queued and its project is the one the receiving side resolves).
 
 `sweep` looks again at every delivered job of this list (`switch` looked once, when the agent left it) and moves to done the ones
 whose evidence has landed, by the test `switch` applies to a done job: a pull request merged, a commit or a branch tip (a branch
@@ -55,6 +73,21 @@ One line per delivered job: "would close (<evidence>)" under --dry-run, "closed 
 transition carries the evidence as its note ("swept: …") and is applied under the list's lock, to a job still delivered with the
 artifacts the evidence was read from. Each account's control agent runs it hourly (tools/fabric/control/agentd.py, ADR-037 rule 12). One gh lookup per distinct pull request in the run, each with a timeout; a lookup that
 fails leaves the job delivered and says so. No other state is touched, no artifact removed, and a second run changes nothing.
+
+A supply job names its branch. A REQUEST whose DELIVER-TO section names a branch of this login under for/ (<host>/<login>/for/<caller>/<what>)
+is recorded with it as the job's `deliver_to`, by whichever path adds it (a later receiver intake fills it into the job the
+sender's title-only add made first, only while that job is queued with no branch of its own, and never replaces one);
+another login's branch is not recorded. `switch` to such a job checks that branch out first, fetched and up to date (a new one
+off the default branch when it exists nowhere yet), in a worktree of its own, ahead of an open pull request or a new feat/ branch,
+unless the job already has another branch of its own (it keeps that) or a pull request from the for/ branch merged (step 3
+below): the job-copy guard then sees a job copy.
+
+`export` and `import` move the list to another host (the j422 design, gap F2): export prints this login's whole list, every state,
+as one JSON document (format fabric-jobs-export, version 1: agent, host, seq, last, jobs, blocker_cache — the blocker cache's entries for the specs the jobs name, whose
+seen_open memory the destination cannot re-derive; the source host is recorded, not applied) and no secret, in UTF-8, nothing needing a tty; import
+reads it on stdin into an EMPTY list of the same login and keeps every id, so job:<login>/jN, blockers and a REQUEST's intake stay valid.
+Each refusal is one line and changes nothing: a list that has a job or a used id counter, another login's document, a version or format
+this tool does not know, a document that is not valid JSON or fails the checks on its jobs (types, times, and the control characters `add` refuses in a title). Job state stays runtime state, never in git.
 
 A job has a priority (ADR-037 rule 7): blocking, high, normal or low;
 normal when none was set, and in a list written before priorities
@@ -71,11 +104,14 @@ waits would be said by nobody, and read as a wait by a person.
 A job can be blocked on something the tool can check (`block --on`, tools/fabric/jobsparts/blockers.py is the
 contract): a pull request (`pr:<owner/repo>#<n>`, cleared when it is merged or closed), a request this login sent
 (`request:<message-id>`, cleared when a message of any type, a DECISION as well as a REPLY, with a non-empty IN-REPLY-TO naming it is in the journal) or a peer's job (`job:<login>/j<n>`, cleared
-when it is delivered, or closed after it was seen open; read through fabric-ctl, a host operator's op), several
+when it is delivered, or closed after it was seen open; read through fabric-ctl, a host operator's op) or a
+time of your own (`clock:<YYYY-MM-DDTHH:MM[:SS]Z>`, UTC with the Z, cleared once now is at or after it; `block`
+refuses one already past; it reads only the clock, so it is evaluated on every look, `--stored` and `--cached`
+included), several
 allowed and all of them must clear. `list`, `next` and `block` check them, a blocker at most once every ten
 minutes (a cleared one never again: <state dir>/jobs-blockers.json), and a job whose blockers have all cleared reads
 "blocker cleared: <what>", is listed first, and is what `next` takes before anything queued: the agent moves it on
-itself. `--stored` and `--cached` check nothing and read that cache (the control agent's `jobs` op, a hook).
+itself. `--stored` and `--cached` check nothing and read that cache (a clock blocker is still evaluated, and cached) (the control agent's `jobs` op, a hook).
 `list --json` and the control plane's `jobs` carry, for such a job only, `blockers` ([{spec, state, detail,
 checked_at}]; state cleared, waiting or unknown, and unknown never clears) and `cleared` (true, false, or null
 while none is told). A request blocker is also kept as `waits_on`, as `--on-request` always kept it, and
@@ -116,7 +152,7 @@ check that failed and changing nothing:
   1. The job this session worked last is settled with its evidence, by the state it is left in. done: a pull request merged or
      a commit or a branch (a contributor branch: name or origin/<name>) whose head is on origin's default branch; delivered: a pull
      request open or a branch on origin; blocked: a checkable blocker not yet cleared, or
-     "owner: <the decision awaited>" as text; paused: its branch pushed; dropped: a reason. Evidence is read from the job's
+     "owner: <the decision awaited>" as text; paused: its branch pushed, or its head (or its pull request's merge) on origin's default branch; dropped: a reason. Evidence is read from the job's
      artifacts (owner/repo#N, #N, a pull request URL, a commit sha, or reply:<MESSAGE-ID>, the reply's own id or the id it
      answers, which counts for a job whose artifact is an answer, a message of this login with an IN-REPLY-TO, a REPLY or a DECISION alike, when the journal holds it as sent: accepted by the carrier); a job with topic reflection is also landed by this login's
      fabric-reflect cursor, closed after the job started (ADR-058 rule 4). Whatever the outcome: no uncommitted change in the job's working
@@ -131,21 +167,55 @@ check that failed and changing nothing:
      `retract <id> <artifact>` removes one recorded artifact whatever the job's state, so a mistaken one cannot hold the job; it refuses,
      naming the artifacts, when the string is not there, and notes what was removed in the job's log.
   2. The next job starts in a fresh session after a worked one (rule 3, unchanged): `fabric-fresh --job <id>` is printed.
-  3. Its branch is chosen before any work: the job's own branch when it has begun one that no pull request merged; else this
+  3. Its branch is chosen before any work: the for/ branch a supply job records (`deliver_to`) when the job has no other branch of
+     its own and no pull request from it merged (the open-pull-request refusal and --needs-merged below do not apply to it); else the job's own branch, whenever it records one: it is resumed there, its worktree made again from the branch when a sweep removed it, and a
+     recorded branch that a pull request landed, or that is on neither this clone nor origin, is refused and said, never replaced by another job's
+     (j201); only a job with no branch is given one: this
      login's open pull request in the repository when it can take more commits (not armed or queued, fewer than 16 work
      commits), with the default branch merged into it first (locally, not pushed); else, with --needs-merged, the job is blocked
      on that pull request and not started; else a new branch <host>/<login>/<type>/<job id and title words> off the freshly
-     fetched default branch. Each is checked out in a worktree beside the job's working copy, which stays where it is; the
+     fetched default branch. Each is checked out in a worktree beside the job's working copy, which becomes that worktree (the job's record names one place); the
      job keeps `branch` and `worktree`, and the opening prompt of its fresh session names them. Two open pull requests of this
      login, no working copy, or an origin that cannot be asked are refused.
+  Once the switch has committed (a refusal leaves everything as it was) and the sweep of what the job left has run, `switch` clears
+  the cargo targets of the left job's `worktree` (j75, the owner 2026-10-21: a target is 60 to 75 GB and every worktree builds its
+  own), in every state it is left in: each `target` beside a Cargo.toml, at most 4 levels below that worktree. Only a linked worktree
+  under the home is cleared: a field that is a plain directory, or is at, above or below the working copy or worktree of this or
+  another job, is refused and said. No link is followed, no filesystem crossed. One target is kept, and
+  the line says why, when a process of this uid stands in it, its `.cargo-lock` is held, or a cargo configuration (the directory
+  and every parent up to the root, `$CARGO_HOME`) sends the target directory outside the worktree; what cannot be told is kept. One
+  line per directory; a failure is a warning, never a refusal. `--keep-targets` skips it, for a job to be resumed within the hour (a
+  paused or blocked job pays a rebuild). A target is also kept when git tracks a file under it (or cannot be asked) or when a file
+  in it belongs to another uid.
+`tidy` (j90, the owner 2026-10-27: /home at 97%) is the same clearing for every checkout, not one job's: the directories directly
+under ~/projects that have a `.git` are the trees; one that is, holds or lies in the worktree or working copy of an active, queued,
+paused or blocked job (a delivered job is not open here), or is a link, another uid's, or on another filesystem, is kept whole,
+said. In the others each `target` beside a Cargo.toml and `node_modules` beside a package.json (4 levels, the keep rules above)
+goes; one line per directory, then `freed: <size>` (`would free:` under --dry-run, which removes nothing). Exit 1, nothing removed,
+and the reason on stderr when the job list (an entry that is no job or has an unknown state included) or ~/projects cannot be
+read; a missing ~/projects is exit 0, "nothing to tidy". A process standing beside a `node_modules` (a dev server at the package
+root) does not protect it: only one standing in it does. The job list is read once, before the walk. Run daily by a user timer as
+the account, which must resolve the same state directory the sessions use: the first line says `job list: <path>`, and an absent list
+with any tree under ~/projects is exit 1, nothing removed, the path named (an empty list that is there is valid).
 Each switch appends one line to the old and one to the new job's log: the outcome and its evidence, and the branch.
 `switch` still never passes an active job, takes the job named or the first in the order (a blocked job whose blockers
 cleared first, then queued and paused by priority, paused first, then the oldest), and with nothing queued offers the pool's.
-A session that has worked no job has nothing to settle and takes the job in place; "worked" is read from the list: a
+A session that has worked no job has nothing to settle and takes the job in place, from inside the job's copy (below); "worked" is read from the list: a
 transition whose old or new state is `active` (a start, a block, a delivery, a finish or a drop of the active job) writes
 the harness session id (CLAUDE_CODE_SESSION_ID), when the environment has one, into the job's log entry, and a session is one
 that appears in any entry, so a session launched with its job already active is known once it finishes it.
 With no session id in the environment (an unlaunched shell) the job that last left `active` counts, so `switch` says fresh.
+"Inside the job's copy" (the job copy guard's own, job-copy-guard.py): the real path of the current directory's git toplevel (the
+directory itself outside a checkout) equal to, or under, the job's `working_copy` or `worktree`, read before the list is locked.
+Standing elsewhere the verdict is fresh with `reason` "outside_copy" (--json also carries `here` and `copies`) and the text says
+where and why; a place that cannot be read (git silent, the directory gone) is fresh with `reason` "place_unreadable" and `here`
+null: a false fresh costs one launch, a false in-place leaves a session the guard refuses. A job that records neither copy keeps
+the in-place answer, the guard asking there. A session that has worked a job is fresh as before, `reason` "worked".
+The fleet hold (ADR-037 rule 13; hold.json, read by hold_view.py): while this login is held, or its hold.json cannot be read
+(which holds), `switch` and `next` settle the job being left as above and its build output is cleared, then stop with exit 1
+naming the hold (reason, decision, who set it, how long ago): no job is started, no fabric-fresh printed, nothing queued or
+paused is touched, and "no queued job" never hides the hold. `start` of a job, whatever its state, refuses the same way.
+Every other verb works as before, so nothing asked of the agent is lost.
 Every job starts in a fresh session (the owner, 2026-10-11): a fresh launch reads the fabric anew, which a running session
 never does, and a warm prompt cache is no reason to continue. The agent runs the command it prints, never the owner.
 """
@@ -171,13 +241,15 @@ _spec.loader.exec_module(sys.modules["fabric_jobs"])
 from fabric_jobs.base import HERE, FABRIC_ROOT, _JobKeys, Job, _load, identity, STATES, OPEN, TERMINAL, MESSAGE_ID, POOL_ID, PRIORITIES, DEFAULT_PRIORITY, Refused, NothingQueued, Stale, mutate  # noqa: E402, F401
 from fabric_jobs import blockers  # noqa: E402, F401
 from fabric_jobs.ranking import stored_priority, message_of, waiters, effective_priority, queue_order, named  # noqa: E402, F401
-from fabric_jobs.records import find, active, transition, own_project, working_copy_of, new_job, INBOX, fetch_message, request_job  # noqa: E402, F401
+from fabric_jobs.records import find, active, transition, own_project, working_copy_of, new_job, INBOX, fetch_message, request_job, request_project, SENDER_ADD_LABEL, listed_request, deliver_branch, request_id_of  # noqa: E402, F401
 from fabric_jobs.queue import QUEUE, QUEUE_TIMEOUT_S, Unreachable, ask_queue, stream_waits  # noqa: E402, F401
-from fabric_jobs.pool import Unanswered, ask_pool, pool_offer, PROJECT_SLUG, claimed_job, pool_job, printable, pool_line  # noqa: E402, F401
+from fabric_jobs.pool import Unanswered, ask_pool, pool_offer, PROJECT_SLUG, claim_generation, claimed_job, pool_job, printable, pool_line  # noqa: E402, F401
 from fabric_jobs.render import line, show, summary  # noqa: E402, F401
 from fabric_jobs.branching import TYPES  # noqa: E402, F401
 from fabric_jobs.sweep import sweep  # noqa: E402, F401
-from fabric_jobs.verbs import decide, add, pool_list, pool_claim, list_jobs, show_job, switch_job, change  # noqa: E402, F401
+from fabric_jobs.tidy import tidy  # noqa: E402, F401
+from fabric_jobs.transfer import export_jobs, import_jobs  # noqa: E402, F401
+from fabric_jobs.verbs import decide, outside_copy, standing, add, repoint, pool_list, pool_claim, list_jobs, show_job, switch_job, change  # noqa: E402, F401
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -195,8 +267,8 @@ def main(argv: list[str] | None = None) -> int:
     ls = sub.add_parser("list", help="open jobs (--all: closed ones too)")
     ls.add_argument("--all", action="store_true")
     ls.add_argument("--json", action="store_true")
-    ls.add_argument("--stored", action="store_true", help="stored priorities only; the state stream is not read, nor a blocker checked")
-    ls.add_argument("--cached", action="store_true", help="checkable blockers are read from the cache, not checked")
+    ls.add_argument("--stored", action="store_true", help="stored priorities only; the state stream is not read, nor a blocker checked (a clock: blocker is still evaluated)")
+    ls.add_argument("--cached", action="store_true", help="checkable blockers are read from the cache, not checked (a clock: blocker is still evaluated)")
     pr = sub.add_parser("prio", help="set a job's priority")
     pr.add_argument("id")
     pr.add_argument("priority", choices=PRIORITIES)
@@ -208,7 +280,7 @@ def main(argv: list[str] | None = None) -> int:
     b.add_argument("id")
     b.add_argument("on", nargs="?")
     b.add_argument("--on", dest="on_spec", action="append", metavar="BLOCKER",
-                   help="a checkable blocker: pr:<owner/repo>#<n>, request:<message-id> or job:<login>/j<n>; repeatable, all must clear")
+                   help="a checkable blocker: pr:<owner/repo>#<n>, request:<message-id>, job:<login>/j<n> or clock:<YYYY-MM-DDTHH:MM[:SS]Z> (UTC); repeatable, all must clear")
     b.add_argument("--on-request", metavar="MESSAGE-ID", help="the GZCoord request this job waits on")
     d = sub.add_parser("deliver")
     d.add_argument("id")
@@ -218,6 +290,8 @@ def main(argv: list[str] | None = None) -> int:
     rt.add_argument("artifact")
     sw = sub.add_parser("sweep", help="move delivered jobs whose evidence has landed to done")
     sw.add_argument("--dry-run", action="store_true", help="say what would close and why the rest stay; change nothing")
+    ti = sub.add_parser("tidy", help="remove build output (target beside Cargo.toml, node_modules beside package.json) from the checkouts under ~/projects that no open job holds")
+    ti.add_argument("--dry-run", action="store_true", help="say what would go and why the rest stays; remove nothing")
     dr = sub.add_parser("drop")
     dr.add_argument("id")
     dr.add_argument("why")
@@ -226,6 +300,10 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("--json", action="store_true")
     s.add_argument("--line", action="store_true", help="one line, for an opening prompt")
     s.add_argument("--field", help="one field's value, for the launcher")
+    rp = sub.add_parser("project", help="re-point a job to another project (and working copy); refused once it has a branch or worktree, but for naming that worktree")
+    rp.add_argument("id")
+    rp.add_argument("project")
+    rp.add_argument("--working-copy")
     pa = sub.add_parser("pause", help="set the active job aside, to be taken back by name")
     pa.add_argument("id")
     pa.add_argument("why")
@@ -235,7 +313,10 @@ def main(argv: list[str] | None = None) -> int:
         n.add_argument("id", nargs="?")
         n.add_argument("--json", action="store_true")
         n.add_argument("--type", choices=TYPES, default="feat", help="the kind of a new branch's name (default feat)")
+        n.add_argument("--keep-targets", action="store_true", help="do not clear the left job's cargo target directories (a job resumed within the hour)")
         n.add_argument("--needs-merged", action="store_true", help="the job needs this agent's open pull request merged first: if it cannot take more commits, block on it")
+    sub.add_parser("export", help="print this login's whole job list as one versioned JSON document")
+    sub.add_parser("import", help="read that document on stdin into this login's empty list, keeping every id")
     pl = sub.add_parser("pool-list", help="the open jobs of a role's pool (default: the bound role)")
     pl.add_argument("--role")
     pl.add_argument("--json", action="store_true")
@@ -245,7 +326,7 @@ def main(argv: list[str] | None = None) -> int:
     pc.add_argument("--working-copy")
     args = ap.parse_args(argv)
 
-    verb = {"add": add, "pool-list": pool_list, "pool-claim": pool_claim, "list": list_jobs, "show": show_job, "switch": switch_job, "next": switch_job, "sweep": sweep}.get(args.cmd, change)
+    verb = {"add": add, "pool-list": pool_list, "pool-claim": pool_claim, "list": list_jobs, "show": show_job, "switch": switch_job, "next": switch_job, "sweep": sweep, "tidy": tidy, "project": repoint, "export": export_jobs, "import": import_jobs}.get(args.cmd, change)
     try:
         return verb(args)
     except Refused as exc:

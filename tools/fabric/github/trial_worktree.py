@@ -8,6 +8,7 @@ from __future__ import annotations
 import glob
 import os
 import random
+import select
 import shutil
 import signal
 import string
@@ -42,8 +43,14 @@ NO_HOOKS = ("-c", "core.hooksPath=/dev/null")
 # last line if it still fails.
 ADD_PAUSES = (0.2, 0.5, 1, 2)
 
-# How many times cleanup scans for the check's processes (see there).
+# How many times each of cleanup's signal passes scans for the check's
+# processes (signal_all).
 SWEEP_PASSES = 20
+# How long the check's processes have to end on TERM before they are
+# killed, and how long a KILL is waited for: a process that ignores TERM
+# must not outlive the worktree it runs in (audit F15).
+TERM_GRACE_S = 5.0
+KILL_WAIT_S = 5.0
 
 
 def pid_alive(pid_file: str) -> bool:
@@ -120,27 +127,94 @@ def worktree_procs(wt: str, cpid: int | None) -> list[int]:
     of this login still working inside the worktree is too, as a backstop
     (a process can leave the session only by making its own, as a daemon
     does on purpose)."""
-    me, mine = os.getuid(), os.getpid()
-    found = []
-    for name in os.listdir("/proc"):
-        if not name.isdigit() or int(name) == mine:
-            continue
-        p = f"/proc/{name}"
-        try:
-            if os.stat(p).st_uid != me:
+    mine = os.getpid()
+    return [int(name) for name in os.listdir("/proc")
+            if name.isdigit() and int(name) != mine and owned(int(name), wt, cpid)]
+
+
+def owned(pid: int, wt: str, cpid: int | None) -> bool:
+    """Is pid, as it is now, one of the trial's (worktree_procs' rule)?"""
+    p = f"/proc/{pid}"
+    try:
+        if os.stat(p).st_uid != os.getuid():
+            return False
+        if cpid is not None:
+            with open(f"{p}/stat", encoding="utf-8", errors="replace") as fh:
+                # comm may hold ") ": the fields start after the last one.
+                if int(fh.read().rsplit(") ", 1)[1].split()[3]) == cpid:
+                    return True
+        cwd = os.readlink(f"{p}/cwd")
+    except (OSError, ValueError, IndexError):
+        return False
+    return cwd == wt or cwd.startswith(wt + "/")
+
+
+def claim(pid: int, wt: str, cpid: int | None) -> int | None:
+    """A pidfd on pid, kept only if the process it holds is the trial's once
+    it is open. A pid is a name the kernel hands out again; the pidfd is the
+    process: one taken after a listing that named a since-reused pid holds
+    the stranger, and the ownership test after opening refuses it; one held
+    past its process's end signals nothing, never the pid's next holder."""
+    try:
+        fd = os.pidfd_open(pid)
+    except OSError:
+        return None
+    if owned(pid, wt, cpid):
+        return fd
+    os.close(fd)
+    return None
+
+
+def send(fd: int, sig: int) -> None:
+    try:
+        signal.pidfd_send_signal(fd, sig)
+    except OSError:
+        pass
+
+
+def ended(fd: int) -> bool:
+    """A pidfd reads ready once its process has exited, child or not."""
+    return bool(select.select([fd], [], [], 0)[0])
+
+
+def wait_ended(fds: list[int], seconds: float) -> bool:
+    """Until every process has exited, or seconds pass; True if all did."""
+    deadline = time.monotonic() + seconds
+    left = [fd for fd in fds if not ended(fd)]
+    while left:
+        wait = deadline - time.monotonic()
+        if wait <= 0:
+            return False
+        ready = select.select(left, [], [], min(wait, 0.5))[0]
+        left = [fd for fd in left if fd not in ready]
+    return True
+
+
+def signal_all(claimed: dict[int, int], wt: str, cpid: int | None, sig: int) -> None:
+    """sig to every live process claimed so far, then to each the scans find.
+    Unlike killpg, a /proc scan is not atomic against fork: a member
+    signalled just after it forked leaves a child the listing missed (sh's
+    `cd / && sleep &` subshell forking its sleep, under load). So scan again
+    until a pass finds no member not yet signalled; a process with a fatal
+    signal pending cannot complete a fork, so this ends. The bound is for a
+    member that catches TERM and keeps forking; a KILL pass cannot meet one.
+    A claimed pid whose process has ended is fresh again: the pid may name a
+    new member now."""
+    for fd in claimed.values():
+        if not ended(fd):
+            send(fd, sig)
+    for _ in range(SWEEP_PASSES):
+        fresh = [pid for pid in worktree_procs(wt, cpid) if pid not in claimed or ended(claimed[pid])]
+        if not fresh:
+            break
+        for pid in fresh:
+            fd = claim(pid, wt, cpid)
+            if fd is None:
                 continue
-            if cpid is not None:
-                with open(f"{p}/stat", encoding="utf-8", errors="replace") as fh:
-                    # comm may hold ") ": the fields start after the last one.
-                    if int(fh.read().rsplit(") ", 1)[1].split()[3]) == cpid:
-                        found.append(int(name))
-                        continue
-            cwd = os.readlink(f"{p}/cwd")
-        except (OSError, ValueError, IndexError):
-            continue
-        if cwd == wt or cwd.startswith(wt + "/"):
-            found.append(int(name))
-    return found
+            if pid in claimed:
+                os.close(claimed[pid])
+            claimed[pid] = fd
+            send(fd, sig)
 
 
 def terminate(pid: int, group: bool = False) -> None:
@@ -150,35 +224,59 @@ def terminate(pid: int, group: bool = False) -> None:
         pass
 
 
+def unreaped(pid: int) -> bool:
+    """Is pid this process's child, not yet waited for? Then the number is
+    still its, and so is the group it leads: no one else can be given it."""
+    try:
+        os.waitid(os.P_PID, pid, os.WEXITED | os.WNOHANG | os.WNOWAIT)
+    except ChildProcessError:
+        return False
+    return True
+
+
 def cleanup(top: str, wt: str, cpid: int | None) -> None:
     # The check runs in its own process group so that a killed run takes the
     # whole check with it; an orphaned build would outlive the worktree.
     # The group is killed at the end even when the check exited on its own:
     # whatever it started in the background (a server, a build daemon) would
-    # otherwise outlive the worktree it runs in.
+    # otherwise outlive the worktree it runs in. TERM first, so that a
+    # member can end cleanly; what is still there after the grace is killed,
+    # and the KILL is waited for, so that nothing of the check is running
+    # once this returns (audit F15: a member that ignored TERM outlived it).
     for sig in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP):
         signal.signal(sig, signal.SIG_IGN)
-    if cpid is not None:
+    # killpg is atomic against fork, but a group id names a group only
+    # while its leader's pid is held: once the runner is reaped and its
+    # group empty, the number can be a stranger's. So the group is signalled
+    # only while the runner is an unwaited child (a signal ended the run
+    # during its wait); the session's members are found by the scans below
+    # in either case.
+    if cpid is not None and unreaped(cpid):
         terminate(cpid, group=True)
-    # Unlike killpg, a /proc scan is not atomic against fork: a member
-    # signalled just after it forked leaves a child the listing missed
-    # (sh's `cd / && sleep &` subshell forking its sleep, under load). So
-    # scan again until a pass finds no member not yet signalled; a process
-    # with a fatal signal pending cannot complete a fork, so this ends. The
-    # bound is for a member that catches TERM and keeps forking.
-    # A /proc that cannot be listed (EMFILE) ends the scan, never the
+    # A /proc that cannot be listed (EMFILE) ends the signalling, never the
     # removals below.
-    signalled: set[int] = set()
+    claimed: dict[int, int] = {}
     try:
-        for _ in range(SWEEP_PASSES):
-            fresh = [pid for pid in worktree_procs(wt, cpid) if pid not in signalled]
-            if not fresh:
-                break
-            for pid in fresh:
-                terminate(pid)
-            signalled.update(fresh)
+        signal_all(claimed, wt, cpid, signal.SIGTERM)
+        wait_ended(list(claimed.values()), TERM_GRACE_S)
+        # Every time, not only after a grace that ran out: a member that
+        # handled TERM may have forked before it ended, and the KILL pass's
+        # scans find that child too.
+        signal_all(claimed, wt, cpid, signal.SIGKILL)
+        wait_ended(list(claimed.values()), KILL_WAIT_S)
     except OSError:
         pass
+    finally:
+        for fd in claimed.values():
+            os.close(fd)
+    # The check's runner is this process's child, unreaped when a signal
+    # ended the run during its wait; every other member is reaped by its own
+    # parent or by init.
+    if cpid is not None:
+        try:
+            os.waitpid(cpid, os.WNOHANG)
+        except ChildProcessError:
+            pass
     # Each step on its own: a git that times out (git.py's bound) must not
     # keep the scratch tree and the pid file from going (review of #71).
     for step in (lambda: git.run(top, *NO_HOOKS, "worktree", "remove", "--force", wt, check=False),

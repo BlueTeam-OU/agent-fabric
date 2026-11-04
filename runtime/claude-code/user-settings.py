@@ -77,6 +77,9 @@ command — because in auto mode a narrow Bash rule is resolved before the
 classifier while a broad one, or one naming Monitor, is set aside; a
 Monitor follows the Bash rules. Every other rule the account allows,
 denies or asks is kept as read, and an `ask` rule still wins.
+Each `tools_allowed` name in commands.json (the fabric-memory MCP tools)
+is allowed as it is, so a session in plan or default mode does not ask
+for the memory lookup it is told to make.
 `permissions.ask`: `Bash(<prefix> *)` for every `also_asked` prefix in
 commands.json (moli serve), added beside the account's own ask rules.
 
@@ -426,6 +429,9 @@ def rules() -> tuple[list[str], list[str]]:
     # one safe subcommand is allowed (moli fetch reads a page; moli serve
     # opens an unauthenticated CDP port and gets no rule, ADR-051).
     granted += [f"Bash({prefix} *)" for prefix in doc.get("also_allowed", {}) if prefix != "_comment"]
+    # A tool that is not a Bash command is allowed by its own name (the fabric's MCP server): in plan or default
+    # mode an unnamed tool asks, whatever the classifier would have said in auto.
+    granted += [name for name in doc.get("tools_allowed", {}) if name != "_comment"]
     return granted, withheld
 
 

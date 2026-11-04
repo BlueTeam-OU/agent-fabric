@@ -6,7 +6,8 @@
   fabric-host <host> run [--as <login>] [--tty] -- <cmd>...   one command there (runtime/hostexec/hostexec)
   fabric-host <host> moveto <login> [<clone>]       an interactive shell as that account, in its workspace
   fabric-host <host> rename <login> <old> <new> [--dry-run]   provisioning/rename_working_copy.py, run there
-  fabric-host <host> persist                        every placement survives the host's reboot (linger; the record snapshot on Qubes)
+  fabric-host <host> persist                        every placement survives the host's reboot (linger; the record snapshot on Qubes),
+                                                    and the host settings the fabric needs are made and kept (reserved ports, ADR-064)
   fabric-host <host> drain <login> [harvest flags...] > drain.tar   the account's memory as a bundle (stdout) — the sudo
                                                                    fallback; the drain is fabric-ctl <login> memory (docs/adr/ADR-029-the-control-plane-a-control-agent-per-account.md)
   fabric-host ssh-pin <login>                       how to enter that account: `ssh <address> <port>` when its host's registry entry has a pinned
@@ -30,7 +31,8 @@ Contract (ADR-040 Wave 9; ported from the bash fabric-host, which this keeps):
             reads the same registry when this runs it.
   exit      2 for a usage error; 1 for an unresolvable registry, a host that
             does not answer or answers under another name; otherwise the
-            command's (run, moveto, rename, persist and drain exec hostexec).
+            command's (run, moveto, rename and drain exec hostexec; persist runs its two steps as children and
+            exits with the worse status).
 """
 from __future__ import annotations
 
@@ -45,6 +47,8 @@ USAGE_SUBCOMMANDS = "list | check | run | moveto | rename | persist | drain | ss
 # The bash had no bound on `check`; a host that answers nothing for this long is unreachable. The kernel's own TCP connect
 # limit (about two minutes) ends an attempt on a host that is down earlier; this bounds one that connects and then says nothing.
 CHECK_TIMEOUT_S = 300
+# One persist step on one host: the account step takes the snapshot lock (30 s) and one loginctl (60 s) per login.
+PERSIST_TIMEOUT_S = 1800
 
 
 class Refused(Exception):
@@ -123,6 +127,25 @@ def run_hostexec(argv: list[str]) -> int:
     return hostworker.exec_or_say([HX, *argv], who="fabric-host")
 
 
+def run_hostexec_step(argv: list[str]) -> int:
+    """hostexec as a child, for a subcommand that runs more than one: its exit status, a signal's as the shell's 128+n; a step that
+    outlives PERSIST_TIMEOUT_S is given up on and counts as failed: only the
+    child is killed, and the step under sudo or ssh may still be running there."""
+    import subprocess
+    try:
+        status = subprocess.run([HX, *argv], stdin=subprocess.DEVNULL, timeout=PERSIST_TIMEOUT_S).returncode
+    except FileNotFoundError:
+        print(f"fabric-host: {HX}: command not found", file=sys.stderr)
+        return 127
+    except OSError as e:
+        print(f"fabric-host: {HX}: {e.strerror or e}", file=sys.stderr)
+        return 126
+    except subprocess.TimeoutExpired:
+        print(f"fabric-host: {argv[-1] if argv else 'hostexec'}: no answer after {PERSIST_TIMEOUT_S} s, stopped waiting (it may still be running on the host)", file=sys.stderr)
+        return 1
+    return 128 - status if status < 0 else status
+
+
 def main(argv: list[str]) -> int:
     if not argv:
         sys.stdout.write(usage_lines())
@@ -164,7 +187,10 @@ def main(argv: list[str]) -> int:
             logins = [login for login, p in placement.items() if p == host]
             if not logins:
                 raise Refused(f"no placements on {host}")
-            return run_hostexec([host, "--", "sudo", "-n", FABRIC_PYTHON, "-I", "@fabric/tools/fabric/provisioning/persist_accounts.py", *logins])
+            # Both steps always run: the accounts failing is no reason to leave the host's settings unmade, nor the reverse.
+            steps = (("persist_accounts.py", *logins), ("persist_host_settings.py",))
+            return max([run_hostexec_step([host, "--", "sudo", "-n", FABRIC_PYTHON, "-I", f"@fabric/tools/fabric/provisioning/{script}", *args])
+                        for script, *args in steps])
         if sub == "drain":
             if not rest:
                 raise Refused("drain needs the login")

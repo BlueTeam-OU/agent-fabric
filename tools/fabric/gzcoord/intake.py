@@ -9,13 +9,19 @@ on stderr, never a failed delivery or a failed post:
   receiver  queue_received(): the inbox, for each REQUEST it delivers whose
             TO is this login's own address, adds a queued job to this
             login's list through jobs.py: source the REQUEST (MESSAGE-ID,
-            sender, seq), project its PROJECT, title "<SUBJECT> (REQUEST
+            sender, seq), project as `add --request` reads it (--project, else the project the
+            registry maps REPOSITORY to, else PROJECT), title "<SUBJECT> (REQUEST
             <MESSAGE-ID>)". A project with no working copy here is still
             the job's project (what jobs-add does); the job then carries no
             working copy. A message already on the list — a job with that
             MESSAGE-ID as its source, or "(REQUEST <MESSAGE-ID>)" in its
-            title — adds nothing, so a redelivery and a second watch are
-            one job.
+            title — adds no job, so a redelivery and a second watch are
+            one job; it only gains the branch its DELIVER-TO names when it is
+            still queued, has none and has not begun on a branch of its own,
+            and, while queued, the "project from" reason the sender's
+            title-only add could not give (only on a label that add wrote
+            itself, or on a job the owner added with none, and never beside
+            another project than the one the registry names).
   sender    queue_for_addressee(): gzcoord-send, once a REQUEST TO a login
             is posted, when the sender is the operator of the addressee's
             host (runtime/hosts/registry.json), asks the control plane's
@@ -25,9 +31,12 @@ on stderr, never a failed delivery or a failed post:
             reaches a session whose watch has lapsed at its next start. The
             id is in the title because jobs-add takes nothing else (control
             plane frozen, ADR-040 §7), and it is the only thing the two
-            halves share: the check and the add are not atomic, so two
-            near-simultaneous halves can still make two jobs; a person
-            drops one.
+            halves share. The sender's check is only a courtesy that spares
+            a control round trip: the check that makes it one job is
+            `fabric-jobs add`'s own, under the list's lock (jobs.py
+            listed_request), which a title naming a listed REQUEST passes
+            as "already listed jN" and adds nothing — so the order the two
+            halves run in, or running at once, gives one job.
 
 Not TO-ROLE, not BROADCAST, not any other type: only an assignment names
 one login (SPEC §13), and only an assignment is work."""
@@ -41,13 +50,13 @@ import sys
 from typing import Any, Callable
 
 from . import paths
+from registry_id import REGISTRY_ID as PROJECT_SLUG  # noqa: E402 — paths put tools/fabric on sys.path; one grammar with jobs-add and the job list
 
 TITLE_MAX = 300           # tools/fabric/control/jobs.py TITLE_MAX: jobs-add refuses a longer title
 CTL = os.path.join(paths.CHECKOUT, "bin", "fabric-ctl")
 CTL_TIMEOUT_S = 30
-_ADDED = re.compile(r"\badded\s+(j[1-9][0-9]*)\b", re.ASCII)
+_ADDED = re.compile(r"\b(added|listed)\s+(j[1-9][0-9]*)\b", re.ASCII)
 MESSAGE_ID = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}", re.ASCII)   # jobs.py's
-PROJECT_SLUG = re.compile(r"[a-z0-9][a-z0-9-]{0,62}", re.ASCII)       # tools/fabric/control/jobs.py's: a registry id
 
 
 def _jobs():
@@ -72,12 +81,8 @@ def title_for(subject: str, message_id: str) -> str:
 
 
 def named_in(title: str, message_id: str) -> bool:
-    return f"(REQUEST {message_id})" in title
-
-
-def listed(doc: dict, message_id: str) -> bool:
-    return any((j.get("source") or {}).get("message_id") == message_id or named_in(str(j.get("title", "")), message_id)
-               for j in doc.get("jobs", []))
+    """records.request_id_of's rule on a listing row: the id is the title's last words, never one in the subject."""
+    return title.rstrip().endswith(f"(REQUEST {message_id})")
 
 
 def queue_received(classified: list[dict], me: dict, *, jobs: Any = None, err: Any = None) -> list[str]:
@@ -97,14 +102,37 @@ def queue_received(classified: list[dict], me: dict, *, jobs: Any = None, err: A
             continue
         try:
             jobs = jobs or _jobs()
-            source = {"kind": "request", "message_id": mid, "from": meta.get("FROM") or rec.get("sender"), "seq": rec.get("seq")}
-            project = meta.get("PROJECT")
+            # An arrival over the second carrier is attributed to the address its authenticated
+            # PeerId maps to (ADR-064 rule 9), never to the FROM it claims.
+            sender = rec.get("sender") if c.get("iw") else (meta.get("FROM") or rec.get("sender"))
+            source = {"kind": "request", "message_id": mid, "from": sender, "seq": rec.get("seq")}
+            # The project the work is in, as `add --request` reads it: REPOSITORY over the sender's directory (j372).
+            project, project_from = jobs.request_project(meta, None)
             if project is not None and not PROJECT_SLUG.fullmatch(str(project)):
-                raise ValueError(f"its PROJECT {str(project)[:60]!r} is not a registry id")
+                raise ValueError(f"its project {str(project)[:60]!r} is not a registry id")
             title = title_for(meta.get("SUBJECT") or f"message {mid}", mid)
 
-            def add(doc: dict, source: dict = source, project: Any = project, title: str = title, mid: str = mid) -> Any:
-                return None if listed(doc, mid) else jobs.new_job(doc, title, project=project, source=source)
+            deliver_to = jobs.deliver_branch(msg)
+
+            def add(doc: dict, source: dict = source, project: Any = project, title: str = title, mid: str = mid,
+                    deliver_to: Any = deliver_to, project_from: Any = project_from) -> Any:
+                held = jobs.listed_request(doc, mid)
+                if held:
+                    # The sender's title-only add may have come first and carries no DELIVER-TO: the branch is filled in, never replaced.
+                    # Only a job not yet taken: one that began on its own branch keeps it, or switch would leave its work behind.
+                    if deliver_to and not held.get("deliver_to") and not held.get("branch") and held.get("state") == "queued":
+                        held["deliver_to"] = deliver_to
+                    # The sender's jobs-add could only say it was given --project, or nothing: the resolver says why that project, and
+                    # only fills in a label the sender's add wrote itself, and only while queued: a job taken since has begun on the
+                    # project it was given, and a reason written after that would claim a choice nobody made. A job filed under another project than the resolver names
+                    # keeps no reason: a label naming REPOSITORY beside a project it did not choose would contradict itself.
+                    if project_from and held.get("state") == "queued" and (
+                            (held.get("project") == project and held.get("project_from") == jobs.SENDER_ADD_LABEL)
+                            or (not held.get("project_from") and (held.get("source") or {}).get("kind") == "owner"
+                                and (project is None or held.get("project") == project))):
+                        held["project_from"] = project_from
+                    return None
+                return jobs.new_job(doc, title, project=project, source=source, deliver_to=deliver_to, project_from=project_from)
 
             job = jobs.mutate(add)
         except BaseException as e:  # noqa: BLE001 — any failure is a line; the delivery stands (SystemExit: identity's refusals)
@@ -146,7 +174,8 @@ def addressee_lists(login: str, message_id: str, run: Callable[..., Any]) -> boo
 
 def queue_for_addressee(msg: dict, *, sender: str, hosts: Any, run: Callable[..., Any] = subprocess.run,
                         err: Any = None) -> str | None:
-    """Ask the addressee's control agent for the job; its id, or None. Only
+    """Ask the addressee's control agent for the job; the id of the job it
+    added, or None (nothing added: not asked, already listed, or failed). Only
     the host's operator signs a control action, so any other sender asks
     nothing."""
     err = err or sys.stderr
@@ -160,9 +189,10 @@ def queue_for_addressee(msg: dict, *, sender: str, hosts: Any, run: Callable[...
         login = to.split("/", 1)[1]
         if addressee_lists(login, mid, run):
             return None
-        project = meta.get("PROJECT")
+        # The same answer the receiver half gives, so whichever half adds the job first names the same project.
+        project, _ = _jobs().request_project(meta, None)
         if project is not None and not PROJECT_SLUG.fullmatch(str(project)):
-            raise ValueError(f"its PROJECT {str(project)[:60]!r} is not a registry id")
+            raise ValueError(f"its project {str(project)[:60]!r} is not a registry id")
         argv = [CTL, login, "jobs-add", *(["--project", project] if project is not None else []),
                 "--", title_for(meta.get("SUBJECT", ""), mid)]
         r = run(argv, capture_output=True, text=True, timeout=CTL_TIMEOUT_S)
@@ -170,7 +200,7 @@ def queue_for_addressee(msg: dict, *, sender: str, hosts: Any, run: Callable[...
         if r.returncode != 0 or not found:
             said = ((r.stdout or "") + (r.stderr or "")).strip().splitlines()
             raise RuntimeError(said[-1] if said else f"fabric-ctl exit {r.returncode}")
-        return found.group(1)
+        return found.group(2) if found.group(1) == "added" else None
     except subprocess.TimeoutExpired:
         why = f"fabric-ctl did not answer in {CTL_TIMEOUT_S} s"
     except OSError as e:

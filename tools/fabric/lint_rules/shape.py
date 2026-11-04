@@ -11,6 +11,8 @@ from .base import _git, _tracked, lint_environ, roots
 from .schema import load_schema, validate_json
 
 
+# Retired by ADR-040 A 2026-10-11 ("the 150-line threshold is gone"); kept for the
+# importers that still name it.
 BASH_LINE_LIMIT = 160
 
 
@@ -18,7 +20,7 @@ BASH_SHEBANG = re.compile(r"^#!.*\b(bash|sh)\b")
 
 
 def _is_bash(path: str) -> bool:
-    if path.endswith(".sh"):
+    if path.endswith((".sh", ".bash")):
         return True
     try:
         with open(path, "rb") as fh:
@@ -28,37 +30,81 @@ def _is_bash(path: str) -> bool:
     return bool(BASH_SHEBANG.match(first))
 
 
-def bash_size_findings(root: str, base_ref: str = "origin/main") -> list[str]:
-    """ADR-040 §5 rule 2: a tracked bash script over 160 lines must be on
-    policies/bash-allowlist.json; an entry whose script is gone or back
-    under the limit is stale; an entry the base branch's list does not
-    have is an addition, and the list only shrinks. Without a readable
-    base (a fresh clone, the commit that adds the list) additions are not
-    judged."""
+FORWARDER_CODE_LINES = 12
+# A compound command starts a line, follows an operator (; & | ( { !) or a
+# reserved word that takes a command list (then, else, elif, do, time).
+_LEAD = r"(?:^|[;&|({!]\s*|\b(?:then|else|elif|do|time)\s+)"
+_LOOP = re.compile(_LEAD + r"(?:for|while|until)\s")
+_CASE = re.compile(_LEAD + r"case\s")
+SECTIONS = ("stays", "ports")
+
+
+def forwarder_shape(path: str) -> tuple[bool, str]:
+    """ADR-040 §5 rule 1's forwarder by its shape: at most 12 lines of code
+    (comments, blank lines and the shebang not counted), no loop and no
+    case. (True, "") or (False, what it has instead)."""
+    with open(path, encoding="utf-8", errors="replace") as fh:
+        code = [l.strip() for l in fh if l.strip() and not l.lstrip().startswith("#")]
+    why = []
+    if len(code) > FORWARDER_CODE_LINES:
+        why.append(f"{len(code)} lines of code")
+    if any(_LOOP.search(l) for l in code):
+        why.append("a loop")
+    if any(_CASE.search(l) for l in code):
+        why.append("a case")
+    return (not why, ", ".join(why))
+
+
+def _sections(doc: dict) -> dict[str, dict]:
+    return {s: (doc.get(s) or {}) if isinstance(doc.get(s) or {}, dict) else {} for s in SECTIONS}
+
+
+def bash_shape_findings(root: str, base_ref: str = "origin/main") -> list[str]:
+    """ADR-040 §5 rule 2 (A 2026-10-11): a tracked bash file (.sh, .bash, or
+    a first line naming bash or sh) is either a forwarder by rule 1's shape
+    or on policies/bash-allowlist.json: `stays`, the closed pre-Python list,
+    each entry with its reason, whose every addition is a finding; or
+    `ports`, the files not yet ported, each naming its batch, which only
+    shrinks. An entry whose file is gone or no longer bash is stale; a
+    `ports` entry whose file now has the forwarder's shape is ported.
+    Additions are judged against the list as the branch forked from it; a
+    base without the list, or without that section, judges none (the
+    commit that introduces it)."""
     listed_path = roots.policy("bash-allowlist.json", engine=root)
     try:
-        listed = (json.load(open(listed_path, encoding="utf-8")).get("scripts") or {})
+        doc = json.load(open(listed_path, encoding="utf-8"))
     except FileNotFoundError:
-        listed = {}
+        doc = {}
     except ValueError as e:
         return [f"policies/bash-allowlist.json: not JSON ({e})"]
     findings = []
-    over = {}
+    if "scripts" in doc:
+        findings.append("policies/bash-allowlist.json: `scripts` is the retired 160-line list; the sections are "
+                        "`stays` and `ports` (ADR-040 §5 rule 2)")
+    sec = _sections(doc)
+    for name, entries in sec.items():
+        for rel, why in sorted(entries.items()):
+            if not (isinstance(why, str) and why.strip()):
+                findings.append(f"policies/bash-allowlist.json: {name} entry {rel} gives no "
+                                f"{'reason' if name == 'stays' else 'batch'}")
+    bash = {}
     for rel in _tracked(root):
         full = os.path.join(root, rel)
-        if not os.path.isfile(full) or os.path.islink(full) or not _is_bash(full):
+        if os.path.isfile(full) and not os.path.islink(full) and _is_bash(full):
+            bash[rel] = forwarder_shape(full)
+    for rel, (ok, why) in sorted(bash.items()):
+        if ok or rel in sec["stays"] or rel in sec["ports"]:
             continue
-        with open(full, "rb") as fh:
-            n = sum(1 for _ in fh)
-        if n > BASH_LINE_LIMIT:
-            over[rel] = n
-    for rel, n in sorted(over.items()):
-        if rel not in listed:
-            findings.append(f"{rel}: {n} lines of bash, over {BASH_LINE_LIMIT} and not on policies/bash-allowlist.json — "
-                            "write it in Python (ADR-040)")
-    for rel in sorted(listed):
-        if rel not in over:
-            findings.append(f"policies/bash-allowlist.json: {rel} is gone or {BASH_LINE_LIMIT} lines or fewer — remove its entry")
+        findings.append(f"{rel}: bash that is not a forwarder ({why}) and not on policies/bash-allowlist.json — "
+                        f"write it in Python, or as a forwarder of at most {FORWARDER_CODE_LINES} lines of code with "
+                        "no loop and no case (ADR-040 §5 rules 1, 2)")
+    for name in SECTIONS:
+        for rel in sorted(sec[name]):
+            if rel not in bash:
+                findings.append(f"policies/bash-allowlist.json: {name} entry {rel} is gone or not bash — remove it")
+            elif name == "ports" and bash[rel][0]:
+                findings.append(f"policies/bash-allowlist.json: {rel} has the forwarder's shape now — it is "
+                                "ported; remove its ports entry")
     # The list as the branch forked from it, not as the base stands now: a
     # branch behind main still lists what main has since ported away, and
     # against main's tip those read as additions (review of #70). Without
@@ -68,13 +114,23 @@ def bash_size_findings(root: str, base_ref: str = "origin/main") -> list[str]:
     base = _git().run(root, "show", f"{since}:policies/bash-allowlist.json", check=False, timeout=60)
     if base.returncode == 0:
         try:
-            before = set((json.loads(base.stdout).get("scripts") or {}))
+            before_doc = json.loads(base.stdout)
         except ValueError:
-            before = None
-        if before is not None:
-            for rel in sorted(set(listed) - before):
-                findings.append(f"policies/bash-allowlist.json: {rel} is added; the list only shrinks (ADR-040 §5 rule 2)")
+            before_doc = None
+        if isinstance(before_doc, dict):
+            for name in SECTIONS:
+                if name not in before_doc:
+                    continue
+                before = set(_sections(before_doc)[name])
+                for rel in sorted(set(sec[name]) - before):
+                    rule = ("the pre-Python list is closed" if name == "stays" else "the ports list only shrinks")
+                    findings.append(f"policies/bash-allowlist.json: {name} entry {rel} is added; {rule} "
+                                    "(ADR-040 §5 rule 2)")
     return findings
+
+
+# The name lint.py and older callers import (ADR-040's first, 160-line form).
+bash_size_findings = bash_shape_findings
 
 
 def host_registry_findings(root: str) -> list[str]:

@@ -11,12 +11,13 @@ the same in any harness (ADR-054).
 - **Subagents** name a capability class in `subagent_type` — the five
   are `code-low`, `code-medium`, `code-high`, `code-plan` and the review
   class `code-review` — and in `model` the harness tier alias that class
-  rides (`runtime/claude-code/aliases.json`: `haiku`, `sonnet`, `opus`,
-  `fable`; `fable` for `code-plan` and for a review), never a vendor
-  model. What a class resolves to is `routing/`, decided at launch. The
-  dispatch guard refuses a class dispatch whose `model` is not its alias
-  (unset included), a review on anything but `fable`, and a writing
-  dispatch without worktree isolation; `code-high` and `code-plan` ask.
+  rides (`runtime/claude-code/aliases.json`): `code-low` `haiku`,
+  `code-medium` `sonnet`, `code-high` `opus`, `code-plan` and
+  `code-review` `fable`; never a vendor model. What a class resolves to
+  is `routing/`, decided at launch. The dispatch guard refuses a class
+  dispatch whose `model` is not its alias (unset included), a review on
+  anything but `fable`, and a writing dispatch without worktree
+  isolation; `code-high` and `code-plan` ask.
   The read-only harness types (`Explore`, `Plan`, `claude-code-guide`)
   name a model and no isolation. `locale-worker` exists on the
   language-culture logins only.

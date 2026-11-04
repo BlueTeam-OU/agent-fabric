@@ -429,6 +429,31 @@ def main() -> int:
               outcome == "interrupted" and g("status", "--porcelain", "--untracked-files=all") == "" and count() == n_int
               and not os.path.exists(os.path.join(store, "settings", "newdir2")), outcome)
 
+        # expect_head: files rendered from an older head are not written over a newer one.
+        n_eh = count()
+        stale = "0" * 40
+        with mock.patch.dict(os.environ, env):
+            try:
+                S.settings_put(tree("eh-stale", {"avatar-rejected/eh.txt": b"x"}), expect_head=stale)
+                eh = "returned"
+            except secret_store.StoreError as e:
+                eh = "refused" if "moved while the files were being prepared" in str(e) and "nothing written" in str(e) else str(e)
+        check("a write whose expected head is not the store's head is refused and writes nothing",
+              eh == "refused" and count() == n_eh and g("status", "--porcelain", "--untracked-files=all") == ""
+              and not os.path.exists(os.path.join(store, "settings", "avatar-rejected", "eh.txt")), eh)
+        # The positive control stops at the commit (as the interrupt test above does), so nothing is pushed.
+        with mock.patch.dict(os.environ, env), mock.patch.object(S, "_commit", side_effect=KeyboardInterrupt):
+            from secretstore import entries as _entries, lock as _lock, settings as _settings
+            try:
+                with _lock.write_lock(store):
+                    _entries._before_write(store)   # as the caller does, under the lock
+                    S.settings_put(tree("eh-ok", {"avatar-rejected/eh.txt": b"x"}), expect_head=_settings.remote_tip(store))
+                reached = "returned"
+            except secret_store.StoreError as e:
+                reached = "reached the commit" if "interrupted" in str(e) else str(e)
+        check("…and the same write with the remote's tip as expected head reaches the commit (positive control)",
+              reached == "reached the commit" and count() == n_eh, reached)
+
         # SIGTERM and SIGHUP while signing: the same undo as for Ctrl-C, ending as a one-line refusal, the handlers put back.
         import signal as _signal
         for sig in (_signal.SIGTERM, _signal.SIGHUP):

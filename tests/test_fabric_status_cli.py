@@ -16,6 +16,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 from git_env import git_env, scrub_process_env  # noqa: E402 — tests/, the script's own directory
 from instance_fixtures import ROUTING_OPERATOR_IGNORE, write_registry, write_routing_overlay  # noqa: E402
 scrub_process_env()
@@ -244,6 +245,14 @@ def main() -> int:
         check("counts drainable and private memories newer than the watermark; MEMORY.md is not a memory",
               has(r"^memory       1 drainable \(roles_class set\) and 1 private \(none\) written since the last drain",
                   out), out)
+        check("the memory line says how long the oldest drainable memory has waited",
+              has(r"^memory .* written since the last drain, oldest 0 d \(bound 14\) — ", out), out)
+        aged = time.time() - 20 * 86400 - 3600
+        os.utime(f"{mem}/a.md", (aged, aged))
+        os.utime(f"{mem}/b.md", (aged - 30 * 86400, aged - 30 * 86400))   # private: its age is not the drainable's
+        out = status(cwd=wc, AGENT_FABRIC_OPERATOR=operator)
+        check("an aged one reads in days, and a private memory older than it does not set the age",
+              has(r"^memory .* written since the last drain, oldest 20 d \(bound 14\) — ", out), out)
         os.remove(report)
         out = status(cwd=wc, AGENT_FABRIC_OPERATOR=operator)
         check("no report: counted since ever, said so", "written since ever (no drain report)" in out, out)
@@ -266,6 +275,24 @@ def main() -> int:
         j = json_of(status("--json", cwd=sandbox)).get("jobs", {})
         check("…and in --json", isinstance(j, dict) and (j.get("active") or {}).get("id") == "j2"
               and j.get("queued") == 1, str(j))
+
+        print("fabric-status: the fleet hold (ADR-037 rule 13)")
+        check("not held: no hold row, and null in --json", not has(r"^hold ", out) and json_of(status("--json", cwd=sandbox)).get("hold", "absent") is None,
+              out)
+        put(f"{agent}/hold.json", json.dumps({"agent": LOGIN, "host": host, "reason": "release freeze",
+                                              "decision": "01a18d02-edd3-7bef-8fe9-965718c256b5", "set_by": "h/operator",
+                                              "set_at": "2020-01-01T00:00:00Z"}) + "\n")
+        out = status(cwd=sandbox)
+        hold_line = "\n".join(line for line in out.split("\n") if line.startswith("hold"))
+        check("held: a hold row with the reason, decision, setter and age",
+              has(r"^hold         release freeze \(decision 01a18d02-edd3-7bef-8fe9-965718c256b5, set by h/operator, \d+ days ago\)", out), hold_line)
+        h = json_of(status("--json", cwd=sandbox)).get("hold")
+        check("…and the record in --json", isinstance(h, dict) and h.get("reason") == "release freeze" and h.get("set_by") == "h/operator", str(h))
+        put(f"{agent}/hold.json", "{not json")
+        out = status(cwd=sandbox)
+        check("a hold.json that cannot be read is shown as held, unreadable", has(r"^hold         hold unreadable: ", out), out)
+        check("…and in --json", "unreadable" in (json_of(status("--json", cwd=sandbox)).get("hold") or {}), "")
+        os.remove(f"{agent}/hold.json")
 
         print("fabric-status: which Claude sign-in plain claude uses")
         h = f"{sandbox}/signin-home"

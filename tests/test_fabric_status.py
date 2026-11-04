@@ -7,6 +7,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import platform
 import pwd
 import socket
 import subprocess
@@ -225,7 +226,34 @@ def main() -> int:
             check("a base URL says the sign-in is plain claude's", "claude sign-in own /login (none recorded)  (plain claude's; this session goes to vanilla claude and uses neither)" in text)
             check("findings are counted and joined", "routing      2 finding(s): f1; f2" in text)
             check("memory line", "memory       1 drainable (roles_class set) and 2 private (none) written since the last drain — /m" in text)
+            now_ms = 1_800_000_000_000
+            check("the age: whole days waited, against the bound",
+                  status.oldest_note({"drainable": 2, "oldest_ms": now_ms - 15 * 86_400_000 - 5, "bound_days": 14}, now_ms) == ", oldest 15 d (bound 14)")
+            check("no age without a drainable memory or without a recorded time",
+                  status.oldest_note({"drainable": 0, "oldest_ms": now_ms, "bound_days": 14}, now_ms) == ""
+                  and status.oldest_note({"drainable": 1, "oldest_ms": None, "bound_days": 14}, now_ms) == ""
+                  and status.oldest_note({"drainable": 1, "bound_days": 14}, now_ms) == "")
             check("moveto drift carries its detail", "moveto       drift: behind" in text)
+            report["host_tools"]["managed"] = {"status": "in force", "detail": "in force (fabric-0123abcd)", "snapshot": "0123abcdef", "reasons": []}
+            check("managed in force is one line with the snapshot's first eight", "managed      in force (fabric-0123abcd)\n" in "\n".join(status.render(report, "")) + "\n")
+            report["host_tools"]["managed"] = {"status": "drifted", "detail": "drifted (fabric-0123abcd): etc differs", "snapshot": "0123abcdef", "reasons": ["etc differs", "second"]}
+            check("managed not in force carries its first reason only", "managed      drifted (fabric-0123abcd): etc differs\n" in "\n".join(status.render(report, "")) + "\n"
+                  and "second" not in "\n".join(status.render(report, "")))
+            report["host_tools"]["managed"] = {"status": "unknown", "detail": "boom"}
+            check("a managed check that could not run is UNKNOWN with its cause", "managed      UNKNOWN: boom" in "\n".join(status.render(report, "")))
+            del report["host_tools"]["managed"]
+            with tempfile.TemporaryDirectory() as scratch:
+                m = status.managed_state(HERE, prefix=os.path.join(scratch, "p"), etc=os.path.join(scratch, "e"))
+                check("managed_state asks the checker against a scratch prefix and etc: missing, the absent file first",
+                      m["status"] == "missing" and m["detail"] == f"missing: {os.path.join(scratch, 'e', 'managed-settings.json')} is absent")
+                os.makedirs(os.path.join(scratch, "tools", "fabric"))
+                with open(os.path.join(scratch, "tools", "fabric", "managed_settings.py"), "w") as fh:
+                    fh.write('def check(**kw):\n    return {"state": "in force", "reasons": [], "snapshot": "0123456789abcdef", "ref": kw["ref"]}\n')
+                check("an in-force snapshot is named by its first eight, and the ref asked is origin/main",
+                      status.managed_state(scratch)["detail"] == "in force (fabric-01234567)")
+                os.remove(os.path.join(scratch, "tools", "fabric", "managed_settings.py"))
+                check("managed_state, given a root with no checker, is unknown rather than a default",
+                      status.managed_state(scratch)["status"] == "unknown")
             report["jobs"] = {"error": "boom"}
             check("an unreadable job list is said", "jobs         unreadable: boom" in "\n".join(status.render(report, "")))
             report["jobs"] = {"active": {"id": "j9", "title": "t" * 70, "working_copy": None}, "queued": 1, "paused": 4, "blocked": 2, "delivered": 3}
@@ -241,7 +269,9 @@ def main() -> int:
               and not any(w in text.split("exec", 1)[1] for w in ("readlink", "$(", "`", "\ncd ")))
         check("the shim has no logic of its own to drift from the module", len(text.splitlines()) < 30)
         with open(os.path.join(HERE, "policies", "bash-allowlist.json"), encoding="utf-8") as fh:
-            check("bin/fabric-status is off the bash allowlist", "bin/fabric-status" not in json.load(fh)["scripts"])
+            allow = json.load(fh)
+            check("bin/fabric-status is off the bash allowlist",
+                  all("bin/fabric-status" not in (allow.get(s) or {}) for s in ("stays", "ports")))
         doc = status.__doc__
         check("the header freezes argv, env, stdout, exit and the json shape", all(w in doc for w in ("argv", "env", "stdout", "exit", "--json object")))
 
@@ -276,8 +306,12 @@ def main() -> int:
             pin = json.load(fh)
         built = os.path.join(sb, "py", f"python-{pin['python']}+{pin['release']}", "bin")
         os.makedirs(built)
+        # It answers python_pin's probe as the pinned build would: the
+        # version, then each of this machine's pinned wheels at its version.
+        wheels = "".join(f"echo {w['name']} {w['version']}\n"
+                         for w in pin["builds"].get(platform.machine(), {}).get("wheels", []))
         with open(os.path.join(built, "python3"), "w") as fh:
-            fh.write(f"#!/bin/sh\necho {pin['python']}\n")
+            fh.write(f"#!/bin/sh\necho {pin['python']}\n{wheels}")
         os.chmod(os.path.join(built, "python3"), 0o755)
         os.symlink(os.path.join(built, "python3"), os.path.join(sb, "fabric-python"))
         here_env = {**env, "AGENT_FABRIC_PYTHON_PREFIX": os.path.join(sb, "py"), "AGENT_FABRIC_PYTHON_LINK": os.path.join(sb, "fabric-python")}
@@ -318,13 +352,15 @@ def main() -> int:
             fh.write("01a0f782-7e06-7dee-811f-0a860ed93bf3\n")
         db = os.path.join(sb, "journal-state", "agents")
         db_files = [os.path.join(d, "episodic.db") for d, _, fs in os.walk(db) if "episodic.db" in fs]
-        c = _sq.connect(db_files[0]); c.execute("UPDATE meta SET schema_version=99"); c.commit(); c.close()
+        c = _sq.connect(db_files[0])
+        was = c.execute("SELECT schema_version FROM meta").fetchone()[0]   # put back below: a lower stamp re-runs migrations
+        c.execute("UPDATE meta SET schema_version=99"); c.commit(); c.close()
         stamp = os.stat(db_files[0]).st_mtime_ns
         newer = journal_state(jenv)
         check("a journal of newer code is `unknown` with the reason, and is left as it is",
               newer["status"] == "unknown" and "newer than this code" in newer["detail"]
               and os.stat(db_files[0]).st_mtime_ns == stamp)
-        c = _sq.connect(db_files[0]); c.execute("UPDATE meta SET schema_version=2"); c.commit(); c.close()
+        c = _sq.connect(db_files[0]); c.execute("UPDATE meta SET schema_version=?", (was,)); c.commit(); c.close()
         # A state directory with a ? and a # in its name: the path is the file it names, not the start of a URI's query.
         odd = os.path.join(sb, "journal?state#1")
         oenv = {**jenv, "AGENT_FABRIC_STATE_DIR": odd}
@@ -390,7 +426,7 @@ def main() -> int:
         obj = json.loads(b.stdout)
         check("--json is one object with the frozen keys", list(obj) == [
             "agent", "host", "placement", "role", "project", "working_copy", "session", "binding_updated", "launched_role",
-            "launch_prompt_digest", "drift", "session_effort", "undrained_memories", "jobs", "api", "capabilities", "engines", "routing_check",
+            "launch_prompt_digest", "drift", "session_effort", "undrained_memories", "jobs", "hold", "api", "capabilities", "engines", "routing_check",
             "host_tools", "control_plane"])
         check("…whose api keys are frozen too", list(obj["api"]) == [
             "provider", "path", "base_url_host", "session_model", "launch_profile", "pins", "credentials", "claude_sign_in"])

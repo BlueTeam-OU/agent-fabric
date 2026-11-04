@@ -137,8 +137,11 @@ delivered and one more section:
 
 ```text
 SUPPLIER-REVIEW:
-what was checked before hand-off — the review the Supplier-Review:
-trailer on the commit names
+what the supplier checked before hand-off — the test failing before
+and passing after, the mutations, the full suite — as the
+Supplier-Review: trailer on the commit names; never a review-class
+review, which is the caller's, once, on the folded head (agent-fabric
+ADR-020 §5 rule 11)
 ```
 
 A hand-off ahead of any caller branch — the supplier finished first —

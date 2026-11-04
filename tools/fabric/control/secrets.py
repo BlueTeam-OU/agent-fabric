@@ -44,6 +44,7 @@ import threading
 import time
 from typing import Any, Callable, Mapping
 
+from control import busy
 from control.ops import util
 from gzcoord.inbox_parts.tokens import synced_var  # noqa: E402 — control.ops.util puts tools/fabric on sys.path
 
@@ -160,6 +161,29 @@ def old_sign_in_pids(home: str | None, *, uid: int | None = None, pids: list[int
     return old
 
 
+def running_provider(*, uid: int | None = None, pids: list[int] | None = None,
+                     env_of: Callable[[int], bytes | str] | None = None, pgrep: Callable[..., Any] | None = None,
+                     alive: Callable[[int], bool] = _alive) -> str | None:
+    """What the account's running sessions are launched on, from their own environment (session_env): per
+    session "gateway" when the launcher stamped that transport, else the stamped provider (a session with no
+    stamp is plain claude); the distinct ones sorted and joined with "," ("anthropic,openrouter"), since a
+    login may run more than one and the first would hide the rest. None where no session runs or the table
+    cannot be read, so a status row says "-" and never guesses. `alive` is accepted so one option set can be
+    handed to this and to old_sign_in_pids; a session that cannot be read is skipped either way."""
+    try:
+        running = pids if pids is not None else upgrade().session_pids(uid=uid, **({"run": pgrep} if pgrep else {}))
+    except (OSError, subprocess.SubprocessError):
+        return None
+    found: set[str] = set()
+    for pid in running:
+        try:
+            env = session_env(pid, env_of)
+        except OSError:
+            continue   # gone, or not readable
+        found.add("gateway" if env["transport"] == "gateway" else (env["provider"] or "anthropic"))
+    return ",".join(sorted(found)) or None
+
+
 def process_started(pid: int, proc: str = "/proc") -> str | None:
     """When the process began, UTC to the second (stat field 22 in clock ticks since boot, plus /proc/stat's
     btime); None where either cannot be read. A pid reused after the listing would name another process's
@@ -177,12 +201,20 @@ def process_started(pid: int, proc: str = "/proc") -> str | None:
 
 
 def secrets_sync(request: Mapping[str, Any], **opts: Any) -> dict:
-    """One secrets-sync at a time per daemon."""
+    """One secrets-sync at a time per account: this process's lock, then the state directory's (control/busy.py)."""
     if not _syncing.acquire(blocking=False):
         return {"status": "busy", "note": "a secrets-sync is already running on this account"}
+    fd = None
     try:
+        try:
+            fd = busy.hold(opts.get("directory") or util.state_dir(), "sync")
+        except busy.Unavailable as e:
+            return {"status": "failed", "reason": f"cannot tell whether a secrets-sync is running ({e}); nothing synced"}
+        if fd is None:
+            return {"status": "busy", "note": "a secrets-sync is already running on this account"}
         return secrets_sync_once(request, **opts)
     finally:
+        busy.release(fd)
         _syncing.release()
 
 
@@ -288,6 +320,11 @@ def secrets_sync_once(
                                      util.sha12(tok) if tok else None,
                                      now().isoformat(timespec="milliseconds").replace("+00:00", "Z"))
         extra["gateway"] = proof["detail"]
+        if not proof["consistent"]:
+            # The sync wrote the store and the record, but the file the active gateway reads is not the synced token:
+            # that consumer is not on the new account, and "synced" would be read by fabric-accounts and the
+            # account switch as the move done. Nothing is stopped: a restart would not change the file.
+            return fail(f"synced, but {proof['session'].removeprefix('running (gateway): ')}; nothing stopped")
     stale = [p for p in running if p not in broker and p not in gateway and not _on_token(envs[p], tok)]
     if not stale:
         if len(broker) == len(running):
@@ -309,6 +346,19 @@ def secrets_sync_once(
         return fail("a restart is running on this account; synced, nothing stopped — run it again after")
     directory = directory or util.state_dir()
     wait_ms = up.STOP_WAIT_MS if stop_wait_ms is None else stop_wait_ms
+    # Another process's upgrade or restart (control/busy.py): our sync lock is held already, so a restart
+    # that starts after this sees it; the marker is taken shared, as restart.py takes it.
+    marker_fd = None
+    try:
+        marker_fd = busy.hold(directory, "marker", shared=True)
+        if marker_fd is None:
+            return fail("an upgrade is running on this account (it owns the restart marker); synced, nothing stopped — run it again after")
+        if busy.held(directory, "restart"):
+            busy.release(marker_fd)
+            return fail("a restart is running on this account; synced, nothing stopped — run it again after")
+    except busy.Unavailable as e:
+        busy.release(marker_fd)   # taken, then the restart lock could not be asked: a leaked shared hold would make every upgrade busy
+        return fail(f"cannot tell whether an upgrade or restart is running ({e}); synced, nothing stopped")
     up.restart_in_flight(True)
     try:
         # The launcher reads the marker when the session returns: written first,
@@ -344,3 +394,4 @@ def secrets_sync_once(
         return done("restarting" + gw_words)
     finally:
         up.restart_in_flight(False)
+        busy.release(marker_fd)

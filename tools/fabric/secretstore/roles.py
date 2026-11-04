@@ -247,7 +247,7 @@ def roles_put(child: str, role: str, src: str, approval: str, *, reviewed_by: li
             against_digest(n, files[n])
     mirror = mirror or os.path.join(children_dir(), aid)
     if not os.path.isdir(os.path.join(mirror, ".git")):
-        raise StoreError(f"no mirror of {rec.get('login')} here (store-enroll.sh first); nothing written")
+        raise StoreError(f"no mirror of {rec.get('login')} here (store_enroll.py first); nothing written")
     key_of_store()   # a parent that cannot sign stops here, before the mirror is touched
     rel = os.path.join("roles", role)
     previous = {sig: signal.signal(sig, _terminate) for sig in (signal.SIGTERM, signal.SIGHUP)

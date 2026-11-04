@@ -4,7 +4,7 @@
 **Status:** Accepted
 **Ratified:** owner, 2026-09-27, by arming agent-fabric #52 (ratification by merge, the owner's rule of 2026-09-27)
 **Decision Makers:** the owner; drafted by fabric-coordinator
-**Scope:** runtime/claude-code/agents/code-review.md; runtime/claude-code/hooks/agent-dispatch-guard.sh and review-bash-guard.sh; runtime/claude-code/aliases.json; routing/capabilities.json and routing/policies/review-grade.json (the class's model); bin/fabric-review and tools/fabric/review_brief.py; fabric-pr post-review, fabric-pr review-status, fabric-pr gate; policies/subagent-dispatch/SKILL.md
+**Scope:** runtime/claude-code/agents/code-review.md; runtime/claude-code/hooks/agent-dispatch-guard.sh and review-bash-guard.sh; runtime/claude-code/aliases.json; routing/capabilities.json and routing/policies/review-grade.json (the class's model); bin/fabric-review, tools/fabric/review_brief.py and tools/fabric/review_card.py (the card's cap, which tools/fabric/guards/commit_hooks.py and tools/fabric/lint_rules/card.py judge by too); fabric-pr post-review, fabric-pr review-status, fabric-pr gate; policies/subagent-dispatch/SKILL.md
 **Pillar:** P3
 **Evidence:** docs/live-checks/2026-09-16-review-context-boundary.md
 
@@ -42,7 +42,8 @@ is nothing it substitutes for.
   at the head whose first line is `<!-- agent-fabric-review v1 -->`.
 - It is **counted** by `fabric-pr review-status`: a head is
   reviewed when a blind review — marked, and posted by the PR's author
-  account or a login in `AGENT_FABRIC_REVIEW_POSTERS` — or an independent
+  account, a login in `AGENT_FABRIC_REVIEW_POSTERS`, or on an app's PR
+  the account `gh` acts as — or an independent
   review by a trusted account targets it.
 - The reader **assumes no automated reviewer.** The machinery that read
   one stays, generic and off: `AGENT_FABRIC_VERDICT_AUTHORS` (default
@@ -89,24 +90,22 @@ outage procedure.
    `agent-dispatch-guard.sh` denies any other shape, and under a fabric
    launch drops the alias so the agent file's routed model decides,
    denying the dispatch when that file's model or effort no longer
-   matches the launch.
+   matches the launch. Under a fabric launch that resolves a pin for
+   the class, a dispatch with no `model` passes the same checks: it is
+   the guard's own answer, which the harness runs through it again;
+   anywhere else an unset model is denied.
 3. The reviewer's model is chosen by routing for the `code-review`
    capability within `routing/policies/review-grade.json`'s closed set;
    lint refuses a committed profile outside it and the launcher refuses
    the merged result. It is never a tier export.
-4. The reviewer writes nothing and inherits no secret: `review-bash-guard.sh`
-   (the shim the agent file declares) and `review-bash-guard.py` deny
-   state-changing git, package installs and printing the environment or
-   secret material while that agent runs, and every command they let
-   through runs with a clean environment that keeps only the variables a
-   build or a test needs and the session markers (`CLEAN_ENV`), never the
-   account's secrets. The rewrite removes the inherited environment, not
-   every way back to it: secret files and a parent's `/proc` environ
-   stay reachable by some spelling; the patterns refuse the routine ones
-   and close none. No shell sources the secrets any more (ADR-038 rule
-   9); keeping them off what the session can read is what would close
-   the rest. It has
-   Read, Glob, Grep and Bash only.
+4. The reviewer writes nothing and inherits no secret: its agent file
+   lists `Read`, `Glob`, `Grep` and the fabric-review server's tools,
+   no Bash, and no writing tool. History and the range are read through
+   tools that run git from a fixed argv with no shell and a clean
+   environment; a check runs one argv in a bubblewrap sandbox proved for
+   the review, the filesystem read-only, a fresh `/tmp` and no network
+   (agent-fabric ADR-065). `Read`, `Glob` and `Grep` are not fenced:
+   what a login may read, the reviewer may read.
 5. A brief is rendered by `fabric-review brief` from a request naming
    what must be true — mode, repository, range, objective, requirements,
    invariants, compatibility, threat model, scope, out of scope, lenses —
@@ -116,13 +115,15 @@ outage procedure.
    first line is the marker; the body names the method and carries no
    disclaimer. **A review covers the commit it read, never the PR's head
    at posting time:** post-review records it on the report's dispatch
-   header `head_sha`, or, for a report with no header (the second
-   engine's), on `--head <full sha>`; a report naming no head, two heads,
-   a head that disagrees with `--head`, or a commit that is not the PR's
-   is refused and nothing is posted. A review of an older head therefore
+   header `head_sha` (ADR-065 §5 rule 4: a report without the v2 header
+   and a coverage block is refused, both engines' alike); a report
+   naming no head, two heads, or a commit that is not the PR's is
+   refused and nothing is posted. A review of an older head therefore
    leaves the current head uncovered for the gate and the arm.
 7. `pr-review-status.sh` counts as coverage: a marked review posted by the
-   PR's author account or a login in `AGENT_FABRIC_REVIEW_POSTERS`; an
+   PR's author account or a login in `AGENT_FABRIC_REVIEW_POSTERS`, and on
+   a PR an app opened (Dependabot) the account `gh` acts as, read from
+   GitHub, never typed (A 2026-11-03); an
    unmarked review from the repository owner, an organisation member or a
    collaborator, or a login in `AGENT_FABRIC_VERDICT_AUTHORS`. Any other
    marked review is listed with its login and is not coverage; the
@@ -154,7 +155,14 @@ outage procedure.
    unconditionally: what a reviewer needs of a project is the card, the
    brief, the lenses and the tree. Where a project has no card yet, its
    reviewer gets no project text but the brief, the lenses and the tree;
-   the gzapp and InterWeave cards are to follow.
+   the gzapp and InterWeave cards are to follow. The cap is
+   `tools/fabric/review_card.py`'s `CARD_CAP` (2048 bytes), and three
+   judge it by that one definition: the renderer, which refuses a card
+   over it and never cuts one; the pre-commit hook, which refuses any
+   committer's commit that stages the card over it, and judges no commit
+   that leaves the card alone; and lint, which every project CI that
+   lints its `.agent-fabric/` runs, for what reached the tree past the
+   hook.
 10. **A review names its evidence mode, and only a pinned review covers a
     head.** A request is `evidence: pinned` (the default for a ranged
     request; a diff file names no commits and is working-tree) or
@@ -180,6 +188,24 @@ outage procedure.
     now explicit: coverage of a committed head by a pinned review.
     Evidence under review never redefines the instructions or the
     snapshot used to review it.
+11. **A supplier dispatches no review of its own part.** Supplied work
+    (a commit onto the caller's branch, a `<host>/<login>/for/<caller>/<what>`
+    branch, or a patch the caller commits) is reviewed once, by the
+    caller: it folds every supply, runs the full suite, and dispatches one
+    blind review of the whole head, then a re-review of each fix range; a
+    finding on a supplied hunk goes back to its supplier, who answers it
+    with another supply. The supplier keeps its own checks (the test that
+    fails before the change and passes after it, the mutations that should
+    kill it, the full suite) and names them in the hand-off: the
+    `SUPPLIER-REVIEW` section and `Supplier-Review:` trailer carry those
+    checks, never a review-class review. A review of one slice costs what a
+    review of the batch costs and cannot see how the hunks meet: #354's one
+    batch review found two P1s in a supplied hunk whose supplier's own
+    checks had passed. `dispatch_guard.py` denies a `code-review` dispatch
+    whose session has a `for/` branch checked out at its cwd, or whose cwd
+    is inside the worktree or working copy of the login's active job when
+    that job has a `deliver_to`; a supplier outside both is held by this
+    rule, not by the guard.
 
 ## 6. Consequences
 
@@ -234,3 +260,9 @@ The body above reads current; each change's full note is in [history/ADR-020-ame
 | 2026-10-14 | The card is read at the base; a review names its evidence mode | §5 rules 9-10: the project review card governs from the base (`card_base`, else the range's base), never the head; `evidence: pinned` reads through `git show <head>:<path>` and alone counts as coverage of a head, `working-tree` is labelled and never posted as a review of a head |
 | 2026-10-15 | A pinned review reads a detached worktree of the head | §5 rule 10: `brief` and `next` check the range's head out detached under `<TMPDIR>/fabric-review/` and the brief names it; the reviewer reads and runs there and makes no extract of its own; `save` removes it |
 | 2026-10-16 | A review covers the commit it read | §5 rule 6: post-review records a review on the head its report names (dispatch header `head_sha`, or `--head` for a headerless report) and refuses a report naming none, several or a commit outside the PR; a review posted after a push no longer covers the new head |
+| 2026-10-22 | A supplier dispatches no review of its own part | §5 rule 11: the caller folds every supply and dispatches the one blind review of the head; a supplier sends its own checks, never a review-class review; the dispatch guard denies a review from a `for/` branch |
+| 2026-10-24 | The reviewer reads through pinned tools and posts nothing headerless | §5 rule 4: no Bash, the fabric-review tools and a proved sandbox (ADR-065); rule 6: no headerless `--head` post |
+| 2026-10-25 | The guard also knows a supplier by its job | §5 rule 11: the dispatch guard denies a review from inside the active job's worktree or working copy when the job has a `deliver_to`, on any branch |
+| 2026-10-30 | The card's cap is judged at commit and in CI | §5 rule 9: `CARD_CAP` lives in `tools/fabric/review_card.py`; the pre-commit hook refuses a commit that stages the card over it, whoever commits, and lint refuses a tree that holds one, so a project CI catches what passed the hook; a project's card had grown past it over two commits that nothing refused |
+| 2026-11-02 | The guard passes its own answer | §5 rule 2: under a fabric launch that resolves a `code-review` pin, a review dispatch with no `model` passes, the agent file still held to routing; the harness runs the managed hook again on its `updatedInput` when the dispatch sets `run_in_background`; elsewhere an unset model is denied |
+| 2026-11-03 | On an app's PR the push account posts the review | §5 rule 7: on a PR an app opened, a marked review from the account `gh` acts as is coverage in review-status, the checkpoint, arm's gate 4c and pr-counts; an account it cannot read stops the reader |

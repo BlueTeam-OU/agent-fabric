@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""runtime/provisioning/secrets/store-enroll.sh: the parent gives an
+"""tools/fabric/store_enroll.py: the parent gives an
 account its key and store (ADR-038) through the host executor, as it
 would on another host. The account is a separate scratch home and keyring
 reached only through a fake hostexec, the repositories are bare ones
@@ -25,7 +25,7 @@ own_instance_tree()
 scrub_process_env()
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-ENROLL = os.path.join(ROOT, "runtime", "provisioning", "secrets", "store-enroll.sh")
+ENROLL = os.path.join(ROOT, "tools", "fabric", "store_enroll.py")
 STORE = os.path.join(ROOT, "tools", "fabric", "secret_store.py")
 LOGIN = pwd.getpwuid(os.geteuid()).pw_name
 REAL_KEYS = os.path.expanduser("~/.gnupg/private-keys-v1.d")
@@ -116,7 +116,8 @@ def main() -> int:
         parent = {**base, "HOME": f"{t}/parent", "GNUPGHOME": f"{t}/parent-gnupg", "AGENT_FABRIC_ROOT": fab,
                   "GIT_CONFIG_GLOBAL": f"{t}/parent/.gc", "AGENT_FABRIC_HOSTS_REGISTRY": f"{t}/hosts.json",
                   "AGENT_FABRIC_HOSTEXEC": f"{t}/bin/hostexec", "GH": f"{t}/bin/gh",
-                  "AGENT_FABRIC_SECRETS_REMOTE_BASE": f"{t}/remotes"}
+                  "AGENT_FABRIC_SECRETS_REMOTE_BASE": f"{t}/remotes",
+                  "AGENT_FABRIC_PYTHON": sys.executable}
 
         def P(*argv: str, stdin: str | None = None, env: dict | None = None) -> tuple[int, str]:
             r = subprocess.run(list(argv), env=env or parent, input=stdin, stdout=subprocess.PIPE,
@@ -146,9 +147,9 @@ def main() -> int:
             put(calls, "")
 
         print("store-enroll: the parent first")
-        rc, out = P(ENROLL, "kid")
+        rc, out = P(sys.executable, ENROLL, "kid")
         check("a parent without its own store is refused", rc == 1 and "no store yet" in out, f"rc={rc}\n{out}")
-        rc, out = P(ENROLL, "--self")
+        rc, out = P(sys.executable, ENROLL, "--self")
         pid = lid(LOGIN)
         try:
             first_parent = list(json.loads(read(f"{fab}/identities/keys/lineage.json")).values())[0].get("parent", "x")
@@ -168,7 +169,7 @@ def main() -> int:
         keep = read(aid_file)
         put(aid_file, "not-an-id\n")
         clear_calls()
-        rc, out = P(ENROLL, "--self")
+        rc, out = P(sys.executable, ENROLL, "--self")
         put(aid_file, keep)
         check("--self with a malformed .agent-id: exit 1, nothing made",
               rc == 1 and "agent id could not be read" in out and "repo create" not in read(calls), f"rc={rc}\n{out}")
@@ -176,7 +177,7 @@ def main() -> int:
         keep = read(lin)
         put(lin, "{ not json\n")
         clear_calls()
-        rc, out = P(ENROLL, "kid")
+        rc, out = P(sys.executable, ENROLL, "kid")
         put(lin, keep)
         check("a lineage that cannot be read stops the enrolment before anything is asked or made",
               rc == 1 and "lineage.json could not be read" in out and "repo create" not in read(calls)
@@ -188,7 +189,7 @@ def main() -> int:
         for f in ("fail-id", "bad-id"):
             put(f"{t}/{f}", "")
             clear_calls()
-            rc, out = P(ENROLL, "kid")
+            rc, out = P(sys.executable, ENROLL, "kid")
             os.remove(f"{t}/{f}")
             check(f"{f}: the enrolment stops, and no repository is made",
                   rc == 1 and "repo create" not in read(calls) and re.search(r"could not be read|is not one", out)
@@ -197,12 +198,12 @@ def main() -> int:
         # rejected) leaves the id in the account's store; the re-run takes
         # it, never a new one.
         put(f"{t}/fail-push", "")
-        rc, out = P(ENROLL, "kid")
+        rc, out = P(sys.executable, ENROLL, "kid")
         os.remove(f"{t}/fail-push")
         first_id = read(f"{t}/kid/.local/share/agent-fabric/secrets/.agent-id").strip()
         check("a first run whose push fails stops after init, the id in the account's store",
               rc == 1 and bool(first_id) and "kid: push failed" in out, f"rc={rc}\n{out}")
-        rc, out = P(ENROLL, "kid")
+        rc, out = P(sys.executable, ENROLL, "kid")
         publish()   # the child's keys PR, merged
         check("the child gets its key and store, and is certified",
               rc == 0 and re.search(r"kid: agent [0-9a-f-]{36}, key certified", out) is not None, f"rc={rc}\n{out}")
@@ -226,14 +227,14 @@ def main() -> int:
         verify = subprocess.run([sys.executable, STORE, "verify"], env={**base, "AGENT_FABRIC_ROOT": fab},
                                 stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, timeout=120)
         check("…and lineage verifies", verify.returncode == 0, verify.stdout)
-        rc, out = P(ENROLL, "kid")
+        rc, out = P(sys.executable, ENROLL, "kid")
         secs = subprocess.run(["gpg", "--homedir", f"{t}/kid-gnupg", "--list-secret-keys", "--with-colons"],
                               stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True, timeout=60).stdout
         check("a second run keeps the child's one key and its id",
               rc == 0 and sum(1 for ln in secs.split("\n") if ln.startswith("sec")) == 1 and lid("kid") == kid,
               f"rc={rc}\n{out}")
         check("the parent can now write into the child's store", store("put", "kid", "GH_TOKEN", stdin="top secret\n")[0] == 0)
-        rc, out = P(ENROLL, "kid")
+        rc, out = P(sys.executable, ENROLL, "kid")
         check("a re-run after the parent's put takes it and converges, never pushing the account's older head",
               rc == 0 and "GH_TOKEN" in subprocess.run(["git", "--git-dir", f"{t}/remotes/fabric-agent-{kid}.git", "ls-tree",
                                                          "-r", "--name-only", "main"], stdout=subprocess.PIPE, text=True,
@@ -245,12 +246,12 @@ def main() -> int:
         url = subprocess.run(["git", "-C", mirror, "remote", "get-url", "origin"], stdout=subprocess.PIPE,
                              text=True, timeout=60, check=True, env=git_env()).stdout.strip()
         subprocess.run(["git", "-C", mirror, "remote", "set-url", "origin", f"{t}/remotes/gone.git"], timeout=60, check=True, env=git_env())
-        rc, out = P(ENROLL, "kid")
+        rc, out = P(sys.executable, ENROLL, "kid")
         subprocess.run(["git", "-C", mirror, "remote", "set-url", "origin", url], timeout=60, check=True, env=git_env())
         check("a mirror that cannot be brought up to date is a failure, not a note",
               rc == 1 and "kid: its mirror could not be brought up to date" in out
               and not re.search(r"kid: agent .*mirrored", out), f"rc={rc}\n{out}")
-        rc, out = P(ENROLL, "nobody")
+        rc, out = P(sys.executable, ENROLL, "nobody")
         check("an unplaced login is refused by name", rc == 1 and "nobody: not placed" in out, f"rc={rc}\n{out}")
 
         # A retried assign pushes the parent's own record that an earlier
@@ -271,32 +272,32 @@ def main() -> int:
         # key, and none has an HTTPS credential helper for a private
         # repository.
         no_base = {k: v for k, v in parent.items() if k not in ("AGENT_FABRIC_SECRETS_REMOTE_BASE", "GIT_CONFIG_GLOBAL")}
-        rc, out = P(ENROLL, "kid", "--dry-run", env=no_base)
+        rc, out = P(sys.executable, ENROLL, "kid", "--dry-run", env=no_base)
         check("the default remote is SSH, the scheme every account can push with",
               f"store init --agent-id {kid} --remote git@github.com:BlueTeam-OU/fabric-agent-{kid}.git" in out, out)
 
         # A rename: the login, in lineage and in the description; nothing
         # stored moves.
-        rc, out = P(ENROLL, "--rename", "kid", "kiddo")
+        rc, out = P(sys.executable, ENROLL, "--rename", "kid", "kiddo")
         check("--rename changes the login and the description; the id, key, repository and mirror stay",
               rc == 0 and lid("kiddo") == kid and not lid("kid") and os.path.isdir(f"{t}/remotes/fabric-agent-{kid}.git")
               and os.path.isfile(f"{fab}/identities/keys/{kid}.asc")
               and os.path.isdir(f"{t}/parent/.local/share/agent-fabric/children/{kid}/.git")
               and f"repo edit BlueTeam-OU/fabric-agent-{kid} --description agent-fabric agent repository: "
                   "secrets and settings. Agent kiddo on far-host. (ADR-038, ADR-039)" in read(calls), f"rc={rc}\n{out}")
-        rc, out = P(ENROLL, "--describe", "kiddo", "--role", "python-dev")
+        rc, out = P(sys.executable, ENROLL, "--describe", "kiddo", "--role", "python-dev")
         check("--describe rewrites only the description: the role when given, no host for a login the registry does not place",
               rc == 0 and f"repo edit BlueTeam-OU/fabric-agent-{kid} --description agent-fabric agent repository: "
                           "secrets and settings. Agent kiddo, role python-dev. (ADR-038, ADR-039)" in read(calls),
               f"rc={rc}\n{out}")
-        rc, out = P(ENROLL, "--describe", "nobody-here")
+        rc, out = P(sys.executable, ENROLL, "--describe", "nobody-here")
         check("--describe of a login no agent holds is refused", rc == 1 and "no agent with that login" in out, out)
         verify = subprocess.run([sys.executable, STORE, "verify"], env={**base, "AGENT_FABRIC_ROOT": fab},
                                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=120)
         check("…the renamed agent is written to by its new login, and verifies",
               store("put", "kiddo", "AFTER_RENAME", stdin="x\n")[0] == 0 and verify.returncode == 0)
         put(f"{t}/fail-edit", "")
-        rc, out = P(ENROLL, "--rename", "kiddo", "kid3")
+        rc, out = P(sys.executable, ENROLL, "--rename", "kiddo", "kid3")
         os.remove(f"{t}/fail-edit")
         check("…a rename whose description edit fails exits 1 and says what is left",
               rc == 1 and "description still names kiddo" in out, f"rc={rc}\n{out}")

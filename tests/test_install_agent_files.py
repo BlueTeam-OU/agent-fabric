@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Tests for tools/fabric/install_agent_files.py's internals; the behaviour is
-runtime/claude-code/test_install-agent-files.sh's, run against the shim
-(ADR-040 §5 rule 5). What that oracle cannot reach is here, against a fixture
+tests/test_install_agent_files_cli.py's, run against the shim (ADR-040 §5
+rule 5). What that oracle cannot reach is here, against a fixture
 fabric root whose routing.py, identity.py and MCP install.py are stubs that
 record how they were called: the pin and effort placement, a model line that
 appears twice, the provider reaching routing, the user configuration paths,
@@ -36,12 +36,17 @@ if os.path.exists(os.path.join(d, "fail-" + sys.argv[1])):
     sys.exit(3)
 sys.stdout.write(open(os.path.join(d, sys.argv[1] + ".txt")).read())
 """
+# Run, it is `identity.py --role`, answering role.txt; imported (fabric_writes
+# resolves the state directory through it), it is the real module beside it.
 IDENTITY_STUB = """\
 import os, sys
-p = os.path.join(os.path.dirname(os.path.abspath(__file__)), "role.txt")
-if not os.path.exists(p):
-    sys.exit(1)
-print(open(p).read().strip())
+if __name__ != "__main__":
+    from identity_real import *  # noqa: F401,F403
+else:
+    p = os.path.join(os.path.dirname(os.path.abspath(__file__)), "role.txt")
+    if not os.path.exists(p):
+        sys.exit(1)
+    print(open(p).read().strip())
 """
 INSTALL_STUB = """\
 import json, os, sys
@@ -60,6 +65,8 @@ if os.path.exists(out):
 
 # The fabric-memory installer is called as <claude.json> set [--dry-run]; logged apart so the locale checks stay as they are.
 MEMORY_STUB = INSTALL_STUB.replace('"tool": "install"', '"tool": "memory-install"')
+# fabric-review's is called the same way, after fabric-memory's.
+REVIEW_STUB = INSTALL_STUB.replace('"tool": "install"', '"tool": "review-install"')
 
 
 def main() -> int:
@@ -81,14 +88,16 @@ def main() -> int:
             n += 1
             base = os.path.join(scratch, f"f{n}")
             root, home, cfg = (os.path.join(base, x) for x in ("fabric", "home", "cfg"))
-            for d in (home, cfg, os.path.join(root, "tools", "fabric"), os.path.join(root, "runtime", "mcp", "websearch-locale"), os.path.join(root, "runtime", "mcp", "fabric-memory")):
+            for d in (home, cfg, os.path.join(root, "tools", "fabric"), os.path.join(root, "runtime", "mcp", "websearch-locale"), os.path.join(root, "runtime", "mcp", "fabric-memory"), os.path.join(root, "runtime", "mcp", "fabric-review")):
                 os.makedirs(d)
             shutil.copy(MODULE, os.path.join(root, "tools", "fabric", "install_agent_files.py"))
             for sibling in ("fabric_writes.py", "launch_locale.py", "roots.py"):
                 shutil.copy(os.path.join(os.path.dirname(MODULE), sibling), os.path.join(root, "tools", "fabric"))
             shutil.copytree(AGENTS, os.path.join(root, "runtime", "claude-code", "agents"))
+            shutil.copy(os.path.join(HERE, "runtime", "identity.py"), os.path.join(root, "runtime", "identity_real.py"))
             for rel, body in (("tools/fabric/routing.py", ROUTING_STUB), ("runtime/identity.py", IDENTITY_STUB),
-                              ("runtime/mcp/websearch-locale/install.py", INSTALL_STUB), ("runtime/mcp/fabric-memory/install.py", MEMORY_STUB)):
+                              ("runtime/mcp/websearch-locale/install.py", INSTALL_STUB), ("runtime/mcp/fabric-memory/install.py", MEMORY_STUB),
+                              ("runtime/mcp/fabric-review/install.py", REVIEW_STUB)):
                 with open(os.path.join(root, rel), "w") as f:
                     f.write(body)
             put(root, "tools/fabric/pins.txt", "code-review fable claude-pinned-model\n")
@@ -283,6 +292,10 @@ def main() -> int:
         r = run(root, home, cfg)
         check("a login with no role: fabric-memory install.py <claude.json> set, nothing more",
               memory_calls(root) == [[os.path.join(cfg, ".claude.json"), "set"]], str(memory_calls(root)))
+        check("fabric-review (ADR-065) is installed the same way, after it",
+              [c["tool"] for c in calls(root) if c["tool"].endswith("-install") and c["tool"] != "install"] == ["memory-install", "review-install"]
+              and [c["argv"] for c in calls(root) if c["tool"] == "review-install"] == [[os.path.join(cfg, ".claude.json"), "set"]],
+              str(calls(root)))
         check("its lines are printed and counted (+ written, = current)",
               "  +  m mcpServers.fabric-memory" in r.stdout and r.stdout.splitlines()[-1] == "agent files (anthropic): 6 written, 1 already current.", r.stdout)
         r = run(root, home, cfg, "--dry-run")
@@ -314,6 +327,7 @@ def main() -> int:
                 continue
             root, home, cfg = fixture()
             shutil.copy(os.path.join(HERE, "runtime", "mcp", "fabric-memory", "install.py"), os.path.join(root, "runtime", "mcp", "fabric-memory", "install.py"))
+            shutil.copy(os.path.join(HERE, "runtime", "mcp", "stdio_entry.py"), os.path.join(root, "runtime", "mcp", "stdio_entry.py"))
             cj = os.path.join(cfg, ".claude.json")
             if label == "a directory":
                 os.mkdir(cj)
@@ -367,6 +381,13 @@ def main() -> int:
                            text=True, env=env_for(home, cfg), check=False)
         check("login 'gz-writer-x' whose launch recorded ka takes ka's worker",
               os.path.isfile(os.path.join(cfg, "agents", "locale-worker.md")), r.stdout + r.stderr)
+
+        # A session launched before launch-locale.json existed has only launch-holder.json: its worker stays.
+        put(home, ".local/state/agent-fabric/agents/gz-writer-y/launch-holder.json", json.dumps({"holder": {"locale": "ka"}}) + "\n")
+        r = subprocess.run([sys.executable, "-c", drv, os.path.join(root, "tools", "fabric"), "gz-writer-y"], capture_output=True,
+                           text=True, env=env_for(home, cfg), check=False)
+        check("login 'gz-writer-y' with only launch-holder.json (ka) keeps ka's worker",
+              r.returncode == 0 and os.path.isfile(os.path.join(cfg, "agents", "locale-worker.md")), r.stdout + r.stderr)
 
         # --locale (the holder's holder.json, agent-fabric ADR-060 §5 rule 8) installs its locale's worker.
         root, home, cfg = fixture()

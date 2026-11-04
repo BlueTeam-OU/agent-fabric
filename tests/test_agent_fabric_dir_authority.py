@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Tests for tools/fabric/guards/agent_fabric_dir_authority.py's internals;
-the behaviour is policies/test_check_agent_fabric_dir_authority.sh's, run
+the behaviour is tests/test_policy_dir_authority_entry.py's, run
 against the shim (ADR-040 §5 rule 5)."""
 from __future__ import annotations
 
@@ -57,7 +57,7 @@ def main() -> int:
         fails += not good
 
     print("the locale pattern is the hooks' pattern")
-    with open(os.path.join(HERE, "policies", "githooks", "locale-carve-out.sh")) as f:
+    with open(os.path.join(HERE, "tools", "fabric", "guards", "commit_hooks.py")) as f:
         hook = f.read()
     check("the hook's regex is in the module, verbatim", da.LOCALE_PATH.pattern in hook)
 

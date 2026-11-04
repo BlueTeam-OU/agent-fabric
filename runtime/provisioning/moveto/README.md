@@ -15,6 +15,7 @@ moveto <account> --via sudo    # the break-glass; sudo is also the default until
 moveto <account> [<clone>] --resume  # …and bring its last session back first (fabric-resume)
 moveto <account> [<clone>] --wait    # "<account> - Enter to activate"; Enter does --resume
 moveto <account> [<clone>] --watch   # …and show its status first (fabric-watch), until q
+moveto <account> --attach            # draw the harness pane of the account's own FleetDeck server; no shell, no refresh
 ```
 
 `exit` returns to the shell you came from.
@@ -30,6 +31,20 @@ the account, or while another activation's launcher holds its
 `resume.lock`, so an Enter never starts a second session. `--watch` runs
 `fabric-watch`, read-only, after the refresh; `q` returns to the account's
 shell.
+
+`--attach` is the fourth word and the odd one: it starts nothing. Each account
+runs a headless FleetDeck server as a user unit (`agent-fabric-harness.service`,
+`runtime/control/`), whose one pane, labelled `harness`, runs `enter --wait` and
+then the session. `--attach` draws that pane here until the attach is hung up
+(Ctrl-b q, or the ssh dropping); that ends the attach only, the session runs on
+in the unit, and a second attach redraws it. Over ssh the forced command's fifth
+word is `attach` (`ssh … -- attach`), which reaches `enter` as `--attach`; by
+sudo it is `enter … --attach` as the account. With no
+`/usr/local/bin/agent-fabric-fleetdeck` (`tools/fabric/provisioning/install_fleetdeck.py`),
+no server or no harness pane it says which in one line and exits 1; it never
+starts a server (`fabric-ctl <login> harness-start` does). It excludes the other
+modes and takes no clone. A session in the unit is ended with
+`fabric-ctl <login> harness-stop`, never by hanging up a pane.
 
 Entering refreshes the account, best effort, before the shell opens: the
 fabric checkout is fast-forwarded (`git -C ~/projects/agent-fabric pull
@@ -147,6 +162,31 @@ later element would win.
 
 OSC 1 (tab) and OSC 2 (window) are set explicitly rather than OSC 0, which
 means "both" and is honoured inconsistently.
+
+## Why moveto waits for ssh
+
+Over ssh moveto is ssh's parent, not an `exec` into it (j103, 2026-11-01).
+Claude Code on the far side switches on the kitty keyboard protocol and SGR
+mouse reporting in the *operator's* terminal. The deck hangs an attach up when
+its tab loses focus (SIGHUP to the pane's foreground group), and nothing on
+either side switches the modes off: the pane's bash then shows `7;5u` and
+`CSI <35;x;yM` as text, and the deck's next `moveto … --attach` runs as
+`7;5umoveto …`. Only the local side can fix it, whatever the host: ssh is the
+one way to the agents on a second host, and no write to a pane's tty from
+outside is needed.
+
+When ssh ends — exit, a dropped connection (255) or a forwarded signal — and
+moveto's stdout is a terminal, it writes the reset (kitty keyboard, mouse
+1000/1002/1003/1005/1006/1015, focus 1004, bracketed paste 2004,
+modifyOtherKeys, cursor shown) and exits with ssh's status, a signal death as
+128+n. SIGHUP, SIGTERM and SIGINT are forwarded to ssh. `--print` and a pipe
+get no escapes. It does not leave the alternate screen: a remote program that
+did not restore it is a different defect.
+
+The `--via sudo` path has the same class of gap only for what a program run in
+the entered shell sets; there is no ssh to outlive, the shell is the pane's own
+child, and moveto is no longer running when it ends. It is not changed here.
+SIGKILL of moveto itself leaves no chance to reset; that stays a limit.
 
 ## Tests
 

@@ -53,13 +53,19 @@ where the agreement changed; deliver what can be checked where it lands;
 keep the agreement in the PR body. Silence is neither consent nor a
 release (`MESSAGE-FORMAT.md`).
 
+**Blocked on another agent's decision: ask that agent by message** — a
+`QUESTION`, or a `REPLY` to its `REQUEST` naming what blocks you. A
+decision written only on your own screen reaches no one.
+
 **Pull requests: one change, one owner, one open PR per agent and
 repository.** Pieces that only make sense together land as one PR,
 integrated by the role that owns the concern; a supplier delivers commits
 or a `for/` branch to the caller and opens no PR. While your PR is open,
 the next piece of work is another commit on it. A PR is armed by its
 work-commit count against the minimum `fabric-pr arm --dry-run` prints,
-below it only on the owner's word, and never without the review gate.
+below it only on the owner's word or on the word of the role the
+dry-run names as the repository's arming authority, and never without
+the review gate.
 Any PR status you state carries its counts ("#215 is unarmed: 6 work, 2
 fix, minimum 8"). The `pull-requests` skill has the whole procedure:
 load it before you open, supply, fold, add to or arm a PR.
@@ -72,6 +78,11 @@ the rule, not the instance.
 and volumes gone however it ends, scratch in the session's scratchpad,
 a target cleaned after a dependency change, a large cache removed —
 measured first, and what was removed said.
+
+**A heavy build or suite runs as a background command**: cargo, dotnet
+and `tests/run.sh` wait for one of the host's few cpu slots, up to 25
+minutes, longer than a foreground call lives (agent-fabric ADR-010
+rule 9).
 
 **The control plane is read-only.** `agent-fabric/` and every project's
 `.agent-fabric/` are fabric-coordinator's to write; a charter, a brief

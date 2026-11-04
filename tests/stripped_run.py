@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""tests/stripped_run.py <tree> <test file>... — run test files on a copy of
+"""tests/stripped_run.py <tree> [--skip-list <file>] <test file>... — run test files on a copy of
 a fabric tree with its instance data removed (agent-fabric ADR-045 §5 rule
 3: tests read instance fixtures, never the checkout's live instance files).
 
@@ -40,6 +40,18 @@ red on a stripped copy is its answer, said as "<file>: red, deliberate — <why>
 and not counted; the same file passing is "ok". Exit 0 all passed, 1 any
 failed, 2 the run could not be made or not cleaned up (no tree, not a git
 work tree, a file not in it, a copy that could not be removed).
+
+--skip-list <file> is the nightly run's list of files known red, each with
+the job that owns it: one "<path> <job or reason>" per line, blank lines and
+"#" lines ignored. A listed file that is red is said as "<file>: red, listed
+— <reason>" and not counted; a red file NOT on the list fails as without a
+list, and so does a listed file that now PASSES ("<file>: FAILED (listed in
+the skip list, but it passes: remove its line)"), so the list only shrinks.
+The list is refused, exit 2, when a line has no reason, a path repeats, a
+path is not a file in the tree (a deleted test must leave the list) or is
+in KNOWN_RED (a deliberate red has its answer already, and a second one
+would say two things about one file). A listed file the run was not asked to
+run is not checked: the list may cover more than one run.
 """
 from __future__ import annotations
 
@@ -83,6 +95,33 @@ def in_tree(top: str, f: str) -> str:
     if os.path.commonpath([p, top]) != top or not os.path.isfile(p):
         raise NotRunnable(f"not a file in {top}: {f}")
     return os.path.relpath(p, top)
+
+
+def read_skip_list(top: str, path: str) -> dict[str, str]:
+    """The skip list's `{path in the tree: reason}`, or NotRunnable naming the line."""
+    try:
+        with open(path, encoding="utf-8") as fh:
+            lines = fh.read().splitlines()
+    except (OSError, UnicodeDecodeError) as e:
+        raise NotRunnable(f"skip list {path} unreadable: {e}") from e
+    skip: dict[str, str] = {}
+    for n, line in enumerate(lines, 1):
+        if not line.strip() or line.lstrip().startswith("#"):
+            continue
+        parts = line.split(None, 1)
+        name, reason = parts[0], (parts[1] if len(parts) > 1 else "")
+        if not reason.strip():
+            raise NotRunnable(f"{path}:{n}: {name} has no job or reason")
+        try:
+            rel = in_tree(top, name)
+        except NotRunnable as e:
+            raise NotRunnable(f"{path}:{n}: {e}") from e
+        if rel in skip:
+            raise NotRunnable(f"{path}:{n}: {rel} is listed twice")
+        if rel in KNOWN_RED:
+            raise NotRunnable(f"{path}:{n}: {rel} is in KNOWN_RED, a deliberate red: not a skip-list entry")
+        skip[rel] = reason.strip()
+    return skip
 
 
 def copy_tree(tree: str, dest: str) -> None:
@@ -156,7 +195,7 @@ def run_one(argv: list[str], cwd: str, env: dict[str, str]) -> tuple[int | str, 
                     proc.wait()
 
 
-def run(tree: str, files: list[str], out=print) -> int:
+def run(tree: str, files: list[str], out=print, skip: dict[str, str] | None = None) -> int:
     # Resolved once: the in-copy check compares resolved paths, and a TMPDIR
     # reached through a link (macOS's /var) would refuse every file.
     base = os.path.realpath(tempfile.mkdtemp(prefix="stripped."))
@@ -173,10 +212,16 @@ def run(tree: str, files: list[str], out=print) -> int:
         make_repo(d, tree)
         env = {**ci_env(dict(os.environ)), "TMPDIR": tmp}
         failed = 0
+        skip = skip or {}
         for f in files:
             code, text = run_one([sys.executable, "-B", f], d, env)
-            if code == 0:
+            if code == 0 and f in skip:
+                failed += 1
+                out(f"{f}: FAILED (listed in the skip list, but it passes: remove its line)")
+            elif code == 0:
                 out(f"{f}: ok")
+            elif f in skip:
+                out(f"{f}: red, listed — {skip[f]}")
             elif f in KNOWN_RED:
                 out(f"{f}: red, deliberate — {KNOWN_RED[f]}")
             else:
@@ -195,8 +240,17 @@ def _as_exit(signum, _frame):
 
 
 def main(argv: list[str]) -> int:
-    if len(argv) < 2:
-        print("usage: stripped_run.py <tree> <test file>...", file=sys.stderr)
+    skip_path = None
+    rest = argv[1:]
+    if "--skip-list" in rest:
+        i = rest.index("--skip-list")
+        if i + 1 >= len(rest):
+            skip_path, rest = "", []
+        else:
+            skip_path = rest[i + 1]
+            rest = rest[:i] + rest[i + 2:]
+    if not argv or not rest or skip_path == "":
+        print("usage: stripped_run.py <tree> [--skip-list <file>] <test file>...", file=sys.stderr)
         return 2
     tree = os.path.abspath(argv[0])
     try:
@@ -209,7 +263,8 @@ def main(argv: list[str]) -> int:
     for sig in (signal.SIGTERM, signal.SIGHUP):
         signal.signal(sig, _as_exit)
     try:
-        return run(top, [in_tree(top, f) for f in argv[1:]])
+        skip = read_skip_list(top, skip_path) if skip_path else None
+        return run(top, [in_tree(top, f) for f in rest], skip=skip)
     except NotRunnable as e:
         print(f"stripped_run: {e}", file=sys.stderr)
         return 2

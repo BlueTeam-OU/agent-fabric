@@ -192,9 +192,10 @@ def main() -> int:
         rc, out, err = w.sw("pause", j1, "set aside for the urgent one")
         check("pause on a feature branch records the branch and its checkout", rc == 0 and w.job(j1)["branch"] == "side/work"
               and w.job(j1)["worktree"] == w.repo, repr(w.job(j1)))
+        # A branch with no commit of its own is on the default branch already, and settled (j178); this one carries work.
+        subprocess.run(["git", "-C", w.repo, "commit", "-q", "--allow-empty", "-m", "work"], check=True, env=git_env())
         rc, out, err = w.switch()
         check("a branch that is not on origin is refused", rc == 1 and "branch side/work is not on origin" in err, err)
-        subprocess.run(["git", "-C", w.repo, "commit", "-q", "--allow-empty", "-m", "work"], check=True, env=git_env())
         subprocess.run(["git", "-C", w.repo, "push", "-q", "origin", "side/work"], check=True, env=git_env())
         subprocess.run(["git", "-C", w.repo, "commit", "-q", "--allow-empty", "-m", "more"], check=True, env=git_env())
         rc, out, err = w.switch()
@@ -598,6 +599,42 @@ def main() -> int:
         w.sw("block", j1, "--on", "pr:o/r#6")
         rc, out, err = w.switch()
         check("a blocker still waiting settles it (the positive control)", rc == 0 and "blocked on pr:o/r#6" in out, out + err)
+        print("a clock blocker: waits, then reads the clock alone")
+        w = World()
+        j1 = w.working("blocked on a time")
+        rc, out, err = w.sw("block", j1, "--on", "clock:2020-01-01T00:00Z")
+        check("block refuses a time that has passed, naming the form's rule", rc == 1 and "already passed" in err and w.job(j1)["state"] == "active", out + err)
+        rc, out, err = w.sw("block", j1, "--on", "clock:2099-01-01T00:00+02:00")
+        check("…and an offset, naming the form", rc == 1 and "trailing Z" in err, out + err)
+        rc, out, err = w.sw("block", j1, "--on", "clock:2099-01-01T00:00Z")
+        check("a future clock blocks, stored with seconds", rc == 0 and w.job(j1)["blockers"] == ["clock:2099-01-01T00:00:00Z"], out + err)
+        w.add("the next job")
+        rc, out, err = w.switch()
+        check("switch accepts a job blocked on a clock still ahead", rc == 0 and "blocked on clock:2099-01-01T00:00:00Z" in out, out + err)
+        w = World()
+        j1 = w.working("clock gone by")
+        gh_says({"o/r#5": "OPEN"})
+        w.sw("block", j1, "--on", "clock:2099-01-01T00:00Z", "--on", "pr:o/r#5")
+        jpath = os.path.join(w.state, "agents", login, "jobs.json")
+        doc = json.load(open(jpath))
+        doc["jobs"][0]["blockers"][0] = "clock:2020-01-01T00:00:00Z"        # the time came: the stored spec is what a later look reads
+        json.dump(doc, open(jpath, "w"))
+        rc, out, err = w.sw("list", "--all", "--json", "--stored")
+        states = {b["spec"]: b["state"] for b in json.loads(out)[0]["blockers"]}
+        check("a --stored listing clears the clock with no check run; the waiting pr keeps the job blocked",
+              states.get("clock:2020-01-01T00:00:00Z") == "cleared" and json.loads(out)[0]["cleared"] is not True, out + err)
+        w = World()
+        j1 = w.working("only a clock")
+        w.sw("block", j1, "--on", "clock:2099-01-01T00:00Z")
+        w.add("the next job")
+        jpath = os.path.join(w.state, "agents", login, "jobs.json")
+        doc = json.load(open(jpath))
+        doc["jobs"][0]["blockers"] = ["clock:2020-01-01T00:00:00Z"]
+        json.dump(doc, open(jpath, "w"))
+        rc, out, err = w.sw("list", "--all", "--json", "--stored")
+        check("a lone clock gone by is cleared with no check", json.loads(out)[0]["cleared"] is True, out + err)
+        rc, out, err = w.switch()
+        check("…and switch takes the job whose clock passed before anything queued", rc == 0 and out.startswith(j1), out + err)
         w = World()
         j1 = w.working("dropped")
         w.sw("drop", j1, "no longer needed")
@@ -916,6 +953,57 @@ def main() -> int:
         check("the opening prompt names the branch", f"work on branch {want} in {job['worktree']}" in w.sw("show", j1, "--line")[1], w.sw("show", j1, "--line")[1])
         check("the log line carries the branch", f"branch {want}" in job["log"][-1]["note"], repr(job["log"]))
         check("the working copy itself is untouched", subprocess.run(["git", "-C", w.repo, "rev-parse", "--abbrev-ref", "HEAD"], capture_output=True, text=True).stdout.strip() == "main")
+        check("switch gives the job a worktree and sets working_copy to it in the same write (j474: a relaunch followed the older one)",
+              job["working_copy"] == job["worktree"] != w.repo, repr(job))
+        # A delivered job's branch and commits are asked of its working copy, which is its worktree now, and the leave sweep removes
+        # that worktree: git is then asked in this login's checkout of the project, so `sweep` can still close the job.
+        jpath = os.path.join(w.state, "agents", login, "jobs.json")
+        doc = json.load(open(jpath))
+        next(j for j in doc["jobs"] if j["id"] == j1)["project"] = "proj"
+        with open(jpath, "w", encoding="utf-8") as fh:
+            json.dump(doc, fh)
+        settle = sys.modules["fabric_jobs.settle"]
+        # The fixture has no registry to find a project's checkout by; what is asked here is that the fallback is taken.
+        real_working_copy_of = settle.working_copy_of
+        settle.working_copy_of = lambda p: w.repo if p == "proj" else None
+        check("the directory git is asked in is the job's working copy while it is there", settle.checkout_of(w.job(j1)) == job["worktree"], repr(job))
+        subprocess.run(["git", "-C", w.repo, "worktree", "remove", "--force", job["worktree"]], check=True, env=git_env())
+        os.chdir(w.repo)
+        check("…and the project's checkout once the sweep has removed the worktree it names",
+              settle.checkout_of(w.job(j1)) == w.repo, repr(w.job(j1)))
+        # Through a settle call site, not the helper: a branch artifact is resolved on origin from the project's checkout.
+        subprocess.run(["git", "-C", w.repo, "push", "-q", "origin", job["branch"]], check=True, env=git_env())
+        problems: list[str] = []
+        _, tips = settle._branch_tips(w.job(j1) | {"artifacts": [job["branch"]]}, problems)
+        check("a delivered job whose worktree is swept still has its branch artifact found on origin (what lets `sweep` close it)",
+              [name for name, _ in tips] == [job["branch"]] and not problems, repr((tips, problems)))
+        settle.working_copy_of = real_working_copy_of
+        subprocess.run(["git", "-C", w.repo, "worktree", "add", "-q", job["worktree"], job["branch"]], check=True, env=git_env())
+        # The record named two places until then; its own worktree is the one re-pointing the guard accepts.
+        project = "proj"
+        before = w.job(j1)
+        rc, out, err = w.sw("project", j1, project, "--working-copy", job["worktree"])
+        check("project --working-copy <the job's own worktree> is accepted and leaves the two fields equal",
+              rc == 0 and w.job(j1)["working_copy"] == job["worktree"] == w.job(j1)["worktree"], out + err)
+        check("…and changes nothing else: the project and where it came from stay, and the log says a sync, not a re-pointing",
+              w.job(j1).get("project_from") == before.get("project_from") and w.job(j1)["project"] == "proj"
+              and "synced to its worktree" in w.job(j1)["log"][-1]["note"], repr(w.job(j1)))
+        rc, out, err = w.sw("project", j1, "elsewhere", "--working-copy", job["worktree"])
+        check("…but it does not rename the job: another project is refused, with the reason",
+              rc == 1 and "its work is in that project's checkout" in err and w.job(j1)["project"] == project, out + err)
+        rc, out, err = w.sw("project", j1, "somewhere", "--working-copy", w.repo)
+        check("…positive control: any other directory is still refused while the job has a worktree",
+              rc == 1 and "its work is in that project's checkout" in err and w.job(j1)["working_copy"] == job["worktree"], out + err)
+
+        # A job whose working copy is a linked worktree (its record names one place, j474): the branch's worktree is made beside the
+        # repository's main checkout, not beside that worktree.
+        w = World()
+        linked = f"{w.repo}-linked"
+        subprocess.run(["git", "-C", w.repo, "worktree", "add", "-q", "-b", "linked-branch", linked], check=True, env=git_env())
+        j1 = w.add("from a worktree", "--working-copy", linked)
+        rc, out, err = w.switch("--type", "fix")
+        check("a job whose working copy is a linked worktree gets its worktree beside the main checkout",
+              rc == 0 and w.job(j1).get("worktree") == f"{w.repo}-{j1}-from-a-worktree", out + err + repr(w.job(j1)))
 
         w = World()
         j1 = w.working("first")
@@ -935,6 +1023,89 @@ def main() -> int:
         rc, out, err = w.switch()
         check("a branch of the generated name that exists (a landed one, a leftover) is not reused or refused: a suffix",
               rc == 0 and w.job(j2)["branch"] == f"{host}/{login}/feat/{j2}-second-2", out + err)
+
+        print("leaving a job sweeps what it left (j301): a pushed worktree goes, no branch is deleted, the next job's worktree stays")
+
+        def git_in(path: str, *args: str) -> None:
+            subprocess.run(["git", "-C", path, "-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false", *args],
+                           check=True, env=git_env(), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+        def left_behind(w: World, push: bool) -> tuple[str, str]:
+            """A job with a worktree of its own and one commit (pushed or not), dropped; a queued branch at the default's tip."""
+            j1 = w.add("first thing")
+            assert w.switch()[0] == 0
+            left = w.job(j1)["worktree"]
+            git_in(left, "commit", "-q", "--allow-empty", "-m", "work")
+            if push:
+                git_in(left, "push", "-q", "origin", "HEAD:left-work")
+                git_in(left, "fetch", "-q", "origin")
+            assert w.sw("drop", j1, "x")[0] == 0
+            git_in(w.repo, "branch", "queued-at-tip", "origin/main")
+            return j1, left
+
+        def branches_of(w: World) -> str:
+            return subprocess.run(["git", "-C", w.repo, "branch", "--format=%(refname:short)"], capture_output=True, text=True).stdout
+
+        # A registry the sweep can read, that lists no session: it removes a worktree only then, and reads every scratch directory
+        # under $TMPDIR as an ended session's, so the suite gives it a $TMPDIR of its own.
+        readable = {"CLAUDE_CONFIG_DIR": os.path.join(tmp, "claude-config"), "TMPDIR": os.path.join(tmp, "scratch-tmp"),
+                    "CLAUDE_CODE_TMPDIR": os.path.join(tmp, "scratch-tmp")}
+        os.makedirs(os.path.join(readable["CLAUDE_CONFIG_DIR"], "sessions"))
+        os.makedirs(readable["TMPDIR"])
+
+        def with_readable_registry(fn):
+            saved = {k: os.environ.get(k) for k in readable}
+            os.environ.update(readable)
+            try:
+                return fn()
+            finally:
+                for k, v in saved.items():
+                    if v is None:
+                        os.environ.pop(k, None)
+                    else:
+                        os.environ[k] = v
+
+        w = World()
+        j1, left = left_behind(w, push=True)
+        j2 = w.add("second thing")
+        rc, out, err = w.switch()
+        check("a registry that cannot be read keeps the clean pushed worktree the left job leaves, with that reason, and the switch goes on",
+              rc == 0 and os.path.isdir(left) and "session registry unreadable" in out and "removed worktree" not in out, out + err)
+        check("…no branch is deleted: a queued job's branch may sit at the default branch's tip", "queued-at-tip" in branches_of(w), branches_of(w))
+        check("…and what the command said of itself on stderr (no session registry here) reaches the person though it exited 0",
+              "fabric-branches: the sessions of this login cannot be listed" in out, out + err)
+        check("…and the next job's own worktree is made after the sweep, and stays", os.path.isdir(w.job(j2)["worktree"]) and w.job(j2)["worktree"] != left, out + err)
+
+        w = World()
+        j1, left = left_behind(w, push=True)
+        j2 = w.add("second thing")
+        rc, out, err = with_readable_registry(w.switch)
+        check("the worktree the left job leaves, clean and on the remote, is removed, said, with its size, when the registry is readable",
+              rc == 0 and not os.path.exists(left) and f"removed worktree {left}" in out and "freed" in out, out + err)
+        check("…no branch is deleted there either", "queued-at-tip" in branches_of(w), branches_of(w))
+
+        w = World()
+        j1, left = left_behind(w, push=False)
+        w.add("second thing")
+        rc, out, err = w.switch()
+        check("a worktree with a commit on no remote is kept, and the switch says why and goes on",
+              rc == 0 and os.path.isdir(left) and "1 commit(s) on no remote" in out, out + err)
+
+        said = sys.modules["fabric_jobs"].leave_sweep.after_leaving(os.path.join(tmp, "not-a-checkout"), None)
+        check("a sweep that cannot start is said once, in the line that says it did not finish, and the switch goes on",
+              said == ["sweep skipped: no working copy of the job is a directory"], said)
+        os.makedirs(os.path.join(tmp, "not-a-checkout"), exist_ok=True)
+        said = sys.modules["fabric_jobs"].leave_sweep.after_leaving(os.path.join(tmp, "not-a-checkout"), None)
+        check("a sweep that fails is said once, in the line that says it did not finish, naming the line that ended it",
+              sum("not in a git working copy" in l for l in said) == 1 and said[-1].startswith("sweep of ")
+              and "did not finish (exit 2): fabric-branches: not in a git working copy" in said[-1], said)
+
+        w = World()
+        j1, left = left_behind(w, push=True)
+        w.add("second thing")
+        rc, out, err = with_readable_registry(lambda: w.switch("--json"))
+        check("--json: stdout is the one object, the sweep's report is on stderr", rc == 0 and json.loads(out)["job"] and f"removed worktree {left}" in err
+              and "removed worktree" not in out, out + err)
 
         print("review findings: a switch that races, a swept worktree, odd artifacts, pause elsewhere, blockers kept")
         w = World()
@@ -1046,6 +1217,91 @@ def main() -> int:
         rc, out, err = w.switch(cwd=w2["worktree"])
         check("a job that has a branch of its own goes back to it, not to a new one", rc == 0 and out.startswith(j2)
               and w.job(j2)["branch"] == w2["branch"] and f"{w2['branch']} (the job's own branch" in out, out + err)
+
+        print("a job that records its own branch is never given another's (j201, the owner 2026-11-04: j511 got j513's)")
+
+        def gitc(repo: str, *argv: str) -> None:
+            subprocess.run(["git", "-C", repo, *argv], check=True, env=git_env(), capture_output=True)
+
+        def two_with_branches():
+            """Two paused jobs, each on a pushed branch of its own, and an open pull request of this login that could take more commits."""
+            w = World()
+            subprocess.run(["git", "-C", w.repo, "checkout", "-q", "-b", mine], check=True, env=git_env())
+            subprocess.run(["git", "-C", w.repo, "commit", "-q", "--allow-empty", "-m", "on the pull request"], check=True, env=git_env())
+            subprocess.run(["git", "-C", w.repo, "push", "-q", "origin", mine], check=True, env=git_env())
+            subprocess.run(["git", "-C", w.repo, "checkout", "-q", "main"], check=True, env=git_env())
+            first = w.working("first")
+            w.sw("drop", first, "x")
+            jobs_on = []
+            for title in ("alpha", "beta"):
+                jid = w.add(title)
+                rc, out, err = w.switch(jid, cwd=jobs_on[-1][1]["worktree"] if jobs_on else w.repo)
+                assert rc == 0, out + err
+                rec = w.job(jid)
+                assert rec.get("worktree"), out + err + repr(rec)
+                gitc(rec["worktree"], "commit", "-q", "--allow-empty", "-m", f"{title} begun")
+                gitc(rec["worktree"], "push", "-q", "origin", rec["branch"])
+                w.sw("pause", jid, "later", cwd=rec["worktree"])
+                jobs_on.append((jid, rec))
+            gh_says(open_prs=[{"number": 40, "headRefName": mine, "isDraft": False}])
+            return w, jobs_on
+
+        w, ((ja, a), (jb, b)) = two_with_branches()
+        check("two jobs with branches of their own got two different ones, neither the open pull request's", a["branch"] != b["branch"] and mine not in (a["branch"], b["branch"]), repr((a, b)))
+        rc, out, err = w.switch(ja, cwd=b["worktree"])
+        check("switching to the first resumes it on its own branch and worktree, the open pull request left alone",
+              rc == 0 and w.job(ja)["branch"] == a["branch"] and w.job(ja)["worktree"] == a["worktree"], out + err + repr(w.job(ja)))
+        w.sw("pause", ja, "later", cwd=a["worktree"])
+        rc, out, err = w.switch(jb, cwd=a["worktree"])
+        check("…and from it to the second, each keeps its own",
+              rc == 0 and w.job(jb)["branch"] == b["branch"] and w.job(ja)["branch"] == a["branch"], out + err + repr((w.job(ja), w.job(jb))))
+        w.sw("pause", jb, "later", cwd=b["worktree"])
+        jc = w.add("gamma")
+        rc, out, err = w.switch(jc, cwd=b["worktree"])
+        check("a job with no branch still gets one (a pull request of this login that can take it, as before)",
+              rc == 0 and w.job(jc).get("branch") == mine, out + err + repr(w.job(jc)))
+
+        w, ((ja, a), (jb, b)) = two_with_branches()
+        gh_says(merged_heads=[a["branch"]], open_prs=[{"number": 40, "headRefName": mine, "isDraft": False}])
+        rc, out, err = w.switch(ja, cwd=b["worktree"])
+        check("a recorded branch that a pull request landed is refused and said, not replaced by the open pull request's",
+              rc == 1 and "landed" in err and a["branch"] in err and w.job(ja)["branch"] == a["branch"] and w.job(ja)["state"] == "paused",
+              out + err + repr(w.job(ja)))
+        rc, out, err = w.switch(jb, cwd=b["worktree"])
+        check("…and another job switches as before (the positive control)", rc == 0 and w.job(jb)["branch"] == b["branch"], out + err)
+
+        w, ((ja, a), (jb, b)) = two_with_branches()
+        gitc(w.repo, "worktree", "remove", "--force", b["worktree"])
+        gitc(w.repo, "branch", "-q", "-D", b["branch"])
+        gitc(w.repo, "push", "-q", "origin", "--delete", b["branch"])
+        gitc(w.repo, "fetch", "-q", "--prune", "origin")
+        rc, out, err = w.switch(jb, cwd=a["worktree"])
+        check("a recorded branch on neither this clone nor origin is refused and said, not replaced",
+              rc == 1 and "neither this clone nor origin" in err and w.job(jb)["branch"] == b["branch"] and w.job(jb)["state"] == "paused",
+              out + err + repr(w.job(jb)))
+
+        w, ((ja, a), (jb, b)) = two_with_branches()
+        gh_says(merged_heads=[b["branch"]], open_prs=[{"number": 40, "headRefName": mine, "isDraft": False}])
+        gitc(w.repo, "worktree", "remove", "--force", b["worktree"])
+        gitc(w.repo, "branch", "-q", "-D", b["branch"])
+        gitc(w.repo, "push", "-q", "origin", "--delete", b["branch"])
+        gitc(w.repo, "fetch", "-q", "--prune", "origin")
+        rc, out, err = w.switch(jb, cwd=a["worktree"])
+        check("a recorded branch that landed and was then deleted is said to have landed, not to be restored",
+              rc == 1 and "landed" in err and "restore" not in err and w.job(jb)["branch"] == b["branch"], out + err)
+
+        for how in ("git worktree remove", "directory deleted"):
+            w, ((ja, a), (jb, b)) = two_with_branches()
+            if how == "git worktree remove":
+                gitc(w.repo, "worktree", "remove", "--force", b["worktree"])
+            else:
+                shutil.rmtree(b["worktree"])
+            rc, out, err = w.switch(jb, cwd=a["worktree"])
+            check(f"a worktree gone ({how}) is made again from the recorded branch, at the recorded place",
+                  rc == 0 and w.job(jb)["branch"] == b["branch"] and w.job(jb)["worktree"] == b["worktree"]
+                  and os.path.isdir(b["worktree"]) and subprocess.run(["git", "-C", b["worktree"], "rev-parse", "--abbrev-ref", "HEAD"],
+                                                                      capture_output=True, text=True).stdout.strip() == b["branch"],
+                  out + err + repr(w.job(jb)))
 
         print("…an open pull request of this login, when it is still addable")
         w = World()
@@ -1225,13 +1481,638 @@ def main() -> int:
         rc, out, err = w.switch()
         check("a dangling link in the memory directory is not a change and not a failure", rc == 0, err)
 
-        print("a session that has worked no job takes the first in place, with its branch")
+        print("leaving a job clears its worktree's cargo targets (j75): only that worktree, never a held, live, linked or configured-out one")
+        import fcntl
+
+        def cargo_job(w: World, *layout: str) -> tuple[str, str]:
+            """A job started with a worktree of its own (under the home, which the step requires) holding `layout`: a path ending
+            in / is a directory with a file in it, else a file."""
+            j = w.add("with a build")
+            assert w.switch()[0] == 0
+            left = w.job(j)["worktree"]
+            for rel in layout:
+                path = os.path.join(left, rel)
+                os.makedirs(os.path.dirname(path) if not rel.endswith("/") else path, exist_ok=True)
+                if not rel.endswith("/"):
+                    with open(path, "w") as fh:
+                        fh.write("x" * 2048)
+            commit_all(left)
+            return j, left
+
+        def commit_all(left: str) -> None:
+            """What a real checkout has: the sources committed, the build output ignored (a settled job has no uncommitted change)."""
+            with open(os.path.join(left, ".gitignore"), "w") as fh:
+                fh.write("target\n")
+            git_in(left, "add", "-A")
+            git_in(left, "commit", "-q", "-m", "sources")
+
+        def leave(w: World, j: str, how: str = "drop", *flags: str) -> tuple[int, str, str]:
+            if how == "drop":
+                assert w.sw("drop", j, "x")[0] == 0
+            else:
+                left = w.job(j)["worktree"]
+                branch = w.job(j)["branch"]
+                git_in(left, "push", "-q", "origin", f"HEAD:{branch}")
+                git_in(left, "fetch", "-q", "origin")
+                assert w.sw("pause", j, "later")[0] == 0
+            nxt = w.add("next one")
+            return w.switch(nxt, *flags)
+
+        w = World(under=home)
+        j, left = cargo_job(w, "Cargo.toml", "target/debug/big.o", "app/Cargo.toml", "app/target/release/x", "docs/target/y", "a/b/c/Cargo.toml", "a/b/c/target/z", "a/b/c/d/Cargo.toml", "a/b/c/d/target/z")
+        rc, out, err = leave(w, j)
+        check("a target beside a Cargo.toml is removed, at the top and below, and said with its size",
+              rc == 0 and not os.path.exists(os.path.join(left, "target")) and not os.path.exists(os.path.join(left, "app", "target"))
+              and re.search(rf"removed {re.escape(left)}/target \(\d+(\.\d)? (B|KB)\)", out) and f"removed {left}/app/target" in out, out + err)
+        check("…a target at the 4th level is removed, one at the 5th is kept",
+              not os.path.exists(os.path.join(left, "a/b/c/target")) and os.path.exists(os.path.join(left, "a/b/c/d/target/z")), out + err)
+        check("…a target beside no Cargo.toml, and one deeper than 4 levels, stay; so does the source",
+              os.path.exists(os.path.join(left, "docs", "target", "y")) and os.path.exists(os.path.join(left, "a/b/c/d/target/z"))
+              and os.path.exists(os.path.join(left, "Cargo.toml")), out + err)
+
+        w = World(under=home)
+        j, left = cargo_job(w, "Cargo.toml", "target/debug/big.o")
+        rc, out, err = leave(w, j, "pause")
+        check("a job left paused pays too: its target is removed", rc == 0 and not os.path.exists(os.path.join(left, "target")), out + err)
+
+        w = World(under=home)
+        j, left = cargo_job(w, "Cargo.toml", "target/debug/big.o")
+        rc, out, err = leave(w, j, "drop", "--keep-targets")
+        check("--keep-targets skips the step: the target stays and nothing is said of it",
+              rc == 0 and os.path.exists(os.path.join(left, "target", "debug", "big.o")) and "target" not in out.split("branch ")[0], out + err)
+
+        w = World(under=home)
+        j, left = cargo_job(w, "Cargo.toml", "target/debug/big.o")
+        standing = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"], cwd=os.path.join(left, "target", "debug"))
+        try:
+            time.sleep(0.2)      # exec'd: /proc/<pid>/cwd is the child's, not ours
+            rc, out, err = leave(w, j)
+        finally:
+            standing.kill()
+            standing.wait()
+        check("a target with this uid's process standing in it is kept, and says so",
+              rc == 0 and os.path.exists(os.path.join(left, "target", "debug", "big.o")) and f"kept {left}/target: a process of this uid stands in it" in out, out + err)
+
+        w = World(under=home)
+        j, left = cargo_job(w, "Cargo.toml", "target/debug/big.o", "target/debug/.cargo-lock")
+        holder = os.open(os.path.join(left, "target", "debug", ".cargo-lock"), os.O_RDONLY)
+        fcntl.flock(holder, fcntl.LOCK_EX)
+        try:
+            rc, out, err = leave(w, j)
+            kept_held = os.path.exists(os.path.join(left, "target", "debug", "big.o"))
+        finally:
+            os.close(holder)
+        check("a target whose .cargo-lock is held is kept, and says a build is running",
+              rc == 0 and kept_held and f"kept {left}/target: its .cargo-lock is held" in out, out + err)
+        rc, out, err = w.sw("show", j)
+        w2 = w.add("again")      # the positive control: the same tree, the lock let go, is removed
+        w.sw("start", w2)
+        shutil_target = os.path.join(left, "target")
+        from fabric_jobs.leave_targets import clean_targets as _clean
+        said = _clean(left, w.repo)
+        check("…and the same target, the lock released, is removed", not os.path.exists(shutil_target) and said and said[0].startswith("removed "), said)
+
+        w = World(under=home)
+        j, left = cargo_job(w, "Cargo.toml", "target/debug/big.o")
+        git_in(left, "add", "-f", "target/debug/big.o")
+        git_in(left, "commit", "-q", "-m", "oops: build output committed")
+        rc, out, err = leave(w, j)
+        check("a target with a tracked file under it is kept, said (switch and tidy share the judge)",
+              rc == 0 and os.path.isfile(os.path.join(left, "target", "debug", "big.o")) and f"kept {left}/target: git tracks files under it" in out, out + err)
+
+        w = World(under=home)
+        j, left = cargo_job(w, "Cargo.toml", "real/keep.o")
+        os.symlink(os.path.join(left, "real"), os.path.join(left, "target"))
+        rc, out, err = leave(w, j)
+        check("a symlinked target is not followed, nor removed", rc == 0 and os.path.exists(os.path.join(left, "real", "keep.o"))
+              and os.path.islink(os.path.join(left, "target")) and f"kept {left}/target: a link" in out, out + err)
+        w = World(under=home)
+        j, left = cargo_job(w, "Cargo.toml", "target/debug/big.o")
+        outer = os.path.join(tmp, "outside-target")
+        os.makedirs(outer)
+        with open(os.path.join(outer, "precious"), "w") as fh:
+            fh.write("x")
+        os.symlink(outer, os.path.join(left, "target", "inner"))
+        rc, out, err = leave(w, j)
+        check("a link inside a target is removed as a link: what it points at is untouched",
+              rc == 0 and not os.path.exists(os.path.join(left, "target")) and os.path.exists(os.path.join(outer, "precious")), out + err)
+
+        w = World(under=home)
+        j, left = cargo_job(w, "Cargo.toml", "target/debug/big.o", ".cargo/config.toml")
+        with open(os.path.join(left, ".cargo", "config.toml"), "w") as fh:
+            fh.write('[build]\ntarget-dir = "../../elsewhere"\n')
+        commit_all(left)
+        rc, out, err = leave(w, j)
+        check("a cargo configuration sending the target directory outside the worktree keeps the target, and says where",
+              rc == 0 and os.path.exists(os.path.join(left, "target", "debug", "big.o")) and "kept" in out and "sends the target directory to" in out, out + err)
+        with open(os.path.join(left, ".cargo", "config.toml"), "w") as fh:
+            fh.write('[env]\nCARGO_TARGET_DIR = "target-in"\n')
+        said = _clean(left, w.repo)
+        check("…the same tree with the directory named inside the worktree is removed", said and said[0].startswith("removed "), said)
+        os.makedirs(os.path.join(left, "target"))
+        with open(os.path.join(left, "Cargo.toml"), "w") as fh:
+            fh.write("")
+        with open(os.path.join(left, ".cargo", "config.toml"), "w") as fh:
+            fh.write("[build\n")
+        said = _clean(left, w.repo)
+        check("…and a configuration that cannot be parsed keeps it (unknown is not free)", said and said[0].startswith("kept ") and "cannot be read" in said[0], said)
+
+        w = World(under=home)
+        subprocess.run(["git", "-C", w.repo, "checkout", "-q", "-b", mine], check=True, env=git_env())
+        subprocess.run(["git", "-C", w.repo, "commit", "-q", "--allow-empty", "-m", "on the pull request"], check=True, env=git_env())
+        subprocess.run(["git", "-C", w.repo, "push", "-q", "origin", mine], check=True, env=git_env())
+        subprocess.run(["git", "-C", w.repo, "checkout", "-q", "main"], check=True, env=git_env())
+        gh_says(open_prs=[{"number": 40, "headRefName": mine, "isDraft": False}])
+        j, left = cargo_job(w, "Cargo.toml", "target/debug/big.o")
+        rc, out, err = leave(w, j)
+        check("the next job takes the left job's open-pull-request branch, hence its worktree: the targets there are not cleared",
+              rc == 0 and f"cargo targets: {left} is, holds or lies in a checkout" in out and os.path.isdir(os.path.join(left, "target", "debug")),
+              out + err + repr(w.job(j)))
+        gh_says()
+
+        w = World(under=home)
+        j, left = cargo_job(w, "Cargo.toml", "target/debug/big.o", "sub/keep")
+        w.add("holds the checkout", "--working-copy", os.path.join(left, "sub"))
+        rc, out, err = leave(w, j)
+        check("a switch passes the other jobs' working copies: one inside the left worktree keeps its targets, said",
+              rc == 0 and "left alone" in out and os.path.isdir(os.path.join(left, "target")), out + err)
+        lt0 = sys.modules["fabric_jobs"].leave_targets
+        tdir = os.path.join(left, "target")
+        check("a target on another filesystem than the worktree's is kept whole, said",
+              lt0.one(tdir, left, -1, [], "") == f"kept {tdir}: another filesystem")
+
+        w = World(under=home)
+        j, left = cargo_job(w, "Cargo.toml", "target/debug/big.o", "q/Cargo.toml", "q/target/z")
+        w.add("next one")
+        racing_choose = sys.modules["fabric_jobs"].verbs.choose
+        w.sw("drop", j, "x")
+
+        def racing2(job, **kw):
+            made = racing_choose(job, **kw)
+            w.sw("add", "a high one that appeared meanwhile", "--working-copy", w.repo, "--priority", "high")
+            return made
+        sys.modules["fabric_jobs"].verbs.choose = racing2
+        try:
+            rc, out, err = w.switch()
+        finally:
+            sys.modules["fabric_jobs"].verbs.choose = racing_choose
+        check("a switch that refuses afterwards (the list changed) leaves the targets as they were: the job was not left",
+              rc == 1 and "list changed" in err and os.path.exists(os.path.join(left, "target", "debug", "big.o")), out + err)
+
+        w = World(under=home)
+        j, left = cargo_job(w, "Cargo.toml", "target/debug/a")
+        os.link(os.path.join(left, "target", "debug", "a"), os.path.join(left, "target", "debug", "b"))
+        with open(os.path.join(left, "target", "debug", "a"), "w") as fh:
+            fh.write("y" * 1_000_000)
+        said = _clean(left, w.repo)
+        check("a file hard-linked inside a target is counted once in the size", said and re.search(r"\(9\d\d\.\d KB\)|\(1\.0 MB\)", said[0]) and "2.0 MB" not in said[0], said)
+
+        w = World(under=home)
+        j, left = cargo_job(w, "Cargo.toml", "target/debug/big.o")
+        other = os.path.join(home, f"other-{w.n}")
+        os.makedirs(os.path.join(other, "proj", "target"))
+        for name in ("Cargo.toml",):
+            open(os.path.join(other, "proj", name), "w").close()
+        open(os.path.join(other, "proj", "target", "o"), "w").close()
+        said = _clean(home, w.repo, (os.path.join(other, "proj"),))
+        check("a worktree field above another job's working copy is refused, and nothing under it is touched",
+              said and "left alone" in said[0] and os.path.exists(os.path.join(other, "proj", "target", "o")), said)
+        os.makedirs(os.path.join(left, "inner", "target"))
+        open(os.path.join(left, "inner", "Cargo.toml"), "w").close()
+        said = _clean(os.path.join(left, "inner"), left, ())
+        check("a worktree field inside a checkout (not a linked worktree) is refused", said and "left alone" in said[0] and os.path.isdir(os.path.join(left, "inner", "target")), said)
+        said = _clean(left, w.repo, (left,))
+        check("a worktree another job also names is refused", said and "left alone" in said[0] and os.path.isdir(os.path.join(left, "target")), said)
+        os.makedirs(os.path.join(left, "sub"))
+        said = _clean(left, w.repo, (os.path.join(left, "sub"),))
+        check("a worktree that holds another job's working copy is refused (below)", said and "left alone" in said[0] and os.path.isdir(os.path.join(left, "target")), said)
+        said = _clean(left, w.repo, (home,))
+        check("a worktree that lies inside another job's working copy is refused (above)", said and "left alone" in said[0] and os.path.isdir(os.path.join(left, "target")), said)
+        os.rmdir(os.path.join(left, "sub"))
+        said = _clean(left, w.repo, (other,))
+        check("…and the same worktree with unrelated other jobs is cleared (the positive control)", said and said[0].startswith("removed "), said)
+
+        w = World(under=home)
+        j, left = cargo_job(w, "Cargo.toml", "target/debug/big.o")
+        os.makedirs(os.path.join(home, ".cargo"), exist_ok=True)
+        elsewhere = os.path.join(tmp, "elsewhere-target")
+        with open(os.path.join(home, ".cargo", "config.toml"), "w") as fh:
+            fh.write(f'[build]\ntarget-dir = "{elsewhere}"\n')
+        try:
+            said = _clean(left, w.repo)
+        finally:
+            os.unlink(os.path.join(home, ".cargo", "config.toml"))
+            os.rmdir(os.path.join(home, ".cargo"))
+        check("a configuration above the worktree ($CARGO_HOME) that sends the target outside keeps it",
+              said and said[0].startswith("kept ") and elsewhere in said[0] and os.path.isdir(os.path.join(left, "target")), said)
+        # …found by the walk up the parents alone (CARGO_HOME names another place), and by CARGO_HOME alone (no parent has one)
+        saved_ch = os.environ.get("CARGO_HOME")
+        os.makedirs(os.path.join(home, ".cargo"), exist_ok=True)
+        with open(os.path.join(home, ".cargo", "config.toml"), "w") as fh:
+            fh.write(f'[build]\ntarget-dir = "{elsewhere}"\n')
+        os.environ["CARGO_HOME"] = os.path.join(tmp, "no-cargo-home")
+        try:
+            said = _clean(left, w.repo)
+        finally:
+            os.unlink(os.path.join(home, ".cargo", "config.toml"))
+            os.rmdir(os.path.join(home, ".cargo"))
+        check("…also when only a parent directory's .cargo holds it", said and said[0].startswith("kept ") and elsewhere in said[0], said)
+        ch = os.path.join(tmp, "cargo-home")
+        os.makedirs(ch, exist_ok=True)
+        with open(os.path.join(ch, "config.toml"), "w") as fh:
+            fh.write(f'[build]\ntarget-dir = "{elsewhere}"\n')
+        os.environ["CARGO_HOME"] = ch
+        try:
+            said = _clean(left, w.repo)
+        finally:
+            if saved_ch is None:
+                os.environ.pop("CARGO_HOME", None)
+            else:
+                os.environ["CARGO_HOME"] = saved_ch
+        check("…and when only $CARGO_HOME does", said and said[0].startswith("kept ") and elsewhere in said[0], said)
+        plain = os.path.join(home, f"plain-{w.n}")
+        os.makedirs(os.path.join(plain, "target"))
+        open(os.path.join(plain, "Cargo.toml"), "w").close()
+        said = _clean(plain, None)
+        check("a directory that is no linked worktree (no .git file) is refused though nothing else overlaps it",
+              said and "not a linked worktree" in said[0] and os.path.isdir(os.path.join(plain, "target")), said)
+
+        w = World(under=home)
+        j, left = cargo_job(w, "Cargo.toml", "target/debug/big.o", "bad/Cargo.toml", "bad/target/z", "bad/.cargo/config.toml", "ok/Cargo.toml", "ok/target/z")
+        with open(os.path.join(left, "bad", ".cargo", "config.toml"), "wb") as fh:
+            fh.write(b"[build]\ntarget-dir = '\xff\xfe'\n")
+        said = _clean(left, w.repo)
+        check("a configuration that is not UTF-8 keeps only its own target: the others are still judged and said",
+              len(said) == 3 and sum(l.startswith("removed ") for l in said) == 2 and any(l.startswith("kept ") and "/bad/target" in l for l in said)
+              and os.path.isdir(os.path.join(left, "bad", "target")), said)
+        w = World(under=home)
+        j, left = cargo_job(w, "Cargo.toml", "target/debug/big.o", ".cargo/config.toml")
+        os.chmod(os.path.join(left, ".cargo"), 0)
+        try:
+            said = _clean(left, w.repo)
+        finally:
+            os.chmod(os.path.join(left, ".cargo"), 0o755)
+        check("a .cargo directory that cannot be looked into keeps the target: unknown is not absent",
+              said and said[0].startswith("kept ") and os.path.isdir(os.path.join(left, "target")), said)
+
+        w = World(under=home)
+        j, left = cargo_job(w, "Cargo.toml", "target/debug/big.o")
+        lt = sys.modules["fabric_jobs"].leave_targets
+        real_cwds = lt.live_cwds
+
+        def blind():
+            raise lt.Unknown("processes cannot be listed")
+        lt.live_cwds = blind
+        try:
+            said = _clean(left, w.repo)
+        finally:
+            lt.live_cwds = real_cwds
+        check("a process list that cannot be read keeps every target", said and said[0].startswith("kept ") and "cannot be listed" in said[0]
+              and os.path.isdir(os.path.join(left, "target")), said)
+        real_listdir = os.listdir
+
+        def no_proc(path="."):
+            if path == "/proc":
+                raise PermissionError(13, "Permission denied")
+            return real_listdir(path)
+        os.listdir = no_proc
+        try:
+            try:
+                lt.live_cwds()
+                listed_ok = True
+            except lt.Unknown:
+                listed_ok = False
+        finally:
+            os.listdir = real_listdir
+        check("a /proc that cannot be listed is Unknown, never nobody", not listed_ok)
+        unreadable = os.path.join(left, "target", "debug", "locked")
+        os.makedirs(unreadable)
+        os.chmod(unreadable, 0)
+        try:
+            said = _clean(left, w.repo)
+        finally:
+            os.chmod(unreadable, 0o755)
+        check("a directory in the target that cannot be read keeps it", said and said[0].startswith("kept ") and "cannot be read" in said[0], said)
+        try:
+            lt.scan(os.path.join(left, "target"), -1)
+            crossed = False
+        except lt.Unknown:
+            crossed = True
+        check("a target on another filesystem than the worktree's is Unknown (scan), never removed", crossed)
+
+        w = World(under=home)
+        j1 = w.working("shared checkout")
+        os.makedirs(os.path.join(w.repo, "target", "debug"))
+        for name in ("Cargo.toml", os.path.join("target", "debug", "o")):
+            with open(os.path.join(w.repo, name), "w") as fh:
+                fh.write("x")
+        with open(os.path.join(w.repo, ".gitignore"), "w") as fh:
+            fh.write("target\nCargo.toml\n")
+        git_in(w.repo, "add", ".gitignore")
+        git_in(w.repo, "commit", "-q", "-m", "ignore")
+        w.sw("drop", j1, "x")
+        said = _clean(w.repo, w.repo)
+        check("the job's working copy is never touched, though the worktree field names it", said and "left alone" in said[0] and os.path.exists(os.path.join(w.repo, "target", "debug", "o")), said)
+        w.add("n")
+        rc, out, err = w.switch()
+        check("…and a switch from a job whose worktree is unset or gone touches nothing and does not fail",
+              rc == 0 and os.path.exists(os.path.join(w.repo, "target", "debug", "o")), out + err)
+        outside = os.path.join(tmp, "not-in-home")
+        os.makedirs(os.path.join(outside, "target"))
+        with open(os.path.join(outside, "Cargo.toml"), "w") as fh:
+            fh.write("")
+        said = _clean(outside, None)
+        check("a worktree outside the home is left alone", said and "left alone" in said[0] and os.path.isdir(os.path.join(outside, "target")), said)
+        check("an unset field, and a directory that is gone, say nothing", _clean(None, None) == [] and _clean(os.path.join(home, "gone"), None) == [])
+
+        print("a supply job's for/ branch (deliver_to) is its worktree")
+        supply = f"{me}/for/user/j333-review-server"
+
+        def supply_job(w: World, branch: str | None) -> str:
+            job = w.add("supply the review server")
+            path = os.path.join(w.state, "agents", login, "jobs.json")
+            doc = json.load(open(path))
+            if branch:
+                next(j for j in doc["jobs"] if j["id"] == job)["deliver_to"] = branch
+            with open(path, "w", encoding="utf-8") as fh:
+                json.dump(doc, fh)
+            return job
+
+        def on(wt: str) -> str:
+            return subprocess.run(["git", "-C", wt, "branch", "--show-current"], capture_output=True, text=True, env=git_env()).stdout.strip()
+
+        w = World()
+        j1 = supply_job(w, supply)
+        rc, out, err = w.switch()
+        v = w.job(j1)
+        check("a job with deliver_to starts on that branch, new off the default branch, in a worktree of its own",
+              rc == 0 and v["branch"] == supply and on(v["worktree"]) == supply and v["worktree"].endswith("-j333-review-server")
+              and f"{supply} (the for/ branch" in out, out + err + repr(v))
+        w = World()
+        j1 = supply_job(w, None)
+        rc, out, err = w.switch()
+        check("…and the same job without it starts on a feat/ branch, as before", rc == 0 and w.job(j1)["branch"].startswith(f"{me}/feat/{j1}-"), out + err)
+
+        w = World()
+        subprocess.run(["git", "-C", w.repo, "checkout", "-q", "-b", supply], check=True, env=git_env())
+        subprocess.run(["git", "-C", w.repo, "commit", "-q", "--allow-empty", "-m", "delivered earlier"], check=True, env=git_env())
+        subprocess.run(["git", "-C", w.repo, "push", "-q", "origin", supply], check=True, env=git_env())
+        subprocess.run(["git", "-C", w.repo, "checkout", "-q", "main"], check=True, env=git_env())
+        subprocess.run(["git", "-C", w.repo, "branch", "-q", "-D", supply], check=True, env=git_env())
+        advance_default(w)
+        j1 = supply_job(w, supply)
+        rc, out, err = w.switch()
+        wt = w.job(j1)["worktree"]
+        log = subprocess.run(["git", "-C", wt, "log", "--format=%s", "-n", "5"], capture_output=True, text=True, env=git_env()).stdout
+        check("a for/ branch already on origin is checked out with its commits and has the default branch merged in",
+              rc == 0 and on(wt) == supply and "delivered earlier" in log and subprocess.run(
+                  ["git", "-C", wt, "merge-base", "--is-ancestor", "origin/main", "HEAD"], env=git_env()).returncode == 0, out + err + log)
+
+        w = World()
+        gh_says(merged_heads=[supply])
+        j1 = supply_job(w, supply)
+        rc, out, err = w.switch()
+        check("a for/ branch whose pull request merged is not taken again: the usual order",
+              rc == 0 and w.job(j1)["branch"].startswith(f"{me}/feat/{j1}-"), out + err)
+        gh_says()
+
+        w = World()
+        j1 = supply_job(w, None)
+        w.switch()
+        began = w.job(j1)["branch"]
+        subprocess.run(["git", "-C", w.job(j1)["worktree"], "push", "-q", "origin", began], check=True, env=git_env())
+        w.sw("pause", j1, "later", cwd=w.job(j1)["worktree"])
+        jpath = os.path.join(w.state, "agents", login, "jobs.json")
+        doc = json.load(open(jpath))
+        next(j for j in doc["jobs"] if j["id"] == j1)["deliver_to"] = supply
+        with open(jpath, "w", encoding="utf-8") as fh:
+            json.dump(doc, fh)
+        w.add("another")
+        rc, out, err = w.switch(j1)
+        check("a job that began on its own branch keeps it when a for/ branch is recorded later",
+              rc == 0 and w.job(j1)["branch"] == began and on(w.job(j1)["worktree"]) == began, out + err + repr(w.job(j1)))
+
+        print("paused: a branch the hygiene run swept after it merged is settled; a worktree that is gone is not an error")
+
+        def paused_on(branch: str):
+            """A paused job on `branch`, checked out in the world's repository, with a next job queued."""
+            w = World()
+            j1 = w.working("the swept work")
+            git(w.repo, "checkout", "-q", "-b", branch)
+            git(w.repo, "commit", "-q", "--allow-empty", "-m", "work")
+            return w, j1
+
+        def git(repo: str, *argv: str) -> None:
+            subprocess.run(["git", "-C", repo, *argv], check=True, env=git_env(), capture_output=True)
+
+        def gone_worktree(w: World, j1: str) -> None:
+            """The recorded worktree no longer exists, as after a sweep: the job still names it."""
+            jpath = os.path.join(w.state, "agents", login, "jobs.json")
+            doc = json.load(open(jpath))
+            next(j for j in doc["jobs"] if j["id"] == j1)["worktree"] = os.path.join(tmp, f"swept-{w.n}")
+            with open(jpath, "w", encoding="utf-8") as fh:
+                json.dump(doc, fh)
+
+        w, j1 = paused_on("side/merged")
+        git(w.repo, "push", "-q", "origin", "side/merged")
+        w.sw("pause", j1, "set aside")
+        git(w.repo, "checkout", "-q", "main")
+        git(w.repo, "merge", "-q", "--no-ff", "side/merged", "-m", "Merge pull request #7 from some-org/side/merged")
+        git(w.repo, "push", "-q", "origin", "main")
+        git(w.repo, "push", "-q", "origin", "--delete", "side/merged")
+        git(w.repo, "branch", "-q", "-D", "side/merged")
+        git(w.repo, "fetch", "-q", "--prune", "origin")
+        gone_worktree(w, j1)
+        w.add("next", "--priority", "high")
+        rc, out, err = w.switch()
+        check("merged, deleted on origin, swept locally, worktree gone: the job is left with no push",
+              rc == 0 and "on origin/main (its pull request merged)" in out, out + err)
+
+        w, j1 = paused_on("side/ffmerged")
+        git(w.repo, "push", "-q", "origin", "side/ffmerged")
+        w.sw("pause", j1, "set aside")
+        git(w.repo, "checkout", "-q", "main")
+        git(w.repo, "merge", "-q", "--ff-only", "side/ffmerged")
+        git(w.repo, "push", "-q", "origin", "main")
+        git(w.repo, "branch", "-q", "-D", "side/ffmerged")
+        gone_worktree(w, j1)
+        w.add("next", "--priority", "high")
+        rc, out, err = w.switch()
+        check("a fast-forward merge whose origin branch is still there settles from its head", rc == 0 and "branch side/ffmerged on origin/main" in out, out + err)
+
+        w, j1 = paused_on("side/lost")
+        w.sw("pause", j1, "set aside")
+        gone_worktree(w, j1)
+        w.add("next", "--priority", "high")
+        rc, out, err = w.switch()
+        check("a branch with an unpushed commit still refuses, worktree gone or not",
+              rc == 1 and "branch side/lost is not on origin: push it" in err and w.job(j1)["state"] != "active", err)
+
+        w, j1 = paused_on("side/gone")
+        git(w.repo, "push", "-q", "origin", "side/gone")
+        w.sw("pause", j1, "set aside")
+        git(w.repo, "checkout", "-q", "main")
+        git(w.repo, "branch", "-q", "-D", "side/gone")
+        git(w.repo, "push", "-q", "origin", "--delete", "side/gone")
+        git(w.repo, "fetch", "-q", "--prune", "origin")
+        gone_worktree(w, j1)
+        w.add("next", "--priority", "high")
+        rc, out, err = w.switch()
+        check("a branch that is nowhere and on no merge is unknown, never settled", rc == 1 and "branch side/gone is not on origin" in err, err)
+
+        w, j1 = paused_on("side/pushed")
+        git(w.repo, "push", "-q", "origin", "side/pushed")
+        w.sw("pause", j1, "set aside")
+        gone_worktree(w, j1)
+        w.add("next", "--priority", "high")
+        rc, out, err = w.switch()
+        check("a removed worktree on a pushed branch is fine", rc == 0 and "branch side/pushed pushed" in out, out + err)
+
+        print("a session that has worked no job gets the first with its branch; standing in the main checkout it is outside the new worktree")
         w = World()
         j1 = w.add("first")
         rc, out, err = w.switch("--json")
         v = json.loads(out)
-        check("--json carries the verdict, the branch and what was settled", rc == 0 and v["fresh"] is False and v["settled"] is None
+        check("--json carries the verdict, the branch and what was settled", rc == 0 and v["worked"] is None and v["reason"] == "outside_copy" and v["settled"] is None
               and v["branch"].startswith(f"{host}/{login}/feat/{j1}-") and v["branch_kind"] == "new", out + err)
+
+        print("the fleet hold (ADR-037 rule 13): the old job is settled, nothing is started")
+        DECISION = "01a18d02-edd3-7bef-8fe9-965718c256b5"
+
+        def hold(w: World, reason: str = "release freeze") -> None:
+            jobs.identity.set_hold(reason, set_by="h/operator", decision=DECISION)
+
+        def lift() -> None:
+            jobs.identity.clear_hold()
+
+        def ready(reason: str = "release freeze") -> tuple[World, str, str]:
+            """j1 worked and done with its evidence, j2 queued, the login held."""
+            w = World()
+            j1 = w.working("the finished work")
+            w.sw("done", j1)
+            jobs_world.landed(w.state, login, j1)
+            gh_says({jobs_world.LANDED: "MERGED"})
+            j2 = w.add("the next job")
+            hold(w, reason)
+            return w, j1, j2
+
+        w, j1, j2 = ready()
+        rc, out, err = w.switch()
+        check("held: switch starts nothing, exits non-zero and names the hold's reason, decision and setter",
+              rc == 1 and "release freeze" in err and DECISION in err and "h/operator" in err and w.job(j2)["state"] == "queued", out + err)
+        check("held: ...and prints no fabric-fresh", "fabric-fresh" not in out + err, out + err)
+        check("held: ...but the job being left was settled, and says how", f"{j1} left (done: " in err, err)
+        lift()
+        rc, out, err = w.switch()
+        check("held: the control, the same list with the hold lifted starts the next job", rc == 0 and w.job(j2)["state"] == "active", out + err)
+
+        w, j1, j2 = ready()
+        rc, out, err = w.sw("next")
+        check("held: next is switch", rc == 1 and "release freeze" in err and w.job(j2)["state"] == "queued", out + err)
+        w = World()
+        j1 = w.working("done without evidence")
+        w.sw("done", j1)
+        w.add("the next job")
+        hold(w)
+        rc, out, err = w.switch()
+        check("held: a job that cannot be left yet is still refused as before, not waved through", rc == 1 and "cannot leave" in err and "done needs evidence" in err, err)
+        w = World()
+        w.add("queued only")
+        hold(w)
+        rc, out, err = w.switch()
+        check("held: with nothing worked yet, switch starts nothing and names the hold", rc == 1 and "release freeze" in err and "no queued job" not in err, out + err)
+        w = World()
+        busy = w.working("still going")
+        w.add("the next job")
+        hold(w)
+        rc, out, err = w.switch()
+        check("held: the active job is not left: switch refuses as ever", rc == 1 and "is still active" in err and w.job(busy)["state"] == "active", err)
+
+        w, j1, j2 = ready()
+        rc, out, err = w.sw("start", j2)
+        check("held: start of a queued job refuses, naming the hold", rc == 1 and "release freeze" in err and w.job(j2)["state"] == "queued", out + err)
+        w.sw("pause", j2, "x")      # not active: refused as ever, the job is untouched
+        for state_setup in ("paused", "blocked"):
+            w2 = World()
+            jx = w2.working("work to set aside")
+            if state_setup == "paused":
+                w2.sw("pause", jx, "aside")
+            else:
+                w2.sw("block", jx, "an answer")
+            hold(w2)
+            rc, out, err = w2.sw("start", jx)
+            check(f"held: start of a {state_setup} job refuses", rc == 1 and "release freeze" in err and w2.job(jx)["state"] == state_setup, out + err)
+            lift()
+            check(f"held: ...control, start of the {state_setup} job works once lifted", w2.sw("start", jx)[0] == 0 and w2.job(jx)["state"] == "active")
+
+        w = World()
+        jd = w.working("work delivered")
+        w.sw("deliver", jd, f"{jobs_world.GH_REPO}#2")
+        check("held: setup, the job is delivered", w.job(jd)["state"] == "delivered")
+        hold(w)
+        rc, out, err = w.sw("start", jd)
+        check("held: start of a delivered job refuses, naming the hold, and the job stays delivered",
+              rc == 1 and "release freeze" in err and w.job(jd)["state"] == "delivered", out + err)
+        lift()
+        check("held: ...control, start of the delivered job works once lifted", w.sw("start", jd)[0] == 0 and w.job(jd)["state"] == "active")
+
+        w = World()
+        j1 = w.working("the active one")
+        hold(w)
+        j2 = w.add("asked of the agent while held")
+        check("held: add still queues", w.job(j2)["state"] == "queued")
+        rc, out, err = w.sw("block", j1, "an answer")
+        check("held: block works", rc == 0 and w.job(j1)["state"] == "blocked", err)
+        jobs.identity.clear_hold()
+        w.sw("start", j1)
+        hold(w)
+        check("held: pause works", w.sw("pause", j1, "aside")[0] == 0 and w.job(j1)["state"] == "paused")
+        lift()
+        w.sw("start", j1)
+        hold(w)
+        check("held: deliver works", w.sw("deliver", j1, f"{jobs_world.GH_REPO}#2")[0] == 0 and w.job(j1)["state"] == "delivered")
+        check("held: done works", w.sw("done", j1)[0] == 0 and w.job(j1)["state"] == "done")
+        check("held: drop works", w.sw("drop", j2, "not needed")[0] == 0 and w.job(j2)["state"] == "dropped")
+
+        w = World()
+        w.working("the finished work")
+        w.sw("done", "j1")
+        jobs_world.landed(w.state, login, "j1")
+        gh_says({jobs_world.LANDED: "MERGED"})
+        j2 = w.add("the next job")
+        verbs = sys.modules["fabric_jobs.verbs"]
+        real_choose = verbs.choose
+
+        def hold_arrives(*a, **k):
+            choice = real_choose(*a, **k)
+            hold(w)             # set while the branch is prepared, after switch first looked
+            return choice
+        verbs.choose = hold_arrives
+        try:
+            rc, out, err = w.switch()
+        finally:
+            verbs.choose = real_choose
+        check("held: a hold set while the branch is prepared stops the start, and no fabric-fresh is printed",
+              rc == 1 and "release freeze" in err and w.job(j2)["state"] == "queued" and "fabric-fresh" not in out + err, out + err)
+        lift()
+        check("held: ...control, the same switch without the late hold starts it", w.switch()[0] == 0 and w.job(j2)["state"] == "active")
+
+        w, j1, j2 = ready()
+        os.remove(os.path.join(w.state, "agents", login, "hold.json"))
+        os.mkdir(os.path.join(w.state, "agents", login, "hold.json"))
+        rc, out, err = w.switch()
+        check("held: a hold.json that cannot be opened holds too, named as unreadable (no traceback)",
+              rc == 1 and "hold unreadable" in err and "Traceback" not in err and w.job(j2)["state"] == "queued", out + err)
+        os.rmdir(os.path.join(w.state, "agents", login, "hold.json"))
+
+        for label, body in (("not JSON", "{not json"), ("not a hold", "[1]")):
+            w, j1, j2 = ready()
+            with open(os.path.join(w.state, "agents", login, "hold.json"), "w", encoding="utf-8") as fh:
+                fh.write(body)
+            rc, out, err = w.switch()
+            check(f"held: a hold.json that is {label} holds: switch refuses saying it is unreadable", rc == 1 and "hold unreadable" in err and w.job(j2)["state"] == "queued", out + err)
+            rc, out, err = w.sw("start", j2)
+            check(f"held: ...and start refuses", rc == 1 and "hold unreadable" in err and w.job(j2)["state"] == "queued", out + err)
 
     print("PASS" if not fails else f"FAILED: {fails}")
     return 1 if fails else 0

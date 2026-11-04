@@ -4,7 +4,7 @@
 **Status:** Accepted
 **Ratified:** owner, 2026-09-27, by arming agent-fabric #52 (ratification by merge, the owner's rule of 2026-09-27)
 **Decision Makers:** the owner; drafted by fabric-coordinator
-**Scope:** runtime/claude-code/user-settings.py (`permissions.defaultMode`); runtime/openrouter/launch (the opening prompt, the restart marker); bin/fabric-fresh; bin/fabric-branches and policies/branch-hygiene/SKILL.md; runtime/claude-code/workspace/settings.json and each managed project's `.claude/settings.json` (the hook wiring); runtime/claude-code/hooks/session-start.py (the watch check), runtime/claude-code/hooks/plan-hold.sh; tools/fabric/gzcoord/inbox.py and send.py; tools/fabric/control/ops/, tools/fabric/control/presence.py, tools/fabric/control/ctl.py (presence); communication/gzcoord/skills/gzcoord-receive/SKILL.md
+**Scope:** runtime/claude-code/user-settings.py (`permissions.defaultMode`); tools/fabric/launch.py and tools/fabric/launcher/currency.py (the fresh relaunch's directory, the session's fabric root); runtime/openrouter/launch (the opening prompt, the restart marker); bin/fabric-fresh; bin/fabric-branches and policies/branch-hygiene/SKILL.md; runtime/claude-code/workspace/settings.json and each managed project's `.claude/settings.json` (the hook wiring); runtime/claude-code/hooks/session-start.py (the watch check), runtime/claude-code/hooks/plan-hold.sh; tools/fabric/gzcoord/inbox.py and send.py; tools/fabric/control/ops/, tools/fabric/control/presence.py, tools/fabric/control/ctl.py (presence); communication/gzcoord/skills/gzcoord-receive/SKILL.md
 **Pillar:** P3
 **Evidence:** docs/live-checks/2026-09-16-inbox-hold-while-planning.md
 
@@ -145,23 +145,60 @@ the same command asks on one account and not on another.
 11. Each working copy's local branches are swept weekly with
     `fabric-branches --sweep`, after a plain fetch: the agent deletes on
     its own what is wholly on the remote's default branch (`origin/HEAD`,
-    else the project registry's; unknown, it refuses), and worktrees at
-    0 with no changes, no ignored files and no lock, never the one it
-    runs in; a branch with commits off it is kept and brought to the
-    person. Local only: no remote branch is deleted or pushed. The
-    session-start hook says when a working copy's last sweep is older
-    than seven days; nothing runs on a timer (A 2026-09-28).
+    else the project registry's; unknown, it refuses), and every linked
+    worktree with no changes, no untracked or ignored files (Python
+    bytecode does not count) and no lock whose HEAD is on a branch the
+    remote still has (reachable from a remote-tracking ref that
+    `git ls-remote` shows by name and commit; that ref alone is no
+    proof, a fetch without prune keeps a deleted branch's), attached or
+    detached, never the one it runs in nor one a live session stands in
+    (by the session registry below, or `AGENT_FABRIC_BRANCHES_KEEP`),
+    nor one a queued, active, paused or blocked job of the login names
+    as its worktree; a job list that cannot be read, or a record in it
+    the sweep does not understand, keeps every worktree (A 2026-10-24);
+    a branch with commits off it is kept and brought to the person.
+    `--sweep --all` does it in every working copy of the login, each
+    after its own fetch, naming and skipping one that refuses; the same
+    sweep removes the scratch of the login's ended Claude Code sessions:
+    a session is live while the harness's own session registry lists
+    its process alive. A registry that cannot be read keeps all the
+    scratch and every worktree the sweep would have removed, each named
+    with that reason, and the sweep says so (A 2026-10-20).
+    Never another login's. What it keeps it names with the reason, what it removes
+    with its size (A 2026-10-19). On origin it deletes only the login's own
+    branches (`<host>/<login>/`) whose tip, as `git ls-remote` gives it
+    now, is an ancestor of the default branch and that head no open pull
+    request, each with a push leased to that tip; the report lists them
+    first, `gh` unavailable ends that step with a line, and no other
+    login's branch is deleted or anything pushed (A 2026-10-28).
+    At a job's end `fabric-jobs switch` runs the worktree half
+    (`--sweep --worktrees`, no branch deleted) for the job's working
+    copy, and never refuses for what it kept. The session-start hook
+    says when a working copy's last sweep is older than seven days;
+    nothing runs on a timer (A 2026-09-28).
 12. The next job decides whether the session continues (ADR-037). At a
     job's end, `fabric-jobs next` asks whether this session has already
     worked a job. If so, the next job is a fresh session however alike
     the two are: the agent runs
     `fabric-fresh --job <id>`, and the launcher relaunches in that job's
-    working copy with the job in its opening prompt. A working copy
-    that is gone or has uncommitted changes is refused by the launcher,
-    which starts in the old directory and says why. The command decides
+    worktree, or its working copy when it records no worktree or the
+    worktree is gone, each said (A 2026-10-30), with the job in its
+    opening prompt, even when that copy
+    has uncommitted changes: they are the job's own work in progress. A
+    copy that is gone or whose git status cannot be read, or whose
+    uncommitted changes are another unfinished job's worktree or cannot
+    be shown to be the job's own (the job list unreadable), is refused by
+    the launcher, which starts in the old directory and says why. The command decides
     and the agent confirms; nothing restarts a session on its own
     (A 2026-09-28). A session that has worked no job yet takes the
-    job in place, being already fresh (A 2026-10-11).
+    job in place, being already fresh (A 2026-10-11), when it stands
+    in the job's copy (ADR-037 rule 3). Every launch hands
+    the session `AGENT_FABRIC_ROOT`, the fabric root it checked against
+    origin/main, so a session started in another agent-fabric checkout
+    runs the root's fabric code, not that checkout's; when that checkout
+    is behind, the launcher says its hooks and `.claude/settings.json`
+    are its own, and names the root. A warning, never a refusal: a
+    feature worktree behind main is normal work (A 2026-10-30).
 
 ## 6. Consequences
 
@@ -200,8 +237,8 @@ the hold is now a stub pointing here.
 - `runtime/openrouter/launch` (THE WATCH STARTS WITH THE SESSION),
   `tests/test_launch_cli.py`.
 - `runtime/claude-code/hooks/session-start.py` (`WATCH_MISSING`),
-  `tests/test_session_start.py`; `runtime/claude-code/hooks/plan-hold.sh`,
-  `runtime/claude-code/hooks/test_plan-hold.sh`;
+  `tests/test_session_start.py`; `runtime/claude-code/hooks/plan-hold.sh`
+  (`tools/fabric/plan_hold.py`), `tests/test_plan_hold_cli.py`;
   `runtime/claude-code/workspace/settings.json`.
 - `tools/fabric/gzcoord/inbox.py` (`holdStatus`),
   `tools/fabric/gzcoord/send.py`, `communication/gzcoord/tests/`.
@@ -223,3 +260,9 @@ The body above reads current; each change's full note is in [history/ADR-022-ame
 | 2026-09-30 | The opening prompt names no command | §5 rule 1, §3: the prompt defers the exact Monitor call to the hook's line |
 | 2026-10-10 | The watch is a background command, not a Monitor | §2, §5 rules 1, 2, 6: `gzcoord-inbox --until-delivery` exits on each delivery; no 30-minute expiry |
 | 2026-10-11 | Every job starts in a fresh session | §5 rule 12: `next` gives a fresh session whenever this session has worked a job; in place only for one that has worked none |
+| 2026-10-19 | Stale worktrees and ended sessions' scratch are swept | §5 rule 11: a clean worktree whose commits are on a branch the remote still has goes, `--sweep --all` covers every working copy, ended sessions' scratch goes, and `fabric-jobs switch` runs the worktree half at a job's end |
+| 2026-10-20 | An unreadable session registry keeps every worktree | §5 rule 11: no worktree is removed when the registry cannot be read, not only the ones `AGENT_FABRIC_BRANCHES_KEEP` names (#337) |
+| 2026-10-24 | A worktree a live job names is kept | §5 rule 11: a queued, active, paused or blocked job's worktree is not removed; an unreadable job list keeps every worktree (#364) |
+| 2026-10-27 | A fresh launch starts in the job's own dirty working copy | §5 rule 12 |
+| 2026-10-28 | The sweep deletes the login's own merged branches on origin | §5 rule 11: under `<host>/<login>/`, on the default branch, heading no open PR (#416) |
+| 2026-10-30 | A fresh launch starts in the job's worktree; the session carries the verified fabric root | §5 rule 12: worktree before working copy, `AGENT_FABRIC_ROOT` exported, a behind fabric checkout named (#432) |

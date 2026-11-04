@@ -2,7 +2,7 @@
 how many work commits arm it at the review gate, and the GitHub settings that enforce the rest, as one document
 whose shape is identities/schemas/arming.schema.json (the coordinator's). Step A (#196) made arm.py and pr_gate.py
 read the 8 and the 16 through it; step C (this) makes it the schema's document, reads it for the repository's client,
-and maps it onto GitHub for tools/fabric/github/repo_policy.py (fabric-repo-policy plan|verify) and arm.py's drift
+and maps it onto GitHub for tools/fabric/github/repo_policy.py (fabric-repo-policy plan|verify|apply) and arm.py's drift
 refusal.
 
 WHERE A POLICY IS. Two layers, the second over the first:
@@ -22,15 +22,29 @@ Objects merge recursively, scalars and lists replace. The fetched file is cached
 not fall to the default.
 
 commits.boundary_authority (a role slug; absent: none) names the role whose holder may authorize arming a
-security-boundary change under boundary_min in the owner's place (arm.py --authorization); the review gate still applies.
+security-boundary change under boundary_min in the owner's place (arm.py --authorization, or a session that holds the
+role); the review gate still applies. commits.below_min_authority (a role slug; absent: none) is the same for a PR under
+its minimum that is no boundary change: the owner's word, said by a holder of that role. commits.authority_own_prs
+(true or false; absent: false) is whether an authority may arm a PR of its own authorship: false refuses it, the owner's
+word staying the only one there; true lets the session holding the role arm its own, for a repository whose authority
+is also the role that opens most of its PRs.
 
 commits.boundary_min. A security-boundary change not waived is judged against max(commits.min, commits.boundary_min):
 the owner's word it needs under that many work commits is about the security boundary, not about the count of
 commits (the owner, 2026-10-11, through fabric-coordinator's REPLY 01a12ab1). The fleet's value is the floor: a
 repository's file may raise it and never lowers it below the fleet's, which load() enforces after the merge.
 
+armed_status (a status context; null: off) ties an arming to one head on GitHub's side. fabric-pr arm posts it,
+state success, on the head its gates read before it enables auto-merge, and render() makes the ruleset of an auto
+repository require it, so a head pushed after the arming waits for an arming of its own whatever a workflow did with
+auto-merge (audit F02). It is its own key, not an entry of required_checks: a repository's list replaces the fleet's,
+and every repository that names its own checks would drop it. Its one name is fabric/armed: disarm-on-push reads that
+context on the pushed head and cannot read a repository's policy, so another name would be an arming it takes off
+(review of #454, F2).
+
 threshold() IS THE ORDER OF SPECIFICITY: a stated class whose regex every file matches (commits.classes), then the
-author's role (commits.roles), then commits.min; a boundary change gets the floor above and nothing lowers it.
+author's role (commits.roles; arm.py takes it only when presence reports the branch's login bound to it), then
+commits.min; a boundary change gets the floor above and nothing lowers it.
 render() IS THE MAPPING to GitHub: the repository fields and the ruleset body.
 """
 from __future__ import annotations
@@ -55,7 +69,10 @@ ROLE_SLUG = re.compile(r"[a-z][a-z0-9-]*")
 MODES = ("queue", "auto", "direct", "owner-only")
 METHODS = ("merge", "squash", "rebase")
 BELOW_MIN = ("owner-word", "refuse")
+# Absent from DEFAULT on purpose: absent is "no authority", which a default role slug would not be.
+AUTHORITY_KEYS = ("boundary_authority", "below_min_authority")
 GROUPING = ("allgreen", "headgreen")
+ARMED_STATUS = "fabric/armed"
 UPDATE_TYPES = ("patch", "minor", "major")
 # GitHub's repository fields for the merge methods: the merge commit's is the odd one out.
 REPO_FIELD = {"merge": "allow_merge_commit", "squash": "allow_squash_merge", "rebase": "allow_rebase_merge"}
@@ -86,6 +103,7 @@ DEFAULT: dict[str, Any] = {
     "additional_reviews": ["codex"],
     "bots": {},
     "github": {"ruleset": "fabric arming policy"},
+    "armed_status": ARMED_STATUS,
 }
 # The review engines (agent-fabric ADR-053 rule 6): "claude" is the review class's `fabric-pr post-review ... --model
 # fable`; "codex" is one posted with `--model codex`.
@@ -204,9 +222,12 @@ def validate(doc: Any, where: str = "the policy") -> dict:
             if not _int(q[k]):
                 raise PolicyError(f"{where}: queue.{k} is not a whole number of at least 1")
             _whole(q, k)
-    c = _only_keys(p["commits"], (*DEFAULT["commits"], "boundary_authority"), f"{where}: commits")
-    if "boundary_authority" in c and not (isinstance(c["boundary_authority"], str) and ROLE_SLUG.fullmatch(c["boundary_authority"])):
-        raise PolicyError(f"{where}: commits.boundary_authority is not a role slug")
+    c = _only_keys(p["commits"], (*DEFAULT["commits"], *AUTHORITY_KEYS, "authority_own_prs"), f"{where}: commits")
+    for key in AUTHORITY_KEYS:
+        if key in c and not (isinstance(c[key], str) and ROLE_SLUG.fullmatch(c[key])):
+            raise PolicyError(f"{where}: commits.{key} is not a role slug")
+    if "authority_own_prs" in c and not isinstance(c["authority_own_prs"], bool):
+        raise PolicyError(f"{where}: commits.authority_own_prs is true or false")
     for k in ("min", "advice_over", "boundary_min"):
         if not _int(c[k]):
             raise PolicyError(f"{where}: commits.{k} is not a whole number of at least 1")
@@ -243,7 +264,16 @@ def validate(doc: Any, where: str = "the policy") -> dict:
     for k, v in g.items():
         if not isinstance(v, str) or not v:
             raise PolicyError(f"{where}: github.{k} is not a name")
+    # One name: disarm-on-push keeps an arming only when the head carries this very context, and reads no policy.
+    a = p["armed_status"]
+    if a not in (None, ARMED_STATUS):
+        raise PolicyError(f"{where}: armed_status is {ARMED_STATUS!r} (the context disarm-on-push reads) or null")
     return p
+
+
+def armed_status(policy: dict) -> str | None:
+    """The context fabric-pr arm posts on the head it arms, or None where the repository turns it off."""
+    return policy.get("armed_status")
 
 
 def _read_json_file(path: str) -> Any:
@@ -340,6 +370,42 @@ def fetch_repo_policy(settings: str, repo: str, api: Callable[..., Any] = gh.api
     return doc
 
 
+def _registry_and_clients(root: str | None, registry: Any, clients: Any) -> tuple[Any, Any]:
+    """The registry and the clients file, each as given or read; one reader for every way of finding a policy, so
+    two of them can never see different registries."""
+    if registry is None:
+        try:
+            registry = workingcopy.load_registry()
+        except (OSError, ValueError) as e:
+            raise PolicyUnavailable(f"projects/registry.json cannot be read ({e})") from None
+    if clients is None:
+        clients = _read_json_file(os.path.join(roots.projects_dir(root=root), "clients.json")) or {}
+    return registry, clients
+
+
+def _compose(fleet: dict, doc: dict | None, settings: str | None, repo: str) -> dict:
+    policy = fleet
+    if doc is not None:
+        policy = validate(merge(fleet, {k: v for k, v in doc.items() if k not in IGNORED_KEYS}), f"{settings} repos/{repo.split('/', 1)[1]}.json")
+        # A repository may raise the boundary's minimum and never lower it below the fleet's.
+        policy["commits"]["boundary_min"] = max(policy["commits"]["boundary_min"], fleet["commits"]["boundary_min"])
+    return policy
+
+
+def load_with_source(repo: str, *, root: str | None = None, registry: Any = None, clients: Any = None,
+                     api: Callable[..., Any] = gh.api) -> tuple[dict, str | None, bool]:
+    """(the policy, the settings repository, whether it held repos/<name>.json) for `repo`, from ONE fetch of that
+    file, so what a caller is told of the source is what the policy was built from. (policy, None, False) for a
+    repository that is no registered project's, which gets the fleet's policy by definition; (fleet, settings, False)
+    for a registered one whose file is absent, which is not the same: its owner wrote a policy that is not there
+    yet, and the fleet's would replace its queue and required checks. Not cached (load has the cache)."""
+    fleet = fleet_policy(root)
+    registry, clients = _registry_and_clients(root, registry, clients)
+    settings = settings_repo_of(registry, clients, repo)
+    doc = fetch_repo_policy(settings, repo, api) if settings else None
+    return _compose(fleet, doc, settings, repo), settings, doc is not None
+
+
 def load(repo: str | None, *, root: str | None = None, registry: Any = None, clients: Any = None,
          api: Callable[..., Any] = gh.api, cache: dict | None = None) -> dict:
     """The policy for `repo` ("<owner>/<name>"; None: the fleet's). `cache` is the caller's dict, for one run: a
@@ -350,20 +416,10 @@ def load(repo: str | None, *, root: str | None = None, registry: Any = None, cli
         return fleet
     if cache is not None and repo in cache:
         return copy.deepcopy(cache[repo])
-    if registry is None:
-        try:
-            registry = workingcopy.load_registry()
-        except (OSError, ValueError) as e:
-            raise PolicyUnavailable(f"projects/registry.json cannot be read ({e})") from None
-    if clients is None:
-        clients = _read_json_file(os.path.join(roots.projects_dir(root=root), "clients.json")) or {}
+    registry, clients = _registry_and_clients(root, registry, clients)
     settings = settings_repo_of(registry, clients, repo)
     doc = fetch_repo_policy(settings, repo, api) if settings else None
-    policy = fleet
-    if doc is not None:
-        policy = validate(merge(fleet, {k: v for k, v in doc.items() if k not in IGNORED_KEYS}), f"{settings} repos/{repo.split('/', 1)[1]}.json")
-        # A repository may raise the boundary's minimum and never lower it below the fleet's.
-        policy["commits"]["boundary_min"] = max(policy["commits"]["boundary_min"], fleet["commits"]["boundary_min"])
+    policy = _compose(fleet, doc, settings, repo)
     if cache is not None:
         cache[repo] = copy.deepcopy(policy)
     return policy
@@ -495,15 +551,21 @@ def render(policy: dict, apps: Mapping[str, int] | None = None) -> dict:
     rules.append({"type": "pull_request", "parameters": {
         "allowed_merge_methods": [p["method"]], "dismiss_stale_reviews_on_push": False, "require_code_owner_review": False,
         "require_last_push_approval": False, "required_approving_review_count": 0, "required_review_thread_resolution": False}})
-    if p["required_checks"]:
-        entries = []
-        for c in p["required_checks"]:
-            entry: dict[str, Any] = {"context": c["context"]}
-            if "app" in c:
-                if c["app"] not in ids:
-                    raise PolicyError(f"no integration id is known for the App {c['app']!r} (repo_policy asks GitHub for it)")
-                entry["integration_id"] = ids[c["app"]]
-            entries.append(entry)
+    entries = []
+    for c in p["required_checks"]:
+        entry: dict[str, Any] = {"context": c["context"]}
+        if "app" in c:
+            if c["app"] not in ids:
+                raise PolicyError(f"no integration id is known for the App {c['app']!r} (repo_policy asks GitHub for it)")
+            entry["integration_id"] = ids[c["app"]]
+        entries.append(entry)
+    # Auto alone: a queue merges its own merge-group commit, which carries no arming's status, and an owner-only
+    # repository is merged by the owner's hand with nothing posting it; required there, it would hold every merge.
+    # Any App: arm posts it with the session's own token, which is no App's.
+    armed = armed_status(p)
+    if armed and p["mode"] == "auto" and all(e["context"] != armed for e in entries):
+        entries.append({"context": armed})
+    if entries:
         rules.append({"type": "required_status_checks", "parameters": {
             "strict_required_status_checks_policy": False, "do_not_enforce_on_create": False, "required_status_checks": entries}})
     if p["mode"] == "queue":

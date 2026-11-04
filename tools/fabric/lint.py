@@ -100,9 +100,10 @@ from fabric_lint_rules.schema import load_schema, model_profile_findings, python
 from fabric_lint_rules.schema import account_switch_findings, availability_findings, personas_findings  # noqa: E402, F401
 from fabric_lint_rules.schema import schema_keyword_findings, validate_json  # noqa: E402, F401
 from fabric_lint_rules.regex import regex_dollar_findings  # noqa: E402, F401
-from fabric_lint_rules.shape import BASH_LINE_LIMIT, BASH_SHEBANG, _is_bash, bash_size_findings  # noqa: E402, F401
+from fabric_lint_rules.state import state_write_findings  # noqa: E402, F401
+from fabric_lint_rules.shape import BASH_LINE_LIMIT, BASH_SHEBANG, _is_bash, bash_shape_findings, bash_size_findings, forwarder_shape  # noqa: E402, F401
 from fabric_lint_rules.shape import agentd_unit_findings, candidate_role_findings, host_registry_findings  # noqa: E402, F401
-from fabric_lint_rules.locales import AGENT_FRONTMATTER_RE, I18N_CONTROL_RE, I18N_DEFAULT_REL  # noqa: E402, F401
+from fabric_lint_rules.locales import AGENT_FRONTMATTER_RE, I18N_DEFAULT_REL  # noqa: E402, F401
 from fabric_lint_rules.locales import I18N_EXTRA_PATTERNS, I18N_SCHEMA_REL, LOCALE_ENGINES  # noqa: E402, F401
 from fabric_lint_rules.locales import LOCALE_FILE_OPTIONAL, LOCALE_FILE_RE, _i18n_key_re  # noqa: E402, F401
 from fabric_lint_rules.locales import i18n_default_dictionary_findings, i18n_dictionary_findings  # noqa: E402, F401
@@ -110,6 +111,8 @@ from fabric_lint_rules.locales import (locale_coverage_findings, locale_file_fin
                                        locale_translation_findings, shared_prompt_locale_findings)
 from fabric_lint_rules.locales import locale_alignment_findings  # noqa: E402, F401
 from fabric_lint_rules.locales import locale_worker_findings  # noqa: E402, F401
+from fabric_lint_rules.hidden import hidden_unicode_findings  # noqa: E402, F401
+from fabric_lint_rules.card import review_card_findings  # noqa: E402, F401
 from fabric_lint_rules.signing import signing_findings  # noqa: E402, F401
 from fabric_lint_rules.slices import CLASS_DIRS, flat_and_dir_findings, lint_slices, staleness_warnings  # noqa: E402, F401
 
@@ -143,8 +146,7 @@ def arm_direct_findings(root: str) -> list[str]:
     compiles, and cases (paths that must need a PR) it actually matches.
     A project without the key is not judged."""
     findings = []
-    for rel in sorted(r for r in _tracked(root)
-                      if re.fullmatch(r"projects/[^/]+/integration/gh/arm\.json", r)):
+    for rel in _arm_jsons_in_read_tree(root):
         try:
             project = rel.split("/")[1]
             doc = json.load(open(roots.project_integration(project, "gh", "arm.json", engine=root), encoding="utf-8"))
@@ -205,8 +207,7 @@ def arm_boundary_findings(root: str, base_ref: str = "origin/main") -> list[str]
     then needs a visible record, which the fold and the blind review see;
     before, a shrunk regex failed nothing (reviews of #89 and #90)."""
     findings = []
-    for rel in sorted(r for r in _tracked(root)
-                      if re.fullmatch(r"projects/[^/]+/integration/gh/arm\.json", r)):
+    for rel in _arm_jsons_in_read_tree(root):
         try:
             # The tracked list names the project; its integration/ is instance data (ADR-045).
             project = rel.split("/")[1]
@@ -316,7 +317,7 @@ def arm_boundary_findings(root: str, base_ref: str = "origin/main") -> list[str]
         listed = _git().run(root, "ls-tree", "-r", "--name-only", since, "--", "projects/", check=False, timeout=60)
         before = {r for r in listed.stdout.splitlines()
                   if re.fullmatch(r"projects/[^/]+/integration/gh/arm\.json", r)} if listed.returncode == 0 else set()
-        now = {r for r in _tracked(root) if re.fullmatch(r"projects/[^/]+/integration/gh/arm\.json", r)}
+        now = set(_arm_jsons_in_read_tree(root))
         removed = sorted(before - now)
         try:
             with open(roots.projects_registry(engine=root), encoding="utf-8") as fh:
@@ -337,6 +338,59 @@ def arm_boundary_findings(root: str, base_ref: str = "origin/main") -> list[str]
     return findings
 
 
+def _read_tree_files(root: str):
+    """(tree, tracked) for the tree roots.* reads instance data from (the
+    operator's when AGENT_FABRIC_OPERATOR is exported, ADR-045), never the
+    engine's index: an operator that declares a project's files the engine
+    lacks is not missing them (#352 review). `tracked` is that tree's git
+    index when the tree is a git checkout, meaning its own work tree's root
+    (`rev-parse --show-toplevel`): a tree untracked inside a larger repository
+    would read every file as missing, so it is judged by existence, `tracked`
+    None. None altogether when absence proves nothing: the engine that is
+    not a checkout, or a checkout whose index is empty (nothing tracked
+    proves nothing; the answer before j147)."""
+    tree = roots.operator_root(engine=root)
+    top = _git().run(tree, "rev-parse", "--show-toplevel", check=False, timeout=60)
+    if top.returncode == 0 and os.path.realpath(top.stdout.strip()) == os.path.realpath(tree):
+        r = _git().run(tree, "ls-files", "-z", check=False, timeout=60)
+        if r.returncode == 0:
+            tracked = {f for f in r.stdout.split("\0") if f}
+            return (tree, tracked) if tracked else None
+    if os.path.realpath(tree) == os.path.realpath(root):
+        return None
+    return tree, None
+
+
+def _present_in_read_tree(root: str):
+    """A predicate over the absolute paths a roots.* call returned: is the
+    file there, in the tree those calls read from (_read_tree_files)? None
+    when absence proves nothing."""
+    read = _read_tree_files(root)
+    if read is None:
+        return None
+    tree, tracked = read
+    if tracked is None:
+        return os.path.isfile
+    return lambda path: os.path.relpath(path, tree) in tracked
+
+
+def _arm_jsons_in_read_tree(root: str) -> list[str]:
+    """Every projects/<p>/integration/gh/arm.json of the tree the rules open
+    them from, as paths relative to it, sorted. [] when absence proves nothing."""
+    read = _read_tree_files(root)
+    if read is None:
+        return []
+    tree, tracked = read
+    if tracked is None:
+        try:
+            projects = os.listdir(roots.projects_dir(engine=root))
+        except OSError:
+            return []
+        tracked = {f"projects/{p}/integration/gh/arm.json" for p in projects
+                   if os.path.isfile(roots.project_integration(p, "gh", "arm.json", engine=root))}
+    return sorted(r for r in tracked if re.fullmatch(r"projects/[^/]+/integration/gh/arm\.json", r))
+
+
 def arm_declared_findings(root: str) -> list[str]:
     """Every project in projects/registry.json has an arm.json. Without one
     fabric-pr arm refuses to arm any PR of the project ("the security
@@ -351,14 +405,51 @@ def arm_declared_findings(root: str) -> list[str]:
         # registry's own checks' to report; naming every project missing
         # from a registry nobody could read would bury that.
         return []
-    tracked = _tracked(root)
-    if not tracked:
+    present = _present_in_read_tree(root)
+    if present is None:
         return []   # not a git checkout: nothing is tracked, so absence proves nothing
-    declared = {r.split("/")[1] for r in tracked
-                if re.fullmatch(r"projects/[^/]+/integration/gh/arm\.json", r)}
+    declared = {p for p in registered
+                if present(roots.project_integration(p, "gh", "arm.json", engine=root))}
     return [f"projects/registry.json: project {p!r} has no projects/{p}/integration/gh/arm.json; "
             "fabric-pr arm refuses to arm a PR of a project whose security boundary it cannot read"
             for p in registered if p not in declared]
+
+def gzcoord_declared_findings(root: str) -> list[str]:
+    """Every project in projects/registry.json has a GZCoord integration
+    with a relay and a channel. The inbox fails closed without one (exit 3,
+    "not configured"), so a session in that project's working copy hears
+    nothing and learns it only when it arms its watch: three projects were
+    registered without one (devex-tooling, 01a15cd0; j332). The control channel is
+    assert_not_control_channel's to refuse at run time; here a config that
+    names one is a finding too, since no project's sessions may use it."""
+    try:
+        with open(roots.projects_registry(engine=root), encoding="utf-8") as fh:
+            registered = sorted((json.load(fh).get("projects") or {}))
+    except (OSError, ValueError, AttributeError):
+        return []   # as arm_declared_findings: an unreadable registry is reported elsewhere
+    present = _present_in_read_tree(root)
+    if present is None:
+        return []
+    findings = []
+    for p in registered:
+        rel = f"projects/{p}/integration/gzcoord/config.json"
+        if not present(roots.project_integration(p, "gzcoord", "config.json", engine=root)):
+            findings.append(f"projects/registry.json: project {p!r} has no {rel}; gzcoord-inbox exits 3 "
+                            "(not configured) in its working copy, and its sessions neither hear nor send")
+            continue
+        try:
+            # The file integration_config reads: instance data, so the
+            # operator's when one is exported (ADR-045), as arm.json is.
+            with open(roots.project_integration(p, "gzcoord", "config.json", engine=root), encoding="utf-8") as fh:
+                cfg = json.load(fh)
+        except (OSError, ValueError) as e:
+            findings.append(f"{rel}: unreadable ({type(e).__name__})")
+            continue
+        if not isinstance(cfg, dict) or not all(isinstance(cfg.get(k), str) and cfg.get(k) for k in ("relay_url", "channel")):
+            findings.append(f"{rel}: needs a relay_url and a channel, or the inbox reads it as not configured")
+        elif cfg["channel"].endswith(":control"):
+            findings.append(f"{rel}: channel {cfg['channel']!r} is a control channel, which no session drains or sends on")
+    return findings
 
 # What a role IS, never a contributor's to commit (ADR-018 §5 rule 8): a rule
 # ending in "/" is a directory, any other one file, as in an entry. The
@@ -379,9 +470,11 @@ CONTRIBUTOR_NEVER = (
     "tests/test_contributors.py", "tests/test_agent_fabric_dir_authority.py", "tests/test_charter_authority.py",
     "runtime/identity.py", "runtime/claude-code/",
     "bin/fabric-role", "tools/fabric/role.py", "tools/fabric/routing.py", "tools/fabric/launch_prompt.py",
-    "bin/fabric-review", "tools/fabric/review_brief.py",
+    "bin/fabric-review", "tools/fabric/review_brief.py", "tools/fabric/review_card.py",
     # Runs as root on every host and installs the interpreter every tool runs on.
     "tools/fabric/python_pin.py", "runtime/python.json",
+    # Runs as root on every host and installs the fleet's guards (ADR-043 rule 2).
+    "tools/fabric/managed_settings.py", "bin/fabric-managed", "runtime/claude-code/managed/",
     # Wires the fleet's hooks into a session started in this clone.
     ".claude/", "tools/fabric/fabric_settings.py",
     # Bootstrap runs it as every account, and it rewrites ~/.claude.json.
@@ -631,12 +724,14 @@ def main() -> int:
     # --- no project's name in a generic file --------------------------------
     findings += project_name_findings(root)
 
-    # --- bash over 160 lines only where the allowlist says (ADR-040) ---------
-    findings += bash_size_findings(root)
+    # --- bash is a forwarder or on the allowlist's stays/ports (ADR-040 §5 r2) ---------
+    findings += bash_shape_findings(root)
     findings += regex_dollar_findings(root)
+    findings += state_write_findings(root)
     findings += arm_boundary_findings(root)
     findings += arm_direct_findings(root)
     findings += arm_declared_findings(root)
+    findings += gzcoord_declared_findings(root)
 
     # --- a session started in this clone gets the workspace's hooks ---------
     findings += fabric_settings_findings(root)
@@ -685,6 +780,10 @@ def main() -> int:
     findings += personas_findings(roots.personas("surnames.json", engine=root), roots.personas("claims.json", engine=root),
                                   lineage_path)
     findings += signing_findings(root, roots.policy("signing.json", engine=root), roots.projects_registry(engine=root))
+
+    # --- no hidden Unicode in text an agent reads (j305) ---------------------
+    findings += hidden_unicode_findings(root)
+    findings += review_card_findings(root)
 
     # --- role identities ---------------------------------------------------
     template_schema = load_schema(root, schemas, "role-template")

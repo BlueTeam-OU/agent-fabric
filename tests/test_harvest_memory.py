@@ -22,13 +22,18 @@ import sys
 import tarfile
 import tempfile
 import time
-from instance_fixtures import own_instance_tree  # noqa: E402 — tests/, the script's own directory
+from instance_fixtures import own_instance_tree, write_registry  # noqa: E402 — tests/, the script's own directory
 own_instance_tree()
 # The harvest reads the login's memory-server logs from its state directory (memory_use.py): a suite that did not
 # name one would drain the running session's own marks and calls into its fixtures.
 STATE = tempfile.mkdtemp(prefix="harvest-state-")
 atexit.register(shutil.rmtree, STATE, ignore_errors=True)
 os.environ["AGENT_FABRIC_STATE_DIR"] = STATE
+# The projects a named anchor may carry (`gzapp:…`) are the registry's ids, instance data a stripped tree does not carry:
+# the harvest reads this operator tree's, not the checkout's.
+OPERATOR = tempfile.mkdtemp(prefix="harvest-operator-")
+atexit.register(shutil.rmtree, OPERATOR, ignore_errors=True)
+write_registry(os.path.join(OPERATOR, "projects"), {"projects": {"gzapp": {}, "blueteam.ee": {}}})
 LOGIN = pwd.getpwuid(os.geteuid()).pw_name
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -62,7 +67,7 @@ def run(mem: str, out: str, *extra: str):
     return subprocess.run(
         [sys.executable, TOOL, "--role", "architect-cto", "--memory", mem,
          "--out", out, *extra],
-        capture_output=True, text=True)
+        capture_output=True, text=True, env={**os.environ, "AGENT_FABRIC_OPERATOR": OPERATOR})
 
 
 def claims_of(out: str) -> list[dict]:
@@ -211,6 +216,88 @@ def test_anchors_on_another_class_or_malformed_are_dropped_with_a_warning_and_th
     assert len(report["anchor_warnings"]) >= 7, report.get("anchor_warnings")
 
 
+def write_head(d: str, name: str, head: str) -> None:
+    with open(os.path.join(d, f"{name}.md"), "w", encoding="utf-8") as fh:
+        fh.write(f"---\nname: {name}\ndescription: d\n{head}---\n\nThe fact.\n")
+
+
+def test_an_anchors_block_list_is_read_like_the_inline_form(tmp: str) -> None:
+    """A memory the harness normalises comes back with `anchors:` as a YAML block list, beside keys it adds; it parses to the
+    same anchors, with the same validation and problems, and a form that cannot be read is said, never silently no anchors."""
+    mem, out = os.path.join(tmp, "bl"), os.path.join(tmp, "obl")
+    os.makedirs(mem)
+    harness = "  node_type: memory\n  originSessionId: 5b6473a3\n  modified: 2026-10-20T10:00:00Z\n"
+    write_head(mem, "nested", "metadata:\n  type: project\n  roles_class: solution\n  anchors:\n    - tools/a.py::run\n"
+                              "    - \"docs/b.md::a literal, with a comma\"\n    - tools/a.py::run\n" + harness)
+    write_head(mem, "toplevel", "anchors:\n- tools/c.py::main\n- 'gzapp:src/x.py::it''s'\nmetadata:\n  type: project\n  roles_class: workflow\n")
+    write_head(mem, "malformed", "metadata:\n  type: project\n  roles_class: solution\n  anchors:\n    - /etc/passwd::x\n    - nosuchproject:a.py\n    - tools/ok.py::fine\n"
+                                  "    -\n")
+    write_head(mem, "bare", "metadata:\n  type: project\n  roles_class: solution\n  anchors:\n  modified: 2026-10-20\n")
+    write_head(mem, "emptystr", "anchors: \"\"\nmetadata:\n  type: project\n  roles_class: solution\n")
+    write_head(mem, "scalar", "metadata:\n  type: project\n  roles_class: solution\n  anchors: tools/a.py\n")
+    r = run(mem, out)
+    assert r.returncode == 0, r.stderr
+    got = {c["topic"]: c.get("anchors") for c in claims_of(out)}
+    assert got["nested"] == ["tools/a.py::run", "docs/b.md::a literal, with a comma"], got["nested"]
+    assert got["toplevel"] == ["tools/c.py::main", "gzapp:src/x.py::it's"], got["toplevel"]
+    assert got["malformed"] == ["tools/ok.py::fine"], got["malformed"]
+    assert got["bare"] is None and got["scalar"] is None, got
+    for needle in ("malformed.md: anchor '/etc/passwd::x'", "malformed.md: anchor 'nosuchproject:a.py'", "malformed.md: anchor ''",
+                   "scalar.md: anchors is no inline list", "emptystr.md: anchors is no inline list"):
+        assert needle in r.stderr, (needle, r.stderr)
+    assert "bare.md" not in r.stderr, "a bare `anchors:` with nothing under it is no anchors, not a problem"
+    leak = os.path.join(tmp, "bll")
+    os.makedirs(leak)
+    write_head(leak, "leaky", "metadata:\n  type: project\n  roles_class: solution\n  anchors:\n    - cfg/a.py::ghp_A1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6Q7r8\n")
+    r2 = run(leak, os.path.join(tmp, "obll"))
+    assert r2.returncode == 1 and "leaky.md: an anchor carries a" in r2.stderr, (r2.returncode, r2.stderr)
+
+
+def test_a_block_list_a_dumper_wrapped_or_commented_is_read_whole_and_a_block_scalar_is_said(tmp: str) -> None:
+    """The forms a YAML dumper writes: an item wrapped onto a second line, a comment between items, a block scalar. None may
+    cut an item short or drop the items after it without a word; a top-level key after the list is the key itself."""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("harvest", os.path.join(ROOT, "tools", "fabric", "harvest_memory.py"))
+    harvest = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(harvest)
+
+    def parsed(name: str, head: str) -> dict:
+        write_head(tmp, name, head)
+        return harvest.parse_memory(os.path.join(tmp, f"{name}.md"))
+    nested = "metadata:\n  type: project\n  roles_class: solution\n"
+    wrapped = parsed("wrapped", nested + "  anchors:\n  - tools/a.py::a literal long enough that a dumper folds it onto a second line\n    here\n  - tools/b.py::second\n")
+    assert wrapped["anchors"] == ["tools/a.py::a literal long enough that a dumper folds it onto a second line here", "tools/b.py::second"], wrapped
+    assert wrapped["anchor_problems"] == [], wrapped["anchor_problems"]
+    commented = parsed("commented", nested + "  anchors:\n    # the code\n    - tools/a.py::run\n    # and its test\n    - tests/t.py\n")
+    assert commented["anchors"] == ["tools/a.py::run", "tests/t.py"] and commented["anchor_problems"] == [], commented
+    scalar_item = parsed("scalaritem", nested + "  anchors:\n    - >-\n      tools/a.py::run\n    - tools/b.py\n")
+    assert scalar_item["anchors"] == ["tools/b.py"], scalar_item["anchors"]
+    assert any("YAML block scalar" in p for p in scalar_item["anchor_problems"]), scalar_item["anchor_problems"]
+    after = parsed("after", "anchors:\n- tools/a.py::run\ndescription: the cue\nmetadata:\n  type: project\n  roles_class: solution\n")
+    assert (after["anchors"], after["description"]) == (["tools/a.py::run"], "the cue"), after
+    after_meta = parsed("aftermeta", nested + "description: the cue\n")
+    assert after_meta["description"] == "the cue" and after_meta["roles_class"] == "solution", after_meta
+    both_top = parsed("bothtop", "anchors: [tools/a.py]\nmetadata:\n  type: project\n  roles_class: solution\n  anchors:\n    - tools/b.py\n")
+    assert both_top["anchors"] == ["tools/a.py"] and any("inline and as a block list" in p for p in both_top["anchor_problems"]), both_top
+
+
+def test_a_named_anchor_travels_when_the_registry_names_the_project_and_is_refused_said_when_not(tmp: str) -> None:
+    """ADR-050 rule 1 (2026-10-20): `<project>:<path>::<symbol>` keeps the prefix in the claim when the project is
+    a projects/registry.json id; an id the registry lacks, or a prefix that is no id, drops that anchor with a
+    warning; an unnamed anchor, and a colon after `::`, are what they were."""
+    mem, out = os.path.join(tmp, "np"), os.path.join(tmp, "onp")
+    os.makedirs(mem)
+    write_anchored(mem, "named", "solution", '[gzapp:src/a.py::run, "blueteam.ee:docs/b.md::note: with a colon", tools/c.py::ok]')
+    write_anchored(mem, "bad", "solution", "[nosuchproject:src/a.py::run, Gzapp:src/a.py, tools/ok.py::fine]")
+    r = run(mem, out)
+    assert r.returncode == 0, r.stderr
+    got = {c["topic"]: c.get("anchors") for c in claims_of(out)}
+    assert got["named"] == ["gzapp:src/a.py::run", "blueteam.ee:docs/b.md::note: with a colon", "tools/c.py::ok"], got
+    assert got["bad"] == ["tools/ok.py::fine"], got
+    assert "bad.md: anchor 'nosuchproject:src/a.py::run': names project 'nosuchproject', which projects/registry.json does not" in r.stderr, r.stderr
+    assert "bad.md: anchor 'Gzapp:src/a.py': its path holds a colon" in r.stderr, r.stderr
+
+
 def test_a_memory_with_a_merge_target_and_no_body_is_a_retire_claim_and_one_with_neither_is_refused(tmp: str) -> None:
     """ADR-050 rule 7: the claim of an empty memory that names a section in merge_target has an empty body and
     that target, and the assembler retires the section; an empty memory that names none files nothing and
@@ -289,7 +376,7 @@ def test_an_applied_correction_is_not_harvested_again_and_the_original_it_replac
     assert "superseded: orig.md" in r.stderr and "retire this memory" in r.stderr and "'fix'" in r.stderr, r.stderr
     assert "plain.md" not in r.stderr and "fix2.md" not in r.stderr, r.stderr
     assert not (os.path.exists(os.path.join(out, "claims", "architect-cto.json")) and claims_of(out)), "everything was older than the watermark"
-    newest = time.time() + 86400          # only the skipped correction is this new: the watermark passes it or it does not
+    newest = time.time() - 60             # only the skipped correction is this new (and before the scan: one written after it waits, F04)
     os.utime(os.path.join(mem, "fix.md"), (newest, newest))
     far_back = {"watermarks": {f"{LOGIN}@hostA": 1}, "applied_corrections": [entry]}
     with open(os.path.join(wc, ".agent-fabric", "memory", "last-drain-report.json"), "w", encoding="utf-8") as fh:
@@ -656,6 +743,9 @@ def test_an_author_s_merge_target_supersedes_without_a_question(tmp: str) -> Non
                        capture_output=True, text=True)
     assert r.returncode == 0, "no question asked when the author named the section: " + r.stderr
     assert "SUPERSEDING?" not in r.stderr
+    # A second topic (the correction's memory) moves the class into its directory; the section is replaced in the
+    # file of the topic that held it.
+    slice_path = os.path.join(wc, ".agent-fabric", "memory", "architect-cto", "solution", "dictionary.md")
     text = open(slice_path, encoding="utf-8").read()
     assert "Reviewed by a native speaker" in text and "never reviewed" not in text, text
     assert text.count("## The dictionary has") == 1 and "(2)" not in text, text
@@ -711,6 +801,103 @@ def test_the_watermark_round_trips_through_the_committed_report(tmp: str) -> Non
     assert run(mem, out4, "--working-copy", wc, "--project", "demo", "--host", "hostA", "--all").returncode == 0
     hr = json.load(open(os.path.join(out4, "harvest-report.json"), encoding="utf-8"))
     assert hr["since_watermark"] == 0 and len(claims_of(out4)) == 2, hr
+
+
+def _scan_in_process(mem: str, out: str, wc: str) -> dict:
+    """One scan, in this process, so a test can act between its steps; the harvest report it wrote."""
+    sys.path.insert(0, os.path.join(ROOT, "tools", "fabric"))
+    import harvest_memory as hm
+    saved = sys.argv
+    sys.argv = [TOOL, "--role", "architect-cto", "--memory", mem, "--out", out, "--working-copy", wc,
+                "--project", "demo", "--host", "hostA"]
+    try:
+        assert hm.main() == 0
+    finally:
+        sys.argv = saved
+    with open(os.path.join(out, "harvest-report.json"), encoding="utf-8") as fh:
+        return json.load(fh)
+
+
+def _record_watermark(wc: str, report: dict) -> None:
+    with open(os.path.join(wc, ".agent-fabric", "memory", "last-drain-report.json"), "w", encoding="utf-8") as fh:
+        json.dump({"watermarks": {f"{report['agent']}@hostA": report["next_watermark"]}}, fh)
+
+
+def test_a_file_made_after_the_listing_is_not_skipped_by_a_listed_one_rewritten_later(tmp: str) -> None:
+    """Audit F04. The scan lists a, b; while a is read, c is created and b rewritten. The old watermark was the
+    newest mtime read (b's rewrite), which passed c: c was never drained. The watermark stays at the cutoff taken
+    when the scan began, and what was written after it is read by the next scan."""
+    import harvest_memory as hm
+    wc = os.path.join(tmp, "wc-f04"); os.makedirs(os.path.join(wc, ".agent-fabric", "memory"))
+    mem = os.path.join(tmp, "m-f04"); os.makedirs(mem)
+    for n in ("a", "b"):
+        write_memory(mem, n, "project", roles_class="solution")
+    began = time.time()
+    real = hm.parse_memory
+
+    def interleaved(path):
+        if path.endswith("/a.md") and not os.path.exists(os.path.join(mem, "c.md")):
+            write_memory(mem, "c", "project", roles_class="solution")
+            os.utime(os.path.join(mem, "c.md"), (began + 5, began + 5))
+            write_memory(mem, "b", "project", body="rewritten", roles_class="solution")
+            os.utime(os.path.join(mem, "b.md"), (began + 10, began + 10))
+        return real(path)
+    hm.parse_memory = interleaved
+    try:
+        first = _scan_in_process(mem, os.path.join(tmp, "o-f04a"), wc)
+    finally:
+        hm.parse_memory = real
+    assert first["next_watermark"] <= int(time.time() * 1000), first
+    assert first["next_watermark"] < int((began + 5) * 1000), "the watermark passed a file written after the scan began"
+    assert first["after_cutoff"] == ["b.md"], first
+    _record_watermark(wc, first)
+    for n in ("b", "c"):                    # the clock has caught up with the files the interleaving dated ahead
+        os.utime(os.path.join(mem, f"{n}.md"), (time.time(), time.time()))
+    second = _scan_in_process(mem, os.path.join(tmp, "o-f04b"), wc)
+    assert {c["topic"] for c in claims_of(os.path.join(tmp, "o-f04b"))} == {"b", "c"}, second
+
+
+def test_a_file_that_changes_while_it_is_read_is_not_taken_and_pins_the_watermark(tmp: str) -> None:
+    """Audit F04, second half: the content read and the mtime must be of one state. A file rewritten under the read
+    is named, not harvested, and the watermark stays below its new time."""
+    import harvest_memory as hm
+    wc = os.path.join(tmp, "wc-f04c"); os.makedirs(os.path.join(wc, ".agent-fabric", "memory"))
+    mem = os.path.join(tmp, "m-f04c"); os.makedirs(mem)
+    write_memory(mem, "a", "project", roles_class="solution")
+    old = time.time() - 100
+    os.utime(os.path.join(mem, "a.md"), (old, old))
+    real_open = open
+    hit = []
+
+    class Rewriting:
+        """The file object, whose read is the moment the file changes: after the open and the stat, before the end."""
+        def __init__(self, fh):
+            self.fh = fh
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            self.fh.close()
+
+        def fileno(self):
+            return self.fh.fileno()
+
+        def read(self):
+            first = self.fh.read(10)
+            write_memory(mem, "a", "project", body="a longer body than before", roles_class="solution")
+            return first + self.fh.read()
+
+    def rewriting_open(path, *a, **k):
+        fh = real_open(path, *a, **k)
+        return Rewriting(fh) if str(path).endswith("/a.md") and not hit and not hit.append(1) else fh
+    hm.open = rewriting_open
+    try:
+        rep = _scan_in_process(mem, os.path.join(tmp, "o-f04c"), wc)
+    finally:
+        del hm.open
+    assert rep["changed_while_read"] == ["a.md"] and rep["claims"] == 0, rep
+    assert rep["next_watermark"] < int(os.path.getmtime(os.path.join(mem, "a.md")) * 1000), rep
 
 
 def _ms(stamp: str) -> int:
@@ -850,6 +1037,40 @@ def test_rows_after_the_scan_began_wait_and_the_watermark_stays_behind_them(tmp:
     r, members, manifest = _bundle(tmp, "m9", 5)
     assert "marks.jsonl" not in members and "memory_use" not in json.loads(members["harvest-report.json"]), members.keys()
     assert manifest["next_watermark"] == 5, manifest
+
+
+def test_the_oldest_memory_that_still_waits_is_in_the_report_and_the_manifest(tmp: str) -> None:
+    """oldest_drainable_ms is the least mtime among in-scope memories with a roles_class, a held one included; an older
+    memory with no class, an older one before the watermark and a newer one are not it; none waiting is null.
+    Kills: counting unclassed or already drained memories, dropping the held, taking the max, the manifest losing it."""
+    def stamp(mem: str, name: str, ms: int) -> None:
+        os.utime(os.path.join(mem, f"{name}.md"), (ms / 1000, ms / 1000))
+    wm = 1_000_000
+    mem = os.path.join(tmp, "mem-old")
+    os.makedirs(mem)
+    write_memory(mem, "drained", "project", roles_class="solution")
+    write_memory(mem, "unclassed", "project")
+    write_memory(mem, "held", "project", body="მხოლოდ ქართული ტექსტი, თარგმანის გარეშე.", roles_class="solution")
+    write_memory(mem, "newer", "project", roles_class="workflow")
+    stamp(mem, "drained", wm - 5000)
+    stamp(mem, "unclassed", wm + 10)
+    stamp(mem, "held", wm + 2000)
+    stamp(mem, "newer", wm + 9000)
+    wc = os.path.join(tmp, "wc-old")
+    os.makedirs(os.path.join(wc, ".agent-fabric", "memory"))
+    with open(os.path.join(wc, ".agent-fabric", "memory", "last-drain-report.json"), "w", encoding="utf-8") as fh:
+        json.dump({"watermarks": {f"{LOGIN}@hostA": wm}}, fh)
+    target = os.path.join(tmp, "old.tar")
+    r = subprocess.run([sys.executable, TOOL, "--role", "architect-cto", "--memory", mem, "--bundle", target, "--working-copy", wc,
+                        "--project", "demo", "--host", "hostA"], capture_output=True, text=True)
+    assert r.returncode == 0, r.stderr
+    with tarfile.open(target) as tar:
+        manifest = json.load(tar.extractfile("manifest.json"))
+        report = json.load(tar.extractfile("harvest-report.json"))
+    assert report["oldest_drainable_ms"] == wm + 2000 and manifest["oldest_drainable_ms"] == wm + 2000, (report, manifest)
+    r, members, manifest = _bundle(tmp, "old-none", None)
+    assert r.returncode == 0 and manifest["oldest_drainable_ms"] is None, (r.stderr, manifest)
+    assert json.loads(members["harvest-report.json"])["oldest_drainable_ms"] is None
 
 
 def test_a_call_the_caller_got_wrong_is_counted_apart(tmp: str) -> None:
@@ -1063,6 +1284,8 @@ def main() -> int:
         test_a_reflection_memory_that_is_held_applied_or_before_the_watermark_is_not_counted,
         test_an_author_s_merge_target_supersedes_without_a_question,
         test_the_watermark_round_trips_through_the_committed_report,
+        test_a_file_made_after_the_listing_is_not_skipped_by_a_listed_one_rewritten_later,
+        test_a_file_that_changes_while_it_is_read_is_not_taken_and_pins_the_watermark,
         test_a_bundle_round_trips_and_a_damaged_one_is_refused_by_file,
         test_a_claim_carries_the_date_the_memory_was_written,
         test_a_quoted_description_is_read_as_yaml_reads_it,
@@ -1096,6 +1319,7 @@ def main() -> int:
         test_a_malformed_row_of_another_project_or_no_project_makes_no_drain,
         test_rows_after_the_scan_began_wait_and_the_watermark_stays_behind_them,
         test_a_call_the_caller_got_wrong_is_counted_apart,
+        test_the_oldest_memory_that_still_waits_is_in_the_report_and_the_manifest,
         test_an_id_with_a_trailing_newline_is_not_an_id,
         test_a_note_with_a_credential_is_withheld_and_a_query_is_never_carried,
         test_a_second_store_of_the_login_carries_no_marks,
@@ -1103,6 +1327,9 @@ def main() -> int:
         test_anchors_travel_from_a_solution_or_workflow_memory_to_its_claim,
         test_an_applied_correction_is_not_harvested_again_and_the_original_it_replaced_is_named,
         test_anchors_on_another_class_or_malformed_are_dropped_with_a_warning_and_the_claim_stays,
+        test_an_anchors_block_list_is_read_like_the_inline_form,
+        test_a_block_list_a_dumper_wrapped_or_commented_is_read_whole_and_a_block_scalar_is_said,
+        test_a_named_anchor_travels_when_the_registry_names_the_project_and_is_refused_said_when_not,
         test_a_memory_with_a_merge_target_and_no_body_is_a_retire_claim_and_one_with_neither_is_refused,
         test_an_anchor_that_carries_a_credential_refuses_the_drain_and_a_doubled_single_quote_is_one_quote,
     ]

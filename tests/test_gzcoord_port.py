@@ -1124,6 +1124,878 @@ def _():
         stub.close()
 
 
+# ── a watch ends with its session (2026-10-20) ───────────────────────
+
+def _fake_proc(root: str, procs: dict[int, tuple]) -> str:
+    """A /proc of the given processes {pid: (comm, ppid, state, start[, cmdline])}: the files session.py reads."""
+    for pid, spec in procs.items():
+        comm, ppid, state, start = spec[:4]
+        d = os.path.join(root, str(pid))
+        os.makedirs(d, exist_ok=True)
+        # pid (comm) state ppid pgrp session tty tpgid flags minflt cminflt majflt cmajflt utime stime cutime cstime prio nice threads itreal start
+        rest = [state, str(ppid)] + ["0"] * 17 + [str(start)]
+        open(os.path.join(d, "stat"), "w").write(f"{pid} ({comm}) " + " ".join(rest) + " 0 0\n")
+        open(os.path.join(d, "cmdline"), "wb").write(b"\0".join(a.encode() for a in (spec[4] if len(spec) > 4 else [comm])) + b"\0")
+    return root
+
+
+@case("session.py reads a session from /proc: the nearest claude through shells, else the parent; a reused pid, a zombie and a dead parent are an ended session")
+def _():
+    from gzcoord.inbox_parts import session as S
+    root = _fake_proc(P.scratch("proc-"), {
+        1: ("systemd", 0, "S", 1), 50: ("claude", 1, "S", 500), 60: ("bash", 50, "S", 600), 61: ("bash", 60, "S", 610), 70: ("fabric-python", 61, "S", 700),
+        80: ("python3", 1, "S", 800), 81: ("python3", 80, "S", 810),
+        90: ("bash", 1, "S", 900), 91: ("fabric-python", 90, "S", 910)})
+    eq(S.nearest_claude(70, root).pid, 50)
+    cur = S.current(root, pid=70, ppid=61)
+    eq((cur.pid, cur.start, cur.parent, cur.kind), (50, "500", 61, "claude"))
+    eq(S.current(root, pid=81, ppid=80).kind, "parent")
+    eq(S.current(root, pid=91, ppid=90).kind, "detached")
+    ok(S.reparented(91, root) and not S.reparented(81, root) and not S.reparented(70, root), "init through shells only; a python parent is not; claude above is not")
+    ok(not S.reparented(424242, root), "a process /proc does not show is not read as orphaned")
+    ok(not S.ended(cur, 70, root) and not S.gone(cur, root, pid=70, ppid=61), "the session is there")
+    ok(S.gone(cur, root, pid=70, ppid=1), "the watch's parent changed")
+    for label, change in (("gone", None), ("another process under the pid", ("claude", 1, "S", 999)), ("a zombie", ("claude", 1, "Z", 500))):
+        again = _fake_proc(P.scratch("proc-"), {1: ("systemd", 0, "S", 1), 61: ("bash", 1, "S", 610), 70: ("fabric-python", 61, "S", 700),
+                                                **({50: change} if change else {})})
+        ok(S.ended(cur, 70, again) and S.gone(cur, again, pid=70, ppid=61), f"the session is {label}")
+    parent_kind = S.Session(80, "800", 80, "parent")
+    ok(not S.ended(parent_kind, 81, root), "a parent session that is alive, the watch under it")
+    orphan = _fake_proc(P.scratch("proc-"), {1: ("systemd", 0, "S", 1), 80: ("bash", 1, "S", 800), 81: ("fabric-python", 80, "S", 810)})
+    ok(S.ended(parent_kind, 81, orphan), "the wrapper shell lives on, hanging from init: the session it stood for is gone")
+    ok(not S.ended(S.Session(80, "800", 80, "detached"), 81, orphan), "a detached watch is ended by its parent's death only")
+    # a session /proc did not show when recorded (the watch is pid 1, or /proc hides its parent): not seen, so not seen to end
+    unseen = S.Session(1, "", 1, "detached")
+    ok(not S.ended(unseen, 70, root) and not S.ended(S.Session(0, "", 0, "parent"), 70, root), "an unrecorded session is no ended session")
+    ok(S.gone(S.Session(0, "", 0, "parent"), root, pid=70, ppid=999), "...but its parent changing still ends the watch")
+    ok(S.ended(S.Session(999, "9", 999, "claude"), 70, root), "control: a recorded start with the process absent is an ended session")
+    eq(S.Session.of(["50", "500", "claude", ""]), S.Session(50, "500", 0, "claude"))
+    ok(S.Session.of(["50"]) is None and S.Session.of(["x", "1", "claude"]) is None and S.Session.of(["5", "1", "other"]) is None, "a malformed or short record is no session")
+    for args, want in (([PYTHON, "-I", "/x/bin/gzcoord-inbox", "--until-delivery"], True), (["python3", "/x/tools/fabric/gzcoord/inbox.py", "--follow"], True),
+                       ([PYTHON, "/x/bin/gzcoord-inbox"], False), ([PYTHON, "/x/bin/gzcoord-inbox", "--replay", "5", "--follow"], False),
+                       (["sleep", "60", "--until-delivery"], False), (["bash", "-c", "x", "y", "z", "gzcoord-inbox", "--follow"], False)):
+        r2 = _fake_proc(P.scratch("proc-"), {7: ("fabric-python", 1, "S", 1, args)})
+        eq(S.is_inbox(7, r2), want)
+
+
+@case("lock_holder reads the pid that owns the flock from /proc/locks, not a waiter's, and not a pid the namespace cannot name")
+def _():
+    from gzcoord.inbox_parts import watchlock
+    f = os.path.join(P.scratch("lk-"), "x.lock")
+    open(f, "w").close()
+    st = os.stat(f)
+    dev = f"{os.major(st.st_dev):02x}:{os.minor(st.st_dev):02x}:{st.st_ino}"
+    locks = os.path.join(P.scratch("lk-"), "locks")
+
+    def holder(text: str):
+        open(locks, "w").write(text)
+        return watchlock.lock_holder(f, locks)
+    eq(holder(f"1: FLOCK  ADVISORY  WRITE 4242 {dev} 0 EOF\n"), 4242)
+    eq(holder(f"1: -> FLOCK  ADVISORY  WRITE 99 {dev} 0 EOF\n2: FLOCK  ADVISORY  WRITE 4242 {dev} 0 EOF\n"), 4242)
+    ok(holder(f"1: FLOCK  ADVISORY  WRITE 4242 00:00:1 0 EOF\n") is None, "another file's lock")
+    ok(holder(f"1: FLOCK  ADVISORY  WRITE 0 {dev} 0 EOF\n") is None, "pid 0 is a holder in another pid namespace")
+    ok(holder(f"1: POSIX  ADVISORY  WRITE 4242 {dev} 0 EOF\n") is None, "a POSIX lock is not the flock")
+    ok(watchlock.lock_holder(f, os.path.join(locks, "absent")) is None, "no /proc/locks")
+
+
+def _orphan_world(file_lines: list[str], procs: dict, holder: int = 100) -> tuple[list, list, str]:
+    """(calls, result, stderr) of end_orphan on a fake /proc and a fake /proc/locks naming `holder` as the holder."""
+    from gzcoord.inbox_parts import watchlock
+    base = P.scratch("orph-")
+    path = os.path.join(base, "x.lock")
+    open(path, "w").close()
+    st = os.stat(path)
+    locks = os.path.join(base, "locks")
+    open(locks, "w").write(f"1: FLOCK  ADVISORY  WRITE {holder} {os.major(st.st_dev):02x}:{os.minor(st.st_dev):02x}:{st.st_ino} 0 EOF\n")
+    root = _fake_proc(os.path.join(base, "proc"), procs)
+    sent: list = []
+    err = io.StringIO()
+    with contextlib.redirect_stderr(err):
+        res = watchlock.end_orphan(path, file_lines, root, locks, kill=lambda pid, sig: sent.append((pid, sig)))
+    return sent, res, err.getvalue()
+
+
+@case("end_orphan signals a holder by its pid, once, and only a gzcoord-inbox watch of this login whose session is gone")
+def _():
+    import signal
+    watch = [PYTHON, "-I", "/x/bin/gzcoord-inbox", "--until-delivery"]
+    base = {1: ("systemd", 0, "S", 1), 90: ("claude", 1, "S", 900), 91: ("bash", 90, "S", 910)}
+    # a recorded session that is gone (pid 55 is not there)
+    sent, res, err = _orphan_world(["100", "T", "55", "550", "claude"], {**base, 100: ("fabric-python", 91, "S", 1000, watch)})
+    eq((sent, res), ([(100, signal.SIGTERM)], 100))
+    ok("pid 100" in err and "session, pid 55, has ended" in err, err)
+    # the same record with the session alive: refused as before, nothing signalled
+    sent, res, _ = _orphan_world(["100", "T", "90", "900", "claude"], {**base, 100: ("fabric-python", 91, "S", 1000, watch)})
+    eq((sent, res), ([], None))
+    # the session's pid reused by another process
+    sent, res, _ = _orphan_world(["100", "T", "90", "111", "claude"], {**base, 100: ("fabric-python", 91, "S", 1000, watch)})
+    eq((sent, res), ([(100, signal.SIGTERM)], 100))
+    # a holder that is no watch (a sleeper, a drain, a replay) is never signalled, though its session is gone
+    for args in (["sleep", "60"], [PYTHON, "-I", "/x/bin/gzcoord-inbox"], [PYTHON, "-I", "/x/bin/gzcoord-inbox", "--replay", "5", "--follow"]):
+        sent, res, _ = _orphan_world(["100", "T", "55", "550", "claude"], {**base, 100: ("fabric-python", 91, "S", 1000, args)})
+        eq((sent, res), ([], None), args)
+    # a file of two lines (an older watch): judged by the holder hanging from init or systemd through shells only
+    gone_tree = {1: ("systemd", 0, "S", 1), 91: ("bash", 1, "S", 910), 100: ("fabric-python", 91, "S", 1000, watch)}
+    sent, res, _ = _orphan_world(["100", "T"], gone_tree)
+    eq((sent, res), ([(100, signal.SIGTERM)], 100))
+    sent, res, _ = _orphan_world(["100", "T"], {**base, 100: ("fabric-python", 91, "S", 1000, watch)})
+    eq((sent, res), ([], None))
+    sent, res, _ = _orphan_world(["100", "T"], {1: ("systemd", 0, "S", 1), 91: ("python3", 1, "S", 910), 100: ("fabric-python", 91, "S", 1000, watch)})
+    eq((sent, res), ([], None), "a parent that is not a shell is a session of its own")
+    # a file naming another pid than the one that owns the flock is stale: its session lines are not the holder's
+    sent, res, _ = _orphan_world(["77", "T", "55", "550", "claude"], {**base, 100: ("fabric-python", 91, "S", 1000, watch)})
+    eq((sent, res), ([], None))
+    # an empty file (the holder has not written it yet, or could not) or one naming another pid says nothing about a holder that hangs
+    # from systemd: it is no orphan, only a holder not identified
+    for rec in ([], ["77", "T"], ["77", "T", "55", "550", "claude"], ["100", "T", "55"], ["100", "T", "55", "550", "future-kind"]):
+        sent, res, _ = _orphan_world(rec, gone_tree)
+        eq((sent, res), ([], None), rec)
+    # a signal that is not allowed is said, and is no signal sent; a holder gone before the signal is still the one signalled
+    for exc, want_res, want_err in ((PermissionError(1, "Operation not permitted"), None, True), (ProcessLookupError(), 100, False)):
+        def kill_raises(_pid, _sig, exc=exc):
+            raise exc
+        from gzcoord.inbox_parts import watchlock as W
+        base2 = P.scratch("orph-")
+        path = os.path.join(base2, "x.lock")
+        open(path, "w").close()
+        st = os.stat(path)
+        lk = os.path.join(base2, "locks")
+        open(lk, "w").write(f"1: FLOCK  ADVISORY  WRITE 100 {os.major(st.st_dev):02x}:{os.minor(st.st_dev):02x}:{st.st_ino} 0 EOF\n")
+        e2 = io.StringIO()
+        with contextlib.redirect_stderr(e2):
+            r2 = W.end_orphan(path, ["100", "T"], _fake_proc(os.path.join(base2, "proc"), gone_tree), lk, kill=kill_raises)
+        eq((r2, "could not signal pid 100" in e2.getvalue()), (want_res, want_err), repr(exc))
+    # nothing to judge: the holder is not in /proc
+    sent, res, _ = _orphan_world(["100", "T", "55", "550", "claude"], base)
+    eq((sent, res), ([], None))
+    # this process owns the flock (a second take in one process): never signalled, whatever its record says
+    me = os.getpid()
+    sent, res, _ = _orphan_world([str(me), "T", "55", "550", "claude"], {**base, me: ("fabric-python", 91, "S", 1000, watch)}, holder=me)
+    eq((sent, res), ([], None))
+
+
+_HOLDER = r"""
+import fcntl, os, sys, time
+sys.path.insert(0, sys.argv[1])
+from gzcoord.inbox_parts import watchlock, session
+path, mode, spid, sstart, kind = sys.argv[3:8]
+if mode == "new-deaf":
+    import signal
+    signal.signal(signal.SIGTERM, signal.SIG_IGN)
+if mode.startswith("new"):
+    lock = watchlock.WatchLock(path)
+    assert lock.acquire(session.Session(int(spid), sstart, 0, kind))
+else:
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    fd = os.open(path, os.O_RDWR | os.O_CREAT, 0o600)
+    fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    os.ftruncate(fd, 0)
+    os.write(fd, f"{os.getpid()}\n2026-10-20T00:00:00Z\n".encode())
+print("READY", flush=True)
+time.sleep(300)
+"""
+_SIM = r"""
+import ctypes, subprocess, sys
+ctypes.CDLL(None).prctl(15, sys.argv[1].encode(), 0, 0, 0)   # PR_SET_NAME: what /proc shows as the process's name
+sys.exit(subprocess.call(sys.argv[2:]))
+"""
+
+
+def _spawn_holder(name: str, mode: str, lock: str, session_pid: int = 0, session_start: str = "", kind: str = "claude",
+                  parent_comm: str | None = None) -> subprocess.Popen:
+    """A process that owns the flock on `lock` and looks like a gzcoord-inbox watch (`name` is its script), optionally under a
+    stand-in parent that /proc names `parent_comm`."""
+    d = P.scratch("holder-")
+    script = os.path.join(d, name)
+    open(script, "w").write(_HOLDER)
+    argv = [sys.executable, script, os.path.join(HERE, "tools", "fabric"), "--until-delivery", lock, mode, str(session_pid), session_start, kind]
+    if parent_comm:
+        sim = os.path.join(d, "sim.py")
+        open(sim, "w").write(_SIM)
+        argv = [sys.executable, sim, parent_comm, *argv]
+    # A session of its own: the stand-in parent and the holder under it are one process group, ended together by _reap.
+    p = subprocess.Popen(argv, stdout=subprocess.PIPE, text=True, start_new_session=True)
+    line = p.stdout.readline()
+    if line.strip() != "READY":
+        _reap(p)
+        raise Failed(f"the holder did not start: {line!r}")
+    return p
+
+
+def _dead_session() -> tuple[int, str]:
+    """(pid, start time) of a process that existed and is gone and reaped."""
+    from gzcoord.inbox_parts import session as S
+    p = subprocess.Popen(["sleep", "60"])
+    start = S.read_proc(p.pid).start
+    p.kill()
+    p.wait()
+    return p.pid, start
+
+
+def _take(lock_dir: str, session: Any = None, wait_s: float = 5.0, replace: bool = False) -> tuple[Any, str, str]:
+    """take_or_report in this process on a lock directory of its own: (lock or None, stdout, stderr)."""
+    from gzcoord.inbox_parts import watchlock
+    saved = os.environ.get("XDG_RUNTIME_DIR")
+    os.environ["XDG_RUNTIME_DIR"] = lock_dir
+    out, err = io.StringIO(), io.StringIO()
+    try:
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            lock = watchlock.take_or_report("fixture-login", session, wait_s, replace=replace)
+    finally:
+        if saved is None:
+            os.environ.pop("XDG_RUNTIME_DIR", None)
+        else:
+            os.environ["XDG_RUNTIME_DIR"] = saved
+    return lock, out.getvalue(), err.getvalue()
+
+
+def _reap(*procs: subprocess.Popen) -> None:
+    """End each holder's whole process group (the stand-in parent too), reap it, leave nothing running."""
+    import signal
+    for p in procs:
+        try:
+            os.killpg(p.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        p.wait()
+        p.stdout.close()
+
+
+@case("an orphaned holder is ended by its pid and the new watch takes the lock, naming both pids; a holder whose session is alive is refused as before")
+def _():
+    import signal
+    from gzcoord.inbox_parts import session as S, watchlock
+    me = S.read_proc(os.getpid())
+    run_dir = P.scratch("run-")
+    lock_file = watchlock.lock_path("fixture-login", run_dir)
+    dead_pid, dead_start = _dead_session()
+    orphan = _spawn_holder("gzcoord-inbox", "new", lock_file, dead_pid, dead_start)
+    try:
+        mine = S.Session(os.getpid(), me.start, os.getppid(), "parent")
+        lock, out, err = _take(run_dir, mine)
+        try:
+            ok(lock is not None and lock.acquired, f"the lock was taken: {out!r} {err!r}")
+            ok(f"pid {orphan.pid}" in err and f"pid {os.getpid()}" in err and "SIGTERM" in err, err)
+            eq(out, "")
+            eq(orphan.wait(timeout=10), -signal.SIGTERM)
+            lines = open(lock_file).read().split("\n")
+            eq(lines[0], str(os.getpid()))
+            eq(lines[2:5], [str(os.getpid()), me.start, "parent"], "the file records the session after the pid and the start time")
+            # the lock is now held by a watch whose session is alive: a third one is refused, the second is not signalled
+            third, out3, err3 = _take(run_dir, mine)
+            ok(third is None and f"a watch is already running (pid {os.getpid()}, started " in out3 and "SIGTERM" not in err3, out3 + err3)
+        finally:
+            lock.release()
+    finally:
+        _reap(orphan)
+    live = _spawn_holder("gzcoord-inbox", "new", lock_file, os.getpid(), me.start)
+    try:
+        none, out, err = _take(run_dir, S.Session(os.getpid(), me.start, os.getppid(), "parent"), wait_s=1.0)
+        ok(none is None and f"a watch is already running (pid {live.pid}, started " in out, out + err)
+        ok(live.poll() is None and "SIGTERM" not in err, "the live holder was not signalled: " + err)
+    finally:
+        _reap(live)
+
+
+@case("a watch that finds the orphan already taken by a quicker new watch refuses at once with the normal line; one whose orphan stays says so after the wait")
+def _():
+    import time
+    from gzcoord.inbox_parts import session as S, watchlock
+    me = S.read_proc(os.getpid())
+    run_dir = P.scratch("run-")
+    lock_file = watchlock.lock_path("fixture-login", run_dir)
+    live = _spawn_holder("gzcoord-inbox", "new", lock_file, os.getpid(), me.start)
+    saved = watchlock.end_orphan, watchlock.lock_holder
+    try:
+        mine = S.Session(os.getpid(), me.start, os.getppid(), "parent")
+        watchlock.end_orphan = lambda *_a, **_k: 12345   # the orphan this watch signalled; the lock is held by another pid now
+        t = time.monotonic()
+        none, out, err = _take(run_dir, mine, wait_s=30.0)
+        ok(none is None and f"a watch is already running (pid {live.pid}" in out and "did not release" not in err, out + err)
+        ok(time.monotonic() - t < 10, "refused without waiting out the bound")
+        watchlock.lock_holder = lambda *_a, **_k: 12345   # control: the signalled orphan still holds it
+        none, out, err = _take(run_dir, mine, wait_s=0.5)
+        ok(none is None and "pid 12345 did not release the lock in time" in err, out + err)
+    finally:
+        watchlock.end_orphan, watchlock.lock_holder = saved
+        _reap(live)
+
+
+@case("a lock file of two lines (an older watch) is judged by the holder's parent: under a shell-less systemd it is taken over, under any other live parent it is refused")
+def _():
+    import signal
+    from gzcoord.inbox_parts import session as S, watchlock
+    me = S.read_proc(os.getpid())
+    mine = S.Session(os.getpid(), me.start, os.getppid(), "parent")
+    for parent_comm, taken in (("systemd", True), ("python3", False)):
+        run_dir = P.scratch("run-")
+        lock_file = watchlock.lock_path("fixture-login", run_dir)
+        old = _spawn_holder("gzcoord-inbox", "old", lock_file, parent_comm=parent_comm)
+        try:
+            ok(len(open(lock_file).read().strip().split("\n")) == 2, "the older watch wrote two lines")
+            lock, out, err = _take(run_dir, mine, wait_s=3.0)
+            try:
+                if taken:
+                    # the stand-in parent exits with its child's status, a signal as 256 - n
+                    ok(lock is not None and lock.acquired and old.wait(timeout=10) in (-signal.SIGTERM, 256 - signal.SIGTERM), f"taken over: {out!r} {err!r}")
+                else:
+                    ok(lock is None and "a watch is already running" in out and old.poll() is None, f"refused: {out!r} {err!r}")
+            finally:
+                if lock is not None:
+                    lock.release()
+        finally:
+            _reap(old)
+
+
+@case("a holder that is not a gzcoord-inbox is never signalled, though it owns the lock with a session that is gone; the same holder under the right name is ended")
+def _():
+    import signal
+    from gzcoord.inbox_parts import session as S, watchlock
+    me = S.read_proc(os.getpid())
+    mine = S.Session(os.getpid(), me.start, os.getppid(), "parent")
+    dead_pid, dead_start = _dead_session()
+    for name, ended in (("some-other-tool", False), ("gzcoord-inbox", True)):
+        run_dir = P.scratch("run-")
+        lock_file = watchlock.lock_path("fixture-login", run_dir)
+        holder = _spawn_holder(name, "new", lock_file, dead_pid, dead_start)
+        try:
+            lock, out, err = _take(run_dir, mine, wait_s=3.0)
+            try:
+                if ended:
+                    ok(lock is not None and holder.wait(timeout=10) == -signal.SIGTERM, f"{out!r} {err!r}")
+                else:
+                    ok(lock is None and holder.poll() is None and "SIGTERM" not in err, f"{out!r} {err!r}")
+            finally:
+                if lock is not None:
+                    lock.release()
+        finally:
+            _reap(holder)
+
+
+def S_alive(pid: int) -> bool:
+    from gzcoord.inbox_parts import session as S
+    p = S.read_proc(pid)
+    return p is not None and p.state != "Z"
+
+
+@case("a holder that ignores SIGTERM is waited for a bounded time, then refused as a holder: the line says so and the lock is not taken")
+def _():
+    from gzcoord.inbox_parts import session as S, watchlock
+    me = S.read_proc(os.getpid())
+    run_dir = P.scratch("run-")
+    lock_file = watchlock.lock_path("fixture-login", run_dir)
+    dead_pid, dead_start = _dead_session()
+    deaf = _spawn_holder("gzcoord-inbox", "new-deaf", lock_file, dead_pid, dead_start)
+    try:
+        t0 = time.monotonic()
+        lock, out, err = _take(run_dir, S.Session(os.getpid(), me.start, os.getppid(), "parent"), wait_s=1.0)
+        ok(lock is None and f"a watch is already running (pid {deaf.pid}, started " in out, out + err)
+        ok("did not release the lock in time" in err and "SIGTERM" in err and 1.0 <= time.monotonic() - t0 < 30, err)
+        ok(deaf.poll() is None, "the holder that would not end is still the holder")
+    finally:
+        _reap(deaf)
+
+
+@case("--replace on a holder of this session: ended and replaced; one that ignores SIGTERM is refused by the --replace line, not 'nothing to kill'")
+def _():
+    import signal
+    from gzcoord.inbox_parts import session as S, watchlock
+    me = S.read_proc(os.getpid())
+    mine = S.Session(os.getpid(), me.start, os.getppid(), "parent")
+    for mode, replaced in (("new", True), ("new-deaf", False)):
+        run_dir = P.scratch("run-")
+        holder = _spawn_holder("gzcoord-inbox", mode, watchlock.lock_path("fixture-login", run_dir), mine.pid, mine.start, "parent")
+        try:
+            lock, out, err = _take(run_dir, mine, wait_s=1.0, replace=True)
+            try:
+                if replaced:
+                    ok(lock is not None and holder.wait(timeout=10) == -signal.SIGTERM, f"{out!r} {err!r}")
+                else:
+                    ok(lock is None and holder.poll() is None, f"{out!r} {err!r}")
+                    ok(f"--replace sent SIGTERM to the watch of pid {holder.pid} " in out and "the lock is still held" in out
+                       and "nothing to kill" not in out and "nothing was signalled" not in out and "not provably" not in out, out)
+            finally:
+                if lock is not None:
+                    lock.release()
+        finally:
+            _reap(holder)
+
+
+def _wait_lock_lines(env: dict, n: int, deadline: float = 20) -> list[str]:
+    end = time.monotonic() + deadline
+    while time.monotonic() < end:
+        found = glob.glob(os.path.join(env["XDG_RUNTIME_DIR"], "agent-fabric", "gzcoord-inbox-*.lock"))
+        lines = open(found[0]).read().split("\n") if found else []
+        if len([ln for ln in lines if ln]) >= n:
+            return lines
+        time.sleep(0.05)
+    raise Failed("the watch never wrote its session into the lock file")
+
+
+def _wait_gone(p: subprocess.Popen, what: str, deadline: float = 30) -> tuple[str, str]:
+    try:
+        return p.communicate(timeout=deadline)
+    except subprocess.TimeoutExpired:
+        p.kill()
+        p.communicate()
+        raise Failed(what) from None
+
+
+@case("a watch whose claude is gone ends at once with one line and exit 0, though the shell that runs it lives on; while claude is there it keeps watching")
+def _():
+    stub, _calls = _wait_stub([])
+    try:
+        env = _replay_env(stub, GZCOORD_JOURNAL="off")
+        d = P.scratch("sim-")
+        sim = os.path.join(d, "sim.py")
+        open(sim, "w").write(_SIM)
+        # claude (a stand-in the kernel names `claude`) > sh > the watch: the harness's tree
+        claude = subprocess.Popen([sys.executable, sim, "claude", sys.executable, sim, "sh", P.INBOX_CMD, "--until-delivery"],
+                                  env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        try:
+            lines = _wait_lock_lines(env, 5)
+            eq(lines[2:5], [str(claude.pid), lines[3], "claude"], "the watch serves the nearest claude above it, not the shell")
+            ok(lines[3].isdigit(), "with its start time")
+            time.sleep(2.5)
+            eq(claude.poll(), None, "the session is alive")
+            ok(S_alive(int(lines[0])), "the watch keeps watching while claude is there")
+            watch = int(lines[0])
+            claude.kill()   # the session ends; the shell it started stays, reparented
+            out, err = _wait_gone(claude, "the watch outlived its claude")
+            ok(not S_alive(watch), "the watch is gone")
+            eq(out, f"gzcoord-inbox: the session this watch served (pid {claude.pid}) has ended; the watch ends with it\n", out + err)
+        finally:
+            claude.kill()
+            claude.communicate()
+    finally:
+        stub.close()
+
+
+@case("a watch ends when its parent changes: the shell that ran it dies and the session it served is not what it started under")
+def _():
+    stub, _calls = _wait_stub([])
+    try:
+        env = _replay_env(stub, GZCOORD_JOURNAL="off")
+        d = P.scratch("sim-")
+        sim = os.path.join(d, "sim.py")
+        open(sim, "w").write(_SIM)
+        shell = subprocess.Popen([sys.executable, sim, "sh", P.INBOX_CMD, "--follow"], env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        try:
+            lines = _wait_lock_lines(env, 5)
+            watch = int(lines[0])
+            time.sleep(1.5)
+            ok(S_alive(watch), "watching")
+            shell.kill()
+            shell.wait()
+            end = time.monotonic() + 30
+            while S_alive(watch) and time.monotonic() < end:
+                time.sleep(0.1)
+            ok(not S_alive(watch), "the watch left with its parent")
+            out, err = shell.communicate(timeout=10)
+            ok("has ended; the watch ends with it" in out, out + err)
+        finally:
+            shell.kill()
+            shell.communicate()
+    finally:
+        stub.close()
+
+
+@case("a new watch ends an orphaned older one it finds holding the lock, through the real command")
+def _():
+    import signal
+    stub, _calls = _wait_stub([])
+    try:
+        env = _replay_env(stub, GZCOORD_JOURNAL="off")
+        first = subprocess.run([P.INBOX_CMD, "--until-delivery", "--deadline", "1"], env=env, capture_output=True, text=True, timeout=60)
+        eq(first.stdout, QUIET)
+        lock_file = _mark_path(env)
+        dead_pid, dead_start = _dead_session()
+        orphan = _spawn_holder("gzcoord-inbox", "new", lock_file, dead_pid, dead_start)
+        try:
+            r = subprocess.run([P.INBOX_CMD, "--until-delivery", "--deadline", "1"], env=env, capture_output=True, text=True, timeout=60)
+            eq((r.returncode, r.stdout), (0, QUIET), r.stdout + r.stderr)
+            ok(f"the watch of pid {orphan.pid} outlived its session" in r.stderr and "SIGTERM" in r.stderr, r.stderr)
+            eq(orphan.wait(timeout=10), -signal.SIGTERM)
+        finally:
+            _reap(orphan)
+    finally:
+        stub.close()
+
+
+@case("wait_loop ends on session_gone before it fetches, while a slice is out, and when a page lands with it, acknowledging nothing")
+def _():
+    from gzcoord.inbox_parts.watch import wait_loop
+    never = lambda *_a: (_ for _ in ()).throw(Failed("fetched or acknowledged after the session ended"))   # noqa: E731
+    res = wait_loop(never, never, 3600, session_gone=lambda: True)
+    ok(res.get("sessionEnded") and res["delivered"] is False, str(res))
+    # a slice in flight when the session goes: abandoned, no acknowledgement
+    started = threading.Event()
+    acked: list = []
+
+    def slow(_slice: int, abort: threading.Event) -> Any:
+        started.set()
+        abort.wait(20)
+        return {"messages": []}
+    t0 = time.monotonic()
+    res = wait_loop(slow, lambda i: acked.append(i), 3600, session_gone=lambda: started.is_set(), hold_poll_ms=50)
+    ok(res.get("sessionEnded") and not acked and time.monotonic() - t0 < 10, f"{res} {acked}")
+    # a page that landed as the session ended: the message is not acknowledged (the relay shows it to the next watch) nor journaled
+    msg = {"id": "r1", "seq": 1, "content": "[GZCOORD/1] INFO\nFROM: x/y\nROLE: backend-dev\nPROJECT: fixture\nBROADCAST: true\n"
+                                            "MESSAGE-ID: 01a09fc1-0000-7000-8000-000000000001\nSUBJECT: s\n\nNOTES:\nA\n"}
+    calls = {"n": 0}
+
+    def gone_after_first() -> bool:
+        calls["n"] += 1
+        return calls["n"] > 1
+    journaled: list = []
+    res = wait_loop(lambda _s, _a: {"messages": [msg]}, lambda i: acked.append(i), 3600, for_me_fn=lambda m: True,
+                    journal=lambda recs: journaled.append(recs) or {"ok": True}, session_gone=gone_after_first)
+    ok(res.get("sessionEnded") and not acked and not journaled and res["delivered"] is False, f"{res} {acked} {journaled}")
+    # the control: the same page with the session alive is delivered and acknowledged
+    res = wait_loop(lambda _s, _a: {"messages": [msg]}, lambda i: acked.append(i), 3600, for_me_fn=lambda m: True,
+                    journal=lambda recs: {"ok": True}, session_gone=lambda: False)
+    ok(res["delivered"] and acked == ["r1"] and not res.get("sessionEnded"), f"{res} {acked}")
+
+
+def _replace_world(file_lines: list[str], procs: dict, mine, holder: int = 100, kill_exc: Exception | None = None):
+    """(calls, result, stderr) of end_replaced for the session `mine`, on a fake /proc and a fake /proc/locks naming `holder`."""
+    from gzcoord.inbox_parts import watchlock
+    base = P.scratch("repl-")
+    path = os.path.join(base, "x.lock")
+    open(path, "w").close()
+    st = os.stat(path)
+    locks = os.path.join(base, "locks")
+    open(locks, "w").write(f"1: FLOCK  ADVISORY  WRITE {holder} {os.major(st.st_dev):02x}:{os.minor(st.st_dev):02x}:{st.st_ino} 0 EOF\n")
+    root = _fake_proc(os.path.join(base, "proc"), procs)
+    sent: list = []
+
+    def kill(pid, sig):
+        if kill_exc is not None:
+            raise kill_exc
+        sent.append((pid, sig))
+    err = io.StringIO()
+    with contextlib.redirect_stderr(err):
+        res = watchlock.end_replaced(path, file_lines, mine, root, locks, kill=kill)
+    return sent, res, err.getvalue()
+
+
+@case("end_replaced signals a holder by its pid, once, only when it is a gzcoord-inbox watch of this uid the lock file says serves THIS session")
+def _():
+    import signal
+    from unittest import mock
+    S = _session_module()
+    watch = [PYTHON, "-I", "/x/bin/gzcoord-inbox", "--until-delivery"]
+    base = {1: ("systemd", 0, "S", 1), 90: ("claude", 1, "S", 900), 91: ("bash", 90, "S", 910), 100: ("fabric-python", 91, "S", 1000, watch)}
+    mine = S.Session(90, "900", 95, "claude")
+    # this session's own stray: the one pid is signalled, SIGTERM, and both pids are said
+    sent, res, err = _replace_world(["100", "T", "90", "900", "claude"], base, mine)
+    eq((sent, res[0]), ([(100, signal.SIGTERM)], 100))
+    ok("pid 100" in err and "--replace" in err, err)
+    # the positive control for every refusal below: the same world with the record changed in one field
+    refused = [
+        (["100", "T", "91", "900", "claude"], "another session's pid"),
+        (["100", "T", "90", "111", "claude"], "the session pid reused: another start time"),
+        (["100", "T", "90", "900", "parent"], "the same pid and start under another kind"),
+        (["100", "T", "90", "", "claude"], "a session recorded without a start time"),
+        (["100", "T"], "an older watch that recorded no session"),
+        (["100", "T", "90", "900", "future-kind"], "a session line this code does not know"),
+        (["77", "T", "90", "900", "claude"], "a file naming another pid than the holder"),
+        ([], "an empty file"),
+    ]
+    for rec, what in refused:
+        sent, res, _ = _replace_world(rec, base, mine)
+        eq((sent, res[0]), ([], None), what)
+        ok(res[1], what)
+    # a session of ours without a start time cannot be matched to a record that has one
+    sent, res, _ = _replace_world(["100", "T", "90", "900", "claude"], base, S.Session(90, "", 95, "claude"))
+    eq((sent, res[0]), ([], None))
+    # and when neither has one the two are equal only by being empty: still not provably the same session
+    sent, res, _ = _replace_world(["100", "T", "90", "", "claude"], base, S.Session(90, "", 95, "claude"))
+    eq((sent, res[0]), ([], None))
+    # two detached watches under one systemd compute the same session: equal only because neither has one
+    detached = S.Session(500, "50", 500, "detached")
+    sent, res, _ = _replace_world(["100", "T", "500", "50", "detached"], base, detached)
+    eq((sent, res[0]), ([], None))
+    # a holder that is no watch, or no process /proc shows, is never signalled though the record says it is ours
+    for args in (["sleep", "60"], [PYTHON, "-I", "/x/bin/gzcoord-inbox"], [PYTHON, "-I", "/x/bin/gzcoord-inbox", "--replay", "5", "--follow"]):
+        sent, res, _ = _replace_world(["100", "T", "90", "900", "claude"], {**base, 100: ("fabric-python", 91, "S", 1000, args)}, mine)
+        eq((sent, res[0]), ([], None), args)
+    only_session = {k: v for k, v in base.items() if k != 100}
+    sent, res, _ = _replace_world(["100", "T", "90", "900", "claude"], only_session, mine)
+    eq((sent, res[0]), ([], None))
+    # another user's process (the uid /proc shows is not ours)
+    with mock.patch("os.getuid", return_value=os.getuid() + 1):
+        sent, res, _ = _replace_world(["100", "T", "90", "900", "claude"], base, mine)
+    eq((sent, res[0]), ([], None))
+    # this process is never its own holder
+    me = os.getpid()
+    sent, res, _ = _replace_world([str(me), "T", "90", "900", "claude"], {**base, me: ("fabric-python", 91, "S", 1000, watch)}, mine,
+                                  holder=me)
+    eq((sent, res[0]), ([], None))
+    # a signal that is not allowed is a refusal with its reason; a holder gone before the signal is still the one replaced
+    sent, res, _ = _replace_world(["100", "T", "90", "900", "claude"], base, mine, kill_exc=PermissionError(1, "Operation not permitted"))
+    eq(res[0], None)
+    ok("Operation not permitted" in res[1], res[1])
+    sent, res, _ = _replace_world(["100", "T", "90", "900", "claude"], base, mine, kill_exc=ProcessLookupError())
+    eq(res[0], 100)
+
+
+def _session_module():
+    from gzcoord.inbox_parts import session
+    return session
+
+
+def _arm_detached(env: dict, out_path: str, *flags: str) -> int:
+    """A watch that is no child of this process: double-forked and setsid, so its session is not this one whether or not the
+    suite runs under a claude process (a CI runner has none, a Claude Code session has one above every child of the suite)."""
+    r, w = os.pipe()
+    pid = os.fork()
+    if pid == 0:
+        try:
+            os.setsid()
+            if os.fork() == 0:
+                os.dup2(os.open(os.devnull, os.O_RDONLY), 0)
+                out = os.open(out_path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+                os.dup2(out, 1)
+                os.dup2(out, 2)
+                os.write(w, str(os.getpid()).encode())
+                os.execve(P.INBOX_CMD, [P.INBOX_CMD, *flags], env)
+        finally:
+            os._exit(0)
+    os.close(w)
+    os.waitpid(pid, 0)
+    got = os.read(r, 32).decode()
+    os.close(r)
+    return int(got)
+
+
+def _alive(pid: int) -> bool:
+    try:
+        with open(f"/proc/{pid}/stat") as fh:
+            return fh.read().rpartition(")")[2].split()[0] != "Z"
+    except OSError:
+        return False
+
+
+@case("--replace ends a watch this session armed and takes its place; another session's watch is refused, named, and left running")
+def _():
+    stub, _calls = _wait_stub([])
+    try:
+        env = _replay_env(stub, GZCOORD_JOURNAL="off")
+        # a plain second watch is refused and now says how to replace one (the positive control of the refusal below)
+        first = _arm(env, "--until-delivery")
+        try:
+            _wait_started(first, env)
+            r = subprocess.run([P.INBOX_CMD, "--until-delivery"], env=env, capture_output=True, text=True, timeout=60)
+            ok("--replace" in r.stdout and f"pid {first.pid}" in r.stdout and r.stdout.count("\n") == 1, r.stdout)
+            ok(first.poll() is None, "the plain second watch signalled nothing")
+            # the stray of THIS session (a sibling child of this process: the same session whatever is above it) is replaced
+            second = _arm(env, "--until-delivery", "--replace")
+            try:
+                first.wait(timeout=30)
+                _wait_started(second, env)
+                ok(second.poll() is None, "the replacing watch runs")
+                eq(first.returncode, -15, "the old watch ended by SIGTERM")
+                for flag in ("--follow",):
+                    # and --replace on a replacing watch's own lock is the same rule again
+                    third = _arm(env, flag, "--replace")
+                    try:
+                        second.wait(timeout=30)
+                        _wait_started(third, env)
+                    finally:
+                        third.kill()
+                        third.communicate()
+            finally:
+                second.kill()
+                second.communicate()
+        finally:
+            first.kill()
+            first.communicate()
+        # a watch of another session: double-forked, so no ancestor of ours is its session
+        out = os.path.join(P.scratch("detached-"), "out")
+        other = _arm_detached(env, out, "--until-delivery")
+        try:
+            lock = glob.glob(os.path.join(env["XDG_RUNTIME_DIR"], "agent-fabric", "gzcoord-inbox-*.lock"))
+            end = time.monotonic() + 15
+            while time.monotonic() < end and not (lock and open(lock[0]).read().startswith(str(other))):
+                time.sleep(0.05)
+                lock = glob.glob(os.path.join(env["XDG_RUNTIME_DIR"], "agent-fabric", "gzcoord-inbox-*.lock"))
+            ok(lock and open(lock[0]).read().startswith(str(other)), "the detached watch took its lock")
+            r = subprocess.run([P.INBOX_CMD, "--until-delivery", "--replace"], env=env, capture_output=True, text=True, timeout=60)
+            eq(r.returncode, 0, r.stdout + r.stderr)
+            ok(f"--replace refused: the watch of pid {other} " in r.stdout and "do not run it again" in r.stdout
+               and r.stdout.count("\n") == 1, r.stdout)
+            ok("ending the watch" not in r.stderr, r.stderr)
+            ok(_alive(other), "the other session's watch was not signalled")
+            ok(open(lock[0]).read().startswith(str(other)), "and still holds its lock")
+        finally:
+            try:
+                os.kill(other, 9)
+            except OSError:
+                pass
+    finally:
+        stub.close()
+
+
+@case("--replace without a watch to replace the holder of, or beside --replay, --history or --held, is one usage line, exit 1, no lock")
+def _():
+    stub, _calls = _wait_stub([])
+    try:
+        env = _replay_env(stub, GZCOORD_JOURNAL="off")
+        for argv in (["--replace"], ["--replace", "--wait", "1"], ["--replace", "--history", "--follow"],
+                     ["--replace", "--held", "--until-delivery"], ["--replace", "--replay", "1", "--follow"]):
+            r = subprocess.run([P.INBOX_CMD, *argv], env=env, capture_output=True, text=True, timeout=30)
+            eq(r.returncode, 1, f"{argv}: {r.stdout}{r.stderr}")
+            eq(r.stderr.strip(), "gzcoord inbox: --replace goes with --until-delivery or --follow, and with no --replay, --history or --held")
+            eq(r.stdout, "")
+        ok(not glob.glob(os.path.join(env["XDG_RUNTIME_DIR"], "agent-fabric", "gzcoord-inbox-*.lock")), "no lock was taken")
+    finally:
+        stub.close()
+
+
+# ── placement: a TO no host places, before and apart from presence ──
+
+def _placement_send(to_line: str, *flags: str, placed: dict | None = None, registry: str | None = None,
+                    token: bool = True, presence: str = "online", wait_ms: str = "300") -> tuple[int, str, str, list, str]:
+    """(exit, stdout, stderr, the relay paths hit, the content posted) of gzcoord-send for a message with `to_line`,
+    on a hosts registry that places `placed` (login -> host) on the sender's host. `presence` is what the stub's control
+    channel answers an ask with: online, or `down` (a 503 for every call)."""
+    me = gzmsg.whoami()
+    hits: list[str] = []
+    posted: list[str] = []
+    asked: dict = {}
+
+    def answer(_h, method, path, body):
+        hits.append(f"{method} {path.split('?')[0]}")
+        if presence == "down":
+            return 503, '{"error": "down"}'
+        if method == "POST" and path.startswith("/api/send"):
+            sent = json.loads(body)
+            try:
+                inner = json.loads(sent["content"])
+            except ValueError:
+                inner = None
+            if isinstance(inner, dict) and inner.get("op") == "presence":
+                asked.update(id=inner["id"], to=inner["to"])
+                return 200, '{"id": "p1", "seq": 1}'
+            posted.append(sent["content"])
+            return 200, '{"id": "m1", "seq": 7}'
+        if path.startswith("/api/messages") and asked:
+            who = asked["to"][0]
+            reply = {"v": 1, "kind": "reply", "in_reply_to": asked["id"], "from": who,
+                     "data": {"presence": {"status": "ok", "online": True}}}
+            return 200, json.dumps({"messages": [{"id": "p2", "seq": 2, "content": json.dumps(reply)}]})
+        return 200, '{"messages": []}'
+    stub = P.Stub(answer)
+    try:
+        extra = {} if token else {"CLAUDE_BRIDGE_AUTH_TOKEN": ""}
+        env = _replay_env(stub, GZCOORD_JOURNAL="off", GZCOORD_PRESENCE_WAIT_MS=wait_ms, **extra)
+        if registry is None:
+            registry = os.path.join(env["HOME"], "hosts.json")
+            with open(registry, "w", encoding="utf-8") as fh:
+                json.dump({"hosts": {me["host"]: {"operator": "user"}},
+                           "placement": {login: me["host"] for login in (placed or {})}}, fh)
+        env["AGENT_FABRIC_HOSTS_REGISTRY"] = registry
+        f = os.path.join(env["HOME"], "m.txt")
+        with open(f, "w", encoding="utf-8") as fh:
+            fh.write(f"[GZCOORD/1] INFO\nFROM: {me['host']}/{me['agent']}\nROLE: backend-dev\nPROJECT: fixture\n"
+                     f"{to_line.replace('@HOST@', me['host'])}\nSUBJECT: s\n\nNOTES:\nn\n")
+        r = subprocess.run([P.SEND_CMD, f, *flags], env=env, capture_output=True, text=True, timeout=120)
+    finally:
+        stub.close()
+    return r.returncode, r.stdout, r.stderr, hits, "".join(posted)
+
+
+def _api_hits(hits: list) -> list:
+    return [h for h in hits if " /api/" in h]
+
+
+@case("send: a TO naming a role no host places is refused (exit 2) however it is run: --force, --dry-run, no token, presence down")
+def _():
+    to = "TO: @HOST@/fabric-coordinator"
+    for label, flags, kw in (("plain", (), {}), ("--force", ("--force",), {}), ("--dry-run", ("--dry-run",), {}),
+                             ("--dry-run --force", ("--dry-run", "--force"), {}), ("no token", (), {"token": False}),
+                             ("no token --force", ("--force",), {"token": False}),
+                             ("presence down", (), {"presence": "down"}), ("presence down --force", ("--force",), {"presence": "down"})):
+        rc, out, err, hits, posted = _placement_send(to, *flags, **kw)
+        eq(rc, 2, f"{label}: {err}")
+        eq((out, posted, _api_hits(hits)), ("", "", []), f"{label}: nothing left, the relay not asked: {hits}")
+        ok("fabric-coordinator" in err and "TO-ROLE: fabric-coordinator" in err and "one holder's login" in err
+           and "fabric-ctl all presence" in err and "sending anyway" not in err
+           and err.rstrip().endswith("send: not sent — --force does not send it"), f"{label}: {err}")
+
+
+@case("send: any other TO no host places is no account: exit 4 and the line says so; --force sends it, with and without presence")
+def _():
+    to = "TO: @HOST@/nobody-placed-here"
+    for label, kw in (("plain", {}), ("no token", {"token": False}), ("presence down", {"presence": "down"})):
+        rc, out, err, hits, posted = _placement_send(to, **kw)
+        eq(rc, 4, f"{label}: {err}")
+        eq((out, posted, _api_hits(hits)), ("", "", []), f"{label}: {hits}")
+        ok("is no account" in err and "offline" not in err and "no session" not in err and "an account being placed right now" in err, err)
+    rc, out, err, hits, posted = _placement_send(to, "--dry-run")
+    eq((rc, _api_hits(hits)), (4, []), f"a dry run is refused alike: {err}")
+    rc, out, err, hits, posted = _placement_send(to, "--force", "--dry-run")
+    eq(rc, 0, f"{err}")
+    ok("sending anyway" in err and "would post" in err.lower() or "would" in err, err)
+    rc, out, err, hits, posted = _placement_send(to, "--force")
+    eq(rc, 0, err)
+    ok(out.startswith("sent seq 7 INFO ") and "nobody-placed-here" in posted, f"{out!r} {posted!r}")
+    eq(_api_hits(hits), ["POST /api/send"], "the message is the one relay call")
+    # presence.py answers not-placed without a relay call, so what shows it was not asked is the line it would add.
+    ok("not an account any host places" not in err and err.count("sending anyway") == 1 and err.count("is no account") == 1,
+       f"said once, by the local test and not again by the presence check: {err}")
+    rc, out, err, hits, posted = _placement_send(to, "--force", token=False)
+    eq(rc, 3, f"placement forced, then the old no-token refusal: {err}")
+
+
+@case("send: controls — a placed login, even one that equals a role slug, is sent; a TO-ROLE and a BROADCAST are no address to place")
+def _():
+    for to, placed in (("TO: @HOST@/worker-01", {"worker-01": 1}), ("TO: @HOST@/fabric-coordinator", {"fabric-coordinator": 1})):
+        rc, out, err, hits, posted = _placement_send(to, placed=placed)
+        eq(rc, 0, f"{to}: {err}")
+        ok(out.startswith("sent seq 7 INFO ") and to.split(": ")[1].replace("@HOST@", gzmsg.whoami()["host"]) in posted, f"{out!r}")
+        ok("is no account" not in err and "names a role" not in err, err)
+    for to in ("TO-ROLE: backend-dev", "BROADCAST: true"):
+        rc, out, err, hits, posted = _placement_send(to, "--dry-run")
+        eq((rc, _api_hits(hits)), (0, []), f"{to}: {err}")
+        ok("is no account" not in err and "names a role" not in err, err)
+    rc, out, err, hits, posted = _placement_send("TO-ROLE: backend-dev", "--force")
+    eq(rc, 0, f"a TO-ROLE still goes to the presence check, which finds no holder: {err}")
+    ok("no running session holds" in err or "no account holds" in err, err)
+
+
+@case("send: a hosts registry that cannot be read is said as unknown; nothing is refused on it, the presence check asks its own")
+def _():
+    gone = os.path.join(P.scratch("noreg-"), "none.json")
+    rc, out, err, hits, posted = _placement_send("TO: @HOST@/fabric-coordinator", "--dry-run", registry=gone)
+    eq(rc, 0, err)
+    ok("is unknown" in err and "FileNotFoundError" in err and "names a role" not in err, err)
+    bad = os.path.join(P.scratch("noreg-"), "bad.json")
+    with open(bad, "w", encoding="utf-8") as fh:
+        fh.write('{"placement": []}')
+    rc, out, err, hits, posted = _placement_send("TO: @HOST@/fabric-coordinator", "--dry-run", registry=bad)
+    eq(rc, 0, err)
+    ok("is unknown" in err and "no placement and hosts tables" in err, err)
+
+
+@case("placement.judge: a placed address is none; a role slug unplaced is a role; the rest is not-placed; operators are placed")
+def _():
+    from gzcoord import placement
+    placed = {"h/a-login", "h/user", "h/backend-dev"}
+    roles = {"backend-dev", "fabric-coordinator"}
+    eq(placement.judge("h/a-login", placed, roles), None)
+    eq(placement.judge(" h/backend-dev ", placed, roles), None, "a placed login that equals a slug is a login, and TO is trimmed")
+    eq(placement.judge("h/fabric-coordinator", placed, roles), {"kind": "role", "address": "h/fabric-coordinator", "slug": "fabric-coordinator"})
+    eq(placement.judge("other/backend-dev", placed, roles)["kind"], "role", "no host places it there")
+    eq(placement.judge("h/stranger", placed, roles), {"kind": "not-placed", "address": "h/stranger"})
+    eq(placement.judge("h/stranger", placed, ()), {"kind": "not-placed", "address": "h/stranger"}, "no catalogue: no role is known")
+    reg = os.path.join(P.scratch("reg-"), "r.json")
+    with open(reg, "w", encoding="utf-8") as fh:
+        json.dump({"hosts": {"h1": {"operator": "op"}, "h2": {}}, "placement": {"x": "h1", "y": "h2"}}, fh)
+    eq(placement.placed_addresses(reg), {"h1/op", "h2/user", "h1/x", "h2/y"})
+
+
 def main() -> int:
     fails = 0
     for name, fn in CASES:

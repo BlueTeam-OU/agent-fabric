@@ -89,3 +89,88 @@ not one of the PR's (read from the PR's commit list, failing closed when
 it cannot be read or is truncated) is refused before anything is posted,
 `--dry-run` included. The gate's coverage test is unchanged: it already
 compared a review's commit with the head.
+
+### Amendment 2026-10-22 — A supplier dispatches no review of its own part
+
+The pull-requests skill told a supplier to review before hand-off
+(`Supplier-Review:`), and suppliers read it as a review-class review of
+their own slice: on #354 (four python-dev patches folded into one
+coordinator PR) each supplier's slice was reviewable on its own while the
+caller's one blind review of the folded head was what the gate counted.
+The owner ruled on 2026-10-22 that the caller folds first and runs one
+full review: a slice's review costs what the batch's costs and cannot see
+the hunks together, and the batch review of #354 found two P1s (process
+substitution and function/coproc bodies in the job-copy guard) that the
+supplier's own tests had passed. §5 rule 11 now says so; the
+`SUPPLIER-REVIEW` section and trailer keep their names and carry the
+supplier's own checks; `dispatch_guard.py` denies a code-review dispatch
+from a session with a `for/` branch checked out, with a suite case.
+
+### Amendment 2026-10-24 — The reviewer reads through pinned tools and posts nothing headerless
+
+§5 rule 4 said the reviewer had Bash behind review-bash-guard, a fence
+that read shell text and took 32 commits and two PRs of review rounds
+to keep (#96, #97, the 2026-10-10 `cd` series) without closing every
+spelling. ADR-065, accepted by the owner on 2026-10-23, replaces it
+with pinned read tools and a proved bubblewrap sandbox; the guard stays
+only for the other classes dispatched without a worktree. Rule 6's
+headerless `--head` post goes with it: post-review now writes only the
+v2 marker with a coverage block, so a report that names no range
+cannot post (ADR-065 §5 rule 4). Built on #358.
+
+### Amendment 2026-10-25 — The guard also knows a supplier by its job
+
+§5 rule 11's last sentence said the guard held only a session on a
+`for/` branch, and a supplier working elsewhere (a detached HEAD, a
+renamed branch) was held by the rule alone. python-dev-01's j365 (#371,
+67edba3d) adds a second test: the login's active job has a `deliver_to`
+and the dispatching cwd is inside that job's worktree or working copy.
+The sentence now names both; a supplier outside both is still held by
+the rule alone. Raised by #371's blind review, F3.
+
+### Amendment 2026-10-30 — The card's cap is judged at commit and in CI
+
+§5 rule 9 set the card's cap, and only the brief renderer judged it,
+at review time: a managed project's card grew to 2396 bytes over two
+commits nothing refused, and every review of that project failed at
+render until it was cut back to 2048. The cap moves to
+`tools/fabric/review_card.py`, the one definition three judges read:
+the renderer as before; the pre-commit hook, which refuses any
+committer's commit that stages the card over the cap and judges no
+commit that leaves the card alone; and lint, which a project CI that
+lints its `.agent-fabric/` already runs, for what passed the hook
+(a `--no-verify` commit, a web edit). j475.
+
+### Amendment 2026-11-02 — The guard passes its own answer
+
+§5 rule 2 had the guard drop `model: fable` under a fabric launch, so
+the reviewer's agent file decides, and deny every other shape. Claude
+Code 2.1.286 runs the managed Agent hook a second time on that answer
+when the dispatch sets `run_in_background`
+(docs/live-checks/2026-11-02-dispatch-hook-reruns-on-updated-input.md),
+and the guard denied its own answer as an unset model, so no review
+could be dispatched in the background. Under a fabric launch that
+resolves a `code-review` pin, a dispatch with no `model` now passes;
+the agent file's model and effort are still checked against routing,
+so the reviewer runs on nothing routing did not choose. The guard
+cannot tell that second run from a first call with no model, and needs
+not: both run on the routed model. Anywhere else an unset model means
+the session model and is still denied. Raised by #458's blind review,
+F1. j549.
+
+### Amendment 2026-11-03 — On an app's PR the push account posts the review
+
+§5 rule 7 counted a marked review from the PR's author or a login in
+`AGENT_FABRIC_REVIEW_POSTERS`. Every session pushes and posts as one
+account, the author of each PR it opens, so the list stayed empty. A
+Dependabot PR has no session for an author: its blind review is posted
+by the push account and read "marked, other login", not coverage, and
+agent-fabric #408 and #409 were armed on 2026-11-01 only with the list
+set by hand. On a PR an app opened, the account `gh` acts as is now a
+poster, read from GitHub and never typed, by one reader
+(`tools/fabric/github/review_posters.py`) that review-status, the review
+checkpoint, arm's gate 4c and pr-counts share. An account other than the
+fleet's that runs these tools trusts only its own posts, as it already
+does on the PRs it authors; when GitHub cannot name the account, the
+reader stops (exit 2), never reads the review as another login's.
+Supplied by devex-tooling (j271). j527.

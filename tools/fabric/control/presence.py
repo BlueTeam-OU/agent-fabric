@@ -28,7 +28,8 @@ CONTRACT, frozen from presence.mjs:
 
 The control plane's own pieces this reads — the channel's config, the
 placed and operator addresses, a new id — are agentd's (control_config,
-account_addresses, operator_addresses, new_id), taken as parameters and
+account_addresses, operator_addresses, new_id, and read_registry, which raises when the
+hosts registry cannot be read: that is {"error"}, exit 6, never not-placed), taken as parameters and
 imported only by the CLI; until agentd's port is in the tree the CLI
 answers a well-formed request with exit 6 and an {"error"} saying so.
 
@@ -188,10 +189,14 @@ def cli(argv: list[str] | None = None, stdin=None, ask=check_addressees, agentd=
         # import is a defect, and its traceback is what a person needs.
         if not os.path.exists(os.path.join(os.path.dirname(os.path.realpath(__file__)), "agentd.py")):
             print(_compact({"error": "the CLI needs tools/fabric/control/agentd.py (control_config, account_addresses, "
-                                     "operator_addresses, new_id), agentd's port, which is not in this tree yet", "status": None}), file=out)
+                                     "operator_addresses, read_registry, new_id), agentd's port, which is not in this tree yet", "status": None}), file=out)
             return 6
-        from control import agentd   # agentd's port: control_config, account_addresses, operator_addresses, new_id
+        from control import agentd   # agentd's port: control_config, account_addresses, operator_addresses, read_registry, new_id
     try:
+        # An unreadable registry is unknown, not "nobody is placed": agentd's
+        # lenient read would make every TO not-placed and invite a --force.
+        # It is the same {"error"} line as a relay that cannot be reached.
+        agentd.read_registry(None)
         answer = ask(req["metadata"], from_=req["from"], token=req["token"], placed=list(agentd.account_addresses()),
                      operators=list(agentd.operator_addresses()), cfg=agentd.control_config(), new_id=agentd.new_id)
     except Exception as e:  # noqa: BLE001 — presence.mjs's catch: every failure is one {"error"} line, exit 6

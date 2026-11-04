@@ -47,6 +47,8 @@ def starts_without_operator(src: str) -> bool:
 EXTRA = {
     "test_assemble.py": "builds a fabric under a temporary directory and runs assemble.py and lint.py on it",
     "test_assemble_seams.py": "the same, through test_assemble's helpers",
+    "test_assemble_shapes.py": "the same, through test_assemble's helpers",
+    "test_assemble_passes.py": "the same, through test_assemble's helpers",
     "test_fleet.py": "builds placements and registries under a temporary directory for fleet.py",
     "test_hosts_registry.py": "builds a fabric under a temporary directory and calls lint.host_registry_findings on it in-process",
 }

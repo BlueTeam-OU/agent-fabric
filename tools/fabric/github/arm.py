@@ -14,6 +14,8 @@ nothing wrote a false record.
   argv      <pr-number> --basis "<one line>"
             [--boundary | --no-boundary "<why>" --waiver <message-id|seq>]
             [--authorization <message-id|seq>]
+            [--defer "<review-head8>:F<n>" "<why>"]...
+            [--defer-job j<n> "<why>"]...
             [--any-owner] [--dry-run] [-h|--help]
             --no-boundary and --waiver come together; either alone is
             usage (exit 2)
@@ -24,7 +26,13 @@ nothing wrote a false record.
             project's), AGENT_FABRIC_GZCOORD_INBOX (the inbox, run as a
             program: <it> --replay <id> --json), AGENT_FABRIC_CTL
             (fabric-ctl, run as a program: <it> <login> presence
-            --json), AGENT_FABRIC_ROOT
+            --json), AGENT_FABRIC_WHOAMI (fabric-whoami, run as a
+            program: <it> --json; the role of this session by its
+            binding), AGENT_FABRIC_JOBS (fabric-jobs, run as a program:
+            <it> list --all --json, <it> show <id> --json),
+            AGENT_FABRIC_REVIEW_POSTERS (who besides the PR's author posts
+            a counted review; gate 4c; on an app's PR the account gh acts
+            as is added), AGENT_FABRIC_ROOT
   stdout    `arm: ` lines — what each gate found, and the watcher line
             (none for a PR that merged on the arming)
   stderr    `arm: REFUSED #N — <why>` on a refusal; `arm: <why>` when a
@@ -35,8 +43,9 @@ nothing wrote a false record.
             --dry-run, would arm); on a
             direct repository only merged; 1 refused — the
             reason is the last line; 2 gh / pr-gate / pr-review-status /
-            the project's arm.json / the relay / fabric-ctl could not
-            answer, the read-back is idle with the head not in the base,
+            the project's arm.json / the relay / fabric-ctl / fabric-whoami
+            / the role catalogue / fabric-jobs / the PR's reviews could
+            not answer, the read-back is idle with the head not in the base,
             closed or on another head (on a direct repository, anything
             but merged), or usage
 
@@ -78,21 +87,36 @@ default. A repository in mode owner-only is not armed here; one in mode direct h
 they read; there every PR, boundary or not and waived or not, needs the review of its head and no open
 thread, and a head with no check at all merges on that review alone. A difference between the policy and GitHub in how a merge is held (auto-merge off, a ruleset or required check missing or changed) is a refusal; in which
 merge methods are allowed, advisory. The minimum is the stated class's, else the author's role's (the
-Fabric-Role trailer every commit of the PR carries, when they agree), else commits.min; a boundary change gets
+Fabric-Role trailer every commit of the PR carries, when they agree and fabric-ctl's presence of the login the
+branch is named for reports that role bound, as a waiver's sender is checked; presence that cannot say is exit 2),
+else commits.min; a boundary change gets
 max(commits.min, commits.boundary_min) whatever role or class; commits.below_min "refuse" is a refusal the owner's
 word does not lift; the merge method is the policy's; a repository with no required check, and every direct
 repository whatever its policy lists, is armed only with every check on the head green, except a direct
 repository whose policy names no required check and whose head has no check at all, which merges on its review.
 
-AUTHORIZATION (commits.boundary_authority, a role slug the policy may name): a security-boundary change under its
-minimum arms without the owner's word on `--authorization <MESSAGE-ID|seq>`: a DECISION or REPLY sent TO this session
+AUTHORIZATION (the policy's authority role: commits.boundary_authority for a security-boundary change,
+commits.below_min_authority for any other PR — THE WORD OF A ROLE UNDER THE MINIMUM below): a PR under its minimum
+arms without the owner's word on `--authorization <MESSAGE-ID|seq>`: a DECISION or REPLY sent TO this session
 (never a broadcast or a role address), from another login whose presence (fabric-ctl, never the ROLE line) reports
 that role, carrying
         AUTHORIZES: <owner>/<repo>#<n>@<head sha, 8 or more hex>
 for this repository, PR and current head. The same checks and exit codes as a waiver; unlike a waiver it drops no
-gate: the head's review and the open threads are judged first, whatever it says, and a policy with no
-boundary_authority refuses it. The comment records who authorized it and the message. arm.json's waiver_role
-stays the waiver's.
+gate: the head's review and the open threads are judged first, whatever it says. A policy with no boundary_authority
+refuses it for a security-boundary change; one with no below_min_authority does not read it for any other PR, which
+then needs the owner's word. The comment records who authorized it and the message. Beside a basis that gives the
+owner's word on a PR under its minimum it is that word as relayed: read and checked the same way but for the role (the
+owner holds none), it can only refuse, and the comment records who relayed it. arm.json's waiver_role stays the
+waiver's.
+THE WORD OF A ROLE UNDER THE MINIMUM (the owner, 2026-10-19). A PR under its minimum arms without the owner's word on
+the word of the policy's authority role: commits.boundary_authority for a security-boundary change,
+commits.below_min_authority for any other PR (each a role slug, absent: none). Two ways, neither the PR's own
+author's unless commits.authority_own_prs is true (default false; the fabric's own repositories): (a) the
+--authorization above, from a holder of that role; (b) this session holding the role by its binding (fabric-whoami,
+never a message's ROLE line), with the basis "<role>'s word" — the phrase is the claim and the binding is the check,
+as "the owner's word" is the owner's claim — and with --any-owner when the PR is another session's (gate 2), always
+where authority_own_prs is false. The review gate, the open threads and the green checks stand either way;
+commits.below_min "refuse" is not lifted by either. A refusal names the role, the holders running now and the basis.
 
 WHAT THIS DOES NOT PROVE: the relay does not authenticate a sender
 (BRIDGE-RELAY-SETUP.md) — FROM and the relay's sender are both the
@@ -140,6 +164,16 @@ this clone's remote as trial.json is (or AGENT_FABRIC_ARM_CONFIG):
                     pre-push enforces it (agent-fabric ADR-019 §5 rule 1).
 A project with no arm.json is exit 2: a boundary the tool cannot read is
 never judged absent.
+
+GATE 4c (REQUEST 01a18fe0; #437 review 1): a finding open in any review
+chain refuses (arm_findings), --defer "<review-head8>:F<n>" "<why>"
+lifting one; then a blocked job of this login on the head branch refuses,
+unless every one of its blockers has cleared (fabric-jobs list --json
+`cleared`: true), which waits on nothing and is said. A parked job keeps
+the branch it started on, so a wait on another PR reads here as well: the
+default stays refuse, and --defer-job j<n> "<why>" lifts that one job,
+recorded in the comment as --defer is; one naming no blocked job on the
+branch is refused.
 """
 from __future__ import annotations
 
@@ -149,16 +183,18 @@ import re
 import shutil
 import subprocess
 import sys
+import urllib.parse
 
 HERE = os.path.dirname(os.path.realpath(__file__))
 sys.path.insert(0, os.path.dirname(HERE))
 import gh  # noqa: E402
+import git  # noqa: E402
 import roots  # noqa: E402
-from github import arm_policy, common, landed, pr_gate, repo_policy  # noqa: E402
+from github import arm_findings, arm_policy, common, landed, pr_gate, repo_policy, review_posters as posters_of  # noqa: E402
 # The rules' names stay importable from here, where the oracle and callers
 # reach them as arm.<name>.
 from github.arm_rules import (  # noqa: E402, F401
-    Refused, Unanswered, config_path, has_owner_word, head_lines, load_config, stated_class, unmet_supply)
+    Refused, Unanswered, config_path, has_no_ci_word, has_owner_word, head_lines, load_config, stated_class, unmet_supply)
 
 FABRIC = os.path.dirname(os.path.dirname(os.path.dirname(HERE)))
 
@@ -172,7 +208,9 @@ What it refuses, in order, and why:
   2. another session's PR — the head branch's <host>/<login> prefix
      is not this session's (the lane rule: never arm, retarget or
      merge a PR you did not open; --any-owner overrides, for the
-     owner's own hand);
+     owner's own hand, or for a holder of the policy's authority role
+     arming on its own word — way (b) of THE WORD OF A ROLE UNDER THE
+     MINIMUM above);
   3. a body that names an AWAITING-SUPPLY with no range line for that
      login — supply asked for and not folded (fabric-pr owed-supply lists
      these; the caller arms never with its own REQUEST unanswered);
@@ -218,23 +256,64 @@ What it refuses, in order, and why:
      reviews ("codex: absent, no review or marker on <head>" in the output
      and the basis). Its open P1 or P2 still blocks. The marker counts only as the first line of a review
      object on the head, from the account a blind review counts from.
+  4c. a finding left open in ANY review chain, not only the latest: every
+     review object whose first line is the v2 marker, from an account the
+     blind review counts from (the PR's author, AGENT_FABRIC_REVIEW_POSTERS,
+     on an app's PR the account gh acts as), read oldest first; a review whose base= is an earlier one's head=
+     continues its chain, any other starts one. A `Finding:` stays open until
+     a LATER review's `Judgement:` of its label says fixed or not-real (the
+     latest judgement wins; it goes to the newest earlier finding of that
+     label in its own chain, then in earlier chains). Every open finding
+     refuses, at any P-level, named by review id, head, label, level, path
+     and summary; a review with no body, no machine lines or a malformed one
+     is unknown and refuses too. The remedy: a re-review on that chain, or
+     --defer "<review-head8>:F<n>" "<why>", which lifts that one finding and
+     goes into the comment; a --defer naming no open finding is refused.
+     Then this login's jobs (fabric-jobs list --all --json, show for a job
+     the list gives no branch): a BLOCKED job whose branch is the PR's head
+     ref refuses, naming it and its blocker. A blocked job whose blockers have
+     all cleared (`cleared`: true) waits on nothing: said, not refused. A job
+     keeps the branch it started on when it is parked, so a wait on another
+     PR reads here too: --defer-job j<n> "<why>" lifts that one job and goes
+     into the comment; one naming no blocked job on the branch is refused.
+     Another login's PR (--any-owner): its jobs are not readable here, said
+     and not refused (and a --defer-job has nothing to lift: refused);
   5. the count rule (fabric-pr gate's classifier; the 8 and the 16 here are
      the default numbers of the repository's arming policy, tools/fabric/
      github/arm_policy.py: the fleet's, with the settings repository's file for
      the repository over it; one that cannot be read is exit 2): 8 or more arms at the
      review gate; over 16 is ADVICE for the next batch, never a refusal; under
      8 is armed on the owner's word — the --basis must carry the phrase
-     "owner's word" — EXCEPT a class the project's arm.json lets arm at
+     "owner's word" — or, where the policy names commits.below_min_authority,
+     that role's (THE WORD OF A ROLE UNDER THE MINIMUM above) — EXCEPT a class the project's arm.json lets arm at
      the gate (none, in a project that declares none; a class arms at its own
-     minimum, one for the older form, and under it only on the owner's word), STATED in the PR body
+     minimum, one for the older form, and under it only on the owner's word or the role commits.below_min_authority
+     names), STATED in the PR body
      ("Class: <class>") and confirmed by the changed files; a stated
      class the files contradict is refused, not trusted. A
      security-boundary change under 8 needs the owner's word whatever
      class it states (or, where the policy names commits.boundary_authority, that role holder's
-     --authorization); at 8 or more it needs none, boundary or not. A waived boundary is judged as no boundary.
+     --authorization or word; any other PR under its minimum, the commits.below_min_authority's: THE WORD OF A ROLE
+     UNDER THE MINIMUM above); at 8 or more it needs none, boundary or not. A waived boundary is judged as no boundary.
      (8 and 16 are the default numbers; the policy's, read as THE ARMING POLICY above, are the ones applied.)
 
-Then: posts the arming basis as a comment ("Arming basis: <text> —
+  6. the checks, on a repository with no required check (and on a direct one): every check on the head
+     must be green. A direct repository whose policy names no required check merges with no check on
+     the head. A PR-mode repository (auto, queue) with no required check and no CI at all reads
+     "none-yet" and is refused; the owner's word for that is its own phrase, "owner's no-CI word"
+     in the --basis (the owner's word of the count rule does not stand in for it, nor it for that),
+     and it lifts the gate only when GitHub answers 404 for .github/workflows on the PR's base
+     branch and the PR changes no file under .github/workflows/ (a rename's old name included): CI
+     that exists, or that the PR adds, is waited for. A red, pending or unreadable check is refused
+     with or without it; any other answer for the workflows directory is exit 2. The comment then says
+     "No CI: <base> has no workflow...". Where it is not needed (a direct repository, a required check,
+     green checks) it is said so and not read: no No CI sentence is added, the basis is posted as given.
+
+Then: reads the PR's head again and refuses when it is not the head the gates read (pr-gate's own read of
+the head included: a count of another head is no count of this one); posts the policy's armed_status
+(fabric/armed by default; none where a repository sets it null), state success, on that head — the
+check an auto repository's ruleset requires, so a head pushed after this arming waits for an arming
+of its own, and the one disarm-on-push keeps an arming by; posts the arming basis as a comment ("Arming basis: <text> —
 <W> work commits, head <sha>"; a security boundary armed at 8 or more
 without the owner's word adds a sentence saying so), runs `gh pr merge <n> --merge --auto
 --match-head-commit <head>` (--squash or --rebase where the policy's method is that; no --auto on a direct
@@ -251,19 +330,49 @@ Options:
   --boundary            treat as a security-boundary change regardless of paths
   --no-boundary "<why>" waive the boundary gate, with --waiver; the reason goes in the comment
   --waiver <id|seq>     the waiver role holder's message (MESSAGE-ID or relay seq)
-  --authorization <id|seq>  the boundary authority's message (see THE ARMING POLICY), for a boundary change under its minimum
+  --authorization <id|seq>  the policy's authority role holder's message (AUTHORIZATION above), for a PR under its minimum
   --any-owner           arm a PR whose branch is not this session's
+  --defer "<head8>:F<n>" "<why>"  lift one open finding of gate 4c (repeatable); recorded in the comment
+  --defer-job j<n> "<why>"  lift one blocked job of gate 4c whose wait is not this PR's (repeatable); recorded in the comment
   --dry-run             evaluate every gate, arm nothing, post nothing
+  --repo <owner/name|project>  the PR's repository, whose arm.json and policy apply, not the cwd checkout's
 
 Exit codes:
   0  armed or merged (or, with --dry-run, would arm)
   1  refused — the reason is the last line
-  2  gh / pr-gate / pr-review-status / arm.json / the relay / fabric-ctl
-     could not answer, or usage
+  2  gh / pr-gate / pr-review-status / arm.json / the relay / fabric-ctl /
+     fabric-whoami / the role catalogue / fabric-jobs could not answer, or usage
 
 Environment: AGENT_FABRIC_PR_GATE, AGENT_FABRIC_PR_REVIEW_STATUS,
 AGENT_FABRIC_PR_SESSION, AGENT_FABRIC_ARM_CONFIG,
-AGENT_FABRIC_GZCOORD_INBOX, AGENT_FABRIC_CTL."""
+AGENT_FABRIC_GZCOORD_INBOX, AGENT_FABRIC_CTL, AGENT_FABRIC_WHOAMI,
+AGENT_FABRIC_JOBS, AGENT_FABRIC_REVIEW_POSTERS."""
+
+
+WORKFLOWS = ".github/workflows"
+
+
+def why_not_no_ci(repo: str, base: str, files: list[str]) -> str | None:
+    """Why the no-CI word does not apply (the base has a workflow, or the PR adds one), None when it holds. Only
+    GitHub's 404 for the directory says "no CI": any other error or shape is Unanswered. An empty answer (gh.api
+    reads it as None) is no answer, so a flag, not None, carries the 404."""
+    if not base:
+        raise Unanswered("cannot tell which branch the PR targets, so whether it has CI")
+    try:
+        listing, absent = gh.api(f"repos/{repo}/contents/{WORKFLOWS}?ref={urllib.parse.quote(base, safe='')}"), False
+    except gh.GhError as e:
+        if e.status != 404:
+            raise Unanswered(f"cannot read {WORKFLOWS} on {base}: {e.reason}") from None
+        listing, absent = None, True
+    if not absent:
+        if isinstance(listing, list) and listing:
+            return (f"{base} has workflows: none-yet is a check not reported yet, and the owner's no-CI word"
+                    " does not stand in for CI that exists")
+        raise Unanswered(f"cannot read {WORKFLOWS} on {base}: the answer is not a list of files")
+    added = [f for f in files if f.startswith(f"{WORKFLOWS}/")]
+    if added:
+        return f"this PR adds CI: wait for its checks ({head_lines(added)})"
+    return None
 
 
 def say(msg: str) -> None:
@@ -271,6 +380,8 @@ def say(msg: str) -> None:
 
 
 ROLE_TRAILER = re.compile(r"^Fabric-Role:[ \t]*([a-z][a-z0-9-]*)[ \t]*$", re.M)
+# GitHub cuts a status description at 140 characters.
+ARMED_DESCRIPTION = "Armed through fabric-pr arm: this head passed its gates"
 # The merge method as the flag gh takes: a fixed table, not the policy's text put into an argument.
 MERGE_FLAGS = {"merge": "--merge", "squash": "--squash", "rebase": "--rebase"}
 # GitHub lists at most this many commits of a pull request; a role is not read from a part of them.
@@ -313,7 +424,7 @@ def program(env: str, default: str) -> list[str]:
 def fabric_pr(env: str, verb: str) -> list[str]:
     """A reader that is a `fabric-pr` verb of this checkout (ADR-040 §5
     rule 7), or the env override, which stays one program."""
-    return [os.environ[env]] if os.environ.get(env) else [os.path.join(FABRIC, "bin", "fabric-pr"), verb]
+    return [os.environ[env]] if os.environ.get(env) else common.fabric_pr_verb(FABRIC, verb)
 
 
 def run_reader(head: list[str], args: list[str], timeout: int = 600) -> tuple[int, str]:
@@ -360,19 +471,39 @@ def waiver_role_checked(role: str | None) -> str:
     return role
 
 
-def authority_role_checked(role: str | None, repo: str) -> str:
-    """The policy's commits.boundary_authority, a slug the catalogue holds. None is a refusal's business (the
-    caller says the policy names none); one the catalogue lacks is unanswerable, as a misspelt waiver_role is."""
+def authority_role_checked(role: str | None, repo: str, key: str = "boundary_authority") -> str:
+    """The policy's commits.<key> (boundary_authority, below_min_authority), a slug the catalogue holds. None is a
+    refusal's business (the caller says the policy names none); one the catalogue lacks is unanswerable, as a
+    misspelt waiver_role is."""
     if not role:
-        raise Unanswered(f"{repo}'s arming policy names no boundary_authority")
-    roles = catalogue_roles("boundary_authority")
+        raise Unanswered(f"{repo}'s arming policy names no {key}")
+    roles = catalogue_roles(key)
     if not SLUG.fullmatch(role) or role not in roles:
-        raise Unanswered(f"{repo}'s arming policy names the boundary_authority {role!r}, which is not a role of identities/roles/catalog.json")
+        raise Unanswered(f"{repo}'s arming policy names the {key} {role!r}, which is not a role of identities/roles/catalog.json")
     return role
 
 
+def session_role(session: str) -> str:
+    """The role this session is bound to, as fabric-whoami reports it (the binding, never a message's ROLE line), or
+    "" for a session bound to none. Unanswered when whoami cannot say, or says it for another address than the
+    session arming: a role read for someone else is not this session's."""
+    rc, out = run_reader(program("AGENT_FABRIC_WHOAMI", os.path.join(FABRIC, "bin", "fabric-whoami")), ["--json"], timeout=30)
+    try:
+        me = json.loads(out)
+    except ValueError:
+        me = None
+    if rc != 0 or not isinstance(me, dict):
+        raise Unanswered(f"fabric-whoami could not say which role this session holds (exit {rc})")
+    if me.get("address") != session:
+        raise Unanswered(f"fabric-whoami answers for {me.get('address')}, not for {session}: the role of this session cannot be read")
+    role = me.get("role")
+    return role if isinstance(role, str) else ""
+
+
 def author_of(branch: str) -> str:
-    """The login a pull request's branch is named for (<host>/<login>/<what>), or "" when it is not so named."""
+    """The login a pull request's branch is named for (<host>/<login>/<what>), or "" when it is not so named. It is
+    the only evidence of authorship there is: every account commits under one git author and one GitHub login, so a
+    session that names its own branch for another login is believed, here as in the --authorization path."""
     m = re.fullmatch(r"[a-z0-9._-]+/([a-z0-9._-]+)/.+", branch)
     return m.group(1) if m else ""
 
@@ -428,11 +559,26 @@ OWNER_WORD = "ask the owner: their word (\"arm <n>\", relayed to you) goes in th
 
 
 def authority_known(role: str) -> bool:
-    """Whether the policy's boundary_authority is a role of the catalogue (False when the catalogue cannot be read)."""
+    """Whether the policy's authority role is a role of the catalogue (False when the catalogue cannot be read)."""
     try:
-        return bool(SLUG.fullmatch(role)) and role in catalogue_roles("boundary_authority")
+        return bool(SLUG.fullmatch(role)) and role in catalogue_roles("authority")
     except Unanswered:
         return False
+
+
+def lift_hint(authority: str | None, key: str, repo: str, num: str, head: str, session: str, author: str, own_prs: bool) -> str:
+    """Whom to ask for the word a count gate wants: the policy's authority role with the holders running now, the
+    line to ask for and the basis a holder arms on, then the owner; the owner alone where the policy names none."""
+    if not authority:
+        return OWNER_WORD
+    if not authority_known(authority):
+        return f"the policy names the {key} {authority!r}, which is not a role of identities/roles/catalog.json: {OWNER_WORD}"
+    ask = ask_a_holder(authority, "AUTHORIZES", repo, num, head, "--authorization", (session.split("/")[-1], *(() if own_prs else (author,))))
+    # A holder arming on its own word arms another session's PR, which gate 2 refuses without --any-owner; only where
+    # authority_own_prs lets the author hold the role can that PR be the holder's own.
+    flag = f"--basis \"{authority}'s word\" (and --any-owner, on a PR not its own)" if own_prs \
+        else f"--any-owner --basis \"{authority}'s word\""
+    return f"{ask}; or, in a session that holds {authority}, {flag}; or {OWNER_WORD}"
 
 
 def verify_grant(ref: str, num: str, repo: str, head: str, session: str, role: str, refuse, *, word: str, field: str,
@@ -448,6 +594,9 @@ def verify_grant(ref: str, num: str, repo: str, head: str, session: str, role: s
 
     def deny(why: str):
         """The refusal, with whom to ask for a message that would hold."""
+        if not role:
+            return refuse(f"{why} — ask whoever relayed the owner's word to send you, TO this session, a DECISION or REPLY"
+                          f" carrying `{field}: {repo}#{num}@{head[:8]}`, or arm on the basis alone without {option}")
         return refuse(f"{why} — {ask_a_holder(role, field, repo, num, head, option, (session.split('/')[-1], author))}")
     rc, out = run_reader(program("AGENT_FABRIC_GZCOORD_INBOX",
                                  os.path.join(FABRIC, "bin", "gzcoord-inbox")),
@@ -497,6 +646,17 @@ def verify_grant(ref: str, num: str, repo: str, head: str, session: str, role: s
         raise deny(f"the {word} {ref} {field} head {m.group(3)}, and #{num}'s head is now {head[:12]}"
                      f" — an approval of one head arms no other")
     host, login = sender.split("/", 1)
+    if not role:
+        return login, mid
+    held = held_role(host, login, f"the {word}")
+    if held != role:
+        raise deny(f"the {word} {ref} is from {login}, who holds {held or 'no role'}, not {role}")
+    return login, mid
+
+
+def presence_of(login: str, what: str) -> tuple[str, str]:
+    """(host, role) fabric-ctl's presence reports for `login` (role "" for none) — the fabric's record, never a line a
+    message or a commit carries. Unanswered when presence cannot say (`what` is what it checks)."""
     rc, out = run_reader(program("AGENT_FABRIC_CTL", os.path.join(FABRIC, "bin", "fabric-ctl")),
                          [login, "presence", "--json"], timeout=120)
     try:
@@ -505,12 +665,43 @@ def verify_grant(ref: str, num: str, repo: str, head: str, session: str, role: s
         row = None
     p = row.get("presence") if isinstance(row, dict) else None
     if (not isinstance(p, dict) or row.get("status") != "ok" or p.get("status") != "ok"
-            or row.get("account") != login or row.get("host") != host):
-        raise Unanswered(f"fabric-ctl could not say which role {login} holds (presence, exit {rc}) — the {word}"
+            or row.get("account") != login or not row.get("host")):
+        raise Unanswered(f"fabric-ctl could not say which role {login} holds (presence, exit {rc}) — {what}"
                          f" cannot be checked")
-    if p.get("role") != role:
-        raise deny(f"the {word} {ref} is from {login}, who holds {p.get('role') or 'no role'}, not {role}")
-    return login, mid
+    return str(row["host"]), str(p.get("role") or "")
+
+
+def held_role(host: str, login: str, what: str) -> str:
+    """The role presence reports `login` on `host` bound to ("" for none). Unanswered when presence cannot say, or
+    places the login on another host — an answer about another account, named as that, not as a silent presence."""
+    at, role = presence_of(login, what)
+    if at != host:
+        raise Unanswered(f"presence places {login} on {at}, not {host} — {what} cannot be checked")
+    return role
+
+
+def role_bound(role: str, branch: str) -> str | None:
+    """`role`, the PR's commits' Fabric-Role trailer, when the login its branch is named for (<host>/<login>/…) is
+    bound to it by presence, as a waiver's sender is; else None, said. The trailer is text a committer can type and
+    the commit-msg hook keeps a typed one, so a minimum lowered for a role is taken only on the fabric's record of
+    who holds it (reviews of BlueTeam-OU/agent-fabric-settings#8 F2, gzapi-org/agent-fabric-settings#7 §3). The
+    branch name is typed too: this stops a mistake, not a forger. Unanswered when presence cannot say."""
+    m = re.fullmatch(r"([a-z0-9._-]+)/([a-z0-9._-]+)/.+", branch)
+    if not m:
+        say(f"the commits say Fabric-Role: {role}, and the branch {branch} names no <host>/<login>/… to check it"
+            f" against: the repository's minimum, not the role's")
+        return None
+    host, login = m.groups()
+    at, held = presence_of(login, f"the role {role} the commits carry")
+    if at != host:
+        say(f"the commits say Fabric-Role: {role}, and the branch names {host}/{login}, but presence places {login}"
+            f" on {at}: the repository's minimum, not the role's")
+        return None
+    if held != role:
+        say(f"the commits say Fabric-Role: {role}, and {login}, whose branch it is, holds {held or 'no role'}:"
+            f" the repository's minimum, not the role's")
+        return None
+    return role
 
 
 def verify_waiver(waiver: str, num: str, repo: str, head: str, session: str, role: str | None,
@@ -570,12 +761,153 @@ def check_engines(num: str, head: str, engines: list[str], refuse, additional: l
                        for e in absent)])
 
 
+def review_posters() -> set[str]:
+    """AGENT_FABRIC_REVIEW_POSTERS as pr-review-status binds it. Unreadable is exit 2 here, never none: fewer
+    trusted accounts is fewer reviews read, and a finding in an unread review would arm."""
+    try:
+        posters = json.loads(os.environ.get("AGENT_FABRIC_REVIEW_POSTERS") or "[]")
+    except ValueError:
+        posters = None
+    if not isinstance(posters, list) or not all(isinstance(x, str) for x in posters):
+        raise Unanswered("AGENT_FABRIC_REVIEW_POSTERS is not a JSON array of logins: the reviews gate 4c reads cannot be told")
+    return set(posters)
+
+
+def check_open_findings(repo: str, num: str, pr: dict, defers: list, refuse) -> str:
+    """Gate 4c (arm_findings): refuse on every finding open in any chain and every review read as nothing, at any
+    P-level; a --defer lifts one named finding, and one naming no open finding is refused, so a typo cannot pass.
+    Returns what the comment records of the deferrals, or ""."""
+    author = str((pr.get("author") or {}).get("login") or "")
+    try:
+        trusted = set(posters_of.for_pr(pr.get("author"), review_posters())) | ({author} if author else set())
+    except gh.GhError as e:
+        raise Unanswered(f"cannot read the account this session posts as ({e.reason}): #{num} is an app's, and gate 4c"
+                         f" reads its reviews from that account") from None
+    try:
+        reviews = gh.api(f"repos/{repo}/pulls/{num}/reviews?per_page=100", paginate=True)
+    except gh.GhError as e:
+        raise Unanswered(f"cannot list #{num}'s reviews ({e.reason}): gate 4c reads every chain") from None
+    if not isinstance(reviews, list):
+        raise Unanswered(f"#{num}'s reviews did not read as a list: gate 4c reads every chain")
+    got = arm_findings.read(reviews, trusted)
+    if got.unknown:
+        raise refuse(f"{len(got.unknown)} review(s) whose findings cannot be read — {'; '.join(got.unknown[:3])}"
+                     f"{f' (and {len(got.unknown) - 3} more)' if len(got.unknown) > 3 else ''}: an unread review is unknown,"
+                     f" never clean; re-post it with its machine lines (Finding:/Judgement:), or review again")
+    still = got.open
+    lifted = []
+    for what, key, why in defers:
+        hit = [f for f in still if arm_findings.matches(f, key)]
+        if not hit:
+            raise refuse(f"--defer {what} names no open finding (open: "
+                         f"{', '.join(f'{f.head[:8]}:{f.label}' for f in still) or 'none'}): a deferral must name one")
+        still = [f for f in still if f not in hit]
+        lifted += [(f, why) for f in hit]
+    if still:
+        named = "; ".join(f"{f.label} | {f.level} | {f.path} | {f.summary} (review {f.review_id}, raised on head"
+                          f" {f.head[:8]}, its chain now at {got.chains[f.chain][:8]})" for f in still[:5])
+        more = f" (and {len(still) - 5} more)" if len(still) > 5 else ""
+        raise refuse(f"{len(still)} finding(s) open in a review chain — {named}{more}: a re-review on that chain"
+                     f" (base = the chain's head) judging each fixed or not-real, or --defer \"<head8>:F<n>\" \"<why>\"")
+    for f, why in lifted:
+        say(f"finding {f.head[:8]}:{f.label} ({f.level}, review {f.review_id}) DEFERRED: {why}")
+    say(f"no finding open across {got.reviews} review(s) in {len(got.chains)} chain(s)"
+        f"{f', {len(lifted)} deferred' if lifted else ''}")
+    return " ".join(f"Deferred {f.head[:8]}:{f.label} ({f.level}, review {f.review_id}): {why}." for f, why in lifted)
+
+
+def check_jobs(branch: str, session: str, any_owner: bool, defer_jobs: list, refuse) -> str:
+    """Gate 4c, its jobs half: refuse while a job of this login whose branch is the PR's head ref is blocked on a
+    blocker not cleared. Another login's PR (--any-owner) has jobs this login cannot read: said, not refused. A
+    --defer-job lifts one such job, and one naming no blocking job is refused, so a typo cannot pass. Returns what
+    the comment records of the lifted jobs, or ""."""
+    if not branch.startswith(f"{session}/"):
+        say(f"jobs: not read — {branch} is another login's, whose jobs this login cannot read")
+        if defer_jobs:
+            raise refuse(f"--defer-job {defer_jobs[0][0]} names no blocked job: {branch}'s jobs are not read here")
+        return ""
+    jobs_cmd = program("AGENT_FABRIC_JOBS", "fabric-jobs")
+    rc, out = run_reader(jobs_cmd, ["list", "--all", "--json"])
+    try:
+        jobs = json.loads(out) if rc == 0 else None
+    except ValueError:
+        jobs = None
+    if not isinstance(jobs, list):
+        raise Unanswered(f"fabric-jobs list --all --json could not answer (exit {rc}): a blocked job on {branch} cannot be told")
+    blocking, cleared = [], []
+    for job in jobs:
+        if not isinstance(job, dict) or job.get("state") != "blocked":
+            continue
+        jid = str(job.get("id") or "")
+        on = job.get("branch") if "branch" in job else None
+        if on is None:
+            # The list leaves the key out where a job has none recorded; show is its whole record.
+            rc, shown = run_reader(jobs_cmd, ["show", jid, "--json"])
+            try:
+                on = (json.loads(shown) if rc == 0 else None) or {}
+            except ValueError:
+                on = None
+            if not isinstance(on, dict):
+                raise Unanswered(f"fabric-jobs show {jid} --json could not answer (exit {rc}): its branch cannot be told")
+            on = on.get("branch")
+        if on != branch:
+            continue
+        # `cleared` is true only when every checkable blocker has cleared; false, null (none told yet) or absent (a
+        # free-text blocker) all still wait.
+        if job.get("cleared") is True:
+            cleared.append(jid)
+        else:
+            blocking.append(job)
+    for jid in cleared:
+        say(f"jobs: {jid} on {branch} is blocked, but every blocker has cleared: it waits on nothing")
+    lifted = []
+    for jid, why in defer_jobs:
+        hit = [j for j in blocking if str(j.get("id")) == jid]
+        if not hit:
+            raise refuse(f"--defer-job {jid} names no blocked job on {branch} (blocked: "
+                         f"{', '.join(str(j.get('id')) for j in blocking) or 'none'}): a deferral must name one")
+        blocking = [j for j in blocking if j not in hit]
+        lifted += [(hit[0], why)]
+    if blocking:
+        job = blocking[0]
+        more = f" (and {len(blocking) - 1} more: {', '.join(str(j.get('id')) for j in blocking[1:])})" if len(blocking) > 1 else ""
+        raise refuse(f"job {job.get('id')} on {branch} is blocked — {job.get('blocked_on') or 'no blocker recorded'}{more}:"
+                     f" the work it waits on is not in this head; unblock it (fabric-jobs), or, when its wait is not"
+                     f" this PR's, --defer-job {job.get('id')} \"<why>\"")
+    for job, why in lifted:
+        say(f"job {job.get('id')} on {branch} DEFERRED: {why}")
+    say(f"jobs: none blocked on {branch}{f', {len(lifted)} deferred' if lifted else ''}")
+    return " ".join(f"Deferred job {job.get('id')} ({job.get('blocked_on') or 'no blocker recorded'}): {why}."
+                    for job, why in lifted)
+
+
 def arm(argv: list[str]) -> int:
     num = basis = no_boundary = waiver = authorization = ""
     boundary = any_owner = dry = False
+    defers: list[tuple[str, tuple[str, str], str]] = []
+    defer_jobs: list[tuple[str, str]] = []
     i = 0
     while i < len(argv):
         a = argv[i]
+        if a == "--defer":
+            what, why = (argv[i + 1:i + 3] + ["", ""])[:2]
+            key = arm_findings.defer_key(what)
+            if key is None:
+                raise Unanswered(f"--defer needs \"<review-head8>:F<n>\" \"<why>\", not '{what}' (try --help)")
+            if not why.strip() or why.startswith("--"):
+                raise Unanswered(f"--defer {what} needs the reason, the next argument")
+            defers.append((what, key, why.strip()))
+            i += 3
+            continue
+        if a == "--defer-job":
+            jid, why = (argv[i + 1:i + 3] + ["", ""])[:2]
+            if not re.fullmatch(r"j[1-9][0-9]*", jid):
+                raise Unanswered(f"--defer-job needs j<n> \"<why>\", not '{jid}' (try --help)")
+            if not why.strip() or why.startswith("--"):
+                raise Unanswered(f"--defer-job {jid} needs the reason, the next argument")
+            defer_jobs.append((jid, why.strip()))
+            i += 3
+            continue
         if a == "--basis":
             basis = argv[i + 1] if i + 1 < len(argv) else ""
             i += 2
@@ -630,14 +962,15 @@ def arm(argv: list[str]) -> int:
         return Refused(f"REFUSED #{num} — {why}")
 
     try:
-        pr = json.loads(gh.run(["pr", "view", num, "--json", "number,state,isDraft,headRefName,headRefOid,baseRefName,body,title"],
-                               what=f"gh pr view {num}"))
-    except (gh.GhError, ValueError):
-        raise Unanswered(f"cannot read #{num} (gh pr view failed)") from None
-    try:
         repo = gh.this_repo()
     except gh.GhError as e:
         raise Unanswered(f"cannot read the repository: {e.reason}") from None
+    try:
+        pr = json.loads(gh.run(["pr", "view", num, "--json", "number,state,isDraft,headRefName,headRefOid,baseRefName,body,title,author"],
+                               what=f"gh pr view {num}"))
+    except (gh.GhError, ValueError):
+        # The repository named: from another project's checkout, #N is looked for in the cwd's (2026-10-18).
+        raise Unanswered(f"cannot read #{num} in {repo} (gh pr view failed; --repo names another repository)") from None
     owner, name = repo.split("/", 1)
     state, branch = str(pr.get("state")), str(pr.get("headRefName") or "")
     head, title, body = str(pr.get("headRefOid") or ""), str(pr.get("title") or ""), str(pr.get("body") or "")
@@ -654,7 +987,8 @@ def arm(argv: list[str]) -> int:
     if not branch.startswith(f"{session}/"):
         if not any_owner:
             raise refuse(f"its branch {branch} is not this session's ({session}/…): never arm another session's PR"
-                         " (--any-owner for the owner's own hand)")
+                         " (--any-owner for the owner's own hand, or for a holder of the policy's authority role arming on"
+                         " its word)")
         say(f"arming another session's PR on --any-owner ({branch})")
 
     # 3. AWAITING-SUPPLY with no range line
@@ -786,6 +1120,11 @@ def arm(argv: list[str]) -> int:
     engines = arm_policy.required_engines(policy, is_boundary and not waiver)
     engines_out = check_engines(num, head, engines, refuse, arm_policy.additional_engines(policy, is_boundary and not waiver))
 
+    # 4c. a finding left open in any review chain, not only the latest (REQUEST 01a18fe0: #425 merged with F5 open)
+    deferred = check_open_findings(repo, num, pr, defers, refuse)
+    # …and a job of this login on the PR's branch that is blocked: the work it waits on is not in the head
+    deferred_jobs = check_jobs(branch, session, any_owner, defer_jobs, refuse)
+
     # 5. the count rule, from pr-gate's classifier
     rc, out = run_reader(fabric_pr("AGENT_FABRIC_PR_GATE", "gate"), ["--json", num])
     try:
@@ -798,11 +1137,28 @@ def arm(argv: list[str]) -> int:
     # when the head or the base is not in the local clone (a managed project's PR #886
     # review F2 — 0 read as "under 8" and armed).
     if row.get("commits_known") is not True:
+        try:
+            ours = landed.origin_is(repo)
+        except git.GitError:
+            ours = True   # git unaskable here: the gate's own note says why, and the fetch remedy stays
+        if not ours:
+            # The fetch remedy would fetch the wrong repository again (review F3 on #300).
+            raise Unanswered(f"pr-gate could not count #{num}'s commits: this clone's origin is not {repo}, and the"
+                             f" count is read from git — run from a clone of {repo}; the count rule is not applied"
+                             f" to a guess")
         raise Unanswered(f"pr-gate could not count #{num}'s commits (head or base not in the clone — git fetch origin,"
                          f" then retry); the count rule is not applied to a guess")
     work = row.get("work_commits")
     if not isinstance(work, int) or isinstance(work, bool) or work < 0:
         raise Unanswered(f"pr-gate reported no commit count for #{num}")
+    # pr-gate reads the PR for itself, so its count and checks are of the head it read, which a push between
+    # the two reads makes another one than every other gate's.
+    gate_head = row.get("head")
+    if not isinstance(gate_head, str) or not gate_head:
+        raise Unanswered(f"pr-gate named no head for #{num}: its count cannot be tied to {head[:8]}")
+    if gate_head != head[:8]:
+        raise refuse(f"pr-gate read head {gate_head}, and the other gates {head[:8]}: a push landed while they ran;"
+                     f" review the new range, then arm again")
     # Over the policy's advice_over (16) is advice for the NEXT batch, never a gate at arming time
     # nor a reorganisation of the open PR.
     if work > advice_over:
@@ -814,8 +1170,15 @@ def arm(argv: list[str]) -> int:
             raise refuse(f"the body states Class: {cls} but the changed files are not that class — {head_lines(offlist)}")
         say(f"class stated and confirmed by the files: {cls}")
     # The author's role is the one the PR's own commits are stamped with (the Fabric-Role trailer the commit-msg
-    # hook adds); several roles, or none, is no role: the repository's minimum, never a lower one.
+    # hook adds), held by the branch's login; several roles, or none, is no role: the repository's minimum, never a
+    # lower one.
     role = author_role(repo, num)
+    # Presence is asked only where the role lowers the floor: a class, a boundary or a role the policy does not
+    # name leaves it at what no role gets, and a fleet read that answers nothing would stop an arm it cannot change.
+    # A role minimum above the repository's lowers nothing, so it stands as the trailer states it, with no fleet
+    # read: presence saying the login holds another role must not drop it to the repository's (#312 review F1).
+    if role and arm_policy.threshold(policy, role, cls, boundary_unwaived) < arm_policy.threshold(policy, None, cls, boundary_unwaived):
+        role = role_bound(role, branch)
     floor = arm_policy.threshold(policy, role, cls, boundary_unwaived)
     # A class whose minimum is one has no lower bound than a stated, confirmed class always had (a pull request of
     # only review fixes counts zero work commits and still arms under it); above one, the class's own minimum is
@@ -824,43 +1187,72 @@ def arm(argv: list[str]) -> int:
     if under and policy["commits"]["below_min"] == "refuse":
         raise refuse(f"{work} work commits — under {floor}; this repository's arming policy refuses below the minimum"
                      f" (commits.below_min: refuse), the owner's word does not change that")
-    authorized_by = ""
-    authority = policy["commits"].get("boundary_authority")
-    if under and boundary_unwaived and not has_owner_word(basis):
-        if not authorization:
-            raise refuse(f"{work} work commits — a security-boundary change under {floor} arms only on the owner's word as well"
-                         f" as the review, whatever class is stated; the basis does not carry the phrase \"owner's word\" — "
-                         + (ask_a_holder(authority, "AUTHORIZES", repo, num, head, "--authorization", (session.split("/")[-1], author_of(branch)))
-                            + ", or " + OWNER_WORD if authority and authority_known(authority) else
-                            f"the policy names the boundary_authority {authority!r}, which is not a role of identities/roles/catalog.json: "
-                            + OWNER_WORD if authority else OWNER_WORD))
-        # The owner's word, in the owner's place: the holder of the policy's boundary_authority role says so, for this
-        # PR and this head, to this session. The review gate above still stood; it is not this message's to lift.
-        if not authority:
-            raise refuse(f"{repo}'s arming policy names no boundary_authority: only the owner's word arms a security-boundary"
-                         f" change under {floor}, and the authorization {authorization} is nobody's to give — {OWNER_WORD}")
-        author = author_of(branch)
-        if not author:
-            raise refuse(f"the pull request's author cannot be told from its branch {branch} (it is not <host>/<login>/…), so an"
-                         f" authorization cannot be checked as another login's — {OWNER_WORD}")
-        login, mid = verify_grant(authorization, num, repo, head, session, authority_role_checked(authority, repo), refuse,
-                                  word="authorization", field="AUTHORIZES", author=author)
-        authorized_by = f"Boundary count gate authorized by {login}, {authority} ({mid})."
-        say(f"count gate AUTHORIZED by {login}, {authority} ({mid}), in the owner's place")
-    elif authorization and not (under and not has_owner_word(basis)):
-        say(f"no authorization is needed: the authorization {authorization} is not read, and not recorded")
+    # The word under the minimum is the owner's, or a holder of the policy's authority role in the owner's place: the
+    # boundary_authority for a security-boundary change, the below_min_authority for any other PR (the owner, 2026-10-19).
+    authority_key = "boundary_authority" if boundary_unwaived else "below_min_authority"
+    authority = policy["commits"].get(authority_key)
+    own_prs = policy["commits"].get("authority_own_prs", False)
+    author = author_of(branch)
+    authorized_by = relayed_by = ""
+    if under and not has_owner_word(basis):
+        # The basis claims the role's word only by the phrase, as the owner's does; the claim is then checked against
+        # the session's binding, never taken as said.
+        claimed = bool(authority) and re.search(rf"(?<![\w-]){re.escape(authority)}(?:'|’)s word", basis, re.I) is not None
+        if authorization and not authority and not boundary_unwaived:
+            say(f"the authorization {authorization} is not read: {repo}'s arming policy names no below_min_authority, so an"
+                f" authorization stands in only for a security-boundary change, and this one needs the owner's word")
+        elif authorization or claimed:
+            if not authority:
+                raise refuse(f"{repo}'s arming policy names no {authority_key}: only the owner's word arms a security-boundary"
+                             f" change under {floor}, and the authorization {authorization} is nobody's to give — {OWNER_WORD}")
+            if not author and not own_prs:
+                raise refuse(f"the pull request's author cannot be told from its branch {branch} (it is not <host>/<login>/…), so an"
+                             f" authority's word cannot be checked as another login's — {OWNER_WORD}")
+            role_held = authority_role_checked(authority, repo, authority_key)
+            label = "Boundary count gate" if boundary_unwaived else "Count gate"
+            if authorization:
+                login, mid = verify_grant(authorization, num, repo, head, session, role_held, refuse,
+                                          word="authorization", field="AUTHORIZES", author="" if own_prs else author)
+                authorized_by = f"{label} authorized by {login}, {authority} ({mid})."
+                say(f"count gate AUTHORIZED by {login}, {authority} ({mid}), in the owner's place")
+            else:
+                login = session.split("/", 1)[-1]
+                if login == author and not own_prs:
+                    raise refuse(f"the basis gives {authority}'s word, and {login} is the pull request's own author: an authority"
+                                 f" never arms its own PR here (commits.authority_own_prs is false) — {OWNER_WORD}")
+                held = session_role(session)
+                if held != role_held:
+                    raise refuse(f"the basis gives {authority}'s word, and this session holds {held or 'no role'} by its binding,"
+                                 f" not {authority}: {lift_hint(authority, authority_key, repo, num, head, session, author, own_prs)}")
+                authorized_by = f"{label} lifted by {login}, holding {authority} by its binding."
+                say(f"count gate lifted by {login}, who holds {authority} by its binding, in the owner's place")
+    elif authorization and under:
+        # The basis gives the owner's word, and a message is named as well: the word as it was relayed. Dropped
+        # unread, its AUTHORIZES head was checked by nobody (REQUEST 01a19b05, 2026-11-01), so it is
+        # read as any authorization is, but for the role: the owner holds none, and the basis is what arms. It can
+        # only refuse, never lift a minimum the basis did not.
+        login, mid = verify_grant(authorization, num, repo, head, session, "", refuse,
+                                  word="authorization", field="AUTHORIZES", author="" if own_prs else author)
+        relayed_by = f"The owner's word relayed by {login} ({mid})."
+        say(f"the owner's word, as {login} relayed it ({mid}), authorizes {repo}#{num}@{head[:8]}")
     elif authorization:
-        say(f"the authorization {authorization} is not read: an authorization stands in only for a security-boundary change,"
-            f" and this one needs the owner's word")
+        say(f"no authorization is needed: the authorization {authorization} is not read, and not recorded")
     word = has_owner_word(basis) or bool(authorized_by)
+    hint = lift_hint(authority, authority_key, repo, num, head, session, author, own_prs) if under and not word else ""
+    # Who may give the word, as the policy has it: a refusal that names the owner alone, where a role may lift it too,
+    # teaches the narrower route (review of #323).
+    or_role = f" or {authority}'s" if authority else ""
+    if under and boundary_unwaived and not word:
+        raise refuse(f"{work} work commits — a security-boundary change under {floor} arms only on the owner's word{or_role} as well"
+                     f" as the review, whatever class is stated; the basis does not carry the phrase \"owner's word\" — {hint}")
     if under and cls and not word:
-        raise refuse(f"{work} work commits — the class {cls} arms at {floor} or more; under that only on the owner's word,"
-                     f" and the basis does not carry the phrase \"owner's word\" — {OWNER_WORD}")
+        raise refuse(f"{work} work commits — the class {cls} arms at {floor} or more; under that only on the owner's word{or_role},"
+                     f" and the basis does not carry the phrase \"owner's word\" — {hint}")
     if under and not cls and not word:
         gate_classes = " / ".join(f"Class: {c}" for c in classes) or "none in this project"
-        raise refuse(f"{work} work commits — under {floor} arms only on the owner's word, unless the body states a class"
+        raise refuse(f"{work} work commits — under {floor} arms only on the owner's word{or_role}, unless the body states a class"
                      f" that arms at the gate ({gate_classes}) and the files agree; the basis does not carry the"
-                     f" phrase \"owner's word\" and no class is stated — {OWNER_WORD}")
+                     f" phrase \"owner's word\" and no class is stated — {hint}")
     # The role's minimum decided it only where it is below the repository's and nothing more specific stands.
     by_role = (bool(role) and not cls and not boundary_unwaived and role in policy["commits"]["roles"] and floor < min_work
                and work < min_work)
@@ -879,6 +1271,7 @@ def arm(argv: list[str]) -> int:
     # A repository with no required check has nothing server-side that makes the merge wait for green: arm waits
     # for it here, on the head the gates read. A direct repository has no ruleset, so a required_checks list in its
     # policy (its own or the fleet's) holds nothing on GitHub either: it is waited for here too.
+    no_ci_word, no_ci_used = has_no_ci_word(basis), False
     if policy["mode"] == "direct" or not policy["required_checks"]:
         checks = str(row.get("checks"))
         held = "is direct" if policy["mode"] == "direct" else "has no required check"
@@ -887,20 +1280,39 @@ def arm(argv: list[str]) -> int:
         # required check says CI exists, so its "none-yet" is a check not reported yet, never no CI.
         if policy["mode"] == "direct" and not policy["required_checks"] and checks == "none-yet":
             say("direct repository with no check on the head: it merges on the review of its head alone")
+        elif checks == "none-yet" and policy["mode"] != "direct" and no_ci_word:
+            # PR mode has no exception of its own (the coordinator's ruling: the no-CI exception is direct's alone):
+            # the owner's word, per PR, stands in for a check that never comes, and for nothing that exists.
+            no_ci_not = why_not_no_ci(repo, base, files)
+            if no_ci_not:
+                raise refuse(no_ci_not)
+            no_ci_used = True
+            say(f"no CI on {base} and no check on the head: arming on the owner's no-CI word")
         elif checks != "green":
+            hint = (f' — if the owner gave it and {repo} has no CI at all, the basis carries "owner\'s no-CI word"'
+                    if checks == "none-yet" and policy["mode"] != "direct" else "")
             raise refuse(f"{repo} {held}, so nothing but this gate keeps a red or unfinished head from"
-                         f" merging: every check on the head must be green first (pr-gate reads {checks})")
+                         f" merging: every check on the head must be green first (pr-gate reads {checks}){hint}")
         else:
             say("direct repository: every check on the head is green" if policy["mode"] == "direct"
                 else "no required check on this repository: every check on the head is green")
+    if no_ci_word and not no_ci_used:
+        # The basis goes into the comment as given, phrase included: what is not recorded is the No CI sentence.
+        say("the owner's no-CI word is not needed here: it is not read, and no No CI sentence is added (the basis is posted as given)")
 
     comment = f"Arming basis: {basis} — {work} work commits{f', class: {cls}' if cls else ''}{f', role: {role}' if by_role else ''}, head {head[:8]}."
+    if no_ci_used:
+        comment += f" No CI: {base} has no workflow and the head carries no check; armed on the owner's no-CI word."
     if waived_by:
         comment += f" {waived_by}"
-    if authorized_by:
-        comment += f" {authorized_by}"
+    if authorized_by or relayed_by:
+        comment += f" {authorized_by or relayed_by}"
     if engines_out:
         comment += f" {engines_out}"
+    if deferred:
+        comment += f" {deferred}"
+    if deferred_jobs:
+        comment += f" {deferred_jobs}"
     # A boundary armed at the repository's minimum or more needs no owner's word (gate 5), so the
     # record says that is what happened: a reader of the PR would
     # otherwise take an unmarked boundary arming for an oversight. Gate 5
@@ -911,10 +1323,33 @@ def arm(argv: list[str]) -> int:
     # A direct repository has auto-merge off and nothing server-side to wait on, so --auto would be refused: the
     # gates above are the whole hold, and the merge happens now. The checks gate already required a green head there.
     merge_args = [MERGE_FLAGS[policy["method"]], *([] if policy["mode"] == "direct" else ["--auto"]), "--match-head-commit", head]
+    # --match-head-commit keeps the merge call off a moved head; the status below would still name the gated one,
+    # so the arming of a head nobody gated is refused here rather than left to fail on GitHub.
+    try:
+        now = str(json.loads(gh.run(["pr", "view", num, "--json", "headRefOid"], what=f"gh pr view {num}")).get("headRefOid") or "")
+    except (gh.GhError, ValueError, AttributeError):
+        raise Unanswered(f"cannot read #{num}'s head again before the arming") from None
+    if now != head:
+        raise refuse(f"its head is now {now[:8] or 'unknown'}, not {head[:8]}, the head the gates read: a push landed"
+                     f" while they ran; review the new range, then arm again")
+    armed_status = arm_policy.armed_status(policy)
     if dry:
+        if armed_status:
+            say(f"DRY RUN — would post {armed_status} on {head[:8]}")
         say(f"DRY RUN — would post: {comment}")
         say(f"DRY RUN — would run: gh pr merge {num} {' '.join(merge_args)}")
         return 0
+    # On the sha the gates read, never the PR's head as GitHub has it by then, and before auto-merge is on: a
+    # green PR merges on the merge call itself, and the ruleset holds a head without it (audit F02). No basis is
+    # posted for an arming that has not got its status.
+    if armed_status:
+        try:
+            gh.api(f"repos/{repo}/statuses/{head}", method="POST",
+                   body={"state": "success", "context": armed_status, "description": ARMED_DESCRIPTION})
+        except gh.GhError as e:
+            raise Unanswered(f"could not post {armed_status} on {head[:8]} ({e.reason}): nothing armed, since the"
+                             f" ruleset holds a head without it") from None
+        say(f"{armed_status} posted on {head[:8]}: the arming is tied to the head the gates read")
     # The body on stdin: a body is data (gh.py's invariant).
     try:
         gh.run(["pr", "comment", num, "--body-file", "-"], input=comment, what=f"gh pr comment {num}")

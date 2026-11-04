@@ -15,3 +15,22 @@ names never copied became an allowlist of names shared, with the
 coordinator's credentials refused even when named — a denylist missed
 the provisioning key once. The rules on a secret's shape and locator, a
 destination with its credential, and tests by shape stand unchanged.
+
+### Amendment 2026-10-30 — A commit or a push holding a value of the account's own secrets is refused at the keyboard
+
+Rule 1 said no credential is committed, and until now nothing but an
+instruction kept it: an auto-mode deny line and the project instruction
+files. Pattern scanners (gitleaks, TruffleHog) look for what a key looks
+like and miss a key of a shape they do not know; omerta, read on
+2026-10-27, searches for the account's actual values instead. Rule 9
+borrows its method, not the tool: omerta reads `.env` files at a
+repository's root and depends on hyperscan, while an agent's values are
+in `~/.config/agent-fabric/secrets.env` and a guard is stdlib (ADR-040).
+The same 8-character floor and an ignore list keep ports and counts out.
+
+The check runs in pre-commit (the staged blobs and the names), commit-msg
+(the message) and pre-push (every object the push adds, which catches a
+commit made with --no-verify, or before the check existed, while it is
+still local). A CI leg was planned and is not built: CI holds none of an
+account's values, so it would pass by never searching. The `history`
+verb is the audit of a repository's reachable objects.

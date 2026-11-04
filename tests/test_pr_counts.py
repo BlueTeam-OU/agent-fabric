@@ -17,7 +17,7 @@ import tempfile
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(HERE, "tools", "fabric"))
 import gh  # noqa: E402
-from github import pr_counts, pr_split  # noqa: E402
+from github import pr_counts, pr_split, review_posters  # noqa: E402
 
 REGISTRY = {
     "gzapp": {"remotes": ["git@github.com:gzapi-org/gzapp.git", "https://github.com/gzapi-org/gzapp"]},
@@ -56,6 +56,7 @@ class Hub:
 
     def __init__(self, repos: dict, rest: dict | None = None, fail_batches: bool = False):
         self.repos, self.rest, self.graphql_calls, self.api_calls, self.fail_batches = repos, rest or {}, [], [], fail_batches
+        self.api_timeouts: list = []
 
     def graphql(self, query, *, timeout=None, **variables):
         numbers = [int(n) for n in re.findall(r"\bp(\d+): pullRequest", query)]
@@ -72,6 +73,7 @@ class Hub:
 
     def api(self, path, *, paginate=False, timeout=None, **kw):
         self.api_calls.append(path)
+        self.api_timeouts.append((path, timeout))
         if path in self.rest:
             return self.rest[path]
         raise gh.GhError("gh api", "HTTP 404")
@@ -266,6 +268,48 @@ def main() -> int:
     finally:
         del os.environ["AGENT_FABRIC_REVIEW_POSTERS"]
     check("…unless AGENT_FABRIC_REVIEW_POSTERS names it", "codex unavailable (allowance)" in line, line)
+    # A Dependabot PR (GraphQL spells the app {"__typename": "Bot", "login": "dependabot"}): the marker is the push
+    # account's, whom `gh api user` names, asked within what is left of the time; a push account GitHub cannot name
+    # (no `user` in the hub) is a line that cannot be read, never "absent" (ADR-020 A 2026-11-03).
+    bot = {"__typename": "Bot", "login": "dependabot"}
+    for rest, want in (({"user": {"login": "ci"}}, True), ({}, False)):
+        doc = dict(pr_doc(4, [commit("a" * 40, "x")], head=hx, reviews=[rv(claude_r["body"]), rv(gone_line, login="ci")]),
+                   author=bot)
+        hub = Hub({"o/this": {4: doc}}, rest=rest)
+        review_posters.push_account.cache_clear()
+        try:
+            row = run_counts(["4"], hub, timeout=7, policy=extra)[0]
+        finally:
+            review_posters.push_account.cache_clear()
+        if want:
+            check("…on a Dependabot PR, the push account: unavailable", row["ok"] and "codex unavailable (allowance)" in row["line"],
+                  row["line"])
+            asked = [t for path, t in hub.api_timeouts if path == "user"]
+            check("…the push account is asked within what is left of the time, at most the whole",
+                  len(asked) == 1 and asked[0] is not None and 0 < asked[0] <= 7, hub.api_timeouts)
+        else:
+            check("…on a Dependabot PR, a push account GitHub cannot name: cannot be read (exit 2), never absent",
+                  not row["ok"] and row["line"].startswith("#4 cannot be read: the push account cannot be read (")
+                  and "absent" not in row["line"], row["line"])
+    # A budget spent by the time the line is built: a person's PR asks GitHub nothing more, so its line is built from
+    # what was read; only an app's PR, which asks whom gh acts as, cannot be read (#465 F8).
+    for author, want in (({"login": "me"}, "line"), (bot, "cannot be read")):
+        doc = dict(pr_doc(4, [commit("a" * 40, "x")], head=hx, reviews=[rv(claude_r["body"])]), author=author)
+        clock = iter([0.0] + [99.0] * 20)
+        spent = pr_counts.Budget(5, clock=lambda: next(clock))
+        review_posters.push_account.cache_clear()
+        try:
+            got = pr_counts.describe("#4", "o/this", None, 4, doc, spent, lambda: (["claude"], ""), lambda: ["codex"])["line"]
+        except pr_counts.Unreadable as e:
+            got = f"cannot be read: {e}"
+        finally:
+            review_posters.push_account.cache_clear()
+        if want == "line":
+            check("a spent budget leaves a person's PR its review line, read from what was fetched",
+                  got.endswith("head reviewed: claude ✓ codex absent (head abcdef12)"), got)
+        else:
+            check("…an app's PR, which would ask whom gh acts as, cannot be read", got == "cannot be read: the time allowed ran out", got)
+    check("the GraphQL read asks the author's type, so an app's PR can be told", "author { __typename login }" in pr_counts.FIELDS)
 
     print("legacy markers")
     old = {"body": "<!-- agent-fabric-substitute-review v1 -->", "commit": {"oid": "h" * 40}}
@@ -280,6 +324,23 @@ def main() -> int:
     finally:
         del os.environ["AGENT_FABRIC_LEGACY_REVIEW_MARKERS"]
     check("…unless the environment lists it", "review claude ✓" in rows[0]["line"], rows[0]["line"])
+
+    print("v2 reviews: the gate's reader (review_coverage) decides, as for the gate")
+    h2 = "a" * 40
+
+    def v2_review(*statuses: str, head: str = h2, engine: str = "") -> dict:
+        paths = {f"p{i}": ({"status": st} if st == "read" else {"status": st, "reason": "r"}) for i, st in enumerate(statuses)}
+        marker = f"<!-- agent-fabric-review v2 base={'b' * 40} head={head} card={'c' * 40} config={'d' * 64} -->"
+        model = f"\n<!-- model: {engine} -->" if engine else ""
+        return {"body": f"{marker}{model}\n**Blind review**\n\n```agent-fabric-coverage v1\n{json.dumps({'paths': paths, 'lenses': {}})}\n```\n",
+                "commit": {"oid": h2}}
+
+    for what, rev, want in (("a complete v2 review of the head counts", v2_review("read", "read"), "review claude ✓"),
+                            ("a v2 review with a path not read does not", v2_review("read", "not read"), "review claude ✗"),
+                            ("a v2 review whose marker names another head does not", v2_review("read", head="c" * 40), "review claude ✗"),
+                            ("a v2 review of codex counts as codex's", v2_review("read", engine="codex"), "review claude ✗")):
+        rows = run_counts(["4"], Hub({"o/this": {4: pr_doc(4, [commit("a" * 40, "x")], head=h2, reviews=[rev])}}))
+        check(what, want in rows[0]["line"], rows[0]["line"])
 
     print("refs")
     two = {"gzapi-org/gzapp": {1075: docs[1]}, "gzapi-org/InterWeave": {3: docs[3]}, "BlueTeam-OU/agent-fabric-herdr": {4: docs[4]},

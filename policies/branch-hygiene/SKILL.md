@@ -1,12 +1,14 @@
 ---
 name: branch-hygiene
-description: "Local branch hygiene in a working copy: list every local branch and worktree against the remote's freshly fetched default branch, delete on your own what is wholly on it, and bring the rest to the person with its commits and pull request. Load it when the session-start context says \"branch sweep due\", when asked to clean up branches or worktrees, or before deleting any local branch."
+description: "Branch hygiene in a working copy: list every local branch and worktree, and your own branches on origin, against the remote's freshly fetched default branch, delete on your own what is wholly on it, and bring the rest to the person with its commits and pull request. Load it when the session-start context says \"branch sweep due\", when asked to clean up branches or worktrees, or before deleting any branch."
 ---
 
-# Local branch hygiene
+# Branch hygiene
 
 Branches and worktrees pile up: one per pull request, one per subagent
-worktree, local copies of other agents' branches fetched to review them.
+worktree, local copies of other agents' branches fetched to review them,
+and on origin every `for/` branch you supplied, which the caller's merge
+leaves behind (delete-on-merge removes only a PR's own head).
 The sweep removes what is provably merged and puts the rest in front of
 the person. `fabric-branches` does the counting and the deleting; this is
 when to run it and what to do with what it reports.
@@ -46,14 +48,44 @@ are **not** on the default branch:
 - **0**: everything on it is on the default branch. `--sweep` deletes it, re-counting
   at deletion. A worktree at 0 is removed only when it has no changes
   (untracked files included), no ignored files (a `.env`, a build that
-  removal would delete) and no lock, and is not the one you run in; the
-  others are listed with the reason they stay. You do this without
+  removal would delete; Python bytecode does not count, any run
+  regenerates it) and no lock, and is neither the one you run in
+  nor one a live session stands in, nor one a queued, active, paused
+  or blocked job of yours names as its worktree ("named by job jN
+  (state)"); the others are listed with the reason they stay. You do this without
   asking; losing nothing is provable.
 - **More than 0**: kept, and listed with its commits and its pull
   request. This is either work you still owe or a decision for the
   person. Never delete it in a sweep.
 - **Tracks another agent's branch**: a local copy only. Deleting it at 0
   is fine. Never delete their remote branch, and never push to it.
+- **A worktree above 0 whose commit is on the remote**: `--sweep`
+  removes it too, under the same conditions as at 0, when every commit
+  of its HEAD is on a branch `git ls-remote` still shows, by name and
+  commit (a pushed job branch, a review head, an older commit of
+  either). Its commits stay on the remote; the branch itself is
+  kept and counted as above.
+
+The same sweep removes the scratch of this login's ended Claude Code
+sessions, judged by the harness's own session registry; when that
+cannot be read it keeps all the scratch and every worktree it would
+have removed, each listed as "session registry unreadable", and says
+so. A job list that cannot be read, or a record in it the sweep does
+not understand, does the same for worktrees, each listed as "job list
+unreadable". `--sweep --all` does
+all of it in every working copy of the login; `fabric-jobs switch` runs
+the worktree half for the job it leaves.
+
+On origin, the sweep takes only your own branches, those under
+`<host>/<login>/`: each whose tip, as `git ls-remote` gives it now, is on
+the default branch and that heads no open pull request. The report lists
+them as "on origin, on main, would delete"; `--sweep` deletes each with a
+push leased to the tip it judged, so one pushed since stays. A branch
+heading an open PR, one with a commit off the default branch and every
+other login's are never touched. When `gh` is missing or unauthenticated
+the origin step ends with a line saying so and the local sweep goes on;
+a refused delete is named and the sweep exits 1. `--sweep --worktrees`
+deletes nothing on origin.
 
 A branch whose pull request shows `MERGED` but still counts more than 0
 was squashed, or its history was rewritten. The count cannot prove it is
@@ -73,7 +105,8 @@ Delete a kept branch only on their word, one branch at a time, with
 
 ## Never
 
-- `git push --delete`, or any other remote cleanup: the merge queue owns
-  remote branches.
+- `git push --delete` by hand, or any remote cleanup the sweep does not
+  make: another login's branch is its own, and yours go through
+  `fabric-branches --sweep`, which re-checks them at deletion.
 - A deletion based on a count taken before the fetch.
 - A sweep with a subagent or a background job still working on the tree.

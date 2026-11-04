@@ -131,6 +131,11 @@ def keep_working_copy_current(wc: str, fabric_root: str) -> None:
     else:
         say(f"launch: WARNING — {wc} ({branch}) lacks {behind} commit(s) of origin/{default}; "
             "its CLAUDE.md and rules may be older than the project's. Nothing was changed.")
+        # Another checkout of the fabric: its hooks and .claude/settings.json are its own and run as the session's, while the
+        # code is the verified root's (launch.py exports it). A feature worktree behind main is normal work, so this only says.
+        if os.path.isfile(os.path.join(wc, "tools", "fabric", "launch.py")):
+            say(f"launch: {wc} is an agent-fabric checkout other than the fabric root: its hooks and .claude/settings.json "
+                f"are its own, and the fabric root is {fabric_root}.")
 
 
 def toplevel(cwd: str) -> str:

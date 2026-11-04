@@ -39,7 +39,7 @@ if [[ "${1:-}" == auth ]]; then
     exit 0
 fi
 echo "ORI-EXECCED:$*"
-for v in ANTHROPIC_DEFAULT_HAIKU_MODEL ANTHROPIC_DEFAULT_SONNET_MODEL ANTHROPIC_DEFAULT_OPUS_MODEL ANTHROPIC_DEFAULT_FABLE_MODEL AGENT_FABRIC_LAUNCH_SESSION_MODEL AGENT_FABRIC_LAUNCH_EFFORT AGENT_FABRIC_LAUNCH_PROFILE AGENT_FABRIC_LAUNCH_AGENT AGENT_FABRIC_LAUNCH_ROLE AGENT_FABRIC_LAUNCH_PROMPT_DIGEST AGENT_FABRIC_LAUNCH_STORE_SHA AGENT_FABRIC_LAUNCH_ADDENDA_COMMIT AGENT_FABRIC_LAUNCH_CLAUDE_VERSION CLAUDE_CODE_DISABLE_TERMINAL_TITLE TMPDIR; do
+for v in ANTHROPIC_DEFAULT_HAIKU_MODEL ANTHROPIC_DEFAULT_SONNET_MODEL ANTHROPIC_DEFAULT_OPUS_MODEL ANTHROPIC_DEFAULT_FABLE_MODEL AGENT_FABRIC_LAUNCH_SESSION_MODEL AGENT_FABRIC_LAUNCH_EFFORT AGENT_FABRIC_LAUNCH_PROFILE AGENT_FABRIC_LAUNCH_AGENT AGENT_FABRIC_LAUNCH_ROLE AGENT_FABRIC_LAUNCH_PROMPT_DIGEST AGENT_FABRIC_LAUNCH_STORE_SHA AGENT_FABRIC_LAUNCH_ADDENDA_COMMIT AGENT_FABRIC_LAUNCH_CLAUDE_VERSION AGENT_FABRIC_ROOT CLAUDE_CODE_DISABLE_TERMINAL_TITLE TMPDIR; do
     echo "ORI-ENV:$v=${!v:-}"
 done
 # Presence only, never a value: a template token must not reach the broker.
@@ -63,7 +63,7 @@ done
 for v in OPENROUTER_API_KEY GH_TOKEN CLAUDE_BRIDGE_AUTH_TOKEN OPENAI_API_KEY CLAUDE_CODE_OAUTH_TOKEN DEMO_PORT_OFFSET; do
     echo "CLAUDE-HAS:$v=${!v+yes}"
 done
-for v in ANTHROPIC_DEFAULT_HAIKU_MODEL ANTHROPIC_DEFAULT_SONNET_MODEL ANTHROPIC_DEFAULT_OPUS_MODEL ANTHROPIC_DEFAULT_FABLE_MODEL ANTHROPIC_BASE_URL AGENT_FABRIC_LAUNCH_SESSION_MODEL AGENT_FABRIC_LAUNCH_EFFORT AGENT_FABRIC_LAUNCH_PROVIDER AGENT_FABRIC_LAUNCH_PROFILE AGENT_FABRIC_LAUNCH_ROLE AGENT_FABRIC_LAUNCH_PROMPT_DIGEST AGENT_FABRIC_LAUNCH_CLAUDE_VERSION TZ AGENT_FABRIC_LAUNCH_TZ AGENT_FABRIC_OPERATOR_TZ AGENT_FABRIC_SEARCH_COUNTRY CLAUDE_CODE_DISABLE_TERMINAL_TITLE TMPDIR; do
+for v in ANTHROPIC_DEFAULT_HAIKU_MODEL ANTHROPIC_DEFAULT_SONNET_MODEL ANTHROPIC_DEFAULT_OPUS_MODEL ANTHROPIC_DEFAULT_FABLE_MODEL ANTHROPIC_BASE_URL AGENT_FABRIC_LAUNCH_SESSION_MODEL AGENT_FABRIC_LAUNCH_EFFORT AGENT_FABRIC_LAUNCH_PROVIDER AGENT_FABRIC_LAUNCH_PROFILE AGENT_FABRIC_LAUNCH_ROLE AGENT_FABRIC_LAUNCH_PROMPT_DIGEST AGENT_FABRIC_LAUNCH_CLAUDE_VERSION TZ AGENT_FABRIC_LAUNCH_TZ AGENT_FABRIC_OPERATOR_TZ AGENT_FABRIC_SEARCH_COUNTRY CLAUDE_CODE_DISABLE_TERMINAL_TITLE TMPDIR AGENT_FABRIC_RESTARTING; do
     echo "CLAUDE-ENV:$v=${!v:-}"
 done
 '''
@@ -78,8 +78,8 @@ def fp(token: str) -> str:
 # process of its own with its own sandbox: the cases are the same, the wall time is the longest group's. A group is the
 # sections that share state: the upgrade/restart ones share the `runa` helper and the session list of the one before.
 # Slowest first, so the pool is not left waiting on the long one.
-NGROUPS = 10
-SLOWEST_FIRST = (4, 8, 6, 1, 7, 9, 0, 2, 3, 5)
+NGROUPS = 12
+SLOWEST_FIRST = (10, 8, 6, 7, 5, 1, 4, 11, 9, 0, 2, 3)
 
 
 def drive() -> int:
@@ -194,13 +194,15 @@ def main() -> int:
             shutil.copytree(f"{ROOT}/runtime/claude-code/agents", f"{fabric}/runtime/claude-code/agents")
             # The installer's MCP step reads its helper from the fabric.
             shutil.copytree(f"{ROOT}/runtime/mcp/websearch-locale", f"{fabric}/runtime/mcp/websearch-locale")
-            shutil.copytree(f"{ROOT}/runtime/mcp/fabric-memory", f"{fabric}/runtime/mcp/fabric-memory",
-                            ignore=shutil.ignore_patterns("__pycache__"))
+            for server in ("fabric-memory", "fabric-review"):
+                shutil.copytree(f"{ROOT}/runtime/mcp/{server}", f"{fabric}/runtime/mcp/{server}",
+                                ignore=shutil.ignore_patterns("__pycache__"))
+            shutil.copy(f"{ROOT}/runtime/mcp/stdio_entry.py", f"{fabric}/runtime/mcp/")
             shutil.copy(f"{ROOT}/runtime/identity.py", f"{fabric}/runtime/")
             # install-agent-files.sh is a shim for its module, which imports
             # fabric_writes (ADR-040 §5 rule 5).
             for f in ("routing.py", "workingcopy.py", "jobs.py", "layout.py", "launch_prompt.py",
-                      "install_agent_files.py", "fabric_writes.py", "launch_locale.py", "roots.py", "git.py", "gh.py"):   # git.py and gh.py: jobsparts/vcs.py loads them
+                      "install_agent_files.py", "fabric_writes.py", "launch_locale.py", "roots.py", "git.py", "gh.py", "gh_ledger.py", "registry_id.py", "hold_view.py"):   # hold_view.py: jobsparts/base.py (the fleet hold); git.py and gh.py: jobsparts/vcs.py loads them (gh.py imports gh_ledger.py); registry_id.py: jobsparts/base.py
                 shutil.copy2(f"{ROOT}/tools/fabric/{f}", f"{fabric}/tools/fabric/")
             shutil.copytree(f"{ROOT}/tools/fabric/jobsparts", f"{fabric}/tools/fabric/jobsparts", ignore=shutil.ignore_patterns("__pycache__"))   # jobs.py's parts
             # The role's system prompt: the assembler, the shared sections and
@@ -233,9 +235,14 @@ def main() -> int:
                 launcher: str = LAUNCHER, **env: str) -> tuple[int, str]:
             """TMPDIR is UNSET for the launcher unless a case keeps one: what
             is asserted is the launcher's default, and a TMPDIR the caller set
-            wins over it by design."""
+            wins over it by design.
+
+            resume.py is the real tree's, so with no override it reads the
+            live routing/profiles.json, whose agent layer may name the login
+            running this suite (python-dev-03 declares anthropic, and every
+            restart case then moved provider, j438): it reads the fixture's."""
             e = {**base, "HOME": home, "PATH": path_export, "AGENT_FABRIC_ROOT": fabric, "AGENT_FABRIC_STATE_DIR": state,
-                 **(plant or {}), **env}
+                 "AGENT_FABRIC_RESUME_PROFILES": f"{fabric}/routing/profiles.json", **(plant or {}), **env}
             e.pop("TMPDIR", None)
             if keep_tmpdir is not None:
                 e["TMPDIR"] = keep_tmpdir
@@ -562,6 +569,10 @@ def main() -> int:
             out = out_of("--provider", "anthropic", "--version", ANTHROPIC_DEFAULT_OPUS_MODEL="claude-parent-leftover")
             check("…and an alias export inherited from a parent session is cleared, not passed on",
                   has(r"CLAUDE-ENV:ANTHROPIC_DEFAULT_OPUS_MODEL=$", out), grep("OPUS", out))
+        if _want(10):
+            # the middle of the effort section, from its fifth fabric (it starts with a fresh fabric, as every part of it does): its own group, so the wall time is not group 4's whole
+            print("launch: the session's effort, continued — plain claude's exec, environment and pins")
+            put(f"{bin_}/claude", FAKE_CLAUDE, 0o755)
             mkfabric()
             out = out_of("--provider=anthropic", "--version")
             check("execs plain claude with the native session model and the role's prompt file",
@@ -809,6 +820,10 @@ print("a" * 40, "b" * 40)
             check("…including beside a non-broker base URL", "CLAUDE-CRED:ANTHROPIC_API_KEY=sk-ant" in out, grep("CLAUDE-CRED", out))
             check("provider stamped", "CLAUDE-ENV:AGENT_FABRIC_LAUNCH_PROVIDER=anthropic" in out, out)
             check("profile stamped on vanilla too", f"CLAUDE-ENV:AGENT_FABRIC_LAUNCH_PROFILE=backend-dev/{LOGIN}" in out, out)
+        if _want(11):
+            # the rest of the effort section, from its sixth fabric: its own group, so the wall time is not group 4's whole
+            print("launch: the session's effort, continued — the last cases")
+            put(f"{bin_}/claude", FAKE_CLAUDE, 0o755)
             mkfabric()
             rm(f"{agent_dir}/binding.json")
             rc, out = run("--provider", "anthropic", "--print")
@@ -1072,6 +1087,93 @@ print("a" * 40, "b" * 40)
                   rc == 143 and not has(r"^RUN2:", out) and not os.path.exists(f"{agent_dir}/restart.json"), f"rc={rc}\n{out}")
             write_fake_ori()
 
+            print("launch: a restart onto the declared provider resolves the session for that provider (j417)")
+            # The incident of 2026-10-26: an account on the broker whose launch carried a broker --model of its own, its
+            # agent layer then declared anthropic. The restart put the declaration in place of --provider and replayed the
+            # rest, so plain claude was started with z-ai/glm-5.2@preset/glm2claude-shim, which Anthropic refuses.
+            glm = "z-ai/glm-5.2@preset/glm2claude-shim"
+            put(f"{bin_}/claude", FAKE_CLAUDE, 0o755)
+            profile("agents", LOGIN, json.dumps({"launch_provider": "anthropic"}))
+            restart_marker = json.dumps({"request_id": "r2", "requested_at": "@NOW@", "piece": "the session", "from": "-",
+                                         "to": "-", "installed": "-", "status": "done"})
+            put(f"{bin_}/ori", f"#!/usr/bin/env bash\nif [[ \"${{1:-}}\" == auth ]]; then echo '{AUTH_OK}'; exit 0; fi\n"
+                f'n="$(cat "{runs}" 2>/dev/null || echo 0)"; echo $((n+1)) > "{runs}"\n'
+                f'm=\'{restart_marker}\'; printf \'%s\\n\' "${{m/@NOW@/$(date -u +%Y-%m-%dT%H:%M:%SZ)}}" > "{agent_dir}/restart.json"\n'
+                'echo "RUN1:$*"; exit 143\n', 0o755)
+            rm(runs, alog)
+            rc, out = runa("--provider", "openrouter", "--model", glm, "--effort", "max")
+            relaunched = grep("^CLAUDE-EXECCED:", out)
+            check("(the broker session ran on the caller's own broker model)", has(rf"^RUN1:.*--model {re.escape(glm)}", out),
+                  grep("RUN1", out))
+            check("the restart comes back on plain claude with the anthropic session model and effort, no broker model in it",
+                  rc == 0 and has(r"^CLAUDE-EXECCED:--model claude-opus-5-5 --effort high .*--resume sess-123", relaunched)
+                  and glm not in relaunched and "--effort max" not in relaunched, f"rc={rc}\n{out}")
+            check("…stamped as it runs", "CLAUDE-ENV:AGENT_FABRIC_LAUNCH_PROVIDER=anthropic" in out
+                  and "CLAUDE-ENV:AGENT_FABRIC_LAUNCH_SESSION_MODEL=claude-opus-5-5" in out, grep("CLAUDE-ENV:AGENT_FABRIC", out))
+            check("…and the restart's own flag is not the session's: it ends at the relaunch",
+                  has(r"^CLAUDE-ENV:AGENT_FABRIC_RESTARTING=$", out), grep("RESTARTING", out))
+            check("…and what the original launch chose for the broker is said as dropped, by name",
+                  f"launch: the restart moves this session from openrouter to anthropic; dropped what the original launch "
+                  f"passed for openrouter's models: --model {glm} --effort max" in out, out)
+            # A relaunch the new provider refuses must not leave the pane quietly at a shell: here plain claude has no
+            # long-lived sign-in, which the broker session never needed.
+            put(sec, "")
+            rm(runs, alog)
+            rc, out = runa("--provider", "openrouter")
+            check("a relaunch refused after a restart is said as a restart not completed, after the refusal itself",
+                  rc == 1 and "no long-lived Claude sign-in" in out and "CLAUDE-EXECCED" not in out
+                  and has(r"^launch: RESTART NOT COMPLETED: the session stopped for a restart was not brought back", out),
+                  f"rc={rc}\n{out}")
+            rm(runs, alog)
+            rc, out = runa("--provider", "anthropic", "--version")
+            check("…and the same refusal outside a restart says nothing of one",
+                  rc == 1 and "no long-lived Claude sign-in" in out and "RESTART NOT COMPLETED" not in out, out)
+            # A fresh relaunch the same refusal stops is not mended by fabric-resume, which reopens the finished job's
+            # conversation: it names the job and the fresh start instead.
+            fresh_marker = json.dumps({"requested_at": "@NOW@", "piece": "a fresh session", "status": "done", "fresh": True,
+                                       "job": "j417", "note": "PR merged"})
+            put(f"{bin_}/ori", f"#!/usr/bin/env bash\nif [[ \"${{1:-}}\" == auth ]]; then echo '{AUTH_OK}'; exit 0; fi\n"
+                f'n="$(cat "{runs}" 2>/dev/null || echo 0)"; echo $((n+1)) > "{runs}"\n'
+                f'm=\'{fresh_marker}\'; printf \'%s\\n\' "${{m/@NOW@/$(date -u +%Y-%m-%dT%H:%M:%SZ)}}" > "{agent_dir}/restart.json"\n'
+                'echo "RUN1:$*"; exit 143\n', 0o755)
+            rm(runs, alog)
+            rc, out = runa("--provider", "openrouter")
+            check("a fresh relaunch refused is said as not completed, naming the job and the fresh start, not fabric-resume",
+                  rc == 1 and "no long-lived Claude sign-in" in out and "CLAUDE-EXECCED" not in out
+                  and has(r"^launch: RESTART NOT COMPLETED: the session that finished its job was not brought back fresh", out)
+                  and "run fabric-fresh --job j417, which brings job j417 fresh" in out
+                  and "then fabric-resume" not in out and "not fabric-resume, which reopens the finished job's conversation" in out,
+                  f"rc={rc}\n{out}")
+            put(sec, "export CLAUDE_CODE_OAUTH_TOKEN='sk-ant-oat01-SUITE-FIXTURE'\n")
+            prof = json.loads(read(f"{fabric}/routing/profiles.json"))
+            prof["agents"].pop(LOGIN, None)
+            put(f"{fabric}/routing/profiles.json", json.dumps(prof, indent=1))
+            write_fake_ori()
+
+            print("launch: plain claude never starts on a model that is not Anthropic's, nor the broker on a native id (j417)")
+            for provider in ("anthropic", "gateway"):
+                for alias in ("best", "best[1m]"):
+                    rc, out = run("--provider", provider, "--model", alias, "--version")
+                    check(f"{provider}: the harness alias {alias} is not refused",
+                          "is not an Anthropic model" not in out, f"rc={rc}\n{out}")
+                rc, out = run("--provider", provider, "--model", glm, "--version")
+                check(f"{provider}: a broker model on the command line is refused in one line naming it and its source, "
+                      "nothing started",
+                      rc == 1 and f"launch: the session model '{glm}' (from --model on the command line) is not an Anthropic "
+                      "model" in out and "CLAUDE-EXECCED" not in out, f"rc={rc}\n{out}")
+            rc, out = run("--provider", "anthropic", "--print", "--model", glm)
+            check("…--print says the same refusal", rc == 1 and "is not an Anthropic model" in out, f"rc={rc}\n{out}")
+            for ok in ("claude-sonnet-5", "opus", "sonnet[1m]", "best", "best[1m]"):
+                rc, out = run("--provider", "anthropic", "--model", ok, "--version")
+                check(f"…a native id or a harness alias ({ok}) runs", rc == 0 and has(rf"^CLAUDE-EXECCED:.*--model {re.escape(ok)}", out),
+                      f"rc={rc}\n{out}")
+            rc, out = run("--provider", "openrouter", "--model", "claude-opus-5-5", "--version")
+            check("the broker: a native Claude id is refused, naming it and the broker's spelling",
+                  rc == 1 and "launch: the session model 'claude-opus-5-5' (from --model on the command line) is a native "
+                  "Claude id" in out and "anthropic/claude-opus-5-5" in out and "ORI-EXECCED" not in out, f"rc={rc}\n{out}")
+            rm(f"{bin_}/claude")
+            write_fake_ori()
+
             print("launch: a session that ends its own job comes back fresh, not resumed")
             # The fake session plays bin/fabric-fresh: a fresh marker with a
             # note, then the stop; the relaunch names no session and says the note.
@@ -1146,14 +1248,86 @@ print("a" * 40, "b" * 40)
             put(f"{other}/f", "dirty\n")
             fresh_job_session("j1")
             rc, out = runa()
-            check("a job's copy with uncommitted changes: the old directory, and why",
+            check("a job's copy with uncommitted changes is still the place to start: the dirt is the job's work in "
+                  "progress, and the job-copy guard refuses its commit anywhere else (the 2026-10-27 loop)",
+                  has(rf"^RUN2:pwd={re.escape(other)}:", out)
+                  and f"starting in {other} with 1 uncommitted change(s): the job's own work" in out, out)
+            subprocess.run(["git", "-C", other, "add", "f"], env=base, check=True, timeout=30)
+            fresh_job_session("j1")
+            rc, out = runa()
+            check("…a staged change counts as the same", has(rf"^RUN2:pwd={re.escape(other)}:", out)
+                  and "with 1 uncommitted change(s)" in out, out)
+            # Another job's worktree is that job's dirt, not this one's.
+            jobs_file = f"{agent_dir}/jobs.json"
+            doc = json.loads(read(jobs_file))
+            for j in doc["jobs"]:
+                if j["id"] == "j2":
+                    j["worktree"] = other
+            put(jobs_file, json.dumps(doc))
+            fresh_job_session("j1")
+            rc, out = runa()
+            check("a dirty copy that is another unfinished job's worktree: the old directory, and whose it is",
                   has(rf"^RUN2:pwd={re.escape(repo)}:", out)
-                  and f"job j1's working copy {other} has uncommitted changes; starting in {repo}" in out, out)
+                  and f"job j1's working copy {other} has uncommitted changes that are job j2's worktree; starting in {repo}" in out, out)
+            for j in doc["jobs"]:
+                if j["id"] == "j2":
+                    j["state"] = "done"
+            put(jobs_file, json.dumps(doc))
+            fresh_job_session("j1")
+            rc, out = runa()
+            check("…positive control: once that job is done the copy is j1's again",
+                  has(rf"^RUN2:pwd={re.escape(other)}:", out), out)
+            put(jobs_file, json.dumps(doc))
+            os.rename(f"{other}/.git", f"{other}/.git.real")
+            put(f"{other}/.git", "gitdir: /nonexistent\n")
+            fresh_job_session("j1")
+            rc, out = runa()
+            check("a copy whose status cannot be read: the old directory, not taken for clean",
+                  has(rf"^RUN2:pwd={re.escape(repo)}:", out) and f"job j1's working copy {other} status could not be read" in out, out)
+            os.remove(f"{other}/.git")
+            os.rename(f"{other}/.git.real", f"{other}/.git")
+            # j2 held `other` as its worktree for the foreign-owner case above; a worktree that is there is taken before the
+            # working copy, so this case is about the working copy alone.
+            for j in doc["jobs"]:
+                if j["id"] == "j2":
+                    j.pop("worktree", None)
+            put(jobs_file, json.dumps(doc))
             fresh_job_session("j2")
             rc, out = runa()
             check("a job's copy that is gone: the old directory, and why — the job is still said",
                   has(rf"^RUN2:pwd={re.escape(repo)}:", out) and f"job j2's working copy {sandbox}/gone is not there" in out
                   and has(r"^RUN2:.*It is for your job j2", out), out)
+
+            print("launch: a fresh session starts in the job's worktree before its working copy (j474)")
+            stale, wt = f"{sandbox}/stale-copy", f"{sandbox}/job-worktree"
+            for d in (stale, wt):
+                rm(d)
+                os.makedirs(d)
+                subprocess.run(["git", "init", "-q", d], env=base, check=True, timeout=30)
+            jobs_cmd("add", "a job whose record drifted", "--working-copy", stale)
+            doc = json.loads(read(jobs_file))
+            drifted = doc["jobs"][-1]["id"]
+            doc["jobs"][-1]["worktree"] = wt
+            put(jobs_file, json.dumps(doc))
+            fresh_job_session(drifted)
+            rc, out = runa()
+            check("a job whose worktree differs from its working copy starts in the worktree, and says which it took",
+                  rc == 0 and has(rf"^RUN2:pwd={re.escape(wt)}:", out)
+                  and f"job {drifted} records working copy {stale} and worktree {wt}; taking the worktree" in out, f"rc={rc}\n{out}")
+            doc["jobs"][-1]["worktree"] = stale
+            put(jobs_file, json.dumps(doc))
+            fresh_job_session(drifted)
+            rc, out = runa()
+            check("…a worktree that is the working copy says nothing of the two", has(rf"^RUN2:pwd={re.escape(stale)}:", out)
+                  and "taking the worktree" not in out, out)
+            doc["jobs"][-1]["worktree"] = f"{sandbox}/worktree-gone"
+            put(jobs_file, json.dumps(doc))
+            fresh_job_session(drifted)
+            rc, out = runa()
+            check("a worktree that is not there: the working copy, with the line said",
+                  has(rf"^RUN2:pwd={re.escape(stale)}:", out)
+                  and f"job {drifted}'s worktree {sandbox}/worktree-gone is not there; trying its working copy {stale}" in out, out)
+            rm(stale, wt)
             write_fake_ori()
 
         if _want(7):
@@ -1242,6 +1416,14 @@ print("a" * 40, "b" * 40)
             check("on another branch: the gap is said and nothing moves",
                   rc == 0 and "(feature) lacks 1 commit(s) of origin/main" in out
                   and git("rev-parse", "HEAD", cwd=repo) != git("rev-parse", "HEAD", cwd=wc_other), out)
+            check("…and says nothing of a fabric root when the checkout is not an agent-fabric one",
+                  "agent-fabric checkout other than the fabric root" not in out, out)
+            put(f"{repo}/tools/fabric/launch.py", "")
+            rc, out = run("--print")
+            check("…a behind agent-fabric checkout other than the fabric root says its hooks and settings are its own and names the root",
+                  rc == 0 and f"launch: {repo} is an agent-fabric checkout other than the fabric root: its hooks and "
+                  f".claude/settings.json are its own, and the fabric root is {fabric}." in out, out)
+            rm(f"{repo}/tools")
             git("checkout", "-q", "main", cwd=repo)
             put(f"{repo}/tracked", "change\n")
             git("add", "tracked", cwd=repo)
@@ -1268,6 +1450,30 @@ print("a" * 40, "b" * 40)
             check("…without frontmatter", "class: charter" not in prompt)
             digest = "sha256:" + hashlib.sha256(prompt.encode()).hexdigest()
             check("role stamped in the child env", has(r"ORI-ENV:AGENT_FABRIC_LAUNCH_ROLE=backend-dev$", out), out)
+            # run() puts the root in the environment, so a stamp that is not written is seen only with it removed: the launcher is a
+            # copy inside the fixture fabric, whose own tree is then its root, and the session starts in the repo or in another
+            # agent-fabric checkout, whose session-start hook would name itself the root.
+            shutil.copytree(f"{ROOT}/tools/fabric", f"{fabric}/tools/fabric", dirs_exist_ok=True,
+                            ignore=shutil.ignore_patterns("__pycache__"))
+            os.makedirs(f"{fabric}/runtime/openrouter", exist_ok=True)
+            shutil.copy2(LAUNCHER, f"{fabric}/runtime/openrouter/launch")
+            copy = f"{fabric}/runtime/openrouter/launch"
+            out = out_of("--version", launcher=copy, AGENT_FABRIC_ROOT="")
+            check("AGENT_FABRIC_ROOT unset: the root defaults to the launcher's own tree and is stamped as such",
+                  has(rf"ORI-ENV:AGENT_FABRIC_ROOT={re.escape(fabric)}$", out), out)
+            other_fabric = f"{sandbox}/other-fabric"
+            rm(other_fabric)
+            os.makedirs(f"{other_fabric}/tools/fabric")
+            put(f"{other_fabric}/tools/fabric/launch.py", "")
+            subprocess.run(["git", "init", "-q", other_fabric], env=base, check=True, timeout=30)
+            out = out_of("--version", launcher=copy, AGENT_FABRIC_ROOT="", cwd=other_fabric)
+            check("…and started in another agent-fabric checkout it is still the launcher's root, never that checkout",
+                  has(rf"ORI-ENV:AGENT_FABRIC_ROOT={re.escape(fabric)}$", out), out)
+            rm(other_fabric)
+            out = out_of("--version")
+            check("an inherited AGENT_FABRIC_ROOT is the one stamped", has(rf"ORI-ENV:AGENT_FABRIC_ROOT={re.escape(fabric)}$", out), out)
+            mkfabric()
+            out = out_of("--version")
             check("the prompt's sha256 stamped, and it is the file's",
                   has(rf"ORI-ENV:AGENT_FABRIC_LAUNCH_PROMPT_DIGEST={digest}$", out), out)
             mkfabric()

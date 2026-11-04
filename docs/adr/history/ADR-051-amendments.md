@@ -23,3 +23,15 @@ until the gate is met" clause; rule 7 is new. Title, status (Proposed) and
 the pin are unchanged. The record is Proposed, so this edits it in place with
 an amendment row, as README "Changing a record" asks; the history note keeps
 the reasons.
+
+### Amendment 2026-10-27 — The pin moves to moli 1.1.19
+
+The owner asked devex-tooling (REQUEST 01a17c17, 2026-10-27) to move the
+fleet's moli to the current upstream release, 1.1.19 (2026-10-21);
+releases 1.1.16-1.1.19 carry fetch, navigation, frame and CDP fixes and
+list no breaking change. Rule 1's pin moves with `projects/registry.json`
+(#398): the archive's sha256 checked by devex-tooling and by the
+coordinator against GitHub's published digest, the binary's sha256 the
+coordinator's, of the member in that archive. The spike of 2026-10-10
+(§1) measured 1.1.15 and stays its evidence; the checkbox and
+drag-and-drop limits of rule 7 are unchanged by those releases' notes.

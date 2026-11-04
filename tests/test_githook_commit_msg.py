@@ -14,13 +14,13 @@ file untouched when refused, the check running before everything else); the refu
 naming the held role and the owner; the owner role READ from authority.json and defaulting to fabric-coordinator when the file is missing or
 unreadable; the typed-trailer mismatch message and "the last trailer wins"; the Fabric-Role trailer written after Kind:, not doubled, not
 written when no role is held, not written over an existing one in any case (an indented one folds into the previous trailer's value in git, so the Kind rule refuses it first); the locale carve-out's login test; the contributor carve-out's
-three outcomes; a missing argument.
+three outcomes; a missing argument; a hook reached through a symlink finds the fabric from its real path.
 
 Mutations each case fails on (planted on the hook as formatted): `grep -v '^#'` to `cat` (comment lines); `TRAILER_RE` anchored without the
 leading whitespace (indented trailer); `tr '\n\r' '  '` to `tr -d '\n\r'` (a footer split over lines); reading the owner role from a constant
 (authority.json); the comparison `"$typed" != "$role"` to `!=` on lower-case (mismatch); the `git interpret-trailers --in-place` call replaced by `true` (the trailer is written); `grep -qiE`
 to `grep -qE` (an existing trailer in another case); `contributor=$?` dropped (contributor carve-out); the banned check moved after the guard
-(order)."""
+(order); the inner `readlink -f` dropped from `FABRIC_ROOT=` (a hook reached through a symlink)."""
 from __future__ import annotations
 
 import os
@@ -132,6 +132,24 @@ class BannedAttribution(Hook):
 
 
 class GuardedChange(Hook):
+    def test_a_hook_reached_through_a_symlink_finds_the_fabric_from_its_real_path(self):
+        # core.hooksPath may name a directory of links; the owner named in authority.json proves which root the hook resolved.
+        fabric = Fabric(owner_role="owner-by-file")
+        self.addCleanup(fabric.cleanup)
+        repo = fabric.project()
+        links = os.path.join(fabric.root, "links")
+        os.makedirs(links)
+        for name in os.listdir(fabric.hooks):
+            os.symlink(os.path.join(fabric.hooks, name), os.path.join(links, name))
+        repo.stage(".agent-fabric/memory/backend-dev/workflow.md")
+        fabric.bind("backend-dev")
+        msg = os.path.join(fabric.root, "LINKMSG")
+        with open(msg, "w", encoding="utf-8") as fh:
+            fh.write("subject" + KIND)
+        r = subprocess.run([os.path.join(links, "commit-msg"), msg], cwd=repo.path, capture_output=True, text=True, timeout=120, env=fabric.env())
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("not owner-by-file", r.stderr)
+
     def test_an_unbound_session_is_refused_naming_no_role_and_the_owner(self):
         self.stage_guarded()
         r, after = self.run_hook("subject" + KIND)
@@ -422,6 +440,38 @@ class Carveouts(unittest.TestCase):
     def test_a_role_that_is_no_contributor_is_refused(self):
         self.repo.git("checkout", "-q", "-b", f"{HOST}/{LOGIN}/for/user/x")
         r, _ = self.attempt("devex-tooling", "tools/fabric/x.py")
+        self.assertEqual(r.returncode, 1)
+
+
+class Worktree(unittest.TestCase):
+    """The same fence in a linked worktree of agent-fabric, where most fabric work is committed (j320): the worktree is agent-fabric
+    itself. Mutation: guarded_change asking the toplevel alone, which took the worktree for a project's and guarded nothing in it;
+    each case refuses something in the same worktree, so it fails."""
+
+    # Carveouts' own cases are not inherited: two of them check out main, which the clone holds.
+    attempt = Carveouts.attempt
+
+    def setUp(self):
+        Carveouts.setUp(self)
+        self.repo = self.repo.worktree(f"{HOST}/{LOGIN}/for/user/x")
+
+    def test_an_unbound_session_or_another_role_staging_identities_is_refused(self):
+        for role in (None, "backend-dev"):
+            with self.subTest(role=role):
+                r, _ = self.attempt(role, "identities/roles/x/brief.md")
+                self.assertEqual((r.returncode, r.stderr), (1, f"commit-msg: a guarded change, but this agent's binding holds "
+                                                               f"'{role or 'no role'}', not fabric-coordinator.\n"))
+
+    def test_a_contributor_within_its_entry_is_admitted_and_recorded_and_refused_outside_it(self):
+        r, after = self.attempt("python-dev", "tools/fabric/x.py")
+        self.assertEqual((r.returncode, r.stderr, after), (0, "", "subject" + KIND + "\nFabric-Role: python-dev\n"))
+        r, _ = self.attempt("python-dev", "identities/roles/x/brief.md")
+        self.assertEqual((r.returncode, r.stderr), (1, "commit-msg: a guarded change, but this agent's binding holds 'python-dev', not fabric-coordinator.\n"))
+
+    def test_the_locale_holder_is_admitted_and_recorded_and_another_role_refused(self):
+        r, after = self.attempt("language-culture", LOCALE_FILE)
+        self.assertEqual((r.returncode, r.stderr, after), (0, "", "subject" + KIND + "\nFabric-Role: language-culture\n"))
+        r, _ = self.attempt("backend-dev", LOCALE_FILE)
         self.assertEqual(r.returncode, 1)
 
 

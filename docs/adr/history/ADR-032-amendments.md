@@ -95,3 +95,14 @@ named `pr-gate.sh --in-flight` and `trial-merge.sh`, which are now
 review). Each citation now names where the rule and the command are. No
 field, grammar rule or meaning changes; a reader accepts and rejects
 exactly what it did before.
+
+### Amendment 2026-10-22 — SUPPLIER-REVIEW carries the supplier's own checks
+
+MESSAGE-FORMAT described the `SUPPLIER-REVIEW` section as "the review the
+Supplier-Review: trailer names", which suppliers read as a review-class
+review of their own slice. ADR-020's amendment of the same day (§5 rule
+11) gives the review of supplied work to the caller, once, on the folded
+head. The section keeps its name and its place and now says what it
+carries: the checks the supplier ran. It is a convention section, not a
+field: no grammar rule changes, and a reader accepts and rejects exactly
+what it did before.

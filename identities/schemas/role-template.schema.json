@@ -32,7 +32,7 @@
       ]
     },
     "topic": {
-      "description": "The topic (the memory's file name) this slice file belongs to, written by the assembler on every file of the directory shape and of shared/: a budget part `<topic>-<n>.md` and a separate topic named `<topic>-<n>` have the same file name, and this is what tells them apart. Absent from a flat class file, which holds several topics, and from slices written before 2026-09-26.",
+      "description": "The topic (the memory's file name) this slice file belongs to, written by the assembler on every file of the directory shape and of shared/: a budget part `<topic>-<n>.md` and a separate topic named `<topic>-<n>` have the same file name, and this is what tells them apart. A flat class file records its one topic too (a second topic moves the class into its directory); absent from a flat class file written before 2026-10-24, which may hold several topics, and from slices written before 2026-09-26.",
       "type": "string",
       "minLength": 1
     },

@@ -7,8 +7,9 @@ override the directory with GITHOOKS_DIR), so the same file runs against the bas
 that keeps the file as a sourced shim still passes; one that moves the decision must keep these answers).
 
 What is pinned (the contract the two hooks and the CI tripwire agree on):
-  scope        in agent-fabric itself (the repository's toplevel IS the fabric root, symlinks resolved) every staged path is
-               guarded and the label is "agent-fabric itself"; in any other repository only .agent-fabric/ is, label ".agent-fabric/"
+  scope        in agent-fabric itself (the repository's toplevel IS the fabric root, symlinks resolved, or it is a linked worktree
+               sharing the root's git common directory) every staged path is guarded and the label is "agent-fabric itself"; in any
+               other repository only .agent-fabric/ is, label ".agent-fabric/"
   filter       added, copied, deleted, modified, renamed and type-changed paths count; renames are NOT detected (a move out of a guarded
                path shows its source); nothing else is read
   empty        nothing staged: a project has no guarded path; agent-fabric itself has the one placeholder path
@@ -82,6 +83,17 @@ class Scope(Guarded):
         os.symlink(self.repo.path, link)
         self.repo.stage("src/a.py")
         self.assertEqual(self.ask(link), ("agent-fabric itself", ["src/a.py"]))
+
+    def test_a_linked_worktree_of_the_fabric_root_is_the_fabric_and_one_of_another_repository_is_not(self):
+        # mutation: the scope asks the toplevel alone (the worktree is a project's), or takes any worktree for the fabric
+        wt = self.repo.worktree("feat")
+        wt.stage("src/a.py")
+        r = call_library(LIB, wt.path, SCRIPT, self.repo.path)
+        self.assertEqual((r.returncode, r.stdout.splitlines()), (0, ["agent-fabric itself", "src/a.py"]), r.stderr)
+        other = Repo({"x": "x\n"}, name="other")
+        self.addCleanup(other.cleanup)
+        r = call_library(LIB, wt.path, SCRIPT, other.path)
+        self.assertEqual((r.returncode, r.stdout.splitlines()), (0, [".agent-fabric/"]), r.stderr)
 
     def test_another_repository_is_not_the_fabric(self):
         other = Repo({"x": "x\n"}, name="other")

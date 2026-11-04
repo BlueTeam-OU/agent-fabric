@@ -139,7 +139,7 @@ def signs_with_secret(listing: str) -> bool:
 
 # Step 11 again, for an account that exists (new-agent skipped it: no terminal, --no-signing-key, or it failed). Run on
 # the coordinator's host, like new-agent itself; the account's host is read from the registry there.
-SIGNING_KEY_ONLY = "runtime/provisioning/new-agent.sh --signing-key-only {login}"
+SIGNING_KEY_ONLY = "python3 tools/fabric/new_agent.py --signing-key-only {login}"
 
 
 def signing_key_lines(login: str, via: str = "") -> list[str]:

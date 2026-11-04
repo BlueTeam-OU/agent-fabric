@@ -5,6 +5,9 @@
 #   fabric-accounts login <account>   sign one Claude account in, once — a real terminal
 #   fabric-accounts list              signed in, email, sign-in expiry; never a token
 #   fabric-accounts read              every account's windows now, through the harness's /usage
+#   fabric-accounts observe [--write] what each template's account says of itself (windows, ids, overage, weekly reset,
+#                                     and from a sign-in the plan and per-model meter), as ONE key "observed" in its
+#                                     settings/accounts/<slug>.json in the coordinator's store; dry without --write
 #   fabric-accounts assign <login…|all> <account> [--no-restart] [--no-sync] [--force]
 #                                     move logins to a Claude account (its token into each login's store), then
 #                                     fabric-ctl <logins> secrets-sync --expect <fp> --restart: each account

@@ -15,7 +15,7 @@ named on a line with a status word (arm, merge, ready, unarmed, queued,
 gate, open, waiting, …) must carry `N work, M fix` (parentheses optional)
 after it on its line, before the next PR, at least once in the reply;
 fenced and inline code are not read, and a number that is an issue, a
-step, an item or a colour is not a PR. When a
+step, an item, an alert, an advisory, a job or a colour is not a PR. When a
 pull request lacks them, the reply is blocked once with the reason: the
 session adds the counts from fabric-pr gate and answers again. `stop_hook_active` (the session is already continuing
 because of a stop hook) lets the second answer through whatever it says:
@@ -39,7 +39,11 @@ NUM_RE = re.compile(r"#(\d{1,5})(?!\d)")
 PREFIX = 120
 OWNER_REPO_RE = re.compile(r"[\w.-]{1,60}/[\w.-]{1,60}")
 NOT_A_PR_WORDS = frozenset(("issue", "issues", "step", "steps", "item", "items", "no", "no.", "number",
-                            "line", "rule", "row", "seq", "round"))
+                            "line", "rule", "row", "seq", "round",
+                            # A security alert or advisory and a job number by the same
+                            # sign ("Dependabot alert #22", devex-tooling 2026-10-24):
+                            # fabric-pr gate has no counts to give for them.
+                            "alert", "alerts", "advisory", "advisories", "job", "jobs"))
 STATUS_RE = re.compile(r"\b(?:arm|armed|arming|unarmed|merge|merged|mergeable|ready|queued|gate|waiting|"
                        r"your word|auto-merge|open|opened)\b", re.I)
 # A PR's counts are "W work, F fix", parenthesised or not (team.md's own

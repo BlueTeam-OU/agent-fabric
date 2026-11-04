@@ -41,7 +41,7 @@ its record disagree, the record wins. Look it up, never read it whole:
 | which Claude account a login runs on; moving logins; setup-token; usage windows | ADR-031 |
 | changing the GZCoord protocol; the grammar freeze; GZCOORD/2 | ADR-032 |
 | the relay; the human relay; transports; Telegram; the adapter contract | ADR-033 |
-| what a failure may take; single points; degraded modes | ADR-034 |
+| what a failure may take; single points; degraded modes; the scheduled drain | ADR-034 |
 | working with another organization; portable trust; what may be shared | ADR-035 |
 | cost per verified result; spend; shared resources | ADR-036 |
 | your job list; fabric-jobs; the next job and a fresh session | ADR-037 |
@@ -64,6 +64,11 @@ its record disagree, the record wins. Look it up, never read it whole:
 | lessons in messages; reflection pass; fabric-reflect; turning the journal into memory | ADR-058 |
 | personal data in AI tools; Max plan; client data; privacy notice; sub-processor | ADR-059 |
 | a holder's own specialization of a role; charter or brief addendum; holder.json; jurisdiction of a legal holder; locale chosen per holder | ADR-060 |
+| errors per actor; review findings and red CI counted the same for people and agents | ADR-061 |
+| hidden Unicode; bidi, zero-width, tag characters in skills, slices and charters | ADR-062 |
+| fabric-ctl assist; asking about the fabric with the fleet down; the claude-pzhuy API key; who may spend an API key | ADR-063 |
+| GZCoord over InterWeave; the InterWeave carrier; dual run beside the relay; the agents' PeerIds and roster; switching transport | ADR-064 |
+| the reviewer's tools; the review sandbox; coverage blocks; the v2 review marker; where a re-review starts | ADR-065 |
 
 ### ADR-000 — The enduring organization (Accepted)
 
@@ -131,26 +136,32 @@ its record disagree, the record wins. Look it up, never read it whole:
 
 ### ADR-003 — Per-agent state is one layer (Accepted)
 
-- Every write under `agents/<login>/` goes through `runtime/identity.py`:
-  `atomic_write`, `update_binding`, `append_history`; no caller opens a
-  state file for writing. The Node control agent, which cannot import it,
-  writes by temporary and rename (§5 rule 1).
-- Every read-modify-write holds `agent_lock`, a re-entrant flock, except
-  the Node control agent's own files, which only it writes and the
-  launcher only consumes (§5 rule 2).
-- A binding is per (agent, host); another host's is refused (§5 rule 3).
+- Every write under `agents/<login>/` goes through `runtime/identity.py`
+  (`atomic_write`, `update_binding`, `append_history`); no caller opens a
+  state file for writing but the control code (`tools/fabric/control/`),
+  which replaces by rename, appends its logs (§5 rule 1).
+- Every read-modify-write holds `agent_lock`, but control code's (§5 rule 2).
+- A binding is per (agent, host), refused on another host (§5 rule 3).
 - A working-copy rename merges history, never overwrites (§5 rule 4); the
   session-start hook stays non-blocking (§5 rule 5).
-- A 2026-09-28 — `fabric-fresh` is a second `restart.json` writer, through
-  `identity.py`; `fabric-branches` records its sweeps under `agent_lock`.
-- A 2026-09-28 — the job list, `jobs.json`, is per-agent state written by
-  `update_jobs` (§5 rule 1).
-- A 2026-10-05 — `episodic.db` is a second writer class, a self-contained
-  transactional store written only by `episodic.py` (§5 rule 1).
-- A 2026-10-05 — the GZCoord logs (`journal-bypass.jsonl`, the send ledger)
-  are a writer class; the ledger's unlocked trim is a named gap (§5 rule 1).
-- Keywords: state, binding, atomic write, lock, flock, rename, history,
-  host, XDG_STATE_HOME.
+- A 2026-09-28 — `fabric-fresh` writes `restart.json` through
+  `identity.py`; `fabric-branches` records sweeps.
+- A 2026-09-28 — `jobs.json`, the job list, by `update_jobs` (§5 rule 1).
+- A 2026-10-05 — `episodic.db`, a self-contained transactional store,
+  written only by `episodic.py` (§5 rule 1).
+- A 2026-10-05 — GZCoord logs (`journal-bypass.jsonl`, send ledger) are a
+  writer class; unlocked trim a named gap (§5 rule 1).
+- A 2026-10-30 — `actions-seen.json`'s writers, agentd and `fabric-op`,
+  claim under the state directory's flock (§2, §5 rules 1–2).
+- A 2026-10-30 — `pool.json` rewritten under a flock on `pool.json.lock`
+  (§2, §5 rule 2).
+- A 2026-10-31 — a lock file, only `flock`ed, never written, read or
+  removed, is not state (§2, §5 rule 1).
+- A 2026-11-01 — the session hooks write by `atomic_write`, under own
+  lock files (§2, §5 rule 2).
+- A 2026-11-03 — `state_writes.py` guards rule 1 (lint, pre-commit);
+  `policies/state-writers.json` lists exceptions, gaps (§5 rule 1).
+- Keywords: atomic write, flock, XDG_STATE_HOME, actions-seen.json, action ledger, fabric-op.jsonl, session-state.json.
 
 ### ADR-004 — Adding a role without breaking anyone's CI (Accepted)
 
@@ -274,8 +285,10 @@ its record disagree, the record wins. Look it up, never read it whole:
 - Deferred by the owner (2026-09-26): a shared Android SDK/Gradle cache,
   until a second Flutter login needs it (§7).
 - A 2026-09-30 — the coordinator keeps its own store and fills each child's, not Doppler (§2, §5 rule 1).
+- A 2026-10-19 — `full-suite`: one full local test run at a time (§5 rule 9).
+- A 2026-10-28 — `cpu`, N slots with a thread budget, taken by shims ahead of cargo and dotnet and by tests/run.py (§5 rules 9-11).
 - Keywords: host, placement, hostexec, fabric-host, ssh, provisioning,
-  new-agent, Qubes, persist-accounts, moveto, lease, heavy, memory, crash, OOM.
+  new-agent, Qubes, persist-accounts, moveto, lease, heavy, memory, crash, OOM, cpu, load, cargo, dotnet, shim.
 
 ### ADR-011 — Managed projects consume the fabric at a pinned ref (Accepted)
 
@@ -303,8 +316,10 @@ its record disagree, the record wins. Look it up, never read it whole:
 - A destination and its credential move together, with a check on the
   secret itself; credentials are tested by shape (§5 rules 6–7).
 - A 2026-09-30 — the Doppler layout is replaced by each login's own store (§2, §5 rules 1–4, 8).
+- A 2026-10-30 — the commit hooks and pre-push refuse a value of the account's own secrets.env, named by variable (§5 rule 9).
 - Keywords: credentials, secrets, Doppler, token, API key, fabric-secrets,
-  provision, enroll, rotation, leak, shape, locator, base URL.
+  provision, enroll, rotation, leak, shape, locator, base URL, omerta,
+  secret value, pre-commit, pre-push, history audit.
 
 ### ADR-013 — The memory model: scopes, kinds of truth, tiers, the drain (Accepted)
 
@@ -434,55 +449,58 @@ its record disagree, the record wins. Look it up, never read it whole:
 ### ADR-019 — Work arrives as pull requests: one open PR per agent and repository, 8 or more work commits to arm, the gate read before arming, no machine attribution, repository settings (Accepted)
 
 - Every change reaches `main` through a PR (§2, §5 rule 1, §6).
-- One open PR per agent and repository; next work is another commit;
-  two exceptions (§5 rule 2).
-- Work commits exclude review fixes, by each commit's `Kind:` trailer
-  (§5 rule 3); 8 or more arm at the gate, under 8 ask the owner (§5
-  rule 4).
-- Arm only on `pr-gate.sh`'s `MERGEABLE`, with no open P1/P2 (§5
-  rules 5–6).
+- One open PR per agent and repository, two exceptions (§5 rule 2).
+- Work commits exclude review fixes (`Kind:`, §5 rule 3); 8 or more
+  arm at the gate, under 8 on the owner's or policy authority's word
+  (§5 rule 4).
+- Arm only on `pr-gate.sh`'s `MERGEABLE`, no open P1/P2 (§5 rules 5–6).
 - No machine attribution (§5 rule 7). GitHub settings: §6.
 - A 2026-10-04 — `main`'s ruleset (§5 rule 6).
-- A 2026-10-05 — the ruleset requires `ci-ok` alone (§5 rule 6).
-- A 2026-10-05 — 8+ work commits arm on the gate alone (§5 rule 4).
-- A 2026-10-06 — one open PR at a time (§5 rule 2).
-- A 2026-10-08 — every commit declares its `Kind:` (§5 rule 3).
-- A 2026-10-08 — a folded PR's review fixes are fixes (§5 rule 3).
-- A 2026-10-09 — results.py reads a fold (§5 rule 3).
-- A 2026-10-09 — a push after the arming disarms it (§5 rule 5).
-- A 2026-10-10 — arm.json `direct`: fast-forward main, fenced by
-  pre-push (§5 rule 1).
-- A 2026-10-11 — pre-push refuses unsigned commits (§5 rule 1).
-- Keywords: Answers, Kind, fold, pr-gate, ruleset, direct, pre-push.
+- A 2026-10-05 — the ruleset requires `ci-ok` (rule 6).
+- A 2026-10-05 — 8+ arm on the gate alone (rule 4).
+- A 2026-10-06 — one open PR at a time (rule 2).
+- A 2026-10-08 — every commit declares its `Kind:` (rule 3).
+- A 2026-10-08 — a fold's review fixes are fixes (rule 3).
+- A 2026-10-09 — results.py reads a fold (rule 3).
+- A 2026-10-09 — a push disarms (§5 rule 5).
+- A 2026-10-10 — arm.json `direct`, fenced by pre-push (rule 1).
+- A 2026-10-11 — pre-push refuses unsigned commits (rule 1).
+- A 2026-10-19 — an authority's word (rule 4).
+- A 2026-11-01 — `fabric/armed` status required (rule 5).
+- A 2026-11-03 — relayed owner's word read (rule 4).
+- Keywords: Answers, armed_status.
 
 ### ADR-020 — The review class is the review (Accepted)
 
-- The review class's blind review is the review of every PR: on every
-  head, to judge a finding, to re-review a fix range; no automated
-  reviewer is assumed (§5 rule 1).
-- Dispatch: `code-review`, `model: fable`, description "review…" or
-  "re-review…", no isolation; the guard drops the alias so the agent
-  file's routed model decides (§5 rules 2–3).
-- The reviewer writes nothing (`review-bash-guard.sh`); its brief is
-  facts, never conclusions (§5 rules 4–5).
-- Posted by `fabric-pr post-review` with the marker; counted only when marked
-  and posted by the PR's account or a named poster, or unmarked from a
-  trusted account (§5 rules 6–7). Legacy markers until the sunset (§5
-  rule 8).
-- A 2026-10-05 — the reviewer inherits no secret: its commands run with
-  a clean environment (§5 rule 4).
-- A 2026-10-14 — the review card governs from the base; the reviewer's
-  agent file omits the project's instruction files (§5 rule 9); only a
-  `pinned` review covers a head (§5 rule 10).
-- A 2026-10-15 — a pinned review reads a detached head worktree that
-  `brief`/`next` make, the brief names and `save` removes; no extract of
-  its own (§5 rule 10).
-- A 2026-10-16 — a review covers the commit it read (`head_sha`, or
-  `--head`); none or a foreign commit is refused (§5 rule 6).
-- Keywords: review, blind review, code-review, re-review, brief,
-  fabric-review, post-review, pr-review-status, marker, coverage,
-  review-grade, substitute, review card, evidence mode, pinned,
-  working-tree.
+- The review class's blind review is the review of every PR: each head,
+  finding's judgement, fix range; no automated reviewer assumed
+  (§5 rule 1).
+- Dispatch: `code-review`, `model: fable`, description "review…"/
+  "re-review…", no isolation; agent file's routed model decides
+  (rules 2–3).
+- The reviewer writes nothing; its brief is facts, never conclusions
+  (rules 4–5).
+- Posted by `fabric-pr post-review` with the marker; counted when marked
+  by the PR's account or a named poster, or unmarked from a trusted
+  account (§5 rules 6–7); legacy markers until sunset (rule 8).
+- A 2026-10-05 — reviewer inherits no secret: clean environment
+  (rule 4).
+- A 2026-10-14 — card governs from base; only `pinned`
+  review covers a head (rules 9–10).
+- A 2026-10-15 — pinned reads a detached head worktree (rule 10).
+- A 2026-10-16 — review covers the commit it read (rule 6).
+- A 2026-10-22 — a supplier dispatches no review of its own part; the
+  caller reviews the folded head (rule 11).
+- A 2026-10-24 — pinned read tools, proved sandbox, no Bash (rules 4/6;
+  ADR-065).
+- A 2026-10-25 — the guard also knows a supplier by its active job's
+  `deliver_to` (rule 11).
+- A 2026-10-30 — pre-commit hook and lint judge the card cap (rule
+  9).
+- A 2026-11-02 — under a launch no model passes (rule 2).
+- A 2026-11-03 — Dependabot PRs: push account posts (rule 7).
+- Keywords: blind review, fabric-review, pr-review-status, coverage,
+  review card, run_in_background.
 
 ### ADR-021 — A test run leaves nothing it did not find (Accepted)
 
@@ -503,29 +521,31 @@ its record disagree, the record wins. Look it up, never read it whole:
 
 ### ADR-022 — The session lifecycle: auto mode, the watch armed at launch, the inbox held while planning and visible to senders (Accepted)
 
-- Every session watches its inbox from first turn to last, one watch per
-  session; the launcher's opening prompt arms it, and the start hook says
-  `NO INBOX WATCH` on start, resume or compaction without one (§2, §5
-  rules 1–3).
-- Every login's user settings start sessions in auto mode (§5 rule 4).
-- While a session plans, `plan-hold.sh` marks the account held and the
-  watch polls nothing; the planning span arrives together after
-  approval; sending, the start drain and `--wait` are not held (§5 rules
-  5–7).
-- Presence reports `planning`; `fabric-ctl presence` shows it;
-  `gzcoord-send` tells the sender, without refusing (§5 rule 8).
-- A clone-started session is held only if its project wires the hooks
-  (§5 rule 9, §7).
-- A 2026-09-28 — a finished job runs `fabric-fresh` (rule 10).
-- A 2026-09-28 — `fabric-branches --sweep` weekly (rule 11).
-- A 2026-09-28 — `fabric-jobs next`, then `fabric-fresh --job` (rule 12).
-- A 2026-09-30 — the opening prompt names no command (§5 rule 1).
-- A 2026-10-10 — the watch is `gzcoord-inbox --until-delivery`, a
-  background command exiting per delivery, never a Monitor (§5 rules 1, 2, 6).
-- A 2026-10-11 — a session that worked a job starts every next one fresh (§5 rule 12).
+- One inbox watch per session, armed by the opening prompt; the hook
+  says `NO INBOX WATCH` without one (§2, §5 r1–3).
+- User settings start every session in auto mode (r4).
+- While a session plans, `plan-hold.sh` holds the account, the watch
+  polls nothing; held messages follow approval; sending, start drain,
+  `--wait` are not (§5 r5–7).
+- Presence reports `planning`; `gzcoord-send` warns, never refuses
+  (§5 r8).
+- A clone-started session is held only if its project wires hooks
+  (r9, §7).
+- A 2026-09-28 — a finished job runs `fabric-fresh` (r10).
+- A 2026-09-28 — `fabric-branches --sweep` weekly (r11).
+- A 2026-09-28 — `fabric-jobs next`, `fabric-fresh --job` (r12).
+- A 2026-09-30 — the opening prompt names no command (r1).
+- A 2026-10-10 — watch: background `--until-delivery` (r1, r2, r6).
+- A 2026-10-11 — after a worked job, next is fresh (r12).
+- A 2026-10-19 — at switch, pushed worktrees, scratch go (r11).
+- A 2026-10-20 — unreadable registry keeps all (r11).
+- A 2026-10-24 — live job's worktree kept (r11).
+- A 2026-10-27 — launch into the job's dirty copy (r12).
+- A 2026-10-28 — own merged origin branches swept (r11).
+- A 2026-10-30 — job's worktree first; AGENT_FABRIC_ROOT set (r12).
 - Keywords: session, lifecycle, inbox watch, Monitor, gzcoord-inbox,
   --follow, opening prompt, resume, auto mode, defaultMode, plan mode,
-  hold, planning, presence.
+  hold, planning, presence, branch sweep, stale fabric root.
 
 ### ADR-023 — An assignment goes to one login (Accepted)
 
@@ -644,30 +664,44 @@ its record disagree, the record wins. Look it up, never read it whole:
 
 ### ADR-029 — The control plane: a control agent per account answers signed actions over the relay (Accepted)
 
-- Each account's agentd answers on `fabric:control`; a request made
-  while it is down is lost (§2, §5 rules 1–2).
-- A closed op set; no request field reaches a shell; actions carry the
-  operator's fresh Ed25519 signature, newer than the last (§5 rules 3–5).
-- Replies carry no secret; a gap is named; silence or a failure exits 1
-  (§5 rules 6–9).
-- A 2026-09-27 — actions beside the read loop (§5 rule 12).
-- A 2026-09-27 — each op's answer budget (§5 rule 12).
-- A 2026-09-28 — `jobs`, `jobs-add` (§5 rule 13).
-- A 2026-09-29 — secrets-migrate (§5 rule 14).
-- A 2026-09-30 — rule 14 withdrawn; key in the store (§5 rule 5).
-- A 2026-10-06 — local, local-prune (§5 rule 15).
-- A 2026-10-07 — session state (rule 16).
-- A 2026-10-07 — secrets-selftest (§5 rule 17).
-- A 2026-10-08 — resumable state (§5 rule 16).
-- A 2026-10-08 — the op table; three public ops (§5 rule 4).
-- A 2026-10-09 — a forged claim shows in pool.json (§5 rule 4).
-- A 2026-10-09 — Scope: runtime/control/.
-- A 2026-10-09 — `tools-install` (§5 rules 3, 12).
-- A 2026-10-09 — views' closed-job read (§2).
-- A 2026-10-10 — gateway ops (§2, §5 rules 3, 12).
-- A 2026-10-12 — switch controller (§2).
-- Keywords: agentd, fabric-ctl, ops, keys, keygen, operator_key, usage,
-  tokens, herdr, resume, gateway, switch.
+- Each agentd answers `fabric:control`; down, requests are lost
+  (r1–2).
+- Closed op set, no field reaches shells; actions carry fresh
+  Ed25519 operator signatures (r3–5).
+- Replies: no secret; silence, failure exit 1 (r6–9).
+- A 2026-09-27 — actions (r12).
+- A 2026-09-27 — answer budgets (r12).
+- A 2026-09-28 — jobs (r13).
+- A 2026-09-29 — secrets-migrate (r14).
+- A 2026-09-30 — r14 withdrawn.
+- A 2026-10-06 — local, local-prune (r15).
+- A 2026-10-07 — session state (r16).
+- A 2026-10-07 — secrets-selftest (r17).
+- A 2026-10-08 — resumable (r16).
+- A 2026-10-08 — public ops (r4).
+- A 2026-10-09 — forged claims (r4).
+- A 2026-10-09 — Scope.
+- A 2026-10-09 — `tools-install` (r3/r12).
+- A 2026-10-09 — closed jobs (§2).
+- A 2026-10-10 — gateway ops (§2).
+- A 2026-10-12 — switch controller.
+- A 2026-10-18 — installer pins (§2).
+- A 2026-10-19 — rustup-target (§2).
+- A 2026-10-25 — install/read.
+- A 2026-10-25 — start/stop.
+- A 2026-10-26 — client.
+- A 2026-10-26 — ports.
+- A 2026-10-26 — evidence.
+- A 2026-10-26 — re-render.
+- A 2026-10-28 — InterWeave carrier (r18).
+- A 2026-10-30 — `fabric-op` (r19).
+- A 2026-10-30 — busy flocks; pool lock (r19).
+- A 2026-10-30 — budgets (r12).
+- A 2026-10-30 — hold (r13).
+- A 2026-10-31 — roles.
+- Keywords: fabric-ctl, keys, operator_key, usage, tokens, herdr,
+  resume, interweave-evidence, interweave-human, fabric-control,
+  control_carrier, break-glass.
 ### ADR-030 — Presence replaces HELLO and GOODBYE (Accepted)
 
 - Whether a session runs is the control agent's answer from its process
@@ -730,12 +764,12 @@ its record disagree, the record wins. Look it up, never read it whole:
 - Every change to the four files lands with an amendment of ADR-032 in the
   same PR; examples and validator move with the text (§5 rules 7–8).
 - A 2026-09-27 — HELLO and GOODBYE retired: a narrowing under rule 4.
-- A 2026-09-28 — SPEC is Normative and names this record; CAPABILITIES and
-  SPECIALTIES are optional metadata on any message.
-- A 2026-10-04 — WAIVES, an optional common field (SPEC §7.5): a waiver
-  role's word that one pull request, at one head, may arm.
+- A 2026-09-28 — SPEC is Normative; CAPABILITIES and SPECIALTIES are
+  optional metadata.
+- A 2026-10-04 — WAIVES (SPEC §7.5): a waiver role lets one PR head arm.
 - A 2026-10-15 — examples, validator renamed.
 - A 2026-10-15 — citations renamed.
+- A 2026-10-22 — SUPPLIER-REVIEW is the supplier's checks.
 - Keywords: GZCoord, GZCOORD/1, GZCOORD/2, protocol, SPEC, grammar,
   freeze, frozen, compatibility, narrowing, conformance, validator,
   extension, X-, protocol change, WAIVES, waiver.
@@ -759,6 +793,7 @@ its record disagree, the record wins. Look it up, never read it whole:
 - A 2026-09-30 — the relay token comes from the account's own store (§5 rule 6).
 - A 2026-10-04 — cccc recorded among the refused alternatives (§3).
 - A 2026-10-13 — a persona marked as AI is not a human-style identity (§5 rule 3).
+- A 2026-10-28 — a second host is reached over InterWeave (§7).
 - Keywords: transport, relay, Claude-Bridge, claude-bridge,
   gzcoord-relay, human relay, fallback, Telegram, adapter contract,
   channel, gzapp:gzcoord, bridge token, central, single point of failure.
@@ -775,11 +810,14 @@ its record disagree, the record wins. Look it up, never read it whole:
 - Data that exists nowhere else gets a copy first; a degraded mode counts
   only with a live check; identity never depends on a central service
   (§5 rules 2–4).
-- First step: a copy of the relay's database and a restore read back
-  (§7). Waits on the owner's acceptance (§8).
+- First step, done: the relay's database is scheduled to be copied every 6 h and a
+  restore was read back (§7).
 - A 2026-09-30 — the inventory's key and secrets rows name the stores; Doppler is gone (§1, §5 rule 4).
+- A 2026-10-27 — the relay's database is scheduled to be copied every 6 h to Proton Drive, encrypted and signed, restore read back; §1, §6, §7 say so.
+- A 2026-10-28 — undrained memory has a daily copy (restore unread); §7 step 3 decided: a weekly timer collects every account's drain bundle, a 14-day age bound, a report and one drain job; landing stays reviewed (§1, §2, §6, §7).
 - Keywords: decentralization, resilience, single point of failure,
-  degraded mode, relay, host, crash, backup, autonomy, P5, proposed.
+  degraded mode, relay, host, crash, backup, autonomy, P5,
+  scheduled drain, drain timer, undrained memory, state backup.
 
 ### ADR-035 — Federation between organizations: expertise transfers, confidential information does not; portable trust first (Accepted)
 
@@ -821,49 +859,55 @@ its record disagree, the record wins. Look it up, never read it whole:
 
 ### ADR-037 — Each agent keeps a job list (Accepted)
 
-- One list per login, `agents/<login>/jobs.json`, written only through
-  `runtime/identity.py`; states queued, active (one at a time), paused, blocked, delivered, done, dropped (§5 rules 1–2).
-- `fabric-jobs switch` (alias `next`): a session that has worked a job gets
-  `fabric-fresh --job <id>` for the next, in the job's working copy; one
-  that worked none takes it in place (§5 rule 3).
-- Jobs come from the agent, the owner (`fabric-ctl <login> jobs-add`) and
-  a delivered REQUEST (§5 rules 4–5, 11).
-- The owner reads every list: `fabric-ctl <login|all> jobs` (§5 rule 6).
-- A 2026-10-08 — priority orders `next`, never preempting; a job others
-  wait on ranks blocking; a role pool; take the next (§5 rules 7–10).
-- A 2026-10-09 — a stale waiter still ranks blocking (§5 rule 8).
-- A 2026-10-09 — a REQUEST to a login is queued on its list (§5 rule 11).
-- A 2026-10-09 — a job may be a plan's step (§5 rule 11).
-- A 2026-10-11 — every job after a worked one starts fresh (§5 rule 3).
-- A 2026-10-12 — checkable blockers; a cleared job is taken first (§5 rule 8).
-- A 2026-10-14 — `paused`; `fabric-jobs switch` (§5 rules 2, 10).
-- A 2026-10-15 — intake and `paused` read as built.
-- A 2026-10-16 — landed delivered jobs swept to done hourly (§5 rule 12).
-- Keywords: job, jobs.json, fabric-jobs, next, switch, paused, fresh
-  session, intake, priority, pool, claim, sweep.
+- One list per login (`agents/<login>/jobs.json`); seven states, one
+  active (§5 rules 1–2).
+- `fabric-jobs switch` (alias `next`): after a worked job, next starts
+  fresh (`fabric-fresh --job <id>`); else in place (§5 rule 3).
+- Jobs: agent, owner, delivered REQUEST (§5 rules 4–5, 11).
+- Owner reads all lists (`fabric-ctl jobs`, §5 rule 6).
+- A 2026-10-08 — priority, never preempting; blocking rank; role pool
+  (§5 rules 7–10).
+- A 2026-10-09 — stale waiter blocks (§5 rule 8).
+- A 2026-10-09 — a login's REQUEST queues (§5 rule 11).
+- A 2026-10-09 — jobs as plan steps (§5 rule 11).
+- A 2026-10-11 — fresh after worked job (§5 rule 3).
+- A 2026-10-12 — checkable blockers (§5 rule 8).
+- A 2026-10-14 — `paused`; `switch` (§5 rules 2, 10).
+- A 2026-10-15 — reads as built.
+- A 2026-10-16 — delivered swept to done (§5 rule 12).
+- A 2026-10-18 — no-artifact close, a reason (§5 rule 10).
+- A 2026-10-20 — commits fenced to job copies (§5 rule 3).
+- A 2026-10-21 — switch cleans targets (§5 rule 10).
+- A 2026-10-30 — fleet hold (§5 rule 13).
+- A 2026-10-30 — held, no start (§5 rule 13).
+- A 2026-10-31 — clock blocker (§5 rule 8).
+- A 2026-10-31 — cleanup built (§5 rule 10).
+- A 2026-10-31 — in place only inside its copy (§5 rule 3).
+- Keywords: fresh session, intake, priority, claim, sweep, unhold.
 
 ### ADR-038 — Each agent owns its key and its secrets (Accepted)
 
 - One key per login, a subkey per use; its private half leaves only as
-  an encrypted recovery copy (§5 rules 1, 6).
+  an encrypted recovery copy (§5 r1/r6).
 - A key is an agent's when committed at `identities/keys/<id>.asc`,
-  certified by its parent (§5 rule 2).
+  certified by its parent (§5 r2).
 - Secrets are pass(1) entries in `fabric-agent-<id>`, encrypted to
-  that key alone; the parent writes, never reads (§5 rule 3).
-- No shared host (§5 rules 4–5); `sync` reads only the store (§5 rules 7–8).
+  that key alone; the parent writes, never reads (§5 r3).
+- No shared host (§5 r4–5); `sync` reads only the store (§5 r7–8).
 - A 2026-09-29 — recovery copies and backups to Proton Drive.
 - A 2026-09-29 — recovery copies encrypted to the recovery key.
 - A 2026-09-29 — named by agent id (ADR-039).
-- A 2026-09-29 — one identity key with a subkey per use (§5 rule 1, §7).
-- A 2026-09-30 — no Doppler; `provision` fills a child's store (§5 rules 3, 7–8).
-- A 2026-10-01 — a new account's store travels as a bundle (§5 rule 5).
-- A 2026-10-06 — no shell holds a secret (§5 rule 9).
+- A 2026-09-29 — one identity key with a subkey per use (§5 r1, §7).
+- A 2026-09-30 — no Doppler; `provision` fills a child's store (§5 r3, r7–8).
+- A 2026-10-01 — a new account's store travels as a bundle (§5 r5).
+- A 2026-10-06 — no shell holds a secret (§5 r9).
 - A 2026-10-07 — the Doppler CLI stays (§6).
 - A 2026-10-13 — one repository per agent (§2).
 - A 2026-10-13 — agents sign commits with own subkeys (§6, ADR-057).
-- A 2026-10-15 — company stores (§5 rule 10).
-- A 2026-10-15 — only agent and parent write (§5 rule 3).
-- A 2026-10-17 — `settings/roles/`: parent only (§5 rule 3).
+- A 2026-10-15 — company stores (§5 r10).
+- A 2026-10-15 — only agent and parent write (§5 r3).
+- A 2026-10-17 — `settings/roles/`: parent only (§5 r3).
+- A 2026-11-03 — the seal is a managed hook (§5 r9).
 - Keywords: secrets, settings, GPG, pass, env.sh, lineage, custody,
   Doppler, provision, company store.
 ### ADR-039 — The agent id is a UUIDv7 minted at birth (Accepted)
@@ -890,28 +934,32 @@ its record disagree, the record wins. Look it up, never read it whole:
 
 ### ADR-040 — Implementation language: Python above 150 lines (Accepted)
 
-- Every fabric script is Python, standard library only, on the pinned
-  `fabric-python`; bash stays only as the closed pre-Python list and
-  forwarders (12 code lines, no case or loop, exec the module),
-  hook and bin/ paths included (§5 rule 1).
-- Lint refuses a bash file on neither the list nor the forwarder shape;
-  `ports` only shrinks (§5 rule 2).
-- A port freezes the contract, keeps the path, tests against the old
-  script (§5 rules 3–5).
-- GitHub and git go through `gh.py`, `git.py` (§5 rule 6).
-- A 2026-10-01 — the oracle stays (§5 rule 5).
-- A 2026-10-01 — one pinned Python per host (§5 rule 1).
-- A 2026-10-01 — a fixture copies its scripts' modules (§5 rule 5).
-- A 2026-10-04 — Wave 7: GZCoord's tools to Python (§7).
-- A 2026-10-08 — commands by bare name; shims retire (§5 rule 7).
-- A 2026-10-09 — Wave 8: control plane to Python; no new Node (§5 rule 8).
-- A 2026-10-09 — valid on 3.13+ (§5 rule 1).
-- A 2026-10-11 — Wave 9: the rest of the bash to Python in ten
-  batches; projects port when changed (§5 rules 1, 2, 9, §7).
-- A 2026-10-13 — the interim line limit is 160 (§7).
-- A 2026-10-14 — Wave 8 done (§5 rule 8, §7).
-- Keywords: Python, bash, port, allowlist, lint, shim, wave, gh, git,
-  160 lines, bare command, Node, forwarder.
+- Every fabric script is Python, stdlib only, on the pinned
+  `fabric-python`; bash only pre-Python or a forwarder (§5 r1).
+- Lint refuses other bash; `ports` only shrinks (§5 r2).
+- A port freezes the contract and path, tested against the old
+  (§5 r3–r5).
+- GitHub and git via `gh.py`, `git.py` (§5 r6).
+- A 2026-10-01 — oracle stays (§5 r5).
+- A 2026-10-01 — one pin per host (§5 r1).
+- A 2026-10-01 — fixtures copy their modules (§5 r5).
+- A 2026-10-04 — Wave 7: GZCoord's tools (§7).
+- A 2026-10-08 — bare command names; shims retire (§5 r7).
+- A 2026-10-09 — Wave 8: control plane; no new Node (§5 r8).
+- A 2026-10-09 — 3.13+ (§5 r1).
+- A 2026-10-11 — Wave 9: other bash (§5 r1, r2, r9, §7).
+- A 2026-10-13 — interim limit 160 lines (§7).
+- A 2026-10-14 — Wave 8 done (§7).
+- A 2026-10-19 — Wave 10, our .mjs (§5 r10).
+- A 2026-10-19 — .js may join (§5 r10).
+- A 2026-10-19 — provisioning modules (§5 r7).
+- A 2026-10-19 — pin before any input (§5 r5).
+- A 2026-10-19 — batch 5 on the pin (§5 r4).
+- A 2026-10-19 — batches 4, 6, 9 on the pin (§5 r4).
+- A 2026-10-24 — completion listed (§5 r1).
+- A 2026-10-24 — pin 3.14, no wheel (§2).
+- Keywords: Python, bash, Node, mjs, port, allowlist, bare command,
+  forwarder.
 
 ### ADR-041 — Agent-local episodic history: exact messages kept above the transport (Accepted)
 
@@ -967,14 +1015,20 @@ its record disagree, the record wins. Look it up, never read it whole:
 - The fleet's own mods load first from a root-owned marketplace; the first
   one redacts the login's secret values from tool results, failing closed
   (§5 rules 3–4).
-- The Claude Code pin moves to 2.1.287 or later only after every host reports
-  rules 1 and 2 in force (§5 rule 6).
-- A 2026-10-09 — a mod or MCP server that runs code passes the fleet's
-  guards as a Bash call would, or is refused at review (§5 rule 8).
+- The Claude Code pin moves past 2.1.286 only once every host reports
+  rules 1–2 in force (§5 rule 6).
+- A 2026-10-09 — code a mod or MCP server runs passes the fleet's guards,
+  or is refused at review (§5 rule 8).
 - A 2026-10-09 — rule 8's gate: the managed MCP allowlist, versions pinned.
+- A 2026-10-31 — rules 1–2 built: exec-form guards through a root-owned
+  hook_entry.py, snapshot of a named main; `fabric-managed`;
+  operator reinstall per guard change; AppVM boot restore (§5 rules 2, 9).
+- A 2026-11-03 — the session seal (ADR-038 rule 9) is a managed
+  `SessionStart` hook; its workspace copy keeps running (§5 rules 2, 9).
+- A 2026-11-03 — rule 6 met; the pin moves to 2.1.311 (§8).
 - Keywords: mods, plugin, managed settings, allowManagedModsOnly,
   disableSideloadFlags, prependPlugins, sec-default, guard, redaction,
-  MCP server, sandbox.
+  MCP server, sandbox, fabric-managed, hook_entry.py, session seal.
 
 ### ADR-044 — Identity kinds: an agent and a human (Accepted)
 
@@ -1038,8 +1092,9 @@ its record disagree, the record wins. Look it up, never read it whole:
 - Keys only from root-owned `/etc/ssh/authorized_keys/%u`; one operator
   key, passphrase, forced to a root-owned installed `enter-ssh` with
   `restrict,pty`, never a checkout's (§5 rules 2–3).
-- `enter-ssh` takes one of `--wait`, `--watch`, `shell`, `--resume`, runs
-  `enter` in a login shell, refuses anything else with exit 2 (§5 rule 4).
+- `enter-ssh` takes one of `--wait`, `--watch`, `shell`, `--resume`,
+  `attach`, runs `enter` in a login shell, refuses anything else with
+  exit 2 (§5 rule 4).
 - Host keys pinned in the registry's `sshd`, read on the host;
   `fabric-ssh-hosts` generates `known_hosts` and checks the pin; never
   ssh-keyscan (§5 rule 5).
@@ -1048,8 +1103,10 @@ its record disagree, the record wins. Look it up, never read it whole:
   rc.local restores them, runs `sshd -t`, then sshd at boot (§5 rule 6). sudo stays
   break-glass; agents' own ssh keys stay future (§5 rules 7–8).
 - A 2026-10-13 — loopback exempt from per-source penalties; MaxStartups 100 (§5 rule 1).
+- A 2026-10-31 — `attach`: the deck attaches to the harness pane (§5 rule 4).
 - Keywords: ssh, sshd, operator, Fleet Deck, moveto, enter-ssh, forced
-  command, authorized_keys, host key, known_hosts, Qubes, rc.local.
+  command, authorized_keys, host key, known_hosts, Qubes, rc.local, attach,
+  harness, agent-fabric-harness.service.
 
 ### ADR-049 — Memory is retrieved through an MCP server, the curated corpus unchanged (Accepted)
 
@@ -1100,8 +1157,8 @@ its record disagree, the record wins. Look it up, never read it whole:
 - Shared corrections name `shared_with`; authors retire corrected memories;
   a retitle replaces only what it names; hygiene gains private addresses and
   home paths; the drain runs per project; no local cross-host reads (§5
-  rules 9-14). Rules not in the tree say so, with what holds until
-  they are. Amends ADR-013, ADR-014.
+  rules 9-14). Amends ADR-013, ADR-014.
+- A 2026-10-20 — an anchor may name its project, `<project>:<path>` (§5 r1-2).
 - Keywords: stale, anchors, memory_check, maybe-stale, stale-hard, flag,
   memory_mark, horizon, lesson, record, retire, shared_with, drain report.
 
@@ -1114,7 +1171,7 @@ its record disagree, the record wins. Look it up, never read it whole:
   buttons (untested) go to Chrome (§5 rule 7).
 - Chrome stays for logins and SSO, video, real WebGL, bot-checked sites, the
   Flutter web clients and any pixel check a person judges (§2).
-- Pinned account tool, moli 1.1.15 by archive sha256, declared for every
+- Pinned account tool, moli 1.1.19 by archive sha256, declared for every
   project in `projects/registry.json` and installed per account like doppler
   by `fabric-tools --install moli` (§5 rules 1-2).
 - `moli fetch` runs without a prompt; `moli serve` has no allow rule (rule 3).
@@ -1126,6 +1183,7 @@ its record disagree, the record wins. Look it up, never read it whole:
   @playwright/mcp test and the owner's approval; checkboxes and drag fail on
   moli, radio buttons untested, 2.1-2.5x slower, about 370 MB a session
   against about 990 MB.
+- A 2026-10-27 — pin moved to 1.1.19 (rule 1).
 - Keywords: moli, web, browser, fetch, markdown, serve, CDP, Playwright,
   Chrome, internet, page, untrusted, hidden DOM, pin.
 ### ADR-052 — The account-switch policy for gateway sessions: sticky, with hysteresis, soonest reset first, perishable moves rate-limited, decided by the controller (Accepted)
@@ -1155,24 +1213,24 @@ its record disagree, the record wins. Look it up, never read it whole:
 ### ADR-053 — A second review engine: Codex reviews beside the review class, one-shot, through the gateway (Accepted)
 
 - `fabric-review --engine codex <PR>`: the review class's blind brief,
-  unchanged, run once by the pinned `codex exec`, read-only, on a `git
-  archive` extract of the head, 20 minutes by default (§5 rules 1-2).
+  unchanged, run once by the pinned `codex exec`, read-only, on an
+  extract of the head (§5 rules 1-2).
 - Codex goes through its own gateway (`openai-responses`, key by env
   only); the session's Anthropic key and `~/.codex` never reach it (§5
   rule 3).
-- One JSON object of findings or nothing posted; posted with
-  `fabric-pr post-review <PR> --model codex --head <sha>`, judged like
-  any finding (§5 rules 4-5).
+- One JSON object of findings and coverage or nothing posted; posted as
+  v2 with `--model codex`, judged like any finding (§5 rules 4-5).
 - A review is required: `fabric-pr arm` refuses until every engine the
   arming policy names (`reviews`, `boundary_reviews`; data, not this
   record) has reviewed the head with no open P1/P2 (§5 rule 6). Codex is
   pinned (§5 rule 7).
 - A 2026-10-13 — the sandbox proven before the run; Codex's own fetches off (§5 rules 2-3).
-- A 2026-10-13 — every login reviews on a synced access token; both engines by default (§5 rules 6, 8).
-- A 2026-10-13 — the record requires a review; the arming policy names the engines (now both) (§5 rule 6).
+- A 2026-10-13 — every login on a synced access token; both engines by default (§5 rules 6, 8).
+- A 2026-10-13 — a review is required; the arming policy names the engines (§5 rule 6).
 - A 2026-10-13 — codex additional: its review or unavailable marker per head (§5 rule 6, ADR-055 rule 8).
 - A 2026-10-14 — findings judged once per head, one dispatch for both engines (§5 rule 5).
 - A 2026-10-16 — the post names the commit read (`--head`) (§5 rule 4).
+- A 2026-10-24 — v2 posts: header and coverage block (§5 rule 4).
 
 ### ADR-054 — Codex as an alternative session harness: AGENTS.md is the instruction file, a harness is an adapter (Accepted)
 
@@ -1242,6 +1300,8 @@ its record disagree, the record wins. Look it up, never read it whole:
 - One checker: admitted format, lineage-certified key, role held, proof
   present — hooks, CI, suite (§5 rule 5). Keys on GitHub as signing keys;
   one shared author stays (§5 rules 6-7).
+- A 2026-10-20 — a forge-signed commit passes rule 5 only as a clean merge or a Dependabot workflows-only bump (§5 rule 8).
+- Keywords: signing, fabric-sign, since, rule 5, forge, web-flow, Update branch, Dependabot.
 
 ### ADR-058 — A reflection pass turns an agent's own messages into memory candidates (Accepted)
 
@@ -1299,3 +1359,119 @@ its record disagree, the record wins. Look it up, never read it whole:
 - A 2026-10-18 — no suffix fallback (§5 rule 8).
 - Keywords: addendum, holder, specialization, jurisdiction, settings/roles,
   holder.json, locale, parent-signed, holders_specialize.
+
+### ADR-061 — Errors are measured per actor and per kind, the same for people and agents (Proposed)
+
+- Errors are counted per actor and per kind from artifacts only, with one
+  set of definitions for people and agents (§2, §5 rules 1-3).
+- An actor is the head branch's login, a folded range's contributor, the
+  reviewing engine for a finding judged not real; after an ADR-057
+  cut-over, the commit's signer; else unattributed, never guessed (§2,
+  §5 rule 3).
+- Kinds: review findings by level (answered, judged not real, unjudged;
+  unparsed reviews counted apart), red checks per head pushed in the jobs
+  the required check needs (flaky apart), reverts and fixes forward per
+  PR merged in a fourteen-day window; every count beside its denominator
+  (§2, §5 rule 4).
+- A rule that treats one actor class differently names the counts that
+  justify it, or goes to the owner to be made the same for all (§5
+  rule 5).
+- Never a target, a ranking or one score per actor, never a reason to
+  assign or withhold work, resources, a role or a login; corrected at the
+  source for every holder; acceptance amends ADR-046 §5 rule 7 to admit
+  error counts (§5 rules 6-7).
+- Reader `fabric-errors` (`tools/fabric/errors.py`), a section of
+  `fabric-fleet`; not built yet (§5 rule 8). Waits on the owner's
+  acceptance (§8).
+- Keywords: errors, trust, actor, people, agents, review findings, red
+  check, flaky, revert, fix forward, attribution, fabric-errors, proposed.
+
+### ADR-062 — Hidden Unicode is refused in what agents read (Proposed)
+
+- `tools/fabric/hidden_unicode.py` is the one definition (bidi, Cf incl.
+  tag characters, controls but TAB/LF, stray variation selectors, fillers,
+  private use); every boundary calls it, an allowance is added there with a
+  test (§2, §5 rule 1).
+- Judged: every tracked Markdown file of agent-fabric, Markdown and JSON
+  under `identities/` and `.agent-fabric/`; a project's `.agent-fabric/`;
+  vendored text not exempt (§5 rule 2).
+- Pre-commit refuses the staged content for every committer; the corpus
+  lint refuses the committed tree in the suite and CI (§5 rule 3).
+- A project's own documents are not judged; a finding there goes to its
+  owning role as an observation. What text says is never judged (§5 rules
+  4-5). Waits on the owner's acceptance (§8).
+- Keywords: hidden unicode, bidi, zero-width, tag characters, control
+  characters, prompt injection, lint, pre-commit, skills, slices, apm.
+
+### ADR-063 — fabric-ctl assist: the owner's questions on the claude-pzhuy API key (Proposed)
+
+- `fabric-ctl assist "<question>"` answers from committed fabric text in
+  one Messages API request on `CLAUDE_APIKEY_CLAUDE_PZHUY_8ALIAS_COM`, that
+  key's only spend path; no other launcher or account path reads a
+  `CLAUDE_APIKEY_*` (§2, §5 rule 1).
+- Refused, before the store is read, in an agent session, without a
+  terminal, or for a login not the host's operator; a fence against
+  accident, the rule a budget one (§4, §5 rule 2).
+- Works with the fleet down: no agentd, relay or subscription token;
+  stdlib only; the key never leaves the process (§5 rule 3).
+- `code-medium` from routing (a null pin refused), 48 KiB of ranked grounding, 2,048 output
+  tokens, no tools; advice printed, never run; every spend logged to
+  `assist.jsonl` without the question (§5 rules 4-7).
+- #355 has merged; waits on the owner's acceptance (§7, §8).
+- Keywords: assist, fabric-ctl, API key, claude-pzhuy, credit, owner,
+  fleet down, spend, reserve, P5.
+
+### ADR-064 — GZCoord carried over InterWeave: one host, beside the relay (Accepted)
+
+- One host, loopback only, first; a second host next, by
+  amendment; control on its own `fabric-control` endpoint
+  via `interweave-human` (rules 1, 12).
+- Dual run: both carriers, relay of record (ADR-033 rule 7
+  unchanged); the journal collapses by MESSAGE-ID; switching:
+  ADR-033 amendment on owner's word over parity report (rule 11).
+- The carrier: the fabric's own client, not `interweave-human` or
+  `claude-channel` (rule 5).
+- A roster keyed by agent id, each row signed by its login and
+  countersigned by the coordinator, renders every profile's
+  deny-by-default allowlist; keys minted in their own account; a
+  tagged release pinned in release.json, signed (rules 2-4).
+- One direct send per recipient, no GossipSub; receipt awaited,
+  retried under one message_id, abandoned only by operator;
+  compress, then chunk, past 48 KiB; FROM checked against the PeerId;
+  no transport-native value as metadata (rules 6-10).
+- A 2026-10-24 — zlib; receipts; CARRIER-CONTRACT.md (rules 7/8).
+- A 2026-10-25 — install: checked control action (rule 14).
+- A 2026-10-26 — roster ports reserved (rule 1).
+- A 2026-10-26 — evidence (rule 11).
+- A 2026-10-27 — one host a milestone (rule 1).
+- A 2026-10-28 — pin v0.2.0 (§8).
+- A 2026-10-28 — control via `interweave-human` (§3, rules 12/14).
+- A 2026-10-31 — minisign signature (rule 4).
+- A 2026-11-01 — kept by `fabric-host persist` (rule 1).
+- Parity from arrival logs: missed, duplicate, offline counts,
+  rollback drill (rule 11).
+- Keywords: InterWeave, carrier, relay, P5.
+
+### ADR-065 — The reviewer reads through pinned tools, says what it covered, and the next round starts where the last one stopped (Accepted)
+
+- The review class loses Bash; it reads through `Read`, `Glob`, `Grep`
+  and a stdlib review server whose tools run git with a fixed argv, no
+  shell and a clean environment (§2 A, §5 rules 1–2).
+- Its checks run one argv at a time in a bubblewrap sandbox: read-only
+  filesystem, fresh `/tmp`, no network, proved by a start probe and a
+  refused write per review; unproved, nothing runs (§2 B, §5 rule 3).
+- A posted review carries a `v2` marker (base, head, card, config hash) and a
+  coverage block naming every path of the range; a path `not read`
+  uncounts it, and a re-review's base is derived from the last marker,
+  fail-closed (§2 C, §5 rules 4–5).
+- The session posts the report; `review-bash-guard` stays only for other
+  unisolated classes (§5 rules 6–7).
+- A 2026-10-31 — a PR's full review is handed earlier chains' open
+  findings to judge, and numbers past their labels (§5 rule 5).
+- A 2026-11-01 — a coverage block may carry a `default` entry for every
+  range path it does not name; a `not read` default makes the review
+  partial (§2 C, §5 rule 4).
+- Keywords: review class, reviewer, Bash guard, pinned tools, MCP,
+  read-only, bubblewrap, sandbox, checks, coverage manifest, checkpoint
+  marker, coverage default, re-review, card_base, open findings,
+  open-code-review, P3.

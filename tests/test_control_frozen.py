@@ -15,6 +15,10 @@ case of its own with an expected value written by hand. The reflection clause
 of the memory table is cut on the Python side (AFTER_NODE_REFLECTION; case 28's
 body cuts it before hashing). The three cases that render the tokens table were re-frozen when its `hit` column was added: those
 elements hold Python's text, which differs from the Node's by that column only.
+The status table's three cases were re-frozen when its `provider` column was added (j411): those elements hold Python's
+text, which differs from the Node's by that column only.
+The tools-install rows were re-frozen when a cargo pin's build raised the account's bound (#303): the default timeout 330 -> 1230 s,
+the signed ttl_s 330 -> 600 (ACTION_TTL_MAX_S caps it); nothing else in them moved.
 Every element the Node refused (a `threw` entry) stays as the Node left it."""
 from __future__ import annotations
 
@@ -34,9 +38,10 @@ FIXTURE_OPERATOR = os.path.join(HERE, "tests", "fixtures", "gzcoord-operator")
 ACCOUNTS = ["user", "py", "web"]          # user: the operator; py, web: placed agents
 ROLES = {"user": "fabric-coordinator", "py": "python-dev", "web": "web-dev"}
 TIMEOUT_S = 300
-# Added to every ctl row after the Node was deleted (the gateway ops, control/gateway.py);
-# null on a row of any other op, so removing exactly this text puts the Node's row back.
-AFTER_NODE_ROW_KEYS = '"gateway":null,"gatewayInstall":null,'
+# Added to every ctl row after the Node was deleted (the gateway ops, control/gateway.py, and the
+# InterWeave ops, control/carrier_install.py); null on a row of any other op, so removing exactly this text
+# puts the Node's row back.
+AFTER_NODE_ROW_KEYS = '"gateway":null,"gatewayInstall":null,"interweave":null,"interweaveInstall":null,"interweaveStart":null,"interweaveStop":null,'
 # ...and the restart action's (control/restart.py), after secretsSync.
 AFTER_NODE_RESTART_KEY = '"restart":null,'
 # --version goes with gateway-install too now; the Node's words said "with upgrade only".

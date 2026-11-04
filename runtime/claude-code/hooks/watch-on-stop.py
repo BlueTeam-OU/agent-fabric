@@ -50,6 +50,26 @@ COMMAND = "gzcoord-inbox --until-delivery"
 REASON = ("No GZCoord inbox watch is running for this session, so no message can wake it. Before you finish, start it "
           "in the background: Bash(command: '" + COMMAND + "', run_in_background: true, timeout: 7200000, "
           "description: 'gzcoord inbox wait'), then end your turn. Never a Monitor, never a second watch.")
+# On 2026-10-23 the harness stopped 18 sessions' watches under memory pressure
+# saying to restart them "only when asked"; two read REASON as not asking and
+# stayed deaf about 10 h (j366). So the reason says it is the ask, and what
+# memory the host has now, so a session can see the pressure has passed.
+ASKED = (" This is the ask: re-arming the watch is the standing rule, also after the harness stopped it under memory "
+         "pressure and said to restart only when asked.")
+
+
+def mem_line(meminfo: str = "/proc/meminfo") -> str:
+    """" Memory available now: A of T GiB." from /proc/meminfo, or "" when it cannot be read."""
+    try:
+        vals = {}
+        with open(meminfo, encoding="ascii") as fh:
+            for line in fh:
+                key, _, rest = line.partition(":")
+                if key in ("MemTotal", "MemAvailable"):
+                    vals[key] = int(rest.split()[0]) / 1048576
+        return f" Memory available now: {vals['MemAvailable']:.1f} of {vals['MemTotal']:.1f} GiB."
+    except (OSError, ValueError, KeyError, IndexError):
+        return ""
 
 
 def read_procs(proc: str = "/proc") -> dict[int, tuple[int, str, str]]:
@@ -180,7 +200,7 @@ def integrated(cwd: str | None, session: str | None) -> bool:
 
 
 def decide(payload: dict, procs: dict, now: float, path: str, is_integrated=integrated,
-           own_pid: int | None = None, run_dir: str | None = None) -> dict | None:
+           own_pid: int | None = None, run_dir: str | None = None, meminfo: str = "/proc/meminfo") -> dict | None:
     if payload.get("stop_hook_active"):
         return None
     session_id = payload.get("session_id")
@@ -192,7 +212,7 @@ def decide(payload: dict, procs: dict, now: float, path: str, is_integrated=inte
     if recently_blocked(path, session_id, now) or not is_integrated(payload.get("cwd"), session_id):
         return None
     remember(path, session_id, now)
-    return {"decision": "block", "reason": REASON}
+    return {"decision": "block", "reason": REASON + ASKED + mem_line(meminfo)}
 
 
 def main() -> int:

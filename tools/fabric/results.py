@@ -57,7 +57,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.realpath(__file__
 sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
 import gh  # noqa: E402
 import roots  # noqa: E402
-from github import commit_class  # noqa: E402
+from github import commit_class, review_coverage  # noqa: E402
 from github.post_review import REVIEW_MARKER  # noqa: E402
 BAND_FLOOR = 8                                       # ADR-019: fewer work commits, the owner arms
 GREEN = {"SUCCESS", "SKIPPED", "NEUTRAL"}
@@ -86,21 +86,44 @@ def folds_of(repo: str, head: str, merge: str = ""):
             if repo and head and merge else None)
 
 
+def reverted_shas(own: set, later: list[dict]) -> set:
+    """The shas among `own` (a PR's commits and its merge commit) that a commit in `later` reverts: git's own
+    "This reverts commit <sha>." line, abbreviated or whole, never the word "revert" alone."""
+    return {sha for sha in own if sha for c in later
+            for t in re.findall(r"This reverts commit ([0-9a-f]{7,40})", c["body"]) if t.startswith(sha[:7]) or sha.startswith(t)}
+
+
+def fixes_forward(n: int, later: list[dict], cls=classify, repo: str = "") -> list[dict]:
+    """The commits in `later` that name #n in their subject and that the commit classifier calls a fix for it."""
+    naming = re.compile(rf"#{n}\b")
+    return [c for c in later if naming.search(c["subject"]) and cls(c["subject"], c["body"], n, repo) == "fix"]
+
+
+def covers_head(review: dict, head: str) -> bool:
+    """Whether a review, as `gh pr view --json reviews` gives it, is a posted review on `head`: a v1 marker, or a v2
+    marker whose coverage block reads with every path read and whose own head is `head` (agent-fabric ADR-065 §5
+    rule 4). A v2 review with a path not read, or a block that does not read, is not coverage of the head."""
+    body, oid = review.get("body") or "", (review.get("commit") or {}).get("oid")
+    if oid != head:
+        return False
+    if body.startswith(REVIEW_MARKER):
+        return True
+    v2 = review_coverage.read_review(body)
+    return bool(v2 and v2.counts and v2.marker.head == head)
+
+
 def judge(pr: dict, later: list[dict], now: dt.datetime, window_days: int, cls=classify, repo: str = "",
           folds=folds_of) -> dict:
     """One merged PR against the commits on main after its merge.
     `later` holds {sha, subject, body, when} for main's commits inside the window."""
     n, head = pr["number"], pr["headRefOid"]
     merged = dt.datetime.fromisoformat(pr["mergedAt"].replace("Z", "+00:00"))
-    reviewed = any((rv.get("body") or "").startswith(REVIEW_MARKER) and (rv.get("commit") or {}).get("oid") == head
-                   for rv in pr.get("reviews") or [])
+    reviewed = any(covers_head(rv, head) for rv in pr.get("reviews") or [])
     checks = [c.get("conclusion") or c.get("state") for c in pr.get("statusCheckRollup") or []]
     green = bool(checks) and all(c in GREEN for c in checks)
     own = {c["oid"] for c in pr.get("commits") or []} | {(pr.get("mergeCommit") or {}).get("oid")}
-    reverted = any(any(t.startswith(sha[:7]) or sha.startswith(t) for t in re.findall(r"This reverts commit ([0-9a-f]{7,40})", c["body"])
-                       for sha in own if sha) for c in later)
-    naming = re.compile(rf"#{n}\b")
-    fixed = [c["sha"][:7] for c in later if naming.search(c["subject"]) and cls(c["subject"], c["body"], n, repo) == "fix"]
+    reverted = bool(reverted_shas(own, later))
+    fixed = [c["sha"][:7] for c in fixes_forward(n, later, cls, repo)]
     folded = folds(repo, head, (pr.get("mergeCommit") or {}).get("oid") or "")
     classes = [cls(c["messageHeadline"], c.get("messageBody") or "", n, repo, c.get("parents", 1), folded)
                for c in pr.get("commits") or []]
@@ -115,22 +138,32 @@ def judge(pr: dict, later: list[dict], now: dt.datetime, window_days: int, cls=c
             "work": work, "fix": fix, "supervision": supervision}
 
 
-def merged_prs(repo: str, since: dt.datetime) -> list[dict]:
+REST_COMMITS_CAP = 250
+
+
+def merged_prs(repo: str, since: dt.datetime, extra_fields: tuple = ()) -> list[dict]:
     # The numbers first, then each PR alone: GitHub refuses one query over
     # 500,000 possible nodes, which fifty PRs with their commits, reviews
     # and checks already exceed. GitHub's search takes a date; the exact
     # bound is applied here, as main_commits applies it (review of #68).
     numbers = gh.pr_list(["number"], repo=repo, state="merged", search=f"merged:>={since.date().isoformat()}")
-    fields = ["number", "title", "mergedAt", "headRefOid", "mergeCommit", "commits", "reviews", "statusCheckRollup"]
+    fields = ["number", "title", "mergedAt", "headRefOid", "mergeCommit", "commits", "reviews", "statusCheckRollup", *extra_fields]
     prs = []
     for p in numbers:
         pr = gh.pr_view(p["number"], fields, repo=repo)
         # gh's commit list has no parents; the REST list has them, so a
         # merge folded into the branch is not counted as work (review of #68).
-        parents = {c["sha"]: len(c.get("parents") or [])
-                   for c in gh.api(f"repos/{repo}/pulls/{p['number']}/commits?per_page=100", paginate=True)}
+        rest = gh.api(f"repos/{repo}/pulls/{p['number']}/commits?per_page=100", paginate=True)
+        parents = {c["sha"]: [x.get("sha") for x in c.get("parents") or []] for c in rest}
+        messages = {c["sha"]: ((c.get("commit") or {}).get("message") or "").split("\n", 1)[0] for c in rest}
+        # GitHub's commit list of a PR ends at 250 commits however it is paged, and gives no sign of it: a list that
+        # long, or a commit of gh's list missing from it, is a PR read in part, said apart and never counted whole.
+        pr["cut"] = len(rest) >= REST_COMMITS_CAP or any(c["oid"] not in parents for c in pr.get("commits") or [])
         for c in pr.get("commits") or []:
-            c["parents"] = parents.get(c["oid"], 1)
+            c["parents"] = len(parents.get(c["oid"], [None]))
+            c["parentShas"] = parents.get(c["oid"], [])
+            # gh cuts messageHeadline at about 70 characters and ends it in "…"; the REST message is whole.
+            c["subject"] = messages.get(c["oid"], c.get("messageHeadline") or "")
         if dt.datetime.fromisoformat(pr["mergedAt"].replace("Z", "+00:00")) >= since:
             prs.append(pr)
     return prs

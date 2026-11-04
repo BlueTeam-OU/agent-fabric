@@ -1,0 +1,12 @@
+# The harness server's whole FleetDeck config (agent-fabric-harness.service
+# points HERDR_CONFIG_PATH here, so the account's own config.toml is not read
+# by that server). The update checks are the operator deck's: a harness server's
+# agent detection feeds nothing the deck reads (it reads the state stream), and
+# on every account they would fetch the catalog, each manifest and latest.json
+# at start and every 30 minutes (rust-ui-dev-01 REPLY 01a1920a, relayed, not
+# measured here). What was measured is one fetch of the agent-detection
+# index.toml at start (docs/live-checks/2026-10-31-fleetdeck-harness-unit.md);
+# no run with this file has yet shown which of those fetches it stops.
+[update]
+version_check = false
+manifest_check = false

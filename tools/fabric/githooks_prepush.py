@@ -8,7 +8,12 @@ project's default branch, except for a change to a file matching
 review (agent-fabric ADR-019 §5 rule 1). fabric-pr arm never sees a direct
 push, so this hook, at the keyboard, is the only place the rule is enforced.
 
-Before any of that, in every project: a push that adds an unsigned commit is
+Before any of that, in every project: a push that adds a commit, tag or file
+holding a value of the account's own secrets is refused, the variable named
+and never the value (tools/fabric/guards/secret_values.py, ADR-012 §5 rule 9):
+the commit hooks judged each commit made here, but not one made with
+--no-verify, on another machine or before the check existed. A push that
+adds an unsigned commit is
 refused (tools/fabric/guards/ban_unsigned_commits.py), and the timestamp
 proofs of the commits it adds go with it (ADR-057 §5 rule 4): the ones still
 waiting in the account's spool become notes under refs/notes/fabric-ots, and
@@ -41,7 +46,7 @@ import sys
 HERE = os.path.dirname(os.path.realpath(__file__))
 sys.path.insert(0, HERE)
 import roots  # noqa: E402
-from guards import ban_unsigned_commits  # noqa: E402
+from guards import ban_unsigned_commits, secret_values  # noqa: E402
 from signing import notes as proofs, proof as proof_store  # noqa: E402
 import workingcopy  # noqa: E402
 
@@ -216,6 +221,22 @@ def _push_proofs(remote_name: str) -> None:
                       "are checked on the remote") from None
 
 
+def _secret_values(lines: list[str]) -> None:
+    """Every object the refs add, by _scope, before anything is written: a value that reached the remote is to be rotated, not
+    removed."""
+    try:
+        ns = secret_values.needles(secret_values.load())
+        found: list[str] = []
+        for line in lines:
+            fields = line.split()
+            if len(fields) == 4 and not ZERO.match(fields[1]):
+                found += secret_values.scan_objects(_scope(fields[1], fields[3]), ns)
+    except (secret_values.CannotJudge, OSError, subprocess.SubprocessError) as e:
+        raise Refused(f"the pushed objects could not be checked for this account's secret values ({e})") from None
+    if found:
+        raise Refused(secret_values.refusal("this push", found))
+
+
 def _signed(lines: list[str]) -> None:
     """Every commit the refs add carries a signature git can read, in every
     project (ban_unsigned_commits says why). Before the direct-push rules,
@@ -309,6 +330,7 @@ def check(remote_name: str, lines: list[str]) -> None:
     lines = _branch_lines(lines)
     if not lines:
         return
+    _secret_values(lines)
     dry = _dry_run()
     if not dry:
         _attach_proofs(lines)

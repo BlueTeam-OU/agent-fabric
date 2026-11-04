@@ -27,7 +27,10 @@ def seeded(path: str, origins: str) -> str:
 
 
 def identity_env() -> dict[str, str]:
-    return {"GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@example.org", "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@example.org"}
+    # CLAUDE_CONFIG_DIR names no directory: a switch runs fabric-branches --sweep, which removes the ended sessions' scratch under
+    # $TMPDIR it finds in the harness's registry there; with none it keeps all, and the suite never touches this login's real cache.
+    return {"GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@example.org", "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@example.org",
+            "CLAUDE_CONFIG_DIR": "/nonexistent/claude-config"}
 
 
 def touch_memory(home: str, working_copy: str) -> None:

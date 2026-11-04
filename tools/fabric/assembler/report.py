@@ -6,6 +6,7 @@ import functools
 import importlib.util
 import json
 import os
+import subprocess
 import sys
 from typing import Any
 import roots
@@ -13,6 +14,8 @@ import memory_horizons
 from assembler.core import layout, Run, in_report, hygiene_substitute, patterns_for
 from assembler.slices import merge_reports, scan_collisions, drop_held, read_existing_slice
 from corrections import section_key
+from assembler.shapes import still_replaced
+from assembler.links import unresolved_links
 
 
 def store_of(hr: dict) -> str:
@@ -155,6 +158,44 @@ def retrieval_summary(memory_use: dict[str, Any]) -> dict[str, dict[str, Any]]:
     return dict(sorted(out.items()))
 
 
+def fabric_commit() -> str | None:
+    """The agent-fabric commit the indexes were built against, or None when it cannot be asked: a message that said
+    a plausible commit would be worse than one that says unknown."""
+    try:
+        done = subprocess.run(["git", "-C", layout.FABRIC_ROOT, "rev-parse", "HEAD"], capture_output=True, text=True,
+                              timeout=20, check=False)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    sha = done.stdout.strip()
+    return sha if done.returncode == 0 and sha else None
+
+
+def commit_message(report: dict[str, Any], built_against: str | None) -> str:
+    """The commit body for a project's drain, from the report alone: a line the report gives no reason for is not
+    written, so a drain with no collisions and nothing held back names neither (a review of 2026-10-18: one hand-written
+    message was said of seven different drains). A collision decision carrying a `rule` was the same-agent rule's,
+    not the owner's; only the owner's file is said to be the owner's."""
+    files = report.get("files") or []
+    slices = [f for f in files if f.endswith(".md") and os.path.basename(f) != "INDEX.md"]
+    roles = report.get("roles") or []
+    lines = [f"{report.get('project')}: memory drain {report.get('stamp')}", "",
+             f"Files written: {len(files)}, of which {len(slices)} are slices.",
+             f"Roles indexed: {len(roles)}" + (f" ({', '.join(roles)})" if roles else "") + "."]
+    decisions = report.get("collision_decisions") or []
+    if decisions:
+        owner = sum(1 for d in decisions if isinstance(d, dict) and not d.get("rule"))
+        lines.append(f"Collision decisions: {len(decisions)}, {owner} decided by the owner (--collision-decisions), "
+                     f"{len(decisions) - owner} by the same-agent rule.")
+    held = report.get("held_back") or []
+    if held:
+        lines.append(f"Held back: {len(held)} ({', '.join(held)}).")
+    oversized = report.get("oversized_claims") or []
+    if oversized:
+        lines.append(f"Oversized claims: {len(oversized)}, written whole; lint fails until the memory is split.")
+    lines.append(f"Indexes built against agent-fabric {built_against or 'unknown (its commit could not be read)'}.")
+    return "\n".join(lines) + "\n"
+
+
 def report(run: Run) -> int:
     # An unresolved collision is a property of the corpus, not of the drain
     # that happened to create it. Deriving it from the tree is what makes the
@@ -240,7 +281,9 @@ def report(run: Run) -> int:
         "retired_in_siblings": run.retired_in,
         "section_writers": run.section_writers,
         "section_writers_gone": run.section_writers_gone,
+        "section_moves": run.section_moves,
         "applied_corrections": run.applied_corrections,
+        "replaced_sections": run.replaced_sections,
         "oversized_claims": run.oversized,
         "clipped_descriptions": run.clipped_descriptions,
         "migrated": run.migrated,
@@ -248,6 +291,8 @@ def report(run: Run) -> int:
         "collision_decisions": run.applied_decisions,
         "retitles": run.retitles,
         "merge_target_unresolved": run.unresolved_targets,
+        "superseded_harvests": run.superseded_harvests,
+        "reharvested_replaced": run.reharvested_replaced,
         "harvest": harvest_meta,
         "harvest_sources": {source: harvest_meta} if harvest_meta is not None else {},
         "watermarks": watermarks,
@@ -289,6 +334,7 @@ def report(run: Run) -> int:
                 return entry.get("heading") in sections and section_key(sections[entry["heading"]]) == entry.get("applied_key")
         return False
     report["applied_corrections"] = [e for e in report.get("applied_corrections") or [] if holds(e)]
+    report["replaced_sections"] = still_replaced(run, report.get("replaced_sections") or [])
     # A key an earlier run of the stamp held stays held only while no run
     # has written its slice since: this run writing it ends the hold.
     def written_now(key: str) -> bool:
@@ -296,6 +342,14 @@ def report(run: Run) -> int:
         klass, _, topic = rest.partition(":")
         return bool(run.shared.get((klass, topic)) if label == "shared" else run.per_role.get(label, {}).get((klass, topic)))
     report["held_back"] = sorted(k for k in report.get("held_back") or [] if k in run.held_back or not written_now(k))
+    # Derived from the corpus as it stands, like the collisions: a link a later drain made good leaves the list. Reported, never
+    # rewritten, and never a failure (the lint rule that reads it is the owner's).
+    undrained = {n.removesuffix(".md") for src in [*(report.get("harvest_sources") or {}).values(), harvest_meta]
+                 for n in (src or {}).get("skipped_no_roles_class") or []}
+    report["unresolved_links"] = unresolved_links(
+        report["files"], [b for b in (layout.working_copy_for(run.project), layout.FABRIC_ROOT) if b], layout.FABRIC_ROOT,
+        layout.project_memory_root(run.project),
+        [layout.project_memory_root(p) for p in layout.list_projects() if p != run.project], undrained)
     os.makedirs(os.path.dirname(report_path), exist_ok=True)
     with open(report_path, "w", encoding="utf-8") as fh:
         json.dump(report, fh, ensure_ascii=False, indent=2, sort_keys=True)
@@ -346,12 +400,26 @@ def report(run: Run) -> int:
               file=sys.stderr)
         for note in run.unresolved_targets:
             print(f"  {note}", file=sys.stderr)
+    if run.superseded_harvests:
+        print("\nSUPERSEDED HARVESTS (a memory whose text is a section a correction replaced, in this run or an earlier "
+              "one; not written — update or delete the memory):", file=sys.stderr)
+        for note in run.superseded_harvests:
+            print(f"  {note}", file=sys.stderr)
+    if run.reharvested_replaced:
+        print("\nREHARVESTED UNDER A REPLACED HEADING (written; each note says why the text was no replay of the one a "
+              "correction replaced):", file=sys.stderr)
+        for note in run.reharvested_replaced:
+            print(f"  {note}", file=sys.stderr)
     if run.empty_crossrefs:
         print("\nCROSSREF EMPTY (written with no entry: no observation behind the role's slices "
               "cites an artifact in this drain's references.json, and none was carried; "
               "fabric-query answers nothing from it):", file=sys.stderr)
         for note in run.empty_crossrefs:
             print(f"  {note}", file=sys.stderr)
+    if report["unresolved_links"]:
+        print("\nUNRESOLVED LINKS (written as they are; fix the memory, or draft the memory they name):", file=sys.stderr)
+        for row in report["unresolved_links"]:
+            print(f"  {row['slice']}#{row['heading']}: [[{row['target']}]] ({row['in']}): {row['why']}", file=sys.stderr)
     if collisions:
         print("\nTITLE COLLISIONS (both claims kept):", file=sys.stderr)
         for note in collisions:
@@ -382,4 +450,7 @@ def report(run: Run) -> int:
             print(f"  {problem}", file=sys.stderr)
     if run.problems or run.rejected_hygiene:
         return 1
+    if run.args.commit_message:
+        with open(run.args.commit_message, "w", encoding="utf-8") as fh:
+            fh.write(commit_message(report, fabric_commit()))
     return 0

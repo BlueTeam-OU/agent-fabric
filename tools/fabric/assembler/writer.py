@@ -11,6 +11,7 @@ from typing import Callable, Any
 from corrections import section_key
 from assembler.core import layout, TIER1, CHARS_PER_TOKEN, CLASS_FILES, origin_key, render_frontmatter, hygiene_check, hygiene_substitute, patterns_for, DESCRIPTION_MAX, Run, base_for, in_report
 from assembler.slices import retire_in_siblings, remove_sections, restamp, read_existing_slice, OBSERVED_RE, undated, claim_heading, absorbed, claim_block, is_retire
+from assembler.shapes import report_home
 from assembler.targets import existing_sections, is_budget_part, slice_candidates, is_carried
 
 
@@ -30,10 +31,12 @@ def clip_description(run: Run, description: str, where: str) -> str:
 def write_slice(
     run: Run, directory: str, filename: str, role: str, klass: str, claims: list[dict[str, Any]],
     description: str, shared_with: list[str] | None = None, topic: str | None = None,
+    flat_topic: str | None = None, cue: str | None = None,
 ) -> str | None:
     """`topic` is recorded in the frontmatter of every file that is one
-    topic's (is_budget_part reads it); the flat class file, which holds
-    several memories, is written without one. Returns the description the
+    topic's (is_budget_part reads it); the flat class file records its one
+    topic as `flat_topic` (an older one, which may hold several memories,
+    has none and is written without). Returns the description the
     file was written with, or None when it was not written: every section
     it held was retired (ADR-050 rule 7) and the file is gone."""
     os.makedirs(directory, exist_ok=True)
@@ -60,6 +63,10 @@ def write_slice(
         meta["shared_with"] = sorted(shared_with)
     if topic is not None:
         meta["topic"] = topic
+    elif flat_topic is not None:
+        # The flat file holds one topic's sections and says whose: a later drain that moves it into its directory (a
+        # second topic, or the crossref left empty by a drain without references) names it by this, not by a stamp.
+        meta["topic"] = flat_topic
     path = os.path.join(directory, filename)
 
     # MERGE MODE. A drain renders only what it admitted this cycle, so
@@ -83,16 +90,21 @@ def write_slice(
         the part being written exited 0 with both texts standing in
         two files (connected reviewer, 2026-09-20). Every sibling
         touched is written and reported."""
+        victims: dict[str, list[str]] = {}
         if topic is None:
             touched = retire_in_siblings(directory, filename, target, clip=functools.partial(clip_description, run),
-                                         removed=elsewhere_text)
+                                         removed=elsewhere_text, victims_by_path=victims)
         else:
             owner = None if role == "shared" else role
             touched = retire_in_siblings(
                 directory, filename, target, clip=functools.partial(clip_description, run),
                 stem=f"{klass}-{topic}" if owner is None else topic,
-                is_part=lambda p: is_budget_part(run, owner, klass, p, topic), removed=elsewhere_text)
+                is_part=lambda p: is_budget_part(run, owner, klass, p, topic), removed=elsewhere_text,
+                victims_by_path=victims)
         for tpath, what in touched:
+            # The section left a file that stays (or goes): its recorded writer goes with it, whichever part the correction
+            # replaced it from. write_slice's own diff only sees the part being written.
+            retire_writers(run, [f"{in_report(run, tpath)}#{h}" for h in victims[tpath]])
             run.retired_in.append(f"{in_report(run, tpath)}: '{target}' {what}")
             # `written` counts files on disk once: a rewritten
             # sibling joins it, a removed one leaves it.
@@ -201,6 +213,14 @@ def write_slice(
                     order.remove(stale)
                 sibling += 1
             resolved.append(target)
+            if heading != target:
+                evidence_head = (claim.get("evidence") or ["?"])[0][:12]
+                run.replacements.append((f"{role}/{klass}:{topic or flat_topic or claim['topic']}#{heading}@{evidence_head}", path, target))
+            if replaced_text is not None and section_key(replaced_text) != section_key(claim_block(claim).split("\n", 1)[1].strip()):
+                # Substituted like applied_corrections' headings: the report is committed, and a carried heading may predate a pattern.
+                run.replaced_sections.append({"home": report_home(run, None if role == "shared" else role, klass),
+                                              "heading": hygiene_substitute(target, "replaced section heading", patterns_for(klass))[0],
+                                              "key": section_key(replaced_text)})
         base_heading = heading
         rendered = claim_block(claim).split("\n", 1)[1].strip()
         if not authorised and heading in blocks and undated(blocks[heading]) != undated(rendered):
@@ -264,6 +284,13 @@ def write_slice(
         # own description named a section that is gone.
         description = clip_description(run, order[0], path)
         meta["description"] = description
+    elif cue is not None and order and cue not in order:
+        # THE CUE FOLLOWS THE SECTION THAT STANDS. The description is the heading of the first claim of the group, and
+        # a merge can leave that heading nowhere in the file: in a project's drain of 2026-10-28 (j481) a later claim
+        # overwrote the first one's section, and the description and the INDEX cue still named a heading the file did
+        # not hold. Only a description taken from a heading is tested; a slice whose heading stands keeps its cue.
+        description = clip_description(run, order[0], path)
+        meta["description"] = description
 
     # SCOPE UNIONS WITH WHAT IS CARRIED, and `full` wins.
     #
@@ -304,7 +331,7 @@ def write_slice(
         meta["collisions"] = sorted(outstanding)
 
     # A heading the slice had and no longer has (retired, retitled, replaced) takes its recorded writer with it.
-    run.section_writers_gone.extend(f"{in_report(run, path)}#{h}" for h in previous_sections if h not in blocks)
+    retire_writers(run, [f"{in_report(run, path)}#{h}" for h in previous_sections if h not in blocks])
     body = "\n\n".join(f"## {h}\n\n{blocks[h]}" for h in order) + "\n"
     # Carried text (a slice written before a pattern existed) is
     # substituted the same way, and named.
@@ -445,6 +472,15 @@ def described(path: str, fallback: str) -> str:
     return description
 
 
+def retire_writers(run: Run, keys: list[str]) -> None:
+    """The recorded writers of sections that left a slice. `section_writers_gone` strikes the previous report's keys only,
+    so a key this run recorded itself (the section was written into a part, then retired from it by a correction later in
+    the same drain) is dropped here, or the report merge would bring it back."""
+    run.section_writers_gone.extend(keys)
+    for key in keys:
+        run.section_writers.pop(key, None)
+
+
 def drop_carried_copies(run: Run, role: str, klass: str, directory: str, topic: str) -> None:
     """A section standing both in the topic's own file and, word for
     word, in a carried file — or in the flat class file this run moved in
@@ -471,6 +507,7 @@ def drop_carried_copies(run: Run, role: str, klass: str, directory: str, topic: 
         what = remove_sections(path, copies, copies, functools.partial(clip_description, run))
         rel = f"{CLASS_FILES[klass]}/{name}"
         for h in copies:
+            retire_writers(run, [f"{in_report(run, path)}#{h}"])
             run.migrated.append(f"{role}/{klass}: {h!r} dropped from {rel}, it stands in {CLASS_FILES[klass]}/{topic}.md")
         if what == "removed":
             run.migrated.append(f"{role}/{klass}: {rel} removed, no section left")
@@ -500,7 +537,8 @@ def write_shared(run: Run) -> None:
                 (group[0].get("title") if group else None)
                 or f"{topic.replace('-', ' ')} ({klass})",
                 os.path.join(shared_dir, filename))
-            written = write_slice(run, shared_dir, filename, "shared", klass, group, description, owners, topic=topic)
+            written = write_slice(run, shared_dir, filename, "shared", klass, group, description, owners, topic=topic,
+                                  cue=claim_heading(group[0]) if group and group[0].get("title") else None)
             if written is None:
                 continue          # every section of it was retired: nothing to list
             for owner in owners:
@@ -536,8 +574,8 @@ def write_role(run: Run, role: str) -> None:
         # `<class>.md` left beside `<class>/` is unreachable knowledge,
         # and its size was being counted as carried text for whatever
         # topic came first — which produced an empty "part one" with no
-        # provenance. The flat file may hold several topics' sections
-        # (the crossref says which), so it is not split: it moves whole,
+        # provenance. An older flat file may hold several topics'
+        # sections (the crossref says which), so it is not split: it moves whole,
         # named for the one topic when there is one, else as the carried
         # file of its class, and its description keeps it findable.
         flat = os.path.join(base, f"{CLASS_FILES[klass]}.md")
@@ -546,6 +584,9 @@ def write_role(run: Run, role: str) -> None:
             os.makedirs(os.path.join(base, CLASS_FILES[klass]), exist_ok=True)
             os.replace(flat, os.path.join(base, CLASS_FILES[klass], name))
             run.migrated.append(f"{role}/{klass}: {CLASS_FILES[klass]}.md -> {CLASS_FILES[klass]}/{name}")
+            # The writers recorded under the old path would otherwise be dropped by the report merge (it keeps a writer
+            # only while its path exists), and a stale-hard flag on an untouched section would route to no one.
+            run.section_moves[in_report(run, flat)] = in_report(run, os.path.join(base, CLASS_FILES[klass], name))
             # Moved now, so stamped now; named for one topic, it is that
             # topic's file and says so.
             restamp(os.path.join(base, CLASS_FILES[klass], name), run.args.stamp,
@@ -593,7 +634,9 @@ def write_role(run: Run, role: str) -> None:
                     (group[0].get("title") if group else None)
                     or f"{topic.replace('-', ' ')} ({klass})",
                     os.path.join(directory, filename))
+                cue = claim_heading(group[0]) if group and group[0].get("title") else None
                 if is_carried(klass, topic) and os.path.exists(os.path.join(directory, filename)):
+                    cue = None   # the carried file's cue is not a claim's heading
                     # The carried file's cue is the one it moved with:
                     # it names several topics, never one claim's title —
                     # unless a correction retitles its only section, when
@@ -603,8 +646,15 @@ def write_role(run: Run, role: str) -> None:
                                and (c.get("merge_target") or "").strip() in sections]
                     description = clip_description(run, claim_heading(retitle[0]), os.path.join(directory, filename)) \
                         if retitle else described(os.path.join(directory, filename), description)
+                flat_path = os.path.join(directory, filename)
+                # Recorded in a flat file this run creates or that already records it; an older flat file may hold
+                # several topics and is not claimed for one.
+                records = directory == base and not is_carried(klass, topic) and (
+                    not os.path.exists(flat_path) or read_existing_slice(flat_path)[0].get("topic") == topic)
                 written = write_slice(run, directory, filename, role, klass, group, description,
-                                      topic=topic if directory != base else None)
+                                      topic=topic if directory != base else None,
+                                      flat_topic=topic if records else None,
+                                      cue=cue)
                 if written is None:
                     continue      # every section of it was retired: nothing to list
                 run.index_entries[role].append(

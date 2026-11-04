@@ -9,6 +9,7 @@ from typing import Any
 
 from .base import FRONTMATTER_RE, layout
 from .docs import hygiene_findings, parse_frontmatter
+from .hidden import hidden_unicode
 from .prompts import (
     CHARS_PER_TOKEN,
     LOCALE_DIRNAME,
@@ -379,16 +380,6 @@ def _i18n_key_re() -> "tuple[re.Pattern[str] | None, str | None]":
 # SPEC reference, the tool's own tag, and the word a reader types after
 # --replay. Kept separate so a prompt translation is judged by the rules
 # it was written under and gains no new finding from this.
-# Every C0 (LF and TAB included), DEL, the C1 block a terminal reads as
-# escape introducers, the two Unicode line separators, and the bidi
-# overrides and isolates. LF is the one that matters most: a value
-# carrying one prints a second line into the reading session's context,
-# indistinguishable from a line the tool itself wrote (re-review Finding
-# 1). Every line the tools print is one line; nothing in the corpus needs
-# an exemption.
-I18N_CONTROL_RE = re.compile("[\x00-\x1f\x7f-\x9f\u2028\u2029\u202a-\u202e\u2066-\u2069]")
-
-
 I18N_EXTRA_PATTERNS: tuple[tuple[str, "re.Pattern[str]"], ...] = (
     ("long flag", re.compile(r"(?<!\S)--[a-z][a-z0-9-]*")),
     ("protocol marker", re.compile(r"\bGZCOORD/\d+\b")),
@@ -396,6 +387,19 @@ I18N_EXTRA_PATTERNS: tuple[tuple[str, "re.Pattern[str]"], ...] = (
     ("wire word", re.compile(r"\b(?:gzcoord|seq)\b")),
     ("env file", re.compile(r"\b[a-z][\w-]*\.env\b")),
 )
+
+
+def _control_in_value(value: str) -> str | None:
+    """The first thing in a dictionary value that must not reach a session's context, as `U+XXXX NAME`; None when clean.
+    hidden_unicode.py is the definition of what a value may not hide; a value is one line, so TAB and LF, which the scanner
+    allows as a text's layout, are refused here on top. LF is the one that matters most: a value carrying one prints a
+    second line into the reading session's context, indistinguishable from a line the tool itself wrote (re-review Finding
+    1). Nothing in the corpus needs an exemption. A BOM is refused too: a value has no file signature."""
+    for ch, label in (("\n", "U+000A LINE FEED"), ("\t", "U+0009 CHARACTER TABULATION")):
+        if ch in value:
+            return label
+    found = hidden_unicode.scan(value, allow_bom=False)
+    return f"U+{found[0].codepoint:04X} {found[0].name}" if found else None
 
 
 def i18n_default_dictionary_findings() -> list[str]:
@@ -430,8 +434,8 @@ def i18n_default_dictionary_findings() -> list[str]:
             out.append(f"{I18N_DEFAULT_REL}: key {key!r} is not a dotted slug")
         if not isinstance(default[key], str) or not default[key]:
             out.append(f"{I18N_DEFAULT_REL}: {key} is {default[key]!r} — a value is a non-empty string")
-        elif I18N_CONTROL_RE.search(default[key]):
-            out.append(f"{I18N_DEFAULT_REL}: {key} carries a control character — a line is printed into a session's context")
+        elif (bad := _control_in_value(default[key])):
+            out.append(f"{I18N_DEFAULT_REL}: {key} carries a control character ({bad}) — a line is printed into a session's context")
     return out
 
 
@@ -495,8 +499,8 @@ def i18n_dictionary_findings(role: str, role_path: str) -> list[str]:
             if not isinstance(value, str) or not value:
                 out.append(f"{rel}: {key} is {value!r} — a value is a non-empty string")
                 continue
-            if I18N_CONTROL_RE.search(value):
-                out.append(f"{rel}: {key} carries a control character — a line is printed into a session's context")
+            if (bad := _control_in_value(value)):
+                out.append(f"{rel}: {key} carries a control character ({bad}) — a line is printed into a session's context")
             out += protected_token_findings(rel, default[key], value, extra=I18N_EXTRA_PATTERNS)
         values = [v for v in data.values() if isinstance(v, str)]
         if values and not any(_is_mostly_non_latin(v) for v in values):

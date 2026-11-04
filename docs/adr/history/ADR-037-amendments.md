@@ -44,3 +44,59 @@ The prompt audit of 2026-10-14 (j45) found the record still saying the request i
 ### Amendment 2026-10-16 — A delivered job whose evidence landed is swept to done
 
 The owner, 2026-10-16, reading devex-tooling's tab in the fleet deck, took its job count for open work: it held 67 delivered jobs against 1 active and 3 queued, and the fleet held 387. `switch` reads a delivered job's evidence once, when its agent leaves it; a supplier's work that merged later, inside the caller's pull request, stayed delivered for good. Delivered stays open (a hand-over waits on someone else), and rule 12 makes it mean only that: `fabric-jobs sweep` (#282, python-dev-02) applies `done`'s test again and closes what has landed, and the control agent runs it hourly because a supplier's session may never start again to do it. The deck's count shows delivered apart from active and queued (FleetDeck, rust-ui-dev-02).
+
+### Amendment 2026-10-18 — Work that leaves no artifact closes with a reason
+
+Rule 10's `done` test accepted only a merged pull request or a commit on the default branch, and `drop` refuses a closed job, so a job whose work lands nothing in a repository could be closed but never left: three agents (edge-hosting, rust-services-dev-02, flutter-dev-02) hit it the same day, after a coordinator broadcast asked each to record its disk cleanup as a job. Such work now closes with `fabric-jobs done <id> --no-artifact "<what was done>"`: the reason is required, recorded on the job and shown, and `switch` accepts it as that job's evidence; the same command settles a job already closed done without evidence. A reason never stands in for evidence the job does have: an open pull request or an unfolded branch still refuses (agent-fabric #299).
+
+### Amendment 2026-10-20 — A session works one job's working copy
+
+The owner reported it through architect-cto-01 on 2026-10-20. A session launched for an InterWeave job closed that job and then took a gzapp question that expected a reply. It changed into its gzapp checkout and committed there (gzapp 9fbb51030) without running `fabric-jobs switch`. Its own reasoning named rule 3 and carried on. Prose had not held, so rule 3 gets a fence.
+
+The fence is a PreToolUse hook on Bash. It runs session-side because the fact it needs, which job this session worked, lives in the job log under the harness session id, and CI never sees that. The hook refuses a command that commits or publishes (git commit, push, merge, rebase, cherry-pick or am; a pull request opened or merged) when it acts in a directory outside the session's job copies. When the session's job has left `active`, it refuses every such command.
+
+Reads in other copies stay allowed, because diagnosing anywhere is every role's right. A session with no job is left alone, which covers the owner's own sessions. The hook reads directories by over-reporting: any `cd`, `pushd` or `git -C` target outside the copies, or one it cannot resolve, counts as outside. A false refusal costs a rephrase; a false allowance is the incident.
+
+The inbox path needs no change. Intake already queues a delivered REQUEST as a job (rule 11), and this fence is what stops the session acting on it in place. When the hook cannot read the job list or the tree, it asks rather than allows.
+
+### Amendment 2026-10-21 — Leaving a job cleans its build output
+
+/home on the fleet's host filled twice between 2026-10-20 and 2026-10-21. The first time it reached 98%, and other logins' runs failed with ENOSPC. The second time the owner added 100G. `fabric-ctl all disk` put almost all of it in cargo `target` directories of 60 to 75G each, one per job worktree, left behind after the job moved on. Asked by message, the agents freed about 270G the first time, and three of the directories were back within hours.
+
+The owner approved cleaning on leaving a job: `fabric-jobs switch` is to remove the old job's worktree targets once the job is settled, whatever the outcome. python-dev-03 builds it (its j75); this record was written before the code landed.
+
+One shared target directory per login was proposed and withdrawn before anything was built. InterWeave binaries bake in `CARGO_MANIFEST_DIR`, and cargo does not rebuild for another worktree with the same sources. A shared target therefore runs binaries that point at the first worktree's paths, which failed all of xtask's checks once on 2026-10-07 (rust-ui-dev's slice shared-target-worktree). How large a project's builds are is the project's own decision (InterWeave: architect-cto, asked 2026-10-21).
+
+### Amendment 2026-10-30 — A fleet hold the job tool enforces
+
+On 2026-10-28 the owner asked for an orderly pause of the fabric: each agent was to finish its current job and then neither start a new one nor unpause one. The fabric had no instrument for that. `fabric-pause` stops sessions instead of letting them finish, and `fabric-jobs switch` always starts the next job. The hold was therefore carried in prose: a broadcast DECISION (01a182e0) told every agent to stop after its active job, and a second DECISION (01a18b15) lifted it on 2026-10-30. Messages are advisory (ADR-024), and a session launched after the broadcast that missed it would have taken its next job. The tool that starts jobs never knew a hold existed. The owner approved a switch on 2026-10-28, the day the hold was set.
+
+Rule 13 puts the hold where jobs start. The control plane sets it on each account, because that is the operator's path to every login and it already carries signed actions such as `jobs-add`. The control agent writes the hold into the login's own state, so `switch` reads a local file and needs no network. A held `switch` still settles the job being left: getting each agent to a settled job is the purpose of the hold, and refusing the whole switch would leave that job unsettled. A hold still queues new work, so a REQUEST that arrives during it is not lost and is answered as held.
+
+Rejected: one fleet-wide hold kept by the coordinator's control agent and queried on every `switch`, as the role pool is (rule 9). An unreachable coordinator would then force a choice between failing open, which loses the hold, and failing closed, which holds the whole fleet when nobody set a hold. A per-account file has neither problem. Its cost, an account missed while its control agent was down, is reported by `fabric-ctl` and fixed by setting the hold again.
+
+### Amendment 2026-10-30 — While held, every start refuses
+
+Rule 13 as first written named only the starts of a queued, paused or blocked job. python-dev-02 built it that way in #431 and reported two paths still open while a hold is set (REPLY 01a18d6e, point 1): `fabric-jobs start` of a delivered job, and `fabric-jobs import` of a list holding an active job.
+
+`start` on a delivered job reopens work the agent had handed off and makes it the active job. That is a new job taken during the hold, and the hold exists to stop exactly that. So every `start` refuses while held, whatever the job's state. The rule now says "any job" instead of listing states, so a state added later is covered without another amendment.
+
+`import` stays allowed. It fills an empty list only, keeping every id, and it moves a login's list from one placement to another. A job that arrives active was taken before the move and is not chosen again by it. Refusing the import would leave the login with no list at all, and that loses more than the hold protects.
+
+### Amendment 2026-10-31 — A clock blocker
+
+On 2026-10-30 a job of the coordinator waited on a time: InterWeave's rollback drill at 17:00Z (j401). No blocker form named a time. `switch` refuses a job blocked on free text, and `pause` is undone by the next `switch`, so the job could be parked neither way, and the session waited on it for about twelve hours (j459).
+
+`clock:<YYYY-MM-DDTHH:MM[:SS]Z>` is the fourth checkable blocker. It is UTC with the trailing Z, because an offset or a local time would read differently on another host; `block` refuses one already past, since a time gone by is no wait. It reads nothing but the clock, so it is never unknown and is evaluated on every look, `--stored` and `--cached` included: the ten-minute re-check would otherwise delay a job past its time, and the control plane would see it clear late. An imported job may carry a past one, and it reads cleared. python-dev-04 built it in #439 (its j76); this note follows the merge.
+
+### Amendment 2026-10-31 — Cleaning a left job's targets is built
+
+Rule 10 step 1 still said that removing the left job's cargo targets was decided and not yet built, and told the agent to remove them by hand. python-dev-03 built it in #350 (its j75), merged on 2026-10-21, the day the step was decided: `fabric-jobs switch` and `next` call `clean_targets` (tools/fabric/jobsparts/leave_targets.py, whose docstring is the contract) once the old job is settled, and `--keep-targets` skips it. The review of #429 (round 1) found the stale sentence. The rule now reads as built and drops the by-hand fallback; nothing it decides changes.
+
+### Amendment 2026-10-31 — In place only from inside the job's copy
+
+On 2026-10-26 backend-dev-02 reported (OBSERVATION, relay seq 574769) a session that `fabric-jobs switch` told to "continue here" and that then could commit nothing. The session had worked no job, so rule 3 took the job in place; it stood in another checkout than the job's, so the job copy guard (A 2026-10-20) refused every commit it tried. The two halves of rule 3 disagreed: the first asked only whether the session had worked a job, the second where it stands. The guard is right. A session in another directory acts on another tree, and changing directory inside a session does not move the hooks, settings and instruction files it was launched with. On 2026-10-31 python-dev-01 (OBSERVATION 01a18f90) found the agent-jobs skill still saying "continue here" without the condition, read on origin/main.
+
+`switch` now asks the guard's own question before it answers in place. It reads where the session stands, as the guard does: the real path of the directory's git toplevel, or the directory itself outside a checkout. It answers in place only when that is the job's working copy or worktree, or under one. Standing elsewhere it answers fresh with the reason `outside_copy`, naming the place and the copies. Where it cannot tell (git silent, the directory gone) it answers fresh with `place_unreadable`. A wrong fresh costs one launch; a wrong in-place leaves a session that cannot commit. A job that records neither copy keeps the in-place answer, since the guard asks there rather than refuses. python-dev-01 built it in #438 (its j194, REQUEST 01a18e24).
+
+Rejected: having `switch` change into the job's copy and continue. The session's cwd belongs to the harness, and a session moved into another copy keeps the hooks and instructions of the one it was launched in, which is why the guard reads the session's own place.

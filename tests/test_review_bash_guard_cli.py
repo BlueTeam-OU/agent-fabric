@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""The oracle for the review class's Bash fence: runtime/claude-code/hooks/
-review-bash-guard.sh (the shim) and review-bash-guard.py beside it, the fence
-around the review class, which runs unisolated in the session clone.
+"""The oracle for the Bash fence of the classes subagent-clone-guard runs unisolated
+in the session clone: runtime/claude-code/hooks/review-bash-guard.sh (the shim) and
+review-bash-guard.py beside it.
 
 Two things held still: state-changing git, installs and printing the
 environment or secret material are DENIED however they are spelled (leading
@@ -21,10 +21,17 @@ The hook under test is $REVIEW_BASH_GUARD, default the shim.
 Exit codes: 0 all assertions passed, 1 one or more failed."""
 from __future__ import annotations
 
+import importlib.util
 import json
 import os
+import resource
+import shutil
+import signal
 import subprocess
 import sys
+import tempfile
+import threading
+import time
 
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 UNDER_TEST = os.path.abspath(os.environ.get("REVIEW_BASH_GUARD") or os.path.join(
@@ -55,9 +62,14 @@ def base_env(**extra: str) -> dict[str, str]:
     return env
 
 
+# Only a guard against a hang: a hook takes well under a second of CPU, and a host loaded a hundredfold stretches that
+# past a minute, which says nothing of the hook.
+HANG_S = 300
+
+
 def run(payload: str, **extra: str) -> subprocess.CompletedProcess:
     return subprocess.run(["bash", UNDER_TEST], input=payload, capture_output=True, text=True,
-                          env=base_env(**extra), timeout=60)
+                          env=base_env(**extra), timeout=HANG_S)
 
 
 def decision(command: str, **extra: str) -> str:
@@ -98,6 +110,79 @@ def table() -> None:
             expect(label, c["want"], c["command"])
 
 
+GUARD_PY = os.path.join(os.path.dirname(UNDER_TEST), "review-bash-guard.py")
+# What a crafted command may cost the verdict, in CPU seconds: the heaviest shape below takes ~0.16 s, and the
+# backtracking this guards against took minutes. CPU time, never wall: the guard itself judges in a child under a 3 s
+# wall budget and answers "slow" (a deny, by design) when the host starves that child, so a wall bound here, or an
+# allow expected of the shim under load, fails on the host's load and says nothing of the patterns.
+VERDICT_CPU_S = 1.0
+# And a ceiling the kernel enforces on the child that measures it, so a pattern that backtracks without end fails in
+# seconds instead of stalling the suite (the run has no bound of its own); whole seconds, as RLIMIT_CPU is. SIGXCPU
+# ends it at the soft limit; the hard one is a margin above, as equal limits end it by SIGKILL instead.
+VERDICT_CEILING_S = 5
+# Run in the interpreter the hook ships with (the shim's own choice), so the budget is measured on its regex engine.
+MEASURE = """
+import importlib.util, json, resource, sys, time
+resource.setrlimit(resource.RLIMIT_CPU, (%d, %d))
+spec = importlib.util.spec_from_file_location("review_bash_guard_under_test", sys.argv[1])
+mod = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(mod)
+command = sys.stdin.read()
+start = time.process_time()
+got = mod.verdict(command)
+print(json.dumps({"verdict": got, "cpu": time.process_time() - start}))
+""" % (VERDICT_CEILING_S, VERDICT_CEILING_S + 5)
+
+
+def hook_python() -> str:
+    py = os.environ.get("AGENT_FABRIC_PYTHON") or "/usr/local/bin/fabric-python"
+    return py if os.access(py, os.X_OK) else sys.executable
+
+
+def verdict_cpu(command: str, guard: str = GUARD_PY) -> tuple[str | None, float] | str:
+    """(verdict, CPU seconds it took) as the hook's interpreter measured them, or why there is none."""
+    try:
+        r = subprocess.run([hook_python(), "-c", MEASURE, guard], input=command, capture_output=True, text=True,
+                           env=base_env(), timeout=HANG_S)
+    except subprocess.TimeoutExpired:
+        return f"no answer within {HANG_S} s"
+    if r.returncode == -signal.SIGXCPU:     # the ceiling above
+        return f"ran past {VERDICT_CEILING_S} CPU s and was stopped"
+    try:
+        said = json.loads(r.stdout)
+        return said["verdict"], said["cpu"]
+    except (ValueError, KeyError, TypeError):
+        return f"no measurement (rc {r.returncode}): {r.stderr.strip()[-200:]}"
+
+
+def within_budget(got) -> bool:
+    return isinstance(got, tuple) and got[0] is None and got[1] <= VERDICT_CPU_S
+
+
+def guard_reasons() -> dict[str, str]:
+    """The guard's own reason text -> its key (slow is its late-verdict deny, error a crash)."""
+    spec = importlib.util.spec_from_file_location("review_bash_guard_reasons", GUARD_PY)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return {text: key for key, text in mod.REASONS.items()}
+
+
+def judgement_of(stdout: str, reasons: dict[str, str]) -> str:
+    """allow; deny:<the guard's reason key>; or malformed."""
+    try:
+        out = json.loads(stdout)["hookSpecificOutput"]
+    except (ValueError, KeyError, TypeError):
+        return "allow" if not stdout.strip() else "malformed"
+    if out.get("permissionDecision") == "deny":
+        return "deny:" + reasons.get(out.get("permissionDecisionReason"), "unknown reason")
+    return "allow" if isinstance(out.get("updatedInput"), dict) else "malformed"
+
+
+def shim_judgement(command: str, **extra: str) -> str:
+    r = run(json.dumps({"tool_name": "Bash", "tool_input": {"command": command}, "agent_type": "code-review"}), **extra)
+    return judgement_of(r.stdout, guard_reasons())
+
+
 def in_time() -> None:
     # Python's re backtracks where grep did not, and a hook past its timeout
     # does not refuse: each shape below once ran for minutes (CodeQL on #96,
@@ -113,7 +198,156 @@ def in_time() -> None:
         "git --attr-source repeated 3000 times, then text": "git" + " --attr-source" * 3000 + "!",
     }
     for label, command in shapes.items():
-        expect(f"allowed in time: {label}", "allow", command)
+        got = verdict_cpu(command)
+        check(f"judged within {VERDICT_CPU_S} CPU s, and allowed: {label}", within_budget(got), f"{got!r}")
+    # The measure can fail: stand-in guards that are quick, slow, and without end, each a verdict() and nothing else.
+    with tempfile.TemporaryDirectory() as tmp:
+        def stand_in(name: str, body: str) -> str:
+            path = os.path.join(tmp, name + ".py")
+            with open(path, "w", encoding="utf-8") as fh:
+                fh.write("import time\ndef verdict(cmd):\n" + body)
+            return path
+        quick = verdict_cpu("x", stand_in("quick", "    return None\n"))
+        # The clock control, on the measure itself: process time counts CPU and not waiting, which is what lets a loaded
+        # host leave the verdict alone. A verdict that waits half a second costs none; the burning one below costs it.
+        waits = verdict_cpu("x", stand_in("waits", "    time.sleep(0.5)\n    return None\n"))
+        slow = verdict_cpu("x", stand_in("slow", "    end = time.process_time() + 1.6\n    while time.process_time() < end: pass\n    return None\n"))
+        endless = verdict_cpu("x", stand_in("endless", "    while True: pass\n"))
+        check("positive control: a verdict that returns at once is within the budget", within_budget(quick), f"{quick!r}")
+        check("the measure counts CPU and not waiting: a verdict that sleeps 0.5 s costs under 0.2 CPU s",
+              isinstance(waits, tuple) and waits[0] is None and waits[1] < 0.2, f"{waits!r}")
+        check("…and one that burns 1.6 CPU s is counted as that, past the budget though it ends",
+              isinstance(slow, tuple) and slow[1] >= 1.5 and not within_budget(slow), f"{slow!r}")
+        check("a verdict without end is stopped at the CPU ceiling and said so, not waited for",
+              isinstance(endless, str) and "was stopped" in endless and not within_budget(endless), f"{endless!r}")
+    # Through the shim, as the harness runs it: the verdict or the guard's own late-verdict deny, never another answer.
+    for label, command in shapes.items():
+        got = shim_judgement(command)
+        check(f"through the shim, allowed or denied for being late and never otherwise: {label}", got in ("allow", "deny:slow"), got)
+    got = verdict_cpu("git commit -m x")
+    check("positive control: the verdict of a command a rule denies is that rule's, by the measuring child as well",
+          isinstance(got, tuple) and got[0] == "git", f"{got!r}")
+    got = shim_judgement("git commit -m x")
+    check("positive control: through the shim that command is the rule's deny, or the late one, and never a crash or an allow",
+          got in ("deny:git", "deny:slow"), got)
+    got = shim_judgement("ls")
+    check("positive control: a plain command is allowed (or late) too", got in ("allow", "deny:slow"), got)
+    # What cannot depend on the load: the reading of an answer, and the late deny a budget of zero always produces.
+    reasons = guard_reasons()
+    deny = lambda key: json.dumps({"hookSpecificOutput": {"permissionDecision": "deny", "permissionDecisionReason": key}})  # noqa: E731
+    texts = {key: text for text, key in reasons.items()}
+    read = [judgement_of(deny(texts["git"]), reasons), judgement_of(deny(texts["slow"]), reasons), judgement_of(deny(texts["error"]), reasons),
+            judgement_of(deny("something else"), reasons), judgement_of(json.dumps({"hookSpecificOutput": {"updatedInput": {}}}), reasons),
+            judgement_of("", reasons)]
+    check("the reading of an answer: a rule's deny, the late deny, a crash, an unknown text, an allow and no answer",
+          read == ["deny:git", "deny:slow", "deny:error", "deny:unknown reason", "allow", "allow"], f"{read!r}")
+    got = shim_judgement("ls", AGENT_FABRIC_REVIEW_GUARD_BUDGET="0")
+    check("a budget of zero is the late deny, through the shim", got == "deny:slow", got)
+
+
+def budget() -> None:
+    # judged() forks, so a stand-in verdict set on the loaded module is what the child runs; no shim, no load on the
+    # outcome beyond the stand-in's own behaviour.
+    print("the verdict's budget is the child's CPU time under a wall ceiling: a starved child is judged, a spinning one is late")
+    spec = importlib.util.spec_from_file_location("review_bash_guard_budget", GUARD_PY)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    real = mod.verdict
+    pidfile = os.path.join(tempfile.mkdtemp(prefix="guard-budget-"), "pid")
+
+    def fresh(cmd: str) -> str | None:
+        # The ceiling counts from the module's start; a test that wants the verdict judged on its own terms starts the clock.
+        mod.STARTED = time.monotonic()
+        return mod.judged(cmd)
+
+    def starve() -> None:
+        # Stop the verdict child for longer than the old 3 s wall budget, then let it go on.
+        for _ in range(500):
+            if os.path.exists(pidfile) and os.path.getsize(pidfile):
+                break
+            time.sleep(0.01)
+        pid = int(open(pidfile).read())
+        os.kill(pid, signal.SIGSTOP)
+        time.sleep(3.5)
+        os.kill(pid, signal.SIGCONT)
+
+    def waits_a_while(cmd: str) -> None:
+        with open(pidfile, "w") as fh:
+            fh.write(str(os.getpid()))
+        time.sleep(0.5)
+        return None
+
+    def spins(cmd: str) -> None:
+        end = time.process_time() + 3.6
+        while time.process_time() < end:
+            pass
+        return None
+
+    def reports_limit(cmd: str) -> str | None:
+        return "git" if resource.getrlimit(resource.RLIMIT_CPU) == (3, 3) else "install"
+
+    def killed(cmd: str) -> None:
+        os.kill(os.getpid(), signal.SIGKILL)
+
+    def stuck(cmd: str) -> None:
+        time.sleep(30)
+
+    try:
+        mod.verdict = waits_a_while
+        helper = threading.Thread(target=starve)
+        helper.start()
+        started = time.monotonic()
+        got = fresh("x")
+        helper.join()
+        check("a verdict child stopped for 3.5 s of wall (starved) is still judged, not denied as slow",
+              got is None and time.monotonic() - started >= 3.5, f"{got!r} after {time.monotonic() - started:.1f} s")
+        mod.verdict = spins
+        # Under host load 3 s of CPU takes more than the 8 s ceiling of wall, and "slow" would then come from the ceiling,
+        # not the CPU budget. A ceiling no load reaches leaves the CPU budget as the only way to "slow": without it the
+        # spinner ends at 3.6 s of CPU and answers None.
+        ceiling = mod.BUDGET_S
+        mod.BUDGET_S = 120.0
+        try:
+            started = time.monotonic()
+            got = fresh("x")
+            took = time.monotonic() - started
+        finally:
+            mod.BUDGET_S = ceiling
+        check("a verdict that spins on CPU past 3 s is denied as slow by the CPU budget, not the wall ceiling",
+              got == "slow" and took < 120.0, f"{got!r} after {took:.1f} s")
+        mod.verdict = reports_limit
+        check("the child runs the verdict under RLIMIT_CPU (3, 3)", fresh("x") == "git", "limit not set in the child")
+        mod.verdict = killed
+        check("a child killed by another signal answers nothing and is an error, never an allow", fresh("x") == "error")
+        mod.verdict = lambda cmd: 1 / 0
+        check("a verdict that raises is an error", fresh("x") == "error")
+        mod.verdict = stuck
+        os.environ["AGENT_FABRIC_REVIEW_GUARD_BUDGET"] = "0.5"
+        started = time.monotonic()
+        got = fresh("x")
+        check("a child that answers nothing within the (shortened) wall ceiling is slow",
+              got == "slow" and time.monotonic() - started < 3, f"{got!r}")
+        os.environ["AGENT_FABRIC_REVIEW_GUARD_BUDGET"] = "100"
+        mod.verdict = real
+        check("the environment's longer budget leaves the ceiling (positive control: the real verdict is allowed)",
+              mod.BUDGET_S == 8.0 and fresh("ls") is None)
+        mod.verdict = stuck
+        started = time.monotonic()
+        got = fresh("x")
+        check("the environment cannot lengthen the ceiling: a 30 s verdict under a budget of 100 is slow in under 9 s",
+              got == "slow" and time.monotonic() - started < 9, f"{got!r} after {time.monotonic() - started:.1f} s")
+        os.environ.pop("AGENT_FABRIC_REVIEW_GUARD_BUDGET")
+        mod.STARTED = time.monotonic() - 7.0
+        started = time.monotonic()
+        got = mod.judged("x")
+        check("the ceiling counts from the module's start: 7 s spent before judged() leaves the child about 1 s",
+              got == "slow" and time.monotonic() - started < 2, f"{got!r} after {time.monotonic() - started:.1f} s")
+        mod.STARTED = time.monotonic() - 9.0
+        check("a start more than the ceiling ago is slow without a fork", mod.judged("ls") == "slow")
+    finally:
+        os.environ.pop("AGENT_FABRIC_REVIEW_GUARD_BUDGET", None)
+        mod.verdict = real
+        shutil.rmtree(os.path.dirname(pidfile), ignore_errors=True)
 
 
 def clean_environment() -> None:
@@ -134,7 +368,7 @@ def clean_environment() -> None:
                  "LANG": "C.UTF-8", "PLANTED_GH_TOKEN": "planted", "PLANTED_SIGNING_KEY": "planted",
                  "SOME_UNLISTED": "x"}
     r = subprocess.run(["bash", "-c", got["command"]], capture_output=True, text=True, env=shell_env,
-                       cwd=HERE, timeout=60)
+                       cwd=HERE, timeout=HANG_S)
     names = set(r.stdout.split())
     check("…a planted secret-shaped variable never reaches the command",
           r.returncode == 0 and not names & {"PLANTED_GH_TOKEN", "PLANTED_SIGNING_KEY"}, f"rc={r.returncode} {sorted(names)}")
@@ -142,16 +376,16 @@ def clean_environment() -> None:
           "SOME_UNLISTED" not in names and {"PATH", "HOME", "LANG"} <= names, str(sorted(names)))
     check("…and an unset listed one stays unset (TZ is not set to empty)", "TZ" not in names, str(sorted(names)))
     marked = subprocess.run(["bash", "-c", got["command"]], capture_output=True, text=True,
-                            env={**shell_env, "CLAUDECODE": "1", "AGENT_FABRIC_LAUNCH_PROFILE": "p"}, cwd=HERE, timeout=60)
+                            env={**shell_env, "CLAUDECODE": "1", "AGENT_FABRIC_LAUNCH_PROFILE": "p"}, cwd=HERE, timeout=HANG_S)
     check("…and the session markers stay, so a tool still refuses inside a model session",
           {"CLAUDECODE", "AGENT_FABRIC_LAUNCH_PROFILE"} <= set(marked.stdout.split()), marked.stdout)
     got = rewritten({"command": "exit 3"})
-    r = subprocess.run(["bash", "-c", got["command"]], capture_output=True, text=True, env=shell_env, timeout=60)
+    r = subprocess.run(["bash", "-c", got["command"]], capture_output=True, text=True, env=shell_env, timeout=HANG_S)
     check("…its exit status is the command's", r.returncode == 3, f"rc={r.returncode}")
     quoted = """printf '%s|' "it's" 'a$b' "$((1+2))" '"q"'"""
     got = rewritten({"command": quoted})
-    direct = subprocess.run(["bash", "-c", quoted], capture_output=True, text=True, env=shell_env, timeout=60)
-    r = subprocess.run(["bash", "-c", got["command"]], capture_output=True, text=True, env=shell_env, timeout=60)
+    direct = subprocess.run(["bash", "-c", quoted], capture_output=True, text=True, env=shell_env, timeout=HANG_S)
+    r = subprocess.run(["bash", "-c", got["command"]], capture_output=True, text=True, env=shell_env, timeout=HANG_S)
     check("…and its quoting survives the rewrite", r.stdout == direct.stdout and r.stdout != "",
           f"direct=[{direct.stdout}] wrapped=[{r.stdout}]")
 
@@ -174,6 +408,7 @@ def fails_closed() -> None:
 def main() -> int:
     table()
     in_time()
+    budget()
     clean_environment()
     fails_closed()
     print()

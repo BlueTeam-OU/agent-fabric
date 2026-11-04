@@ -238,6 +238,24 @@ def cmd_note(revs: list[str], env: dict[str, str]) -> int:
     return worst
 
 
+def signing_subkey(primary: str, env: dict[str, str]) -> str:
+    """The fingerprint of the one usable Ed25519 signing subkey of `primary` (ADR-038 rule 1);
+    the roster commands sign with it too, so one rule picks the key."""
+    gpg = _program(env, "FABRIC_SIGN_GPG", "gpg")
+    listing = _checked([gpg, "--batch", "--with-colons", "--list-keys", primary], env, f"gpg --list-keys {primary}")
+    subs, capture = [], None
+    for line in listing.splitlines():
+        f = line.split(":")
+        if f[0] == "sub":
+            capture = f if f[3] == "22" and "s" in f[11] and f[1] not in ("r", "e", "i", "d") else None
+        elif f[0] == "fpr" and capture is not None:
+            subs.append(f[9])
+            capture = None
+    if len(subs) != 1:
+        raise Failure(f"fabric-sign key: {primary} has {len(subs)} usable Ed25519 signing subkeys, not one")
+    return subs[0]
+
+
 def cmd_key(args: list[str], env: dict[str, str]) -> int:
     if not args or args[0] not in ("openpgp", "ssh") or len(args) > 2:
         raise Failure(USAGE, 2)
@@ -251,23 +269,13 @@ def cmd_key(args: list[str], env: dict[str, str]) -> int:
             primary = keys.key_of_store()
         except Exception as e:  # StoreError: the message says what is missing
             raise Failure(f"fabric-sign key: {e}") from None
-    listing = _checked([gpg, "--batch", "--with-colons", "--list-keys", primary], env, f"gpg --list-keys {primary}")
-    subs, capture = [], None
-    for line in listing.splitlines():
-        f = line.split(":")
-        if f[0] == "sub":
-            capture = f if f[3] == "22" and "s" in f[11] and f[1] not in ("r", "e", "i", "d") else None
-        elif f[0] == "fpr" and capture is not None:
-            subs.append(f[9])
-            capture = None
-    if len(subs) != 1:
-        raise Failure(f"fabric-sign key: {primary} has {len(subs)} usable Ed25519 signing subkeys, not one")
+    sub = signing_subkey(primary, env)
     if args[0] == "openpgp":
-        print(subs[0] + "!")
+        print(sub + "!")
         return 0
-    exported = _checked([gpg, "--batch", "--export-ssh-key", subs[0] + "!"], env, "gpg --export-ssh-key").split()
+    exported = _checked([gpg, "--batch", "--export-ssh-key", sub + "!"], env, "gpg --export-ssh-key").split()
     if len(exported) < 2:
-        raise Failure(f"fabric-sign key: gpg cannot export {subs[0]} as an SSH key")
+        raise Failure(f"fabric-sign key: gpg cannot export {sub} as an SSH key")
     print(f"key::{exported[0]} {exported[1]}")
     return 0
 

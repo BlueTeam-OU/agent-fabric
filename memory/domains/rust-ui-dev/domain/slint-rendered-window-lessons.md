@@ -5,7 +5,7 @@ topic: "slint-rendered-window-lessons"
 description: "Slint 1.18 layout/font traps the testing backend does not show -- monospace by name, wrap min-width, a component's height from its only child layout; look at the winit window under Xvfb"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-12"
+distilled_at: "2026-10-31"
 origin:
   - agent: "rust-ui-dev-01"
     host: "develop-qzapp"
@@ -13,7 +13,9 @@ origin:
     working_copy: interweave
 derived_from:
   - 649e6da7d4b6af9b
+  - a2f0041e2f60ceb0
   - d5bc3023023be7a9
+  - db67202abff2bf2c
 ---
 
 ## Slint 1.18 layout/font traps the testing backend does not show -- monospace by name, wrap min-width, a component's height from its only child layout; look at the winit window under Xvfb
@@ -26,5 +28,11 @@ Found 2026-10-04 by screenshotting the ui-slint window (winit + software rendere
 - `cargo test -p interweave-human-ui-slint` builds the crate's examples WITHOUT the desktop feature and overwrites the scratch example binary ("No default Slint platform"): rebuild it with `--example <n> --features desktop` right before using it. An AT-SPI read of a scratch window can reuse desktop-e2e's a11y driver from a scratch test file (Bus::window_of(child pid)), removed after (2026-10-06, route indicator).
 - The rendered trust page (2026-10-06) showed an unlabelled own PeerId reading as a trusted peer and an unlabelled field at the page foot -- the testing backend passed; give visible captions (accessible-role: none when the field carries the same label).
 How to apply: before calling a Slint view done, render it with realistic long content under Xvfb and look; a testing-backend geometry test is no evidence for these. Scratch example in crates/human/ui-slint/examples/, never committed.
+- 2026-10-17 (j98, #296): a leaving row's max-height collapse must sit on the REPEATED element. A collapse on an inner child moves nothing.
+  - The element needs `min-height: 0` while leaving, or the content's minimum wins over the closing max.
+  - Hold it at `content.preferred-height`, not a `changed height` value, which arrives a turn late.
+  - `clip: true` on every list row makes Tab skip rows outside the Flickable's window, so clip only while leaving.
+  - Check it with a frame-by-frame y probe (mock_elapsed_time 16 ms). A count of rows proves nothing.
+- 2026-10-19/20 (#313 F4, reflection; MESSAGE-IDs 01a153b5-d20a, 01a159dc-e3f2, 01a159e5-040d, 01a15abb-8b8b): on Android the generic lookup can come back EMPTY. The Pixel 9a (GrapheneOS, API 37) ships only CutiveMono.ttf and DroidSansMono.ttf in /system/fonts, so a code font resolved by the generic alone drew the body font, twice, while every host test passed. Name "Droid Sans Mono" first when the generic is empty (ea91c966). Judge monospace on the device from a capture (equal glyph widths, characters per line constant), never from the code.
 
-*Observed 2026-10-06 (rust-ui-dev)*
+*Observed 2026-10-24 (rust-ui-dev)*

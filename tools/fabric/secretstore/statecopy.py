@@ -224,7 +224,7 @@ def state_copy(state_dir: str, claude_dir: str) -> dict:
         _before_write(store)
         aid = own_agent_id(store)
         if not aid:
-            raise StoreError("this store has no agent id yet (store-enroll.sh)")
+            raise StoreError("this store has no agent id yet (store_enroll.py)")
         if not git(store, "remote", check=False).stdout.strip():
             raise StoreError("the store has no remote (fabric-secrets store init --remote URL); a copy that reaches no one is no backup")
         path = os.path.join(store, "state", f"{aid}.tar.gpg")

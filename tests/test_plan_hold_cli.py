@@ -7,7 +7,7 @@ $PLAN_HOLD_HOOK aims the same test at its replacement. The reader side
 (gzcoord-inbox --held) is tests/test_gzcoord_protocol.py and
 tests/test_session_commands.py.
 
-Every case of runtime/claude-code/hooks/test_plan-hold.sh:
+Every case of runtime/claude-code/hooks/test_plan-hold.sh, now deleted (Wave 9 batch 7):
   1 a default-mode tool call is silent; 2 no marker outside plan mode; 3 a
   plan-mode tool call is silent; 4 the marker appears on a plan-mode event;
   5 it names the harness pid, its /proc start time and the session; 6 the
@@ -34,7 +34,8 @@ CLAUDE_PID, else the hook's parent (this process); a CLAUDE_PID that is no
 positive integer writes nothing; the default directory is
 $HOME/.cache/agent-fabric/hold; a null agent_id is the session itself, a
 non-empty one a subagent; SessionEnd of another session leaves a live
-sibling's marker; no jq: silent exit 0, nothing written (with the control).
+sibling's marker; a hold directory that cannot be made: silent exit 0, nothing written (with the control;
+it was `no jq` for the bash script, whose one missing tool the module does not use).
 
 Mutations, each failing here: the `agent_id` early exit removed (10); `-L`
 check removed (21); the sweep's `alive` accepting any pid (16, 18, 19, 20);
@@ -225,6 +226,15 @@ def main() -> int:
         silent(f"CLAUDE_PID {bad!r} is silent", fire("PreToolUse", "plan", pid=bad))
     t.check("CLAUDE_PID that is no positive integer writes nothing", not os.path.isdir(DIR) or os.listdir(DIR) == [], str(os.listdir(DIR) if os.path.isdir(DIR) else ""))
 
+    if ENTRY.endswith(".sh"):
+        shutil.rmtree(DIR, ignore_errors=True)
+        r = h.run(ENTRY, payload("PreToolUse", "plan"), environment(AGENT_FABRIC_PYTHON=os.path.join(T, "no-such-python")))
+        t.check("the forwarder on a host without the pin: exit 0, nothing on stdout, nothing held", r.rc == 0 and r.out == "" and not held(), f"{r.rc} {r.out!r}")
+    if ENTRY.endswith(".py"):
+        shutil.rmtree(DIR, ignore_errors=True)
+        silent("a module run as its forwarder runs it (python -I) is silent", h.run_isolated(ENTRY, payload("PreToolUse", "plan"), environment()))
+        t.check("…and holds", held())
+
     t.group("SessionEnd clears the session's own marker")
     fire("PreToolUse", "plan")
     t.check("held", held())
@@ -238,12 +248,18 @@ def main() -> int:
     for label, text in (("malformed", "not json"), ("empty", ""), ("an event-less object", "{}")):
         silent(f"{label} input is silent", h.run(ENTRY, text, environment()))
     t.check("and writes nothing", not held())
-    bare = h.tool_dir(os.path.join(T, "bare"), ["bash", "cat", "env"])
+    # The bash script's one missing tool was jq (silent exit 0, nothing written); the module has no tool to miss, so
+    # the same promise is pinned for the failure both have: a hold directory that cannot be made.
     shutil.rmtree(DIR, ignore_errors=True)
-    r = h.run(ENTRY, payload("PreToolUse", "plan"), {**environment(), "PATH": bare})
-    t.check("without jq: silent, exit 0, nothing written", r.rc == 0 and r.out == "" and not os.path.isdir(DIR), f"{r.rc} {r.out!r}")
+    blocker = os.path.join(T, "blocker")
+    write(blocker, "a file where a directory must go")
+    r = h.run(ENTRY, payload("PreToolUse", "plan"), environment(AGENT_FABRIC_HOLD_DIR=os.path.join(blocker, "hold")))
+    fallback = os.path.join(HOME, ".cache", "agent-fabric", "hold")
+    t.check("a hold directory that cannot be made: silent, exit 0, nothing written there or in a fallback",
+            r.rc == 0 and r.out == "" and r.err == "" and os.path.isfile(blocker) and not os.path.exists(fallback) and not os.path.isdir(DIR),
+            f"{r.rc} {r.out!r} {r.err!r}")
     fire("PreToolUse", "plan")
-    t.check("…and the same payload with jq holds (the control)", held())
+    t.check("…and the same payload with a usable directory holds (the control)", held())
     return t.finish()
 
 

@@ -123,8 +123,12 @@ def history(tok: str, relay_url: str, channel: str, from_seq: float | None, me: 
 
 
 # SPEC §7.2: a retransmission keeps its MESSAGE-ID, and a recipient holding
-# both copies discards one. The watch cannot know what this session read,
-# so it shows the copy — the first may have been cut or scrolled past —
+# both copies discards one. Since the shown ledger (carrier/ledger.py) the watch
+# DOES know what this session was shown: a retransmission of a message the ledger
+# holds is acknowledged and not shown again. What this marking still catches is a
+# retransmission whose first copy was shown before the ledger existed. Before the
+# ledger the watch could not know what this session read,
+# so it showed the copy — the first may have been cut or scrolled past —
 # marked with the seq of the earlier one (same FROM, same MESSAGE-ID, a
 # lower seq in the recent history). Best effort and bounded: the records
 # are already acknowledged, and a relay that hangs must not hold back — or,

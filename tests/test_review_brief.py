@@ -18,14 +18,18 @@ import re
 import shutil
 import sys
 
+# Fixture repositories are no session's clone: a run from inside a Claude Code session would otherwise be refused
+# them (review_brief.session_repository_refusal), and a run from CI would not. Subprocesses inherit it.
+os.environ["FABRIC_REVIEW_SESSION_CLONE"] = ""
+
 ROOT = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
 AGENT = os.path.join(ROOT, "runtime", "claude-code", "agents", "code-review.md")
-SIZE_CAP = 13_000   # 12_288 until 2026-09-19: the owner's code-as-memory policy gave the reviewer one more section (agent-fabric ADR-015 §5 rule 7)
+SIZE_CAP = 13_500   # 12_288 until 2026-09-19: the owner's code-as-memory policy gave the reviewer one more section (agent-fabric ADR-015 §5 rule 7); 13_000 until j296 gave it the machine lines errors.py reads
 
 # The headings a rendered brief carries; the constitution names each.
 BRIEF_HEADINGS = ["Mode", "Repository", "Range", "Objective", "Requirements", "Invariants",
                   "Compatibility", "Threat model", "Scope", "Out of scope", "Project review card", "Lenses", "Previous findings",
-                  "Re-review diff", "Locators"]
+                  "Re-review diff", "Locators", "Report lines"]
 # The report sections the constitution requires, in order.
 REPORT_SECTIONS = ["Findings on the change", "Pre-existing problems", "Risks (unproven)", "Brief notes"]
 
@@ -43,9 +47,10 @@ def test_frontmatter_is_what_the_guards_and_installer_expect() -> None:
     assert lines[0] == "name: code-review", lines[0]
     # install-agent-files.sh rewrites the FIRST `model:` line; the guard reads the same one.
     assert lines[2] == "model: fable", "model: fable must be the third frontmatter line (the pin rewrite hits the first model: line)"
-    assert "tools: Read, Glob, Grep, Bash" in front, "the tools allow-list is the write fence"
-    assert "Write" not in front.split("tools:")[1].split("\n")[0]
-    assert "review-bash-guard.sh" in front and "permissionDecision" in front, "the Bash fence hook must stay in the frontmatter"
+    tools = [t.strip() for t in front.split("tools:")[1].split("\n")[0].split(",")]
+    assert tools == ["Read", "Glob", "Grep"] + [f"mcp__fabric-review__review_{v}" for v in ("diff", "log", "show", "blame", "grep", "check")], \
+        "the tools allow-list is the write fence: no Bash, Write, Edit or NotebookEdit (ADR-065 §5 rule 1)"
+    assert "hooks:" not in front, "the review class has no Bash to fence"
     assert re.search(r"\nmodel: ", front.split("model: fable", 1)[1]) is None, "one model: line only"
 
 
@@ -66,7 +71,7 @@ def test_the_incident_rules_are_still_there() -> None:
     """Each of these was bought by an incident; a rewrite may not lose one."""
     _, body = read_agent()
     for rule in ("revert test", "Quote the hunk", "in full", "One PR per dispatch", "re-review",
-                 "git log", "Change nothing", "--no-restore", "Never `pub\nget`",
+                 "review_log", "Change nothing", "--no-restore", "`pub get`", "agent-fabric-coverage v1", "not run",
                  "single-line mutation", "P1", "P2", "P3", "Do not pad", "six weeks from now",
                  "Feature flags that are not rollbacks", "Silent-drop", "CHECK clauses"):
         assert rule in body, f"rule lost in the rewrite: {rule!r}"
@@ -103,6 +108,7 @@ import tempfile
 
 spec = importlib.util.spec_from_file_location("fabric_review_brief", os.path.join(ROOT, "tools", "fabric", "review_brief.py"))
 rb = importlib.util.module_from_spec(spec); spec.loader.exec_module(rb)
+from github import arm_findings, review_coverage  # noqa: E402 — on the path review_brief put tools/fabric on
 BIN = os.path.join(ROOT, "bin", "fabric-review")
 
 
@@ -247,6 +253,7 @@ def test_the_dispatch_header(tmp: str) -> None:
     repo = mkrepo(tmp, "headed")
     base, head = g(repo, "rev-parse", "main"), g(repo, "rev-parse", "HEAD")
     env0 = {k: os.environ.get(k) for k in ("CLAUDE_CODE_SESSION_ID",)}
+    saved_reviews = rb.earlier_reviews
     os.environ["CLAUDE_CODE_SESSION_ID"] = "sess-123"
     try:
         # a request without the optional fields still renders, and the header parses
@@ -257,11 +264,16 @@ def test_the_dispatch_header(tmp: str) -> None:
         assert h["base_sha"] == base and h["head_sha"] == head, h
         assert h["pr"] is None and h["review_round"] == 1 and h["evidence_mode"] == "pinned", h
         assert set(h) == {"dispatch_id", "parent_session_id", "job_id", "project", "repository", "pr", "review_id", "review_round",
-                          "purpose", "engine", "evidence_mode", "base_sha", "head_sha", "started_at"}, sorted(h)
+                          "purpose", "engine", "evidence_mode", "base_sha", "head_sha", "card_base", "config",
+                          "started_at"}, sorted(h)
+        # ADR-065 §2 C: the card's commit and the fingerprint the next round compares
+        assert h["card_base"] == base and re.fullmatch(r"[0-9a-f]{64}", h["config"]), h
+        assert _header(rb.render(base_request(repo)))["config"] == h["config"], "the fingerprint is stable"
         assert out.startswith("```agent-fabric-dispatch v1\n{"), "the header is the first block"
         # minted at render: two renders do not share an id
         assert _header(rb.render(base_request(repo)))["dispatch_id"] != _header(rb.render(base_request(repo)))["dispatch_id"]
-        # the optional fields
+        # the optional fields; a PR's full review reads its earlier reviews, here none
+        rb.earlier_reviews = lambda pr, r: arm_findings.Reading()
         h = _header(rb.render({**base_request(repo), "pr": "253", "job_id": "j176", "review_round": 2}))
         assert h["pr"] == 253 and h["job_id"] == "j176" and h["review_round"] == 2 and h["review_id"] == "headed#253", h
         h = _header(rb.render({**base_request(repo), "pr": 7, "review_id": "R-9"}))
@@ -275,7 +287,9 @@ def test_the_dispatch_header(tmp: str) -> None:
         diff = os.path.join(tmp, "x.diff"); open(diff, "w").write("")
         h = _header(rb.render({k: v for k, v in {**base_request(repo), "diff": diff}.items() if k != "range"}))
         assert h["base_sha"] is None and h["head_sha"] is None and h["evidence_mode"] == "working-tree", h
+        assert h["card_base"] is None and h["config"] is None, h
     finally:
+        rb.earlier_reviews = saved_reviews
         if env0["CLAUDE_CODE_SESSION_ID"] is None:
             os.environ.pop("CLAUDE_CODE_SESSION_ID", None)
         else:
@@ -428,6 +442,104 @@ def test_reusing_and_remaking_a_head_worktree(tmp: str) -> None:
     finally:
         rb._git = real
         tempfile.tempdir = saved
+
+
+def _fake_proc(root: str, chain: list[tuple[int, str, int]]) -> str:
+    """A /proc under root: (pid, comm, ppid) per process."""
+    for pid, comm, ppid in chain:
+        d = os.path.join(root, str(pid)); os.makedirs(d)
+        open(os.path.join(d, "comm"), "w").write(comm + "\n")
+        open(os.path.join(d, "stat"), "w").write(f"{pid} ({comm} x) S {ppid} 1 1 0\n")
+    return root
+
+
+def test_the_in_use_marker(tmp: str) -> None:
+    import contextlib as cl, io
+    repo = mkrepo(tmp, "markrepo")
+    head = g(repo, "rev-parse", "HEAD")
+    env = TMPENV(tmp)
+    saved, tempfile.tempdir = tempfile.tempdir, env["TMPDIR"]
+    real_pid = rb.dispatching_session_pid
+    proc = _fake_proc(os.path.join(tmp, "proc1"), [(50, "claude", 1), (60, "bash", 50), (70, "python3", 60)])
+    assert real_pid(proc, 70) == 50 and real_pid(proc, 50) == 50
+    noclaude = _fake_proc(os.path.join(tmp, "proc2"), [(60, "bash", 1), (70, "python3", 60)])
+    assert real_pid(noclaude, 70) is None
+    want = os.path.join(env["TMPDIR"], "fabric-review", f"markrepo-{head[:12]}")
+
+    def as_if(fake: str) -> None:
+        rb.dispatching_session_pid = lambda proc_="/proc", start=None: real_pid(fake, 70)
+    try:
+        as_if(proc)
+        path, made = rb.ensure_head_worktree(repo, head)
+        assert made and path == want
+        marker = os.path.join(g(path, "rev-parse", "--absolute-git-dir"), "fabric-in-use")
+        lines = open(marker).read().splitlines()
+        assert lines[0] == "50" and re.fullmatch(r"\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ", lines[1]), lines
+        assert oct(os.stat(marker).st_mode & 0o777) == "0o600"
+        assert g(path, "status", "--porcelain", "--untracked-files=all") == "", "nothing new in the tree"
+        assert not os.path.exists(os.path.join(path, "fabric-in-use"))
+        open(marker, "w").write("1\nold\n")
+        path, made = rb.ensure_head_worktree(repo, head)
+        assert not made and open(marker).read().splitlines()[0] == "50", "a reuse refreshes it"
+        os.unlink(marker)
+        as_if(noclaude)
+        rb.ensure_head_worktree(repo, head)
+        assert not os.path.exists(marker), "no claude ancestor, no marker"
+        as_if(proc)
+        gitdir = os.path.dirname(marker)
+        os.chmod(gitdir, 0o500)
+        try:
+            err = io.StringIO()
+            with cl.redirect_stderr(err):
+                rb.ensure_head_worktree(repo, head)
+            if os.geteuid() != 0:
+                out = err.getvalue().strip().splitlines()
+                assert len(out) == 1 and "sweep may take the worktree" in out[0], out
+        finally:
+            os.chmod(gitdir, 0o700)
+    finally:
+        rb.dispatching_session_pid = real_pid
+        tempfile.tempdir = saved
+        g(repo, "worktree", "remove", "--force", want)
+
+
+def test_a_repository_the_sessions_review_tools_cannot_read_is_refused(tmp: str) -> None:
+    """The review tools read the session's clone and its worktrees only, so a brief naming another clone is refused
+    before the dispatch, not after a review that read nothing (OBSERVATION 01a17a20). The session is the claude ancestor's
+    working directory; without one nothing is checked."""
+    clone, other = mkrepo(tmp, "sessclone"), mkrepo(tmp, "otherclone")
+    linked = os.path.join(tmp, "sessclone-wt")
+    g(clone, "worktree", "add", "-q", "--detach", linked, "HEAD")
+    proc = _fake_proc(os.path.join(tmp, "proc3"), [(50, "claude", 1), (60, "bash", 50), (70, "python3", 60)])
+    noclaude = _fake_proc(os.path.join(tmp, "proc4"), [(60, "bash", 1), (70, "python3", 60)])
+    real_clone, saved = rb.session_clone, os.environ.pop(rb.SESSION_CLONE_ENV)
+
+    def started_in(fake: str, directory: str | None) -> None:
+        if directory:
+            os.symlink(directory, os.path.join(fake, "50", "cwd"))
+        rb.session_clone = lambda proc_="/proc", start=None: real_clone(fake, 70)
+    try:
+        started_in(proc, linked)
+        assert real_clone(proc, 70) == linked, "the session's directory is the claude process's cwd"
+        assert rb.session_repository_refusal(clone) is None, "the clone, from a session in its worktree"
+        assert rb.session_repository_refusal(linked) is None, "the worktree itself"
+        assert refusals(base_request(linked)) == [], "a brief naming a worktree of the clone renders"
+        probs = refusals(base_request(other))
+        assert any(p.startswith(f"repository: {other} is not this session's clone") for p in probs), probs
+        os.unlink(os.path.join(proc, "50", "cwd"))
+        started_in(proc, tmp)
+        probs = refusals(base_request(clone))
+        assert any("this session's review tools read no repository" in p for p in probs), probs
+        started_in(noclaude, None)
+        assert real_clone(noclaude, 70) is None and refusals(base_request(other)) == [], "no session, nothing checked"
+        os.environ[rb.SESSION_CLONE_ENV] = clone
+        assert real_clone(noclaude, 70) == clone, "the variable names the clone"
+        assert any("is not this session's clone" in p for p in refusals(base_request(other)))
+        assert refusals(base_request(other), engine="codex") == [], "Codex reads its clone itself"
+    finally:
+        rb.session_clone = real_clone
+        os.environ[rb.SESSION_CLONE_ENV] = saved
+        g(clone, "worktree", "remove", "--force", linked)
 
 
 def test_every_refusal_names_its_field(tmp: str) -> None:
@@ -653,16 +765,245 @@ def test_a_diff_file_reads_the_card_at_the_default_branch_tip(tmp: str) -> None:
     assert any(str(rb.CARD_CAP + 1) in p and "cap" in p for p in problems), problems
 
 
+def test_the_config_fingerprint_follows_the_card_and_the_agent_file(tmp: str) -> None:
+    """ADR-065 §2 C: a re-review may start from an earlier head only while the
+    fingerprint is unchanged, so every part it covers must move it."""
+    repo = mkrepo(tmp, "fingerprint")
+    base = g(repo, "rev-parse", "main")
+    none = rb.config_fingerprint(repo, base)
+    assert none == rb.config_fingerprint(repo, base), "stable"
+    g(repo, "checkout", "-q", "main")
+    commit(repo, "card", {".agent-fabric/review-card.md": "rule one\n"})
+    one = g(repo, "rev-parse", "HEAD")
+    commit(repo, "card again", {".agent-fabric/review-card.md": "rule two\n"})
+    two = g(repo, "rev-parse", "HEAD")
+    commit(repo, "empty card", {".agent-fabric/review-card.md": ""})
+    empty = g(repo, "rev-parse", "HEAD")
+    prints = {rb.config_fingerprint(repo, c) for c in (base, one, two, empty)}
+    assert len(prints) == 4, "no card, two cards and an empty card are four fingerprints"
+    saved = rb.AGENT_FILE
+    try:
+        rb.AGENT_FILE = os.path.join(tmp, "agent.md")
+        open(rb.AGENT_FILE, "w").write("a\n")
+        a = rb.config_fingerprint(repo, one)
+        open(rb.AGENT_FILE, "w").write("b\n")
+        b = rb.config_fingerprint(repo, one)
+        os.unlink(rb.AGENT_FILE)
+        gone = rb.config_fingerprint(repo, one)
+    finally:
+        rb.AGENT_FILE = saved
+    assert len({a, b, gone, rb.config_fingerprint(repo, one)}) == 4, "the agent file's text and its absence move it"
+
+
+def test_a_prs_re_review_starts_at_its_last_checkpoint(tmp: str) -> None:
+    """ADR-065 §5 rule 5: a PR's re-review base and card come from its last v2
+    review; no checkpoint is a full review, and a typed value that disagrees
+    is refused, never silently replaced."""
+    repo = mkrepo(tmp, "checkpointed")
+    base, mid = g(repo, "rev-parse", "main"), g(repo, "rev-parse", "HEAD")
+    commit(repo, "fix", {"a.txt": "b\n"})
+    head = g(repo, "rev-parse", "HEAD")
+    asked = []
+    saved, saved_reviews = rb.checkpoint, rb.earlier_reviews
+    try:
+        def none(pr, h, r, exclude_head=None):
+            asked.append((pr, h)); return None
+        rb.checkpoint = none
+        req = {**base_request(repo), "mode": "re-review", "range": f"{mid}..HEAD", "pr": 9}
+        info, refused = rb.resolve_range(req)
+        assert info is None and any("has no review a re-review can start from" in r for r in refused), refused
+        assert asked == [(9, head)], asked
+        rb.checkpoint = lambda pr, h, r: (base, mid, base, "<!-- marker -->\nPOSTED REPORT\n")
+        info, refused = rb.resolve_range(req)
+        assert not refused and info == {"base_sha": mid, "head_sha": head, "card_base": base,
+                                        "previous_report": "<!-- marker -->\nPOSTED REPORT\n"}, (info, refused)
+        # the previous report is the posted body, and a typed one is refused
+        out = rb.render(req)
+        assert "## Previous findings" in out and "POSTED REPORT" in out, out[-600:]
+        report = os.path.join(tmp, "typed-report.md"); open(report, "w").write("TYPED\n")
+        assert any("leave previous_findings out" in r for r in refusals({**req, "previous_findings": report})), \
+            refusals({**req, "previous_findings": report})
+        info, refused = rb.resolve_range({**req, "range": f"{base}..HEAD"})
+        assert info is None and any("starts at its last review's head" in r for r in refused), refused
+        info, refused = rb.resolve_range({**req, "card_base": mid})
+        assert info is None and any("read the card at" in r for r in refused), refused
+        info, refused = rb.resolve_range({**req, "card_base": base})
+        assert not refused and info["card_base"] == base, refused
+        # a second engine of the same round: the newest review is this head's, so
+        # the round starts from the one before it, never from the other engine's report
+        calls = []
+        def rounds(pr, h, r, exclude_head=None):
+            calls.append(exclude_head)
+            return (mid, head, base, "OTHER ENGINE THIS ROUND") if exclude_head is None else (base, mid, base, "ROUND ONE")
+        rb.checkpoint = rounds
+        info, refused = rb.resolve_range(req)
+        assert not refused and info["base_sha"] == mid and info["previous_report"] == "ROUND ONE", (info, refused)
+        assert calls == [None, head], calls
+        rb.checkpoint = lambda pr, h, r, exclude_head=None: (mid, head, base, "X") if exclude_head is None else None
+        info, refused = rb.resolve_range(req)
+        assert info is None and any("has no review a re-review can start from" in r for r in refused), refused
+        # j573: render reads the checkpoint again after refusals() passed; a second read that finds
+        # none is refused with its reason, never a KeyError on the previous_findings a PR's re-review must leave out
+        answers = [(base, mid, base, "<!-- marker -->\nPOSTED REPORT\n")]
+        rb.checkpoint = lambda pr, h, r, exclude_head=None: answers.pop() if answers else None
+        try:
+            rb.render(req)
+            raise AssertionError("render briefed a re-review whose checkpoint was gone")
+        except rb.RequestError as e:
+            assert "has no review a re-review can start from" in str(e), e
+        assert not answers, "the first read (refusals) took the checkpoint, so the refusal is the second read's"
+        rb.checkpoint = lambda pr, h, r, exclude_head=None: (base, mid, base, "<!-- marker -->\nPOSTED REPORT\n")
+        # a diff file names no commits to look a checkpoint up against: refused, not a KeyError
+        diff = os.path.join(tmp, "pr.diff"); open(diff, "w").write("")
+        no_range = {k: v for k, v in req.items() if k != "range"}
+        assert any("needs a base..head range" in r for r in refusals({**no_range, "diff": diff})), \
+            refusals({**no_range, "diff": diff})
+        # no PR: nothing posted to read, the typed range stands and nothing is asked
+        asked.clear(); rb.checkpoint = none
+        info, refused = rb.resolve_range({**{k: v for k, v in req.items() if k != "pr"}, "card_base": base})
+        assert not refused and info["base_sha"] == mid and not asked, (info, refused, asked)
+        # a first review never asks for a checkpoint (it reads the PR's open findings instead)
+        rb.earlier_reviews = lambda pr, r: arm_findings.Reading()
+        info, refused = rb.resolve_range({**req, "mode": "review", "card_base": base})
+        assert not refused and not asked, (refused, asked)
+    finally:
+        rb.checkpoint = saved
+        rb.earlier_reviews = saved_reviews
+
+
+def test_earlier_reviews_reads_the_accounts_gate_4c_reads() -> None:
+    """#465 round 1 F1: gate 4c reads an app's PR's reviews from the account gh acts as (review_posters), so the
+    brief's carried findings read them from the same accounts, or a finding gate 4c refuses on is never handed over
+    and its label is reused. An account GitHub cannot name is no listing: refused, never read as no reviews."""
+    import gh  # noqa: PLC0415
+    from github import review_posters  # noqa: PLC0415
+    marker = review_coverage.format_marker("a" * 40, "b" * 40, "d" * 40, "e" * 64)
+    reviews = [{"id": 1, "user": {"login": "pusher"}, "submitted_at": "2026-11-03T00:00:00Z",
+                "body": marker + "\nreport\nFinding: F1 | P2 | certain | a.txt:1 | the push account's\n"},
+               {"id": 2, "user": {"login": "stranger"}, "submitted_at": "2026-11-03T01:00:00Z",
+                "body": marker + "\nreport\nFinding: F2 | P2 | certain | a.txt:1 | another login's\n"}]
+    author, viewer = {"login": "app/dependabot", "is_bot": True}, {"login": "pusher"}
+    saved = {k: getattr(gh, k) for k in ("this_repo", "pr_view", "api_list", "api")}
+    env0 = os.environ.pop("AGENT_FABRIC_REVIEW_POSTERS", None)
+    def user(path, *a, **k):
+        if path != "user":
+            raise AssertionError(f"asked {path}")
+        if viewer is None:
+            raise gh.GhError("gh api GET user", "HTTP 502")
+        return viewer
+    try:
+        gh.this_repo = lambda repo: "o/r"
+        gh.pr_view = lambda pr, fields, repo=None: {"author": author}
+        gh.api_list = lambda path, *a, **k: reviews
+        gh.api = user
+        review_posters.push_account.cache_clear()
+        got = rb.earlier_reviews(9, "/x")
+        assert got is not None and [f.label for f in got.findings] == ["F1"], got
+        # a person's PR: the account gh acts as is not asked, and its review is another login's
+        author = {"login": "someone"}
+        review_posters.push_account.cache_clear()
+        got = rb.earlier_reviews(9, "/x")
+        assert got is not None and got.findings == [], got
+        # an app's PR whose push account GitHub cannot name: no listing
+        author, viewer = {"login": "dependabot[bot]", "type": "Bot"}, None
+        review_posters.push_account.cache_clear()
+        assert rb.earlier_reviews(9, "/x") is None
+    finally:
+        for k, v in saved.items():
+            setattr(gh, k, v)
+        review_posters.push_account.cache_clear()
+        if env0 is not None:
+            os.environ["AGENT_FABRIC_REVIEW_POSTERS"] = env0
+
+
+def test_a_prs_full_review_carries_the_findings_earlier_reviews_left_open(tmp: str) -> None:
+    """#425 merged with F5 open: a fresh full review starts its own chain, so the brief hands it every finding an
+    earlier chain left open, to judge by label, and has it number its own past every label the PR used. A finding
+    raised on this head is another engine's same round (blind review) and is not handed over."""
+    repo = mkrepo(tmp, "carried")
+    head = g(repo, "rev-parse", "HEAD")
+    old1, old2, other = "a" * 40, "b" * 40, "c" * 40
+    def posted(rid: int, base: str, at: str, lines: list[str], on: str = "") -> dict:
+        body = review_coverage.format_marker(base, on or at, "d" * 40, "e" * 64) + "\nreport\n" + "\n".join(lines) + "\n"
+        return {"id": rid, "user": {"login": "me"}, "submitted_at": f"2026-10-3{rid}T00:00:00Z", "body": body}
+    reviews = [posted(1, other, old1, ["Finding: F1 | P2 | certain | a.txt:1 | the first", "Finding: F2 | P3 | likely | - | the second"]),
+               posted(2, old1, old2, ["Judgement: F1 | fixed | gone", "Judgement: F2 | real | still there", "Finding: none"]),
+               posted(3, other, head, ["Finding: F3 | P1 | likely | a.txt:1 | this round's other engine"])]
+    asked = []
+    saved = rb.earlier_reviews
+    try:
+        def answer(pr, r):
+            asked.append(pr); return arm_findings.read(reviews, {"me"})
+        rb.earlier_reviews = answer
+        req = {**base_request(repo), "pr": 12}
+        out = rb.render(req)
+        section = out.split("## Open findings from earlier reviews\n", 1)[1].split("\n## ", 1)[0]
+        assert "- F2 | P3 | - | the second (raised on aaaaaaaaaaaa)" in section, section
+        assert "F1 |" not in section and "F3 |" not in section, "a closed finding and this head's are not carried"
+        assert "Judgement: F<n>" in section and "from F4." in section, section
+        assert out.index("## Open findings") < out.index("## Lenses") and asked and set(asked) == {12}, asked
+        # the second engine is handed none: it answers findings only and numbers them itself
+        asked.clear()
+        assert "## Open findings" not in rb.render(req, engine="codex", purpose="second-engine-review") and not asked, asked
+        # nothing ever raised: no section; every label closed: only where to number from
+        reviews[:] = []
+        assert "## Open findings" not in rb.render(req)
+        reviews[:] = [posted(1, other, old1, ["Finding: F1 | P2 | certain | a.txt:1 | the first"]),
+                      posted(2, old1, old2, ["Judgement: F1 | fixed | gone", "Finding: none"])]
+        section = rb.render(req).split("## Open findings from earlier reviews\n", 1)[1].split("\n## ", 1)[0]
+        assert section == "Earlier reviews of #12 used the labels up to F1: number your own findings from F2.", section
+        # a review listed but unread: refused too, since its findings and labels are unknown (#437 round 3 F6)
+        reviews.append({"id": 4, "user": {"login": "me"}, "submitted_at": "2026-10-31T01:00:00Z", "body": None})
+        assert any(p.startswith("pr: #12 has 1 review(s) whose findings cannot be read — review 4") for p in refusals(req)), \
+            refusals(req)
+        reviews.pop()
+        # reviews that cannot be listed: refused, never rendered as none
+        rb.earlier_reviews = lambda pr, r: None
+        assert any(p.startswith("pr: #12's reviews cannot be listed") for p in refusals(req)), refusals(req)
+        # listed for the refusals, then not for the section: refused, never rendered without it (#437 round 4 F9)
+        calls = []
+        def first_only(pr, r):
+            calls.append(pr); return arm_findings.read(reviews, {"me"}) if len(calls) == 1 else None
+        rb.earlier_reviews = first_only
+        try:
+            rb.render(req)
+            raise AssertionError("a failed second read rendered a brief")
+        except rb.RequestError as e:
+            assert len(calls) == 2 and "cannot be listed" in str(e), (calls, e)
+        # no PR, or not a full review: nothing is asked
+        asked.clear(); rb.earlier_reviews = answer
+        rb.render(base_request(repo))
+        rb.render({**req, "mode": "finding-adjudication"})
+        assert asked == [], asked
+    finally:
+        rb.earlier_reviews = saved
+
+
+def test_the_report_lines_ask_for_the_coverage_block(tmp: str) -> None:
+    """ADR-065 §5 rule 4: post-review refuses a review without the block, so the
+    brief asks for it on a review and a re-review, never on an adjudication."""
+    repo = mkrepo(tmp, "covered")
+    out = rb.render(base_request(repo))
+    section = out.split("## Coverage\n", 1)[1].split("\n## ", 1)[0]
+    assert "`agent-fabric-coverage v1`" in section and out.index("## Coverage") < out.index("## Report lines"), out[-800:]
+    report = os.path.join(tmp, "judged.md"); open(report, "w").write("1. a finding\n")
+    adj = rb.render({**base_request(repo), "mode": "finding-adjudication", "previous_findings": report})
+    assert "## Coverage" not in adj and "agent-fabric-coverage" not in adj.split("## Findings to judge", 1)[0], adj[-400:]
+
+
 def main() -> int:
     cases = [test_frontmatter_is_what_the_guards_and_installer_expect, test_body_is_under_the_cap_and_carries_every_section,
              test_the_incident_rules_are_still_there, test_the_re_review_rule_is_measured_by_turns, test_the_new_rules_are_stated_once,
              test_render_carries_every_heading_once_and_the_named_lenses, test_the_project_review_card,
-             test_a_base_the_default_branch_does_not_contain_is_refused, test_the_dispatch_header, test_the_evidence_mode, test_a_pinned_brief_checks_out_its_head_detached, test_a_refused_pinned_request_leaves_no_worktree, test_reusing_and_remaking_a_head_worktree,
-             test_every_refusal_names_its_field,
+             test_a_base_the_default_branch_does_not_contain_is_refused, test_the_dispatch_header, test_the_evidence_mode, test_a_pinned_brief_checks_out_its_head_detached, test_a_refused_pinned_request_leaves_no_worktree, test_reusing_and_remaking_a_head_worktree, test_the_in_use_marker,
+             test_a_repository_the_sessions_review_tools_cannot_read_is_refused, test_every_refusal_names_its_field,
              test_the_rationale_lint_refuses_verdicts_and_passes_facts, test_re_review_inlines_the_previous_report_and_names_the_new_range,
              test_a_finding_adjudication_carries_the_findings_it_judges, test_a_diff_file_reads_the_card_at_the_default_branch_tip,
              test_the_yaml_subset_and_the_cli, test_the_parser_refuses_what_it_cannot_keep,
-             test_the_readme_example_renders_as_documented]
+             test_the_readme_example_renders_as_documented, test_the_config_fingerprint_follows_the_card_and_the_agent_file,
+             test_a_prs_re_review_starts_at_its_last_checkpoint, test_a_prs_full_review_carries_the_findings_earlier_reviews_left_open,
+             test_earlier_reviews_reads_the_accounts_gate_4c_reads,
+             test_the_report_lines_ask_for_the_coverage_block]
     failures = 0
     # Removed when the run ends, however it ends: tests/run.sh names every
     # entry a run leaves under the temporary directory as a failure.

@@ -9,13 +9,15 @@ import sys
 import time
 from fabric_jobs import vcs
 from fabric_jobs.settle import settle
+from fabric_jobs.leave_sweep import after_leaving
+from fabric_jobs.leave_targets import clean_targets
 from fabric_jobs.branching import choose
 from fabric_jobs import blockers as bl
-from fabric_jobs.base import MESSAGE_ID, NothingQueued, OPEN, POOL_ID, PRIORITIES, Refused, TERMINAL, identity, mutate
+from fabric_jobs.base import MESSAGE_ID, Job, hold_view, NothingQueued, OPEN, POOL_ID, PRIORITIES, Refused, TERMINAL, identity, mutate
 from fabric_jobs.ranking import effective_priority, named, queue_order, stored_priority, waiters
-from fabric_jobs.records import active, fetch_message, find, new_job, request_job, session_id, session_worked, transition
+from fabric_jobs.records import active, fetch_message, find, listed_request, named_working_copy, new_job, request_id_of, request_job, SENDER_ADD_LABEL, session_id, session_worked, transition
 from fabric_jobs.queue import stream_waits
-from fabric_jobs.pool import Unanswered, ask_pool, claimed_job, pool_job, pool_line, pool_offer, printable
+from fabric_jobs.pool import Unanswered, ask_pool, claim_generation, claimed_job, pool_job, pool_line, pool_offer, printable
 from fabric_jobs.render import blockers_note, line, show, summary
 
 
@@ -24,7 +26,38 @@ def decide(doc: dict, nxt: dict, session: str | None) -> dict:
     session that has already worked a job always needs a fresh one, so each
     job reads the fabric anew (the owner, 2026-10-11, ADR-037 rule 3)."""
     worked = session_worked(doc, session)
-    return {"job": nxt["id"], "fresh": bool(worked), "worked": worked}
+    return {"job": nxt["id"], "fresh": bool(worked), "worked": worked, "reason": "worked" if worked else None}
+
+
+def standing() -> str | None:
+    """Where this session stands, as the job copy guard reads a directory: the real path of the cwd's git toplevel, the cwd itself
+    in no checkout. None when that cannot be told (git missing or hung, the cwd gone): read before the job list is locked, since
+    it runs git."""
+    try:
+        cwd = os.getcwd()
+        return os.path.realpath(vcs.toplevel(cwd) or cwd)
+    except (OSError, vcs.VcsError):
+        return None
+
+
+def outside_copy(job: dict, here: str | None) -> dict | None:
+    """The verdict's second reason for a fresh session: this one has worked no job, yet stands (`here`, from `standing`) where
+    the job copy guard refuses every commit of `job` (ADR-037 rule 3), so taking it in place would strand the session. None when
+    it stands inside, or when the job records no copy at all (the guard asks there, decision 8).
+    "Inside" is the guard's own, runtime/claude-code/hooks/job-copy-guard.py: equal to, or under, a real path of the job's
+    working_copy or worktree. A place that cannot be read (`here` None) counts as outside: a false fresh costs one launch, a
+    false in-place leaves a session that cannot commit."""
+    copies = [os.path.realpath(os.path.expanduser(c)) for c in dict.fromkeys(job.get(k) for k in ("working_copy", "worktree")) if c]
+    if not copies:
+        return None
+    if here is not None and any(here == c or here.startswith(c.rstrip("/") + "/") for c in copies):
+        return None
+    return {"fresh": True, "reason": "outside_copy" if here is not None else "place_unreadable", "here": here, "copies": copies}
+
+
+def held_refusal(record: dict, what: str) -> str:
+    """The answer to a start while the fleet hold is set (ADR-037 rule 13): the hold's own words, and what is not done."""
+    return f"{what}: this login is held, {hold_view.words(record)}"
 
 
 def add(args) -> int:
@@ -44,13 +77,26 @@ def add(args) -> int:
         if not args.title:
             raise Refused("add needs a title, or --request <MESSAGE-ID>")
         source = {"kind": "owner", "from": args.owner} if args.owner else None
-        job = mutate(lambda doc: new_job(doc, args.title, topic=args.topic, project=args.project,
-                                         working_copy=args.working_copy, source=source,
-                                         priority=args.priority))
-        print(f"added {line(job)}")
+
+        def add_titled(doc: dict) -> tuple[Job, bool]:
+            # A title that names a REQUEST already on the list adds nothing: the
+            # sender's jobs-add reaches here at the same moment the addressee's
+            # inbox queues the same message, and only this check, under the lock,
+            # can see both.
+            if (mid := request_id_of(args.title)) and (listed := listed_request(doc, mid)):
+                return listed, False
+            return new_job(doc, args.title, topic=args.topic, project=args.project,
+                           working_copy=args.working_copy, source=source, priority=args.priority,
+                           project_from=((SENDER_ADD_LABEL if args.owner and request_id_of(args.title) else "--project")
+                                         if args.project else None)), True
+
+        job, added = mutate(add_titled)
+        print(f"{'added' if added else 'already listed'} {line(job)}")
+        if not added:
+            return 0
         if not job.get("working_copy"):
             print(f"  no working copy of {job.get('project') or 'its project'} found beside this one: "
-                  f"fabric-fresh would start it in the wrong directory; re-add it with --working-copy to fix",
+                  f"fabric-fresh would start it in the wrong directory; name one with fabric-jobs project {job['id']} {job.get('project') or '<project>'} --working-copy DIR",
                   file=sys.stderr)
     return 0
 
@@ -85,8 +131,9 @@ def pool_claim(args) -> int:
     if answer.get("status") != "claimed":
         raise Refused(f"{holder} refused: {printable(answer.get('reason') or answer.get('status'))}")
     claimed = claimed_job(answer, args.id)
+    generation = claim_generation(answer)
     try:
-        job, added = mutate(lambda doc: pool_job(doc, claimed, holder, again=answer.get("again") is True,
+        job, added = mutate(lambda doc: pool_job(doc, claimed, holder, again=answer.get("again") is True, generation=generation,
                                                  topic=args.topic, working_copy=args.working_copy))
     except Refused as e:
         raise Refused(f"{args.id} is claimed at {holder}, but this list did not take it ({e}); "
@@ -101,7 +148,7 @@ def list_jobs(args) -> int:
     jobs = [j for j in doc["jobs"] if args.all or j["state"] in OPEN]
     waits, stale = stream_waits(doc, stored=args.stored)
     # Checkable blockers are re-checked here (cached: at most once per 10 minutes each); --stored and --cached read
-    # the cache and check nothing, which is what the control agent's `jobs` op and a hook want.
+    # the cache and check nothing (except a clock, which only reads now()), which is what the control agent's `jobs` op and a hook want.
     cache = bl.refresh(bl.all_specs(doc), check=not (args.stored or args.cached))
     if args.json:
         # The effective rank is the reader's, never stored: it is only
@@ -174,8 +221,10 @@ def switch_job(args) -> int:
     # Read before the lock: the stream is a relay call, and the list's
     # lock is every writer's.
     listed = identity.read_jobs()
-    waits, stale = ({}, {}) if args.id else stream_waits(listed)
-    cache = {} if args.id else bl.refresh(bl.all_specs(listed), check=True)
+    # Rule 13: a hold, or a hold file that cannot be read, starts nothing; the job being left is still settled (rule 10 step 1).
+    hold = hold_view.read(identity)
+    waits, stale = ({}, {}) if args.id or hold else stream_waits(listed)
+    cache = {} if args.id or hold else bl.refresh(bl.all_specs(listed), check=True)
 
     def cleared(doc):
         """The blocked jobs whose blockers have all cleared, the highest stored priority first, then the oldest."""
@@ -190,6 +239,8 @@ def switch_job(args) -> int:
                     if ready else "")
             raise Refused(f"{current['id']} is still active ({current['title']}); deliver, block, "
                           f"finish, pause or drop it first, then switch{note}")
+        if hold:
+            return None
         if args.id:
             nxt = find(doc, args.id)
             if nxt["state"] not in ("queued", "blocked", "paused"):
@@ -209,8 +260,9 @@ def switch_job(args) -> int:
     session = session_id()
     old = last_worked(listed, session)
     settled = None
+    swept: list[str] = []
     # The job just left is the one taken again (a blocker that cleared at once, a job paused and resumed): nothing was left.
-    if old and old["id"] != nxt["id"]:
+    if old and (nxt is None or old["id"] != nxt["id"]):
         try:
             here = vcs.toplevel(os.getcwd())
         except vcs.VcsError as e:
@@ -220,13 +272,30 @@ def switch_job(args) -> int:
         if problems:
             raise Refused(f"cannot leave {old['id']} ({old['state']}) yet; fix:\n" + "\n".join(f"  - {p}" for p in problems))
         settled = f"{old['state']}: " + "; ".join(evidence)
+        # Before the next job's worktree is made: the sweep would take a fresh one for finished (clean, on the remote). Said, never
+        # a reason to stay: what it cannot do it reports.
+        swept = after_leaving(old.get("working_copy"), here)
+    if nxt is None:
+        # Held: the job left is settled and its build output cleared as for any switch; nothing is started, no fresh session printed.
+        if old and not args.keep_targets:
+            others = tuple(p for j in listed["jobs"] if j["id"] != old["id"] for p in (j.get("working_copy"), j.get("worktree")))
+            swept = clean_targets(old.get("worktree"), old.get("working_copy"), others) + swept
+        for said in swept:
+            print(said, file=sys.stderr)
+        raise Refused(held_refusal(hold, "no job started") + (f"; {old['id']} left ({settled})" if settled else ""))
     choice = choose(nxt, kind=args.type, needs_merged=args.needs_merged)
     verdict_for = {}
+    stands = standing()
 
     def commit(doc):
         again = pick(doc)
         if again["id"] != nxt["id"]:
             raise Refused(f"the list changed while the branch was prepared ({again['id']} is now first, not {nxt['id']}): run switch again")
+        # The hold may have been set while the branch was prepared (a fetch can take seconds): read again, under the list's lock,
+        # which set_hold shares. A Refused discards the prepared branch.
+        late = hold_view.read(identity)
+        if late:
+            raise Refused(held_refusal(late, "no job started"))
         job = find(doc, nxt["id"])
         verdict = decide(doc, job, session)
         who = waiters(job, waits)
@@ -250,6 +319,8 @@ def switch_job(args) -> int:
         if settled:
             find(doc, old["id"]).setdefault("log", []).append(
                 {"at": identity.now_iso(), "kind": "switch", "note": f"switch to {job['id']}: {settled}; {where}"})   # no `state`: fleet.log_times reads the state of an entry as a transition
+        if not verdict["fresh"] and choice.kind != "blocked":
+            verdict.update(outside_copy(job, stands) or {})
         verdict_for.update(verdict=verdict, who=who, was_cleared=was_cleared, resumed=resumed, job=dict(job))
     try:
         mutate(commit)
@@ -257,29 +328,87 @@ def switch_job(args) -> int:
         discard(choice)
         raise
     verdict, job = verdict_for["verdict"], verdict_for["job"]
+    # Only now: the job has really been left (a refusal above leaves it, and its targets, as they were). The sweep above has had its
+    # turn first; a worktree it removed is gone and has nothing to clear.
+    if old and old["id"] != nxt["id"] and not args.keep_targets:
+        others = tuple(p for j in listed["jobs"] if j["id"] != old["id"] for p in (j.get("working_copy"), j.get("worktree")))
+        # The next job may be on the very branch the old one was (an open pull request, its own branch): `choose` then hands it the
+        # old worktree, which the snapshot of the list above does not yet show as its own.
+        others += (choice.worktree,)
+        swept = clean_targets(old.get("worktree"), old.get("working_copy"), others) + swept
     if args.json:
+        for said in swept:
+            print(said, file=sys.stderr)      # stdout is the one JSON object
         print(json.dumps({**verdict, "branch": choice.branch, "worktree": choice.worktree, "branch_kind": choice.kind, "settled": settled},
                          ensure_ascii=False, indent=2))
         return 0
     print(line(job) + verdict_for["was_cleared"])
     if choice.kind == "blocked":
         print(f"  blocked, not started: {choice.note}. It waits on pr:{choice.repo}#{choice.pr}; run fabric-jobs switch again for another job.")
+        for said in swept:
+            print(f"    {said}")
         return 0
     if verdict_for["resumed"]:
         print(f"  resumes paused work: {verdict_for['resumed']}")
     if settled:
         print(f"  left {old['id']}: {settled}")
+        for said in swept:
+            print(f"    {said}")
     print(f"  branch {choice.branch} ({choice.note}) in {choice.worktree}")
     if verdict_for["who"] and stored_priority(job) != "blocking":
         print(f"  ranked blocking: {named(verdict_for['who'], stale)} {'waits' if len(verdict_for['who']) == 1 else 'wait'} on its request "
               f"(stored {stored_priority(job)})")
     if verdict["fresh"]:
-        print(f"fresh session: this one has already worked {verdict['worked']}; every job starts in a fresh one.")
+        if verdict["reason"] == "outside_copy":
+            print(f"fresh session: this one has worked no job, but stands in {verdict['here']}, outside the copies of {job['id']} "
+                  f"({', '.join(verdict['copies'])}); the job copy guard refuses a commit from there (ADR-037 rule 3).")
+        elif verdict["reason"] == "place_unreadable":
+            # Not the guard's refusal: it asks on a git timeout and reads the cwd as itself when git is missing.
+            print(f"fresh session: this one has worked no job, but could not tell where it stands (git gave no answer, or the directory "
+                  f"is gone), so it cannot be told to be inside the copies of {job['id']} ({', '.join(verdict['copies'])}); a fresh one is the safe answer.")
+        else:
+            print(f"fresh session: this one has already worked {verdict['worked']}; every job starts in a fresh one.")
         # The agent runs it, never the person: an agent once handed this line to the owner as a
         # "! command" instead of running it (the owner, 2026-10-11: "should not ask, should do").
         print(f"  run it yourself, now, once your work is committed (never hand it to the owner): fabric-fresh --job {job['id']}")
     else:
         print("continue here: this session has worked no job yet, so it is already fresh.")
+    return 0
+
+
+def repoint(args) -> int:
+    """project: the receiver's correction of a job whose headers named the wrong project, or whose working copy was not found."""
+    def edit(doc):
+        job = find(doc, args.id)
+        if job["state"] in TERMINAL:
+            raise Refused(f"{job['id']} is {job['state']}; a closed job is not re-pointed")
+        # The one-job guard and the sweep key on these: a job with work in a checkout is that checkout's.
+        held = [f"{k} {job[k]}" for k in ("branch", "worktree") if job.get(k)]
+        # Its own worktree is no other checkout: naming it syncs the two fields a job's record had drifted on (j474).
+        own = bool(job.get("worktree") and args.working_copy
+                   and os.path.realpath(os.path.expanduser(args.working_copy)) == os.path.realpath(job["worktree"]))
+        # …but only to sync those fields: a different project would leave the record at odds with the repository its branch is in.
+        own = own and args.project == job.get("project")
+        if held and not own:
+            raise Refused(f"{job['id']} has {' and '.join(held)}: its work is in that project's checkout, so it is not re-pointed")
+        old = job.get("project")
+        now = identity.now_iso()
+        job["updated"] = now
+        if own:
+            # Nothing was re-pointed: the project and where it came from stay, only the working copy follows the worktree.
+            job["working_copy"] = job["worktree"]
+            note = f"working copy synced to its worktree {job['worktree']}"
+        else:
+            working_copy = named_working_copy(args.project, args.working_copy)
+            job["project"], job["working_copy"], job["project_from"] = args.project, working_copy, "re-pointed"
+            note = f"project re-pointed from {old or '-'} to {args.project}" + (f"; working copy {working_copy}" if working_copy else "; no working copy")
+        # No `state`: fleet.log_times reads the state of an entry as a transition.
+        job.setdefault("log", []).append({"at": now, "kind": "project", "note": note})
+        return job
+    job = mutate(edit)
+    print(line(job))
+    if not job.get("working_copy"):
+        print(f"  no working copy of {job['project']} found beside this one: re-run with --working-copy DIR before starting it", file=sys.stderr)
     return 0
 
 
@@ -309,6 +438,14 @@ def change(args) -> int:
             job["priority"] = args.priority
             job["updated"] = identity.now_iso()
         elif args.cmd == "start":
+            held = hold_view.read(identity)
+            # Whatever the job's state: a delivered job restarts too (rule 13 as amended in agent-fabric #433, which owns the ADR text); only import, which starts nothing, is let through.
+            if held:
+                raise Refused(held_refusal(held, f"{job['id']} not started"))
+            # A job with no project at all (added in a directory that is no checkout) never had one to find: it starts as it always did.
+            if job.get("project") and not job.get("working_copy") and job["state"] not in TERMINAL:
+                raise Refused(f"{job['id']} has no working copy ({job['project']} has none here or beside this one): "
+                              f"name one with fabric-jobs project {job['id']} {job['project']} --working-copy DIR")
             transition(doc, job, "active")
         elif args.cmd == "pause":
             if job["state"] != "active":
@@ -325,6 +462,10 @@ def change(args) -> int:
             if mid is not None and not MESSAGE_ID.fullmatch(mid):
                 raise Refused(f"--on-request takes a MESSAGE-ID (a UUID), not {args.on_request!r}")
             specs = list(dict.fromkeys([bl.normalise(s) for s in (args.on_spec or [])] + ([f"request:{mid}"] if mid else [])))
+            for spec in specs:
+                at = bl.clock_epoch(spec)
+                if at is not None and at <= bl.now():
+                    raise Refused(f"{spec} has already passed: a time that has gone by is no wait")
             text = " ".join(args.on.split()) if (args.on or "").strip() else None
             if text is None and not specs:
                 raise Refused("block needs what the job waits on: free text, --on <blocker> or --on-request <MESSAGE-ID>")

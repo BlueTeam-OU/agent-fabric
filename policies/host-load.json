@@ -1,0 +1,8 @@
+{
+  "_comment": "ADR-010 §5 rule 9 (A 2026-10-28): the cpu lease's slots per host. A host absent here gets max(1, nproc // cores_per_slot); a slot's child gets nproc // slots threads. wait_s is how long a shim or tests/run.py waits for a slot before exit 75.",
+  "cores_per_slot": 4,
+  "wait_s": 1500,
+  "hosts": {
+    "develop-qzapp": { "cpu_slots": 2 }
+  }
+}

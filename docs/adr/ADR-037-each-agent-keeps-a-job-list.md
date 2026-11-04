@@ -4,7 +4,7 @@
 **Status:** Accepted
 **Ratified:** owner, 2026-09-29, by the merge of agent-fabric #61 (75e1bab), which built it, as §8 provided
 **Decision Makers:** the owner; drafted by fabric-coordinator
-**Scope:** runtime/identity.py (`jobs.json`); bin/fabric-jobs, tools/fabric/jobs.py; bin/fabric-fresh (`--job`); runtime/openrouter/launch (the fresh relaunch); runtime/claude-code/hooks/session-start.py; bin/fabric-status; tools/fabric/control/jobs.py, ops/, agentd.py, ctl.py (`jobs`, `jobs-add`); tools/fabric/gzcoord/send.py (the inactive intake), inbox.py (`--replay --json`); policies/agent-jobs/SKILL.md
+**Scope:** runtime/identity.py (`jobs.json`, `hold.json`); tools/fabric/hold_view.py; bin/fabric-jobs, tools/fabric/jobs.py; bin/fabric-fresh (`--job`); runtime/openrouter/launch (the fresh relaunch); runtime/claude-code/hooks/session-start.py; bin/fabric-status; tools/fabric/control/jobs.py, ops/, agentd.py, ctl.py, hold.py (`jobs`, `jobs-add`, `hold`, `unhold`); tools/fabric/gzcoord/send.py (the inactive intake), inbox.py (`--replay --json`); policies/agent-jobs/SKILL.md
 **Pillar:** P3
 
 ## 1. Context and Problem
@@ -38,7 +38,7 @@ and managed with `fabric-jobs`. A job carries:
 
 **The restart rule.** At a job's end, `fabric-jobs next` decides whether
 the next job takes this session in place only when it has worked no job
-yet; otherwise it needs a fresh one. The agent confirms it with
+yet and stands in that job's working copy or worktree (rule 3); otherwise it needs a fresh one. The agent confirms it with
 `fabric-fresh --job <id>`. The launcher then starts the fresh session in
 that job's working copy, with the job in its opening prompt.
 
@@ -102,7 +102,29 @@ Why these choices:
      working copy with the job in its opening prompt, whatever the
      project, working copy and topic (A 2026-10-11);
    - a session that has worked none is already fresh and takes the job
-     in place.
+     in place when it stands inside the job's copy: the real path of
+     its directory's git toplevel is the job's working copy or worktree,
+     or under one, as the guard below reads it. Standing elsewhere, or
+     where that cannot be read, it gets a fresh session too, the
+     reason said (A 2026-10-31).
+
+   A session works one job's working copy, and a hook enforces it
+   (A 2026-10-20). The hook is `runtime/claude-code/hooks/job-copy-guard.sh`,
+   which runs before every Bash command of the main session. It refuses
+   a command that commits or publishes (a commit, push, merge, rebase,
+   cherry-pick or am in git; a pull request opened or merged) when the
+   command acts in a directory outside the job it allows:
+   - it allows the active job, when this session worked that job or
+     worked none, and the allowed copies are that job's working copy
+     and its worktree;
+   - it allows nothing once the session worked a job that has since
+     left `active`.
+   When in doubt it judges a directory to be outside. Reading any
+   working copy stays allowed, as does a session that has worked no
+   job and has none active. A delivered REQUEST for another copy is
+   queued as a job (rule 11), and only the fresh session that `switch`
+   prints acts on it. Where the guard cannot read the list or the
+   tree, it asks.
 4. Jobs come from the agent itself (`fabric-jobs add`), and from the owner
    (`fabric-ctl <login> jobs-add`, a signed action, ADR-029 rule 13),
    which lands in that login's checkout of the job's project. A GZCoord
@@ -141,7 +163,11 @@ Why these choices:
    the journal holds an inbound message of any type whose non-empty
    IN-REPLY-TO names it) and `job:<login>/j<n>` (cleared when
    delivered, or closed after it was seen open); several may be given
-   and all must clear. `list`, `next` and `block` re-check a blocker at
+   and all must clear. `clock:<YYYY-MM-DDTHH:MM[:SS]Z>` is a time of
+   the agent's own, UTC with the Z: it clears once now is at or after
+   it, `block` refuses one already past, and since it reads only the
+   clock it is evaluated on every look, `--stored` included
+   (A 2026-10-31). `list`, `next` and `block` re-check a blocker at
    most every ten minutes and never one that cleared; a job whose
    blockers have all cleared reads "blocker cleared", is listed first
    and is taken first by `next`, and `--stored` reads the cache without
@@ -162,13 +188,25 @@ Why these choices:
     switch runs three steps in order and refuses, naming what to fix,
     when one fails (A 2026-10-14):
     1. **The old job is settled with its evidence.** `done`: its pull
-       request is merged or its commit is on the default branch.
+       request is merged or its commit is on the default branch, or, for
+       work that leaves no repository artifact (a cleanup), the reason it
+       recorded with `fabric-jobs done <id> --no-artifact "<what was
+       done>"` (A 2026-10-18).
        `delivered`: its pull request is open. `blocked`: a request, a
        pull request, a peer's job or an owner's decision named as the
        blocker. `paused`: its branch is pushed. `dropped`: a reason.
        Whatever the outcome, the working copy has nothing uncommitted,
        every `REPLY-EXPECTED: yes` addressed to the agent is answered,
        and the agent's memory has been written during the job.
+       Once the job is settled, the cargo `target` directories of its
+       worktree are removed (A 2026-10-21); `switch` does it since #350
+       (python-dev's j75) (A 2026-10-31). This covers every outcome,
+       because a left worktree sits unused, and a job that resumes
+       pays a rebuild. The cleanup never reaches the job's main working
+       copy and never follows a symlink. It keeps, and names, a target
+       that a running process is inside or whose build lock is held.
+       `--keep-targets` skips it for a job the agent will resume within
+       the hour. A failure here warns and never undoes the settlement.
     2. **The next job starts in a fresh session**, as rule 3 says.
     3. **The branch is chosen before any work.** The job goes on the
        agent's open pull request in that repository when the branch is
@@ -199,6 +237,36 @@ Why these choices:
     the caller's pull request merges, whether or not the supplier's
     session ever starts again; `delivered` then means waiting on
     someone else, not finished long ago (A 2026-10-16).
+13. A fleet hold stops every held agent from taking a new job, and
+    from nothing else (A 2026-10-30). fabric-coordinator sets it through
+    the control plane, `fabric-ctl <login|all> hold --reason "<why>"
+    [--decision <MESSAGE-ID>]`, and lifts it with `fabric-ctl
+    <login|all> unhold`, both signed actions (ADR-029). Each account's
+    control agent writes or removes its login's `hold.json` through
+    `runtime/identity.py`, recording the reason, the decision, the
+    operator's address and the time. While the hold is set:
+    - the active job goes on to its artifact; `block`, `pause`,
+      `deliver`, `done` and `drop` work as before; `add`, the intake of
+      a delivered `REQUEST` (rule 11) and a pool claim still queue, so
+      nothing asked of the agent is lost;
+    - `switch` and `next` settle the job being left by rule 10 step 1,
+      then stop and name the hold: they start no job and print no
+      `fabric-fresh`. `start` of any job, a delivered one included,
+      and `fabric-fresh --job` refuse, naming the hold. `import` still
+      fills an empty list, an active job in it included: it moves a
+      list that was already worked, and starts nothing;
+    - a session whose job is settled ends idle, and rule 10's "never
+      idle while a job is queued" yields to the hold. A `REQUEST`
+      that arrives is queued and answered as held;
+    - `fabric-status` and the session-start jobs line show the hold
+      with its reason, decision and age, and the `jobs` op reports it,
+      so `fabric-ctl all jobs` shows which accounts are held.
+    An account whose control agent did not answer is not held, and
+    `fabric-ctl` names it; the coordinator sets the hold again when the
+    account is back, and holds a login provisioned during the hold by
+    naming it. The hold fences off a session that never read the
+    announcement. It does not stop an agent that edits its own state:
+    a login can delete its own `hold.json`, and must not.
 
 ## 6. Consequences
 
@@ -223,7 +291,7 @@ Why these choices:
 
 ## 8. Decision Status
 
-Accepted and in force, rules 7–10 included (built in agent-fabric #118).
+Accepted and in force, rules 7–10 included (built in agent-fabric #118). Rule 13, the fleet hold, is built in agent-fabric #431 (the control plane, `fabric-jobs`, `fabric-fresh`, `fabric-status`) and #429 (the session-start line, the skill) (A 2026-10-30).
 
 ## References
 
@@ -247,3 +315,11 @@ The body above reads current; each change's full note is in [history/ADR-037-ame
 | 2026-10-14 | Paused, and the transition between jobs | §5 rule 2 adds `paused` (the agent's choice) beside `blocked` (a wait it does not control); rule 10: `fabric-jobs switch` settles the old job with its evidence, starts the next fresh (rule 3 unchanged) and chooses its branch, refusing on a failed check |
 | 2026-10-15 | Built, and the text says so | §2's request intake and §5 rule 2's `paused` read as built (intake.py; `fabric-jobs pause` and `switch`); no rule changes |
 | 2026-10-16 | A delivered job whose evidence landed is swept to done | §5 rule 12 added: `fabric-jobs sweep` closes a delivered job by rule 10's `done` test, and each account's control agent runs it hourly |
+| 2026-10-18 | Work that leaves no artifact closes with a reason | §5 rule 10: a `done` job is settled by a recorded `--no-artifact` reason when its work lands nothing in a repository |
+| 2026-10-20 | A session works one job's working copy | §5 rule 3: a PreToolUse hook refuses a commit or a publish outside the session's job copies, and refuses everything after the session's job has left `active`; reads stay allowed |
+| 2026-10-21 | Leaving a job cleans its build output | §5 rule 10 step 1, decided and unbuilt (python-dev's j75): once the old job is settled, its worktree's cargo targets are to be removed, except one in use, with `--keep-targets` to skip it |
+| 2026-10-30 | A fleet hold the job tool enforces | §5 rule 13 added, built in #431 and #429: `fabric-ctl hold`/`unhold` set a login's `hold.json`; while it is set, `switch` settles and starts nothing, `start` and `fabric-fresh --job` refuse; status, session start and `jobs` show it; §8 says so |
+| 2026-10-30 | While held, every start refuses | §5 rule 13: `start` refuses a delivered job too, not only a queued, paused or blocked one; `import` stays allowed, since it moves a list and starts nothing |
+| 2026-10-31 | A clock blocker | §5 rule 8: `block --on clock:<UTC time>` waits on a time and clears itself at it, built in #439 |
+| 2026-10-31 | Cleaning a left job's targets is built | §5 rule 10 step 1 reads as built (#350, `fabric-jobs switch`, jobsparts/leave_targets.py); no rule changes |
+| 2026-10-31 | In place only from inside the job's copy | §5 rule 3: a session that has worked no job takes the next in place only from inside its working copy or worktree; elsewhere, or unreadable, `switch` says fresh with the reason (`outside_copy`, `place_unreadable`) |

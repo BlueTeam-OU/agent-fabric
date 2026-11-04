@@ -137,9 +137,12 @@ def main() -> int:
         os.makedirs(os.path.join(copy, "github"))
         os.makedirs(os.path.join(t, "copy", "bin"))
         shutil.copy2(TOOL, os.path.join(t, "copy", "bin", "fabric-repo-settings"))
-        for rel in ("gh.py", "roots.py", "workingcopy.py", os.path.join("github", "repo_settings.py"),
+        for rel in ("gh.py", "gh_ledger.py", "roots.py", "workingcopy.py", os.path.join("github", "repo_settings.py"),
                     os.path.join("github", "arm_policy.py"), os.path.join("github", "__init__.py")):
             shutil.copy2(os.path.join(ROOT, "tools", "fabric", rel), os.path.join(copy, rel))
+        # gh_ledger takes the account's state directory from identity.
+        os.makedirs(os.path.join(t, "copy", "runtime"))
+        shutil.copy2(os.path.join(ROOT, "runtime", "identity.py"), os.path.join(t, "copy", "runtime"))
         with open(os.path.join(copy, "github-ruleset-main.json"), "w", encoding="utf-8") as fh:
             fh.write("{")
         rc, out, err, calls = settings("o/r", tool=os.path.join(t, "copy", "bin", "fabric-repo-settings"))

@@ -50,10 +50,12 @@ said in one `fabric-resume: refused: …` line on stderr; 1 when the lock
 cannot be taken for any other reason.
 
 It chooses resume or fresh, where, and the provider: the one the
+agent's declared launch_provider (routing/profiles.json agents.<login>), else the one the
 account last launched on (launch-provider.json), unless the arguments name
-one; for an account that never launched, routing/profiles.json's
-launch_provider for it, its role or the defaults. The launcher's own default is a fixed provider, not the account's, so
-a resume without it would come back on another provider's models and bill.
+one; for an account with neither, the profile's launch_provider for its role or the defaults.
+The declaration is the reviewed choice and the record only remembers, so moving an account to another provider
+is a profile change that the next resume follows, never a record to edit. The launcher's own default is a fixed
+provider, not the account's, so a resume without it would come back on another provider's models and bill.
 Model, effort and prompt stay the launcher's.
 """
 from __future__ import annotations
@@ -147,11 +149,11 @@ def own_dir(path: str) -> bool:
     return stat.S_ISDIR(st.st_mode) and st.st_uid == os.getuid()
 
 
-def profile_provider(login: str, role: str | None) -> str | None:
+def profile_provider(login: str, role: str | None, agent_only: bool = False) -> str | None:
     """routing/profiles.json's launch_provider, nearest layer first: the
-    agent's, the role's, the defaults'. Unreadable, or not the shape the
-    schema gives it (a hand-edited or unmerged checkout runs this without
-    the lint), is none."""
+    agent's, the role's, the defaults'; agent_only stops at the agent's.
+    Unreadable, or not the shape the schema gives it (a hand-edited or
+    unmerged checkout runs this without the lint), is none."""
     # A test points this at a fixture; nothing else sets it.
     path = os.environ.get("AGENT_FABRIC_RESUME_PROFILES") or roots.routing_profiles(engine=FABRIC)
     try:
@@ -162,8 +164,9 @@ def profile_provider(login: str, role: str | None) -> str | None:
     if not isinstance(prof, dict):
         return None
     agents, roles = prof.get("agents"), prof.get("roles")
-    layers = [agents.get(login) if isinstance(agents, dict) else None,
-              roles.get(role or "") if isinstance(roles, dict) else None, prof.get("defaults")]
+    layers = [agents.get(login) if isinstance(agents, dict) else None]
+    if not agent_only:
+        layers += [roles.get(role or "") if isinstance(roles, dict) else None, prof.get("defaults")]
     for layer in layers:
         p = layer.get("launch_provider") if isinstance(layer, dict) else None
         # "gateway" is a transport over the anthropic column (launcher/gateway.py), not one of
@@ -186,20 +189,61 @@ def last_launch_transport(record: str | None = None) -> str:
     return transport if transport == "gateway" else ""
 
 
+def through_gateway(p: str | None) -> str | None:
+    """A session that ran through the gateway comes back through it: the
+    provider names the column, the record's transport is how it was reached,
+    so an anthropic column over a gateway record is "gateway"."""
+    return "gateway" if p == "anthropic" and last_launch_transport() == "gateway" else p
+
+
+def declared_provider(agent: str) -> str | None:
+    """The agent layer's own launch_provider, the declared and reviewed
+    choice, with the record's gateway transport applied: a declaration of
+    anthropic names the column and must not drop an account off the gateway
+    it reaches that column by."""
+    return through_gateway(profile_provider(agent, None, agent_only=True))
+
+
+def with_declared_provider(args: list[str]) -> list[str]:
+    """`args` with the agent layer's declared provider in place of the
+    --provider they carry (or put in front when they carry none and the
+    launcher's default is another): a relaunch after a restart replays the
+    original arguments, whose provider would otherwise outlive a profile
+    that has since moved the account. No declaration leaves them as given."""
+    p = declared_provider(identity.current_agent())
+    if not p:
+        return list(args)
+    out, replaced, i = [], False, 0
+    while i < len(args):
+        a = args[i]
+        if a == "--provider" and i + 1 < len(args):
+            out += ["--provider", p]
+            replaced, i = True, i + 2
+        elif a.startswith("--provider="):
+            out.append(f"--provider={p}")
+            replaced, i = True, i + 1
+        else:
+            out.append(a)
+            i += 1
+    # The launcher's own default, which a declaration of it need not restate.
+    return out if replaced or p == "openrouter" else ["--provider", p, *out]
+
+
 def provider_args(extra: list[str], binding: dict | None = None) -> list[str]:
-    """The caller's --provider wins; then the account's last launch; then,
-    for an account that never launched (a new agent's first activation),
-    the profile's launch_provider. None of them: the launcher's default."""
+    """The caller's --provider wins; then the agent's own launch_provider in
+    the profile, the declared and reviewed choice (a record that outranked it
+    would pin an account to wherever it first launched, and moving it would
+    mean editing runtime state); then the account's last launch, which only
+    remembers; then the role's and the defaults' launch_provider, for an
+    account that never launched (a new agent's first activation). None of
+    them: the launcher's default."""
     if any(a == "--provider" or a.startswith("--provider=") for a in extra):
         return []
-    p = install_agent_files.last_launch_provider()
-    # A session that ran through the gateway comes back through it: the record's
-    # provider is the column, the transport is how it was reached.
-    if p == "anthropic" and last_launch_transport() == "gateway":
-        p = "gateway"
+    agent = identity.current_agent()
+    p = declared_provider(agent) or through_gateway(install_agent_files.last_launch_provider())
     if not p:
-        b = binding if binding is not None else identity.read_binding(identity.current_agent())
-        p = profile_provider(identity.current_agent(), b.get("role"))
+        b = binding if binding is not None else identity.read_binding(agent)
+        p = profile_provider(agent, b.get("role"))
     return ["--provider", p] if p else []
 
 

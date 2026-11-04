@@ -1,0 +1,15 @@
+# runtime/control/agent-fabric-drain.timer — weekly, for agent-fabric-drain.service (ADR-034 §7 step 3): Monday
+# 06:00 UTC, a week to the next collection and a week to land it inside the 14-day bound. Clear of the daily state
+# backup (midnight plus up to 1 h) and the relay backup (03, 09, 15, 21). Persistent: a host that was off at the hour
+# collects at its next start. The delay spreads nothing across logins (one account runs it); it keeps the run off
+# the exact minute the other timers share.
+[Unit]
+Description=agent-fabric: weekly collection of undrained memory
+
+[Timer]
+OnCalendar=Mon *-*-* 06:00:00 UTC
+RandomizedDelaySec=15min
+Persistent=true
+
+[Install]
+WantedBy=timers.target

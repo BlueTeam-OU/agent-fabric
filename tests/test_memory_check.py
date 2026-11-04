@@ -444,6 +444,61 @@ class Anchors(Tree):
         row = self.verdicts("--project", "agent-fabric")["far"]
         self.assertEqual((row["verdict"], row["anchors"][0]["subject"]), ("maybe-stale", "engine v2"))
 
+    def second_project(self, name="gzapp"):
+        """A checkout beside the tree with its own history: engine.py changed on 2026-03-20."""
+        root = os.path.join(self.base, name)
+        os.makedirs(os.path.join(root, "src"))
+        git(root, "init", "-q")
+        self.write("src/engine.py", "class Engine: ...\n", root=root)
+        git(root, "add", "-A")
+        git(root, "commit", "-q", "-m", "engine v1", date="2026-03-01")
+        self.write("src/engine.py", "class Engine:\n    pass\n", root=root)
+        git(root, "commit", "-q", "-am", "engine v2", date="2026-03-20")
+        return root
+
+    def test_a_named_anchor_is_judged_in_that_projects_checkout_fresh_stale_hard_and_maybe_stale(self):
+        self.second_project()
+        self.write("src/engine.py", "class Engine_in_the_fabric_tree: ...\n")   # the same path here must say nothing
+        self.slice("a", ("fresh", anchored("B.", ["gzapp:src/engine.py::Engine"], observed="2026-03-25")),
+                   ("hard-symbol", anchored("B.", ["gzapp:src/engine.py::Engine_in_the_fabric_tree"], observed="2026-03-25")),
+                   ("hard-path", anchored("B.", ["gzapp:src/gone.py"], observed="2026-03-25")),
+                   ("maybe", anchored("B.", ["gzapp:src/engine.py::Engine"], observed="2026-03-10")))
+        v = self.verdicts()
+        self.assertEqual({h: (r["verdict"], r["anchors"][0]["status"]) for h, r in v.items()},
+                         {"fresh": ("fresh", "exists"), "hard-symbol": ("stale-hard", "stale-hard"),
+                          "hard-path": ("stale-hard", "stale-hard"), "maybe": ("maybe-stale", "maybe-stale")})
+        self.assertEqual((v["maybe"]["anchors"][0]["subject"], v["maybe"]["anchors"][0]["project"], v["maybe"]["anchors"][0]["path"]),
+                         ("engine v2", "gzapp", "src/engine.py"))
+        self.assertIn("Engine_in_the_fabric_tree", v["hard-symbol"]["anchors"][0]["why"])
+        self.assertIn("maybe-stale\tdomains/d/domain/a.md\tmaybe\tgzapp:src/engine.py::Engine\t",
+                      self.run_cli(self.corpus).stdout, "the finding names the anchor as written")
+
+    def test_a_named_anchor_whose_checkout_is_not_here_is_unchecked_never_stale_hard(self):
+        self.write("src/engine.py", "class Engine: ...\n")        # a same-named file in the tree must not stand in
+        self.slice("a", ("far", anchored("B.", ["gzapp:src/engine.py::Engine"])), ("gone", anchored("B.", ["gzapp:src/nothing.py"])))
+        v = self.verdicts()
+        for heading in ("far", "gone"):
+            self.assertEqual((v[heading]["verdict"], v[heading]["anchors"][0]["status"]), ("unchecked", "unchecked"), heading)
+            self.assertIn("project gzapp: no checkout 'gzapp' beside the tree", v[heading]["anchors"][0]["why"])
+        self.assertNotIn("stale-hard", self.run_cli(self.corpus).stdout.split("summary")[0])
+
+    def test_a_named_anchor_uses_the_origin_working_copy_of_its_project_and_an_unnamed_one_stays_the_origins(self):
+        self.second_project("gzapp-wc")
+        self.write("README.md", "the fabric's readme\n")
+        self.slice("a", ("named", anchored("B.", ["gzapp:src/engine.py::Engine"], observed="2026-03-25")),
+                   ("unnamed", anchored("B.", ["README.md::the fabric's"], observed="2026-03-25")),
+                   origins=(("gzapp", "gzapp-wc"), ("agent-fabric", "agent-fabric")))
+        v = self.verdicts("--project", "agent-fabric")
+        self.assertEqual((v["named"]["verdict"], v["unnamed"]["verdict"]), ("fresh", "fresh"))
+        self.assertEqual(v["named"]["anchors"][0]["status"], "exists")
+
+    def test_a_named_anchor_is_judged_in_the_tree_when_it_names_the_corpus_own_project(self):
+        self.write("README.md", "the fabric's readme\n")
+        self.slice("a", ("own", anchored("B.", ["tree-id:README.md::the fabric's"], observed=None)),
+                   ("gone", anchored("B.", ["tree-id:README.md::absent text"], observed=None)))
+        v = self.verdicts("--project", "tree-id")   # no directory beside the tree is named for it: only the tree can answer
+        self.assertEqual((v["own"]["anchors"][0]["status"], v["gone"]["anchors"][0]["status"]), ("exists", "stale-hard"))
+
     def test_an_anchor_is_judged_in_its_origins_checkout_never_by_a_same_named_file_of_another_project(self):
         self.write("README.md", "the fabric's own readme, without the literal\n")
         self.slice("a", ("far", anchored("B.", ["README.md::only-in-the-other-readme"], observed=None)), origins=(("other", "other"),))

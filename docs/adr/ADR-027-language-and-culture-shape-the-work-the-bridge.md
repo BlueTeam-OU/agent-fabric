@@ -301,7 +301,7 @@ the whole prompt in the locale are in use.
 - `tools/fabric/control/ops/activity.py` (`script`, `worker_transcripts`),
   `tools/fabric/control/ctl.py`; `tools/fabric/harvest_memory.py`
   (`needs_rendering`).
-- `policies/AUTHORITY.md` §"The one carve-out", `policies/githooks/locale-carve-out.sh`.
+- `policies/AUTHORITY.md` §"The one carve-out", `tools/fabric/guards/commit_hooks.py` (its `locale-role` verb; `policies/githooks/locale-carve-out.sh` is its shim).
 - ADR-000 (P4), ADR-002 (the launch prompt and its locale exception),
   ADR-008 (the harness capture), ADR-013 (the drain), ADR-018 (the
   carve-out).

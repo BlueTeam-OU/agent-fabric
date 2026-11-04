@@ -46,7 +46,7 @@ def show(job: dict, cache: dict | None = None) -> str:
     rows = [
         ("job", job["id"]), ("title", job["title"]), ("state", job["state"]),
         ("priority", stored_priority(job) or f"{job.get('priority')!r} (none of {', '.join(PRIORITIES)})"),
-        ("project", job.get("project") or "-"), ("working copy", job.get("working_copy") or "-"),
+        ("project", job.get("project") or "-"), ("project from", job.get("project_from")), ("working copy", job.get("working_copy") or "-"),
         ("topic", job.get("topic") or "-"), ("source", origin),
         ("blocked on", job.get("blocked_on")),
         ("blockers", "; ".join(f"{b['spec']} {b['state']}" + (f" ({b['detail']})" if b["state"] != "unknown" and b.get("detail") else "")

@@ -41,9 +41,11 @@ CONTRACT, frozen from the shell
   exit    0 done; 1 any step failed (the rest still ran, a login at a time)
           or the snapshot is locked by another writer or cannot be made;
           2 usage
-  kept    the boot script's install is not checked (its failure is not
-          counted): the shell did not, and a change there is a finding for
-          the rule's owner, not a port's choice
+  changed the boot script's install is checked (audit F11, j199): a failed
+          install is said and counted, and a login persists only when the
+          installed script is a regular, executable copy of this checkout's.
+          The shell swallowed the failure and reported reboot persistence
+          with exit 0, for an account the next boot would not bring back
 """
 from __future__ import annotations
 
@@ -51,6 +53,7 @@ import filecmp
 import fcntl
 import os
 import shutil
+import stat
 import subprocess
 import sys
 import tempfile
@@ -97,6 +100,14 @@ def _same(a: str, b: str) -> bool:
         return filecmp.cmp(a, b, shallow=False)
     except OSError:
         return False
+
+
+def _executable(path: str) -> bool:
+    try:
+        st = os.lstat(path)
+    except OSError:
+        return False
+    return stat.S_ISREG(st.st_mode) and bool(st.st_mode & 0o111)
 
 
 def _lines(path: str) -> list[str]:
@@ -227,12 +238,17 @@ def run(logins: list[str], environ: Mapping[str, str] | None = None) -> int:
                 rc = 1
             src = os.path.join(platform_dir, "qubes", "agent-fabric-accounts.rc")
             dst = os.path.join(rcd, "agent-fabric-accounts.rc")
-            if not _same(src, dst):
+            if not (_same(src, dst) and _executable(dst)):
                 try:
                     _install_dir(rcd, 0o755)
                     _install_file(src, dst, 0o755)
-                except OSError:
-                    pass                  # as the shell: not counted (see the header)
+                except OSError as e:
+                    _say(f"persist-accounts: the boot script could not be installed at {dst}: {e.strerror or type(e).__name__}")
+            if not (_same(src, dst) and _executable(dst)):
+                # A volatile root brings these accounts back only through this script: without it the record is a
+                # snapshot nothing reads, and "persisted" would be a lie told to the provisioner.
+                _say(f"persist-accounts: the boot script at {dst} is not an executable copy of {src}; {login} will not come back after a reboot")
+                rc = 1
         try:
             done = subprocess.run([loginctl, "enable-linger", login], stderr=subprocess.DEVNULL, timeout=LOGINCTL_TIMEOUT_S)
             failed = done.returncode != 0

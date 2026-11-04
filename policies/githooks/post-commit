@@ -1,19 +1,14 @@
 #!/usr/bin/env bash
-# policies/githooks/post-commit — attach the commit's timestamp proof as its
-# note (agent-fabric ADR-057 §5 rule 4). The commit id does not exist while git
-# signs, so fabric-sign keeps the proof keyed by the signature and this hook
-# files it under refs/notes/fabric-ots once the commit is made.
+# policies/githooks/post-commit — attach the commit's timestamp proof as its note (agent-fabric
+# ADR-057 §5 rule 4), where git signs through fabric-sign; the decision is
+# tools/fabric/guards/commit_hooks.py on the fleet's pinned Python.
 #
-# A post-commit hook cannot refuse a commit: a failure here is said and left
-# to the pre-push hook, which attaches any proof still missing and refuses the
-# push without one. It runs only where git signs through fabric-sign, so a
-# working copy still on the shared key's wrapper is untouched.
-set -uo pipefail
-program="$(git config --get gpg.program 2>/dev/null)"
-ssh_program="$(git config --get gpg.ssh.program 2>/dev/null)"
-case "${program##*/}${ssh_program##*/}" in
-    *fabric-sign*) ;;
-    *) exit 0 ;;
-esac
-fabric-sign note HEAD || echo "post-commit: no proof note yet for HEAD; the pre-push hook attaches it" >&2
+# A forwarder (ADR-040 §5 rule 1) that, unlike pre-commit and commit-msg, does NOT fail closed:
+# a post-commit hook cannot refuse a commit, and a failure here is said and left to the
+# pre-push hook, which attaches any proof still missing and refuses the push without one. So a
+# missing pin is said and the hook exits 0, as it does in every path.
+root="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/../.." && pwd)"
+py="${AGENT_FABRIC_PYTHON:-/usr/local/bin/fabric-python}"
+[[ -x "$py" ]] || { echo "post-commit: the fleet's pinned Python is not installed at $py, so no proof note was filed; the pre-push hook attaches it; as root: /usr/bin/python3 $root/tools/fabric/python_pin.py install" >&2; exit 0; }
+"$py" "$root/tools/fabric/guards/commit_hooks.py" post-commit "$root" "$@"
 exit 0

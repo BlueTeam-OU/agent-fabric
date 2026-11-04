@@ -14,9 +14,20 @@ HERE = os.path.dirname(os.path.realpath(__file__))
 sys.path.insert(0, os.path.dirname(HERE))
 import gh  # noqa: E402
 import git  # noqa: E402
+from github import landed  # noqa: E402
 from github.pr_gate_base import INFLIGHT_PATHS_CAP, LIST_CAP, jq_str, note, succeeds  # noqa: E402
 
 def in_flight(repo: str, as_json: bool, overlap: str, prefixes: list[str]) -> int:
+    # The branches are this clone's origin's, matched against `repo`'s pull requests: under GH_REPO (or --repo)
+    # naming another repository they would be listed as its own, mostly as "no PR" (review on #300, round 2).
+    try:
+        ours = landed.origin_is(repo)
+    except git.GitError:
+        ours = False
+    if not ours:
+        note(f"this clone's origin is not {repo} on github.com — the branches in flight are read from a clone of it; "
+             "run from one")
+        return 2
     fetch_ok = prs_ok = True
     if not succeeds("fetch", "-q", "--prune", "origin"):
         fetch_ok = False

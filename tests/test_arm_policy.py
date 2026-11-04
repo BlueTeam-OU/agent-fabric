@@ -119,6 +119,18 @@ class Document(unittest.TestCase):
             with self.assertRaises(arm_policy.PolicyError, msg=repr(bad)):
                 arm_policy.validate(bad)
 
+    def test_the_armed_status_is_a_context_name_set_by_default_and_null_turns_it_off(self):
+        # Mutation: validate accepting any value (the check removed) fails the refusals.
+        self.assertEqual(arm_policy.default()["armed_status"], "fabric/armed")
+        self.assertEqual(arm_policy.armed_status(arm_policy.default()), "fabric/armed")
+        self.assertIsNone(arm_policy.validate({"armed_status": None})["armed_status"])
+        self.assertIsNone(arm_policy.armed_status(arm_policy.validate({"armed_status": None})))
+        # One name (review of #454, F2): disarm-on-push reads fabric/armed and no policy. Mutation: any context accepted
+        # again fails "gate/armed".
+        for bad in ("gate/armed", "", " fabric/armed", "fabric/armed ", "fabric/\narmed", 3, True, ["fabric/armed"], {"context": "fabric/armed"}):
+            with self.assertRaises(arm_policy.PolicyError, msg=repr(bad)):
+                arm_policy.validate({"armed_status": bad})
+
     def test_the_boundary_authority_is_a_role_slug_absent_by_default_and_a_repositorys_to_set(self):
         self.assertNotIn("boundary_authority", arm_policy.default()["commits"])
         self.assertEqual(arm_policy.validate({"commits": {"boundary_authority": "architect-cto"}})["commits"]["boundary_authority"], "architect-cto")
@@ -200,7 +212,8 @@ class RealFiles(unittest.TestCase):
                  {"github": {"ruleset": "r", "branch": "main"}}, {"mode": "owner-only"}, {"mode": "direct"}, {"commits": {"below_min": "refuse"}},
                  {"commits": {"min": 20}}, {"queue": {"merge_min": 6}}, {"required_checks": [{"context": "c", "app": "Foo"}]},
                  {"github": {"ruleset": " "}}, {"commits": {"min": 1.0}}, {"description": "why"},
-                 {"reviews": ["claude", "codex"]}, {"reviews": ["codex"], "boundary_reviews": ["claude", "codex"]}]
+                 {"reviews": ["claude", "codex"]}, {"reviews": ["codex"], "boundary_reviews": ["claude", "codex"]},
+                 {"armed_status": None}, {"armed_status": "fabric/armed"}]
         invalid = [{"mode": "auto", "autoo": True}, {"queue": {"depth": 3}}, {"mode": "squash"}, {"method": "fast-forward"},
                    {"reviews": []}, {"reviews": ["gemini"]}, {"reviews": "codex"}, {"reviews": ["codex", "codex"]}, {"boundary_reviews": ["x"]},
                    {"commits": {"below_min": "warn"}}, {"commits": {"min": 0}}, {"commits": {"boundary_min": 0}}, {"commits": {"boundary_min": 2.5}}, {"commits": {"boundary_authority": "Architect"}}, {"commits": {"roles": {"devex-tooling": {"min": 0}}}},
@@ -208,7 +221,8 @@ class RealFiles(unittest.TestCase):
                    {"queue": {"grouping": "some"}}, {"queue": {"build": 2.5}}, {"required_checks": [{"app": "github-actions"}]},
                    {"bots": {"renovate": {"arm": ["patch"]}}}, {"bots": {"dependabot": {"arm": ["breaking"]}}}, {"signatures": "yes"},
                    {"protect": {"deletion": 1}}, {"required_checks": ["ci-ok"]}, {"$schema": "x"}, {"description": 5}, {"description": ""},
-                   {"commits": {"classes": {"docs": "^docs/"}}}, {"commits": {"classes": {"docs": {"paths": "^d"}}}}]
+                   {"commits": {"classes": {"docs": "^docs/"}}}, {"commits": {"classes": {"docs": {"paths": "^d"}}}},
+                   {"armed_status": ""}, {"armed_status": " x"}, {"armed_status": "gate/armed"}, {"armed_status": 3}, {"armed_status": ["fabric/armed"]}]
         with open(os.path.join(HERE, "policies", "arming.json"), encoding="utf-8") as fh:
             valid.append(json.load(fh))
         for doc in valid:
@@ -568,16 +582,46 @@ class Render(unittest.TestCase):
 
     def test_checks_apps_signatures_and_protection_are_each_a_rule_only_when_asked(self):
         types = lambda doc: [x["type"] for x in arm_policy.render(arm_policy.validate(doc))["ruleset"]["rules"]]  # noqa: E731
-        self.assertEqual(types({}), ["deletion", "non_fast_forward", "pull_request", "required_signatures"])
-        self.assertEqual(types({"protect": {"deletion": False, "force_push": False}, "signatures": False}), ["pull_request"])
-        self.assertEqual(types({"protect": {"force_push": False}, "required_checks": [{"context": "a"}], "signatures": False}),
+        self.assertEqual(types({}), ["deletion", "non_fast_forward", "pull_request", "required_status_checks", "required_signatures"])
+        self.assertEqual(types({"armed_status": None}), ["deletion", "non_fast_forward", "pull_request", "required_signatures"])
+        self.assertEqual(types({"protect": {"deletion": False, "force_push": False}, "signatures": False, "armed_status": None}), ["pull_request"])
+        self.assertEqual(types({"protect": {"force_push": False}, "required_checks": [{"context": "a"}], "signatures": False, "armed_status": None}),
                          ["deletion", "pull_request", "required_status_checks"])
-        rule = next(x for x in arm_policy.render(arm_policy.validate({"required_checks": [{"context": "a"}, {"context": "b"}]}))["ruleset"]["rules"]
+        rule = next(x for x in arm_policy.render(arm_policy.validate({"required_checks": [{"context": "a"}, {"context": "b"}],
+                                                                      "armed_status": None}))["ruleset"]["rules"]
                     if x["type"] == "required_status_checks")
         self.assertEqual(rule["parameters"]["required_status_checks"], [{"context": "a"}, {"context": "b"}], "no app: any, no integration id")
 
+    def required(self, doc: dict) -> list | None:
+        rendered = arm_policy.render(arm_policy.validate(doc))["ruleset"]
+        rule = next((x for x in rendered["rules"] if x["type"] == "required_status_checks"), None) if rendered else None
+        return rule["parameters"]["required_status_checks"] if rule else None
+
+    def test_the_armed_status_is_a_required_check_of_an_auto_ruleset_whatever_required_checks_says(self):
+        # A repository's required_checks list replaces the fleet's (lists replace on merge), so a context kept in the
+        # list would be dropped by any repository that names its own checks: render adds it after the list instead.
+        # Mutation: the armed status put in DEFAULT's required_checks rather than appended by render fails the second.
+        self.assertEqual(self.required({}), [{"context": "fabric/armed"}])
+        self.assertEqual(self.required({"required_checks": [{"context": "ci-ok", "app": "github-actions"}]}),
+                         [{"context": "ci-ok", "integration_id": 15368}, {"context": "fabric/armed"}])
+        merged = arm_policy.merge(arm_policy.default(), {"required_checks": [{"context": "build"}]})
+        self.assertEqual(self.required(merged), [{"context": "build"}, {"context": "fabric/armed"}], "a settings file's list")
+        # Named in the list as well, it is one check: GitHub refuses a ruleset that names a context twice.
+        self.assertEqual(self.required({"required_checks": [{"context": "fabric/armed"}]}), [{"context": "fabric/armed"}])
+
+    def test_the_armed_status_is_off_when_null_and_only_an_auto_ruleset_requires_it(self):
+        # direct has no ruleset; owner-only is merged by the owner's hand and queue merges the queue's own commit, and
+        # nothing posts the status on either, so a ruleset requiring it there would hold every merge for good.
+        # Mutation: render adding it for every mode with a ruleset fails the owner-only and queue lines.
+        self.assertIsNone(self.required({"armed_status": None}))
+        self.assertIsNone(arm_policy.render(arm_policy.validate({"mode": "direct"}))["ruleset"])
+        for mode in ("owner-only", "queue"):
+            self.assertIsNone(self.required({"mode": mode}), mode)
+            self.assertEqual(self.required({"mode": mode, "required_checks": [{"context": "ci-ok"}]}), [{"context": "ci-ok"}], mode)
+
     def test_an_app_is_its_integration_id_and_one_not_known_is_an_error_unless_given(self):
-        policy = arm_policy.validate({"required_checks": [{"context": "a", "app": "github-actions"}, {"context": "b", "app": "circleci"}]})
+        policy = arm_policy.validate({"required_checks": [{"context": "a", "app": "github-actions"}, {"context": "b", "app": "circleci"}],
+                                      "armed_status": None})
         with self.assertRaises(arm_policy.PolicyError):
             arm_policy.render(policy)
         rule = next(x for x in arm_policy.render(policy, {"circleci": 18001})["ruleset"]["rules"] if x["type"] == "required_status_checks")
@@ -671,6 +715,7 @@ class PrGateRun(unittest.TestCase):
             es.enter_context(mock.patch.object(pr_gate.gh, "run", return_value=json.dumps(pr)))
             es.enter_context(mock.patch.object(pr_gate, "session_prefix", return_value="h/me"))
             es.enter_context(mock.patch.object(pr_gate, "succeeds", return_value=True))
+            es.enter_context(mock.patch.object(pr_gate.landed, "origin_is", return_value=True))
             es.enter_context(mock.patch.object(pr_gate, "review_reader", return_value=None))
             es.enter_context(mock.patch.object(pr_gate, "count_commits", return_value=commits))
             es.enter_context(mock.patch.object(pr_gate, "gate_state", return_value=st))
@@ -754,6 +799,11 @@ def fleet_of(*rows):
                         for login, role, online in rows)
 
 
+def whoami_of(role="architect-cto", address="h/me"):
+    """`fabric-whoami --json` as (rc, text); a session bound to no role carries none."""
+    return 0, json.dumps({"address": address, "agent": address.split("/")[1], **({"role": role} if role else {})})
+
+
 def silent(login: str) -> str:
     """A row `fabric-ctl all presence --json` prints for an account that did not answer."""
     return json.dumps({"account": login, "host": "h", "status": "no answer", "presence": None})
@@ -763,26 +813,41 @@ def presence_of(role="architect-cto", login="arch", host="h", status="ok"):
     return 0, json.dumps({"account": login, "host": host, "status": status, "presence": {"status": "ok", "role": role}})
 
 
+# The run_arm branch's login (h/me/…) bound to the role its commits carry.
+HOLDS_WEB_DEV = presence_of(role="web-dev", login="me")
+
+
+# What the contents API answers for a directory the branch does not have.
+NOT_FOUND = arm.gh.GhError("gh api GET repos/O/R/contents/.github/workflows", "HTTP 404", status=404)
+
+
 class ArmRun(unittest.TestCase):
     """arm.arm() in process, with everything it reads replaced: the rules are the policy's."""
     HEAD = "abcdef1234567890abcdef1234567890abcdef12"
 
     def run_arm(self, policy, work, files=("docs/a.md",), basis="reviewed", body="", boundary_re=r"^policies/", classes=None,
                 load_error=None, extra=(), load_fn=None, drift=(), drift_error=None, role_trailers=None, checks="green", live=None,
-                replay=None, presence=None, unresolved=0, reviewed=True, fleet=None, waiver_role=None, branch="h/me/feat/x"):
-        pr = {"number": 7, "state": "OPEN", "isDraft": False, "headRefName": branch, "headRefOid": self.HEAD, "body": body, "title": "t"}
-        gate = [{"commits_known": True, "work_commits": work, "checks": checks}]
+                replay=None, presence=None, unresolved=0, reviewed=True, fleet=None, waiver_role=None, branch="h/me/feat/x",
+                whoami=None, review_doc=None, workflows=NOT_FOUND):
+        pr = {"number": 7, "state": "OPEN", "isDraft": False, "headRefName": branch, "baseRefName": "main", "headRefOid": self.HEAD, "body": body, "title": "t"}
+        gate = [{"commits_known": True, "work_commits": work, "checks": checks, "head": self.HEAD[:8]}]
         review = {"blind": {"rows": [{"commit_sha8": self.HEAD[:8]}] if reviewed else []}, "unresolved_threads": unresolved}
+        review = review_doc if review_doc is not None else review
         self.reads = reads = []
         commits = [{"parents": [{}, {}], "commit": {"message": "Merge branch main"}} if r == "MERGE" else
                    {"parents": [{}], "commit": {"message": "c" + (f"\n\nFabric-Role: {r}" if r else "")}} for r in (role_trailers or [None])]
-        ran = []
+        ran, asked = [], []
 
         def reader(head, args, timeout=600):
-            what = " ".join(head)
+            # The program's name and verb, never its directory: a checkout whose path holds
+            # "fabric-ctl" (a worktree named for its job) made every reader the presence one.
+            what = " ".join([os.path.basename(head[0]), *head[1:]])
             if "gzcoord-inbox" in what:
                 reads.append(("replay", list(args)))
                 return replay if replay is not None else (1, "")
+            if "fabric-whoami" in what:
+                reads.append(("whoami", list(args)))
+                return whoami if whoami is not None else (1, "")
             if "fabric-ctl" in what:
                 reads.append(("fleet" if args[:1] == ["all"] else "presence", list(args)))
                 if args[:1] == ["all"]:
@@ -791,6 +856,14 @@ class ArmRun(unittest.TestCase):
             return (0, json.dumps(review if "review-status" in what else gate))
 
         def api(path, **kw):
+            if "/pulls/" in path and "/files" in path:
+                # A (new, old) pair is a rename: GitHub names the file by where it ended up and the other by previous_filename.
+                return [{"filename": f[0], "previous_filename": f[1]} if isinstance(f, tuple) else {"filename": f} for f in files]
+            if "/contents/" in path:
+                asked.append(path)
+                if isinstance(workflows, Exception):
+                    raise workflows
+                return workflows
             return commits if "/commits" in path else [{"filename": f} for f in files]
 
         def gh_run(args, **kw):
@@ -826,7 +899,7 @@ class ArmRun(unittest.TestCase):
                 rc = f"refused: {e}"
             except arm.Unanswered as e:
                 rc = f"unanswered: {e}"
-        self.ran = ran
+        self.ran, self.asked = ran, asked
         return rc, out.getvalue()
 
     def test_under_the_fleet_default_the_claude_review_with_no_codex_review_or_marker_arms_with_codex_absent(self):
@@ -837,6 +910,16 @@ class ArmRun(unittest.TestCase):
         basis = [c for c in self.ran if c[:2] == ["pr", "comment"]]
         self.assertTrue(basis and "codex: absent, no review or marker on abcdef12: armed on the claude review alone." in basis[0][-1],
                         self.ran)
+
+    def test_a_checkout_path_that_names_a_reader_does_not_change_which_reader_the_stub_answers(self):
+        # A worktree named for its job once made every reader the presence one: the path holds every reader's name on
+        # purpose, and the stub must answer by program and verb (see its comment), whatever the path's length.
+        long_named = "/w/" + "/".join(["fabric-ctl-" + "x" * 60, "gzcoord-inbox", "fabric-whoami"]) + "/agent-fabric"
+        with mock.patch.object(arm, "FABRIC", long_named):
+            rc, out = self.run_arm(arm_policy.default(), 9)
+        self.assertEqual(rc, 0, out)
+        self.assertEqual(self.reads, [], self.reads)     # no presence, fleet, replay or whoami reader answered
+        self.assertTrue([c for c in self.ran if c[:2] == ["pr", "merge"]], self.ran)
 
     def test_the_minimum_is_the_policys(self):
         p = claude_only({"commits": {"min": 3, "advice_over": 5}})
@@ -990,9 +1073,46 @@ class ArmRun(unittest.TestCase):
             self.assertIn("no authorization is needed: the authorization ref-1 is not read, and not recorded", out)
             self.assertNotIn("authorized by", out)
             self.assertEqual(self.reads, [])
-        rc, out = self.authorized(basis="the owner's word")
+        rc, out = self.authorized(basis="the owner's word", work=9)
         self.assertEqual(rc, 0, out)
+        self.assertIn("no authorization is needed", out)
         self.assertEqual(self.reads, [])
+
+    # gzapi-org/kutaisi-shop-transit#4 (2026-11-01): the owner's word in the basis and the DECISION that relayed it on
+    # --authorization, under the fleet's policy, which names no authority. The message was dropped unread, so the head
+    # its AUTHORIZES names was checked by nobody.
+    def owner_relay(self, **kw):
+        kw.setdefault("replay", grant(sender="h/user"))
+        return self.authorized(policy=claude_only(), files=("docs/a.md",), work=2, basis="the owner's word (DECISION 01a19617)",
+                               presence=None, **kw)
+
+    def test_the_owners_word_relayed_on_authorization_is_read_and_bound_to_the_head_and_recorded(self):
+        rc, out = self.owner_relay()
+        self.assertEqual(rc, 0, out)
+        self.assertEqual([r[0] for r in self.reads], ["replay"], "read, and no role asked of presence: the owner holds none")
+        self.assertIn("the owner's word, as user relayed it (01a12-grant), authorizes O/R#7@abcdef12", out)
+        self.assertIn("count rule: 2 work commits — under 8, on the owner's word", out)
+        self.assertIn("The owner's word relayed by user (01a12-grant).", out)
+        self.assertNotIn("no authorization is needed", out)
+
+    def test_the_owners_word_relayed_for_another_head_pr_or_session_is_refused_not_dropped(self):
+        for label, replay, words in (
+                ("a stale head", grant(sender="h/user", target="O/R#7@0123456789ab"), "head 0123456789ab"),
+                ("another pr", grant(sender="h/user", target=f"O/R#8@{self.HEAD[:12]}"), "AUTHORIZES O/R#8"),
+                ("no AUTHORIZES line", grant(sender="h/user", field="WAIVES"), "has no AUTHORIZES"),
+                ("a broadcast", grant(sender="h/user", to=""), "a broadcast or a role address"),
+                ("the arming login itself", grant(sender="h/me"), "the login arming"),
+                ("a message not addressed", grant(sender="h/user", addressed=False), "not addressed to this session")):
+            rc, _ = self.owner_relay(replay=replay)
+            self.assertTrue(str(rc).startswith("refused"), (label, rc))
+            self.assertIn(words, str(rc), label)
+            self.assertIn("or arm on the basis alone without --authorization", str(rc), label)
+            self.assertEqual([r[0] for r in self.reads], ["replay"], label)
+        rc, _ = self.owner_relay(replay=(1, ""))
+        self.assertTrue(str(rc).startswith("unanswered"), rc)
+        rc, out = self.run_arm(claude_only(), 2, basis="the owner's word", extra=("--dry-run",))
+        self.assertEqual(rc, 0, out)
+        self.assertEqual(self.reads, [], "without --authorization the basis alone arms, as before")
 
     def test_below_min_refuse_is_not_lifted_by_an_authorization(self):
         p = claude_only({"commits": {"min": 1, "below_min": "refuse", "boundary_authority": "architect-cto"}})
@@ -1012,6 +1132,13 @@ class ArmRun(unittest.TestCase):
         rc, _ = self.run_arm(claude_only({"commits": {"min": 1, "boundary_authority": "architect-cto"}}), 3,
                              files=("policies/x.json",), extra=("--dry-run",))
         self.assertIn("arms only on the owner's word", str(rc), "without --authorization the owner's word is still asked")
+        # mutation: the refusal names the owner alone where the policy names a role that may give the word too
+        self.assertIn("arms only on the owner's word or architect-cto's", str(rc))
+
+    def test_a_refusal_names_the_owner_alone_where_the_policy_names_no_authority(self):
+        # mutation: the role's name printed whatever the policy says (an empty "or 's")
+        rc, _ = self.run_arm(claude_only({"commits": {"min": 8}}), 3, extra=("--dry-run",))
+        self.assertIn("under 8 arms only on the owner's word, unless", str(rc))
 
     def test_authorization_needs_its_reference(self):
         policy = claude_only()
@@ -1024,7 +1151,8 @@ class ArmRun(unittest.TestCase):
         rc, out = self.run_arm(claude_only({"commits": {"min": 8, "boundary_authority": "architect-cto"}}), 3,
                                extra=(*self.AUTH, "--dry-run"))
         self.assertIn("arms only on the owner's word", str(rc))
-        self.assertIn("an authorization stands in only for a security-boundary change, and this one needs the owner's word", out)
+        self.assertIn("names no below_min_authority, so an authorization stands in only for a security-boundary change, and this one needs the"
+                      " owner's word", out)
         self.assertNotIn("no authorization is needed", out)
 
     def test_the_pull_requests_own_author_cannot_authorize_it(self):
@@ -1157,14 +1285,14 @@ class ArmRun(unittest.TestCase):
 
     def test_the_authors_role_minimum_applies_when_every_commit_is_stamped_with_it(self):
         p = claude_only({"commits": {"min": 8, "roles": {"web-dev": {"min": 2}}}})
-        rc, out = self.run_arm(p, 2, role_trailers=["web-dev", "web-dev"], extra=("--dry-run",))
+        rc, out = self.run_arm(p, 2, role_trailers=["web-dev", "web-dev"], presence=HOLDS_WEB_DEV, extra=("--dry-run",))
         self.assertEqual(rc, 0, out)
-        rc, _ = self.run_arm(p, 1, role_trailers=["web-dev"])
+        rc, _ = self.run_arm(p, 1, role_trailers=["web-dev"], presence=HOLDS_WEB_DEV)
         self.assertIn("under 2 arms only on the owner's word", str(rc))
 
     def test_a_merge_commit_has_no_role_of_its_own_and_does_not_hide_the_authors(self):
         p = claude_only({"commits": {"min": 8, "roles": {"web-dev": {"min": 2}}}})
-        rc, out = self.run_arm(p, 2, role_trailers=["web-dev", "MERGE", "web-dev"], extra=("--dry-run",))
+        rc, out = self.run_arm(p, 2, role_trailers=["web-dev", "MERGE", "web-dev"], presence=HOLDS_WEB_DEV, extra=("--dry-run",))
         self.assertEqual(rc, 0, out)
 
     def test_no_role_several_roles_or_an_unstamped_commit_is_the_repositorys_minimum(self):
@@ -1172,6 +1300,43 @@ class ArmRun(unittest.TestCase):
         for trailers in (None, ["web-dev", "rust-dev"], ["web-dev", None], ["unknown-role"]):
             rc, _ = self.run_arm(p, 2, role_trailers=trailers)
             self.assertIn("under 8 arms only on the owner's word", str(rc), trailers)
+
+    def test_a_typed_role_the_branchs_login_does_not_hold_is_the_repositorys_minimum(self):
+        p = claude_only({"commits": {"min": 8, "roles": {"brand-comms": {"min": 1}}}})
+        for label, kw, said in (
+                ("another role", {"presence": presence_of(role="devex-tooling", login="me")}, "me, whose branch it is, holds devex-tooling"),
+                ("no role", {"presence": presence_of(role="", login="me")}, "me, whose branch it is, holds no role"),
+                ("another host", {"presence": presence_of(role="brand-comms", login="me"), "branch": "elsewhere/me/feat/x", "extra": ("--any-owner",)}, "names elsewhere/me, but presence places me on h"),
+                ("a branch named for nobody", {"branch": "fix-x", "extra": ("--any-owner",)}, "names no <host>/<login>/")):
+            rc, out = self.run_arm(p, 2, role_trailers=["brand-comms"], **kw)
+            self.assertIn("under 8 arms only on the owner's word", str(rc), label)
+            self.assertIn(said, out, label)
+        rc, out = self.run_arm(p, 2, role_trailers=["brand-comms"], presence=presence_of(role="brand-comms", login="me"), extra=("--dry-run",))
+        self.assertEqual(rc, 0, out)
+        self.assertEqual([r for r in self.reads if r[0] == "presence"], [("presence", ["me", "presence", "--json"])])
+
+    def test_presence_that_cannot_say_stops_an_arm_the_role_would_lower_and_no_other(self):
+        p = claude_only({"commits": {"min": 8, "roles": {"web-dev": {"min": 2}}}})
+        rc, _ = self.run_arm(p, 2, role_trailers=["web-dev"], presence=(1, ""))
+        self.assertIn("unanswered: fabric-ctl could not say which role me holds", str(rc))
+        self.assertIn("the role web-dev the commits carry cannot be checked", str(rc))
+        # A role the floor does not turn on is never checked: a boundary, a role the policy does not name, a class.
+        for kw in ({"files": ("policies/x.json",)}, {"role_trailers": ["rust-dev"]}):
+            self.run_arm(p, 2, **{"role_trailers": ["web-dev"], **kw})
+            self.assertEqual([r for r in self.reads if r[0] == "presence"], [], kw)
+        rc, out = self.run_arm(claude_only({"commits": {"min": 8, "roles": {"web-dev": {"min": 2}}, "classes": {"docs": {"paths": r"\.md$", "min": 1}}}}),
+                               2, role_trailers=["web-dev"], body="Class: docs", classes={"docs": r"\.md$"}, extra=("--dry-run",))
+        self.assertEqual((rc, [r for r in self.reads if r[0] == "presence"]), (0, []), out)
+
+    def test_a_role_minimum_above_the_repositorys_stands_with_no_presence_read(self):
+        # #312 review F1: presence was asked whenever the role's minimum differed, so a login presence placed in
+        # another role armed at the repository's 8 where the role's 12 stood, and presence that could not answer
+        # stopped an arm the role only raised.
+        p = claude_only({"commits": {"min": 8, "roles": {"web-dev": {"min": 12}}}})
+        for label, presence in (("another role", presence_of(role="devex-tooling", login="me")), ("no answer", (1, ""))):
+            rc, _ = self.run_arm(p, 9, role_trailers=["web-dev"] * 9, presence=presence)
+            self.assertIn("under 12 arms only on the owner's word", str(rc), label)
+            self.assertEqual([r for r in self.reads if r[0] in ("presence", "fleet")], [], label)
 
     def test_a_role_only_lowers_a_non_boundary_pull_request(self):
         p = claude_only({"commits": {"min": 8, "roles": {"web-dev": {"min": 2}}}})
@@ -1290,6 +1455,111 @@ class ArmRun(unittest.TestCase):
         self.assertEqual(rc, 0, out)
         self.assertIn("no required check on this repository: every check on the head is green", out)
 
+    NO_CI_WORD = "reviewed, the owner's no-CI word"
+
+    def merged(self):
+        return [c for c in self.ran if c[:2] == ["pr", "merge"]]
+
+    def test_the_no_ci_word_arms_a_pr_mode_repository_whose_base_has_no_workflow_and_no_check(self):
+        p = claude_only({"mode": "auto", "commits": {"min": 1}})
+        rc, out = self.run_arm(p, 3, checks="none-yet", basis=self.NO_CI_WORD)
+        self.assertEqual(rc, 0, out)
+        self.assertEqual(self.asked, ["repos/O/R/contents/.github/workflows?ref=main"])
+        self.assertIn("no CI on main and no check on the head: arming on the owner's no-CI word", out)
+        self.assertTrue(self.merged(), self.ran)
+        comment = [c for c in self.ran if c[:2] == ["pr", "comment"]][0][-1]
+        self.assertIn(" No CI: main has no workflow and the head carries no check; armed on the owner's no-CI word.", comment)
+        rc, out = self.run_arm(p, 3, checks="none-yet", basis=self.NO_CI_WORD, extra=("--dry-run",))
+        self.assertEqual(rc, 0, out)
+        self.assertIn("DRY RUN — would post: ", out)
+        self.assertIn("No CI: main has no workflow and the head carries no check; armed on the owner's no-CI word.", out)
+        self.assertFalse([c for c in self.ran if c[:2] in (["pr", "merge"], ["pr", "comment"])], self.ran)
+
+    def test_the_no_ci_word_does_not_stand_in_for_a_workflow_on_the_base(self):
+        p = claude_only({"mode": "auto", "commits": {"min": 1}})
+        rc, _ = self.run_arm(p, 3, checks="none-yet", basis=self.NO_CI_WORD, workflows=[{"name": "ci.yml", "type": "file"}])
+        self.assertIn("main has workflows: none-yet is a check not reported yet", str(rc))
+        self.assertTrue(str(rc).startswith("refused"), rc)
+        self.assertFalse(self.merged())
+
+    def test_the_no_ci_word_does_not_stand_in_for_a_workflow_the_pr_adds(self):
+        p = claude_only({"mode": "auto", "commits": {"min": 1}})
+        for added in (".github/workflows/ci.yml", ".github/workflows/sub/x.yaml"):
+            rc, _ = self.run_arm(p, 3, checks="none-yet", basis=self.NO_CI_WORD, files=("docs/a.md", added))
+            self.assertIn("this PR adds CI: wait for its checks", str(rc), added)
+            self.assertFalse(self.merged())
+        # A rename out of the workflows directory is a change to it: the previous name is in the list too.
+        rc, _ = self.run_arm(p, 3, checks="none-yet", basis=self.NO_CI_WORD, files=(("docs/old.yml", ".github/workflows/old.yml"),))
+        self.assertIn("this PR adds CI", str(rc))
+        self.assertFalse(self.merged())
+        # Positive control: a neighbouring path is not CI.
+        rc, out = self.run_arm(p, 3, checks="none-yet", basis=self.NO_CI_WORD, files=(".github/workflows-notes/a.md", "x/.github/workflows/y"))
+        self.assertEqual(rc, 0, out)
+
+    def test_a_workflows_lookup_that_is_not_a_404_or_a_list_is_unanswered_never_no_ci(self):
+        p = claude_only({"mode": "auto", "commits": {"min": 1}})
+        answers = (arm.gh.GhError("w", "HTTP 500", status=500, transient=True), arm.gh.GhError("w", "the answer is not JSON", transient=True),
+                   arm.gh.GhError("w", "HTTP 403", status=403), {"type": "file", "name": "workflows"}, {"message": "Not Found"}, [], None, "x")
+        for answer in answers:
+            rc, _ = self.run_arm(p, 3, checks="none-yet", basis=self.NO_CI_WORD, workflows=answer)
+            self.assertTrue(str(rc).startswith("unanswered: cannot read .github/workflows on main"), (answer, rc))
+            self.assertFalse(self.merged())
+
+    def test_the_owners_word_alone_does_not_lift_the_checks_gate_and_the_refusal_names_the_phrase(self):
+        p = claude_only({"mode": "auto", "commits": {"min": 1}})
+        for basis in ("reviewed", "the owner's word", "the owner’s word"):
+            rc, _ = self.run_arm(p, 3, checks="none-yet", basis=basis)
+            self.assertIn("has no required check", str(rc), basis)
+            self.assertIn("if the owner gave it and O/R has no CI at all, the basis carries \"owner's no-CI word\"", str(rc))
+            self.assertFalse(self.asked, "the workflows are not looked up without the word")
+            self.assertFalse(self.merged())
+
+    def test_the_hint_is_only_where_the_word_could_help(self):
+        direct = claude_only({"mode": "direct", "commits": {"min": 1}, "required_checks": [{"context": "ci"}]})
+        rc, _ = self.run_arm(direct, 3, checks="none-yet")
+        self.assertNotIn("no-CI word", str(rc))
+        rc, _ = self.run_arm(claude_only({"mode": "auto", "commits": {"min": 1}}), 3, checks="red:ci")
+        self.assertNotIn("no-CI word", str(rc))
+
+    def test_the_no_ci_word_does_not_lift_the_count_gate_and_the_owners_word_is_not_it(self):
+        p = claude_only({"mode": "auto", "commits": {"min": 5}})
+        rc, _ = self.run_arm(p, 3, checks="none-yet", basis=self.NO_CI_WORD)
+        self.assertIn("under 5 arms only on the owner's word", str(rc))
+        rc, out = self.run_arm(p, 3, checks="none-yet", basis="the owner's word, the owner's no-CI word", extra=("--dry-run",))
+        self.assertEqual(rc, 0, out)
+
+    def test_the_no_ci_word_lifts_nothing_but_none_yet(self):
+        p = claude_only({"mode": "auto", "commits": {"min": 1}})
+        for checks in ("red:ci", "pending:1", "?"):
+            rc, _ = self.run_arm(p, 3, checks=checks, basis=self.NO_CI_WORD)
+            self.assertIn("has no required check", str(rc), checks)
+            self.assertFalse(self.asked)
+            self.assertFalse(self.merged())
+
+    def test_the_no_ci_word_where_it_is_not_needed_is_said_not_read_and_adds_no_sentence(self):
+        auto = claude_only({"mode": "auto", "commits": {"min": 1}})
+        required = claude_only({"mode": "auto", "commits": {"min": 1}, "required_checks": [{"context": "ci-ok", "app": "github-actions"}]})
+        direct = claude_only({"mode": "direct", "commits": {"min": 1}})
+        for name, pol, checks in (("green", auto, "green"), ("required check", required, "none-yet"), ("direct", direct, "green"),
+                                  ("direct, no check", direct, "none-yet")):
+            rc, out = self.run_arm(pol, 3, checks=checks, basis=self.NO_CI_WORD, extra=("--dry-run",))
+            self.assertEqual(rc, 0, (name, out))
+            self.assertIn("the owner's no-CI word is not needed here: it is not read, and no No CI sentence is added", out, name)
+            self.assertFalse(self.asked, name)
+            self.assertNotIn("No CI:", out, name)
+        rc, out = self.run_arm(auto, 3, checks="green")
+        self.assertNotIn("no-CI word", out)
+
+    def test_the_two_words_are_read_apart(self):
+        for yes in ("the owner's word", "Owner’s Word", "OWNER'S WORD, thanks"):
+            self.assertTrue(arm.has_owner_word(yes), yes)
+            self.assertFalse(arm.has_no_ci_word(yes), yes)
+        for yes in ("the owner's no-CI word", "Owner’s No-Ci Word", "OWNER'S NO-CI WORD"):
+            self.assertTrue(arm.has_no_ci_word(yes), yes)
+            self.assertFalse(arm.has_owner_word(yes), yes)
+        for no in ("", "owner's no CI word", "owners no-CI word", "the owner has no-CI word", "no-CI word"):
+            self.assertFalse(arm.has_no_ci_word(no), no)
+
     def test_a_repository_with_a_required_check_leaves_the_checks_to_github(self):
         p = claude_only({"commits": {"min": 1}, "required_checks": [{"context": "ci-ok", "app": "github-actions"}]})
         rc, out = self.run_arm(p, 3, checks="pending:2", extra=("--dry-run",))
@@ -1339,7 +1609,7 @@ class ArmRun(unittest.TestCase):
 
     def test_a_role_that_armed_below_the_repositorys_minimum_is_said_in_the_log_and_the_comment(self):
         p = claude_only({"commits": {"min": 8, "roles": {"web-dev": {"min": 2}}}})
-        _, out = self.run_arm(p, 3, role_trailers=["web-dev"], extra=("--dry-run",))
+        _, out = self.run_arm(p, 3, role_trailers=["web-dev"], presence=HOLDS_WEB_DEV, extra=("--dry-run",))
         self.assertIn("count rule: 3 work commits — the role web-dev's minimum is 2, arms at the review gate", out)
         self.assertNotIn("on the owner's word", out)
         self.assertIn("3 work commits, role: web-dev, head", out)
@@ -1365,6 +1635,217 @@ class ArmRun(unittest.TestCase):
         with mock.patch.object(arm.gh, "api", side_effect=gh.GhError("x", "boom")):
             with self.assertRaises(arm.Unanswered):
                 arm.author_role("O/R", "7")
+
+    # ── the word under the minimum from a role (commits.below_min_authority; the owner, 2026-10-19) ──
+    BM = {"min": 8, "below_min_authority": "architect-cto"}
+
+    def below(self, policy_extra=None, work=3, **kw):
+        policy = claude_only({"commits": {**self.BM, **(policy_extra or {})}})
+        kw.setdefault("files", ("docs/a.md",))
+        return self.run_arm(policy, work, **kw)
+
+    def test_below_min_authority_is_a_role_slug_absent_by_default(self):
+        self.assertNotIn("below_min_authority", arm_policy.default()["commits"])
+        self.assertEqual(arm_policy.validate({"commits": {"below_min_authority": "architect-cto"}})["commits"]["below_min_authority"], "architect-cto")
+        for bad in ("Architect", "", 3, None, ["architect-cto"]):
+            with self.assertRaises(arm_policy.PolicyError, msg=repr(bad)):
+                arm_policy.validate({"commits": {"below_min_authority": bad}})
+
+    def test_authority_own_prs_is_a_boolean_absent_by_default(self):
+        self.assertNotIn("authority_own_prs", arm_policy.default()["commits"])
+        for good in (True, False):
+            self.assertIs(arm_policy.validate({"commits": {"authority_own_prs": good}})["commits"]["authority_own_prs"], good)
+        for bad in ("true", 1, 0, None):
+            with self.assertRaises(arm_policy.PolicyError, msg=repr(bad)):
+                arm_policy.validate({"commits": {"authority_own_prs": bad}})
+
+    def test_an_authorization_from_the_below_min_authority_arms_a_pr_under_the_minimum(self):
+        rc, out = self.below(extra=(*self.AUTH, "--dry-run"), replay=grant(), presence=presence_of())
+        self.assertEqual(rc, 0, out)
+        self.assertIn("count gate AUTHORIZED by arch, architect-cto (01a12-grant), in the owner's place", out)
+        self.assertIn("count rule: 3 work commits — under 8, authorized in the owner's place", out)
+        self.assertIn(" Count gate authorized by arch, architect-cto (01a12-grant).", out)
+        self.assertNotIn("Boundary count gate", out)
+
+    def test_the_below_min_authority_does_not_lift_a_security_boundary_change(self):
+        rc, _ = self.below(files=self.BOUNDARY, extra=(*self.AUTH, "--dry-run"), replay=grant(), presence=presence_of())
+        self.assertIn("names no boundary_authority", str(rc))
+        self.assertTrue(str(rc).startswith("refused"), rc)
+
+    def test_a_boundary_authority_does_not_lift_a_plain_pr_under_the_minimum(self):
+        policy = claude_only({"commits": {"min": 8, "boundary_authority": "architect-cto"}})
+        rc, out = self.run_arm(policy, 3, extra=(*self.AUTH, "--dry-run"), replay=grant(), presence=presence_of())
+        self.assertTrue(str(rc).startswith("refused"), rc)
+        self.assertIn("is not read: O/R's arming policy names no below_min_authority, so an authorization stands in only for a"
+                      " security-boundary change", out)
+        self.assertEqual(self.reads, [])
+
+    def test_a_below_min_authority_authorization_is_refused_as_the_boundary_one_is(self):
+        for label, kw, words in (
+                ("another role", {"presence": presence_of(role="web-dev")}, "who holds web-dev, not architect-cto"),
+                ("a stale head", {"replay": grant(target="O/R#7@0123456789ab")}, "head 0123456789ab"),
+                ("a broadcast", {"replay": grant(to="")}, "a broadcast or a role address"),
+                ("the arming login itself", {"replay": grant(sender="h/me")}, "the login arming"),
+                ("the pull request's author", {"replay": grant(sender="h/arch"), "branch": "h/arch/feat/x"}, "the pull request's own author")):
+            kw.setdefault("replay", grant())
+            kw.setdefault("presence", presence_of())
+            rc, _ = self.below(extra=("--any-owner", *self.AUTH, "--dry-run"), **kw)
+            self.assertTrue(str(rc).startswith("refused"), (label, rc))
+            self.assertIn(words, str(rc), label)
+
+    def test_a_session_holding_the_authority_role_arms_on_its_word_by_its_binding(self):
+        for label, kw in (("a plain PR", {}), ("a boundary change", {"files": self.BOUNDARY, "policy_extra": {"boundary_authority": "architect-cto"}})):
+            rc, out = self.below(basis="architect-cto's word", extra=("--any-owner", "--dry-run"), whoami=whoami_of(), branch="h/dev/feat/x", **kw)
+            self.assertEqual(rc, 0, (label, out))
+            self.assertIn("count gate lifted by me, who holds architect-cto by its binding, in the owner's place", out)
+            self.assertIn("lifted by me, holding architect-cto by its binding.", out)
+            self.assertEqual([r[0] for r in self.reads], ["whoami"], label)
+            self.assertEqual(self.reads[0][1], ["--json"])
+        self.assertIn("Boundary count gate lifted by me", out)
+
+    def test_a_holder_arming_on_its_word_without_any_owner_is_refused_at_the_lane_gate_which_names_the_flag_for_it(self):
+        rc, _ = self.below(basis="architect-cto's word", extra=("--dry-run",), whoami=whoami_of(), branch="h/dev/feat/x")
+        self.assertTrue(str(rc).startswith("refused"), rc)
+        self.assertIn("never arm another session's PR (--any-owner for the owner's own hand, or for a holder of the policy's"
+                      " authority role arming on its word)", str(rc))
+
+    def test_the_hint_to_a_holder_carries_any_owner_and_where_it_may_be_the_holders_own_pr_says_when(self):
+        text = self.refusal(claude_only({"commits": self.BM}), files=("docs/a.md",))
+        self.assertIn("in a session that holds architect-cto, --any-owner --basis \"architect-cto's word\"; or", text)
+        text = self.refusal(claude_only({"commits": {**self.BM, "authority_own_prs": True}}), files=("docs/a.md",))
+        self.assertIn("in a session that holds architect-cto, --basis \"architect-cto's word\" (and --any-owner, on a PR not its own); or", text)
+
+    def test_a_policy_with_only_boundary_authority_lets_its_holder_arm_a_boundary_change_by_the_binding_and_nothing_else(self):
+        policy = claude_only({"commits": {"min": 8, "boundary_authority": "architect-cto"}})
+        common = dict(extra=("--any-owner", "--dry-run"), whoami=whoami_of(), branch="h/dev/feat/x", basis="architect-cto's word")
+        rc, out = self.run_arm(policy, 3, files=self.BOUNDARY, **common)
+        self.assertEqual(rc, 0, out)
+        rc, _ = self.run_arm(policy, 3, files=("docs/a.md",), **common)
+        self.assertTrue(str(rc).startswith("refused"), rc)
+
+    def test_the_binding_is_what_counts_not_the_basis_or_a_message(self):
+        for label, who in (("another role", whoami_of(role="web-dev")), ("no role", whoami_of(role=None))):
+            rc, _ = self.below(basis="architect-cto's word", extra=("--any-owner", "--dry-run"), whoami=who, branch="h/dev/feat/x")
+            self.assertTrue(str(rc).startswith("refused"), (label, rc))
+            self.assertIn(f"this session holds {'web-dev' if who is not None and 'web-dev' in who[1] else 'no role'} by its binding, not architect-cto", str(rc))
+            self.assertIn("ask an architect-cto holder", str(rc))
+        for label, who in (("unreadable", (1, "")), ("not json", (0, "x")), ("another address", whoami_of(address="h/other"))):
+            rc, _ = self.below(basis="architect-cto's word", extra=("--any-owner", "--dry-run"), whoami=who, branch="h/dev/feat/x")
+            self.assertTrue(str(rc).startswith("unanswered"), (label, rc))
+
+    def test_the_basis_must_say_the_authoritys_word_and_not_another_roles(self):
+        for basis in ("reviewed", "web-dev's word", "not-architect-cto's word", "architect-cto asked"):
+            # not the author's own session, so only the phrase can be what refuses
+            rc, _ = self.below(basis=basis, extra=("--any-owner", "--dry-run"), whoami=whoami_of(), branch="h/dev/feat/x")
+            self.assertTrue(str(rc).startswith("refused"), (basis, rc))
+            self.assertEqual([r for r in self.reads if r[0] == "whoami"], [], basis)
+        rc, out = self.below(basis="Architect-CTO’s word", extra=("--any-owner", "--dry-run"), whoami=whoami_of(), branch="h/dev/feat/x")
+        self.assertEqual(rc, 0, out)
+
+    def test_an_authority_never_arms_its_own_pr_unless_the_policy_says_so(self):
+        for basis, extra, kw in (("architect-cto's word", ("--dry-run",), {"whoami": whoami_of()}),
+                                 ("reviewed", (*self.AUTH, "--any-owner", "--dry-run"), {"replay": grant(sender="h/arch"), "presence": presence_of()})):
+            branch = "h/me/feat/x" if "--any-owner" not in extra else "h/arch/feat/x"
+            rc, _ = self.below(basis=basis, extra=extra, branch=branch, **kw)
+            self.assertTrue(str(rc).startswith("refused"), (basis, rc))
+            self.assertIn("own author", str(rc))
+            rc, out = self.below({"authority_own_prs": True}, basis=basis, extra=extra, branch=branch, **kw)
+            self.assertEqual(rc, 0, (basis, out))
+        # the boundary path keeps the same constant
+        rc, _ = self.below({"boundary_authority": "architect-cto"}, basis="architect-cto's word", files=self.BOUNDARY, extra=("--dry-run",), whoami=whoami_of())
+        self.assertIn("own author", str(rc))
+        rc, out = self.below({"boundary_authority": "architect-cto", "authority_own_prs": True}, basis="architect-cto's word", files=self.BOUNDARY,
+                             extra=("--dry-run",), whoami=whoami_of())
+        self.assertEqual(rc, 0, out)
+
+    def test_authority_own_prs_does_not_let_the_arming_login_send_itself_the_authorization(self):
+        rc, _ = self.below({"authority_own_prs": True}, extra=(*self.AUTH, "--dry-run"), replay=grant(sender="h/me"), presence=presence_of())
+        self.assertIn("the login arming", str(rc))
+
+    def test_a_branch_not_named_for_its_author_is_refused_unless_own_prs_makes_the_author_moot(self):
+        rc, _ = self.below(basis="architect-cto's word", extra=("--any-owner", "--dry-run"), whoami=whoami_of(), branch="fix-x")
+        self.assertIn("the pull request's author cannot be told from its branch", str(rc))
+        rc, out = self.below({"authority_own_prs": True}, basis="architect-cto's word", extra=("--any-owner", "--dry-run"), whoami=whoami_of(), branch="fix-x")
+        self.assertEqual(rc, 0, out)
+
+    def test_the_refusal_names_the_authority_its_running_holder_and_the_basis_before_the_owner(self):
+        text = self.refusal(claude_only({"commits": self.BM}), files=("docs/a.md",), fleet=fleet_of(("arch1", "architect-cto", True), ("dev", "web-dev", True)))
+        self.assertIn("ask an architect-cto holder with a session running now (arch1)", text)
+        self.assertIn(f"`AUTHORIZES: O/R#7@{self.HEAD[:8]}`", text)
+        self.assertIn("--basis \"architect-cto's word\"", text)
+        self.assertLess(text.index("architect-cto's word"), text.index("ask the owner"))
+        text = self.refusal(claude_only({"commits": {**self.BM, "classes": {"big": {"paths": r"^docs/", "min": 10}}}}), files=("docs/a.md",),
+                            body="Class: big", work=9, classes={"big": r"^docs/"},
+                            fleet=fleet_of(("arch1", "architect-cto", True)))
+        self.assertIn("ask an architect-cto holder", text)
+
+    def test_an_author_who_may_arm_its_own_pr_is_named_as_a_holder_to_ask_and_one_who_may_not_is_not(self):
+        fleet = fleet_of(("arch", "architect-cto", True), ("arch2", "architect-cto", True))
+        text = self.refusal(claude_only({"commits": self.BM}), files=("docs/a.md",), branch="h/arch/feat/x", extra=("--any-owner",), fleet=fleet)
+        self.assertIn("session running now (arch2)", text)
+        text = self.refusal(claude_only({"commits": {**self.BM, "authority_own_prs": True}}), files=("docs/a.md",), branch="h/arch/feat/x",
+                            extra=("--any-owner",), fleet=fleet)
+        self.assertIn("session running now (arch, arch2)", text)
+
+    def test_the_authority_is_not_offered_when_the_catalogue_does_not_hold_it(self):
+        text = self.refusal(claude_only({"commits": {"min": 8, "below_min_authority": "no-such-role"}}), files=("docs/a.md",))
+        self.assertIn("the policy names the below_min_authority 'no-such-role', which is not a role of identities/roles/catalog.json", text)
+        rc, _ = self.below({"below_min_authority": "no-such-role"}, basis="no-such-role's word", extra=("--dry-run",), whoami=whoami_of(role="no-such-role"))
+        self.assertTrue(str(rc).startswith("unanswered"), rc)
+
+    def test_the_owners_word_still_arms_and_the_authority_is_not_read(self):
+        rc, out = self.below(basis="the owner's word", extra=("--dry-run",))
+        self.assertEqual(rc, 0, out)
+        self.assertEqual(self.reads, [])
+        # A message named beside it is the word as relayed: read for its head, never for the authority's role.
+        rc, out = self.below(basis="the owner's word", extra=(*self.AUTH, "--dry-run"), replay=grant(sender="h/user"))
+        self.assertEqual(rc, 0, out)
+        self.assertEqual([r[0] for r in self.reads], ["replay"])
+
+    def test_below_min_refuse_is_not_lifted_by_the_below_min_authority(self):
+        rc, _ = self.below({"below_min": "refuse"}, basis="architect-cto's word", extra=("--any-owner", "--dry-run"), whoami=whoami_of(), branch="h/dev/feat/x")
+        self.assertIn("refuses below the minimum", str(rc))
+
+    def test_the_review_gate_stands_under_the_binding_word_on_a_boundary_change(self):
+        for kw in ({"unresolved": 1}, {"reviewed": False}):
+            rc, _ = self.below({"boundary_authority": "architect-cto"}, basis="architect-cto's word", files=self.BOUNDARY, extra=("--dry-run",),
+                               whoami=whoami_of(), branch="h/dev/feat/x", **kw)
+            self.assertTrue(str(rc).startswith("refused"), (kw, rc))
+            self.assertEqual(self.reads, [])
+
+
+class ArmReadsV2Coverage(unittest.TestCase):
+    """The arm reads a review through pr-review-status --json, so a v2 review that is not complete never reaches
+    blind.rows: asserted here through the real classifier and renderer, not a hand-written row (agent-fabric
+    ADR-065 §5 rule 4)."""
+
+    HEAD = ArmRun.HEAD
+    run_arm = ArmRun.run_arm
+
+    def status_json(self, *statuses):
+        from github import pr_review_status as rs
+        from github import review_coverage as rcov
+        head = self.HEAD
+        paths = {f"p{i}.py": ({"status": s} if s == "read" else {"status": s, "reason": "too big"}) for i, s in enumerate(statuses)}
+        body = (f"<!-- agent-fabric-review v2 base={'b' * 40} head={head} card={'c' * 40} config={'d' * 64} -->\n**Blind review**\n\n"
+                f"```{rcov.BLOCK_INFO}\n{json.dumps({'paths': paths, 'lenses': {}})}\n```\n")
+        rows = [{"user": {"login": "me"}, "author_association": "OWNER", "state": "COMMENTED", "commit_id": head,
+                 "submitted_at": "2026-10-23T10:00:00Z", "body": body}]
+        probe = rs.Probe(head=head, state="OPEN", buckets=rs.classify(rows, "me", rs.read_config({})))
+        ctx = rs.Ctx("7", "o/r", rs.read_config({}), rs.Args())
+        return json.loads(rs.render_json(ctx, probe, rs.Extras([], 0, 0, 0), "", ""))
+
+    def test_a_complete_v2_review_arms_and_a_partial_one_does_not(self):
+        rc, out = self.run_arm(arm_policy.default(), 9, review_doc=self.status_json("read", "read"))
+        self.assertEqual(rc, 0, out)
+        for statuses in (("read", "not read"), ("not read",)):
+            rc, _ = self.run_arm(arm_policy.default(), 9, review_doc=self.status_json(*statuses))
+            self.assertTrue(str(rc).startswith("refused"), (statuses, rc))
+            self.assertFalse([r for r in self.ran if r[:2] == ["pr", "merge"]], statuses)
+
+    def test_the_engine_reading_of_rows_ignores_a_partial_review(self):
+        self.assertEqual(arm_policy.engines_on_head(self.status_json("read")["blind"]["rows"], self.HEAD), {"claude"})
+        self.assertEqual(arm_policy.engines_on_head(self.status_json("read", "not read")["blind"]["rows"], self.HEAD), set())
 
 
 if __name__ == "__main__":

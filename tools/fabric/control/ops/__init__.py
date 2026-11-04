@@ -43,6 +43,7 @@ threads, as the Node ran them under one Promise.all.
 """
 from __future__ import annotations
 
+import os
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Callable, Mapping
 
@@ -56,11 +57,13 @@ from .host import host, DISK_TIMEOUT_MS, DISK_MAX_BUFFER, DISK_TOP, disk  # noqa
 from .activity import (script_counts, langid_cmd, languages, recall_kind, recall, notes_dir, script,  # noqa: F401
                        WORKER_TYPE, worker_transcripts, source_locale, SOURCE_TAG)
 from .memory import MEMORY_PART_BYTES, memory_slug, memory_dirs, memory  # noqa: F401
+from .account_drift import FINDINGS_MAX, drift_report, section as _drift_section  # noqa: F401
+from gzcoord.carrier import CARRIER_NAME
 
 OPS = ["ping", "identity", "usage", "keys", "fabric", "session", "script", "recall", "tokens", "memory", "host", "disk",
        "accounts", "upgrade", "secrets-sync", "status", "presence", "jobs", "jobs-add", "tools", "tools-install", "local", "local-prune",
-       "secrets-selftest", "pool-add", "pool-list", "pool-claim", "gateway", "gateway-install", "branches", "branches-sweep", "restart",
-       "switch"]
+       "secrets-selftest", "pool-add", "pool-list", "pool-claim", "gateway", "gateway-install", CARRIER_NAME, f"{CARRIER_NAME}-install", f"{CARRIER_NAME}-start", f"{CARRIER_NAME}-stop", f"{CARRIER_NAME}-evidence", "branches", "branches-sweep", "restart",
+       "switch", "drift", "clone", "hold", "unhold"]
 
 # Answered for any placed account, not only an operator: whether a session
 # is running is what every sender needs before it writes to one, and it
@@ -74,6 +77,15 @@ PUBLIC_OPS = ["presence", "pool-list", "pool-claim"]
 def _harness(ctx: Mapping[str, Any]) -> Any:
     import drift
     return drift.harness(ctx.get("home"), ctx.get("root"), **_run_kw(ctx))
+
+
+def _managed(ctx: Mapping[str, Any]) -> Any:
+    """ADR-043 rules 1-2 on this host against this account's fabric checkout (tools/fabric/managed_settings.py):
+    the checker's own dict. The install is the host's, so every account on a host answers the same file state; the
+    ref is the account's own view of main."""
+    import managed_settings
+    root = ctx.get("root") or os.environ.get("AGENT_FABRIC_ROOT") or os.path.join(ctx.get("home") or os.path.expanduser("~"), "projects", "agent-fabric")
+    return managed_settings.check(repo=root, ref="origin/main", **(ctx.get("managed_opts") or {}))
 
 
 def _inbox(ctx: Mapping[str, Any]) -> Any:
@@ -101,6 +113,11 @@ def _tools(ctx: Mapping[str, Any]) -> Any:
 def _gateway(ctx: Mapping[str, Any]) -> Any:
     from control.gateway import gateway
     return gateway(home=ctx.get("home"), root=ctx.get("root"), **(ctx.get("gateway_opts") or {}))
+
+
+def _carrier(ctx: Mapping[str, Any]) -> Any:
+    from control.carrier_install import installed
+    return installed(home=ctx.get("home"), root=ctx.get("root"), **(ctx.get("carrier_opts") or {}))
 
 
 def _local(ctx: Mapping[str, Any]) -> Any:
@@ -152,10 +169,17 @@ def _session(ctx: Mapping[str, Any]) -> Any:
     try:
         opts = dict(opts or {})
         proc = opts.pop("proc", "/proc")
+        # One listing for both readers; a caller's own pids stay.
+        if "pids" not in opts:
+            opts["pids"] = secrets.upgrade().session_pids(
+                uid=ctx.get("uid"), **({"run": opts["pgrep"]} if opts.get("pgrep") else {}))
         old = secrets.old_sign_in_pids(ctx.get("home"), **{"uid": ctx.get("uid"), **opts})
         started = sorted(t for t in (secrets.process_started(p, proc) for p in old or []) if t)
+        provider = secrets.running_provider(**{"uid": ctx.get("uid"), **opts})
     except Exception:  # noqa: BLE001 — the additive keys never cost the frozen ones
-        old, started = None, []
+        old, started, provider = None, [], None
+    if provider:
+        out["provider"] = provider   # absent with no session: the status table's "-"
     if old is not None:
         out["on_old_sign_in"] = len(old)
         if started:
@@ -185,11 +209,14 @@ SECTIONS: dict[str, Callable[[Mapping[str, Any]], Any]] = {
     "disk": lambda c: c["disk_cached"]() if c.get("disk_cached") else disk(c.get("home"), **(c.get("disk_opts") or {})),
     "local": _local,
     "branches": _branches,
+    "drift": _drift_section,
     "jobs": _jobs,
     "harness": _harness,
+    "managed": _managed,
     "inbox": _inbox,
     "tools": _tools,
     "gateway": _gateway,
+    CARRIER_NAME: _carrier,
     "switch": _switch,
     "accounts": lambda c: c["accounts_cached"]() if c.get("accounts_cached") else accounts(c.get("home"), **(c.get("accounts_opts") or {})),
 }
@@ -197,7 +224,7 @@ SECTIONS: dict[str, Callable[[Mapping[str, Any]], Any]] = {
 
 def _wants(op: str) -> list[str]:
     if op == "status":
-        return ["identity", "usage", "keys", "fabric", "session", "harness", "inbox"]
+        return ["identity", "usage", "keys", "fabric", "session", "harness", "managed", "inbox"]
     if op == "tokens":
         return ["identity", "tokens"]
     return [op]

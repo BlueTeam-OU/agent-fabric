@@ -126,8 +126,10 @@ def confirmed(log_path: str, generation: dict[str, int]) -> bool | None:
 
 def prove(state_dir: str, token_file: str, token_sha12: str | None, at: str) -> dict[str, Any]:
     """After a sync, for a session on the gateway: the answer for the reply. {"session": the words,
-    "detail": the machine form}. The file must hold the synced token (its fingerprint is the one recorded);
-    one that does not, or is absent, is said and nothing is joined."""
+    "detail": the machine form, "consistent": whether the file is what the sync meant it to be}. The file must hold
+    the synced token (its fingerprint is the one recorded); one that does not, or is absent, is said and nothing
+    is joined, and is NOT consistent: a file correctly replaced and waiting for its first request is (the log
+    cannot tell it from a consumer that never took it up, but the file can tell it from one never replaced)."""
     from control.ops import util
     gen, text = open_token(token_file)
     if token_sha12 is None:
@@ -135,14 +137,14 @@ def prove(state_dir: str, token_file: str, token_sha12: str | None, at: str) -> 
                  "request is refused" if gen is None else
                  "running (gateway): the synced record holds no token, but the gateway's file still holds one; "
                  "remove it, or the gateway keeps serving the old account")
-        return {"session": words,
+        return {"session": words, "consistent": gen is None,
                 "detail": {"generation": gen, "fingerprint": None, "confirmed": None}}
     if gen is None:
-        return {"session": "running (gateway): the token file is absent after the sync; the gateway cannot serve the new account",
+        return {"session": "running (gateway): the token file is absent after the sync; the gateway cannot serve the new account", "consistent": False,
                 "detail": {"generation": None, "fingerprint": token_sha12, "confirmed": None}}
     held = util.sha12(text.rstrip("\n"))
     if held != token_sha12:
-        return {"session": "running (gateway): the token file does not hold the synced token; the gateway is not on the new account",
+        return {"session": "running (gateway): the token file does not hold the synced token; the gateway is not on the new account", "consistent": False,
                 "detail": {"generation": gen, "fingerprint": token_sha12, "confirmed": None, "file_fingerprint": held}}
     record(state_dir, gen, token_sha12, at)
     ok = confirmed(os.path.join(state_dir, LOG), gen)
@@ -153,4 +155,4 @@ def prove(state_dir: str, token_file: str, token_sha12: str | None, at: str) -> 
                  "the gateway takes it at its next request")
     else:
         words = f"running (gateway): token file replaced (setup-token {token_sha12}); the gateway's log cannot be read, so unconfirmed"
-    return {"session": words, "detail": {"generation": gen, "fingerprint": token_sha12, "confirmed": ok}}
+    return {"session": words, "consistent": True, "detail": {"generation": gen, "fingerprint": token_sha12, "confirmed": ok}}

@@ -16,6 +16,7 @@ import glob
 import json
 import os
 import pwd
+import re
 import subprocess
 import sys
 import tempfile
@@ -37,8 +38,11 @@ EMITTER = os.path.join(ROOT, "tools", "fabric", "github", "post_review.py")
 READER = os.path.join(ROOT, "tools", "fabric", "github", "pr_review_status.py")
 sys.path.insert(0, os.path.join(ROOT, "tools", "fabric"))
 from github.review_status.verdicts import head_covered  # noqa: E402 — the gate's own coverage test
-# The PR's head, and an older commit of it a report may have reviewed.
-HEAD, OLD = "abcdef1234567890" * 2 + "abcdef12", "0123456789abcdef" * 2 + "01234567"
+from github import review_coverage as rcov  # noqa: E402
+from github import post_review as post_review_mod  # noqa: E402
+import errors as errs  # noqa: E402
+# The card and config every header below names; a case that needs the config the tool itself computes asks for it.
+CARD, CONFIG = "5" * 40, "6" * 64
 
 # The fake gh: the PR, its files as REST pages, and the POST, whose body is
 # recorded so a case asserts on what was SENT, not on what the script said
@@ -49,6 +53,21 @@ case "$1" in
   repo) echo "gzapi-org/gzapp"; exit 0 ;;
   pr)   cat "$S/pr.json"; exit 0 ;;
   api)
+    # The merge-base of the PR with its base branch, as `--jq .merge_base_commit.sha` leaves it.
+    case "$2" in */compare/*)
+      [ -f "$S/mergebase" ] && { cat "$S/mergebase"; exit 0; }
+      echo "gh: Not Found (HTTP 404)" >&2; exit 1 ;;
+    esac
+    # gh.api_list: `api -i <path>`, the status line and headers, a blank line, the list.
+    if [ "$2" = "-i" ]; then
+      case "$3" in
+        */reviews*) f="$S/reviews.json" ;;
+        */commits*) f="$S/commits_flat.json" ;;
+        *) f="" ;;
+      esac
+      [ -n "$f" ] && [ -f "$f" ] && { printf 'HTTP/2.0 200 OK\r\n\r\n'; cat "$f"; exit 0; }
+      echo "gh: Not Found (HTTP 404)" >&2; exit 1
+    fi
     if [ "$2" = "--paginate" ]; then
       case "$4" in */commits*)
         [ -f "$S/commits.json" ] && { cat "$S/commits.json"; exit 0; }
@@ -66,6 +85,13 @@ case "$1" in
       prev="$a"
     done
     echo "POST $2" >> "$S/calls"
+    # Every payload kept in call order (payload.json is the last): a report moved to a comment is two posts.
+    for a in "$@"; do
+      [ "$prev" = "--input" ] && cp "$a" "$S/payload.$(wc -l < "$S/calls").json"
+      prev="$a"
+    done
+    [ -f "$S/api_fail_reviews" ] && case "$2" in */reviews) echo "gh: Validation Failed (HTTP 422)" >&2; exit 1 ;; esac
+    [ -f "$S/api_empty_reviews" ] && case "$2" in */reviews) echo ""; exit 0 ;; esac
     [ -f "$S/api_fail" ] && { echo "gh: Validation Failed (HTTP 422)" >&2; exit 1; }
     [ -f "$S/api_empty" ] && { echo ""; exit 0; }
     echo "https://github.com/gzapi-org/gzapp/pull/1#pullrequestreview-1"
@@ -73,6 +99,12 @@ case "$1" in
 esac
 echo "mock gh: unhandled $1" >&2; exit 1
 """
+
+
+def rs_cfg():
+    """The status reader's configuration for the account the cases post as: no posters, no verdict authors."""
+    from github.review_status.config import read_config
+    return read_config({})
 
 
 def reader_marker() -> str:
@@ -116,6 +148,30 @@ def main() -> int:
         for d in (clone, f"{sandbox}/bin", state):
             os.makedirs(d)
         subprocess.run(["git", "-C", clone, "init", "-q"], check=True, timeout=30, stderr=subprocess.DEVNULL, env=git_env())
+        genv = git_env()
+
+        def git(*args: str) -> str:
+            r = subprocess.run(["git", "-C", clone, "-c", "user.name=t", "-c", "user.email=t@t", *args],
+                               capture_output=True, text=True, env=genv, timeout=60)
+            if r.returncode:
+                raise RuntimeError(f"git {args}: {r.stderr}")
+            return r.stdout.strip()
+
+        def commit(msg: str, files: dict) -> str:
+            for name, text in files.items():
+                path = os.path.join(clone, name)
+                os.makedirs(os.path.dirname(path), exist_ok=True)
+                with open(path, "w", encoding="utf-8") as fh:
+                    fh.write(text)
+            git("add", "-A")
+            git("commit", "-q", "-m", msg)
+            return git("rev-parse", "HEAD")
+
+        # The PR's head, an older commit of it a report may have reviewed, and the merge-base both start from: real
+        # commits, because a v2 report's range is checked in this clone.
+        ROOT_C = commit("root", {"r.txt": "r\n"})
+        OLD = commit("old", {"o.py": "o\n"})
+        HEAD = commit("head", {"h.py": "h\n"})
         with open(f"{sandbox}/bin/gh", "w", encoding="utf-8") as fh:
             fh.write(GH_MOCK)
         os.chmod(f"{sandbox}/bin/gh", 0o755)
@@ -126,18 +182,24 @@ def main() -> int:
         base.update(PATH=f"{sandbox}/bin:{base.get('PATH', '')}", GH_STATE=state)
 
         def drop(name: str) -> None:
-            if os.path.exists(f"{state}/{name}"):
-                os.remove(f"{state}/{name}")
+            for n in {name, "commits_flat.json" if name == "commits.json" else name}:
+                if os.path.exists(f"{state}/{n}"):
+                    os.remove(f"{state}/{n}")
 
         def put(name: str, text: str) -> None:
             with open(f"{state}/{name}", "w", encoding="utf-8") as fh:
                 fh.write(text)
+            if name == "commits.json":   # gh.api_list reads the flat list, post_review's own call the pages
+                with open(f"{state}/commits_flat.json", "w", encoding="utf-8") as fh:
+                    json.dump([c for page in json.loads(text) for c in page], fh)
 
         def set_pr(branch: str, *files: str) -> None:
             """The PR on <branch>, changing <files> ("old=>new" a rename);
             none: the file list cannot be read."""
             put("pr.json", json.dumps({"number": 552, "state": "OPEN", "headRefName": branch,
-                                       "headRefOid": HEAD}) + "\n")
+                                       "headRefOid": HEAD, "baseRefName": "main", "author": {"login": "me"}}) + "\n")
+            put("mergebase", ROOT_C)
+            drop("reviews.json")
             drop("files.json")
             drop("commits.json")
             if files:
@@ -152,7 +214,32 @@ def main() -> int:
         # A report with no dispatch header names its head with --head or is refused (ADR-020 §5 rule 6), so the checks
         # of everything else name the PR's head for it; head=None leaves --head out, and a report with a header names
         # its own.
-        def invoke(body: str, *args: str, head: str | None = HEAD) -> tuple[int, str]:
+        def range_header(head: str, base: str = ROOT_C) -> str:
+            h = {"evidence_mode": "pinned", "engine": "claude", "base_sha": base, "head_sha": head, "card_base": CARD,
+                 "config": CONFIG}
+            return "```agent-fabric-dispatch v1\n" + json.dumps(h, indent=2) + "\n```\n"
+
+        def covering(body: str) -> str:
+            """The coverage block for the range the first header names: every path of `git diff --name-only`, read;
+            none for a header that names no range."""
+            m = re.search(r"```agent-fabric-dispatch v1\n(.*?)\n```", body, re.S)
+            try:
+                h = json.loads(m[1]) if m else {}
+                paths = git("diff", "--name-only", f"{h['base_sha']}..{h['head_sha']}").splitlines() if h.get("card_base") else None
+            except (ValueError, KeyError, RuntimeError, TypeError):
+                paths = None
+            if paths is None:
+                return ""
+            doc = {"paths": {p: {"status": "read"} for p in paths}, "lenses": {"security": "applied"}}
+            return f"\n```{rcov.BLOCK_INFO}\n{json.dumps(doc, indent=1)}\n```\n"
+
+        # A new review is v2 only: a body without a header gets the one naming `head`'s range, and a header without a
+        # block the block of its range; v2=False posts what it is given.
+        def invoke(body: str, *args: str, head: str | None = HEAD, v2: bool = True) -> tuple[int, str]:
+            if v2 and head and "agent-fabric-dispatch" not in body:
+                body, head = range_header(head) + body, None
+            if v2 and "agent-fabric-dispatch" in body and rcov.BLOCK_INFO not in body:
+                body += covering(body)
             if head and "agent-fabric-dispatch" not in body:
                 args = (*args, "--head", head)
             env = {**base, "AGENT_FABRIC_ROOT": case.get("fabric", f"{sandbox}/no-fabric")}
@@ -197,8 +284,8 @@ def main() -> int:
         rc, out = invoke("A P1 in the ownership guard.", "552")
         check("exits 0", rc == 0, out)
         check("a review was posted", posted(), calls())
-        check("the marker is line 1 of the body", body_of().split("\n")[0] == "<!-- agent-fabric-review v1 -->",
-              body_of()[:200])
+        v2_line = f"<!-- agent-fabric-review v2 base={ROOT_C} head={HEAD} card={CARD} config={CONFIG} -->"
+        check("the marker is line 1 of the body", body_of().split("\n")[0] == v2_line, body_of()[:200])
         check("the caller's body survives verbatim", "A P1 in the ownership guard." in body_of(), body_of())
         # THE HEADLINE PROMISE, with a body that would catch a regression to
         # `-f body="…"`: a review body quotes code by definition, and a shell
@@ -230,7 +317,7 @@ def main() -> int:
         set_pr(f"{me}/feat/thing")
         invoke("findings", "552", "--model", "codex")
         check("the second engine's is marked the same", body_of().split("\n")[:2]
-              == ["<!-- agent-fabric-review v1 -->", "<!-- model: codex -->"], body_of())
+              == [v2_line, "<!-- model: codex -->"], body_of())
         check("…and names Codex, never the review class (ADR-053)",
               "Codex, the second review engine" in body_of() and "the review class, dispatched" not in body_of(),
               body_of())
@@ -270,9 +357,7 @@ def main() -> int:
         rc, out = invoke("findings", "552")
         check("the merger posts on a locale-only PR", rc == 0, out)
         check("…it was sent", posted())
-        marker = marker_of(EMITTER)
-        check("…the marker is still its first line", bool(marker) and body_of().split("\n")[0] == marker,
-              f"want '{marker}'; {body_of()[:200]}")
+        check("…the marker is still its first line", body_of().split("\n")[0] == v2_line, body_of()[:200])
         check("…and it says it was posted by the carve-out's merger",
               "posted by the locale carve-out's merger" in body_of(), body_of()[:300])
 
@@ -335,7 +420,7 @@ def main() -> int:
         set_pr(f"{me}/feat/thing")
         rc, out = invoke("findings", "552", "--dry-run")
         check("exits 0", rc == 0, out)
-        check("shows the marker", "agent-fabric-review v1" in out, out)
+        check("shows the marker", v2_line in out, out)
         check("no request was sent", not posted(), calls())
 
         print("post-review: a working-tree report is never posted as the review of a head (ADR-020 §5 rule 10)")
@@ -343,7 +428,8 @@ def main() -> int:
         def dispatch(mode: str, fence: str = "```agent-fabric-dispatch v1", head: str | None = HEAD) -> str:
             return (fence + "\n" + json.dumps({"dispatch_id": "d-1", "parent_session_id": "s-0123-session",
                                                "job_id": "j9", "repository": "/home/someone/projects/clone",
-                                               "engine": "claude", "evidence_mode": mode, "head_sha": head},
+                                               "engine": "claude", "evidence_mode": mode, "head_sha": head,
+                                               "base_sha": ROOT_C, "card_base": CARD, "config": CONFIG},
                                               indent=2) + "\n```\n")
         set_pr(f"{me}/feat/thing")
         rc, out = invoke(dispatch("working-tree") + "F1 (P2) …", "552")
@@ -354,7 +440,7 @@ def main() -> int:
         set_pr(f"{me}/feat/thing")
         rc, out = invoke(dispatch("pinned") + "F1 (P2) …", "552")
         check("a pinned report posts, its findings whole", rc == 0 and posted()
-              and body_of().endswith("\n\nF1 (P2) …"), f"rc={rc}\n{out}{calls()}")
+              and "\n\nF1 (P2) …\n\n```agent-fabric-coverage v1\n" in body_of(), f"rc={rc}\n{out}{calls()}")
         check("…and no dispatch header, no session id, job or clone path in what GitHub gets (#259, risk 1)",
               not any(w in body_of() for w in ("agent-fabric-dispatch", "s-0123-session", "j9", "/home/someone",
                                                "evidence_mode")), body_of())
@@ -397,13 +483,13 @@ def main() -> int:
         check("…--dry-run refuses it too", rc == 2 and "would post" not in out, f"rc={rc}\n{out}")
         set_pr(f"{me}/feat/thing")
         put("commits.json", json.dumps([[{"sha": OLD}, {"sha": HEAD}]]) + "\n")
-        rc, out = invoke("F1 (P2) …", "552", head=OLD)
+        rc, out = invoke(range_header(OLD) + "F1 (P2) …", "552", "--head", OLD, head=None)
         check("--head an older commit of the PR posts against it, the head not covered",
               rc == 0 and payload().get("commit_id") == OLD and not head_covered(HEAD, [], [payload()])
               and f"the head {HEAD} of PR #552 is not covered" in case["stdout"], f"rc={rc}\n{out}{calls()}")
         set_pr(f"{me}/feat/thing")
         put("commits.json", json.dumps([[{"sha": HEAD}]]) + "\n")
-        rc, out = invoke("F1 (P2) …", "552", head=OLD)
+        rc, out = invoke(range_header(OLD) + "F1 (P2) …", "552", "--head", OLD, head=None)
         check("--head outside the PR refuses, nothing sent",
               rc == 2 and not posted() and "is not a commit of PR #552" in out, f"rc={rc}\n{out}{calls()}")
         set_pr(f"{me}/feat/thing")
@@ -464,6 +550,374 @@ def main() -> int:
         check("an empty URL is treated as NOT posted", rc == 2, out)
         check("  and says so", "NOT posted" in out, out)
         drop("api_empty")
+
+        print("post-review: a report whose headers name a range is posted as v2 (agent-fabric ADR-065 §2 C, §5 rule 4)")
+        c0 = commit("c0", {"a.py": "one\n", "b.py": "two\n"})
+        c1 = commit("c1", {"a.py": "one\nmore\n", "sub/c.py": "three\n"})
+        c2 = commit("c2", {"sub/c.py": "three\nfour\n"})
+        git("checkout", "-q", "-b", "side", c0)
+        side = commit("side", {"d.py": "d\n"})
+        git("checkout", "-q", "-")
+        from github.review_status import verdicts  # noqa: E402
+
+        def fence_header(**over) -> str:
+            h = {"evidence_mode": "pinned", "engine": "claude", "base_sha": c0, "head_sha": c1, "card_base": CARD,
+                 "config": CONFIG, **over}
+            return "```agent-fabric-dispatch v1\n" + json.dumps({k: v for k, v in h.items() if v != "-"}, indent=2) + "\n```\n"
+
+        def cover(*paths: str, bad: tuple = (), lenses: dict | None = None) -> str:
+            doc = {"paths": {p: ({"status": "not read", "reason": "too large"} if p in bad else {"status": "read"}) for p in paths},
+                   "lenses": {"security": "applied"} if lenses is None else lenses}
+            return f"```{rcov.BLOCK_INFO}\n{json.dumps(doc, separators=(',', ':'))}\n```\n"
+
+        def v2_pr(head: str = c1, *, listed: tuple = (c0, c1), merge_base: str = c0) -> None:
+            put("pr.json", json.dumps({"number": 552, "state": "OPEN", "headRefName": f"{me}/feat/thing", "headRefOid": head,
+                                       "baseRefName": "main", "author": {"login": "me"}}) + "\n")
+            put("mergebase", merge_base)
+            drop("reviews.json")
+            put("commits.json", json.dumps([[{"sha": c} for c in listed]]) + "\n")
+            put("calls", "")
+            drop("payload.json")
+            for n in range(1, 4):
+                drop(f"payload.{n}.json")
+
+        def v2_post(report: str, *args: str, header: str | None = None, raw: bool = False) -> tuple[int, str]:
+            """raw: the report as given, with no coverage block added to a header that has none."""
+            return invoke((fence_header() if header is None else header) + report, "552", *args, head=None, v2=not raw)
+
+        report = "Found a P2 in sub/c.py.\n\n"
+        v2_pr()
+        rc, out = v2_post(report + cover("a.py", "sub/c.py"))
+        check("a complete v2 report posts", rc == 0 and posted(), out)
+        want = f"<!-- agent-fabric-review v2 base={c0} head={c1} card={CARD} config={CONFIG} -->"
+        check("the first line is the marker the headers name", body_of().split("\n")[0] == want, body_of()[:300])
+        check("pinned to the head the headers name", payload().get("commit_id") == c1, json.dumps(payload())[:200])
+        check("no partial line, the blind review text follows the marker", body_of().split("\n")[1].startswith("**Blind review**"), body_of()[:300])
+        check("the findings survive and the dispatch header is taken out", "Found a P2 in sub/c.py." in body_of() and "agent-fabric-dispatch" not in body_of())
+        check("exactly one coverage block, at the end", body_of().count(rcov.BLOCK_INFO) == 1 and body_of().rstrip().endswith("```"), body_of()[-200:])
+        reading = rcov.read_review(body_of())
+        check("the readers' parser counts what was posted", reading is not None and reading.counts and reading.marker.head == c1, reading)
+        counted = verdicts.classify([{"user": {"login": "me"}, "commit_id": c1, "body": body_of(), "author_association": "NONE"}],
+                                    "me", rs_cfg())
+        check("…and the status classifier files it as coverage", len(counted.blind) == 1 and not counted.partial, counted)
+
+        v2_pr()
+        rc, out = v2_post(report + cover("a.py", "sub/c.py", bad=("a.py",)), "--model", "codex")
+        check("a partial report posts", rc == 0 and posted(), out)
+        lines = body_of().split("\n")
+        check("the line after the marker says how many paths are not read", lines[1] == "partial coverage: 1 path(s) not read", lines[:4])
+        check("the model line follows it, so an engine is still read from the header", lines[2] == "<!-- model: codex -->"
+              and verdicts.engine_of({"body": body_of()}) == "codex", lines[:4])
+        check("a reader does not count it, and says why", verdicts.uncounted_v2({"body": body_of(), "commit_id": c1}) == "partial coverage: 1 path(s) not read")
+        partial = verdicts.classify([{"user": {"login": "me"}, "commit_id": c1, "body": body_of(), "author_association": "NONE"}], "me", rs_cfg())
+        check("…it is in the partial bucket, not the blind one", not partial.blind and len(partial.partial) == 1)
+
+        v2_pr()
+        rc, out = v2_post(report + cover("a.py", "sub/c.py"), "--dry-run")
+        check("--dry-run shows the v2 body and sends nothing", rc == 0 and not posted() and want in out and rcov.BLOCK_INFO in out, out)
+
+        print("post-review: a review of hundreds of paths posts, and its coverage reads back")
+        home = git("rev-parse", "--abbrev-ref", "HEAD")
+        git("checkout", "-q", "-b", "big", c0)
+        names = [f"memory/drain/{'long-directory-name' * 3}/{i:04d}-{'a-slug-of-a-memory-file' * 2}.md" for i in range(400)]
+        cb = commit("a drain", {n: "x\n" for n in names})
+        git("mv", "b.py", "memory/drain/renamed.md")
+        git("commit", "-q", "-m", "a rename")
+        cr = git("rev-parse", "HEAD")
+        git("checkout", "-q", home)
+        # Both what `git diff --name-only` prints (the brief's instruction) and the rename's source, which it does not.
+        only = git("diff", "--name-only", f"{c0}..{cr}").splitlines()
+        check("control: 401 paths in the range, the rename's source not among them", len(only) == 401 and "b.py" not in only, str(len(only)))
+
+        def gate_counts(body: str, commit: str) -> bool:
+            c = verdicts.classify([{"user": {"login": "me"}, "commit_id": commit, "body": body, "author_association": "NONE"}], "me", rs_cfg())
+            return len(c.blind) == 1 and not c.partial
+
+        def counts(body: str, wanted: list[str]) -> bool:
+            r = rcov.read_review(body)
+            return bool(r and r.counts and r.coverage and sorted(r.coverage.paths) == sorted(wanted))
+
+        v2_pr(cr, listed=(c0, cb, cr))
+        big = fence_header(base_sha=c0, head_sha=cr)
+        # The block as the review writes it: compact. The old render re-expanded it past what the check let a block hold.
+        compact = f"```{rcov.BLOCK_INFO}\n" + json.dumps({"paths": {p: {"status": "read"} for p in only}, "lenses": {}}, separators=(",", ":")) + "\n```\n"
+        check("control: the written block is over the old 48000, and fits the new bound", 48_000 < len(compact) - 40 < rcov.MAX_BLOCK_CHARS, str(len(compact)))
+        rc, out = v2_post(report + compact, header=big)
+        check("400 paths: posts", rc == 0 and posted(), out)
+        check("  as one review, the report in it", calls().count("POST") == 1 and "Found a P2" in body_of(), calls())
+        check("  its coverage reads back and counts", counts(body_of(), only), body_of()[:300])
+        check("  and the gate's own test counts it for the head", gate_counts(body_of(), cr), body_of()[:200])
+        v2_pr(cr, listed=(c0, cb, cr))
+        rc, out = v2_post(report + cover(*only, "b.py"), header=big)
+        check("the rename's source named as well: posts", rc == 0 and posted() and counts(body_of(), [*only, "b.py"]), out)
+        v2_pr(cr, listed=(c0, cb, cr))
+        rc, out = v2_post(report + cover(*only, "memory/drain/never-there.md"), header=big)
+        check("a path that is no rename's source and not in the range: still refused",
+              rc == 2 and not posted() and "outside the range" in out, out)
+
+        def defaulted(default: dict, named: dict) -> str:
+            doc = {"paths": named, "lenses": {}, "default": default}
+            return f"```{rcov.BLOCK_INFO}\n{json.dumps(doc, separators=(',', ':'))}\n```\n"
+
+        v2_pr(cr, listed=(c0, cb, cr))
+        rc, out = v2_post(report + defaulted({"status": "read"}, {}), header=big)
+        check("a default 'read' and no path named: posts, and the gate counts it", rc == 0 and posted() and gate_counts(body_of(), cr), out)
+        check("  the posted block is the default alone, not the 401 paths", len(body_of()) < 2000 and "memory/drain" not in body_of(), len(body_of()))
+        v2_pr(cr, listed=(c0, cb, cr))
+        rc, out = v2_post(report + defaulted({"status": "not read", "reason": "script"}, {only[0]: {"status": "read"}}), header=big)
+        check("a default 'not read' with one path named read: posts, and is partial", rc == 0 and posted()
+              and body_of().split("\n")[1].startswith("partial coverage:") and not gate_counts(body_of(), cr), out)
+        v2_pr(cr, listed=(c0, cb, cr))
+        rc, out = v2_post(report + defaulted({"status": "read"}, {only[0]: {"status": "not read", "reason": "binary"}}), header=big)
+        check("a path named 'not read' under a default 'read' stays not read", rc == 0 and posted() and not gate_counts(body_of(), cr)
+              and rcov.read_review(body_of()).coverage.not_read == [only[0]], out)
+        v2_pr(cr, listed=(c0, cb, cr))
+        rc, out = v2_post(report + defaulted({"status": "read"}, {"memory/drain/never-there.md": {"status": "read"}}), header=big)
+        check("a default does not excuse a path named outside the range", rc == 2 and not posted() and "outside the range" in out, out)
+
+        v2_pr(cr, listed=(c0, cb, cr))
+        prose = "Finding F1: " + "a long account of what was read. " * 1200 + "\n\n"
+        bare = prose
+        prose += "Finding: F9 | P3 | possible | - | a placeholder finding\n"
+        rc, out = v2_post(prose + compact, header=big)
+        check("400 paths and a report over the cap: posts", rc == 0 and calls().count("POST") == 2, f"{out}\n{calls()}")
+        check("  the report first, as a PR comment",
+              calls().splitlines()[0] == "POST repos/gzapi-org/gzapp/issues/552/comments"
+              and calls().splitlines()[1] == "POST repos/gzapi-org/gzapp/pulls/552/reviews", calls())
+
+        def sent(n: int) -> dict:
+            try:
+                with open(f"{state}/payload.{n}.json", encoding="utf-8") as fh:
+                    return json.load(fh)
+            except (OSError, ValueError):
+                return {}
+        review = sent(2).get("body", "")
+        check("  the comment holds the report", "Finding F1:" in sent(1).get("body", "") and len(sent(1).get("body", "")) <= rcov.MAX_REVIEW_CHARS)
+        check("  the review holds marker and coverage, points at the comment, and has no report",
+              counts(review, only) and "pullrequestreview-1" in review and "Finding F1:" not in review
+              and len(review) <= rcov.MAX_REVIEW_CHARS, review[:400])
+        check("  on the commit the headers name", sent(2).get("commit_id") == cr and sent(2).get("event") == "COMMENT")
+        check("  the gate's own test counts it for the head", gate_counts(review, cr))
+        v2_pr(cr, listed=(c0, cb, cr))
+        rc, out = v2_post(prose + compact, "--dry-run", header=big)
+        check("--dry-run shows both and sends neither", rc == 0 and not posted() and "comment, posted first" in out, out)
+        v2_pr(cr, listed=(c0, cb, cr))
+        put("api_fail", "")
+        rc, out = v2_post(prose + compact, header=big)
+        drop("api_fail")
+        check("a comment GitHub rejects: no review is posted", rc == 2 and calls().count("POST") == 1 and "rejected" in out, f"{out}\n{calls()}")
+
+        for flag, why in (("api_fail_reviews", "rejected"), ("api_empty_reviews", "NOT posted")):
+            v2_pr(cr, listed=(c0, cb, cr))
+            put(flag, "")
+            rc, out = v2_post(prose + compact, header=big)
+            drop(flag)
+            check(f"the review failing after the comment ({flag}): says the comment is already there",
+                  rc == 2 and why in out and "pull/552#issuecomment" not in out and "is already there" in out
+                  and calls().count("POST") == 2, f"{out}\n{calls()}")
+        v2_pr(cr, listed=(c0, cb, cr))
+        found = "Finding: F1 | P2 | certain | a.py:3 | a thing\nFinding: F2 | P3 | likely | - | another\n"
+        rc, out = v2_post(bare + found + compact, header=big)
+        review = sent(2).get("body", "")
+        check("a split review keeps the report's Finding lines, and fabric-errors reads them from it",
+              rc == 0 and "Finding: F1 | P2" in review and errs.read_review(review).findings == [("F1", "P2"), ("F2", "P3")]
+              and "Finding:" in sent(1).get("body", ""), review[:500])
+        lines = ("Finding: x", "Judgement: y", " Finding: z", "xFinding:", "finding: q", "Finding:", "text")
+        check("a machine line is what errors reads one as, over lines of both kinds",
+              all(bool(post_review_mod.MACHINE_LINE.match(l)) == bool(errs.FINDING_LINE.match(l) or errs.JUDGEMENT_LINE.match(l))
+                  for l in lines) and sum(bool(post_review_mod.MACHINE_LINE.match(l)) for l in lines) == 3)
+
+        v2_pr(cr, listed=(c0, cb, cr))
+        rc, out = v2_post("**F1 (P2)** a finding in the old shape. " + bare + compact, header=big)
+        check("a split report with no machine lines is refused, nothing posted",
+              rc == 2 and not posted() and "no Finding:/Judgement: lines" in out, f"rc={rc}\n{out[:300]}")
+
+        git("checkout", "-q", "-b", "wide", c0)
+        wide = [f"w/{'é' * 100}{i:03d}.md" for i in range(150)]
+        cw = commit("non-ASCII names", {n: "x\n" for n in wide})
+        git("checkout", "-q", home)
+        v2_pr(cw, listed=(c0, cw))
+        # Raw in the report (small), \uXXXX once re-written ASCII-only: the block that fitted is not the one to post.
+        raw_block = f"```{rcov.BLOCK_INFO}\n" + json.dumps({"paths": {p: {"status": "read"} for p in wide}, "lenses": {}}, ensure_ascii=False, separators=(",", ":")) + "\n```\n"
+        rc, out = v2_post(report + "Finding: none\n\n" + raw_block, header=fence_header(base_sha=c0, head_sha=cw))
+        check("a block that re-renders past the review's cap is refused, nothing posted",
+              rc == 2 and not posted() and "coverage block and machine lines alone" in out, f"rc={rc}\n{out[:300]}")
+
+        print("post-review: v2 refusals — each leaves nothing posted")
+        for label, body, header, why in (
+            ("a block that omits a path of the range", report + cover("a.py"), None, "omits 1"),
+            ("a block that names a path outside the range", report + cover("a.py", "sub/c.py", "z.py"), None, "outside the range"),
+            ("a block naming a path of the PR but not of the range", report + cover("a.py", "sub/c.py", "b.py"), None, "outside the range"),
+            ("no coverage block", report, None, "no coverage block"),
+            ("a block that is not JSON", report + f"```{rcov.BLOCK_INFO}\nnot json\n```\n", None, "not JSON"),
+            ("duplicate keys in the block", report + f'```{rcov.BLOCK_INFO}\n{{"paths": {{}}, "paths": {{}}, "lenses": {{}}}}\n```\n', None, "each key once"),
+            ("a second coverage block", report + cover("a.py", "sub/c.py") + cover("a.py", "sub/c.py"), None, "more than one"),
+            ("a second block quoted in a longer fence", report + cover("a.py", "sub/c.py") + "\n````text\n" + cover("a.py") + "````\n", None, "lines open a coverage block"),
+            ("a marker-like line later in the body", f"{want}\n" + report + cover("a.py", "sub/c.py"), None, "looks like a review marker"),
+            ("a v1 marker line in the body", "<!-- agent-fabric-review v1 -->\n" + report + cover("a.py", "sub/c.py"), None, "looks like a review marker"),
+            ("a block with a path not read and no reason", report + f'```{rcov.BLOCK_INFO}\n{{"paths": {{"a.py": {{"status": "not read"}}, "sub/c.py": {{"status": "read"}}}}, "lenses": {{}}}}\n```\n', None, "needs a reason"),
+            ("a huge block", report + f"```{rcov.BLOCK_INFO}\n" + json.dumps({"paths": {f"p{i}" * 5: {"status": "read"} for i in range(9000)}, "lenses": {}}) + "\n```\n", None, "over the"),
+            ("a report too long for one review", "x" * 66000 + "\n" + cover("a.py", "sub/c.py"), None, "GitHub takes"),
+            ("headers that disagree on the config", report + cover("a.py", "sub/c.py"), fence_header() + fence_header(config="7" * 64), "different ranges"),
+            ("headers that disagree on the base", report + cover("a.py", "sub/c.py"), fence_header() + fence_header(base_sha=c1), "different"),
+            ("one header with the range's fields and one without", report + cover("a.py", "sub/c.py"), fence_header() + fence_header(card_base="-", config="-"), "some of its dispatch headers"),
+            ("a header with a config and no card_base", report + cover("a.py", "sub/c.py"), fence_header(card_base="-"), "card_base"),
+            ("a header with a config and no base_sha", report + cover("a.py", "sub/c.py"), fence_header(base_sha="-"), "base_sha"),
+            ("a short base", report + cover("a.py", "sub/c.py"), fence_header(base_sha=c0[:12]), "base_sha"),
+            ("a config that is not sha256 hex", report + cover("a.py", "sub/c.py"), fence_header(config="Z" * 64), "config"),
+            ("a base that is not an ancestor of the head", report + cover("a.py", "sub/c.py"), fence_header(base_sha=side), "not an ancestor"),
+            ("a base the clone does not have", report + cover("a.py", "sub/c.py"), fence_header(base_sha="9" * 40), "failed"),
+        ):
+            v2_pr()
+            rc, out = v2_post(body, header=header, raw=label == "no coverage block")
+            check(f"{label}: refused, nothing posted", rc == 2 and not posted() and why in out, f"rc={rc}\n{out}")
+        v2_pr(c2, listed=(c0, c2))
+        rc, out = v2_post(report + cover("a.py", "sub/c.py"))
+        check("a head that is not a commit of the PR: refused", rc == 2 and not posted() and "not a commit of PR #552" in out, out)
+        v2_pr(c2, listed=(c0, c1, c2))
+        rc, out = v2_post(report + cover("a.py", "sub/c.py"))
+        check("an older head of the PR posts against it, saying it is not the head", rc == 0 and payload().get("commit_id") == c1
+              and f"the head {c2} of PR #552 is not covered by it" in out, out)
+        v2_pr()
+        rc, out = v2_post(report + cover("a.py", "sub/c.py"), "--head", c0)
+        check("a --head that names another commit: refused", rc == 2 and not posted(), out)
+
+        print("post-review: hostile paths of the PR")
+        evil = {"we\nird.py": "x\n", "tick```.py": "y\n"}
+        git("checkout", "-q", "-b", "evil", c1)
+        e1 = commit("evil", evil)
+        v2_pr(e1, listed=(c0, c1, e1), merge_base=c1)
+        h = fence_header(base_sha=c1, head_sha=e1)
+        rc, out = v2_post(report + cover("we\nird.py", "tick```.py"), header=h)
+        check("a path with a newline in the range refuses, even when the block names it", rc == 2 and not posted() and "control character" in out, out)
+        git("rm", "-q", "-f", "we\nird.py")
+        git("commit", "-q", "-m", "drop the newline path")
+        e2 = git("rev-parse", "HEAD")
+        v2_pr(e2, listed=(c0, c1, e1, e2), merge_base=c1)
+        h = fence_header(base_sha=c1, head_sha=e2)
+        rc, out = v2_post(report + cover("tick```.py"), header=h)
+        check("a path holding a backquote run posts", rc == 0 and posted(), out)
+        again = rcov.read_review(body_of())
+        check("…in a fence longer than the run, which still reads as one block", again is not None and again.counts and "tick```.py" in again.coverage.paths
+              and "\n````" + rcov.BLOCK_INFO in body_of(), body_of()[-300:])
+
+        print("post-review: a new review is v2 only; v1 stays readable, never writable (ADR-065 §5 rule 4)")
+        v2_pr()
+        rc, out = invoke("findings", "552", v2=False, head=c1)
+        check("no header, only --head: refused, nothing sent, saying the header is what is missing",
+              rc == 2 and not posted() and "has no dispatch header" in out and "v2" in out, f"rc={rc}\n{out}")
+        v2_pr()
+        rc, out = invoke(fence_header(card_base="-", config="-") + "findings", "552", head=None, v2=False)
+        check("a header with no card_base and no config: refused, nothing sent, naming both",
+              rc == 2 and not posted() and "none of card_base and config" in out, f"rc={rc}\n{out}")
+        v2_pr()
+        rc, out = v2_post(report + cover("a.py", "sub/c.py"), "--dry-run")
+        check("…and the same report with its range posts (the control: the refusal is the missing range)", rc == 0 and want in out, out)
+        v2_pr()
+        old_body = "<!-- agent-fabric-review v1 -->\nan old review\n"
+        check("…a v1 review already posted still counts for the head it is on (readers keep reading v1)",
+              head_covered(c1, [], [{"user": {"login": "me"}, "commit_id": c1, "body": old_body, "author_association": "NONE"}]))
+
+        print("post-review: the posted body reads back as the coverage that was validated")
+        v2_pr()
+        rc, out = v2_post(report + cover("a.py", "sub/c.py") + "\n```text\nan unclosed fence\n")
+        check("a valid block followed by an unclosed fence: refused, nothing sent", rc == 2 and not posted() and "does not read back" in out,
+              f"rc={rc}\n{out}")
+        v2_pr()
+        rc, out = v2_post(report + cover("a.py", "sub/c.py") + "\n```text\nan closed fence\n```\n")
+        check("…the same with the fence closed posts, and reads as the validated coverage (the control)",
+              rc == 0 and posted() and rcov.read_review(body_of()).counts, f"rc={rc}\n{out}")
+        v2_pr()
+        rc, out = v2_post("An open fence first:\n```text\n" + cover("a.py", "sub/c.py"))
+        check("a fence opened before the block: refused too, nothing sent", rc == 2 and not posted(), f"rc={rc}\n{out}")
+
+        print("post-review: a v2 review's base is the PR's merge-base or its last checkpoint's head")
+        def real_config(card: str) -> str:
+            """The fingerprint post-review itself computes in the case's environment, for a checkpoint it must accept."""
+            env = {**base, "AGENT_FABRIC_ROOT": f"{sandbox}/no-fabric"}
+            r = subprocess.run([sys.executable, "-c", "import sys; sys.path.insert(0, sys.argv[1]); import review_brief; "
+                                "print(review_brief.config_fingerprint(sys.argv[2], sys.argv[3]))",
+                                os.path.join(ROOT, "tools", "fabric"), clone, card],
+                               env=env, capture_output=True, text=True, timeout=60)
+            if r.returncode or len(r.stdout.strip()) != 64:
+                raise RuntimeError(r.stderr)
+            return r.stdout.strip()
+
+        def checkpoint_review(*, bad: tuple = (), base: str = c0, head: str = c1, at: str = "2026-10-20T10:00:00Z") -> dict:
+            """A trusted v2 review of base..head (c0..c1 unless said) posted by the PR's author."""
+            cfg = real_config(CARD)
+            doc = {"paths": {p: ({"status": "not read", "reason": "too large"} if p in bad else {"status": "read"})
+                             for p in ("a.py", "sub/c.py")}, "lenses": {}}
+            text = (f"<!-- agent-fabric-review v2 base={base} head={head} card={CARD} config={cfg} -->\nround 1\n\n"
+                    f"```{rcov.BLOCK_INFO}\n{json.dumps(doc)}\n```\n")
+            # GitHub's id is the posting order the checkpoint reads (review_status.base.review_order): from the time
+            # here, so the cases' order and same-time ties stay as written.
+            return {"id": int("".join(c for c in at if c.isdigit())), "user": {"login": "me"}, "commit_id": head,
+                    "submitted_at": at, "body": text}
+
+        narrow = fence_header(base_sha=c1, head_sha=c2)
+        v2_pr(c2, listed=(c0, c1, c2))
+        rc, out = v2_post(report + cover("sub/c.py"), header=narrow)
+        check("a narrow range with no checkpoint: refused, nothing sent, naming the merge-base",
+              rc == 2 and not posted() and f"merge-base {c0[:12]}" in out and "has none" in out, f"rc={rc}\n{out}")
+        v2_pr(c2, listed=(c0, c1, c2))
+        put("reviews.json", json.dumps([checkpoint_review(bad=("a.py",))]))
+        rc, out = v2_post(report + cover("sub/c.py"), header=narrow)
+        check("a narrow range after a PARTIAL round: refused, nothing sent (a partial review is no checkpoint)",
+              rc == 2 and not posted() and "neither the merge-base" in out, f"rc={rc}\n{out}")
+        v2_pr(c2, listed=(c0, c1, c2))
+        put("reviews.json", json.dumps([checkpoint_review(bad=("a.py",))]))
+        rc, out = v2_post(report + cover("a.py", "sub/c.py"), header=fence_header(base_sha=c0, head_sha=c2))
+        check("…the full range after the same partial round posts (the control)", rc == 0 and posted(), f"rc={rc}\n{out}")
+        v2_pr(c2, listed=(c0, c1, c2))
+        put("reviews.json", json.dumps([checkpoint_review()]))
+        rc, out = v2_post(report + cover("sub/c.py"), header=narrow)
+        check("a re-review from the head of a whole checkpoint posts (the chain)", rc == 0 and posted(), f"rc={rc}\n{out}")
+        v2_pr(c2, listed=(c0, c1, c2))
+        put("reviews.json", json.dumps([checkpoint_review()]))
+        rc, out = v2_post(report + cover("a.py", "b.py", "sub/c.py"),
+                          header=fence_header(base_sha=HEAD, head_sha=c2))
+        check("a base that is neither the merge-base nor the checkpoint's head, with a whole checkpoint there: refused",
+              rc == 2 and not posted() and f"({c1[:12]})" in out, f"rc={rc}\n{out}")
+        v2_pr(c2, listed=(c0, c1, c2))
+        put("reviews.json", json.dumps([checkpoint_review()]))
+        rc, out = v2_post(report + cover("a.py", "sub/c.py"), header=fence_header(base_sha=c0, head_sha=c2))
+        check("…and a base that is the merge-base posts with the checkpoint there too", rc == 0 and posted(), f"rc={rc}\n{out}")
+        v2_pr(c2, listed=(c0, c1, c2))
+        drop("mergebase")
+        rc, out = v2_post(report + cover("a.py", "sub/c.py"), header=fence_header(base_sha=c0, head_sha=c2))
+        check("the merge-base unreadable: refused even for the full range, nothing sent (fails closed)",
+              rc == 2 and not posted() and "could not be read" in out, f"rc={rc}\n{out}")
+        v2_pr(c2, listed=(c0, c1, c2))
+        put("mergebase", "not a sha\n")
+        rc, out = v2_post(report + cover("a.py", "sub/c.py"), header=fence_header(base_sha=c0, head_sha=c2))
+        check("a merge-base answer that is no sha: refused too", rc == 2 and not posted() and "could not be read" in out, f"rc={rc}\n{out}")
+
+        # A re-review round has one review per engine, each of the same range: once the first posts c1..c2 the
+        # checkpoint is (c1, c2), which is neither the second's merge-base nor its head-of-checkpoint.
+        v2_pr(c2, listed=(c0, c1, c2))
+        put("reviews.json", json.dumps([checkpoint_review(), checkpoint_review(base=c1, head=c2, at="2026-10-20T11:00:00Z")]))
+        rc, out = v2_post(report + cover("sub/c.py"), header=narrow)
+        check("the second engine of a re-review round posts the same range as the first's checkpoint",
+              rc == 0 and posted(), f"rc={rc}\n{out}")
+        v2_pr(c2, listed=(c0, c1, c2))
+        put("reviews.json", json.dumps([checkpoint_review(), checkpoint_review(base=c1, head=c2, at="2026-10-20T11:00:00Z")]))
+        rc, out = v2_post(report + cover("a.py", "b.py", "sub/c.py"), header=fence_header(base_sha=HEAD, head_sha=c2))
+        check("…a same-head range from some other base is refused: the checkpoint's base is what is accepted",
+              rc == 2 and not posted() and "neither the merge-base" in out, f"rc={rc}\n{out}")
+        cur = git("rev-parse", "--abbrev-ref", "HEAD")
+        git("checkout", "-q", "-b", "round3", c2)
+        c3 = commit("c3", {"sub/c.py": "five\n"})
+        git("checkout", "-q", cur)
+        v2_pr(c3, listed=(c0, c1, c2, c3))
+        put("reviews.json", json.dumps([checkpoint_review(), checkpoint_review(base=c1, head=c2, at="2026-10-20T11:00:00Z")]))
+        rc, out = v2_post(report + cover("sub/c.py"), header=fence_header(base_sha=c1, head_sha=c3))
+        check("…a range from the same base to a later head (c1..c3 after (c1, c2)) is refused, nothing sent",
+              rc == 2 and not posted() and "neither the merge-base" in out and f"({c2[:12]})" in out, f"rc={rc}\n{out}")
+        v2_pr(c3, listed=(c0, c1, c2, c3))
+        put("reviews.json", json.dumps([checkpoint_review(), checkpoint_review(base=c1, head=c2, at="2026-10-20T11:00:00Z")]))
+        rc, out = v2_post(report + cover("sub/c.py"), header=fence_header(base_sha=c2, head_sha=c3))
+        check("…and the chain from the checkpoint's head still posts (the control)", rc == 0 and posted(), f"rc={rc}\n{out}")
 
         print("post-review: the marker matches the READER's, byte for byte")
         # THE CROSS-FILE CONTRACT. Two constants in two modules; a one-sided

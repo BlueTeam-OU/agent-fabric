@@ -171,7 +171,9 @@ def _report_one(name: str, copy: str, procs: list[dict] | None, root: str, run: 
         merged = sum(1 for b in branches if b["ahead"] == 0)
         unknown = sum(1 for b in branches if b["ahead"] is None) + sum(1 for w in wts if w["ahead"] is None)
         used = set(in_use(procs, [os.path.realpath(w["path"]) for w in wts])) if procs is not None else set()
-        removable = (sum(1 for w in wts if w["ahead"] == 0 and not w["kept_because"] and os.path.realpath(w["path"]) not in used)
+        # Counted from --json, which does not ask the remote: a commit held only by the ref of a branch the host deleted is
+        # counted as on the remote here, and kept by the sweep, which does ask.
+        removable = (sum(1 for w in wts if not w["kept_because"] and os.path.realpath(w["path"]) not in used)
                      if procs is not None else None)
         fetched = d["fetched_at"]
         return {"working_copy": name, "status": "ok", "default": _name(d["default"]), "dirty": d["dirty"] > 0,
@@ -270,11 +272,11 @@ def _sweep_one(name: str, copy: str, proc: str, root: str, run: Callable[..., An
 
 
 def _exit_words(code: int) -> str:
-    """What an exit code of the sweep says and no more: the tool's codes are classes (1 an uncaught error or an
-    unrecorded sweep, 2 a refusal or a git call that failed or timed out), not causes."""
+    """What an exit code of the sweep says and no more: the tool's codes are classes (1 an uncaught error, an
+    unrecorded sweep or a refused delete on origin, 2 a refusal or a git call that failed or timed out), not causes."""
     if code < 0:
         return f"killed by signal {-code}"
-    return {1: "exit 1: the sweep stopped or could not record itself", 2: "exit 2: refused, or a git call failed or timed out"}.get(code, f"exit {code}")
+    return {1: "exit 1: the sweep stopped or could not record itself, or origin refused a branch delete", 2: "exit 2: refused, or a git call failed or timed out"}.get(code, f"exit {code}")
 
 
 def takes_no_arguments(request: Any) -> bool:

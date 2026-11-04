@@ -33,7 +33,19 @@
     },
     "python-dev-03": {
       "launch_provider": "anthropic",
-      "notes": "The Sonnet pilot's account (the owner, 2026-10-08); its session model is now the python-dev role's (roles.python-dev). launch_provider stays: fabric-resume reads it on a first launch."
+      "notes": "The Sonnet pilot's account (the owner, 2026-10-08); its session model is now the python-dev role's (roles.python-dev). launch_provider stays: fabric-resume reads it before the account's last-launch record."
+    },
+    "language-culture-en": {
+      "launch_provider": "anthropic",
+      "notes": "The owner, 2026-10-26: every language-culture agent runs on plain claude with Opus 5.5 (the anthropic column's session model); declared so the profile, not the last-launch record, decides."
+    },
+    "language-culture-ru": {
+      "launch_provider": "anthropic",
+      "notes": "The owner, 2026-10-26: every language-culture agent runs on plain claude with Opus 5.5 (the anthropic column's session model), language-culture-ru included, moved off the OpenRouter broker where its session was DeepSeek V4 Pro; the declaration outranks the last-launch record, so the next resume or fabric-ctl restart brings it onto anthropic."
+    },
+    "language-culture-ge": {
+      "launch_provider": "anthropic",
+      "notes": "The owner, 2026-10-26: every language-culture agent runs on plain claude with Opus 5.5 (the anthropic column's session model), like language-culture-ru; the declaration outranks the last-launch record, so the next resume or fabric-ctl restart brings it onto anthropic."
     }
   }
 }

@@ -92,6 +92,19 @@ def main() -> int:
         fw.record(dest, b"fabric six\n")
         check("recording a hash already held writes nothing", os.stat(rec).st_ino == before)
 
+        # ADR-003 §2 (A 2026-10-31): a lock file is 0600 whatever the umask,
+        # one an older build left 0644 included; the record is 0600 too.
+        lock = rec + ".lock"
+        os.chmod(lock, 0o644)
+        old_umask = os.umask(0o022)
+        try:
+            fw.record(dest + ".umask", b"x")
+        finally:
+            os.umask(old_umask)
+        modes = (stat.S_IMODE(os.stat(lock).st_mode), stat.S_IMODE(os.stat(rec).st_mode))
+        check("the lock and the record are 0600 under umask 022", modes == (0o600, 0o600), [oct(m) for m in modes])
+        check("…and the lock stays empty: never written", os.path.getsize(lock) == 0, os.path.getsize(lock))
+
         # Two writers at once (bootstrap and its installer child, or two
         # sessions bootstrapping): without the lock the slower replace drops
         # the other's entries.

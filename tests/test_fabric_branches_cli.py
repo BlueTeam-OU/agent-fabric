@@ -61,7 +61,9 @@ def main() -> int:
         # The scratch origin is a local path: GH_REPO names the repository the
         # fake gh serves, since gh's default is never used (gh.this_repo).
         env.update(PATH=f"{t}/bin{os.pathsep}{env.get('PATH', '')}", AGENT_FABRIC_STATE_DIR=f"{t}/state",
-                   GH_REPO="o/r")
+                   GH_REPO="o/r", CLAUDE_CONFIG_DIR=f"{t}/claude-config", TMPDIR=f"{t}/tmp")   # an empty registry reads every scratch directory under $TMPDIR as an ended session's, and a sweep removes a worktree only when it reads one: the scratch is this suite's own
+        os.makedirs(f"{t}/claude-config/sessions")
+        os.makedirs(f"{t}/tmp")
 
         def git(*args: str, cwd: str = wc, ok: bool = False) -> str:
             r = subprocess.run(["git", "-C", cwd, "-c", "user.name=t", "-c", "user.email=t@t",
@@ -177,7 +179,11 @@ def main() -> int:
         check("…and their branches are kept with the reason, not refused by git",
               "KEPT wt-dirty — checked out in a worktree that stays" in out and "cannot delete branch" not in out, out)
         git("branch", "-q", "-D", f"{me}/merged", ok=True)
-        git("branch", "-q", f"{me}/merged", f"origin/{me}/merged")
+        # j92 (2026-10-28), the one deliberate change to this oracle: the sweep above already deleted this login's merged
+        # branch on origin (tests/test_branches_remote.py holds that contract), so the local branch is made from main.
+        check("…which also deleted this login's merged branch on origin, not another's",
+              not has_branch(f"{me}/merged", cwd=origin) and has_branch("other-host/other-login/fix", cwd=origin))
+        git("branch", "-q", f"{me}/merged", "origin/main")
         if not os.path.isdir(f"{t}/wt-clean"):
             git("worktree", "add", "-q", f"{t}/wt-clean", "-b", "wt-clean2", "main", ok=True)
 
@@ -190,8 +196,7 @@ def main() -> int:
         check("…keeps a branch with commits off main, and main", has_branch(f"{me}/owed") and has_branch("main"), out)
         check("…removes a clean worktree at 0, keeps one with changes",
               not os.path.isdir(f"{t}/wt-clean") and os.path.isdir(f"{t}/wt-dirty") and has_branch("wt-dirty"), out)
-        check("…and no remote branch is touched",
-              has_branch(f"{me}/merged", cwd=origin) and has_branch("other-host/other-login/fix", cwd=origin))
+        check("…and no other login's remote branch is touched", has_branch("other-host/other-login/fix", cwd=origin))
         top = git("rev-parse", "--show-toplevel").strip()
         try:
             with open(f"{t}/state/agents/{LOGIN}/branch-sweep.json", encoding="utf-8") as fh:

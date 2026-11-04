@@ -77,8 +77,10 @@ S = %(state)r
 argv = sys.argv[1:]
 if argv[:1] == ["sandbox"]:
     # the engine proves the read-only sandbox first (review_codex.prove_sandbox): this stand-in answers as a sandbox that runs the
-    # command and refuses the write would - the start probe's own exit status (42), the write probe's refusal (43)
-    sys.exit(43 if "touch" in " ".join(argv[argv.index("--") + 1:]) else 42)
+    # command and refuses the write and a read outside its allowlist would - the start probe's own exit status (42), the
+    # write probe's and the read probe's refusal (43)
+    probe = " ".join(argv[argv.index("--") + 1:])
+    sys.exit(43 if "touch" in probe or "cat" in probe else 42)
 sys.stdin.read()
 home = os.environ.get("CODEX_HOME", "/nonexistent")
 serve = [json.loads(l) for l in open(os.path.join(S, "gw.log")) if '"serve"' in l]
@@ -102,16 +104,17 @@ def answer(text, commands=1):
         f.write(text)
     ev({"type": "item.completed", "item": {"id": "item_1", "type": "agent_message", "text": text}})
     ev({"type": "turn.completed", "usage": {"input_tokens": 20, "output_tokens": 10}})
+COV = {"paths": [{"path": "app.py", "status": "read", "reason": ""}], "lenses": [], "default": None}   # the schema requires coverage, and its default (null when not given)
 if mode == "sleep":
     with open(os.path.join(S, "codex-sleeping"), "w") as f:
         f.write(str(os.getpid()))
     time.sleep(300)
 elif mode == "ok":
-    answer(json.dumps({"findings": [{"level": "P2", "file": "app.py", "line": 1, "scenario": "s", "expected": "e", "fix": "f"}]}))
+    answer(json.dumps({"coverage": COV, "findings": [{"level": "P2", "file": "app.py", "line": 1, "scenario": "s", "expected": "e", "fix": "f"}]}))
 elif mode == "prose":
     answer("Looks fine.")
 elif mode == "nocommand":
-    answer('{"findings": []}', commands=0)
+    answer(json.dumps({"coverage": COV, "findings": []}), commands=0)
 '''
 
 GH_MOCK = r"""#!/usr/bin/env bash
@@ -120,6 +123,10 @@ case "$1" in
   repo) echo "fixture-org/fixture"; exit 0 ;;
   pr)   cat "$S/pr.json"; exit 0 ;;
   api)
+    # post-review ties the range's base to the PR: `--jq .merge_base_commit.sha`
+    case "$2" in */compare/*) cat "$S/mergebase"; exit 0 ;; esac
+    # gh.api_list, the PR's reviews for the labels a full review numbers past: the status line, a blank line, an empty page
+    case " $* " in *" -i "*) printf 'HTTP/2.0 200 OK\r\n\r\n[]'; exit 0 ;; esac
     env > "$S/gh-env.txt"
     for a in "$@"; do
       [ "$prev" = "--input" ] && cp "$a" "$S/payload.json"
@@ -220,7 +227,10 @@ def main() -> int:
 
         def reset(gw_mode: str = "ok", codex_mode: str = "ok", version: str = STAGE6) -> None:
             with open(os.path.join(state, "pr.json"), "w") as f:
-                json.dump({"number": 7, "state": "OPEN", "headRefName": f"{me}/feat/thing", "headRefOid": head}, f)
+                json.dump({"number": 7, "state": "OPEN", "headRefName": f"{me}/feat/thing", "headRefOid": head,
+                           "baseRefName": "main", "author": {"login": "fleet-account"}}, f)
+            with open(os.path.join(state, "mergebase"), "w") as f:
+                f.write(base)
             for n in ("calls", "payload.json", "codex-run.json", "gw.log", "plan-seen.json", "gh-env.txt", "codex-sleeping"):
                 if os.path.exists(os.path.join(state, n)):
                     os.remove(os.path.join(state, n))

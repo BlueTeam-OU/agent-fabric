@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# runtime/provisioning/new-agent-worker.sh — the host half of new-agent.sh:
+# runtime/provisioning/new-agent-worker.sh — the host half of new_agent.py:
 # what touches THIS machine (the account, its home, the installers, the host
 # keys, the clones, bootstrap, the binding, the toolchain), run on the host
 # the account is placed on, through runtime/hostexec/hostexec; it knows
@@ -13,7 +13,8 @@
 # Why this entry stays bash: it is run on a FAR host through the host
 # executor, where the fleet's pinned Python may not be installed yet, and then
 # the operator must be told how to install it, from an executable that does not
-# need it (the same reason runtime/provisioning/new-agent.sh stays).
+# need it (the install command it prints is for the system python3, which
+# is all that command asks of the host).
 set -uo pipefail
 ROOT="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/../.." && pwd)"
 PY=/usr/local/bin/fabric-python

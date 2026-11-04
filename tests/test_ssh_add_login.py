@@ -352,12 +352,13 @@ class WorkerStep(unittest.TestCase):
             w = self.worker(human=human)
             with mock.patch.object(worker, "record_launch_provider", lambda w: order.append("record")), \
                     mock.patch.object(worker, "bootstrap_and_bind", lambda w: order.append("bootstrap")), \
+                    mock.patch.object(worker, "install_client", lambda w: order.append("client")), \
                     mock.patch.object(worker, "toolchains", lambda w: order.append("toolchains")), \
                     mock.patch.object(worker, "operator_ssh", lambda w: order.append("ssh")), \
                     mock.patch.object(worker, "verify", lambda w: order.append("verify") or 0), redirect_stderr(io.StringIO()):
                 w.a = wa.parse_args(["finish", LOGIN, *(["--human"] if human else ["backend-dev", "--no-claude-account"])])
                 worker.finish(w)
-            self.assertEqual(order, ["verify"] if human else ["record", "bootstrap", "toolchains", "ssh", "verify"], human)
+            self.assertEqual(order, ["verify"] if human else ["record", "bootstrap", "client", "toolchains", "ssh", "verify"], human)
 
 
 if __name__ == "__main__":

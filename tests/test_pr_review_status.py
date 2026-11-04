@@ -22,6 +22,8 @@ HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(HERE, "tools", "fabric"))
 import gh  # noqa: E402
 from github import pr_review_status as rs  # noqa: E402
+from github import review_coverage as rcov  # noqa: E402
+from github import review_posters  # noqa: E402
 
 HEAD = "abc123def4567890"
 
@@ -70,19 +72,25 @@ def suite(at, ref=REF, prs=(77,)):
 @contextlib.contextmanager
 def scripted_gh(polls=(("OPEN", "abc123", 0),), reviews=(), comments=(), threads=(), threads_fail=False,
                 checks=CHECKS_TABLE, reviews_fail=False, reviews_fail_after=None, comments_fail=False,
-                formal=(), suites=None, page2=(), head_date="2026-08-10T00:00:00Z", head_ref=REF):
+                formal=(), suites=None, page2=(), head_date="2026-08-10T00:00:00Z", head_ref=REF,
+                reviews_limited=None, author=None, viewer="me"):
     """gh as one run of the command sees it, in place of gh.py's calls.
 
     polls     one per `gh pr view`, the last repeating: (state, head, requests)
               with requests a count of the configured reviewer or a list of
               logins, or the word FAIL for a call gh fails.
     formal    (date, login) per REVIEW_REQUESTED_EVENT on the timeline.
+    author    the PR's author object as `gh pr view` gives it, default the
+              session's {"login": "me"}; viewer is whom `gh api user` names,
+              or FAIL for a call gh fails.
     suites    the check suites of the head, default this PR's own, born at
               head_date; page2 is served only to a caller that paginates,
               which is how the earliest suite across pages stays pinned.
     The clock is fake: sleep advances time.time() and is recorded, so a wait
     of an hour costs nothing and the naps can be asserted."""
-    seen = SimpleNamespace(polls=0, naps=[])
+    seen = SimpleNamespace(polls=0, naps=[], suite_calls=0, commit_calls=0, user_calls=0)
+    # The push account is read once per process; each scripted run is a process of its own.
+    review_posters.push_account.cache_clear()
     clock = [1_000_000.0]
     own = [suite(head_date, ref=head_ref)] if suites is None else list(suites)
 
@@ -94,18 +102,27 @@ def scripted_gh(polls=(("OPEN", "abc123", 0),), reviews=(), comments=(), threads
         state, head, requests = poll
         who = ["reviewer[bot]"] * requests if isinstance(requests, int) else requests
         return {"state": state, "mergeStateStatus": "CLEAN", "headRefOid": head, "headRefName": head_ref,
-                "author": {"login": "me"}, "isDraft": False,
+                "author": author or {"login": "me"}, "isDraft": False,
                 "reviewRequests": [{"__typename": "User", "login": w} for w in who]}
 
     def api(path, *, method="GET", body=None, paginate=False, timeout=0, items_key=None):
+        if path == "user":
+            seen.user_calls += 1
+            if viewer == "FAIL":
+                raise gh.GhError("gh api GET user", "exit 1")
+            return {"login": viewer}
         if "/reviews" in path:
             # polls counts this probe's own `pr view`, so it IS the poll number.
             if reviews_fail or (reviews_fail_after is not None and seen.polls > reviews_fail_after):
                 raise gh.GhError(f"gh api GET {path}", "exit 1")
+            if reviews_limited and seen.polls <= reviews_limited[0]:
+                raise gh.GhError(f"gh api GET {path}", "rate limited until 12:34Z", 403, True, reset=clock[0] + reviews_limited[1])
             return list(reviews)
         if "/check-suites" in path:
+            seen.suite_calls += 1
             return own + (list(page2) if paginate else [])
         if "/commits/" in path:
+            seen.commit_calls += 1
             return {"commit": {"committer": {"date": head_date}}}
         if "/comments" in path:
             if comments_fail:
@@ -133,13 +150,16 @@ def scripted_gh(polls=(("OPEN", "abc123", 0),), reviews=(), comments=(), threads
         seen.naps.append(n)
         clock[0] += n
 
-    real = (gh.pr_view, gh.api, gh.graphql, gh.run, shutil.which, time.time, time.sleep)
+    real = (gh.pr_view, gh.api, gh.graphql, gh.run, shutil.which, time.time, time.sleep, gh.api_list, gh.budget_wait)
+    # api_list is `api(paginate=True)` with a validator; the budget is not this fixture's to read.
     gh.pr_view, gh.api, gh.graphql, gh.run = pr_view, api, graphql, run
+    gh.api_list = lambda path, *, timeout=0: api(path, paginate=True)
+    gh.budget_wait = lambda *a, **k: 0
     shutil.which, time.time, time.sleep = (lambda name: "/bin/gh"), (lambda: clock[0]), sleep
     try:
         yield seen
     finally:
-        gh.pr_view, gh.api, gh.graphql, gh.run, shutil.which, time.time, time.sleep = real
+        gh.pr_view, gh.api, gh.graphql, gh.run, shutil.which, time.time, time.sleep, gh.api_list, gh.budget_wait = real
 
 
 def go(*argv, env=None, **world):
@@ -158,7 +178,7 @@ def go(*argv, env=None, **world):
             rc = d.code
             print(f"{rs.PROG}: {d}", file=sys.stderr)
     return SimpleNamespace(rc=rc, out=out.getvalue(), err=err.getvalue(), all=out.getvalue() + err.getvalue(),
-                           polls=seen.polls, naps=seen.naps)
+                           polls=seen.polls, user_calls=seen.user_calls, naps=seen.naps, suite_calls=seen.suite_calls, commit_calls=seen.commit_calls)
 
 
 def rev(login, commit="abc123", **kw):
@@ -323,12 +343,22 @@ def main() -> int:
     check("...or the independent one", rs.head_evidence(pi).startswith(" — an independent review (someone, abc123de"))
     check("...or says a verdict comment", rs.head_evidence(rs.Probe(head=HEAD, head_reviewed=True)) == " — a verdict comment on this head")
     check("an unreviewed head names nothing", rs.head_evidence(rs.Probe(head=HEAD)) == "")
+    # agent-fabric-fleetdeck#57: GitHub served a submitted_at in the future, out of the order the reviews were posted in.
+    early = dict(review("me", at="2099-01-01T00:00:00Z"), id=5727234329)
+    late = dict(review("me", at="2026-11-01T10:00:00Z"), id=5727518390)
+    pf = rs.Probe(head=HEAD, head_reviewed=True, buckets=rs.Buckets(blind=[late, early]))
+    check("the head line names the review posted last (the id), not the one GitHub dated in the future",
+          rs.head_evidence(pf).endswith("abc123de, 2026-11-01T10:00:00Z (posted under the account every session pushes as)"))
+    check("review order: the id before submitted_at; a row without an id first, then by time",
+          sorted([late, early, review("x", at="2026-01-02"), review("y", at="2026-01-01")], key=rs.review_order)
+          == [review("y", at="2026-01-01"), review("x", at="2026-01-02"), early, late])
+    check("...a bool is not an id", rs.review_order(dict(review("x"), id=True))[0] is False)
 
     ctx = rs.Ctx("77", "o/r", c, rs.Args())
     x = rs.Extras([{"path": "a.sh", "isOutdated": True}], 1, 2, 1)
     doc = json.loads(rs.render_json(ctx, rs.Probe(head=HEAD, state="OPEN", mergest="CLEAN", buckets=rs.Buckets(blind=[review("me")])), x, "head-moved", ""))
     check("the --json keys are the contract, in order",
-          list(doc) == ["pr", "state", "merge_state", "head", "head_reviewed", "independent", "blind", "unavailable", "not_trusted",
+          list(doc) == ["pr", "state", "merge_state", "head", "head_reviewed", "independent", "blind", "unavailable", "partial", "not_trusted",
                         "no_review_coming", "marked_by_others", "verdicts", "self", "unresolved_threads", "unresolved_paths", "checks"])
     check("pr is a number, a cause carries a null reason", doc["pr"] == 77 and doc["no_review_coming"] == {"cause": "head-moved", "reason": None})
     check("rows carry the 8-character sha", doc["blind"]["rows"] == [{"login": "me", "commit_sha8": "abc123de", "at": "2026-08-07T10:00:00Z", "engine": "claude"}])
@@ -442,6 +472,29 @@ def main() -> int:
     r = go(reviews=[rev("somebodyelse", at=T, body=blind_body)], env={"AGENT_FABRIC_REVIEW_POSTERS": '["somebodyelse"]'})
     check("a poster named in AGENT_FABRIC_REVIEW_POSTERS IS coverage, as a blind review, login shown",
           r.rc == 0 and says(r, "blind reviews       : 1", "- somebodyelse  commit=abc123"))
+    # AN APP'S PR (Dependabot): no session is its author, so the blind review is the push account's. It counts with
+    # nothing configured, on every spelling of an app author, and only from the account gh acts as.
+    dependabot = {"login": "app/dependabot", "is_bot": True}
+    r = go(reviews=[rev("pusher", at=T, body=blind_body)], author=dependabot, viewer="pusher")
+    check("on a Dependabot PR the push account's marked review IS coverage, unconfigured, as a blind review",
+          r.rc == 0 and r.user_calls == 1 and says(r, "blind reviews       : 1", "- pusher  commit=abc123")
+          and "marked, other login" not in r.all)
+    for shape in ({"login": "dependabot[bot]", "type": "Bot"}, {"login": "dependabot", "__typename": "Bot"},
+                  {"login": "app/renovate"}):
+        check(f"...and with the author spelt {shape}",
+              go(reviews=[rev("pusher", at=T, body=blind_body)], author=shape, viewer="pusher").rc == 0)
+    r = go(reviews=[rev("somebodyelse", at=T, body=blind_body)], author=dependabot, viewer="pusher")
+    check("on a Dependabot PR another account's marked review is still NOT coverage",
+          r.rc == 1 and says(r, "blind reviews       : 0", "marked, other login : 1"))
+    r = go(reviews=[rev("pusher", at=T, body=blind_body)], author={"login": "dependabot", "is_bot": False}, viewer="pusher")
+    check("a person's PR asks nobody whom gh acts as: the push account is the author's rule, as before",
+          r.rc == 1 and r.user_calls == 0 and says(r, "marked, other login : 1"))
+    r = go(reviews=[rev("pusher", at=T, body=blind_body)], author=dependabot, viewer="FAIL")
+    check("on a Dependabot PR a push account GitHub cannot name is an unreadable PR (exit 2), never other login",
+          r.rc == 2 and "marked, other login : 1" not in r.all)
+    r = go(reviews=[rev("pusher", at=T, body=blind_body)], author=dependabot, viewer="pusher",
+           env={"AGENT_FABRIC_REVIEW_POSTERS": '["pusher"]'})
+    check("the push account configured by hand as well counts once", r.rc == 0 and says(r, "blind reviews       : 1"))
     check("the author's own marked review is blind, login shown", says(go(reviews=[rev("me", at=T, body=blind_body)]), "- me  commit=abc123"))
     r = go(reviews=[rev("stranger", at=T, assoc="NONE")])
     check("a stranger's review is NOT coverage, not independent, listed as not trusted with its association",
@@ -494,6 +547,38 @@ def main() -> int:
     check("a permanent no-review state exits 5 under a long --wait, without sleeping first", r.rc == 5 and r.naps == [])
     r = go("--wait", "3600", "--interval", "1", "-q", polls=[("CLOSED", "abc123", 1)])
     check("a CLOSED PR stops the wait and exits 1", r.rc == 1 and r.naps == [])
+    def chk(label, good, detail=""):
+        check(label if good else f"{label}\n        {detail}", good)
+
+    # a PR that reads the same is looked at less often; a change falls back to the interval
+    r = go("--wait", "3600", "--interval", "30", "-q", polls=[("OPEN", "abc123", 1)])
+    chk("an unchanged PR is polled at growing intervals, to at most five minutes",
+          r.rc == 1 and r.naps[:8] == [30, 45, 68, 101, 152, 228, 300, 300], str(r.naps[:8]))
+    r = go("--wait", "3600", "--interval", "30", "-q",
+           polls=[("OPEN", "abc123", 1)] * 3 + [("OPEN", "def456", 1)])
+    chk("…and a poll that reads something new puts it back to the interval", r.naps[:5] == [30, 45, 68, 30, 45], str(r.naps[:5]))
+    r = go("--wait", "3600", "--interval", "1000", "-q", polls=[("OPEN", "abc123", 1)])
+    chk("an explicit interval above the cap is the caller's: kept, never grown", r.naps[:3] == [1000, 1000, 1000], str(r.naps[:3]))
+    # a head's birth is cached only when a check suite said it
+    ask_comment = [ask("2026-08-25T10:00:00Z")]
+    r = go("--wait", "100", "--interval", "30", "-q", polls=[("OPEN", "abc123", 0)], comments=ask_comment)
+    chk("a head's birth read from its check suite is asked once for the whole watch", r.polls >= 3 and r.suite_calls == 1,
+        f"polls={r.polls} suite_calls={r.suite_calls}")
+    r = go("--wait", "100", "--interval", "30", "-q", polls=[("OPEN", "abc123", 0)], comments=ask_comment, suites=[])
+    chk("…but the commit-date fallback (no suite registered yet) is asked again on every poll, as it was",
+        r.polls >= 3 and r.commit_calls == r.polls and r.suite_calls == r.polls, f"polls={r.polls} commits={r.commit_calls} suites={r.suite_calls}")
+    # a rate-limited look waits for the reset and is not a failure to read
+    r = go("--wait", "3600", "--interval", "30", polls=[("OPEN", "abc123", 1)], reviews=[rev("bot", at=T)],
+           reviews_limited=(4, 600))
+    chk("four rate-limited looks do not end the watch as 'could not read' (three failures would)",
+          r.rc == 0 and "could not read" not in r.all and "rate limited until" in r.all, r.all[-300:])
+    chk("…each waits until the limit ends, not the interval", r.naps and r.naps[0] == 601, str(r.naps))
+    r = go("--wait", "100", "--interval", "30", "-q", polls=[("OPEN", "abc123", 1)], reviews=[rev("bot", at=T)],
+           reviews_limited=(99, 600))
+    chk("a watch that ends while rate limited says so", r.rc != 0 and "rate limited until" in r.all, r.all[-300:])
+    r = go("--wait", "100", "--interval", "30", "-q", polls=[("OPEN", "abc123", 1)], reviews_fail=True)
+    chk("(control) an unreadable PR still ends as 'could not read' after three failures",
+          r.rc != 0 and "could not read PR #77" in r.all and "rate limited" not in r.all, r.all[-300:])
     # --wait SHORTER than --interval once answered at once while reporting a
     # 4-second wait: the nap is clamped to what is left.
     r = go("--wait", "4", "--interval", "60", "-q", polls=[("OPEN", "abc123", 1)])
@@ -683,6 +768,61 @@ def main() -> int:
     r = go("-q", polls=ff, reviews=[rev("reviewer-a", commit="aaaaaaaaaa", at="2026-08-25T11:50:00Z")],
            comments=[ask("2026-08-25T12:10:00Z")], head_date="2026-08-25T11:48:37Z", suites=[pushed])
     check("no diagnostic output escapes under -q on the head-birth path", r.err == "")
+
+    print("v2 reviews: complete coverage counts, partial is shown and not counted (agent-fabric ADR-065 §5 rule 4)")
+    H40, B40 = "a" * 40, "b" * 40
+    mk = f"<!-- agent-fabric-review v2 base={B40} head={H40} card={'c' * 40} config={'d' * 64} -->"
+
+    def v2body(statuses=("read",), marker=mk, extra="", model=None, count=1):
+        paths = {f"p{i}.py": ({"status": s} if s == "read" else {"status": s, "reason": "too big"}) for i, s in enumerate(statuses)}
+        block = f"```{rcov.BLOCK_INFO}\n{json.dumps({'paths': paths, 'lenses': {}})}\n```\n" * count
+        head = marker + ("\n<!-- model: codex -->" if model else "")
+        return f"{head}\n**Blind review**\n\n{extra}{block}"
+
+    def sort(reviews, author="me", **kw):
+        return rs.classify(reviews, author, cfg(**kw))
+
+    full = sort([review("me", commit=H40, body=v2body())])
+    check("a complete v2 review of its head is a blind review", len(full.blind) == 1 and not full.partial and not full.self_)
+    check("…and is coverage of the head", rs.head_covered(H40, [], full.qualifying))
+    part = sort([review("me", commit=H40, body=v2body(("read", "not read")))])
+    check("one path not read: shown as partial, not blind, not self, not qualifying",
+          len(part.partial) == 1 and not part.blind and not part.self_ and not part.qualifying and not rs.head_covered(H40, [], part.qualifying))
+    check("…and why is a short line", rs.uncounted_v2(part.partial[0]) == "partial coverage: 1 path(s) not read")
+    check("the same by a configured poster", len(sort([review("ci", commit=H40, body=v2body(("not read",)))], AGENT_FABRIC_REVIEW_POSTERS='["ci"]').partial) == 1)
+    other = sort([review("rando", commit=H40, body=v2body(), assoc="NONE")])
+    check("a v2 review by another account: marked, other login; not blind, not independent, not partial",
+          len(other.marked_others) == 1 and not other.blind and not other.independent and not other.outsiders and not other.partial)
+    check("a v2 review by a trusted member is still not independent coverage", not sort([review("member", commit=H40, body=v2body(), assoc="MEMBER")]).independent)
+    other_commit = sort([review("me", commit="e" * 40, body=v2body())])
+    check("a marker naming another head than the review's commit is not counted", len(other_commit.partial) == 1 and not other_commit.blind)
+    check("…saying so", "marker names head" in rs.uncounted_v2(other_commit.partial[0]))
+    for label, body in (("an unreadable marker", v2body(marker=mk.replace(H40, "z" * 40))),
+                        ("the bare v2 prefix", v2body(marker="<!-- agent-fabric-review v2 -->")),
+                        ("a block that does not read", mk + "\n```agent-fabric-coverage v1\n{\n```\n"),
+                        ("no block", mk + "\nfindings"),
+                        ("two blocks", v2body(count=2)),
+                        ("a block with a duplicate key", mk + f"\n```{rcov.BLOCK_INFO}\n{{\"paths\": {{}}, \"paths\": {{}}, \"lenses\": {{}}}}\n```\n")):
+        got = sort([review("me", commit=H40, body=body)])
+        check(f"{label}: not counted, shown as partial", not got.blind and len(got.partial) == 1 and not got.self_)
+    check("a marker-like line later in the body does not make an unmarked review blind",
+          not sort([review("me", commit=H40, body="findings\n" + v2body())]).blind)
+    check("a v1 review counts as before, beside a v2 partial", len(sort([review("me", body=marked), review("me", commit=H40, body=v2body(("not read",)))]).blind) == 1)
+    check("engine_of reads the model line below the partial line",
+          rs.engine_of({"body": mk + "\npartial coverage: 1 path(s) not read\n<!-- model: codex -->\nx"}) == "codex")
+    check("…and below the marker of a complete one", rs.engine_of({"body": v2body(model=True)}) == "codex")
+    check("…but a v1 body still reads two lines only", rs.engine_of({"body": "<!-- agent-fabric-review v1 -->\nx\n<!-- model: codex -->"}) == "claude")
+    pdoc = json.loads(rs.render_json(ctx, rs.Probe(head=H40, state="OPEN", buckets=part), x, "", ""))
+    check("--json lists the partial review with why, and blind stays empty", pdoc["partial"]["count"] == 1 and pdoc["blind"]["count"] == 0
+          and pdoc["partial"]["rows"][0]["why"] == "partial coverage: 1 path(s) not read" and pdoc["partial"]["rows"][0]["commit_sha8"] == "aaaaaaaa")
+    # Through the whole command.
+    done = go("--json", polls=(("OPEN", H40, 0),), reviews=[rev("me", commit=H40, body=v2body())])
+    check("a complete v2 review of the head: exit 0", done.rc == 0 and json.loads(done.out)["blind"]["count"] == 1)
+    half = go("--json", polls=(("OPEN", H40, 0),), reviews=[rev("me", commit=H40, body=v2body(("read", "not read")))])
+    check("a partial one: the head is not reviewed (exit 1), and the report shows it",
+          half.rc == 1 and json.loads(half.out)["partial"]["count"] == 1 and json.loads(half.out)["head_reviewed"] == "no")
+    text = go(polls=(("OPEN", H40, 0),), reviews=[rev("me", commit=H40, body=v2body(("not read",)))])
+    check("the text report has a partial line saying NOT coverage", "partial reviews     : 1   (NOT coverage" in text.out and "partial coverage: 1 path(s) not read" in text.out)
 
     print(f"\n{'FAILED' if fails else 'all passed'}")
     return 1 if fails else 0

@@ -11,6 +11,10 @@ THE FORMS (`block <id> --on <blocker>`, several allowed, all must clear)
   job:<login>/j<n>          cleared when that job is delivered, or has left the open list because it is done or
                             dropped; read through `fabric-ctl <login> jobs` (a host operator's op: any other
                             caller gets `unknown` with fabric-ctl's own refusal)
+  clock:<YYYY-MM-DDTHH:MM[:SS]Z>
+                            cleared once now() >= that UTC time (the Z is required: an offset or a bare local time is
+                            refused). Stored as clock:YYYY-MM-DDTHH:MM:SSZ. `block` refuses a time already past (a
+                            time that has gone by is no wait); an imported job may carry one, and it reads cleared.
 
 A CHECK says one of three things: `cleared`, `waiting`, or `unknown` (it could not be told: gh, the journal or
 fabric-ctl failed, or the job is not on the open list and was never seen there). Unknown never clears a job.
@@ -19,10 +23,14 @@ THE CACHE (<state dir>/jobs-blockers.json, 0600): a check is made at most once p
 a cleared blocker stays cleared, since a merge, a reply and a delivered job do not undo. `--stored` and `--cached`
 read it and check nothing. A job blocker also remembers that it was seen open: a job that is no longer on the open
 list was closed only if it was seen open before; one never seen is unknown (a typo reads the same).
+A clock blocker reads nothing but now(), so it is evaluated on every refresh: the TTL does not apply, and `--stored` and
+`--cached` evaluate it too (the control plane sees it clear at the time). It never says unknown; once cleared it is
+cached cleared like the others.
 """
 from __future__ import annotations
 
 import contextlib
+import datetime
 import fcntl
 import json
 import math
@@ -41,10 +49,11 @@ _REPO = r"[A-Za-z0-9][A-Za-z0-9_.-]*/[A-Za-z0-9_.-]+"
 PR = re.compile(rf"pr:({_REPO})#([1-9][0-9]{{0,8}})", re.ASCII)
 REQUEST = re.compile(rf"request:({MESSAGE_ID.pattern})", re.ASCII)
 JOB = re.compile(r"job:([a-z0-9][a-z0-9_-]{0,63})/(j[1-9][0-9]{0,8})", re.ASCII)
+CLOCK = re.compile(r"clock:([0-9]{4})-([0-9]{2})-([0-9]{2})T([0-9]{2}):([0-9]{2})(?::([0-9]{2}))?Z", re.ASCII)
 # What a free-text blocker names that has a checkable form: a PR number, or a GZCoord MESSAGE-ID.
 NAMES_PR = re.compile(r"(?:\bPR\s*#?|#)\d+\b", re.IGNORECASE)
 NAMES_MESSAGE = re.compile(MESSAGE_ID.pattern)
-FORMS = "pr:<owner/repo>#<n>, request:<message-id> or job:<login>/j<n>"
+FORMS = "pr:<owner/repo>#<n>, request:<message-id>, job:<login>/j<n> or clock:<YYYY-MM-DDTHH:MM[:SS]Z> (UTC)"
 
 
 class Check(NamedTuple):
@@ -56,9 +65,32 @@ class Check(NamedTuple):
 now: Callable[[], float] = time.time
 
 
+def _clock_time(m: re.Match[str]) -> datetime.datetime | None:
+    """The UTC time a clock match names, None for a date or time that does not exist (2026-02-30, 24:00, second 60)."""
+    year, month, day, hour, minute, second = (int(g or 0) for g in m.groups())
+    try:
+        return datetime.datetime(year, month, day, hour, minute, second, tzinfo=datetime.timezone.utc)
+    except ValueError:
+        return None
+
+
+def clock_epoch(spec: str) -> float | None:
+    """The time a normalised clock spec names, as epoch seconds; None when `spec` is not a clock spec."""
+    m = CLOCK.fullmatch(spec)
+    when = _clock_time(m) if m else None
+    return when.timestamp() if when else None
+
+
 def normalise(spec: str) -> str:
-    """The blocker as it is stored, or Refused for a form that is none of the three."""
+    """The blocker as it is stored, or Refused for a form that is none of the four."""
     text = spec.strip()
+    if (m := CLOCK.fullmatch(text)):
+        when = _clock_time(m)
+        if when is None:
+            raise Refused(f"{spec!r} names a time that does not exist: clock:<YYYY-MM-DDTHH:MM[:SS]Z> (UTC)")
+        return f"clock:{when.year:04d}-{when:%m-%dT%H:%M:%S}Z"     # %Y alone does not pad a year below 1000 on glibc
+    if text.startswith("clock:"):
+        raise Refused(f"{spec!r} is not a UTC time: clock:<YYYY-MM-DDTHH:MM[:SS]Z>, with the trailing Z (an offset or a local time is refused)")
     if PR.fullmatch(text) or JOB.fullmatch(text):
         return text
     if REQUEST.fullmatch(text.lower()):
@@ -71,7 +103,7 @@ def names_a_checkable(text: str) -> bool:
     return bool(NAMES_PR.search(text) or NAMES_MESSAGE.search(text))
 
 
-# ── the three checks ────────────────────────────────────────────────────────────────────────────────────────────
+# ── the checks ────────────────────────────────────────────────────────────────────────────────────────────
 
 def check_pr(repo: str, number: str) -> Check:
     gh = _load("fabric_gh", os.path.join(FABRIC_ROOT, "tools", "fabric", "gh.py"))
@@ -106,6 +138,17 @@ def check_request(message_id: str) -> Check:
     finally:
         conn.close()
     return Check("cleared", "answered") if row else Check("waiting", "no reply yet")
+
+
+def check_clock(epoch: float) -> Check:
+    """Reads now() and nothing else, so it is never unknown."""
+    when = datetime.datetime.fromtimestamp(epoch, datetime.timezone.utc)
+    stamp = f"{when.year:04d}-{when:%m-%dT%H:%M:%S}Z"
+    left = epoch - now()
+    if left <= 0:
+        return Check("cleared", f"reached {stamp}")
+    minutes = math.ceil(left / 60)
+    return Check("waiting", f"until {stamp}, in {minutes // 60}h{minutes % 60}m")
 
 
 def ctl_program() -> list[str]:
@@ -232,6 +275,8 @@ def run_check(spec: str, entry: dict | None) -> dict:
             result = check_request(m.group(1))
         elif (m := JOB.fullmatch(spec)):
             result, seen = check_job(m.group(1), m.group(2), seen)
+        elif (epoch := clock_epoch(spec)) is not None:
+            result = check_clock(epoch)
         else:
             result = Check("unknown", "not a checkable form")
     except Exception as e:  # noqa: BLE001 — a check can fail in ways nobody listed (gh not executable, an answer of another shape): unknown, never a dead listing
@@ -241,13 +286,19 @@ def run_check(spec: str, entry: dict | None) -> dict:
 
 def refresh(specs: list[str], *, check: bool = True) -> dict[str, dict]:
     """The cache entry of each spec. With `check`, one that is not cleared and was last checked more than CACHE_TTL_S
-    ago (or never) is checked now; a cleared one is never checked again. Without, nothing is checked. The checks run
+    ago (or never) is checked now; a cleared one is never checked again. Without, nothing is checked, except a clock
+    spec, which is evaluated either way. The checks run
     first and the results are merged into the file under the lock, keeping a `cleared` another process wrote and the
     `seen_open` either has."""
     cache = load_cache()
     fresh: dict[str, dict] = {}
     for spec in dict.fromkeys(specs):
         entry = cache.get(spec)
+        if clock_epoch(spec) is not None:
+            # Free to evaluate and decided by the clock alone: neither `check=False` nor the TTL holds it back.
+            if not (entry and entry.get("state") == "cleared"):
+                fresh[spec] = run_check(spec, entry)
+            continue
         if not check or (entry and (entry.get("state") == "cleared"
                                     or (isinstance(entry.get("checked_at"), (int, float)) and now() - entry["checked_at"] < CACHE_TTL_S))):
             continue

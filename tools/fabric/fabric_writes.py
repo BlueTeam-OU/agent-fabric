@@ -22,8 +22,8 @@ free name of `<dest>.before-agent-fabric`, `.1`, `.2` …, with its mode, never
 over another backup, and not again if a backup already holds that content.
 
 The record is `fabric-written.json`, beside a `.lock`, in the account's
-own state directory (runtime/identity.py's rule: AGENT_FABRIC_STATE_DIR, else
-$XDG_STATE_HOME/agent-fabric, then agents/<login>); a missing or unreadable
+own state directory, `identity.agent_state_dir()`, and it is replaced only by
+`identity.atomic_write` (agent-fabric ADR-003 rule 1); a missing or unreadable
 record reads as empty, which costs at most one extra backup.
 """
 from __future__ import annotations
@@ -32,9 +32,13 @@ import fcntl
 import hashlib
 import json
 import os
-import pwd
 import shutil
-import tempfile
+import sys
+
+_RUNTIME = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "runtime")
+if _RUNTIME not in sys.path:
+    sys.path.insert(0, _RUNTIME)
+import identity  # noqa: E402
 
 MARKER = b"agent-fabric"
 SUFFIX = ".before-agent-fabric"
@@ -42,13 +46,9 @@ RECORD = "fabric-written.json"  # and its .lock beside it
 
 
 def state_dir() -> str:
-    """runtime/identity.py's agent_state_dir(), without importing it:
-    tests/test_fabric_writes.py holds the two equal."""
-    override = os.environ.get("AGENT_FABRIC_STATE_DIR")
-    root = os.path.abspath(override) if override else os.path.join(
-        os.environ.get("XDG_STATE_HOME") or os.path.join(os.path.expanduser("~"), ".local", "state"),
-        "agent-fabric")
-    return os.path.join(root, "agents", pwd.getpwuid(os.geteuid()).pw_name)
+    """The account's state directory, as identity resolves it: a copy of the
+    resolution here drifted from it once already (ADR-003 rule 1)."""
+    return identity.agent_state_dir()
 
 
 def _sha(data: bytes) -> str:
@@ -83,22 +83,19 @@ def record(dest: str, content: bytes) -> None:
     key, sha = os.path.abspath(dest), _sha(content)
     try:
         os.makedirs(os.path.dirname(path), mode=0o700, exist_ok=True)
-        with open(path + ".lock", "a") as lock:
+        # A lock file only, never written or read: O_CREAT without O_TRUNC,
+        # 0600 whatever the umask (ADR-003 §2, A 2026-10-31).
+        lock = os.open(path + ".lock", os.O_WRONLY | os.O_CREAT | os.O_CLOEXEC, 0o600)
+        try:
+            os.fchmod(lock, 0o600)  # one an older build made 0644
             fcntl.flock(lock, fcntl.LOCK_EX)
             doc = _load()
             if doc.get(key) == sha:
                 return
             doc[key] = sha
-            fd, tmp = tempfile.mkstemp(dir=os.path.dirname(path), prefix=".fabric-written-")
-            try:
-                with os.fdopen(fd, "w", encoding="utf-8") as f:
-                    json.dump(doc, f, indent=1, sort_keys=True)
-                    f.write("\n")
-                os.replace(tmp, path)
-            except BaseException:
-                if os.path.exists(tmp):
-                    os.unlink(tmp)
-                raise
+            identity.atomic_write(path, json.dumps(doc, indent=1, sort_keys=True) + "\n", 0o600)
+        finally:
+            os.close(lock)
     except OSError:
         pass
 

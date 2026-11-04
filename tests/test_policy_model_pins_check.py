@@ -4,7 +4,7 @@ model pin, no effort pin and no provider routing (Wave 9 batch 3; ADR-040 rule 5
 today and against its Python port later: the entry point is ONE constant, ENTRY (the path a harness or CI invokes; override
 with MODEL_PINS_CHECK_ENTRY), run as a command, never sourced.
 
-The bash oracle policies/test_check_repo_settings_carry_no_model_pins.sh, case for case (each is a method here):
+The bash oracle policies/test_check_repo_settings_carry_no_model_pins.sh (deleted, Wave 9 batch 3), case for case (each is a method here):
   clean_file_passes                          "a clean file passes": exit 0
   each_pin_shape_is_caught                   "each pin shape is caught": the ten shapes of its list, each non-zero
   unparseable_json_fails                     "unparseable JSON fails loudly": non-zero
@@ -15,12 +15,13 @@ several pins in one file counted and numbered in the script's order; a key whose
 by prefix (ANTHROPIC_) or by name, lower case and a bare ANTHROPIC not matched; `env: null` clean; the file chosen by
 AGENT_FABRIC_SETTINGS_FILE, else REPO_ROOT/.claude/settings.json, else <git toplevel>/.claude/settings.json, else
 <cwd>/.claude/settings.json, in that order; a directory where the file should be reads as absent; the pinned Python missing is
-exit 127 on stderr, but only once the file exists; a top-level JSON array is not an object (today: a traceback, exit 1).
+exit 127 on stderr, asked by the forwarder before the file is read (ADR-040 §5 rule 5's fourth departure, A 2026-10-19), so
+also when there is no file; a top-level JSON array is not an object (today: a traceback, exit 1).
 
 Mutations each case fails on (one per behaviour; planted on the script as formatted): dropping "effortLevel" from the refused
 keys (pin shapes); dropping the `startswith("ANTHROPIC_")` test (env prefix); printing the report on stderr (report shape);
-reading REPO_ROOT before AGENT_FABRIC_SETTINGS_FILE (file order); `exit 0` on unreadable JSON (broken JSON); checking the pinned
-Python before the file exists (python only when the file exists).
+reading REPO_ROOT before AGENT_FABRIC_SETTINGS_FILE (file order); `exit 0` on unreadable JSON (broken JSON); a forwarder that
+reads the file before it asks for the pinned Python (the python before the file).
 
 The environment is built from scratch: PATH, HOME, LANG and the one documented test hook AGENT_FABRIC_PYTHON (the fleet's pinned
 Python is /usr/local/bin/fabric-python by default; a host or CI runner without it points the guard at the interpreter running
@@ -212,9 +213,12 @@ class PinnedPython(Guard):
         self.assertEqual((r.returncode, r.stdout), (127, ""))
         self.assertIn("the fleet's pinned Python is not installed at /nonexistent/fabric-python", r.stderr)
 
-    def test_the_python_is_asked_for_only_once_the_file_exists(self):
+    def test_the_forwarder_asks_for_the_python_before_it_reads_the_file(self):
+        # The bash ran Python only when a settings file was there, so no file and no pin exited 0. The forwarder checks
+        # the pin before the module reads anything: ADR-040 §5 rule 5's fourth departure (A 2026-10-19) makes this 127.
         r = self.run_guard(AGENT_FABRIC_SETTINGS_FILE=os.path.join(self.tmp, "absent"), AGENT_FABRIC_PYTHON="/nonexistent/fabric-python")
-        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(r.returncode, 127, r.stderr)
+        self.assertIn("python_pin.py install", r.stderr)
 
 
 if __name__ == "__main__":

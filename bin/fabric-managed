@@ -1,0 +1,14 @@
+#!/bin/bash -p
+# bin/fabric-managed — each host's managed settings and the root-owned guard snapshot they run (agent-fabric
+# ADR-043 rules 1 and 2). The path is the contract (the operator runs it); the work, its contract and every reason
+# for it are in tools/fabric/managed_settings.py.
+#
+#   git ls-remote origin refs/heads/main            the sha, as the remote has it
+#   sudo fabric-managed install --sha <that sha>    install it (root)
+#   fabric-managed check [--json]                   is it in force here?   fabric-managed probe   the live test
+#
+# The host's own /usr/bin/python3, never the fleet's pinned one, as python_pin.py: install runs as root and must
+# not need what the operator installs. -I: no PYTHON* variable or user site reaches it; -p: no BASH_ENV, and
+# every program is named by its absolute path.
+self="$(/usr/bin/readlink -f -- "${BASH_SOURCE[0]}")" || exit 1
+exec /usr/bin/python3 -I "${self%/bin/*}/tools/fabric/managed_settings.py" "$@"

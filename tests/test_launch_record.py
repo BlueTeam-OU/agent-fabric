@@ -84,7 +84,7 @@ class Record(unittest.TestCase):
         path = os.path.join(self.state, "launch-provider.json")
         self.assertEqual(sorted(load(path)), ["at", "provider"])
         with mock.patch.dict(os.environ, {"AGENT_FABRIC_STATE_DIR": os.path.join(self.tmp.name, "state")}), \
-                mock.patch.object(install_agent_files.fabric_writes.pwd, "getpwuid", return_value=mock.Mock(pw_name="x")):
+                mock.patch.object(install_agent_files.fabric_writes.identity, "current_agent", return_value="x"):
             self.assertEqual(install_agent_files.last_launch_provider(), "openrouter")
         self.assertFalse(launch.record_launch_provider(self.state, "anthropic", keep_existing=True), "the account's own launch is a fact")
         self.assertEqual(load(path)["provider"], "openrouter")

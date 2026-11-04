@@ -69,6 +69,35 @@ class Record(Scratch):
         self.assertEqual(self.doc(), {"s-one-aaaa": {"pct": 41, "at": "2027-01-15T08:00:00Z"}})
         self.assertEqual(stat.S_IMODE(os.stat(self.path).st_mode), 0o600)
 
+    def test_the_file_is_identitys_atomic_write_and_its_lock_is_private(self):
+        # ADR-003 rule 1: no rewrite of its own; the lock file 0600 whatever the umask.
+        identity = cs._ss().identity()
+        real, seen = identity.atomic_write, []
+        identity.atomic_write = lambda path, data, mode=None: (seen.append((path, mode)), real(path, data, mode))[1]
+        self.addCleanup(setattr, identity, "atomic_write", real)
+        old_umask = os.umask(0o022)
+        self.addCleanup(os.umask, old_umask)
+        self.assertTrue(self.rec(41, T0))
+        self.assertEqual(seen, [(self.path, 0o600)])
+        self.assertEqual(stat.S_IMODE(os.stat(self.path + ".lock").st_mode), 0o600)
+
+    def test_a_write_that_fails_leaves_the_last_sample_and_no_temporary(self):
+        self.rec(41, T0)
+        with open(self.path, encoding="utf-8") as fh:
+            whole = fh.read()
+        real = os.replace
+        def refuse(*a):
+            raise OSError("no space left")
+        os.replace = refuse
+        try:
+            with self.assertRaises(OSError):
+                self.rec(80, T0 + 10)
+        finally:
+            os.replace = real
+        with open(self.path, encoding="utf-8") as fh:
+            self.assertEqual(fh.read(), whole)
+        self.assertEqual(sorted(os.listdir(self.dir)), [cs.FILE, cs.FILE + ".lock"])
+
     def test_zero_is_written_not_skipped(self):
         self.assertTrue(self.rec(0, T0))
         self.assertEqual(self.doc()["s-one-aaaa"]["pct"], 0)

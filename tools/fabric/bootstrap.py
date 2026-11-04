@@ -14,8 +14,8 @@ Writes, idempotently, and only machine-local files:
                                      the capability-class agent files, from runtime/claude-code/agents/,
                                      via install_agent_files.py (the review pin, merged for this login)
   ~/.claude/hooks/review-bash-guard.{py,sh}
-                                     the review class's Bash fence and its shim; the code-review
-                                     agent file looks here when the launch project has no .claude/ copy
+                                     the Bash fence subagent-clone-guard applies to a class
+                                     dispatched without a worktree, and its shim
   ~/.claude/settings.json            the fabric's user-scope keys (runtime/claude-code/user-settings.py):
                                      attribution commit "", pr "", sessionUrl false — the harness's
                                      Co-Authored-By/Generated-with reminder off at its source —
@@ -38,6 +38,8 @@ Writes, idempotently, and only machine-local files:
                                      the dispatch policy as a loadable skill, from policies/
   ~/.local/bin/<name>                every command a session runs, by name
                                      (runtime/claude-code/commands.json)
+  <completions>/fabric-ctl           a link to tools/fabric/control/completion.bash, where
+                                     bash-completion loads a user's own on the first <TAB>
   <working copy>/.git/config         core.hooksPath; and, where policies/signing.json names the
                                      copy's repository (agent-fabric ADR-057), gpg.format,
                                      gpg.program and gpg.ssh.program = ~/.local/bin/fabric-sign,
@@ -52,8 +54,27 @@ Writes, idempotently, and only machine-local files:
                                      the login's daily working-state backup (runtime/control/;
                                      j179): the timer enabled and started in this account's
                                      user manager when one is running
+  <units>/agent-fabric-tidy.{service,timer}
+                                     the login's daily removal of build output no open job
+                                     holds (fabric-jobs tidy; j439), the timer enabled likewise
+  <units>/agent-fabric-harness.service
+                                     the account's FleetDeck server and its session pane
+                                     (FleetDeck part 2), enabled and started likewise; inactive
+                                     where install_fleetdeck.py put no binary, and never
+                                     restarted by bootstrap (its stop ends the session)
   <units>/gzcoord-relay.service      ONLY on the account whose workspace hosts the relay
                                      ($PROJECTS/.gzcoord/venv exists): the relay as a unit
+  <units>/agent-fabric-relay-backup.{service,timer}
+                                     ONLY on that same account: the relay database's copy to
+                                     Proton Drive every 6 h (fabric-secrets relay backup;
+                                     agent-fabric ADR-034 §7), the timer enabled likewise
+  <units>/agent-fabric-drain.{service,timer}
+  <units>/agent-fabric-scheduled-red.{service,timer}
+                                     ONLY on an account bound to fabric-coordinator: the weekly
+                                     collection of undrained memory (fabric-drain-due; ADR-034 §7)
+                                     and the daily read of the stripped nightly's scheduled run
+                                     (scheduled_red.py; j109), the timers enabled likewise; on any
+                                     other role the fabric's own copies are disabled and removed
   ~/.cache/agent-fabric/langid/venv/ the language detector (pycld2) for the control agent's
                                      script op (runtime/langid/), best effort
   (removes ~/.config/agent-fabric/secrets-source, the fabric's own leftover; the Doppler CLI and its config stay, a project may use them:
@@ -65,7 +86,13 @@ Writes, idempotently, and only machine-local files:
   <state>/agents/<login>/episodic.db this account's GZCoord history, imported once through the
                                      relay as itself (episodic.py gzcoord-import --if-needed,
                                      agent-fabric ADR-041 rule 9), best effort
-where <units> is $XDG_CONFIG_HOME/systemd/user, else ~/.config/systemd/user.
+where <units> is $XDG_CONFIG_HOME/systemd/user, else ~/.config/systemd/user,
+and <completions> is two directories, linked in this order, one when they
+coincide: where bash-completion looks in this environment (the first
+':'-separated entry of $BASH_COMPLETION_USER_DIR, plus /completions, when that
+is set, else $XDG_DATA_HOME/bash-completion/completions), then always
+~/.local/share/bash-completion/completions, where a run without those
+variables looks.
 
 Nothing here names an agent: the hooks ask the OS who is running at
 session start. Nothing here makes projects/ a git repository. A managed
@@ -89,6 +116,8 @@ CONTRACT, frozen from the bash (ADR-040 §5 rule 3):
                (the user manager's bus; set to /run/user/<uid> for the
                children when unset, outside a dry run);
                AGENT_FABRIC_LOCAL_BIN (else ~/.local/bin);
+               BASH_COMPLETION_USER_DIR (split on ':'), XDG_DATA_HOME
+               (<completions>);
                AGENT_FABRIC_DEFER_AGENTD_RESTART (non-empty: a changed
                control-agent unit is not restarted, and the line says so);
                the collation locale (LC_ALL / LC_COLLATE / LANG), which
@@ -186,9 +215,9 @@ bash behaved, fixed here with its case changed:
      reads 3 as "websearch-locale not configured": it says the line on
      both streams and carries on, so the run reaches user-settings.py's
      own refusal, counted NOT written, on every login. The fabric-memory
-     installer (runtime/mcp/fabric-memory/install.py) answers the same
+     and fabric-review installers (runtime/mcp/*/install.py) answer the same
      file the same way (exit 3, also for mode 000 or a directory), and
-     memory_search reads it as "fabric-memory not configured". Any other non-zero
+     mcp_entry reads it as "not configured". Any other non-zero
      status is a fault and ends the agent files step.
   4. put() re-made a .before-agent-fabric backup each time a fabric file
      carrying no "agent-fabric" marker changed (the guard, three of the
@@ -244,6 +273,13 @@ HOOKS_REL = "policies/githooks"
 UNIT = "agent-fabric-agentd"
 RELAY_UNIT = "gzcoord-relay"
 BACKUP_UNIT = "agent-fabric-state-backup"
+RELAY_BACKUP_UNIT = "agent-fabric-relay-backup"
+TIDY_UNIT = "agent-fabric-tidy"
+# The timers whose work is the coordinator's: each files a job only a
+# coordinator acts on (the drain, a red nightly's fixes to contract).
+COORDINATOR_UNITS = ("agent-fabric-drain", "agent-fabric-scheduled-red")
+COORDINATOR_ROLE = "fabric-coordinator"
+HARNESS_UNIT = "agent-fabric-harness"
 RELAY_STATUS = "http://127.0.0.1:8765/status"
 JOURNAL_IMPORT_TIMEOUT = 20
 # The marker of ADR-042's migration on this account, under its state.
@@ -501,16 +537,18 @@ class Bootstrap:
         self.workspace_settings()
         self.retire_role_command()
         self.agent_files()
-        # The review class's Bash fence rides with its agent file: the agent runs
-        # unisolated in the session's clone, and a review dispatched from
-        # projects/ (no .claude/ of its own) found no guard and lost Bash entirely
-        # (docs/live-checks/2026-09-13-openrouter-routing.md).
+        # The Bash fence for a class dispatched without a worktree, which
+        # subagent-clone-guard calls; user-scope, so a dispatch from projects/
+        # (no .claude/ of its own) still finds it
+        # (docs/live-checks/2026-09-13-openrouter-routing.md). The review class
+        # has no Bash (ADR-065).
         # The shim and its module, a pair: the shim finds the module beside itself.
         self.put_file(os.path.join(self.claude_home, "hooks", "review-bash-guard.py"),
                       "runtime/claude-code/hooks/review-bash-guard.py")
         self.put_file(os.path.join(self.claude_home, "hooks", "review-bash-guard.sh"),
                       "runtime/claude-code/hooks/review-bash-guard.sh")
         self.link_commands()
+        self.link_completion()
         self.user_settings()
         # The dispatch policy is a skill the project CLAUDE.md files tell a session
         # to load (`subagent-dispatch`); user-scope, so no project needs a copy.
@@ -518,13 +556,18 @@ class Bootstrap:
         # sending a message, and receiving one (the watch, and what a delivery is).
         for name, rel in SKILLS:
             self.put_file(os.path.join(self.claude_home, "skills", name, "SKILL.md"), rel)
-        self.tree_skills(self.role())
+        role = self.role()
+        self.tree_skills(role)
         self.checkout_hooks()
         trusted = self.working_copy_hooks()
         self.trust(trusted)
         self.control_agent()
         self.state_backup()
+        self.tidy()
+        self.harness()
         self.relay()
+        self.relay_backup()
+        self.coordinator_timers(role)
         self.langid()
         self.retire_doppler()
         self.journal_import()
@@ -671,35 +714,79 @@ class Bootstrap:
             self.failed += 1
             commands, replaces = [], {}
         for name, rel in commands:
-            if not name:
-                continue
-            target, link = self.src(rel), os.path.join(local_bin, name)
-            current = os.readlink(link) if os.path.islink(link) else None
-            if current == target:
-                say(f"  =  {link}")
-                self.same += 1
-                continue
-            ours = current is not None and any(current.endswith("/" + r) for r in [rel, *replaces.get(name, [])])
-            if os.path.lexists(link) and not ours:
-                warn(f"  !  {link} is not a link this fabric made — left alone; {name} is not on PATH")
-                self.failed += 1
-                continue
-            if self.dry_run:
-                say(f"  +  {link} -> {target} (would link)")
-                continue
-            try:
-                os.makedirs(local_bin, exist_ok=True)
-                tmp = os.path.join(local_bin, f".{name}.bootstrap-link")
-                if os.path.lexists(tmp):
-                    os.unlink(tmp)
-                os.symlink(target, tmp)
-                os.replace(tmp, link)
-            except OSError:
-                warn(f"  !  {link}: could not link")
-                self.failed += 1
-                continue
-            say(f"  +  {link} -> {target}")
-            self.changed += 1
+            if name:
+                self.link(os.path.join(local_bin, name), rel, replaces.get(name, []), f"{name} is not on PATH")
+
+    def completion_dirs(self) -> list[str]:
+        # bash-completion splits BASH_COMPLETION_USER_DIR on ':' and only falls
+        # back to XDG_DATA_HOME when it is empty; its lazy loader tries every
+        # entry, and the first is enough for us. An entry-less value (only
+        # colons) counts as unset here; bash-completion itself would try
+        # /completions, which is no place to link. The default is linked too
+        # because bootstrap runs from a person's shell and from the control
+        # agent's upgrade (no such variables): once a run from each has been
+        # made, both links stay current and neither one's dry run (fabric-drift's)
+        # sees the other's link as a change.
+        default = os.path.join(self.home, ".local", "share", "bash-completion", "completions")
+        first = next((e for e in os.environ.get("BASH_COMPLETION_USER_DIR", "").split(":") if e), None)
+        if first is not None:
+            seen = os.path.join(first, "completions")
+        else:
+            data = os.environ.get("XDG_DATA_HOME") or os.path.join(self.home, ".local", "share")
+            seen = os.path.join(data, "bash-completion", "completions")
+        return [seen] if seen == default else [seen, default]
+
+    def link_completion(self) -> None:
+        # fabric-ctl's tab completion (owner, 2026-10-22): a link, not a copy, so
+        # a pulled checkout's new verbs complete without another bootstrap.
+        # What is lost at a later place depends on what the first one came to:
+        # the completion this shell loads may exist, be planned, or be missing.
+        first = None
+        for d in self.completion_dirs():
+            at = os.path.join(d, "fabric-ctl")
+            if first is None or first[1] in ("refused", "failed"):
+                lost = "fabric-ctl has no tab completion"
+            elif first[1] == "would-link":
+                lost = f"fabric-ctl's completion would be linked at {first[0]} only"
+            else:
+                lost = f"fabric-ctl's completion is linked at {first[0]} only"
+            outcome = self.link(at, "tools/fabric/control/completion.bash", [], lost)
+            first = first or (at, outcome)
+
+    def link(self, link: str, rel: str, earlier: list[str], lost: str) -> str:
+        """Point link at the checkout's rel. A link this fabric made — to this
+        checkout, another one's same path, or an earlier rel — is refreshed;
+        anything else there is the account's, refused and said with what is lost.
+        Returns what came of it: same, linked, would-link, refused or failed."""
+        target = self.src(rel)
+        current = os.readlink(link) if os.path.islink(link) else None
+        if current == target:
+            say(f"  =  {link}")
+            self.same += 1
+            return "same"
+        ours = current is not None and any(current.endswith("/" + r) for r in [rel, *earlier])
+        if os.path.lexists(link) and not ours:
+            warn(f"  !  {link} is not a link this fabric made — left alone; {lost}")
+            self.failed += 1
+            return "refused"
+        if self.dry_run:
+            say(f"  +  {link} -> {target} (would link)")
+            return "would-link"
+        try:
+            d = os.path.dirname(link)
+            os.makedirs(d, exist_ok=True)
+            tmp = os.path.join(d, f".{os.path.basename(link)}.bootstrap-link")
+            if os.path.lexists(tmp):
+                os.unlink(tmp)
+            os.symlink(target, tmp)
+            os.replace(tmp, link)
+        except OSError:
+            warn(f"  !  {link}: could not link")
+            self.failed += 1
+            return "failed"
+        say(f"  +  {link} -> {target}")
+        self.changed += 1
+        return "linked"
 
     def user_settings(self) -> None:
         # Linked BEFORE the settings are written: an allow rule is granted only for
@@ -1030,6 +1117,49 @@ class Bootstrap:
         say(f"  *  {BACKUP_UNIT}.timer: {answer(['systemctl', '--user', 'is-active', f'{BACKUP_UNIT}.timer'])} "
             f"(systemctl --user list-timers {BACKUP_UNIT}.timer)")
 
+    def tidy(self) -> None:
+        # 6a'. The daily build-output tidy: on every account, mechanics exactly
+        #      the state backup's (6a).
+        before = self.changed
+        for suffix in ("service", "timer"):
+            self.put_file(os.path.join(self.units, f"{TIDY_UNIT}.{suffix}"), f"runtime/control/{TIDY_UNIT}.{suffix}")
+        if self.dry_run:
+            return
+        if not self.user_manager():
+            say(f"  !  {TIDY_UNIT}.timer: installed, not enabled — no user manager at "
+                f"{os.environ['XDG_RUNTIME_DIR']}/bus (systemd absent, or no login session; the next bootstrap with one enables it)")
+            return
+        run_quiet(["systemctl", "--user", "enable", "--now", f"{TIDY_UNIT}.timer"])
+        if self.changed > before:
+            run_quiet(["systemctl", "--user", "restart", f"{TIDY_UNIT}.timer"])
+        say(f"  *  {TIDY_UNIT}.timer: {answer(['systemctl', '--user', 'is-active', f'{TIDY_UNIT}.timer'])} "
+            f"(systemctl --user list-timers {TIDY_UNIT}.timer)")
+
+    def harness(self) -> None:
+        # 6a''. The harness: the account's FleetDeck server and its session pane
+        #       (runtime/control/agent-fabric-harness.service), on every account,
+        #       enabled and started as the control agent is. Started, it only
+        #       waits (enter --wait); an account without the binary leaves it
+        #       inactive by its ConditionPathExists, which is no failure here.
+        #       Never restarted, not even when the unit file changed: its stop
+        #       ends the session running in the pane, which is a person's call
+        #       (fabric-ctl <login> harness-stop, then harness-start).
+        before = self.changed
+        self.put_file(os.path.join(self.units, f"{HARNESS_UNIT}.service"), f"runtime/control/{HARNESS_UNIT}.service")
+        if self.dry_run:
+            return
+        if not self.user_manager():
+            say(f"  !  {HARNESS_UNIT}: installed, not started — no user manager at {os.environ['XDG_RUNTIME_DIR']}/bus "
+                f"(loginctl enable-linger {login()}, or the next login starts it)")
+            return
+        run_quiet(["systemctl", "--user", "enable", "--now", HARNESS_UNIT])
+        state = answer(["systemctl", "--user", "is-active", HARNESS_UNIT])
+        if self.changed > before and state == "active":
+            say(f"  *  {HARNESS_UNIT}: unit changed; not restarted, a restart ends the session in its pane "
+                f"(fabric-ctl {login()} harness-stop, then harness-start)")
+        hint = "" if state == "active" else "; it starts only where install_fleetdeck.py put the binary"
+        say(f"  *  {HARNESS_UNIT}: {state} (systemctl --user status {HARNESS_UNIT}{hint})")
+
     def agentd_unit(self) -> bytes:
         """The control agent's unit: runtime/control/agent-fabric-agentd.service
         as it is, whose ExecStart runs the pinned Python on
@@ -1091,6 +1221,78 @@ class Bootstrap:
         if self.changed > before:
             run_quiet(["systemctl", "--user", "restart", RELAY_UNIT])
         say(f"  *  {RELAY_UNIT} (this workspace hosts the relay): {answer(['systemctl', '--user', 'is-active', RELAY_UNIT])}")
+
+    def relay_backup(self) -> None:
+        # 6c. The relay database's 6-hourly backup (ADR-034 §7): installed on the
+        #     account that hosts the relay and nowhere else, decided exactly as
+        #     step 6b decides it (the relay's venv, the workspace at $HOME/projects),
+        #     so the two units can never live on different accounts. Mechanics are
+        #     the state backup's (6a).
+        if not os.access(os.path.join(self.projects, ".gzcoord", "venv", "bin", "claude-bridge"), os.X_OK):
+            return
+        if self.projects != os.path.realpath(os.path.join(self.home, "projects")):
+            return  # step 6b has said why
+        before = self.changed
+        for suffix in ("service", "timer"):
+            self.put_file(os.path.join(self.units, f"{RELAY_BACKUP_UNIT}.{suffix}"),
+                          f"runtime/control/{RELAY_BACKUP_UNIT}.{suffix}")
+        if self.dry_run:
+            return
+        if not self.user_manager():
+            say(f"  !  {RELAY_BACKUP_UNIT}.timer: installed, not enabled — no user manager at "
+                f"{os.environ['XDG_RUNTIME_DIR']}/bus (systemd absent, or no login session; the next bootstrap with one enables it)")
+            return
+        run_quiet(["systemctl", "--user", "enable", "--now", f"{RELAY_BACKUP_UNIT}.timer"])
+        if self.changed > before:
+            run_quiet(["systemctl", "--user", "restart", f"{RELAY_BACKUP_UNIT}.timer"])
+        say(f"  *  {RELAY_BACKUP_UNIT}.timer: {answer(['systemctl', '--user', 'is-active', f'{RELAY_BACKUP_UNIT}.timer'])} "
+            f"(systemctl --user list-timers {RELAY_BACKUP_UNIT}.timer)")
+
+    def coordinator_timers(self, role: str) -> None:
+        # 6d. The coordinator's timers (COORDINATOR_UNITS): installed on an
+        #     account whose binding holds fabric-coordinator, mechanics the state
+        #     backup's (6a). Elsewhere a job they file lands where nobody acts on
+        #     it, so an account rebound away has the fabric's copies disabled and
+        #     removed; a file the fabric did not write is a person's and stays,
+        #     as tree_skills keeps one. The role is the binding at bootstrap: a
+        #     rebind takes effect at the next `fabric-ctl upgrade fabric`.
+        for unit in COORDINATOR_UNITS:
+            files = [os.path.join(self.units, f"{unit}.{suffix}") for suffix in ("service", "timer")]
+            if role == COORDINATOR_ROLE:
+                self.coordinator_timer(unit, files)
+                continue
+            ours = [f for f in files if os.path.isfile(f) and fabric_writes.written(f)]
+            if not ours:
+                continue
+            if self.dry_run:
+                for f in ours:
+                    say(f"  -  {f} (would remove: role is {role or 'unbound'})")
+                continue
+            if self.user_manager():
+                run_quiet(["systemctl", "--user", "disable", "--now", f"{unit}.timer"])
+            for f in ours:
+                try:
+                    os.remove(f)
+                except OSError as e:
+                    raise Stop(1, f"bootstrap: cannot remove {f}: {e.strerror or e}") from None
+                say(f"  -  {f} (removed: role is {role or 'unbound'})")
+                self.changed += 1
+
+    def coordinator_timer(self, unit: str, files: list[str]) -> None:
+        before = self.changed
+        for f in files:
+            self.put_file(f, f"runtime/control/{os.path.basename(f)}")
+        if self.dry_run:
+            return
+        if not self.user_manager():
+            say(f"  !  {unit}.timer: installed, not enabled — no user manager at "
+                f"{os.environ['XDG_RUNTIME_DIR']}/bus (systemd absent, or no login session; the next bootstrap with one enables it)")
+            return
+        run_quiet(["systemctl", "--user", "enable", "--now", f"{unit}.timer"])
+        if self.changed > before:
+            run_quiet(["systemctl", "--user", "restart", f"{unit}.timer"])
+        say(f"  *  {unit}.timer: {answer(['systemctl', '--user', 'is-active', f'{unit}.timer'])} "
+            f"(systemctl --user list-timers {unit}.timer)")
 
     def langid(self) -> None:
         # 7. The language detector for the control agent's `script` op

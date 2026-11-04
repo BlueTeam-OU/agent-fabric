@@ -45,6 +45,7 @@ from __future__ import annotations
 
 import contextlib
 import datetime
+import hashlib
 import json
 import os
 import re
@@ -55,6 +56,9 @@ import uuid
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "runtime"))
+
+import review_card  # noqa: E402
+import review_lines  # noqa: E402
 
 FABRIC_ROOT = os.environ.get("AGENT_FABRIC_ROOT") or os.path.dirname(
     os.path.dirname(os.path.dirname(os.path.realpath(__file__))))
@@ -81,14 +85,13 @@ JOB_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
 COUNT_RE = re.compile(r"^[1-9][0-9]*$")
 SHA_RE = re.compile(r"^[0-9a-f]{40}$")
 MANY_LENSES = 3
-# The project's own text a reviewer gets (agent-fabric ADR-020): the reviewer
-# runs without the project's instruction files (omitClaudeMd), so this card
-# is all of it, and it is re-sent every turn: a cap, refused over, not truncated.
+# The project's own text a reviewer gets (agent-fabric ADR-020); its path and
+# cap are review_card's, which the commit hook and lint judge by too.
 # It is read from the request's BASE commit, never the working tree or the
 # head: a change under review must not write its own rules of review. The
 # head's copy is evidence, and the card's own diff is in the reviewed range.
-CARD_PATH = ".agent-fabric/review-card.md"
-CARD_CAP = 2048
+CARD_PATH = review_card.CARD_PATH
+CARD_CAP = review_card.CARD_CAP
 
 # Verdict-shaped phrasing: the author's conclusion about the change, not
 # a fact about what must be true. Kept short and each one actionable —
@@ -307,6 +310,66 @@ def _default_tip(repo: object) -> str | None:
     return _commit_of(repo, ref) if ref else None
 
 
+def checkpoint(pr: int, head_sha: str, repo: str, exclude_head: str | None = None) -> tuple[str, str, str, str] | None:
+    """(base, head, card, posted body) of the PR's last review a re-review may
+    start from, or None; `exclude_head` sets aside the reviews of that head.
+    A seam: tests replace it, since the real one asks GitHub."""
+    from github.review_checkpoint import last_checkpoint_review
+    return last_checkpoint_review(pr, head_sha, lambda card: config_fingerprint(repo, card), cwd=repo,
+                                  exclude_head=exclude_head)
+
+
+def earlier_reviews(pr: int, repo: str):
+    """arm_findings' Reading of every review the PR has, from the accounts gate 4c reads (the PR's author,
+    AGENT_FABRIC_REVIEW_POSTERS and, on an app's PR, the account gh acts as: review_posters, the one reader), or None
+    when they cannot be listed or that account cannot be read. A seam: tests replace it, since the real one asks
+    GitHub."""
+    import gh  # noqa: PLC0415 — only a PR's full review asks GitHub
+    from github import arm_findings, review_posters  # noqa: PLC0415
+    from github.review_status.base import Die  # noqa: PLC0415
+    from github.review_status.config import read_config  # noqa: PLC0415
+    try:
+        slug = gh.this_repo(repo)
+        author_of = gh.pr_view(pr, ["author"], repo=slug).get("author") or {}
+        author = author_of.get("login")
+        trusted = (set(review_posters.for_pr(author_of, read_config(os.environ).review_posters))
+                   | ({author} if isinstance(author, str) and author else set()))
+        return arm_findings.read(gh.api_list(f"repos/{slug}/pulls/{pr}/reviews"), trusted)
+    except (gh.GhError, Die, ValueError, TypeError, AttributeError, OSError):
+        return None
+
+
+def carried_findings(pr: int, head_sha: str, repo: str) -> tuple[dict | None, list[str]]:
+    """({"findings": the open findings to carry, "next": the first free label number}, refusals) for a PR's full
+    review. #425 merged with F5 open: a fresh full review starts a chain of its own, so a finding an earlier chain
+    left open is judged by nothing unless the brief hands it over, and gate 4c refuses the arm on it. Its own labels
+    start past every label the PR's reviews used, closed ones included: a judgement goes to its own chain whenever
+    that chain raised the label (arm_findings), so a new F5 would take the judgement meant for the old one. A finding
+    raised on this head is another engine's same round, which is not this review's to see (blind review, ADR-020),
+    but its label still counts."""
+    got = earlier_reviews(pr, repo)
+    if got is None:
+        return None, [f"pr: #{pr}'s reviews cannot be listed, so the findings earlier reviews left open cannot be "
+                      "carried into this review; render again when GitHub answers, or leave pr out"]
+    if got.unknown:
+        # Listed but unread is the same gap as not listed: its open findings would go uncarried and its labels reused.
+        return None, [f"pr: #{pr} has {len(got.unknown)} review(s) whose findings cannot be read — "
+                      f"{'; '.join(got.unknown[:3])}{' …' if len(got.unknown) > 3 else ''}: what they left open and the "
+                      "labels they used are unknown; re-post them with their machine lines (Finding:/Judgement:), or leave pr out"]
+    numbers = [int(f.label[1:]) for f in got.findings]
+    return {"findings": [f for f in got.open if f.head != head_sha], "next": max(numbers, default=0) + 1}, []
+
+
+def carried_for(req: dict, info: dict) -> tuple[dict | None, list[str]]:
+    """carried_findings for a PR's full review of a resolved range; (None, []) for anything else, which asks nothing.
+    The Claude brief's only: Codex's brief carries no findings, and its labels are numbered past the PR's used ones by
+    review_codex.label_start, which reads carried_findings itself and refuses on the same failures."""
+    pr = _count(req.get("pr"))
+    if not pr or req.get("mode") != "review":
+        return None, []
+    return carried_findings(pr, info["head_sha"], req["repository"])
+
+
 def resolve_range(req: dict) -> tuple[dict | None, list[str]]:
     """({base_sha, head_sha, card_base}, refusals) for a ranged request: both
     ends resolved now, and the card's base (the request's `card_base`, which
@@ -324,6 +387,37 @@ def resolve_range(req: dict) -> tuple[dict | None, list[str]]:
     card_base = _commit_of(repo, wanted) if isinstance(wanted, str) and wanted else base_sha
     if not card_base:
         return None, [f"card_base: {wanted!r} is not a commit in {repo}"]
+    pr = _count(req.get("pr"))
+    if req.get("mode") == "re-review" and pr:
+        # A PR's re-review starts where its last posted review stopped, read
+        # from that review's v2 marker, never from what the dispatcher typed
+        # (agent-fabric ADR-065 §5 rule 5). Without a PR there is no posted
+        # review to read, and the typed range stands.
+        cp = checkpoint(pr, head_sha, repo)
+        if cp is not None and cp[1] == head_sha:
+            # Another engine has already posted this round: its report is not
+            # this engine's previous findings (blind review, ADR-020), so the
+            # round starts from the checkpoint as it stood before this head.
+            cp = checkpoint(pr, head_sha, repo, exclude_head=head_sha)
+        if cp is None:
+            return None, [f"re-review: #{pr} has no review a re-review can start from (a v2 review, every path read, of an "
+                          f"ancestor of {head_sha[:12]}, under today's config); render a full review (mode: review)"]
+        _, cp_head, cp_card, cp_body = cp
+        if base_sha != cp_head:
+            return None, [f"range: a re-review of #{pr} starts at its last review's head {cp_head[:12]}, not {base!r} "
+                          f"({base_sha[:12]}); the range is {cp_head}..{head}"]
+        if wanted and card_base != cp_card:
+            return None, [f"card_base: #{pr}'s last review read the card at {cp_card[:12]}, not {wanted!r}; leave card_base "
+                          f"out and it is taken from that review"]
+        card_base = cp_card
+        return _on_default_branch(repo, base, base_sha, head_sha, card_base, wanted, cp_body)
+    return _on_default_branch(repo, base, base_sha, head_sha, card_base, wanted, None)
+
+
+def _on_default_branch(repo: str, base: str, base_sha: str, head_sha: str, card_base: str, wanted: object,
+                       previous: str | None) -> tuple[dict | None, list[str]]:
+    """resolve_range's last check, the card's commit on the default branch,
+    and its answer; `previous` is a PR re-review's previous report."""
     ref = default_ref(repo)
     if ref is None:
         return None, [f"range: the default branch of {repo} cannot be found, so base {base!r} cannot be checked against it"]
@@ -331,7 +425,10 @@ def resolve_range(req: dict) -> tuple[dict | None, list[str]]:
         return None, [f"range: base {base!r} ({card_base[:12]}) is not an ancestor of {ref}; the project review card is read from "
                       f"the base, and only a commit the default branch contains may govern a review"
                       + ("" if wanted else "; name card_base (a full commit id the default branch contains, the first round's base) in the request")]
-    return {"base_sha": base_sha, "head_sha": head_sha, "card_base": card_base}, []
+    info = {"base_sha": base_sha, "head_sha": head_sha, "card_base": card_base}
+    if previous is not None:
+        info["previous_report"] = previous
+    return info, []
 
 
 def card(repo: object, base_sha: str | None) -> tuple[str | None, str | None]:
@@ -347,8 +444,8 @@ def card(repo: object, base_sha: str | None) -> tuple[str | None, str | None]:
     r = _git(repo, "show", spec)
     if r.returncode != 0:
         return None, f"{spec}: the project review card cannot be read ({r.stderr.decode(errors='replace').strip()})"
-    if len(r.stdout) > CARD_CAP:
-        return None, f"{spec}: the project review card is {len(r.stdout)} bytes, over the {CARD_CAP}-byte cap; shorten it"
+    if review_card.over_cap(len(r.stdout)):
+        return None, review_card.refusal(spec, len(r.stdout))
     return r.stdout.decode("utf-8", errors="replace").strip(), None
 
 
@@ -365,7 +462,7 @@ def _count(v: object) -> int | None:
 
 # --- validation --------------------------------------------------------------
 
-def validate(req: dict, lenses_dir: str | None = None) -> list[str]:
+def validate(req: dict, lenses_dir: str | None = None, engine: str = "claude") -> list[str]:
     """Every refusal, by field. Empty means the request renders."""
     problems: list[str] = []
     for key in req:
@@ -399,6 +496,9 @@ def validate(req: dict, lenses_dir: str | None = None) -> list[str]:
         problems.append("repository: required (the live clone's path)")
     elif not os.path.isdir(os.path.join(repo, ".git")) and not os.path.isfile(os.path.join(repo, ".git")):
         problems.append(f"repository: {repo} is not a git working copy")
+    elif engine == "claude" and (refusal := session_repository_refusal(repo)):
+        # Codex reads its clone itself, never through the session's review tools.
+        problems.append(refusal)
     rng, diff = req.get("range"), req.get("diff")
     if bool(rng) == bool(diff):
         problems.append("range / diff: exactly one — a base..head range, or a diff file in the scratchpad")
@@ -414,12 +514,26 @@ def validate(req: dict, lenses_dir: str | None = None) -> list[str]:
         problems += refused
         if info and (refusal := card(repo, info["card_base"])[1]):
             problems.append(refusal)
+        if info and engine == "claude":
+            problems += carried_for(req, info)[1]
     elif isinstance(diff, str) and diff and not rng and isinstance(repo, str) and repo \
             and (refusal := card(repo, _default_tip(repo))[1]):
         # render reads a diff file's card at the default tip and drops the
         # refusal, so an over-cap card would silently render as none.
         problems.append(refusal)
-    if mode == "re-review" or "previous_findings" in req:
+    if mode == "re-review" and _count(req.get("pr")):
+        if not req.get("range"):
+            # The previous report and the range come from the PR's last
+            # posted review, which a diff file names no commits to look up.
+            problems.append("range: a PR's re-review needs a base..head range, which its last posted review is looked "
+                            "up against; a diff file has no commits")
+        if "previous_findings" in req:
+            # Read from the PR's last posted review instead (ADR-065 §5 rule 5):
+            # a typed file is refused, never compared, since the post wraps the
+            # report it was given in its own lines.
+            problems.append("previous_findings: a PR's re-review reads the previous report from its last posted "
+                            "review; leave previous_findings out")
+    elif mode == "re-review" or "previous_findings" in req:
         pf = req.get("previous_findings")
         if mode not in ("re-review", "finding-adjudication"):
             problems.append("previous_findings: only on a re-review (mode: re-review) or a finding-adjudication")
@@ -516,9 +630,44 @@ def dispatch_header(req: dict, info: dict | None, engine: str, purpose: str | No
         "evidence_mode": evidence_mode(req),
         "base_sha": info["base_sha"] if info else None,
         "head_sha": info["head_sha"] if info else None,
+        "card_base": info["card_base"] if info else None,
+        "config": config_fingerprint(repo, info["card_base"]) if info else None,
         "started_at": started_at or datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
     }
     return _fence(json.dumps(header, indent=2), DISPATCH_VERSION)
+
+
+AGENT_FILE = os.path.join(FABRIC_ROOT, "runtime", "claude-code", "agents", "code-review.md")
+
+
+def config_fingerprint(repo: str, card_base: str | None) -> str:
+    """sha256 of what a review's verdict depends on besides the range: the
+    review class's agent file as committed here, the project card at
+    card_base, and this renderer's versions (agent-fabric ADR-065 §2 C). A
+    re-review may start from an earlier review's head only while this is
+    unchanged; any part missing or unreadable is hashed as its absence, so
+    it differs from a present one rather than matching an empty one."""
+    h = hashlib.sha256()
+    try:
+        agent = open(AGENT_FILE, "rb").read()
+    except OSError:
+        agent = None
+    text, refusal = card(repo, card_base)
+    for label, part in (("agent", agent), ("card", None if refusal else (text.encode() if text is not None else None)),
+                        ("brief", BRIEF_VERSION.encode()), ("dispatch", DISPATCH_VERSION.encode())):
+        # Length-prefixed, so no two different tuples of parts hash alike.
+        h.update(label.encode() + b"\0" + (b"-" if part is None else str(len(part)).encode() + b"\0" + part))
+    return h.hexdigest()
+
+
+COVERAGE_RULE = (
+    "Before the machine lines, one fenced block whose info string is `agent-fabric-coverage v1`, holding JSON "
+    '{"paths": {"<path>": {"status": "read" or "not read", "reason": "<why, when not read>"}}, '
+    '"lenses": {"<lens>": "applied" or "not applied"}}: every path `git diff --name-only` lists for the range, '
+    "once, and every lens above. For paths you treated alike (a memory drain's thousand), the block may instead carry "
+    '"default": {"status": ..., "reason": ...} beside "paths", the entry of every changed path it does not name; a '
+    "path you name keeps its own entry, and a path outside the range is refused. A path not read, or a default not "
+    "read, keeps the review from counting as coverage of the head.")
 
 
 class EvidenceRefused(Exception):
@@ -548,6 +697,100 @@ def worktree_head(path: str) -> str | None:
     return head.stdout.strip() if head.returncode == 0 else None
 
 
+def dispatching_session_pid(proc: str = "/proc", start: int | None = None) -> int | None:
+    """Pid of the nearest ancestor of `start` (default: this process) whose comm is
+    `claude`, or None. `proc` is injectable so a test can lay out a fake process tree."""
+    pid = os.getpid() if start is None else start
+    seen: set[int] = set()
+    while pid > 1 and pid not in seen:
+        seen.add(pid)
+        try:
+            with open(os.path.join(proc, str(pid), "comm"), encoding="utf-8", errors="replace") as f:
+                comm = f.read().strip()
+            if comm == "claude":
+                return pid
+            with open(os.path.join(proc, str(pid), "stat"), encoding="utf-8", errors="replace") as f:
+                # comm may hold spaces and parens: the fields after the LAST ')' are state, ppid, ...
+                pid = int(f.read().rsplit(")", 1)[1].split()[1])
+        except (OSError, ValueError, IndexError):
+            return None
+    return None
+
+
+# Names the session clone a brief is checked against instead of the claude ancestor's directory: a test names its
+# fixture clone, and "" says there is no session, so nothing is checked. It moves an early refusal only; the review
+# tools still read nothing outside the clone they were started for.
+SESSION_CLONE_ENV = "FABRIC_REVIEW_SESSION_CLONE"
+
+
+def session_clone(proc: str = "/proc", start: int | None = None) -> str | None:
+    """The directory the dispatching session was started in, or None without a session (a shell, CI). The review tools
+    read that clone and its worktrees only (review_mcp/gittools.allowed_repositories, from CLAUDE_PROJECT_DIR), and
+    CLAUDE_PROJECT_DIR reaches hooks and MCP servers, never a Bash call: the claude process's own working directory
+    is the same place, or a worktree of the same clone after EnterWorktree, whose worktree list is the same set."""
+    if SESSION_CLONE_ENV in os.environ:
+        return os.environ[SESSION_CLONE_ENV] or None
+    pid = dispatching_session_pid(proc, start)
+    if pid is None:
+        return None
+    try:
+        return os.readlink(os.path.join(proc, str(pid), "cwd"))
+    except OSError:
+        return None
+
+
+def session_repository_refusal(repo: str, proc: str = "/proc") -> str | None:
+    """Why a reviewer dispatched from this session could not read `repo`, or None. A brief naming another clone
+    renders and dispatches, and the reviewer's every tool call is refused, so its report reads nothing and
+    post-review refuses the coverage after a whole review was spent (OBSERVATION 01a17a20). One rule, the
+    review server's own, read once here, before anything is dispatched."""
+    clone = session_clone(proc)
+    if clone is None:
+        return None
+    from review_mcp import gittools, scope  # noqa: PLC0415 — only a session's render needs the server's rule
+    try:
+        allowed = gittools.allowed_repositories(project_dir=clone)
+    except scope.ToolError as exc:
+        return (f"repository: this session's review tools read no repository ({exc}; the session was started in "
+                f"{clone}); dispatch the review from a session started in {repo}'s clone")
+    if os.path.realpath(repo) in allowed:
+        return None
+    return (f"repository: {repo} is not this session's clone ({allowed[0]}) or one of its worktrees, the only "
+            "repositories its review tools read; the reviewer would read nothing and post-review would refuse its "
+            f"coverage. Dispatch the review from a session started in {repo}'s clone")
+
+
+def mark_in_use(path: str, proc: str = "/proc") -> None:
+    """Write `fabric-in-use` (pid line, UTC timestamp line) into the worktree's own git
+    directory. `fabric-branches --sweep` once removed a pinned evidence worktree while
+    a review still read it; it keeps one whose git dir names a live pid. The git dir,
+    never the tree: the reviewer reads the tree as the head, and ensure_head_worktree
+    refuses a tree that differs from it. No claude ancestor (a shell, a test) writes
+    nothing, so the sweep behaves as before. A failure never fails the brief."""
+    pid = dispatching_session_pid(proc)
+    if pid is None:
+        return
+    tmp = None
+    try:
+        r = subprocess.run(["git", "-C", path, "rev-parse", "--absolute-git-dir"], capture_output=True, text=True, timeout=30)
+        if r.returncode != 0:
+            raise OSError(r.stderr.strip() or "git rev-parse --absolute-git-dir failed")
+        gitdir = r.stdout.strip()
+        stamp = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        fd, tmp = tempfile.mkstemp(prefix=".fabric-in-use.", dir=gitdir)
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(f"{pid}\n{stamp}\n")
+        os.chmod(tmp, 0o600)
+        os.replace(tmp, os.path.join(gitdir, "fabric-in-use"))
+        tmp = None
+    except (OSError, subprocess.SubprocessError) as exc:
+        print(f"fabric-review: could not mark {path} in use ({exc}); the branch sweep may take the worktree", file=sys.stderr)
+    finally:
+        if tmp:
+            with contextlib.suppress(OSError):
+                os.unlink(tmp)
+
+
 def ensure_head_worktree(repo: str, head_sha: str) -> tuple[str, bool]:
     """(path, made_by_this_call): a detached worktree of head_sha, made or
     reused. --detach so no branch and no branch.* config lands in the clone
@@ -568,6 +811,7 @@ def ensure_head_worktree(repo: str, head_sha: str) -> tuple[str, bool]:
             if st.returncode != 0 or changed:
                 raise EvidenceRefused(f"{path} is not clean ({changed[0][3:] if changed else st.stderr.decode(errors='replace').strip()}); "
                                       "it is not mine to delete: restore or remove it, then render again")
+            mark_in_use(path)
             return path, False
         r = _git(repo, "worktree", "add", "--detach", path, head_sha)
         # A cleaned temp dir leaves the clone's registration behind; prune drops only registrations whose path is gone.
@@ -578,6 +822,7 @@ def ensure_head_worktree(repo: str, head_sha: str) -> tuple[str, bool]:
             raise EvidenceRefused(f"git worktree add --detach {path} {head_sha[:12]} failed: {r.stderr.decode(errors='replace').strip()}")
     except subprocess.TimeoutExpired as exc:
         raise EvidenceRefused(f"{' '.join(map(str, exc.cmd))} timed out after {exc.timeout:g}s; {path} may be half made: check it, then render again")
+    mark_in_use(path)
     return path, True
 
 
@@ -590,10 +835,10 @@ def prepare_evidence(req: dict) -> tuple[str | None, bool]:
     return ensure_head_worktree(req["repository"], info["head_sha"]) if info else (None, False)
 
 
-def refusals(req: dict, allow_rationale: bool = False, lenses_dir: str | None = None) -> list[str]:
+def refusals(req: dict, allow_rationale: bool = False, lenses_dir: str | None = None, engine: str = "claude") -> list[str]:
     """Every refusal render() raises that needs no evidence: what a caller
     runs before it makes a worktree, so a request that will not render creates nothing."""
-    problems = validate(req, lenses_dir)
+    problems = validate(req, lenses_dir, engine)
     if not allow_rationale:
         problems += [f"{field}: {sentence!r} — {why}; state what must be true instead (or --allow-rationale to render it flagged)"
                      for field, sentence, why in rationale_findings(req)]
@@ -621,7 +866,7 @@ def _evidence_line(req: dict, info: dict | None, path: str | None) -> str | None
     if not (path and info and evidence_mode(req) == "pinned"):
         return None
     return (f"Evidence: pinned. The range's head {info['head_sha'][:12]} is checked out, detached, at {path}: read and run the "
-            "head's files there, naming that path in each command (no cd; git -C <path> for git); it is read-only for you, and you "
+            "head's files there by their full path, whatever reads or runs them names it (no cd; a git command takes -C <path>); it is read-only for you, and you "
             "make no extract or copy of your own. The clone at the path above may be a different state; git show <sha>:path stays valid.")
 
 
@@ -645,14 +890,19 @@ def render(req: dict, lenses_dir: str | None = None, allow_rationale: bool = Fal
     tests pass them in). `evidence_path` is the pinned head's worktree, made by
     the caller (prepare_evidence), so that rendering has no side effect."""
     rationale = rationale_findings(req)
-    if (problems := refusals(req, allow_rationale, lenses_dir)):
+    if (problems := refusals(req, allow_rationale, lenses_dir, engine)):
         raise RequestError(problems)
     known = lenses(lenses_dir)
     mode = req["mode"]
     # A review always carries general; a re-review verifies the new hunks
     # against the previous findings and carries only a lens it names.
     names = list(dict.fromkeys(([] if mode == "re-review" else ["general"]) + list(req.get("lenses") or [])))
-    info, _ = resolve_range(req)
+    info, refused = resolve_range(req)
+    if refused:
+        # A PR's re-review asks GitHub for its checkpoint again here, and refusals() read it once; a read that now
+        # finds none would leave no previous report and fall through to a previous_findings the request must leave
+        # out (j573, a KeyError).
+        raise RequestError(refused)
     out = dispatch_header(req, info, engine, purpose, dispatch_id, started_at)
     out += [f"# Review brief ({BRIEF_VERSION})", "## Mode", mode,
             "## Repository", f"{req['repository']} (the live clone; read-only for you)", _evidence_line(req, info, evidence_path) or EVIDENCE_LINE[evidence_mode(req)],
@@ -663,12 +913,30 @@ def render(req: dict, lenses_dir: str | None = None, allow_rationale: bool = Fal
         out += [f"## {heading}", _items(req.get(key))]
     text, _ = card(req["repository"], info["card_base"] if info else _default_tip(req["repository"]))
     out += ["## Project review card", text if text else "(none)"]
+    handed = None
+    if info and engine == "claude":
+        handed, refused = carried_for(req, info)
+        if refused:
+            # refusals() read the reviews once; this second read can fail where that one passed, and a brief without
+            # the carried findings would have the reviewer reuse their labels (#437 round 4 F9).
+            raise RequestError(refused)
+    if handed and handed["next"] > 1:
+        pr = _count(req.get("pr"))
+        out.append("## Open findings from earlier reviews")
+        if handed["findings"]:
+            out += [f"Earlier reviews of #{pr} left these findings open, each with the head it was raised on. Answer "
+                    f"each by its label in a `{review_lines.JUDGEMENT_SHAPE}` line: fixed or not-real where the range's "
+                    "head no longer has it, real, partly or not-fixed where it does."]
+            out += [f"- {f.label} | {f.level} | {f.path} | {f.summary} (raised on {f.head[:12]})" for f in handed["findings"]]
+        out.append(f"Earlier reviews of #{pr} used the labels up to F{handed['next'] - 1}: number your own findings "
+                   f"from F{handed['next']}.")
     if mode == "re-review" or (mode == "finding-adjudication" and req.get("previous_findings")):
         # Fenced: the previous report carries headings at the brief's own
         # level, and verbatim inside a fence is still verbatim. The fence
         # is longer than any backtick run in the report (every conforming
         # report quotes hunks in ``` blocks), so it closes where we close it.
-        report = open(req["previous_findings"], encoding="utf-8").read().rstrip()
+        report = (info or {}).get("previous_report")
+        report = (report if report is not None else open(req["previous_findings"], encoding="utf-8").read()).rstrip()
         fence = "`" * max(3, max((len(m) for m in re.findall(r"`+", report)), default=0) + 1)
         if mode == "re-review":
             out += ["## Previous findings", "Start from the range above and these findings, answering each by number."]
@@ -696,6 +964,16 @@ def render(req: dict, lenses_dir: str | None = None, allow_rationale: bool = Fal
         out.append("## Brief notes (dispatcher-asserted, not facts)")
         out.append("The dispatcher rendered these with --allow-rationale; they are the author's conclusions, not evidence — set them aside and say so:")
         out += [f"- {field}: {sentence}" for field, sentence, _ in rationale]
+    if engine == "claude":
+        # Codex's body is rendered by our code from its structured answer (review_codex.render_review), and the
+        # brief it gets adds only its answer shape (ADR-053 rule 1).
+        if mode in ("review", "re-review"):
+            # post-review refuses a review or re-review without it (ADR-065 §5
+            # rule 4), so the brief says it even to a reviewer whose agent file
+            # predates the rule. Its own section: the brief ends with the
+            # machine lines' rules (test_review_lines).
+            out += ["## Coverage", COVERAGE_RULE]
+        out += ["## Report lines"] + review_lines.report_rules(mode)
     return "\n".join(out) + "\n"
 
 

@@ -38,6 +38,9 @@ def parse_args() -> argparse.Namespace:
     ap.add_argument("--reads-state", default=None, metavar="FILE",
                     help="where the drain keeps when each section was last read (ADR-050 rule 8); "
                          "default: memory-drain-reads.json in this login's agent state directory")
+    ap.add_argument("--commit-message", default=None, metavar="FILE",
+                    help="write the commit body for this project's drain to FILE, built only from the drain report "
+                         "(not written when the run fails); commit with -F")
     ap.add_argument("--flags", action="store_true",
                     help="after the drain, route the sections a check or a reader flagged to the agents that own them "
                          "(ADR-050 rules 3 and 6; tools/fabric/memory_flagrun.py): a dry run that prints the plan")
@@ -62,6 +65,11 @@ def open_layout(args: argparse.Namespace) -> str:
     working copy are, and the hygiene lists of all of them loaded."""
     if args.fabric:
         layout.FABRIC_ROOT = os.path.abspath(args.fabric)
+        # roots.operator_root() lets an exported AGENT_FABRIC_OPERATOR outrank the engine tree a caller was
+        # handed, so a run that named its tree wrote the domain and shared slices into the operator's instead
+        # (found 2026-11-02, j88). --fabric is the one tree this run reads and writes; the flag phase's
+        # children (fabric-ctl, gzcoord-send) inherit it, so they read the fleet from --fabric too.
+        os.environ[layout.roots.ENV_OPERATOR] = layout.FABRIC_ROOT
     project = args.project
     if args.working_copy:
         layout.set_working_copy(project, args.working_copy)
@@ -175,7 +183,11 @@ def read_claims(run: Run) -> int | None:
             elif len(listed) > anchors.ANCHORS_MAX:
                 anchor_violations.append(f"{who}: {len(listed)} anchors, at most {anchors.ANCHORS_MAX}")
             else:
-                anchor_violations.extend(f"{who}: anchor {a[:60]!r}: {anchors.problem(a)}" for a in listed if anchors.problem(a))
+                known_projects = frozenset(layout.project_ids())
+                for a in listed:
+                    bad = anchors.problem(a) or anchors.registry_problem(a, known_projects)
+                    if bad:
+                        anchor_violations.append(f"{who}: anchor {a[:60]!r}: {bad}")
     if anchor_violations:
         print("CLAIM ANCHOR VIOLATIONS:", file=sys.stderr)
         for problem in anchor_violations:

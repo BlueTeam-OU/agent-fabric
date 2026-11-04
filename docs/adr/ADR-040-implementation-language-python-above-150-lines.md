@@ -26,7 +26,7 @@ around a program no linter reads. No shared Python layer for `gh` or
 ## 2. Decision
 
 Fabric tooling is written in **Python, standard library only**, and
-runs on one pinned interpreter: `runtime/python.json` names it (3.13
+runs on one pinned interpreter: `runtime/python.json` names it (3.14
 today, a relocatable python-build-standalone build pinned by sha256),
 installed once per host as `/usr/local/bin/fabric-python`; the code
 stays valid on 3.13 and newer, the interpreters CI's matrix runs
@@ -89,11 +89,14 @@ serve as the parity oracle for each port, unchanged.
      (`ssh-template.sh`, `ssh-operator.sh`, `ssh-restore.sh`,
      `agent-fabric-accounts.rc`); and under
      `runtime/provisioning/moveto/` `install.sh`, `enter` (a login-shell
-     stub), `enter-ssh` (an sshd forced command) and `completion.bash`.
+     stub), `enter-ssh` (an sshd forced command) and `completion.bash`;
+     and `tools/fabric/control/completion.bash`, `fabric-ctl`'s completion,
+     which bash alone reads (A 2026-10-24).
      Adding to the list is a finding. A script that is not on it is not
      pre-Python for being a step of provisioning: `bootstrap.sh`, the
-     account creation and the host executor all need the pin, and are
-     forwarders.
+     account creation and the host executor all need the pin; the first
+     and the last are forwarders, the account creation its module by
+     rule 7 (A 2026-10-19).
    - **The forwarder**: a file that finds its Python module, checks
      that the pin is installed and, if it is not, prints the command that
      installs it, and execs the module; at most 12 lines of code, comments
@@ -133,9 +136,12 @@ serve as the parity oracle for each port, unchanged.
    its caller. Every entry point the fabric installs (`bin/`, the
    `policies/` checks a person or a hook runs, `fabric-secrets`) runs it.
    These keep the host's `python3`:
-   - the hooks not yet ported — the git hooks and the Claude Code hooks
-     (`session-start.sh`, `model-switch-guard.sh`, `self-kill-guard.py`) —
-     whose port moves them to the pin in Wave 9 (A 2026-10-11); the launcher, account creation and bootstrap
+   - the hooks not yet ported — the git hooks' `pre-push` and the Claude
+     Code hook `self-kill-guard.py` — whose port
+     moves them to the pin in Wave 9 (A 2026-10-11), as it moved the three
+     guards of batch 5 (A 2026-10-19) and `pre-commit`, `commit-msg`,
+     `post-commit`, the fallback note and gzapp's host check (A 2026-10-19)
+     and `session-start.sh` (A 2026-10-24); the launcher, account creation and bootstrap
      have moved, and bootstrap's helpers under `runtime/` run on the pin
      with it, but for step 7's language-detector venv, which is made with
      the host's `python3`;
@@ -158,10 +164,11 @@ serve as the parity oracle for each port, unchanged.
    (A 2026-10-01); and a fixture that copies the scripts it runs copies
    their modules beside them, adding files and changing no assertion
    (A 2026-10-01). A fourth: a forwarder checks the pin before the module
-   reads its verb, so a case that gives an unknown verb on a host
-   without the pin expects the forwarder's 127 and its install line,
-   not the bash original's usage error; the case says so and cites this
-   rule (A 2026-10-11). The same pull request deletes the bash implementation,
+   reads anything (its verb, its files, its environment), so a case run
+   on a host without the pin expects the forwarder's 127 and its install
+   line, not what the bash original did before it needed Python (a usage
+   error, or a clean exit when there was nothing to check); the case
+   says so and cites this rule (A 2026-10-19). The same pull request deletes the bash implementation,
    adds Python tests for the internals and removes the entry from the
    allowlist.
 6. GitHub and git are called through `tools/fabric/gh.py` and
@@ -178,10 +185,15 @@ serve as the parity oracle for each port, unchanged.
    past the move. A CI-only script is called through its module. Kept as shell: the
    pre-Python list and the forwarders of rule 1, and nothing else
    (A 2026-10-11). The `bin/` entry points, the host executor,
-   `bootstrap.sh`, `moveto` and the provisioning entries are forwarders
-   whose few lines of shell print the install command when the pin is
-   absent; the git hooks and the suite runners are forwarders once
-   ported.
+   `bootstrap.sh` and `moveto` are forwarders whose few lines of shell
+   print the install command when the pin is absent; the git hooks and
+   the suite runners are forwarders once ported. The two provisioning
+   entries a person runs, `tools/fabric/new_agent.py` and
+   `tools/fabric/store_enroll.py`, are their modules, run as `python3
+   <agent-fabric>/tools/fabric/<module>.py`: before any import that
+   needs the pin they re-exec under it, or print the install command and
+   exit 127, so no shell stands in front of them; `new-agent.sh` and
+   `store-enroll.sh` retire by the steps above (A 2026-10-19).
 8. No new fabric code is written in Node. Wave 7's carve-out kept
    existing Node code as it was; it never admitted new modules into it,
    and none is admitted now (A 2026-10-09). No fabric command runs
@@ -201,6 +213,24 @@ serve as the parity oracle for each port, unchanged.
    The project's devex-tooling and architect-cto decide the order. The
    forwarders a project keeps to the fabric's commands (`tools/gh/*.sh`
    to `fabric-pr`) stay forwarders until rule 7 retires them.
+10. A managed project's own Node scripts move to Python in Wave 10
+   (§7), the one port wave a project has; the owner asked for it
+   (A 2026-10-19). A `.mjs` file a project runs as a script, written
+   by us, is ported, and none is added; one a fork took from the
+   upstream it tracks stays the upstream's and is never ported (it
+   would only make the fork diverge), and a project's application
+   code (a TypeScript or JavaScript app, its packages and its build)
+   is the product, in the language the product chose, never a script
+   to port; a `.js` or `.cjs` script of ours may join the wave, and one
+   that is to be updated or fixed is ported instead (A 2026-10-19). Exempt, and named in the wave's
+   inventory with why: a framework's own configuration it loads itself
+   (`astro.config.mjs`), and a script that works inside a Node library's
+   API with no Python counterpart (gzapp's `import-table.mjs`, bound to
+   the pinned TypeScript compiler). An
+   exemption a holder finds is proposed to the coordinator and added to
+   the inventory, never assumed. A port follows rules 3 to 5: the
+   contract frozen, the command kept, the old script the oracle. Rule
+   9's "no port waves in a project" stands for bash.
 
 ## 6. Consequences
 
@@ -302,18 +332,18 @@ test running unchanged against it as the oracle (rule 5), then the
 bash test replaced by a Python one case for case, and the allowlist
 entries removed.
 
-| batch | what | files | lines | lane |
-|---|---|---|---|---|
-| 1 | `fabric-pr`, `fabric-locale`, `fabric-secrets` dispatch; the secrets-sync fixture | 4 | 101 | python-dev |
-| 2 | `fabric-role`, `fabric-review` dispatch | 2 | 85 | fabric-coordinator |
-| 3 | `policies/` checks and their tests | 3 | 274 | fabric-coordinator |
-| 4 | git hooks and their helpers | 5 | 341 | fabric-coordinator |
-| 5 | Claude Code guards and their tests | 6 | 415 | fabric-coordinator |
-| 6 | Claude Code session hooks and their tests | 5 | 392 | fabric-coordinator |
-| 7 | status line and tab title | 3 | 311 | fabric-coordinator |
-| 8 | installer tests under `runtime/claude-code/` | 2 | 293 | fabric-coordinator |
-| 9 | language detector installer; gzapp host check | 3 | 89 | fabric-coordinator |
-| 10 | suite runners and leak check, last | 4 | 279 | fabric-coordinator |
+| batch | what | files | lines | lane | landed |
+|---|---|---|---|---|---|
+| 1 | `fabric-pr`, `fabric-locale`, `fabric-secrets` dispatch; the secrets-sync fixture | 4 | 101 | python-dev | #200 |
+| 2 | `fabric-role`, `fabric-review` dispatch | 2 | 85 | fabric-coordinator | #323 |
+| 3 | `policies/` checks and their tests | 3 | 274 | fabric-coordinator | #323 |
+| 4 | git hooks and their helpers | 5 | 341 | fabric-coordinator | #329; `pre-push` stays on the host's `python3` (rule 4) |
+| 5 | Claude Code guards and their tests | 6 | 415 | fabric-coordinator | #329 |
+| 6 | Claude Code session hooks and their tests | 5 | 392 | fabric-coordinator | #329 the fallback note, #318 `plan-hold.sh`; `session-start.sh` (A 2026-10-24) |
+| 7 | status line and tab title | 3 | 311 | fabric-coordinator | #318 |
+| 8 | installer tests under `runtime/claude-code/` | 2 | 293 | fabric-coordinator | #316 |
+| 9 | language detector installer; gzapp host check | 3 | 89 | fabric-coordinator | #314 the installer, #329 the host check |
+| 10 | suite runners and leak check, last | 4 | 279 | fabric-coordinator | #265 the runners, #267 and #327 the leak check |
 
 The lane is who may commit the batch: python-dev's contributor entry
 (`policies/authority.json`), or the coordinator, because the batch's
@@ -321,6 +351,10 @@ paths are on `CONTRIBUTOR_NEVER` in `tools/fabric/lint.py` or no entry
 names them. Batches 1 to 9 are independent of each other; batch 10 is
 last because the suite runner lists the bash suites the others retire.
 Until then the order within the wave is the coordinator's.
+
+*Landed* is the pull request that made each file a forwarder, a sourced
+shim or gone; the tree, not this column, is what a file is now
+(`docs/wave-9/inventory.md`).
 
 Lint changes in a pull request of its own, before batch 1 (it is
 `tools/fabric/lint.py` and so the coordinator's): the allowlist
@@ -330,15 +364,39 @@ the 150-line rule is replaced by the forwarder shape (at most 12 lines of
 code, no `case`, no loop); the file kinds it reads grow from `*.sh` to
 `*.sh`, `*.bash` and a bash shebang, so an extensionless hook is seen; and
 a finding names the rule a file breaks. Seeding `ports` is the one time
-adding to the list is not a finding. Until that change merges, a
-line rule is what lint enforces: 160 lines (A 2026-10-13).
+adding to the list is not a finding. Until that change merged, lint
+enforced a line rule: 160 lines (A 2026-10-13). The change seeded `ports`
+with the one file left (`fabric-ctl`'s completion), which then joined the
+closed list (A 2026-10-24).
+
+Wave 10 ports the managed projects' Node scripts. When it was set the
+projects held 16 `.mjs` scripts of their own, 2,897 lines, beside the
+framework configurations; the fabric itself has none since Wave 8.
+Each port is the holder's of the path in its project's taxonomy, one
+pull request per project and holder, under that project's arming rules.
+
+| project | what | files | lines | holder | note |
+|---|---|---|---|---|---|
+| gzapp | `tools/validate_api_surface/`: `deprecated-refs.mjs`, `validate.js` and their three tests | 5 | 1,601 | devex-tooling | YAML: the project's own dependency, not the fabric's standard-library rule. `validate.js` joins the wave with the two tests that import it; the old script is the oracle on the four real documents, and the OpenAPI validator that replaces its check 4 is the holder's choice |
+| gzapp | `tools/one-shot/split_adr_amendments.mjs` | 1 | 327 | devex-tooling | deleted, not ported: it ran once |
+| gzapp | `tools/build_glyphs/build-glyphs.mjs` | 1 | 271 | devex-tooling | exempt: fontnik and `@mapbox/glyph-pbf-composite` are native Node addons with no Python binding, and `check` compares the committed glyph ranges byte for byte with a fresh render, which a Python rasteriser would not reproduce (its holder's finding) |
+| gzapp | `apps/admin_web/scripts/import-table.mjs` | 1 | 157 | web-dev | exempt: it walks the AST of the project's pinned TypeScript compiler, which has no Python binding; a re-implementation missed real imports (its holder's proposal) |
+| gzapp.decks | `scripts/*.mjs` | 8 | 1,092 | brand-comms | `doc.mjs` drives puppeteer: exempt or ported to the fleet's browser, the holder says |
+| blueteam.ee | `deploy/check-dist.mjs` | 1 | 109 | edge-hosting | the taxonomy's note gives it the deploy; its paths are empty |
+
+`astro.config.mjs` in blueteam.ee and gzapi.ge is exempt (rule 10). herdr's `scripts/docs/*.mjs` came from
+the upstream FleetDeck tracks (`herdrdev/herdr`) and stay as they are.
 
 ## 8. Decision Status
 
-Accepted and in force. Waves 0 to 8 are done: the bash allowlist is
-empty, and no fabric command runs Node (the control plane, the locale
-search server and the GZCoord tools are Python). Wave 9,
-the rest of the bash, is in progress in ten batches.
+Accepted and in force. Waves 0 to 8 are done: the bash allowlist's
+`ports` is empty, and no fabric command runs Node (the control plane, the locale
+search server and the GZCoord tools are Python). Wave 9, the rest of
+the bash, has landed in all ten batches (§7's table), the lint change
+too (rule 2's two sections and the forwarder shape, the 160-line rule
+gone), but for one file: `pre-push` is a forwarder to the host's
+`python3`, and moving it to the pin is its own decision (rule 4). Wave 10, the managed projects'
+Node scripts, is dispatched (A 2026-10-19).
 
 ## References
 
@@ -365,3 +423,11 @@ The body above reads current; each change's full note is in [history/ADR-040-ame
 | 2026-10-11 | Wave 9: the rest of the bash moves to Python | §2, §5 rules 1, 2, 4, 5, 7 and 9, §7: Python bar the pre-Python list and the forwarder; the 150-line rule goes; 37 files in ten batches; managed projects advised |
 | 2026-10-13 | the interim line limit is 160 | §7 |
 | 2026-10-14 | Wave 8 is done: no fabric command runs Node | §5 rule 8, §7, §8: the Node control plane, locale search server, shims and Node suites are gone (#170, #174, #181); Node stays only as a test oracle; new wire behaviour is no longer held back |
+| 2026-10-19 | Wave 10: the managed projects' Node scripts move to Python | §5 rule 10, §7, §8: the owner's request; 16 `.mjs` scripts of their own, in six rows of §7's table: three ports (gzapp.decks' carries a decision with its holder on `doc.mjs`), one deletion, two exemptions; a fork's upstream code never ported; framework configuration and a Node-API-bound script exempt, named |
+| 2026-10-19 | Wave 10: build-glyphs exempt; validate.js joins the wave | §5 rule 10: a `.js` script of ours may join the wave, and one to be updated or fixed is ported instead; §7's Wave 10 table: `build-glyphs.mjs` exempt, `validate.js` and its two tests ported |
+| 2026-10-19 | the provisioning entries are their modules | §5 rules 1 and 7: `new_agent.py` and `store_enroll.py` are the entries, re-exec under the pin or print its install command; `new-agent.sh` and `store-enroll.sh` retire by the shim steps |
+| 2026-10-19 | a forwarder checks the pin before the module reads anything | §5 rule 5: the fourth departure covers any input the bash read before it needed Python, not only a verb |
+| 2026-10-19 | Wave 9 batch 5: the three Claude Code guards run on the pin | §5 rule 4: `model-switch-guard.sh` leaves the host-`python3` list; it, `pipe-status-guard.sh` and `subagent-clone-guard.sh` are fail-closed forwarders to modules on the pin |
+| 2026-10-19 | Wave 9 batches 4, 6 and 9: the git hooks, the fallback note and the host check run on the pin | §5 rule 4: of the git hooks only `pre-push` keeps the host's `python3`; `pre-commit`, `commit-msg`, `post-commit`, `model-fallback-note.sh` and gzapp's `host-check.sh` are forwarders to modules on the pin |
+| 2026-10-24 | fabric-ctl's bash completion joins the closed list | §5 rule 1 (the closed list) |
+| 2026-10-24 | the pin moves to 3.14; no third-party wheel | §2 (the pinned version) |

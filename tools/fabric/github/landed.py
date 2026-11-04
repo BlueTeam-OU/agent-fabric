@@ -27,6 +27,18 @@ FETCH_TIMEOUT_S = 60
 _SHA = re.compile(r"[0-9a-f]{40}")
 
 
+def origin_is(repo: str, cwd: str = ".") -> bool:
+    """Whether the clone at `cwd` says its origin is `repo` on github.com. Raises git.GitError when git cannot be
+    asked. GH_REPO (or `fabric-pr --repo`) can name another repository than the clone's, and what is read from the
+    clone's origin is then another repository's (review F3 on #300)."""
+    # Both the configured URL and the one url.<x>.insteadOf resolves it to, since a rewrite runs either way: a
+    # GitHub URL routed to a mirror or a local copy names the repository only as configured, and an alias
+    # (gh:owner/repo) names it only as resolved, as gh.this_repo reads it (review on #300, round 2).
+    urls = (git.run(cwd, "config", "--get", "remote.origin.url", check=False, timeout=30).stdout.strip(),
+            git.run(cwd, "remote", "get-url", "origin", check=False, timeout=30).stdout.strip())
+    return any((m := gh._ORIGIN.fullmatch(u)) and m.group("repo").lower() == repo.lower() for u in urls)
+
+
 def head_in_base(repo: str, head: str, base: str, cwd: str = ".",
                  note: Callable[[str], None] = lambda _: None) -> bool | None:
     """True when `head` is an ancestor of `repo`'s `base` branch, just fetched into the clone at `cwd`. False when
@@ -41,11 +53,7 @@ def head_in_base(repo: str, head: str, base: str, cwd: str = ".",
         unasked("the PR's head or base was not read")
         return None
     try:
-        # The configured URL, not `git remote get-url`: that one applies url.<x>.insteadOf, and the question is
-        # which repository this clone says origin is, not where the bytes come from.
-        url = git.run(cwd, "config", "--get", "remote.origin.url", check=False, timeout=30).stdout.strip()
-        m = gh._ORIGIN.fullmatch(url)
-        if not m or m.group("repo").lower() != repo.lower():
+        if not origin_is(repo, cwd):
             # The URL itself is never echoed: it can carry a credential.
             unasked(f"this directory's origin is not {repo} on github.com")
             return None

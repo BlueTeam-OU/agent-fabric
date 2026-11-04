@@ -105,3 +105,68 @@ The owner, 2026-10-10, after arming blueteam.ee#3 (3 work, 0 fix) by hand: "thes
 ### Amendment 2026-10-11 — pre-push also checks signatures in every project
 
 Rule 1 said that in a project without `direct` the pre-push hook does nothing. Since the signature check (tools/fabric/guards/ban_unsigned_commits.py, run from tools/fabric/githooks_prepush.py) the hook refuses, in every project, a push that adds a commit without a signature the checker can read; the main ruleset requires signed commits, so the keyboard now says so before the server does. The commits it checks are those no remote-tracking ref has, whatever remote or URL is pushed to (review of #212, F2). A project without `direct` still gets no direct-push rule.
+
+### Amendment 2026-10-19 — an arming authority's word beside the owner's
+
+§5 rule 4. The owner decided on 2026-10-19 that a project's arms below
+its minimum need not all wait on the owner: each repository's arming
+policy may name the role that gives the word in the owner's place,
+`below_min_authority` for any PR under the minimum and
+`boundary_authority` for a security-boundary change under
+`boundary_min` (identities/schemas/arming.schema.json). `fabric-pr arm`
+reads it (the code landed with #305); the settings repositories named
+fabric-coordinator for agent-fabric, its gateway and FleetDeck, with
+`authority_own_prs` true, and architect-cto for InterWeave and gzapp,
+with it false (agent-fabric-settings#9, gzapi-org/agent-fabric-settings#8).
+The word travels as an AUTHORIZES message naming the PR and its head,
+or the authority arms from its own bound session; neither skips the
+review.
+
+### Amendment 2026-11-01 — An arming is tied to its head by a status
+
+§5 rule 5. The owner's audit of 2026-11-01 (F02, P1) found that
+disarm-on-push kept auto-merge when the arming's `enabledAt` equalled the
+push's time: both are whole seconds, so an arming of the old head made in
+the push's second read as an arming of the new one, and the old head's
+arming merged the new, unreviewed head. The time it compared,
+`pull_request.updated_at`, also moves with any edit of the PR. The owner
+asked for the comparison to fail closed and for a required check that
+ties the authorization to the head's sha.
+
+Since then `fabric-pr arm` posts a commit status, the context the
+arming policy's new `armed_status` names (fleet default `fabric/armed`,
+`null` turns it off), state success, on exactly the sha its gates read,
+before it enables auto-merge; it refuses when pr-gate's row or a fresh
+read of the PR names another head. In mode `auto` the ruleset that
+`fabric-repo-policy` applies requires that status beside the policy's
+`required_checks`, never inside the list, because a repository's list
+replaces the fleet's on merge and would drop it. Mode `queue` and
+`owner-only` are left out: nothing posts the status on a merge-group
+commit, and an owner-only repository is never armed, so the owner's own
+merge would wait on a status nobody posts. disarm-on-push no longer
+compares times: it keeps auto-merge only when the pushed head carries
+`fabric/armed` success, and a status it cannot read is no tie.
+
+The status is trusted as the arming is: anyone with write access can
+post it, as anyone can enable auto-merge; it fences the accident of a
+late push, not the intent. Consequences: a merge made by hand in a mode
+`auto` repository (the coordinator's Dependabot pin bumps, an owner's
+merge in the UI) waits until the status is posted on the head it merges;
+a PR armed before its repository's ruleset carries the check waits on it
+and is armed again; and the order of rollout is merge, then apply each
+repository's ruleset, then re-arm what was open.
+
+### Amendment 2026-11-03 — The owner's word as relayed is read
+
+§5 rule 4 reads an `AUTHORIZES` message only where it stands in the
+owner's place. Where the basis already gave the owner's word, `fabric-pr
+arm` printed "no authorization is needed" and dropped the message unread,
+so a relayed approval naming the wrong PR or head would have armed all
+the same: kutaisi-shop-transit #4 was armed that way, its head checked
+by hand by the arming session. The message is now read as the owner's
+word as it was relayed: addressed to the arming session, from another
+login, a DECISION or REPLY naming this repository, PR and head. No role
+is asked of its sender, since the owner holds none, and the basis is
+what arms, so it can only refuse; the comment records who relayed it.
+Without the owner's word, a policy with no `below_min_authority` still
+does not read one. Supplied by devex-tooling (j271). j527.

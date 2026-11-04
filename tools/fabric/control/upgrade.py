@@ -58,11 +58,17 @@ WHERE THE PORT DIFFERS ON PURPOSE
     same), where the Node's `??` kept the empty string and read a pin from
     the working directory.
 
-KNOWN LIMIT. The interlock with secrets-sync is a check and then a set
-(`upgrade_running()` then `restart_in_flight(True)` in secrets.py): safe
-while agentd runs one action at a time, as the Node's single thread did. A
-daemon that runs actions on threads needs one locked test-and-set; restart.py
-takes one (`claim_restart`), secrets.py's is still the check and the set.
+ACROSS PROCESSES (control/busy.py): the flags below are per process, and an account has
+two, agentd and `fabric-op`; an upgrade also holds a flock on the state directory's busy-marker,
+which a restart or a secrets-sync's restart phase takes shared. The in-process flags stay in front
+of it, so a fake of the same names still tests each module alone.
+
+KNOWN LIMIT. The in-process flags are still a check and then a set (`upgrade_running()` then
+`restart_in_flight(True)` in secrets.py), and a daemon that runs actions on threads can interleave
+them; restart.py closes its own with one locked test-and-set (`claim_restart`). What makes the
+interleaving safe is the busy-marker flock above: each action opens its own file description, which
+flock treats as independent even inside one process, so an upgrade and a sync's restart phase
+cannot both hold the marker, in one process or between two.
 """
 from __future__ import annotations
 
@@ -79,7 +85,7 @@ import time
 from datetime import datetime, timezone
 from typing import Any, Callable
 
-from control import js
+from control import busy, js
 from control.ops import util
 from control.ops.usage import claude_bin
 
@@ -98,6 +104,9 @@ VERSION_TIMEOUT_MS = 30000
 # downtime. The wait is sixteen accounts (develop-qzapp's count) at up to
 # ~56 s a turn — the stop wait, the install and the read-back together; a
 # larger host needs a longer one.
+# ADR-043 rule 6: from this Claude Code version the sideload flags are closed by the managed settings, so a host
+# takes it only with rules 1-2 in force.
+MANAGED_FLOOR = (2, 1, 287)
 INSTALL_LEASE = "claude-install"
 LEASE_WAIT_S = 900
 LEASE_GRACE_S = 60
@@ -213,11 +222,12 @@ def _close_pipes(child: subprocess.Popen) -> None:
                 pass   # a write end that was never flushed to a holder that is gone
 
 
-def hold_lease(root: str, *, spawn: Callable[..., subprocess.Popen] = subprocess.Popen, wait_s: float = LEASE_WAIT_S) -> Lease:
+def hold_lease(root: str, *, spawn: Callable[..., subprocess.Popen] = subprocess.Popen, wait_s: float = LEASE_WAIT_S,
+               name: str = INSTALL_LEASE) -> Lease:
     """No bin/fabric-lease, or no lease directory (exit 2), is a queue that is
     unavailable — refused, not bypassed, since installing unqueued is what
     failed nine accounts."""
-    cmd = [os.path.join(root, "bin", "fabric-lease"), INSTALL_LEASE, "--wait", str(wait_s), "--", "sh", "-c", "echo held; exec cat >/dev/null"]
+    cmd = [os.path.join(root, "bin", "fabric-lease"), name, "--wait", str(wait_s), "--", "sh", "-c", "echo held; exec cat >/dev/null"]
     try:
         child = spawn(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     except OSError as e:
@@ -421,14 +431,54 @@ def upgrade(request: dict, **opts: Any) -> dict:
             return {"status": "busy", "note": "an upgrade is already running on this account"}
         if _sync_restarting:
             return {"status": "busy", "note": "a secrets-sync is restarting the session on this account"}
+        # After the in-process busy tests, as the Node's order was; before any file lock, so a malformed
+        # request touches no state directory and is refused, never failed or busy on another process's lock.
+        args = request.get("args")
+        bad = check_args({} if args is None else args)
+        if bad:
+            return {"status": "refused", "reason": bad}
         _running = True
+    owner = None
     try:
+        # The same refusals, across processes: agentd and fabric-op each have their own flags above.
+        directory = opts.get("directory") or state_dir(opts.get("home"))
+        try:
+            owner = busy.hold(directory, "marker")
+            if owner is None:
+                # An exclusive holder is an upgrade; if a shared hold is free, it was a restart's.
+                other = busy.hold(directory, "marker", shared=True)
+                busy.release(other)
+                return {"status": "busy", "note": "an upgrade is already running on this account" if other is None
+                        else "a secrets-sync is restarting the session on this account"}
+        except busy.Unavailable as e:
+            return {"status": "failed", "reason": f"cannot tell whether another upgrade or restart is running ({e}); nothing stopped"}
         args = request.get("args")
         fabric = _get(args, "piece") == "fabric"
         return (upgrade_fabric if fabric else upgrade_once)(request, **opts)
     finally:
+        busy.release(owner)
         with _state:
             _running = False
+
+
+def managed_refusal(root: str, check: Callable[..., dict] | None = None) -> str | None:
+    """ADR-043 rule 6: why this host may not take Claude Code at MANAGED_FLOOR or later, or None when rules 1-2 are
+    in force. A checker that cannot run is a refusal too: an unknown state is not "in force"."""
+    try:
+        if check is None:
+            import managed_settings
+            check = managed_settings.check
+        c = check(repo=root, ref="origin/main")
+        state, reasons = c["state"], c["reasons"]
+    except Exception as e:  # noqa: BLE001 — a gate that cannot answer holds the upgrade, with its cause
+        state, reasons = "unknown", [f"the check could not run: {str(e)[:120]}"]
+    if state == "in force":
+        return None
+    why = f": {reasons[0]}" if reasons else ""
+    # <main sha> stays a placeholder: ADR-043 rule 9 has the operator name it from the remote's main, not from this checkout.
+    return (f"the managed settings (ADR-043 rules 1-2) are {state} on this host{why}; Claude Code "
+            f"{'.'.join(map(str, MANAGED_FLOOR))} or later needs them in force; as root: "
+            f"sudo {root}/bin/fabric-managed install --sha <main sha>; nothing stopped or installed")
 
 
 def _alive(pid: int) -> bool:
@@ -450,7 +500,9 @@ def upgrade_once(request: dict, *, home: str | None = None, root: str | None = N
                  kill: Callable[[int, int], None] = _kill, alive: Callable[[int], bool] = _alive,
                  sleep: Callable[[float], None] = time.sleep, now: Callable[[], datetime] | None = None,
                  clock: Callable[[], float] = time.monotonic, stop_wait_ms: float = STOP_WAIT_MS,
-                 sessions: list[int] | None = None, lease: Callable[[], Lease] | None = None) -> dict:
+                 sessions: list[int] | None = None, lease: Callable[[], Lease] | None = None,
+                 managed_gate: Callable[[str], str | None] | None = None) -> dict:
+    managed_gate = managed_gate or managed_refusal
     home = os.path.expanduser("~") if home is None else home
     root = root or os.environ.get("AGENT_FABRIC_ROOT") or os.path.join(home, "projects", "agent-fabric")
     directory = directory or state_dir(home)
@@ -484,6 +536,11 @@ def upgrade_once(request: dict, *, home: str | None = None, root: str | None = N
     own = bool(me) and request.get("from") == me
     if from_ == target:
         return {"status": "current", "piece": "claude", "version": from_, "session": "running" if pids else "none"}
+    # After "current" (nothing would be installed) and before the lease and any stop: a refusal leaves the host as it was.
+    if tuple(int(d) for d in target.split(".")) >= MANAGED_FLOOR:
+        refused = managed_gate(root)
+        if refused:
+            return {"status": "refused", "piece": "claude", "from": from_, "to": target, "reason": refused}
 
     try:
         held = lease()

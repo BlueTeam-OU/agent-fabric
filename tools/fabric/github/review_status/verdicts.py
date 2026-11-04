@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
+from github import review_coverage
 from github.review_status.base import jkey, login_of
 from github.review_status.config import TRUSTED_ASSOCIATIONS, Config
 
@@ -19,8 +20,10 @@ MODEL_LINE = re.compile(r"^<!-- model: (?P<model>[^>]*?) -->$", re.MULTILINE)
 
 def engine_of(review: dict) -> str:
     """"codex" for a review posted with `--model codex`, else "claude". Read from the header only (the first
-    two lines), never the body's text, which quotes code and may carry such a line."""
-    header = "\n".join((review.get("body") or "").split("\n")[:2])
+    two lines; three for a v2 review, whose second line may be the partial-coverage line), never the body's text,
+    which quotes code and may carry such a line."""
+    body = review.get("body") or ""
+    header = "\n".join(body.split("\n")[:3 if body.startswith(review_coverage.V2_PREFIX) else 2])
     m = MODEL_LINE.search(header)
     return "codex" if m and m.group("model").strip().lower() == "codex" else "claude"
 
@@ -51,6 +54,9 @@ class Buckets:
     blind: list = field(default_factory=list)
     unavailable: list = field(default_factory=list)
     marked_others: list = field(default_factory=list)
+    # Reviews of the poster's own that carry a v2 marker and are not coverage: a path not read, a block that does not
+    # read, a marker naming another commit than the one the review is on. Shown, never counted.
+    partial: list = field(default_factory=list)
     self_: list = field(default_factory=list)
 
     @property
@@ -58,6 +64,20 @@ class Buckets:
         """WHAT COUNTS AS COVERAGE: every independent review, and every
         blind review — reported on its own line, so provenance survives."""
         return self.independent + self.blind
+
+
+def uncounted_v2(review: dict) -> str:
+    """Why a review whose first line opens a v2 marker is not coverage of the commit it is on, or "" when it is (or
+    when it is no v2 review). The marker's head must be the commit the review was posted on: post-review writes both
+    from one header, so a disagreement is a review that did not come from it."""
+    v2 = review_coverage.read_review(review.get("body") or "")
+    if v2 is None:
+        return ""
+    if not v2.counts:
+        return v2.why_not[:200]
+    if v2.marker.head != review.get("commit_id"):
+        return f"the marker names head {v2.marker.head[:8]}, the review is on {str(review.get('commit_id'))[:8]}"
+    return ""
 
 
 def classify(reviews: list[dict], author: str, cfg: Config) -> Buckets:
@@ -81,7 +101,7 @@ def classify(reviews: list[dict], author: str, cfg: Config) -> Buckets:
     review starts with one of them or it is unmarked."""
     def is_marked(r: dict) -> bool:
         body = r.get("body") or ""
-        return any(body.startswith(m) for m in cfg.markers)
+        return any(body.startswith(m) for m in cfg.markers) or body.startswith(review_coverage.V2_PREFIX)
 
     def trusted(r: dict) -> bool:
         """AN INDEPENDENT REVIEWER IS SOMEONE THE REPOSITORY TRUSTS: its
@@ -117,7 +137,10 @@ def classify(reviews: list[dict], author: str, cfg: Config) -> Buckets:
     # report (a blind review of a managed project, 2026-09-25). A marked
     # review counts only from the PR author or a named poster; any other is
     # reported, login and all, as not coverage.
-    b.blind = [r for r in marked if login_of(r) == author or login_of(r) in cfg.review_posters]
+    posted = [r for r in marked if login_of(r) == author or login_of(r) in cfg.review_posters]
+    # A v2 review is coverage only when its block reads and every path is read (ADR-065 §5 rule 4); v1 as before.
+    b.blind = [r for r in posted if not uncounted_v2(r)]
+    b.partial = [r for r in posted if uncounted_v2(r)]
     b.unavailable = [r for r in gone if login_of(r) == author or login_of(r) in cfg.review_posters]
     b.marked_others = [r for r in marked + gone if login_of(r) != author and login_of(r) not in cfg.review_posters]
     b.self_ = [r for r in unmarked if login_of(r) == author]

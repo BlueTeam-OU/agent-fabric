@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+# bin/fabric-drift — what in an account differs from what the fabric wrote (j138). The path is the
+# contract; the work, its rules and every reason for them are in
+# tools/fabric/account_drift.py (ADR-040 §5 rule 4). Bash builtins only, to find
+# it: with git or hostname missing from PATH the module must still run, and
+# say which. It is reached through a symlink in ~/.local/bin, which no bash
+# builtin resolves, so Python does: the real path of this file, the module
+# beside its bin/.
+# The fleet's pinned Python (runtime/python.json, ADR-040), one per host;
+# AGENT_FABRIC_PYTHON points elsewhere for a test or a host without it.
+py="${AGENT_FABRIC_PYTHON:-/usr/local/bin/fabric-python}"
+[[ -x "$py" ]] || { echo "fabric-drift: the fleet's pinned Python is not installed at $py; as root: /usr/bin/python3 <agent-fabric>/tools/fabric/python_pin.py install" >&2; exit 127; }
+exec "$py" -I -c 'import os, runpy, sys
+real = os.path.realpath(sys.argv[1])
+module = os.path.join(os.path.dirname(os.path.dirname(real)), "tools", "fabric", "account_drift.py")
+sys.argv = [module] + sys.argv[2:]
+runpy.run_path(module, run_name="__main__")' "${BASH_SOURCE[0]}" "$@"

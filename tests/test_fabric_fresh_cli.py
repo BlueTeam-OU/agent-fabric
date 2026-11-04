@@ -189,6 +189,26 @@ def main() -> int:
               rc == 0 and good and "starts a fresh one for job j1" in out, f"rc={rc}\n{out} {read(marker)}")
         rm(marker, killed)
 
+        print("fabric-fresh: --job while the fleet hold is set (ADR-037 rule 13)")
+        hold_file = f"{state}/agents/{LOGIN}/hold.json"
+        os.makedirs(os.path.dirname(hold_file), exist_ok=True)
+        put(hold_file, json.dumps({"agent": LOGIN, "host": "h", "reason": "release freeze", "decision": None,
+                                   "set_by": "h/operator", "set_at": "2026-10-30T10:00:00Z"}), 0o644)
+        rc, out = run([f"{bin_}/claude", "--job", "j1"], clean_env(**launched))
+        check("held: --job refuses, naming the hold; no marker, nothing stopped",
+              rc == 2 and "release freeze" in out and "held" in out and not os.path.exists(marker) and not os.path.exists(killed),
+              f"rc={rc}\n{out}")
+        put(hold_file, "{not json", 0o644)
+        rc, out = run([f"{bin_}/claude", "--job", "j1"], clean_env(**launched))
+        check("held: a hold.json that cannot be read holds too", rc == 2 and "hold unreadable" in out and not os.path.exists(killed),
+              f"rc={rc}\n{out}")
+        rc, out = run([f"{bin_}/claude"], clean_env(**launched))
+        check("held: without --job the session may still end (nothing is started)", rc == 0 and os.path.exists(killed), f"rc={rc}\n{out}")
+        rm(marker, killed, hold_file)
+        rc, out = run([f"{bin_}/claude", "--job", "j1"], clean_env(**launched))
+        check("held: the control, once the hold is gone --job goes through", rc == 0 and os.path.exists(killed), f"rc={rc}\n{out}")
+        rm(marker, killed)
+
         print("fabric-fresh: refused where the launcher would refuse the relaunch")
         origin, other = f"{t}/origin.git", f"{t}/other"
         gitc = ["git", "-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false"]

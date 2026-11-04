@@ -57,7 +57,7 @@ def _structural_check(schema: dict[str, Any], doc: Any, where: str, path: str = 
     properties, patternProperties, additionalProperties, propertyNames,
     minProperties, items, minItems, maxItems, uniqueItems, enum, const,
     pattern, minLength, maxLength, minimum, maximum, and the composition
-    the schemas here use — local `$ref` (#/$defs/…), `allOf`, `oneOf` and
+    the schemas here use — local `$ref` (#/$defs/…), `allOf`, `anyOf`, `oneOf` and
     `if`/`then`/`else`. SCHEMA_KEYWORDS lists them, and schema_keyword_findings
     refuses a schema that uses any other: a keyword this cannot check
     would pass unchecked wherever jsonschema is absent (two lint cases did,
@@ -83,6 +83,11 @@ def _structural_check(schema: dict[str, Any], doc: Any, where: str, path: str = 
         branch = schema.get("then") if not _structural_check(schema["if"], doc, where, path, root) else schema.get("else")
         problems = _structural_check(branch, doc, where, path, root) if isinstance(branch, dict) else []
         rest = {k: v for k, v in schema.items() if k not in ("if", "then", "else")}
+        return problems + (_structural_check(rest, doc, where, path, root) if rest else [])
+    if "anyOf" in schema:
+        matched = any(not _structural_check(sub, doc, where, path, root) for sub in schema["anyOf"])
+        problems = [] if matched else [f"{where}{path}: matches none of its anyOf schemas"]
+        rest = {k: v for k, v in schema.items() if k != "anyOf"}
         return problems + (_structural_check(rest, doc, where, path, root) if rest else [])
     if "oneOf" in schema:
         matched = sum(1 for sub in schema["oneOf"] if not _structural_check(sub, doc, where, path, root))
@@ -165,7 +170,7 @@ SCHEMA_KEYWORDS = {
     "$schema", "$id", "$ref", "$defs", "$comment", "title", "description", "examples", "default",
     "type", "required", "properties", "patternProperties", "additionalProperties", "propertyNames",
     "minProperties", "items", "minItems", "maxItems", "uniqueItems", "enum", "const", "pattern",
-    "minLength", "maxLength", "minimum", "maximum", "allOf", "oneOf", "if", "then", "else",
+    "minLength", "maxLength", "minimum", "maximum", "allOf", "anyOf", "oneOf", "if", "then", "else",
 }
 
 
@@ -175,8 +180,9 @@ _SCHEMA_MAPS = ("properties", "patternProperties", "$defs")
 
 def python_pin_findings(root: str) -> list[str]:
     """runtime/python.json (ADR-040): a version, a release, and per machine
-    an https URL and a 64-hex sha256 — the installer downloads nothing it
-    cannot check. CI's matrix carries the pinned minor version, so what the
+    an https URL and a 64-hex sha256, and the same for each wheel beside
+    its name and version — the installer downloads nothing it cannot
+    check; `imports`, when given, a list of module names. CI's matrix carries the pinned minor version, so what the
     hosts run is what CI runs the Python suites on."""
     path = os.path.join(root, "runtime", "python.json")
     try:
@@ -206,6 +212,25 @@ def python_pin_findings(root: str) -> list[str]:
         elif isinstance(version, str) and isinstance(b.get("url"), str) \
                 and not any(f"cpython-{version}{sep}" in b["url"] for sep in ("+", "%2B")):
             findings.append(f"runtime/python.json: {arch}: the url does not name Python {version}")
+        wheels = b.get("wheels", []) if isinstance(b, dict) else []
+        if not isinstance(wheels, list):
+            findings.append(f"runtime/python.json: {arch}: wheels must be a list")
+            wheels = []
+        if wheels:
+            findings.append(f"runtime/python.json: {arch}: a pinned wheel is a third-party package, which ADR-040 "
+                            "rule 1 allows none of; amend rule 1 before pinning one")
+        for i, w in enumerate(wheels):
+            label = f"runtime/python.json: {arch}: wheel {w.get('name', i) if isinstance(w, dict) else i}"
+            if not (isinstance(w, dict) and all(isinstance(w.get(k), str) and w[k] for k in ("name", "version"))):
+                findings.append(f"{label}: needs a name and a version")
+            if not (isinstance(w, dict) and isinstance(w.get("url"), str) and w["url"].startswith("https://")
+                    and w["url"].endswith(".whl")):
+                findings.append(f"{label}: the url must be an https .whl")
+            if not (isinstance(w, dict) and isinstance(w.get("sha256"), str) and re.fullmatch(r"[0-9a-f]{64}", w["sha256"])):
+                findings.append(f"{label}: the sha256 must be 64 hex digits")
+    imports = doc.get("imports", [])
+    if not (isinstance(imports, list) and all(isinstance(m, str) and m for m in imports)):
+        findings.append("runtime/python.json: imports must be a list of module names")
     if isinstance(version, str) and re.fullmatch(r"3\.\d+\.\d+", version):
         minor = ".".join(version.split(".")[:2])
         try:
@@ -262,7 +287,7 @@ def schema_keyword_findings(root: str) -> list[str]:
                     walk(sub, rel, f"{at}/{key}/{name}")
             elif key in ("items", "additionalProperties", "propertyNames", "if", "then", "else"):
                 walk(value, rel, f"{at}/{key}")
-            elif key in ("allOf", "oneOf"):
+            elif key in ("allOf", "anyOf", "oneOf"):
                 walk(value, rel, f"{at}/{key}")
 
     for rel in _tracked(root):

@@ -86,7 +86,7 @@ When the forge the fleet is evaluating offers a merge-queue equivalent, each com
 
 Accepted; the inventory rule 2 applies is `docs/split/inventory.md`. Built so far:
 - rule 1's seam exists (`tools/fabric/roots.py`, `runtime/control/roots.mjs`) and part of the readers use it; the rest move in stage 2, then its lint;
-- rule 3: most tests read fixtures (`tests/stripped_run.py` runs a file on a copy without the instance files); nothing runs it on a schedule yet, so a test that reads the live tree again is caught by `tests/test_tests_read_fixtures.py`'s scan, not by a stripped run;
+- rule 3: most tests read fixtures (`tests/stripped_run.py` runs a file on a copy without the instance files); `.github/workflows/stripped-nightly.yml` runs every test file that way each night, failing on a red file not in `tests/stripped_skip.txt` (each line naming the job that owns its fix) and on a listed file that passes;
 - rule 2's list is applied by the extraction stage;
 - rule 5: `projects/clients.json` and a `client` on every project, which lint holds to each other; the resolver exists (`workingcopy.resolve_client`, and the `client` and `operator` in `resolve`) and session start names the client, its channel, secrets store and engagement. Still to come: rule 6, the drain's refusal, and per-client channels and secrets reaching only their working copies; how a client's secrets reach them is decided in ADR-038 rule 10, its tooling contracted in `docs/split/company-stores.md`.
 

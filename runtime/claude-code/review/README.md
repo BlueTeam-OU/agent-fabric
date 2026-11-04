@@ -53,6 +53,8 @@ lenses: [protocol]
   "evidence_mode": "pinned",
   "base_sha": "…",
   "head_sha": "…",
+  "card_base": "…",
+  "config": "…",
   "started_at": "2026-10-14T10:00:00Z"
 }
 ```
@@ -92,6 +94,14 @@ Every heading is rendered, an empty one as `(none stated)`: a field the
 dispatcher forgot is visible to the reviewer, never silently gone. An
 unknown key is refused (`invariant:` → "did you mean invariants?").
 
+**Machine lines.** A claude review's brief ends with `## Report lines`, the
+mode's rule for the `Finding:` and `Judgement:` lines `fabric-errors`
+reads (ADR-061); the constitution quotes the same shapes. Codex is not asked
+for them: `review_codex.render_review` writes its `Finding:` lines from the
+structured answer (confidence `likely`, since the answer carries none). The
+shapes, vocabularies and writers are `tools/fabric/review_lines.py`, and
+`tests/test_review_lines.py` feeds each writer's text to the reader.
+
 **Wrong and right, side by side.** Objective is one line about the
 *system*, in the present tense — not about the change:
 
@@ -101,19 +111,35 @@ unknown key is refused (`invariant:` → "did you mean invariants?").
 | This fixes the PATH reset on Debian. | A command run as the account finds the tools the worker put on PATH, on Fedora and on Debian. |
 | I think the dangerous part is the retry. | A retry after a dropped connection converges; nothing is done twice. |
 
-**A re-review** carries `mode: re-review`, the range of the *fix commits
-only*, and `previous_findings: <the previous report, a file>`; the
+**A re-review** carries `mode: re-review` and the range of the *fix
+commits only*. For a PR (`pr` set) the range must start at the head of
+the PR's last posted v2 review, every path read, and the previous report
+is that review's posted body, read by the renderer: a typed
+`previous_findings` or `card_base` that disagrees is refused, and so is
+a diff file, which names no commits to look it up against; no such
+review means a full review (agent-fabric ADR-065 §5 rule 5). Without a
+PR, `previous_findings: <the previous report, a file>` is given as
+before. The
 constitution then starts from those hunks and findings, answering by
 number, and widens only to establish the fix's semantics or to detect a
 regression, saying what it widened to and why. A re-review carries only the lenses it names — `general`
 included: it verifies, it does not explore — so one that names none pays
 for no lens text.
 
+**A PR's full review** (`mode: review` with `pr` set) starts a review
+chain of its own, so the renderer reads the PR's reviews, as `fabric-pr
+arm`'s gate 4c does, and the brief lists each finding an earlier chain
+left open under "Open findings from earlier reviews", for the reviewer to
+answer in a `Judgement:` line by its label. It has the reviewer number its own
+findings past every label the PR's reviews used. A finding raised on the
+head under review is another engine's same round and is left out; reviews
+that cannot be listed, or a listed one that cannot be read, refuse the render (agent-fabric ADR-065 §5 rule 5).
+
 Derive it rather than edit it: `bin/fabric-review save <PR> <round> <
 report` keeps a round's report under this account's state, and
 `bin/fabric-review next REQUEST --pr <PR>` writes `REQUEST-rr<N>.json`
 from the previous request (mode, the range from its head to `HEAD`, that
-report as `previous_findings`, `general` alone unless `--keep-lenses`)
+report as `previous_findings` when the request names no PR, `general` alone unless `--keep-lenses`)
 and renders it, with the new head's worktree; it refuses when the head has not moved
 (`tools/fabric/review_rounds.py`). The rendered re-review also embeds the
 range's exact diff (up to 64 KB, else its `--stat` and a note) and
@@ -148,7 +174,11 @@ commit id (`origin/main`) is refused unless the request pins `card_base`
 job), `project`, `repository`, `pr`, `review_id`, `review_round`,
 `purpose` (from `mode`: `primary-review`, `re-review`,
 `finding-adjudication`; the second engine writes `second-engine-review`
-itself), `engine`, `evidence_mode`, `base_sha`, `head_sha`, `started_at`.
+itself), `engine`, `evidence_mode`, `base_sha`, `head_sha`, `card_base`
+(the commit the card was read at), `config` (sha256 of the review
+class's agent file, that card and the renderer's versions: what a
+re-review compares before it starts from an earlier head, agent-fabric
+ADR-065 §2 C), `started_at`.
 The request takes `pr` and `job_id` as optional fields (and `review_id`,
 `review_round`, which `review_rounds.py next` fills: the id is kept, else
 `<repository>#<PR>`, and the round is the previous one plus one). A brief
@@ -169,15 +199,16 @@ runs there and makes no extract of its own (the earlier practice left
 itself makes nothing: the path is passed in. `fabric-review save` removes
 the round's worktree, recomputing the path from the report header's
 `head_sha`, and only when it is a worktree at that head; a working-tree or
-diff-file request makes none, and `check` makes none. After saving a round, the
-dispatcher removes the scratch directory the report names (it is under the
-reviewer's `TMPDIR`). The reviewer opens its report with the brief's header, copied
+diff-file request makes none, and `check` makes none. The review class
+makes no scratch directory: a check's `/tmp` is the sandbox's own and goes
+with it (agent-fabric ADR-065 §2 B). The reviewer opens its report with the brief's header, copied
 unchanged, so the mode travels with the report: `fabric-pr post-review`
 refuses a report whose header says `working-tree` (only a pinned review
 covers a head) and records the review on the header's `head_sha`, the
 commit it read, never the PR's head at posting time (agent-fabric
-ADR-020 §5 rule 6; a headerless report, the second engine's, names it
-with `--head`), and `fabric-review save` records each round's mode in
+ADR-020 §5 rule 6). A report without the v2 header (`base_sha`,
+`head_sha`, `card_base`, `config`) and a coverage block naming every path
+of its range is refused (ADR-065 §5 rule 4), Codex's included, and `fabric-review save` records each round's mode in
 `round-<N>.json` beside `round-<N>.md` (`null` when the report has no
 header). A re-review request carries `evidence` over from the previous
 one.
@@ -275,9 +306,10 @@ Tests: `tests/test_review_codex.py`, `tests/test_review_gateway.py`.
 |---|---|
 | the reviewer starts without the parent's conversation or reasoning | Claude Code: a subagent's context is fresh (its agent file + environment + CLAUDE.md + the prompt) — a harness property, read back in `docs/live-checks/` |
 | the dispatch shape, the model (routing's pin, review-grade gated), no worktree | structurally: the dispatch guard, `install-agent-files.sh`, `runtime/openrouter/launch`, and their tests |
-| the reviewer cannot write, change git state or install | structurally: the agent file's `tools:` allow-list, `review-bash-guard.sh`, `subagent-clone-guard.sh` |
+| the reviewer cannot write, change git state or install | structurally: the agent file's `tools:` allow-list (no Bash, no writing tool), the fabric-review server's fixed-argv git tools and its proved read-only sandbox (ADR-065), `subagent-clone-guard.sh` |
 | the brief carries facts, not conclusions | a dispatcher convention with two fences: the renderer's rationale lint before the dispatch, the reviewer's verdict rule after it — never a hook on prompt text (`policies/subagent-dispatch/SKILL.md`) |
 | a named lens reaches the reviewer | rendered inline; the reviewer lists the lenses it applied under *Brief notes* |
+| the brief names a repository the reviewer can read | the renderer refuses, for a Claude review, a `repository` that is not the dispatching session's clone or one of its worktrees, the only ones the fabric-review server reads (`CLAUDE_PROJECT_DIR`); without a session (a shell, CI) nothing is checked, and the server still refuses the reviewer's call |
 | charter fields never become routing | the renderer emits Markdown only; routing reads `routing/` and `aliases.json` |
 
 Tests: `tests/test_review_brief.py` (the constitution's frontmatter and

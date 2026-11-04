@@ -99,8 +99,8 @@ from guards.common import Refused, err, say  # noqa: E402
 
 NAME = "check_agent_fabric_dir_authority"
 
-# policies/githooks/locale-carve-out.sh's pattern, which the hooks (bash, and
-# staying bash) source; tests/test_agent_fabric_dir_authority.py reads that
+# tools/fabric/guards/commit_hooks.py's pattern, which the commit hooks
+# use; tests/test_agent_fabric_dir_authority.py reads that
 # file and fails if the two drift.
 LOCALE_PATH = re.compile(r"identities/(roles/([a-z][a-z0-9-]*)|prompt)/locale/([a-z][a-z0-9-]*)/[^/]+")
 # The shared prompt pieces' translations (identities/prompt/locale/<lang>/,

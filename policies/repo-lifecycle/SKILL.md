@@ -1,6 +1,6 @@
 ---
 name: repo-lifecycle
-description: "Move a managed repository to another GitHub organisation or rename it, or import a repository as a new managed project: two ordered checklists that say who does each step (the owner's hand, fabric-coordinator, devex-tooling, the project's agents) and why the order matters. Load it whenever the owner says a repository moves, is transferred, renamed, imported, adopted or made a managed project, even if no one says 'skill'; before editing projects/registry.json, projects/clients.json or policies/auto-mode.json for a repository's name; when a clone's origin or a push names a repository that has changed (HTTP 307 on a write); and when fabric-pr arm refuses with an error naming a client's settings repository."
+description: "Move, rename or import a managed repository: ordered checklists of who does each step and why the order matters. Load it whenever the owner says a repository moves, is transferred, renamed, imported or made a managed project; before editing projects/registry.json, projects/clients.json or policies/auto-mode.json for a repository's name; when a clone's origin or a push names a renamed repository (HTTP 307 on a write); and when fabric-pr arm refuses naming a client's settings repository."
 ---
 
 # Moving and importing a repository
@@ -19,8 +19,9 @@ resolves wrongly.
 | the project's agents | their own clones: origin and `GH_REPO` |
 
 **Not automated.** No command performs a move or an import end to end.
-`fabric-repo-policy` has `plan` and `verify` only; there is no `apply`
-verb yet, so applying an arming policy to GitHub is by hand. The settings
+`fabric-repo-policy apply <owner/repo> --yes` writes a repository's arming
+policy to GitHub (`plan` shows what it would change, `verify` reads it
+back); it is run only once `repos/<repo>.json` has landed (A, step 7). The settings
 repository's validator runs in that repository's CI, not in this tree.
 
 ## A. Moving a repository (another organisation, or a rename)
@@ -90,7 +91,14 @@ ruleset, the arm refuses on drift).
     it (ADR-011). `communication/` protocol examples are a normative
     contract (ADR-032): changing one is an amendment, queue it.
 11. **fabric-coordinator:** `fabric-ctl all upgrade fabric`, so every
-    account's bootstrap runs `repoint`; read back with `fabric-ctl all status`.
+    account's bootstrap runs `repoint`. `status` prints no clone's remote,
+    and only the accounts holding a clone have one to read back:
+    `fabric-ctl all branches` names each account's working copies, then
+    `fabric-ctl <login>… clone <id>` for those logins reports the clone
+    `present` with `origin` `keep` (already the registry's SSH remote) or
+    `set` (re-pointed by this call: the upgrade did not). `unreadable`, a
+    push-URL warning, or a copy not at `~/projects/<id>` (which `clone`
+    does not read) goes to that account's agent as step 12.
 12. **The project's agents**, until their clone is re-pointed: API writes
     through the old name fail with HTTP 307, fetch and read still work.
     `export GH_REPO=<new owner>/<repo>` and `git remote set-url origin
@@ -114,8 +122,24 @@ fabric by `fabric-ref`, so the project's files exist before its CI runs.
 1. **Owner:** say which repository, which client (an existing entry in
    `projects/clients.json`; a new client is a decision of its own), which
    roles work there and its visibility; create or transfer it on GitHub.
-2. **fabric-coordinator**, `projects/registry.json`, one new entry copied
-   from a sibling: `client`, `title`, `remotes` (ssh then https),
+   Steps 2 to 4 start from one command, `git fetch` first:
+   `<checkout>/bin/fabric-project import --id ID --like SIBLING --client
+   CLIENT --remote SSH --remote HTTPS --default-branch B --license SPDX
+   --role ROLE … --title T --working-copy <the project's clone>`. It
+   edits the agent-fabric checkout its own `bin/` sits in, never the
+   directory you stand in, so run it by the path of your branch's
+   checkout: the linked `fabric-project` writes into the checkout
+   bootstrap linked. Without `--working-copy` it writes no step 4 file
+   and says nothing of it. It prints the plan; `--write` writes the
+   files (never commits, never overwrites). What it leaves to you is in
+   each step below and in the lines it lists as still naming the
+   sibling.
+2. **fabric-coordinator**, `projects/registry.json`, one new entry
+   (the import takes the sibling's keys in its order; `title` is the
+   sibling's unless `--title`; `tools` empty, and `agent_env` and
+   `plain_env` too where the sibling has them; `note` is `imported
+   <date>`; `moved_from` never copied):
+   `client`, `title`, `remotes` (ssh then https),
    `default_branch`, `taxonomy` (`.agent-fabric/taxonomy.json`), `memory`
    (`.agent-fabric/memory`), `integration` (`projects/<id>/integration`),
    `license`, `tools` (each with `proof`, `where`, `why`; `roles` to limit
@@ -126,25 +150,47 @@ fabric by `fabric-ref`, so the project's files exist before its CI runs.
    `projects/<id>/`.
 3. **fabric-coordinator**, `projects/<id>/integration/`: compare two
    projects (`find projects/<a> projects/<b> -type f`). Typical:
-   `gh/arm.json` (`boundary.paths`, `exempt`, `waiver_role`, the commit
-   floor and its reasons), `gh/guards.json`, `gh/collisions.json`,
+   `gh/arm.json` (`boundary.paths` and `boundary.cases`, `exempt`,
+   `waiver_role`, `classes` that arm under the floor and their reasons,
+   a `direct` block where a role pushes to main), `gh/guards.json`,
+   `gh/collisions.json`,
    `gzcoord/config.json`, `gzcoord/CLAUDE.snippet.md`, `gzcoord/CLAUDE.md`.
    `gh/compliance.json`, `gh/trial.json` and `pr-tools.json` exist only
-   where the project uses those `fabric-pr` verbs. Written by hand.
+   where the project uses those `fabric-pr` verbs (`--with-compliance`,
+   `--with-trial`, `--with-pr-tools`). The import copies the sibling's
+   files with its id replaced and every value as the sibling has it, so
+   every key of every copied file is the sibling's until you check it
+   against the new project; the list above is examples, not the whole.
+   Three need more than a check: `boundary.changes` and
+   `boundary.retired` record the sibling's own approvals, and lint
+   passes them because they cite one, so delete them; `direct` (`roles`,
+   `pr_paths`, `cases`, `not_cases`) lets the sibling's role push
+   straight to the new project's main, and lint does not see it, since
+   the copied cases still match; and `eviction_note` is printed as the
+   new project's own sentence, so keep it only if it is true there.
 4. **fabric-coordinator**, in the project's working copy, by a PR there
    (only fabric-coordinator commits under `.agent-fabric/`):
    `taxonomy.json` (shape: `projects/schemas/taxonomy.schema.json`),
-   `roles/<role>.md` remits for the roles that work there (copy one from
-   a sibling; charters are never copied), `memory/` (a drain fills it),
-   `fabric-ref` (one line, a full commit id of this repository, ADR-011).
+   `roles/<role>.md` remits for the roles that work there (the import
+   copies the sibling's, from `--like-working-copy` or the sibling's
+   clone beside the checkout; it writes a stub for a role that clone
+   lacks, and for every role when no clone is found; each stub is
+   marked `[stub remit]` in the plan and named with its reason on
+   stderr; charters are never copied), `memory/` (a
+   drain fills it), `fabric-ref` (one line, a full commit id of this
+   repository, ADR-011; the import writes origin/main as last fetched).
+   The import writes the taxonomy with an empty rule per role, to be
+   filled.
 5. **devex-tooling:** one PR in the client's `settings_repo`. It validates
    against its pinned agent-fabric commit (`AGENT_FABRIC_REF` in
    `.github/workflows/validate.yml`; `tools/validate_policies.py` reads
    `projects/registry.json` and `clients.json` from that checkout). So the
    PR sets `AGENT_FABRIC_REF` to an agent-fabric main commit at or after
    the step 2 merge AND adds `repos/<repo>.json`; either alone fails CI. Then `fabric-repo-policy plan
-   <owner/repo>`; apply by hand only when the file is on the settings
-   repository's default branch.
+   <owner/repo>`. `fabric-repo-policy apply <owner/repo> --yes` waits
+   until the file is on the settings repository's default branch and,
+   when the policy names `required_checks`, until step 7's CI has merged:
+   a required check no workflow reports blocks every pull request.
 6. **fabric-coordinator**, `policies/auto-mode.json`: name the repository
    under PUBLIC, INTERNAL or PRIVATE in `Repository visibility` (an
    unnamed repository is outside the trust boundary), and in `Source
@@ -169,6 +215,6 @@ fabric by `fabric-ref`, so the project's files exist before its CI runs.
    unreadable). Then message the
    roles that work there.
 
-Not automated yet: the entry, the integration directory and the
-`.agent-fabric/` files (by hand from a sibling), the CI workflow, and
-applying the arming policy to GitHub.
+Not automated yet: the CI workflow (step 7). The arming policy reaches
+GitHub through `fabric-repo-policy apply` (step 5). The entry, the integration directory and the `.agent-fabric/`
+files are scaffolded by `fabric-project import` and finished by hand.

@@ -161,6 +161,36 @@ def main() -> int:
             if label.startswith("runs"):
                 check("…and its output is shown indented", "   hello-from-check" in err.getvalue(), err.getvalue())
 
+    print("finish: a project's Python probe is run with the pin, ahead of its script")
+    with tempfile.TemporaryDirectory() as root:
+        hc = f"{root}/projects/demo/integration/provisioning"
+        os.makedirs(hc)
+        for name in ("host_check.py", "host-check.sh"):
+            with open(f"{hc}/{name}", "w") as fh:
+                fh.write("#!/bin/sh\nexit 0\n")
+            os.chmod(f"{hc}/{name}", 0o755)
+        ran: list = []
+
+        def fake_probe(argv, **kw):
+            if argv[:1] == ["getent"]:
+                return subprocess.CompletedProcess(argv, 2, stdout="", stderr="")
+            if argv[:1] in (["bash"], [worker.PY]):
+                ran.append(list(argv))
+                return subprocess.CompletedProcess(argv, 0, stdout="line-from-probe\n", stderr="")
+            raise Reached
+        w = make_worker("--clone", "demo=git@h:o/demo.git", "--project", "demo", root=root)
+        w.a.phase = "finish"
+        err = io.StringIO()
+        with mock.patch.object(subprocess, "run", fake_probe), redirect_stderr(err):
+            try:
+                worker.finish(w)
+            except Reached:
+                pass
+        # Mutation: the script preferred over host_check.py leaves ran as [["bash", ...]].
+        check("host_check.py beside host-check.sh: only the pinned Python runs, on the .py",
+              ran != [] and all(r == [worker.PY, "-I", f"{hc}/host_check.py"] for r in ran), str(ran))
+        check("…and its output is shown indented", "   line-from-probe" in err.getvalue(), err.getvalue())
+
     print("finish: a clone that is already there is pointed at its registry remote")
     ssh = "git@github.com:BlueTeam-OU/agent-fabric.git"
     https = "https://github.com/BlueTeam-OU/agent-fabric.git"
@@ -264,6 +294,49 @@ def main() -> int:
     check("the download is not run in a login shell (a profile's stdout would become the vendor's script)",
           "curl" in got[0] and "-c" in got[0] and "-lc" not in got[0], str(got[0]))
     check("…while the vendor's script itself runs in one", "-lc" in got[1] and "bash" in got[1], str(got[1:]))
+    seen_shells: list = []
+
+    def spy(argv, **kw):
+        if "_" in argv:
+            seen_shells.append((argv[argv.index("_") - 2], argv[argv.index("_") + 1:]))
+        out = {"symbolic-ref": "main\n", "rev-list": "0\n", "rev-parse": "abc1234\n", "--get": "git@x:y\n"}
+        return subprocess.CompletedProcess(argv, 0, stdout=next((v for k, v in out.items() if k in argv), ""), stderr="")
+    with mock.patch.object(subprocess, "run", spy):
+        w = make_worker()
+        w.home = "/home/x"
+        worker.fabric_checkout(w)
+        worker.point_origin_at_registry(w, "p", "git@x:y")
+    git_flags = {flag for flag, rest in seen_shells if "git" in rest}
+    check("the fabric checkout's and the origin's git reads and writes all run in a login shell, one environment",
+          git_flags == {"-lc"} and len(seen_shells) >= 6, str(seen_shells))
+    seen_shells.clear()
+    with mock.patch.object(subprocess, "run", spy):
+        w = make_worker()
+        w.as_login(["test", "-e", "/p"], login_shell=False)
+        w.as_login(["claude", "--version"])
+    check("a file test needs no profile; a tool keeps it",
+          [f for f, _ in seen_shells] == ["-c", "-lc"], str(seen_shells))
+    # Debian's /etc/profile assigns PATH outright for a non-root login, so the PATH env -i set is gone when the command runs: the script
+    # re-asserts it. The profile here is the account's own, read by a real login shell through a sudo that only drops its flags.
+    # (tests/test_new_agent_cli.py's sudo fake runs a plain shell, to spare the host's profile.d: this is where that is covered.)
+    with tempfile.TemporaryDirectory() as tmp:
+        home = os.path.join(tmp, "home")
+        os.makedirs(os.path.join(home, ".local", "bin"))
+        with open(os.path.join(home, ".bash_profile"), "w", encoding="utf-8") as fh:
+            fh.write("PATH=/usr/bin:/bin\n")
+        with open(os.path.join(home, ".local", "bin", "account-only-tool"), "w", encoding="utf-8") as fh:
+            fh.write("#!/bin/sh\necho found\n")
+        os.chmod(os.path.join(home, ".local", "bin", "account-only-tool"), 0o755)
+        fake_sudo = os.path.join(tmp, "sudo")
+        with open(fake_sudo, "w", encoding="utf-8") as fh:
+            fh.write('#!/bin/sh\n[ "$1" = -n ] && shift; [ "$1" = -u ] && shift 2; [ "$1" = -H ] && shift\nexec "$@"\n')
+        os.chmod(fake_sudo, 0o755)
+        w = make_worker()
+        w.home, w.sudo = home, [fake_sudo]
+        r = subprocess.run(w.as_login_argv(["account-only-tool"]), capture_output=True, text=True, timeout=60,
+                           env={"PATH": "/usr/bin:/bin"})
+    check("a profile that assigns PATH outright does not hide a tool the account's PATH names (the worker re-asserts PATH in its shell)",
+          r.stdout == "found\n", f"{r.stdout!r} {r.stderr!r}")
     with mock.patch.object(subprocess, "run", recorder([], lambda argv: OSError("gone"))), redirect_stderr(io.StringIO()) as e2:
         make_worker().best_effort(["soft"])
     check("best_effort: a command that cannot start is a warning too", "warning: soft failed; continuing" in e2.getvalue())

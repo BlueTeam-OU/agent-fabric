@@ -137,3 +137,207 @@ python-dev-03's #176 (gateway-switch s4) added the `gateway-install` action and 
 ### Amendment 2026-10-12 — The switch controller in the coordinator's agent; gateway carries joined accounts and session kinds; switch read
 
 ADR-052 (accepted by the owner on 2026-10-12, who asked for the controller in `advise` mode) says ADR-029's op table is amended when its pieces are built. The controller is built (`tools/fabric/control/account_switch.py`): the `gateway` read gains the joined setup-token fingerprints and the sessions' transports it needs, the operator read `switch` shows the mode and the move log, and the controller's run in the coordinator's agent is described. Nothing moves an account until the policy's mode is `act`, a later commit after ADR-052 §8's live checks.
+
+### Amendment 2026-10-18 — tools-install runs installer and cargo pins
+
+p2p-network-dev-02's Android build needed rustup and cargo-ndk in its own account, and a session never installs a tool by hand; the registry had no pin for either. python-dev-01's #303 (j132) adds two pin kinds to `tools/fabric/tools_install.py`: an `installer` pin, whose asset is hash-checked and then run once with fixed arguments, never through a shell (rustup-init, which leaves the toolchain to each project's `rust-toolchain.toml`), and a `cargo` pin, built with `--locked` and an exact version on a pinned toolchain, which cargo checks against the crates.io index and Cargo.lock; nothing in the fabric hashes the crate, and the row says so. A crate build takes minutes on a loaded account, so the account's bound goes from 300 s to 1200 s and `fabric-ctl`'s wait from 330 s to 1230 s. Decided by the records' holder on python-dev-01's OBSERVATION `01a150eb-e6cf-7e22-ae73-0a62ac85305c`.
+
+### Amendment 2026-10-19 — tools-install runs rustup-target pins
+
+§2 table, the `tools-install` row. InterWeave's Android build needs the
+aarch64-linux-android std of the pinned toolchain on each Rust account,
+and no pin could declare it: p2p-network-dev-02 added it by hand
+(devex-tooling's OBSERVATION 01a1538e). A `rustup-target` pin names a
+toolchain and a target, each matched by pattern, never a shell word; it
+is added through the rustup the `installer` kind linked, and proved by
+`rustup target list --installed --toolchain <toolchain>`. Built by
+python-dev-01 (#317); the op's budget needed no change.
+
+### Amendment 2026-10-25 — The InterWeave programs are installed and read through the control plane
+
+python-dev-01's #375 (j168, 2026-10-25) added the `interweave-install`
+action and the `interweave` read, the install path ADR-064 rule 4 asks
+for, with rule 14's restart and control-plane check after it; #380 made
+the action take the host lease `interweave-download`, after a fleet
+install fanned 28 downloads of the 117 MB archive out at once and every
+one hit its 600 s bound. The record had no row, argument rule or budget
+for either op; they are added. The ops' names are built from the
+carrier package's constant in the code (the project-name lint), and
+read as written here. The first fleet install, four accounts at a time,
+put InterWeave 0.1.0 on all 30 accounts (`fabric-ctl all interweave`:
+30 ok).
+
+### Amendment 2026-10-25 — The InterWeave units are started and stopped through the control plane
+
+python-dev-01's #385 (j172, at the coordinator's request 01a174c8)
+added `interweave-start` and `interweave-stop`. The send adapter
+already posts through the carrier whenever it runs, so starting an
+account's units is the dual run's switch for that account and stopping
+them its rollback (ADR-064 rule 11); both are control-plane actions for
+the reason rule 14 gives an install. The three InterWeave actions share
+one lock per account. The start's budget allows 45 looks for the
+carrier's `status`: in the PR's live run a cold carrier took 29 s to
+open its socket with 26 roster rows. Asked for by #385's blind review
+(F3); the record had none of it.
+
+### Amendment 2026-10-26 — The InterWeave install puts the client unit's program in place
+
+After #385, start refused every account: `install_client.py` ran only
+as new-agent's step 7b (tools/fabric/provisioning/worker.py), so the
+accounts made before that step had no client unit's program, and no
+later change to the program reached any account (2026-10-26, the fleet
+on c87c72d0). python-dev-01's #386 (j173) makes `interweave-install` put
+it in place as its last step, also on an account already at the pinned
+release, and the `interweave` read report it. The §2 rows say so; the
+`interweave-start` row also gains what #385's review (F6) left to the
+coordinator: the refusal without that program, the start that changes
+nothing when both units run, and the restart of a lone running unit.
+
+### Amendment 2026-10-26 — The InterWeave start renders one account at a time and needs the port reservation
+
+The first fleet start (2026-10-26) failed four accounts whose render of
+`config.yaml` did not finish in 30 s while thirty ran at once, and one
+whose daemon found its roster port taken as an outgoing connection's
+source port. python-dev-01's #389 (j174) makes the start render under
+the host lease `interweave-render`, one account at a time, and refuse a
+host whose `net.ipv4.ip_local_reserved_ports` does not cover the
+roster's range (ADR-064 rule 1, the owner's reservation of that day).
+The start's budget grows to 1600 s for the render turn.
+
+### Amendment 2026-10-26 — The InterWeave parity evidence is collected through the control plane
+
+ADR-064 rule 11's parity report is computed from each inbox's arrival
+log and the carrier's delivery records, which sit in each account's
+state directory; the operator had no way to gather them from the
+fleet. python-dev-02's #390 (j94) adds `interweave-evidence`: one page
+of one section per request, rows from a closed list of keys, never a
+body, 64 KiB at most, cut on a whole second so that `next` is a time;
+`fabric-ctl` pages every account to completion and files
+`<login>/` for `gzcoord-carrier parity --collected`. The op is a read
+that only an operator may ask (it is in `sign.py` `ACTION_OPS`): the
+logs are the account's own, and a reply is posted on the channel a
+relay-token holder can read. The §2 row, rule 3 (arguments), rule 5,
+rule 6 and rule 12 (60 s a page, `EVIDENCE_BUDGET_S`) say so.
+
+### Amendment 2026-10-26 — A running InterWeave pair is re-rendered when the roster changed
+
+The first live parity collection (#390, 2026-10-26) showed
+p2p-network-dev-02's daemon refusing language-culture-ru as
+`UnauthorizedPeer`: ru's roster row (#391) came after the other 29
+profiles were rendered, and `interweave-start` left a running pair's
+`config.yaml` alone, so no roster change reached a running daemon.
+python-dev-01's #394 (j176) has the start, with both units running,
+read the render under the render lease and compare it with the file:
+identical, nothing is touched (`already_running`); different, the file
+is replaced and both units restarted and checked (`rerendered`). One
+`fabric-ctl all interweave-start` brings the fleet onto the current
+roster, as it will for every new row. The §2 row says so.
+
+### Amendment 2026-10-28 — The records also ride InterWeave, through interweave-human, beside the relay
+
+What changed: rule 18 makes InterWeave a second carrier for the
+control records, through the command-line client `interweave-human`,
+which agentd runs as one supervised child holding the profile's
+`fabric-control` endpoint (listen with input, consume and an endpoint
+named, InterWeave #477 in v0.2.0). It is off per account until
+`control_carrier` says `dual`; the relay stays the transport of record
+until the owner's word on a parity report. §2 says so, §6 narrows the
+unauthenticated-sender consequence to the relay copy, §7's second host
+now goes by InterWeave instead of a relay URL. While both carriers
+run, an account splits a drain or evidence reply once, at the InterWeave
+bound, and sends the same parts by both, so either copy reassembles; the
+InterWeave copy of a part is kept where both arrive; the row is the
+PeerId-authenticated InterWeave copy, and a differing relay
+copy is flagged. §8 says rule 18 is not built yet.
+
+Why: the owner, 2026-10-27, confirmed in the coordinator's session and
+relayed first by architect-cto (DECISION 01a17bd3): the control plane
+rides InterWeave, each control agent driving the InterWeave CLI, so
+agents can move to remote hosts. ADR-064 §1 had ruled the CLI out as a
+carrier (one lease, no input, a store that keeps what it prints);
+InterWeave changed it for this (G1-G4, G6 of the j422 plan), and
+architect-cto ruled the two leases in one profile compatible (X2).
+The design, its alternatives and the second-host plan are
+`docs/proposals/j422-control-plane-on-interweave-cli.md`; the
+second-host amendment waits for a named host.
+
+### Amendment 2026-10-30 — fabric-op is the action path with no relay
+
+What changed: rule 19 names `bin/fabric-op` (agent-fabric #418) as the
+one way a signed action reaches an account with no relay. The operator
+sends it with `fabric-ctl <login> <action-op> … --via hostexec`; the
+account decides it with agentd's own `accept()` against the same action
+ledger, so a request is run once whichever path carries it, and runs it
+through agentd's own `answer()`. Beyond `accept()` it refuses reads, a
+`to` holding `*`, and an argv op the signature does not cover, and
+journals each run on both ends before it starts. §6 says it is the only
+action when the relay is down; §7's second host names it as the SSH
+fallback. Rule 19 also records what #418 does not do: the `busy` of
+rules 12 and 17 (`upgrade`, `secrets-sync`, `secrets-selftest`) and
+`restart`'s exclusions are decided inside the control agent's process,
+and `pool.json` is rewritten with no lock (a race inside the control
+agent already, ADR-003 rule 2), so a `fabric-op` action is
+not excluded against one the control agent is running, and break-glass
+stays for an account whose relay is not there. The blind review of
+#422 found the first version of the rule naming only `upgrade` and
+`secrets-sync`.
+
+Why: the owner chose this path on 2026-10-27 (j422, Q6 "option a for
+now"): an account with no relay — a second host before its carrier is
+up — was otherwise reachable only by a plain `fabric-host` run, which is
+no signed action. The amendment was promised in the request that
+commissioned #418 (01a18b39) and asked for by its author, python-dev-04
+(REQUEST 01a18b3f). Verified by #418 on the host executor's local
+backend; the SSH backend and `--as` another login are not exercised yet.
+
+### Amendment 2026-10-30 — Upgrade, secrets-sync and restart are busy across processes; the pool has a lock
+
+Rule 19 said the `busy` of rules 12 and 17 and `restart`'s exclusions
+were held inside the control agent's process, so an action through
+`fabric-op` was not refused against one the control agent was running,
+and that `pool.json` was rewritten with no lock. agent-fabric #423
+makes the first true across processes for `upgrade`, `secrets-sync` and
+`restart`: each takes a `flock` on files in the account's state
+directory (`busy-marker`, `busy-restart`, `busy-sync`;
+`tools/fabric/control/busy.py`), an upgrade holding the marker lock
+exclusive and a restart or a `secrets-sync`'s restart phase holding it
+shared, and a lock that cannot be opened is a failure that stops
+nothing. #423 also puts the pool's read-modify-write under a `flock`
+on `pool.json.lock` (ADR-003 rule 2). `secrets-selftest` keeps its
+per-process exclusion, so the rule still says break-glass is for an
+account whose relay is not there.
+
+Reported by python-dev-04, the author of #423 (REQUEST 01a18bc6), who
+also named the gap sentence to change.
+
+### Amendment 2026-10-30 — The InterWeave install and start budgets count the failed unit's diagnosis
+
+Rule 12 gave `interweave-install` 2668 s (its own 1408 s) and
+`interweave-start` 1600 s. Since agent-fabric #392 a channel check that
+finds a unit not active asks it, once, for its state and its journal's
+tail (`DIAGNOSIS_BUDGET_S`, 20 s), and `CHECK_BUDGET_S` (214 s) counts
+it: an install runs two checks and a start one, so the code's budgets
+are 2708 s (own 1448 s) and 1620 s
+(`tools/fabric/control/carrier_install.py`, read back by importing it).
+`interweave-stop` (156 s) and `interweave` (100 s) were unchanged.
+
+Found by python-dev-02 as F8 of round 8 of the review of #390.
+
+### Amendment 2026-10-30 — The fleet hold is set through the control plane
+
+ADR-037 rule 13 makes a fleet hold something the job tool enforces, and the control plane is how fabric-coordinator reaches every login with a signed action. `hold` and `unhold` join the action table. Unlike `jobs-add`, they may name `all`: a hold is fleet-wide by purpose, and setting it one login at a time would recreate the gap it closes, an account missed. An account whose control agent does not answer is named, because a hold that has not reached it does not hold it. The ops are built in agent-fabric #431.
+
+### Amendment 2026-10-31 — A tool pinned for some roles is installed only on an account bound to one
+
+The §2 row said `tools-install` skips an account with no working copy of
+a project that declares the tool. A declaration may also name `roles`,
+and `fabric-tools` checks a tool only on an account bound to one of
+them, but `tools_install.py` ignored the field: a role-scoped pin
+(impeccable, brand-comms') was placed on every account with a working
+copy of its project, then never checked there. The install now skips,
+with nothing fetched or written, when every declaration in a working
+copy names `roles` and the account's bound role is not among them; an
+account with no bound role is skipped the same way. A declaration
+without `roles` is for every role, as in the check.
+
+Found in the review of agent-fabric #421 (§2); fixed by fabric-coordinator as job j463.

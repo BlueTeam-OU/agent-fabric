@@ -35,6 +35,7 @@ import importlib.util
 import json
 import os
 import re
+import shlex
 import subprocess
 import sys
 import time
@@ -60,52 +61,53 @@ def is_subagent(payload, cwd: str) -> bool:
         return False
 
 
-# No secret in the session's shell (ADR-038 rule 9). The harness holds its
-# own credential in its environment, and every Bash call and subagent
-# inherited it, with whatever else the launch's shell carried; a reviewer
-# printed its environment and a key was rotated (#95). The file the
-# harness sources into every Bash call unsets the harness's credentials
-# and every name sync wrote into secrets.env, but the plain values in
-# env.sh. Names only, never a value; the harness keeps what it signs in
-# with. Once per file: the hook runs again on resume and compaction.
-SHELL_SEAL = "# agent-fabric: no secret in the session shell"
-HARNESS_CREDENTIALS = ("CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN",
-                       "OPENROUTER_API_KEY", "GH_TOKEN", "CLAUDE_BRIDGE_AUTH_TOKEN")
-EXPORT_NAME = re.compile(r"^export ([A-Za-z_][A-Za-z0-9_]*)=")
-
-
-def synced_names(path: str) -> list[str]:
-    try:
-        with open(path, encoding="utf-8") as fh:
-            return [m.group(1) for m in map(EXPORT_NAME.match, fh) if m]
-    except OSError:
-        return []
-
-
-def seal_session_shell(env_file: str | None, home: str) -> None:
+def export_fabric_root(env_file: str | None, root: str) -> None:
+    """Make AGENT_FABRIC_ROOT real in the session's own shell: the harness
+    sources $CLAUDE_ENV_FILE into every later Bash call, and without the line
+    every documented `$AGENT_FABRIC_ROOT/...` command expanded to
+    /communication/... in a live session (devex-tooling, 2026-09-13). Once:
+    the hook also runs on resume and after a compaction, and the file
+    accumulates across them; a line already there, whatever its value, is
+    left as it is. Quoted for the shell that sources it (a path with spaces
+    or quotes survives). Moved here from session-start.sh (j369)."""
     if not env_file:
         return
     try:
-        with open(env_file, encoding="utf-8") as fh:
-            if any(line.rstrip("\n").endswith(SHELL_SEAL) for line in fh):
+        # Bytes, as bash's grep read it: a file that is not UTF-8 is still
+        # searched, so the line is never written twice.
+        with open(env_file, "rb") as fh:
+            if any(line.startswith(b"export AGENT_FABRIC_ROOT=") for line in fh):
                 return
     except FileNotFoundError:
         pass
     except OSError:
         return
-    cfg = os.path.join(home, ".config", "agent-fabric")
-    plain = set(synced_names(os.path.join(cfg, "env.sh")))
-    names = list(HARNESS_CREDENTIALS)
-    names += [n for n in synced_names(os.path.join(cfg, "secrets.env")) if n not in names and n not in plain]
     try:
         with open(env_file, "a", encoding="utf-8") as fh:
-            fh.write(f"unset {' '.join(names)}  {SHELL_SEAL}\n")
+            fh.write(f"export AGENT_FABRIC_ROOT={shlex.quote(root)}\n")
     except OSError:
         pass
 
 
+def seal_session_shell() -> None:
+    """Load session-seal.py from this hook's own directory and run its seal; a failure never blocks the start."""
+    try:
+        spec = importlib.util.spec_from_file_location(
+            "fabric_session_seal", os.path.join(os.path.dirname(os.path.abspath(__file__)), "session-seal.py"))
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        mod.seal_session_shell(os.environ.get("CLAUDE_ENV_FILE"), os.path.expanduser("~"))
+    except Exception as exc:  # noqa: BLE001 - the seal is best effort here; the start is not
+        print(f"session-start: shell seal skipped: {exc}", file=sys.stderr)
+
+
 def main() -> int:
-    seal_session_shell(os.environ.get("CLAUDE_ENV_FILE"), os.path.expanduser("~"))
+    export_fabric_root(os.environ.get("CLAUDE_ENV_FILE"), FABRIC_ROOT)
+    # The workspace copy of the shell seal (ADR-038 rule 9) runs from here, not from an entry of its own in the
+    # workspace settings: rendered settings change only on bootstrap and a launcher pull carries code alone, so a
+    # separate workspace entry would be missing on every account that pulled without bootstrapping (review of
+    # #464, F1). The managed SessionStart hook is the copy a login cannot drop.
+    seal_session_shell()
     try:
         raw = sys.stdin.read() if not sys.stdin.isatty() else ""
         payload = json.loads(raw) if raw.strip() else {}
@@ -166,10 +168,17 @@ def main() -> int:
         except Exception:  # noqa: BLE001 — a report oddity must not cost the session its start
             pass
         try:
+            hold = hold_of(identity, ctx["agent"])
+        except Exception:  # noqa: BLE001 — hold_view.read never raises for the file; this is hold_view.py itself failing to load
+            hold = None
+        try:
             doc = identity.read_jobs(ctx["agent"])
-            lines += jobs_line(doc, ctx["working_copy"], cleared_jobs(doc))
+            lines += jobs_line(doc, ctx["working_copy"], cleared_jobs(doc), hold)
         except (Exception, SystemExit):  # noqa: BLE001 — a job list it cannot read must not cost the session its start
-            pass
+            if hold:
+                # Not jobs_line({}): that says "none open" beside an active job the list may well hold (review of #429, F2).
+                lines.append(f"agent-fabric: jobs — the list could not be read (`fabric-jobs list` says why). "
+                             f"FLEET HOLD: {hold_view().words(hold)}. Take no new job (ADR-037 rule 13).")
         try:
             missing = watch_running() is False
         except Exception:  # noqa: BLE001 — a /proc oddity must not cost the session its project layer
@@ -235,8 +244,9 @@ def sweep_due(working_copy: str | None, state_dir: str, now: float | None = None
             return []
     since = f"last {last[:10]}" if isinstance(last, str) else "never swept"
     return [f"agent-fabric: branch sweep due in this working copy ({since}) — when nothing is running on the tree, "
-            f"run `fabric-branches --sweep`: it deletes the local branches and worktrees wholly on the default branch and "
-            f"reports the rest, which you bring to the person (the branch-hygiene skill)."]
+            f"run `fabric-branches --sweep`: it deletes the local branches wholly on the default branch, the clean worktrees "
+            f"whose commit is still on the remote and ended sessions' scratch, and reports the rest, which you bring to the "
+            f"person (the branch-hygiene skill)."]
 
 
 TOOLS_REPORT = "tools.json"
@@ -269,7 +279,10 @@ def tools_line(project: str | None, state_dir: str, now: float | None = None) ->
                       for r in missing)
     stale = f"; the report is {int(age // 86400)} days old" if age > TOOLS_STALE_S else ""
     return [f"agent-fabric: {project} needs tools this account lacks: {names}{stale}. `fabric-tools` checks them again; "
-            f"a host tool is the owner's to install, an account tool is said to the owner, never installed by a session."]
+            # An account installs its own pinned tools (ADR-051 §5 rule 2, `fabric-tools --install`); the line once
+            # said "never installed by a session", and a session read it as a ban and waited a day for the owner.
+            f"a host tool is the owner's to install; an account tool with an install pin in projects/registry.json "
+            f"is installed by this account, `fabric-tools --install <name>`, and one without a pin is said to the owner."]
 
 
 def cleared_jobs(doc: dict) -> list[str]:
@@ -290,11 +303,28 @@ def cleared_jobs(doc: dict) -> list[str]:
         return []
 
 
-def jobs_line(doc: dict, working_copy: str | None, cleared: list[str] | None = None) -> list[str]:
+def hold_view():
+    # hold_view is fabric-jobs' own reader (ADR-037 rule 13), loaded rather than restated, so an unreadable
+    # hold.json is a hold here exactly as it is where the hold is enforced.
+    spec = importlib.util.spec_from_file_location("fabric_hold_view", os.path.join(FABRIC_ROOT, "tools", "fabric", "hold_view.py"))
+    view = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(view)
+    return view
+
+
+def hold_of(identity, agent: str) -> dict | None:
+    """The record, {"unreadable": why} for a hold.json that cannot be read, None when not held."""
+    return hold_view().read(identity, agent)
+
+
+def jobs_line(doc: dict, working_copy: str | None, cleared: list[str] | None = None,
+              hold: dict | None = None) -> list[str]:
     """The agent's job list in one line (ADR-037): the active job and how
     many wait behind it, and a warning when the active job's working copy
     is not this session's — the restart rule broken, or a job left active
-    by a session that ended. Nothing when the list has no open job."""
+    by a session that ended. Nothing when the list has no open job and no
+    fleet hold is set; a hold is said even with an empty list, since it is
+    what tells the session not to take the next request as a job."""
     jobs = doc.get("jobs") or []
     active = next((j for j in jobs if j.get("state") == "active"), None)
     queued = sum(1 for j in jobs if j.get("state") == "queued")
@@ -302,8 +332,11 @@ def jobs_line(doc: dict, working_copy: str | None, cleared: list[str] | None = N
     # Paused is the agent's own choice to set a job aside (ADR-037 rule 2): listed apart from blocked,
     # which is a wait it does not control, so the start says what is set aside as well as what waits.
     paused = sum(1 for j in jobs if j.get("state") == "paused")
+    held = (f" FLEET HOLD: {hold_view().words(hold)}. Take no new job: carry the active one to its artifact, "
+            f"`fabric-jobs switch` then settles it and starts nothing, and the session ends idle (ADR-037 rule 13)."
+            if hold else "")
     if not active and not queued and not blocked and not paused:
-        return []
+        return [f"agent-fabric: jobs — none open.{held}"] if hold else []
     waiting = ", ".join(f"{n} {what}" for n, what in ((queued, "queued"), (paused, "paused"), (blocked, "blocked"))
                         if n) or "nothing waiting"
     if cleared:
@@ -311,9 +344,11 @@ def jobs_line(doc: dict, working_copy: str | None, cleared: list[str] | None = N
         more = f", +{len(cleared) - 3} more" if len(cleared) > 3 else ""
         waiting += f"; blocker cleared: {', '.join(cleared[:3])}{more}"
     if not active:
+        if hold:
+            return [f"agent-fabric: jobs — none active; {waiting}.{held}"]
         return [f"agent-fabric: jobs — none active; {waiting}. `fabric-jobs switch` starts the next one "
                 f"and says whether it needs a fresh session."]
-    line = f"agent-fabric: jobs — active {active['id']}: {active.get('title', '')[:120]}; {waiting} (`fabric-jobs list`)."
+    line = f"agent-fabric: jobs — active {active['id']}: {active.get('title', '')[:120]}; {waiting} (`fabric-jobs list`).{held}"
     wc = active.get("working_copy")
     if wc and working_copy != wc:
         line += (f" Your active job is in {wc}, and this session is in {working_copy or 'no working copy'}: "

@@ -141,11 +141,12 @@ lets the decentralisation direction (ADR-000, P5) be measured against it.
 
 ## 7. Future Evolution
 
-- A second host needs a relay it can reach: today the relay binds
-  loopback, and nothing for another host is built (ADR-029 §7).
-- The selection record names InterWeave's cross-host transport as what
-  comes next; nothing in this tree integrates it, and InterWeave's own
-  sessions join this relay as clients.
+- A second host is reached over InterWeave, not by this relay, which
+  keeps binding loopback (ADR-064 rule 1, ADR-029 §7).
+- InterWeave carries GZCOORD/1 beside this relay on the relay's host
+  (ADR-064), and will carry the control records once ADR-029 rule 18's
+  carrier is built and switched on; the relay stays the transport of
+  record for both until the owner's word.
 - A per-instance credential on the relay would make its `sender`
   authenticated; none exists.
 - An automated transport that exercises the grammar is what reopens the
@@ -183,3 +184,4 @@ The body above reads current; each change's full note is in [history/ADR-033-ame
 | 2026-09-30 | Doppler is retired: the store holds what Doppler held | §5 rule 6 |
 | 2026-10-04 | cccc recorded as a refused alternative | §3: the owner's refusal, carried until now in a project's rationale slice |
 | 2026-10-13 | a persona marked as AI is not a human-style identity (ADR-056) | §5 rule 3 |
+| 2026-10-28 | A second host is reached over InterWeave, not by the relay | §7 first and second bullets |

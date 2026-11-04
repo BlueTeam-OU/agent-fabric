@@ -89,8 +89,9 @@ repository whose policy names `reviews`.
    fix). Anything else is a failed review: nothing is posted and the
    reason is said. A posted review names the engine and model on its
    first line and is posted with `fabric-pr post-review <PR> --model
-   codex --head <the commit it read>`, the report carrying no dispatch
-   header (ADR-020 §5 rule 6).
+   codex`, the report carrying the brief's dispatch header and a
+   coverage block built from the answer's required `coverage` field
+   (ADR-020 §5 rule 6, ADR-065 §5 rule 4).
 5. **Findings are judged the same way, once per head.** A Codex finding
    is judged by the review class before it is answered (ADR-020), and
    answered like any other: fixed, or declined with the reason. Judging
@@ -178,3 +179,4 @@ The body above reads current; each change's full note is in [history/ADR-053-ame
 | 2026-10-13 | An additional engine counts by its review or its unavailable marker | §5 rule 6: additional_reviews; the fleet's codex is additional (ADR-055 rule 8) |
 | 2026-10-14 | Findings are judged once per head | §5 rule 5: one judging dispatch per head for every open finding of both engines |
 | 2026-10-16 | the post names the commit Codex read | §5 rule 4: `--head <sha>` on the post, since post-review records a headerless report only on the head it names (ADR-020 §5 rule 6) |
+| 2026-10-24 | Codex posts a v2 review with its coverage | §5 rule 4: the dispatch header and a coverage block from the answer's required `coverage`, no `--head` (ADR-065) |

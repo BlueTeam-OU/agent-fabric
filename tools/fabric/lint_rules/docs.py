@@ -588,7 +588,11 @@ GENERIC_DIRS = ("identities/roles", "runtime/provisioning", "runtime/claude-code
                 "communication/gzcoord/skills")
 
 
-GENERIC_SKIP = ("history/", "/test_", "/tests/", "README.md")
+# tools/fabric/gzcoord/carrier/ is ADR-064's carrier: the managed project it names
+# there is the transport the package drives, a dependency, not that project's truth.
+# The adapters outside it name it through the package's constant, so the exemption
+# stays this one directory.
+GENERIC_SKIP = ("history/", "/test_", "/tests/", "README.md", "tools/fabric/gzcoord/carrier/")
 
 
 # The shared skills under policies/ are generic too (ADR-016 rule 1). The

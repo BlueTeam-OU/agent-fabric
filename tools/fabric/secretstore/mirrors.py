@@ -136,7 +136,7 @@ def _bundle_identity(path: str, tmp: str) -> tuple[str, str]:
 
 
 def bundle_own() -> str:
-    """This agent's store, armored, for its parent (store-enroll.sh)."""
+    """This agent's store, armored, for its parent (store_enroll.py)."""
     store = store_dir()
     key_of_store(store)
     return _bundle_armored(store)
@@ -284,7 +284,7 @@ def refresh_mirror(who: str) -> str:
     aid, _ = resolve(who)
     mirror = os.path.join(children_dir(), aid)
     if not os.path.isdir(os.path.join(mirror, ".git")):
-        raise StoreError(f"no mirror of {who} here (store-enroll.sh first)")
+        raise StoreError(f"no mirror of {who} here (store_enroll.py first)")
     with write_lock(mirror):
         git(mirror, "fetch", "-q", "origin", "+main:refs/remotes/origin/main")
         _take_verified(mirror, "refs/remotes/origin/main", aid)
@@ -417,7 +417,7 @@ def certify(child: str | None, key_file: str | None, fabric: str | None = None) 
     me, doc = login(), lineage(fabric)
     my_fpr, my_id = key_of_store(), own_agent_id()
     if not my_id:
-        raise StoreError("this store has no agent id yet: store-enroll.sh --self")
+        raise StoreError("this store has no agent id yet: store_enroll.py --self")
     kd = keys_dir(fabric)
     os.makedirs(kd, exist_ok=True)
 

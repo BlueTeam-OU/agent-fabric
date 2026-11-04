@@ -11,7 +11,8 @@ per command and outcome, through bin/fabric-pr with the mocks on PATH: usage
 refusal, --help, a refusal (exit 1, stderr, no gh write), a question gh could
 not answer (exit 2), GH_REPO, the arming and the dry run, a PR merged on the
 arming, a waiver read by the relay and fabric-ctl programs, an arm.json read
-from disk and rules found from the clone's remote. Plain script: prints
+from disk, rules found from the clone's remote, and --repo arming one
+repository's PR from a clone of another. Plain script: prints
 ok/FAIL, exit 1 on any failure."""
 from __future__ import annotations
 
@@ -58,6 +59,11 @@ def gh_mock(s: str, a: list[str], stdin: str) -> tuple[int, str, str]:
         _log(s, f"pr comment {a[2]} --body {stdin}\n")
         return 0, "", ""
     pr = json.load(open(os.path.join(s, "pr.json")))
+    # Whom gh acts as (`viewer`, "pusher" without it; `viewer_fail` a failed call): asked only on an app's PR.
+    if line.startswith("api user "):
+        if has("viewer_fail"):
+            return 1, "", "gh: Bad Gateway (HTTP 502)"
+        return 0, json.dumps({"login": _state(s, "viewer", "pusher")}), ""
     if line.startswith("api repos/gzapi-org/gzapp/pulls/7/files") and "--paginate --slurp" in line:
         def entry(f):
             old, _, new = f.rpartition("->")
@@ -72,6 +78,17 @@ def gh_mock(s: str, a: list[str], stdin: str) -> tuple[int, str, str]:
         return 1, "", "gh: Not Found (HTTP 404)"
     if line.startswith("api repos/gzapi-org/agent-fabric-settings "):
         return 0, json.dumps({"full_name": "gzapi-org/agent-fabric-settings"}), ""
+    # Gate 4c's read: every review object of the PR (`reviews.json`, none without it; `reviews_fail` a failed call).
+    if line.startswith("api repos/gzapi-org/gzapp/pulls/7/reviews") and "--paginate --slurp" in line:
+        if has("reviews_fail"):
+            return 1, "", "gh: Bad Gateway (HTTP 502)"
+        return 0, json.dumps([json.loads(_state(s, "reviews.json", "[]"))]), ""
+    # The armed status (arming policy armed_status): its body on stdin, logged as one line; `statusfail` a refusal.
+    if line.startswith("api repos/gzapi-org/gzapp/statuses/") and line.endswith(" --method POST --input -"):
+        if has("statusfail"):
+            return 1, "", "gh: Resource not accessible by integration (HTTP 403)"
+        _log(s, f"status {a[1].rsplit('/', 1)[1]} {stdin}\n")
+        return 0, json.dumps({"state": "success"}), ""
     if line.startswith("api repos/gzapi-org/gzapp"):
         sys.path.insert(0, os.path.join(ROOT, "tools", "fabric"))
         from github import arm_policy
@@ -98,6 +115,9 @@ def gh_mock(s: str, a: list[str], stdin: str) -> tuple[int, str, str]:
         if has("nohead"):
             del p["headRefOid"]
         return 0, json.dumps({"data": {"repository": {"pullRequest": p}}}), ""
+    if line == "pr view 7 --json headRefOid" and has("moved"):
+        # The head read again after the gates: a push landed while they ran.
+        return 0, json.dumps({"headRefOid": "fedcba9876543210fedcba9876543210fedcba98"}), ""
     if line.startswith("pr view "):
         if has("viewfail"):
             return 1, "", ""
@@ -161,8 +181,20 @@ def ctl_mock(s: str, a: list[str], stdin: str) -> tuple[int, str, str]:
     return int(_state(s, "ctl_rc", "0") or 0), _state(s, "presence.out", ""), ""
 
 
+# fabric-jobs, gate 4c's jobs half: `jobs.json` is the list (none without it), `shows.json` {id: record} what show
+# answers. Each call is recorded, prefixed.
+def jobs_mock(s: str, a: list[str], stdin: str) -> tuple[int, str, str]:
+    _log(s, "jobs " + " ".join(a) + "\n")
+    if a == ["list", "--all", "--json"]:
+        return (2, "", "") if os.path.exists(os.path.join(s, "jobs_fail")) else (0, _state(s, "jobs.json", "[]"), "")
+    if len(a) == 3 and a[0] == "show" and a[2] == "--json":
+        shown = json.loads(_state(s, "shows.json", "{}")).get(a[1])
+        return (0, json.dumps(shown), "") if shown else (1, "", f"no job {a[1]}")
+    return 2, "", "mock fabric-jobs: unhandled: " + " ".join(a)
+
+
 MOCKS = {"gh": gh_mock, "pr-gate": gate_mock, "pr-review-status": review_mock,
-         "gzcoord-inbox": inbox_mock, "fabric-ctl": ctl_mock}
+         "gzcoord-inbox": inbox_mock, "fabric-ctl": ctl_mock, "fabric-jobs": jobs_mock}
 
 SHIM_TEXT = '''#!/usr/bin/env python3
 import os, sys
@@ -175,6 +207,10 @@ sys.exit(test_arm_cli.serve({name!r}))
 
 def serve(name: str) -> int:
     """The mock `name` as a program on PATH: what the CLI layer runs."""
+    if name == "gh":
+        # The repository each gh call was pinned to: what `fabric-pr --repo` sets, asserted beside the call.
+        with open(os.path.join(os.environ["MOCK_STATE"], "gh_repos"), "a") as fh:
+            fh.write(os.environ.get("GH_REPO", "") + "\n")
     rc, out, err = MOCKS[name](os.environ["MOCK_STATE"], sys.argv[1:], sys.stdin.read() if name == "gh" else "")
     sys.stdout.write(out)
     sys.stderr.write(err + ("\n" if err else ""))
@@ -196,7 +232,7 @@ def main() -> int:
 
     sys.path.insert(0, os.path.join(ROOT, "tools", "fabric"))
     import gh
-    from github import arm, arm_policy, repo_policy
+    from github import arm, arm_policy, repo_policy, review_posters
 
     base_env = {k: v for k, v in os.environ.items()
                 if not k.startswith(("GITHUB_", "AGENT_FABRIC_", "CLAUDE_", "ANTHROPIC_", "GZAPP_")) and k != "GIT_DIR"}
@@ -222,19 +258,23 @@ def main() -> int:
             """A clean slate; `reviewed` (the default) a review-class review of the head, which every PR needs under
             claude_only (gate 4b): a case about a missing review says reviewed=False."""
             for n in ("calls", "armed", "queued", "merged", "closed", "noarm", "nohead", "pushed", "viewfail", "blind", "independent", "unresolved", "no_blind_field", "unavailable",
-                      "mergefail", "inbase", "unasked",
-                      "waiver.out", "waiver_rc", "presence.out", "ctl_rc"):
+                      "mergefail", "inbase", "unasked", "moved", "statusfail", "reviews.json", "reviews_fail", "viewer", "viewer_fail", "jobs.json", "jobs_fail", "shows.json",
+                      "waiver.out", "waiver_rc", "presence.out", "ctl_rc", "gh_repos"):
                 if os.path.exists(f"{state}/{n}"):
                     os.remove(f"{state}/{n}")
             put("review_rc", "0" if reviewed else "1")
+            # arm.main() runs in this process, and the push account is read once per process.
+            review_posters.push_account.cache_clear()
 
         def set_pr(branch: str, body: str, files: list[str], st: str = "OPEN", draft: bool = False) -> None:
             put("pr.json", json.dumps({"number": 7, "state": st, "isDraft": draft, "headRefName": branch,
                                        "headRefOid": HEAD, "baseRefName": "main", "body": body, "files": files,
-                                       "title": "the pr"}))
+                                       "title": "the pr", "author": {"login": "gzbot"}}))
 
-        def set_gate(n: int | None, known: bool | None = True) -> None:
+        def set_gate(n: int | None, known: bool | None = True, head: str | None = HEAD[:8]) -> None:
             row: dict = {"number": 7, "checks": "green"}
+            if head is not None:
+                row["head"] = head
             if n is not None or known is not None:
                 row["work_commits"] = n
             if known is not None:
@@ -249,7 +289,7 @@ def main() -> int:
             e = dict(base_env, MOCK_STATE=state, ARM_ROOT=ROOT, PATH=f"{bindir}:{base_env.get('PATH', '')}",
                      AGENT_FABRIC_PR_GATE=f"{bindir}/pr-gate", AGENT_FABRIC_PR_REVIEW_STATUS=f"{bindir}/pr-review-status",
                      AGENT_FABRIC_PR_SESSION="develop-qzapp/me", AGENT_FABRIC_GZCOORD_INBOX=f"{bindir}/gzcoord-inbox",
-                     AGENT_FABRIC_CTL=f"{bindir}/fabric-ctl")
+                     AGENT_FABRIC_CTL=f"{bindir}/fabric-ctl", AGENT_FABRIC_JOBS=f"{bindir}/fabric-jobs")
             if fixture_rules:
                 # Rules named, not found from the clone's remote; the legacy marker is the one the reader counts.
                 e.update(AGENT_FABRIC_ARM_CONFIG=GZAPP_CONFIG,
@@ -258,10 +298,11 @@ def main() -> int:
             return e
 
         def cli(*args: str, fixture_rules: bool = True, env: dict | None = None, cwd: str = sandbox,
-                split: bool = False) -> tuple:
+                split: bool = False, unset: tuple[str, ...] = ()) -> tuple:
             """bin/fabric-pr arm as a process, the mocks on its PATH: (exit, stdout and stderr), or with `split`
-            (exit, stdout, stderr)."""
-            r = subprocess.run([SHIM, "arm", *args], env=environment(fixture_rules, env), stdout=subprocess.PIPE,
+            (exit, stdout, stderr); `unset` names variables the process does not get."""
+            e = {k: v for k, v in environment(fixture_rules, env).items() if k not in unset}
+            r = subprocess.run([SHIM, "arm", *args], env=e, stdout=subprocess.PIPE,
                                stderr=subprocess.PIPE if split else subprocess.STDOUT, stdin=subprocess.DEVNULL,
                                text=True, timeout=120, cwd=cwd)
             return (r.returncode, r.stdout, r.stderr) if split else (r.returncode, r.stdout)
@@ -549,13 +590,16 @@ def main() -> int:
                 ("fabric-ctl fails", lambda: (set_presence(), put("ctl_rc", "3"))),
                 ("fabric-ctl says no answer", lambda: set_presence(status="no answer")),
                 ("presence could not be read", lambda: set_presence(pstatus="error")),
-                ("presence for another host", lambda: set_presence(host="far-host")),
                 ("presence for another account", lambda: set_presence(account="architect-cto-02")),
                 ("fabric-ctl prints nothing", lambda: put("presence.out", ""))):
             reset(); set_pr(me, "plain", mig); set_gate(9); set_waiver(); setup()
             rc, out = waive()
             check(f"{label}: exit 2, the role unread is not a refusal nor a pass", rc == 2
                   and "could not say which role" in out and "pr merge" not in calls(), out)
+        reset(); set_pr(me, "plain", mig); set_gate(9); set_waiver(); set_presence(host="far-host")
+        rc, out = waive()
+        check("presence for another host: exit 2, the host it named said, not a silent presence", rc == 2
+              and "presence places architect-cto-01 on far-host" in out and "pr merge" not in calls(), out)
         reset(); set_pr(me, "plain", mig); set_gate(9); set_waiver(); set_presence()
         rc, out = waive(env={"AGENT_FABRIC_ARM_CONFIG": f"{state}/no-waiver-rules.json"})
         check("an arm.json with no waiver_role: exit 2, and the relay not asked", rc == 2 and "names no waiver_role" in out
@@ -704,6 +748,269 @@ def main() -> int:
         rc, out = run("7", "--basis", "b", policy=bnd_extra)
         check("…as on a boundary that requires it", rc == 1 and "by the codex engine" in out and "pr merge" not in calls(), out)
 
+        print("arm: gate 4c — a finding open in any review chain (#425: F5 open in the first, the second clean at head)")
+        h1, h2, b2 = "1026be28" + "1" * 32, "ecaf9eb7" + "2" * 32, "8cd787c6" + "3" * 32
+        f5 = "Finding: F5 | P3 | likely | tools/fabric/lease.py:722 | the lease file is left behind on a timeout"
+
+        def review(rid: int, base: str, head: str, lines: str | None, login: str = "gzbot", at: str = "") -> dict:
+            body = None if lines is None else (f"<!-- agent-fabric-review v2 base={base} head={head} card={'c' * 40}"
+                                               f" config={'d' * 64} -->\n\n## Report\n\n{lines}\n")
+            return {"id": rid, "user": {"login": login}, "body": body, "commit_id": head,
+                    "submitted_at": at or f"2026-10-30T0{rid % 10}:00:00Z"}
+
+        first = review(5709892041, h1, h2, f5)
+        fresh = review(5710450122, b2, HEAD, "Finding: none")
+
+        def reviews(*rs: dict) -> None:
+            put("reviews.json", json.dumps(list(rs)))
+
+        def plain() -> None:
+            reset(); set_pr(me, "plain", ["docs/a.md"]); set_gate(9)
+
+        plain(); reviews(first, fresh)
+        rc, out = run("7", "--basis", "b")
+        check("F5 open in the first chain, the second clean at head: refused, F5 and its review named",
+              rc == 1 and "1 finding(s) open in a review chain" in out and "F5 | P3 | tools/fabric/lease.py:722" in out
+              and "review 5709892041" in out and "raised on head ecaf9eb7" in out and "pr merge" not in calls(), out)
+        check("…the remedy named: a re-review on that chain, or --defer", "a re-review on that chain" in out
+              and "--defer" in out, out)
+        rc, out = run("7", "--basis", "b", "--dry-run")
+        check("…the dry run evaluates it too", rc == 1 and "finding(s) open" in out, out)
+        plain(); reviews(first, fresh, review(5710450123, h2, HEAD, "Judgement: F5 | fixed | the lease is removed\nFinding: none"))
+        rc, out = run("7", "--basis", "b")
+        check("control: a later review on that chain judges F5 fixed: armed",
+              rc == 0 and "no finding open across 3 review(s) in 2 chain(s)" in out and "ARMED #7" in out, out)
+        plain(); reviews(review(5710450123, h2, HEAD, "Judgement: F5 | fixed | the lease is removed\nFinding: none"), fresh, first)
+        rc, out = run("7", "--basis", "b")
+        check("…listed newest first by the API: read oldest first, the same answer", rc == 0 and "ARMED #7" in out, out)
+        # agent-fabric-fleetdeck#57: GitHub served a submitted_at in the future, out of the order the reviews were
+        # posted in. Ordered by it, F5's review read as after the judgement that fixed it, and F5 as open.
+        future = {**first, "submitted_at": "2099-01-01T00:00:00Z"}
+        plain(); reviews(future, fresh, review(5710450123, h2, HEAD, "Judgement: F5 | fixed | the lease is removed\nFinding: none"))
+        rc, out = run("7", "--basis", "b")
+        check("F5's review dated in the future by GitHub: read in posting order (the id), judged fixed after it: armed",
+              rc == 0 and "no finding open across 3 review(s) in 2 chain(s)" in out and "ARMED #7" in out, out)
+        plain(); reviews(future, fresh)
+        rc, out = run("7", "--basis", "b")
+        check("…control: the same future-dated F5 unjudged is still open: refused",
+              rc == 1 and "review 5709892041" in out and "pr merge" not in calls(), out)
+        plain(); reviews(first, fresh, {**review(0, h2, HEAD, "Judgement: F5 | fixed | done\nFinding: none"), "id": None})
+        rc, out = run("7", "--basis", "b")
+        check("a review with no id from the API: its place unknown, refused naming it, never read as fixing F5",
+              rc == 1 and "the API returned no id" in out and "pr merge" not in calls(), out)
+        plain(); reviews(first, fresh, review(5710450123, HEAD, HEAD, "Judgement: F5 | not-real | not on the change\nFinding: none"))
+        rc, out = run("7", "--basis", "b")
+        check("a not-real judgement in a later chain clears the earlier chain's F5: armed", rc == 0 and "ARMED #7" in out, out)
+        plain(); reviews(first, fresh, review(5710450123, h2, HEAD, "Judgement: F5 | fixed | done\nFinding: none"),
+                         review(5710450124, HEAD, HEAD, "Judgement: F5 | not-fixed | the timeout path still leaks\nFinding: none"))
+        rc, out = run("7", "--basis", "b")
+        check("the latest judgement wins: fixed, then not-fixed, is open", rc == 1 and "review 5709892041" in out, out)
+        plain(); reviews(first, fresh, review(5710450123, h2, HEAD, "Judgement: F5 | partly | half of it\nFinding: none"))
+        rc, out = run("7", "--basis", "b")
+        check("a partly judgement keeps it open", rc == 1 and "F5 | P3" in out, out)
+        plain(); reviews(review(5709892041, h1, h2, f5 + "\nJudgement: F5 | fixed | judged by its own review"), fresh)
+        rc, out = run("7", "--basis", "b")
+        check("a judgement judges only an EARLIER review's finding, never its own", rc == 1 and "F5 | P3" in out, out)
+        plain(); reviews(first, review(5710450122, b2, HEAD, "Finding: F2 | P1 | certain | a.py:3 | breaks"))
+        rc, out = run("7", "--basis", "b")
+        check("two open findings in two chains: both named", rc == 1 and "2 finding(s) open" in out and "F2 | P1 | a.py:3" in out, out)
+        # #437 F1: a repeated `F1 | fixed` in chain B found no OPEN F1 of its own and closed chain A's.
+        ha, hb1, hb2 = "aaaa0001" + "4" * 32, "bbbb0001" + "5" * 32, "bbbb0002" + "6" * 32
+        f1 = "Finding: F1 | P1 | certain | x.py:1 | the first chain's F1"
+        chain_a = review(5720000001, "a" * 40, ha, f1)
+        chain_b = [review(5720000002, b2, hb1, "Finding: F1 | P2 | likely | y.py:2 | the second chain's F1"),
+                   review(5720000003, hb1, hb2, "Judgement: F1 | fixed | done\nFinding: none"),
+                   review(5720000004, hb2, HEAD, "Judgement: F1 | fixed | still done\nFinding: none")]
+        plain(); reviews(chain_a, *chain_b)
+        rc, out = run("7", "--basis", "b")
+        check("a repeated fixed in chain B re-closes B's own F1, never chain A's: A's F1 open, refused",
+              rc == 1 and "1 finding(s) open" in out and "review 5720000001" in out and "x.py:1" in out
+              and "pr merge" not in calls(), out)
+        plain(); reviews(*chain_b)
+        rc, out = run("7", "--basis", "b")
+        check("control: chain B alone, its F1 judged fixed twice: armed", rc == 0 and "ARMED #7" in out, out)
+        plain(); reviews(chain_a, chain_b[0], review(5720000003, ha, hb2, "Judgement: F1 | fixed | done\nFinding: none"))
+        rc, out = run("7", "--basis", "b")
+        check("control: a judgement in chain A's own chain closes A's F1, B's stays open",
+              rc == 1 and "review 5720000002" in out and "review 5720000001" not in out, out)
+        # #437 round 3 F5: Codex and Claude both review HEAD on base B, two chains begun after chain A at H0. Claude's
+        # F1/F2 fixed judges A's, never Codex's F1/F2 raised on its own head, whichever of the two was posted first.
+        h0 = "cccc0001" + "7" * 32
+        a12 = review(5721000000, "a" * 40, h0, "Finding: F1 | P2 | likely | x.py:1 | A's F1\n"
+                                                "Finding: F2 | P3 | likely | x.py:2 | A's F2", at="2026-10-30T01:00:00Z")
+        codex = review(5721000002, b2, HEAD, "Finding: F1 | P1 | certain | z.py:1 | codex's F1\n"
+                                              "Finding: F2 | P2 | likely | z.py:2 | codex's F2", at="2026-10-30T02:00:00Z")
+        judged = "Judgement: F1 | fixed | done\nJudgement: F2 | fixed | done\nFinding: none"
+        for when, rid, at in (("posted after codex", 5721000003, "2026-10-30T03:00:00Z"),
+                              ("posted before codex", 5721000001, "2026-10-30T01:30:00Z")):
+            plain(); reviews(a12, codex, review(rid, b2, HEAD, judged, at=at))
+            rc, out = run("7", "--basis", "b")
+            check(f"a judgement {when} on its own head closes chain A's F1/F2, never codex's F1/F2 of that head: refused",
+                  rc == 1 and "2 finding(s) open" in out and "z.py:1" in out and "z.py:2" in out
+                  and "review 5721000000" not in out and "pr merge" not in calls(), out)
+        # #437 round 4 F8: Codex and Claude both review base h0 (chain A's head), head HEAD: one chain, A's. Codex raises
+        # its own F1 on HEAD; Claude's F1 fixed judges A's F1 raised on h0, never Codex's, whichever was posted first.
+        a1 = review(5722000000, "a" * 40, h0, "Finding: F1 | P2 | likely | x.py:1 | A's F1", at="2026-10-30T01:00:00Z")
+        codex1 = review(5722000002, h0, HEAD, "Finding: F1 | P1 | certain | z.py:1 | codex's F1", at="2026-10-30T02:00:00Z")
+        for when, rid, at in (("posted after codex", 5722000003, "2026-10-30T03:00:00Z"),
+                              ("posted before codex", 5722000001, "2026-10-30T01:30:00Z")):
+            plain(); reviews(a1, codex1, review(rid, h0, HEAD, "Judgement: F1 | fixed | done\nFinding: none", at=at))
+            rc, out = run("7", "--basis", "b")
+            check(f"one chain, a judgement {when} on head HEAD closes h0's F1, never codex's F1 of HEAD: refused",
+                  rc == 1 and "1 finding(s) open" in out and "z.py:1" in out and "review 5722000002" in out
+                  and "review 5722000000" not in out and "pr merge" not in calls(), out)
+        plain(); reviews(a1, codex1, review(5722000003, h0, HEAD, "Judgement: F1 | fixed | done\nFinding: none",
+                                            at="2026-10-30T03:00:00Z"),
+                         review(5722000004, HEAD, HEAD, "Judgement: F1 | fixed | adjudicated\nFinding: none",
+                                at="2026-10-30T04:00:00Z"))
+        rc, out = run("7", "--basis", "b")
+        check("control: a review with base HEAD, head HEAD judges the F1 raised on HEAD: armed",
+              rc == 0 and "no finding open across 4 review(s) in 1 chain(s)" in out and "ARMED #7" in out, out)
+
+        plain(); reviews(first, fresh)
+        why = "a P3 on a path this PR does not touch; j470 takes it"
+        rc, out = run("7", "--basis", "b", "--defer", "ecaf9eb7:F5", why)
+        check("--defer ecaf9eb7:F5 arms, said on an arm: line", rc == 0 and "ARMED #7" in out
+              and f"finding ecaf9eb7:F5 (P3, review 5709892041) DEFERRED: {why}" in out and "1 deferred" in out, out)
+        check("…and the comment carries the deferral and its reason",
+              f"Deferred ecaf9eb7:F5 (P3, review 5709892041): {why}." in calls(), calls())
+        plain(); reviews(first, fresh)
+        rc, out = run("7", "--basis", "b", "--defer", "ecaf9eb7:F6", why)
+        check("--defer of a label not open: refused, the open ones named",
+              rc == 1 and "--defer ecaf9eb7:F6 names no open finding (open: ecaf9eb7:F5)" in out and "pr merge" not in calls(), out)
+        plain(); reviews(first, fresh)
+        rc, out = run("7", "--basis", "b", "--defer", "abcdef01:F5", why)
+        check("--defer of F5 on another review's head: refused", rc == 1 and "names no open finding" in out, out)
+        plain(); reviews(first, fresh, review(5710450123, h2, HEAD, "Judgement: F5 | fixed | done\nFinding: none"))
+        rc, out = run("7", "--basis", "b", "--defer", "ecaf9eb7:F5", why)
+        check("--defer of a finding already judged fixed: refused (open: none)",
+              rc == 1 and "names no open finding (open: none)" in out, out)
+        for bad in (("--defer", "F5", why), ("--defer", "ecaf9eb7:F5"), ("--defer", "ecaf:F5", why), ("--defer", "ecaf9eb7:X5", why)):
+            plain(); rc, out = run("7", "--basis", "b", *bad)
+            check(f"{' '.join(bad[:2])}{' (no reason)' if len(bad) == 2 else ''}: usage, exit 2", rc == 2 and "--defer" in out, out)
+
+        for what, broken in (("a malformed machine line", review(5710450122, b2, HEAD, "Finding: F1 | P9 | sure | a.py | x")),
+                             ("no machine lines at all (an older report)", review(5710450122, b2, HEAD, "looks fine")),
+                             ("a body the API did not return", review(5710450122, b2, HEAD, None))):
+            plain(); reviews(first, review(5709892043, h2, HEAD, "Judgement: F5 | fixed | done\nFinding: none"), broken)
+            rc, out = run("7", "--basis", "b")
+            check(f"{what}: refused as unknown, the review named", rc == 1 and "cannot be read" in out
+                  and "review 5710450122" in out and "pr merge" not in calls(), out)
+        plain(); reviews(first, review(5709892043, h2, HEAD, "Judgement: F5 | fixed | done\nFinding: none"), fresh)
+        rc, out = run("7", "--basis", "b")
+        check("control: the same chains, every body read: armed", rc == 0 and "ARMED #7" in out, out)
+        unmarked = dict(review(5710450122, b2, HEAD, None), body="a comment-like review\nFinding: F9 | P1 | certain | a.py | x")
+        plain(); reviews(first, unmarked)
+        rc, out = run("7", "--basis", "b")
+        check("a review whose first line is not the v2 marker is not read", rc == 1 and "F9" not in out and "F5" in out, out)
+        plain(); reviews(review(5709892041, h1, h2, f5, login="drive-by"), fresh)
+        rc, out = run("7", "--basis", "b")
+        check("a review from an account the blind review does not count from is not read: armed", rc == 0 and "ARMED #7" in out, out)
+        plain(); reviews(review(5709892041, h1, h2, f5, login="poster"), fresh)
+        rc, out = run("7", "--basis", "b", env={"AGENT_FABRIC_REVIEW_POSTERS": '["poster"]'})
+        check("…one from a login in AGENT_FABRIC_REVIEW_POSTERS is: refused", rc == 1 and "F5 | P3" in out, out)
+        def dependabot() -> None:
+            plain(); pr = json.load(open(f"{state}/pr.json"))
+            put("pr.json", json.dumps(dict(pr, author={"login": "app/dependabot", "is_bot": True})))
+        dependabot(); reviews(review(5709892041, h1, h2, f5, login="pusher"), fresh)
+        rc, out = run("7", "--basis", "b")
+        check("on a Dependabot PR the push account's review is read, nothing configured: refused on its F5",
+              rc == 1 and "F5 | P3" in out and "api user" in calls(), out)
+        dependabot(); reviews(review(5709892041, h1, h2, f5, login="drive-by"), fresh)
+        rc, out = run("7", "--basis", "b")
+        check("…another account's on that PR is still not read: armed", rc == 0 and "ARMED #7" in out, out)
+        plain(); reviews(review(5709892041, h1, h2, f5, login="pusher"), fresh)
+        rc, out = run("7", "--basis", "b")
+        check("…a person's PR asks nobody whom gh acts as, and the push account's review is not read there",
+              rc == 0 and "ARMED #7" in out and "api user" not in calls(), out)
+        dependabot(); reviews(review(5709892041, h1, h2, f5, login="pusher"), fresh); put("viewer_fail", "")
+        rc, out = run("7", "--basis", "b")
+        check("…on the Dependabot PR a push account GitHub cannot name: exit 2, nothing armed",
+              rc == 2 and "cannot read the account this session posts as" in out and "pr merge" not in calls(), out)
+        plain(); rc, out = run("7", "--basis", "b", env={"AGENT_FABRIC_REVIEW_POSTERS": "poster"})
+        check("AGENT_FABRIC_REVIEW_POSTERS not a JSON array: exit 2, never fewer posters", rc == 2 and "REVIEW_POSTERS" in out, out)
+        plain(); put("reviews_fail", "")
+        rc, out = run("7", "--basis", "b")
+        check("the reviews cannot be listed: exit 2, nothing armed", rc == 2 and "cannot list #7's reviews" in out
+              and "pr merge" not in calls(), out)
+
+        print("arm: gate 4c — a blocked job on the PR's branch")
+        blocked = {"id": "j9", "state": "blocked", "branch": me, "blocked_on": "python-dev supply, REQUEST 01a1"}
+        plain(); put("jobs.json", json.dumps([blocked]))
+        rc, out = run("7", "--basis", "b")
+        check("a blocked job on the head branch: refused, the job and its blocker named",
+              rc == 1 and f"job j9 on {me} is blocked — python-dev supply, REQUEST 01a1" in out and "pr merge" not in calls(), out)
+        check("…the list read as the login's whole list", "jobs list --all --json" in calls(), calls())
+        plain(); put("jobs.json", json.dumps([dict(blocked, state="done")]))
+        rc, out = run("7", "--basis", "b")
+        check("control: the same job done: armed", rc == 0 and f"jobs: none blocked on {me}" in out and "ARMED #7" in out, out)
+        plain(); put("jobs.json", json.dumps([dict(blocked, branch="develop-qzapp/me/feat/other")]))
+        rc, out = run("7", "--basis", "b")
+        check("control: a blocked job on another branch: armed", rc == 0 and "ARMED #7" in out, out)
+        nobranch = {k: v for k, v in blocked.items() if k != "branch"}
+        plain(); put("jobs.json", json.dumps([nobranch])); put("shows.json", json.dumps({"j9": blocked}))
+        rc, out = run("7", "--basis", "b")
+        check("a blocked job the list gives no branch: show read, refused",
+              rc == 1 and "job j9" in out and "jobs show j9 --json" in calls(), out + calls())
+        plain(); put("jobs.json", json.dumps([nobranch])); put("shows.json", json.dumps({"j9": nobranch}))
+        rc, out = run("7", "--basis", "b")
+        check("control: show says it has no branch: armed", rc == 0 and "ARMED #7" in out, out)
+        plain(); put("jobs_fail", "")
+        rc, out = run("7", "--basis", "b")
+        check("fabric-jobs cannot answer: exit 2, nothing armed", rc == 2 and "fabric-jobs list" in out and "pr merge" not in calls(), out)
+        reset(); set_pr("develop-qzapp/other/feat/x", "plain", ["docs/a.md"]); set_gate(9); put("jobs.json", json.dumps([blocked]))
+        rc, out = run("7", "--basis", "b", "--any-owner")
+        check("another login's PR (--any-owner): its jobs said not read, not refused, never asked",
+              rc == 0 and "jobs: not read" in out and "ARMED #7" in out and "jobs list" not in calls(), out)
+        reset(); set_pr("develop-qzapp/other/feat/x", "plain", ["docs/a.md"]); set_gate(9)
+        rc, out = run("7", "--basis", "b", "--any-owner", "--defer-job", "j9", "x")
+        check("…a --defer-job there has nothing to lift: refused", rc == 1 and "--defer-job j9 names no blocked job" in out, out)
+
+        # The cleared rule: fabric-jobs list --json's `cleared` is true once every checkable blocker has cleared.
+        spec = [{"spec": "pr:BlueTeam-OU/agent-fabric#438", "state": "cleared", "detail": "merged", "checked_at": "t"}]
+        plain(); put("jobs.json", json.dumps([dict(blocked, blockers=spec, cleared=True)]))
+        rc, out = run("7", "--basis", "b")
+        check("a blocked job whose blockers have all cleared waits on nothing: armed, said",
+              rc == 0 and "j9" in out and "every blocker has cleared" in out and "ARMED #7" in out, out)
+        for still, label in ((False, "false"), (None, "null: none told yet")):
+            plain(); put("jobs.json", json.dumps([dict(blocked, blockers=[dict(spec[0], state="waiting")], cleared=still)]))
+            rc, out = run("7", "--basis", "b")
+            check(f"control: cleared {label}: still waiting, refused", rc == 1 and "job j9" in out and "pr merge" not in calls(), out)
+
+        # A wait that is not this PR's: a parked job keeps the branch it started on (#437, j410 on #438).
+        print("arm: gate 4c — --defer-job")
+        other = dict(blocked, id="j410", blocked_on="pr:BlueTeam-OU/agent-fabric#438 merging")
+        plain(); put("jobs.json", json.dumps([other]))
+        rc, out = run("7", "--basis", "b")
+        check("the refusal names --defer-job and the job", rc == 1 and "--defer-job j410" in out, out)
+        why = "j410 waits on #438, no work of this PR"
+        plain(); put("jobs.json", json.dumps([other]))
+        rc, out = run("7", "--basis", "b", "--defer-job", "j410", why)
+        check("--defer-job j410 lifts it: armed, said", rc == 0 and f"job j410 on {me} DEFERRED: {why}" in out
+              and "1 deferred" in out and "ARMED #7" in out, out)
+        check("…and the comment carries it and its reason",
+              f"Deferred job j410 (pr:BlueTeam-OU/agent-fabric#438 merging): {why}." in calls(), calls())
+        plain(); put("jobs.json", json.dumps([other, blocked]))
+        rc, out = run("7", "--basis", "b", "--defer-job", "j410", why)
+        check("control: one of two lifted, the other still refuses", rc == 1 and "job j9" in out and "pr merge" not in calls(), out)
+        plain(); put("jobs.json", json.dumps([other, blocked]))
+        rc, out = run("7", "--basis", "b", "--defer-job", "j410", why, "--defer-job", "j9", "a supply already in")
+        check("…both lifted (repeatable): armed", rc == 0 and "2 deferred" in out and "ARMED #7" in out, out)
+        for jobs_now, what in (([other], "a job not blocked on the branch"),
+                               ([dict(other, branch="develop-qzapp/me/feat/other")], "a job blocked on another branch"),
+                               ([dict(other, cleared=True)], "a job whose blockers have cleared"),
+                               ([], "no job at all")):
+            plain(); put("jobs.json", json.dumps(jobs_now))
+            rc, out = run("7", "--basis", "b", "--defer-job", "j411", why)
+            check(f"--defer-job naming no blocked job on the branch ({what}): refused",
+                  rc == 1 and "--defer-job j411 names no blocked job" in out and "pr merge" not in calls(), out)
+        plain(); put("jobs.json", json.dumps([dict(other, cleared=True)]))
+        rc, out = run("7", "--basis", "b", "--defer-job", "j410", why)
+        check("…a cleared job named is not a blocking one: refused", rc == 1 and "names no blocked job" in out, out)
+        for bad in (("--defer-job", "410", why), ("--defer-job", "j410"), ("--defer-job", "j410", "--dry-run")):
+            plain(); rc, out = run("7", "--basis", "b", *bad)
+            check(f"{' '.join(bad)}: usage, exit 2", rc == 2 and "--defer-job" in out, out)
+
         print("arm: gate 5 — the classes that arm under 8 without asking")
         reset(); set_pr("develop-qzapp/me/docs/x", "Wording.\n\nClass: docs-only",
                         ["docs/adr/ADR-054-x.md", ".claude/skills/pr-gate/SKILL.md", "apps/backend_dotnet/CLAUDE.md"]); set_gate(2)
@@ -811,6 +1118,56 @@ def main() -> int:
         rc, out = run("7", "--basis", "b")
         check("an armed read-back asks git nothing: the common path costs no fetch", rc == 0 and "landed" not in calls(),
               calls())
+
+        # The status is what the ruleset requires (arming policy armed_status), so it is the tie of the arming to ONE
+        # head: the head every gate read, posted before auto-merge is on. Audit F02.
+        print("arm: the armed status — posted on the head the gates read, before the arming")
+        reset(); set_pr(me, "plain", ["docs/a.md"]); set_gate(9)
+        rc, out = run("7", "--basis", "b")
+        posted = [ln for ln in calls().splitlines() if ln.startswith("status ")]
+        body = json.loads(posted[0].split(" ", 2)[2]) if posted else {}
+        # Mutation: the status posted on the branch (or any ref but the gates' sha) fails this.
+        check("armed, one fabric/armed success posted on the gates' sha",
+              rc == 0 and len(posted) == 1 and posted[0].split(" ")[1] == HEAD
+              and (body.get("context"), body.get("state")) == ("fabric/armed", "success"), out + calls())
+        check("…its description says it was armed through the gate", "fabric-pr arm" in body.get("description", "")
+              and len(body.get("description", "")) <= 140, body)
+        lines = calls().splitlines()
+        merge_at = next((i for i, ln in enumerate(lines) if ln.startswith("pr merge ")), -1)
+        status_at = next((i for i, ln in enumerate(lines) if ln.startswith("api repos/gzapi-org/gzapp/statuses/")), -1)
+        # Mutation: the status posted after gh pr merge fails this — a green PR merges on the call itself.
+        check("…before gh pr merge --auto", 0 <= status_at < merge_at, calls())
+        check("…and said", f"fabric/armed posted on {HEAD[:8]}" in out, out)
+        # Mutation: the head not read again (or not compared) fails this.
+        reset(); put("moved", "")
+        rc, out = run("7", "--basis", "b")
+        check("the head moved after the gates read it: refused, both heads named",
+              rc == 1 and "fedcba98" in out and "abcdef01" in out and "the head the gates read" in out, out)
+        check("…no status posted, no comment, nothing armed",
+              "statuses" not in calls() and "pr comment" not in calls() and "pr merge" not in calls(), calls())
+        # pr-gate reads the PR on its own: a count of another head is no count of this one. Mutation: the gate row's
+        # head not compared fails this.
+        reset(); set_gate(9, head="12345678")
+        rc, out = run("7", "--basis", "b")
+        check("pr-gate counted another head: refused, nothing armed",
+              rc == 1 and "12345678" in out and "pr merge" not in calls() and "statuses" not in calls(), out + calls())
+        reset(); set_gate(9, head=None)
+        rc, out = run("7", "--basis", "b")
+        check("pr-gate named no head: exit 2, nothing armed", rc == 2 and "pr merge" not in calls(), out + calls())
+        set_gate(9)
+        reset(); put("statusfail", "")
+        rc, out = run("7", "--basis", "b")
+        check("the status could not be posted: exit 2, nothing armed", rc == 2 and "fabric/armed" in out
+              and "pr merge" not in calls(), out + calls())
+        reset()
+        rc, out = run("7", "--basis", "b", policy=dict(claude_only, armed_status=None))
+        check("a repository with armed_status null: armed, no status posted", rc == 0 and "statuses" not in calls(), out + calls())
+        reset()
+        rc, out = run("7", "--basis", "b", "--dry-run")
+        check("a dry run posts no status and says it would", rc == 0 and "statuses" not in calls()
+              and f"DRY RUN — would post fabric/armed on {HEAD[:8]}" in out, out + calls())
+        rc, out = run("--help")
+        check("--help names the status and the refusal of a moved head", "fabric/armed" in out and "armed_status" in out, out)
 
         print("arm: a merge call that fails on a PR GitHub merges (agent-fabric #237)")
         reset(); put("mergefail", ""); put("merged", "")
@@ -1011,6 +1368,15 @@ def main() -> int:
         check("…with codex's unavailable marker for the head: the claude review alone arms (dry run)",
               rc == 0 and "DRY RUN" in out and "codex unavailable (allowance)" in out and "pr merge" not in calls(), out + calls())
 
+        reset(); set_pr(me, "plain", ["docs/a.md"]); set_gate(9); both_reviewed(); reviews(first, fresh)
+        rc, out, err = cli("7", "--basis", "b", split=True)
+        check("a finding open in an earlier chain, read through gh as a program: exit 1, on stderr, nothing armed",
+              rc == 1 and "F5 | P3" in err and "review 5709892041" in err and "pr merge" not in calls(), out + err)
+        reset(); set_pr(me, "plain", ["docs/a.md"]); set_gate(9); both_reviewed()
+        put("jobs.json", json.dumps([{"id": "j9", "state": "blocked", "branch": me, "blocked_on": "a supply"}]))
+        rc, out, err = cli("7", "--basis", "b", split=True)
+        check("a blocked job, read through fabric-jobs as a program: exit 1, on stderr", rc == 1 and "job j9" in err, out + err)
+
         print("arm (CLI): the arming path, the dry run, a merge on the arming")
         reset(); set_pr(me, "plain", ["docs/a.md"]); set_gate(9); both_reviewed()
         rc, out, err = cli("7", "--basis", "nine work commits at the review gate", split=True)
@@ -1050,9 +1416,16 @@ def main() -> int:
         iw_remote = "git@github.com:fixture-org/interweave.git"
         # A registered project with no arm.json of its own: found, then refused, never judged by another's rules.
         bare_remote = "git@github.com:fixture-org/bare.git"
+        # gzapp, the repository the mocks serve, registered with its client's settings repository (which has no
+        # file for it, so the fleet policy): the PR `--repo gzapp` arms from another project's clone.
         with open(f"{operator}/projects/registry.json", "w") as fh:
-            json.dump({"projects": {"interweave": {"remotes": [iw_remote]}, "bare": {"remotes": [bare_remote]}}}, fh)
+            json.dump({"projects": {"interweave": {"remotes": [iw_remote]}, "bare": {"remotes": [bare_remote]},
+                                    "gzapp": {"remotes": ["git@github.com:gzapi-org/gzapp.git"], "client": "gz"}}}, fh)
+        with open(f"{operator}/projects/clients.json", "w") as fh:
+            json.dump({"clients": {"gz": {"settings_repo": "gzapi-org/agent-fabric-settings"}}}, fh)
         shutil.copy(IW_CONFIG, f"{operator}/projects/interweave/integration/gh/arm.json")
+        os.makedirs(f"{operator}/projects/gzapp/integration/gh")
+        shutil.copy(GZAPP_CONFIG, f"{operator}/projects/gzapp/integration/gh/arm.json")
         os.makedirs(f"{operator}/identities/roles")
         shutil.copy(os.path.join(FIXTURES, "gzcoord-operator", "identities", "roles", "catalog.json"), f"{operator}/identities/roles/catalog.json")
         by_remote = {"AGENT_FABRIC_OPERATOR": operator}
@@ -1075,6 +1448,71 @@ def main() -> int:
         check("a clone of a registered project with no arm.json: exit 2, the file named, nothing armed",
               rc == 2 and "declares no arm.json" in out and "projects/bare/integration/gh/arm.json" in out
               and "pr merge" not in calls(), out)
+
+        # j146: `--repo` arms a PR of one repository from a checkout of another. GH_REPO is unset, so nothing but
+        # --repo names gzapp; the cwd is an InterWeave clone, whose rules would judge the transport path a boundary.
+        def gh_repos() -> set[str]:
+            p = f"{state}/gh_repos"
+            return set(open(p).read().splitlines()) if os.path.exists(p) else set()
+
+        print("arm (CLI): --repo, from a checkout of another repository")
+        for flag in (("--repo", "gzapp"), ("--repo=gzapi-org/gzapp",)):
+            reset(); set_pr(me, "plain", ["crates/transport/libp2p/src/dialing.rs"]); set_gate(9); both_reviewed()
+            rc, out = cli("7", *flag, "--basis", "b", "--dry-run", fixture_rules=False, cwd=clones["iw"], env=by_remote,
+                          unset=("GH_REPO",))
+            check(f"{' '.join(flag)} from an InterWeave clone: the dry run arms gzapp's #7, by gzapp's rules",
+                  rc == 0 and "DRY RUN" in out and "pr merge" not in calls() and "pr comment" not in calls(), out + calls())
+            check("…every gh call pinned to gzapp, never the clone's origin", gh_repos() == {"gzapi-org/gzapp"}, str(gh_repos()))
+            check("…and gzapp's client's settings repository asked for its policy",
+                  "api repos/gzapi-org/agent-fabric-settings/contents/" in calls(), calls())
+        reset(reviewed=False); set_pr(me, "plain", mig); set_gate(9)
+        rc, out = cli("7", "--repo", "gzapp", "--basis", "b", fixture_rules=False, cwd=clones["iw"], env=by_remote,
+                      unset=("GH_REPO",))
+        check("…a migration, a boundary in gzapp's arm.json (not InterWeave's), unreviewed: refused, nothing armed",
+              rc == 1 and "no review-class review" in out and "pr merge" not in calls(), out)
+        reset(); set_pr(me, "plain", ["docs/a.md"]); set_gate(9)
+        rc, out = cli("7", "--repo", "nobody/unregistered", "--basis", "b", fixture_rules=False, cwd=clones["iw"],
+                      env=by_remote, unset=("GH_REPO",))
+        check("an owner/name no project registers: no project, never the clone's: exit 2, nothing armed",
+              rc == 2 and "no project found" in out and "pr merge" not in calls(), out)
+        reset(); put("viewfail", "")
+        rc, out, err = cli("7", "--repo", "gzapp", "--basis", "b", fixture_rules=False, cwd=clones["iw"], env=by_remote,
+                           unset=("GH_REPO",), split=True)
+        check("a number the repository has not got: exit 2, the refusal names the repository it looked in",
+              rc == 2 and "cannot read #7 in gzapi-org/gzapp" in err, err)
+        # The real gate, not the mock: commits are counted from git, and the InterWeave clone cannot count gzapp's
+        # (review F3 on #300). The remedy names the clone, never "git fetch origin", which fetches InterWeave again.
+        reset(); set_pr(me, "plain", ["docs/a.md"]); both_reviewed()
+        rc, out = cli("7", "--repo", "gzapp", "--basis", "b", "--dry-run", fixture_rules=False, cwd=clones["iw"],
+                      env={**by_remote, "AGENT_FABRIC_PR_GATE": ""}, unset=("GH_REPO",))
+        check("the real gate, --repo gzapp from an InterWeave clone: exit 2, the clone named as the reason, nothing armed",
+              rc == 2 and "this clone's origin is not gzapi-org/gzapp" in out and "run from a clone of gzapi-org/gzapp" in out
+              and "git fetch origin, then retry" not in out and "pr merge" not in calls(), out)
+        check("…the gate's gh calls pinned to gzapp too", gh_repos() == {"gzapi-org/gzapp"}, str(gh_repos()))
+        # A verb's nested fabric-pr verbs carry --repo on: the dispatcher drops an inherited project when given none,
+        # and the nested reader would read the cwd's project's pr-tools.json for gzapp's PR (review F2 on #300).
+        from github import common, pr_gate
+        saved = {k: os.environ.get(k) for k in ("GH_REPO", common.PR_PROJECT_SETTING, "AGENT_FABRIC_PR_GATE",
+                                               "AGENT_FABRIC_PR_REVIEW_STATUS")}
+        try:
+            for k in saved:
+                os.environ.pop(k, None)
+            plain = (arm.fabric_pr("AGENT_FABRIC_PR_GATE", "gate"), pr_gate.review_reader())
+            os.environ.update({"GH_REPO": "gzapi-org/gzapp", common.PR_PROJECT_SETTING: "gzapp"})
+            named = (arm.fabric_pr("AGENT_FABRIC_PR_GATE", "gate"),
+                     arm.fabric_pr("AGENT_FABRIC_PR_REVIEW_STATUS", "review-status"), pr_gate.review_reader())
+        finally:
+            for k, v in saved.items():
+                os.environ.pop(k, None) if v is None else os.environ.__setitem__(k, v)
+        check("under --repo, arm's gate and review-status and the gate's review-status pass --repo on",
+              all(h[-2:] == ["--repo", "gzapi-org/gzapp"] and h[0].endswith("/bin/fabric-pr") for h in named), str(named))
+        check("…and without --repo, none is added", all("--repo" not in h for h in plain), str(plain))
+        for bad, said in ((("--repo", "nosuch"), "'nosuch' is no project id"), (("--repo",), "needs <owner>/<name>"),
+                          (("--repo", "a/b", "--repo", "c/d"), "given twice"), (("--repo", "a/b/c"), "is not <owner>/<name>")):
+            reset()
+            rc, out, err = cli("7", *bad, "--basis", "b", fixture_rules=False, cwd=clones["iw"], env=by_remote, split=True)
+            check(f"{' '.join(bad)}: exit 2, said by fabric-pr, gh never run",
+                  rc == 2 and err.startswith("fabric-pr: --repo: ") and said in err and calls() == "", err)
 
     print("test_arm_cli: " + ("OK" if not fails else f"FAILED — {fails}"))
     return 1 if fails else 0

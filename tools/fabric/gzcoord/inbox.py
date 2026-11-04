@@ -20,8 +20,8 @@ CONTRACT, frozen from the Node:
                                 held inbox is waited out as in --follow.
                                 Whatever ends it other than a delivery,
                                 the harness's timeout, a second watch's
-                                refusal or the --deadline quiet exit
-                                (below) is an exit other than 0 with its reason on STDOUT (a
+                                refusal, the --deadline quiet exit or the
+                                session-ended exit (below) is an exit other than 0 with its reason on STDOUT (a
                                 background command's output reaches the
                                 session only at exit): 2 a control
                                 channel named, 3 not configured
@@ -39,6 +39,48 @@ CONTRACT, frozen from the Node:
                                 line naming the first's pid and start on
                                 STDOUT and exits 0. Every other mode
                                 takes no lock.
+                                A watch ends with its session
+                                (inbox_parts/session.py): it records, at
+                                start, the process it serves (its nearest
+                                `claude` ancestor, else its parent) and,
+                                once a second while it waits, ends when
+                                that process is gone or its own parent
+                                changed, printing `gzcoord-inbox: the
+                                session this watch served (pid N) has
+                                ended; the watch ends with it` on STDOUT
+                                and exiting 0; what a slice had fetched
+                                and not shown is unacknowledged, shown to
+                                the next watch. The lock file holds, after
+                                its pid and start time, that session's pid,
+                                start time and kind. A watch that loses the
+                                lock to a holder whose session is gone
+                                (recorded session dead, or, for a file of
+                                two lines from an older watch, a holder
+                                hanging from init or systemd --user through
+                                shells only) ends it with SIGTERM — by the
+                                pid /proc/locks gives for the flock, after
+                                checking through /proc that it is this
+                                login's gzcoord-inbox watch — waits up to
+                                5 s for the flock, names both pids on
+                                STDERR and takes over; a holder whose
+                                session is alive is refused as above.
+                                --replace (with --until-delivery or
+                                --follow): when the lock is held by a
+                                watch the lock file says serves THIS
+                                session (same session pid, start time
+                                and kind) and that is a gzcoord-inbox
+                                watch of this uid, end it with SIGTERM
+                                by its pid, wait up to 5 s for the flock,
+                                name both pids on STDERR and take its
+                                place: how a session undoes a watch it
+                                armed by hand. Any other holder (another
+                                session's, one the file does not name, a
+                                session recorded without a start time)
+                                is refused with one line on STDOUT naming
+                                it, exit 0, nothing signalled; --replace
+                                without a watch flag, or with --replay,
+                                --history or --held, is a usage line,
+                                exit 1.
                                 --deadline S (default 6900, under the
                                 harness's 2 h cap, which kills the watch
                                 and can leave an orphan that blocks the
@@ -82,13 +124,14 @@ CONTRACT, frozen from the Node:
             reason; under GZCOORD_JOURNAL=off also the bypass warning)
             and no relay-down/back lines; the journal's held-messages
             line is printed only as it exits 6.
-            a second watch's refusal line (watchlock.py) and the --deadline
-            quiet line, which exit 0 without being a delivery.
+            a second watch's refusal line (watchlock.py), the --deadline
+            quiet line and the session-ended line, which exit 0 without
+            being a delivery.
   stderr    every start-up and refusal line (under --until-delivery, the
             refusals that end it go to stdout instead); the hold's
             held/released
   exit      0 drained, delivered, a second watch refused (one per login), --until-delivery quiet to its
-            --deadline, nothing for you, relay unreachable on a
+            --deadline, a watch whose session ended, nothing for you, relay unreachable on a
             drain or wait, and (outside --until-delivery) not configured
             or no token; 1 a usage line, replay of no such message, the
             --held "not held"; 2 a control channel named, replay not
@@ -100,6 +143,19 @@ CONTRACT, frozen from the Node:
             `gzcoord inbox: <why>`, exit 0 for every mode but
             --until-delivery (7): the whole contract of a session start is
             one line and exit 0.
+
+THE SHOWN LEDGER AND THE SECOND CARRIER (agent-fabric ADR-064, CARRIER-CONTRACT.md):
+what a session sees is decided by `<state>/agents/<login>/gzcoord-shown.jsonl`
+(carrier/ledger.py), whichever carrier brought a message and with no carrier at all:
+a message shown is not shown again, even when the relay delivers it again (an
+acknowledgement that failed, a retransmission under its MESSAGE-ID) — and the
+one second showing is the copy that reveals a FROM mismatch after the relay's, shown
+again, flagged. A showing that died between its two ledger lines is shown once
+more, flagged "may repeat". When the carrier is running, the arrivals it journaled
+come in the same page as the relay's, titled from the roster's address; they are
+never acknowledged to the relay. The arrival log (gzcoord-arrivals.jsonl) gets a line
+per relay copy addressed here, journal on or off. A ledger that cannot be opened is
+said on stderr and the relay's messages are shown without it.
 
 The rest of the Node's header — the modes, the hold, the addressee rule —
 is kept where each applies: below, or in the part that holds it
@@ -126,6 +182,7 @@ is logged when the drain or the watch delivers it.
 from __future__ import annotations
 
 import contextlib
+import hashlib
 import io
 import math
 import os
@@ -135,7 +192,7 @@ import time
 import urllib.parse
 from typing import Any, Callable
 
-from . import bypass, gzmsg, i18n, intake
+from . import bypass, gzmsg, i18n, intake, paths
 from . import jsvalues as js
 from .gzmsg import en  # noqa: F401 — send.py calls inbox.en()
 
@@ -163,10 +220,12 @@ from .inbox_parts.render import NOTIFICATION_CAP, MAX_FLAG_LINES, _SECTION, cut_
 from .inbox_parts.render import _drop_final_newline, split_message, render  # noqa: F401
 from .inbox_parts.watch import JOURNAL_RETRY_MS, bypass_inbound, wait_loop  # noqa: F401
 from .inbox_parts.watchlock import take_or_report  # noqa: F401
+from .inbox_parts import session as watch_session
 
 
 QUIET_LINE = "gzcoord inbox: quiet for {minutes} min, nothing delivered; run the watch again"
 DEFAULT_DEADLINE_S = 6900.0
+REPLACE_USAGE = "gzcoord inbox: --replace goes with --until-delivery or --follow, and with no --replay, --history or --held"
 DEADLINE_USAGE = "gzcoord inbox: --deadline takes a number of seconds above 0 and goes with --until-delivery"
 
 
@@ -183,6 +242,33 @@ def _episodic():
         sys.path.insert(0, tools)
     import episodic  # noqa: E402 — the sibling module, loaded when a page needs it
     return episodic
+
+
+def pin_version() -> None:
+    """Load, at the watch's start, every module the delivery path imports
+    late. A watch outlives `fabric-ctl all upgrade fabric`: a module first
+    imported at a delivery is read from the NEW tree by a process whose
+    other modules are the OLD one ("module 'jobs' has no attribute
+    'deliver_branch'"). Loaded now, the modules a watch imports by name are
+    the version it started on, and the next arming runs the new."""
+    # A module that will not load must not stop the delivery of messages: the
+    # REQUEST that needs it says so (intake), as it did before.
+    for load in (_episodic, paths.identity, pin_workingcopy):
+        try:
+            load()
+        except Exception as e:  # noqa: BLE001 — said once, the watch goes on
+            print(f"gzcoord-inbox: {load.__name__.strip('_')} did not load at start: {e}", file=sys.stderr)
+
+
+def pin_workingcopy() -> None:
+    """runtime/identity.py execs tools/fabric/workingcopy.py from disk on
+    every resolve_context, a loader and not an import, so a REQUEST would
+    run the replaced file against the roots module loaded at start. The
+    jobs module's identity is the one a delivery resolves through: its
+    loader is made to return the file read now."""
+    ident = intake._jobs().identity   # also loads jobs.py, the module a REQUEST queues through
+    loaded = ident._workingcopy()
+    ident._workingcopy = lambda: loaded
 
 
 def run_episodic(args: list[str], stdin: str) -> dict:
@@ -246,17 +332,78 @@ def deadline_arg(argv: list[str]) -> float | None:
     return n
 
 
+def replace_arg(argv: list[str]) -> bool:
+    """Is --replace given? Raises ValueError for it without a watch to replace the holder of."""
+    if "--replace" not in argv:
+        return False
+    if not {"--follow", "--until-delivery"} & set(argv) or {"--replay", "--history", "--held"} & set(argv):
+        raise ValueError(REPLACE_USAGE)
+    return True
+
+
 def _arg_after(argv: list[str], flag: str) -> Any:
     i = argv.index(flag) if flag in argv else -1
     return (argv[i + 1] if i + 1 < len(argv) else js.UNDEFINED) if i >= 0 else None
 
 
+def carrier_hooks(address: str, journal_off: bool):
+    """(the carrier's adapter, the arrival-log hook, the shown ledger) of ADR-064.
+    The ledger decides what a session sees whichever carrier brought a message and
+    needs no carrier; the arrival log is parity evidence, kept journal on or off. The
+    carrier's adapter is None with the journal off: then the route is the relay alone
+    (rule 8). With no carrier running the adapter is a no-op."""
+    from .carrier import adapter, arrivals, ledger
+    ep = _episodic()
+    log = arrivals.ArrivalLog(os.path.join(ep.state_dir(), "gzcoord-arrivals.jsonl"), iso_now=ep.now)
+    shown = ledger.Ledger(os.path.join(ep.state_dir(), "gzcoord-shown.jsonl"), iso_now=ep.now)
+
+    def on_arrival(recs: list[dict]) -> None:
+        copies = []
+        for r in recs:
+            try:
+                meta = gzmsg.parse(r["content"])["metadata"]
+            except (gzmsg.NotGzcoord, AttributeError, TypeError, KeyError):
+                continue
+            copies.append((str(r.get("id") or r.get("seq")),
+                           meta.get("MESSAGE-ID") or "sha256:" + hashlib.sha256(r["content"].encode("utf-8", "surrogatepass")).hexdigest()))
+        try:
+            adapter.relay_arrivals(log, address, copies)
+        except OSError as e:
+            # Evidence for the parity report, not a condition of delivery.
+            print(f"gzcoord: the arrival log could not be written ({e.strerror or e}); the message is shown", file=sys.stderr)
+    return (None if journal_off else adapter.Adapter()), on_arrival, shown
+
+
+def show_page(res: dict, write: Callable[[], None]) -> None:
+    """Write a delivered page to the session while the shown ledger's lock is held
+    (wait_loop took it), then record the showing; if the write fails the lock is
+    released with the pending lines standing, which is how an interrupted showing is
+    found (the message is then shown once more, flagged)."""
+    held = res.get("ledger")
+    try:
+        write()
+    except BaseException:
+        if held:
+            held.release()
+        raise
+    if held:
+        try:
+            held.finish()
+        except OSError as e:
+            print(f"gzcoord: the shown ledger could not be written ({e.strerror or e}); the message may repeat", file=sys.stderr)
+    if res.get("ack_later"):
+        res["ack_later"]()          # after the lock is released: the relay's acknowledgement is a network call
+
+
 def with_queued(shown: str, classified: list[dict], me: dict) -> str:
     """A delivery, and below it a line for each REQUEST to this login it put
-    on the job list (intake.py). After the journal and the acknowledgement:
-    a job the list could not take is a line on stderr, never an unshown message."""
+    on the job list (intake.py). After the journal; the relay's acknowledgement
+    follows the showing (show_page): a job the list could not take is a line on stderr, never an unshown message."""
     lines = intake.queue_received(classified, me)
     return shown + "".join(f"\n{x}" for x in lines)
+
+
+SESSION_ENDED = "gzcoord-inbox: the session this watch served (pid {pid}) has ended; the watch ends with it"
 
 
 def main(argv: list[str]) -> int:
@@ -391,6 +538,7 @@ def main(argv: list[str]) -> int:
 
     off = bypass.is_off()
     journal = bypass_inbound if off else (lambda recs: journal_inbound(recs, who))
+    iw, on_arrival, ledger = carrier_hooks(me["address"], off)
     cause = {"reason": None}
 
     def held_line(reason: str, n: int) -> str:
@@ -436,6 +584,13 @@ def main(argv: list[str]) -> int:
         down_since = 0.0
         started = time.monotonic()
         deadline = started + deadline_s
+
+        # The same record run() gave the lock: a pure reading of /proc, so main keeps its one argument (a test and the shim
+        # call it so) and a watch started through main alone serves its session as one started through run.
+        session = watch_session.current()
+
+        def session_gone() -> bool:
+            return watch_session.gone(session)
         while True:
             # Checked before each arm, so a relay that was down at the
             # deadline, or a hold that outlasted it, ends the watch as a quiet one.
@@ -447,7 +602,9 @@ def main(argv: list[str]) -> int:
                 r = with_fresh_token(lambda _tk: wait_loop(fetch_page, ack, min(3600, math.ceil(left)) if until_delivery else 3600,
                                                            mine_fn, [], me["address"], held, on_hold, journal=journal,
                                                            on_journal_fail=on_journal_fail,
-                                                           deadline=deadline if until_delivery else None))
+                                                           deadline=deadline if until_delivery else None,
+                                                           session_gone=session_gone, iw=iw, on_arrival=on_arrival,
+                                                           ledger=ledger))
             except _JournalHeld as e:
                 print(e.line, flush=True)
                 return 6
@@ -469,6 +626,9 @@ def main(argv: list[str]) -> int:
                 # carry the watch past the deadline it promised, and a shorter bound (a test's) is not slept through twice.
                 time.sleep(max(0.0, min(30.0, UNTIL_DELIVERY_DOWN_S - (time.monotonic() - down_since), deadline - time.monotonic())) if until_delivery else 30)
                 continue
+            if r.get("sessionEnded"):
+                print(SESSION_ENDED.format(pid=session.pid), flush=True)
+                return 0
             if down:
                 if not until_delivery:
                     print(t("watch.relay-back"), flush=True)
@@ -476,14 +636,15 @@ def main(argv: list[str]) -> int:
             if r["delivered"]:
                 cause["reason"] = None
                 mark_retransmissions(r["classified"], fetch_recent)
-                print(with_queued(render(r, me, channel, taxonomy, cap=NOTIFICATION_CAP, t=t, reminder=reminder),
-                                  r["classified"], me), flush=True)
+                show_page(r, lambda: print(with_queued(render(r, me, channel, taxonomy, cap=NOTIFICATION_CAP, t=t,
+                                                                reminder=reminder), r["classified"], me), flush=True))
                 if until_delivery:
                     return 0
 
     try:
         res = with_fresh_token(lambda _tk: wait_loop(fetch_page, ack, wait_total, mine_fn, keywords, me["address"],
-                                                     journal=journal, on_journal_fail=on_journal_fail))
+                                                     journal=journal, on_journal_fail=on_journal_fail, iw=iw,
+                                                     on_arrival=on_arrival, ledger=ledger))
     except Exception as e:  # noqa: BLE001
         x = explain_relay_error(e, relay_url, t)
         print(x["line"], file=sys.stderr)
@@ -499,9 +660,10 @@ def main(argv: list[str]) -> int:
     if not res["delivered"]:
         return 0
     mark_retransmissions(res["classified"], fetch_recent)
-    print(with_queued(render(res, me, channel, taxonomy, t=t, reminder=reminder), res["classified"], me))
-    # The cursor is already past everything shown: wait_loop acknowledges
-    # every slice it sees, delivered or passed.
+    show_page(res, lambda: print(with_queued(render(res, me, channel, taxonomy, t=t, reminder=reminder),
+                                             res["classified"], me)))
+    # show_page acknowledged the slice once the page was written (wait_loop did, for a
+    # slice that delivered nothing).
     return 0
 
 
@@ -516,6 +678,7 @@ def run(argv: list[str]) -> int:
         # rewrites the mark nor is answered by another watch's refusal line.
         try:
             deadline_arg(argv)
+            replace = replace_arg(argv)
         except ValueError as e:
             print(e, file=sys.stderr)
             return 1
@@ -524,11 +687,12 @@ def run(argv: list[str]) -> int:
         # exits 0, so the harness's background call ends clean.
         if ({"--follow", "--until-delivery"} & set(argv)
                 and not {"--replay", "--history", "--held"} & set(argv)):
-            lock = take_or_report(gzmsg.whoami()["agent"])
+            lock = take_or_report(gzmsg.whoami()["agent"], watch_session.current(), replace=replace)
             if lock is not None and not lock.acquired:
                 lock = None
             elif lock is None:
                 return 0
+            pin_version()
         return main(argv)
     except _Exit as e:
         return e.code

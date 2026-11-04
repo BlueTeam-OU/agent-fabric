@@ -1,15 +1,18 @@
-"""tools/fabric/lint_rules/signing.py — policies/signing.json (agent-fabric ADR-057 §5 rules 1, 3, 5).
+"""tools/fabric/lint_rules/signing.py — policies/signing.json and policies/forge-keys/ (agent-fabric ADR-057 §5 rules 1, 3, 5, 8).
 A part of tools/fabric/lint.py, the entry point."""
 from __future__ import annotations
 
 import importlib.util
 import os
+import shutil
 import subprocess
+import tempfile
 
 from .base import workingcopy
 from .schema import load_json, load_schema, validate_json
 
 WHERE = "policies/signing.json"
+GPG = "gpg"   # a name, so a test can stand in a host without it
 
 # By path, as lint loads every module it trusts: a directory on sys.path
 # would let a fixture fabric answer for the import.
@@ -57,13 +60,56 @@ def _own_since_findings(root: str, doc: dict, registry_path: str) -> list[str]:
     return []
 
 
+def _forge_key_findings(policy_path: str, doc: dict) -> list[str]:
+    """Each listed forge key has its file beside the policy, and that file is
+    the key its fingerprint names (one primary, that one): the checker trusts
+    what the file holds, so a file swapped for another key would admit that
+    key's commits under the listed name. A file no entry lists is a finding
+    too: a key that is committed and not listed looks trusted and is not."""
+    listed = doc.get("forge_keys") or {}
+    where = signing_policy.FORGE_KEYS_DIR
+    folder = os.path.join(os.path.dirname(policy_path), where)
+    try:
+        present = sorted(n for n in os.listdir(folder) if n.endswith(".asc"))
+    except OSError:
+        present = []
+    findings = [f"policies/{where}/{n}: no entry in forge_keys lists it" for n in present if n[:-4] not in listed]
+    missing = [fpr for fpr in sorted(listed) if f"{fpr}.asc" not in present]
+    findings += [f"{WHERE}: forge_keys lists {fpr} and policies/{where}/{fpr}.asc is not there" for fpr in missing]
+    to_read = [fpr for fpr in sorted(listed) if fpr not in missing]
+    if not to_read:
+        return findings
+    if not shutil.which(GPG):
+        return findings + [f"policies/{where}/: gpg is not installed here, so no forge key's file could be checked"]
+    home = tempfile.mkdtemp(prefix="forgekeys-")
+    try:
+        os.chmod(home, 0o700)
+        for fpr in to_read:
+            try:
+                got = signing_policy.key_file_primaries(os.path.join(folder, f"{fpr}.asc"), home)
+            except (OSError, subprocess.SubprocessError) as e:
+                findings.append(f"policies/{where}/{fpr}.asc: gpg could not read it ({e})")
+                continue
+            if got != [fpr]:
+                findings.append(f"policies/{where}/{fpr}.asc: holds {', '.join(got) or 'no key'}, "
+                                f"not the one key {fpr} its name and forge_keys say")
+    finally:
+        try:
+            subprocess.run(["gpgconf", "--homedir", home, "--kill", "all"], capture_output=True, timeout=30)
+        except (OSError, subprocess.SubprocessError):
+            pass
+        shutil.rmtree(home, ignore_errors=True)
+    return findings
+
+
 def signing_findings(root: str, policy_path: str, registry_path: str) -> list[str]:
     """Its schema (the engine's, under `root`), then what a schema cannot
     say: every repository is the owner/name of one of a registered
     project's remotes, and no project is named twice (two entries for one
     repository under its old and new names would give it two formats and
     two cut-overs, and which one wins would be dict order). An absent file
-    is not judged: the fleet default applies and nothing is refused."""
+    is not judged: the fleet default applies and nothing is refused. The
+    forge keys are read beside `policy_path` (_forge_key_findings)."""
     if not os.path.exists(policy_path):
         return []
     findings: list[str] = []
@@ -77,6 +123,7 @@ def signing_findings(root: str, policy_path: str, registry_path: str) -> list[st
     findings += [f"{WHERE}: {p}" for p in signing_policy.shape_problems(doc)]
     if findings or not isinstance(doc.get("repositories"), dict):
         return sorted(set(findings))
+    findings += _forge_key_findings(policy_path, doc)
     findings += _own_since_findings(root, doc, registry_path)
     registry: dict = {}
     if os.path.exists(registry_path):

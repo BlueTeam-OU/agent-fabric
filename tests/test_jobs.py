@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import datetime
 import http.server
+import importlib.util
 import json
 import os
 import re
@@ -14,16 +15,19 @@ import sys
 import tempfile
 import threading
 from instance_fixtures import write_operator_projects  # noqa: E402 — tests/, the script's own directory
+import hook_harness  # noqa: E402 — tests/, the script's own directory
 import jobs_world  # noqa: E402 — tests/, the script's own directory
 from git_env import git_env, scrub_process_env  # noqa: E402 — tests/, the script's own directory
 scrub_process_env()
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 JOBS = os.path.join(ROOT, "bin", "fabric-jobs")
+JOBS_PY = os.path.join(ROOT, "tools", "fabric", "jobs.py")
 
 
-def message(kind: str, to: str, mid: str, subject: str, project: str = "fixture") -> str:
-    return (f"[GZCOORD/1] {kind}\nFROM: other-host/sender\nROLE: backend-dev\nPROJECT: {project}\n{to}\n"
+def message(kind: str, to: str, mid: str, subject: str, project: str = "fixture", repository: str | None = None) -> str:
+    repo = f"REPOSITORY: {repository}\n" if repository else ""
+    return (f"[GZCOORD/1] {kind}\nFROM: other-host/sender\nROLE: backend-dev\nPROJECT: {project}\n{repo}{to}\n"
             f"MESSAGE-ID: 01a09fc1-0000-7000-8000-00000000000{mid}\nSUBJECT: {subject}\n\nREQUEST:\nplease\n")
 
 
@@ -132,7 +136,10 @@ def main() -> int:
         env = {**os.environ, "AGENT_FABRIC_STATE_DIR": os.path.join(tmp, "state"), "AGENT_FABRIC_ROOT": ROOT,
                "HOME": home, "CLAUDE_BRIDGE_URL": dead_url, "CLAUDE_BRIDGE_AUTH_TOKEN": "tok",
                "AGENT_FABRIC_HOSTS_REGISTRY": registry, "FABRIC_STATE_CHANNEL": "t:state:control",
-               "FABRIC_CONTROL_CHANNEL": "t:control", "CLAUDE_CODE_SESSION_ID": "sess-A"}
+               "FABRIC_CONTROL_CHANNEL": "t:control", "CLAUDE_CODE_SESSION_ID": "sess-A",
+               # The inbox replay takes ~0.5 s on a quiet host and as long as the load makes it on a starved one: a
+               # case that reads a message sets the bound to a hang guard; the bound itself is tested below.
+               "FABRIC_INBOX_REPLAY_WAIT_S": "600"}
         # The projects the tool resolves checkouts against: a fixture
         # registry, with ids the live one lacks, so a reader of the live
         # projects/registry.json finds neither.
@@ -266,8 +273,8 @@ def main() -> int:
         check("a job in an unregistered checkout is not the bound project's", jobs()[1]["project"] is None
               and jobs()[1]["working_copy"] == unreg, repr(jobs()[1]))
         p = run("next", "j2", cwd=unreg)
-        check("next in an unregistered checkout, for a job added there: continue here", p.returncode == 0
-              and "continue here" in p.stdout and "fabric-fresh" not in p.stdout, p.stdout + p.stderr)
+        check("next in an unregistered checkout, for a job added there: not fresh for having worked", p.returncode == 0
+              and "already worked" not in p.stdout, p.stdout + p.stderr)
         run("drop", "j2", "a test")
         os.makedirs(os.path.join(repo_a, "sub"), exist_ok=True)
         p = run("add", "from a subdirectory", "--working-copy", os.path.join(repo_a, "sub"))
@@ -284,8 +291,8 @@ def main() -> int:
         run("add", "e")
         run("add", "f")
         p = run("next")
-        check("a session that has worked no job takes the first in place", p.returncode == 0
-              and "j1" in p.stdout and "continue here" in p.stdout and "fabric-fresh" not in p.stdout, p.stdout)
+        check("a session that has worked no job is not fresh for having worked (standing in the main checkout it is outside the new worktree)", p.returncode == 0
+              and "j1" in p.stdout and "already worked" not in p.stdout, p.stdout)
         check("going active records the session in the log", jobs()[0]["log"][-1].get("session") == "sess-A", repr(jobs()[0]))
         p = run("next")
         check("next refuses while a job is active", p.returncode == 1 and "still active" in p.stderr, p.stderr)
@@ -312,14 +319,118 @@ def main() -> int:
         env["CLAUDE_CODE_SESSION_ID"] = "sess-B"
         p = run("next", "--json")
         verdict = json.loads(p.stdout or "{}")
-        check("another session, which has worked no job: continue here, whatever the last job was",
-              verdict.get("job") == "j5" and verdict.get("fresh") is False and verdict.get("worked") is None, p.stdout)
+        check("another session, which has worked no job: not fresh for having worked, whatever the last job was",
+              verdict.get("job") == "j5" and verdict.get("reason") != "worked" and verdict.get("worked") is None, p.stdout)
         run("done", "j5")
         p = run("next", "--json")
         verdict = json.loads(p.stdout or "{}")
         check("that session has now worked one: fresh, and it names it", verdict.get("job") == "j6"
               and verdict.get("fresh") is True and verdict.get("worked") == "j5", p.stdout)
         run("done", "j6")
+        env["CLAUDE_CODE_SESSION_ID"] = saved
+        # A session that has worked no job takes one in place only from inside the job's copy, the job copy guard's own "inside"
+        # (ADR-037 rule 3): the guard is run on a commit payload from each directory a case started in, and agrees with the verdict.
+        saved_state = env["AGENT_FABRIC_STATE_DIR"]
+        guard = hook_harness.entry("JOB_COPY_GUARD_HOOK", "job-copy-guard.sh")
+
+        def commit_decision(cwd: str, session: str) -> str:
+            payload = {"tool_name": "Bash", "cwd": cwd, "tool_input": {"command": "git commit -m x"}, "hook_event_name": "PreToolUse"}
+            r = hook_harness.run(guard, json.dumps(payload), hook_harness.env(
+                home, AGENT_FABRIC_ROOT=ROOT, AGENT_FABRIC_STATE_DIR=env["AGENT_FABRIC_STATE_DIR"], CLAUDE_CODE_SESSION_ID=session,
+                AGENT_FABRIC_HOSTS_REGISTRY=registry), cwd=cwd)
+            return json.loads(r.out)["hookSpecificOutput"]["permissionDecision"] if r.out else "allow"
+
+        def inside_world(tag: str) -> None:
+            env["AGENT_FABRIC_STATE_DIR"] = os.path.join(tmp, f"state-inside-{tag}")
+            env["CLAUDE_CODE_SESSION_ID"] = f"sess-{tag}"
+
+        inside_world("out")
+        run("add", "work in beta", "--working-copy", repo_b)
+        p = run("next", "--json", cwd=repo_a)
+        verdict = json.loads(p.stdout or "{}")
+        check("a session that has worked no job, standing outside the job's copy: fresh, with its reason",
+              verdict.get("fresh") is True and verdict.get("reason") == "outside_copy" and verdict.get("worked") is None
+              and verdict.get("here") == repo_a and verdict.get("copies") and repo_b not in verdict["copies"], p.stdout + p.stderr)
+        check("  and the guard denies the commit it would have been taken in place for",
+              commit_decision(repo_a, "sess-out") == "deny", commit_decision(repo_a, "sess-out"))
+        wt = jobs()[0]["worktree"]
+        check("  the job's copies are its worktree: the switch records it as the working copy too", wt and verdict.get("copies") == [wt], repr(verdict))
+        run("pause", "j1", "setting it aside", cwd=wt)
+        inside_world("txt")
+        run("add", "work in beta text", "--working-copy", repo_b)
+        p = run("next", cwd=repo_a)
+        check("the text names the directory, the job's copies and the guard, and does not say continue here",
+              p.returncode == 0 and "fresh session: this one has worked no job" in p.stdout and repo_a in p.stdout and repo_b in p.stdout
+              and "job copy guard refuses a commit" in p.stdout and "fabric-fresh --job j1" in p.stdout
+              and "continue here" not in p.stdout and "already worked" not in p.stdout, p.stdout + p.stderr)
+        wt = jobs()[0]["worktree"]
+        run("pause", "j1", "setting it aside", cwd=wt)
+        os.makedirs(os.path.join(wt, "sub"), exist_ok=True)
+        for what, where in (("the job's worktree", wt), ("a subdirectory of its worktree", os.path.join(wt, "sub"))):
+            # The paused job of the world above, taken again by a session of its own that has worked nothing.
+            env["CLAUDE_CODE_SESSION_ID"] = "sess-in-" + re.sub(r"\W", "-", what)
+            p = run("next", "--json", cwd=where)
+            verdict = json.loads(p.stdout or "{}")
+            check(f"standing in {what}: in place", verdict.get("fresh") is False and verdict.get("reason") is None, p.stdout + p.stderr)
+            check(f"  and the guard allows a commit from {what}", commit_decision(where, env["CLAUDE_CODE_SESSION_ID"]) == "allow",
+                  commit_decision(where, env["CLAUDE_CODE_SESSION_ID"]))
+            run("pause", "j1", "setting it aside", cwd=wt)
+        env["CLAUDE_CODE_SESSION_ID"] = "sess-in-text"
+        p = run("next", cwd=wt)
+        check("standing in the job's worktree, the text says continue here and prints no fabric-fresh",
+              p.returncode == 0 and "continue here" in p.stdout and "fabric-fresh" not in p.stdout and "fresh session" not in p.stdout,
+              p.stdout + p.stderr)
+        run("pause", "j1", "setting it aside", cwd=wt)
+        # `next` itself refuses a job with no checkout (no branch can be chosen), so the verdict's answer for a job that records
+        # no copy is asked of the function: the guard asks there (decision 8), and the verdict stays what it was.
+        spec = importlib.util.spec_from_file_location("jobs_inside", JOBS_PY)
+        jobs_mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(jobs_mod)
+        # The guard resolves the cwd to its git toplevel before it asks "inside", so a recorded copy that is a subdirectory of its
+        # checkout (the list stores toplevels, a hand-edited record may not) holds no directory under it. `standing` is read
+        # in process from each directory.
+        def at(directory: str):
+            before = os.getcwd()
+            os.chdir(directory)
+            try:
+                return jobs_mod.standing()
+            finally:
+                os.chdir(before)
+
+        os.makedirs(os.path.join(repo_b, "sub"), exist_ok=True)
+        sub = os.path.join(repo_b, "sub")
+        check("the cwd is read as its checkout's toplevel: a copy recorded as a subdirectory is not stood in from that subdirectory",
+              at(sub) == os.path.realpath(repo_b)
+              and (jobs_mod.outside_copy({"id": "j9", "working_copy": sub}, at(sub)) or {}).get("reason") == "outside_copy"
+              and jobs_mod.outside_copy({"id": "j9", "working_copy": repo_b}, at(sub)) is None)
+        two = {"id": "j9", "working_copy": repo_b, "worktree": os.path.join(tmp, "elsewhere")}
+        check("a recorded working copy that differs from the worktree (no sync) is inside as well",
+              jobs_mod.outside_copy(two, at(repo_b)) is None and jobs_mod.outside_copy(two, at(sub)) is None)
+        check("  and once it is not recorded, the project's main checkout is outside",
+              (jobs_mod.outside_copy({"id": "j9", "worktree": two["worktree"]}, at(repo_b)) or {}).get("reason") == "outside_copy")
+        check("a job that records no working copy and no worktree: no outside verdict, as before",
+              jobs_mod.outside_copy({"id": "j9", "working_copy": None, "worktree": None}, at(repo_a)) is None
+              and jobs_mod.outside_copy({"id": "j9"}, None) is None)
+        check("  and its positive control: one that records a copy elsewhere is outside",
+              (jobs_mod.outside_copy({"id": "j9", "working_copy": repo_b}, at(repo_a)) or {}).get("reason") == "outside_copy")
+        # An unreadable place is outside, never the cwd taken as the answer: git failing must not turn fresh into in place.
+        vcs_mod = sys.modules["fabric_jobs.vcs"]
+        real_toplevel = vcs_mod.toplevel
+
+        def broken(path):
+            raise vcs_mod.VcsError("git did not answer")
+
+        vcs_mod.toplevel = broken
+        try:
+            unreadable = at(sub)
+        finally:
+            vcs_mod.toplevel = real_toplevel
+        verdict = jobs_mod.outside_copy({"id": "j9", "working_copy": sub}, unreadable) or {}
+        check("an unreadable toplevel is outside, with no place named, though the cwd is the recorded copy",
+              unreadable is None and verdict.get("reason") == "place_unreadable" and verdict.get("here") is None, repr((unreadable, verdict)))
+        check("  positive control: the same copy and directory, git answering, is read as before",
+              at(sub) == os.path.realpath(repo_b))
+        env["AGENT_FABRIC_STATE_DIR"] = saved_state
         env["CLAUDE_CODE_SESSION_ID"] = saved
         # A launched session never activates its job: A's `next` did, and B
         # (opened by fabric-fresh --job) only works and finishes it.
@@ -348,8 +459,8 @@ def main() -> int:
         run("drop", "j10", "stale")
         p = run("next", "--json")
         verdict = json.loads(p.stdout or "{}")
-        check("a session that only dropped a queued job has worked none: continue here",
-              verdict.get("job") == "j11" and verdict.get("fresh") is False and verdict.get("worked") is None, p.stdout)
+        check("a session that only dropped a queued job has worked none: not fresh for having worked",
+              verdict.get("job") == "j11" and verdict.get("reason") != "worked" and verdict.get("worked") is None, p.stdout)
         run("done", "j11")
         env["CLAUDE_CODE_SESSION_ID"] = saved
         p = run("next", "j3")
@@ -424,15 +535,23 @@ def main() -> int:
             {"seq": 12, "id": "r12", "ts": "T", "sender": "other-host/sender", "content": message("REQUEST", "TO: h/someone-else", "b", "not mine")},
             {"seq": 13, "id": "r13", "ts": "T", "sender": "other-host/sender", "content": message("INFO", me, "c", "just news")},
             {"seq": 14, "id": "r14", "ts": "T", "sender": "other-host/sender", "content": message("REQUEST", me, "d", "elsewhere", "another")},
+            {"seq": 15, "id": "r15", "ts": "T", "sender": "other-host/sender", "content": message("REQUEST", me, "1", "repo wins", "another", "fixture-org/fixture-proj")},
+            {"seq": 16, "id": "r16", "ts": "T", "sender": "other-host/sender", "content": message("REQUEST", me, "2", "repo without a checkout", "another", "Fixture-Org/fixture-nowhere")},
+            {"seq": 17, "id": "r17", "ts": "T", "sender": "other-host/sender", "content": message("REQUEST", me, "3", "repo unregistered", "another", "elsewhere-org/unregistered")},
+            {"seq": 18, "id": "r18", "ts": "T", "sender": "other-host/sender", "content": message("REQUEST", me, "4", "repo, registry ambiguous", "another", "fixture-org/fixture-proj")},
+            {"seq": 19, "id": "r19", "ts": "T", "sender": "other-host/sender", "content": message("REQUEST", me, "5", "repo, no registry", "another", "fixture-org/fixture-proj")},
         ])
         env.update({"CLAUDE_BRIDGE_URL": f"http://127.0.0.1:{relay.server_address[1]}",
                     "GZCOORD_CHANNEL": "fixture:chan"})
         try:
             p = run("add", "--request", "01a09fc1-0000-7000-8000-00000000000a", "--topic", "thing")
-            check("a request outside its project's working copy asks for one", p.returncode == 1
-                  and "for project fixture" in p.stderr and not jobs(), p.stderr)
-            p = run("add", "--request", "01a09fc1-0000-7000-8000-00000000000a", "--topic", "thing",
-                    "--working-copy", repo_a)
+            check("a request for a project with no working copy here is filed with none", p.returncode == 0
+                  and len(jobs()) == 1 and jobs()[0]["project"] == "fixture" and jobs()[0]["working_copy"] is None, p.stderr + repr(jobs()))
+            p = run("start", "j1")
+            check("start refuses it by name, and says how to name a working copy", p.returncode == 1
+                  and "j1 has no working copy" in p.stderr and "project j1 fixture --working-copy DIR" in p.stderr
+                  and jobs()[0]["state"] == "queued", p.stderr)
+            p = run("project", "j1", "fixture", "--working-copy", repo_a)
             got = jobs()
             check("--request fills the job from the message", p.returncode == 0 and len(got) == 1
                   and got[0]["working_copy"] == repo_a
@@ -441,25 +560,119 @@ def main() -> int:
                                            "from": "other-host/sender", "seq": 11}, p.stdout + p.stderr + repr(got))
             p = run("add", "--request", "11")
             check("the same message twice is refused by name", p.returncode == 1 and "already j1" in p.stderr, p.stderr)
+            p = run("add", "--", "build the thing (REQUEST 01a09fc1-0000-7000-8000-00000000000a)")
+            check("a title naming a REQUEST the list holds adds nothing and names the job",
+                  p.returncode == 0 and p.stdout.startswith("already listed j1 ") and len(jobs()) == 1, p.stdout + p.stderr)
             p = run("add", "--request", "12")
             check("a message not addressed to this login is refused", p.returncode == 1
                   and "not addressed to this login" in p.stderr and len(jobs()) == 1, p.stderr)
             p = run("add", "--request", "14")
-            check("a request for another project asks for its working copy", p.returncode == 1
-                  and "for project another" in p.stderr, p.stderr)
-            p = run("add", "--request", "14", "--working-copy", repo_b)
-            check("--working-copy settles it", p.returncode == 0 and jobs()[-1]["project"] == "another", p.stderr)
+            check("a request for another project is filed with no working copy", p.returncode == 0
+                  and jobs()[-1]["project"] == "another" and jobs()[-1]["working_copy"] is None, p.stderr)
+            p = run("project", "j2", "another", "--working-copy", repo_b)
+            check("project --working-copy settles it", p.returncode == 0 and jobs()[-1]["project"] == "another"
+                  and jobs()[-1]["working_copy"] == repo_b, p.stderr)
             p = run("add", "--request", "13", "--auto", "--working-copy", repo_a)
             check("the automatic intake skips what is not a REQUEST", p.returncode == 0 and len(jobs()) == 2, p.stderr)
             p = run("add", "--request", "11", "--auto")
             check("the automatic intake skips a listed request quietly", p.returncode == 0
                   and not p.stderr and len(jobs()) == 2, p.stderr)
+            # REPOSITORY is the work's repository; PROJECT is the sender's directory (j372).
+            p = run("add", "--request", "15")
+            repo_job = jobs()[-1]
+            check("REPOSITORY registered, PROJECT another: the job is REPOSITORY's, with its working copy", p.returncode == 0
+                  and repo_job["project"] == "fixture-proj" and repo_job["working_copy"] == gz
+                  and repo_job["project_from"].startswith("REPOSITORY fixture-org/fixture-proj")
+                  and "PROJECT: another was not used" in repo_job["project_from"], p.stderr + repr(repo_job))
+            p = run("show", repo_job["id"])
+            check("show prints where the project came from", p.returncode == 0
+                  and "project from: " in p.stdout and "REPOSITORY fixture-org/fixture-proj" in p.stdout, p.stdout)
+            p = run("add", "--request", "16")
+            nowhere = jobs()[-1]
+            check("REPOSITORY registered here with no checkout: filed with none, not PROJECT's, matched case-folded", p.returncode == 0
+                  and nowhere["project"] == "fixture-nowhere" and nowhere["working_copy"] is None, p.stderr + repr(nowhere))
+            p = run("start", nowhere["id"])
+            check("start refuses it by name", p.returncode == 1 and f"{nowhere['id']} has no working copy" in p.stderr
+                  and "fixture-nowhere" in p.stderr, p.stderr)
+            p = run("add", "--request", "17")
+            check("REPOSITORY unregistered: PROJECT decides", p.returncode == 0 and jobs()[-1]["project"] == "another"
+                  and jobs()[-1]["project_from"] == "PROJECT: REPOSITORY elsewhere-org/unregistered unregistered", p.stderr + repr(jobs()[-1]))
+            # The re-point verb: a plain job moves, logged; one with a branch or a worktree does not.
+            moved = jobs()[-1]["id"]
+            p = run("project", moved, "fixture-proj")
+            after = [j for j in jobs() if j["id"] == moved][0]
+            check("project moves a plain job to the project's working copy and logs it", p.returncode == 0
+                  and after["project"] == "fixture-proj" and after["working_copy"] == gz and after["project_from"] == "re-pointed"
+                  and after["log"][-1]["note"].startswith("project re-pointed from another to fixture-proj")
+                  and "at" in after["log"][-1] and "state" not in after["log"][-1], p.stderr + repr(after))
+            p = run("show", moved)
+            check("show names the re-pointing", "project from: re-pointed" in p.stdout, p.stdout)
+            lst = os.path.join(tmp, "state-request", "agents", login, "jobs.json")
+            for field in ("branch", "worktree"):
+                doc = json.loads(open(lst, encoding="utf-8").read())
+                [j for j in doc["jobs"] if j["id"] == moved][0][field] = "x"
+                with open(lst, "w", encoding="utf-8") as fh:
+                    json.dump(doc, fh)
+                p = run("project", moved, "another")
+                check(f"project refuses a job with a {field}, naming it", p.returncode == 1 and field in p.stderr
+                      and [j for j in jobs() if j["id"] == moved][0]["project"] == "fixture-proj", p.stderr)
+                doc = json.loads(open(lst, encoding="utf-8").read())
+                [j for j in doc["jobs"] if j["id"] == moved][0].pop(field)
+                with open(lst, "w", encoding="utf-8") as fh:
+                    json.dump(doc, fh)
+            # The refusals F1/F4 of the review: each fails when its guard is removed.
+            p = run("drop", moved, "a test")
+            p = run("project", moved, "another")
+            check("project refuses a closed job", p.returncode == 1 and "is dropped" in p.stderr
+                  and [j for j in jobs() if j["id"] == moved][0]["project"] == "fixture-proj", p.stderr)
+            listed = len(jobs())
+            for seq, label, operator, reason in (
+                    ("18", "two projects register the repository", {"one": ["git@example.org:fixture-org/fixture-proj.git"],
+                                                                      "two": ["https://example.org/fixture-org/fixture-proj"]},
+                     "REPOSITORY fixture-org/fixture-proj ambiguous: one, two"),
+                    ("19", "the operator tree has no registry", None, "REPOSITORY fixture-org/fixture-proj: registry unreadable (FileNotFoundError: ")):
+                # A registry that is not JSON is covered on request_project in test_gzcoord_intake: identity.resolve_context
+                # reads the same file and fails every fabric command then, which is not the REQUEST's doing.
+                other = dict(env)
+                if operator is None:
+                    other["AGENT_FABRIC_OPERATOR"] = os.path.join(tmp, "operator-none")
+                else:
+                    other["AGENT_FABRIC_OPERATOR"] = write_operator_projects(os.path.join(tmp, "operator-dup"), operator)
+                p = subprocess.run([JOBS, "add", "--request", seq], cwd=repo_a, env=other, capture_output=True, text=True)
+                filed = jobs()[-1]
+                check(f"when {label} the REQUEST is filed by PROJECT with the reason, never refused", p.returncode == 0
+                      and len(jobs()) == listed + 1 and filed["project"] == "another"
+                      and filed["project_from"].startswith("PROJECT: ") and reason in filed["project_from"], p.stdout + p.stderr + repr(filed))
+                listed += 1
+                p = subprocess.run([JOBS, "show", filed["id"]], cwd=repo_a, env=other, capture_output=True, text=True)
+                check(f"show prints the reason when {label}", "project from: PROJECT: " in p.stdout and reason in p.stdout, p.stdout)
+            p = run("add", "a titled job", "--project", "fixture-proj")
+            check("a job added with --project records it as the source of its project", jobs()[-1].get("project_from") == "--project", repr(jobs()[-1]))
+            p = run("add", "--owner", "host/boss", "--project", "fixture-proj", "--", "sent (REQUEST 01a09fc1-0000-7000-8000-0000000000f1)")
+            check("a jobs-add of the sending side (--owner) for a REQUEST says so in project from", p.returncode == 0
+                  and "sending side" in jobs()[-1].get("project_from", ""), repr(jobs()[-1]))
+            p = run("add", "--project", "fixture-proj", "--", "by hand (REQUEST 01a09fc1-0000-7000-8000-0000000000f2)")
+            check("the same add by a person is plain --project", jobs()[-1].get("project_from") == "--project", repr(jobs()[-1]))
+            p = run("project", "j99", "another")
+            check("project names an unknown job", p.returncode == 1 and "no job j99" in p.stderr, p.stderr)
             # inbox exits 2 for a control channel too; only its own
             # {"addressed": false} answer means "not for this login".
             p = subprocess.run([JOBS, "add", "--request", "11", "--working-copy", repo_a], cwd=repo_a,
                                env={**env, "GZCOORD_CHANNEL": "fixture:control"}, capture_output=True, text=True)
             check("an inbox refusal is said as itself, not as 'not addressed'", p.returncode == 1
                   and "cannot read message 11" in p.stderr and "not addressed" not in p.stderr, p.stderr)
+            # A bound no interpreter start can meet: the refusal does not depend on the host's load (more load only
+            # makes the call later), and the same call under the suite's bound above just succeeded.
+            listed = len(jobs())
+            p = subprocess.run([JOBS, "add", "--request", "13", "--working-copy", repo_a], cwd=repo_a,
+                               env={**env, "FABRIC_INBOX_REPLAY_WAIT_S": "0.001"}, capture_output=True, text=True)
+            check("a replay past its bound is refused, naming the bound, and adds nothing", p.returncode == 1
+                  and "cannot read message 13: the relay did not answer within 0.001 s" in p.stderr and len(jobs()) == listed, p.stderr)
+            for bad in ("0", "-1", "abc", "nan", "inf", ""):
+                p = subprocess.run([JOBS, "add", "--request", "13", "--working-copy", repo_a], cwd=repo_a,
+                                   env={**env, "FABRIC_INBOX_REPLAY_WAIT_S": bad}, capture_output=True, text=True)
+                check(f"a malformed bound is refused by name, never replaced by the default: {bad!r}", p.returncode == 1
+                      and "FABRIC_INBOX_REPLAY_WAIT_S must be a positive number of seconds" in p.stderr and len(jobs()) == listed, p.stderr)
         finally:
             relay.shutdown()
             relay.server_close()
@@ -699,6 +912,45 @@ def main() -> int:
             jobs_mod.ask_queue.__globals__["subprocess"].run = saved_run
         check("python unable to start: a claim that never left (sent False), never 'may be claimed'",
               got is not None and got.sent is False and "python could not run" in str(got), got)
+
+        # Audit F06: two claims of one pool job by one login, their answers read in the reverse order (the repeat's
+        # first). The old rule listed a first claim as a new job whatever was listed, so p1 became j1 and j2.
+        pdoc = {"seq": 0, "jobs": []}
+        pjob = {"id": "p1", "title": "one", "priority": "normal", "topic": None, "project": None}
+        gen_a, gen_b = "a" * 32, "b" * 32
+        j1, added1 = jobs_mod.pool_job(pdoc, pjob, "h/user", again=True, generation=gen_a)
+        j2, added2 = jobs_mod.pool_job(pdoc, pjob, "h/user", again=False, generation=gen_a)
+        check("one remote claim is one local job, whichever answer is applied first",
+              added1 and not added2 and j2 is j1 and len(pdoc["jobs"]) == 1, repr(pdoc["jobs"]))
+        j3, added3 = jobs_mod.pool_job(pdoc, pjob, "h/user", again=False, generation=gen_b)
+        check("a recreated pool (another generation) restarting its ids is a new job, even for a repeat-looking answer",
+              added3 and j3 is not j1 and len(pdoc["jobs"]) == 2, repr([j["source"] for j in pdoc["jobs"]]))
+        j1["state"] = "done"
+        j4, added4 = jobs_mod.pool_job(pdoc, pjob, "h/user", again=False, generation=gen_a)
+        check("the claim is recognised in any state of its job", not added4 and j4 is j1)
+        legacy = {"seq": 0, "jobs": []}
+        l1, _ = jobs_mod.pool_job(legacy, pjob, "h/user", again=False)
+        l2, added = jobs_mod.pool_job(legacy, pjob, "h/user", again=True, generation=gen_a)
+        check("a job listed before generations existed is found by a repeat that now names one", not added and l2 is l1)
+        try:
+            jobs_mod.claim_generation({"generation": "../x"})
+            bad = False
+        except jobs_mod.Refused:
+            bad = True
+        check("a generation that is not one is refused, absent is None",
+              bad and jobs_mod.claim_generation({}) is None and jobs_mod.claim_generation({"generation": gen_a}) == gen_a)
+
+        replay_wait = sys.modules["fabric_jobs.records"].replay_wait
+        saved_wait = os.environ.pop("FABRIC_INBOX_REPLAY_WAIT_S", None)
+        try:
+            unset = replay_wait()
+            os.environ["FABRIC_INBOX_REPLAY_WAIT_S"] = "7.5"
+            set_to = replay_wait()
+        finally:
+            os.environ.pop("FABRIC_INBOX_REPLAY_WAIT_S", None)
+            if saved_wait is not None:
+                os.environ["FABRIC_INBOX_REPLAY_WAIT_S"] = saved_wait
+        check("the replay bound is 15 s unless set, and the setting is read as seconds", unset == 15 and set_to == 7.5, (unset, set_to))
 
         class Fails(http.server.BaseHTTPRequestHandler):
             def do_POST(self):

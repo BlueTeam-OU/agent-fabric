@@ -86,12 +86,12 @@ def main() -> int:
 
         def hold(*args: str, **env: str) -> subprocess.Popen:
             """A holder in the background, its output in holder.out, waited
-            for until it prints `started` (five seconds at most)."""
+            for until it prints `started` (a minute at most)."""
             with open(holder_out, "w") as out:
                 p = subprocess.Popen(["bash", CMD, *args], env=clean_env(AGENT_FABRIC_LEASES=d, **env),
                                      stdout=out, stderr=subprocess.STDOUT, start_new_session=True)
             holders.append(p)
-            for _ in range(50):
+            for _ in range(600):   # up to 60 s: a caller signals the holder once it is up
                 if "started" in read(holder_out):
                     break
                 time.sleep(0.1)
@@ -184,11 +184,45 @@ def main() -> int:
             # caller in the middle.
             probes = [subprocess.Popen(["bash", CMD, "backend-test", "--who"], env=clean_env(AGENT_FABRIC_LEASES=d),
                                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL) for _ in range(40)]
-            rc, out, _ = lease("backend-test", "--", "echo", "got-through")
+            # The caller's own bound is one second (lease.py FAIL_FAST_S), and
+            # a probe starved of CPU for longer than that holds its shared
+            # lock for longer: at load 60+ the bare caller was refused by a
+            # probe that was merely slow. So this case waits (--wait) for what
+            # it needs, the probes to end, and pins only that a burst never
+            # leaves a caller unable to run; the one-second window itself is
+            # pinned by the next case, which a caller with no window fails.
+            # Not pinned by any case: that a probe's own hold is short (lease.py
+            # --who, flock to exit). It is the lifetime of a process, and
+            # bounding it needs a seam in the code under test, not a test.
+            rc, out, err = lease("backend-test", "--wait", "120", "--", "echo", "got-through", merged=False)
             for p in probes:
                 p.wait()
-            check("a caller is not refused by a burst of --who probes", rc == 0 and out == "got-through",
-                  f"rc={rc} {out}")
+            check("a caller runs through a burst of --who probes", rc == 0 and out == "got-through",
+                  f"rc={rc} {out} {err}")
+            # The window itself, without a probe's speed in it: the test holds
+            # a shared lock, starts the caller, and lets go the moment the
+            # caller is queued behind it (a blocked FLOCK in /proc/locks, on
+            # this file's inode), so the caller must wait the hold out inside
+            # its second; what remains is the test's own wake-up latency, not a
+            # process start.
+            with open(f"{d}/backend-test") as observer:
+                fcntl.flock(observer, fcntl.LOCK_SH)
+                inode = os.fstat(observer.fileno()).st_ino
+                caller = subprocess.Popen(["bash", CMD, "backend-test", "--", "echo", "got-through"],
+                                          env=clean_env(AGENT_FABRIC_LEASES=d), stdout=subprocess.PIPE,
+                                          stderr=subprocess.STDOUT, text=True)
+                holders.append(caller)
+                queued, give_up = False, time.monotonic() + 60
+                while not queued and caller.poll() is None and time.monotonic() < give_up:
+                    queued = any("->" in ln and "FLOCK" in ln and f":{inode} " in ln
+                                 for ln in read("/proc/locks").splitlines())
+                    if not queued:
+                        time.sleep(0.005)
+                fcntl.flock(observer, fcntl.LOCK_UN)
+            said = caller.communicate(timeout=60)[0].rstrip("\n")
+            check("the caller queued behind a shared hold", queued, f"rc={caller.returncode} {said}")
+            check("a caller waits out a momentary shared hold", caller.returncode == 0 and said == "got-through",
+                  f"rc={caller.returncode} {said}")
             # Two probes at once both say free (shared locks coexist).
             pair = [subprocess.Popen(["bash", CMD, "backend-test", "--who"], env=clean_env(AGENT_FABRIC_LEASES=d),
                                      stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True) for _ in range(2)]
@@ -273,11 +307,22 @@ def main() -> int:
                   bool(mask) and int(mask, 16) & 0x6 == 0, f"SigIgn {mask}")
             # The teardown: a child whose TERM handler takes time and exits
             # 7. The lease stays held while it runs; the wrapper returns 7.
+            # The handler runs until the test says so, so "while it runs" is
+            # a state the test observes, not a 1.5 s of wall time that a
+            # loaded host's probe (an interpreter start) can outlast. The
+            # trap is set before `started`, or a TERM could beat it.
+            entered, release = f"{sandbox}/term-entered", f"{sandbox}/term-release"
             h = hold("backend-test", "--", "sh", "-c",
-                     'echo started; trap "sleep 1.5; echo child-done; exit 7" TERM; while :; do sleep 0.2; done')
+                     f'trap "touch {entered}; while [ ! -e {release} ]; do sleep 0.05; done; echo child-done; exit 7" TERM; '
+                     'echo started; while :; do sleep 0.2; done')
             h.send_signal(signal.SIGTERM)
-            time.sleep(0.6)
+            for _ in range(1200):
+                if os.path.exists(entered):
+                    break
+                time.sleep(0.05)
+            check("TERM: the command is in its teardown", os.path.exists(entered), read(holder_out))
             check("TERM: the lease stays held while the command tears down", free() == 1)
+            open(release, "w").close()
             rc = h.wait(timeout=60)
             check("…the wrapper's status is the command's (7), after its teardown",
                   rc == 7 and "child-done" in read(holder_out), f"rc={rc} {read(holder_out)}")

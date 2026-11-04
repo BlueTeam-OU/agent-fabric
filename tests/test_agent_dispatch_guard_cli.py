@@ -27,8 +27,8 @@ from instance_fixtures import own_instance_tree  # noqa: E402 — tests/, the sc
 own_instance_tree()
 
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-UNDER_TEST = os.path.abspath(os.environ.get("DISPATCH_GUARD") or os.path.join(
-    HERE, "runtime", "claude-code", "hooks", "agent-dispatch-guard.sh"))
+import hook_harness  # noqa: E402
+UNDER_TEST = os.path.abspath(os.environ.get("DISPATCH_GUARD") or hook_harness.unmanaged("agent-dispatch-guard.sh"))
 if not os.path.isfile(UNDER_TEST):
     sys.exit(f"test: not found: {UNDER_TEST}")
 
@@ -105,7 +105,7 @@ def main() -> int:
     print("forks")
     expect("a fork is allowed with nothing set", "allow", '{"subagent_type":"fork","description":"continue"}')
 
-    print("the review class: all four conditions, or denied -- never asked")
+    print("the review class: all five conditions, or denied -- never asked")
     R = '{"subagent_type":"code-review","model":"fable","description":"Review PR 626 diff","prompt":"..."}'
     expect("code-review + review + fable + no isolation is allowed without a prompt", "allow", R)
     expect("re-review is a review", "allow", '{"subagent_type":"code-review","model":"fable","description":"Re-review PR 626 after fixes"}')
@@ -221,16 +221,27 @@ def main() -> int:
     # the runner's own binding and local layer out of these assertions, and a
     # scratch CLAUDE_CONFIG_DIR carries the reviewer file the guard checks.
     fabric_root = HERE
-    # The guard resolves through routing.py, which reads AGENT_FABRIC_ROOT: a
-    # root on the frozen column of 2026-09-24, where the five classes differ
-    # in model and level, so a guard that compared the wrong class's value
-    # would be caught. The committed column is two models at one level.
+    # The guard resolves through routing.py in its OWN tree (--fabric, never
+    # AGENT_FABRIC_ROOT, which a session may aim elsewhere; ADR-043 rule 2), so
+    # the fixture is a tree the guard itself runs from: its shim, module,
+    # routing.py and roots.py, on the frozen column of 2026-09-24, where the
+    # five classes differ in model and level, so a guard that compared the
+    # wrong class's value would be caught. The committed column is two models
+    # at one level.
     shutil.copytree(f"{fabric_root}/routing", f"{FIXTURE_ROOT}/routing")
     for n in ("capabilities.json", "effort.json"):
         shutil.copy(f"{fabric_root}/tests/fixtures/routing-distinct/{n}", f"{FIXTURE_ROOT}/routing/")
     os.makedirs(f"{FIXTURE_ROOT}/runtime/claude-code")
     shutil.copy(f"{fabric_root}/runtime/claude-code/aliases.json", f"{FIXTURE_ROOT}/runtime/claude-code/")
     shutil.copy(f"{fabric_root}/runtime/identity.py", f"{FIXTURE_ROOT}/runtime/")   # `pins --me` asks it who is running
+    os.makedirs(f"{FIXTURE_ROOT}/runtime/claude-code/hooks")
+    os.makedirs(f"{FIXTURE_ROOT}/tools/fabric/guards")
+    shutil.copy(UNDER_TEST, f"{FIXTURE_ROOT}/runtime/claude-code/hooks/agent-dispatch-guard.sh")
+    shutil.copy(os.path.join(os.path.dirname(UNDER_TEST), "..", "..", "..", "tools", "fabric", "guards", "dispatch_guard.py"),
+                f"{FIXTURE_ROOT}/tools/fabric/guards/")
+    for n in ("routing.py", "roots.py"):
+        shutil.copy(f"{fabric_root}/tools/fabric/{n}", f"{FIXTURE_ROOT}/tools/fabric/")
+    fixture_guard = f"{FIXTURE_ROOT}/runtime/claude-code/hooks/agent-dispatch-guard.sh"
 
     def reviewer_file(model: str) -> None:
         os.makedirs(f"{SCRATCH_HOME}/agents", exist_ok=True)
@@ -241,7 +252,7 @@ def main() -> int:
         env = base_env()
         env.update(AGENT_FABRIC_ROOT=FIXTURE_ROOT, AGENT_FABRIC_STATE_DIR=EMPTY_STATE,
                    CLAUDE_CONFIG_DIR=SCRATCH_HOME, AGENT_FABRIC_LAUNCH_PROVIDER=provider)
-        return run(["bash", UNDER_TEST], payload(tool_input), env)[1]
+        return run(["bash", fixture_guard], payload(tool_input), env)[1]
 
     def vanilla(tool_input: str) -> str:
         return launched("anthropic", tool_input)
@@ -261,8 +272,16 @@ def main() -> int:
     check("the reason names the pinned model", "claude-opus-5[1m]" in out, out)
     out = vanilla('{"subagent_type":"code-review","model":"opus","description":"Review PR 626 diff"}')
     check("the fable rule still holds first: a review on opus is denied even here", dec(out) == "deny", out)
-    out = vanilla('{"subagent_type":"code-review","description":"Review PR 626 diff"}')
-    check("…and an unset model is still denied (the dispatcher writes fable; the guard drops it)", dec(out) == "deny", out)
+    # The harness hands the guard its own answer back: with run_in_background set, Claude Code (2.1.286, 2.1.311) runs the
+    # managed hook again on the first run's updatedInput (docs/live-checks/2026-11-02-dispatch-hook-reruns-on-updated-
+    # input.md). Outside a fabric launch the unset model stays denied (above, "review type with model unset").
+    out = vanilla(json.dumps(ui))
+    check("the guard's own answer, run through it again: allowed, still without a model", dec(out) == "allow"
+          and "model" not in (field(out, "hookSpecificOutput", "updatedInput") or {"model": 1}), out)
+    reviewer_file("claude-sonnet-5")
+    out = vanilla(json.dumps(ui))
+    check("…but the reviewer file is still held to routing on that second run", dec(out) == "deny" and "rewritten" in out, out)
+    reviewer_file("claude-opus-5[1m]")
     out = vanilla('{"subagent_type":"code-high","model":"opus","isolation":"worktree","description":"Fix the parser"}')
     check("a coding class is untouched: code-high still asks and keeps its alias (its pin is the export)", dec(out) == "ask", out)
     out = vanilla('{"subagent_type":"code-plan","model":"fable","isolation":"worktree","description":"Plan the migration"}')

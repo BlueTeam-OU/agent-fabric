@@ -53,6 +53,8 @@ The reviewer was code-high's export. This is why the review class now rides
 |---|---|---|---|---|
 | `gen-1789309741-Sngj2TiNHjdnlMEUR5Ji` | `anthropic/claude-opus-5-20260723` | Claude Platform on AWS | none | $0.1217 |
 
+Since j417 (2026-10-27) the launcher refuses an unprefixed native id on the broker; use `anthropic/claude-…`.
+
 ## 4. A review dispatched on the `fable` alias is the reviewer's own export
 
 Session on `z-ai/glm-5.3@preset/glm2claude-shim`; launcher exported

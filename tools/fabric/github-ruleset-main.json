@@ -40,6 +40,9 @@
           {
             "context": "ci-ok",
             "integration_id": 15368
+          },
+          {
+            "context": "fabric/armed"
           }
         ]
       }

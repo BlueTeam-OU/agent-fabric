@@ -4,7 +4,7 @@ runs this file under the pinned fabric-python. One process per account, run as t
 login: it answers the coordinator's requests on the control channel with
 what the account can say about itself (control/ops), and carries out the
 signed actions (upgrade, secrets-sync, jobs-add, local-prune,
-secrets-selftest, pool-add, tools-install, gateway-install, restart).
+secrets-selftest, pool-add, tools-install, gateway-install, the carrier's install, restart).
 
   python3 tools/fabric/control/agentd.py          the daemon: block, answer, repeat
   python3 tools/fabric/control/agentd.py --once   answer what is pending, then exit
@@ -91,10 +91,15 @@ WHERE THE PORT DIFFERS (each listed because a reader of the Node would look):
   - gateway-install (control/gateway.py, after the Node was deleted) and the
     `gateway` read are Python-only: gateway_install_opts and gateway_opts are
     their context keys.
+  - the carrier's install and read (control/carrier_install.py) are Python-only likewise:
+    carrier_install_opts and carrier_opts.
+  - `clone` (control/clone.py) is Python-only: clone_opts is its context key.
 """
 from __future__ import annotations
 
+import contextlib
 import errno
+import fcntl
 import math
 import os
 import subprocess
@@ -102,7 +107,7 @@ import sys
 import threading
 import time
 from concurrent.futures import Future
-from typing import Any, Callable, Iterable
+from typing import Any, Callable, Iterable, Iterator
 
 # Run as a script, this directory would lead sys.path and its queue.py would
 # shadow the standard library's for any module importing it (gzcoord.py).
@@ -110,9 +115,11 @@ if sys.path and os.path.realpath(sys.path[0] or ".") == os.path.dirname(os.path.
     sys.path[0] = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
 else:
     sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.realpath(__file__))))
-from control import gateway as gateway_mod, gzcoord, js, ops, pressure, sessions, tools as tools_mod  # noqa: E402
+from control import clone as clone_mod, gateway as gateway_mod, carrier_install as carrier_mod, carrier_evidence as evidence_mod, gzcoord, js, ops, pressure, sessions, tools as tools_mod  # noqa: E402
 from control.gzcoord import FABRIC_ROOT  # noqa: E402
+from control.carrier_install import CARRIER_NAME, INSTALL_OP, START_OP, STOP_OP  # noqa: E402
 from control.jobs import jobs_add  # noqa: E402
+from control import hold as hold_mod  # noqa: E402
 from control.branches_op import branches_sweep  # noqa: E402
 from control.local import local_prune  # noqa: E402
 from control.pool import POOL_FILE, pool_add, pool_claim, pool_holder, pool_list, role_from_stream  # noqa: E402
@@ -172,12 +179,31 @@ def new_id() -> str:
     return gzmsg.mint_id()
 
 
-def _registry(registry: str | None) -> Any:
+class RegistryUnreadable(Exception):
+    """The hosts registry gave no answer (missing, unreadable, not JSON): the
+    message says why, never what it held."""
+
+
+def read_registry(registry: str | None) -> Any:
+    """The parsed registry, or RegistryUnreadable. For a caller that must tell
+    "nobody is placed" from "the registry could not be read" (presence, the
+    fabric-ctl gate); _registry is the daemon's lenient read of the same file."""
     path = roots.hosts_registry(engine=FABRIC_ROOT, empty_is_set=True) if registry is None else registry
     try:
         with open(path, encoding="utf-8", errors="replace") as fh:
             return js.json_parse(fh.read())
-    except (OSError, ValueError):
+    except OSError as e:
+        raise RegistryUnreadable(f"the hosts registry {path} could not be read ({errno.errorcode.get(e.errno, 'OSError')})") from None
+    except ValueError:
+        raise RegistryUnreadable(f"the hosts registry {path} could not be read (not JSON)") from None
+
+
+def _registry(registry: str | None) -> Any:
+    # The daemon takes an unreadable registry for no operator and no account
+    # (it then refuses every request), which is the safe side for it.
+    try:
+        return read_registry(registry)
+    except RegistryUnreadable:
         return None
 
 
@@ -221,15 +247,19 @@ USAGE_CACHE_MS = 10000
 ACCOUNTS_KEEPALIVE_MS = 4 * 3600 * 1000
 ACTION_CLOCK_SKEW_MS = 60 * 1000
 ACCOUNTS_CACHE_MS = 5 * 60 * 1000
+LEDGER_LOCK_WAIT_S = 5.0
 # Reads that run beside the read loop, like the actions: each can take
 # minutes, and the loop must keep answering behind it. `gateway` hashes
 # the installed binary and runs it, up to ten seconds; `branches` asks git of every working copy of the account
 # (a status per copy and per linked worktree), up to a minute each.
-BESIDE_LOOP_OPS = ["disk", "gateway", "branches"]
+BESIDE_LOOP_OPS = ["disk", "gateway", CARRIER_NAME, "branches", "drift"]
 # One disk scan per daemon, shared by every request that arrives while it
 # runs, and its answer kept a minute: any placed account may post the read
 # unsigned, and fifty requests started a hundred du (review of #92, round 4).
 DISK_CACHE_MS = 60000
+# `drift` runs bootstrap.py --dry-run, a few seconds of the account's own children, for any operator that
+# asks and without a signature (it is a read): one run per minute per daemon, however many ask.
+DRIFT_CACHE_MS = 60000
 RETRY_S = 30
 POLL_S = 55
 QUIET_S = 2          # a pull writes several files; one restart for one pull
@@ -345,30 +375,74 @@ class ActionLedger:
         self.file = os.path.join(state_dir(), "actions-seen.json") if file is None else file
 
     def _read(self) -> dict:
+        """Only a missing ledger is empty. One that exists and cannot be read,
+        parsed or validated would otherwise look new, and a signed action
+        still inside its TTL, gone from the in-memory seen set, would be
+        accepted a second time: it is an error, and every action is refused
+        until an operator repairs or removes the file."""
         try:
-            with open(self.file, encoding="utf-8", errors="replace") as fh:
+            with open(self.file, encoding="utf-8") as fh:
                 d = js.json_parse(fh.read())
-        except (OSError, ValueError):
+        except FileNotFoundError:
             return {}
-        return d if isinstance(d, dict) else {}
+        except NotADirectoryError:
+            return {}   # a file where the state directory goes: no ledger can exist, and the write names the error
+        except (OSError, ValueError) as e:   # UnicodeDecodeError is a ValueError
+            raise OSError(errno.EIO, f"the action ledger cannot be read ({self.file}): {type(e).__name__}") from None
+        if not isinstance(d, dict) or any(isinstance(v, bool) or not isinstance(v, (int, float)) or not math.isfinite(v) for v in d.values()):
+            raise OSError(errno.EIO, f"the action ledger is not a map of finite timestamps ({self.file})")
+        return d
 
     def floor(self, sender: str) -> float:
+        """accept()'s lock-free check. Raises OSError, naming the file, when the ledger is damaged: accept() turns
+        that into the refusal, so the operator is told which file to repair rather than that a request was a replay."""
         n = number_of(self._read().get(sender, js.UNDEFINED))
         return n if n == n and n else 0.0
 
-    def record(self, sender: str, ts: float) -> None:
-        d = self._read()
-        n = number_of(d.get(sender, js.UNDEFINED))
-        if (n if n == n and n else 0.0) >= ts:
-            return
+    @contextlib.contextmanager
+    def _locked(self) -> Iterator[None]:
+        """Every read-modify-write of the ledger runs under this. Two writers
+        share the file as the same account — agentd and `fabric-op` (the
+        break-glass path, which has no relay) — and the rename alone does not
+        stop one from writing back a floor it read before the other raised
+        it: that lowers the floor, and the request the other accepted is a
+        replay again. flock on the directory, not on a lock file, so the state
+        directory holds nothing more than it did; the kernel drops the lock
+        with the holder, so a killed writer leaves no stale owner. A holder
+        that does not let go within LOCK_WAIT_S is an error the caller says."""
+        directory = os.path.dirname(self.file)
+        os.makedirs(directory, exist_ok=True)
+        fd = os.open(directory, os.O_RDONLY | os.O_DIRECTORY)
+        try:
+            deadline = time.monotonic() + LEDGER_LOCK_WAIT_S
+            while True:
+                try:
+                    fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    break
+                except BlockingIOError:
+                    if time.monotonic() >= deadline:
+                        raise OSError(errno.ETIMEDOUT, f"the action ledger is locked by another writer ({directory})") from None
+                    time.sleep(0.02)
+            yield
+        finally:
+            os.close(fd)
+
+    def _put(self, d: dict, sender: str, ts: float) -> None:
         d[sender] = int(ts) if float(ts).is_integer() else ts
-        os.makedirs(os.path.dirname(self.file), exist_ok=True)
         tmp = f"{self.file}.{os.getpid()}.tmp"
         try:
             fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
             with os.fdopen(fd, "w", encoding="utf-8") as fh:
                 fh.write(js.stringify(d) + "\n")
+                fh.flush()
+                os.fsync(fh.fileno())
             os.rename(tmp, self.file)
+            # The acceptance must survive a crash before the action runs: the renamed entry is durable only once its directory is.
+            dfd = os.open(os.path.dirname(self.file), os.O_RDONLY | os.O_DIRECTORY)
+            try:
+                os.fsync(dfd)
+            finally:
+                os.close(dfd)
         except BaseException:
             try:
                 os.unlink(tmp)
@@ -376,9 +450,44 @@ class ActionLedger:
                 pass
             raise
 
+    def record(self, sender: str, ts: float) -> None:
+        with self._locked():
+            d = self._read()
+            n = number_of(d.get(sender, js.UNDEFINED))
+            if (n if n == n and n else 0.0) >= ts:
+                return
+            self._put(d, sender, ts)
+
+    def claim(self, sender: str, ts: float) -> bool:
+        """record() that says whether `ts` was strictly newer than the floor
+        at the moment of writing. accept() checked the floor earlier, without
+        the lock; this is the check that holds when the same request reaches
+        agentd and `fabric-op`, or `fabric-op` twice, at once: one claims, the
+        others are replays."""
+        with self._locked():
+            d = self._read()
+            n = number_of(d.get(sender, js.UNDEFINED))
+            if (n if n == n and n else 0.0) >= ts:
+                return False
+            self._put(d, sender, ts)
+            return True
+
 
 def action_ledger(file: str | None = None) -> ActionLedger:
     return ActionLedger(file)
+
+
+def claimed(ledger: ActionLedger, request: dict, ts: float, say: Callable[[str], None] = _stderr) -> bool:
+    """Record the action in the ledger before it runs; False, said, when it must not run. A claim lost here was
+    taken between accept()'s floor check and now, by `fabric-op` or by another copy of this request."""
+    try:
+        if not ledger.claim(request["from"], ts):
+            say(f"agentd: {request['op']} for {request['from']} refused: not newer than the last action accepted (a replay)")
+            return False
+    except Exception as e:  # noqa: BLE001
+        say(f"agentd: {request['op']} for {request['from']} refused: the action ledger could not be written ({_code(e)})")
+        return False
+    return True
 
 
 def accept(rec: dict, *, me: dict, operators: set, accounts: set | None = None, keys: dict | Callable[[], dict] | None = None, ttl_s: float,
@@ -431,8 +540,13 @@ def accept(rec: dict, *, me: dict, operators: set, accounts: set | None = None, 
     # request signed on a fast clock locks the operator out (review of #34).
     if action and ts - now > ACTION_CLOCK_SKEW_MS:
         return {"ok": False, "why": f"{op}: dated {_round((ts - now) / 1000)} s in the future (the operator's clock?)"}
-    if action and not ts > action_floor(sender):
-        return {"ok": False, "why": f"{op}: not newer than the last action accepted from {short} (a replay)"}
+    if action:
+        try:
+            floor = action_floor(sender)
+        except OSError as e:
+            return {"ok": False, "why": f"{op}: refused: {e}"}
+        if not ts > floor:
+            return {"ok": False, "why": f"{op}: not newer than the last action accepted from {short} (a replay)"}
     return {"ok": True, "request": r, "ts": ts}
 
 
@@ -600,6 +714,8 @@ def answer(request: dict, ctx: dict) -> dict:
         data = {"restart": restart(request, me=me, **(ctx.get("restart_opts") or {}))}
     elif op == "jobs-add":
         data = {"jobs-add": jobs_add(request, home=home, root=root, **(ctx.get("jobs_opts") or {}))}
+    elif op in ("hold", "unhold"):
+        data = {op: getattr(hold_mod, op)(request, **(ctx.get("hold_opts") or {}))}
     elif op == "pool-add":
         data = {"pool-add": pool_add(request, me=me, holder=pool_holder(control_config()), file=pool_file(), **_only(ctx, "pool_opts", "known", "now"))}
     elif op == "pool-list":
@@ -615,8 +731,18 @@ def answer(request: dict, ctx: dict) -> dict:
         # because a run already in flight began before the install and its answer is stale on arrival.
         if verdict.get("status") == "installed" and ctx.get("tools_refresh"):
             threading.Thread(target=ctx["tools_refresh"], name="tools report after install", daemon=True).start()
+    elif op == "clone":
+        data = {"clone": clone_mod.clone(request, home=home, root=root, **(ctx.get("clone_opts") or {}))}
     elif op == "gateway-install":
         data = {"gateway-install": gateway_mod.gateway_install(request, home=home, root=root, **(ctx.get("gateway_install_opts") or {}))}
+    elif op == INSTALL_OP:
+        data = {INSTALL_OP: carrier_mod.carrier_install(request, home=home, root=root, **(ctx.get("carrier_install_opts") or {}))}
+    elif op == START_OP:
+        data = {START_OP: carrier_mod.carrier_start(request, home=home, root=root, **(ctx.get("carrier_unit_opts") or {}))}
+    elif op == STOP_OP:
+        data = {STOP_OP: carrier_mod.carrier_stop(request, home=home, root=root, **(ctx.get("carrier_unit_opts") or {}))}
+    elif op == evidence_mod.EVIDENCE_OP:
+        data = {evidence_mod.EVIDENCE_OP: evidence_mod.carrier_evidence(request, **(ctx.get("carrier_evidence_opts") or {}))}
     elif op == "local-prune":
         data = {"local-prune": local_prune(request, home=home, root=root)}
     elif op == "branches-sweep":
@@ -754,9 +880,11 @@ def main(argv: list[str] | None = None) -> int:
             return usage_state["last"]
     keeper = accounts_keeper()
     disk_keeper = accounts_keeper(lambda: ops.disk(), cache_ms=DISK_CACHE_MS)
+    drift_keeper = accounts_keeper(lambda: ops.drift_report(), cache_ms=DRIFT_CACHE_MS)
     # no `who`: identity() resolves it per request
     ctx: dict[str, Any] = {"me": me, "started": started, "usage_cached": usage_cached,
-                           "accounts_cached": keeper.cached, "disk_cached": disk_keeper.cached}
+                           "accounts_cached": keeper.cached, "disk_cached": disk_keeper.cached,
+                           "drift_cached": drift_keeper.cached}
     if self_only:
         r = answer({"id": "self", "op": "status"}, ctx)
         r.pop("_followups", None)
@@ -948,10 +1076,7 @@ def main(argv: list[str] | None = None) -> int:
                     # for the action, never between (a recorded action that never
                     # ran is refused as a replay when posted again).
                     with leave.lock:
-                        try:
-                            ledger.record(request["from"], a["ts"])
-                        except Exception as e:  # noqa: BLE001
-                            _stderr(f"agentd: {request['op']} for {request['from']} refused: the action ledger could not be written ({_code(e)})")
+                        if not claimed(ledger, request, a["ts"]):
                             continue
                         _stderr(f"agentd: started {request['op']} for {request['from']} ({request['id'][:8]})")
                         beside(a, True)

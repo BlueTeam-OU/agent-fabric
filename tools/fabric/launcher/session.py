@@ -5,6 +5,7 @@ from __future__ import annotations
 import datetime
 import json
 import os
+import pwd
 import re
 import secrets
 import shutil
@@ -126,9 +127,30 @@ def prune_tmpdir(path: str, *, keep_s: float = TMPDIR_KEEP_S, now: float | None 
             pass
 
 
-def settle_tmpdir(env: dict, *, now: float | None = None) -> None:
+def legacy_tmpdir(login: str) -> str:
+    """The default before #292, which a launcher process born before it
+    still carries in its environment."""
+    return f"/var/tmp/agent-fabric-{login}"
+
+
+def settle_tmpdir(env: dict, *, now: float | None = None, login: str | None = None) -> None:
     """TMPDIR for the session: the account's own wins, as it is, unpruned;
-    otherwise the default, made 700 and pruned."""
+    otherwise the default, made 700 and pruned. This login's pre-#292
+    default counts as not set: a session restarted from a launcher process
+    older than #292 inherits it, so it is the old default speaking and not
+    a choice, and keeping it would hold the account on the 40G root volume
+    through every restart. Another login's path, or any other value, is
+    still the account's own."""
+    if login is None:
+        # An account the passwd database cannot name keeps its TMPDIR as it
+        # is, as before this check existed: the lookup is no reason to fail
+        # a launch.
+        try:
+            login = pwd.getpwuid(os.geteuid()).pw_name
+        except KeyError:
+            login = ""
+    if login and env.get("TMPDIR") == legacy_tmpdir(login):
+        del env["TMPDIR"]
     if env.get("TMPDIR"):
         make_tmpdir(env["TMPDIR"], ours=False)
         return

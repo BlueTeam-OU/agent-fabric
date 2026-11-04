@@ -131,8 +131,11 @@ def main() -> int:
         for f in ("pre-commit", "commit-msg", "guarded-change.sh", "locale-carve-out.sh"):
             shutil.copy(os.path.join(HERE, "policies", "githooks", f), os.path.join(fab, "policies", "githooks"))
         shutil.copy(os.path.join(HERE, "runtime", "identity.py"), os.path.join(fab, "runtime"))
-        for g in ("contributors.py", "commit_kind.py"):
+        # the hooks' module beside the others (ADR-040 rule 5: a fixture that copies the scripts copies their modules)
+        for g in ("contributors.py", "commit_kind.py", "commit_hooks.py", "secret_values.py"):
             shutil.copy(os.path.join(HERE, "tools", "fabric", "guards", g), os.path.join(fab, "tools", "fabric", "guards"))
+        for m in ("roots.py", "agent_text.py", "hidden_unicode.py", "review_card.py", "state_writes.py"):   # what commit_hooks.py imports from tools/fabric/
+            shutil.copy(os.path.join(HERE, "tools", "fabric", m), os.path.join(fab, "tools", "fabric"))
         with open(os.path.join(fab, "policies", "authority.json"), "w") as f:
             json.dump(AUTHORITY, f)
         for p in ("src/a.py", "tools/a.py", "bin/fabric-x"):

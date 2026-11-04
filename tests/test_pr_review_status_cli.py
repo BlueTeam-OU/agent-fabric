@@ -70,24 +70,35 @@ esac
 # out of $2 and made a positional match fall through to the catch-all
 # `exit 0` — an empty body that reads as zero reviews, i.e. the suite would
 # have gone green on a script that fetched nothing at all.
+# A list the poll reads conditionally (`api -i <path>?per_page=100`) is answered as gh prints it with -i:
+# the status line and headers, a blank line, then the page itself (one list, not a list of pages).
+if [[ "$1" == "api" && "$2" == "-i" ]]; then
+  printf 'HTTP/2.0 200 OK\r\nEtag: W/"mock"\r\n\r\n'
+  OPEN='['; CLOSE=']'
+else
+  OPEN='[['; CLOSE=']]'
+fi
 if [[ "$1" == "api" && "$*" == *"/reviews"* ]]; then
-  printf '[['
+  printf '%s' "$OPEN"
   first=1
   # The author is OWNER; any other account a MEMBER, a trusted reviewer.
-  while IFS=, read -r login commit at; do
+  while IFS=, read -r login commit at bodyfile; do
     [[ -z "$login" ]] && continue
     (( first )) || printf ','
     first=0
     [[ "$login" == me ]] && assoc=OWNER || assoc=MEMBER
-    printf '{"user":{"login":"%s"},"author_association":"%s","state":"COMMENTED","commit_id":"%s","submitted_at":"%s","body":""}' \
-      "$login" "$assoc" "$commit" "$at"
+    # An optional fourth field names a file of the state directory holding the review's body.
+    body='""'
+    [[ -n "$bodyfile" ]] && body=$(jq -Rs . < "$S/$bodyfile")
+    printf '{"user":{"login":"%s"},"author_association":"%s","state":"COMMENTED","commit_id":"%s","submitted_at":"%s","body":%s}' \
+      "$login" "$assoc" "$commit" "$at" "$body"
   done < "$S/reviews"
-  printf ']]\n'
+  printf '%s\n' "$CLOSE"
   exit 0
 fi
 
 if [[ "$1" == "api" && "$*" == *"/comments"* ]]; then
-  echo '[[]]'; exit 0
+  echo "$OPEN$CLOSE"; exit 0
 fi
 exit 0
 '''
@@ -112,7 +123,8 @@ def main() -> int:
         os.chmod(f"{sandbox}/bin/gh", 0o755)
         base = {k: v for k, v in os.environ.items()
                 if not k.startswith(("GITHUB_", "AGENT_FABRIC_", "CLAUDE_", "ANTHROPIC_")) and k != "GIT_DIR"}
-        base.update(PATH=f"{sandbox}/bin:{base.get('PATH', '')}", GH_MOCK_STATE=state)
+        base.update(PATH=f"{sandbox}/bin:{base.get('PATH', '')}", GH_MOCK_STATE=state,
+                    AGENT_FABRIC_STATE_DIR=f"{sandbox}/agent-state")   # the ledger and the ETag cache stay here
 
         def put(name: str, text: str) -> None:
             with open(f"{state}/{name}", "w", encoding="utf-8") as fh:
@@ -174,6 +186,27 @@ def main() -> int:
         d = one_json(out)
         check("--json keeps exit 5, stdout is one object with the cause in no_review_coming",
               rc == 5 and isinstance(d, dict) and (d.get("no_review_coming") or {}).get("cause") == "head-moved", out)
+
+        print("fabric-pr review-status — a v2 review counts only with every path read (agent-fabric ADR-065)")
+        h40 = "a" * 40
+
+        def v2(*statuses: str) -> str:
+            paths = {f"p{i}.py": ({"status": s} if s == "read" else {"status": s, "reason": "too big"}) for i, s in enumerate(statuses)}
+            return (f"<!-- agent-fabric-review v2 base={'b' * 40} head={h40} card={'c' * 40} config={'d' * 64} -->\n**Blind review**\n\n"
+                    f"```agent-fabric-coverage v1\n{json.dumps({'paths': paths, 'lenses': {}})}\n```\n")
+
+        put("whole.md", v2("read", "read"))
+        put("half.md", v2("read", "not read"))
+        mine = f"me,{h40},2026-08-07T10:00:00Z"
+        rc, out, _ = run(f"OPEN:{h40}:0", f"{mine},whole.md", "--json")
+        d = one_json(out)
+        check("a complete v2 review of the head: exit 0, one blind row", rc == 0 and d and d["blind"]["count"] == 1 and d["partial"]["count"] == 0, out)
+        rc, out, _ = run(f"OPEN:{h40}:0", f"{mine},half.md", "--json")
+        d = one_json(out)
+        check("a partial one: exit 1, no blind row, one partial row naming why",
+              rc == 1 and d and d["blind"]["count"] == 0 and d["partial"]["rows"][0]["why"] == "partial coverage: 1 path(s) not read", out)
+        rc, out, _ = run(f"OPEN:{h40}:0", f"{mine},half.md")
+        check("the text report says NOT coverage", rc == 1 and "partial reviews     : 1   (NOT coverage" in out, out)
 
         print("fabric-pr review-status — waiting")
         rc, out, _ = run("OPEN:abc123:1\nOPEN:abc123:1", "", "--wait", "2", "--interval", "1", "-q")

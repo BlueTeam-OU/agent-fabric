@@ -209,6 +209,26 @@ def main() -> int:
             check("a local override that is not an object is refused, by its type",
                   str(exc) == "model-profile.local.json is list, not an object")
 
+        print("the session model is the provider's (j417)")
+        real = launch.load_routing(os.path.join(HERE, "tools", "fabric", "routing.py"), HERE)
+        glm = "z-ai/glm-5.2@preset/glm2claude-shim"
+        src = launch.session_source(False, "agent", "r", "a-1", "/s/model-profile.local.json")
+        check("the source names the layer a person fixes it in",
+              src == "from routing/profiles.json agents.a-1"
+              and launch.session_source(False, "local", "r", "a", "/s/l.json") == "from /s/l.json"
+              and launch.session_source(True, "defaults", "r", "a", "l") == "from --model on the command line")
+        check("plain claude and the gateway refuse a broker composite, naming the model and its source",
+              all((launch.foreign_session_model(real, p, glm, src) or "").startswith(
+                  f"the session model '{glm}' (from routing/profiles.json agents.a-1) is not an Anthropic model")
+                  for p in ("anthropic", "gateway")))
+        check("…and take a native id or claude's aliases",
+              all(launch.foreign_session_model(real, "anthropic", m, src) is None
+                  for m in ("claude-opus-5-5", "claude-opus-5[1m]", "opus", "sonnet[1m]", "default", "opusplan")))
+        check("the broker refuses a native id, naming its broker spelling, and leaves its own spellings to ori",
+              "anthropic/claude-opus-5-5" in (launch.foreign_session_model(real, "openrouter", "claude-opus-5-5", src) or "")
+              and launch.foreign_session_model(real, "openrouter", glm, src) is None
+              and launch.foreign_session_model(real, "openrouter", "x", src) is None)
+
         print("--print")
         prompt = put(f"{tmp}/prompt.md", "first line\nsecond\n")
         out, err = io.StringIO(), io.StringIO()
@@ -340,14 +360,20 @@ def main() -> int:
         launch.reexec = lambda env, args: calls.append((env, args)) or (_ for _ in ()).throw(SystemExit(0))
         state = f"{tmp}/state"
         put(f"{state}/binding.json", json.dumps({"session": "sess-9"}))
-        when = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(time.time() + 5))
+        # The launch's start is one value, taken once: a marker is obeyed only when it was requested at or after it, and the
+        # cases below run seconds apart (a loaded run took longer than the 5 s that stood here, and a later case then
+        # met its own marker as stale: exit with no resume). Passing the clock at each call made "after" a race.
+        launched = int(time.time())
+        when = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(launched + 5))
         put(f"{state}/restart.json", json.dumps({"requested_at": when, "status": "done", "piece": "claude",
                                                  "from": "1", "to": "2"}))
         saved = dict(os.environ)
         os.environ["AGENT_FABRIC_PULLED"] = "1"
+        # No profile to read: the running login's real declaration must not reach the arguments checked below.
+        os.environ["AGENT_FABRIC_RESUME_PROFILES"] = f"{tmp}/no-profiles.json"
         try:
             with redirect_stderr(io.StringIO()):
-                launch.restart(state, int(time.time()), True, 143, ["--resume", "old", "-p", "x"], tmp, tmp)
+                launch.restart(state, launched, True, 143, ["--resume", "old", "-p", "x"], tmp, tmp)
         except SystemExit:
             pass
         finally:
@@ -358,6 +384,62 @@ def main() -> int:
               len(calls) == 1 and "AGENT_FABRIC_PULLED" not in calls[0][0]
               and calls[0][1] == ["-p", "x", "--resume", "sess-9"])
         check("…and the marker is consumed", not os.path.exists(f"{state}/restart.json"))
+        # A restart replays the original --provider; the agent layer's declaration replaces it (j411 review F1).
+        login = pwd.getpwuid(os.geteuid()).pw_name
+        put(f"{tmp}/profiles.json", json.dumps({"agents": {login: {"launch_provider": "openrouter"}}}))
+        for orig, want in ((["--provider", "anthropic", "-p", "x"], ["--provider", "openrouter", "-p", "x", "--resume", "sess-9"]),
+                           (["--provider=gateway", "-p", "x"], ["--provider=openrouter", "-p", "x", "--resume", "sess-9"])):
+            calls.clear()
+            put(f"{state}/restart.json", json.dumps({"requested_at": when, "status": "done", "piece": "claude",
+                                                     "from": "1", "to": "2"}))
+            launch.reexec = lambda env, args: calls.append((env, args)) or (_ for _ in ()).throw(SystemExit(0))
+            os.environ["AGENT_FABRIC_RESUME_PROFILES"] = f"{tmp}/profiles.json"
+            try:
+                with redirect_stderr(io.StringIO()):
+                    launch.restart(state, launched, True, 143, orig, tmp, tmp)
+            except SystemExit:
+                pass
+            finally:
+                os.environ.clear()
+                os.environ.update(saved)
+                launch.reexec = launch_reexec
+            check(f"a restart relaunches on the declared provider, not the original's ({orig[0]})",
+                  len(calls) == 1 and calls[0][1] == want)
+        # j417: a declaration that moves the session to another column drops what the original chose for the old
+        # one's models; a move within a column (anthropic and the gateway) keeps it.
+        glm = "z-ai/glm-5.2@preset/glm2claude-shim"
+        put(f"{tmp}/profiles.json", json.dumps({"agents": {login: {"launch_provider": "anthropic"}}}))
+        for orig, want in ((["--provider", "openrouter", "--model", glm, "--effort=max", "--verbose"],
+                            ["--provider", "anthropic", "--verbose", "--resume", "sess-9"]),
+                           (["--model", glm, "--fallback-model", "x/y", "--", "--model"],
+                            ["--provider", "anthropic", "--", "--model", "--resume", "sess-9"]),
+                           (["--provider", "gateway", "--model", "claude-sonnet-5", "--effort", "low"],
+                            ["--provider", "anthropic", "--model", "claude-sonnet-5", "--effort", "low", "--resume", "sess-9"])):
+            calls.clear()
+            put(f"{state}/restart.json", json.dumps({"requested_at": when, "status": "done", "piece": "claude",
+                                                     "from": "1", "to": "2"}))
+            launch.reexec = lambda env, args: calls.append((env, args)) or (_ for _ in ()).throw(SystemExit(0))
+            os.environ["AGENT_FABRIC_RESUME_PROFILES"] = f"{tmp}/profiles.json"
+            err = io.StringIO()
+            try:
+                with redirect_stderr(err):
+                    launch.restart(state, launched, True, 143, orig, tmp, tmp)
+            except SystemExit:
+                pass
+            finally:
+                os.environ.clear()
+                os.environ.update(saved)
+                launch.reexec = launch_reexec
+            moved = orig[:2] != ["--provider", "gateway"]
+            check(f"a restart onto another column drops the old one's model and effort, a move within one keeps them "
+                  f"({' '.join(orig[:2])})",
+                  len(calls) == 1 and calls[0][1] == want and calls[0][0].get(launch.RESTARTING) == "1"
+                  and ("dropped what the original launch passed for openrouter's models" in err.getvalue()) == moved,
+                  f"{calls[-1][1] if calls else None}\n{err.getvalue()}")
+        check("without_options: spaced and =, a trailing bare flag, nothing after --",
+              launch.without_options(["--model", "a", "-p", "--effort=x", "--", "--effort", "y"], launch.PROVIDER_BOUND)
+              == (["-p", "--", "--effort", "y"], ["--model", "a", "--effort=x"])
+              and launch.without_options(["-p", "--model"], ("--model",)) == (["-p"], ["--model"]))
         check("the caller's resume flags are replaced, a bare -r keeps the option after it",
               launch.without_resume(["-c", "--resume=a", "-r", "--model", "m", "--continue", "x"])
               == ["--model", "m", "x"])
@@ -426,7 +508,7 @@ def main() -> int:
         t.start()
         err = io.StringIO()
         with redirect_stderr(err):
-            resumed = launch.read_restart(marker, int(time.time()), binding, "30")
+            resumed = launch.read_restart(marker, launched, binding, "30")
         t.join()
         check("a pending upgrade is waited for, and the session resumed once it is done",
               resumed == "sess-7" and "waiting for it" in err.getvalue()
@@ -448,10 +530,12 @@ def main() -> int:
             launch.reexec = lambda env, args: calls.append((env, args)) or (_ for _ in ()).throw(SystemExit(0))
             saved = dict(os.environ)
             os.environ["AGENT_FABRIC_RESTART_WAIT_S"] = wait
+            # The running login's real declaration (an anthropic account adds --provider) must not reach the arguments.
+            os.environ["AGENT_FABRIC_RESUME_PROFILES"] = f"{tmp}/no-profiles.json"
             err = io.StringIO()
             try:
                 with redirect_stderr(err):
-                    launch.restart(state, int(time.time()), True, 143, [], tmp, tmp)
+                    launch.restart(state, launched, True, 143, [], tmp, tmp)
             except SystemExit:
                 pass
             finally:
@@ -595,6 +679,28 @@ def main() -> int:
               r.returncode == 0 and len(files) == 3
               and real[0].startswith(os.path.realpath(os.path.dirname(MODULE)) + os.sep)
               and real[1].startswith(os.path.realpath(copy) + os.sep) and files[2] == "False", f"{r.stdout}{r.stderr}")
+
+    print("foreign_owner: whose dirt a job's working copy holds")
+    real_helper = launch.helper
+    try:
+        def listing(stdout: str, rc: int = 0):
+            launch.helper = lambda *a, **k: types.SimpleNamespace(stdout=stdout, returncode=rc)
+        wt = os.path.realpath(tempfile.gettempdir())
+        jobs = [{"id": "j1", "state": "active"}, {"id": "j2", "state": "queued", "worktree": wt},
+                {"id": "j3", "state": "done", "worktree": wt + "/elsewhere"},
+                {"id": "j4", "state": "dropped", "worktree": wt + "/gone"}]
+        listing(json.dumps(jobs))
+        check("another unfinished job's worktree is named", launch.foreign_owner(wt, "j1", "/f") == "j2")
+        check("…positive control: the job's own record, and a done or dropped job's, are not foreign",
+              launch.foreign_owner(wt, "j2", "/f") == "" and launch.foreign_owner(wt + "/elsewhere", "j1", "/f") == ""
+              and launch.foreign_owner(wt + "/gone", "j1", "/f") == "")
+        for label, out, rc in (("not JSON", "{no", 0), ("a failed listing", "[]", 1), ("not a list", "{}", 0)):
+            listing(out, rc)
+            check(f"an unreadable job list ({label}) is unknown, not nobody's", launch.foreign_owner(wt, "j1", "/f") is None)
+        launch.helper = lambda *a, **k: None
+        check("…a listing that could not run is unknown", launch.foreign_owner(wt, "j1", "/f") is None)
+    finally:
+        launch.helper = real_helper
 
     print("test_launch.py: OK" if not fails else f"test_launch.py: {fails} FAILED")
     return 1 if fails else 0

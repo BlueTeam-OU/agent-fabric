@@ -28,6 +28,8 @@ def clean_env(**extra: str) -> dict:
     # The scratch origin is a local path: GH_REPO names the repository the
     # fake gh serves, since gh's default is never used (gh.this_repo).
     env.update(GIT_CONFIG_GLOBAL=os.devnull, GIT_CONFIG_SYSTEM=os.devnull, GH_TOKEN="", GH_REPO="o/r")
+    # No harness registry: a sweep then keeps every session's scratch, and this login's real cache is never touched.
+    env.update(CLAUDE_CONFIG_DIR="/nonexistent/claude-config")
     env.update(extra)
     return env
 

@@ -147,7 +147,7 @@ def recovery_copy(force: bool = False) -> dict:
         _before_write(store)
         aid = own_agent_id(store)
         if not aid:
-            raise StoreError("this store has no agent id yet (store-enroll.sh)")
+            raise StoreError("this store has no agent id yet (store_enroll.py)")
         path = os.path.join(store, "recovery", f"{aid}.key.gpg")
         note = os.path.join(store, "recovery", f"{aid}.recipient")
         if os.path.exists(path) and not force and open(note, encoding="utf-8").read().strip() == rfpr:
@@ -169,7 +169,7 @@ def _stores() -> dict[str, str]:
     """This agent's own store and every child mirror it holds: agent id -> dir."""
     mine = own_agent_id()
     if not mine:
-        raise StoreError("this store has no agent id yet (store-enroll.sh --self)")
+        raise StoreError("this store has no agent id yet (store_enroll.py --self)")
     out = {mine: store_dir()}
     try:
         for child in sorted(os.listdir(children_dir())):

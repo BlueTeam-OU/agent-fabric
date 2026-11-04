@@ -2,8 +2,8 @@
 """tests/run.py and tests/static.py through their command lines, in scratch trees with fake suites: the section argument,
 the run's own TMPDIR and environment, the leak report, the count of failed suites, the exit codes, the end of a run that
 is signalled (TERM: exit 143 and nothing left; KILL: the watcher removes the directory), and the static checks'
-findings. The oracle for the port of tests/run.sh and tests/static.sh is the contract their headers state and the
-bash test tests/test_leak-check.sh (its run.sh cases, run against a forwarder). Plain script: ok/FAIL, exit 1 on any
+findings. The oracle for the port of tests/run.sh and tests/static.sh is the contract their headers state and
+tests/test_leak_check.py (its run.sh cases, run against a forwarder; the bash test of the same cases is gone). Plain script: ok/FAIL, exit 1 on any
 failure."""
 from __future__ import annotations
 
@@ -30,9 +30,15 @@ RUN_TOKEN_VARIABLE = "TEST_RUN_PY_TOKEN"
 RUN_TOKEN = uuid.uuid4().hex
 
 
+capture: list | None = None   # a case that judges check()'s own calls sets it: they are recorded, not counted
+
+
 def check(label: str, good: bool, detail: object = "") -> None:
     global fails
-    print(f"  {'ok  ' if good else 'FAIL'} {label}")
+    if capture is not None:
+        capture.append((label, good))
+        return
+    print(f"  {'ok  ' if good else 'FAIL'} {label}", flush=True)
     if not good:
         fails += 1
         if detail != "":
@@ -46,12 +52,17 @@ def write(path: str, text: str, mode: int = 0o644) -> None:
     os.chmod(path, mode)
 
 
-def tree(base: str, files: dict[str, str] | None = None, scripts: dict[str, str] | None = None) -> str:
+def tree(base: str, files: dict[str, str] | None = None, scripts: dict[str, str] | None = None, lease: bool = False) -> str:
     """A git tree holding the runner, the static checks, the python suites' runner, quiet stand-ins for the corpus lint
-    and the routing check, and `files` (tests/test_*.py fakes, or anything) and `scripts` (executable)."""
+    and the routing check, and `files` (tests/test_*.py fakes, or anything) and `scripts` (executable); with `lease`,
+    tools/fabric/lease.py, which a full run imports to take its lease (kept out of the others: the static cases count
+    and lint what a tree holds)."""
     os.makedirs(os.path.join(base, "tests"))
     for name in ("run.py", "static.py", "run_python_suites.py"):
         shutil.copy(os.path.join(TESTS, name), os.path.join(base, "tests", name))
+    if lease:
+        os.makedirs(os.path.join(base, "tools", "fabric"))
+        shutil.copy(os.path.join(ROOT, "tools", "fabric", "lease.py"), os.path.join(base, "tools", "fabric", "lease.py"))
     write(os.path.join(base, "tools/fabric/lint.py"), "pass\n")
     write(os.path.join(base, "tools/fabric/routing.py"), "pass\n")
     write(os.path.join(base, "runtime/provisioning/github-host-keys.fingerprints"), "")
@@ -73,7 +84,12 @@ def env(base: str, **extra: str) -> dict[str, str]:
          "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_SYSTEM": os.devnull, "GIT_CONFIG_NOSYSTEM": "1",
          "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@example.invalid",
          "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@example.invalid", "PYTHONDONTWRITEBYTECODE": "1",
-         "AGENT_FABRIC_TEST_JOBS": "2", RUN_TOKEN_VARIABLE: RUN_TOKEN}
+         "AGENT_FABRIC_TEST_JOBS": "2",
+         # Without this every full run these cases make would queue for the host's REAL full-suite lease behind the
+         # fleet. The lease cases below turn it back on, each in a lease directory of its own.
+         "AGENT_FABRIC_SUITE_LEASE": "0",
+         # Likewise the cpu slots: the cases that exercise them turn this back on in a lease directory of their own.
+         "AGENT_FABRIC_CPU_LEASE": "0", RUN_TOKEN_VARIABLE: RUN_TOKEN}
     e.update(extra)
     return e
 
@@ -109,6 +125,59 @@ def run(base: str, *args: str, **extra: str) -> subprocess.CompletedProcess:
 
 def runs_left(base: str) -> list[str]:
     return [n for n in os.listdir(os.path.join(os.path.dirname(base), "runtime")) if n.startswith("af-t.")]
+
+
+def end_run(p: subprocess.Popen, own_group: bool) -> None:
+    """Ends a run whose case cannot go on. A run started as a session leader (`own_group`) is a group of its own and is KILLed
+    whole, also when its leader has already exited: the group id stays its own while any member lives, so no pid is probed.
+    One that shares this test's group is asked to stop (TERM) while it runs, and ends its own tree and removes its directory."""
+    try:
+        if own_group:
+            os.killpg(p.pid, signal.SIGKILL)
+        elif p.returncode is None:
+            p.terminate()
+    except OSError:
+        pass
+    # Bounded: an orphan that holds the run's pipe would otherwise hold this call too.
+    try:
+        p.communicate(timeout=30)
+    except subprocess.TimeoutExpired:
+        p.kill()
+        try:
+            p.communicate(timeout=30)
+        except subprocess.TimeoutExpired:
+            pass
+
+
+def wait_until(p: subprocess.Popen, ready, what: str, timeout: float = 120.0, own_group: bool = False) -> bool:
+    """Polls `ready` until it holds, with the run `p` still alive. A case that signals a run must signal it in the state the
+    case describes, so the wait has no ceiling a loaded machine reaches (10 s once passed with no suite started: the signal
+    then went to a run that had nothing to show, exit 129 and no output). When the state is not reached, because the run
+    ended first or the deadline passed, the run is ended and the one failure says so; the caller skips the rest of the case,
+    so no assertion reports a behaviour that was never exercised."""
+    deadline = time.monotonic() + timeout
+    while not ready():
+        if p.poll() is not None:
+            why = f"the run exited ({p.returncode}) before {what}"
+        elif time.monotonic() > deadline:
+            why = f"{what} did not happen within {timeout:g} s"
+        else:
+            time.sleep(0.1)
+            continue
+        end_run(p, own_group)
+        check(f"precondition: {why}", False)
+        return False
+    return True
+
+
+def poll_until(ready, timeout: float) -> bool:
+    """What a case observes after its signal (no precondition): True once `ready` holds, False at the deadline."""
+    deadline = time.monotonic() + timeout
+    while not ready():
+        if time.monotonic() > deadline:
+            return False
+        time.sleep(0.1)
+    return True
 
 
 def suite(body: str) -> str:
@@ -290,6 +359,56 @@ def main() -> int:
               r.returncode == 1 and "tests/run.py: 2 suite(s) FAILED" in r.stdout and "/nonexistent/command could not be started" in r.stderr,
               (r.returncode, r.stdout, r.stderr))
 
+        print("a case whose run never reaches the state it signals in reports that, once, and ends the run")
+        # wait_until reports through check(), which would fail this file: its calls are captured here, and judged below.
+        global capture
+        seen: list = []
+        capture = seen
+        try:
+            gone_at = subprocess.Popen([sys.executable, "-c", "pass"], stdin=subprocess.DEVNULL)
+            began = time.monotonic()
+            r_exit = wait_until(gone_at, lambda: False, "its suites started", timeout=60.0)
+            took_exit = time.monotonic() - began
+            seen_exit, seen[:] = list(seen), []
+            results = []
+            childpid = os.path.join(sandbox, "hung-child.pid")
+            for new_session in (False, True):
+                # A shell holding a child of its own: ended with its group when it leads one, so the child goes with it.
+                hung = subprocess.Popen(["sh", "-c", f"sleep 60 & echo $! > {childpid}; wait"], stdin=subprocess.DEVNULL,
+                                        start_new_session=new_session)
+                poll_until(lambda: os.path.exists(childpid) and open(childpid).read().strip() != "", 30.0)
+                child = int(open(childpid).read())
+                results.append((wait_until(hung, lambda: False, "its suites started", timeout=1.0, own_group=new_session), list(seen), hung.poll()))
+                seen[:] = []
+                # Not "alive": a killed child stays a zombie until its parent is reaped.
+                dead = poll_until(lambda: not os.path.exists(f"/proc/{child}")
+                                  or open(f"/proc/{child}/stat").read().rsplit(")", 1)[1].split()[0] == "Z", 10.0)
+                results[-1] += (dead if new_session else True,)
+                if not new_session:
+                    os.kill(child, signal.SIGKILL)     # the shell was only asked to stop; its child holds this file's stdout
+                os.unlink(childpid)
+            alive = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"], stdin=subprocess.DEVNULL)
+            ok_state = wait_until(alive, lambda: True, "its suites started")
+            seen_ok, seen[:] = list(seen), []
+            left_running = alive.poll() is None
+            alive.kill()
+            alive.wait()
+        finally:
+            capture = None
+        # Kills: dropping the p.poll() test (the run that has already exited would be waited on for the whole 60 s, then
+        # reported as a deadline) and reporting through the behaviour's own label.
+        check("a run that exited before the state: reported at once as an exit, once, not after the deadline",
+              r_exit is False and took_exit < 30 and len(seen_exit) == 1
+              and seen_exit[0][0].startswith("precondition: the run exited (0) before its suites started") and seen_exit[0][1] is False,
+              (r_exit, round(took_exit, 1), seen_exit))
+        # Kills: dropping end_run() (the run would be left running), the group KILL for a run that leads its own session (its
+        # child would outlive it) and the deadline test.
+        check("a run that never reaches the state: reported once as a deadline, and ended (own session or not)",
+              all(r is False and len(sn) == 1 and sn[0][0] == "precondition: its suites started did not happen within 1 s"
+                  and rc is not None and child_gone for r, sn, rc, child_gone in results), results)
+        # Positive control: the same helper, with the state reached, says nothing and leaves the run alone.
+        check("a state that is reached: True, nothing reported, the run left running", ok_state is True and seen_ok == [] and left_running, (ok_state, seen_ok, left_running))
+
         print("a run that is signalled ends, and its directory goes with it")
         write(os.path.join(sandbox, "slowbin", "shellcheck"), "#!/usr/bin/env bash\nsleep 60 &\necho $! > \"$GRANDCHILD\"\nsleep 60\n", 0o755)
         for sig, name in ((signal.SIGTERM, "TERM"), (signal.SIGINT, "INT"), (signal.SIGHUP, "HUP")):
@@ -298,10 +417,8 @@ def main() -> int:
             p = subprocess.Popen([sys.executable, os.path.join(base, "tests", "run.py"), "static"], cwd=base, stdout=subprocess.PIPE,
                                  stderr=subprocess.STDOUT, text=True, stdin=subprocess.DEVNULL,
                                  env=env(base, PATH=f"{sandbox}/slowbin:{os.environ.get('PATH', '')}", GRANDCHILD=grandchild))
-            for _ in range(100):
-                if os.path.exists(grandchild) and runs_left(base):
-                    break
-                time.sleep(0.1)
+            if not wait_until(p, lambda: os.path.exists(grandchild) and runs_left(base), f"{name}: the run made its directory and the suite its grandchild"):
+                continue
             made = bool(runs_left(base))
             gc = int(open(grandchild).read()) if os.path.exists(grandchild) else 0
             p.send_signal(sig)
@@ -328,10 +445,8 @@ def main() -> int:
             os.makedirs(started)
             p = subprocess.Popen([sys.executable, os.path.join(base, "tests", "run.py"), "python"], cwd=base, stdout=subprocess.PIPE,
                                  stderr=subprocess.DEVNULL, stdin=subprocess.DEVNULL, text=True, env=env(base, STARTED=started))
-            for _ in range(100):
-                if len(os.listdir(started)) >= 2:
-                    break
-                time.sleep(0.1)
+            if not wait_until(p, lambda: len(os.listdir(started)) >= 2, "the python section's first two suites started"):
+                continue
             time.sleep(0.5)       # the suites' MARK lines are written; the runner holds them until the suites end
             before = sorted(os.listdir(started))
             p.send_signal(sig)
@@ -361,10 +476,8 @@ def main() -> int:
             p = subprocess.Popen([sys.executable, os.path.join(base, "tests", "run.py"), "python"], cwd=base, stdout=subprocess.PIPE,
                                  stderr=subprocess.PIPE, stdin=subprocess.DEVNULL, text=True, start_new_session=True,
                                  env=env(base, STARTED=started))
-            for _ in range(100):
-                if len(os.listdir(started)) >= 2:
-                    break
-                time.sleep(0.1)
+            if not wait_until(p, lambda: len(os.listdir(started)) >= 2, "the python section's first two suites started", own_group=True):
+                continue
             time.sleep(0.5)
             os.killpg(p.pid, sig)
             try:
@@ -384,77 +497,63 @@ def main() -> int:
         os.makedirs(started)
         p = subprocess.Popen([sys.executable, os.path.join(base, "tests", "run.py"), "python"], cwd=base, stdout=subprocess.PIPE,
                              stderr=subprocess.DEVNULL, stdin=subprocess.DEVNULL, text=True, env=env(base, STARTED=started))
-        for _ in range(100):
-            if len(os.listdir(started)) >= 2:
-                break
-            time.sleep(0.1)
-        time.sleep(0.5)
+        if wait_until(p, lambda: len(os.listdir(started)) >= 2, "the python section's first two suites started"):
+            time.sleep(0.5)
 
-        def children(pid: int) -> list[int]:
-            r = subprocess.run(["pgrep", "-P", str(pid)], capture_output=True, text=True)
-            return [int(x) for x in r.stdout.split()]
-        runner = next((c for c in children(p.pid) if "run_python_suites" in open(f"/proc/{c}/cmdline").read()), 0)
-        for pid in [runner, *children(runner)] if runner else []:
-            os.kill(pid, signal.SIGINT)
-        try:
-            out, _ = p.communicate(timeout=40)
-        except subprocess.TimeoutExpired:
-            # Not killpg: run.py shares this test's group. The runner and its suites are ended by pid.
+            def children(pid: int) -> list[int]:
+                r = subprocess.run(["pgrep", "-P", str(pid)], capture_output=True, text=True)
+                return [int(x) for x in r.stdout.split()]
+            runner = next((c for c in children(p.pid) if "run_python_suites" in open(f"/proc/{c}/cmdline").read()), 0)
             for pid in [runner, *children(runner)] if runner else []:
-                with contextlib.suppress(OSError):
-                    os.kill(pid, signal.SIGKILL)
-            p.kill()
-            out = p.communicate()[0]
-        shown = sorted(set(re.findall(r"MARK\d", out)))
-        check("INT to the runner and its suites alone: no queued suite starts and both running suites' lines reach stdout",
-              runner != 0 and len(shown) == 2 and len(os.listdir(started)) == 2, (runner, shown, sorted(os.listdir(started)), out[-300:]))
+                os.kill(pid, signal.SIGINT)
+            try:
+                out, _ = p.communicate(timeout=40)
+            except subprocess.TimeoutExpired:
+                # Not killpg: run.py shares this test's group. The runner and its suites are ended by pid.
+                for pid in [runner, *children(runner)] if runner else []:
+                    with contextlib.suppress(OSError):
+                        os.kill(pid, signal.SIGKILL)
+                p.kill()
+                out = p.communicate()[0]
+            shown = sorted(set(re.findall(r"MARK\d", out)))
+            check("INT to the runner and its suites alone: no queued suite starts and both running suites' lines reach stdout",
+                  runner != 0 and len(shown) == 2 and len(os.listdir(started)) == 2, (runner, shown, sorted(os.listdir(started)), out[-300:]))
         deaf = {"tests/test_deaf.py": suite("import signal, time\nsignal.signal(signal.SIGTERM, signal.SIG_IGN)\n"
                                             "print('MARK-DEAF', flush=True)\nopen(os.environ['STARTED'], 'w').close()\ntime.sleep(60)\n")}
         base = fresh(files=deaf)
         started = os.path.join(sandbox, "started-deaf")
         p = subprocess.Popen([sys.executable, os.path.join(base, "tests", "run.py"), "python"], cwd=base, stdout=subprocess.PIPE,
                              stderr=subprocess.PIPE, stdin=subprocess.DEVNULL, text=True, env=env(base, STARTED=started))
-        for _ in range(100):
-            if os.path.exists(started):
-                break
-            time.sleep(0.1)
-        time.sleep(0.3)
-        began = time.monotonic()
-        p.send_signal(signal.SIGTERM)
-        try:
-            out, err = p.communicate(timeout=30)
-            rc = p.returncode
-        except subprocess.TimeoutExpired:
-            p.kill()
-            (out, err), rc = p.communicate(), None
-        took = time.monotonic() - began
-        # The kept line is the proof that the runner KILLed the suite itself after its grace: a runner that does not is still
-        # waiting on the suite when run.py stops waiting for it, and run.py's KILL loses everything it had buffered. A
-        # stopwatch adds nothing to that and fails under load (7.4 s against a 7 s bound once in twenty runs).
-        check(f"a suite that ignores TERM: the runner ends it after its {run_python_suites.STOP_GRACE_S:g} s grace, exit 143, its line kept",
-              rc == 143 and "MARK-DEAF" in out, (rc, round(took, 1), out[-300:], err[-600:]))
-        time.sleep(0.3)
-        check("…and no process of that suite is left", not runs_left(base)
-              and subprocess.run(["pgrep", "-f", os.path.join(base, "tests", "test_deaf.py")], capture_output=True).returncode == 1)
+        if wait_until(p, lambda: os.path.exists(started), "the suite that ignores TERM started"):
+            time.sleep(0.3)
+            began = time.monotonic()
+            p.send_signal(signal.SIGTERM)
+            try:
+                out, err = p.communicate(timeout=30)
+                rc = p.returncode
+            except subprocess.TimeoutExpired:
+                p.kill()
+                (out, err), rc = p.communicate(), None
+            took = time.monotonic() - began
+            # The kept line is the proof that the runner KILLed the suite itself after its grace: a runner that does not is still
+            # waiting on the suite when run.py stops waiting for it, and run.py's KILL loses everything it had buffered. A
+            # stopwatch adds nothing to that and fails under load (7.4 s against a 7 s bound once in twenty runs).
+            check(f"a suite that ignores TERM: the runner ends it after its {run_python_suites.STOP_GRACE_S:g} s grace, exit 143, its line kept",
+                  rc == 143 and "MARK-DEAF" in out, (rc, round(took, 1), out[-300:], err[-600:]))
+            time.sleep(0.3)
+            check("…and no process of that suite is left", not runs_left(base)
+                  and subprocess.run(["pgrep", "-f", os.path.join(base, "tests", "test_deaf.py")], capture_output=True).returncode == 1)
         base = fresh(scripts={"good.sh": "#!/usr/bin/env bash\necho fine\n"})
         grandchild = os.path.join(sandbox, "gc-KILL")
         p = subprocess.Popen([sys.executable, os.path.join(base, "tests", "run.py"), "static"], cwd=base, stdout=subprocess.DEVNULL,
                              stderr=subprocess.DEVNULL, stdin=subprocess.DEVNULL, start_new_session=True,
                              env=env(base, PATH=f"{sandbox}/slowbin:{os.environ.get('PATH', '')}", GRANDCHILD=grandchild))
-        for _ in range(100):
-            if os.path.exists(grandchild) and runs_left(base):
-                break
-            time.sleep(0.1)
-        made = bool(runs_left(base))
-        os.killpg(p.pid, signal.SIGKILL)       # a group KILL: no cleanup runs, the suite's processes die with it
-        p.wait(timeout=20)
-        gone = False
-        for _ in range(100):
-            if not runs_left(base):
-                gone = True
-                break
-            time.sleep(0.1)
-        check("KILL to the run's group: the watcher removes the directory", made and gone, (made, runs_left(base)))
+        if wait_until(p, lambda: os.path.exists(grandchild) and runs_left(base), "KILL: the run made its directory and the suite its grandchild", own_group=True):
+            made = bool(runs_left(base))
+            os.killpg(p.pid, signal.SIGKILL)       # a group KILL: no cleanup runs, the suite's processes die with it
+            p.wait(timeout=20)
+            gone = poll_until(lambda: not runs_left(base), 30.0)
+            check("KILL to the run's group: the watcher removes the directory", made and gone, (made, runs_left(base)))
 
         print("a signal to the run's pid alone, while a suite keeps starting children")
         base = fresh()
@@ -568,6 +667,352 @@ def main() -> int:
         check("short_dir: the runtime directory when it is a writable directory, else /tmp",
               runner.short_dir({"XDG_RUNTIME_DIR": d}) == d and runner.short_dir({"XDG_RUNTIME_DIR": os.path.join(d, "added")}) == "/tmp"
               and runner.short_dir({}) == "/tmp")
+
+        print("a full run takes the host's full-suite lease (j298); a partial run, CI and the opt-out do not")
+        leasebin = os.path.join(sandbox, "leasebin")
+        # The real lease.py behind a PATH shim, for the other holder and the probes: the real flock semantics, and no
+        # dependence on the host having the fleet's pinned python (bin/fabric-lease), which CI has not.
+        write(os.path.join(leasebin, "fabric-lease"),
+              f"#!{sys.executable}\nimport sys\nsys.path.insert(0, {os.path.join(ROOT, 'tools', 'fabric')!r})\n"
+              "import lease\nsys.exit(lease.main())\n", 0o755)
+        leased_count = 0
+        host_path = os.environ.get("PATH", "/usr/bin:/bin")
+
+        def lease_world() -> tuple[str, dict[str, str]]:
+            nonlocal leased_count
+            leased_count += 1
+            leases = os.path.join(sandbox, f"leases{leased_count}")
+            os.makedirs(leases)
+            return leases, {"PATH": f"{leasebin}:{host_path}", "AGENT_FABRIC_LEASES": leases, "AGENT_FABRIC_SUITE_LEASE": "1"}
+
+        def who(leases: str) -> str:
+            return subprocess.run([os.path.join(leasebin, "fabric-lease"), "full-suite", "--who"], capture_output=True, text=True,
+                                  env={"PATH": host_path, "AGENT_FABRIC_LEASES": leases, "PYTHONDONTWRITEBYTECODE": "1"}).stdout
+
+        def hold(leases: str) -> subprocess.Popen:
+            h = subprocess.Popen([os.path.join(leasebin, "fabric-lease"), "full-suite", "--label", "other", "--", "sleep", "60"],
+                                 env={"PATH": host_path, "AGENT_FABRIC_LEASES": leases, "PYTHONDONTWRITEBYTECODE": "1"},
+                                 stdin=subprocess.DEVNULL)
+            for _ in range(100):
+                if who(leases).startswith("held:"):
+                    break
+                time.sleep(0.1)
+            return h
+
+        def marker_suite(name: str) -> str:
+            return suite(f"open({os.path.join(sandbox, name)!r}, 'w').close()\n")
+
+        # held while the run goes on, free after a FAILING one
+        leases, extra = lease_world()
+        base = fresh(lease=True)
+        seen = os.path.join(sandbox, "seen-during")
+        write(os.path.join(base, "tests/test_probe.py"), suite(
+            "import subprocess\n"
+            f"open({seen!r}, 'w').write(subprocess.run(['fabric-lease', 'full-suite', '--who'], capture_output=True, text=True).stdout)"
+            "\nsys.exit(3)\n"))
+        r = run(base, **extra)
+        during = open(seen).read() if os.path.exists(seen) else ""
+        check("a full run holds the lease while its suites run, recorded as tests-run (catches: a run that never takes it)",
+              during.startswith("held: ") and "(tests-run)" in during, (during, r.stderr))
+        check("the lease is free after a failing run (catches: a lease that outlives a failure)",
+              r.returncode == 1 and who(leases).startswith("free:"), (r.returncode, who(leases)))
+
+        # a second full run waits for the first, and says who holds it
+        leases, extra = lease_world()
+        holder_proc = hold(leases)
+        base = fresh(lease=True, files={"tests/test_mark.py": marker_suite("ran-second")})
+        second = subprocess.Popen([sys.executable, os.path.join(base, "tests", "run.py")], cwd=base, env=env(base, **extra),
+                                  stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True, stdin=subprocess.DEVNULL)
+        time.sleep(3)
+        waited = second.poll() is None and not os.path.exists(os.path.join(sandbox, "ran-second"))
+        holder_proc.terminate()
+        holder_proc.wait()
+        try:
+            _, said = second.communicate(timeout=120)
+        except subprocess.TimeoutExpired:
+            second.kill()
+            _, said = second.communicate()
+        check("a second full run waits while the first holds the lease, saying who holds it, then runs once it is released "
+              "(catches: no lease, or a lease refused instead of waited for)",
+              waited and "full-suite is held by" in said and "(other)" in said and os.path.exists(os.path.join(sandbox, "ran-second")),
+              (waited, said))
+        check("the waiting run's lease is free again once it ends", who(leases).startswith("free:"), who(leases))
+
+        # TERM releases
+        leases, extra = lease_world()
+        flag = os.path.join(sandbox, "slow-started")
+        base = fresh(lease=True, files={"tests/test_slow.py": suite(f"import time\nopen({flag!r}, 'w').close()\ntime.sleep(60)\n")})
+        p = subprocess.Popen([sys.executable, os.path.join(base, "tests", "run.py"), "all"], cwd=base, env=env(base, **extra),
+                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, stdin=subprocess.DEVNULL)
+        for _ in range(300):
+            if os.path.exists(flag) and who(leases).startswith("held:"):
+                break
+            time.sleep(0.1)
+        was_held = who(leases).startswith("held:")
+        p.send_signal(signal.SIGTERM)
+        try:
+            code = p.wait(timeout=60)
+        except subprocess.TimeoutExpired:
+            p.kill()
+            code = None
+        check("a TERMed full run was holding the lease, exits 143, and leaves it free (catches: a lease that outlives the signal)",
+              was_held and code == 143 and who(leases).startswith("free:"), (was_held, code, who(leases)))
+
+        # a group KILL: the lease goes with the run, and only with it (review of #323, F1: under a wrapper that ran the
+        # run in a group of its own, the KILL ended the wrapper, freed the lease, and the suites ran on unleased)
+        leases, extra = lease_world()
+        flag = os.path.join(sandbox, "killed-suite-pid")
+        base = fresh(lease=True, files={"tests/test_slow.py": suite(f"import time\nopen({flag!r}, 'w').write(str(os.getpid()))\n"
+                                                        "time.sleep(60)\n")})
+        p = subprocess.Popen([sys.executable, os.path.join(base, "tests", "run.py"), "all"], cwd=base, env=env(base, **extra),
+                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, stdin=subprocess.DEVNULL,
+                             start_new_session=True)
+        for _ in range(300):
+            if os.path.exists(flag) and open(flag).read() and who(leases).startswith("held:"):
+                break
+            time.sleep(0.1)
+        was_held = who(leases).startswith("held:")
+        suite_pid = int(open(flag).read() or 0) if os.path.exists(flag) else 0
+        os.killpg(p.pid, signal.SIGKILL)
+        p.wait()
+        for _ in range(100):
+            if not ours(b"test_slow.py"):
+                break
+            time.sleep(0.1)
+        left = ours(b"test_slow.py")
+        free = who(leases).startswith("free:")
+        for pid in left:
+            os.kill(pid, signal.SIGKILL)
+        check("a group KILL of a full run ends its suites and frees the lease with them, never before (catches: the lease "
+              "held by a process outside the caller's group)",
+              was_held and suite_pid > 0 and not left and free, (was_held, suite_pid, left, free))
+
+        # a group KILL while the run waits for the lease leaves no directory (review of #323, N1: the watcher started
+        # after the wait, so nothing removed what mkdtemp had made)
+        leases, extra = lease_world()
+        holder_proc = hold(leases)
+        base = fresh(lease=True, files={"tests/test_mark.py": marker_suite("ran-while-held")})
+        p = subprocess.Popen([sys.executable, os.path.join(base, "tests", "run.py"), "all"], cwd=base, env=env(base, **extra),
+                             stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, stdin=subprocess.DEVNULL, text=True,
+                             start_new_session=True)
+        said = ""
+        for _ in range(300):
+            line = p.stderr.readline()
+            said += line
+            if "waiting up to" in line or not line:
+                break
+        made = bool(runs_left(base))
+        os.killpg(p.pid, signal.SIGKILL)
+        p.wait()
+        p.stderr.close()
+        for _ in range(100):
+            if not runs_left(base):
+                break
+            time.sleep(0.1)
+        holder_proc.terminate()
+        holder_proc.wait()
+        check("a group KILL of a run waiting for the lease leaves no directory behind (catches: the watcher started "
+              "after the wait)",
+              "waiting up to" in said and made and not runs_left(base)
+              and not os.path.exists(os.path.join(sandbox, "ran-while-held")), (said, made, runs_left(base)))
+
+        # a wait that ends with the lease still held is 75, fabric-lease's EX_TEMPFAIL
+        leases, extra = lease_world()
+        holder_proc = hold(leases)
+        waited_s, runner.LEASE_WAIT_S = runner.LEASE_WAIT_S, 1
+        try:
+            with contextlib.redirect_stderr(io.StringIO()) as said:
+                runner.take_lease("all", {"AGENT_FABRIC_LEASES": leases})
+            outcome = "taken"
+        except runner.LeaseTimeout:
+            outcome = "timeout"
+        finally:
+            runner.LEASE_WAIT_S = waited_s
+        holder_proc.terminate()
+        holder_proc.wait()
+        check("a wait that ends with another holder still on the lease raises LeaseTimeout, having said who holds it "
+              "(catches: a run that goes on unleased after its wait)",
+              outcome == "timeout" and "still held by" in said.getvalue() and "(other)" in said.getvalue(),
+              (outcome, said.getvalue()))
+        base = fresh(lease=True, files={"tests/test_mark.py": marker_suite("ran-after-timeout")})
+        rc = subprocess.run([sys.executable, "-c", "import sys\nsys.path.insert(0, 'tests')\nimport run\n"
+                             "def late(what, environ):\n    raise run.LeaseTimeout\nrun.take_lease = late\n"
+                             "sys.exit(run.main(['all']))\n"], cwd=base, env=env(base, **extra), capture_output=True,
+                            text=True, timeout=120)
+        check("…and main() exits 75 for it, running no suite and leaving no directory",
+              rc.returncode == 75 and not os.path.exists(os.path.join(sandbox, "ran-after-timeout")) and not runs_left(base),
+              (rc.returncode, rc.stderr))
+
+        # not taken, though another holds it
+        leases, extra = lease_world()
+        holder_proc = hold(leases)
+        for label, args, more in (("a partial run (python)", ["python"], {}),
+                                  ("a run in CI (GITHUB_ACTIONS set)", [], {"GITHUB_ACTIONS": "true"}),
+                                  ("a run with AGENT_FABRIC_SUITE_LEASE=0", [], {"AGENT_FABRIC_SUITE_LEASE": "0"}),
+                                  ("a run on a host with no lease directory", [],
+                                   {"AGENT_FABRIC_LEASES": os.path.join(sandbox, "no-such-leases")})):
+            base = fresh(lease=True, files={"tests/test_mark.py": marker_suite("ran-unleased")})
+            if os.path.exists(os.path.join(sandbox, "ran-unleased")):
+                os.remove(os.path.join(sandbox, "ran-unleased"))
+            try:
+                r = run(base, *args, **{**extra, **more})
+                text = (r.returncode, r.stderr)
+            except subprocess.TimeoutExpired:
+                text = "waited for the lease"
+            check(f"{label} does not wait for a held lease (catches: the lease taken without that exemption)",
+                  os.path.exists(os.path.join(sandbox, "ran-unleased")) and "is held by" not in str(text), text)
+        holder_proc.terminate()
+        holder_proc.wait()
+
+        # a lease the host cannot give
+        leases, extra = lease_world()
+        write(os.path.join(leases, "full-suite"), "", 0)     # made by hand, unreadable: the lock cannot be taken on it
+        base = fresh(lease=True, files={"tests/test_mark.py": marker_suite("ran-broken")})
+        r = run(base, **extra)
+        check("a lease file that cannot be opened is said on stderr and the run goes on unleased (catches: a run failed by "
+              "a lease the host cannot give)",
+              os.path.exists(os.path.join(sandbox, "ran-broken")) and "no host lease" in r.stderr, (r.returncode, r.stderr))
+
+        print("every section holds one cpu slot, after full-suite (ADR-010 A 2026-10-28)")
+        import json
+        import socket
+        host = socket.gethostname().split(".")[0]
+        nproc = len(os.sched_getaffinity(0))
+        policy = os.path.join(sandbox, "host-load.json")
+        write(policy, json.dumps({"cores_per_slot": 4, "wait_s": 1500, "hosts": {host: {"cpu_slots": 1}}}))
+        budget = str(nproc)                        # one slot: the whole machine is the slot's share
+
+        def cpu_world() -> tuple[str, dict[str, str]]:
+            leases, extra = lease_world()
+            extra.update(AGENT_FABRIC_SUITE_LEASE="0", AGENT_FABRIC_CPU_LEASE="1", AGENT_FABRIC_HOST_LOAD=policy,
+                         AGENT_FABRIC_CPU_WAIT="2")
+            return leases, extra
+
+        def cpu_who(leases: str) -> str:
+            return subprocess.run([os.path.join(leasebin, "fabric-lease"), "cpu", "--who"], capture_output=True, text=True,
+                                  env={"PATH": host_path, "AGENT_FABRIC_LEASES": leases, "AGENT_FABRIC_HOST_LOAD": policy,
+                                       "PYTHONDONTWRITEBYTECODE": "1"}).stdout
+
+        def probe(name: str) -> str:
+            return suite("import json, subprocess\n"
+                         "who = subprocess.run(['fabric-lease', 'cpu', '--who'], capture_output=True, text=True).stdout\n"
+                         "keys = ('AGENT_FABRIC_TEST_JOBS', 'FABRIC_CPU_SLOT', 'CARGO_BUILD_JOBS')\n"
+                         f"open({os.path.join(sandbox, name)!r}, 'w').write(json.dumps([who, {{k: os.environ.get(k) for k in keys}}]))\n")
+
+        def seen_by_suite(name: str) -> tuple[str, dict]:
+            path = os.path.join(sandbox, name)
+            return tuple(json.load(open(path))) if os.path.exists(path) else ("", {})  # type: ignore[return-value]
+
+        for section in ("all", "python"):
+            leases, extra = cpu_world()
+            extra["AGENT_FABRIC_TEST_JOBS"] = "9999"      # higher than the budget: lowered, with a line
+            if section == "all":
+                extra["AGENT_FABRIC_SUITE_LEASE"] = "1"
+            base = fresh(lease=True, files={"tests/test_probe.py": probe(f"cpu-{section}")})
+            before = cpu_who(leases)
+            r = run(base, section, **extra)
+            who_during, saw = seen_by_suite(f"cpu-{section}")
+            check(f"a `{section}` run holds a cpu slot while its suites run, recorded as tests-run {section}, and frees it after "
+                  "(catches: a section that takes none; a slot that outlives the run)",
+                  before.startswith("free:") and f"(tests-run {section})" in who_during and cpu_who(leases).startswith("free:"),
+                  (before, who_during, cpu_who(leases), r.stderr))
+            check(f"…the `{section}` suites get the slot's budget and its marker (catches: a suite on the whole machine)",
+                  saw.get("AGENT_FABRIC_TEST_JOBS") == budget and saw.get("FABRIC_CPU_SLOT") == "1/1"
+                  and saw.get("CARGO_BUILD_JOBS") == budget and "lowered" in r.stderr, (saw, budget, r.stderr))
+
+        # a slot the run cannot get: 75 and no suite (control: the same run on a free directory ran its suite, above)
+        leases, extra = cpu_world()
+        # `fabric-lease cpu -- cmd` is not a command: the slot is taken by lease.py's own function, as the run takes it
+        other = subprocess.Popen([sys.executable, "-c", "import sys, time\nsys.path.insert(0, sys.argv[1])\nimport lease\n"
+                                  "lease.acquire_cpu(sys.argv[2], lease.cpu_policy(sys.argv[3]), 'other', 0)\n"
+                                  "print('held', flush=True)\ntime.sleep(60)\n",
+                                  os.path.join(ROOT, "tools", "fabric"), leases, policy],
+                                 stdout=subprocess.PIPE, text=True, stdin=subprocess.DEVNULL)
+        other.stdout.readline()
+        base = fresh(lease=True, files={"tests/test_mark.py": marker_suite("ran-cpu-held")})
+        r = run(base, "python", **extra)
+        other.terminate()
+        other.wait()
+        other.stdout.close()
+        check("with every cpu slot held by another process the run exits 75, says who holds it, runs no suite and leaves no "
+              "directory (catches: a run that goes on after its wait)",
+              r.returncode == 75 and " other " in r.stderr and not os.path.exists(os.path.join(sandbox, "ran-cpu-held"))
+              and not runs_left(base), (r.returncode, r.stderr))
+
+        # the order: full-suite first, then the slot. Taken the other way round, a run holding a slot would wait on
+        # full-suite while the run holding full-suite waits on that slot (review of #425, F3).
+        leases, extra = cpu_world()
+        extra.update(AGENT_FABRIC_SUITE_LEASE="1", AGENT_FABRIC_CPU_WAIT="30")
+        other = subprocess.Popen([sys.executable, "-c", "import sys, time\nsys.path.insert(0, sys.argv[1])\nimport lease\n"
+                                  "lease.acquire_cpu(sys.argv[2], lease.cpu_policy(sys.argv[3]), 'other', 0)\n"
+                                  "print('held', flush=True)\ntime.sleep(60)\n",
+                                  os.path.join(ROOT, "tools", "fabric"), leases, policy],
+                                 stdout=subprocess.PIPE, text=True, stdin=subprocess.DEVNULL)
+        other.stdout.readline()
+        base = fresh(lease=True, files={"tests/test_mark.py": marker_suite("ran-order")})
+        p = subprocess.Popen([sys.executable, os.path.join(base, "tests", "run.py"), "all"], cwd=base, env=env(base, **extra),
+                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, stdin=subprocess.DEVNULL)
+        took_suite = poll_until(lambda: who(leases).startswith("held:"), 20)
+        slot_still_other = "(other)" in cpu_who(leases)
+        p.send_signal(signal.SIGTERM)
+        try:
+            p.wait(timeout=60)
+        except subprocess.TimeoutExpired:
+            p.kill()
+            p.wait()
+        other.terminate()
+        other.wait()
+        other.stdout.close()
+        check("waiting for a cpu slot, an `all` run already holds full-suite (catches: the slot taken first, which deadlocks "
+              "two runs; control: the slot is still the other process's)",
+              took_suite and slot_still_other and not os.path.exists(os.path.join(sandbox, "ran-order")),
+              (took_suite, slot_still_other, who(leases), cpu_who(leases)))
+
+        # not taken: the probe sees a free directory while its suite runs
+        for key, label, more, said in (("nested", "FABRIC_CPU_SLOT set (nested in a slot)", {"FABRIC_CPU_SLOT": "1/2"}, ""),
+                                       ("optout", "AGENT_FABRIC_CPU_LEASE=0", {"AGENT_FABRIC_CPU_LEASE": "0"}, "AGENT_FABRIC_CPU_LEASE=0"),
+                                       ("gha", "GITHUB_ACTIONS set", {"GITHUB_ACTIONS": "true"}, ""),
+                                       ("ci", "CI set", {"CI": "true"}, "")):
+            leases, extra = cpu_world()
+            base = fresh(lease=True, files={"tests/test_probe.py": probe(f"cpu-off-{key}")})
+            r = run(base, "python", **{**extra, **more})
+            who_during, saw = seen_by_suite(f"cpu-off-{key}")
+            check(f"{label} takes no cpu slot (catches: the exemption missing; control: the cases above hold one)",
+                  r.returncode == 0 and who_during.startswith("free:") and "no cpu slot" not in r.stderr
+                  and (r.stderr.count(said) == 1 if said else True), (r.returncode, who_during, r.stderr))
+        nested = seen_by_suite("cpu-off-nested")[1]
+        check("…nested in a slot the suites keep the caller's marker and a thread bound that is not a fresh budget",
+              nested.get("FABRIC_CPU_SLOT") == "1/2" and nested.get("AGENT_FABRIC_TEST_JOBS") == "2"
+              and nested.get("CARGO_BUILD_JOBS") is None, nested)
+
+        # a lease directory or policy the host cannot give: said, and the run goes on without a slot
+        for label, more in (("a policy that cannot be read", {"AGENT_FABRIC_HOST_LOAD": os.path.join(sandbox, "no-policy.json")}),
+                            ("a host with no lease directory", {"AGENT_FABRIC_LEASES": os.path.join(sandbox, "no-such-leases")})):
+            leases, extra = cpu_world()
+            base = fresh(lease=True, files={"tests/test_mark.py": marker_suite("ran-no-cpu")})
+            if os.path.exists(os.path.join(sandbox, "ran-no-cpu")):
+                os.remove(os.path.join(sandbox, "ran-no-cpu"))
+            r = run(base, "python", **{**extra, **more})
+            check(f"{label}: one `no cpu slot` line on stderr and the run goes on (catches: a run failed by a policy the host "
+                  "cannot give)",
+                  os.path.exists(os.path.join(sandbox, "ran-no-cpu")) and r.stderr.count("no cpu slot (") == 1, (r.returncode, r.stderr))
+
+        # a TERM releases the slot, as it does full-suite
+        leases, extra = cpu_world()
+        flag = os.path.join(sandbox, "cpu-slow-started")
+        base = fresh(lease=True, files={"tests/test_slow.py": suite(f"import time\nopen({flag!r}, 'w').close()\ntime.sleep(60)\n")})
+        p = subprocess.Popen([sys.executable, os.path.join(base, "tests", "run.py"), "python"], cwd=base, env=env(base, **extra),
+                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, stdin=subprocess.DEVNULL)
+        poll_until(lambda: os.path.exists(flag) and cpu_who(leases).startswith("held:"), 30)
+        was_held = cpu_who(leases).startswith("held:")
+        p.send_signal(signal.SIGTERM)
+        try:
+            code = p.wait(timeout=60)
+        except subprocess.TimeoutExpired:
+            p.kill()
+            code = None
+        check("a TERMed run was holding a cpu slot, exits 143, and leaves it free (catches: a slot that outlives the signal)",
+              was_held and code == 143 and cpu_who(leases).startswith("free:"), (was_held, code, cpu_who(leases)))
 
     print(f"\ntest_run: {'OK' if not fails else f'{fails} FAILED'}")
     return 1 if fails else 0

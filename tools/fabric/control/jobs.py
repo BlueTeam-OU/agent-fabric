@@ -12,8 +12,9 @@ the tool and the identity it loads are one tree's; the arguments of
 jobs-add are a closed set, checked before anything runs.
 
 CONTRACT, frozen from jobs.mjs:
-  PROJECT_SLUG, TITLE_MAX, TOPIC_MAX, PRIORITIES      as Node's
-  jobs(home, root, run)      {"status": "ok", "jobs": [...]}, each job's
+  TITLE_MAX, TOPIC_MAX, PRIORITIES                    as Node's
+  jobs(home, root, run)      {"status": "ok", "jobs": [...], "hold": null or the
+                             fleet hold's record (ADR-037 rule 13)}, each job's
                              id, state, title, project, topic, priority,
                              source, blocked_on, artifacts, updated, and
                              where it has checkable blockers (after the
@@ -21,7 +22,7 @@ CONTRACT, frozen from jobs.mjs:
                              failed list is JobsError
   check_job_args(args)       None, or why the arguments are refused
   jobs_add(request, home, root, run)
-                             {"status": "added", "job", ["warning"]} or
+                             {"status": "added" or "listed", "job", ["warning"]} or
                              {"status": "refused", "reason"}
 
 The arguments are judged as JavaScript judged them, since a request may
@@ -31,6 +32,12 @@ JavaScript's whitespace, String() of a value is JavaScript's (null is
 "null", which a project slug matches, and then no --project is passed,
 as Node passed none), `$` never before a trailing newline, and an
 object's keys in JavaScript's order.
+
+WHAT IS NOT NODE'S: PROJECT_SLUG is registry_id.py's grammar, shared with the
+job list and the intake. It admits a dot inside an id (the registry has ids
+that Node refused), refuses a trailing hyphen Node admitted, and a number
+as `project` now reads as its text ("1.5") and passes; tests/test_registry_id.py
+holds the registry to it. The refusal text is Node's.
 
 WHAT IS NOT NODE'S, where Node's refusal said nothing: its reason was
 its error's stderr, the empty string, when jobs.py gave no answer within
@@ -59,9 +66,10 @@ if sys.path and os.path.realpath(sys.path[0] or ".") == os.path.dirname(os.path.
 else:
     sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.realpath(__file__))))
 from control import js  # noqa: E402
+import hold_view  # noqa: E402
+from registry_id import REGISTRY_ID as PROJECT_SLUG  # noqa: E402 — one grammar for jobs-add, the job list and the intake
 
 JOBS_TIMEOUT_S = 15
-PROJECT_SLUG = re.compile(r"[a-z0-9][a-z0-9-]{0,62}")   # matched whole: JavaScript's /^…$/
 TITLE_MAX = 300
 TOPIC_MAX = 60
 # ADR-037 rule 7; tools/fabric/jobs.py PRIORITIES is the same list.
@@ -99,7 +107,12 @@ def run_python(argv: list[str], *, cwd: str | None, env: dict, timeout: float) -
 Runner = Callable[..., subprocess.CompletedProcess]
 
 
-def jobs(home: str | None = None, root: str | None = None, run: Runner = run_python) -> dict:
+def _hold() -> dict | None:
+    from control.hold import identity_module
+    return hold_view.read(identity_module())
+
+
+def jobs(home: str | None = None, root: str | None = None, run: Runner = run_python, hold: Callable[[], dict | None] = _hold) -> dict:
     home = os.path.expanduser("~") if home is None else home
     root = _default_root(home) if root is None else root
     # --stored: the operator reads what the list holds, and the daemon
@@ -137,7 +150,8 @@ def jobs(home: str | None = None, root: str | None = None, run: Runner = run_pyt
                     # Only where the job has checkable blockers (fabric-jobs list --json --stored, from its cache): the
                     # board reads a missing key as "not said". Each is {spec, state, detail, checked_at}.
                     **({"blockers": j["blockers"], "cleared": j.get("cleared")} if isinstance(j.get("blockers"), list) and j["blockers"] else {})})
-    return {"status": "ok", "jobs": out}
+    # ADR-037 rule 13: null when not held; {"unreadable": why} for a hold.json that cannot be read, which holds.
+    return {"status": "ok", "jobs": out, "hold": hold()}
 
 
 def check_job_args(args) -> str | None:
@@ -193,7 +207,10 @@ def jobs_add(request: dict, home: str | None = None, root: str | None = None, ru
     # What fabric-jobs says on stderr of a job it added (no working copy
     # of the project found) is the owner's to read, not dropped.
     warning = js.SPACES.sub(" ", js.trim(r.stderr or ""))
-    return {"status": "added", "job": re.sub(f"^added[{js.SPACE}]+", "", out),
+    # "already listed": the title names a REQUEST the list holds (fabric-jobs add),
+    # so nothing was added; the job it names is the answer.
+    listed = out.startswith("already listed")
+    return {"status": "listed" if listed else "added", "job": re.sub(f"^(added|already listed)[{js.SPACE}]+", "", out),
             **({"warning": js.slice(warning, 300)} if warning else {})}
 
 

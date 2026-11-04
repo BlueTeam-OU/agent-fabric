@@ -4,7 +4,7 @@ cursor at the channel's newest message, not at the relay's first.
 
     relay_catchup.py <project>...
 
-Run AS THE ACCOUNT, by new-agent.sh once its store is synced. The relay
+Run AS THE ACCOUNT, by new_agent.py once its store is synced. The relay
 keeps one cursor per consumer and channel, moved only forward by an
 acknowledgement; a consumer it has never seen reads from the first message
 it holds, which for the fleet's channel was over ten thousand when

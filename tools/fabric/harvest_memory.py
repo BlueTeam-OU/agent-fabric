@@ -91,6 +91,10 @@ from typing import Any
 
 HERE = os.path.dirname(os.path.realpath(__file__))
 
+# ADR-034 §7 step 3: no drainable memory stays older than this outside the corpus. One number for the scheduled
+# drain's report (drain_due.py) and the status line, so they cannot disagree on the bound.
+DRAIN_BOUND_DAYS = 14
+
 
 def _load(name: str, path: str):
     spec = importlib.util.spec_from_file_location(name, path)
@@ -259,42 +263,77 @@ def scalar(value: str) -> str:
     return v
 
 
+class ChangedWhileRead(Exception):
+    """The file was rewritten or replaced between the first byte read and the
+    end of the read: what was read may be a mixture, and its mtime names a
+    state this read did not see."""
+
+    def __init__(self, mtime_ms: int) -> None:
+        super().__init__(f"changed while it was read (now {mtime_ms} ms)")
+        self.mtime_ms = mtime_ms
+
+
 def parse_memory(path: str) -> dict[str, Any] | None:
-    """Parse one memory file. Returns None for a file that is not one."""
+    """Parse one memory file. Returns None for a file that is not one; raises
+    ChangedWhileRead for one that changed under the read. The mtime is the one
+    of the file that was read (fstat of the open file), not a later look at the path."""
     with open(path, encoding="utf-8") as fh:
+        before = os.fstat(fh.fileno())
         raw = fh.read()
+    after = os.stat(path)
+    if (before.st_ino, before.st_size, before.st_mtime_ns) != (after.st_ino, after.st_size, after.st_mtime_ns):
+        raise ChangedWhileRead(int(after.st_mtime * 1000))
     m = FRONTMATTER_RE.match(raw)
     if not m:
         return None                     # MEMORY.md, or a stray note
     head, body = m.group(1), m.group(2).strip()
     meta: dict[str, str] = {}
+    block_lists: dict[str, list[str]] = {}      # key -> the `- item` lines under a key with no value on its own line
     section = None
+    list_key = None
+    dash_indent = 0
     for line in head.split("\n"):
-        if not line.strip():
+        if not line.strip() or line.lstrip().startswith("#"):       # a YAML comment ends nothing: it must not close an open list
+            continue
+        item = re.fullmatch(r"(\s*)-(?:\s+(.*))?", line)
+        if item and list_key is not None:
+            block_lists.setdefault(list_key, []).append(item.group(2) or "")
+            dash_indent = len(item.group(1))
+            continue
+        # A plain item a YAML dumper wrapped continues on the next line, indented past its dash.
+        if list_key is not None and block_lists.get(list_key) and len(line) - len(line.lstrip()) > dash_indent:
+            block_lists[list_key][-1] += " " + line.strip()
             continue
         if re.fullmatch(r"^\S+:\s*$", line):
             section = line.split(":")[0].strip()
+            list_key = section
             continue
         km = re.fullmatch(r"^\s*([A-Za-z_][A-Za-z0-9_-]*):\s*(.*)$", line)
         if not km:
+            list_key = None
             continue
         key, value = km.group(1), scalar(km.group(2))
-        # `metadata:` nests one level; flatten it, since `type` is the only
-        # field under it that this reads.
-        meta[key if section is None else f"{section}.{key}"] = value
         if not line.startswith((" ", "\t")):
-            section = None
+            section = None              # a top-level key closes the section above it, and is not that section's child
+        # `metadata:` nests one level; flatten it (`metadata.type`, `metadata.roles_class`, ...).
+        flat = key if section is None else f"{section}.{key}"
+        meta[flat] = value
+        list_key = flat if not value else None
     name = meta.get("name") or os.path.splitext(os.path.basename(path))[0]
     anchors: list[str] = []
     anchor_problems: list[str] = []
-    raw_anchors = meta.get("metadata.anchors") or meta.get("anchors")
+    inline_anchors = meta.get("metadata.anchors") or meta.get("anchors")
+    block_anchors = [scalar(x) for x in (block_lists.get("metadata.anchors") or block_lists.get("anchors") or [])]
+    listed, raw_anchors = anchors_mod.read_list(inline_anchors, block_anchors)
+    if inline_anchors and block_anchors:
+        anchor_problems.append("anchors is given inline and as a block list: only the inline one is read")
     if raw_anchors is not None:
-        listed = anchors_mod.split_inline_list(raw_anchors)
+        known_projects = frozenset(layout.project_ids())
         if listed is None:
-            anchor_problems.append(f"anchors is no inline list: {raw_anchors[:60]!r}")
+            anchor_problems.append(f"anchors is no inline list and no block list of `- item` lines: {raw_anchors[:60]!r}")
         else:
             for a in listed:
-                bad = anchors_mod.problem(a)
+                bad = anchors_mod.problem(a) or anchors_mod.registry_problem(a, known_projects)
                 if bad:
                     anchor_problems.append(f"anchor {a[:60]!r}: {bad}")
                 elif a not in anchors:
@@ -320,8 +359,8 @@ def parse_memory(path: str) -> dict[str, Any] | None:
                                meta.get("metadata.shared_with") or meta.get("shared_with", "")) if r}),
         "links": sorted(set(WIKILINK_RE.findall(body))),
         "path": path,
-        "mtime": int(os.path.getmtime(path)),
-        "mtime_ms": int(os.path.getmtime(path) * 1000),
+        "mtime": int(before.st_mtime),
+        "mtime_ms": int(before.st_mtime * 1000),
         # When the fact was written, as the memory itself says (the
         # harness stamps `modified` in its metadata); the file's mtime is
         # the fallback. A section rendered from this claim carries the
@@ -481,6 +520,9 @@ def main() -> int:
     skipped: list[str] = []
     needs_rendering: list[str] = []
     unrendered_ms: list[int] = []
+    changed_while_read: list[str] = []
+    after_cutoff: list[str] = []
+    drainable_ms: list[int] = []   # every in-scope memory with a roles_class that still waits: held or harvested
     refusals: list[str] = []
     anchor_warnings: list[str] = []
     applied = applied_corrections_of(working_copy)
@@ -493,9 +535,20 @@ def main() -> int:
     for name in sorted(os.listdir(memory_dir)):
         if not name.endswith(".md"):
             continue
-        parsed = parse_memory(os.path.join(memory_dir, name))
+        try:
+            parsed = parse_memory(os.path.join(memory_dir, name))
+        except ChangedWhileRead as e:
+            # Not read this scan, and the watermark stays below its new time: the next scan reads it whole.
+            changed_while_read.append(name)
+            unrendered_ms.append(e.mtime_ms)
+            continue
         if parsed is None:
             continue                    # no frontmatter: the index, not a memory
+        if parsed["mtime_ms"] > scan_start_ms:
+            # Written after this scan began (a file made after the listing, or a listed one rewritten): the
+            # watermark may never pass the cutoff, so a file past it waits for the next scan.
+            after_cutoff.append(name)
+            continue
         total += 1
         # ADR-050 rule 10, whatever the watermark says: an original memory whose section a merged correction replaced is
         # named to its author, who retires it. Looked for in every memory with a class: the watermark only spares re-reading.
@@ -524,6 +577,7 @@ def main() -> int:
             # not pass it (the charter: "never dropped").
             needs_rendering.append(name)
             unrendered_ms.append(parsed["mtime_ms"])
+            drainable_ms.append(parsed["mtime_ms"])
             continue
         text, language, title = judged["text"], judged["language"], judged["title"]
         # Skipped only for the section it targets: the same words aimed at another heading are another correction.
@@ -556,6 +610,7 @@ def main() -> int:
             **({"language": language} if language else {}),
         })
         next_ms = max(next_ms, parsed["mtime_ms"])
+        drainable_ms.append(parsed["mtime_ms"])
         if parsed["origin"] == "reflection":
             reflection += 1
         claims.append({
@@ -606,6 +661,8 @@ def main() -> int:
                                      until_ms=scan_start_ms)
         if use is not None:
             next_ms = max(next_ms, use["until_ms"])
+    # The watermark never passes the cutoff taken at the scan's start: a memory past it is skipped above, so every
+    # mtime that raised next_ms is at or below it.
     # The watermark stops below the oldest unrendered memory, whatever drained
     # after it: the next incremental drain names it again (the charter:
     # "never dropped"), at the price of re-reading what came after — which
@@ -624,6 +681,8 @@ def main() -> int:
         "needs_rendering": needs_rendering,
         # Anchors the harvest dropped, and why (ADR-050 rule 1): named, so the memory's holder can fix it.
         **({"anchor_warnings": anchor_warnings} if anchor_warnings else {}),
+        **({"changed_while_read": changed_while_read} if changed_while_read else {}),
+        **({"after_cutoff": after_cutoff} if after_cutoff else {}),
         **({"applied_corrections_skipped": applied_skipped} if applied_skipped else {}),
         **({"superseded_originals": superseded_originals} if superseded_originals else {}),
         # The window this drain read, in the shape the assembler carries
@@ -632,6 +691,9 @@ def main() -> int:
         "since_report": since_report,
         "store": store,
         "next_watermark": next_ms,
+        # ADR-034 §7 step 3: the age bound is read from this, the file's own time of the oldest memory that
+        # still waits outside the corpus (null when none), not from the watermark, which a held memory pins.
+        "oldest_drainable_ms": min(drainable_ms) if drainable_ms else None,
         "counts": {"in_scope": total - len(before_watermark), "total": total,
                    "before_watermark": len(before_watermark), "provisional_agent": 0,
                    # Claims harvested this drain whose origin is exactly `reflection` (ADR-058 rule 5);
@@ -719,6 +781,7 @@ def write_bundle(drain: str, target: str, report: dict) -> int:
         "project": report["project"], "working_copy": report["working_copy"],
         "since_watermark": report["since_watermark"], "next_watermark": report["next_watermark"],
         "claims": report["claims"],
+        "oldest_drainable_ms": report["oldest_drainable_ms"],
         "files": {f: sha256_of(os.path.join(drain, f)) for f in files},
     }
     mbytes = (json.dumps(manifest, indent=2, sort_keys=True) + "\n").encode()

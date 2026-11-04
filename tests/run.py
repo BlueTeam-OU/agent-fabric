@@ -15,7 +15,31 @@ Contract, frozen from run.sh:
            every line this file prints under its own name says `tests/run.sh:` instead — CI and every reader of the last
            line see what they saw — and the variable does not reach the suites.
   exit     0 every suite passed; 1 some failed (the count is on the last line, and `FAILED_SUITES=<n>` is the python
-           runner's); 2 an invocation error; 128+signal when stopped by INT/TERM/HUP (130, 143, 129).
+           runner's); 2 an invocation error; 75 a wait for full-suite (a full run) or a cpu slot (any section) ended
+           with it still held (fabric-lease's EX_TEMPFAIL); 128+signal when stopped by INT/TERM/HUP (130, 143, 129).
+
+One full local run at a time per host (j298). Thirty accounts running `tests/run.sh` at once loaded a 10-core host to ~90
+and turned timing-sensitive suites red that pass alone, so a red full run stopped meaning a defect. A full run (section
+`all`) therefore holds `full-suite`, the fabric's host lease (ADR-010): the same file and flock fabric-lease takes,
+through lease.py's own functions, so the two exclude each other. A second run waits, saying on stderr who holds it. The
+lock is this process's own, not a wrapper's: a wrapper runs its command in a process group of its own, so a KILL to the
+caller's group (timeout -s KILL, a harness) ended the wrapper alone and freed the lease while every suite ran on (review
+of #323, F1). Held here, the lease ends with the run and nothing else, the kernel releasing it however the run ends; the
+descriptor is not inherited, so no suite outlives the run holding it. Not taken: a section run (a quick check is never
+blocked), CI (GITHUB_ACTIONS set: a hosted runner is not a fleet host and has no lease directory), a host with no lease
+directory or an unopenable lease file (said on stderr, then the run goes on unleased), and AGENT_FABRIC_SUITE_LEASE=0 (a
+person who knowingly runs anyway).
+
+Every section, a full or a partial run, also holds one slot of `cpu` (ADR-010 amendment 2026-10-28): the host runs N
+heavy builds and suites at a time, each on a thread budget of nproc // N, so a partial run no longer escapes the bound. The
+slot is taken after full-suite, in that one order, so two runs never each hold one and wait on the other. It is held in this
+process, as full-suite is, and not by exec-ing under a wrapper (lease.hold_and_exec): this process is the parent of many
+suites and ends their trees itself, and its descriptor is not inherited, so no suite outlives the run holding the slot. The
+suites receive the slot's environment (lease.cpu_child_env): AGENT_FABRIC_TEST_JOBS (set, or lowered when higher),
+CARGO_BUILD_JOBS and FABRIC_CPU_SLOT, which makes a cargo shim inside a suite run directly instead of waiting on its
+parent's slot. Not taken: nested in a slot (FABRIC_CPU_SLOT set), CI, AGENT_FABRIC_CPU_LEASE=0 (said on stderr),
+GITHUB_ACTIONS, a host with no lease directory, and a policy or lease file that cannot be used (said on stderr, then the
+run goes on without it).
 
 A test run leaves behind nothing it did not find (the owner, 2026-09-19). The run owns its temporary directory: a fresh
 one under short_dir, exported as TMPDIR so every suite — mktemp, Node's os.tmpdir(), Python's tempfile — writes there and
@@ -44,6 +68,11 @@ PROG = "tests/run.py"
 # Cleanup ends the suites' processes with TERM, KILLs what is left after this long, and waits about twice as long in all.
 TERM_GRACE_S = 5.0
 KILL_WAIT_S = 10.0
+LEASE_NAME = "full-suite"
+LEASE_OFF_VARIABLE = "AGENT_FABRIC_SUITE_LEASE"
+LEASE_LABEL = "tests-run"
+# A full run takes minutes, and a queue of them can be long; a wait that ends is exit 75, fabric-lease's for a timeout.
+LEASE_WAIT_S = 7200
 # The directory a watcher removes once the run is gone without cleanup (a KILL to the run's group).
 WATCHER = ("import os, shutil, sys, time\n"
            "while True:\n"
@@ -63,22 +92,10 @@ AUTHORITY_BASE = {"AGENT_FABRIC_CHARTER_BASE": "origin/main"}
 BASH_SUITES: list[tuple[str, dict[str, str], list[str]]] = [
     (".agent-fabric/ authority (this branch)", AUTHORITY_BASE, [PY, "tools/fabric/guards/agent_fabric_dir_authority.py"]),
     ("charter authority (this branch)", AUTHORITY_BASE, [PY, "tools/fabric/guards/charter_authority.py", "{root}"]),
-    (".agent-fabric/ authority guard", {}, [PY, "tools/fabric/github/run_suite.py", "policies/test_check_agent_fabric_dir_authority.sh"]),
-    ("no-model-pins guard", {}, [PY, "tools/fabric/github/run_suite.py", "policies/test_check_repo_settings_carry_no_model_pins.sh"]),
     ("actions pinned by SHA (this tree)", {}, [PY, "policies/check_actions_pinned_by_sha.py"]),
     ("attribution (this branch)", {"AGENT_FABRIC_ATTRIBUTION_BASE": "origin/main"}, [PY, "tools/fabric/guards/ban_generated_by_attribution.py"]),
     ("signatures (this branch)", {"AGENT_FABRIC_SIGNATURES_BASE": "origin/main"}, [PY, "tools/fabric/guards/ban_unsigned_commits.py"]),
     ("decision-record amendments (this branch)", {"AGENT_FABRIC_ADR_BASE": "origin/main"}, [PY, "tools/fabric/adr.py", "range-check"]),
-    ("leak check (what a run left behind)", {}, ["bash", "tests/test_leak-check.sh"]),
-    ("status line", {}, ["bash", "runtime/claude-code/hooks/test_statusline.sh"]),
-    ("language identification (the detector venv)", {}, ["bash", "runtime/langid/test_install.sh"]),
-    ("subagent clone guard", {}, ["bash", "runtime/claude-code/hooks/test_subagent-clone-guard.sh"]),
-    ("pipe status guard", {}, ["bash", "runtime/claude-code/hooks/test_pipe-status-guard.sh"]),
-    ("model-switch guard", {}, ["bash", "runtime/claude-code/hooks/test_model-switch-guard.sh"]),
-    ("plan hold", {}, ["bash", "runtime/claude-code/hooks/test_plan-hold.sh"]),
-    ("model fallback note", {}, ["bash", "runtime/claude-code/hooks/test_model-fallback-note.sh"]),
-    ("install-agent-files (the locale worker)", {}, ["bash", "runtime/claude-code/test_install-agent-files.sh"]),
-    ("the fabric's user settings (attribution off, thinking summaries, verbose)", {}, ["bash", "runtime/claude-code/test_user-settings.sh"]),
 ]
 
 
@@ -260,6 +277,96 @@ def leak_report(directory: str, before: list[str]) -> bool:
     return True
 
 
+class LeaseTimeout(Exception):
+    pass
+
+
+def take_lease(what: str, environ: dict[str, str]) -> int | None:
+    """The held full-suite lease's descriptor, or None when the run takes none (see the header); LeaseTimeout when the
+    wait ends with another holder still on it."""
+    if what != "all" or environ.get("GITHUB_ACTIONS") or environ.get(LEASE_OFF_VARIABLE) == "0":
+        return None
+    fabric = os.path.join(ROOT, "tools", "fabric")
+    if fabric not in sys.path:
+        sys.path.insert(0, fabric)
+    try:
+        import lease
+    except ImportError as e:
+        no_lease(str(e))
+        return None
+    leases = environ.get("AGENT_FABRIC_LEASES") or lease.DEFAULT_LEASES
+    path = os.path.join(leases, LEASE_NAME)
+    if not os.path.isdir(leases):
+        no_lease(f"no lease directory at {leases}")
+        return None
+    try:
+        fd = lease.open_lease(path)
+    except OSError as e:
+        no_lease(f"cannot open {path}: {e.strerror}")
+        return None
+    # fabric-lease's own two steps: a bounded second that outlives any --who probe's shared hold, then the real wait.
+    # Any ending before the descriptor is returned closes it: a signal can land after flock granted the lock.
+    try:
+        if not lease.lock_exclusive(fd, lease.FAIL_FAST_S):
+            print(f"{PROG}: {LEASE_NAME} is held by {lease.holder(path)} — waiting up to {LEASE_WAIT_S}s",
+                  file=sys.stderr, flush=True)
+            if not lease.lock_exclusive(fd, LEASE_WAIT_S):
+                print(f"{PROG}: {LEASE_NAME} still held by {lease.holder(path)} after {LEASE_WAIT_S}s", file=sys.stderr,
+                      flush=True)
+                raise LeaseTimeout
+        lease.record(path, LEASE_NAME, LEASE_LABEL)
+    except BaseException:
+        os.close(fd)
+        raise
+    return fd
+
+
+def no_lease(why: str) -> None:
+    print(f"{PROG}: no host lease ({why}); running without it", file=sys.stderr, flush=True)
+
+
+def no_cpu_slot(why: str) -> None:
+    print(f"{PROG}: no cpu slot ({why}); running without it", file=sys.stderr, flush=True)
+
+
+def take_cpu_slot(what: str, environ: dict[str, str]):
+    """The held cpu slot (lease.CpuSlot), or None when the run takes none (see the header); LeaseTimeout when the wait
+    ends with every slot held. `what` is the section, named in the holder record."""
+    if environ.get("GITHUB_ACTIONS"):
+        return None
+    fabric = os.path.join(ROOT, "tools", "fabric")
+    if fabric not in sys.path:
+        sys.path.insert(0, fabric)
+    try:
+        import lease
+    except ImportError as e:
+        no_cpu_slot(str(e))
+        return None
+    why = lease.cpu_pass_through(environ)
+    if why == "opt-out":
+        print(f"{PROG}: {lease.OPT_OUT_ENV}=0 — runs without a cpu slot", file=sys.stderr, flush=True)
+    if why:
+        return None
+    leases = environ.get("AGENT_FABRIC_LEASES") or lease.DEFAULT_LEASES
+    if not os.path.isdir(leases):
+        no_cpu_slot(f"no lease directory at {leases}")
+        return None
+    try:
+        policy = lease.cpu_policy(environ.get(lease.POLICY_ENV) or None)
+        return lease.acquire_cpu(leases, policy, lease.clean_label(f"tests-run {what}"), lease.cpu_wait(policy))
+    except lease.Exit as e:
+        # refuse() has said why on stderr (reason=...) before raising. 75 is the wait ending; any other code is a policy,
+        # wait value or lease file the host cannot give, which never fails a run.
+        if e.code == 75:
+            raise LeaseTimeout from None
+        no_cpu_slot(f"fabric-lease refused, exit {e.code}")
+        return None
+    except ImportError as e:
+        # An installed lease.py has no roots.py to find the repository's policy with: no policy, no slot count.
+        no_cpu_slot(f"no host-load policy: {e}")
+        return None
+
+
 def main(argv: list[str] | None = None, environ: dict[str, str] | None = None) -> int:
     args = list(sys.argv[1:] if argv is None else argv)
     environ = dict(os.environ if environ is None else environ)
@@ -272,6 +379,8 @@ def main(argv: list[str] | None = None, environ: dict[str, str] | None = None) -
     scratch = tempfile.mkdtemp(prefix="af-t.", dir=short_dir(environ))
     env = run_environment(environ, scratch)
     watcher = None
+    held = None
+    slot = None
     previous = {s: signal.getsignal(s) for s in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP)}
     failed = 0
     try:
@@ -284,6 +393,14 @@ def main(argv: list[str] | None = None, environ: dict[str, str] | None = None) -
         # directory once this process is gone; cleanup stops it on every other ending.
         watcher = subprocess.Popen([sys.executable, "-c", WATCHER, str(os.getpid()), scratch], stdin=subprocess.DEVNULL,
                                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+        # After the handlers and the watcher: a signal during the wait is the run's own ending, 128+N, and a group KILL
+        # during it still leaves no directory (review of #323, N1).
+        held = take_lease(what, environ)
+        # After full-suite, always in that order (header). A signal during either wait is the run's own ending.
+        slot = take_cpu_slot(what, environ)
+        if slot is not None:
+            import lease
+            env = lease.cpu_child_env(env, slot)
         before = leak_snapshot(scratch)
         if what in ("all", "static"):
             failed += invoke("static (bash -n, shellcheck, ruff)", [PY, os.path.join(HERE, "static.py")], env, ROOT) != 0
@@ -306,6 +423,8 @@ def main(argv: list[str] | None = None, environ: dict[str, str] | None = None) -
         return 0
     except Signalled as s:
         return 128 + int(s.args[0])
+    except LeaseTimeout:
+        return 75
     finally:
         # Cleanup must not be interrupted by a second signal. Every suite's tree was ended by invoke() as the signal
         # passed through it; the watcher is the only other child, and is killed below.
@@ -315,6 +434,12 @@ def main(argv: list[str] | None = None, environ: dict[str, str] | None = None) -
         if watcher is not None:
             watcher.kill()
             watcher.wait()
+        # Last, once every suite is ended: the next run may start the moment they are released, the reverse of the order
+        # they were taken in.
+        if slot is not None:
+            slot.release()
+        if held is not None:
+            os.close(held)
         for sig, handler in previous.items():
             signal.signal(sig, handler)
 

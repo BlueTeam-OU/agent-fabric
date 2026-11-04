@@ -30,14 +30,14 @@ What depends on one thing today, read from the tree:
 | what | depends on | if it fails | degraded mode today |
 |---|---|---|---|
 | every account | one host: `runtime/hosts/registry.json` names one host, `develop-qzapp`, and places all sixteen logins on it | every session and control agent stops; `/home` persists, so identity, bindings and unpushed work survive a reboot of that host, not its loss | none documented beyond the reboot (the Qubes account snapshot, ADR-029 §5 rule 11) |
-| messages between sessions | one relay process on the operator's account, loopback only, one SQLite database (ADR-033) | no session receives anything; the channel's past is only in that database | the human relay (ADR-033 §5 rule 7) |
+| messages between sessions | one relay process on the operator's account, loopback only, one SQLite database (ADR-033) | no session receives anything; the channel's past is copied to Proton Drive, encrypted and signed, on a timer scheduled every 6 h, and a restore was read back (`docs/live-checks/2026-10-27-relay-backup-restore.md`); while the timer's runs succeed, a loss takes the messages since the last good copy (6 h, up to 15 min of delay and the run's time; a failed run is only in the journal) | the human relay (ADR-033 §5 rule 7) |
 | the control plane | the same relay, channel `fabric:control` (ADR-029) | no account answers; with the relay up and the control agents down, presence reads as unknown and `gzcoord-send` refuses without `--force` (ADR-030) | sudo fallbacks: `bin/fabric-usage`, `bin/fabric-host <host> drain` (ADR-029) |
 | signed actions | one key, in the operator's own store (`FABRIC_CONTROL_SIGNING_KEY`) (A 2026-09-30) | no upgrade, distribution or account move can be ordered | `fabric-ctl keygen --force` makes a new key; the registry commit carries the public half |
 | secrets | each login's own store, a private GitHub repository (ADR-038) (A 2026-09-30) | no sync, no rotation, no account move; the tools read the file the last sync wrote, which a failed read does not change | none needed while nothing must change |
 | the usage windows | one observer login's sign-ins (ADR-031) | the windows are unread | none |
 | model inference | two providers, `anthropic` and `openrouter` (`routing/capabilities.json`); on the plain path, the Claude accounts the templates name (ADR-031) | one path lost reduces capacity; a login is moved to another account by `fabric-accounts assign` or launched on the other provider | routing by capability class (ADR-005) |
 | knowledge | git: the fabric's corpus and each project's `.agent-fabric/` on GitHub and in every clone (ADR-013) | an unreachable GitHub stops pushes and merges, not reading | every clone is a full copy |
-| an agent's undrained memory | its own home on the host, until a drain (ADR-013) | lost with the host | none: a drain is run by hand |
+| an agent's undrained memory | its own home on the host until a drain (ADR-013); copied daily into the login's own store (`agent-fabric-state-backup.timer`, j179), which its parent's backup carries to Proton Drive | a loss of the host takes what was written since the last good daily copy, if a restore works, and no restore has been read back; until a drain no other agent reads it | none documented: the restore is unread, and a drain is collected and landed by hand (§7 step 3 decides its timer) |
 | direction and acceptance | the owner (ADR-001 §5 rule 2, ADR-019) | no record is accepted, no PR below the band is armed | none, and this is the point of P3's mandate, not of this record |
 
 ## 2. Decision
@@ -47,8 +47,8 @@ identity, knowledge or the ability to go on working — and measure every
 piece against that criterion, not against a topology.** Reduced capacity
 is acceptable; loss is not. A component that is central but whose
 failure only slows the team (the usage observer) stays central; one whose
-failure loses what cannot be rebuilt (the relay's database as the only
-record of the channel, an agent's undrained memory on one host) gets a
+failure loses what cannot be rebuilt (the relay's database, before it had a
+copy, an agent's undrained memory before it had a daily copy) gets a
 second copy or a documented recovery before it gets a second instance.
 
 - Every operation the fleet depends on has a row in this record's §1
@@ -67,8 +67,8 @@ second copy or a documented recovery before it gets a second instance.
   autonomy and resilience, not topology; each added instance is state to
   reconcile, and several rows above lose nothing when they fail.
 - **Accept centralization and plan only for reboots.** Rejected: the host
-  has already failed twice, and two rows (the relay's database, undrained
-  memory) lose data on a loss of the host rather than a reboot.
+  has already failed twice, and two rows lost data on a loss of the host rather than a reboot when this was written (the relay's now has a copy, §7; undrained
+  memory has a daily copy whose restore is unread, §1).
 - **A second host first.** Deferred, not rejected: it is the largest
   step, it needs a relay the second host can reach (ADR-029 §7), and it
   helps only once the rows that lose data have a copy.
@@ -104,28 +104,66 @@ record would make the channel less durable, not more.
 
 - The inventory is a maintenance cost on every change that touches
   hosts, the relay, keys or services.
-- Two rows lose data today on a loss of the host: the relay's database
-  and every agent's undrained memory. Nothing backs up the first; the
-  second is copied only when a coordinator runs a drain.
+- Every agent's undrained memory is copied daily with the login's
+  working state (§1), but no restore of that copy has been read back,
+  and it reaches no other agent until a drain, which until §7 step 3
+  is built runs only by hand. The relay's database is scheduled to be
+  copied every 6 h (§7).
 - The degraded modes listed today are unverified by this
   rule until each has its live check; the human relay's was exercised in
   practice before the relay existed, not as a drill.
 
 ## 7. Future Evolution
 
-**The first concrete step:** a copy of the relay's database off its
-database file — on a schedule, to a location the host's loss does not
-take — and a restore read back as a live check: the relay started on the
-copy, `fabric-ctl all ping` answered, and a session's `gzcoord-inbox
---replay` showing the channel's past. **What would show it worked:** the
-relay row's "if it fails" no longer says the channel's past is lost, and
-the live check exists.
+**The first concrete step is done:** the relay's database
+is scheduled to be copied every 6 h (`agent-fabric-relay-backup.timer`, on the relay's
+account) to Proton Drive, encrypted and signed, with `fabric-secrets
+relay backup|--verify|restore`. Its restore was read back: a second relay
+started on the copy and `gzcoord-inbox --replay` showed the channel's
+past (`docs/live-checks/2026-10-27-relay-backup-restore.md`). Not
+shown there: the timer's scheduled runs; a restore off the host (it ran
+on the host that holds the database); and `fabric-ctl all ping` against
+the restored relay, which needs the control agents on it and belongs to
+the drill below.
 
 After it: a drill of the relay being down for a working hour — sessions
 continue from artifacts, what must go goes by the human relay, nothing is
 lost — read back as a live check; a scheduled drain, so undrained
 memory is bounded in age; and only then the second host, which reopens
 ADR-029 §7 and ADR-033 §7.
+
+**Step 3, the scheduled drain, is decided as follows (j434; to be
+built).** The loss of the host is covered by the daily state copy (§1),
+so the age this step bounds is how long knowledge waits before every
+agent can read it:
+
+- **The bound: 14 days.** No drainable memory (one with a
+  `roles_class`) stays older than 14 days outside the corpus — a week
+  to the next collection and a week to land it. The age is the
+  memory's own time against the store's watermark in the project's
+  `last-drain-report.json`, the same mark the harvester reads.
+- **Collection is scheduled; landing stays reviewed.** A weekly timer
+  on the coordinator's account (`agent-fabric-drain.timer`, Monday
+  06:00 UTC, persistent) runs `fabric-ctl all memory`, an unsigned
+  read, into the coordinator's state directory, so every account's
+  undrained memory is in a verified bundle on the coordinator's
+  account within a week whatever its own sessions do. Assembly and
+  landing are not scheduled: a collision needs the owner's ruling and a
+  drain lands as reviewed pull requests (`memory/README.md`).
+- **The report.** Each run writes one report beside its bundles: per
+  store, the drainable count and the age of its oldest undrained
+  memory against the bound; an account that did not answer is
+  *unknown*, never zero. It puts one drain job on the coordinator's
+  list, high when a store is over the bound, and updates the open one
+  rather than stacking a second. `fabric-status` prints the age of
+  the oldest undrained memory beside its count, on every account.
+- **Off-role, it does nothing.** The service runs only under a
+  `fabric-coordinator` binding and says so otherwise: authority is the
+  role's, not the account's.
+
+Not decided here: issuing the weekly reflection passes (a signed
+action, ADR-058) stays by hand; a dry assembly that names collisions
+before the job is taken is a later step.
 
 ## 8. Decision Status
 
@@ -151,3 +189,5 @@ The body above reads current; each change's full note is in [history/ADR-034-ame
 | Date | Amendment | Effect |
 |---|---|---|
 | 2026-09-30 | Doppler is retired: the stores replace it | §1 table (signed actions, secrets), §5 rule 4 |
+| 2026-10-27 | The relay's database is copied off the host: step 1 of §7 done | §1 relay row, §6, §7 first step |
+| 2026-10-28 | Undrained memory has a daily copy; §7 step 3, the scheduled drain, decided | §1 memory row, §2, §3, §6, §7 step 3 |

@@ -11,16 +11,21 @@ bin/fabric-ctl runs this on the pinned Python).
     fabric-ctl <login|all> restart
     fabric-ctl <login|all> presence | jobs | tools | local | local-prune | secrets-selftest
     fabric-ctl <login|all> branches [--sweep]
+    fabric-ctl <login|all> drift
     fabric-ctl <login|all> tools-install <tool>
+    fabric-ctl <login>... clone <project-id>
     fabric-ctl <login|all> gateway | gateway-install --version V
+    fabric-ctl <login|all> <carrier> | <carrier>-install      (the carrier's transport; gzcoord.carrier.CARRIER_NAME)
+    fabric-ctl <login|all> hold --reason "<why>" [--decision <MESSAGE-ID>] | unhold
     fabric-ctl <login> jobs-add [--topic T] [--project P] [--priority P] [--] "<title>"
     fabric-ctl <holder> pool-add --role R [--topic T] [--project P] [--priority P] [--] "<title>"
     fabric-ctl <login|all> states [--follow] [--json]
     fabric-ctl <coordinator> switch
-    fabric-ctl <login|all> control-start | control-stop [--include-self] [--json]
+    fabric-ctl <login|all> control-start | control-stop | harness-start | harness-stop [--include-self] [--json]
     fabric-ctl keygen [--force]
+    fabric-ctl <login> <action-op> ... --via hostexec      an action to one account with no relay (control/breakglass.py)
 
-The two control-start / control-stop ops are the exception: they send no request
+The control-start / control-stop / harness-start / harness-stop ops are the exception: they send no request
 and read no replies (the agent that would answer is what they start or stop), and
 their --timeout bounds each host call. Everything below is about the others.
 
@@ -33,7 +38,9 @@ expected address has answered or the timeout is spent (the operation's own
 budget: 20 s by default, 5 s for ping). An address that stayed silent is a
 row that says so, and the exit code is 1 — a table is never short.
 Stateless: a run leaves one request record and the agents' replies on the
-channel, and nothing else anywhere.
+channel, and nothing else anywhere. Except `--via hostexec`, which sends no
+relay record and leaves its journal line pair in fabric-op.jsonl (and the
+target's, control/breakglass.py).
 
 THE CONTRACT, as the Node's, frozen by its tests (ctl.test.mjs, ported case
 for case in tests/test_control_ctl.py) and held to the Node's tables by
@@ -43,7 +50,8 @@ JavaScript's padEnd and padStart by UTF-16 code unit, toFixed's rounding
 half up, String() of whatever an account sent — the bundles written by a
 drain, the exit codes (0 every expected account answered and every action
 succeeded; 1 a silent account, an unfinished drain or a failed action; 2 a
-refusal; 3 no token, no signing key or a relay that could not be reached),
+refusal; 3 no token, no signing key or a relay that could not be reached; with
+--via also an unwritable journal or a hostexec that gave no reply),
 and stdout against stderr (tables and --json rows on stdout; every
 `fabric-ctl: ` line on stderr).
 
@@ -104,44 +112,262 @@ from control.gzcoord import FABRIC_ROOT, api, inbox_root, integration_config, re
 from control.ops import OPS, PUBLIC_OPS
 from control.pool import check_pool_args, pool_holder
 from control.jobs import check_job_args
+from control import hold as hold_mod
 from control.selftest import SELFTEST_BUDGET_S
 from control.restart import RESTART_BUDGET_S
 from control.sessions import SESSION_ID
 from control.sign import ACTION_OPS, ACTION_TTL_MAX_S, generate_operator_key, public_key_from, sign_request
 from control import units
 from control.branches_op import BRANCHES_SWEEP_BUDGET_S
+from control.clone import CLONE_BUDGET_S
 from control.gateway import GATEWAY_INSTALL_BUDGET_S
+from control.carrier_install import (CARRIER_INSTALL_BUDGET_S, CARRIER_READ_BUDGET_S, CARRIER_START_BUDGET_S, CARRIER_STOP_BUDGET_S,
+                                     INSTALL_OP, START_OP, STOP_OP)
+from control.carrier_evidence import EVIDENCE_BUDGET_S, EVIDENCE_OP, ISO_RE as EVIDENCE_TIME, SECTIONS as EVIDENCE_SECTIONS
+from control import evidence_collect
+from gzcoord.carrier import CARRIER_LABEL, CARRIER_NAME, parity as _parity
 from control.tools import TOOL_NAME, TOOLS_INSTALL_BUDGET_S
 from control.upgrade import FABRIC_UPGRADE_BUDGET_S, PIECES, UPGRADE_BUDGET_S, VERSION_RE, pinned_version
 import roots
+from registry_id import REGISTRY_ID
 
 UNDEFINED = js.UNDEFINED
-USAGE = (
-    "usage: fabric-ctl <login|all> [status|usage|identity|keys|fabric|session|script|recall|host|disk|accounts|ping] [--json] [--timeout S]\n"
-    "       fabric-ctl <login|all> tokens [--days N]\n"
-    "       fabric-ctl <login|all> memory --out <dir>\n"
-    "       fabric-ctl <login|all> upgrade claude [--version V]\n"
-    "       fabric-ctl <login|all> upgrade fabric   (every account to this checkout's origin/main, then bootstrap)\n"
-    "       fabric-ctl <login|all> secrets-sync [--expect SHA12] [--restart]\n"
-    "       fabric-ctl <login|all> presence   (any placed account may ask)\n"
-    "       fabric-ctl <login|all> jobs\n"
-    "       fabric-ctl <login|all> tools   (each account: its missing required tools, from its hourly report)\n"
-    "       fabric-ctl <login|all> tools-install <tool>   (an action: install the tool its registry pin names, on the accounts with a working copy of a project that declares it)\n"
-    "       fabric-ctl <login|all> restart   (an action: stop the account's running session so its launcher resumes it on the current fabric; one account at a time for all; refused while an upgrade or a secrets-sync runs)\n"
-    "       fabric-ctl <login|all> gateway   (each account: the gateway binary it has, its version and digest)\n"
-    "       fabric-ctl <login|all> gateway-install --version V   (an action: install the gateway release the reviewed pin names, SHA-256 checked; a running gateway is never stopped)\n"
-    "       fabric-ctl <login> jobs-add [--topic T] [--project P] [--priority P] [--] \"<title>\"\n"
-    "       fabric-ctl <holder> pool-add --role R [--topic T] [--project P] [--priority P] [--] \"<title>\"\n"
-    "       fabric-ctl <login|all> secrets-selftest\n"
-    "       fabric-ctl <login|all> local\n"
-    "       fabric-ctl <login|all> local-prune\n"
-    "       fabric-ctl <login|all> branches   (each account, per working copy: the last sweep, its local branches and worktrees, how many are wholly on the default branch; no fetch, nothing changed)\n"
-    "       fabric-ctl <login|all> branches --sweep   (an action: the account runs fabric-branches --sweep in each working copy with no uncommitted change and no build or suite running in it)\n"
-    "       fabric-ctl <login|all> states [--follow] [--json]\n"
-    "       fabric-ctl <coordinator> switch   (the account switch controller's mode and move log, ADR-052; any other account has none)\n"
-    "       fabric-ctl <login|all> control-start [--json]   (starts each account's stopped control agent through the host executor, read back by is-active; sends no request; --timeout bounds each host call, default 60)\n"
-    "       fabric-ctl <login|all> control-stop [--json] [--include-self]   (stops it, the unit staying enabled; this session's own account's agent only with --include-self)\n"
-    "       fabric-ctl keygen [--force]")
+
+
+# ── the verbs ───────────────────────────────────────────────────────
+#
+# One table: USAGE, `<verb> --help` and `--verbs` are all rendered from it, so
+# they cannot drift. Help reads this table and nothing else (no registry, no
+# relay, no token): it has to work with the fleet and the control agents down.
+
+class Verb:
+    """What a person and a completion need to know about one verb."""
+
+    def __init__(self, name: str, about: str, example: str, *, usage: tuple = (), target: str = "<login|all>", args: str = "",
+                 options: tuple = (), words: tuple = (), signed: str = "", read: bool = False) -> None:
+        self.name = name
+        self.about = about
+        self.example = example
+        self.usage = usage       # (synopsis after "fabric-ctl ", note or None) lines this verb contributes to USAGE, in order
+        self.target = target
+        self.args = args        # the words after the verb, as the synopsis shows them
+        self.options = options   # (flag as written, what it does)
+        self.words = words       # fixed words that follow the verb (upgrade claude)
+        self.signed = signed     # "" a read; "always" an action; else the option that makes it one
+        self.read = read         # one of the verbs USAGE's first line folds into an alternation
+
+
+JSON_OPT = ("--json", "one JSON object per line instead of the table")
+TIMEOUT_OPT = ("--timeout S", "seconds to wait for the answers (a positive number; each verb has its own default)")
+COMMON = (JSON_OPT, TIMEOUT_OPT)
+VIA_NOTE = ("--via hostexec sends the signed action to one account through the host executor with no relay (bin/fabric-op there): "
+            "one login, never all; the table is the one a relay reply makes")
+JOB_OPTS = (("--topic T", "the job's topic"), ("--project P", "the project the job is for"), ("--priority P", "the job's priority"))
+
+
+def _read(name: str, about: str) -> Verb:
+    return Verb(name, about, f"fabric-ctl all {name}", options=COMMON, read=True)
+
+
+VERBS: tuple[Verb, ...] = (
+    _read("status", "Everything at once: identity, usage, keys, fabric head, sessions, harness, managed settings and inbox. The verb when none is given."),
+    _read("usage", "Each account's Claude usage windows."),
+    _read("identity", "Who each account is and which Claude account its sessions run on."),
+    _read("keys", "Each account's key state: Claude credentials, the operator signing secret, the store and the Codex sign-in. Never a value."),
+    _read("fabric", "The fabric checkout each account runs on: head, branch, how far behind origin/main, and whether the tree is clean."),
+    _read("session", "Each account's sessions."),
+    _read("script", "The writing scripts and languages in each account's last 24 hours of session text."),
+    _read("recall", "What each account's last 24 hours of session records recall."),
+    _read("host", "The machine, one row per host: load, memory and the Xen balloon, disks, the leases held, the largest processes."),
+    _read("disk", "Each account's own home, largest first: total, its largest entry, the target/ directories under ~/projects."),
+    _read("accounts", "Each observed Claude account's windows: session, weekly, per-model weekly."),
+    _read("ping", "Whether each control agent answers, and how fast. Waits 5 s by default."),
+    Verb("tokens", "Each login's spend from its own session records, grouped by Claude account with its share.", "fabric-ctl all tokens --days 7",
+         usage=(("<login|all> tokens [--days N]", None),), args="[--days N]",
+         options=(("--days N", "the window, a positive number of days"),) + COMMON),
+    Verb("memory", "The drain: each account's memory bundles, written to <dir>/<login>/<working copy>.tar.", "fabric-ctl all memory --out ./drain",
+         usage=(("<login|all> memory --out <dir>", None),), args="--out <dir>",
+         options=(("--out DIR", "where the bundles are written (required)"),) + COMMON),
+    Verb("upgrade", "Move each account's harness (claude) or fabric checkout (fabric) to the pin, then resume a running session on it.",
+         "fabric-ctl all upgrade fabric", usage=(("<login|all> upgrade claude [--version V]", None),
+                                                 ("<login|all> upgrade fabric", "every account to this checkout's origin/main, then bootstrap")),
+         args="claude [--version V] | fabric", signed="always", words=("claude", "fabric"),
+         options=(("--version V", "digits.digits.digits; with claude only (fabric takes none: it moves to this checkout's origin/main)"),) + COMMON),
+    Verb("secrets-sync", "Re-apply each login's own secret store, prove it, and resume a session.", "fabric-ctl db-admin secrets-sync --restart",
+         usage=(("<login|all> secrets-sync [--expect SHA12] [--restart]", None),), args="[--expect SHA12] [--restart]", signed="always",
+         options=(("--expect SHA12", "the 12-hex setup-token fingerprint the account must hold (fabric-accounts templates)"),
+                  ("--restart", "resume a session on the result")) + COMMON),
+    Verb("presence", "Whether each account has a session running, since when, as which role.", "fabric-ctl all presence",
+         usage=(("<login|all> presence", "any placed account may ask"),), options=COMMON),
+    Verb("jobs", "Each account's stored job list.", "fabric-ctl all jobs", usage=(("<login|all> jobs", None),), options=COMMON),
+    Verb("tools", "Each account's missing required tools, from its hourly report.", "fabric-ctl all tools",
+         usage=(("<login|all> tools", "each account: its missing required tools, from its hourly report"),), options=COMMON),
+    Verb("tools-install", "Install the tool its registry pin names, on the accounts with a working copy of a project that declares it.",
+         "fabric-ctl all tools-install shellcheck",
+         usage=(("<login|all> tools-install <tool>", "an action: install the tool its registry pin names, on the accounts with a working copy of a project that declares it"),),
+         args="<tool>", signed="always", options=COMMON),
+    Verb("clone", "Place a registered project's working copy on an account that already exists, and bootstrap it.",
+         "fabric-ctl alice clone my-project",
+         usage=(("<login>... clone <project-id>", "an action: clone the registry's remote into ~/projects/<id> as the account (a clone already there is `present`, its origin pointed at the registry's) and run its bootstrap; never `all`"),),
+         args="<project-id>", signed="always", options=COMMON),
+    Verb("restart", "Stop the account's running session so its launcher resumes it on the current fabric. One account at a time for all; refused while an upgrade or a secrets-sync runs.",
+         "fabric-ctl db-admin restart",
+         usage=(("<login|all> restart", "an action: stop the account's running session so its launcher resumes it on the current fabric; one account at a time for all; refused while an upgrade or a secrets-sync runs"),),
+         signed="always", options=COMMON),
+    Verb("gateway", "Each account's gateway binary, its version and digest.", "fabric-ctl all gateway",
+         usage=(("<login|all> gateway", "each account: the gateway binary it has, its version and digest"),), options=COMMON),
+    Verb("gateway-install", "Install the gateway release the reviewed pin names, SHA-256 checked. A running gateway is never stopped.",
+         "fabric-ctl all gateway-install --version 1.2.3",
+         usage=(("<login|all> gateway-install --version V", "an action: install the gateway release the reviewed pin names, SHA-256 checked; a running gateway is never stopped"),),
+         args="--version V", signed="always", options=(("--version V", "digits.digits.digits: the release (required)"),) + COMMON),
+    Verb(CARRIER_NAME, f"Each account's {CARRIER_LABEL} programs: the version they print, their digests, and whether the two user-unit templates are there.",
+         f"fabric-ctl all {CARRIER_NAME}",
+         usage=((f"<login|all> {CARRIER_NAME}", f"each account: the {CARRIER_LABEL} version it has installed, its digests, whether the unit templates are present, and whether its units are on the channel"),), options=COMMON),
+    Verb(INSTALL_OP, f"Install the {CARRIER_LABEL} release the reviewed pin names, from its archive with the archive's own install.sh; size and SHA-256 checked first. Enables nothing.",
+         f"fabric-ctl all {INSTALL_OP}",
+         usage=((f"<login|all> {INSTALL_OP}", f"an action: install the {CARRIER_LABEL} release the reviewed pin names with the archive's own install.sh, size and SHA-256 checked first; the units that ran are restarted and checked, or the old programs come back; enables nothing"),),
+         signed="always", options=COMMON),
+    Verb(START_OP, f"Start the {CARRIER_LABEL} units of the roster's profile: config.yaml rendered from the roster, the daemon then the client enabled and started, the channel checked. A check that fails stops both.",
+         f"fabric-ctl db-admin {START_OP}",
+         usage=((f"<login|all> {START_OP}", f"an action: render the profile's config.yaml, enable --now the daemon then the client unit, and check the channel; refused without a valid roster row, the pin's programs or linger; a unit that does not come up stops both"),),
+         signed="always", options=COMMON),
+    Verb(STOP_OP, f"Stop the {CARRIER_LABEL} units: disable --now the client and the daemon and confirm neither runs. The relay carries alone again.",
+         f"fabric-ctl db-admin {STOP_OP}",
+         usage=((f"<login|all> {STOP_OP}", f"an action: disable --now the {CARRIER_LABEL} client and daemon units and confirm both are inactive (the rollback of {START_OP})"),),
+         signed="always", options=COMMON),
+    Verb(EVIDENCE_OP, f"Each account's {CARRIER_LABEL} parity evidence for a window: the arrival lines, the delivery records and the kind of each message, metadata only, never a body. Paged by itself.",
+         f"fabric-ctl all {EVIDENCE_OP} --since 2026-10-26T05:20:00Z --until 2026-10-27T05:20:00Z --out ./evidence",
+         usage=((f"<login|all> {EVIDENCE_OP} --since T --until T [--out <dir>]",
+                 f"a signed read: each account's gzcoord-arrivals.jsonl lines, {CARRIER_LABEL} delivery records and message kinds for [T, T) as YYYY-MM-DDTHH:MM:SSZ, paged until complete; with --out filed as <dir>/<login>/ for gzcoord-carrier parity --collected; a body never leaves an account"),),
+         args="--since T --until T [--out <dir>] [--section S]", signed="always",
+         options=(("--since T", "the window's start, YYYY-MM-DDTHH:MM:SSZ (required)"), ("--until T", "the window's end, exclusive (required)"),
+                  ("--out DIR", "file the collection as DIR/<login>/{arrivals.jsonl,deliveries.jsonl,kinds.json,meta.json}"),
+                  ("--section S", "arrivals or deliveries: one page of that section only, from --since; its `next` is the --since of the following page")) + COMMON),
+    Verb("jobs-add", "Add a job to one agent's list. A job is one agent's, never the fleet's.", 'fabric-ctl db-admin jobs-add --project agent-fabric "port the thing"',
+         usage=(('<login> jobs-add [--topic T] [--project P] [--priority P] [--] "<title>"', None),), target="<login>",
+         args='[--topic T] [--project P] [--priority P] [--] "<title>"', signed="always",
+         options=JOB_OPTS + (("--", "ends the options: the next word is the title even if it starts with a dash"),) + COMMON),
+    Verb("hold", "Hold the account: it takes no new job until unhold (ADR-037 rule 13). The active job goes on to its artifact.",
+         'fabric-ctl all hold --reason "release freeze" --decision 01a18d02-edd3-7bef-8fe9-965718c256b5',
+         usage=(('<login|all> hold --reason "<why>" [--decision <MESSAGE-ID>]', "an action: write the account's hold.json; fabric-jobs switch and start and fabric-fresh --job then refuse; an account that does not answer is not held, and is named"),),
+         args='--reason "<why>" [--decision <MESSAGE-ID>]', signed="always",
+         options=(("--reason WHY", "one line of at most 200 characters (required)"), ("--decision ID", "the GZCoord MESSAGE-ID of the decision that holds")) + COMMON),
+    Verb("unhold", "Lift the hold: the account takes jobs again. `none` for an account that was not held.", "fabric-ctl all unhold",
+         usage=(("<login|all> unhold", "an action: remove the account's hold.json; `none` where there was none"),), signed="always", options=COMMON),
+    Verb("pool-add", "Add a job to a role's pool, through the account that holds the pool.", 'fabric-ctl pool-holder pool-add --role python-dev "port the thing"',
+         usage=(('<holder> pool-add --role R [--topic T] [--project P] [--priority P] [--] "<title>"', None),), target="<holder>",
+         args='--role R [--topic T] [--project P] [--priority P] [--] "<title>"', signed="always",
+         options=(("--role R", "the role whose pool receives the job (required)"),) + JOB_OPTS
+         + (("--", "ends the options: the next word is the title even if it starts with a dash"),) + COMMON),
+    Verb("secrets-selftest", "An own secret set, used and removed on each account (fabric-secrets selftest); pass or fail per step.", "fabric-ctl all secrets-selftest",
+         usage=(("<login|all> secrets-selftest", None),), signed="always", options=COMMON),
+    Verb("local", "Each account's per-clone settings.local.json: names only, never a value.", "fabric-ctl all local", usage=(("<login|all> local", None),), options=COMMON),
+    Verb("local-prune", "Remove from each clone's settings.local.json env the entries that duplicate a synced secret.", "fabric-ctl all local-prune", usage=(("<login|all> local-prune", None),),
+         signed="always", options=COMMON),
+    Verb("branches", "Each account, per working copy: the last sweep, its local branches and worktrees, how many are wholly on the default branch. No fetch, nothing changed; with --sweep the account runs fabric-branches --sweep.",
+         "fabric-ctl all branches --sweep",
+         usage=(("<login|all> branches", "each account, per working copy: the last sweep, its local branches and worktrees, how many are wholly on the default branch; no fetch, nothing changed"),
+                ("<login|all> branches --sweep", "an action: the account runs fabric-branches --sweep in each working copy with no uncommitted change and no build or suite running in it")),
+         args="[--sweep]", signed="--sweep",
+         options=(("--sweep", "an action (signed): sweep the branches that are wholly on the default branch"),) + COMMON),
+    Verb("drift", "Each account: the files the fabric wrote there that are edited or missing, and what bootstrap --dry-run would change that the record does not explain. Nothing changed.",
+         "fabric-ctl all drift", usage=(("<login|all> drift", "each account: the files the fabric wrote there that are edited or missing, and what bootstrap --dry-run would change that the record does not explain; nothing changed"),),
+         options=COMMON),
+    Verb("states", "What each account's sessions are doing (working, blocked, idle), from agentd's state records. Reads the channel; no request is sent.",
+         "fabric-ctl all states --follow", usage=(("<login|all> states [--follow] [--json]", None),), args="[--follow] [--json]",
+         options=(("--follow", "keep waiting and print an account's row whenever it changes"), JSON_OPT)),
+    Verb("switch", "The account switch controller's mode and move log (ADR-052). Any other account has none.", "fabric-ctl fabric-coordinator switch",
+         usage=(("<coordinator> switch", "the account switch controller's mode and move log, ADR-052; any other account has none"),),
+         target="<coordinator>", options=COMMON),
+    Verb("control-start", "Start each account's stopped control agent through the host executor, read back by is-active. Sends no request.",
+         "fabric-ctl all control-start",
+         usage=(("<login|all> control-start [--json]", "starts each account's stopped control agent through the host executor, read back by is-active; sends no request; --timeout bounds each host call, default 60"),),
+         args="[--json]", options=COMMON),
+    Verb("control-stop", "Stop each account's control agent, the unit staying enabled. This session's own account's only with --include-self. Sends no request.",
+         "fabric-ctl db-admin control-stop", usage=(("<login|all> control-stop [--json] [--include-self]", "stops it, the unit staying enabled; this session's own account's agent only with --include-self"),),
+         args="[--json] [--include-self]", options=COMMON + (("--include-self", "also stop the agent of the account this session runs under"),)),
+    Verb("harness-start", "Start each account's harness unit (its FleetDeck server and the session pane in it), read back by is-active. Sends no request.",
+         "fabric-ctl all harness-start",
+         usage=(("<login|all> harness-start [--json]", "starts each account's stopped harness unit through the host executor, read back by is-active; sends no request; --timeout bounds each host call, default 60"),),
+         args="[--json]", options=COMMON),
+    Verb("harness-stop", "Stop each account's harness unit: the session ends as `fabric-ctl restart` ends it (SIGTERM), the unit staying enabled. This session's own account's only with --include-self. Sends no request.",
+         "fabric-ctl db-admin harness-stop", usage=(("<login|all> harness-stop [--json] [--include-self]", "stops it, the unit staying enabled; this session's own account's only with --include-self"),),
+         args="[--json] [--include-self]", options=COMMON + (("--include-self", "also stop the harness of the account this session runs under"),)),
+    Verb("keygen", "Make the operator signing key an action needs. Takes no login.", "fabric-ctl keygen", usage=(("keygen [--force]", None),),
+         target="", args="[--force]", options=(("--force", "replace an existing key"),)),
+)
+VERB = {v.name: v for v in VERBS}
+assert len(VERB) == len(VERBS), "a verb is in the table once"
+
+
+def _line(synopsis: str, note: str | None) -> str:
+    return f"fabric-ctl {synopsis}" + (f"   ({note})" if note else "")
+
+
+def render_usage() -> str:
+    """The whole usage text. The read verbs fold into the one alternation on its first line, in table order."""
+    lines = [f"fabric-ctl <login|all> [{'|'.join(v.name for v in VERBS if v.read)}] [--json] [--timeout S]"]
+    lines += [_line(*u) for v in VERBS for u in v.usage]
+    return "usage: " + "\n       ".join(lines)
+
+
+def render_help(verb: str) -> str:
+    v = VERB[verb]
+    head = " ".join(w for w in ("fabric-ctl", v.target, v.name, v.args) if w)
+    out = [f"usage: {head}", "", v.about, "",
+           "action: " + {"": "no, a read; nothing is signed", "always": "yes, signed with the operator key (an unsigned one is refused by every agent)"}.get(
+               v.signed, f"only with {v.signed}, which is signed with the operator key; without it a read")]
+    if v.options:
+        out += ["", "options:"] + [f"  {flag:<16}{what}" for flag, what in v.options]
+    if v.signed:
+        out += ["", VIA_NOTE]   # not in `options`: those are the flags every verb's parse and completion pin one for one
+    out += ["", "example:", f"  {v.example}"]
+    return "\n".join(out)
+
+
+def verbs_listing(verb: str | None = None) -> list[str]:
+    """What `--verbs [verb]` prints, one per line: the verb names, sorted; or one verb's options and fixed words."""
+    if verb is None:
+        return sorted(VERB)
+    v = VERB[verb]
+    return sorted({f.split()[0] for f, _ in v.options if f != "--"} | set(v.words))
+
+
+USAGE = render_usage()
+
+VALUE_OPTIONS = ("--via", "--timeout", "--out", "--since", "--until", "--section", "--days", "--version", "--expect", "--topic", "--project", "--priority", "--role")
+
+
+def help_request(argv: list[str]) -> tuple[str, str | None] | None:
+    """What a help or verb-list word in argv asks for, decided from argv alone (no registry, no relay, no token):
+    ("verbs", verb or None), ("usage", None), ("help", verb) or ("unknown", the word). None when argv asks for none of them."""
+    if argv[:1] == ["--verbs"]:
+        return ("verbs", argv[1] if len(argv) > 1 else None)
+    words: list[str] = []
+    asked = False
+    skip = False
+    for a in argv:
+        if skip:
+            skip = False
+        elif a == "--":
+            break   # what follows is a jobs-add or pool-add title, never an option
+        elif a in ("-h", "--help"):
+            asked = True
+        elif a in VALUE_OPTIONS:
+            skip = True
+        elif not a.startswith("-"):
+            words.append(a)
+    if words[:1] == ["help"]:
+        asked, words = True, words[1:]
+        return ("help", words[0]) if words and words[0] in VERB else ("unknown", words[0]) if words else ("usage", None)
+    if not asked:
+        return None
+    found = next((w for w in words if w in VERB), None)
+    if found:
+        return ("help", found)
+    # `<target> <word>` is the one shape that names a verb we do not know. A lone word is a target; more words may be several
+    # targets (`alice bob --help`), and no registry is read here to tell a login from a verb: the whole usage is the help.
+    return ("unknown", words[1]) if len(words) == 2 else ("usage", None)
 
 FETCH_TIMEOUT_S = 60
 
@@ -284,10 +510,16 @@ def build_request(args: dict, *, id: str, from_: str, to: Any, cfg: dict, ts: st
             req["args"] = {"piece": args["piece"], "version": args["version"] if args["version"] is not None else version()}
     if op == "jobs-add":
         req["args"] = job_args(args)
+    if op == "hold":
+        req["args"] = {"reason": args["reason"], **({"decision": args["decision"]} if args.get("decision") is not None else {})}
     if op == "tools-install":
         req["args"] = {"tool": args["tool"]}
+    if op == "clone":
+        req["args"] = {"project": args["tool"]}
     if op == "gateway-install":
         req["args"] = {"version": args["version"]}
+    if op == EVIDENCE_OP:
+        req["args"] = {"section": args.get("section"), "since": args["since"], "until": args["until"]}
     if op == "pool-add":
         req["args"] = {**({"role": args["role"]} if args["role"] is not None else {}), **job_args(args)}
     if op == "secrets-sync" and (js.truthy(args["expect"]) or args["restart"]):
@@ -342,6 +574,10 @@ def parse_args(argv: list[str]) -> dict:
             out["out"] = nxt()
         elif a.startswith("--out="):
             out["out"] = a[6:]
+        elif a in ("--since", "--until", "--section"):
+            out[a[2:]] = nxt()
+        elif a.startswith(("--since=", "--until=", "--section=")):
+            out[a[2:a.index("=")]] = a[a.index("=") + 1:]
         elif a == "--days":
             out["days"] = _number(nxt())
         elif a.startswith("--days="):
@@ -350,6 +586,10 @@ def parse_args(argv: list[str]) -> dict:
             out["version"] = nxt()
         elif a.startswith("--version="):
             out["version"] = a[10:]
+        elif a == "--via":
+            out["via"] = nxt()   # absent otherwise: the parse defaults are pinned by the frozen suite
+        elif a.startswith("--via="):
+            out["via"] = a[6:]
         elif a == "--force":
             out["force"] = True
         elif a == "--expect":
@@ -376,6 +616,14 @@ def parse_args(argv: list[str]) -> dict:
             out["priority"] = nxt()
         elif a.startswith("--priority="):
             out["priority"] = a[11:]
+        elif a == "--reason":
+            out["reason"] = nxt()
+        elif a.startswith("--reason="):
+            out["reason"] = a[9:]
+        elif a == "--decision":
+            out["decision"] = nxt()
+        elif a.startswith("--decision="):
+            out["decision"] = a[11:]
         elif a == "--role":
             out["role"] = nxt()
         elif a.startswith("--role="):
@@ -386,8 +634,8 @@ def parse_args(argv: list[str]) -> dict:
             raise CtlError(f"unknown option {a}")
         elif a == "keygen" and not out["targets"]:
             out["op"] = "keygen"
-        elif out["op"] == "tools-install" and out["tool"] is None:
-            out["tool"] = a   # the word after `tools-install` is the tool, never a login
+        elif out["op"] in ("tools-install", "clone") and out["tool"] is None:
+            out["tool"] = a   # the word after `tools-install` is the tool, after `clone` the project, never a login
         elif out["op"] == "upgrade" and out["piece"] is None:
             out["piece"] = a   # the word after `upgrade` is the piece, never a login
         elif titled and out["title"] is None:
@@ -397,6 +645,8 @@ def parse_args(argv: list[str]) -> dict:
         else:
             out["targets"].append(a)
         i += 1
+    if out.get("via") is not None and out["via"] != "hostexec":
+        raise CtlError("--via takes hostexec: the only path besides the relay")
     if out["sweep"] and out["op"] != "branches":
         raise CtlError("--sweep goes with branches only")
     if out.pop("sweep"):
@@ -405,9 +655,15 @@ def parse_args(argv: list[str]) -> dict:
     if out["timeout"] is None:
         out["timeout"] = (units.STEP_TIMEOUT_S if op in units.UNIT_OPS else 5 if op == "ping" else 120 if op == "memory" else 60 if op == "tokens" else 300 if op == "accounts"
                           else 200 if op == "disk" else (FABRIC_UPGRADE_BUDGET_S if out["piece"] == "fabric" else UPGRADE_BUDGET_S) if op == "upgrade"
-                          else 240 if op == "secrets-sync" else RESTART_BUDGET_S if op == "restart" else TOOLS_INSTALL_BUDGET_S if op == "tools-install"
+                          else 240 if op == "secrets-sync" else CLONE_BUDGET_S if op == "clone" else RESTART_BUDGET_S if op == "restart" else TOOLS_INSTALL_BUDGET_S if op == "tools-install"
                           else GATEWAY_INSTALL_BUDGET_S if op == "gateway-install"
+                          else CARRIER_INSTALL_BUDGET_S if op == INSTALL_OP
+                          else CARRIER_START_BUDGET_S if op == START_OP
+                          else CARRIER_STOP_BUDGET_S if op == STOP_OP
+                          else CARRIER_READ_BUDGET_S if op == CARRIER_NAME
+                          else EVIDENCE_BUDGET_S if op == EVIDENCE_OP
                           else BRANCHES_SWEEP_BUDGET_S if op == "branches-sweep" else 180 if op == "branches"
+                          else 90 if op == "drift"
                           else SELFTEST_BUDGET_S if op == "secrets-selftest" else 20)
     if op == "upgrade" and out["piece"] not in PIECES:
         raise CtlError(f"upgrade takes a piece: {', '.join(PIECES)}")
@@ -427,6 +683,15 @@ def parse_args(argv: list[str]) -> dict:
         raise CtlError("--days takes a positive number of days, with tokens only")
     if (out["topic"] is not None or out["project"] is not None or out["priority"] is not None) and op not in ("jobs-add", "pool-add"):
         raise CtlError("--topic, --project and --priority go with jobs-add and pool-add only")
+    # Not in the defaults: the parser's answer for every other verb is the frozen shape (tests/test_control_frozen.py).
+    if ("reason" in out or "decision" in out) and op != "hold":
+        raise CtlError("--reason and --decision go with hold only")
+    if op == "hold":
+        if not isinstance(out.get("reason"), str):
+            raise CtlError('hold takes --reason "<why>": one line')
+        bad = hold_mod.check_hold(out["reason"], out.get("decision") if isinstance(out.get("decision"), str) else None if "decision" not in out else "")
+        if bad:
+            raise CtlError(f"hold: {bad}")
     if out["role"] is not None and op != "pool-add":
         raise CtlError("--role goes with pool-add only")
     # A placed agent lists and claims for itself, through fabric-jobs: the
@@ -441,6 +706,11 @@ def parse_args(argv: list[str]) -> dict:
             raise CtlError("pool-add names the one login that holds the pool")
     if op == "tools-install" and (out["tool"] is None or not TOOL_NAME.fullmatch(out["tool"])):
         raise CtlError("tools-install takes a tool name: fabric-ctl <login|all> tools-install <tool>")
+    if op == "clone":
+        if out["tool"] is None or not REGISTRY_ID.fullmatch(out["tool"]):
+            raise CtlError("clone takes a project id: fabric-ctl <login>... clone <project-id>")
+        if not out["targets"] or "all" in out["targets"]:
+            raise CtlError("clone names the logins it places a working copy on, never `all`")
     bad = units.check_args(out)
     if bad:
         raise CtlError(bad)
@@ -452,12 +722,49 @@ def parse_args(argv: list[str]) -> dict:
             raise CtlError(f"jobs-add: {bad}")
         if len(out["targets"]) != 1 or out["targets"][0] == "all":
             raise CtlError("jobs-add names one login: a job is one agent's, never the fleet's")
+    bad = evidence_args_problem(out)
+    if bad:
+        raise CtlError(bad)
     if op == "memory" and not js.truthy(out["out"]):
         raise CtlError("memory takes --out <dir>: where the drain bundles are written")
+    if out.get("via") is not None:
+        if op not in ACTION_OPS:
+            raise CtlError(f"--via hostexec goes with an action op only ({op} is a read: fabric-host run asks it without the relay)")
+        if len(out["targets"]) != 1 or out["targets"][0] == "all":
+            raise CtlError("--via hostexec names one login: the target refuses a request addressed to everyone")
     t = out["timeout"]
     if not (isinstance(t, (int, float)) and math.isfinite(t) and t > 0):
         raise CtlError("--timeout takes seconds, a positive number")
     return out
+
+
+def evidence_args_problem(a: dict) -> str | None:
+    """What is wrong with the window and paging options of this command line, or None."""
+    # since, until and section exist only when given: the options of every other verb keep the shape tests/fixtures/node-oracle-ctl-upgrade-sessions-queue.json froze (tests/test_control_frozen.py).
+    if a["op"] != EVIDENCE_OP:
+        if any(a.get(k) is not None for k in ("since", "until", "section")):
+            return f"--since, --until and --section go with {EVIDENCE_OP} only"
+        return None
+    times = {k: a[k] for k in ("since", "until") if a.get(k) is not None}
+    if len(times) < 2:
+        return f"{EVIDENCE_OP} takes --since T and --until T, YYYY-MM-DDTHH:MM:SSZ"
+    for k, v in times.items():
+        if not (isinstance(v, str) and EVIDENCE_TIME.fullmatch(v) and _evidence_time(v) is not None):
+            return f"--{k} takes YYYY-MM-DDTHH:MM:SSZ"
+    if not _evidence_time(a["since"]) < _evidence_time(a["until"]):
+        return "--since is before --until"
+    if a.get("section") is not None and a["section"] not in EVIDENCE_SECTIONS:
+        return f"--section is one of {', '.join(EVIDENCE_SECTIONS)}"
+    if a.get("section") is not None and a["out"] is not None:
+        return "--out files a whole collection: it does not go with --section"
+    return None
+
+
+def _evidence_time(v: str) -> float | None:
+    try:
+        return _parity.parse_t(v)
+    except (ValueError, OverflowError):
+        return None
 
 
 def _number(v: Any) -> float:
@@ -628,18 +935,18 @@ def rows(expected: list[dict], replies: list[dict]) -> list[dict]:
                     "keys": g("keys"), "fabric": g("fabric"), "session": g("session"), "script": g("script"), "recall": g("recall"),
                     "tokens": g("tokens"), "memory": g("memory"), "machine": g("host"), "disk": g("disk"), "accounts": g("accounts"),
                     "upgrade": g("upgrade"), "secretsSync": g("secrets-sync"), "restart": g("restart"), "presence": g("presence"), "jobs": g("jobs"), "tools": g("tools"),
-                    "jobsAdd": g("jobs-add"), "toolsInstall": g("tools-install"), "gateway": g("gateway"), "gatewayInstall": g("gateway-install"), "poolAdd": g("pool-add"), "local": g("local"),
+                    "jobsAdd": g("jobs-add"), "toolsInstall": g("tools-install"), "gateway": g("gateway"), "gatewayInstall": g("gateway-install"), CARRIER_NAME: g(CARRIER_NAME), f"{CARRIER_NAME}Install": g(INSTALL_OP), f"{CARRIER_NAME}Start": g(START_OP), f"{CARRIER_NAME}Stop": g(STOP_OP), "poolAdd": g("pool-add"), "local": g("local"),
                     "localPrune": g("local-prune"), "selftest": g("secrets-selftest"), "agentd": g("agentd"),
                     # Only where the control agent answered them (an older one does not): a row never says null for a section nobody asked.
-                    **{k: g(k) for k in ("harness", "inbox", "switch") if dig(d, k) is not UNDEFINED},
-                    **{key: g(op) for key, op in (("branches", "branches"), ("branchesSweep", "branches-sweep")) if dig(d, op) is not UNDEFINED}})
+                    **{k: g(k) for k in ("harness", "managed", "inbox", "switch", "drift") if dig(d, k) is not UNDEFINED},
+                    **{key: g(op) for key, op in (("branches", "branches"), ("branchesSweep", "branches-sweep"), ("clone", "clone"), ("hold", "hold"), ("unhold", "unhold"), (f"{CARRIER_NAME}Evidence", EVIDENCE_OP)) if dig(d, op) is not UNDEFINED}})
     return out
 
 
 # What counts as success for each action; anything else fails the run.
-ACTION_OK = {"upgrade": ["current", "upgraded"], "secrets-sync": ["synced"], "jobs-add": ["added"], "local-prune": ["pruned", "clean"],
-             "secrets-selftest": ["pass"], "pool-add": ["added"], "tools-install": ["installed", "current", "skipped"],
-             "gateway-install": ["installed", "current"], "branches-sweep": ["swept"], "restart": ["restarted", "no-session", "yours"]}
+ACTION_OK = {"upgrade": ["current", "upgraded"], "secrets-sync": ["synced"], "jobs-add": ["added", "listed"], "local-prune": ["pruned", "clean"],
+             "secrets-selftest": ["pass"], "pool-add": ["added"], "tools-install": ["installed", "current", "skipped"], "clone": ["cloned", "present"],
+             "gateway-install": ["installed", "current"], INSTALL_OP: ["installed", "current"], START_OP: ["started"], STOP_OP: ["stopped"], EVIDENCE_OP: ["ok"], "branches-sweep": ["swept"], "hold": ["held"], "unhold": ["released", "none"], "restart": ["restarted", "no-session", "yours"]}
 
 
 def targets_of(targets: list[str], placed: list[dict]) -> dict:
@@ -869,12 +1176,40 @@ def _table_branches(op: str, rs: list) -> list[str]:
     return lines
 
 
+def _table_drift(rs: list) -> list[str]:
+    """Per account: the counts, then one line per finding. What an account sent reaches this terminal escaped (esc)."""
+    lines = [f"{pad_end('account', 22)} {pad_end('status', 8)} ok  edited  missing  unreadable  retired  stale"]
+    for r in rs:
+        u = r.get("drift")
+        if _unless(r, u):
+            lines.append(_row(r))
+            continue
+        c = dig(u, "counts")
+        if dig(u, "status") not in ("ok", "drift") or not T(c):
+            lines.append(trim_end(f"{pad_end(r['account'], 22)} {pad_end(esc(nullish(dig(u, 'status'), 'no status')), 8)} {esc(nullish(dig(u, 'reason'), ''))}"))
+            continue
+        lines.append(trim_end(f"{pad_end(r['account'], 22)} {pad_end(esc(dig(u, 'status')), 8)} {pad_end(_cell(dig(c, 'ok')), 3)} {pad_end(_cell(dig(c, 'edited')), 7)} "
+                              f"{pad_end(_cell(dig(c, 'missing')), 8)} {pad_end(_cell(dig(c, 'unreadable')), 11)} {pad_end(_cell(dig(c, 'retired')), 8)} {_cell(dig(c, 'stale'))}"))
+        found = dig(u, "findings")
+        for f in found if isinstance(found, list) else []:
+            lines.append(trim_end(f"{pad_end('', 22)}   {pad_end(esc(dig(f, 'kind')), 10)} {esc(dig(f, 'path'))}"
+                                  + (f": {esc(dig(f, 'detail'))}" if T(dig(f, "detail")) else "")))
+        if dig(u, "truncated") is True:
+            lines.append(trim_end(f"{pad_end('', 22)}   ... {_cell(dig(u, 'findings_total'))} findings in all"))
+    return lines
+
+
 def _table_jobs(rs: list) -> list[str]:
     lines: list[str] = []
     for r in rs:
         if _unless(r, r.get("jobs")):
             lines.append(_row(r))
             continue
+        # ADR-037 rule 13: a held account says so before its jobs (a hold.json that cannot be read is a hold).
+        held = dig(r.get("jobs"), "hold")
+        if T(held):
+            lines.append(esc(f"{pad_end(r['account'], 22)} HELD  " + (f"hold unreadable: {S(held['unreadable'])}" if T(dig(held, "unreadable")) else S(dig(held, "reason")))
+                             + (f" (decision {S(held['decision'])})" if T(dig(held, "decision")) else "")))
         if dig(r.get("jobs"), "status") != "ok":
             lines.append(f"{pad_end(r['account'], 22)} jobs {S(dig(r['jobs'], 'status'))}{': ' + S(r['jobs']['error']) if T(dig(r['jobs'], 'error')) else ''}")
             continue
@@ -941,6 +1276,20 @@ def _table_tools_install(rs: list) -> list[str]:
     for r in rs:
         u = r.get("toolsInstall")
         body = r["status"] if _unless(r, u) else f"{pad_end(S(dig(u, 'status')), 9)} {S(nullish(dig(u, 'tool'), ''))} {S(nullish(dig(u, 'version'), ''))}{' ' + S(u['reason']) if T(dig(u, 'reason')) else ''}"
+        lines.append(esc(trim_end(f"{pad_end(r['account'], 22)} {body}")))
+    return lines
+
+
+def _table_clone(rs: list) -> list[str]:
+    lines = []
+    for r in rs:
+        u = r.get("clone")
+        if _unless(r, u):
+            body = r["status"]
+        else:
+            origin = f" (origin {S(dig(u, 'origin'))})" if T(dig(u, "origin")) and dig(u, "origin") != "keep" else ""
+            note = f"  {S(u['reason'])}" if T(dig(u, "reason")) else f"  warning: {S(u['warning'])}" if T(dig(u, "warning")) else ""
+            body = f"{pad_end(S(dig(u, 'status')), 9)} {S(nullish(dig(u, 'project'), ''))}{origin}{note}"
         lines.append(esc(trim_end(f"{pad_end(r['account'], 22)} {body}")))
     return lines
 
@@ -1048,6 +1397,74 @@ def _table_gateway_install(rs: list) -> list[str]:
     return lines
 
 
+def _table_carrier(rs: list) -> list[str]:
+    lines = [f"{pad_end('account', 22)} {pad_end('status', 11)} {pad_end('version', 9)} {pad_end('pinned', 7)} {pad_end('units', 6)} {pad_end('channel', 12)} reason"]
+    for r in rs:
+        u = r.get(CARRIER_NAME)
+        if _unless(r, u):
+            lines.append(_row(r))
+            continue
+        units_ = dig(u, "units")
+        have = "-" if not isinstance(units_, dict) else "both" if units_ and all(v is True for v in units_.values()) else "no"
+        pinned = dig(u, "pinned")
+        channel = dig(u, "channel")
+        why = nullish(dig(u, "reason"), "") or nullish(dig(channel, "reason"), "")
+        lines.append(esc(trim_end(f"{pad_end(r['account'], 22)} {pad_end(S(nullish(dig(u, 'status'), 'no status')), 11)} "
+                                  f"{pad_end(S(nullish(dig(u, 'version'), '-')), 9)} {pad_end('yes' if pinned is True else 'no' if pinned is False else '-', 7)} "
+                                  f"{pad_end(have, 6)} {pad_end(S(nullish(dig(channel, 'status'), '-')), 12)} {S(why)}")))
+    return lines
+
+
+def _table_carrier_install(rs: list) -> list[str]:
+    lines = [f"{pad_end('account', 22)} {pad_end('status', 10)} {pad_end('version', 9)} {pad_end('verified sha256', 16)} reason"]
+    for r in rs:
+        u = r.get(f"{CARRIER_NAME}Install")
+        if _unless(r, u):
+            lines.append(_row(r))
+            continue
+        digest = S(dig(u, "sha256"))[:12] if T(dig(u, "sha256")) else "-"
+        # The units' check is the news on an installed row; a failure's reason already carries it.
+        note = nullish(dig(u, "reason"), "") or (f"units: {S(dig(u, 'units', 'check'))}" if T(dig(u, "units", "check")) else "")
+        lines.append(esc(trim_end(f"{pad_end(r['account'], 22)} {pad_end(S(nullish(dig(u, 'status'), 'no status')), 10)} "
+                                  f"{pad_end(S(nullish(dig(u, 'version'), '-')), 9)} {pad_end(digest, 16)} {S(note)}")))
+    return lines
+
+
+def _table_carrier_units(rs: list, op: str) -> list[str]:
+    lines = [f"{pad_end('account', 22)} {pad_end('status', 10)} units / reason"]
+    for r in rs:
+        u = r.get(f"{CARRIER_NAME}{'Start' if op == START_OP else 'Stop'}")
+        if _unless(r, u):
+            lines.append(_row(r))
+            continue
+        units = dig(u, "units")
+        states = ", ".join(f"{k.split('@')[0].split('-')[-1]} {S(v)}" for k, v in units.items()) if isinstance(units, dict) else ""
+        note = nullish(dig(u, "reason"), "") or ("already running; " if dig(u, "already_running") is True else "re-rendered; " if dig(u, "rerendered") is True else "") + states
+        lines.append(esc(trim_end(f"{pad_end(r['account'], 22)} {pad_end(S(nullish(dig(u, 'status'), 'no status')), 10)} {S(note)}")))
+    return lines
+
+
+def _table_carrier_evidence(rs: list) -> list[str]:
+    lines = [f"{pad_end('account', 22)} {pad_end('status', 11)} {pad_end('arrivals', 9)} {pad_end('deliveries', 11)} {pad_end('kinds', 6)} {pad_end('journal', 10)} reason / next"]
+    for r in rs:
+        u = r.get(f"{CARRIER_NAME}Evidence")
+        if _unless(r, u):
+            lines.append(_row(r))
+            continue
+        c = dig(u, "counts")
+        if isinstance(c, dict):       # a whole collection
+            cells = [S(c.get(k)) for k in ("arrivals", "deliveries", "kinds")]
+            note = nullish(dig(u, "reason"), "")
+        else:                         # one page of one section
+            n = len(dig(u, "rows")) if isinstance(dig(u, "rows"), list) else "-"
+            cells = [S(n) if dig(u, "section") == "arrivals" else "-", S(n) if dig(u, "section") == "deliveries" else "-", S(len(dig(u, "kinds"))) if isinstance(dig(u, "kinds"), dict) else "-"]
+            note = nullish(dig(u, "reason"), "") or (f"next {S(dig(u, 'next'))}" if T(dig(u, "next")) else "")
+        status = S(nullish(dig(u, "status"), "ok" if isinstance(c, dict) and dig(u, "complete") is True else "incomplete"))
+        lines.append(esc(trim_end(f"{pad_end(r['account'], 22)} {pad_end(status, 11)} {pad_end(cells[0], 9)} {pad_end(cells[1], 11)} {pad_end(cells[2], 6)} "
+                                  f"{pad_end(S(nullish(dig(u, 'journal'), '-')), 10)} {S(note)}")))
+    return lines
+
+
 def _table_jobs_add(rs: list) -> list[str]:
     lines = []
     for r in rs:
@@ -1056,6 +1473,20 @@ def _table_jobs_add(rs: list) -> list[str]:
         lines.append(trim_end(f"{pad_end(r['account'], 22)} {body}"))
         if T(dig(u, "warning")):
             lines.append(f"{pad_end('', 22)} {S(u['warning'])}")
+    return lines
+
+
+def _table_hold(rs: list, op: str) -> list[str]:
+    lines = []
+    for r in rs:
+        u = r.get(op)
+        if _unless(r, u):
+            body = r["status"]
+        elif op == "hold" and dig(u, "status") == "held":
+            body = f"held  {S(nullish(dig(u, 'hold', 'reason'), ''))}"
+        else:
+            body = f"{S(dig(u, 'status'))}  {S(nullish(dig(u, 'reason'), ''))}"
+        lines.append(esc(trim_end(f"{pad_end(r['account'], 22)} {body}")))
     return lines
 
 
@@ -1556,6 +1987,16 @@ def _drift_cells(r: dict) -> str:
             out += f"  claude {esc(h['installed'])} (no pin)"
         else:
             out += f"  claude {esc(h['installed'])}"
+    m = r.get("managed")
+    if isinstance(m, dict):
+        # Said whatever the state: ADR-043 rule 6 reads "in force" off every host before the pin moves.
+        st = m.get("state")
+        if not isinstance(st, str):
+            out += "  managed ?"
+        elif st == "in force":
+            out += "  managed in force"
+        else:
+            out += f"  managed {esc(st).upper()}"
     n = dig(r.get("session"), "on_old_sign_in")
     if isinstance(n, int) and not isinstance(n, bool) and n > 0:
         out += f"  OLD ACCOUNT: {n} session{'s' if n != 1 else ''} (relaunch)"
@@ -1570,7 +2011,7 @@ def _drift_cells(r: dict) -> str:
 
 def _table_status(rs: list) -> list[str]:
     lines = [f"{pad_end('account', 22)} {pad_end('status', 10)} {pad_end('claude account', 30)} {pad_start('5h', 4)}  {pad_end('5h resets (UTC)', 16)} {pad_start('7d', 4)}  "
-             f"{pad_end('7d resets (UTC)', 16)} {pad_end('role', 18)} fabric"]
+             f"{pad_end('7d resets (UTC)', 16)} {pad_end('role', 18)} {pad_end('provider', 10)} fabric"]
     for r in rs:
         if r["status"] != "ok":
             lines.append(_row(r))
@@ -1582,7 +2023,11 @@ def _table_status(rs: list) -> list[str]:
             fab = S(nullish(dig(fb, "status"), "-"))
         usage = (f"{pct(r['five_hour'])}  {pad_end(at(r['five_hour']), 16)} {pct(r['seven_day'])}  {pad_end(at(r['seven_day']), 16)}"
                  if r.get("usage_status") == "ok" else pad_end(S(nullish(r.get("usage_status"), "-")), 42))
-        lines.append(f"{pad_end(r['account'], 22)} {pad_end('ok', 10)} {pad_end(S(nullish(r['email'], '-')), 30)} {usage} {pad_end(S(nullish(r['role'], '-')), 18)} {fab}"
+        # The provider column is 10 wide and pad_end never truncates, so a joined list
+        # ("anthropic,openrouter") would shift the fabric column; the JSON carries the list.
+        prov = S(nullish(dig(r.get('session'), 'provider'), '-'))
+        prov = "mixed" if "," in prov else prov
+        lines.append(f"{pad_end(r['account'], 22)} {pad_end('ok', 10)} {pad_end(S(nullish(r['email'], '-')), 30)} {usage} {pad_end(S(nullish(r['role'], '-')), 18)} {pad_end(prov, 10)} {fab}"
                      + _drift_cells(r))
     return lines
 
@@ -1596,22 +2041,36 @@ def table(op: str, rs: list) -> str:
         lines = _table_local(op, rs)
     elif op in ("branches", "branches-sweep"):
         lines = _table_branches(op, rs)
+    elif op == "drift":
+        lines = _table_drift(rs)
     elif op == "jobs":
         lines = _table_jobs(rs)
     elif op == "tools":
         lines = _table_tools(rs)
     elif op == "tools-install":
         lines = _table_tools_install(rs)
+    elif op == "clone":
+        lines = _table_clone(rs)
     elif op == "gateway":
         lines = _table_gateway(rs)
     elif op == "switch":
         lines = _table_switch(rs)
     elif op == "gateway-install":
         lines = _table_gateway_install(rs)
+    elif op == CARRIER_NAME:
+        lines = _table_carrier(rs)
+    elif op == INSTALL_OP:
+        lines = _table_carrier_install(rs)
+    elif op in (START_OP, STOP_OP):
+        lines = _table_carrier_units(rs, op)
+    elif op == EVIDENCE_OP:
+        lines = _table_carrier_evidence(rs)
     elif op == "restart":
         lines = _table_restart(rs)
     elif op == "jobs-add":
         lines = _table_jobs_add(rs)
+    elif op in ("hold", "unhold"):
+        lines = _table_hold(rs, op)
     elif op == "pool-add":
         lines = _table_pool_add(rs)
     elif op == "presence":
@@ -1663,18 +2122,40 @@ def main(argv: list[str] | None = None, *, registry: str | None = None, call: Ca
          now: Callable[[], float] = time.time, who: dict | None = None, token: str | None = None,
          units_run: units.Run | None = None) -> int:
     argv = sys.argv[1:] if argv is None else argv
+    asked = help_request(argv)
+    if asked is not None:
+        kind, word = asked
+        if kind == "usage":
+            err(USAGE)   # where the whole usage has always gone; only a verb's own help is on stdout
+            return 0
+        if word is not None and word not in VERB:
+            err(f"fabric-ctl: unknown verb {word!r} (fabric-ctl --verbs lists them)")
+            return 2
+        if kind == "verbs":
+            for line in verbs_listing(word):
+                out(line)
+        else:
+            out(render_help(word))
+        return 0
     try:
         args = parse_args(argv)
     except CtlError as e:
         err(f"fabric-ctl: {e}")
         return 2
+    # A help flag the early scan did not see (after the `--` of a jobs-add title) still stops the run, as it always did: the action is not sent.
     if args.get("help") or (not args["targets"] and args["op"] != "keygen"):
         err(USAGE)
         return 0 if args.get("help") else 2
     if args["op"] == "keygen":
         return keygen(args, registry=registry, who=who, out=out, err=err)
     agentd = _agentd()
-    picked = targets_of(args["targets"], placements(registry))
+    try:
+        placed = placements(registry)
+    except (OSError, ValueError) as e:
+        # Who is placed is unknown, not nobody: said as such, one line, exit 1 as any registry failure was.
+        err(f"fabric-ctl: the hosts registry could not be read ({e}); cannot tell who is placed; nothing sent")
+        return 1
+    picked = targets_of(args["targets"], placed)
     if "refused" in picked:
         err(f"fabric-ctl: {picked['refused']}")
         return 2
@@ -1683,8 +2164,8 @@ def main(argv: list[str] | None = None, *, registry: str | None = None, call: Ca
         # No request, no relay, no token: the agent that would answer is the thing being started or stopped.
         who = gz_whoami() if who is None else who
         include_self = args.get("include_self", False)
-        if args["op"] == units.STOP and not everyone and not include_self and any(e["login"] == who.get("agent") for e in expected):
-            err("fabric-ctl: control-stop would stop this session's own account's agent; --include-self says it is meant; nothing run")
+        if not units.is_start(args["op"]) and not everyone and not include_self and any(e["login"] == who.get("agent") for e in expected):
+            err(f"fabric-ctl: {args['op']} would stop this session's own account's {'agent' if args['op'] == units.STOP else 'session'}; --include-self says it is meant; nothing run")
             return 2
         # The registry the placements came from is the one hostexec reads, however the operator tree is split from the engine.
         reg_path = registry if registry is not None else roots.hosts_registry(engine=FABRIC_ROOT, empty_is_set=True)
@@ -1701,6 +2182,8 @@ def main(argv: list[str] | None = None, *, registry: str | None = None, call: Ca
         rcs = [main(["--json"] * bool(args["json"]) + ["--timeout", str(args["timeout"]), e["login"], "restart"], registry=registry, call=call,
                     out=out, err=err, sleep=sleep, now=now, who=who, token=token) for e in expected]
         return max(rcs)
+    if args["op"] == EVIDENCE_OP and args.get("section") is None:
+        return _collect_evidence(args, expected, registry=registry, call=call, out=out, err=err, sleep=sleep, now=now, who=who, token=token)
     if args["op"] == "pool-add":
         holder = pool_holder(agentd.control_config(), registry)
         if not expected or expected[0]["address"] != holder:
@@ -1710,9 +2193,11 @@ def main(argv: list[str] | None = None, *, registry: str | None = None, call: Ca
     me = {"address": f"{who['host']}/{who['agent']}"}
     cfg = agentd.control_config()
     gz = integration_config(who.get("project"))
-    tok = token if token is not None else gz_token(inbox_root(who), gz if gz.get("configured") else None)
-    if tok is None:
-        tok = synced_token()   # `??`: a token that is empty is a token, and refused as one
+    tok = None
+    if not args.get("via"):   # the break-glass path never touches the relay
+        tok = token if token is not None else gz_token(inbox_root(who), gz if gz.get("configured") else None)
+        if tok is None:
+            tok = synced_token()   # `??`: a token that is empty is a token, and refused as one
     api_call = call or (lambda p, **init: api(tok, p, relay_url=cfg["relay_url"], **init))
     if args["op"] == "states":
         # A read of the channel, not a request: no daemon is asked and none
@@ -1726,7 +2211,7 @@ def main(argv: list[str] | None = None, *, registry: str | None = None, call: Ca
     if me["address"] not in agentd.operator_addresses(registry) and not (args["op"] in PUBLIC_OPS and me["address"] in agentd.account_addresses(registry)):
         err(f"fabric-ctl: {me['address']} is not a host operator in runtime/hosts/registry.json — no agent would answer; not sent")
         return 2
-    if not tok:
+    if not tok and not args.get("via"):
         err("fabric-ctl: no CLAUDE_BRIDGE_AUTH_TOKEN (fabric-secrets sync)")
         return 3
     rid = agentd.new_id()
@@ -1756,6 +2241,8 @@ def main(argv: list[str] | None = None, *, registry: str | None = None, call: Ca
         except Exception as e:  # noqa: BLE001 — the signer's own words, as the Node said them
             err(f"fabric-ctl: {e}")
             return 3
+    if args.get("via"):
+        return _via_hostexec(args, request, expected[0], registry=registry, out=out, err=err)
     try:
         sent = api_call("/api/send", method="POST", body=js.stringify({"channel": cfg["channel"], "sender": me["address"], "content": js.stringify(request)}))
     except Exception as e:  # noqa: BLE001 — any failure of the call is said in relay_failure's words, as the Node said it
@@ -1834,6 +2321,48 @@ def main(argv: list[str] | None = None, *, registry: str | None = None, call: Ca
     # answered: the first fleet upgrade printed nine failed rows and exited 0.
     action_failed = args["op"] in ACTION_OPS and any(dig(r, "data", args["op"], "status") not in ACTION_OK.get(args["op"], []) for r in replies)
     return 1 if want or short() or refused or action_failed else 0
+
+
+def _collect_evidence(args: dict, expected: list[dict], *, out: Callable, err: Callable, **inject: Any) -> int:
+    """The whole window of every addressed account: each page is one signed request of its own, sent through
+    this same command (so every page is checked, signed and answered as a single one is), and the pages are
+    put together here (control/evidence_collect.py). Exit 1 when any account's collection is not complete."""
+    hosts = {e["login"]: e["host"] for e in expected}
+
+    def send(logins: list[str], section: str, since: str, until: str) -> dict:
+        lines: list[str] = []
+        argv = ["--json", "--timeout", str(args["timeout"]), *logins, EVIDENCE_OP, "--section", section, "--since", since, "--until", until,
+                *(["--via", args["via"]] if args.get("via") else [])]
+        main(argv, out=lines.append, err=err, **inject)
+        got: dict = {}
+        for line in lines:
+            try:
+                r = js.json_parse(line)
+            except ValueError:
+                continue
+            if isinstance(r, dict) and isinstance(r.get("account"), str):
+                got[r["account"]] = dig(r, f"{CARRIER_NAME}Evidence") if r.get("status") == "ok" else {"status": nullish(r.get("status"), "no answer")}
+        return got
+
+    got = evidence_collect.collect([e["login"] for e in expected], args["since"], args["until"], send)
+    filed = args["out"] is not None
+    rows_ = []
+    if filed:
+        os.makedirs(args["out"], mode=0o700, exist_ok=True)
+        evidence_collect.clear_manifest(args["out"])
+    for e in expected:
+        login, acct = e["login"], got[e["login"]]
+        if filed:
+            evidence_collect.write_dir(args["out"], login, acct, args["since"], args["until"])
+        rows_.append(evidence_collect.row_of(login, hosts[login], acct, args["since"], args["until"], full=not filed))
+    if filed:
+        evidence_collect.write_manifest(args["out"], [e["login"] for e in expected])
+    if args["json"]:
+        for r in rows_:
+            out(js.stringify(r))
+    else:
+        out(table(EVIDENCE_OP, rows_))
+    return 0 if all(r[f"{CARRIER_NAME}Evidence"]["complete"] for r in rows_) else 1
 
 
 def _int(v: Any) -> float:
@@ -2069,6 +2598,32 @@ def states(args: dict, expected: list[dict], *, call: Callable[..., Any], cfg: d
 # (key rotated, #95). gpg hands the value to this process on its stdout pipe
 # — never argv, never a file — with secret_store.py gpg()'s flags. Each way it
 # can fail is its own line, and none of them carries the value.
+
+def _via_hostexec(args: dict, request: dict, target: dict, *, registry: str | None, out: Callable[[str], None], err: Callable[[str], None]) -> int:
+    """The signed action sent through hostexec instead of the relay (control/breakglass.py): the row is the one a relay reply makes."""
+    from control import breakglass
+    try:
+        o = breakglass.via_hostexec(request, target, timeout=args["timeout"], registry=registry)
+    except breakglass.JournalError as e:
+        err(f"fabric-ctl: {e}; nothing sent")
+        return 3
+    if o.kind in ("refused", "failed"):
+        err(f"fabric-ctl: {target['login']}: {'refused by fabric-op: ' if o.kind == 'refused' else ''}{o.detail}")
+        return 2 if o.kind == "refused" else 3
+    replies = []
+    if o.reply is not None:
+        replies.append(o.reply)
+    if o.detail or o.reply is None:   # a journal line that could not be written is said beside a good row
+        err(f"fabric-ctl: {target['login']}: {o.detail}")
+    rs = rows([target], replies)
+    if args["json"]:
+        for r in rs:
+            out(js.stringify(r))
+    else:
+        out(table(args["op"], rs))
+    failed = any(dig(r, "data", args["op"], "status") not in ACTION_OK.get(args["op"], []) for r in replies)
+    return 1 if not replies or failed else 0
+
 
 SIGNING_KEY_NAME = "FABRIC_CONTROL_SIGNING_KEY"
 DECRYPT_TIMEOUT_S = 30

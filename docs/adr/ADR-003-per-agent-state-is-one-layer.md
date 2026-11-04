@@ -4,7 +4,7 @@
 **Status:** Accepted
 **Ratified:** owner, 2026-09-27, by arming agent-fabric #51 (ratification by merge, the owner's rule of 2026-09-27)
 **Decision Makers:** fabric-coordinator, on the review of 2026-09-16 (items 1, 2, 5, 6)
-**Scope:** everything under `${XDG_STATE_HOME:-~/.local/state}/agent-fabric/agents/<login>/`; runtime/identity.py; tools/fabric/role.py, runtime/claude-code/hooks/session-start.py, runtime/provisioning/rename_history.py and rename-working-copy.sh
+**Scope:** everything under `${XDG_STATE_HOME:-~/.local/state}/agent-fabric/agents/<login>/`; runtime/identity.py; tools/fabric/role.py, tools/fabric/state_writes.py and policies/state-writers.json, runtime/claude-code/hooks/session-start.py, runtime/provisioning/rename_history.py and rename-working-copy.sh; the session hooks' state (runtime/claude-code/hooks/session-state.py, context-sample.py); the control code's state writers (tools/fabric/control/: upgrade.py's restart.json, agentd.py's ActionLedger, pool.py, breakglass.py's and switch_log.py's logs)
 **Pillar:** P1
 
 ## 1. Context and Problem
@@ -40,13 +40,34 @@ Every write to `agents/<login>/` from Python goes through
 - `update_binding(mutate, agent)` and `append_history(record, agent)` —
   the two operations callers need, built on both.
 
-The one writer that cannot import it — the account's control agent, in
-Node, which writes `restart.json` for a fleet upgrade
-(`runtime/control/upgrade.mjs`) and its ledger of signed actions seen,
-`actions-seen.json` (`runtime/control/agentd.mjs`) — writes in the same
-shape, a temporary beside the target, then a rename; it takes no
-`agent_lock`, and what serializes it is that one control agent runs per
-account. The launcher is the other party to `restart.json`: after its
+The one writer outside it is the account's control code
+(`tools/fabric/control/`, Python since ADR-040's Wave 8, which kept the
+Node's own writers rather than move them into `identity.py`). It writes
+`restart.json` for a fleet upgrade (`upgrade.py`) and its ledger of
+signed actions seen, `actions-seen.json` (`agentd.py` `ActionLedger`),
+in the same shape, a temporary beside the target, then a rename, and
+it takes no `agent_lock`. The ledger has two writers in one account:
+the control agent, and `bin/fabric-op`, the break-glass path that runs
+one signed action with no relay (`breakglass.py`, ADR-029 rule 19).
+Every read-modify-write of the ledger (`ActionLedger.claim`, `record`)
+holds an exclusive `flock` on the state directory itself
+(`ActionLedger._locked`, a 5 s wait, then an error). `accept()`'s earlier
+read of the floor takes no lock; the claim checks the floor again under
+it and records in the same step, so a floor one writer raised is never
+written back lower by the other and a request is claimed once. The
+control code's other state files (the pressure, switch, tools, gateway
+and carrier records, the role pool) are replaced whole by temporary and
+rename, and two are append-only logs: `fabric-op`'s journal,
+`fabric-op.jsonl`, and the account switch log, `account-switch.jsonl`
+(`switch_log.py`), each one `O_APPEND` write per batch of lines, mode
+0600. The role pool, `pool.json` (`pool.py`), has writers that are not
+one at a time even inside one control agent: `pool-add`, an action,
+runs in a thread beside the read loop that answers `pool-claim`, and
+`fabric-op` can run a `pool-add` in a second process. Every
+read-modify-write of it holds an exclusive `flock` on a lock file beside
+it, `pool.json.lock` (`pool._locked`, a 5 s wait, then a refusal that
+changes nothing), not on the state directory, whose lock is the
+ledger's. The launcher is the other party to `restart.json`: after its
 session stopped it polls the marker until the control agent records the
 upgrade's outcome, or until `AGENT_FABRIC_RESTART_WAIT_S` (600 s by
 default) passes, then removes it; a marker the control agent writes
@@ -55,6 +76,19 @@ remove it, never edit it in place. The session writes the marker
 too when it ends its own finished job (`bin/fabric-fresh`, ADR-022),
 through `identity.atomic_write`; the launcher reads a fresh marker at
 once and waits on nothing.
+
+The account's Claude Code sessions report what they are doing in two
+files the control agent reads: `session-state.json`, rewritten by the
+`session-state.py` hook on a session's events, and
+`session-context.json`, by `context-sample.py` from the status line.
+Each loads `identity.py` and replaces its file with `atomic_write`,
+mode 0600, only when there is something to write. Neither takes
+`agent_lock`: a hook may never stand in a session's way, and a binding
+writer can hold that lock for as long as a bind takes. Each
+read-modify-write holds a `flock` on a lock file of its own beside the
+file instead, `session-state.json.lock` (waited on for 1 s) and
+`session-context.json.lock` (not waited on); a write that cannot take it
+is dropped, and the next event or redraw says it again (A 2026-11-01).
 
 The second class is a self-contained transactional store: a database
 that owns its own atomicity and locking, which `atomic_write` and
@@ -65,6 +99,21 @@ write a short transaction (`BEGIN IMMEDIATE`, a 5 s busy timeout), the
 directory 0700 and the files 0600, and its own schema version migrated
 in the opening transaction. Its path comes from
 `identity.agent_state_dir()`, as every other file's does.
+
+A lock file is not state. A writer that serializes on a `flock` holds
+it on a file of its own beside the state: `.lock` (`agent_lock`),
+`pool.json.lock` (`pool._locked`), the session hooks'
+`session-state.json.lock` and `session-context.json.lock`, and the control code's
+`busy-marker`, `busy-restart` and `busy-sync` (`control/busy.py`). Each
+is opened for writing with `O_CREAT`, because `flock` needs a
+descriptor and its first holder must be able to create it. But no
+byte of it is ever written or read: the lock is the open file
+description, and the kernel drops it with its holder. Rule 1 governs
+what state files hold, so it does not reach such a file, on three
+conditions. Its content is never written and never read. It is opened
+without `O_TRUNC`, mode 0600. And it is never removed or replaced,
+because a holder of the unlinked file and an opener of its successor
+would each believe they hold the lock (A 2026-10-31).
 
 A binding is per (agent, host). A working-copy rename merges history,
 never overwrites it.
@@ -92,9 +141,10 @@ state file an obvious place to get its writer.
    `identity` and calls `atomic_write`, `update_binding`,
    `append_history` or `update_jobs`, the job list's writer (ADR-037)
    (A 2026-09-28). A new state file gets its writer added to
-   `runtime/identity.py`, not a rewrite in place elsewhere. The Node
-   control agent is the named exception (§2), and writes only by
-   temporary and rename. A self-contained transactional store (§2) is
+   `runtime/identity.py`, not a rewrite in place elsewhere. The control
+   code is the named exception (§2): it replaces a file only by temporary
+   and rename, and appends its logs (`fabric-op.jsonl`,
+   `account-switch.jsonl`) only by `O_APPEND` (A 2026-10-30). A self-contained transactional store (§2) is
    the other: `episodic.db`, written only by `tools/fabric/episodic.py`
    through its own transactions (A 2026-10-05). Two GZCoord logs are the
    third: `journal-bypass.jsonl` (ADR-041 rule 10), append-only, written
@@ -102,12 +152,36 @@ state file an obvious place to get its writer.
    `O_NOFOLLOW`, mode 0600, one write and an fsync per batch of lines;
    and `gzcoord-sent.jsonl`, the send ledger, appended by
    `tools/fabric/gzcoord/send.py` and trimmed by rewrite, without
-   `agent_lock` yet (a known gap, to close) (A 2026-10-05).
+   `agent_lock` yet (a known gap, to close) (A 2026-10-05). A lock
+   file (§2) is not a write of state: one opened only to hold a
+   `flock`, never written, read, truncated or removed, mode 0600, needs
+   no writer in `identity.py` (A 2026-10-31). Rule 1 is checked, not
+   only stated: `tools/fabric/state_writes.py` finds a module that
+   resolves the per-agent state directory (through `identity`, as a
+   `state_dir` parameter, or by reading `AGENT_FABRIC_STATE_DIR` itself,
+   a copy of the resolution) and writes a file, and a `.lock` opened off
+   a lock file's terms;
+   lint judges the tree and the pre-commit hook the staged modules.
+   Such a module is named in `policies/state-writers.json` with why: the
+   clause above that admits it, `not state:` and what it writes, or
+   `gap (jNNN):` and the job that closes it. An entry that admits
+   nothing is itself a finding, so a gap's entry leaves with its fix
+   (A 2026-11-03).
 2. Every read-modify-write of per-agent state holds `agent_lock`, except
-   the Node control agent's own files (§2), which only it writes and the
+   the control code's own files (§2), which only it writes and the
    launcher only consumes; `restart.json` has a second writer,
    `bin/fabric-fresh`, which replaces it whole through `atomic_write`
-   (A 2026-09-28).
+   (A 2026-09-28). `actions-seen.json`, written by the control agent and
+   by `fabric-op`, is checked and replaced (`claim`, `record`) only under
+   the `flock` on the state directory, never under `agent_lock`;
+   `accept()`'s first read of it is unlocked and decides nothing the
+   claim does not check again (A 2026-10-30). `pool.json`, written by
+   `pool-add` beside `pool-claim` within the control agent and across
+   `fabric-op`, is read, changed and replaced only under the `flock` on
+   `pool.json.lock` (A 2026-10-30). `session-state.json` and
+   `session-context.json`, written through `atomic_write` by the session
+   hooks, are read, changed and replaced only under the `flock` on their
+   own lock file beside them, never under `agent_lock` (A 2026-11-01).
 3. `read_binding` refuses a record that names another agent or whose
    `host` is not this machine's, with the same wording, and says how to
    bind here. A move between hosts is a rebind there.
@@ -125,6 +199,8 @@ state file an obvious place to get its writer.
 
 - `tests/test_identity.py` proves the lock with four processes racing one
   counter and one history file; `tests/test_rename_history.py` the merge.
+- `tests/test_state_writes.py` holds rule 1's guard and its lint part;
+  `tests/test_githook_pre_commit.py` (`StateWrites`) its pre-commit leg.
 - A shared home no longer carries a role between hosts; the cost is a
   rebind on each host an account is used from.
 
@@ -141,9 +217,13 @@ Accepted and in force.
 - `runtime/identity.py` (module docstring, `atomic_write`, `agent_lock`,
   `update_binding`, `append_history`, `read_binding`).
 - `tools/fabric/role.py`, `runtime/claude-code/hooks/session-start.py`,
+  `runtime/claude-code/hooks/session-state.py`, `context-sample.py`,
   `runtime/provisioning/rename_history.py`,
   `runtime/provisioning/rename-working-copy.sh`.
-- `tests/test_identity.py`, `tests/test_rename_history.py`.
+- `tests/test_identity.py`, `tests/test_rename_history.py`,
+  `tests/test_session_state.py`, `tests/test_context_sample.py`.
+- `tools/fabric/state_writes.py`, `tools/fabric/lint_rules/state.py`,
+  `policies/state-writers.json`, `tests/test_state_writes.py`.
 - ADR-002 (the dimensions this state belongs to).
 
 ## Amendments
@@ -156,3 +236,8 @@ The body above reads current; each change's full note is in [history/ADR-003-ame
 | 2026-10-05 | A self-contained transactional store is a writer class | §2, §5 rule 1: `episodic.db` (ADR-041) written only by `episodic.py`, through SQLite's own transactions |
 | 2026-10-05 | The GZCoord logs are a writer class | §5 rule 1: `journal-bypass.jsonl` and the send ledger, written by `bypass.py` and `send.py`; the ledger's unlocked trim named as a gap |
 | 2026-09-28 | The job list is per-agent state | §5 rule 1: `jobs.json` and its writer `update_jobs` |
+| 2026-10-30 | The action ledger has two writers, serialized by a flock on the state directory | §2, §5 rules 1–2: the control code in Python, not Node; `actions-seen.json` claimed by agentd and `fabric-op` under `ActionLedger._locked`; two append-only logs; `pool.json`'s unlocked rewrite a named gap |
+| 2026-10-30 | The role pool is rewritten under its own lock | §2, §5 rule 2: `pool.json`'s read-modify-write holds a flock on `pool.json.lock` (#423); the gap is closed |
+| 2026-10-31 | A lock file is not state | §2, §5 rule 1: a file opened `O_CREAT` only to hold a `flock` (`.lock`, `pool.json.lock`, `busy-*`), never written, read, truncated or removed, mode 0600, is outside rule 1 |
+| 2026-11-01 | The session hooks write through `identity.py`, under their own lock files | §2, §5 rule 2: `session-state.json` and `session-context.json` replaced by `atomic_write`, read-modify-write under a `flock` on their `.lock` beside them, never `agent_lock`; both lock files 0600 |
+| 2026-11-03 | Rule 1 has a guard, and its exceptions a list | §5 rule 1: `state_writes.py` in lint and at pre-commit; `policies/state-writers.json` names each admitted module and why, gaps with their jobs; `fabric_writes.py` writes through `identity` |

@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+# bin/fabric-drain-due — the scheduled drain's collection and report (ADR-034 §7 step 3). The path is the
+# contract (agent-fabric-drain.service names it); the work, its rules and every reason for them are in
+# tools/fabric/drain_due.py. Bash builtins only, to find it, so the module's own refusals are what the journal
+# shows. Reached through a symlink, which no bash builtin resolves, so Python does: the real path of this file,
+# the module beside its bin/.
+# The fleet's pinned Python (runtime/python.json, ADR-040), one per host;
+# AGENT_FABRIC_PYTHON points elsewhere for a test or a host without it.
+py="${AGENT_FABRIC_PYTHON:-/usr/local/bin/fabric-python}"
+[[ -x "$py" ]] || { echo "fabric-drain-due: the fleet's pinned Python is not installed at $py; as root: /usr/bin/python3 <agent-fabric>/tools/fabric/python_pin.py install" >&2; exit 127; }
+exec "$py" -I -c 'import os, runpy, sys
+real = os.path.realpath(sys.argv[1])
+module = os.path.join(os.path.dirname(os.path.dirname(real)), "tools", "fabric", "drain_due.py")
+sys.argv = [module] + sys.argv[2:]
+runpy.run_path(module, run_name="__main__")' "${BASH_SOURCE[0]}" "$@"

@@ -4,7 +4,7 @@
 **Status:** Accepted
 **Ratified:** owner, 2026-09-27, by arming agent-fabric #52 (ratification by merge, the owner's rule of 2026-09-27)
 **Decision Makers:** the owner; drafted by fabric-coordinator
-**Scope:** identities/prompt/team.md (the rule every session reads); tests/run.sh, tests/run.py, tests/test_leak-check.sh, tests/static.sh; the temporary directories of tools/fabric/assemble.py and tools/fabric/harvest_memory.py
+**Scope:** identities/prompt/team.md (the rule every session reads); tests/run.sh, tests/run.py, tests/test_leak_check.py, tests/static.sh; the temporary directories of tools/fabric/assemble.py and tools/fabric/harvest_memory.py
 **Pillar:** P3
 
 ## 1. Context and Problem
@@ -98,7 +98,7 @@ check (agent-fabric #26).
 
 - `identities/prompt/team.md` ("A test run leaves behind nothing it did
   not find").
-- `tests/run.sh`, `tests/run.py`, `tests/test_leak-check.sh`, `tests/test_run.py`,
+- `tests/run.sh`, `tests/run.py`, `tests/test_leak_check.py`, `tests/test_run.py`,
   `tests/static.sh`.
 - `.agent-fabric/memory/fabric-coordinator/threads/suite-scratch-leak.md`
   (the measurement of 2026-09-20).

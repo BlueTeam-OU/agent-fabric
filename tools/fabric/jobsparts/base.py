@@ -42,6 +42,8 @@ class Job(_JobKeys, total=False):
     blockers: list[str]
     branch: str
     worktree: str
+    deliver_to: str
+    project_from: str
 
 
 def _load(name: str, path: str):
@@ -52,6 +54,15 @@ def _load(name: str, path: str):
 
 
 identity = _load("fabric_identity", os.path.join(FABRIC_ROOT, "runtime", "identity.py"))
+
+
+# The registry-id grammar, loaded by path like identity: the parts never import
+# a top-level name a fixture fabric on sys.path could answer.
+PROJECT_SLUG = _load("fabric_registry_id", os.path.join(HERE, "registry_id.py")).REGISTRY_ID
+
+
+# The fleet hold's reader (ADR-037 rule 13), loaded by path for the same reason.
+hold_view = _load("fabric_hold_view", os.path.join(HERE, "hold_view.py"))
 
 
 STATES = ("queued", "active", "paused", "blocked", "delivered", "done", "dropped")

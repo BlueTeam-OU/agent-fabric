@@ -7,6 +7,7 @@ Turn distiller claims into the knowledge corpus, filed by scope.
     tools/fabric/assemble.py --claims DIR --drain DIR --project <project> --stamp DATE
     tools/fabric/assemble.py --bundle FILE|- --project <project> --stamp DATE
     tools/fabric/assemble.py … --flags [--send]      # then the flag phase (memory_flagrun.py): dry run, or --send
+    tools/fabric/assemble.py … --commit-message FILE  # the commit body for the drain, built from its report (commit with -F)
 
 A BUNDLE is the drain as one tar with a manifest (harvest_memory.py
 --bundle; bin/fabric-host <host> drain <login> streams one from the
@@ -53,6 +54,19 @@ Merge mode is the default: existing slices are read, and a claim whose
 `merge_target` names an existing section updates it instead of appending
 beside it. Regenerating from scratch would discard accumulated curation,
 so it is never done implicitly.
+
+A merge_target is judged against the claims of the same run as well as the
+corpus: two claims that both write one heading (one under it, one naming it
+in merge_target) are a contested heading the owner decides; a memory whose
+text is the section another memory corrects in the same run is not written
+and is listed under `superseded_harvests`; a merge_target that two parts of
+one topic hold is ambiguous, like one two topics hold.
+
+A correction of a shape that loses what it replaces is refused before anything is written (assembler/shapes.py): a body
+of one word, a body another correction of the run writes over a different section, a title that is a strict prefix of
+the heading it replaces. After the write, a section a correction replaced that stands in its slice again fails the run
+(its files are written: discard them). A flat class file that records no topic is not taken for the topic a drain brings:
+it moves into the directory as the carried file.
 <<< help
 """
 
@@ -69,8 +83,9 @@ sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
 
 from assembler.core import Run, layout  # noqa: E402
 from assembler.intake import parse_args, open_layout, read_claims, screen_hygiene, bucket_claims, hold_back, load_decisions  # noqa: E402
-from assembler.targets import plan_classes, held_files, resolve_all_targets  # noqa: E402
+from assembler.targets import plan_classes, held_files, resolve_all_targets, point_disk  # noqa: E402
 from assembler.collisions import check_collisions  # noqa: E402
+from assembler.shapes import check_correction_shapes, drop_replayed, verify_replacements  # noqa: E402
 from assembler.writer import write_shared, write_role  # noqa: E402
 from assembler.index import bound_roles_with_domain_slices, index_role, read_crossref_index, roles_with_project_directory  # noqa: E402
 from assembler.report import report  # noqa: E402
@@ -90,12 +105,16 @@ def main() -> int:
     run.bound_roles = bound_roles_with_domain_slices(run)
     if resolve_all_targets(run):
         return 1
+    drop_replayed(run)
+    if check_correction_shapes(run):
+        return 1
     if check_collisions(run):
         return 1
     # Refused before anything is written, as a broken taxonomy is.
     held_roles = roles_with_project_directory(run)
     for role in held_roles:
         read_crossref_index(os.path.join(layout.project_dir(run.project, role), "crossref.json"))
+    point_disk(run)
     write_shared(run)
     # Every role that owns anything gets a project directory and an index —
     # including one whose claims all live in shared slices, which would
@@ -112,6 +131,8 @@ def main() -> int:
     # records as the roles the drain touched.
     for role in sorted(held_roles - set(run.owning_roles)):
         index_role(run, role)
+    if verify_replacements(run):
+        return 1
     rc = report(run)
     if rc == 0 and args.flags:
         # After the report, which it reads for who wrote each section; a failed drain routes nothing.

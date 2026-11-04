@@ -2,7 +2,8 @@
 """policies/signing.json's reader (tools/fabric/guards/signing_policy.py) and
 its lint (tools/fabric/lint_rules/signing.py), on fixture files: the shape
 both enforce, the repository a working copy is covered by, and what only the
-lint says (a repository no project has, a project named twice).
+lint says (a repository no project has, a project named twice, a forge key
+whose file is missing, is another key, or is committed and not listed).
 
 Exit codes: 0 all checks passed, 1 one or more failed."""
 from __future__ import annotations
@@ -15,6 +16,10 @@ import sys
 import tempfile
 
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.join(HERE, "tests"))
+from instance_fixtures import own_instance_tree  # noqa: E402 — tests/, the script's own directory
+own_instance_tree()
+from signing_fixture import drop_key, make_key  # noqa: E402
 sys.path.insert(0, os.path.join(HERE, "tools", "fabric"))
 sys.path.insert(0, os.path.join(HERE, "tools", "fabric", "guards"))
 import signing_policy as sp  # noqa: E402
@@ -23,6 +28,8 @@ import lint  # noqa: E402
 
 T = tempfile.mkdtemp(prefix="sigpol.")
 POLICY = os.path.join(T, "signing.json")
+FORGE_DIR = os.path.join(T, "forge-keys")   # beside the policy, as policies/forge-keys/ is
+KEYS: list[str] = []   # the throwaway GNUPGHOMEs, dropped at the end
 REGISTRY_PATH = os.path.join(T, "registry.json")
 REGISTRY = {"version": 1, "projects": {
     "widget": {"remotes": ["git@github.com:acme/widget.git", "https://github.com/acme/widget"], "default_branch": "main"},
@@ -138,10 +145,72 @@ def main() -> None:
     os.makedirs(plain)
     check("no git repository: skipped silently", own_findings(on_side, plain) == [], own_findings(on_side, plain))
 
+    print("forge_keys (ADR-057 §5 rule 8)")
+    homes, fprs = [], []
+    for n in ("ka", "kb"):
+        os.makedirs(os.path.join(T, n))
+        home, fpr = make_key(os.path.join(T, n))
+        KEYS.append(home)
+        homes.append(home)
+        fprs.append(fpr.upper())
+
+    def armored(i: int) -> str:
+        return subprocess.run(["gpg", "--homedir", homes[i], "--batch", "--armor", "--export", fprs[i]], capture_output=True,
+                              text=True, check=True, timeout=60).stdout
+
+    def put_key(name: str, i: int) -> None:
+        os.makedirs(FORGE_DIR, exist_ok=True)
+        with open(os.path.join(FORGE_DIR, name), "w", encoding="utf-8") as f:
+            f.write(armored(i))
+
+    listed = {**good, "forge_keys": {fprs[0]: "the forge"}}
+    for label, bad in (("a fingerprint in lower case", {**good, "forge_keys": {fprs[0].lower(): "x"}}),
+                       ("a key id, not a fingerprint", {**good, "forge_keys": {fprs[0][-16:]: "x"}}),
+                       ("a description that is not a string", {**good, "forge_keys": {fprs[0]: 1}}),
+                       ("forge_keys not an object", {**good, "forge_keys": [fprs[0]]})):
+        write(bad)
+        try:
+            sp.load(POLICY)
+            check(f"the reader refuses {label}", False, "loaded")
+        except sp.PolicyError as e:
+            check(f"the reader refuses {label}", "forge_keys" in str(e), e)
+        f = findings(bad)
+        check(f"  ... and so does the lint", any("forge_keys" in x or "does not match" in x for x in f), f)
+    write(listed)
+    check("the reader takes a listed forge key", sp.load(POLICY)["forge_keys"] == {fprs[0]: "the forge"})
+    f = findings(listed)
+    check("a listed forge key with no file beside the policy", any(f"{fprs[0]}.asc is not there" in x for x in f), f)
+    put_key(f"{fprs[0]}.asc", 0)
+    check("a listed forge key whose file is that key: clean", findings(listed) == [], findings(listed))
+    check("sp.key_file_primaries reads the file's primary", sp.key_file_primaries(os.path.join(FORGE_DIR, f"{fprs[0]}.asc"),
+                                                                                homes[1]) == [fprs[0]])
+    put_key(f"{fprs[0]}.asc", 1)
+    f = findings(listed)
+    check("a listed forge key whose file is another key", any(f"holds {fprs[1]}" in x for x in f), f)
+    with open(os.path.join(FORGE_DIR, f"{fprs[0]}.asc"), "w", encoding="utf-8") as fh:
+        fh.write(armored(0) + armored(1))
+    f = findings(listed)
+    check("a listed forge key whose file carries a second key too", any("not the one key" in x for x in f), f)
+    put_key(f"{fprs[0]}.asc", 0)
+    put_key(f"{fprs[1]}.asc", 1)
+    f = findings(listed)
+    check("a key file in forge-keys/ that no entry lists", any(f"{fprs[1]}.asc: no entry in forge_keys lists it" in x for x in f), f)
+    os.remove(os.path.join(FORGE_DIR, f"{fprs[1]}.asc"))
+    rule = sys.modules["fabric_lint_rules.signing"]
+    saved, rule.GPG = rule.GPG, "gpg-is-not-installed-here"
+    try:
+        f = findings(listed)
+        check("no gpg on the host: said as a finding, never passed silently", any("gpg is not installed" in x for x in f), f)
+    finally:
+        rule.GPG = saved
+    check("(control) the same with gpg: clean", findings(listed) == [], findings(listed))
+
 
 try:
     main()
 finally:
+    for home in KEYS:
+        drop_key(home)
     shutil.rmtree(T, ignore_errors=True)
 print("all passed" if not fails else f"{fails} FAILED")
 sys.exit(1 if fails else 0)

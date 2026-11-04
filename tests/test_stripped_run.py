@@ -146,6 +146,82 @@ def main() -> int:
         check("all passing is exit 0", stripped_run.run(tree, ["tests/test_reads_fixture.py"], out=lambda s: None) == 0)
         check("the tree itself is untouched", os.path.isfile(os.path.join(tree, "projects", "registry.json")))
 
+        # --skip-list: the live reader is red on the copy, the fixture reader green; the list's
+        # verdict is what changes, so each case has its opposite above or beside it.
+        live, fixture = "tests/test_reads_live.py", "tests/test_reads_fixture.py"
+        listed: list[str] = []
+        listed_code = stripped_run.run(tree, [live, fixture], out=listed.append, skip={live: "j99 reads the registry"})
+        check("a listed red file is said as listed with its reason, an unlisted green one ok: exit 0",
+              listed_code == 0 and listed == [f"{live}: red, listed — j99 reads the registry", f"{fixture}: ok"], (listed_code, listed))
+        unlisted: list[str] = []
+        unlisted_code = stripped_run.run(tree, [live, fixture], out=unlisted.append, skip={fixture + "x": "j1"})
+        check("an unlisted red file fails with a list in force: exit 1", unlisted_code == 1 and f"{live}: FAILED (exit 1)" in unlisted,
+              (unlisted_code, unlisted))
+        stale: list[str] = []
+        stale_code = stripped_run.run(tree, [live, fixture], out=stale.append, skip={live: "j99", fixture: "j98"})
+        check("a listed file that now passes fails, so the list only shrinks: exit 1",
+              stale_code == 1 and any(ln.startswith(f"{fixture}: FAILED (listed in the skip list, but it passes") for ln in stale)
+              and f"{live}: red, listed — j99" in stale, (stale_code, stale))
+
+        def main_with(listing: str | None, *argv: str) -> tuple[int, str, str]:
+            """stripped_run.main over `tree` with the list text written beside it; (exit, stdout, stderr)."""
+            args = [tree, *argv]
+            if listing is not None:
+                path = os.path.join(private, "skip.txt")
+                with open(path, "w", encoding="utf-8") as fh:
+                    fh.write(listing)
+                args = [tree, "--skip-list", path, *argv]
+            out_, err_, saved_ = io.StringIO(), io.StringIO(), (sys.stdout, sys.stderr)
+            sys.stdout, sys.stderr = out_, err_
+            try:
+                rc = stripped_run.main(args)
+            finally:
+                sys.stdout, sys.stderr = saved_
+            return rc, out_.getvalue(), err_.getvalue()
+
+        rc, so, se = main_with(f"# the nightly list\n\n{live} j99 reads the registry\n", live, fixture)
+        check("main: a list with a comment and a blank line, a listed red and an unlisted green: exit 0, one line each",
+              rc == 0 and so.splitlines() == [f"{live}: red, listed — j99 reads the registry", f"{fixture}: ok"], (rc, so, se))
+        rc, so, se = main_with(f"{fixture} j98\n", live, fixture)
+        check("main: the list is read from where --skip-list names it, files after it: the unlisted red and the listed green both fail",
+              rc == 1 and f"{live}: FAILED (exit 1)" in so and "but it passes" in so, (rc, so, se))
+        with open(os.path.join(private, "skip.txt"), "w", encoding="utf-8") as fh:
+            fh.write(f"{live} j99\n")
+        args_after = [tree, live, "--skip-list", os.path.join(private, "skip.txt")]
+        out_, saved_out = io.StringIO(), sys.stdout
+        sys.stdout = out_
+        try:
+            rc = stripped_run.main(args_after)
+        finally:
+            sys.stdout = saved_out
+        check("main: --skip-list after a file is read the same: the list there clears the red file",
+              rc == 0 and out_.getvalue() == f"{live}: red, listed — j99\n", (rc, out_.getvalue()))
+        rc, so, se = main_with(f"{live} j99\n", fixture)
+        check("main: a listed file the run was not asked to run is not checked: exit 0", rc == 0 and so == f"{fixture}: ok\n", (rc, so, se))
+        # A file that exists outside the tree, so only the containment test can refuse it, not the isfile one.
+        outside = os.path.join(marks, "outside.py")
+        write(marks, "outside.py", "")
+        for label, listing, needle in (
+                ("a line with no job or reason", f"{live}\n", "no job or reason"),
+                ("a path listed twice", f"{live} j1\n{live} j2\n", "listed twice"),
+                ("a path that is no file in the tree", "tests/test_gone.py j1\n", "skip.txt:1: not a file"),
+                ("a tab-separated line is split at the tab, not read as a path", f"{live}\tj1\n{live}\tj2\n", "listed twice"),
+                ("a path outside the tree", "../marks/outside.py j1\n", "../marks/outside.py")):
+            rc, so, se = main_with(listing, fixture)
+            check(f"main: {label} is exit 2, said, nothing run", rc == 2 and needle in se and so == "", (rc, so, se))
+        os.remove(outside)
+        saved_red, stripped_run.KNOWN_RED = stripped_run.KNOWN_RED, {live: "reads the registry on purpose"}
+        try:
+            rc, so, se = main_with(f"{live} j1\n", fixture)
+        finally:
+            stripped_run.KNOWN_RED = saved_red
+        check("main: a deliberate (KNOWN_RED) file on the list is exit 2, said", rc == 2 and "KNOWN_RED" in se and so == "", (rc, so, se))
+        rc, so, se = main_with(None, "--skip-list")
+        check("main: --skip-list with no value is the usage, exit 2", rc == 2 and "usage" in se, (rc, se))
+        rc, so, se = main_with(None, "--skip-list", os.path.join(private, "no-such-list"), fixture)
+        check("main: a list that cannot be read is exit 2, said", rc == 2 and "unreadable" in se and so == "", (rc, so, se))
+        os.remove(os.path.join(private, "skip.txt"))
+
         # A hook's git environment never reaches the copy's git, nor the caller's repository.
         hostile = os.path.join(private, "hostile-index")
         os.environ.update(GIT_INDEX_FILE=hostile, GIT_WORK_TREE=tree)

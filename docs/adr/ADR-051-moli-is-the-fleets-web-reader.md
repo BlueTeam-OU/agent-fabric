@@ -88,11 +88,12 @@ is handled the same way, by never leaving one open.
 
 ## 5. Binding Rules
 
-1. **moli is a pinned account tool.** The pin is moli 1.1.15, release
+1. **moli is a pinned account tool.** The pin is moli 1.1.19, release
    asset `moli-x86_64-unknown-linux-gnu.tar.gz`, sha256
-   `f7c9455451bffd4d3a6353431b3596c1d18ad4d9fe6725d8d4033f6fff5fa59d`;
+   `5c22362065e64e6de785274f6b3f28a735fca363abf9896c48733e5f58489def`;
    the binary inside it has sha256
-   `f927b72192905c092ec95c8f528e35087224f3fe8750f72fb2147efa676eab8d`.
+   `aba81cd94cbe6b6dd97e367463efdacd6b1ee379b3416ec5481bf595adf3cc41`;
+   the spike in §1 measured 1.1.15.
    A new version is a new pin with a new hash, proposed to
    fabric-coordinator; nothing installs moli unhashed.
 2. **It is installed per account, like doppler:** `fabric-tools --install
@@ -173,3 +174,4 @@ The body above reads current; each change's full note is in [history/ADR-051-ame
 | Date | Amendment | Effect |
 |---|---|---|
 | 2026-10-11 | The scripted-browsing gate is met: moli serve behind @playwright/mcp, with limits | Title, §1, §2, §3, §4, §5 rules 3, 4, 6 and the new 7, §6-§8: the gate is met; serve behind @playwright/mcp is approved, checkboxes, drag and radio buttons go to Chrome |
+| 2026-10-27 | The pin moves to moli 1.1.19 | §5 rule 1 |

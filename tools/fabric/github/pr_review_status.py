@@ -87,13 +87,19 @@ WHAT COUNTS. Three buckets, reported on their own lines:
       trusted" and is not coverage;
   blind reviews — the review class's reviews, posted by fabric-pr post-review as
       review objects whose FIRST LINE is REVIEW_MARKER, BY the account the
-      sessions push as — the PR author, or one named in
-      AGENT_FABRIC_REVIEW_POSTERS: the fabric's review of every PR,
+      sessions push as — the PR author, one named in
+      AGENT_FABRIC_REVIEW_POSTERS, or on a PR an app opened (Dependabot)
+      the account gh acts as here: the fabric's review of every PR,
       dispatched by the session that owns it and judged before it is
       answered. A marked review by any other account is reported, with its
       login, and is NOT coverage: the marker is published in every tree,
       and on a public repository anyone can post it;
   self reviews — the author's own thread replies; not coverage.
+A review whose first line is a v2 marker (<!-- agent-fabric-review v2 base=… head=… card=… config=… -->, agent-fabric
+ADR-065) is a blind review only when its coverage block reads, names every path "read", and its marker's head is the
+commit the review is on. Otherwise it is a PARTIAL review: listed with why (`partial` in --json), counted nowhere,
+and from an account a blind review does not count from it is "marked, other login" as any marked review is. A v1
+review counts as before.
 A review whose first line is an engine's unavailable marker
 (agent-fabric-engine-unavailable v1) is in none of the three, from any
 account: from the PR author or a named poster it is listed as "engine
@@ -137,18 +143,19 @@ from dataclasses import dataclass, field
 HERE = os.path.dirname(os.path.realpath(__file__))
 sys.path.insert(0, os.path.dirname(HERE))
 import gh  # noqa: E402
+import poll_pace  # noqa: E402
 from github import common  # noqa: E402
 # Every name the parts define, from here as before: callers and tests reach
 # them as pr_review_status.<name> (pr_gate; tests/test_pr_review_status.py,
 # test_post_review.py, test_pr_gate.py).
-from github.review_status.base import PROG, Die, out, err, jstr, sha8, jkey, login_of  # noqa: E402, F401
+from github.review_status.base import PROG, Die, out, err, jstr, sha8, jkey, login_of, review_order  # noqa: E402, F401
 from github.review_status.cli import HELP, OctalError, bash_int, as_seconds, Args, parse  # noqa: E402, F401
 from github.review_status.config import REVIEW_MARKER, BUILTIN_LEGACY_MARKER  # noqa: E402, F401
 from github.review_status.config import TRUSTED_ASSOCIATIONS, POSIX_CLASSES, onig_to_py  # noqa: E402, F401
 from github.review_status.config import compile_re, logins, Config, read_config  # noqa: E402, F401
 from github.review_status.verdicts import VERDICT_SHA, PASS_LINE, Buckets, classify  # noqa: E402, F401
 from github.review_status.verdicts import verdicts_of, newest, refusal_of, request_of  # noqa: E402, F401
-from github.review_status.verdicts import head_covered, engine_of, UNAVAILABLE, unavailable_of  # noqa: E402, F401
+from github.review_status.verdicts import head_covered, engine_of, UNAVAILABLE, unavailable_of, uncounted_v2  # noqa: E402, F401
 from github.review_status.probe import PR_FIELDS, TIMELINE_QUERY, THREADS_QUERY  # noqa: E402, F401
 from github.review_status.probe import THREAD_PAGES, review_threads, Probe, head_born  # noqa: E402, F401
 from github.review_status.probe import formal_request_at, probe, no_review_coming, Extras  # noqa: E402, F401
@@ -172,6 +179,10 @@ class Ctx:
     # Not reset by a failed poll, as the bash's `head` was not: None is the
     # bash's unset variable.
     head: str | None = None
+    # The epoch the primary rate limit ends, when the last probe was refused on it (probe sets it).
+    limited_until: float | None = None
+    # A head's birth by (head, ref): fixed once read.
+    born: dict = field(default_factory=dict)
 
     def seconds(self) -> int:
         return int(time.time()) - self.t0
@@ -219,10 +230,16 @@ def run(argv: list[str], env=None) -> int:
     # means the PR is genuinely unreadable. Same tolerance as fabric-pr wait-merged.
     failures = 0
     p: Probe | None = None
+    # The wait grows while the PR reads the same and falls back when it changes (poll_pace.py).
+    pace = poll_pace.Pace(interval)
+    last: Probe | None = None
+    changed = True
     while True:
         p = probe(ctx)
         if p is not None:
             failures = 0
+            changed = p != last
+            last = p
             if p.head_reviewed:
                 ctx.render(p)
                 return 0
@@ -272,6 +289,10 @@ def run(argv: list[str], env=None) -> int:
                 if not args.json:
                     out(f"PR #{ctx.pr} NO REVIEW COMING — the head moved past every review; dispatch a re-review (exit 5)")
                 return 5
+        elif poll_pace.until_reset(ctx.limited_until, time.time()) is not None:
+            # Refused on the rate limit: not a failure of the PR to read, and another look before the reset is
+            # a wasted call. The nap below lasts until then.
+            ctx.note(f"rate limited until {poll_pace.reset_clock(ctx.limited_until)}")
         else:
             failures += 1
             if failures >= 3:
@@ -289,7 +310,14 @@ def run(argv: list[str], env=None) -> int:
         remaining = deadline - ctx.seconds()
         if not remaining > 0:
             break
-        nap = min(interval, remaining)
+        nap = min(pace.nap(changed), remaining)
+        # A call refused on the limit, or a budget nearly gone, waits for the reset rather than spend or retry.
+        quiet_for = poll_pace.until_reset(ctx.limited_until, time.time())
+        budget = gh.budget_wait() if quiet_for is None else 0
+        if budget > 0:
+            quiet_for = int(budget) or 1
+        if quiet_for is not None:
+            nap = min(max(nap, quiet_for), remaining)
         if ctx.head is None:
             # The bash's `${head:0:8}` under `set -u`: a first poll that
             # could not even read the PR, then a wait, aborted the script
@@ -304,6 +332,9 @@ def run(argv: list[str], env=None) -> int:
     # probe that COMPLETED — `head` alone is not enough, because it is set
     # before the reviews lookup that may be the thing that failed.
     if p is None or not p.head:
+        if ctx.limited_until is not None:
+            raise Die(f"could not read PR #{ctx.pr} in {ctx.repo}: rate limited until "
+                      f"{poll_pace.reset_clock(ctx.limited_until)}.")
         raise Die(f"could not read PR #{ctx.pr} in {ctx.repo}.")
     ctx.render(p)
     return 1

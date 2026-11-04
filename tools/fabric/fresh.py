@@ -14,8 +14,11 @@ conversation stays on disk; `claude --resume` can still open it.
 --job <id> names the job the next session is for (`fabric-jobs next`
 prints it, ADR-022 rule 12): the launcher starts it in that job's working
 copy, with the job in its opening prompt. An unknown job is refused
-(exit 2); a working copy that is gone or has uncommitted changes is the
-launcher's to refuse, and it says so and starts in the old directory.
+(exit 2); a working copy that is gone, whose status cannot be read, or that
+has uncommitted changes held by another unfinished job's worktree (or a job
+list that cannot be read) is the launcher's to refuse, and it says so and
+starts in the old directory; a job's own uncommitted changes are why it
+starts there.
 
 Refused (exit 3) too, --force or not, when the launcher would refuse the relaunch:
 the fabric checkout is behind origin/main and cannot fast-forward.
@@ -29,6 +32,9 @@ relaunch would replay it instead of starting anew; and when the
 session's launcher predates fabric-fresh: it would resume, not start
 anew — relaunch once; and when no claude process is above this one:
 there is no session to stop.
+Refused (exit 2) with --job while the login is under the fleet hold
+(ADR-037 rule 13), or its hold.json cannot be read; without --job the
+session may still end, since nothing is then started.
 """
 # The docstring above is --help (the bash header's text, since extended); the contract the port keeps (ADR-040 Wave 3, from bin/fabric-fresh):
 #   - argv in order: --note V / --note=V, --job V / --job=V, --force,
@@ -82,6 +88,13 @@ def say(text: str) -> None:
 
 def _identity():
     spec = importlib.util.spec_from_file_location("fabric_identity", os.path.join(FABRIC, "runtime", "identity.py"))
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)  # type: ignore[union-attr]
+    return mod
+
+
+def _hold_view():
+    spec = importlib.util.spec_from_file_location("fabric_hold_view", os.path.join(HERE, "hold_view.py"))
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)  # type: ignore[union-attr]
     return mod
@@ -312,6 +325,11 @@ def run(argv: list[str]) -> int:
         say(why)
         return 2
     note, job = opts["note"], opts["job"]
+    if job:
+        held = _hold_view().read(_identity())
+        if held:
+            say(f"job {job} is not started: this login is held, {_hold_view().words(held)}")
+            return 2
     if job and not job_known(job):
         return 2
     # Not --force's: it is for work not yet committed, and a relaunch that

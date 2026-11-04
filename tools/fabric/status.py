@@ -53,12 +53,12 @@ to count), `moveto` (only when installed), `journal`, `python`, `agentd`
 The --json object: agent, host, placement, role, project, working_copy,
 session, binding_updated, launched_role, launch_prompt_digest, drift (a
 list or null), session_effort ({asked, reported, launched} or null),
-undrained_memories ({drainable, no_roles_class, since, dir} or null), jobs
+undrained_memories ({drainable, no_roles_class, oldest_ms, bound_days, since, dir} or null), jobs
 ({active, queued, blocked, delivered} or {error}), api ({provider, path,
 base_url_host, session_model, launch_profile, pins, credentials,
 claude_sign_in}), capabilities ({class: line}), engines ({"<provider> <class>":
 line}, the engine providers' classes), routing_check ("clean" or
-a list), host_tools ({moveto, python, journal, agentd}; agentd's status
+a list), host_tools ({moveto, python, journal, agentd, claude, inbox, account_switch, managed}; agentd's status
 python, refused, drift, none or unknown), control_plane.
 """
 from __future__ import annotations
@@ -69,6 +69,7 @@ import json
 import os
 import subprocess
 import sys
+import time
 from urllib.parse import urlsplit
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.realpath(__file__))))
@@ -216,7 +217,7 @@ def undrained_memories(ctx, root):
             # The harvester's own reading of the mark, so the count and the
             # next drain agree on where this agent's store was read up to.
             watermark_ms, _ = harvest.previous_watermark(ctx["working_copy"], ctx["host"], ctx["agent"])
-            drainable, private = 0, 0
+            drainable, private, oldest_ms = 0, 0, None
             if os.path.isdir(mem_dir):
                 for name in os.listdir(mem_dir):
                     if not name.endswith(".md") or name == "MEMORY.md":
@@ -226,13 +227,24 @@ def undrained_memories(ctx, root):
                         continue
                     if rec["roles_class"]:
                         drainable += 1
+                        oldest_ms = rec["mtime_ms"] if oldest_ms is None else min(oldest_ms, rec["mtime_ms"])
                     else:
                         private += 1
-            return {"drainable": drainable, "no_roles_class": private,
+            return {"drainable": drainable, "no_roles_class": private, "oldest_ms": oldest_ms, "bound_days": harvest.DRAIN_BOUND_DAYS,
                     "since": "the last drain" if watermark_ms else "ever (no drain report)", "dir": mem_dir}
     except Exception:  # noqa: BLE001 — a status line, not a guard
         pass
     return None
+
+
+def oldest_note(undrained, now_ms=None):
+    """', oldest D d (bound B)': how long the oldest drainable memory has waited (ADR-034 §7 step 3). Nothing when
+    none waits or the report has no age (an older report): an absent age is not 0 d."""
+    oldest = undrained.get("oldest_ms")
+    if oldest is None or not undrained.get("drainable"):
+        return ""
+    now_ms = int(time.time() * 1000) if now_ms is None else now_ms
+    return f", oldest {max(0, now_ms - oldest) // 86_400_000} d (bound {undrained['bound_days']})"
 
 
 def prompt_drift_line(digest, state_dir):
@@ -345,6 +357,11 @@ def jobs_summary(identity, agent):
     _active = next((j for j in _jobs if j["state"] == "active"), None)
     return {"active": {"id": _active.get("id"), "title": _active.get("title") or "", "working_copy": _active.get("working_copy")} if _active else None,
             **{st: sum(1 for j in _jobs if j["state"] == st) for st in ("queued", "paused", "blocked", "delivered")}}
+
+
+def hold_of(identity, agent):
+    # The fleet hold (ADR-037 rule 13): the record, {"unreadable": why} for a hold.json that cannot be read, None when not held.
+    return load("fabric_hold_view", os.path.join(os.path.dirname(os.path.realpath(__file__)), "hold_view.py")).read(identity, agent)
 
 
 # A session's Bash no longer holds the harness's credentials (the
@@ -514,6 +531,7 @@ def build_report(root, environ=None, cred_environ=None):
     python = pinned_python(root)
     drift = load("fabric_drift", os.path.join(root, "tools", "fabric", "drift.py"))
     claude = claude_state(drift, root)
+    managed = managed_state(root)
     inbox = inbox_state(drift, root, ctx)
     journal = episodic_journal(root)
     agentd = agentd_implementation(root, ctx["agent"], environ)
@@ -537,6 +555,7 @@ def build_report(root, environ=None, cred_environ=None):
         "session_effort": session_effort,
         "undrained_memories": undrained,
         "jobs": jobs,
+        "hold": hold_of(identity, ctx["agent"]),
         "api": {"provider": provider, "path": path, "base_url_host": host or None,
                 "session_model": stamp or "harness default (not visible from the environment; /status shows it)",
                 "launch_profile": environ.get("AGENT_FABRIC_LAUNCH_PROFILE"),
@@ -548,7 +567,7 @@ def build_report(root, environ=None, cred_environ=None):
         "engines": engines,
         "routing_check": "clean" if not checks else checks,
         "host_tools": {"moveto": moveto, "python": python, "journal": journal, "agentd": agentd, "claude": claude, "inbox": inbox,
-                       "account_switch": switch},
+                       "account_switch": switch, "managed": managed},
         "control_plane": root,
     }
     return report, base
@@ -616,6 +635,21 @@ def claude_state(drift, root):
     if h["pinned"] is None:
         return {"status": "unpinned", "detail": f"{h['installed']} (runtime/claude-code/harness.json pins none)", "installed": h["installed"], "pinned": None}
     return {"status": "ok", "detail": f"{h['installed']}, as pinned", "installed": h["installed"], "pinned": h["pinned"]}
+
+
+def managed_state(root, **check_opts):
+    """ADR-043 rules 1-2 on this host against the fabric's origin/main (tools/fabric/managed_settings.py): the
+    checker's own state and first reason, never a guess when it cannot run."""
+    try:
+        ms = load("fabric_managed_settings", os.path.join(root, "tools", "fabric", "managed_settings.py"))
+        c = ms.check(repo=root, ref="origin/main", **check_opts)
+    except Exception as e:  # noqa: BLE001 — a status line, never a traceback
+        return {"status": "unknown", "detail": str(e)[:200]}
+    snap = c["snapshot"]
+    head = f"{c['state']}" + (f" (fabric-{snap[:8]})" if snap else "")
+    reasons = c["reasons"]
+    return {"status": c["state"], "detail": head if c["state"] == "in force" or not reasons else f"{head}: {reasons[0]}",
+            "snapshot": snap, "reasons": reasons}
 
 
 def inbox_state(drift, root, ctx, relay=None, home=None):
@@ -694,6 +728,18 @@ def account_switch(root, state_dir, policy=None):
         return {"status": "unknown", "detail": str(e)[:200]}
 
 
+def store_note(h):
+    """The tail of the addenda line. A moved store alone says whether the
+    addenda moved with it, so a holder need not diff the store by hand; when
+    they did (or that is unknown) the DRIFT line / this tail stands as before."""
+    moved = h["store_moved"]
+    if moved is None:
+        return "; the store could not be read now"
+    if not moved:
+        return ""
+    return "; the store has moved past the launch" + (", its addenda have not" if h["addenda_changed"] is False else "")
+
+
 def render(report, base):
     """The human report, as lines."""
     out = []
@@ -706,8 +752,7 @@ def render(report, base):
         p(f"launched as  {report['launched_role']}    prompt {report['launch_prompt_digest'] or '(no digest stamped)'}")
     if report.get("holder_addenda"):
         _h = report["holder_addenda"]
-        _moved = {True: "; the store has moved past the launch", False: "", None: "; the store could not be read now"}[_h["store_moved"]]
-        p(f"addenda      store {(_h['store_sha'] or '-')[:12]}    addenda commit {(_h['addenda_commit'] or '-')[:12]}{_moved}")
+        p(f"addenda      store {(_h['store_sha'] or '-')[:12]}    addenda commit {(_h['addenda_commit'] or '-')[:12]}{store_note(_h)}")
     for d in report["drift"] or []:
         p(f"DRIFT        {d}")
     p(f"project      {report['project'] or '(none)'}    working copy  {report['working_copy'] or '(none)'}")
@@ -718,6 +763,9 @@ def render(report, base):
         _a = jobs["active"]
         p("jobs         " + (f"active {_a['id']} ({_a['title'][:60]})" if _a else "none active") + "; "
           + ", ".join(f"{jobs[st]} {st}" for st in ("queued", "paused", "blocked", "delivered")) + "  (fabric-jobs list)")
+    if report.get("hold"):
+        _hv = load("fabric_hold_view", os.path.join(os.path.dirname(os.path.realpath(__file__)), "hold_view.py"))
+        p(f"hold         {_hv.words(report['hold'])}    no job is started (fabric-ctl <login> unhold lifts it)")
     p("")
     p(f"api          {path}")
     p(f"session model {report['api']['session_model']}")
@@ -750,7 +798,8 @@ def render(report, base):
     p(f"routing      {checks if isinstance(checks, str) else str(len(checks)) + ' finding(s): ' + '; '.join(checks)}")
     if undrained:
         p(f"memory       {undrained['drainable']} drainable (roles_class set) and {undrained['no_roles_class']} private "
-          f"(none) written since {undrained['since']} — {undrained['dir']}")
+          f"(none) written since {undrained['since']}"
+          f"{oldest_note(undrained)} — {undrained['dir']}")
     if moveto["installed"]:
         p(f"moveto       {moveto['status']}: {moveto['detail']}" if moveto["status"] == "drift" else f"moveto       {moveto['status']}")
     journal = report["host_tools"].get("journal")
@@ -763,6 +812,9 @@ def render(report, base):
         tool = report["host_tools"].get(name)
         if tool:
             p(f"{name:<12} {tool['detail']}" if tool["status"] in ("ok", "none", "unpinned") else f"{name:<12} {tool['status'].upper()}: {tool['detail']}")
+    managed = report["host_tools"].get("managed")
+    if managed:
+        p(f"managed      {managed['detail']}" if managed["status"] != "unknown" else f"managed      UNKNOWN: {managed['detail']}")
     agentd = report["host_tools"].get("agentd")
     if agentd:
         p(f"agentd       {agentd['detail']}" if agentd["status"] == "python"

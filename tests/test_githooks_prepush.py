@@ -13,6 +13,7 @@ fixture operator tree (AGENT_FABRIC_OPERATOR).
 Exit codes: 0 all checks passed, 1 one or more failed."""
 from __future__ import annotations
 
+import base64
 import json
 import os
 import shutil
@@ -136,6 +137,8 @@ def run() -> None:
     bind("backend-dev"); fixture("plain")
     commit(".claude/settings.json")
     check("push to main passes, in silence", push() == 0 and err.strip() == "", err)
+
+    secret_values_push()
 
     print("a managed project with no arm.json at all is not direct")
     bind("backend-dev"); fixture("plain")
@@ -290,6 +293,33 @@ def run() -> None:
     check("passes", push() == 0, err)
 
     rule_5()
+
+
+def secret_values_push() -> None:
+    """A push that adds a commit or a file holding a value of the account's own secrets.env is refused in every project, the
+    variable named and never the value (ADR-012 §5 rule 9): the commits here are made past the commit hooks, as --no-verify does.
+    Mutations: _secret_values removed from check() (both refusals); _scope replaced by the local tip alone (the already-pushed case)."""
+    value = "fixture-not-a-secret-0123456789"   # a fixture, never a real secret (ADR-012 §5 rule 7)
+    os.makedirs(f"{HOME}/.config/agent-fabric", exist_ok=True)
+    with open(f"{HOME}/.config/agent-fabric/secrets.env", "w", encoding="utf-8") as f:
+        f.write(f"export FAKE_TOKEN={value}\n")
+    try:
+        print("a value of the account's own secrets is never pushed")
+        bind("backend-dev"); fixture("plain")
+        put("src/config.txt", base64.b64encode(f"k={value}".encode()).decode() + "\n")
+        git("add", "-A"); git("-c", "core.hooksPath=/dev/null", "commit", "-qm", "c")
+        check("a pushed file holding one is refused", push() == 1, "admitted")
+        check("…naming the variable and the file, never the value",
+              "FAKE_TOKEN" in err and "src/config.txt" in err and "ADR-012" in err and value not in err, err)
+        bind("backend-dev"); fixture("plain")
+        put("src/a.txt", "x\n")
+        git("add", "-A"); git("-c", "core.hooksPath=/dev/null", "commit", "-qm", f"key {value}")
+        check("a pushed commit message holding one is refused", push() == 1 and "FAKE_TOKEN" in err and value not in err, err)
+        bind("backend-dev"); fixture("plain")
+        commit("src/b.txt")
+        check("a push without one passes", push() == 0, err)
+    finally:
+        os.remove(f"{HOME}/.config/agent-fabric/secrets.env")
 
 
 def rule_5() -> None:

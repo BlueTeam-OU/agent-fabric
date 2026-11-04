@@ -34,8 +34,18 @@ TWO CLASSES OF DISPATCH, decided in this order:
   REVIEW class    -> subagent_type "code-review" AND description
                      beginning "review" / "re-review" (any word
                      form: Reviewing, Re-review of ...) AND model
-                     "fable" AND NO isolation. All four, or denied --
-                     never asked. Standing authorisation for the
+                     "fable" (or, under a fabric launch that
+                     resolves a code-review pin only, no model at
+                     all: the guard's own answer, which the harness
+                     runs through it again, the reviewer's agent file
+                     still held to routing; anywhere else an unset
+                     model is denied) AND NO isolation AND a session
+                     not on a
+                     <host>/<login>/for/ branch nor inside the active
+                     job's worktree or working copy when that job has a
+                     deliver_to (a supplier reviews nothing of its own
+                     part, ADR-020 §5 rule 11). All
+                     five, or denied -- never asked. Standing authorisation for the
                      class: a review's failure mode is not a retry,
                      it is a green PR that merges, so no per-dispatch
                      prompt and no dropping to a cheaper tier because
@@ -106,6 +116,7 @@ from __future__ import annotations
 
 import json
 import os
+import pwd
 import re
 import subprocess
 import sys
@@ -130,6 +141,58 @@ READ_ONLY = re.compile(r"^(Explore|Plan|claude-code-guide)$")
 PREMIUM = re.compile(r"opus|fable")
 CANNOT_RUN = ("The dispatch guard could not run ({why}). Approve only if you have checked model and isolation "
               "yourself. " + SKILL)
+
+
+# A supplier's branch (ADR-019, the pull-requests skill): <host>/<login>/for/<caller>/<what>.
+SUPPLY_BRANCH = re.compile(r"^[^/]+/[^/]+/for/")
+
+
+def supply_branch(cwd) -> str:
+    """The branch checked out at the call's cwd when it is a supplier's
+    for/ branch, else "". A cwd git cannot answer for is no supplier: this
+    rule reads one fact and decides nothing on a guess (ADR-020 §5 rule 11)."""
+    if not isinstance(cwd, str) or not cwd:
+        return ""
+    try:
+        r = subprocess.run(["git", "-C", cwd, "symbolic-ref", "--quiet", "--short", "HEAD"],
+                           capture_output=True, text=True, timeout=5, stdin=subprocess.DEVNULL)
+    except (OSError, subprocess.SubprocessError):
+        return ""
+    branch = r.stdout.strip() if r.returncode == 0 else ""
+    return branch if SUPPLY_BRANCH.match(branch) else ""
+
+
+def supplier_job(cwd) -> tuple[str, str]:
+    """(job id, DELIVER-TO) of this login's active job that carries a deliver_to and whose working
+    copy or worktree contains the call's cwd, else ("", ""). A REQUEST worked on a feat/ branch or on
+    the caller's own PR branch is a supply all the same (ADR-020 §5 rule 11), and fabric-jobs records
+    the request's DELIVER-TO on the job. The same rule as supply_branch: a jobs file or a cwd this
+    cannot read is no supplier, and nothing is guessed from a job whose directory is another's.
+    The record is read here, not through the fabric's job code, because this hook imports nothing of it.
+    A job whose record predates deliver_to is no supplier: the record keeps no request text to compare,
+    and a hook reads no relay (j365's clause (c), left out on purpose)."""
+    if not isinstance(cwd, str) or not cwd:
+        return "", ""
+    try:
+        agent = pwd.getpwuid(os.geteuid()).pw_name
+        override = os.environ.get("AGENT_FABRIC_STATE_DIR")
+        root = os.path.abspath(override) if override else os.path.join(
+            os.environ.get("XDG_STATE_HOME") or os.path.join(os.path.expanduser("~"), ".local", "state"),
+            "agent-fabric")
+        with open(os.path.join(root, "agents", agent, "jobs.json"), encoding="utf-8") as fh:
+            jobs = json.load(fh)["jobs"]
+        here = os.path.realpath(cwd)
+        for job in jobs:
+            deliver = job.get("deliver_to")
+            if job.get("state") != "active" or not isinstance(deliver, str) or not deliver:
+                continue
+            for key in ("worktree", "working_copy"):
+                where = job.get(key)
+                if isinstance(where, str) and where and os.path.commonpath([here, os.path.realpath(where)]) == os.path.realpath(where):
+                    return str(job.get("id", "")), deliver
+    except (OSError, ValueError, KeyError, TypeError, AttributeError):
+        return "", ""
+    return "", ""
 
 
 class Malformed(Exception):
@@ -187,8 +250,11 @@ def routing_map(provider: str, what: str, column: int) -> dict:
     # answer the gate compares (review of #72). Not -I: that also drops
     # routing.py's own directory, which it imports its siblings from.
     try:
-        r = subprocess.run([sys.executable, "-E", "-s", os.path.join(FABRIC, "tools", "fabric", "routing.py"), what, "--me",
-                            "--provider", provider], capture_output=True, text=True, timeout=PROBE_TIMEOUT_S,
+        # --fabric: the tree this guard runs from, never AGENT_FABRIC_ROOT, which a session may aim elsewhere;
+        # in the managed snapshot the two are the same tree (ADR-043 rule 2), outside it this file's own.
+        r = subprocess.run([sys.executable, "-E", "-s", os.path.join(FABRIC, "tools", "fabric", "routing.py"),
+                            "--fabric", FABRIC, what, "--me", "--provider", provider],
+                           capture_output=True, text=True, timeout=PROBE_TIMEOUT_S,
                            stdin=subprocess.DEVNULL)
     except (OSError, subprocess.TimeoutExpired):
         return {}
@@ -217,7 +283,8 @@ def launch_pins(review: bool) -> tuple[dict, str, dict, dict]:
     # agent file (install-agent-files.sh writes it there at launch, for the
     # launch's provider, merged for this login — `pins --me`), and this
     # guard — AFTER the review rules have held, `model: fable` included —
-    # allows the dispatch with `model` removed, so the file's pin applies.
+    # allows the dispatch with `model` removed, so the file's pin applies,
+    # and allows that call again when the harness hands it back (j549).
     # The file is checked against the same resolution first: another launch
     # of this account on the other provider rewrites it, and a reviewer on a
     # model nothing chose for this session is denied, not run. Only under a
@@ -286,11 +353,33 @@ def decide(call) -> dict | None:
                     "subagent_type: code-review (the capability class, like code-low/medium/high/plan), everything "
                     "else unchanged. " + SKILL)
     if kind == "code-review":
+        supplier = supply_branch(call.get("cwd"))
+        if supplier:
+            return deny(f"Review dispatch from the supplier branch {supplier}. A supplier dispatches no review of its "
+                        "own part: the integrator folds every supply, runs the full suite and dispatches one blind "
+                        "review of the whole head, then re-reviews each fix range, and a finding on your hunk comes "
+                        "back to you (agent-fabric ADR-020 §5 rule 11). Keep your own checks -- the test failing "
+                        "before and passing after, the mutations, tests/run.sh -- and send them with the supply. "
+                        + SKILL)
+        job, deliver = supplier_job(call.get("cwd"))
+        if job:
+            return deny(f"Review dispatch from job {job}, a supply to {deliver}. A supplier dispatches no review of "
+                        "its own part, on a for/ branch or not: the caller's one blind review of the whole head "
+                        "covers your hunks (agent-fabric ADR-020 §5 rule 11). Keep your own checks -- the test "
+                        "failing before and passing after, the mutations, tests/run.sh -- and send them with the "
+                        "supply. " + SKILL)
         if not review_desc:
             return deny("code-review dispatch whose description does not BEGIN with review or re-review. The review "
                         "class is read-only and unisolated; a writing task under this type would run in the session "
                         "clone. Describe a review as one, or dispatch a normal agent with isolation worktree. " + SKILL)
-        if model != "fable":
+        pinned, file_model, routed_effort, file_effort = launch_pins(review=True)
+        pin = alt(pinned.get("code-review"), "")
+        # This guard's own answer must pass it again. With run_in_background set, Claude Code (2.1.286, 2.1.311) runs the
+        # managed Agent hook a second time on the first run's updatedInput, the call below with `model` removed
+        # (docs/live-checks/2026-11-02-dispatch-hook-reruns-on-updated-input.md). Under a fabric launch that is
+        # no unset model: the reviewer runs on its agent file's pin, which the checks after this one hold to
+        # routing. Anywhere else unset still means the session model, and is denied.
+        if model != "fable" and not (raw_model is None and pin != ""):
             return deny(f'Review dispatch with model "{shown_model}". The review class rides the fable alias, always: '
                         "set model: fable. Not opus -- code-high rides opus, and one alias carries one exported "
                         "model, so a reviewer on opus is whatever code-high resolves to (on the broker, whatever the "
@@ -306,8 +395,6 @@ def decide(call) -> dict | None:
                         "it hurts: worktree.baseRef is head, so a reviewer in a worktree cannot see uncommitted work. "
                         "Omit isolation, pass the repository path, and tell the agent the tree is read-only and it "
                         "runs no git writes. " + SKILL)
-        pinned, file_model, routed_effort, file_effort = launch_pins(review=True)
-        pin = alt(pinned.get("code-review"), "")
         if pin != "" and file_model != pin:
             return deny(f'Review dispatch under a fabric launch, but the agent file of the reviewer says model '
                         f'"{file_model}" while this launch resolves code-review to "{pin}". Either another launch of '

@@ -1,0 +1,11 @@
+#!/usr/local/bin/fabric-python
+"""fabric-ci-warnings — the warnings and deprecations a repository's recent CI
+runs print, each once with workflow, job, step and count; read-only, from any
+directory. A thin entry point to tools/fabric/ci_warnings.py, run by its real path."""
+import os
+import runpy
+import sys
+
+TOOL = os.path.join(os.path.dirname(os.path.realpath(__file__)), "..", "tools", "fabric", "ci_warnings.py")
+sys.argv[0] = TOOL
+runpy.run_path(TOOL, run_name="__main__")

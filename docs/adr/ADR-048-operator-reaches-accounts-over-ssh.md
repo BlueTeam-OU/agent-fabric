@@ -118,11 +118,14 @@ then the forced command.
    loaded into ssh-agent; the provisioning script takes its public half
    as an argument and never generates a key.
 4. `enter-ssh` accepts exactly one of `--wait`, `--watch`, `shell`,
-   `--resume` in `SSH_ORIGINAL_COMMAND`, compared whole: nothing else, no
-   second word, no metacharacter, no newline. It runs `enter` in a login
-   shell of the account (`bash -lc`) with the word passed as a positional
-   parameter, never placed in the command string. Anything else is one
-   line on stderr and exit 2.
+   `--resume`, `attach` in `SSH_ORIGINAL_COMMAND`, compared whole: nothing
+   else, no second word, no metacharacter, no newline. It runs `enter` in a
+   login shell of the account (`bash -lc`) with the word passed as a
+   positional parameter, never placed in the command string; `attach`
+   reaches `enter` as its mode `--attach`, which draws the pane of the
+   account's own FleetDeck server (`agent-fabric-harness.service`) instead
+   of starting a session, so the session outlives the connection. Anything
+   else is one line on stderr and exit 2.
 5. A host's sshd is `sshd` in its registry entry: `null` (or absent) until
    provisioned, then `{"address", "port", "host_keys"}`, `host_keys` the
    host's public keys as `<type> <base64>`. The keys are read on the host
@@ -205,3 +208,4 @@ The body above reads current; each change's full note is in [history/ADR-048-ame
 | Date | Amendment | Effect |
 |---|---|---|
 | 2026-10-13 | loopback exempt from per-source penalties; MaxStartups above the deck's burst | §5 rule 1 |
+| 2026-10-31 | `attach`, the fifth word: the deck attaches to the account's harness pane | §5 rule 4 |

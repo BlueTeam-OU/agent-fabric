@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import subprocess
 import traceback
 from urllib.parse import urlsplit
@@ -29,6 +30,17 @@ def load_routing(routing_path: str, fabric_root: str):
             os.environ.pop("AGENT_FABRIC_ROOT", None)
         else:
             os.environ["AGENT_FABRIC_ROOT"] = saved
+
+
+def session_effort(routing, provider: str, role: str, agent: str, local_path: str) -> str:
+    """`routing.py session-effort --me`, called in this process: the module is already loaded for the
+    resolve, and a second interpreter start bought nothing but a second import. As the helper's, any
+    failure is no level (its stderr was quiet and its stdout empty): a level the session's model cannot
+    take is not a decision worth stamping, and an unreadable layer is already refused by the resolve."""
+    try:
+        return routing.session_effort(provider, role, agent, routing.load_local(agent, local_path)) or ""
+    except Exception:
+        return ""
 
 
 def resolve(routing, aliases_path: str, local_path: str, role: str, agent: str, provider: str) -> dict:
@@ -97,6 +109,49 @@ def is_broker_url(url: str) -> bool:
     except ValueError:
         h = ""
     return h == "openrouter.ai" or h.endswith(".openrouter.ai")
+
+
+# ── the session model must be the provider's ──────────────────────────
+# What plain claude's --model takes besides a native id: its own aliases, with
+# the 1M-context suffix (the gateway suite's `opus[1m]`). The fabric's own
+# vocabulary is routing.HARNESS_REF; `default` and `opusplan` are claude's too,
+# and a caller may name them. gateway.py imports this one pattern: two copies
+# drifted once (`best` was admitted on the gateway only).
+CLAUDE_ALIAS = re.compile(r"(default|haiku|sonnet|opus|fable|opusplan|best)(\[1m\])?")
+
+
+def session_source(caller: bool, layer: str, role: str, agent: str, local_path: str) -> str:
+    """Where the session model came from, in the words a person fixes it by."""
+    if caller:
+        return "from --model on the command line"
+    return {"defaults": "from routing/profiles.json defaults", "role": f"from routing/profiles.json roles.{role}",
+            "agent": f"from routing/profiles.json agents.{agent}", "local": f"from {local_path}"}.get(
+        layer, f"from the {layer} layer")
+
+
+def foreign_session_model(routing, provider: str, model: str, source: str) -> str | None:
+    """The refusal when the session model is not one `provider` can serve, else
+    None. Plain claude (anthropic, and the gateway, which routes as anthropic)
+    sends the model to Anthropic, which refuses anything but its own: a broker
+    composite there was a session that could not run one turn (2026-10-26,
+    j417). The broker, the other way round, spells Claude anthropic/claude-…
+    in its column; ori would forward a native id and OpenRouter serve it
+    (docs/live-checks/2026-09-13-openrouter-routing.md §3), but that
+    bypasses the column's spelling and the review-grade comparison made on
+    it, so it is refused as policy, not because it would fail; any
+    other broker spelling stays the caller's and ori's to judge, as before."""
+    native = routing.ADAPTERS["anthropic"].is_model(model)
+    if provider in ("anthropic", "gateway"):
+        if native or CLAUDE_ALIAS.fullmatch(model):
+            return None
+        how = "plain claude through the gateway" if provider == "gateway" else "plain claude"
+        return (f"the session model '{model}' ({source}) is not an Anthropic model: {how} cannot run it, and "
+                "Anthropic would refuse every turn. Nothing started. A native Claude id (claude-…) or a harness "
+                "alias runs there; with no --model, the profile's anthropic session decides.")
+    if native:
+        return (f"the session model '{model}' ({source}) is a native Claude id: the OpenRouter broker names it "
+                f"{routing.ADAPTERS['anthropic'].openrouter_id(model)}. Nothing started.")
+    return None
 
 
 # PLAIN CLAUDE MEANS ANTHROPIC DIRECT, and it carries nothing the broker

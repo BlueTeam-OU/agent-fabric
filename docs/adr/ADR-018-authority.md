@@ -4,7 +4,7 @@
 **Status:** Accepted
 **Ratified:** owner, 2026-09-27, by arming agent-fabric #52 (ratification by merge, the owner's rule of 2026-09-27)
 **Decision Makers:** the owner; drafted by fabric-coordinator
-**Scope:** policies/AUTHORITY.md (the manual), policies/authority.json, policies/githooks/ (pre-commit, commit-msg, guarded-change.sh, locale-carve-out.sh), policies/check_agent_fabric_dir_authority.sh, tools/fabric/guards/contributors.py, policies/check_charter_authority.sh, policies/check_adr_amendment.sh, policies/ban_generated_by_attribution.sh, policies/check_repo_settings_carry_no_model_pins.sh, runtime/claude-code/bootstrap.sh (hook installation), .github/workflows/ci.yml, tests/run.sh, AGENTS.md §"Read-only, unless you are fabric-coordinator"
+**Scope:** policies/AUTHORITY.md (the manual), policies/authority.json, policies/githooks/ (pre-commit, commit-msg, guarded-change.sh, locale-carve-out.sh) and tools/fabric/guards/commit_hooks.py, policies/check_agent_fabric_dir_authority.sh, tools/fabric/guards/contributors.py, policies/check_charter_authority.sh, policies/check_adr_amendment.sh, policies/ban_generated_by_attribution.sh, policies/check_repo_settings_carry_no_model_pins.sh, runtime/claude-code/bootstrap.sh (hook installation), .github/workflows/ci.yml, tests/run.sh, AGENTS.md §"Read-only, unless you are fabric-coordinator"
 **Pillar:** P3
 
 ## 1. Context and Problem
@@ -117,7 +117,7 @@ record says so rather than claim otherwise.
    change of its own and passes, even when both sides moved the guarded
    tree; a conflict resolution, a hand edit, or keeping one side's tree
    where the other moved it is judged like any commit
-   (`guarded-change.sh`).
+   (`tools/fabric/guards/commit_hooks.py`, its `guarded` verb).
 4. `check_agent_fabric_dir_authority.sh` fails a branch whose added
    commits, merges judged as rule 3 says, change a guarded path without
    the owner's trailer — every commit in agent-fabric, `.agent-fabric/**` in a
@@ -180,11 +180,11 @@ record says so rather than claim otherwise.
   | guard | commit time | CI on the branch | suite |
   |---|---|---|---|
   | no machine attribution | `commit-msg` | `tools/fabric/guards/ban_generated_by_attribution.py` (a CI step, and `tests/run.sh`) | `test_ban_generated_by_attribution_cli.py`, `tests/test_githooks_cli.py` |
-  | read-only fence, `.agent-fabric/` | `pre-commit`, `commit-msg` | `tools/fabric/guards/agent_fabric_dir_authority.py`, main's copy run isolated (ci.yml); `tests/run.sh` the local check | `test_check_agent_fabric_dir_authority.sh`, `tests/test_githooks_cli.py` |
+  | read-only fence, `.agent-fabric/` | `pre-commit`, `commit-msg` | `tools/fabric/guards/agent_fabric_dir_authority.py`, main's copy run isolated (ci.yml); `tests/run.sh` the local check | `tests/test_policy_dir_authority_entry.py`, `tests/test_githooks_cli.py` |
   | the contributor carve-out | `pre-commit`, `commit-msg` (`contributors.py hook`) | `tools/fabric/guards/agent_fabric_dir_authority.py`, main's copy, against the base's entry | `tests/test_contributors.py` |
   | decision records | `pre-commit` (`adr.py check` on the staged tree) | `fabric-adr range-check`, and `adr.py check` in lint | `tests/test_adr.py` |
   | charter authority by branch name | none | main's copy run isolated against `origin/main` (ci.yml); `tests/run.sh` the local check (A 2026-09-28) | `test_check_charter_authority_cli.py` |
-  | no model pins in committed settings | none (the launcher refuses the same keys at launch) | not called here; gzapp's CI runs its own copy (`tools/checks/`) | `test_check_repo_settings_carry_no_model_pins.sh` |
+  | no model pins in committed settings | none (the launcher refuses the same keys at launch) | not called here; gzapp's CI runs its own copy (`tools/checks/`) | `tests/test_policy_model_pins_check.py` |
 
 - The branch-name tripwire runs in CI: `tests/run.sh` calls
   `check_charter_authority.sh` against `origin/main` on every branch, so
@@ -215,7 +215,7 @@ and contributor carve-outs, the decision-record check at commit time.
 
 - `policies/AUTHORITY.md`, `policies/authority.json`.
 - `policies/githooks/pre-commit`, `policies/githooks/commit-msg`,
-  `policies/githooks/guarded-change.sh`, `policies/githooks/locale-carve-out.sh`,
+  `tools/fabric/guards/commit_hooks.py` (the shims `guarded-change.sh` and `locale-carve-out.sh` call it),
   `tests/test_githooks_cli.py`.
 - `policies/check_agent_fabric_dir_authority.sh`,
   `policies/check_charter_authority.sh`, `policies/check_adr_amendment.sh`,
