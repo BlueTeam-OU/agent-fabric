@@ -173,11 +173,7 @@ Exit codes:
 AUTOMATION = {"dependabot", "renovate", "github-actions", "weblate", "imgbot", "allcontributors", "pre-commit-ci",
               "snyk-bot"}
 LOCALE_FILE = re.compile(r"identities/roles/[^/\n]+/locale/[^/\n]+/[^/\n]+")
-# GitHub lists at most 3000 files of a pull request and stops there
-# without an error: a list that long may be cut, so it is not read as
-# whole (re-review of #70).
-FILE_LIST_CAP = 3000
-# The same for a pull request's commits, which GitHub lists up to 250 of.
+# GitHub lists up to 250 of a pull request's commits, and stops there as it does for its files (common.PR_FILE_LIST_CAP).
 COMMIT_LIST_CAP = 250
 SHA = re.compile(r"[0-9a-f]{40}|[0-9a-f]{64}")
 SHA40 = re.compile(r"[0-9a-f]{40}")
@@ -241,7 +237,7 @@ def locale_only(repo: str, pr: str) -> bool:
     if not isinstance(pages, list) or not all(isinstance(p, list) for p in pages):
         return False
     files = [f for page in pages for f in page]
-    if not 1 <= len(files) < FILE_LIST_CAP or not all(isinstance(f, dict) for f in files):
+    if not 1 <= len(files) < common.PR_FILE_LIST_CAP or not all(isinstance(f, dict) for f in files):
         return False
     paths = [f.get("filename") for f in files] + [f["previous_filename"] for f in files if f.get("previous_filename")]
     return all(isinstance(p, str) and LOCALE_FILE.fullmatch(p) for p in paths)

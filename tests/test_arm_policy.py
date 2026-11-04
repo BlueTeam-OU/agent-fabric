@@ -987,6 +987,18 @@ class ArmRun(unittest.TestCase):
                                extra=("--dry-run",))
         self.assertEqual(rc, 0, out)
 
+    def test_a_file_list_at_githubs_cap_is_not_read_as_the_whole_change(self):
+        # GitHub lists at most 3000 of a PR's files and stops there without an error: a boundary path past the
+        # 3000th is not in the list, so 3000 docs paths armed as docs-only, off the boundary (external review F08).
+        p = claude_only({"commits": {"classes": {"docs": {"paths": r"\.md$", "min": 1}}}})
+        listed = tuple(f"docs/{i}.md" for i in range(3000))
+        rc, _ = self.run_arm(p, 0, files=listed, body="Class: docs", classes={"docs": r"\.md$"}, extra=("--dry-run",))
+        self.assertIn("unanswered: #7 lists 3000 files, GitHub's cap", str(rc))
+        rc, _ = self.run_arm(p, 0, files=listed, basis="the owner's word", extra=("--boundary", "--dry-run"))
+        self.assertIn("GitHub's cap", str(rc))
+        rc, out = self.run_arm(p, 0, files=listed[:-1], body="Class: docs", classes={"docs": r"\.md$"}, extra=("--dry-run",))
+        self.assertEqual(rc, 0, out)
+
     def test_the_policys_class_is_applied_whole_its_regex_as_well_as_its_minimum(self):
         p = claude_only({"commits": {"classes": {"docs": {"paths": r"^docs/", "min": 3}}}})
         rc, _ = self.run_arm(p, 3, files=("src/x.py",), body="Class: docs", classes={"docs": r"."})

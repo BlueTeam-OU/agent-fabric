@@ -1,7 +1,8 @@
 """tools/fabric/github/common.py — what the GitHub tools share, kept where
 one change reaches all: how a body is read from stdin, where a project's own
-JSON config for a tool lives, and the project's environment names for the
-fabric's settings (pr-tools.json). Nothing else is shared here on purpose:
+JSON config for a tool lives, the project's environment names for the
+fabric's settings (pr-tools.json), and how many of a pull request's files
+GitHub lists. Nothing else is shared here on purpose:
 the tools' messages, exit codes and exception classes differ, and unifying
 them would change their output."""
 from __future__ import annotations
@@ -52,6 +53,12 @@ def project_config_path(setting: str, filename: str, subdir: str | None = "gh") 
         return ""
     return roots.project_integration(pid, subdir, filename) if subdir else roots.project_integration(pid, filename)
 
+
+# GitHub lists at most 3000 of a pull request's files, paginated or not, and
+# stops there without an error: a list that long may be cut, so no reader
+# takes it as the whole change (re-review of #70; external review F08, where
+# arm read 3000 docs paths as a docs-only change).
+PR_FILE_LIST_CAP = 3000
 
 PR_PROJECT_SETTING = "AGENT_FABRIC_PR_PROJECT"
 _OWNER_NAME = re.compile(r"[A-Za-z0-9._-]+/[A-Za-z0-9._-]+")
