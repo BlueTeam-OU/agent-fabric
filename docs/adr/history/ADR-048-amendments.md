@@ -49,7 +49,8 @@ nothing writes into another login's home), restarts the unit, and reads
 back a session that began after the restart; the unit's pane step that
 finds the marker runs `--resume` and removes it. A marker older than ten
 minutes, unreadable or not the account's own reads as none, and a restart
-that fails after writing it removes it, so a later boot still waits. The
-word set of `enter-ssh` is unchanged: `--resume` was already one of its
-five. Run on 26 accounts on 2026-11-04 12:02–12:10Z; three that were
-working were refused and left as they were.
+that fails after writing it removes it; when that removal fails too, the
+marker lapses ten minutes after it was written, and a boot inside those
+ten minutes resumes. The word set of `enter-ssh` is unchanged: `--resume`
+was already one of its five. The read-back on three accounts is
+docs/live-checks/2026-11-04-harness-restart.md.
