@@ -1169,8 +1169,11 @@ class Bootstrap:
             say(f"  *  {HARNESS_UNIT}: unit changed; not restarted, a restart ends the session in its pane "
                 f"(fabric-ctl {login()} harness-stop, then harness-start)")
         if state == "activating":
-            # The --no-block start returns while ExecStartPost (the pane step) still runs.
-            hint = "; starting, its pane step still running"
+            # Both a start whose ExecStartPost (the pane step) still runs and a
+            # Restart=on-failure wait after a failure read activating (#484 F5).
+            sub = answer(["systemctl", "--user", "show", "-p", "SubState", "--value", HARNESS_UNIT])
+            hint = ("; restarting after a failure — read its journal" if sub == "auto-restart"
+                    else "; starting, its pane step still running")
         elif state == "active":
             hint = ""
         else:

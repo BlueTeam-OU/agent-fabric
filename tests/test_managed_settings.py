@@ -355,8 +355,17 @@ def main() -> int:
 
         real_point = ms._point
 
-        def refuse_point(*_a, **_k):
-            raise OSError(28, "No space left on device")
+        def refuse_point(link, target, root):
+            # Refused once its own temporary link exists, so a leftover of _point's shows too (#484 round 2).
+            real_own = ms._own
+
+            def full(*_a, **_k):
+                raise OSError(28, "No space left on device")
+            ms._own = full
+            try:
+                return real_point(link, target, root)
+            finally:
+                ms._own = real_own
 
         for label, patch in (("the render refused", ("render", refuse_render)),
                              ("the /etc write refused", ("_write_atomic", refuse_etc)),
@@ -374,7 +383,7 @@ def main() -> int:
                   raised and os.readlink(os.path.join(managed, "current")) == f"fabric-{sha_c}"
                   and open(os.path.join(etc, "managed-settings.json")).read() == in_force
                   and open(os.path.join(managed, "managed-settings.json")).read() == kept_before
-                  and not [n for n in os.listdir(managed) if n.startswith(".managed-settings.json.tmp-")],
+                  and not [n for n in os.listdir(managed) if n.startswith((".managed-settings.json.tmp-", ".current-"))],
                   (raised, os.readlink(os.path.join(managed, "current")), lines))
 
         print("managed settings: check")

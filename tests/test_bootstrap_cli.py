@@ -129,6 +129,7 @@ case "$*" in
   # Never active (0) until this fake has started the unit once; FAKE_ENTERED_<unit> overrides.
   "--user show -p ActiveEnterTimestampMonotonic --value "*) u="${*: -1}"; v="FAKE_ENTERED_${u//[-.]/_}"
     if [[ -n "${!v:-}" ]]; then echo "${!v}"; elif [[ -e "$FAKE_LOG.started-$u" ]]; then echo 1234; else echo 0; fi; exit ;;
+  "--user show -p SubState --value "*) u="${*: -1}"; v="FAKE_SUBSTATE_${u//[-.]/_}"; echo "${!v:-running}"; exit ;;
   "--user start --no-block "*) : >"$FAKE_LOG.started-${*: -1}" ;;
 esac
 exit 0
@@ -1146,6 +1147,11 @@ def user_manager() -> None:
           ["systemctl", "--user", "start", "--no-block", HARNESS] in a.calls("systemctl"), a.calls("systemctl"))
     check("…and 'activating' after the --no-block start says it is starting, not that the binary is missing (#484 F2)",
           f"  *  {HARNESS}: activating (systemctl --user status {HARNESS}; starting, its pane step still running)" in r.lines, r.out)
+    a.clear_log()
+    r = bootstrap(a, env=a.env(FAKE_ENTERED_agent_fabric_harness="0", FAKE_ACTIVE_agent_fabric_harness="activating",
+                               FAKE_SUBSTATE_agent_fabric_harness="auto-restart"))
+    check("…and 'activating' while it waits to restart after a failure says so, not that it is starting (#484 F5)",
+          f"  *  {HARNESS}: activating (systemctl --user status {HARNESS}; restarting after a failure — read its journal)" in r.lines, r.out)
 
 
 def coordinator_timers() -> None:

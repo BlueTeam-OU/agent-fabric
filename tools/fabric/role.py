@@ -611,8 +611,6 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.status or command in (None, "status"):
         return cmd_status(ctx)
-    if command == "list":
-        return cmd_list()
     if command == "deactivate":
         return cmd_deactivate(ctx, args.force)
     if command == "activate":

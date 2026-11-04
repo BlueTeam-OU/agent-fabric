@@ -308,8 +308,12 @@ def _point(link: str, target: str, root: bool) -> None:
     """`link` made to name `target` in one rename, never absent in between."""
     tmp = os.path.join(os.path.dirname(link), f".{os.path.basename(link)}-{os.urandom(6).hex()}")
     os.symlink(target, tmp)
-    _own(tmp, root)
-    os.replace(tmp, link)
+    try:
+        _own(tmp, root)
+        os.replace(tmp, link)
+    except BaseException:
+        os.unlink(tmp)  # a random name no sweep matches (#484 round 2)
+        raise
 
 
 def _ensure_dir(path: str, root: bool) -> None:
@@ -487,14 +491,18 @@ def install(sha: str, repo: str = FABRIC, prefix: str = PREFIX, etc: str = ETC, 
     try:
         _write_atomic(os.path.join(etc, "managed-settings.json"), rendered, 0o644, root)
     except BaseException:
+        os.unlink(staged_kept)
         if before is not None:
             _point(link, before, root)
         else:
             os.unlink(link)
-        os.unlink(staged_kept)
         say(f"{link} put back to {before or '(none)'}: the managed file could not be written")
         raise
-    os.replace(staged_kept, kept)
+    try:
+        os.replace(staged_kept, kept)
+    except BaseException:
+        os.unlink(staged_kept)
+        raise
     say(f"{os.path.join(etc, 'managed-settings.json')} written (a copy kept at {kept})")
     if os.path.isdir(os.path.dirname(rc)):
         script = ("#!/bin/sh\n# agent-fabric ADR-043: /etc does not survive this AppVM's reboot and /usr/local does;"
