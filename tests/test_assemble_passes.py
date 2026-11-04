@@ -258,6 +258,34 @@ def test_an_earlier_drains_correction_is_not_judged_as_this_drains(tmp: str) -> 
     assert proc.returncode == 1 and "REPLACED SECTION STANDS" in proc.stderr, proc.stderr
 
 
+def test_a_correction_that_fell_in_another_budget_part_than_its_memory_is_not_written_again_by_a_second_pass(tmp: str) -> None:
+    """A memory and its correction in one drain, apart in the topic's budget parts: the correction replaces the memory's section
+    in the part that holds it. The second pass has no section left to replace, so the correction was grouped afresh
+    (the memory is a replay and drops out, the groups shift) into the part that did not hold its copy and written there too:
+    its text stood twice, in two parts of one topic."""
+    third = ta.claims("alpha", [])
+    big = "y " * 900
+    claims = [
+        {"class": "domain", "topic": "grow", "title": "Third", "body": "Small.", "evidence": ["h1"],
+         "knowledge_scope": "domain-only"},
+        {"class": "domain", "topic": "grow", "title": "Second", "body": big, "evidence": ["h1"],
+         "knowledge_scope": "domain-only"},
+        {"class": "domain", "topic": "grow", "title": "Second, corrected", "body": "z " * 900, "evidence": ["h3"],
+         "merge_target": "Second"}]
+    drain, claims_dir, out = ta.build(tmp, {"alpha": third})
+    ta.with_agents(drain, AGENTS)
+    ta.set_claims(claims_dir, "alpha", claims)
+    assert ta.run_assemble(drain, claims_dir, out, "--budget", "500").returncode == 0
+    first = ta.tree(out)
+    parts = {k: v for k, v in first.items() if "/domain/grow" in k}
+    assert len(parts) == 2 and "".join(parts.values()).count("## Second, corrected") == 1, sorted(parts)   # precondition: apart
+    assert ta.run_assemble(drain, claims_dir, out, "--budget", "500").returncode == 0
+    second = ta.tree(out)
+    text = "".join(v for k, v in sorted(second.items()) if "/domain/grow" in k)
+    assert text.count("## Second, corrected") == 1, f"the correction stands {text.count('## Second, corrected')} times"
+    assert_converged(first, second)
+
+
 def main() -> int:
     cases = [
         test_a_second_pass_over_two_bundles_with_a_chained_correction_and_a_flat_class_file_changes_nothing,
@@ -272,6 +300,7 @@ def main() -> int:
         test_a_decision_stated_again_by_a_rerun_keeps_its_place_in_the_report,
         test_a_replayed_original_whose_links_the_run_points_is_still_a_replay,
         test_an_earlier_drains_correction_is_not_judged_as_this_drains,
+        test_a_correction_that_fell_in_another_budget_part_than_its_memory_is_not_written_again_by_a_second_pass,
     ]
     # A case written and not listed passes silently and forever (test_assemble_seams.py's registry guard).
     declared = {name for name, obj in sorted(globals().items()) if name.startswith("test_") and callable(obj)}
