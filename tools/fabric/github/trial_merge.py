@@ -297,11 +297,15 @@ def run_check(wt: str, argv: list[str], timeout: str, lease: str, fabric: str, s
         # A signal whose handler ran between the spawn and `started` would
         # end the run with the check's session unrecorded, signalled only by
         # the cwd backstop (#477's sibling list). Held across both, it is
-        # delivered at the unblock, once the pid is known.
+        # delivered at the unblock, once the pid is known. fork and exec keep
+        # the mask, so the child puts back the one held from before: blocked
+        # there, timeout's TERM at the bound and cleanup's TERM never reach the
+        # check (PR 482 round 1 F1). preexec_fn is safe here: no other thread.
         held = signal.pthread_sigmask(signal.SIG_BLOCK, EXIT_SIGNALS.keys())
         try:
             proc = subprocess.Popen([*runner, *argv], cwd=wt, stdin=subprocess.DEVNULL, stdout=out_fh,
-                                    stderr=subprocess.STDOUT, start_new_session=True)
+                                    stderr=subprocess.STDOUT, start_new_session=True,
+                                    preexec_fn=lambda: signal.pthread_sigmask(signal.SIG_SETMASK, held))
             started(proc.pid)
         except PermissionError:
             return 126, ""
