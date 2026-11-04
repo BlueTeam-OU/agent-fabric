@@ -104,7 +104,7 @@ def write_slice(
         for tpath, what in touched:
             # The section left a file that stays (or goes): its recorded writer goes with it, whichever part the correction
             # replaced it from. write_slice's own diff only sees the part being written.
-            run.section_writers_gone.extend(f"{in_report(run, tpath)}#{h}" for h in victims[tpath])
+            retire_writers(run, [f"{in_report(run, tpath)}#{h}" for h in victims[tpath]])
             run.retired_in.append(f"{in_report(run, tpath)}: '{target}' {what}")
             # `written` counts files on disk once: a rewritten
             # sibling joins it, a removed one leaves it.
@@ -331,7 +331,7 @@ def write_slice(
         meta["collisions"] = sorted(outstanding)
 
     # A heading the slice had and no longer has (retired, retitled, replaced) takes its recorded writer with it.
-    run.section_writers_gone.extend(f"{in_report(run, path)}#{h}" for h in previous_sections if h not in blocks)
+    retire_writers(run, [f"{in_report(run, path)}#{h}" for h in previous_sections if h not in blocks])
     body = "\n\n".join(f"## {h}\n\n{blocks[h]}" for h in order) + "\n"
     # Carried text (a slice written before a pattern existed) is
     # substituted the same way, and named.
@@ -472,6 +472,15 @@ def described(path: str, fallback: str) -> str:
     return description
 
 
+def retire_writers(run: Run, keys: list[str]) -> None:
+    """The recorded writers of sections that left a slice. `section_writers_gone` strikes the previous report's keys only,
+    so a key this run recorded itself (the section was written into a part, then retired from it by a correction later in
+    the same drain) is dropped here, or the report merge would bring it back."""
+    run.section_writers_gone.extend(keys)
+    for key in keys:
+        run.section_writers.pop(key, None)
+
+
 def drop_carried_copies(run: Run, role: str, klass: str, directory: str, topic: str) -> None:
     """A section standing both in the topic's own file and, word for
     word, in a carried file — or in the flat class file this run moved in
@@ -498,7 +507,7 @@ def drop_carried_copies(run: Run, role: str, klass: str, directory: str, topic: 
         what = remove_sections(path, copies, copies, functools.partial(clip_description, run))
         rel = f"{CLASS_FILES[klass]}/{name}"
         for h in copies:
-            run.section_writers_gone.append(f"{in_report(run, path)}#{h}")
+            retire_writers(run, [f"{in_report(run, path)}#{h}"])
             run.migrated.append(f"{role}/{klass}: {h!r} dropped from {rel}, it stands in {CLASS_FILES[klass]}/{topic}.md")
         if what == "removed":
             run.migrated.append(f"{role}/{klass}: {rel} removed, no section left")

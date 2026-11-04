@@ -1567,7 +1567,7 @@ def test_a_correction_of_a_section_in_another_budget_part_is_listed(tmp: str) ->
 
 def test_a_repointed_link_takes_the_references_line_with_it(tmp: str) -> None:
     """The harvest lists a memory's links on its *References:* line. A correction written into another slice repoints the
-    `[[link]]`; the line named the old topic beside it (fleetdeck #61 round 1): in the run's own claims and in the slice
+    `[[link]]`; the line named the old topic beside it: in the run's own claims and in the slice
     an earlier run left on disk."""
     base = {"class": "workflow", "topic": "supplier", "title": "Supplier", "body": "Text.", "evidence": ["h1"]}
     fix = {"class": "workflow", "topic": "reserved", "title": "Supplier, reserved", "body": "Reserved. In full, with its reason.",
@@ -1600,8 +1600,7 @@ def test_a_repointed_link_takes_the_references_line_with_it(tmp: str) -> None:
 
 def test_a_section_a_correction_replaced_in_another_part_loses_its_writer(tmp: str) -> None:
     """`section_writers_gone` knew the headings that left the part being written. A correction replacing a section that
-    lives in another budget part removed it there, and its writer stayed in the report, naming a heading no slice holds
-   ."""
+    lives in another budget part removed it there, and its writer stayed in the report, naming a heading no slice holds."""
     big = "y " * 900
     drain, claims_dir, out = build(tmp, {"alpha": claims("alpha", [
         {"class": "domain", "topic": "grow", "title": "First", "body": big, "evidence": ["h1"]},
@@ -1619,6 +1618,50 @@ def test_a_section_a_correction_replaced_in_another_part_loses_its_writer(tmp: s
     proc = run_assemble(drain, claims_dir, out, "--budget", "500")
     assert proc.returncode == 0 and "RETIRED in another part" in proc.stderr, proc.stderr
     assert "Second" not in heads() and "Second, corrected" in heads() and "Third" in heads(), heads()
+
+
+def test_a_section_written_and_retired_in_one_drain_leaves_no_writer(tmp: str) -> None:
+    """The memory and the correction that replaces it arrive in one drain and fall into different budget parts: the
+    section is written into one part, then retired from it. `section_writers_gone` strikes the previous report's keys
+    only, so the key this run recorded itself came back through the merge."""
+    big = "y " * 900
+    drain, claims_dir, out = build(tmp, {"alpha": claims("alpha", [
+        {"class": "domain", "topic": "grow", "title": "Third", "body": "Small.", "evidence": ["h1"]},
+        {"class": "domain", "topic": "grow", "title": "Second", "body": big, "evidence": ["h1"]},
+        {"class": "domain", "topic": "grow", "title": "Second, corrected", "merge_target": "Second", "body": big, "evidence": ["h3"]}])})
+    with_agents(drain, {"h1": "dev-01", "h3": "dev-02"})
+    proc = run_assemble(drain, claims_dir, out, "--budget", "500")
+    assert proc.returncode == 0, proc.stderr
+    texts = {n: read(dom(out, "alpha", "domain", n)) for n in os.listdir(dom(out, "alpha", "domain")) if n.startswith("grow")}
+    assert not any("## Second\n" in t for t in texts.values()), texts
+    heads = sorted(k.partition("#")[2] for k in json.loads(read(report_path(out)))["section_writers"])
+    assert "Second" not in heads and "Second, corrected" in heads and "Third" in heads, heads
+
+
+def test_a_copy_dropped_from_the_carried_file_loses_its_writer(tmp: str) -> None:
+    """The copy of a section dropped from a moved-in file takes its recorded writer with it; the section that stays keeps
+    its own (a writer is recorded under the path the section now lives at)."""
+    one = {"class": "workflow", "topic": "alpha-one", "title": "One", "body": "First way.", "evidence": ["h1"]}
+    two = {"class": "workflow", "topic": "alpha-two", "title": "Two", "body": "Second way.", "evidence": ["h2"]}
+    three = {"class": "workflow", "topic": "three", "title": "Three", "body": "Third way.", "evidence": ["h3"]}
+    drain, claims_dir, out = build(tmp, {"alpha": claims("alpha", [one])})
+    with_agents(drain, {"h1": "dev-01", "h2": "dev-01", "h3": "dev-01"})
+    assert run_assemble(drain, claims_dir, out).returncode == 0
+    flat = proj(out, "alpha", "workflow.md")
+    with open(flat, "a", encoding="utf-8") as fh:
+        fh.write("\n## Two (2)\n\nSecond way.\n")
+    report = json.loads(read(report_path(out)))
+    key = next(k for k in report["section_writers"] if k.endswith("#One"))
+    report["section_writers"][key.partition("#")[0] + "#Two (2)"] = {"agent": "dev-01", "host": "hostA"}
+    with open(report_path(out), "w", encoding="utf-8") as fh:
+        json.dump(report, fh)
+    set_claims(claims_dir, "alpha", [two, three])
+    proc = run_assemble(drain, claims_dir, out)
+    assert proc.returncode == 0, proc.stderr
+    migrated = json.loads(read(report_path(out)))["migrated"]
+    assert any("'Two (2)' dropped from workflow/alpha-one.md" in m for m in migrated), migrated
+    heads = sorted(k.partition("#")[2] for k in json.loads(read(report_path(out)))["section_writers"])
+    assert "Two (2)" not in heads and "One" in heads, heads
 
 
 def test_a_retired_heading_takes_its_writer_with_it_while_the_file_stays_and_a_fabric_slice_routes_through_the_real_report(tmp: str) -> None:
@@ -2951,7 +2994,7 @@ def test_a_linking_memory_harvested_again_with_its_correction_is_no_collision(tm
     """The correction and the unchanged memory linking it arrive in one run, over a slice two agents wrote: the link on
     disk is pointed after the pre-pass, so the pre-pass reads it pointed (review of #368, F5)."""
     base = {"class": "workflow", "topic": "supplier", "title": "Supplier", "body": "Text.", "evidence": ["a1"]}
-    user = {"class": "solution", "topic": "placement", "title": "Placement", "body": "See [[reserved]].", "evidence": ["a1", "a2"]}
+    user = {"class": "solution", "topic": "placement", "title": "Placement", "body": "See [[reserved]].", "citations": {"memories": ["reserved"]}, "evidence": ["a1", "a2"]}
     fix = {"class": "workflow", "topic": "reserved", "title": "Supplier, reserved", "body": "Reserved. In full, with its reason.",
            "evidence": ["a1"], "merge_target": "Supplier"}
     drain, claims_dir, out = build(tmp, {"alpha": claims("alpha", [base, user])})
@@ -2960,7 +3003,8 @@ def test_a_linking_memory_harvested_again_with_its_correction_is_no_collision(tm
     set_claims(claims_dir, "alpha", [fix, user])
     proc = run_assemble(drain, claims_dir, out)
     assert proc.returncode == 0 and "SUPERSED" not in proc.stderr, proc.stderr
-    assert "See [[supplier]]." in read(proj(out, "alpha", "solution.md"))
+    placed = read(proj(out, "alpha", "solution.md"))
+    assert "See [[supplier]]." in placed and "*References: supplier*" in placed, placed
 
 
 def test_the_pre_pass_points_a_link_once_as_the_write_does(tmp: str) -> None:
@@ -4175,6 +4219,8 @@ def main() -> int:
         test_a_correction_of_a_section_in_another_budget_part_is_listed,
         test_a_repointed_link_takes_the_references_line_with_it,
         test_a_section_a_correction_replaced_in_another_part_loses_its_writer,
+        test_a_section_written_and_retired_in_one_drain_leaves_no_writer,
+        test_a_copy_dropped_from_the_carried_file_loses_its_writer,
         test_a_retired_heading_takes_its_writer_with_it_while_the_file_stays_and_a_fabric_slice_routes_through_the_real_report,
         test_anchors_that_could_not_be_rendered_or_are_banned_are_refused_or_dropped,
         test_a_real_reports_section_writers_route_a_flag_to_the_agent_that_wrote_the_section,

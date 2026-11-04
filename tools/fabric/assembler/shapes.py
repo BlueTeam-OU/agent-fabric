@@ -246,8 +246,7 @@ def drop_replayed(run: Run) -> None:
                 continue
             if "_body_as_written" in claim and not any(e["key"] == key for e in same_heading):
                 # Its links were pointed at renamed topics by this run; the replaced text's key predates that.
-                written = section_key(claim_block({**claim, "body": claim["_body_as_written"],
-                                                       "citations": claim.get("_citations_as_written", claim.get("citations"))}).split("\n", 1)[1].strip())
+                written = section_key(claim_block({**claim, "body": claim["_body_as_written"]}).split("\n", 1)[1].strip())
                 if any(e["key"] == written for e in same_heading):
                     key = written
             where = f"{label}/{klass}:{topic}#{claim_heading(claim)}: memory {claim['topic']!r}"

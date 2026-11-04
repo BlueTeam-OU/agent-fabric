@@ -417,7 +417,6 @@ def point_links(run: Run, moved: list[tuple[str | None, str, str]]) -> None:
                 claim.setdefault("_body_as_written", claim["body"])
                 claim["body"] = pointed_body
                 if pointed_cites is not None:
-                    claim.setdefault("_citations_as_written", claim["citations"])
                     claim["citations"] = {**claim["citations"], "memories": pointed_cites}
 
     def names_for(scopes: tuple[str | None, ...]) -> dict[str, str]:
