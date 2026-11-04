@@ -75,7 +75,7 @@ import roots  # noqa: E402
 from fabric_lint_rules.base import layout, workingcopy  # noqa: E402, F401
 from fabric_lint_rules.base import FRONTMATTER_RE, PAYLOAD_DIRS, _git, _tracked  # noqa: E402, F401
 from fabric_lint_rules.base import sibling_working_copies  # noqa: E402, F401
-from fabric_lint_rules.docs import BANNED_PATTERNS, CLASS_DOCS, DOC_PATH_EXEMPT, DOC_PATH_RE  # noqa: E402, F401
+from fabric_lint_rules.docs import BANNED_PATTERNS, CARRIER_FENCE, CLASS_DOCS, DOC_PATH_EXEMPT, DOC_PATH_RE  # noqa: E402, F401
 from fabric_lint_rules.docs import FABRIC_ADR_RE, FABRIC_REF_NAME, FABRIC_REF_RE, FABRIC_SELF  # noqa: E402, F401
 from fabric_lint_rules.docs import GENERIC_DIRS, GENERIC_FILES, GENERIC_SKIP, HARNESS_PLACEHOLDER  # noqa: E402, F401
 from fabric_lint_rules.docs import HARNESS_SOURCE, ITALIAN_MARKERS, LENS_BODY_CAP  # noqa: E402, F401
@@ -488,6 +488,8 @@ CONTRIBUTOR_NEVER = (
     "tools/fabric/relay_catchup.py",
     # Derives a re-review's brief, as review_brief.py renders one.
     "tools/fabric/review_rounds.py",
+    # The carrier release every account installs, and who it admits (ADR-064).
+    *CARRIER_FENCE,
 )
 # The one path under a never-prefix an entry may name: the list the port
 # shrinks, which lint itself holds to shrinking (ADR-040 §5 rule 2).

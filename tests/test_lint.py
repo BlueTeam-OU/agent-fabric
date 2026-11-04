@@ -2499,6 +2499,27 @@ def case_a_dollar_anchored_pattern_is_followed_across_imports() -> None:
         assert sum("tools/pkg/pat.py:2" in f for f in got) == 2, got
 
 
+def case_a_generic_file_names_no_managed_project_but_the_fence() -> None:
+    """A managed project's id in a generic file is a finding; the carrier's
+    fenced paths, which lint.py must spell to fence them, are exempt as
+    exactly those strings and nothing else of the project."""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("fabric_lint_under_test", LINT)
+    lint = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(lint)
+    project = lint.CARRIER_FENCE[0].split("/")[1]
+    with tempfile.TemporaryDirectory() as root:
+        write(os.path.join(root, "projects", "registry.json"),
+              json.dumps({"projects": {"agent-fabric": {}, project: {}}}))
+        src = os.path.join(root, "tools", "fabric", "fence.py")
+        write(src, "".join(f"NEVER = {p!r}\n" for p in lint.CARRIER_FENCE))
+        assert lint.project_name_findings(root) == [], lint.project_name_findings(root)
+        # The control: another path of the same project is still named.
+        write(src, f"OTHER = 'runtime/{project}/client/x.json'\n")
+        got = lint.project_name_findings(root)
+        assert len(got) == 1 and got[0].startswith("tools/fabric/fence.py:1: names a managed project"), got
+
+
 def case_a_contributor_entry_never_reaches_a_definition() -> None:
     """ADR-018 §5 rule 8: a contributor's entry names a catalogued role, is
     whole, and admits nothing that defines a role — however broad its
@@ -2549,6 +2570,16 @@ def case_a_contributor_entry_never_reaches_a_definition() -> None:
             assert loaded in lint.CONTRIBUTOR_NEVER, f"{loaded} is loaded by lint by path: it is fenced like lint.py"
         got = findings({**good, "paths": good["paths"] + ["policies/"]})
         assert any("rule 'policies/' reaches policies/" in f for f in got), got
+        # The carrier's pin and roster: held by lint, not only by the
+        # entry's own exclusions (review of #376, §2).
+        carrier = os.path.dirname(lint.CARRIER_FENCE[0])
+        os.makedirs(os.path.join(root, carrier))
+        fenced = {**good, "paths": good["paths"] + [carrier + "/"], "excluding": excl + list(lint.CARRIER_FENCE)}
+        assert findings(fenced) == [], findings(fenced)
+        for pinned in lint.CARRIER_FENCE:
+            got = findings({**fenced, "excluding": [e for e in fenced["excluding"] if e != pinned]})
+            assert got == [f"policies/authority.json: contributors[0] (python-dev): rule '{carrier}/' reaches "
+                           f"{pinned}, which defines what a role is or enforces the fence (ADR-018 §5 rule 8)"], got
         # Review of #75: rules narrower than any sample file, each one a
         # definition or a guard.
         for narrow in ("identities/roles/python-dev/", "identities/roles/python-dev/charter.md",
@@ -2862,6 +2893,7 @@ def main() -> int:
         case_the_repository_is_one_license,
         case_every_client_with_a_project_names_a_settings_repository,
         case_every_project_names_a_defined_client,
+        case_a_generic_file_names_no_managed_project_but_the_fence,
         case_a_registry_with_projects_and_no_clients_is_a_finding,
         case_the_class_list_a_reader_sees_is_the_real_one,
         case_a_skill_carries_rules_not_occasions,
