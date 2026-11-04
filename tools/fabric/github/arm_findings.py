@@ -88,14 +88,18 @@ def read(reviews: list, trusted: set[str]) -> Reading:
         body = r.get("body")
         if not isinstance(body, str):
             # Its first line is unread too, so whether it is a v2 review at all is unknown: refused, never skipped.
-            out.unknown.append(f"review {rid} (the API returned no body)")
+            # Without an id it is named by the commit GitHub says it reviewed, the one thing left to find it by.
+            name = f"review {rid}" if r.get("id") else f"review of commit {str(r.get('commit_id') or '?')[:8]}"
+            out.unknown.append(f"{name} (the API returned no body)")
             continue
         marker = review_coverage.parse_marker(body)
         if marker is None:
             continue
         if review_id(r) is None:
             # Its place in the order is unknown, and with it which judgement comes after which Finding.
-            out.unknown.append(f"review {rid} (the API returned no id: its place among the reviews is unknown)")
+            # Named by its marker's head, which a person finds it by: "review ?" named none (#465 round 3 risk).
+            out.unknown.append(f"review marked for head {marker.head[:8]} (the API returned no id: its place among the"
+                               " reviews is unknown)")
             continue
         rows.append((review_order(r), rid, marker, body))
     # Oldest first, by GitHub's review id: never its submitted_at, which it has served in the future (review_order).
