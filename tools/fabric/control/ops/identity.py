@@ -98,7 +98,7 @@ def session(uid: int | None = None, run: Callable[..., Any] = subprocess.run) ->
 
 
 def replaced_harness_servers(uid: int | None = None, proc: str = "/proc") -> int | None:
-    """How many FleetDeck servers of this account run an executable replaced on disk since they started, or None
+    """How many of this account's harness servers (`agent-fabric-fleetdeck --session harness server`) run an executable replaced on disk since they started, or None
     where the process table cannot be read. An install renames a new binary over the old one, and the kernel
     then reports the running server's exe as "<path> (deleted)": the server keeps serving the old build, and
     nothing else says so (measured 2026-11-02, every account, two days). The account reads its own

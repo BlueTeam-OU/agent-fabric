@@ -325,8 +325,9 @@ class FabricAndSession(Base):
             self.assertIsNone(ops.replaced_harness_servers(os.getuid(), os.path.join(proc, "none")), "an unreadable table is unknown, not zero")
             ctx = {"uid": os.getuid(), "run": lambda cmd, **kw: done("", "", 1), "session_opts": {"proc": proc, "pids": []}}
             self.assertEqual(ops.collect("session", ctx)["session"]["harness_server_replaced"], 1)
-            self.assertNotIn("harness_server_replaced", ops.collect("session", {"uid": os.getuid(), "run": ctx["run"]})["session"],
-                             "a faked process table is not read beside the real one")
+            with unittest.mock.patch.object(ops, "replaced_harness_servers", return_value=1) as real_table:
+                self.assertNotIn("harness_server_replaced", ops.collect("session", {"uid": os.getuid(), "run": ctx["run"]})["session"])
+                real_table.assert_not_called()   # a faked process table is not read beside the real one
             ctx["session_opts"]["proc"] = os.path.join(proc, "none")
             self.assertNotIn("harness_server_replaced", ops.collect("session", ctx)["session"])
 
