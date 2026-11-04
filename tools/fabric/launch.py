@@ -40,6 +40,8 @@ CONTRACT, frozen from the bash (ADR-040 §5 rule 3):
   env       AGENT_FABRIC_ROOT (defaults to the repository this file is in),
             AGENT_FABRIC_STATE_DIR (identity.py), AGENT_FABRIC_ALLOW_STALE,
             AGENT_FABRIC_PULLED, AGENT_FABRIC_RESTART_WAIT_S,
+            AGENT_FABRIC_LAUNCH_TMPDIR (the TMPDIR the launcher itself assigned, which
+            a restart inherits and still prunes; any other value is the account's own),
             AGENT_FABRIC_RESTARTING (set by a restart for its relaunch,
             dropped before that session starts: a refusal while it is set
             is followed by a `launch: RESTART NOT COMPLETED: …` line),

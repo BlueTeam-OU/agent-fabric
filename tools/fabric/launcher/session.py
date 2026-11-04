@@ -62,6 +62,11 @@ def make_tmpdir(path: str, *, ours: bool = True) -> None:
 
 
 TMPDIR_KEEP_S = 7 * 24 * 3600
+# The TMPDIR value the launcher itself assigned, kept in the environment: a restart re-execs with
+# os.environ, and without this the second launch reads the first one's default as the account's choice
+# and stops pruning it. Only a value equal to the default counts, so an environment cannot use it to
+# have another path pruned.
+LAUNCH_TMPDIR = "AGENT_FABRIC_LAUNCH_TMPDIR"
 
 
 def default_tmpdir(env: dict) -> str:
@@ -151,10 +156,12 @@ def settle_tmpdir(env: dict, *, now: float | None = None, login: str | None = No
             login = ""
     if login and env.get("TMPDIR") == legacy_tmpdir(login):
         del env["TMPDIR"]
+    if env.get("TMPDIR") and env.get("TMPDIR") == env.get(LAUNCH_TMPDIR) == default_tmpdir(env):
+        del env["TMPDIR"]
     if env.get("TMPDIR"):
         make_tmpdir(env["TMPDIR"], ours=False)
         return
-    env["TMPDIR"] = default_tmpdir(env)
+    env["TMPDIR"] = env[LAUNCH_TMPDIR] = default_tmpdir(env)
     make_tmpdir(env["TMPDIR"], ours=True)
     prune_tmpdir(env["TMPDIR"], now=now)
 
