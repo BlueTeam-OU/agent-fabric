@@ -90,16 +90,21 @@ def write_slice(
         the part being written exited 0 with both texts standing in
         two files (connected reviewer, 2026-09-20). Every sibling
         touched is written and reported."""
+        victims: dict[str, list[str]] = {}
         if topic is None:
             touched = retire_in_siblings(directory, filename, target, clip=functools.partial(clip_description, run),
-                                         removed=elsewhere_text)
+                                         removed=elsewhere_text, victims_by_path=victims)
         else:
             owner = None if role == "shared" else role
             touched = retire_in_siblings(
                 directory, filename, target, clip=functools.partial(clip_description, run),
                 stem=f"{klass}-{topic}" if owner is None else topic,
-                is_part=lambda p: is_budget_part(run, owner, klass, p, topic), removed=elsewhere_text)
+                is_part=lambda p: is_budget_part(run, owner, klass, p, topic), removed=elsewhere_text,
+                victims_by_path=victims)
         for tpath, what in touched:
+            # The section left a file that stays (or goes): its recorded writer goes with it, whichever part the correction
+            # replaced it from. write_slice's own diff only sees the part being written (InterWeave #529 round 1, F4).
+            run.section_writers_gone.extend(f"{in_report(run, tpath)}#{h}" for h in victims[tpath])
             run.retired_in.append(f"{in_report(run, tpath)}: '{target}' {what}")
             # `written` counts files on disk once: a rewritten
             # sibling joins it, a removed one leaves it.
@@ -493,6 +498,7 @@ def drop_carried_copies(run: Run, role: str, klass: str, directory: str, topic: 
         what = remove_sections(path, copies, copies, functools.partial(clip_description, run))
         rel = f"{CLASS_FILES[klass]}/{name}"
         for h in copies:
+            run.section_writers_gone.append(f"{in_report(run, path)}#{h}")
             run.migrated.append(f"{role}/{klass}: {h!r} dropped from {rel}, it stands in {CLASS_FILES[klass]}/{topic}.md")
         if what == "removed":
             run.migrated.append(f"{role}/{klass}: {rel} removed, no section left")

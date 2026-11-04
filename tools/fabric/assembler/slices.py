@@ -197,7 +197,8 @@ def retire_in_siblings(directory: str, filename: str, target: str,
                        clip: Callable[[str, str], str] = lambda d, _where: d,
                        stem: str | None = None,
                        is_part: Callable[[str], bool] | None = None,
-                       removed: dict[str, str] | None = None) -> list[tuple[str, str]]:
+                       removed: dict[str, str] | None = None,
+                       victims_by_path: dict[str, list[str]] | None = None) -> list[tuple[str, str]]:
     """Remove the section `target` (and its "(n)" siblings) from every
     OTHER budget part of the same topic in `directory`. `filename` is the
     part being written: `<topic>.md`, `<topic>-<n>.md`,
@@ -217,7 +218,8 @@ def retire_in_siblings(directory: str, filename: str, target: str,
     named `<topic>-2` is a part of `<topic>`, and `<topic>-2.md` as that
     topic's part one is a part of `<topic>` too.
 
-    `removed`, when given, receives the text of the section `target` itself that was removed (ADR-050 rule 10 keys it)."""
+    `removed`, when given, receives the text of the section `target` itself that was removed (ADR-050 rule 10 keys it).
+    `victims_by_path`, when given, receives every heading removed, by the file it left: the caller retires those headings' writers."""
     if stem is None:
         stem = re.sub(r"(-\d+)?\.md$", "", filename)
     if is_part is None:
@@ -235,6 +237,8 @@ def retire_in_siblings(directory: str, filename: str, target: str,
         if victims:
             if removed is not None and target in sections:
                 removed[target] = sections[target]
+            if victims_by_path is not None:
+                victims_by_path[path] = victims
             touched.append((path, remove_sections(path, victims, [target], clip)))
     return touched
 

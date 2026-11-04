@@ -1598,6 +1598,29 @@ def test_a_repointed_link_takes_the_references_line_with_it(tmp: str) -> None:
     assert "*References: other, supplier*" in read(proj(out2, "alpha", "solution.md"))
 
 
+def test_a_section_a_correction_replaced_in_another_part_loses_its_writer(tmp: str) -> None:
+    """`section_writers_gone` knew the headings that left the part being written. A correction replacing a section that
+    lives in another budget part removed it there, and its writer stayed in the report, naming a heading no slice holds
+    (InterWeave #529 round 1, F4)."""
+    big = "y " * 900
+    drain, claims_dir, out = build(tmp, {"alpha": claims("alpha", [
+        {"class": "domain", "topic": "grow", "title": "First", "body": big, "evidence": ["h1"]},
+        {"class": "domain", "topic": "grow", "title": "Second", "body": big, "evidence": ["h2"]},
+        {"class": "domain", "topic": "grow", "title": "Third", "body": "Small.", "evidence": ["h2"]}])})
+    with_agents(drain, {"h1": "dev-01", "h2": "dev-01", "h3": "dev-02"})
+    assert run_assemble(drain, claims_dir, out, "--budget", "500").returncode == 0
+    parts = {n: read(dom(out, "alpha", "domain", n)) for n in os.listdir(dom(out, "alpha", "domain")) if n.startswith("grow")}
+    (holder,) = [n for n, t in parts.items() if "## Second" in t]
+    assert "## First" not in parts[holder] and "## Third" in parts[holder], "precondition: Second shares a part with Third, apart from First"
+    heads = lambda: sorted(k.partition("#")[2] for k in json.loads(read(report_path(out)))["section_writers"])
+    assert "Second" in heads(), heads()
+    set_claims(claims_dir, "alpha", [{"class": "domain", "topic": "grow", "title": "Second, corrected", "merge_target": "Second",
+                                      "body": "Less than thought.", "evidence": ["h3"]}])
+    proc = run_assemble(drain, claims_dir, out, "--budget", "500")
+    assert proc.returncode == 0 and "RETIRED in another part" in proc.stderr, proc.stderr
+    assert "Second" not in heads() and "Second, corrected" in heads() and "Third" in heads(), heads()
+
+
 def test_a_retired_heading_takes_its_writer_with_it_while_the_file_stays_and_a_fabric_slice_routes_through_the_real_report(tmp: str) -> None:
     drain, claims_dir, out = build(tmp, {"alpha": claims("alpha", [
         {"class": "solution", "topic": "one", "title": "Keep me", "body": "Stays.", "evidence": ["h1"], "observed_at": "2026-09-18"},
@@ -4151,6 +4174,7 @@ def main() -> int:
         test_a_projects_own_name_in_a_corrected_heading_does_not_end_its_entry,
         test_a_correction_of_a_section_in_another_budget_part_is_listed,
         test_a_repointed_link_takes_the_references_line_with_it,
+        test_a_section_a_correction_replaced_in_another_part_loses_its_writer,
         test_a_retired_heading_takes_its_writer_with_it_while_the_file_stays_and_a_fabric_slice_routes_through_the_real_report,
         test_anchors_that_could_not_be_rendered_or_are_banned_are_refused_or_dropped,
         test_a_real_reports_section_writers_route_a_flag_to_the_agent_that_wrote_the_section,
