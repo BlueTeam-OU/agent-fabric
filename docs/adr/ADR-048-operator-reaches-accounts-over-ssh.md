@@ -27,7 +27,7 @@ TemplateVM at every boot. openssh-server is not installed there.
 
 The operator reaches each agent account over ssh to the loopback address,
 with one operator key whose every use is fenced by a forced command,
-`enter-ssh`, that does one of four things and nothing else. sshd takes
+`enter-ssh`, that does one of five things and nothing else. sshd takes
 keys only from a root-owned directory, so no agent can add a key to its
 own account. The host key is pinned in the host registry from a read on
 the host, and `known_hosts` is generated from the registry. sudo stays as
@@ -64,7 +64,7 @@ gives per key: whatever the client asks, sshd runs that command, with the
 request in `SSH_ORIGINAL_COMMAND`, and `restrict` turns off every
 forwarding, the agent, X11, user-rc and the pty for that key even if the
 server configuration were loosened, and `pty` gives back the one the panes
-need. Accepting four exact words, compared whole,
+need. Accepting five exact words, compared whole,
 leaves no parsing to get wrong. The argument reaches `enter` as a
 positional parameter of a login shell, so it is never shell text.
 
@@ -82,7 +82,7 @@ checkout's `enter`.
 
 The account's login files (`~/.bash_profile`, `~/.bashrc`) run first, in
 the login shell, before `enter`, and may replace it. What the root-owned
-pair guarantees is only that the operator's key opens one of the four
+pair guarantees is only that the operator's key opens one of the five
 modes through that login shell; the pane then shows what the account makes
 it show, as on the sudo path, and so does its checkout's bootstrap. The
 operator treats an agent's pane as that agent's, never as a trusted
