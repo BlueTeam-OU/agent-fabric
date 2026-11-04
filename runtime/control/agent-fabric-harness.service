@@ -29,6 +29,11 @@ WorkingDirectory=%h/projects
 ExecStart=/usr/local/bin/agent-fabric-fleetdeck --session harness server
 # Type=simple: this runs as soon as the server is forked, not once it listens;
 # the step waits for it. A failure here fails the unit, and Restart= tries again.
+# The step types `enter … --wait`, which waits for a person's Enter, with one
+# exception: `fabric-ctl <login> harness-restart` leaves a one-shot marker in the
+# account's own state directory, and the step that finds it types `--resume`
+# instead and removes it (tools/fabric/control/harness_pane.py). Boot, crash restart
+# and harness-start leave none.
 ExecStartPost=/usr/local/bin/fabric-python %h/projects/agent-fabric/tools/fabric/control/harness_pane.py ensure
 Restart=on-failure
 RestartSec=5
