@@ -18,6 +18,11 @@ spec = importlib.util.spec_from_file_location("local_settings", TOOL)
 ls = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(ls)
 
+SEAL = os.path.join(HERE, "runtime", "claude-code", "hooks", "session-seal.py")
+seal_spec = importlib.util.spec_from_file_location("session_seal", SEAL)
+seal = importlib.util.module_from_spec(seal_spec)
+seal_spec.loader.exec_module(seal)
+
 VALUE = "planted-value-never-reported"
 
 
@@ -67,6 +72,19 @@ def main() -> int:
         s = ls.secret_names(home)
         check("a non-UTF-8 byte in secrets.env: report's names keep the line's own and the later ones",
               {"LATIN_KEY", "AFTER_KEY", "OPENAI_API_KEY"} <= s, sorted(s))
+
+        # The seal cannot import this module, so its copies are held equal here, on the same non-UTF-8 file and on a
+        # lone CR inside a value (which the old text-mode read split into a made-up name).
+        check("the seal's credential tuple is this module's", seal.HARNESS_CREDENTIALS == ls.HARNESS_CREDENTIALS,
+              (seal.HARNESS_CREDENTIALS, ls.HARNESS_CREDENTIALS))
+        secrets_env = os.path.join(home, ".config", "agent-fabric", "secrets.env")
+        check("the seal reads the same names from the non-UTF-8 file",
+              seal.synced_names(secrets_env) == ls.exported_names(secrets_env), seal.synced_names(secrets_env))
+        cr = os.path.join(tmp, "cr.env")
+        with open(cr, "wb") as fh:
+            fh.write(b"export A='x\rexport B=1'\nexport C=2\r\n")
+        check("…and from a lone CR in a value: A and C, no name made up from the value",
+              seal.synced_names(cr) == ls.exported_names(cr) == ["A", "C"], (seal.synced_names(cr), ls.exported_names(cr)))
 
         put("latin", {"env": {"LATIN_KEY": VALUE, "AFTER_KEY": VALUE, "MY_FLAG": "1"}})
         rl = ls.report(home)["files"][0]

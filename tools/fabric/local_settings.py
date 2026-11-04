@@ -36,7 +36,8 @@ import re
 import stat
 import sys
 
-# The one credential tuple: runtime/claude-code/hooks/session-seal.py holds a copy until it is pointed here.
+# runtime/claude-code/hooks/session-seal.py keeps a copy of this tuple and of the bytes read below: it is stdlib-only
+# and imports nothing from the tree. tests/test_local_settings.py is what keeps the two equal.
 HARNESS_CREDENTIALS = ("CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN",
                        "OPENROUTER_API_KEY", "GH_TOKEN", "CLAUDE_BRIDGE_AUTH_TOKEN")
 EXPORT_NAME = re.compile(rb"^export ([A-Za-z_][A-Za-z0-9_]*)=")
