@@ -19,7 +19,9 @@ Stdlib only; runnable as `python3 tests/test_state_writes.py`. **Each case names
   policy_entries             <- policy_findings' tracked test or reason test dropped
   lint_is_wired              <- state_write_findings not called from lint.main; tests/ judged; either admits-nothing finding
                                 dropped; an unreadable list read as empty
-  tree_is_clean              <- (none: the tree itself, so a new writer in the fabric fails here before CI)
+
+The tree itself is judged by the suite's corpus lint (tests/run.py), not here: a case reading the live
+policies/state-writers.json is red on a stripped copy, which removes it as instance data (ADR-045 rule 3).
 """
 from __future__ import annotations
 
@@ -176,13 +178,6 @@ def case_lint_is_wired() -> None:
     subprocess.run(["git", "-C", fabric, "add", "-A"], check=True, env=git_env())
     rc, out = run_lint(fabric)
     assert "policies/state-writers.json: cannot be read as JSON" in out and "tools/fabric/w.py:3" not in out, out
-
-
-def case_tree_is_clean() -> None:
-    sys.path.insert(0, os.path.join(ROOT, "tools", "fabric"))
-    import lint
-    got = lint.state_write_findings(ROOT)
-    assert got == [], "\n".join(got)
 
 
 def main() -> int:
