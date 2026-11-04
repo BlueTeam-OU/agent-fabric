@@ -15,6 +15,7 @@ from assembler.core import layout, Run, in_report, hygiene_substitute, patterns_
 from assembler.slices import merge_reports, scan_collisions, drop_held, read_existing_slice
 from corrections import section_key
 from assembler.shapes import still_replaced
+from assembler.links import unresolved_links
 
 
 def store_of(hr: dict) -> str:
@@ -341,6 +342,14 @@ def report(run: Run) -> int:
         klass, _, topic = rest.partition(":")
         return bool(run.shared.get((klass, topic)) if label == "shared" else run.per_role.get(label, {}).get((klass, topic)))
     report["held_back"] = sorted(k for k in report.get("held_back") or [] if k in run.held_back or not written_now(k))
+    # Derived from the corpus as it stands, like the collisions: a link a later drain made good leaves the list. Reported, never
+    # rewritten, and never a failure (the lint rule that reads it is the owner's).
+    undrained = {n.removesuffix(".md") for src in [*(report.get("harvest_sources") or {}).values(), harvest_meta]
+                 for n in (src or {}).get("skipped_no_roles_class") or []}
+    report["unresolved_links"] = unresolved_links(
+        report["files"], [b for b in (layout.working_copy_for(run.project), layout.FABRIC_ROOT) if b], layout.FABRIC_ROOT,
+        layout.project_memory_root(run.project),
+        [layout.project_memory_root(p) for p in layout.list_projects() if p != run.project], undrained)
     os.makedirs(os.path.dirname(report_path), exist_ok=True)
     with open(report_path, "w", encoding="utf-8") as fh:
         json.dump(report, fh, ensure_ascii=False, indent=2, sort_keys=True)
@@ -407,6 +416,10 @@ def report(run: Run) -> int:
               "fabric-query answers nothing from it):", file=sys.stderr)
         for note in run.empty_crossrefs:
             print(f"  {note}", file=sys.stderr)
+    if report["unresolved_links"]:
+        print("\nUNRESOLVED LINKS (written as they are; fix the memory, or draft the memory they name):", file=sys.stderr)
+        for row in report["unresolved_links"]:
+            print(f"  {row['slice']}#{row['heading']}: [[{row['target']}]] ({row['in']}): {row['why']}", file=sys.stderr)
     if collisions:
         print("\nTITLE COLLISIONS (both claims kept):", file=sys.stderr)
         for note in collisions:
