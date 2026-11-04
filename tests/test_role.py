@@ -498,14 +498,23 @@ def test_a_backup_left_by_a_crash_is_stashed_not_dropped(f: Fixture) -> None:
 
 def test_a_failed_deactivation_restores_the_copies(f: Fixture) -> None:
     assert f.binding()["role"] == "flutter-dev"
-    before_tree, before_binding = _tree(f.ws), f.binding()
+    # An old stamp, so a rollback through write_binding (a new updated_at) shows in the bytes (#484 review).
+    path = os.path.join(f.state, "agents", id_un(), "binding.json")
+    b = f.binding(); b["updated_at"] = "2026-01-01T00:00:00Z"
+    with open(path, "w", encoding="utf-8") as fh:
+        json.dump(b, fh)
+    with open(path, "rb") as fh:
+        before_bytes = fh.read()
+    before_tree = _tree(f.ws)
     f.env["AGENT_FABRIC_FAULT"] = "role:after-binding"
     try:
         proc = f.run("deactivate")
     finally:
         f.env.pop("AGENT_FABRIC_FAULT", None)
     assert proc.returncode != 0 and "restored" in proc.stderr, proc.stderr
-    assert _tree(f.ws) == before_tree and {**f.binding(), "updated_at": None} == {**before_binding, "updated_at": None}
+    with open(path, "rb") as fh:
+        assert fh.read() == before_bytes, "a failed unbind did not restore the binding byte for byte"
+    assert _tree(f.ws) == before_tree
 
 
 def test_a_binding_from_another_host_is_replaced_by_a_bind_there(f: Fixture) -> None:
@@ -521,6 +530,8 @@ def test_a_binding_from_another_host_is_replaced_by_a_bind_there(f: Fixture) -> 
         foreign = fh.read()
     status = f.run("status")
     assert status.returncode != 0 and "another-machine" in status.stderr, status.stderr
+    listed = f.run("list")
+    assert listed.returncode == 0 and "available roles" in listed.stdout, listed.stderr
     f.env["AGENT_FABRIC_FAULT"] = "role:after-binding"
     try:
         failed = f.run("backend-dev")

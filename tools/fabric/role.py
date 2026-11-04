@@ -295,27 +295,29 @@ class WorkspaceTransaction:
                 pass
 
 
-def read_for_rebind(ctx: dict) -> tuple[dict, str | None, str | None]:
+def read_for_rebind(ctx: dict) -> tuple[dict, str | None, bytes | None]:
     """The binding a bind or unbind is about to replace, under the agent
-    lock: (binding, its host when another host wrote it, its file's text).
-    Another host's binding is read, never trusted — the copies it lists are
-    still checked for adaptation where they are — and a rollback restores
-    that text byte for byte, since write_binding would stamp it as ours."""
+    lock: (binding, its host when another host wrote it, its file's bytes or
+    None when there is none). Another host's binding is read, never trusted
+    — the copies it lists are still checked for adaptation where they are.
+    A rollback writes those bytes back: write_binding would re-stamp the
+    time, and another host's binding as ours."""
     binding = identity.read_binding(ctx["agent"], other_host=True)
+    try:
+        with open(identity.binding_path(ctx["agent"]), "rb") as fh:
+            saved: bytes | None = fh.read()
+    except FileNotFoundError:
+        saved = None
     host = binding.get("host")
     if host in (None, ctx["host"]):
-        return binding, None, None
-    with open(identity.binding_path(ctx["agent"]), encoding="utf-8") as fh:
-        text = fh.read()
+        return binding, None, saved
     print(f"role: replacing a binding written on host {host!r}; this is {ctx['host']!r}", file=sys.stderr)
-    return binding, host, text
+    return binding, host, saved
 
 
-def restore_binding(ctx: dict, binding: dict, foreign_text: str | None) -> None:
-    if foreign_text is not None:
-        identity.atomic_write(identity.binding_path(ctx["agent"]), foreign_text)
-    elif binding:
-        identity.write_binding(binding, ctx["agent"])
+def restore_binding(ctx: dict, saved: bytes | None) -> None:
+    if saved is not None:
+        identity.atomic_write(identity.binding_path(ctx["agent"]), saved)
     else:
         _remove(identity.binding_path(ctx["agent"]))
 
@@ -400,7 +402,7 @@ def cmd_deactivate(ctx: dict, force: bool = False) -> int:
 
 
 def _deactivate_locked(ctx: dict, force: bool) -> int:
-    binding, foreign_host, foreign_text = read_for_rebind(ctx)
+    binding, foreign_host, saved = read_for_rebind(ctx)
     workspace = binding.get("workspace")
     if not binding.get("role"):
         print("no role active for this agent")
@@ -424,7 +426,7 @@ def _deactivate_locked(ctx: dict, force: bool) -> int:
         tx.rollback()
         if workspace:
             write_exclude_block(workspace, [item["path"] for item in previous])
-        restore_binding(ctx, binding, foreign_text)
+        restore_binding(ctx, saved)
         print("role: deactivation failed; the workspace and the binding were restored", file=sys.stderr)
         raise
     tx.commit()
@@ -468,7 +470,7 @@ def _activate_locked(ctx: dict, role: str, workspace: str, force: bool, project:
             print("available roles: " + ", ".join(available), file=sys.stderr)
         return 2
 
-    binding, foreign_host, foreign_text = read_for_rebind(ctx)
+    binding, foreign_host, saved = read_for_rebind(ctx)
     previous = binding.get("installed", []) or []
     previous_workspace = binding.get("workspace") or workspace
 
@@ -541,7 +543,7 @@ def _activate_locked(ctx: dict, role: str, workspace: str, force: bool, project:
         write_exclude_block(previous_workspace, [item["path"] for item in previous])
         if previous_workspace != workspace:
             write_exclude_block(workspace, [])
-        restore_binding(ctx, binding, foreign_text)
+        restore_binding(ctx, saved)
         print(f"role: activation of {role} failed; the workspace and the binding were restored",
               file=sys.stderr)
         raise
@@ -601,8 +603,10 @@ def main(argv: list[str] | None = None) -> int:
 
     workspace = os.path.abspath(args.workspace or os.environ.get("CLAUDE_PROJECT_DIR") or os.getcwd())
     command, role = args.command, args.role
+    if command == "list" and not args.status:
+        return cmd_list()  # reads no binding, so none refuses it
     # Only a bind or unbind may read another host's binding: it replaces it.
-    rebind = not args.status and command not in (None, "status", "list")
+    rebind = not args.status and command not in (None, "status")
     ctx = identity.resolve_context(cwd=workspace, rebind=rebind)
 
     if args.status or command in (None, "status"):
