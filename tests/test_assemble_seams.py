@@ -396,7 +396,9 @@ def test_j112_every_link_and_references_topic_that_resolves_to_no_slice_is_repor
     drain, claims_dir, out = ta.build(tmp, {"alpha": ta.claims("alpha", [
         {"class": "solution", "topic": "here", "title": "Here", "evidence": ["h1"],
          "body": "Good [[here]] and [[unwritten-note]] and [[no-such-memory]] and `[[in-a-span]]` and ``[[in-a-double]]``.\n\n"
-                 "```\n[[in-a-fence]]\n```\n"},
+                 "```\n[[in-a-fence]]\n```\n\nPress the ` key.\n\nReal [[lone-dead]].\n\n  ```\n[[in-indent-fence]]\n  ```\n[[after-fence-dead]]\n",
+         # What the harvest derives from the body: it cites every [[x]], code or not (harvest_memory.WIKILINK_RE).
+         "citations": {"memories": ["in-a-span", "in-a-fence", "in-indent-fence", "unwritten-note"]}},
         {"class": "solution", "topic": "cited", "title": "Cited", "evidence": ["h1"], "body": "Text.",
          "citations": {"memories": ["mispelled-topic", "here"]}},
         {"class": "domain", "topic": "field", "title": "Field", "evidence": ["h1"], "body": "Reaches [[here]] and [[field]]."},
@@ -410,12 +412,15 @@ def test_j112_every_link_and_references_topic_that_resolves_to_no_slice_is_repor
     assert found == [
         ("cited.md", "Cited", "mispelled-topic", "no such topic", "references"),
         ("domain.md", "Field", "here", "other corpus", "link"),
+        ("here.md", "Here", "after-fence-dead", "no such topic", "link"),
+        ("here.md", "Here", "lone-dead", "no such topic", "link"),
         ("here.md", "Here", "no-such-memory", "no such topic", "link"),
         ("here.md", "Here", "unwritten-note", "undrained", "link"),
     ], found
     for line in ("UNRESOLVED LINKS", "[[unwritten-note]]", "undrained", "[[mispelled-topic]]"):
         assert line in proc.stderr, proc.stderr
-    assert "in-a-span" not in proc.stderr and "in-a-fence" not in proc.stderr and "in-a-double" not in proc.stderr
+    assert "in-a-span" not in proc.stderr and "in-a-fence" not in proc.stderr and "in-a-double" not in proc.stderr \
+        and "in-indent-fence" not in proc.stderr
     # The positive control: a link that does resolve is not listed.
     assert "[[here]] and [[unwritten-note]]" in ta.read(ta.proj(out, "alpha", "solution", "here.md"))
 

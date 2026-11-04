@@ -1,9 +1,10 @@
 """tools/fabric/assembler/links.py — the links of the slices a run wrote, resolved against the corpus the reader has.
 A part of tools/fabric/assemble.py, whose docstring is the contract.
 
-Nothing else in the drain looks at a `[[link]]` or a `*References:*` topic, so a link to a memory that was never drained, into
-another project's corpus or to a misspelled name shipped silently (two project reviews, j112). This reports,
-never rewrites: the author or the owner decides what a dead link should have been.
+targets.point_links repoints a link to a memory that moved into another slice, but nothing resolved a `[[link]]` or a
+`*References:*` topic against the corpus, so a link to a memory that was never drained, into another project's corpus or to a
+misspelled name shipped silently (two project reviews, j112). This reports what still resolves to nothing, never rewrites:
+the author or the owner decides what a dead link should have been.
 
 A name resolves by a slice's file name, as targets.written_stem builds it, or by its `topic:`; a shared slice is also known without its class prefix.
 A project slice reads its own project's corpus and the fabric's; a field slice (`memory/`) is copied into every repository and
@@ -20,9 +21,11 @@ from assembler.slices import parse_slice
 
 LINK_RE = re.compile(r"\[\[([^\]\n]+)\]\]")
 REFERENCES_RE = re.compile(r"^\*References: (.*)\*$", re.M)
-FENCE_RE = re.compile(r"^(?P<fence>`{3,}|~{3,}).*?^(?P=fence)[ \t]*$", re.M | re.S)
+# CommonMark lets a fence, opening or closing, stand up to three spaces in.
+FENCE_RE = re.compile(r"^ {0,3}(?P<fence>`{3,}|~{3,}).*?^ {0,3}(?P=fence)[ \t]*$", re.M | re.S)
 # A span closes on a run of the same length as the one that opened it (CommonMark), so ``a ` b`` is one span.
-SPAN_RE = re.compile(r"(?<!`)(`+)(?!`)(.+?)(?<!`)\1(?!`)", re.S)
+# A span stops at a blank line (CommonMark): a lone backtick pairs with none in a later paragraph and blanks the links between.
+SPAN_RE = re.compile(r"(?<!`)(`+)(?!`)((?:(?!\n[ \t]*\n).)+?)(?<!`)\1(?!`)", re.S)
 CLASS_PREFIX = tuple(f"{k}-" for k in CLASS_FILES)
 
 UNDRAINED = "undrained"
@@ -34,7 +37,7 @@ def without_code(text: str) -> str:
     """The text with fenced blocks and inline code spans blanked: a `[[x]]` written there is an example, not a citation."""
     text = FENCE_RE.sub(lambda m: "\n" * m.group(0).count("\n"), text)
     # An unclosed fence quotes everything after it.
-    unclosed = re.search(r"^(`{3,}|~{3,})", text, re.M)
+    unclosed = re.search(r"^ {0,3}(`{3,}|~{3,})", text, re.M)
     if unclosed:
         text = text[:unclosed.start()]
     return SPAN_RE.sub(lambda m: " " * len(m.group(0)), text)
@@ -69,13 +72,17 @@ def links_of(text: str) -> list[tuple[str, str, str]]:
     seen: set[tuple[str, str]] = set()
     found: list[tuple[str, str, str]] = []
     for heading, body in sections.items():
-        for target in LINK_RE.findall(without_code(body)):
+        bare = without_code(body)
+        for target in LINK_RE.findall(bare):
             if (heading, target.strip()) not in seen:
                 seen.add((heading, target.strip()))
                 found.append((heading, target.strip(), "link"))
         for line in REFERENCES_RE.findall(body):
             for topic in (t.strip() for t in line.split(",")):
-                if topic and (heading, topic) not in seen:
+                # The harvest cites every [[x]] of a body, code or not (harvest_memory.WIKILINK_RE): a topic only written
+                # in code was never a link, and is no more a citation for being listed here.
+                in_code_only = f"[[{topic}]]" in body and f"[[{topic}]]" not in bare
+                if topic and not in_code_only and (heading, topic) not in seen:
                     seen.add((heading, topic))
                     found.append((heading, topic, "references"))
     return found
