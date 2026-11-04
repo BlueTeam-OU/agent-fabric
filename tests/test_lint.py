@@ -361,6 +361,41 @@ def case_a_stale_section_is_a_warning_never_a_finding() -> None:
         assert "warning: memory/domains/web-dev/domain/good.md: section 'Anchored' is stale-hard (tools/kept.py::gone_symbol" in out, out
 
 
+def case_a_dead_link_is_a_warning_never_a_finding() -> None:
+    """j565: a [[link]] or References topic that names no slice its reader has is a warning, one per slice; it never fails
+    the lint. A field slice reads the fabric's memory alone, so its link to a project slice is `other corpus`; a project
+    slice reads its own corpus and the fabric's; a [[x]] in a code span is no link. Kills: not calling link_warnings for
+    either corpus, not handing the fabric's corpus the projects' (an `other corpus` link read as `no such topic`), a
+    warning promoted to a finding."""
+    def with_body(body: str, topic: str) -> str:
+        # A link is read inside a slice's sections (assembler/slices.parse_slice), as the drain writes every slice.
+        return SLICE.replace("tier: 2\n", f'tier: 2\ntopic: "{topic}"\n').replace("A claim with provenance.", f"## A section\n\n{body}")
+
+    with tempfile.TemporaryDirectory() as root:
+        fabric = make_base(root)
+        line = " — A well-formed slice, shaped like the real ones\n"
+        field = "../agent-fabric/memory/domains/web-dev/domain/"
+        local = ".agent-fabric/memory/web-dev/solution/"
+        write(proj(fabric, "INDEX.md"), index_for(*(f"- [`{p}`]({p}){line}" for p in (
+            f"{field}target.md", f"{field}field.md", f"{local}local.md"))))
+        write(dom(fabric, "domain", "target.md"), with_body("The fact linked to.", "the-target"))
+        write(proj(fabric, "solution", "local.md"), with_body("Builds on [[the-target]] and [[field]].", "the-local"))
+        write(dom(fabric, "domain", "field.md"), with_body("Builds on [[the-target]] and `[[a-code-example]]`.", "the-field"))
+        code, out = run_lint(fabric)
+        assert code == 0 and "links to no slice" not in out, f"links that resolve warned:\n{out}"
+
+        write(dom(fabric, "domain", "field.md"), with_body("Builds on [[the-local]] and [[the-targte]].", "the-field"))
+        write(proj(fabric, "solution", "local.md"), with_body("Builds on [[no-such-memory]].\n\n*References: the-target, gone-topic*",
+                                                              "the-local"))
+        code, out = run_lint(fabric)
+        assert code == 0, f"a dead link failed the lint:\n{out}"
+        assert ("warning: memory/domains/web-dev/domain/field.md: links to no slice its reader has: "
+                "[[the-local]] (other corpus), [[the-targte]] (no such topic)") in out, out
+        assert ("/web-dev/solution/local.md: links to no slice its reader has: "
+                "[[no-such-memory]] (no such topic), [[gone-topic]] (no such topic)") in out, out
+        assert "target.md: links" not in out, f"a slice with no link warned:\n{out}"
+
+
 def case_a_cue_in_another_script_is_refused() -> None:
     """A slice's description and its headings are English like its body:
     they are the index line and what a holder reads before choosing.
@@ -2793,6 +2828,7 @@ def main() -> int:
         case_a_persons_name_is_refused_everywhere,
         case_slices_are_still_linted,
         case_a_stale_section_is_a_warning_never_a_finding,
+        case_a_dead_link_is_a_warning_never_a_finding,
         case_a_cue_in_another_script_is_refused,
         case_exemption_is_anchored_at_the_role_root,
         case_payload_shape_is_asserted,
