@@ -1601,7 +1601,7 @@ def test_a_repointed_link_takes_the_references_line_with_it(tmp: str) -> None:
 def test_a_section_a_correction_replaced_in_another_part_loses_its_writer(tmp: str) -> None:
     """`section_writers_gone` knew the headings that left the part being written. A correction replacing a section that
     lives in another budget part removed it there, and its writer stayed in the report, naming a heading no slice holds
-    (InterWeave #529 round 1, F4)."""
+   ."""
     big = "y " * 900
     drain, claims_dir, out = build(tmp, {"alpha": claims("alpha", [
         {"class": "domain", "topic": "grow", "title": "First", "body": big, "evidence": ["h1"]},

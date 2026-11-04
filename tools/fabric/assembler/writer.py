@@ -103,7 +103,7 @@ def write_slice(
                 victims_by_path=victims)
         for tpath, what in touched:
             # The section left a file that stays (or goes): its recorded writer goes with it, whichever part the correction
-            # replaced it from. write_slice's own diff only sees the part being written (InterWeave #529 round 1, F4).
+            # replaced it from. write_slice's own diff only sees the part being written.
             run.section_writers_gone.extend(f"{in_report(run, tpath)}#{h}" for h in victims[tpath])
             run.retired_in.append(f"{in_report(run, tpath)}: '{target}' {what}")
             # `written` counts files on disk once: a rewritten

@@ -376,7 +376,7 @@ REFERENCES_RE = re.compile(r"^\*References: (.*)\*$", re.M)
 def point_text(text: str, names: dict[str, str]) -> str:
     """`text` with every `[[name]]` and every name on a `*References: …*` line pointed at the slice it was written into.
     The References line lists the memories a claim links (harvest_memory), so a link repointed and its citation left naming
-    the old topic would disagree inside one section (fleetdeck #61 round 1). A rewritten line is sorted and deduplicated as
+    the old topic would disagree inside one section. A rewritten line is sorted and deduplicated as
     claim_block renders it; a line naming none of `names` is untouched."""
     if not names:
         return text
