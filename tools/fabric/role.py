@@ -4,7 +4,7 @@
 >>> help
     role.py activate <role> [--project ID] [--workspace DIR] [--force]
     role.py status                       what is this agent right now?
-    role.py deactivate                   remove the installed copies
+    role.py deactivate [--force]         remove the installed copies
     role.py list                         the roles available
 
 The AGENT is the Linux login (runtime/identity.py); it never changes here.
@@ -29,7 +29,7 @@ the file directly. The old /role command is gone.
 Why copies rather than symlinks: an agent that lives as one role for weeks
 adapts its own tools. A copy lets that happen and survives; a link would
 make every agent share one file. So the copy is working state, and a switch
-that would discard local edits stops and says so instead.
+or an unbind that would discard local edits stops and says so instead.
 
 Why nothing here writes to a committed file: a switch can happen in the
 middle of unrelated work. The binding goes to the agent's state directory;
@@ -146,6 +146,36 @@ def adapted_items(workspace: str, installed: list[dict]) -> list[dict]:
         if os.path.exists(target) and digest_path(target) != item.get("digest"):
             out.append(item)
     return out
+
+
+def refuse_adapted(workspace: str, adapted: list[dict], verb: str) -> int:
+    """The one refusal every path that removes installed copies gives: a
+    switch replaces them, an unbind drops them, and either would lose an
+    edit that exists only in the workspace (external review F02)."""
+    print("role: refusing — these copies were adapted in the workspace:", file=sys.stderr)
+    for item in adapted:
+        print(f"  {os.path.join(workspace, item['path'])}", file=sys.stderr)
+    print("\nThose edits exist only there. Promote them into identities/roles/<role>/\n"
+          "with a pull request if they should outlive this workspace, or re-run with\n"
+          f"--force to stash and {verb} them.", file=sys.stderr)
+    return 1
+
+
+def stash_adapted(state_dir: str, workspace: str, adapted: list[dict]) -> str:
+    """Copy the adapted copies to the agent's stash before --force lets the
+    transaction drop them; returns the stash directory, or "" for none."""
+    if not adapted:
+        return ""
+    stash_dir = os.path.join(state_dir, "stash", identity.now_iso().replace(":", ""))
+    for item in adapted:
+        target = os.path.join(workspace, item["path"])
+        destination = os.path.join(stash_dir, item["path"])
+        os.makedirs(os.path.dirname(destination), exist_ok=True)
+        if os.path.isdir(target):
+            shutil.copytree(target, destination)
+        else:
+            shutil.copy2(target, destination)
+    return stash_dir
 
 
 STAGING_DIR = os.path.join(".claude", ".agent-fabric-staging")
@@ -337,20 +367,24 @@ def refuse_inside_session(what: str) -> int:
     return 1
 
 
-def cmd_deactivate(ctx: dict) -> int:
+def cmd_deactivate(ctx: dict, force: bool = False) -> int:
     if refuse_inside_session("drop the role"):
         return 1
     with identity.agent_lock(ctx["agent"]):
-        return _deactivate_locked(ctx)
+        return _deactivate_locked(ctx, force)
 
 
-def _deactivate_locked(ctx: dict) -> int:
+def _deactivate_locked(ctx: dict, force: bool) -> int:
     binding = identity.read_binding(ctx["agent"])
     workspace = binding.get("workspace")
     if not binding.get("role"):
         print("no role active for this agent")
         return 0
     previous = binding.get("installed", []) or []
+    adapted = adapted_items(workspace, previous) if workspace else []
+    if adapted and not force:
+        return refuse_adapted(workspace, adapted, "remove")
+    stash_dir = stash_adapted(ctx["state_dir"], workspace, adapted) if workspace else ""
     tx = WorkspaceTransaction(workspace or ctx["state_dir"], workspace or ctx["state_dir"], _txid())
     try:
         if workspace:
@@ -379,6 +413,8 @@ def _deactivate_locked(ctx: dict) -> int:
     if os.path.islink(active) or os.path.exists(active):
         os.remove(active)
     print(f"agent: {ctx['agent']}   role: (none)")
+    if stash_dir:
+        print(f"stashed adapted copies -> {stash_dir}")
     return 0
 
 
@@ -414,13 +450,7 @@ def _activate_locked(ctx: dict, role: str, workspace: str, force: bool, project:
     # 1. What is installed now, and has any of it been adapted?
     adapted = adapted_items(previous_workspace, previous)
     if adapted and not force:
-        print("role: refusing — these copies were adapted in the workspace:", file=sys.stderr)
-        for item in adapted:
-            print(f"  {os.path.join(previous_workspace, item['path'])}", file=sys.stderr)
-        print("\nThose edits exist only there. Promote them into identities/roles/<role>/\n"
-              "with a pull request if they should outlive this workspace, or re-run with\n"
-              "--force to stash and replace them.", file=sys.stderr)
-        return 1
+        return refuse_adapted(previous_workspace, adapted, "replace")
 
     # 1b. Build and validate the WHOLE plan before touching anything.
     plan: list[tuple[str, str, str]] = []
@@ -449,17 +479,7 @@ def _activate_locked(ctx: dict, role: str, workspace: str, force: bool, project:
               "the role's copy. Nothing was changed.", file=sys.stderr)
         return 1
 
-    stash_dir = ""
-    if adapted and force:
-        stash_dir = os.path.join(ctx["state_dir"], "stash", identity.now_iso().replace(":", ""))
-        for item in adapted:
-            target = os.path.join(previous_workspace, item["path"])
-            destination = os.path.join(stash_dir, item["path"])
-            os.makedirs(os.path.dirname(destination), exist_ok=True)
-            if os.path.isdir(target):
-                shutil.copytree(target, destination)
-            else:
-                shutil.copy2(target, destination)
+    stash_dir = stash_adapted(ctx["state_dir"], previous_workspace, adapted)
 
     # The project bound here is the one the WORKSPACE belongs to (or the one
     # named explicitly). A previous binding's project is deliberately not
@@ -548,7 +568,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("role", nargs="?", help="role id, e.g. flutter-dev")
     ap.add_argument("--status", action="store_true", help="alias for `status`")
     ap.add_argument("--force", action="store_true",
-                    help="replace locally adapted copies, stashing them first")
+                    help="replace or remove locally adapted copies, stashing them first")
     ap.add_argument("--project", default=None, help="logical project id to bind the role to")
     ap.add_argument("--workspace", default=None,
                     help="directory whose .claude/ receives skills (default: $CLAUDE_PROJECT_DIR or cwd)")
@@ -565,7 +585,7 @@ def main(argv: list[str] | None = None) -> int:
     if command == "list":
         return cmd_list()
     if command == "deactivate":
-        return cmd_deactivate(ctx)
+        return cmd_deactivate(ctx, args.force)
     if command == "activate":
         if not role:
             ap.error("activate needs a role id")

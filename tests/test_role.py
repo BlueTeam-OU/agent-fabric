@@ -320,6 +320,27 @@ def test_status_reports_agent_and_role(f: Fixture) -> None:
     assert "clone_id" not in proc.stdout and "dir_basename" not in proc.stdout
 
 
+def test_locally_adapted_copy_blocks_an_unbind_and_force_stashes_it(f: Fixture) -> None:
+    """Bind, edit, unbind: an unbind removes the installed copies, so it
+    gives the switch's refusal, and --force stashes before it removes."""
+    assert f.binding()["role"] == "flutter-dev"
+    target = os.path.join(f.ws, ".claude/skills/widget-testing/SKILL.md")
+    with open(target, "a", encoding="utf-8") as fh:
+        fh.write("\nunbind adaptation\n")
+    proc = f.run("deactivate")
+    assert proc.returncode == 1, "an adapted copy must stop the unbind"
+    assert "adapted" in proc.stderr.lower() and "--force" in proc.stderr, proc.stderr
+    assert os.path.isfile(target) and f.binding()["role"] == "flutter-dev"
+    proc = f.run("deactivate", "--force")
+    assert proc.returncode == 0, proc.stderr
+    assert not os.path.exists(target) and f.binding()["role"] is None
+    stash_root = os.path.join(f.state, "agents", id_un(), "stash")
+    kept = [os.path.join(d, n) for d, _, names in os.walk(stash_root) for n in names
+            if os.path.join(d, n).endswith("widget-testing/SKILL.md")]
+    assert any("unbind adaptation" in open(k, encoding="utf-8").read() for k in kept), kept
+    assert f.run("flutter-dev").returncode == 0
+
+
 def test_deactivate_clears_role_keeps_agent(f: Fixture) -> None:
     proc = f.run("deactivate")
     assert proc.returncode == 0, proc.stderr
@@ -510,6 +531,7 @@ def main() -> int:
             test_outside_a_working_copy_only_the_charter_loads,
             test_explicit_project_binds_even_without_a_working_copy,
             test_status_reports_agent_and_role,
+            test_locally_adapted_copy_blocks_an_unbind_and_force_stashes_it,
             test_deactivate_clears_role_keeps_agent,
             test_binding_is_refused_inside_a_session,
             test_a_role_change_announces_nothing,
