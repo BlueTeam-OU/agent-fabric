@@ -114,6 +114,10 @@ def run_bounded(cmd: list[str], *, timeout: float, input: bytes | None = None, *
         except subprocess.TimeoutExpired:
             stop_tree(proc)
             raise subprocess.TimeoutExpired(cmd, timeout) from None
+        except BaseException:
+            # An interrupt ends the tree too: Popen's __exit__ only waits for the direct child.
+            stop_tree(proc)
+            raise
     return subprocess.CompletedProcess(cmd, proc.returncode, out, err)
 
 

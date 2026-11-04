@@ -88,6 +88,7 @@ from typing import Any, Callable
 from control import busy, js
 from control.ops import util
 from control.ops.usage import claude_bin
+from provisioning import bounded
 
 PIECES = ["claude", "fabric"]
 VERSION_RE = re.compile(r"\d{1,4}\.\d{1,4}\.\d{1,6}")
@@ -172,10 +173,19 @@ def iso(moment: datetime) -> str:
 
 
 def default_run(cmd: list[str], **kw: Any) -> subprocess.CompletedProcess:
-    kw.setdefault("check", True)
-    kw.setdefault("capture_output", True)
+    """subprocess.run, except that a timeout (or an interrupt) ends the command's
+    whole process tree before the exception leaves: the install lease is
+    released by the caller's `finally`, and it must not be released while a
+    descendant of the install is still writing (run() kills only the direct child)."""
+    check = kw.pop("check", True)
+    timeout = kw.pop("timeout", None)
+    if kw.pop("capture_output", True):
+        kw["stdout"] = kw["stderr"] = subprocess.PIPE
     kw.setdefault("stdin", subprocess.DEVNULL)
-    return subprocess.run(cmd, **kw)
+    r = bounded.run_bounded(cmd, timeout=timeout, **kw)
+    if check and r.returncode:
+        raise subprocess.CalledProcessError(r.returncode, cmd, r.stdout, r.stderr)
+    return r
 
 
 # ── the host's install lease ────────────────────────────────────────
