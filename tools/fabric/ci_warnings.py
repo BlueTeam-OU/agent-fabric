@@ -18,13 +18,14 @@ Contract.
            findings of those levels (warning, notice, log; default all three — `log`
            is the text match, which a build that prints hundreds of its own
            "warning:" lines makes long); --json prints
-           the findings as one JSON object. Anything else is a usage error.
+           the findings as one JSON object (with a `cleared` object, below). Anything
+           else is a usage error.
   stdout   the report. One finding per distinct (workflow, job, step, level,
            message); `count` is how many times it was printed over the runs read,
            `runs` in how many of them. Most frequent first.
   stderr   a failure or a usage error, one line, no traceback.
   exit     0 every job of every run read, findings or none; 1 the runs could not be
-           listed; 2 usage; 3 some job's log or annotations could not be read (the
+           listed, or the repository's declaration (below) could not be read or is invalid; 2 usage; 3 some job's log or annotations could not be read (the
            report still lists the rest, and says which jobs were not read — an
            unread job is unknown, never "clean").
 
@@ -39,6 +40,22 @@ What is a finding, and its limits.
     with warn/warning/npm warn: level `log`. A step's own `::group::Run …` is taken
     for the runner's echo and its unmarked lines are not read. This is a text match, so a program that prints such a word in its own
     output is reported too; the finding names the line for a person to judge.
+    Gradle's welcome-banner item "Important project hierarchy lookup deprecations" is
+    the one line of that kind read as not a warning at all.
+  - The repository's owner clears a level-`log` finding in the owner's own repository,
+    never here: `.github/ci-warnings-cleared.json` on the default branch, read through
+    the contents API, absent (HTTP 404) meaning nothing is declared:
+        {"cleared": [{"regex": "<pattern>", "reason": "<why this is not a warning>"}]}
+    `regex` must match the whole message (re.fullmatch, after the cleaning below) and
+    `reason` is required; no other key is accepted, so a typo is refused, not ignored.
+    Only level `log` is clearable: a line GitHub marks warning or notice stays a
+    finding until the workflow stops printing it. A cleared finding leaves the list
+    and is counted and said: "N cleared by <file>" with each entry's reason and its
+    own count (an entry matching nothing says 0, so a stale one is seen), and in
+    --json under `cleared`. A declaration that cannot be read for any reason but its
+    absence, or is invalid, fails the run (exit 1): an unknown declaration never
+    clears a line. It applies to every run read, whatever its branch; it clears
+    only when --level includes log.
   - The step is found from the line's timestamp against the job's step times, which
     GitHub gives to the second. A second shared by two steps names both, joined by
     " | "; a line outside every step is "(no step)". Never a guess between them.
@@ -50,6 +67,8 @@ A job that was skipped, or has not finished, is not read.
 from __future__ import annotations
 
 import argparse
+import base64
+import binascii
 import datetime as dt
 import json
 import os
@@ -76,6 +95,10 @@ _ECHO_GROUP = re.compile(r"^(?:Run |Runner Image|Operating System|GITHUB_TOKEN P
 _DEPRECATED = re.compile(r"\b(?:deprecated|deprecation\w*)\b", re.IGNORECASE)
 _WARN_START = re.compile(r"^\s*(?:npm warn\b|warn(?:ing)?\s*[:\]])", re.IGNORECASE)
 _REPO = re.compile(r"^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$")
+# An item of Gradle's welcome banner, not a deprecation the build reports; the whole message, so a
+# real line that merely starts with the words is still read.
+_NOT_A_WARNING = re.compile(r"(?:[-*\u2022]\s*)?Important project hierarchy lookup deprecations\.?")
+CLEARED_FILE = ".github/ci-warnings-cleared.json"
 
 
 class Unread(Exception):
@@ -129,11 +152,72 @@ def parse_log(text: str) -> list[tuple[dt.datetime | None, str, str]]:
         if in_group and in_echo:
             continue
         message = clean(line)
+        if _NOT_A_WARNING.fullmatch(message):
+            continue
         # A line opening with a quote or brace is a structured dump (CodeQL prints its tool
         # configuration as JSON, whose option descriptions say "DEPRECATED"), not a warning.
         if message and message[0] not in '"{[' and (_DEPRECATED.search(message) or _WARN_START.match(message)):
             found.append((when, "log", message))
     return found
+
+
+class Declaration:
+    """The repository's own clearing of level-`log` findings (CLEARED_FILE)."""
+
+    def __init__(self, entries: list[tuple[re.Pattern, str]] | None = None) -> None:
+        self.entries = entries or []
+
+    @classmethod
+    def parse(cls, text: str) -> "Declaration":
+        try:
+            doc = json.loads(text)
+        except ValueError as e:
+            raise Unread(f"{CLEARED_FILE} is not JSON: {e}") from None
+        if not isinstance(doc, dict) or set(doc) != {"cleared"} or not isinstance(doc["cleared"], list):
+            raise Unread(f'{CLEARED_FILE} must be {{"cleared": [...]}} and nothing else')
+        entries = []
+        for i, item in enumerate(doc["cleared"]):
+            if not isinstance(item, dict) or set(item) != {"regex", "reason"} \
+                    or not all(isinstance(v, str) for v in item.values()) or not item["reason"].strip():
+                raise Unread(f'{CLEARED_FILE} entry {i} must be {{"regex": ..., "reason": ...}} with a reason')
+            try:
+                entries.append((re.compile(item["regex"]), item["reason"].strip()))
+            except re.error as e:
+                raise Unread(f"{CLEARED_FILE} entry {i}: bad regex: {e}") from None
+        return cls(entries)
+
+    def split(self, rows: list[dict]) -> tuple[list[dict], dict]:
+        """(rows still findings, the cleared summary). First matching entry takes a row."""
+        kept, per = [], [{"regex": rx.pattern, "reason": why, "count": 0, "distinct": 0} for rx, why in self.entries]
+        for row in rows:
+            hit = None
+            if row["level"] == "log":
+                hit = next((i for i, (rx, _) in enumerate(self.entries) if rx.fullmatch(row["message"])), None)
+            if hit is None:
+                kept.append(row)
+            else:
+                per[hit]["count"] += row["count"]
+                per[hit]["distinct"] += 1
+        return kept, {"file": CLEARED_FILE, "count": sum(p["count"] for p in per),
+                      "distinct": sum(p["distinct"] for p in per), "entries": per}
+
+
+def read_declaration(repo: str) -> Declaration:
+    """Absent (HTTP 404) is no declaration; any other failure is Unread, never 'nothing cleared'."""
+    what = f"gh api GET contents/{CLEARED_FILE}"
+    try:
+        doc = gh.api(f"repos/{repo}/contents/{CLEARED_FILE}")
+    except gh.GhError as e:
+        if e.status == 404:
+            return Declaration()
+        raise Unread(str(e)) from None
+    try:
+        if not isinstance(doc, dict) or doc.get("encoding") != "base64":
+            raise ValueError("not a base64 file")
+        text = base64.b64decode(doc["content"], validate=False).decode("utf-8")
+    except (ValueError, KeyError, TypeError, binascii.Error):
+        raise Unread(f"{what}: the answer is not a readable file") from None
+    return Declaration.parse(text)
 
 
 def step_names(steps: list[dict], when: dt.datetime | None) -> str:
@@ -239,7 +323,7 @@ def collect(repo: str, runs: int, workflow: str | None, branch: str | None):
     return len(chosen), jobs_read, findings, unread
 
 
-def render(repo: str, nruns: int, njobs: int, rows: list[dict], unread: list[str]) -> str:
+def render(repo: str, nruns: int, njobs: int, rows: list[dict], unread: list[str], cleared: dict | None = None) -> str:
     head = f"fabric-ci-warnings: {repo} — {nruns} run(s), {njobs} job(s) read; {len(rows)} distinct finding(s)"
     lines = [head]
     for r in rows:
@@ -247,6 +331,9 @@ def render(repo: str, nruns: int, njobs: int, rows: list[dict], unread: list[str
         lines += ["", f"{r['count']}x  {r['workflow']} / {r['job']} / {r['step']}  [{r['level']}]",
                   f"    {message}",
                   f"    in {r['runs']} of {nruns} run(s); latest run {r['latest_run']}"]
+    if cleared and cleared["entries"]:
+        lines += ["", f"{cleared['count']} line(s) cleared ({cleared['distinct']} distinct) by {cleared['file']}:"]
+        lines += [f"  {e['count']}x  /{e['regex']}/ — {e['reason']}" for e in cleared["entries"]]
     if unread:
         lines += ["", f"NOT READ ({len(unread)}) — these jobs are unknown, not clean:"] + [f"  {u}" for u in unread]
     return "\n".join(lines) + "\n"
@@ -298,16 +385,21 @@ def main(argv: list[str], out=None, err=None) -> int:
             print(f"fabric-ci-warnings: --repo is not OWNER/NAME: {repo!r}", file=err)
             return 2
         nruns, njobs, findings, unread = collect(repo, args.runs, args.workflow, args.branch)
+        declaration = read_declaration(repo)
     except gh.GhError as e:
         print(f"fabric-ci-warnings: {e}", file=err)
         return 1
-    rows = [r for r in findings.ordered() if r["level"] in levels]
+    except Unread as e:
+        print(f"fabric-ci-warnings: {clean(str(e))}", file=err)
+        return 1
+    rows, cleared = (declaration if "log" in levels else Declaration()).split([r for r in findings.ordered() if r["level"] in levels])
     if args.json:
-        json.dump({"repo": repo, "runs_read": nruns, "jobs_read": njobs, "findings": rows, "not_read": unread},
+        json.dump({"repo": repo, "runs_read": nruns, "jobs_read": njobs, "findings": rows, "cleared": cleared,
+                   "not_read": unread},
                   out, indent=2, sort_keys=True)
         out.write("\n")
     else:
-        out.write(render(repo, nruns, njobs, rows, unread))
+        out.write(render(repo, nruns, njobs, rows, unread, cleared))
     return 3 if unread else 0
 
 

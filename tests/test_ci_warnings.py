@@ -12,6 +12,7 @@ a failed listing is one line and exit 1; usage is exit 2; nothing but GET is
 ever sent. Plain script: prints ok/FAIL, exit 1 on any failure."""
 from __future__ import annotations
 
+import base64
 import json
 import os
 import subprocess
@@ -83,7 +84,20 @@ def table(runs, jobs_by_run, extra_json=None, text=None, fail=None):
     for rid, jobs in jobs_by_run.items():
         js[f"repos/{REPO}/actions/runs/{rid}/jobs"] = {"jobs": jobs}
     js.update(extra_json or {})
-    return {"json": js, "text": text or {}, "fail": fail or {}}
+    # No declaration unless a case brings one: the repository answers 404 for the file.
+    failing = {f"repos/{REPO}/contents/{ci_warnings.CLEARED_FILE}": "gh: Not Found (HTTP 404)"}
+    failing.update(fail or {})
+    return {"json": js, "text": text or {}, "fail": failing}
+
+
+def declare(tab_data, doc):
+    """A copy of the table whose repository declares `doc` (text or object) in its cleared file."""
+    out = json.loads(json.dumps(tab_data))
+    path = f"repos/{REPO}/contents/{ci_warnings.CLEARED_FILE}"
+    del out["fail"][path]
+    text = doc if isinstance(doc, str) else json.dumps(doc)
+    out["json"][path] = {"type": "file", "encoding": "base64", "content": base64.encodebytes(text.encode()).decode()}
+    return out
 
 
 def main() -> int:
@@ -239,6 +253,68 @@ def main() -> int:
         rc, out, err, calls = run(base_tab, "--help")
         check("--help: exit 0, names the options and the exit codes",
               rc == 0 and all(w in out for w in ("--repo", "--runs", "--workflow", "--branch", "--level", "--json", "exit:")) and not calls)
+
+        print("ci-warnings: log matches the owner clears, and the Gradle banner")
+        GZAPP = ["a deprecated bootstrap name is CAUGHT", "deprecated-refs: OK",
+                 "Passed Tests.Flag is deprecated [12 ms]"]
+        CONTROLS = ["npm warn deprecated foo@1", "DEPRECATION: Python 3.7 reached end of life",
+                    "(node:1) [DEP0005] DeprecationWarning: Buffer() is deprecated"]
+        log2 = "\n".join(["2026-11-03T03:00:0%d.0000000Z %s" % (i, m)
+                          for i, m in enumerate(["Important project hierarchy lookup deprecations", *GZAPP, *CONTROLS])]) + "\n"
+        job2 = {"id": 41, "name": "build", "status": "completed", "conclusion": "success", "steps": []}
+        tab2 = table([{"id": 5, "name": "ci", "path": ".github/workflows/ci.yml@refs/heads/main"}], {5: [job2]},
+                     extra_json={f"repos/{REPO}/check-runs/41/annotations": []},
+                     text={f"repos/{REPO}/actions/jobs/41/logs": log2})
+
+        def messages(doc):
+            return [r["message"] for r in doc["findings"]]
+
+        rc, out, err, _ = run(tab2, "--repo", REPO, "--json")
+        doc = json.loads(out)
+        check("no declaration: the banner is not a finding; the gzapp lines and the three controls are; nothing cleared",
+              rc == 0 and sorted(messages(doc)) == sorted(GZAPP + CONTROLS) and doc["cleared"]["count"] == 0, out)
+        for label, declared in (
+                ("no match", [{"regex": "unrelated line", "reason": "r"}]),
+                ("a regex that only covers part of a control", [{"regex": "npm warn", "reason": "r"}])):
+            rc, out, _, _ = run(declare(tab2, {"cleared": declared}), "--repo", REPO, "--json")
+            check(f"a declaration that does not match ({label}) leaves every control a finding",
+                  rc == 0 and set(CONTROLS) <= set(messages(json.loads(out))), out)
+        mine = {"cleared": [{"regex": "a deprecated bootstrap name is CAUGHT", "reason": "self-test label"},
+                            {"regex": "deprecated-refs: OK", "reason": "a passing check"},
+                            {"regex": r"Passed Tests\..* \[\d+ ms\]", "reason": "xUnit test names"},
+                            {"regex": "never printed", "reason": "stale"}]}
+        rc, out, err, _ = run(declare(tab2, mine), "--repo", REPO, "--json")
+        doc = json.loads(out)
+        cleared = doc["cleared"]
+        check("each gzapp line is cleared by the declaration, counted per entry, and the controls stay findings",
+              rc == 0 and sorted(messages(doc)) == sorted(CONTROLS) and cleared["count"] == 3 and cleared["distinct"] == 3
+              and [e["count"] for e in cleared["entries"]] == [1, 1, 1, 0] and cleared["file"] == ci_warnings.CLEARED_FILE, out)
+        rc, out, _, _ = run(declare(tab2, mine), "--repo", REPO)
+        check("text report says N cleared by the file, with each reason",
+              rc == 0 and f"3 line(s) cleared (3 distinct) by {ci_warnings.CLEARED_FILE}:" in out
+              and "— self-test label" in out and "0x  /never printed/ — stale" in out and "3 distinct finding(s)" in out, out)
+        rc, out, _, _ = run(declare(tab2, {"cleared": [{"regex": ".*", "reason": "all"}]}), "--repo", REPO, "--level", "warning")
+        check("with --level excluding log nothing is cleared or counted as cleared",
+              rc == 0 and "cleared" not in out, out)
+        marked = table([{"id": 5, "name": "ci", "path": ".github/workflows/ci.yml@refs/heads/main"}], {5: [job2]},
+                       extra_json={f"repos/{REPO}/check-runs/41/annotations": []},
+                       text={f"repos/{REPO}/actions/jobs/41/logs": "2026-11-03T03:00:00.0Z ##[warning]Node 20 is deprecated\n"})
+        rc, out, _, _ = run(declare(marked, {"cleared": [{"regex": ".*", "reason": "all"}]}), "--repo", REPO, "--json")
+        doc = json.loads(out)
+        check("a warning GitHub marks is not clearable, even by a regex that matches it",
+              rc == 0 and messages(doc) == ["Node 20 is deprecated"] and doc["cleared"]["count"] == 0, out)
+        for label, bad_doc in (("not JSON", "{"), ("no reason", {"cleared": [{"regex": "x", "reason": " "}]}),
+                               ("an unknown key", {"cleared": [], "note": 1}),
+                               ("an entry key typo", {"cleared": [{"regex": "x", "reason": "r", "level": "log"}]}),
+                               ("a bad regex", {"cleared": [{"regex": "(", "reason": "r"}]})):
+            rc, out, err, _ = run(declare(tab2, bad_doc), "--repo", REPO)
+            check(f"an invalid declaration ({label}): one stderr line, exit 1, nothing reported",
+                  rc == 1 and out == "" and err.startswith("fabric-ci-warnings: ") and err.count("\n") == 1, f"{rc} {out}{err}")
+        unreadable = json.loads(json.dumps(tab2))
+        unreadable["fail"][f"repos/{REPO}/contents/{ci_warnings.CLEARED_FILE}"] = "gh: Server Error (HTTP 502)"
+        rc, out, err, _ = run(unreadable, "--repo", REPO)
+        check("a declaration that cannot be read (not a 404) fails the run, never 'nothing cleared'",
+              rc == 1 and out == "" and "502" in err, f"{rc} {out}{err}")
 
     print(f"\ntest_ci_warnings: {'OK' if not fails else f'FAILED — {fails} check(s)'}")
     return 1 if fails else 0
