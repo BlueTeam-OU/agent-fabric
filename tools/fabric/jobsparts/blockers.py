@@ -420,7 +420,7 @@ def repoint_blocker(spec: str, became: str) -> None:
 
     def edit(doc: dict) -> None:
         for job in doc["jobs"]:
-            if job["state"] != "blocked" or spec not in specs_of(job):
+            if spec not in specs_of(job):      # leaving blocked drops the blockers, so this is a blocked job
                 continue
             job["blockers"] = list(dict.fromkeys(became if s == spec else s for s in specs_of(job)))
             if job.get("waits_on") == mid:
