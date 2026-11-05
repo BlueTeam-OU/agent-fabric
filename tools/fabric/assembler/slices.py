@@ -27,8 +27,8 @@ def drop_held(report: dict[str, Any], keys: list[str], paths: set[str]) -> None:
     slice_names = [re.compile(re.escape(k) + r"[ :#]") for k in keys]
 
     def names_held(item: Any) -> bool:
-        if isinstance(item, dict):   # a record names its slice under "slice"
-            item = item.get("slice")
+        if isinstance(item, dict):   # a record names its slice under "slice", exactly the held key (no trailing text for the patterns below)
+            return item.get("slice") in keys
         return isinstance(item, str) and (any(item == p or item.startswith(p + ":") for p in paths)
                                           or any(n.match(item) for n in slice_names))
     for key in REPORT_LISTS:

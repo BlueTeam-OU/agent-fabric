@@ -340,11 +340,12 @@ def report(run: Run) -> int:
     # Derived from the corpus and the drain's reads each time, like the collisions: never carried from an earlier report.
     report["review_horizons"] = review_horizons(run, memory_use)
     # After the merge: the sources of earlier runs of this stamp are in memory_use by now.
-    report["oversized_by_origin"] = oversized_by_origin(report.get("oversized_claim_details") or [])
     report["memory_retrieval"] = retrieval_summary(report.get("memory_use") or {})
     report["memory_helpful"] = helpful_counts(report.get("memory_marks") or {})
     if run.held_files or run.held_back:
         drop_held(report, run.held_back, run.held_files - set(files))
+    # After drop_held: a held slice's claim is not this drain's to report.
+    report["oversized_by_origin"] = oversized_by_origin(report.get("oversized_claim_details") or [])
     # A correction stays listed only while its slice still holds the text it applied: a later correction, a revert or a hand
     # edit ends it (else the harvest would name a live memory superseded, or skip a correction asserting live text again).
     def holds(entry: dict[str, Any]) -> bool:

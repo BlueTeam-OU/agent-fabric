@@ -2590,6 +2590,27 @@ def test_an_oversized_claim_is_reported_under_its_origin_login(tmp: str) -> None
     assert "split request for python-dev-02" in proc.stderr and "split request for unknown" in proc.stderr, proc.stderr
 
 
+def test_a_held_slice_s_oversized_claim_leaves_the_origin_report(tmp: str) -> None:
+    """--hold drops what an earlier run of the stamp said of the held slice, the per-login report included."""
+    drain, claims_dir, out = build(tmp, {"alpha": claims("alpha", [
+        {"class": "threads", "topic": "big-memory", "title": "Big", "body": "x" * 9000, "evidence": ["h1"]},
+        {"class": "domain", "topic": "other-big", "title": "Other", "body": "y" * 9000, "evidence": ["h1"]},
+    ])})
+    assert run_assemble(drain, claims_dir, out, "--budget", "1000").returncode == 0
+    hold = os.path.join(tmp, "hold.json")
+    with open(hold, "w", encoding="utf-8") as fh:
+        json.dump(["alpha/threads:big-memory"], fh)
+    proc = run_assemble(drain, claims_dir, out, "--budget", "1000", "--hold", hold)
+    assert proc.returncode == 0, proc.stderr
+    with open(report_path(out), encoding="utf-8") as fh:
+        report = json.load(fh)
+    listed = [c["slice"] for g in report["oversized_by_origin"].values() for c in g["claims"]]
+    assert "alpha/threads:big-memory" in report["held_back"], report["held_back"]
+    assert "alpha/threads:big-memory" not in json.dumps(report["oversized_by_origin"]), listed
+    assert not any(c["slice"] == "alpha/threads:big-memory" for c in report["oversized_claim_details"]), report["oversized_claim_details"]
+    assert listed == ["alpha/domain:other-big"], listed
+
+
 def set_claims(claims_dir: str, role: str, items: list[dict]) -> None:
     with open(os.path.join(claims_dir, f"{role}.json"), "w", encoding="utf-8") as fh:
         json.dump(claims(role, items), fh)
@@ -4190,6 +4211,7 @@ def main() -> int:
         test_a_name_pattern_that_spares_the_terminal_phrases_still_withholds_the_name,
         test_an_oversized_single_claim_is_written_whole_and_reported,
         test_an_oversized_claim_is_reported_under_its_origin_login,
+        test_a_held_slice_s_oversized_claim_leaves_the_origin_report,
         test_drain_report_carries_the_watermark_forward,
         test_the_drain_report_lists_the_memory_marks_and_call_counts,
         test_helpful_marks_are_counted_per_section_and_only_those,
