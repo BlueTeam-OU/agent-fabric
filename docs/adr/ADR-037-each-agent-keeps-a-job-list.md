@@ -159,11 +159,19 @@ Why these choices:
    or not its control agent runs; `list` names it with the record's age
    and says it is stale (A 2026-10-09).
    `block --on` also accepts checkable blockers, `pr:<owner/repo>#<n>`
-   (cleared when merged or closed), `request:<message-id>` (cleared when
+   (cleared when merged or closed), `request:<message-id>` (answered when
    the journal holds an inbound message of any type whose non-empty
    IN-REPLY-TO names it) and `job:<login>/j<n>` (cleared when
    delivered, or closed after it was seen open); several may be given
-   and all must clear. `clock:<YYYY-MM-DDTHH:MM[:SS]Z>` is a time of
+   and all must clear. An answer is not a delivery: an answered
+   `request:` blocker whose request became a job of the answerer is
+   replaced by `job:<login>/j<n>` and the job stays blocked. That job
+   is the answerer's board row (`fabric-ctl <login> jobs`) whose title
+   ends `(REQUEST <message-id>)`; failing one, the single job of the
+   answerer a REPLY's body names, if that board lists it or cannot be
+   read. Without such a job (a decline, a DECISION, a named job not on
+   a readable board) the blocker clears; an unreadable board with no
+   job named is unknown, never cleared (A 2026-11-05). `clock:<YYYY-MM-DDTHH:MM[:SS]Z>` is a time of
    the agent's own, UTC with the Z: it clears once now is at or after
    it, `block` refuses one already past, and since it reads only the
    clock it is evaluated on every look, `--stored` included
@@ -323,3 +331,4 @@ The body above reads current; each change's full note is in [history/ADR-037-ame
 | 2026-10-31 | A clock blocker | §5 rule 8: `block --on clock:<UTC time>` waits on a time and clears itself at it, built in #439 |
 | 2026-10-31 | Cleaning a left job's targets is built | §5 rule 10 step 1 reads as built (#350, `fabric-jobs switch`, jobsparts/leave_targets.py); no rule changes |
 | 2026-10-31 | In place only from inside the job's copy | §5 rule 3: a session that has worked no job takes the next in place only from inside its working copy or worktree; elsewhere, or unreadable, `switch` says fresh with the reason (`outside_copy`, `place_unreadable`) |
+| 2026-11-05 | An answered request waits on the job it became | §5 rule 8: an answered `request:` blocker is re-pointed to `job:<login>/j<n>` when the answerer's board, or failing it the REPLY's body, names the job the request became; cleared only without one, unknown when the board cannot be read and the body names none; built in #491 |
