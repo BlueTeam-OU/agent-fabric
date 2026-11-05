@@ -7,7 +7,7 @@ import math
 import os
 import re
 import subprocess
-from fabric_jobs.base import DEFAULT_PRIORITY, FABRIC_ROOT, Job, MESSAGE_ID, Refused, TERMINAL, _load, identity
+from fabric_jobs.base import DEFAULT_PRIORITY, FABRIC_ROOT, Job, Refused, TERMINAL, _load, identity, request_id_of  # noqa: F401 — request_id_of lives in base (blockers reads it); records re-exports it
 
 
 def find(doc: dict, job_id: str) -> Job:
@@ -247,19 +247,6 @@ def fetch_message(which: str) -> dict:
         why = (p.stderr.strip().splitlines() or ["no answer from the inbox"])[-1]
         raise Refused(f"cannot read message {which}: {why}")
     return json.loads(p.stdout)
-
-
-# The title a job gets when it is added by title and not from the message (the
-# sender's jobs-add takes nothing but a title, ADR-040 §7): the id rides in it,
-# last. Only the last one is the job's: a SUBJECT is the sender's free text and
-# may mention another request's id, which must not make this one vanish.
-TITLE_NAMES_REQUEST = re.compile(r"\(REQUEST (" + MESSAGE_ID.pattern + r")\)\Z", re.ASCII)
-
-
-def request_id_of(title: str) -> str | None:
-    # Collapsed as new_job stores it: a title typed with a tab or newline names the id it will be stored with.
-    found = TITLE_NAMES_REQUEST.search(" ".join(title.split()))
-    return found.group(1) if found else None
 
 
 def listed_request(doc: dict, message_id: str) -> Job | None:
