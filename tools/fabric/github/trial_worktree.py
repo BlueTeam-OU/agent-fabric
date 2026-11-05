@@ -31,8 +31,12 @@ def run_git(repo: str, *args: str, timeout: float = git.TIMEOUT_S) -> subprocess
     whole process tree before GitError is raised (bounded.run_bounded):
     git.run's subprocess.run kills git alone, and what git started (a
     fetch's remote helper and its ssh, a merge's driver, a filter) ran on
-    past the trial (#477's sibling list). Every git call of a trial goes
-    through it; none of them checks its status through an exception."""
+    past the trial (#477's sibling list). Every git call trial_merge and
+    this module make goes through it, and none checks its status through an
+    exception. Not workingcopy.resolve's, which --check's
+    project_trial_config runs to name the project: a rev-parse and a
+    remote get-url under workingcopy._git's own timeout, local reads that
+    start no helper to outlive them."""
     what = "git " + (args[0] if args else "")
     try:
         return bounded.run_bounded(["git", "-C", repo, *args], timeout=timeout, label="trial-merge",
