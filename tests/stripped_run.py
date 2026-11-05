@@ -203,11 +203,13 @@ def failing_lines(text: str, limit: int = 40) -> list[str]:
     kept: list[str] = []
     fail_indent: int | None = None
     for ln in text.splitlines():
+        if not ln.strip():
+            continue    # a blank line inside a check's detail (a captured output) does not end it
         indent = len(ln) - len(ln.lstrip())
-        if "FAIL" in ln:
+        if fail_indent is not None and indent > fail_indent:
+            kept.append(ln)     # also a FAIL line of a nested run: it is detail, not a new check
+        elif "FAIL" in ln:
             fail_indent = indent
-            kept.append(ln)
-        elif fail_indent is not None and ln.strip() and indent > fail_indent:
             kept.append(ln)
         else:
             fail_indent = None
