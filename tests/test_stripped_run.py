@@ -128,6 +128,15 @@ def main() -> int:
               history == ["tests/test_reads_history.py: ok"], history)
         check("a test that reads the live registry fails on the stripped copy", "tests/test_reads_live.py: FAILED (exit 1)" in lines, lines)
         check("...said with its failing line", any("AssertionError" in ln or "FileNotFoundError" in ln for ln in lines), lines)
+        sample = "  ok   fine\n      not detail of anything\n  FAIL x\n      a vs b\n      second\n  ok   next\n      stray\nValueError: boom\n"
+        nested = "  FAIL y\n      rc=1\n\n      after a blank\n        sub/x.py: FAILED (exit 1)\n      after the nested run\n  ok   z\n"
+        check("a blank line or a nested FAIL line in a check's detail does not end it",
+              stripped_run.failing_lines(nested) == ["  FAIL y", "      rc=1", "      after a blank", "        sub/x.py: FAILED (exit 1)",
+                                                     "      after the nested run"],
+              stripped_run.failing_lines(nested))
+        check("a failing check's detail lines are kept, and only those",
+              stripped_run.failing_lines(sample) == ["  FAIL x", "      a vs b", "      second", "ValueError: boom"],
+              stripped_run.failing_lines(sample))
         check("an untracked test that builds its own fixture passes, no session or git variable reaching it, signing off",
               "tests/test_reads_fixture.py: ok" in lines, lines)
         check("any failure is exit 1", code == 1, code)

@@ -38,6 +38,20 @@ def listing(path: str) -> list[str]:
         return []
 
 
+def stamp_ms(w: str) -> str:
+    """The milliseconds since 1970 of a `stat -c %w` stamp. An id's time is its
+    birth, so the check compares it with this. The milliseconds are the stamp's
+    first three fraction digits, read as text: `date +%s%3N` on a stamp whose
+    fraction begins with a zero ("…44.005186207") answered the next digits
+    ("518") on CI's coreutils, which failed one run in ten (j119)."""
+    m = re.fullmatch(r"(\S+ \d\d:\d\d:\d\d)\.(\d{9}) (\S+)", w)
+    if m is None:
+        return ""
+    secs = subprocess.run(["date", "-d", f"{m.group(1)} {m.group(3)}", "+%s"], stdout=subprocess.PIPE, text=True,
+                          timeout=10).stdout.strip()
+    return secs + m.group(2)[:3] if secs.isdigit() else ""
+
+
 def main() -> int:
     fails = 0
 
@@ -71,6 +85,11 @@ def main() -> int:
             os.makedirs(f"{t}/{r}/projects")
             os.makedirs(f"{t}/{r}-gnupg", 0o700)
             time.sleep(0.05)
+        def raw_birth(path: str) -> str:
+            # The stamp as `stat` prints it, kept for a check's detail line.
+            r = subprocess.run(["stat", "-c", "%w", path], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, timeout=10)
+            return r.stdout.strip()
+        stamped = {r: raw_birth(f"{t}/{r}") for r in ("parent", "kid")}
         os.symlink(ROOT, f"{t}/kid/projects/agent-fabric")   # the account's own checkout, from its home
         calls = f"{t}/calls"
 
@@ -135,10 +154,8 @@ def main() -> int:
                 return ""
 
         def born_ms(path: str) -> str:
-            # An id's time is its birth; here, the home's creation time to the
-            # millisecond.
             w = subprocess.run(["stat", "-c", "%w", path], stdout=subprocess.PIPE, text=True, timeout=10).stdout.strip()
-            return subprocess.run(["date", "-d", w, "+%s%3N"], stdout=subprocess.PIPE, text=True, timeout=10).stdout.strip()
+            return stamp_ms(w)
 
         def id_ms(agent_id: str) -> str:
             return str(int(agent_id.replace("-", "")[:12], 16)) if agent_id else ""
@@ -146,6 +163,11 @@ def main() -> int:
         def clear_calls() -> None:
             put(calls, "")
 
+        check("the stamp's milliseconds are its first three fraction digits, a leading zero kept",
+              [stamp_ms(f"2026-11-05 20:53:44.{f} +0000") for f in ("005186207", "054912345", "123456789", "000999999")]
+              == ["1793912024005", "1793912024054", "1793912024123", "1793912024000"]
+              and stamp_ms("2026-11-05 21:53:44.005186207 +0100") == "1793912024005" and stamp_ms("-") == "",
+              stamp_ms("2026-11-05 20:53:44.005186207 +0000"))
         print("store-enroll: the parent first")
         rc, out = P(sys.executable, ENROLL, "kid")
         check("a parent without its own store is refused", rc == 1 and "no store yet" in out, f"rc={rc}\n{out}")
@@ -159,7 +181,7 @@ def main() -> int:
               rc == 0 and bool(pid) and os.path.isdir(f"{t}/remotes/fabric-agent-{pid}.git") and first_parent is None,
               f"rc={rc}\n{out}")
         check("…its id's time is its home's creation time", bool(pid) and id_ms(pid) == born_ms(f"{t}/parent"),
-              f"{pid} vs {born_ms(f'{t}/parent')}")
+              f"{pid} vs {born_ms(f'{t}/parent')}; at creation {stamped['parent']!r}, now {raw_birth(f'{t}/parent')!r}")
         publish()
 
         # #65 carried: --self with a malformed .agent-id in its store stops and
@@ -221,7 +243,8 @@ def main() -> int:
         check("…its repository is named by its agent id",
               bool(kid) and os.path.isdir(f"{t}/remotes/fabric-agent-{kid}.git"), " ".join(listing(f"{t}/remotes")))
         check("…its id's time is ITS home's creation time, read on its host",
-              bool(kid) and id_ms(kid) == born_ms(f"{t}/kid"), kid)
+              bool(kid) and id_ms(kid) == born_ms(f"{t}/kid"),
+              f"{kid} vs {born_ms(f'{t}/kid')}; at creation {stamped['kid']!r}, now {raw_birth(f'{t}/kid')!r}")
         check("…and the parent holds a mirror of the child's store",
               os.path.isdir(f"{t}/parent/.local/share/agent-fabric/children/{kid}/.git"))
         verify = subprocess.run([sys.executable, STORE, "verify"], env={**base, "AGENT_FABRIC_ROOT": fab},
