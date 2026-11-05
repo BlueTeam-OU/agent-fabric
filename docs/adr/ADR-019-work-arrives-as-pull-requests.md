@@ -107,9 +107,10 @@ not on a pipe's exit status.
    writes copy a commit at a time and the band, the gate and the
    branch cost more than they catch. A PR whose every file matches the
    `direct.record_paths` of such a project (a decision record put to
-   the owner for a ruling), and none `pr_paths`, the boundary or the
-   executable mode, arms on the owner's word with no review-class
-   review: the roles the content touches review it as the project's
+   the owner for a ruling), none `pr_paths` or the boundary, and every
+   file it leaves at the head a regular file (mode 100644 in the head's
+   tree: no executable, symlink or submodule), arms on the owner's word
+   with no review-class review: the roles the content touches review it as the project's
    remit says, and the ruling is the approval (A 2026-11-05).
 2. One open pull request per agent and repository (A 2026-10-06): a
    branch in another repository is never addable to the open one. While

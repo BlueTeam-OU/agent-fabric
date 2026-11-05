@@ -184,8 +184,9 @@ account (brand-comms-01 REPLY 01a19619). The owner chose, 2026-11-05,
 to give the tool the remit's path rather than change the remit.
 
 A direct project's `arm.json` may name `direct.record_paths`. A PR every
-file of which matches it, and none `pr_paths`, the security boundary or
-the executable mode, arms with no review-class review and no review
+file of which matches it, none `pr_paths` or the security boundary, and
+every file it leaves at the head a regular file (mode 100644 in the
+head's tree, so neither an executable, a symlink nor a submodule), arms with no review-class review and no review
 engine on the owner's word (an `AUTHORIZES` beside it read as the word
 relayed); no other word stands in, an arming authority's included, and
 the comment records the record path. Any other file in the PR puts it
