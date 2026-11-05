@@ -11,7 +11,7 @@ import sys
 from typing import Any
 import roots
 import memory_horizons
-from assembler.core import layout, Run, in_report, hygiene_substitute, patterns_for
+from assembler.core import layout, Run, UNKNOWN_ORIGIN, in_report, hygiene_substitute, patterns_for
 from assembler.slices import merge_reports, scan_collisions, drop_held, read_existing_slice
 from corrections import section_key
 from assembler.shapes import still_replaced
@@ -170,6 +170,28 @@ def fabric_commit() -> str | None:
     return sha if done.returncode == 0 and sha else None
 
 
+def oversized_by_origin(details: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    """The oversized claims grouped by the login who may split the memory (a claim resting on several logins' observations
+    is listed under each), each group with the one split request to send that login. The assembler only emits it: sending
+    is the drain operator's."""
+    groups: dict[str, list[dict[str, Any]]] = {}
+    for item in details:
+        for login in item.get("origins") or [UNKNOWN_ORIGIN]:
+            groups.setdefault(login, []).append({k: v for k, v in item.items() if k != "origins"})
+    return {login: {"claims": claims, "split_request": split_request(login, claims)}
+            for login, claims in sorted(groups.items())}
+
+
+def split_request(login: str, claims: list[dict[str, Any]]) -> str:
+    lines = [f"Your memories below were drained as one claim each, larger than the slice budget of {claims[0]['budget']} tokens. "
+             "A claim is atomic and cannot be split by the drain, so the slice is written whole and the prompts lint fails "
+             "until you split each memory into smaller ones (one fact each, each with its own roles_class):"]
+    lines += [f"- {c['source_file']}: ~{c['tokens']} tokens against {c['budget']} (slice {c['slice']})" for c in claims]
+    if login == UNKNOWN_ORIGIN:
+        lines.append("(No readable origin login: the drain operator finds the author before sending.)")
+    return "\n".join(lines)
+
+
 def commit_message(report: dict[str, Any], built_against: str | None) -> str:
     """The commit body for a project's drain, from the report alone: a line the report gives no reason for is not
     written, so a drain with no collisions and nothing held back names neither (a review of 2026-10-18: one hand-written
@@ -285,6 +307,7 @@ def report(run: Run) -> int:
         "applied_corrections": run.applied_corrections,
         "replaced_sections": run.replaced_sections,
         "oversized_claims": run.oversized,
+        "oversized_claim_details": run.oversized_details,
         "clipped_descriptions": run.clipped_descriptions,
         "migrated": run.migrated,
         "title_collisions": collisions,
@@ -321,6 +344,8 @@ def report(run: Run) -> int:
     report["memory_helpful"] = helpful_counts(report.get("memory_marks") or {})
     if run.held_files or run.held_back:
         drop_held(report, run.held_back, run.held_files - set(files))
+    # After drop_held: a held slice's claim is not this drain's to report.
+    report["oversized_by_origin"] = oversized_by_origin(report.get("oversized_claim_details") or [])
     # A correction stays listed only while its slice still holds the text it applied: a later correction, a revert or a hand
     # edit ends it (else the harvest would name a live memory superseded, or skip a correction asserting live text again).
     def holds(entry: dict[str, Any]) -> bool:
@@ -383,6 +408,10 @@ def report(run: Run) -> int:
         print("\nOVER BUDGET (written whole; lint will fail until the memory is split):", file=sys.stderr)
         for note in run.oversized:
             print(f"  {note}", file=sys.stderr)
+        for login, group in report["oversized_by_origin"].items():
+            print(f"  split request for {login}:", file=sys.stderr)
+            for line in group["split_request"].splitlines():
+                print(f"    {line}", file=sys.stderr)
     if run.clipped_descriptions:
         print("\nDESCRIPTIONS CLIPPED to the schema limit (shorten the memory's description to choose the cue):", file=sys.stderr)
         for note in run.clipped_descriptions:

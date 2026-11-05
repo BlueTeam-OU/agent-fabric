@@ -12,7 +12,7 @@ from assembler.core import layout, yaml_scalar
 
 
 REPORT_LISTS = ("files", "hygiene_problems", "rejected_hygiene", "redactions", "retired_in_siblings",
-                "oversized_claims", "clipped_descriptions", "migrated", "merge_target_unresolved", "superseded_harvests", "reharvested_replaced", "held_back")
+                "oversized_claims", "oversized_claim_details", "clipped_descriptions", "migrated", "merge_target_unresolved", "superseded_harvests", "reharvested_replaced", "held_back")
 
 
 def drop_held(report: dict[str, Any], keys: list[str], paths: set[str]) -> None:
@@ -27,6 +27,8 @@ def drop_held(report: dict[str, Any], keys: list[str], paths: set[str]) -> None:
     slice_names = [re.compile(re.escape(k) + r"[ :#]") for k in keys]
 
     def names_held(item: Any) -> bool:
+        if isinstance(item, dict):   # a record names its slice under "slice", exactly the held key (no trailing text for the patterns below)
+            return item.get("slice") in keys
         return isinstance(item, str) and (any(item == p or item.startswith(p + ":") for p in paths)
                                           or any(n.match(item) for n in slice_names))
     for key in REPORT_LISTS:
