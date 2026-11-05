@@ -441,12 +441,15 @@ def _report_case(tmp: str, tag: str, report: dict, memories: list[tuple[str, str
 
 
 def test_a_correction_applied_and_moved_by_inference_in_one_run_is_not_filed_again(tmp: str) -> None:
-    """j114 case (a). A drain that applies an author's merge_target lists it (applied_corrections); the same run's
-    inferences (a same-agent supersede, a retitle, a slice that moved to another part) leave their own rows and never take
-    the author's entry away: the entry is still the one key the harvest reads. Reproduced as not filing twice: the
-    correction stays skipped beside those rows, a plain memory the inference moved is filed (it is not a correction, and the
-    assembler's drop_replayed answers a replay of it), and a correction outside the report is filed (the control).
-    Kills: reading the skip from anything but the (applied_key, replaced) pair; skipping every memory with a merge_target."""
+    """j114 case (a). The harvest reads only the author's applied_corrections entry; the rows a same-run inference leaves
+    (replaced_sections, retitles, section_moves) are planted here to show it ignores them. That the assembler keeps the
+    author's entry beside them is the assembler's property (writer.py gates the entry on `_inferred_target`), not proved
+    here. Not filing twice: the correction stays skipped, a plain memory the inference moved is filed (it is not a
+    correction; the assembler's drop_replayed answers a replay of it), and a correction outside the report is filed (the
+    control). A correction that keeps its name and target but was rewritten after the drain is filed: the key, not the name,
+    says it is another text.
+    Kills: reading the skip from anything but the (applied_key, replaced) pair, the memory name included; skipping every
+    memory with a merge_target."""
     sys.path.insert(0, os.path.join(ROOT, "tools", "fabric"))
     from corrections import memory_key
     OLD, NEW, MOVED = "The old fact.", "The new fact, applied.", "A plain restatement the same-agent rule moved."
@@ -467,12 +470,15 @@ def test_a_correction_applied_and_moved_by_inference_in_one_run_is_not_filed_aga
     # the control: the same memories without the report are all filed, so the skip above is the report's doing
     r, topics = _report_case(tmp, "ca-ctl", {}, memories)
     assert topics == ["fix", "moved-plain", "other-heading", "outside"], (topics, r.stderr)
+    # same name, same target, other words: not the applied text, so filed
+    r, topics = _report_case(tmp, "ca-rewritten", report, [("fix", "Rewritten after the drain.", "Old heading")])
+    assert topics == ["fix"] and "already applied" not in r.stderr, (topics, r.stderr)
 
 
 def test_a_legacy_entry_without_an_applied_key_is_not_a_correction_and_its_memory_is_filed(tmp: str) -> None:
     """j114 case (b), pinned, not fixed. No applied_corrections entry the assembler ever wrote lacks applied_key (the writer
-    has set all six fields since 4db1ff44; every entry of the reports on this host has them), so the shape needs a hand-made
-    report. Read as a correction by its memory name and replaced heading, it would also skip a correction its author rewrote
+    has set all six fields since 4db1ff44; 895 entries in the working copies of one host, measured 2026-11-05, all have
+    them), so the shape needs a hand-made report. Read as a correction by its memory name and replaced heading, it would also skip a correction its author rewrote
     after the drain (only the key tells those texts apart) and name a live memory superseded: unknown stays unknown, and the
     memory is filed, which the assembler writes as the same text again or as the changed one.
     Kills: a fallback that recognises an entry by `memory` and `replaced` alone."""
@@ -486,7 +492,7 @@ def test_a_legacy_entry_without_an_applied_key_is_not_a_correction_and_its_memor
     memories = [("fix", NEW, "Old heading"), ("fix-rewritten", "Rewritten after the drain.", "Old heading"),
                 ("orig", OLD, None)]
     # the positive control first: with applied_key the entry skips its correction and names the original
-    r, topics = _report_case(tmp, "cb-full", {"applied_corrections": [{**full, "memory": "fix"}]}, memories)
+    r, topics = _report_case(tmp, "cb-full", {"applied_corrections": [full]}, memories)
     assert "fix.md: already applied" in r.stderr and "superseded: orig.md" in r.stderr, r.stderr
     assert topics == ["fix-rewritten", "orig"], topics
     # the legacy entry: neither skipped nor named
