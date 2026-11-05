@@ -3,7 +3,7 @@
 handle or account name built from it (a GitHub login, a Claude account, a key's variable). Codex found the joined
 lowercase handle in a drained slice on the j553 live check, past a pattern that matched only the capitalised name with
 word boundaries (j610). Plain script: prints ok/FAIL, exit 1 on any failure. Kills: dropping the case flag; a \\b that
-an underscore defeats; the name pattern running first and leaving an account's tail behind; a pattern loose enough to
+an underscore defeats; a tail with no separator left unmatched; the name pattern running first and leaving an account's tail behind; a pattern loose enough to
 eat a longer word."""
 from __future__ import annotations
 
@@ -23,6 +23,11 @@ SUBSTITUTED = [
     ("asked Andrea Benetton twice", "asked the CEO twice"),
     ("asked andrea twice", "asked the CEO twice"),
     ("signed by Benetton", "signed by the CEO"),
+    # A suffix with no separator is an ordinary login or account form (review F1, #488 round 1).
+    ("login andreabenetton01 here", "login the CEO's account here"),
+    ("gh:AndreaBenetton2 x", "gh:the CEO's account x"),
+    ("as Andrea Benetton01 wrote", "as the CEO wrote"),
+    ("user andrea1 and benetton7", "user the CEO and the CEO"),
 ]
 FINE = ["Andreas and Benettonia stay", "sandrea and andreab and xbenetton", "a CEO-owned account"]
 
