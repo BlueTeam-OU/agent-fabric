@@ -117,9 +117,11 @@ def main() -> int:
     # fixes it itself, or its answer depends on where the suite runs (an
     # inherited broker URL once turned a case red; an inherited
     # CLAUDE_CONFIG_DIR pointed the launcher at the runner's LIVE config).
+    # TZ too: a holder's launch exports its timezone, the launcher keeps an
+    # operator's TZ, and the cases that assert none were red on every holder (j619).
     base = {k: v for k, v in os.environ.items()
             if not k.startswith(("GITHUB_", "AGENT_FABRIC_", "CLAUDE_", "ANTHROPIC_"))
-            and k not in ("GIT_DIR", "OPENROUTER_API_KEY", "GH_TOKEN", "OPENAI_API_KEY", "REPO_ROOT", "USER", "LOGNAME")}
+            and k not in ("GIT_DIR", "OPENROUTER_API_KEY", "GH_TOKEN", "OPENAI_API_KEY", "REPO_ROOT", "USER", "LOGNAME", "TZ")}
     base.update(USER=LOGIN, LOGNAME=LOGIN)
 
     with tempfile.TemporaryDirectory() as sandbox:
