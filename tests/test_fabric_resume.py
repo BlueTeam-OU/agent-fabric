@@ -323,6 +323,9 @@ def main() -> int:
                 f.write(doc if isinstance(doc, str) else json.dumps(doc))
         real = os.environ.get("AGENT_FABRIC_OPERATOR")
         os.environ["AGENT_FABRIC_OPERATOR"] = root
+        # Under a suite the live path reads nothing (resume.SUITE_MARKER): the fixture is named.
+        real_profiles = os.environ.get("AGENT_FABRIC_RESUME_PROFILES")
+        os.environ["AGENT_FABRIC_RESUME_PROFILES"] = os.path.join(root, "routing", "profiles.json")
         try:
             profiles({"defaults": {"launch_provider": "openrouter"}, "roles": {"python-dev": {"launch_provider": "anthropic"}},
                       "agents": {"pd-x": {"launch_provider": "openrouter"}}})
@@ -392,6 +395,10 @@ def main() -> int:
                 check(f"a file of the wrong shape is none, never a traceback ({json.dumps(wrong)})",
                       resume.profile_provider("pd-x", "python-dev") is None)
         finally:
+            if real_profiles is None:
+                os.environ.pop("AGENT_FABRIC_RESUME_PROFILES", None)
+            else:
+                os.environ["AGENT_FABRIC_RESUME_PROFILES"] = real_profiles
             if real is None:
                 os.environ.pop("AGENT_FABRIC_OPERATOR", None)
             else:
