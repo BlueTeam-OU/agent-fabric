@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-"""tools/fabric/resume.py profile_provider(): under a suite (AGENT_FABRIC_TEST_JOBS, which tests/run.py sets
-while it holds a cpu slot) an unset AGENT_FABRIC_RESUME_PROFILES means no profile, never the live routing/profiles.json,
+"""tools/fabric/resume.py profile_provider(): under a suite (AGENT_FABRIC_SUITE_RUN, which tests/run.py sets
+for every suite it runs) an unset AGENT_FABRIC_RESUME_PROFILES means no profile, never the live routing/profiles.json,
 whose agent layer for the login running the suite would change the result (j438, j523)."""
 from __future__ import annotations
 

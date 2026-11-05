@@ -151,9 +151,9 @@ def own_dir(path: str) -> bool:
     return stat.S_ISDIR(st.st_mode) and st.st_uid == os.getuid()
 
 
-# tests/run.py sets it (lease.cpu_child_env) only while it holds a cpu slot, so a run without one (CI, opt-out, no
-# lease directory, a suite started by hand) is not covered; no production launch sets it.
-SUITE_MARKER = "AGENT_FABRIC_TEST_JOBS"
+# tests/run.py run_environment sets it for every suite it runs, whether or not it holds a cpu slot; no production
+# launch sets it. A suite that strips AGENT_FABRIC_* loses it and must name its fixture.
+SUITE_MARKER = "AGENT_FABRIC_SUITE_RUN"
 
 
 def profile_provider(login: str, role: str | None, agent_only: bool = False) -> str | None:
