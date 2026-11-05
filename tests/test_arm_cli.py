@@ -779,6 +779,14 @@ def main() -> int:
             rc, out = record_run(files, modes=modes, reviewed=True)
             check(f"…and with the review of the head it arms as any PR, no record note",
                   rc == 0 and "DRY RUN" in out and "Record path" not in out, out)
+        no_ci = dict(direct, required_checks=[])
+        for reviewed, files, approval in ((False, rec, "the owner's ruling"), (True, ["docs/a.md"], "the review of its head")):
+            reset(reviewed=reviewed); set_pr(me, "plain", files)
+            put("gate.json", json.dumps([{"number": 7, "checks": "none-yet", "head": HEAD[:8], "work_commits": 1, "commits_known": True}]))
+            rc, out = run("7", "--basis", owner, "--dry-run", env=renv, policy=no_ci)
+            check(f"no check on the head of a {'reviewed PR' if reviewed else 'record PR'} on a direct repository with no CI:"
+                  f" it merges on {approval} alone (#488 round 1 F2)",
+                  rc == 0 and f"direct repository with no check on the head: it merges on {approval} alone" in out, out)
         rc, out = record_run(rec, modes={rec[0]: "100755"})
         check("the executable's mode is said", "records/0009-no-capture-yet.md has mode 100755 at the head" in out, out)
         for label, knob, why in (("a head tree that cannot be read", "trees_fail", f"cannot read the tree {HEAD[:8]}"),

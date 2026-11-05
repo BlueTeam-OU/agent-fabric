@@ -85,7 +85,8 @@ the count rule, and a policy or a comparison with GitHub's settings that cannot 
 default. A repository in mode owner-only is not armed here; one in mode direct has no server-side rule to arm under
 (auto-merge off, no ruleset), so the same gates end in an immediate gh pr merge, without --auto, on the head
 they read; there every PR, boundary or not and waived or not, needs the review of its head and no open
-thread, and a head with no check at all merges on that review alone. A difference between the policy and GitHub in how a merge is held (auto-merge off, a ruleset or required check missing or changed) is a refusal; in which
+thread, and a head with no check at all merges on that review alone — except a record PR, which needs the
+owner's ruling in place of the review and merges with no check on that ruling alone (THE RECORD PATH below). A difference between the policy and GitHub in how a merge is held (auto-merge off, a ruleset or required check missing or changed) is a refusal; in which
 merge methods are allowed, advisory. The minimum is the stated class's, else the author's role's (the
 Fabric-Role trailer every commit of the PR carries, when they agree and fabric-ctl's presence of the login the
 branch is named for reports that role bound, as a waiver's sender is checked; presence that cannot say is exit 2),
@@ -1121,7 +1122,8 @@ def arm(argv: list[str]) -> int:
     waived_by = ""
     boundary_unwaived = False
     # A direct repository merges at once (no --auto, no ruleset holding the merge), so every PR
-    # there needs the review of its head and no open thread, boundary or not (review of #212, F1).
+    # there needs the review of its head and no open thread, boundary or not (review of #212, F1),
+    # except a record PR, whose review is the owner's ruling (below).
     direct = policy["mode"] == "direct"
     # A record PR on a direct repository (agent-fabric ADR-019 §5 rule 1, A 2026-11-05): the owner's ruling is its
     # approval, so gates 4 and 4b ask no review of it and gate 5 asks the owner's word whatever the count. Any file
@@ -1361,11 +1363,13 @@ def arm(argv: list[str]) -> int:
     if policy["mode"] == "direct" or not policy["required_checks"]:
         checks = str(row.get("checks"))
         held = "is direct" if policy["mode"] == "direct" else "has no required check"
-        # The owner's rule for a direct repository with no CI at all: a head with no check merges on the review of its head and no open thread, both gated
-        # above for every direct PR; a check that exists must still be green, and a policy that names a
+        # The owner's rule for a direct repository with no CI at all: a head with no check merges on the review of its
+        # head and no open thread, both gated above for every direct PR but a record PR, whose approval gate 5 read as
+        # the owner's ruling; a check that exists must still be green, and a policy that names a
         # required check says CI exists, so its "none-yet" is a check not reported yet, never no CI.
         if policy["mode"] == "direct" and not policy["required_checks"] and checks == "none-yet":
-            say("direct repository with no check on the head: it merges on the review of its head alone")
+            approval = "the owner's ruling" if record else "the review of its head"
+            say(f"direct repository with no check on the head: it merges on {approval} alone")
         elif checks == "none-yet" and policy["mode"] != "direct" and no_ci_word:
             # PR mode has no exception of its own (the coordinator's ruling: the no-CI exception is direct's alone):
             # the owner's word, per PR, stands in for a check that never comes, and for nothing that exists.
