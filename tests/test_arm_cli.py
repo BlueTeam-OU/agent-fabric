@@ -79,8 +79,11 @@ def gh_mock(s: str, a: list[str], stdin: str) -> tuple[int, str, str]:
     if line.startswith("api repos/gzapi-org/agent-fabric-settings "):
         return 0, json.dumps({"full_name": "gzapi-org/agent-fabric-settings"}), ""
     # The head's tree, one directory a call (arm_rules.head_modes), built from the PR's files: the head itself is the
-    # root, "tree:<dir>" a directory; `modes.json` {path: mode} overrides a file's 100644. Each read is a call.
+    # root, "tree:<dir>" a directory; `modes.json` {path: mode} overrides a file's 100644. Each read is a call;
+    # `trees_fail` fails every one.
     if line.startswith("api repos/gzapi-org/gzapp/git/trees/"):
+        if has("trees_fail"):
+            return 1, "", "gh: Bad Gateway (HTTP 502)"
         sha = a[1].rsplit("/", 1)[1]
         at = "" if sha == pr["headRefOid"] else sha[len("tree:"):] + "/"
         modes = json.loads(_state(s, "modes.json", "{}"))
@@ -273,7 +276,7 @@ def main() -> int:
             claude_only (gate 4b): a case about a missing review says reviewed=False."""
             for n in ("calls", "armed", "queued", "merged", "closed", "noarm", "nohead", "pushed", "viewfail", "blind", "independent", "unresolved", "no_blind_field", "unavailable",
                       "mergefail", "inbase", "unasked", "moved", "statusfail", "reviews.json", "reviews_fail", "viewer", "viewer_fail", "jobs.json", "jobs_fail", "shows.json",
-                      "waiver.out", "waiver_rc", "presence.out", "ctl_rc", "gh_repos", "modes.json"):
+                      "waiver.out", "waiver_rc", "presence.out", "ctl_rc", "gh_repos", "modes.json", "trees_fail"):
                 if os.path.exists(f"{state}/{n}"):
                     os.remove(f"{state}/{n}")
             put("review_rc", "0" if reviewed else "1")
@@ -728,12 +731,20 @@ def main() -> int:
         note = "Record path: no review-class review (agent-fabric ADR-019 rule 1, A 2026-11-05)."
 
         def record_run(files: list[str], basis: str = owner, policy: dict = direct, *extra: str, work: int = 1,
-                       modes: dict | None = None, reviewed: bool = False) -> tuple[int, str]:
-            """A dry run of #7 on the record rules: no review of the head unless `reviewed`."""
+                       modes: dict | None = None, reviewed: bool = False, trees_fail: bool = False,
+                       bad_rules: bool = False) -> tuple[int, str]:
+            """A dry run of #7 on the record rules: no review of the head unless `reviewed`; `trees_fail` fails
+            GitHub's tree read, `bad_rules` gives record_paths that do not compile."""
             reset(reviewed=reviewed); set_pr(me, "plain", files); set_gate(work)
             if modes:
                 put("modes.json", json.dumps(modes))
-            return run("7", "--basis", basis, "--dry-run", *extra, env=renv, policy=policy)
+            if trees_fail:
+                put("trees_fail", "")
+            env = renv
+            if bad_rules:
+                put("bad-rules.json", json.dumps(dict(rules, direct=dict(rules["direct"], record_paths="^records/(["))))
+                env = {"AGENT_FABRIC_ARM_CONFIG": f"{state}/bad-rules.json"}
+            return run("7", "--basis", basis, "--dry-run", *extra, env=env, policy=policy)
 
         rc, out = record_run(rec)
         check("a record PR with the owner's word and no review: would arm on the record path",
@@ -770,6 +781,15 @@ def main() -> int:
                   rc == 0 and "DRY RUN" in out and "Record path" not in out, out)
         rc, out = record_run(rec, modes={rec[0]: "100755"})
         check("the executable's mode is said", "records/0009-no-capture-yet.md has mode 100755 at the head" in out, out)
+        for label, knob, why in (("a head tree that cannot be read", "trees_fail", f"cannot read the tree {HEAD[:8]}"),
+                                 ("record_paths that cannot be compiled", "bad_rules", "direct.record_paths cannot be read")):
+            for reviewed in (False, True):
+                rc, out = record_run(rec, reviewed=reviewed, **{knob: True})
+                said = "whether it is a record PR could not be read" in out and why in out and "judged as any other" in out
+                check(f"{label}: said, and judged as any other PR — refused with no review of the head (pr-gate's verdict)"
+                      if not reviewed else "…and with the review of the head it arms as any PR, no record note",
+                      said and (rc == 1 and "with no review-class review of the current head" in out if not reviewed
+                                else rc == 0 and "DRY RUN" in out and "Record path" not in out), out)
         rc, out = record_run(rec, owner, claude_only)
         check("a non-direct repository ignores record_paths: the engines' review is asked",
               rc == 1 and "by the claude engine" in out and "record path" not in out, out)

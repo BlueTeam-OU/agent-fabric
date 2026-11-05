@@ -172,9 +172,10 @@ repository whose policy mode is direct, a PR is a record PR when every
 changed file (a rename by both names) matches direct.record_paths, and none
 matches direct.pr_paths or the security boundary (boundary.paths minus
 exempt; --boundary forces the gates), and every file it leaves at the head
-is a regular file (mode 100644, read from GitHub's tree of the head; a
-tree that cannot be read whole is exit 2). The owner's ruling is its
-approval: gate 4 reads no review-class review of it and gate 4b asks no
+is a regular file (mode 100644, read from GitHub's tree of the head). A
+tree that cannot be read whole, or record_paths that cannot be compiled,
+is said and judged as no record, every gate applying, as pr-gate judges
+it. The owner's ruling is its approval: gate 4 reads no review-class review of it and gate 4b asks no
 engine, and gate 5 arms it only on the owner's word in the basis, at any
 count — no authority role's word stands in (commits.below_min_authority is
 not read), and an --authorization beside the word is read as that word
@@ -259,7 +260,8 @@ What it refuses, in order, and why:
      and the reason. A PR that matches no boundary ignores a waiver.
      On a direct repository every PR needs that review, except a RECORD
      PR (every file a record under arm.json's direct.record_paths, a
-     regular file, outside pr_paths and the boundary): it needs only no
+     regular file, outside pr_paths and the boundary; a head tree that
+     cannot be read is said and is no record): it needs only no
      unresolved thread, and arms on the owner's word alone (gate 5; THE
      RECORD PATH above, agent-fabric ADR-019 rule 1, A 2026-11-05);
   4b. the review engines (the policy's `reviews`: ["claude"] in the fleet's
@@ -1126,8 +1128,13 @@ def arm(argv: list[str]) -> int:
     # that is not a plain record (another path, a pr_paths one, a boundary one, an executable) takes every gate.
     record = False
     if direct and not is_boundary:
-        record, not_record = record_pr(listed, load_record_rules(config_path()), boundary_re, exempt_re,
-                                       lambda paths: head_modes(repo, head, paths))
+        try:
+            record, not_record = record_pr(listed, load_record_rules(config_path()), boundary_re, exempt_re,
+                                           lambda paths: head_modes(repo, head, paths))
+        except Unanswered as e:
+            # No record is the side that keeps every gate, and pr-gate's record_of reads an unread tree the same way:
+            # an exit 2 here would leave a reviewed record-shaped PR unarmable while GitHub's tree read fails (#488 F2).
+            record, not_record = False, f"whether it is a record PR could not be read ({e}): judged as any other"
         if record:
             say(f"record path: every changed file is a record under direct.record_paths — {head_lines(files)}")
         elif not_record != "this project's arm.json names no direct.record_paths":
