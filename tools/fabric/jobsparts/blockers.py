@@ -52,8 +52,7 @@ import subprocess
 import tempfile
 import time
 from typing import Any, Callable, NamedTuple
-from fabric_jobs.base import FABRIC_ROOT, MESSAGE_ID, Refused, _load, identity, mutate
-from fabric_jobs.records import request_id_of
+from fabric_jobs.base import FABRIC_ROOT, MESSAGE_ID, Refused, _load, identity, mutate, request_id_of
 
 CACHE_TTL_S = 600
 CTL_TIMEOUT_S = 30

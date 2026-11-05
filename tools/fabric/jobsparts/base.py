@@ -82,6 +82,19 @@ MESSAGE_ID = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-
 POOL_ID = re.compile(r"p[1-9][0-9]{0,8}", re.ASCII)   # tools/fabric/control/pool.py POOL_ID
 
 
+# The title a job gets when it is added by title and not from the message (the
+# sender's jobs-add takes nothing but a title, ADR-040 §7): the id rides in it,
+# last. Only the last one is the job's: a SUBJECT is the sender's free text and
+# may mention another request's id, which must not make this one vanish.
+TITLE_NAMES_REQUEST = re.compile(r"\(REQUEST (" + MESSAGE_ID.pattern + r")\)\Z", re.ASCII)
+
+
+def request_id_of(title: str) -> str | None:
+    # Collapsed as new_job stores it: a title typed with a tab or newline names the id it will be stored with.
+    found = TITLE_NAMES_REQUEST.search(" ".join(title.split()))
+    return found.group(1) if found else None
+
+
 PRIORITIES = ("blocking", "high", "normal", "low")
 
 
