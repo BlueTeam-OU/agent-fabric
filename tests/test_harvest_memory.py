@@ -419,6 +419,88 @@ def test_an_applied_correction_is_not_harvested_again_and_the_original_it_replac
     assert sorted(c["topic"] for c in claims_of(out3)) == ["fix", "fix2", "orig", "plain"]
 
 
+def _report_case(tmp: str, tag: str, report: dict, memories: list[tuple[str, str, str | None]]) -> tuple[subprocess.CompletedProcess, list[str]]:
+    """Run a harvest over a planted drain report and memory set; (the process, the topics filed as claims)."""
+    mem, out = os.path.join(tmp, f"m-{tag}"), os.path.join(tmp, f"o-{tag}")
+    wc = os.path.join(tmp, f"wc-{tag}")
+    os.makedirs(mem)
+    os.makedirs(os.path.join(wc, ".agent-fabric", "memory"))
+    with open(os.path.join(wc, ".agent-fabric", "memory", "last-drain-report.json"), "w", encoding="utf-8") as fh:
+        json.dump(report, fh)
+    for name, body, target in memories:
+        write_memory(mem, name, "project", body=body, roles_class="solution")
+        if target:
+            path = os.path.join(mem, f"{name}.md")
+            with open(path, encoding="utf-8") as fh:
+                text = fh.read()
+            with open(path, "w", encoding="utf-8") as fh:
+                fh.write(text.replace("roles_class: solution", f"roles_class: solution\n  merge_target: {target}"))
+    r = run(mem, out, "--working-copy", wc, "--project", "demo", "--host", "hostA")
+    assert r.returncode == 0, r.stderr
+    return r, sorted(c["topic"] for c in claims_of(out))
+
+
+def test_a_correction_applied_and_moved_by_inference_in_one_run_is_not_filed_again(tmp: str) -> None:
+    """j114 case (a). The harvest reads only the author's applied_corrections entry; the rows a same-run inference leaves
+    (replaced_sections, retitles, section_moves) are planted here to show it ignores them. That the assembler keeps the
+    author's entry beside them is the assembler's property (writer.py gates the entry on `_inferred_target`), not proved
+    here. Not filing twice: the correction stays skipped, a plain memory the inference moved is filed (it is not a
+    correction; the assembler's drop_replayed answers a replay of it), and a correction outside the report is filed (the
+    control). A correction that keeps its name and target but was rewritten after the drain is filed: the key, not the name,
+    says it is another text.
+    Kills: reading the skip from anything but the (applied_key, replaced) pair, the memory name included; skipping every
+    memory with a merge_target."""
+    sys.path.insert(0, os.path.join(ROOT, "tools", "fabric"))
+    from corrections import memory_key
+    OLD, NEW, MOVED = "The old fact.", "The new fact, applied.", "A plain restatement the same-agent rule moved."
+    base = ".agent-fabric/memory/architect-cto/"
+    entry = {"slice": f"{base}solution-2.md", "heading": "New heading", "replaced": "Old heading", "memory": "fix",
+             "replaced_key": memory_key(OLD), "applied_key": memory_key(NEW), "stamp": "2026-11-05"}
+    report = {"applied_corrections": [entry],
+              "replaced_sections": [{"home": "architect-cto/solution", "heading": "Old heading", "key": memory_key(OLD)},
+                                    {"home": "architect-cto/solution", "heading": "New heading", "key": memory_key(NEW)}],
+              "retitles": [{"key": "architect-cto/solution:t#New heading", "old_heading": "Old heading",
+                            "new_heading": "New heading", "decided_by": "same-agent"}],
+              "section_moves": {f"{base}solution.md": f"{base}solution-2.md"}}
+    memories = [("fix", NEW, "Old heading"), ("moved-plain", MOVED, None), ("outside", "Not in the report.", "Old heading"),
+                ("other-heading", NEW, "Another heading")]
+    r, topics = _report_case(tmp, "ca-in", report, memories)
+    assert "applied correction: fix.md: already applied" in r.stderr, r.stderr
+    assert topics == ["moved-plain", "other-heading", "outside"], (topics, r.stderr)
+    # the control: the same memories without the report are all filed, so the skip above is the report's doing
+    r, topics = _report_case(tmp, "ca-ctl", {}, memories)
+    assert topics == ["fix", "moved-plain", "other-heading", "outside"], (topics, r.stderr)
+    # same name, same target, other words: not the applied text, so filed
+    r, topics = _report_case(tmp, "ca-rewritten", report, [("fix", "Rewritten after the drain.", "Old heading")])
+    assert topics == ["fix"] and "already applied" not in r.stderr, (topics, r.stderr)
+
+
+def test_a_legacy_entry_without_an_applied_key_is_not_a_correction_and_its_memory_is_filed(tmp: str) -> None:
+    """j114 case (b), pinned, not fixed. No applied_corrections entry the assembler ever wrote lacks applied_key (the writer
+    has set all six fields since 4db1ff44; 895 entries in the working copies of one host, measured 2026-11-05, all have
+    them), so the shape needs a hand-made report. Read as a correction by its memory name and replaced heading, it would also skip a correction its author rewrote
+    after the drain (only the key tells those texts apart) and name a live memory superseded: unknown stays unknown, and the
+    memory is filed, which the assembler writes as the same text again or as the changed one.
+    Kills: a fallback that recognises an entry by `memory` and `replaced` alone."""
+    sys.path.insert(0, os.path.join(ROOT, "tools", "fabric"))
+    from corrections import memory_key
+    OLD, NEW = "The old fact.", "The new fact, applied."
+    slice_ = ".agent-fabric/memory/architect-cto/solution.md"
+    full = {"slice": slice_, "heading": "New heading", "replaced": "Old heading", "memory": "fix",
+            "replaced_key": memory_key(OLD), "applied_key": memory_key(NEW)}
+    legacy = {k: v for k, v in full.items() if k != "applied_key"}
+    memories = [("fix", NEW, "Old heading"), ("fix-rewritten", "Rewritten after the drain.", "Old heading"),
+                ("orig", OLD, None)]
+    # the positive control first: with applied_key the entry skips its correction and names the original
+    r, topics = _report_case(tmp, "cb-full", {"applied_corrections": [full]}, memories)
+    assert "fix.md: already applied" in r.stderr and "superseded: orig.md" in r.stderr, r.stderr
+    assert topics == ["fix-rewritten", "orig"], topics
+    # the legacy entry: neither skipped nor named
+    r, topics = _report_case(tmp, "cb-legacy", {"applied_corrections": [legacy]}, memories)
+    assert "already applied" not in r.stderr and "superseded" not in r.stderr, r.stderr
+    assert topics == ["fix", "fix-rewritten", "orig"], topics
+
+
 def test_a_memory_is_recognised_by_its_body_as_written_or_as_the_assembler_points_its_links(tmp: str) -> None:
     """The report's keys are over the text the assembler rendered, whose [[links]] to a moved memory name the slice it was
     written into (assembler targets.point_links). A correction whose body links such a memory, and an original whose
@@ -1400,6 +1482,8 @@ def main() -> int:
         test_the_marks_reach_the_committed_report_through_the_assembler,
         test_anchors_travel_from_a_solution_or_workflow_memory_to_its_claim,
         test_an_applied_correction_is_not_harvested_again_and_the_original_it_replaced_is_named,
+        test_a_correction_applied_and_moved_by_inference_in_one_run_is_not_filed_again,
+        test_a_legacy_entry_without_an_applied_key_is_not_a_correction_and_its_memory_is_filed,
         test_a_memory_is_recognised_by_its_body_as_written_or_as_the_assembler_points_its_links,
         test_anchors_on_another_class_or_malformed_are_dropped_with_a_warning_and_the_claim_stays,
         test_an_anchors_block_list_is_read_like_the_inline_form,
