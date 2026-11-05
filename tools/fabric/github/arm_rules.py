@@ -1,8 +1,9 @@
 """tools/fabric/github/arm_rules.py — the project's rules for arm and the
 gates that are plain reads of the PR body or of arm.json: the two exception
 classes the arm gates raise, the owner's-word phrase, the AWAITING-SUPPLY
-and Class: lines, and the arm.json loader. Split out of arm.py, unchanged;
-the contract and the order of the gates are that module's header."""
+and Class: lines, the arm.json loader, and what a record PR is (read by arm
+and by pr-gate alike, so the two never disagree on one). Split out of
+arm.py; the contract and the order of the gates are that module's header."""
 from __future__ import annotations
 
 import json
@@ -11,6 +12,7 @@ import re
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.realpath(__file__))))
+import gh  # noqa: E402
 from github import common  # noqa: E402
 
 
@@ -96,3 +98,88 @@ def stated_class(body: str, classes: dict[str, re.Pattern]) -> str:
         if m:
             return m.group(1).lower()
     return ""
+
+
+# ── the record path (agent-fabric ADR-019 §5 rule 1, A 2026-11-05) ────
+
+
+RECORD_NOTE = "Record path: no review-class review (agent-fabric ADR-019 rule 1, A 2026-11-05)"
+# The one mode a record has: a regular file. The rule names the executable mode (100755) as what sends a file to a
+# PR; a symlink (120000) or a submodule (160000) named like a record is no record either, and falls back to the
+# review gate, which is the safe side of the question.
+RECORD_MODE = "100644"
+
+
+def load_record_rules(path: str) -> tuple[re.Pattern, re.Pattern | None] | None:
+    """arm.json's direct.record_paths and direct.pr_paths, case-insensitive as pre-push reads pr_paths, or None for a
+    project that names no record path. Unanswered when the file or a pattern cannot be read."""
+    try:
+        with open(path, encoding="utf-8") as fh:
+            direct = json.load(fh).get("direct") or {}
+        if not isinstance(direct, dict) or not direct.get("record_paths"):
+            return None
+        return (re.compile(direct["record_paths"], re.I),
+                re.compile(direct["pr_paths"], re.I) if direct.get("pr_paths") else None)
+    except FileNotFoundError:
+        # load_config has already refused a missing arm.json at this path, so here the rules came from elsewhere (a
+        # loader replaced in a test). No record path is the side that keeps every gate.
+        return None
+    except (OSError, ValueError, TypeError, AttributeError, re.error) as e:
+        raise Unanswered(f"{path}: direct.record_paths cannot be read ({type(e).__name__}: {e})") from None
+
+
+def head_modes(repo: str, head: str, paths: list[str]) -> dict[str, str | None]:
+    """Each path's git mode in the tree of commit `head` on GitHub, None where the path is not there. Walked one
+    directory at a time, never ?recursive=1, whose answer GitHub cuts on a large tree. Unanswered when a tree cannot
+    be read whole: a mode that cannot be read is never taken for a regular file."""
+    trees: dict[str, dict] = {}
+
+    def listing(sha: str) -> dict:
+        if sha not in trees:
+            try:
+                t = gh.api(f"repos/{repo}/git/trees/{sha}")
+            except gh.GhError as e:
+                raise Unanswered(f"cannot read the tree {sha[:8]} of {repo} to tell a record's mode ({e.reason})") from None
+            if not isinstance(t, dict) or t.get("truncated") is not False or not isinstance(t.get("tree"), list):
+                raise Unanswered(f"the tree {sha[:8]} of {repo} did not read whole: a record's mode cannot be told")
+            trees[sha] = {e.get("path"): e for e in t["tree"] if isinstance(e, dict)}
+        return trees[sha]
+
+    modes: dict[str, str | None] = {}
+    for path in paths:
+        sha, entry = head, None
+        for part in path.split("/"):
+            if sha is None:
+                entry = None
+                break
+            entry = listing(sha).get(part)
+            sha = entry.get("sha") if entry and entry.get("type") == "tree" else None
+        modes[path] = str(entry.get("mode")) if entry else None
+    return modes
+
+
+def record_pr(listed: list[dict], rules: tuple[re.Pattern, re.Pattern | None] | None, boundary: re.Pattern,
+              exempt: re.Pattern | None, modes) -> tuple[bool, str]:
+    """(True, "") when the pull request whose files GitHub lists as `listed` is a record PR: every name it changes (a
+    rename by both) matches record_paths, none matches pr_paths or the security boundary (paths minus exempt), and
+    every file it leaves at the head is a regular file (`modes(paths)`, head_modes, asked only once the names
+    qualify). Otherwise (False, why not). The caller decides only on a direct repository."""
+    if rules is None:
+        return False, "this project's arm.json names no direct.record_paths"
+    record, pr_paths = rules
+    names = [f.get("filename", "") for f in listed] + [f["previous_filename"] for f in listed if f.get("previous_filename")]
+    if not names:
+        return False, "it changes no file"
+    for n in names:
+        if not record.search(n):
+            return False, f"{n} is not a record (direct.record_paths)"
+        if pr_paths and pr_paths.search(n):
+            return False, f"{n} matches direct.pr_paths"
+        if not (exempt and exempt.search(n)) and boundary.search(n):
+            return False, f"{n} is inside the security boundary"
+    # A removed file has no mode at the head; a rename's old name is judged by its name alone.
+    kept = [f.get("filename", "") for f in listed if f.get("status") != "removed"]
+    for n, mode in (modes(kept) if kept else {}).items():
+        if mode != RECORD_MODE:
+            return False, f"{n} has mode {mode or 'unknown'} at the head, not a regular file's {RECORD_MODE}"
+    return True, ""

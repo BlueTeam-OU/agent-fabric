@@ -5,13 +5,14 @@ topic: "presence-check-needs-content-evidence"
 description: "a skip, \"already done\" or input-present check must test the content the step produces (non-empty file, the rows it fills), never a marker or path an older or other producer can leave; and a costly output records what it was built from so…"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-05"
 origin:
   - agent: "devex-tooling"
     host: "develop-qzapp"
     project: "agent-fabric"
     working_copy: "agent-fabric"
 derived_from:
+  - 8265e39deaac1744
   - a5b67843dba7c6c5
   - cae07d7a124c238b
 ---
@@ -50,12 +51,21 @@ status and the publish then compare that record with today's inputs. Where the i
 recorded, compare timestamps on one clock (migration applied_at > imported_at), filtered to the
 inputs that matter, so the warning does not fire on every migration.
 
+A label is a marker too (gzapp #1170, 2026-10-25). Release step 1 checked one revision label
+across the images, then printed "the runner carries that revision's migrations" without
+looking (review F1, P2). A runner built before the Dockerfile's COPY has the same ENV and an
+empty /migrations. Step 1 then read a `ge.gzapp.migrations` label, and the next review (P3)
+found that the label's pin passed with the COPY deleted. test_release now pins the COPY in
+the runtime stage (after the last FROM). Mutants that delete it or move it to the build stage
+both fail. Pin what a label vouches for, not only the label, and print a "carries" line only
+after the read that proves it.
+
 **How to apply:** when writing an idempotent step or an input resolver, name the artifact the step
 produces and test for that artifact. A version row, a marker file, or a path that merely exists is
 evidence only that something ran at some point, not that this step ran against today's schema.
 Before trusting a skip condition, reproduce the broken state once (empty the tables, plant the
 0-byte file) and check that the step does not skip.
 
-*Anchors: `gzapp:Makefile::GZAPP_GTFS_SRC`, `gzapp:infra/local/sample-data/build.sh::tiles_stamp_of`, `gzapp:infra/local/sample-data/build.sh::osm-sha`*
+*Anchors: `Makefile::GZAPP_GTFS_SRC`, `infra/local/sample-data/build.sh::tiles_stamp_of`, `infra/local/sample-data/build.sh::osm-sha`*
 
 *Observed 2026-10-18 (devex-tooling)*

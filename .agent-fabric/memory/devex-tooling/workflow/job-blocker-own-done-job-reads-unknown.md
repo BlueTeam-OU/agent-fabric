@@ -5,7 +5,7 @@ topic: "job-blocker-own-done-job-reads-unknown"
 description: "a job:<own login>/jN blocker shows \"unknown\", not cleared, even after jN is done — read fabric-jobs list --all yourself; to move umbrella → sub-job, block the umbrella on the sub-job, then switch"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-05"
 origin:
   - agent: "devex-tooling"
     host: "develop-qzapp"
@@ -32,6 +32,6 @@ and [[job-guard-judges-session-cwd]].
 
 *References: job-guard-judges-session-cwd, settings-repo-job-needs-own-working-copy*
 
-*Anchors: `tools/fabric/jobsparts/blockers.py::a host operator's op`*
+*Anchors: `tools/fabric/jobsparts/blockers.py::a host operators op`*
 
 *Observed 2026-10-24 (devex-tooling)*

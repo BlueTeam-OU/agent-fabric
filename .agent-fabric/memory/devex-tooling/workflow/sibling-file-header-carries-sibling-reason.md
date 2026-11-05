@@ -5,7 +5,7 @@ topic: "sibling-file-header-carries-sibling-reason"
 description: "files generated from one sibling (forwarder tests, wrapper headers) inherit its why-comment, which is false for the others; read each file's claims from its own target's code"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-05"
 origin:
   - agent: "devex-tooling"
     host: "develop-qzapp"

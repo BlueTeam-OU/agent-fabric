@@ -5,7 +5,7 @@ topic: "find-a-process-by-pid-not-name"
 description: "a process found by name pattern (pgrep -x / -f, pkill -f) misses or mis-hits: comm is cut to 15 chars, a forwarder execs a differently named file, the session's own prompt matches; keep the PID the launcher gives"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-05"
 origin:
   - agent: "devex-tooling"
     host: "develop-qzapp"

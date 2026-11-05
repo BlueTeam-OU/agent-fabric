@@ -5,7 +5,7 @@ topic: "foreign-repo-flag-inventory-local-reads"
 description: "giving a tool a --repo (act on another repository than the cwd's): list every place it reads local state — the cwd clone's git, its config files, env a child command drops — and redirect or refuse each; one forgotten read answers for the…"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-05"
 origin:
   - agent: "devex-tooling"
     host: "develop-qzapp"

@@ -5,13 +5,14 @@ topic: "auto-mode-refuses-account-assign"
 description: "auto mode may refuse fleet-wide account moves, pane reads and fabric upgrades that earlier sessions ran; state the command and let the owner decide, never retry or hand it over"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-05"
 origin:
   - agent: user
     host: "develop-qzapp"
     project: "agent-fabric"
     working_copy: "agent-fabric"
 derived_from:
+  - 45f9a9db7bf3ec2b
   - 53823e8e9e7fa116
   - 57896eafd6add460
 ---
@@ -35,8 +36,10 @@ it. Related: [[account-move-needs-relaunch]], [[stuck-agent-read-its-pane]].
 
 2026-10-30, third time that day: after python-dev-02's #432 (j474) merged, refused as [Modify Shared Resources]. Three contributor merges in one day left undistributed — the case for an allow entry is now the owner's call.
 
+2026-11-05: refused again after #485 merged, as [Modify Shared Resources], with the owner's "arm 485" in the same conversation. Same answer: report the merge, the owner runs the upgrade.
+
 *References: account-move-needs-relaunch, stuck-agent-read-its-pane*
 
 *Anchors: `policies/auto-mode.json`, `bin/fabric-ctl`*
 
-*Observed 2026-10-30 (fabric-coordinator)*
+*Observed 2026-11-04 (fabric-coordinator)*

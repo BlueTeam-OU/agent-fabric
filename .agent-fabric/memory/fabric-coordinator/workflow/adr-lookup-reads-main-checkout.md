@@ -5,7 +5,7 @@ topic: "adr-lookup-reads-main-checkout"
 description: "checking a DIGEST bullet you just wrote with bare `fabric-adr lookup` reports \"no DIGEST entry\" — it reads the main checkout, not the worktree"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-05"
 origin:
   - agent: user
     host: "develop-qzapp"

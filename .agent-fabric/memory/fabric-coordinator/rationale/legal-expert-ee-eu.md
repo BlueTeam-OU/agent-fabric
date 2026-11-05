@@ -5,7 +5,7 @@ topic: "legal-expert-ee-eu"
 description: "Owner 2026-10-15 — new agent legal-expert-ee-eu, role legal-expert (jurisdiction in the login suffix), persona surname Kelsen, serves agent-fabric first (j241)"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-05"
 origin:
   - agent: user
     host: "develop-qzapp"
@@ -13,6 +13,7 @@ origin:
     working_copy: "agent-fabric"
 derived_from:
   - 7bd0625179c6eae3
+  - fc30f4ad2894b2ef
 ---
 
 ## Owner 2026-10-15 — new agent legal-expert-ee-eu, role legal-expert (jurisdiction in the login suffix), persona surname Kelsen, serves agent-fabric first (j241)
@@ -30,7 +31,7 @@ State 2026-10-15 15:00Z: role commits 4d0c4a36 (charter, recall, catalogue) and 
 taxonomy, docs/legal/ contributor entry, placement, Kelsen with a `note`) pushed on #271's branch;
 review round 1 dispatched. new-agent.sh refuses a role that is not on main (dry run): provision only
 after #271 merges; the claim (keyed by agent id) and first name come from the new agent itself.
-Open question for the owner: which Claude account (claude-pzhuy-8alias-com or andrea-benetton).
+Open question for the owner: which Claude account (claude-pzhuy-8alias-com or the CEO's).
 
 **How to apply:** j241 — role charter/brief + catalogue + taxonomy, surnames.json entry + claim,
 new-agent.sh legal-expert-ee-eu legal-expert --project agent-fabric. Related: [[agent-persona-decisions]].

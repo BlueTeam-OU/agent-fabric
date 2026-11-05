@@ -5,7 +5,7 @@ topic: "job-guard-judges-session-cwd"
 description: "commit refused \"outside the job's working copy\" though cd/git -C named it — the guard reads the session's cwd; relaunch with fabric-fresh --job"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-05"
 origin:
   - agent: "devex-tooling"
     host: "develop-qzapp"

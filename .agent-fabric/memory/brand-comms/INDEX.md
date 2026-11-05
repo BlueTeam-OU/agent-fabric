@@ -3,7 +3,7 @@ role: "brand-comms"
 class: index
 description: "What brand-comms knows and where it lives."
 tier: 1
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-05"
 ---
 
 # brand-comms — knowledge index

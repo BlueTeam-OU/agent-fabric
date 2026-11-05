@@ -5,13 +5,14 @@ topic: "one-format-one-parser"
 description: "two readers of one format (a trailer, a fence, a marker, a header key) drift apart and disagree on the same input; keep one parser that every reader imports, and drive the reader's test from the real producer"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-05"
 origin:
   - agent: "devex-tooling"
     host: "develop-qzapp"
     project: "agent-fabric"
     working_copy: "agent-fabric"
 derived_from:
+  - 1fd25e3ee05decbc
   - 291d9ea62b1b2c50
 ---
 
@@ -37,6 +38,14 @@ grep for its other readers and import the existing parser. If you are the first 
 yours where the next one will look. When two copies must exist (a writer and a reader), test the
 reader with the writer's real output, and test the writer by reading back through the reader. A
 review finding on one reader means checking every other reader of that format in the same fix.
+
+When the one reader lives in another language and has no entry the other side can call, pin
+the two copies to each other (gzapp #1182, 2026-10-26). architect-cto's ask: "never read from a
+second copy of the rule that can drift". release.sh's bash check of
+GZAPP_MIGRATE_COMMAND_TIMEOUT_SECONDS mirrors MigrateCommandTimeout.Resolve in C#.
+test_release.sh reads every InlineData of the C# Theories and runs it through release.sh. It
+fails if it reads fewer than a minimum of each kind, so a rename turns it red rather than
+passing on zero cases. Tell the other side's owner that their test names are now an input.
 
 *References: contract-test-renders-real-producer*
 

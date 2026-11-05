@@ -5,7 +5,7 @@ topic: "fabric-ref-gates-project-calls-into-fabric"
 description: "a project change that calls a fabric path (a tools/gh forwarder, a new marker, a moved tool) is green in the project's CI only once its .agent-fabric/fabric-ref names a fabric commit that has that path; a fabric guard tightening or a…"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-05"
 origin:
   - agent: "devex-tooling"
     host: "develop-qzapp"

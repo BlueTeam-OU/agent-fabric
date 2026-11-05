@@ -236,8 +236,9 @@ range and treats the rest as facts only where they are facts.
 ## The second engine
 
 `bin/fabric-review --engine codex <PR> REQUEST` renders the same brief and
-runs it once through the pinned `codex exec`, read-only, on an extract of
-the PR's head, then posts the findings with `fabric-pr post-review <PR>
+runs it once through the pinned `codex exec`, under a permission profile
+that writes nothing and reads an allowlist, on a verified extract of the
+PR's head (ADR-053 rule 2), then posts the findings with `fabric-pr post-review <PR>
 --model codex --head <the head it read>`. It is not a subagent dispatch: the guard and the dispatch
 shape above do not apply, and the Claude review still has to be dispatched.
 A finding it posts is judged by the review class like any other. Which

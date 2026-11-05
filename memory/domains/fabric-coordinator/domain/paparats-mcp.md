@@ -5,7 +5,7 @@ topic: "paparats-mcp"
 description: "paparats-mcp: self-hosted MIT MCP server for semantic code search across many repos (tree-sitter chunks, call graph, change_impact, git history per chunk, agent architectural memory) on Docker+Qdrant+llama.cpp; not adopted now (host load…"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-05"
 origin:
   - agent: user
     host: "develop-qzapp"
@@ -13,6 +13,7 @@ origin:
     working_copy: "agent-fabric"
 derived_from:
   - 5f8951eae6b83636
+  - c6c8c46afa1ac824
 ---
 
 ## paparats-mcp: self-hosted MIT MCP server for semantic code search across many repos (tree-sitter chunks, call graph, change_impact, git history per chunk, agent architectural memory) on Docker+Qdrant+llama.cpp; not adopted now (host load, ADR-049 no embeddings for memory); borrow change_impact and per-chunk history; maybe a gzapp/InterWeave spike

@@ -193,6 +193,39 @@ def arm_direct_findings(root: str) -> list[str]:
                 for c in not_cases:
                     if pr_paths.search(c):
                         findings.append(f"{rel}: direct not_case {c!r} matches direct.pr_paths but must go direct")
+        findings += _record_path_findings(rel, doc, d, pr_paths)
+    return findings
+
+
+def _record_path_findings(rel: str, doc: dict, d: dict, pr_paths: re.Pattern | None) -> list[str]:
+    """`direct.record_paths` names the records a PR arms on the owner's ruling with no review-class review
+    (agent-fabric ADR-019 §5 rule 1, A 2026-11-05). It drops a review gate, so its cases are a floor held here:
+    each must be a record by the pattern, and none may be a PR path or inside the security boundary — a pattern
+    grown over a script or a secret-shaped name is caught by lint, not by the first PR it arms unreviewed."""
+    if "record_paths" not in d and "record_cases" not in d:
+        return []
+    try:
+        record = re.compile(d["record_paths"], re.I)
+    except (KeyError, TypeError, re.error) as e:
+        return [f"{rel}: direct.record_paths must be a regular expression ({type(e).__name__}: {e})"]
+    cases = d.get("record_cases")
+    if not isinstance(cases, list) or not cases or not all(isinstance(c, str) and c for c in cases):
+        return [f"{rel}: direct.record_cases must list the paths that are records under direct.record_paths"]
+    b = doc.get("boundary") if isinstance(doc.get("boundary"), dict) else {}
+    try:
+        # As arm_rules.load_config reads them: the boundary case-insensitive, the exemption as written.
+        inside = re.compile(b["paths"], re.I) if b.get("paths") else None
+        exempt = re.compile(b["exempt"]) if b.get("exempt") else None
+    except (TypeError, re.error):
+        inside = exempt = None  # arm_boundary_findings names the unusable pattern
+    findings = []
+    for c in cases:
+        if not record.search(c):
+            findings.append(f"{rel}: direct record_case {c!r} is not a record under direct.record_paths")
+        if pr_paths is not None and pr_paths.search(c):
+            findings.append(f"{rel}: direct record_case {c!r} matches direct.pr_paths, which a record never does")
+        if inside is not None and inside.search(c) and not (exempt and exempt.search(c)):
+            findings.append(f"{rel}: direct record_case {c!r} is inside the security boundary, which a record never is")
     return findings
 
 

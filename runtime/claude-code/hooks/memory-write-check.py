@@ -52,7 +52,29 @@ def _load(name: str, rel: str):
 EVENT_RE = re.compile(r"(?:(?:FIXED|MERGED|CLOSED|DONE)[: ]|#\d+|PR \d+|\d{4}-\d{2}-\d{2}:)")
 
 
-def unresolved_merge_target(hm, parsed: dict) -> str | None:
+def owning_working_copy(hm, path: str) -> tuple[str, str] | None:
+    """(project, working copy) of the working copy whose memory directory holds `path`, as the drain judges it
+    (harvest_memory resolves the project from the working copy, never from the session's cwd); None when the
+    slug names no known working copy or working copies of different projects. The slug is lossy, so a
+    name that fits nothing, or fits two projects, is not guessed. Candidates: the session's own checkout, the
+    one its binding names, then the ones the fabric already knows of."""
+    slug = os.path.basename(os.path.dirname(os.path.dirname(path)))
+    wcmod = hm.identity._workingcopy()
+    candidates = [wcmod.toplevel(os.getcwd()), (hm.identity.read_binding() or {}).get("working_copy"),
+                  hm.layout.FABRIC_ROOT, *hm.layout.explicit_working_copies().values(),
+                  *(hm.layout.working_copy_for(pid) for pid in hm.layout.project_ids()),
+                  *wcmod.sibling_working_copies(hm.layout.FABRIC_ROOT).values()]
+    owners = {}
+    for candidate in candidates:
+        if candidate and hm.layout.memory_slug(candidate) == slug:
+            project = hm.identity.resolve_context(cwd=candidate).get("project")
+            owners.setdefault(project, os.path.abspath(candidate))
+    if len(owners) != 1 or None in owners:
+        return None
+    return next(iter(owners.items()))
+
+
+def unresolved_merge_target(hm, parsed: dict, path: str) -> str | None:
     """ADR-050 rule 9: the warning for a `merge_target` that names no section of the writing role's own slices
     of the memory's class and has no `shared_with`; None when it holds, or when the slices cannot be read
     (the role or project unbound, no working copy, no slice of the class): nothing is said then, never a guess.
@@ -61,10 +83,14 @@ def unresolved_merge_target(hm, parsed: dict) -> str | None:
     if not target or parsed["shared_with"]:
         return None
     try:
-        ctx = hm.identity.resolve_context(cwd=os.getcwd())
-        role, project = ctx.get("role"), ctx.get("project")
-        if not role or not project:
+        role = hm.identity.resolve_context(cwd=os.getcwd()).get("role")
+        owner = owning_working_copy(hm, path)
+        if not role or not owner:
             return None
+        project, working_copy = owner
+        # class_home finds the project's slices through the layout's working copy for it, which the binding or
+        # the environment may name differently from the one that owns this memory directory.
+        hm.layout.set_working_copy(project, working_copy)
         sys.path.insert(0, os.path.join(FABRIC_ROOT, "tools", "fabric"))
         from assembler.core import CLASS_FILES  # noqa: E402 — needs the path above
         from assembler.slices import read_existing_slice  # noqa: E402
@@ -111,7 +137,7 @@ def problems(path: str) -> list[str]:
                      "to its metadata, `<project>:<path>::…` for a path in another registered project, so the next "
                      "check can tell when the tree outgrows it (ADR-050 rule 1)"
                      + "".join(f"; {w}" for w in parsed["anchor_problems"]))
-    target = unresolved_merge_target(hm, parsed)
+    target = unresolved_merge_target(hm, parsed, path)
     if target:
         found.append(target)
     return found

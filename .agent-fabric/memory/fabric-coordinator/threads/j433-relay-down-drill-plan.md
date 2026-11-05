@@ -5,7 +5,7 @@ topic: "j433-relay-down-drill-plan"
 description: "j433 plan (ADR-034 §7 step 2): relay down one working hour; stop gzcoord-relay.service on my account, back up the quiescent db, come back on a restored copy so fabric-ctl all ping against a restore is shown; owner picks the window"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-05"
 origin:
   - agent: user
     host: "develop-qzapp"
@@ -13,6 +13,7 @@ origin:
     working_copy: "agent-fabric"
 derived_from:
   - 21755c61849800d7
+  - a5aa2bf521690bf6
 ---
 
 ## j433 plan (ADR-034 §7 step 2): relay down one working hour; stop gzcoord-relay.service on my account, back up the quiescent db, come back on a restored copy so fabric-ctl all ping against a restore is shown; owner picks the window
@@ -37,8 +38,10 @@ Drafted 2026-10-28; waits on the owner choosing a working-hour window. The relay
    This closes the open item in the 2026-10-27 live check: ping against a restored relay. Then either keep the restored db as the live one or move back to the original. Decide on the day, and remove the drop-in if moving back.
 5. **Read-back** to `docs/live-checks/<date>-relay-down-drill.md`: what was measured, what broke, and what follows. Then amend ADR-034 §7: step 2 is done.
 
+**Window:** on 2026-11-04 the owner chose "tomorrow, a working hour" (2026-11-05) but named no hour. The job is blocked on clock 2026-11-05T08:00Z. At that time, ask the owner for the hour; do not stop the relay without it.
+
 **Risks:**
-- The 6-hourly backup timer may fire during the hour. A run against a stopped relay should still read the file; check that before starting.
+- The 6-hourly backup timer may fire during the hour. This is cleared by reading the code: `tools/fabric/secretstore/relaycopy.py` reads the db through sqlite's online backup (`mode=ro`), which works whether the relay is up or down. The timer's next run is 03:12 CET.
 - Agents waiting on a REPLY may stall. That is part of what the drill shows.
 
-*Observed 2026-10-28 (fabric-coordinator)*
+*Observed 2026-11-04 (fabric-coordinator)*

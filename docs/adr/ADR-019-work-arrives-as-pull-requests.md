@@ -105,7 +105,13 @@ not on a pipe's exit status.
    that adds an unsigned commit, as in every project. Declared today for brand-comms on
    blueteam.ee, gzapi.ge, gzapp.decks and gzapi.brand, where one agent
    writes copy a commit at a time and the band, the gate and the
-   branch cost more than they catch.
+   branch cost more than they catch. A PR whose every file matches the
+   `direct.record_paths` of such a project (a decision record put to
+   the owner for a ruling), none `pr_paths` or the boundary, and every
+   file it leaves at the head a regular file (mode 100644 in the head's
+   tree: no executable, symlink or submodule), arms on the owner's word
+   with no review-class review: the roles the content touches review it as the project's
+   remit says, and the ruling is the approval (A 2026-11-05).
 2. One open pull request per agent and repository (A 2026-10-06): a
    branch in another repository is never addable to the open one. While
    one is open — unarmed, armed
@@ -275,3 +281,4 @@ The body above reads current; each change's full note is in [history/ADR-019-ame
 | 2026-10-19 | an arming authority's word beside the owner's | §5 rule 4: below the minimum or at the boundary, the role the repository's arming policy names may give the word, by AUTHORIZES or its own bound session; the review gate unchanged |
 | 2026-11-01 | An arming is tied to its head by a status | §5 rule 5: `fabric-pr arm` posts `fabric/armed` on the gated sha; mode `auto` rulesets require it (`armed_status`, not `required_checks`); disarm-on-push keeps only an arming its new head carries, no longer compares times (audit F02) |
 | 2026-11-03 | The owner's word as relayed is read | §5 rule 4: an `--authorization` beside a basis giving the owner's word under the minimum is checked (addressee, sender, PR, head) and recorded as the word relayed; before, it was dropped unread |
+| 2026-11-05 | A decision record arms on the owner's ruling | §5 rule 1: a PR wholly of a direct project's `record_paths` arms on the owner's word without the review class, as the brand remit has said since 2026-09-17; lint holds its cases out of `pr_paths` and the boundary |

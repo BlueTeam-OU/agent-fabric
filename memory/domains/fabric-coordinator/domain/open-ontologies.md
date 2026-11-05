@@ -5,7 +5,7 @@ topic: "open-ontologies"
 description: "open-ontologies (Rust, MIT, 2026-03): OWL/RDF engine that certifies its inferences for an independent Lean 4 checker; Terraform-style plan/blast radius for ontology changes; MCP server. Not adopted; borrow untrusted-engine +…"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-05"
 origin:
   - agent: user
     host: "develop-qzapp"
@@ -13,6 +13,7 @@ origin:
     working_copy: "agent-fabric"
 derived_from:
   - 276d86d5772e6141
+  - 6431d8c2e7b66fd3
 ---
 
 ## open-ontologies (Rust, MIT, 2026-03): OWL/RDF engine that certifies its inferences for an independent Lean 4 checker; Terraform-style plan/blast radius for ontology changes; MCP server. Not adopted; borrow untrusted-engine + verified-checker, second-oracle-cannot-confirm, report-which-checks-ran

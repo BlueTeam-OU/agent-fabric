@@ -5,7 +5,7 @@ topic: "gh-rerun-keeps-workflow-snapshot"
 description: "re-running a failed GitHub Actions job replays the run's old workflow file; after a workflow fix on main, a PR needs a fresh run (update the branch), not a re-run; a guard workflow the PR must not disable runs on pull_request_target"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-05"
 origin:
   - agent: "devex-tooling"
     host: "develop-qzapp"

@@ -25,7 +25,7 @@
   },
   "waiver_role": null,
   "direct": {
-    "description": "Direct to main: brand-comms commits the brand guide, claims, tokens, fonts and assets straight to main (the owner, 2026-10-10). By pull request: the harness wiring (.claude/, .mcp.json), CI, hooks, the package manifests and lockfiles, every script (anything under bin/, scripts/ or tools/, and shell, Python, Ruby, Perl, PowerShell, JavaScript and TypeScript files anywhere), config and tool-version files, Makefile/Dockerfile, .env* and .gitignore, any file whose git mode is executable, and secret-shaped names (secret, credential, api key, private or signing key, password; an access, api, auth, refresh, bearer, bot, npm, gh, github, slack, oauth or oauth2 token; a service-account, sa, private, gcp or google key.json; a deploy key; an ssh id_rsa, id_dsa, id_ecdsa or id_ed25519 key and any suffixed one; .netrc or _netrc, .htpasswd, .pgpass, .pypirc, .docker/config.json, kubeconfig or .kube/config, a gpg secring or pubring; auth.json; anything under keys/; .pem/.p12/.p8/.pfx/.key/.jks/.keystore/.ppk). Styles, design tokens, fonts, images and content are direct.",
+    "description": "Direct to main: brand-comms commits the brand guide, claims, tokens, fonts and assets straight to main (the owner, 2026-10-10). By pull request: the harness wiring (.claude/, .mcp.json), CI, hooks, the package manifests and lockfiles, every script (anything under bin/, scripts/ or tools/, and shell, Python, Ruby, Perl, PowerShell, JavaScript and TypeScript files anywhere), config and tool-version files, Makefile/Dockerfile, .env* and .gitignore, any file whose git mode is executable, and secret-shaped names (secret, credential, api key, private or signing key, password; an access, api, auth, refresh, bearer, bot, npm, gh, github, slack, oauth or oauth2 token; a service-account, sa, private, gcp or google key.json; a deploy key; an ssh id_rsa, id_dsa, id_ecdsa or id_ed25519 key and any suffixed one; .netrc or _netrc, .htpasswd, .pgpass, .pypirc, .docker/config.json, kubeconfig or .kube/config, a gpg secring or pubring; auth.json; anything under keys/; .pem/.p12/.p8/.pfx/.key/.jks/.keystore/.ppk). Styles, design tokens, fonts, images and content are direct. A decision record (brand/decisions/*.md) arrives as a PR for the owner's ruling and arms on the owner's word with no review-class review: language-culture, architect-cto and the owner review it as the remit says, and the ruling is the approval (record_paths; agent-fabric ADR-019 §5 rule 1, A 2026-11-05). A record PR that touches any other file takes every gate.",
     "roles": [
       "brand-comms"
     ],
@@ -99,6 +99,11 @@
       "content/key-facts.md",
       "src/components/Key-Features.astro",
       "src/i18n/keys.json"
+    ],
+    "record_paths": "^brand/decisions/[^/]+\\.md$",
+    "record_cases": [
+      "brand/decisions/0009-no-design-md-capture-yet.md",
+      "brand/decisions/0001-brand-source-of-authority.md"
     ]
   }
 }

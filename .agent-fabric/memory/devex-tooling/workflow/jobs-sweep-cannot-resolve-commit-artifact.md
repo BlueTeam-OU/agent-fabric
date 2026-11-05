@@ -5,7 +5,7 @@ topic: "jobs-sweep-cannot-resolve-commit-artifact"
 description: "fabric-jobs sweep leaves a delivered job whose only artifact is commit:<sha> — check ancestry yourself and fabric-jobs done"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-05"
 origin:
   - agent: "devex-tooling"
     host: "develop-qzapp"

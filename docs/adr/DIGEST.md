@@ -186,7 +186,7 @@ its record disagree, the record wins. Look it up, never read it whole:
 - A dispatch's `model` is its class's tier alias, checked by the dispatch
   guard; writing classes run in a worktree (§5 rules 1–3).
 - The review class's model reaches its agent file, never an export, and
-  is gated by `routing/policies/review-grade.json` (§5 rules 5–6).
+  is gated by `routing/policies/review-grade.json` (rules 5–6).
 - No settings scope pins a model; shims are live-tested per family; a
   model enters routing only after a read-back (§5 rules 7–10).
 - Today: on plain claude, Sonnet 5.5 for low and medium and Opus 5.5
@@ -262,7 +262,7 @@ its record disagree, the record wins. Look it up, never read it whole:
   before any stop, SIGTERM only, the session resumed (§5 rules 3–4).
 - `upgrade fabric`: origin/main's sha, fast-forward or nothing, bootstrap
   every time, no session stopped; run by the coordinator after every
-  merge (§5 rules 5–6). Any failed row exits 1 (§5 rule 7).
+  merge (rules 5–6). Any failed row exits 1 (§5 rule 7).
 - Fabric commands run by name from `commands.json`, linked into
   `~/.local/bin` with narrow allow rules; wrappers still ask (§5 rules 8–9).
 - A 2026-09-28 — a `fresh` restart marker starts a new session, not a resume
@@ -379,7 +379,7 @@ its record disagree, the record wins. Look it up, never read it whole:
   test beats a comment, and a cross-module decision goes in a record (§5
   rules 3–4).
 - A comment whose assumption a change made false is fixed in that change;
-  an intentional oddity says why beside it (§5 rules 5–6).
+  an intentional oddity says why beside it (rules 5–6).
 - The review class grades narration, a missing reason, an unenforced
   invariant and a stale comment (§5 rule 7). Reaches sessions through the
   workspace `CLAUDE.md`, not a project's own (§2).
@@ -449,26 +449,27 @@ its record disagree, the record wins. Look it up, never read it whole:
 
 ### ADR-019 — Work arrives as pull requests: one open PR per agent and repository, 8 or more work commits to arm, the gate read before arming, no machine attribution, repository settings (Accepted)
 
-- Every change reaches `main` through a PR (§2, §5 rule 1, §6).
-- One open PR per agent and repository, two exceptions (§5 rule 2).
+- Every change reaches `main` by PR (§5 rule 1).
+- One open PR per agent and repository (§5 rule 2).
 - Work commits exclude review fixes (`Kind:`, §5 rule 3); 8 or more
-  arm at the gate, under 8 on the owner's or policy authority's word
+  arm at the gate, under 8 on the owner's or an authority's word
   (§5 rule 4).
-- Arm only on `pr-gate.sh`'s `MERGEABLE`, no open P1/P2 (§5 rules 5–6).
-- No machine attribution (§5 rule 7). GitHub settings: §6.
-- A 2026-10-04 — `main`'s ruleset (§5 rule 6).
+- Arm only on `pr-gate.sh`'s `MERGEABLE`, no open P1/P2 (rules 5–6).
+- No machine attribution (rule 7); GitHub settings §6.
+- A 2026-10-04 — `main`'s ruleset (rule 6).
 - A 2026-10-05 — the ruleset requires `ci-ok` (rule 6).
-- A 2026-10-05 — 8+ arm on the gate alone (rule 4).
+- A 2026-10-05 — 8+ arm on the gate (rule 4).
 - A 2026-10-06 — one open PR at a time (rule 2).
-- A 2026-10-08 — every commit declares its `Kind:` (rule 3).
+- A 2026-10-08 — every commit has a `Kind:` (rule 3).
 - A 2026-10-08 — a fold's review fixes are fixes (rule 3).
 - A 2026-10-09 — results.py reads a fold (rule 3).
-- A 2026-10-09 — a push disarms (§5 rule 5).
-- A 2026-10-10 — arm.json `direct`, fenced by pre-push (rule 1).
+- A 2026-10-09 — a push disarms (rule 5).
+- A 2026-10-10 — arm.json `direct`, pre-push fence (rule 1).
 - A 2026-10-11 — pre-push refuses unsigned commits (rule 1).
 - A 2026-10-19 — an authority's word (rule 4).
 - A 2026-11-01 — `fabric/armed` status required (rule 5).
 - A 2026-11-03 — relayed owner's word read (rule 4).
+- A 2026-11-05 — `record_paths`: the owner's ruling arms (rule 1).
 - Keywords: Answers, armed_status.
 
 ### ADR-020 — The review class is the review (Accepted)
@@ -484,22 +485,20 @@ its record disagree, the record wins. Look it up, never read it whole:
 - Posted by `fabric-pr post-review` with the marker; counted when marked
   by the PR's account or a named poster, or unmarked from a trusted
   account (§5 rules 6–7); legacy markers until sunset (rule 8).
-- A 2026-10-05 — reviewer inherits no secret: clean environment
-  (rule 4).
+- A 2026-10-05 — clean environment, no secret (rule 4).
 - A 2026-10-14 — card governs from base; only `pinned`
   review covers a head (rules 9–10).
 - A 2026-10-15 — pinned reads a detached head worktree (rule 10).
 - A 2026-10-16 — review covers the commit it read (rule 6).
-- A 2026-10-22 — a supplier dispatches no review of its own part; the
-  caller reviews the folded head (rule 11).
+- A 2026-10-22 — caller reviews the folded head; supplier none (rule 11).
 - A 2026-10-24 — pinned read tools, proved sandbox, no Bash (rules 4/6;
   ADR-065).
-- A 2026-10-25 — the guard also knows a supplier by its active job's
-  `deliver_to` (rule 11).
+- A 2026-10-25 — guard knows supplier by job's `deliver_to` (rule 11).
 - A 2026-10-30 — pre-commit hook and lint judge the card cap (rule
   9).
 - A 2026-11-02 — under a launch no model passes (rule 2).
 - A 2026-11-03 — Dependabot PRs: push account posts (rule 7).
+- A 2026-11-05 — record PR arms unreviewed (rule 1).
 - Keywords: blind review, fabric-review, pr-review-status, coverage,
   review card, run_in_background.
 
@@ -849,7 +848,7 @@ its record disagree, the record wins. Look it up, never read it whole:
   records, broker spend from the provider per key, never converted into
   each other (§5 rule 3).
 - Growth is argued by its effect on cost per verified result; a shared
-  resource is taken for a stated job and released (§5 rules 5–6).
+  resource is taken for a stated job and released (rules 5–6).
 - Today's pieces are cited, not restated: leases, clean test runs, prompt
   budgets, usage windows, `tokens` (§1). Nothing links spend to a result
   yet (§6).
@@ -868,7 +867,7 @@ its record disagree, the record wins. Look it up, never read it whole:
 - Owner reads all lists (`fabric-ctl jobs`, §5 rule 6).
 - A 2026-10-08 — priority, never preempting; blocking rank; role pool
   (§5 rules 7–10).
-- A 2026-10-09 — stale waiter blocks (§5 rule 8).
+- A 2026-10-09 — stale waiter blocks.
 - A 2026-10-09 — a login's REQUEST queues (§5 rule 11).
 - A 2026-10-09 — jobs as plan steps (§5 rule 11).
 - A 2026-10-11 — fresh after worked job (§5 rule 3).
@@ -877,14 +876,15 @@ its record disagree, the record wins. Look it up, never read it whole:
 - A 2026-10-15 — reads as built.
 - A 2026-10-16 — delivered swept to done (§5 rule 12).
 - A 2026-10-18 — no-artifact close, a reason (§5 rule 10).
-- A 2026-10-20 — commits fenced to job copies (§5 rule 3).
-- A 2026-10-21 — switch cleans targets (§5 rule 10).
+- A 2026-10-20 — commits fenced to job copies.
+- A 2026-10-21 — switch cleans targets.
 - A 2026-10-30 — fleet hold (§5 rule 13).
-- A 2026-10-30 — held, no start (§5 rule 13).
-- A 2026-10-31 — clock blocker (§5 rule 8).
+- A 2026-10-30 — held, no start.
+- A 2026-10-31 — clock blocker.
 - A 2026-10-31 — cleanup built (§5 rule 10).
 - A 2026-10-31 — in place only inside its copy (§5 rule 3).
-- Keywords: fresh session, intake, priority, claim, sweep, unhold.
+- A 2026-11-05 — answered request re-points to its job (§5 rule 8).
+- Keywords: fresh session, intake, priority, claim, sweep, unhold, request blocker.
 
 ### ADR-038 — Each agent owns its key and its secrets (Accepted)
 
@@ -971,7 +971,7 @@ its record disagree, the record wins. Look it up, never read it whole:
 - Written at the crossing: pending before the post, before the ack; a
   failure refuses the send or withholds the ack (§5 rules 3–4).
 - One row per source, direction, MESSAGE-ID; outbound reuse refused,
-  inbound reuse set aside; the carrier is provenance (§5 rules 5–6).
+  inbound reuse set aside; the carrier is provenance (rules 5–6).
 - Evidence, not truth; never auto-injected or auto-promoted; each agent
   imports its own past (§5 rules 7–9).
 - A 2026-10-05 — `GZCOORD_JOURNAL=off` is a recorded break-glass: each
@@ -1057,7 +1057,7 @@ its record disagree, the record wins. Look it up, never read it whole:
 - Record numbers are frozen; a mixed record stays, its organization's
   rules move out by amendment (§5 rule 4).
 - A working copy's client comes from remote, project and client list,
-  never the GitHub org; switching client is context (§5 rules 5–6).
+  never the GitHub org; switching client is context (rules 5–6).
 - A 2026-10-08 — until stage 4 the engine root honours AGENT_FABRIC_ROOT; instance fixtures use AGENT_FABRIC_OPERATOR (§5 rule 1).
 - Keywords: split, engine, operator, client, engagement, roots, open
   source, publish, instance data, Blueteam, Gzapi.
@@ -1071,7 +1071,7 @@ its record disagree, the record wins. Look it up, never read it whole:
 - A view fetches on open and while focused, and only reads: no herdr
   socket, no signed action, no environment or transcript (§5 rules 3–4).
 - Two named bridges until the cutover: `/proc` resources, closed jobs
-  through the host executor (§5 rules 5–6).
+  through the host executor (rules 5–6).
 - Comparisons show resources and counts, never verified work (§5 rule 7).
 - Keywords: Fleet Deck, herdr, view, dashboard, resources, CPU, memory,
   comparison, on demand, fabric-fleet, Gantt.
@@ -1226,13 +1226,15 @@ its record disagree, the record wins. Look it up, never read it whole:
   arming policy names (`reviews`, `boundary_reviews`; data, not this
   record) has reviewed the head with no open P1/P2 (§5 rule 6). Codex is
   pinned (§5 rule 7).
-- A 2026-10-13 — the sandbox proven before the run; Codex's own fetches off (§5 rules 2-3).
-- A 2026-10-13 — every login on a synced access token; both engines by default (§5 rules 6, 8).
-- A 2026-10-13 — a review is required; the arming policy names the engines (§5 rule 6).
-- A 2026-10-13 — codex additional: its review or unavailable marker per head (§5 rule 6, ADR-055 rule 8).
-- A 2026-10-14 — findings judged once per head, one dispatch for both engines (§5 rule 5).
-- A 2026-10-16 — the post names the commit read (`--head`) (§5 rule 4).
-- A 2026-10-24 — v2 posts: header and coverage block (§5 rule 4).
+- A 2026-10-13 — sandbox proven before the run; Codex's fetches off (rules 2-3).
+- A 2026-10-13 — logins on synced access token; both engines default (rules 6/8).
+- A 2026-10-13 — review required; arming policy names the engines (rule 6).
+- A 2026-10-13 — codex additional: its review or unavailable marker per head (rule 6, ADR-055 rule 8).
+- A 2026-10-14 — findings judged once per head, one dispatch (rule 5).
+- A 2026-10-16 — post names the commit read (`--head`) (rule 4).
+- A 2026-10-24 — v2 posts: header, coverage block (rule 4).
+- A 2026-11-05 — ls-tree/cat-file extract, verified; read-allowlist profile, canary (rule 2).
+- A 2026-11-05 — record PR: no engine (rule 6).
 
 ### ADR-054 — Codex as an alternative session harness: AGENTS.md is the instruction file, a harness is an adapter (Accepted)
 

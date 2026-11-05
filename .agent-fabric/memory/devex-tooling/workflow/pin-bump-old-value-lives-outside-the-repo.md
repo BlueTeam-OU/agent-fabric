@@ -5,7 +5,7 @@ topic: "pin-bump-old-value-lives-outside-the-repo"
 description: "a version pin bump (toolchain, interpreter, tool) is unfinished until the old value is grepped outside the repo: agent-fabric projects/registry.json rows and other roles' committed memory slices"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-05"
 origin:
   - agent: "devex-tooling"
     host: "develop-qzapp"

@@ -5,7 +5,7 @@ topic: "port-contract-from-code-rule-each-oddity"
 description: "writing a port contract (bash → fabric Python): freeze it from the code at a named sha, not memory; rule each oddity decision-or-accident; a port stays a port and names any deliberate widening in the PR body"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-05"
 origin:
   - agent: "devex-tooling"
     host: "develop-qzapp"

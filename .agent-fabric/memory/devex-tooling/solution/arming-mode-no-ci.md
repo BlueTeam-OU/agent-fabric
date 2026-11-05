@@ -5,7 +5,7 @@ topic: "arming-mode-no-ci"
 description: "choosing a repos/<repo>.json mode for a repository with no CI, and what \"direct\" really allows"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-05"
 origin:
   - agent: "devex-tooling"
     host: "develop-qzapp"

@@ -40,7 +40,7 @@ HERE = os.path.dirname(os.path.realpath(__file__))
 sys.path.insert(0, os.path.dirname(HERE))
 import gh  # noqa: E402
 import git  # noqa: E402
-from github import arm_policy, commit_class, common, landed, local, pr_review_status  # noqa: E402, F401  (commit_class: the unit suite reaches it here)
+from github import arm_policy, arm_rules, commit_class, common, landed, local, pr_review_status  # noqa: E402, F401  (commit_class: the unit suite reaches it here)
 from github.review_status.base import listed, obj  # noqa: E402
 # What was split out of this module stays importable from here: the unit
 # suite, pr_compliance and the other callers reach it as pr_gate.<name>.
@@ -106,6 +106,11 @@ WHAT A ROW SAYS
     MERGEABLE — ask the owner (under 8 work commits, gate met)
     MERGEABLE — N work commits, over 16: smaller batches next time (advice, never a block)
     MERGEABLE — commits unknown (the base is not fetched; count by hand)
+    MERGEABLE — record (owner's ruling): on a direct repository, a PR whose every
+    file is a record under arm.json's direct.record_paths, as fabric-pr arm
+    reads it (agent-fabric ADR-019 rule 1, A 2026-11-05) — no review is asked
+    and no missing review blocks it; arm on the owner's word (--json:
+    "record": true)
     ARMED and clear / ARMED but held: <what> / QUEUED — nothing to do
     BLOCKED: <what> — a draft, red checks, pending checks, no check yet,
     checks unread,
@@ -407,10 +412,17 @@ def awaiting_supply(body: str) -> list[str]:
             if not re.search(r"[0-9a-f]{7,40}\.\.[0-9a-f]{7,40}:\s*" + re.escape(l) + r"([^A-Za-z0-9_-]|$)", body)]
 
 
+MERGE_FLAG = {"merge": "--merge", "squash": "--squash", "rebase": "--rebase"}
+
+
 def verdict(num: int, base: str, draft: bool, commits: dict | None, st: dict, review: str,
-            awaiting: list[str], policy: dict | str | None = None) -> str:
+            awaiting: list[str], policy: dict | str | None = None, record: bool = False) -> str:
     """`policy` is the repository's arming policy (arm_policy.load), None for the default, or the reason it could
-    not be read: the numbers of the count rule are its, and an unreadable one is said, never the default."""
+    not be read: the numbers of the count rule are its, and an unreadable one is said, never the default. `record`
+    is a record PR on a direct repository (record_of): fabric-pr arm asks it no review and arms it on the owner's
+    word alone, so a missing review is no block of it."""
+    # Only a direct policy has a record path; an unreadable one is no policy to lift a block on.
+    record = record and isinstance(policy, dict) and policy["mode"] == "direct"
     blocks = []
     if draft:
         blocks.append("a draft — mark it ready first")
@@ -425,7 +437,7 @@ def verdict(num: int, base: str, draft: bool, commits: dict | None, st: dict, re
         blocks.append("no check has reported yet (seconds after a push, or nothing runs on this PR)")
     if checks == "?":
         blocks.append("the checks could not all be read")
-    if not arm_policy.is_head_reviewed(review):
+    if not record and not arm_policy.is_head_reviewed(review):
         blocks.append(f"not every required engine has reviewed the head ({review})")
     if st["unresolved"] != "0":
         blocks.append(f"{st['unresolved']} unresolved thread(s)")
@@ -448,7 +460,11 @@ def verdict(num: int, base: str, draft: bool, commits: dict | None, st: dict, re
         return f"NOT ARMED BY FABRIC-PR — this repository's arming policy is owner-only: only the owner merges"
     rule = policy["commits"]
     work = commits["work"]
-    flag = {"merge": "--merge", "squash": "--squash", "rebase": "--rebase"}[policy["method"]]
+    # arm's commits.below_min "refuse" stands for a record too: said below, as for any PR.
+    if record and not (work < rule["min"] and rule["below_min"] == "refuse"):
+        return (f"MERGEABLE — record (owner's ruling): no review-class review is asked; arm with the owner's word in the"
+                f" basis ({work} work commits, any count) and gh pr merge {num} {MERGE_FLAG[policy['method']]}")
+    flag = MERGE_FLAG[policy["method"]]
     # A direct repository has no auto-merge to arm: fabric-pr arm merges it at once, on the same gates.
     flag += "" if policy["mode"] == "direct" else " --auto"
     # As arm reads it: a minimum above the advice size is not "too big" below the minimum.
@@ -460,6 +476,38 @@ def verdict(num: int, base: str, draft: bool, commits: dict | None, st: dict, re
     if rule["below_min"] == "refuse":
         return f"MERGEABLE — {work} work commits < {rule['min']}: this repository's policy refuses below the minimum, arm will not arm it"
     return f"MERGEABLE — ask the owner ({work} work commits < {rule['min']}), then arm"
+
+
+def record_rules(policy: dict | str) -> tuple | None:
+    """(boundary, exempt, record rules) of this project's arm.json, read only where the policy is direct, the one
+    mode with a record path; None anywhere else, or when the file cannot be read (said: every PR is then judged as
+    any other, the side that asks a review)."""
+    if not isinstance(policy, dict) or policy["mode"] != "direct":
+        return None
+    try:
+        path = arm_rules.config_path()
+        boundary, exempt, _, _ = arm_rules.load_config(path)
+        rules = arm_rules.load_record_rules(path)
+    except arm_rules.Unanswered as e:
+        note(f"the record path is not read ({e}): a record PR is judged as any other")
+        return None
+    return (boundary, exempt, rules) if rules else None
+
+
+def record_of(rules: tuple | None, repo: str, num: int, head: str) -> bool:
+    """Whether #num is a record PR, as fabric-pr arm decides it (arm_rules.record_pr over GitHub's file list and the
+    head's tree). A list or a tree that cannot be read is said and is no record."""
+    if rules is None:
+        return False
+    try:
+        listed = gh.api(f"repos/{repo}/pulls/{num}/files?per_page=100", paginate=True)
+        if not isinstance(listed, list) or len(listed) >= common.PR_FILE_LIST_CAP:
+            raise arm_rules.Unanswered(f"#{num}'s file list is not whole")
+        return arm_rules.record_pr(listed, rules[2], rules[0], rules[1],
+                                   lambda paths: arm_rules.head_modes(repo, head, paths))[0]
+    except (gh.GhError, arm_rules.Unanswered, AttributeError, TypeError) as e:
+        note(f"#{num}: whether it is a record PR could not be read ({getattr(e, 'reason', e)}): judged as any other")
+        return False
 
 
 def owner_of(branch: str) -> str:
@@ -646,6 +694,7 @@ def run(argv: list[str]) -> int:
         policy: dict | str = arm_policy.load(repo)
     except (arm_policy.PolicyError, arm_policy.PolicyUnavailable) as e:
         policy = str(e)
+    records = record_rules(policy)
     rows = []
     for p in prs:
         if p.get("state") == "MERGED":
@@ -660,6 +709,7 @@ def run(argv: list[str]) -> int:
                  "run again.")
             return 2
         review = review_of_head(reader, num, head, *engines_required(policy), additional=engines_additional(policy))
+        record = record_of(records, repo, num, head)
         awaiting = awaiting_supply(p.get("body") or "")
         owner = owner_of(branch)
         known = commits is not None
@@ -674,9 +724,9 @@ def run(argv: list[str]) -> int:
             "netted_subjects": commits["netted_subjects"] if known else [],
             "commits_known": known,
             "awaiting_supply": awaiting,
-            "checks": st["checks"], "review": review, "unresolved_threads": st["unresolved"], "armed": st["armed"],
+            "checks": st["checks"], "review": review, "record": record, "unresolved_threads": st["unresolved"], "armed": st["armed"],
             "queue_position": st["queue"], "merge_state": st["mstate"], "draft": alt(p.get("isDraft")) is True,
-            "verdict": verdict(num, base, alt(p.get("isDraft")) is True, commits, st, review, awaiting, policy),
+            "verdict": verdict(num, base, alt(p.get("isDraft")) is True, commits, st, review, awaiting, policy, record),
         })
     if as_json:
         print(json.dumps(rows, indent=2, ensure_ascii=False))

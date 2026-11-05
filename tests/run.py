@@ -125,6 +125,9 @@ def run_environment(environ: dict[str, str], scratch: str) -> dict[str, str]:
     # it: green on a login with no locale directory (CI's) and red on every holder's. The run pins the default locale;
     # the cases that exercise a locale build their own dictionary and pass it explicitly (tools/fabric/gzcoord/i18n.py).
     env["GZCOORD_DEFAULT_LOCALE_ONLY"] = "1"
+    # Likewise the account's routing/profiles.json agent layer: a case that forgot its fixture read the running
+    # login's launch_provider (j438, j523). Set on every run, slot or none, so resume.SUITE_MARKER reads no profile.
+    env["AGENT_FABRIC_SUITE_RUN"] = "1"
     # Likewise the account's commit signing: a gpg key with a timestamp that needs the network made five suites'
     # fixture commits fail offline, green in CI and red on the account that signs. Git's environment config outranks
     # every file, so the run's sandboxes never sign.

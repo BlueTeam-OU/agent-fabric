@@ -5,7 +5,7 @@ topic: "no-recursive-delete-on-a-computed-path"
 description: "an rm -rf whose path is computed (from a pin, an argument, a mktemp that may have failed) can reach what it must not; refuse an empty or unvalidated path first, and prefer removing fixed names plus rmdir over refining which inputs may…"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-05"
 origin:
   - agent: "devex-tooling"
     host: "develop-qzapp"

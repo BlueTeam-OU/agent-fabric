@@ -5,7 +5,7 @@ topic: "review-brief-json-request"
 description: "fabric-review brief takes a JSON request (no render verb); card_base when the base is off main, previous_findings for a re-review, fixed lens names"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-05"
 origin:
   - agent: "devex-tooling"
     host: "develop-qzapp"

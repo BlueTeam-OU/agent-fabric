@@ -5,7 +5,7 @@ topic: "commit-class-own-names"
 description: "commit_class reads \"word#N\" as this repository when the word is any name of the project holding the PR's owner/repo"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-05"
 origin:
   - agent: "devex-tooling"
     host: "develop-qzapp"

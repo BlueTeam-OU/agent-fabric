@@ -85,7 +85,8 @@ the count rule, and a policy or a comparison with GitHub's settings that cannot 
 default. A repository in mode owner-only is not armed here; one in mode direct has no server-side rule to arm under
 (auto-merge off, no ruleset), so the same gates end in an immediate gh pr merge, without --auto, on the head
 they read; there every PR, boundary or not and waived or not, needs the review of its head and no open
-thread, and a head with no check at all merges on that review alone. A difference between the policy and GitHub in how a merge is held (auto-merge off, a ruleset or required check missing or changed) is a refusal; in which
+thread, and a head with no check at all merges on that review alone — except a record PR, which needs the
+owner's ruling in place of the review and merges with no check on that ruling alone (THE RECORD PATH below). A difference between the policy and GitHub in how a merge is held (auto-merge off, a ruleset or required check missing or changed) is a refusal; in which
 merge methods are allowed, advisory. The minimum is the stated class's, else the author's role's (the
 Fabric-Role trailer every commit of the PR carries, when they agree and fabric-ctl's presence of the login the
 branch is named for reports that role bound, as a waiver's sender is checked; presence that cannot say is exit 2),
@@ -149,7 +150,8 @@ this clone's remote as trial.json is (or AGENT_FABRIC_ARM_CONFIG):
                     asked of a project without one, or with one that is
                     not a catalogue role, is exit 2.
   direct            optional: {"roles": [...], "pr_paths": "<regex>",
-                    "cases": [...]}. A holder of one of `roles` pushes
+                    "cases": [...], "record_paths": "<regex>",
+                    "record_cases": [...]}. A holder of one of `roles` pushes
                     straight to the project's default branch, unless a
                     file the pushed commits change matches `pr_paths`
                     (case-insensitive) or has the executable mode (100755),
@@ -159,9 +161,29 @@ this clone's remote as trial.json is (or AGENT_FABRIC_ARM_CONFIG):
                     one pr_paths misses. Optional `not_cases` are the
                     opposite floor, paths that must go direct (a design
                     token, a key visual, a decision record); lint refuses
-                    one pr_paths matches. fabric-pr arm IGNORES this key
-                    (a direct push has no PR to arm); policies/githooks/
-                    pre-push enforces it (agent-fabric ADR-019 §5 rule 1).
+                    one pr_paths matches. The push rule is policies/githooks/
+                    pre-push's (a direct push has no PR to arm; agent-fabric
+                    ADR-019 §5 rule 1); fabric-pr arm reads only
+                    `record_paths` (case-insensitive) and pr_paths, and only
+                    where the repository's arming policy is direct: THE
+                    RECORD PATH below. `record_cases` are lint's.
+
+THE RECORD PATH (agent-fabric ADR-019 §5 rule 1, A 2026-11-05): on a
+repository whose policy mode is direct, a PR is a record PR when every
+changed file (a rename by both names) matches direct.record_paths, and none
+matches direct.pr_paths or the security boundary (boundary.paths minus
+exempt; --boundary forces the gates), and every file it leaves at the head
+is a regular file (mode 100644, read from GitHub's tree of the head). A
+tree that cannot be read whole, or record_paths that cannot be compiled,
+is said and judged as no record, every gate applying, as pr-gate judges
+it. The owner's ruling is its approval: gate 4 reads no review-class review of it and gate 4b asks no
+engine, and gate 5 arms it only on the owner's word in the basis, at any
+count — no authority role's word stands in (commits.below_min_authority is
+not read), and an --authorization beside the word is read as that word
+relayed, its AUTHORIZES head checked. Its unresolved threads (gate 4),
+gate 4c, commits.below_min "refuse" and the checks (gate 6) stand. The
+comment adds "Record path: no review-class review (agent-fabric ADR-019
+rule 1, A 2026-11-05)". A PR with any other file takes every gate.
 A project with no arm.json is exit 2: a boundary the tool cannot read is
 never judged absent.
 
@@ -194,7 +216,8 @@ from github import arm_findings, arm_policy, common, landed, pr_gate, repo_polic
 # The rules' names stay importable from here, where the oracle and callers
 # reach them as arm.<name>.
 from github.arm_rules import (  # noqa: E402, F401
-    Refused, Unanswered, config_path, has_no_ci_word, has_owner_word, head_lines, load_config, stated_class, unmet_supply)
+    RECORD_NOTE, Refused, Unanswered, config_path, has_no_ci_word, has_owner_word, head_lines, head_modes, load_config,
+    load_record_rules, record_pr, stated_class, unmet_supply)
 
 FABRIC = os.path.dirname(os.path.dirname(os.path.dirname(HERE)))
 
@@ -235,7 +258,13 @@ What it refuses, in order, and why:
      that cannot answer, or a message with no MESSAGE-ID, is exit 2.
      The relay does not authenticate senders: this stops mistakes, not
      a forger. The comment records who waived it, the message
-     and the reason. A PR that matches no boundary ignores a waiver;
+     and the reason. A PR that matches no boundary ignores a waiver.
+     On a direct repository every PR needs that review, except a RECORD
+     PR (every file a record under arm.json's direct.record_paths, a
+     regular file, outside pr_paths and the boundary; a head tree that
+     cannot be read is said and is no record): it needs only no
+     unresolved thread, and arms on the owner's word alone (gate 5; THE
+     RECORD PATH above, agent-fabric ADR-019 rule 1, A 2026-11-05);
   4b. the review engines (the policy's `reviews`: ["claude"] in the fleet's
      default; an engine in `additional_reviews` never blocks): EVERY PR,
      ["claude"] alone included and a waived boundary too, needs a review of the CURRENT head by each engine named, claude's
@@ -248,6 +277,7 @@ What it refuses, in order, and why:
      review nor its marker reads "codex absent"), and names the engine missing.
      `boundary_reviews` adds engines for a
      security-boundary change not waived; agent-fabric ADR-053 rule 6.
+     A record PR (gate 4) asks no engine.
      An engine in `additional_reviews` is asked too, never required: its
      review of the head, or its unavailable marker for that exact head
      (posted when it cannot run: "codex unavailable (allowance)" on the
@@ -295,6 +325,8 @@ What it refuses, in order, and why:
      class it states (or, where the policy names commits.boundary_authority, that role holder's
      --authorization or word; any other PR under its minimum, the commits.below_min_authority's: THE WORD OF A ROLE
      UNDER THE MINIMUM above); at 8 or more it needs none, boundary or not. A waived boundary is judged as no boundary.
+     A record PR (gate 4) arms only on the owner's word, at any count: no role's word or authorization stands in, and
+     an --authorization beside the word is read as it relayed.
      (8 and 16 are the default numbers; the policy's, read as THE ARMING POLICY above, are the ones applied.)
 
   6. the checks, on a repository with no required check (and on a direct one): every check on the head
@@ -710,6 +742,28 @@ def verify_waiver(waiver: str, num: str, repo: str, head: str, session: str, rol
     return verify_grant(waiver, num, repo, head, session, waiver_role_checked(role), refuse, word="waiver", field="WAIVES")
 
 
+def review_status(num: str) -> dict | None:
+    """pr-review-status --json for #num: its object, or None for an answer that is not JSON (each field read from it
+    fails closed: never "no review" nor zero threads). Unanswered on its exit 2."""
+    rc, out = run_reader(fabric_pr("AGENT_FABRIC_PR_REVIEW_STATUS", "review-status"), [num, "-q", "--json"])
+    if rc == 2:
+        raise Unanswered(f"pr-review-status could not answer for #{num} (exit 2)")
+    # The --json object is the reader's documented contract; the report's layout is not.
+    try:
+        return json.loads(out)
+    except ValueError:
+        return None
+
+
+def unresolved_count(rs: dict | None, num: str) -> int:
+    """The unresolved review threads pr-review-status counted; Unanswered for a null (its lookup failed) or no count."""
+    unresolved = rs.get("unresolved_threads") if isinstance(rs, dict) else None
+    if not isinstance(unresolved, int) or isinstance(unresolved, bool):
+        raise Unanswered(f"pr-review-status reported no unresolved_threads count for #{num} (null: the lookup"
+                         f" failed) — cannot judge the open findings")
+    return unresolved
+
+
 def check_engines(num: str, head: str, engines: list[str], refuse, additional: list[str] = ()) -> str:
     """Refuse until every engine in `engines` has a review of `head` and no review thread is open (an open P1 or P2 of
     either engine is an unresolved thread, as in the review-class gate). The refusal names the engine missing. An
@@ -1068,9 +1122,32 @@ def arm(argv: list[str]) -> int:
     waived_by = ""
     boundary_unwaived = False
     # A direct repository merges at once (no --auto, no ruleset holding the merge), so every PR
-    # there needs the review of its head and no open thread, boundary or not (review of #212, F1).
+    # there needs the review of its head and no open thread, boundary or not (review of #212, F1),
+    # except a record PR, whose review is the owner's ruling (below).
     direct = policy["mode"] == "direct"
-    if is_boundary or direct:
+    # A record PR on a direct repository (agent-fabric ADR-019 §5 rule 1, A 2026-11-05): the owner's ruling is its
+    # approval, so gates 4 and 4b ask no review of it and gate 5 asks the owner's word whatever the count. Any file
+    # that is not a plain record (another path, a pr_paths one, a boundary one, an executable) takes every gate.
+    record = False
+    if direct and not is_boundary:
+        try:
+            record, not_record = record_pr(listed, load_record_rules(config_path()), boundary_re, exempt_re,
+                                           lambda paths: head_modes(repo, head, paths))
+        except Unanswered as e:
+            # No record is the side that keeps every gate, and pr-gate's record_of reads an unread tree the same way:
+            # an exit 2 here would leave a reviewed record-shaped PR unarmable while GitHub's tree read fails (#488 F2).
+            record, not_record = False, f"whether it is a record PR could not be read ({e}): judged as any other"
+        if record:
+            say(f"record path: every changed file is a record under direct.record_paths — {head_lines(files)}")
+        elif not_record != "this project's arm.json names no direct.record_paths":
+            say(f"not a record PR: {not_record}")
+    if record:
+        unresolved = unresolved_count(review_status(num), num)
+        if unresolved != 0:
+            raise refuse(f"a record PR with {unresolved} unresolved review thread(s): answer and resolve them first")
+        say("record path: no review-class review is asked of the head (the owner's ruling is its approval), and no"
+            " unresolved thread")
+    elif is_boundary or direct:
         if is_boundary and waiver:
             login, mid = verify_waiver(waiver, num, repo, head, session, waiver_role, refuse)
             waived_by = f"Boundary gate waived by {login} ({mid}): {no_boundary}."
@@ -1078,21 +1155,10 @@ def arm(argv: list[str]) -> int:
         # A waiver lifts the boundary's gate only; on a direct repository the PR still merges at once,
         # so its head's review and threads are read whatever the waiver says (re-review of #212, 1).
         if direct or not (is_boundary and waiver):
-            rc, out = run_reader(fabric_pr("AGENT_FABRIC_PR_REVIEW_STATUS", "review-status"),
-                                 [num, "-q", "--json"])
-            if rc == 2:
-                raise Unanswered(f"pr-review-status could not answer for #{num} (exit 2)")
-            # The --json object is the reader's documented contract; the
-            # report's layout is not. A missing field fails closed: never
-            # read as "no blind review" nor as zero threads.
-            try:
-                rs = json.loads(out)
-            except ValueError:
-                rs = None
+            rs = review_status(num)
             rows = rs.get("blind", {}).get("rows") if isinstance(rs, dict) and isinstance(rs.get("blind"), dict) else None
             if not isinstance(rows, list):
                 raise Unanswered(f"pr-review-status --json carried no blind.rows for #{num} — cannot judge the review-class review")
-            unresolved = rs.get("unresolved_threads")
             # The review class's review is the claude engine's; a Codex review of the head is the second
             # engine's, counted by gate 4b only (review of #220, F1).
             if "claude" not in arm_policy.engines_on_head(rows, head):
@@ -1103,9 +1169,7 @@ def arm(argv: list[str]) -> int:
                 raise refuse(f"{what} with no review-class review of the current head: dispatch the"
                              f" review class on a brief of a range ending at {head}, then `fabric-pr post-review {num}`"
                              f" with its report, then arm (an independent or automated review does not count here)")
-            if not isinstance(unresolved, int) or isinstance(unresolved, bool):
-                raise Unanswered(f"pr-review-status reported no unresolved_threads count for #{num} (null: the lookup"
-                                 f" failed) — cannot judge the open findings")
+            unresolved = unresolved_count(rs, num)
             if unresolved != 0:
                 what = "a security-boundary change" if is_boundary else "a PR on a direct repository (merged at once)"
                 raise refuse(f"{what} with {unresolved} unresolved review thread(s): answer and"
@@ -1122,8 +1186,12 @@ def arm(argv: list[str]) -> int:
     # policy armed a plain PR with no review at all (#235, Codex finding 1).
     # An additional engine (additional_reviews) never blocks: its review counts (an open P1 or P2 of it is a thread),
     # its unavailable marker or its absence lets the arm proceed on the required ones, and the basis says which.
-    engines = arm_policy.required_engines(policy, is_boundary and not waiver)
-    engines_out = check_engines(num, head, engines, refuse, arm_policy.additional_engines(policy, is_boundary and not waiver))
+    if record:
+        engines_out = ""
+        say("record path: the policy's review engines are not asked (gate 4b)")
+    else:
+        engines = arm_policy.required_engines(policy, is_boundary and not waiver)
+        engines_out = check_engines(num, head, engines, refuse, arm_policy.additional_engines(policy, is_boundary and not waiver))
 
     # 4c. a finding left open in any review chain, not only the latest (REQUEST 01a18fe0: #425 merged with F5 open)
     deferred = check_open_findings(repo, num, pr, defers, refuse)
@@ -1199,7 +1267,20 @@ def arm(argv: list[str]) -> int:
     own_prs = policy["commits"].get("authority_own_prs", False)
     author = author_of(branch)
     authorized_by = relayed_by = ""
-    if under and not has_owner_word(basis):
+    if record:
+        # The ruling is the approval, so it is the owner's alone at any count: no authority role stands in for it
+        # (below_min_authority is not read), and an --authorization beside it is that word as relayed.
+        if not has_owner_word(basis):
+            raise refuse(f"a record PR ({head_lines(files)}) takes the record path — no review-class review, the owner's"
+                         f" ruling is its approval (agent-fabric ADR-019 rule 1, A 2026-11-05) — so it arms only on the"
+                         f" owner's word, at any count and whatever role or authority asks; the basis does not carry the"
+                         f" phrase \"owner's word\" — {OWNER_WORD}")
+        if authorization:
+            login, mid = verify_grant(authorization, num, repo, head, session, "", refuse,
+                                      word="authorization", field="AUTHORIZES", author="" if own_prs else author)
+            relayed_by = f"The owner's word relayed by {login} ({mid})."
+            say(f"the owner's word, as {login} relayed it ({mid}), authorizes {repo}#{num}@{head[:8]}")
+    elif under and not has_owner_word(basis):
         # The basis claims the role's word only by the phrase, as the owner's does; the claim is then checked against
         # the session's binding, never taken as said.
         claimed = bool(authority) and re.search(rf"(?<![\w-]){re.escape(authority)}(?:'|’)s word", basis, re.I) is not None
@@ -1261,7 +1342,9 @@ def arm(argv: list[str]) -> int:
     # The role's minimum decided it only where it is below the repository's and nothing more specific stands.
     by_role = (bool(role) and not cls and not boundary_unwaived and role in policy["commits"]["roles"] and floor < min_work
                and work < min_work)
-    if under and authorized_by:
+    if record:
+        say(f"count rule: {work} work commits — a record PR, on the owner's word")
+    elif under and authorized_by:
         say(f"count rule: {work} work commits — under {floor}, authorized in the owner's place")
     elif under:
         say(f"count rule: {work} work commits — under {floor}, on the owner's word")
@@ -1280,11 +1363,13 @@ def arm(argv: list[str]) -> int:
     if policy["mode"] == "direct" or not policy["required_checks"]:
         checks = str(row.get("checks"))
         held = "is direct" if policy["mode"] == "direct" else "has no required check"
-        # The owner's rule for a direct repository with no CI at all: a head with no check merges on the review of its head and no open thread, both gated
-        # above for every direct PR; a check that exists must still be green, and a policy that names a
+        # The owner's rule for a direct repository with no CI at all: a head with no check merges on the review of its
+        # head and no open thread, both gated above for every direct PR but a record PR, whose approval gate 5 read as
+        # the owner's ruling; a check that exists must still be green, and a policy that names a
         # required check says CI exists, so its "none-yet" is a check not reported yet, never no CI.
         if policy["mode"] == "direct" and not policy["required_checks"] and checks == "none-yet":
-            say("direct repository with no check on the head: it merges on the review of its head alone")
+            approval = "the owner's ruling" if record else "the review of its head"
+            say(f"direct repository with no check on the head: it merges on {approval} alone")
         elif checks == "none-yet" and policy["mode"] != "direct" and no_ci_word:
             # PR mode has no exception of its own (the coordinator's ruling: the no-CI exception is direct's alone):
             # the owner's word, per PR, stands in for a check that never comes, and for nothing that exists.
@@ -1312,6 +1397,8 @@ def arm(argv: list[str]) -> int:
         comment += f" {waived_by}"
     if authorized_by or relayed_by:
         comment += f" {authorized_by or relayed_by}"
+    if record:
+        comment += f" {RECORD_NOTE}."
     if engines_out:
         comment += f" {engines_out}"
     if deferred:
