@@ -11,7 +11,7 @@ import subprocess
 import sys
 import tempfile
 from git_env import git_env, scrub_process_env  # noqa: E402 — tests/, the script's own directory
-from instance_fixtures import own_instance_tree  # noqa: E402 — tests/, the script's own directory
+from instance_fixtures import own_instance_tree, write_operator_projects  # noqa: E402 — tests/, the script's own directory
 own_instance_tree()
 scrub_process_env()
 
@@ -119,6 +119,11 @@ def other_project_cases(tmp: str, binding: str, env: dict) -> int:
         copies[name] = top
     with open(binding, "w", encoding="utf-8") as fh:
         json.dump({"role": "fixture-role", "project": "gzapp", "working_copy": copies["wc-a"]}, fh)
+    # Both projects are registered in the operator's tree the case builds: the live registry is instance data,
+    # and a stripped copy without it resolves no project, so the hook stays silent and "only A's slice" fails.
+    env = {**env, "AGENT_FABRIC_OPERATOR": write_operator_projects(
+        os.path.join(tmp, "operator"), {"gzapp": ["git@example.org:o/gzapp.git"],
+                                        "gzapi.ge": ["git@example.org:o/gzapi.ge.git"]})}
     home_b = os.path.join(tmp, ".claude", "projects", layout.memory_slug(copies["wc-b"]), "memory")
     os.makedirs(home_b)
     cases = [
