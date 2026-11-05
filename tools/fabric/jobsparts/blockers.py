@@ -153,15 +153,18 @@ def _title_request(title: str) -> str | None:
     return request_id_of(re.sub(r"[0-9A-Fa-f-]{36}\)\Z", lambda m: m.group(0).lower(), " ".join(title.split())))
 
 
-def _became(mid: str, login: str, body: str) -> tuple[str | None, bool, str | None]:
+def _became(mid: str, login: str, body: str, decision: bool = False) -> tuple[str | None, bool, str | None]:
     """(the job the request became, whether the board showed it, why the board could not be read). The board is the
     authority: a row whose title ends "(REQUEST <mid>)". Only without a match is the body read, and a token there is
     taken when the board lists that job, or could not be read at all."""
     board, why = read_board(login)
     if board is not None:
         for j in board:
-            if _title_request(str(j.get("title", ""))) == mid and isinstance(j.get("id"), str):
+            if _title_request(str(j.get("title", ""))) == mid and isinstance(j.get("id"), str) \
+                    and JOB.fullmatch(f"job:{login}/{j['id']}"):      # a board row is another agent's text: only the job: form is stored
                 return f"job:{login}/{j['id']}", True, None
+    if decision:
+        return None, False, None        # a DECISION settles the question, it is not a job taken: no body token, no unknown
     named = _jobs_named(body, login)
     if len(named) != 1:
         return None, False, why
@@ -186,7 +189,7 @@ def check_request(message_id: str) -> Check:
         # lower(): the id is stored as the sender wrote it, the blocker as normalise() made it.
         # Any type: a DECISION answers a REQUEST as a REPLY does, and settle.py counts an outbound answer the same way. The id is
         # never empty, so an empty IN-REPLY-TO matches nothing.
-        rows = conn.execute("SELECT sender, content FROM episodes WHERE direction='inbound' AND lower(in_reply_to)=? "
+        rows = conn.execute("SELECT sender, content, type FROM episodes WHERE direction='inbound' AND lower(in_reply_to)=? "
                             "ORDER BY happened_at, recorded_at, id", (message_id,)).fetchall()
     except Exception as e:  # noqa: BLE001 — an unreadable journal is unknown, never a traceback in a listing
         return Check("unknown", f"journal: {e}"[:160])
@@ -196,12 +199,12 @@ def check_request(message_id: str) -> Check:
         return Check("waiting", "no reply yet")
     # A REPLY answers the request, it does not deliver the work: when the answerer made a job of it, the wait is that job.
     unreadable = None
-    for sender, content in rows:
+    for sender, content, kind in rows:
         login = _login_of(sender)
         if login is None:
             continue
         body = str(content or "").partition("\n\n")[2]
-        job, seen, why = _became(message_id, login, body)
+        job, seen, why = _became(message_id, login, body, str(kind).upper() == "DECISION")
         if job:
             return Check("waiting", f"answered; now waiting on {job}", job, seen)
         unreadable = unreadable or why
@@ -389,7 +392,8 @@ def refresh(specs: list[str], *, check: bool = True) -> dict[str, dict]:
             continue
         fresh[spec] = run_check(spec, entry)
     # A re-point that could not be written last time is made again by the next look.
-    repointed: dict[str, str] = {s: cache[s]["became"] for s in specs if (cache.get(s) or {}).get("became")}
+    # Only a look that checks writes: --stored, --cached and show are reads (the control agent's op, a hook).
+    repointed: dict[str, str] = {s: cache[s]["became"] for s in specs if check and (cache.get(s) or {}).get("became")}
     if fresh:
         with _locked():
             cache = load_cache()

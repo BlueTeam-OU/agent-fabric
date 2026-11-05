@@ -202,6 +202,29 @@ def main() -> int:
         run("start", jid)
         run("done", jid, "--no-artifact", "test")
 
+        print("a DECISION clears by its type: the board unreadable, or a job token in the body, change nothing")
+        case("nobody", "decided: no", mid(11), "DECISION")
+        jid, r = blocked_on_request("decision, unreadable board", mid(11))
+        check("cleared", job(jid, "--stored")["cleared"] is True, job(jid, "--stored"))
+        run("start", jid)
+        run("done", jid, "--no-artifact", "test")
+        case("nobody", "decided; see j4 for context", mid(12), "DECISION")
+        jid, r = blocked_on_request("decision naming a job", mid(12))
+        j = job(jid, "--stored")
+        check("cleared, not re-pointed", j["cleared"] is True and j["blockers"][0]["spec"] == f"request:{mid(12)}", j)
+        run("start", jid)
+        run("done", jid, "--no-artifact", "test")
+
+        print("a board row whose id is not a job id is no job")
+        boards["liar"] = [{"id": "j3\nINJECTED", "state": "active", "title": f"x (REQUEST {mid(13)})"}]
+        put_boards()
+        case("liar", "taken", mid(13))
+        jid, r = blocked_on_request("hostile board row", mid(13))
+        j = job(jid, "--stored")
+        check("nothing hostile is stored; the request clears as with no row", "INJECTED" not in json.dumps(j) and j["blockers"][0]["spec"] == f"request:{mid(13)}", j)
+        run("start", jid)
+        run("done", jid, "--no-artifact", "test")
+
         print("a second job on the same request is re-pointed with the first")
         boards["boardy"] = [row("j30", mid(10))]
         put_boards()
