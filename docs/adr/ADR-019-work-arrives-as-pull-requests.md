@@ -162,12 +162,14 @@ not on a pipe's exit status.
    verdict read — never chained behind the gate's own run. An arming
    holds for the head it was made on, and the head says so, never a
    clock: before it enables auto-merge, `fabric-pr arm` posts the commit
-   status the arming policy's `armed_status` names (`fabric/armed`) on
-   exactly the sha its gates read, and refuses when pr-gate or a fresh
-   read of the PR shows another head. In a repository of mode `auto` the
-   ruleset requires that status beside `required_checks`, so a head
-   pushed after an arming cannot merge on it; and a push takes auto-merge
-   off unless the new head carries the status
+   status `fabric/armed` on exactly the sha its gates read, and refuses
+   when pr-gate or a fresh read of the PR shows another head. The name
+   is fixed: the arming policy's `armed_status` is that name or null,
+   never another, because the workflow below reads no policy. In a
+   repository of mode `auto` the ruleset requires that status beside
+   `required_checks`, so a head pushed after an arming cannot merge on
+   it; and a push takes auto-merge off unless the PR's head, read when
+   the workflow runs, carries the status
    (`.github/workflows/disarm-on-push.yml`, which says so on the PR). The
    new head is armed again only through the gate. A merge made outside
    `fabric-pr arm` in such a repository posts the status itself

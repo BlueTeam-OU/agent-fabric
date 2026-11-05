@@ -14,6 +14,8 @@ import roots  # noqa: E402
 from .core import (
     UID_DOMAIN,
     StoreError,
+    check_confined,
+    write_confined,
     login,
     AGENT_ID_RE,
     REPO_PREFIX,
@@ -153,12 +155,12 @@ def recovery_copy(force: bool = False) -> dict:
         if os.path.exists(path) and not force and open(note, encoding="utf-8").read().strip() == rfpr:
             _push_if_ahead(store)
             return {"path": path, "changed": False, "recipient": rfpr}
-        os.makedirs(os.path.dirname(path), mode=0o700, exist_ok=True)
-        gpg("--trust-model", "always", "--no-encrypt-to", "--encrypt", "--recipient-file", pub,
-            "--output", path + ".tmp", stdin=_sheet_text().encode())
-        os.replace(path + ".tmp", path)
-        with open(note, "w", encoding="utf-8") as fh:
-            fh.write(rfpr + "\n")
+        for rel in (f"recovery/{aid}.key.gpg", f"recovery/{aid}.recipient"):
+            check_confined(store, rel)   # both before either: a refusal on the second must not follow a replaced first
+        sealed = gpg("--trust-model", "always", "--no-encrypt-to", "--encrypt", "--recipient-file", pub,
+                     stdin=_sheet_text().encode()).stdout
+        write_confined(store, f"recovery/{aid}.key.gpg", sealed)
+        write_confined(store, f"recovery/{aid}.recipient", (rfpr + "\n").encode("utf-8"), 0o644)
         git(store, "add", os.path.relpath(path, store), os.path.relpath(note, store))
         _commit(store, f"agent {login()}: recovery copy, encrypted to the recovery key {rfpr[-16:]}")
         _after_commit(store)

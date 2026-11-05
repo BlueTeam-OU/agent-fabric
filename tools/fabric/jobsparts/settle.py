@@ -285,10 +285,16 @@ def _pr_state(repo: str, number: str) -> str:
     return str(vcs.gh.pr_view(int(number), ["state"], repo=repo).get("state") or "")
 
 
-def _landed(job: dict, found: dict, problems: list[str], pr_state=_pr_state) -> list[str]:
+def _pr_head(repo: str, number: str) -> str:
+    """The commit a pull request ended at (its head when it merged); "" when gh does not say."""
+    return str(vcs.gh.pr_view(int(number), ["headRefOid"], repo=repo).get("headRefOid") or "")
+
+
+def _landed(job: dict, found: dict, problems: list[str], pr_state=_pr_state, pr_head=_pr_head) -> list[str]:
     """The artifacts that show the work on the default branch, for `done`: merged PRs, commits on origin's default branch, replies.
-    `pr_state(repo, number)` asks gh for a pull request's state; `sweep` hands in one that remembers, so a PR named by many jobs is asked once."""
-    landed, opened = [], []
+    `pr_state(repo, number)` asks gh for a pull request's state and `pr_head` for the commit it ended at; `sweep` hands in ones that
+    remember, so a PR named by many jobs is asked once."""
+    landed, opened, merged = [], [], []
     wc = checkout_of(job)
     for repo, number in found["prs"]:
         try:
@@ -297,6 +303,8 @@ def _landed(job: dict, found: dict, problems: list[str], pr_state=_pr_state) -> 
             problems.append(f"could not tell whether {repo}#{number} is merged ({getattr(e, 'reason', e)})")
             continue
         (landed if state == "MERGED" else opened if state == "OPEN" else []).append(f"{repo}#{number} {state.lower()}")
+        if state == "MERGED":
+            merged.append((repo, number))
     if found["shas"] and wc:
         try:
             default = vcs.default_branch(wc)
@@ -313,13 +321,24 @@ def _landed(job: dict, found: dict, problems: list[str], pr_state=_pr_state) -> 
             if vcs.question(wc, "merge-base", "--is-ancestor", tip, f"refs/remotes/origin/{default}"):
                 landed.append(f"branch {name} on origin/{default}")
             else:
-                unfolded.append(name)
+                unfolded.append((name, tip))
         except vcs.VcsError as e:
             problems.append(f"could not tell whether branch {name} is on the default branch ({e})")
-    # A squash- or rebase-merged pull request leaves its branch un-folded: other landed evidence settles the job, and
-    # only a branch with nothing beside it is refused.
-    if unfolded and not landed:
-        problems.append(f"branch {', '.join(unfolded)} is not on origin/{default}: it is delivered, not done (or fold it first)")
+    # A squash- or rebase-merged pull request leaves its branch un-folded, so the branch is excused only by a merged pull request
+    # the job names that ended at the branch's tip: any other landed evidence says nothing of the work on this branch.
+    if unfolded:
+        heads, asked_ok = set(), True
+        for repo, number in merged:
+            try:
+                heads.add(pr_head(repo, number))
+            except (vcs.gh.GhError, ValueError) as e:
+                asked_ok = False
+                problems.append(f"could not tell where {repo}#{number} ended ({getattr(e, 'reason', e)})")
+        for name, tip in unfolded:
+            if tip in heads:
+                landed.append(f"branch {name} carried by a merged pull request")
+            elif asked_ok:
+                problems.append(f"branch {name} is not on origin/{default}, and no merged pull request the job names ended at its tip: it is delivered, not done (or fold it first)")
     landed += _replies(found, problems)
     if opened:
         problems.append(f"{', '.join(opened)} is still open: the job is delivered, not done (fabric-jobs deliver)")

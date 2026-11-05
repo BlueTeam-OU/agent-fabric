@@ -35,7 +35,7 @@ and threads), `update_binding` and
 `append_history` on top of both. A binding is per (agent, host): one
 written on another machine is refused by `read_binding` the way another
 agent's is, so a shared home never carries a role from one host to the
-next.
+next; only a rebind there reads it, to replace it.
 """
 from __future__ import annotations
 
@@ -248,7 +248,7 @@ def agent_lock(agent: str | None = None, *, shared: bool = False):
         hold.lock.release()
 
 
-def read_binding(agent: str | None = None) -> Binding | dict:
+def read_binding(agent: str | None = None, *, other_host: bool = False) -> Binding | dict:
     """The agent's runtime binding, or {} when none has been written.
 
     A binding that names a different agent than the directory it sits in
@@ -259,6 +259,12 @@ def read_binding(agent: str | None = None) -> Binding | dict:
     synced between hosts would otherwise let two instances of one login
     write over each other's binding (review, 2026-09-16). A move between
     hosts is a rebind there.
+
+    `other_host=True` is that rebind's own read (tools/fabric/role.py, under
+    the agent lock): it returns another host's binding so the rebind can
+    replace it, knowing what it installed. Advising a rebind that then
+    refused the same binding left a moved login no way back (external
+    review F10). Nothing else trusts such a record.
     """
     agent = agent or current_agent()
     path = binding_path(agent)
@@ -275,7 +281,7 @@ def read_binding(agent: str | None = None) -> Binding | dict:
         raise SystemExit(f"identity: {path} names agent {data.get('agent')!r}, "
                          f"but this is {agent!r}'s state directory")
     host = current_host()
-    if data.get("host") not in (None, host):
+    if data.get("host") not in (None, host) and not other_host:
         raise SystemExit(f"identity: {path} was written on host {data.get('host')!r}, but this is {host!r}: "
                          "the state directory is shared between hosts. Bind here (fabric-role bind <role>) "
                          "rather than trust another machine's binding.")
@@ -528,19 +534,23 @@ def _workingcopy():
 
 
 def resolve_context(cwd: str | None = None, session: str | None = None,
-                    agent: str | None = None) -> dict:
+                    agent: str | None = None, rebind: bool = False) -> dict:
     """The agent plus everything bound to it right now.
 
     `project` comes from the working copy `cwd` sits in when that copy is a
     registered project; otherwise from the agent's binding (the project the
     role was activated for). `project_source` says which. The working copy
     is reported as a path and as its basename — the basename is a label
-    for humans and logs, never an identity.
+    for humans and logs, never an identity. With `rebind`, another host's
+    binding is not refused but counts as none: a bind or unbind is about
+    to replace it, and its project and role are that host's, not ours.
     """
     agent = agent or current_agent()
     cwd = os.path.abspath(cwd or os.getcwd())
     wc = _workingcopy().resolve(cwd)
-    binding = read_binding(agent)
+    binding = read_binding(agent, other_host=rebind)
+    if binding.get("host") not in (None, current_host()):
+        binding = {}
     if wc.get("project"):
         project, source = wc["project"], "working-copy"
     elif binding.get("project"):

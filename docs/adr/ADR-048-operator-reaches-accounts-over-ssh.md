@@ -4,9 +4,9 @@
 **Status:** Accepted
 **Ratified:** owner, 2026-10-13, in the session ("record adr accepted", answering which Proposed records to accept)
 **Decision Makers:** the owner (ssh for the deck's panes, the forced command, the Qubes split); drafted by fabric-coordinator
-**Scope:** `runtime/provisioning/moveto/enter-ssh`, `runtime/provisioning/platform/qubes/ssh-template.sh`, `runtime/provisioning/platform/qubes/ssh-operator.sh`, `runtime/provisioning/platform/qubes/ssh-restore.sh`, `tools/fabric/ssh_hosts.py`, `bin/fabric-ssh-hosts`, the `sshd` property of a host in `runtime/hosts/registry.json`; how the operator's panes enter an account
+**Scope:** `runtime/provisioning/moveto/enter-ssh`, `runtime/provisioning/platform/qubes/ssh-template.sh`, `runtime/provisioning/platform/qubes/ssh-operator.sh`, `runtime/provisioning/platform/qubes/ssh-restore.sh`, `tools/fabric/ssh_hosts.py`, `bin/fabric-ssh-hosts`, the harness pane's `--wait` and its one `--resume` exception (`tools/fabric/control/harness_pane.py`, `tools/fabric/control/harness_restart.py`), the `sshd` property of a host in `runtime/hosts/registry.json`; how the operator's panes enter an account
 **Pillar:** P3
-**Evidence:** docs/live-checks/2026-10-09-ssh-operator.md
+**Evidence:** docs/live-checks/2026-10-09-ssh-operator.md, docs/live-checks/2026-11-04-harness-restart.md
 
 ## 1. Context and Problem
 
@@ -27,7 +27,7 @@ TemplateVM at every boot. openssh-server is not installed there.
 
 The operator reaches each agent account over ssh to the loopback address,
 with one operator key whose every use is fenced by a forced command,
-`enter-ssh`, that does one of four things and nothing else. sshd takes
+`enter-ssh`, that does one of five things and nothing else. sshd takes
 keys only from a root-owned directory, so no agent can add a key to its
 own account. The host key is pinned in the host registry from a read on
 the host, and `known_hosts` is generated from the registry. sudo stays as
@@ -64,7 +64,7 @@ gives per key: whatever the client asks, sshd runs that command, with the
 request in `SSH_ORIGINAL_COMMAND`, and `restrict` turns off every
 forwarding, the agent, X11, user-rc and the pty for that key even if the
 server configuration were loosened, and `pty` gives back the one the panes
-need. Accepting four exact words, compared whole,
+need. Accepting five exact words, compared whole,
 leaves no parsing to get wrong. The argument reaches `enter` as a
 positional parameter of a login shell, so it is never shell text.
 
@@ -82,7 +82,7 @@ checkout's `enter`.
 
 The account's login files (`~/.bash_profile`, `~/.bashrc`) run first, in
 the login shell, before `enter`, and may replace it. What the root-owned
-pair guarantees is only that the operator's key opens one of the four
+pair guarantees is only that the operator's key opens one of the five
 modes through that login shell; the pane then shows what the account makes
 it show, as on the sudo path, and so does its checkout's bootstrap. The
 operator treats an agent's pane as that agent's, never as a trusted
@@ -124,8 +124,17 @@ then the forced command.
    positional parameter, never placed in the command string; `attach`
    reaches `enter` as its mode `--attach`, which draws the pane of the
    account's own FleetDeck server (`agent-fabric-harness.service`) instead
-   of starting a session, so the session outlives the connection. Anything
-   else is one line on stderr and exit 2.
+   of starting a session, so the session outlives the connection. That
+   pane runs `enter --wait`, at a boot, a crash restart and `harness-start`
+   alike, with one exception (A 2026-11-04): after `fabric-ctl <login|all>
+   harness-restart`, which restarts the unit only when every session of the
+   account is idle and one account at a time, the one pane step that follows
+   runs `--resume`. The account itself writes the one-shot marker in its own
+   state directory (`harness_pane.py mark-resume`); the step consumes it, a
+   marker older than ten minutes or unreadable reads as none, and a restart
+   that fails removes it, or, when that removal fails too, leaves it to lapse
+   ten minutes after it was written. Anything else is one line on stderr and
+   exit 2.
 5. A host's sshd is `sshd` in its registry entry: `null` (or absent) until
    provisioned, then `{"address", "port", "host_keys"}`, `host_keys` the
    host's public keys as `<type> <base64>`. The keys are read on the host
@@ -209,3 +218,4 @@ The body above reads current; each change's full note is in [history/ADR-048-ame
 |---|---|---|
 | 2026-10-13 | loopback exempt from per-source penalties; MaxStartups above the deck's burst | §5 rule 1 |
 | 2026-10-31 | `attach`, the fifth word: the deck attaches to the account's harness pane | §5 rule 4 |
+| 2026-11-04 | the harness pane's one `--resume`: after an idle account's `harness-restart` | §5 rule 4 |

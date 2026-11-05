@@ -460,6 +460,93 @@ def main() -> int:
                 os.environ["AGENT_FABRIC_TRIAL_MIN_FREE_KB"] = old
         check("a path that is not there has no room", tm.free_kb_of(os.path.join(scratch, "nope")) == 0)
 
+        print("a git that runs out of time is ended with what it started (#477's sibling list)")
+        bindir, kid_file = os.path.join(scratch, "slow-git-bin"), os.path.join(scratch, "slow-git.kid")
+        os.makedirs(bindir)
+        with open(os.path.join(bindir, "git"), "w") as fh:
+            # A merge's driver or a fetch's remote helper: a child that outlives git when only git is killed.
+            fh.write(f"#!/bin/bash\nsleep 300 &\necho $! > {kid_file}\nwait\n")
+        os.chmod(os.path.join(bindir, "git"), 0o755)
+        saved_path, saved_bound = os.environ["PATH"], tw.WORKTREE_TIMEOUT_S
+        kid = 0
+        try:
+            os.environ["PATH"] = bindir + os.pathsep + saved_path
+            tw.WORKTREE_TIMEOUT_S = 1
+            try:
+                tw.merge_all(scratch, ["0" * 40], ["h/l/feat/slow"])
+                check("the timed-out merge is a GitError", False)
+            except tm.git.GitError as e:
+                check("the timed-out merge is a GitError naming the bound", "no answer within 1 s" in str(e))
+            kid = int(open(kid_file).read())
+            time.sleep(0.2)
+            try:
+                with open(f"/proc/{kid}/stat") as fh:
+                    gone = fh.read().rsplit(")", 1)[1].split()[0] == "Z"
+            except OSError:
+                gone = True
+            check("the merge's child is gone too", gone)
+        finally:
+            os.environ["PATH"], tw.WORKTREE_TIMEOUT_S = saved_path, saved_bound
+            if kid:
+                try:
+                    os.kill(kid, signal.SIGKILL)
+                except OSError:
+                    pass
+
+        print("a signal between the check's spawn and its record still finds it (#477's sibling list)")
+        real_popen, seen = tm.subprocess.Popen, []
+
+        def popen_then_term(*a, **kw):
+            proc = real_popen(*a, **kw)
+            os.kill(os.getpid(), signal.SIGTERM)
+            for _ in range(1000):   # bytecodes, at which a handler runs if the signal is not held
+                pass
+            return proc
+        saved_term = signal.signal(signal.SIGTERM, lambda _s, _f: sys.exit(143))
+        room3 = os.path.join(scratch, "spawn-room")
+        os.makedirs(room3)
+        proc_pid = 0
+        try:
+            tm.subprocess.Popen = popen_then_term
+            try:
+                tm.run_check(room3, ["sleep", "300"], "60", "", HERE, seen.append)
+                check("the held TERM ends the run", False)
+            except SystemExit as e:
+                check("the held TERM ends the run, 143", e.code == 143)
+            check("the check's pid was recorded before the TERM ran", len(seen) == 1)
+            proc_pid = seen[0] if seen else 0
+        finally:
+            tm.subprocess.Popen = real_popen
+            signal.signal(signal.SIGTERM, saved_term)
+            if proc_pid:
+                try:
+                    os.killpg(proc_pid, signal.SIGKILL)
+                    os.waitpid(proc_pid, 0)
+                except OSError:
+                    pass
+            else:
+                # Not recorded: the runner leads its own session in the room, found by its cwd.
+                for name in os.listdir("/proc"):
+                    try:
+                        if name.isdigit() and os.readlink(f"/proc/{name}/cwd") == room3:
+                            os.kill(int(name), signal.SIGKILL)
+                    except OSError:
+                        pass
+
+        print("the check runs with the mask it was called with, not the one held at its spawn (PR 482 round 1 F1)")
+        def sig_blk(status: str) -> int:
+            return int(next(l for l in status.split("\n") if l.startswith("SigBlk:")).split()[1], 16)
+        before = sig_blk(open("/proc/self/status").read())
+        room4 = os.path.join(scratch, "mask-room")
+        os.makedirs(room4)
+        rc, out = tm.run_check(room4, ["cat", "/proc/self/status"], "60", "", HERE, lambda _pid: None)
+        check("the mask probe ran", rc == 0 and "SigBlk:" in out)
+        check("the check's SigBlk is the caller's", rc == 0 and sig_blk(out) == before)
+        check("the caller's mask is back after the spawn", sig_blk(open("/proc/self/status").read()) == before)
+        started_at = time.monotonic()
+        rc, _ = tm.run_check(room4, ["sleep", "30"], "1", "", HERE, lambda _pid: None)
+        check("a 1 s bound ends the check in about 1 s", rc == 124 and time.monotonic() - started_at < 5)
+
         print("the help is the bash's header, nothing else")
         check("first and last line", tm.HELP.startswith("Do these branches combine?") and tm.HELP.endswith("(default 1 GiB)"))
 

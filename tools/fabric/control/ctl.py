@@ -22,12 +22,14 @@ bin/fabric-ctl runs this on the pinned Python).
     fabric-ctl <login|all> states [--follow] [--json]
     fabric-ctl <coordinator> switch
     fabric-ctl <login|all> control-start | control-stop | harness-start | harness-stop [--include-self] [--json]
+    fabric-ctl <login|all> harness-restart [--include-self] [--json]
     fabric-ctl keygen [--force]
     fabric-ctl <login> <action-op> ... --via hostexec      an action to one account with no relay (control/breakglass.py)
 
 The control-start / control-stop / harness-start / harness-stop ops are the exception: they send no request
 and read no replies (the agent that would answer is what they start or stop), and
-their --timeout bounds each host call. Everything below is about the others.
+their --timeout bounds each host call. harness-restart (control/harness_restart.py) is
+a sequence of them that asks `states` and `presence` of each account between the steps. Everything below is about the others.
 
 A login becomes an address through the registry's placement
 (<host>/<login>); `all` is every placement that is an agent (a human login
@@ -117,7 +119,7 @@ from control.selftest import SELFTEST_BUDGET_S
 from control.restart import RESTART_BUDGET_S
 from control.sessions import SESSION_ID
 from control.sign import ACTION_OPS, ACTION_TTL_MAX_S, generate_operator_key, public_key_from, sign_request
-from control import units
+from control import harness_restart, units
 from control.branches_op import BRANCHES_SWEEP_BUDGET_S
 from control.clone import CLONE_BUDGET_S
 from control.gateway import GATEWAY_INSTALL_BUDGET_S
@@ -293,6 +295,10 @@ VERBS: tuple[Verb, ...] = (
     Verb("harness-stop", "Stop each account's harness unit: the session ends as `fabric-ctl restart` ends it (SIGTERM), the unit staying enabled. This session's own account's only with --include-self. Sends no request.",
          "fabric-ctl db-admin harness-stop", usage=(("<login|all> harness-stop [--json] [--include-self]", "stops it, the unit staying enabled; this session's own account's only with --include-self"),),
          args="[--json] [--include-self]", options=COMMON + (("--include-self", "also stop the harness of the account this session runs under"),)),
+    Verb(units.RESTART_OP, "Restart each idle account's harness unit, one at a time, so its pane resumes the session by itself. A session that is not idle refuses its account. This session's own account's only with --include-self. Sends no request.",
+         "fabric-ctl all harness-restart",
+         usage=(("<login|all> harness-restart [--json] [--include-self]", "one account at a time, only while every session in its state record is idle: stop the harness unit, restart it with a one-shot resume marker the account writes, and read back a new server and a new session; stops at the first failure; --timeout bounds each host call, default 60"),),
+         args="[--json] [--include-self]", options=COMMON + (("--include-self", "also restart the harness of the account this session runs under"),)),
     Verb("keygen", "Make the operator signing key an action needs. Takes no login.", "fabric-ctl keygen", usage=(("keygen [--force]", None),),
          target="", args="[--force]", options=(("--force", "replace an existing key"),)),
 )
@@ -640,7 +646,7 @@ def parse_args(argv: list[str]) -> dict:
             out["piece"] = a   # the word after `upgrade` is the piece, never a login
         elif titled and out["title"] is None:
             out["title"] = a   # the word after `jobs-add` or `pool-add` is the title, never a login
-        elif (a in OPS or a == "states" or a in units.UNIT_OPS) and out["targets"]:
+        elif (a in OPS or a == "states" or a in units.UNIT_OPS or a == units.RESTART_OP) and out["targets"]:
             out["op"] = a
         else:
             out["targets"].append(a)
@@ -653,7 +659,7 @@ def parse_args(argv: list[str]) -> dict:
         out["op"] = "branches-sweep"   # a read and an action are two ops: only the second is signed
     op = out["op"]
     if out["timeout"] is None:
-        out["timeout"] = (units.STEP_TIMEOUT_S if op in units.UNIT_OPS else 5 if op == "ping" else 120 if op == "memory" else 60 if op == "tokens" else 300 if op == "accounts"
+        out["timeout"] = (units.STEP_TIMEOUT_S if op in units.UNIT_OPS or op == units.RESTART_OP else 5 if op == "ping" else 120 if op == "memory" else 60 if op == "tokens" else 300 if op == "accounts"
                           else 200 if op == "disk" else (FABRIC_UPGRADE_BUDGET_S if out["piece"] == "fabric" else UPGRADE_BUDGET_S) if op == "upgrade"
                           else 240 if op == "secrets-sync" else CLONE_BUDGET_S if op == "clone" else RESTART_BUDGET_S if op == "restart" else TOOLS_INSTALL_BUDGET_S if op == "tools-install"
                           else GATEWAY_INSTALL_BUDGET_S if op == "gateway-install"
@@ -2000,6 +2006,9 @@ def _drift_cells(r: dict) -> str:
     n = dig(r.get("session"), "on_old_sign_in")
     if isinstance(n, int) and not isinstance(n, bool) and n > 0:
         out += f"  OLD ACCOUNT: {n} session{'s' if n != 1 else ''} (relaunch)"
+    n = dig(r.get("session"), "harness_server_replaced")
+    if isinstance(n, int) and not isinstance(n, bool) and n > 0:
+        out += f"  HARNESS SERVER OLDER THAN ITS BINARY (fabric-ctl {esc(r.get('account'))} harness-restart)"
     i = r.get("inbox")
     if isinstance(i, dict) and i.get("status") != "none":
         if i.get("status") != "ok" or i.get("lagging") is None:
@@ -2160,6 +2169,41 @@ def main(argv: list[str] | None = None, *, registry: str | None = None, call: Ca
         err(f"fabric-ctl: {picked['refused']}")
         return 2
     expected, everyone = picked["expected"], picked.get("everyone", False)
+    if args["op"] == units.RESTART_OP:
+        who = gz_whoami() if who is None else who
+        include_self = args.get("include_self", False)
+        if not everyone and not include_self and any(e["login"] == who.get("agent") for e in expected):
+            err(f"fabric-ctl: {args['op']} would end this session's own account's session; --include-self says it is meant; nothing run")
+            return 2
+        reg_path = registry if registry is not None else roots.hosts_registry(engine=FABRIC_ROOT, empty_is_set=True)
+
+        def probe(op: str) -> Callable[[str], dict]:
+            """The row `fabric-ctl <login> <op> --json` prints for one account, asked through this same command (so the
+            relay, token and operator checks are its own); what it cannot read is a StepFailed, never an empty row."""
+            def ask(login: str) -> dict:
+                lines: list[str] = []
+                errs: list[str] = []
+                rc = main(["--json", "--timeout", str(args["timeout"]), login, op], registry=registry, call=call, out=lines.append,
+                          err=errs.append, sleep=sleep, now=now, who=who, token=token)
+                try:
+                    row = js.json_parse(lines[0]) if lines else None
+                except ValueError:
+                    row = None
+                if not isinstance(row, dict) or (rc not in (0, 1)):
+                    raise units.StepFailed(f"{op} could not be read: {(errs or ['no answer'])[-1][:160]}")
+                answer = row.get("presence") if op == "presence" else row
+                if not isinstance(answer, dict):
+                    raise units.StepFailed(f"{op} could not be read: the account gave {row.get('status', 'no row')}")
+                return answer
+            return ask
+        unit_rows = harness_restart.run_all(expected, run=units_run or units.hostexec_run(reg_path), me=who.get("agent"), include_self=include_self,
+                                            timeout=args["timeout"], states_of=probe("states"), presence_of=probe("presence"), sleep=sleep, now=now)
+        if args["json"]:
+            for r in unit_rows:
+                out(js.stringify(r))
+        else:
+            out(units.table(unit_rows))
+        return 0 if harness_restart.ok(unit_rows) else 1
     if args["op"] in units.UNIT_OPS:
         # No request, no relay, no token: the agent that would answer is the thing being started or stopped.
         who = gz_whoami() if who is None else who

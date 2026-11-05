@@ -120,7 +120,9 @@ prefix cacheable, so a changed digest means changed content.
    is never silent.
 7. A binding is per (agent, host): `read_binding` refuses one naming
    another agent or written on another host (review; commit 31537fa). A move
-   between hosts is a rebind there.
+   between hosts is a rebind there: `fabric-role bind` and `unbind` alone
+   read the other host's binding, under the agent lock, to replace it; a
+   failed one restores it byte for byte.
 8. The **brief** (`identities/roles/<role>/brief.md`) is written without
    identifiers — no PR, record, migration or message number, no repository
    path; the **remit** (`.agent-fabric/roles/<role>.md` in the project)
@@ -181,3 +183,4 @@ The body above reads current; each change's full note is in [history/ADR-002-ame
 | Date | Amendment | Effect |
 |---|---|---|
 | 2026-10-17 | Holder addenda (ADR-060) | §5 rule 4: the holder's charter and brief addenda follow the role's charter and brief; the bytes depend on the addenda too |
+| 2026-11-04 | Rebind reads the other host's binding | §5 rule 7: bind and unbind read another host's binding to replace it, so the advised rebind no longer refuses itself |

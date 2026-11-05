@@ -10,7 +10,9 @@ beside the target, fsync, os.replace) and the binding through
 identity.update_binding under the agent lock — a crash, a full disk or a
 kill leaves the previous file whole (review, 2026-09-16; before this,
 transcripts, history.jsonl, ~/.claude.json and binding.json were
-rewritten in place, the binding bypassing write_binding). A merge into
+rewritten in place, the binding bypassing write_binding). The job list
+follows the same way: the working_copy and worktree of every unfinished job
+that names the old checkout or a path below it. A merge into
 an existing history directory is planned before anything moves and
 never overwrites: same name and bytes, one copy; same name and
 different bytes, both kept, the incoming one suffixed .from-<old key>;
@@ -124,6 +126,25 @@ def main() -> int:
         else:
             identity.update_binding(lambda rec: {**rec, **{k: newp for k in ("working_copy", "workspace") if rec.get(k) == oldp}}, login)
             note(f"{login}: binding updated")
+    # 5. the job list: an unfinished job's working_copy and worktree name the checkout, and the one-job guard, switch and `repoint`
+    #    all refuse a job whose recorded path is not where its work is. A closed job is a record of where the work was.
+    def follows(path):
+        return isinstance(path, str) and (path == oldp or path.startswith(oldp + os.sep))
+    def moved(path):
+        return newp + path[len(oldp):]
+    def open_jobs(doc):
+        return [j for j in doc.get("jobs") or [] if j.get("state") not in ("done", "dropped")
+                and any(follows(j.get(k)) for k in ("working_copy", "worktree"))]
+    pending = len(open_jobs(identity.read_jobs(login)))
+    if pending:
+        if dry: note(f"would: rewrite {pending} unfinished job(s) in jobs.json")
+        else:
+            def edit(doc):
+                for j in open_jobs(doc):
+                    for k in ("working_copy", "worktree"):
+                        if follows(j.get(k)): j[k] = moved(j[k])
+            identity.update_jobs(edit, login)
+            note(f"{login}: {pending} unfinished job(s) re-pointed")
     return 0
 
 

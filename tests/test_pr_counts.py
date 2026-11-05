@@ -309,6 +309,26 @@ def main() -> int:
                   got.endswith("head reviewed: claude ✓ codex absent (head abcdef12)"), got)
         else:
             check("…an app's PR, which would ask whom gh acts as, cannot be read", got == "cannot be read: the time allowed ran out", got)
+    # A second app PR in one run: whom gh acts as was named for the first, so this one asks GitHub nothing and its
+    # spent budget is no reason to leave it unread (#465 round 3 risk).
+    doc = dict(pr_doc(4, [commit("a" * 40, "x")], head=hx, reviews=[rv(claude_r["body"]), rv(gone_line, login="ci")]),
+               author=bot)
+    clock = iter([0.0] + [99.0] * 20)
+    spent = pr_counts.Budget(5, clock=lambda: next(clock))
+    saved_api = gh.api
+    review_posters.push_account.cache_clear()
+    try:
+        gh.api = lambda path, **kw: {"login": "ci"}
+        review_posters.push_account(5)
+        gh.api = lambda path, **kw: (_ for _ in ()).throw(AssertionError(f"asked {path}"))
+        got = pr_counts.describe("#4", "o/this", None, 4, doc, spent, lambda: (["claude"], ""), lambda: ["codex"])["line"]
+    except (pr_counts.Unreadable, AssertionError) as e:
+        got = f"cannot be read: {e}"
+    finally:
+        gh.api = saved_api
+        review_posters.push_account.cache_clear()
+    check("…a second app's PR, whose push account is already known, keeps its line, asking nothing",
+          "codex unavailable (allowance)" in got, got)
     check("the GraphQL read asks the author's type, so an app's PR can be told", "author { __typename login }" in pr_counts.FIELDS)
 
     print("legacy markers")

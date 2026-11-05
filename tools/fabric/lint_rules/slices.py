@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import re
+from collections import defaultdict
 from typing import Any
 
 from .base import FRONTMATTER_RE, PAYLOAD_DIRS, layout
@@ -112,6 +113,25 @@ def staleness_warnings(corpus: str, label: str, project: str | None = None) -> N
                        if a["status"] in memory_check.FLAGS),
                       next((f"{p['path']} is gone" for p in r.get("paths", []) if p["status"] == "stale-hard"), r["verdict"]))
         WARNINGS.append(f"{label}/{r['slice']}: section {r['heading']!r} is {r['verdict']} ({reason})")
+
+
+def link_warnings(corpus: str, label: str, fabric_root: str, project_corpus: str, other_corpora: list[str]) -> None:
+    """A `[[link]]` or *References:* topic that resolves to no slice its reader has (assembler/links.py) is a WARNING, one
+    per slice: the drain reports what it wrote that way (last-drain-report.json `unresolved_links`), and this names what
+    the committed corpus still carries, a hand edit or an older drain's included. Never a finding: a dead link is the
+    author's or the owner's to mend, and the corpus held some three hundred when the rule came (j565). Lint reads no
+    harvest, so a link to an undrained memory is `no such topic` here; the drain's report tells the two apart.
+    `project_corpus` is the corpus's own project's (empty for the fabric's memory/), `other_corpora` every other project's."""
+    from assembler.links import unresolved_links
+    if not os.path.isdir(corpus):
+        return
+    files = [os.path.relpath(os.path.join(d, f), corpus) for d, _dirs, fs in os.walk(corpus) for f in fs
+             if f.endswith(".md") and f not in ("README.md", "RUBRIC.md")]
+    dead: dict[str, list[str]] = defaultdict(list)
+    for row in unresolved_links(files, [corpus], fabric_root, project_corpus, other_corpora, set()):
+        dead[row["slice"]].append(f"[[{row['target']}]] ({row['why']})")
+    for rel, targets in sorted(dead.items()):
+        WARNINGS.append(f"{label}/{rel}: links to no slice its reader has: {', '.join(targets)}")
 
 
 def flat_and_dir_findings(base: str, label: str) -> list[str]:

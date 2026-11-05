@@ -5,6 +5,8 @@ in the FleetDeck server the unit just started, and run moveto's `enter --wait`
 in it.
 
     fabric-python harness_pane.py ensure
+    fabric-python harness_pane.py mark-resume
+    fabric-python harness_pane.py drop-resume
 
 CONTRACT
   what      The server (`agent-fabric-fleetdeck --session harness`) holds one
@@ -32,6 +34,30 @@ CONTRACT
             line enter-ssh runs, typed into the pane with `pane run` (quoted
             for the pane's shell). The login is the process's own, from the
             passwd database, never $USER.
+  resume    The one exception to --wait (ADR-048 amendment, the owner's, 2026-11-04):
+            `fabric-ctl <login> harness-restart` restarts the unit of an idle
+            account and runs `mark-resume` as that login first, which writes
+            RESUME_MARKER in the account's own state directory. An ensure that
+            finds the marker younger than RESUME_TTL_S types `--resume` in
+            place of `--wait`, so the session comes back without a person
+            pressing Enter, and removes the marker once the line has started
+            (or the pane was found running). A step that fails keeps it, but
+            harness-restart's own start sees that failure and has the marker
+            dropped at once, so the unit's automatic restart types --wait;
+            the lifetime bounds a marker nothing could drop (the drop itself
+            failed, or the verb died between its write and its end). No marker,
+            an old one, or anything that is not a plain file of the login's
+            own: `--wait`, as at a boot, a crash restart or harness-start; an
+            old or foreign one is removed and said. A marker entry that
+            cannot be read or removed is never fatal: the step types --wait
+            and says so, because a unit that cannot start is worse than a
+            pane that waits for an Enter. `drop-resume` removes the marker:
+            harness-restart runs it as the account when any step after the
+            write fails, so a restart that did not complete leaves no
+            resume behind for a later boot. The path is built from the
+            passwd home, never $HOME or XDG_STATE_HOME: the writer runs
+            under sudo and the reader under the user manager, and two
+            environments must name one file.
   read-back After the line, the pane must run a program that settles within
             READBACK_S; a pane still at its shell is an error, so the unit
             fails and Restart=on-failure starts it again, never a second line
@@ -49,8 +75,9 @@ CONTRACT
             the step's own `harness_pane:` line, not systemd's kill, says why
             the unit failed.
   stdout    nothing but one line saying what was done.
-  exit      0 the pane is open and enter was run, or was running; 1 any failure,
-            one `harness_pane: …` line on stderr, no traceback.
+  exit      0 the pane is open and enter was run, or was running (mark-resume:
+            the marker is written); 1 any failure, one `harness_pane: …` line
+            on stderr, no traceback; 2 a usage error.
 Every call to the binary is an argument list with a timeout and a checked
 status; the JSON it prints must have the shape read here or the step stops:
 a missing field is never read as "no pane".
@@ -62,6 +89,7 @@ import os
 import pwd
 import re
 import shlex
+import stat
 import subprocess
 import sys
 import time
@@ -83,6 +111,11 @@ STEP_S = 80
 SETTLE_S = 3
 STARTUP_S = 20
 READBACK_S = 20
+# Longer than the stop (TimeoutStopSec=100) and the start (90) harness-restart spends between writing the marker and the
+# ensure that reads it, shorter than a person's patience with a unit that failed and was left: a marker the verb wrote
+# and nothing consumed must not turn a later boot's --wait into a resume.
+RESUME_TTL_S = 600
+RESUME_MARKER = "harness-resume"
 
 Run = Callable[[list[str], float], "tuple[int, str, str]"]
 
@@ -168,8 +201,65 @@ def _id(value: Any, what: str) -> str:
     return value
 
 
-def enter_command(login: str, home: str) -> str:
-    return shlex.join([ENTER, os.path.join(home, "projects"), login, "--wait"])
+def enter_command(login: str, home: str, mode: str = "--wait") -> str:
+    return shlex.join([ENTER, os.path.join(home, "projects"), login, mode])
+
+
+def marker_path(login: str, home: str) -> str:
+    return os.path.join(home, ".local", "state", "agent-fabric", "agents", login, RESUME_MARKER)
+
+
+def mark_resume(login: str, home: str) -> str:
+    """Writes the marker, replacing any (a new mtime is the new lifetime). Atomic: an ensure never reads half a file."""
+    path = marker_path(login, home)
+    try:
+        os.makedirs(os.path.dirname(path), mode=0o700, exist_ok=True)
+        tmp = f"{path}.{os.getpid()}"
+        fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW, 0o600)
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            fh.write("resume\n")
+        os.replace(tmp, path)
+    except OSError as e:
+        raise Failed(f"cannot write {path}: {e.strerror or e}") from None
+    return path
+
+
+def read_marker(login: str, home: str, wall: Callable[[], float]) -> tuple[bool, str]:
+    """(True, "") for a fresh marker of ours; (False, "") for none; (False, why) for one that is removed, not trusted:
+    a symlink, a directory, another owner's file, or older than RESUME_TTL_S. Unknown never becomes a resume."""
+    path = marker_path(login, home)
+    try:
+        st = os.lstat(path)
+    except FileNotFoundError:
+        return False, ""
+    except OSError as e:
+        return False, f"cannot read the resume marker {path}: {e.strerror or e}; --wait"
+    if not stat.S_ISREG(st.st_mode) or st.st_uid != os.getuid():
+        why = "is not a plain file of this login's"
+    elif wall() - st.st_mtime > RESUME_TTL_S:
+        why = f"is older than {RESUME_TTL_S} s"
+    elif st.st_mtime - wall() > RESUME_TTL_S:
+        why = "is dated in the future"
+    else:
+        return True, ""
+    try:
+        drop_marker(login, home)
+    except Failed as e:
+        return False, f"the resume marker {why}, {e}; --wait"
+    return False, f"the resume marker {why}; removed, --wait"
+
+
+def drop_marker(login: str, home: str) -> None:
+    path = marker_path(login, home)
+    try:
+        if stat.S_ISDIR(os.lstat(path).st_mode):
+            os.rmdir(path)
+        else:
+            os.unlink(path)
+    except FileNotFoundError:
+        pass
+    except OSError as e:
+        raise Failed(f"cannot remove {path}: {e.strerror or e}") from None
 
 
 def wait_for_server(deck: Deck, clock: Callable[[], float], sleep: Callable[[float], None]) -> dict[str, Any]:
@@ -235,7 +325,19 @@ def shell_alone(deck: Deck, pane: str, clock: Callable[[], float], sleep: Callab
 
 
 def ensure(deck: Deck, login: str, home: str, clock: Callable[[], float] = time.monotonic,
-           sleep: Callable[[float], None] = time.sleep) -> str:
+           sleep: Callable[[float], None] = time.sleep, wall: Callable[[], float] = time.time) -> str:
+    resume, note = read_marker(login, home, wall)
+    said = _ensure(deck, login, home, clock, sleep, "--resume" if resume else "--wait")
+    if resume:
+        try:
+            drop_marker(login, home)
+            said += " (the resume marker of harness-restart consumed)"
+        except Failed as e:
+            note = f"{e}; it stays until its {RESUME_TTL_S} s are over"
+    return said + (f"; {note}" if note else "")
+
+
+def _ensure(deck: Deck, login: str, home: str, clock: Callable[[], float], sleep: Callable[[float], None], mode: str) -> str:
     deck.start(clock)
     listing = wait_for_server(deck, clock, sleep)
     workspaces = _field(listing, "workspaces", what="workspace list")
@@ -248,7 +350,7 @@ def ensure(deck: Deck, login: str, home: str, clock: Callable[[], float] = time.
     ours = [w for w in workspaces if w["label"] == LABEL]
     if len(ours) > 1:
         raise Failed(f"{len(ours)} workspaces are labelled {LABEL}; refusing to choose one")
-    command = enter_command(login, home)
+    command = enter_command(login, home, mode)
     if not ours:
         made = deck.call("workspace", "create", "--label", LABEL, "--cwd", os.path.join(home, "projects"), "--no-focus")
         pane = _id(_field(made, "root_pane", "pane_id", what="workspace create"), "workspace create")
@@ -277,12 +379,18 @@ def ensure(deck: Deck, login: str, home: str, clock: Callable[[], float] = time.
 
 def main(argv: list[str] | None = None) -> int:
     args = sys.argv[1:] if argv is None else argv
-    if args != ["ensure"]:
-        print("usage: harness_pane.py ensure", file=sys.stderr)
+    if args not in (["ensure"], ["mark-resume"], ["drop-resume"]):
+        print("usage: harness_pane.py ensure | mark-resume | drop-resume", file=sys.stderr)
         return 2
     try:
         entry = pwd.getpwuid(os.getuid())
-        print(ensure(Deck(), entry.pw_name, entry.pw_dir))
+        if args == ["mark-resume"]:
+            print(f"wrote {mark_resume(entry.pw_name, entry.pw_dir)}")
+        elif args == ["drop-resume"]:
+            drop_marker(entry.pw_name, entry.pw_dir)
+            print(f"no resume marker at {marker_path(entry.pw_name, entry.pw_dir)}")
+        else:
+            print(ensure(Deck(), entry.pw_name, entry.pw_dir))
     except Failed as e:
         print(f"harness_pane: {e}", file=sys.stderr)
         return 1

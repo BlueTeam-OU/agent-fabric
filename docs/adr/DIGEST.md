@@ -131,6 +131,7 @@ its record disagree, the record wins. Look it up, never read it whole:
 - Drift is printed by `fabric-status`; a binding is per (agent, host)
   (§5 rules 6–7). Brief is identifier-free, the remit anchored (§5 rule 8).
 - A 2026-10-17 — the holder's charter and brief addenda follow the role's (§5 rule 4, ADR-060).
+- A 2026-11-04 — bind and unbind read another host's binding to replace it (§5 rule 7).
 - Keywords: identity, login, whoami, role, bind, launch prompt, charter,
   brief, remit, drift, binding, dimensions.
 
@@ -1104,9 +1105,10 @@ its record disagree, the record wins. Look it up, never read it whole:
   break-glass; agents' own ssh keys stay future (§5 rules 7–8).
 - A 2026-10-13 — loopback exempt from per-source penalties; MaxStartups 100 (§5 rule 1).
 - A 2026-10-31 — `attach`: the deck attaches to the harness pane (§5 rule 4).
+- A 2026-11-04 — harness pane `--resume` once after an idle `harness-restart`, else `--wait` (§5 rule 4).
 - Keywords: ssh, sshd, operator, Fleet Deck, moveto, enter-ssh, forced
   command, authorized_keys, host key, known_hosts, Qubes, rc.local, attach,
-  harness, agent-fabric-harness.service.
+  harness, agent-fabric-harness.service, harness-restart.
 
 ### ADR-049 — Memory is retrieved through an MCP server, the curated corpus unchanged (Accepted)
 
@@ -1461,17 +1463,18 @@ its record disagree, the record wins. Look it up, never read it whole:
   filesystem, fresh `/tmp`, no network, proved by a start probe and a
   refused write per review; unproved, nothing runs (§2 B, §5 rule 3).
 - A posted review carries a `v2` marker (base, head, card, config hash) and a
-  coverage block naming every path of the range; a path `not read`
-  uncounts it, and a re-review's base is derived from the last marker,
-  fail-closed (§2 C, §5 rules 4–5).
-- The session posts the report; `review-bash-guard` stays only for other
+  coverage block naming every range path; a path `not read` uncounts
+  it; a re-review's base is derived from the last marker, fail-closed (§2 C,
+  §5 rules 4–5).
+- The session posts the report; `review-bash-guard` stays for other
   unisolated classes (§5 rules 6–7).
-- A 2026-10-31 — a PR's full review is handed earlier chains' open
-  findings to judge, and numbers past their labels (§5 rule 5).
-- A 2026-11-01 — a coverage block may carry a `default` entry for every
-  range path it does not name; a `not read` default makes the review
-  partial (§2 C, §5 rule 4).
+- A 2026-10-31 — a full review judges earlier chains' open findings and
+  numbers past their labels (§5 rule 5).
+- A 2026-11-01 — a coverage block's `default` entry stands for every
+  unnamed range path; `not read` makes it partial (§2 C, §5 rule 4).
+- A 2026-11-04 — a moved report's re-review reads the posted body's
+  `Finding:`/`Judgement:` lines, never the comment (§2 C, §5 rule 5).
 - Keywords: review class, reviewer, Bash guard, pinned tools, MCP,
   read-only, bubblewrap, sandbox, checks, coverage manifest, checkpoint
-  marker, coverage default, re-review, card_base, open findings,
-  open-code-review, P3.
+  marker, coverage default, moved report, re-review, card_base, open
+  findings, open-code-review, P3.

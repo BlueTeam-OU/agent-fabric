@@ -25,12 +25,14 @@ import signal
 import subprocess
 import sys
 import tempfile
+import textwrap
 import threading
 import time
 import unittest
 import urllib.parse
 import zlib
 from types import SimpleNamespace
+from unittest import mock
 
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(HERE, "tools", "fabric"))
@@ -270,6 +272,23 @@ class Daemon(Scratch):
 
 
 class Accept(unittest.TestCase):
+    def test_accept_names_a_malformed_composite_field_without_formatting_it_whole(self):
+        # External review S02: the refusal reason formatted `op`, `from`, `v`, `content`, `ttl_s` and
+        # `ts` with the recursive JavaScript String() before any sender or signature check, and a
+        # nested array raised RecursionError, which the poll loop took for the relay failing.
+        seen = agentd.Seen()
+        kw = dict(me=ME, operators=OPERATORS, ttl_s=30, seen=seen)
+        deep = json.loads("[" * 900 + "1" + "]" * 900)
+        agentd.accept(req(ttl_s=deep), **kw)    # a bad ttl takes the config's, as a garbage one does: it only must not raise
+        for field in ("op", "from", "v", "ts"):
+            r = agentd.accept(req(**{field: deep}), **kw)
+            self.assertFalse(r["ok"], field)
+            self.assertLess(len(r["why"]), 100, field)
+        self.assertEqual(agentd.accept({"content": deep}, **kw)["why"], "not json")
+        self.assertRegex(agentd.accept(req(**{"from": {"a": 1}}), **kw)["why"], r"^from object is not an operator$")
+        self.assertRegex(agentd.accept(req(op=["status"]), **kw)["why"], r"^op array$")
+        self.assertEqual(agentd.accept(req(), **kw)["ok"], True, "positive control: a well-formed request is still accepted")
+
     def test_accept_the_fence_case_by_case(self):
         seen = agentd.Seen()
         kw = dict(me=ME, operators=OPERATORS, ttl_s=30, seen=seen)
@@ -1054,6 +1073,41 @@ class Actions(Daemon):
         self.assertEqual(reply["status"], "refused")
         self.assertRegex(reply["reason"], r"^version 9\.9\.9 is not in the reviewed pin \(it has ")
         self.assertIn("gateway-install: not signed by", out.stderr)
+
+    def test_once_a_malformed_record_is_ignored_and_is_not_the_relays_failure(self):
+        # External review S02, the second invariant: whatever a record does to the decision, the
+        # poll loop's "relay unreachable, retry in 30 s" is for a failed read, never for a record.
+        r = self.with_relay()
+        deep = "[" * 900 + "1" + "]" * 900
+        bad = '{"v":1,"kind":"request","id":"bad","to":"*","op":%s,"from":"x","ts":"2026-01-01T00:00:00Z"}' % deep
+        out = self.once_after_wait(r, [(SELF, bad), (SELF, request(id="good-after"))])
+        self.assertNotIn("relay unreachable", out.stderr)
+        self.assertEqual(out.status, 0, out.stderr)
+        self.assertEqual([x["in_reply_to"] for x in r.replies()], ["good-after"], "the record after the bad one is answered")
+
+    def test_once_a_record_whose_decision_raises_is_skipped_by_id_and_is_not_the_relays_failure(self):
+        # The guard around accept(): whatever the decision on one record raises (a signing failure, a
+        # key lookup) must not reach the relay handler ("relay unreachable", 30 s). The driver makes
+        # accept() raise for one id and run the real decision for every other.
+        driver = os.path.join(self.scratch("agentd-driver-"), "driver.py")
+        executable(driver, textwrap.dedent(f"""\
+            import json, sys
+            sys.path.insert(0, {os.path.join(HERE, "tools", "fabric")!r})
+            from control import agentd
+            real = agentd.accept
+            def accept(rec, **kw):
+                if json.loads(rec["content"]).get("id") == "raises-1":
+                    raise RuntimeError("decision failed")
+                return real(rec, **kw)
+            agentd.accept = accept
+            sys.exit(agentd.main(sys.argv[1:]))
+            """))
+        r = self.with_relay()
+        with mock.patch.object(sys.modules[__name__], "AGENTD", driver):
+            out = self.once_after_wait(r, [(SELF, request(id="raises-1")), (SELF, request(id="good-after"))])
+        self.assertNotIn("relay unreachable", out.stderr)
+        self.assertRegex(out.stderr, r"ignored a record id-\d+ that could not be decided on \(RuntimeError: decision failed\)")
+        self.assertEqual([x["in_reply_to"] for x in r.replies()], ["good-after"], "the record after it is answered")
 
     def test_once_an_action_whose_ledger_cannot_be_written_is_refused_by_name_not_blamed_on_the_relay(self):
         k = sign.generate_operator_key()

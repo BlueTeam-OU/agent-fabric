@@ -328,8 +328,13 @@ def main() -> int:
         finally:
             with open(aid_path, "w") as fh:
                 fh.write(original_id)
-        parent_push({CHARTER: charter}, "parent: link", links={BRIEF: "/etc/passwd"})
-        refused("a symlink in the directory is refused (not a plain file), the parent having signed it", load(), "not a plain file", BRIEF)
+        # A link the parent signed no longer reaches the loader: the store refuses the incoming tree
+        # (S01 of the external review, 2026-11-04), so the loader's own refusal of a link is the second line.
+        parent_push({CHARTER: charter}, "parent: link", links={BRIEF: "/etc/passwd"}, take=False)
+        pushed = run(child, "push")
+        check("a symlink in the directory, the parent having signed it: the store refuses the tree, nothing applied",
+              pushed.returncode != 0 and "mode 120000" in pushed.stdout + pushed.stderr, pushed.stdout + pushed.stderr)
+        check("…and the install before it still loads", isinstance(load(), addenda.Holder))
         parent_push({CHARTER: charter, "sub/a": b"x"}, "parent: subdirectory")
         refused("a subdirectory is refused", load(), "not a plain file", "sub")
         parent_push({CHARTER: charter, BRIEF: b"x" * (70 * 1024)}, "parent: huge")

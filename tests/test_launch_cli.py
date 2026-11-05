@@ -1844,6 +1844,30 @@ echo "CLAUDE-ENDED:$(date +%s.%N)"
                 serve = next((r for r in gw_records() if r.get("event") == "serve"), {})
                 check(f"READY failure ({mode}): refused before the harness, the gateway not left running", rc == 1 and wants in out
                       and "CLAUDE-EXECCED" not in out and not alive(serve.get("pid", 0)) and not os.path.exists(state_file), (rc, out))
+            # A fresh relaunch the gateway refuses (#395 re-review F3): the refusal comes after opening_prompt has put the
+            # job in the prompt and dropped AGENT_FABRIC_FRESH_JOB, so the line that says how to mend it reads the job from
+            # the restart's own flag. The environment is the one restart() hands its relaunch, for a job the list holds.
+            subprocess.run([sys.executable, f"{fabric}/tools/fabric/jobs.py", "add", "ship the gateway thing"],
+                           env={**base, "AGENT_FABRIC_ROOT": fabric, "AGENT_FABRIC_STATE_DIR": state},
+                           stdout=subprocess.DEVNULL, check=True, timeout=60)
+            relaunch = {**gw_env, "AGENT_FABRIC_RESTARTING": "fresh:j1", "AGENT_FABRIC_FRESH_JOB": "j1",
+                        "AGENT_FABRIC_FRESH_NOTE": "PR merged"}
+            rm(gw_log)
+            rc, out = run("--provider", "gateway", plant={**relaunch, "FAKE_GW_MODE": "contract2"})
+            check("a fresh relaunch the gateway refuses names the job and the fresh start, after the refusal",
+                  rc == 1 and "speaks runtime contract 2" in out and "CLAUDE-EXECCED" not in out
+                  and has(r"^launch: RESTART NOT COMPLETED: the session that finished its job was not brought back fresh", out)
+                  and "run fabric-fresh --job j1, which brings job j1 fresh" in out, f"rc={rc}\n{out}")
+            # A launcher from before the job rode the flag hands this one a bare "fresh" and the job beside it (#485 F1).
+            rm(gw_log)
+            rc, out = run("--provider", "gateway", plant={**relaunch, "AGENT_FABRIC_RESTARTING": "fresh", "FAKE_GW_MODE": "contract2"})
+            check("…an older launcher's bare fresh flag: the refusal after the opening prompt still names the job",
+                  rc == 1 and "speaks runtime contract 2" in out
+                  and "run fabric-fresh --job j1, which brings job j1 fresh" in out, f"rc={rc}\n{out}")
+            rm(gw_log)
+            rc, out = run("--provider", "gateway", plant=relaunch)
+            check("…the control: the same relaunch the gateway accepts had the job in its opening prompt",
+                  rc == 0 and has(r"^CLAUDE-EXECCED:.*It is for your job j1, ship the gateway thing", out), f"rc={rc}\n{out}")
             rm(gw_log)
             rc2, out2 = run("--provider", "gateway", plant=gw_env)
             check("the control: the same launch with nothing dropped runs", rc2 == 0 and "CLAUDE-EXECCED" in out2, out2)

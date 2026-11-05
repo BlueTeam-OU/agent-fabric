@@ -487,6 +487,58 @@ def verify_signed_by(store: str, commit: str, keys: dict[str, bytes], *, unknown
     return commit
 
 
+# What a store holds (entries.py, statecopy.py, backup.py, the store's own two
+# id files); settings/ takes any name settings_put can commit (_settings_ok).
+_STORE_PATH_RE = re.compile(
+    r"\.gpg-id|\.agent-id"
+    r"|env/[A-Z][A-Z0-9_]{0,63}\.gpg"
+    r"|state/[0-9a-f-]{36}\.(?:tar\.gpg|meta)"
+    r"|recovery/[0-9a-f-]{36}\.(?:key\.gpg|recipient)")
+# A tree judged from the root is diffed against the empty tree; `--root` is no
+# substitute: it compares a non-root commit with its first parent, and a merge
+# with nothing. The empty tree's id is the store's own object format's (a
+# sha256 store has another), so git is asked for it.
+def _empty_tree(store: str) -> str:
+    return git(store, "hash-object", "-t", "tree", "/dev/null").stdout.decode().strip()
+
+
+def _settings_ok(path: str) -> bool:
+    """settings_put's own rule (settings._read_tree): any name that git does
+    not read as its own, in directories; never a dot part."""
+    parts = path.split("/")
+    return parts[0] == "settings" and len(parts) > 1 and not any(
+        p in ("", ".", "..") or p.startswith(".git") for p in parts)
+
+
+def _tree_reason(store: str, base: str | None, tip: str) -> str | None:
+    """Why the tree `tip` is not one to apply, or None: every path it adds or
+    changes since `base` (everything, from the root) is one a store holds, as
+    a regular non-executable file; a link, a submodule or an executable is
+    refused before any checkout can write through it. Deletions of a path are
+    judged by the path alone."""
+    out = git(store, "diff-tree", "-r", "--no-renames", "--raw", "-z", base or _empty_tree(store), tip).stdout
+    fields = out.split(b"\0")
+    for meta, raw in zip(fields[0::2], fields[1::2]):
+        mode = meta.split()[1].decode()
+        path = raw.decode("utf-8", "replace")
+        if not (_STORE_PATH_RE.fullmatch(path) or _settings_ok(path)):
+            return f"it holds {path!r}, which is no path of a store"
+        if mode not in ("100644", "000000"):
+            return f"it holds {path!r} as mode {mode}, not a regular file"
+    return None
+
+
+def require_tree(store: str, tip: str) -> None:
+    """The whole tree of `tip` judged, for a head taken without a signature
+    check (a first-contact bundle, a fresh clone of a verified remote):
+    StoreError, nothing applied."""
+    reason = _tree_reason(store, None, tip)
+    if reason:
+        commit = _full(store, tip)
+        _record_refusal(store, commit, reason)
+        raise StoreError(f"commit {commit[:12]} refused: {reason}; nothing applied (ADR-042)")
+
+
 def _verify_incoming(store: str, tip: str, agent_id: str | None = None, fabric: str | None = None,
                      *, from_root: bool = False) -> str:
     """Every commit `tip` would bring that the store neither holds nor trusts
@@ -521,6 +573,12 @@ def _verify_incoming(store: str, tip: str, agent_id: str | None = None, fabric: 
             reason = _unsigned_reason(store, c, allowed, subkeys, env)
             if reason:
                 raise refuse(c, reason)
+    # A writer's signature vouches for who wrote the tree, not for what is in
+    # it: a signed link or a path outside the store's layout would be written
+    # through by the checkout that follows.
+    reason = _tree_reason(store, None if from_root else base, tip)
+    if reason:
+        raise refuse(tip, reason)
     return tip
 
 

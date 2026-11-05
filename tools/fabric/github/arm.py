@@ -311,7 +311,7 @@ What it refuses, in order, and why:
 
 Then: reads the PR's head again and refuses when it is not the head the gates read (pr-gate's own read of
 the head included: a count of another head is no count of this one); posts the policy's armed_status
-(fabric/armed by default; none where a repository sets it null), state success, on that head — the
+(always fabric/armed, the one name disarm-on-push reads; none where a repository sets it null), state success, on that head — the
 check an auto repository's ruleset requires, so a head pushed after this arming waits for an arming
 of its own, and the one disarm-on-push keeps an arming by; posts the arming basis as a comment ("Arming basis: <text> —
 <W> work commits, head <sha>"; a security boundary armed at 8 or more
@@ -1048,6 +1048,11 @@ def arm(argv: list[str]) -> int:
         files += [f["previous_filename"] for f in listed if f.get("previous_filename")]
     except (gh.GhError, AttributeError, TypeError):
         raise Unanswered(f"cannot list #{num}'s files") from None
+    # Past the cap the list is a part of the change: the boundary, the class and the no-CI checks below would each
+    # judge only that part, so none of them is read from it (external review F08).
+    if len(listed) >= common.PR_FILE_LIST_CAP:
+        raise Unanswered(f"#{num} lists {len(listed)} files, GitHub's cap: the list may be cut, so neither the boundary"
+                         f" nor a class can be read from it; split the PR, or the owner merges it by hand")
     boundary_files = [f for f in files if not (exempt_re and exempt_re.search(f)) and boundary_re.search(f)]
     is_boundary = False
     if boundary:

@@ -33,4 +33,5 @@ usage: fabric-ctl <login|all> [status|usage|identity|keys|fabric|session|script|
        fabric-ctl <login|all> control-stop [--json] [--include-self]   (stops it, the unit staying enabled; this session's own account's agent only with --include-self)
        fabric-ctl <login|all> harness-start [--json]   (starts each account's stopped harness unit through the host executor, read back by is-active; sends no request; --timeout bounds each host call, default 60)
        fabric-ctl <login|all> harness-stop [--json] [--include-self]   (stops it, the unit staying enabled; this session's own account's only with --include-self)
+       fabric-ctl <login|all> harness-restart [--json] [--include-self]   (one account at a time, only while every session in its state record is idle: stop the harness unit, restart it with a one-shot resume marker the account writes, and read back a new server and a new session; stops at the first failure; --timeout bounds each host call, default 60)
        fabric-ctl keygen [--force]

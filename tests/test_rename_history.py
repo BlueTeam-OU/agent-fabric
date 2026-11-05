@@ -57,6 +57,20 @@ def binding_write(home: str, rec: dict) -> None:
         del os.environ["AGENT_FABRIC_STATE_DIR"]
 
 
+def jobs_write(home: str, jobs: list[dict]) -> None:
+    spec = importlib.util.spec_from_file_location("i", IDENTITY); i = importlib.util.module_from_spec(spec); spec.loader.exec_module(i)
+    os.environ["AGENT_FABRIC_STATE_DIR"] = os.path.join(home, "state")
+    try:
+        i.update_jobs(lambda doc: doc.update(jobs=jobs, seq=len(jobs)))
+    finally:
+        del os.environ["AGENT_FABRIC_STATE_DIR"]
+
+
+def jobs_read(home: str) -> dict:
+    with open(os.path.join(home, "state", "agents", LOGIN, "jobs.json"), encoding="utf-8") as fh:
+        return {j["id"]: j for j in json.load(fh)["jobs"]}
+
+
 def binding_read(home: str) -> dict:
     return json.load(open(os.path.join(home, "state", "agents", LOGIN, "binding.json"), encoding="utf-8"))
 
@@ -78,6 +92,38 @@ def test_plain_rename_moves_everything_and_rewrites_the_fields(tmp: str) -> None
     assert b["agent"] == LOGIN and b["host"], "the binding was not written through identity (no OS stamp)"
     for d in (pdir_new, os.path.join(home, ".claude"), home, os.path.join(home, "state", "agents", LOGIN)):
         assert not [n for n in os.listdir(d) if n.startswith(".tmp-")], f"a temporary was left in {d}"
+
+
+def test_unfinished_jobs_follow_the_checkout(tmp: str) -> None:
+    home, oldp, newp = fixture(tmp, "jobs")
+    other = os.path.join(home, "projects", "other")
+    binding_write(home, {"role": "db-admin", "working_copy": oldp})
+    jobs_write(home, [
+        {"id": "j1", "state": "active", "working_copy": oldp, "worktree": oldp, "title": "t"},
+        {"id": "j2", "state": "queued", "working_copy": oldp, "title": "t"},
+        {"id": "j3", "state": "delivered", "working_copy": other, "worktree": oldp + "/sub", "title": "t"},
+        {"id": "j4", "state": "done", "working_copy": oldp, "worktree": oldp, "title": "t"},
+        {"id": "j5", "state": "active", "working_copy": oldp + "-sibling", "title": "t"},
+        {"id": "j6", "state": "paused", "working_copy": other, "title": "t"},
+    ])
+    r = run(home, oldp, newp)
+    assert r.returncode == 0, r.stderr
+    jobs = jobs_read(home)
+    assert (jobs["j1"]["working_copy"], jobs["j1"]["worktree"]) == (newp, newp), jobs["j1"]
+    assert jobs["j2"]["working_copy"] == newp and "worktree" not in jobs["j2"], jobs["j2"]
+    assert jobs["j3"]["working_copy"] == other and jobs["j3"]["worktree"] == newp + "/sub", jobs["j3"]
+    assert jobs["j4"]["working_copy"] == oldp and jobs["j4"]["worktree"] == oldp, "a closed job's record was rewritten"
+    assert jobs["j5"]["working_copy"] == oldp + "-sibling", "a sibling that shares the prefix was rewritten"
+    assert jobs["j6"]["working_copy"] == other
+    assert "3 unfinished job(s)" in r.stderr, r.stderr
+
+
+def test_dry_run_leaves_jobs_alone(tmp: str) -> None:
+    home, oldp, newp = fixture(tmp, "jobs-dry")
+    jobs_write(home, [{"id": "j1", "state": "active", "working_copy": oldp, "title": "t"}])
+    r = run(home, oldp, newp, dry=True)
+    assert r.returncode == 0 and "would: rewrite 1 unfinished job(s)" in r.stderr, r.stderr
+    assert jobs_read(home)["j1"]["working_copy"] == oldp
 
 
 def test_merge_keeps_both_files_when_names_collide_with_different_bytes(tmp: str) -> None:
@@ -118,7 +164,8 @@ def test_dry_run_touches_nothing(tmp: str) -> None:
 def main() -> int:
     cases = [test_plain_rename_moves_everything_and_rewrites_the_fields,
              test_merge_keeps_both_files_when_names_collide_with_different_bytes,
-             test_merge_refuses_a_directory_on_both_sides, test_dry_run_touches_nothing]
+             test_merge_refuses_a_directory_on_both_sides, test_dry_run_touches_nothing,
+             test_unfinished_jobs_follow_the_checkout, test_dry_run_leaves_jobs_alone]
     failures = 0
     with tempfile.TemporaryDirectory() as tmp:
         for case in cases:

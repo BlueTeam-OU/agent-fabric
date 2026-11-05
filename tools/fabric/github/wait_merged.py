@@ -136,7 +136,7 @@ HERE = os.path.dirname(os.path.realpath(__file__))
 sys.path.insert(0, os.path.dirname(HERE))
 import gh  # noqa: E402
 import poll_pace  # noqa: E402
-from github import actions_health, arm, landed  # noqa: E402
+from github import actions_health, arm, arm_policy, landed  # noqa: E402
 from github.review_status.base import Die  # noqa: E402
 # These stay importable from here, where the unit suite reaches them.
 from github.wait_merged_input import (  # noqa: E402, F401
@@ -316,14 +316,18 @@ class Watch:
 
     def required_checks_configured(self) -> bool:
         """At least one required context on the base branch's rules, every
-        one of them reported by the Actions app. Anything else declines."""
+        one of them reported by the Actions app. Anything else declines.
+        The arming's own status is left out of both counts: fabric-pr arm
+        posts it with a session's token, no App's, and no workflow run would
+        report it, so counting it as "other" declined every auto repository."""
         base = self.pr_field("baseRefName")
         if not isinstance(base, str) or not base:
             return False
         try:
             rules = gh.api(f"repos/{self.repo}/rules/branches/{base}")
             contexts = [c for r in rules if r.get("type") == "required_status_checks"
-                        for c in ((r.get("parameters") or {}).get("required_status_checks") or [])]
+                        for c in ((r.get("parameters") or {}).get("required_status_checks") or [])
+                        if c.get("context") != arm_policy.ARMED_STATUS]
             actions_n = sum(1 for c in contexts if c.get("integration_id") == GITHUB_ACTIONS_INTEGRATION_ID)
             other_n = len(contexts) - actions_n
         except (gh.GhError, TypeError, KeyError, AttributeError):

@@ -343,7 +343,7 @@ def report(run: Run) -> int:
         return bool(run.shared.get((klass, topic)) if label == "shared" else run.per_role.get(label, {}).get((klass, topic)))
     report["held_back"] = sorted(k for k in report.get("held_back") or [] if k in run.held_back or not written_now(k))
     # Derived from the corpus as it stands, like the collisions: a link a later drain made good leaves the list. Reported, never
-    # rewritten, and never a failure (the lint rule that reads it is the owner's).
+    # rewritten, and never a failure: lint (lint_rules/slices.link_warnings) names what the whole committed corpus carries.
     undrained = {n.removesuffix(".md") for src in [*(report.get("harvest_sources") or {}).values(), harvest_meta]
                  for n in (src or {}).get("skipped_no_roles_class") or []}
     report["unresolved_links"] = unresolved_links(

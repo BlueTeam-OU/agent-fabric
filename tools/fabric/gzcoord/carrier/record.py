@@ -91,12 +91,16 @@ class Outbox:
         self._iso = iso_now
         self.path = os.path.join(directory, "deliveries.jsonl")
         self.done_path = os.path.join(directory, "delivered.jsonl")
-        self._fd = os.open(self.path, os.O_RDWR | os.O_CREAT | os.O_APPEND, 0o600)
+        # The lock is a file of its own, never replaced: a lock on the journal's inode is lost
+        # when a compaction replaces the journal, and a carrier that opened the old path before
+        # the replace then locks the unlinked inode and appends records no restart reads.
+        self._lock_fd = os.open(os.path.join(directory, "deliveries.lock"), os.O_RDWR | os.O_CREAT, 0o600)
         try:
-            fcntl.flock(self._fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            fcntl.flock(self._lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except OSError:
-            os.close(self._fd)
+            os.close(self._lock_fd)
             raise RecordError(f"{self.path} is held by another carrier") from None
+        self._fd = os.open(self.path, os.O_RDWR | os.O_CREAT | os.O_APPEND, 0o600)
         self.deliveries: dict[tuple[str, str], Delivery] = {}
         self._settled: deque[tuple[str, str]] = deque()      # keys of settled deliveries, oldest first
         self._load()
@@ -208,11 +212,8 @@ class Outbox:
             os.fsync(tmp.fileno())
             os.chmod(tmp.name, 0o600)
             tmp.close()
-            # The held flock is on the old inode; take the new file's before the
-            # old is unlinked, so there is no moment two carriers could both hold one.
             new_fd = os.open(tmp.name, os.O_RDWR | os.O_APPEND)
-            fcntl.flock(new_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-            os.replace(tmp.name, self.path)
+            os.replace(tmp.name, self.path)      # under the lock file's flock
             os.close(self._fd)
             self._fd = new_fd
             self._load_finished()
@@ -234,6 +235,7 @@ class Outbox:
 
     def close(self) -> None:
         os.close(self._fd)
+        os.close(self._lock_fd)
 
     # -- the record ------------------------------------------------------
     def queue(self, mid: str, to: str, text: str, payload_count: int, enc: str = "plain") -> Delivery:

@@ -9,6 +9,7 @@ import re
 import sys
 from collections import defaultdict
 from typing import Any
+import corrections
 from assembler.core import layout, CLASS_FILES, Run, in_report
 from assembler.slices import is_retire, read_existing_slice, claim_heading
 
@@ -360,34 +361,10 @@ def applied_stems(run: Run) -> list[tuple[str | None, str, str]]:
             previous = json.load(fh)
     except (OSError, ValueError):
         return []
-    found: list[tuple[str | None, str, str]] = []
-    for entry in (previous.get("applied_corrections") if isinstance(previous, dict) else None) or []:
-        if not (isinstance(entry, dict) and isinstance(entry.get("memory"), str) and isinstance(entry.get("slice"), str)):
-            continue
-        m = re.search(r"memory/(?:domains/)?([^/]+)/", entry["slice"])
-        role = None if not m or m.group(1) == "shared" else m.group(1)
-        found.append((role, entry["memory"], os.path.basename(entry["slice"]).removesuffix(".md")))
-    return found
+    return corrections.applied_stems((previous.get("applied_corrections") if isinstance(previous, dict) else None) or [])
 
 
-REFERENCES_RE = re.compile(r"^\*References: (.*)\*$", re.M)
-
-
-def point_text(text: str, names: dict[str, str]) -> str:
-    """`text` with every `[[name]]` and every name on a `*References: …*` line pointed at the slice it was written into.
-    The References line lists the memories a claim links (harvest_memory), so a link repointed and its citation left naming
-    the old topic would disagree inside one section. A rewritten line is sorted and deduplicated as
-    claim_block renders it; a line naming none of `names` is untouched."""
-    if not names:
-        return text
-    link = re.compile(r"\[\[(" + "|".join(re.escape(n) for n in sorted(names, key=len, reverse=True)) + r")\]\]")
-
-    def references(found: re.Match[str]) -> str:
-        items = found.group(1).split(", ")
-        if not any(i in names for i in items):
-            return found.group(0)
-        return "*References: " + ", ".join(sorted({names.get(i, i) for i in items})) + "*"
-    return REFERENCES_RE.sub(references, link.sub(lambda m: f"[[{names[m.group(1)]}]]", text))
+point_text = corrections.point_text
 
 
 def point_links(run: Run, moved: list[tuple[str | None, str, str]]) -> None:
@@ -397,14 +374,10 @@ def point_links(run: Run, moved: list[tuple[str | None, str, str]]) -> None:
     one. The corrections earlier drains applied count as moved too, so a link arriving in a later run, or again, is
     rendered the same way as the run that moved the memory. A name two slices claim is left as written: pointing at
     either would guess."""
-    stems: dict[tuple[str | None, str], set[str]] = defaultdict(set)
-    for role, name, stem in [*applied_stems(run), *moved]:
-        if name != stem:
-            stems[(role, name)].add(stem)
-    unique = {key: next(iter(found)) for key, found in stems.items() if len(found) == 1}
+    unique = corrections.unique_stems([*applied_stems(run), *moved])
 
     def point(claims: list[Any], scopes: tuple[str | None, ...]) -> None:
-        names = {name: stem for (r, name), stem in unique.items() if r in scopes}
+        names = corrections.names_in(unique, scopes)
         if not names:
             return
         for claim in claims:
@@ -420,7 +393,7 @@ def point_links(run: Run, moved: list[tuple[str | None, str, str]]) -> None:
                     claim["citations"] = {**claim["citations"], "memories": pointed_cites}
 
     def names_for(scopes: tuple[str | None, ...]) -> dict[str, str]:
-        return {name: stem for (r, name), stem in unique.items() if r in scopes}
+        return corrections.names_in(unique, scopes)
 
     for role, buckets in run.per_role.items():
         for group in buckets.values():

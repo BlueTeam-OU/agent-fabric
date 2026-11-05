@@ -21,6 +21,7 @@ import tempfile
 import threading
 import time
 import unittest
+from unittest import mock
 from datetime import datetime, timezone
 
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -788,6 +789,93 @@ class PortAdditions(unittest.TestCase):
         finally:
             os.kill = real
         self.assertFalse(U._alive(2 ** 22 + 12345))
+
+
+def running(pid: int) -> bool:
+    """Running, not merely present: a killed orphan is a zombie until its parent reaps it."""
+    try:
+        with open(f"/proc/{pid}/stat", encoding="utf-8", errors="replace") as fh:
+            return fh.read().rpartition(")")[2].split()[0] != "Z"
+    except OSError:
+        return False
+
+
+class InstallTimeoutOwnsDescendants(unittest.TestCase):
+    """A timed-out install is ended with everything it started before the host's
+    lease is released: the next account's install must not meet a straggler."""
+
+    def setUp(self) -> None:
+        tmp = tempfile.TemporaryDirectory(prefix="upgrade-desc-")
+        self.addCleanup(tmp.cleanup)
+        self.pidfile = os.path.join(tmp.name, "grandchild.pid")
+        self.addCleanup(self.reap)
+        self.hang = ["sh", "-c", f"sleep 300 >/dev/null 2>&1 & echo $! > {self.pidfile}; wait"]
+
+    def pid(self) -> int:
+        with open(self.pidfile, encoding="utf-8") as fh:
+            return int(fh.read())
+
+    def reap(self) -> None:
+        try:
+            if running(self.pid()):
+                os.kill(self.pid(), signal.SIGKILL)
+        except (OSError, ValueError):
+            pass
+
+    def test_default_run_timeout_ends_the_command_s_descendants_before_it_raises(self):
+        with self.assertRaises(subprocess.TimeoutExpired):
+            U.default_run(self.hang, timeout=1)
+        self.assertFalse(running(self.pid()), "the timed-out command's own child kept running")
+
+    def test_a_timeout_carries_what_the_command_had_written(self):
+        cmd = ["sh", "-c", "echo partial-out; echo partial-err >&2; exec sleep 300"]
+        with self.assertRaises(subprocess.TimeoutExpired) as cm:
+            U.default_run(cmd, timeout=1)
+        self.assertEqual((cm.exception.stdout, cm.exception.stderr), (b"partial-out\n", b"partial-err\n"))
+        self.assertEqual(U.last_line(cm.exception), "partial-err")
+
+    def test_the_tree_stop_speaks_as_upgrade_not_as_new_agent(self):
+        seen: list[str] = []
+        real = U.bounded.stop_tree
+        with mock.patch.object(U.bounded, "stop_tree", lambda proc, label="new-agent": (seen.append(label), real(proc, label))):
+            with self.assertRaises(subprocess.TimeoutExpired):
+                U.default_run(self.hang, timeout=1)
+        self.assertEqual(seen, ["upgrade"])
+
+    def test_default_run_interrupt_ends_the_command_s_descendants_too(self):
+        real = subprocess.Popen.communicate
+
+        def interrupted(proc, *a, **kw):
+            deadline = time.monotonic() + 10
+            while not os.path.exists(self.pidfile) and time.monotonic() < deadline:
+                time.sleep(0.02)
+            raise KeyboardInterrupt
+        with mock.patch.object(subprocess.Popen, "communicate", interrupted):
+            with self.assertRaises(KeyboardInterrupt):
+                U.default_run(self.hang, timeout=60)
+        self.assertIs(subprocess.Popen.communicate, real)
+        self.assertFalse(running(self.pid()), "an interrupt left the command's child running")
+
+    def test_the_lease_is_released_after_the_install_s_descendants_have_stopped(self):
+        f = Fx(self)
+        at_release: list[bool] = []
+        real = f.run
+
+        def run(cmd, **kw):
+            if len(cmd) > 1 and cmd[1] == "install":
+                return U.default_run(self.hang, **kw)
+            return real(cmd, **kw)
+
+        def lease():
+            class Held:
+                def release(self_) -> None:  # noqa: N805
+                    at_release.append(running(self.pid()))
+            return Held()
+        with mock.patch.object(U, "INSTALL_TIMEOUT_MS", 1000):
+            r = U.upgrade_once(req(), **f.opts(sessions=[], me="h/db-admin", run=run, lease=lease))
+        self.assertEqual(r["status"], "failed", r)
+        self.assertIn("timed out", r["reason"])
+        self.assertEqual(at_release, [False], "the lease was released while the install's child still ran")
 
 
 class ManagedGate(unittest.TestCase):

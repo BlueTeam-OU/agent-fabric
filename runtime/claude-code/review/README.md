@@ -168,6 +168,12 @@ as `card_base`, and the card is read there. A first base that is not a
 commit id (`origin/main`) is refused unless the request pins `card_base`
 (round 1's dispatch header names it as `base_sha`).
 
+**A finding-adjudication** reads the findings raised on one head, so its
+range is that head to itself (`H..H`), with `card_base` naming the
+commit the card is read at; a range from another base is refused, since
+gate 4c of `fabric-pr arm` counts its judgements only from a review of
+`H..H`.
+
 **The dispatch header.** The brief's first block is a fenced
 `agent-fabric-dispatch v1` JSON object: `dispatch_id` (minted at render),
 `parent_session_id`, `job_id` (the request's, else fabric-jobs' active

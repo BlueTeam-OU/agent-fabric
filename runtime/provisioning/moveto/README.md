@@ -46,6 +46,16 @@ starts a server (`fabric-ctl <login> harness-start` does). It excludes the other
 modes and takes no clone. A session in the unit is ended with
 `fabric-ctl <login> harness-stop`, never by hanging up a pane.
 
+The unit's pane types `--wait` and waits for a person's Enter, at a boot, after a
+crash and after `harness-start` alike, with one exception (the owner, 2026-11-04):
+`fabric-ctl <login|all> harness-restart` restarts the unit of an account whose
+sessions are all idle, one account at a time, and the one pane step that follows
+types `--resume` instead, so the session comes back without an Enter. The verb has
+the account itself write a marker in its own state directory
+(`~/.local/state/agent-fabric/agents/<login>/harness-resume`, written by
+`harness_pane.py mark-resume`); the pane step takes it once, and a marker older
+than ten minutes is removed and read as no marker. Nothing else writes it.
+
 Entering refreshes the account, best effort, before the shell opens: the
 fabric checkout is fast-forwarded (`git -C ~/projects/agent-fabric pull
 --ff-only origin main` — it is read-only for the account, so it can only be

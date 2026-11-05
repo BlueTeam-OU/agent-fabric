@@ -75,7 +75,7 @@ import roots  # noqa: E402
 from fabric_lint_rules.base import layout, workingcopy  # noqa: E402, F401
 from fabric_lint_rules.base import FRONTMATTER_RE, PAYLOAD_DIRS, _git, _tracked  # noqa: E402, F401
 from fabric_lint_rules.base import sibling_working_copies  # noqa: E402, F401
-from fabric_lint_rules.docs import BANNED_PATTERNS, CLASS_DOCS, DOC_PATH_EXEMPT, DOC_PATH_RE  # noqa: E402, F401
+from fabric_lint_rules.docs import BANNED_PATTERNS, CARRIER_FENCE, CLASS_DOCS, DOC_PATH_EXEMPT, DOC_PATH_RE  # noqa: E402, F401
 from fabric_lint_rules.docs import FABRIC_ADR_RE, FABRIC_REF_NAME, FABRIC_REF_RE, FABRIC_SELF  # noqa: E402, F401
 from fabric_lint_rules.docs import GENERIC_DIRS, GENERIC_FILES, GENERIC_SKIP, HARNESS_PLACEHOLDER  # noqa: E402, F401
 from fabric_lint_rules.docs import HARNESS_SOURCE, ITALIAN_MARKERS, LENS_BODY_CAP  # noqa: E402, F401
@@ -114,7 +114,7 @@ from fabric_lint_rules.locales import locale_worker_findings  # noqa: E402, F401
 from fabric_lint_rules.hidden import hidden_unicode_findings  # noqa: E402, F401
 from fabric_lint_rules.card import review_card_findings  # noqa: E402, F401
 from fabric_lint_rules.signing import signing_findings  # noqa: E402, F401
-from fabric_lint_rules.slices import CLASS_DIRS, flat_and_dir_findings, lint_slices, staleness_warnings  # noqa: E402, F401
+from fabric_lint_rules.slices import CLASS_DIRS, flat_and_dir_findings, link_warnings, lint_slices, staleness_warnings  # noqa: E402, F401
 
 
 # What a boundary record must cite so its approval can be checked: a GZCoord
@@ -488,6 +488,10 @@ CONTRIBUTOR_NEVER = (
     "tools/fabric/relay_catchup.py",
     # Derives a re-review's brief, as review_brief.py renders one.
     "tools/fabric/review_rounds.py",
+    # The carrier release every account installs, and who it admits (ADR-064).
+    *CARRIER_FENCE,
+    # GitHub's published host keys, appended to every account's known_hosts.
+    "runtime/provisioning/github-host-keys", "runtime/provisioning/github-host-keys.fingerprints",
 )
 # The one path under a never-prefix an entry may name: the list the port
 # shrinks, which lint itself holds to shrinking (ADR-040 §5 rule 2).
@@ -847,6 +851,8 @@ def main() -> int:
         pbase = layout.project_memory_root(pid)
         plabel = f"{pid}:{layout.PROJECT_MEMORY_SUBDIR}"
         staleness_warnings(pbase, plabel, pid)
+        link_warnings(pbase, plabel, roots.operator_root(engine=root), pbase,
+                      [layout.project_memory_root(p) for p in layout.list_projects() if p != pid])
         if project_ids and pid not in project_ids:
             findings.append(f"{plabel}: no projects/{pid}/taxonomy.json binds this project")
         for role in sorted(os.listdir(pbase)):
@@ -945,8 +951,10 @@ def main() -> int:
             findings.append(f"{where}: shared slice owned by {len(owners)} role(s); "
                             "fold it back into its single owner")
 
-    # --- staleness (ADR-050 rule 2): warnings, never findings -----------------
+    # --- staleness (ADR-050 rule 2) and dead links: warnings, never findings ---
     staleness_warnings(roots.memory_dir(engine=root), "memory")
+    link_warnings(roots.memory_dir(engine=root), "memory", roots.operator_root(engine=root), "",
+                  [layout.project_memory_root(p) for p in layout.list_projects()])
 
     # --- launch prompt sections --------------------------------------------
     findings += prompt_template_findings()

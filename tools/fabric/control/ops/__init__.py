@@ -48,7 +48,7 @@ from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Callable, Mapping
 
 from . import util  # noqa: F401 — first: it puts tools/fabric on sys.path
-from .identity import identity, fabric, session, presence  # noqa: F401
+from .identity import identity, fabric, session, presence, replaced_harness_servers  # noqa: F401
 from .usage import (USAGE_URL, MESSAGES_URL, PROBE_MODEL, usage, windows_from_headers, ACCOUNTS_TIMEOUT_MS,  # noqa: F401
                     ACCOUNT_SLUG, accounts_dir, take_read_lock, account_slugs, claude_bin, parse_usage_report,
                     read_account, accounts, TOKEN_RATIOS, TOKENS_DAYS, equivalent, cache_hit, tokens)
@@ -159,13 +159,17 @@ def _keys(ctx: Mapping[str, Any]) -> Any:
 def _session(ctx: Mapping[str, Any]) -> Any:
     """session, plus how many of its sessions still run on an account the login has since been moved off
     (`on_old_sign_in`, absent where that cannot be told, and `old_sign_in_started`, their start times): a status reader sees an `assign --no-restart` not yet
-    taken up. Additive to the frozen reply. A context that injects `run` has faked the process table, and the
+    taken up; and `harness_server_replaced`, how many harness servers run an executable replaced since they started (absent when none or unknown). Additive to the frozen reply. A context that injects `run` has faked the process table, and the
     count reads the real one, so it is left out there unless the context gives its own `session_opts`."""
     from control import secrets
     out = session(ctx.get("uid"), **_run_kw(ctx))
     opts = ctx.get("session_opts")
     if ctx.get("run") and opts is None:
         return out
+    # Its own reader of /proc, not the pgrep one below, but under the same rule: the real table is not read beside a faked one.
+    stale = replaced_harness_servers(ctx.get("uid"), (opts or {}).get("proc", "/proc"))
+    if stale:
+        out["harness_server_replaced"] = stale   # absent when none, or when /proc cannot be read: only a positive is said
     try:
         opts = dict(opts or {})
         proc = opts.pop("proc", "/proc")

@@ -39,8 +39,10 @@ instead: exit 2, nothing run.
 
 Exit: 0 every row is active (start) or stopped/skipped (stop); 1 any failed
 row; 2 a refusal (an unknown or human login, a bad option) with nothing run.
-The units stay enabled: they come back at boot, or at the next bootstrap /
-moveto entry of the account, which runs `enable --now`.
+The units stay enabled: they come back at boot. The control agent also
+comes back at the next bootstrap / moveto entry of the account, which runs
+`enable --now`; the harness does not, since bootstrap starts it only while it
+has never been active, so a stopped harness waits for harness-start or a boot.
 
 --timeout is the bound of each host call, not of the run: an account takes up to
 four calls, accounts one after another.
@@ -59,6 +61,8 @@ HARNESS_UNIT = "agent-fabric-harness.service"
 OPS = {"control-start": (UNIT, "start"), "control-stop": (UNIT, "stop"),
        "harness-start": (HARNESS_UNIT, "start"), "harness-stop": (HARNESS_UNIT, "stop")}
 UNIT_OPS = tuple(OPS)
+# Not in OPS: it is a sequence of the ops above, harness_restart.py's.
+RESTART_OP = "harness-restart"
 START, STOP = "control-start", "control-stop"
 STEP_TIMEOUT_S = 60
 LOGIN = re.compile(r"[a-z_][a-z0-9_-]*")
@@ -125,12 +129,13 @@ def is_start(op: str) -> bool:
     return OPS[op][1] == "start"
 
 
-def systemctl(run: Run, host: str, login: str, uid: int, verb: str, timeout: float, unit: str = UNIT) -> tuple[int, str, str]:
+def systemctl(run: Run, host: str, login: str, uid: int, verb: str, timeout: float, unit: str = UNIT,
+              flags: tuple[str, ...] = ()) -> tuple[int, str, str]:
     # The user bus is addressed by hand: `sudo -u` keeps neither variable, and
     # hostexec's `--as` clears the environment, which has no bus to give back.
     run_dir = f"/run/user/{uid}"
     argv = ["sudo", "-n", "-u", login, "env", f"XDG_RUNTIME_DIR={run_dir}", f"DBUS_SESSION_BUS_ADDRESS=unix:path={run_dir}/bus",
-            "systemctl", "--user", verb, unit]
+            "systemctl", "--user", verb, *flags, unit]
     return _call(run, host, argv, timeout, f"systemctl --user {verb}")
 
 
@@ -202,6 +207,6 @@ def table(rows: list[dict]) -> str:
 
 def check_args(args: dict[str, Any]) -> str:
     """The refusal for options that do not go with this op, or ""."""
-    if args.get("include_self") and (args["op"] not in OPS or is_start(args["op"])):
-        return "--include-self goes with control-stop and harness-stop only"
+    if args.get("include_self") and args["op"] != RESTART_OP and (args["op"] not in OPS or is_start(args["op"])):
+        return "--include-self goes with control-stop, harness-stop and harness-restart only"
     return ""
