@@ -38,6 +38,20 @@ def listing(path: str) -> list[str]:
         return []
 
 
+def stamp_ms(w: str) -> str:
+    """The milliseconds since 1970 of a `stat -c %w` stamp. An id's time is its
+    birth, so the check compares it with this. The milliseconds are the stamp's
+    first three fraction digits, read as text: `date +%s%3N` on a stamp whose
+    fraction begins with a zero ("…44.005186207") answered the next digits
+    ("518") on CI's coreutils, which failed one run in ten (j119)."""
+    m = re.fullmatch(r"(\S+ \d\d:\d\d:\d\d)\.(\d{9}) (\S+)", w)
+    if m is None:
+        return ""
+    secs = subprocess.run(["date", "-d", f"{m.group(1)} {m.group(3)}", "+%s"], stdout=subprocess.PIPE, text=True,
+                          timeout=10).stdout.strip()
+    return secs + m.group(2)[:3] if secs.isdigit() else ""
+
+
 def main() -> int:
     fails = 0
 
@@ -140,10 +154,8 @@ def main() -> int:
                 return ""
 
         def born_ms(path: str) -> str:
-            # An id's time is its birth; here, the home's creation time to the
-            # millisecond.
             w = subprocess.run(["stat", "-c", "%w", path], stdout=subprocess.PIPE, text=True, timeout=10).stdout.strip()
-            return subprocess.run(["date", "-d", w, "+%s%3N"], stdout=subprocess.PIPE, text=True, timeout=10).stdout.strip()
+            return stamp_ms(w)
 
         def id_ms(agent_id: str) -> str:
             return str(int(agent_id.replace("-", "")[:12], 16)) if agent_id else ""
@@ -151,6 +163,11 @@ def main() -> int:
         def clear_calls() -> None:
             put(calls, "")
 
+        check("the stamp's milliseconds are its first three fraction digits, a leading zero kept",
+              [stamp_ms(f"2026-11-05 20:53:44.{f} +0000") for f in ("005186207", "054912345", "123456789", "000999999")]
+              == ["1793912024005", "1793912024054", "1793912024123", "1793912024000"]
+              and stamp_ms("2026-11-05 21:53:44.005186207 +0100") == "1793912024005" and stamp_ms("-") == "",
+              stamp_ms("2026-11-05 20:53:44.005186207 +0000"))
         print("store-enroll: the parent first")
         rc, out = P(sys.executable, ENROLL, "kid")
         check("a parent without its own store is refused", rc == 1 and "no store yet" in out, f"rc={rc}\n{out}")
