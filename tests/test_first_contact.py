@@ -240,6 +240,36 @@ esac
         check("a parent refuses a bundle naming another agent than it minted",
               r.returncode != 0 and f"not {other}" in r.stderr and not os.path.exists(os.path.join(remotes, "x.git")), r.stderr)
 
+        print("first contact: a clone the tree check refuses keeps its refusal record, or says it could not")
+        # A stray file is no path of a store: require_tree refuses the fresh clone and removes the mirror.
+        stray = os.path.join(t, "stray")
+        subprocess.run(["git", "clone", "-q", mirror, stray], env=genv, check=True, capture_output=True)
+        with open(os.path.join(stray, "stray.txt"), "w") as f:
+            f.write("not a store path\n")
+        g(stray, "add", "-A")
+        g(stray, "commit", "-qm", "a file no store holds")
+        bad_bundle = armour(stray, "refs/heads/main")
+        kept_record = mirror + ".refusal.json"
+        os.rename(mirror, mirror_aside := os.path.join(t, "mirror-aside"))   # the next section needs it back
+        # Off the fabric's main the bundle is first contact and the mirror is cloned, not rebuilt: main is
+        # taken back to a commit that does not know the child, and restored after.
+        main_now = g(fab, "rev-parse", "refs/remotes/origin/main").strip()
+        g(fab, "update-ref", "refs/remotes/origin/main", g(fab, "rev-list", "--max-parents=0", "HEAD").split()[0])
+        r = parent("python3", STORE, "seed-child", kid_id, "--remote", repo, stdin=bad_bundle)
+        check("control: a working move keeps the record beside the mirror, and the refusal says no loss",
+              r.returncode != 0 and "stray.txt" in r.stderr and "could not be kept" not in r.stderr
+              and os.path.isfile(kept_record) and not os.path.exists(mirror), (r.stderr, os.path.exists(kept_record)))
+        os.remove(kept_record)
+        # A non-empty directory at the record's place makes os.replace(file, dir) fail.
+        os.makedirs(os.path.join(kept_record, "in-the-way"))
+        r = parent("python3", STORE, "seed-child", kid_id, "--remote", repo, stdin=bad_bundle)
+        check("a record that cannot be moved is named as lost, with where it was to be kept, and the mirror is gone",
+              r.returncode != 0 and "stray.txt" in r.stderr and f"could not be kept at {kept_record}" in r.stderr
+              and not os.path.exists(mirror), r.stderr)
+        shutil.rmtree(kept_record)
+        g(fab, "update-ref", "refs/remotes/origin/main", main_now)
+        os.rename(mirror_aside, mirror)
+
         print("first contact: a mirror deleted by hand")
         # The remote holds a put the account has not taken; a mirror cloned
         # again from the account's bundle alone is behind it, and pushing

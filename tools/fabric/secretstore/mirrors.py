@@ -242,14 +242,21 @@ def seed_child(agent_id: str, remote: str, text: str) -> dict:
             _run(["git", "clone", "-q", "--no-checkout", path, mirror], label="git clone")
             try:
                 require_tree(mirror, "refs/remotes/origin/main")
-            except StoreError:
+            except StoreError as refused:
                 # Not left behind: the next call would find a mirror and take it as one.
                 # Its refusal record outlives it, beside it, as _rebuild_mirror's does.
                 record, kept = os.path.join(mirror, ".git", REFUSAL_FILE), _kept_refusal(mirror)
+                lost = None
                 if kept and os.path.lexists(record):
-                    with contextlib.suppress(OSError):
+                    try:
                         os.replace(record, kept)
+                    except OSError as e:
+                        lost = e
                 shutil.rmtree(mirror, ignore_errors=True)
+                if lost is not None:
+                    # Said, not swallowed: the record went with the mirror, and status can no longer read it.
+                    raise StoreError(f"{refused} (its refusal record could not be kept at {kept}: "
+                                     f"{type(lost).__name__}, and is lost with the mirror)") from refused
                 raise
             git(mirror, "checkout", "-q", "-B", "main", "refs/remotes/origin/main")
             git(mirror, "remote", "set-url", "origin", remote)
