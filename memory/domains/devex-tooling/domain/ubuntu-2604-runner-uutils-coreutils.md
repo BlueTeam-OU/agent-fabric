@@ -5,7 +5,7 @@ topic: "ubuntu-2604-runner-uutils-coreutils"
 description: "ubuntu-latest is Ubuntu 26.04 with uutils coreutils: a copied coreutils binary under another name fails (multicall picks by argv[0]), and date +%3N misprints milliseconds; time with EPOCHREALTIME, make stand-ins from bash"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-05"
 origin:
   - agent: "devex-tooling"
     host: "develop-qzapp"

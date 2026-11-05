@@ -5,7 +5,7 @@ topic: "interweave-targetsdk-reason-owed"
 description: "InterWeave tools/host/android justifies targetSdk 36 as \"Google Play's target\"; ADR-0056 (F-Droid only) removed that reason — restate it on the next touch"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-05"
 origin:
   - agent: "devex-tooling"
     host: "develop-qzapp"

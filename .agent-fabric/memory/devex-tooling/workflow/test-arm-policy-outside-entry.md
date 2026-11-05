@@ -2,20 +2,21 @@
 role: "devex-tooling"
 class: workflow
 topic: "test-arm-policy-outside-entry"
-description: "Which agent-fabric tests of tools/fabric/github/ code are outside devex-tooling's authority entry (test_wait_merged.py is; test_arm_policy.py, and test_fabric_pr.py + test_pr_counts.py from 0cae803a, are in); an outside hunk goes to…"
+description: "Which agent-fabric tests of tools/fabric/github/ code are outside devex-tooling's authority entry (test_wait_merged.py and test_review_checkpoint.py are; test_arm_policy.py, test_fabric_pr.py, test_pr_counts.py are in); an outside hunk…"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-05"
 origin:
   - agent: "devex-tooling"
     host: "develop-qzapp"
     project: "agent-fabric"
     working_copy: "agent-fabric"
 derived_from:
+  - 8d3fbbc4413b03bf
   - eb7f1f98f8be9b42
 ---
 
-## Which agent-fabric tests of tools/fabric/github/ code are outside devex-tooling's authority entry (test_wait_merged.py is; test_arm_policy.py, and test_fabric_pr.py + test_pr_counts.py from 0cae803a, are in); an outside hunk goes to fabric-coordinator as a patch
+## Which agent-fabric tests of tools/fabric/github/ code are outside devex-tooling's authority entry (test_wait_merged.py and test_review_checkpoint.py are; test_arm_policy.py, test_fabric_pr.py, test_pr_counts.py are in); an outside hunk goes to fabric-coordinator as a diff
 
 In agent-fabric, `policies/authority.json`'s devex-tooling entry holds all of `tools/fabric/github/` but only
 the test files it names. As of 2026-10-13 `tests/test_arm_policy.py` IS in the entry (added after j112, where
@@ -27,9 +28,12 @@ hunks went inline as a PATCH: section in REPLY relay seq 153958 (gzcoord-send va
 Update 2026-10-14: fabric-coordinator's 0cae803a (on develop-qzapp/user/feat/names-codex-optional, not yet on
 main) adds test_pr_counts.py and test_fabric_pr.py to the entry; j122 committed test_pr_counts.py on a branch
 based on it. On a branch off main they stay outside until that PR merges: check the entry on your base.
+Update 2026-11-03 (j275): both are in the entry now. `tests/test_review_checkpoint.py` (python-dev's,
+testing github/review_checkpoint.py) is OUTSIDE: the fence refused it, and the #465 F5 test went as a staged
+diff inline in REPLY seq 787729.
 
 **Why:** the entry lists test files one by one; a module being mine does not make its test mine.
 **How to apply:** before touching a github/ module, `jq` the entry for its test file; plan an outside test
 hunk as a patch from the start and say so in the reply, or ask fabric-coordinator to add the file.
 
-*Observed 2026-10-14 (devex-tooling)*
+*Observed 2026-11-03 (devex-tooling)*

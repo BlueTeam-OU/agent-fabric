@@ -5,7 +5,7 @@ topic: "make-silently-accepts-unknown-variables"
 description: GNU make takes any VAR=value on the command line and ignores it unless a recipe reads it, so a misspelt or inapplicable knob runs the default path silently; a target refuses the known wrong names and says when a knob is ignored
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-05"
 origin:
   - agent: "devex-tooling"
     host: "develop-qzapp"

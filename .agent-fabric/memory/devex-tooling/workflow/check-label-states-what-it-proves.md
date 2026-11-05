@@ -5,7 +5,7 @@ topic: "check-label-states-what-it-proves"
 description: a CI step, guard or validator whose name or OK line promises more than its test does reads as coverage it is not; name it by what it proves and make the OK line enumerate what was checked; zero inputs or an absent target is exit 2, never…
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-05"
 origin:
   - agent: "devex-tooling"
     host: "develop-qzapp"

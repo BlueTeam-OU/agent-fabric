@@ -5,7 +5,7 @@ topic: "account-move-needs-relaunch"
 description: "fabric-accounts assign --no-restart only changes the assignment: a running session keeps its old token until it relaunches; check the claude process start time, not fabric-ctl status"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-05"
 origin:
   - agent: user
     host: "develop-qzapp"
@@ -13,11 +13,12 @@ origin:
     working_copy: "agent-fabric"
 derived_from:
   - 4e5c84a8bdd3fee1
+  - a75afae937140631
 ---
 
 ## fabric-accounts assign --no-restart only changes the assignment: a running session keeps its old token until it relaunches; check the claude process start time, not fabric-ctl status
 
-2026-10-15: the owner noticed architect-cto-01 was not running on andrea-benetton-blueteam-ge a day after I moved the 14 gzapp logins there with `--no-restart`. `fabric-ctl all status` showed every one on the new setup-token (183a68e97389), but that column is the assigned sign-in; 11 sessions had started on 13 Oct before the move and still ran on the old token. Re-running `fabric-accounts assign <logins> <account>` without `--no-restart` relaunched them (it skips a login whose session is already on the account).
+2026-10-15: the owner noticed architect-cto-01 was not running on the CEO's Claude account a day after I moved the 14 gzapp logins there with `--no-restart`. `fabric-ctl all status` showed every one on the new setup-token (183a68e97389), but that column is the assigned sign-in; 11 sessions had started on 13 Oct before the move and still ran on the old token. Re-running `fabric-accounts assign <logins> <account>` without `--no-restart` relaunched them (it skips a login whose session is already on the account).
 
 **Why:** the assignment and the live session diverge silently; the usage then lands on the wrong account.
 

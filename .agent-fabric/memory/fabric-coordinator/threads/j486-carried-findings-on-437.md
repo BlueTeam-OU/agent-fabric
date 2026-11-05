@@ -5,13 +5,14 @@ topic: "j486-carried-findings-on-437"
 description: "where j486 (a PR's full review carries earlier chains' open findings) stands on #437 — waits on devex-tooling's arm_findings fix for round-3 F5"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-05"
 origin:
   - agent: user
     host: "develop-qzapp"
     project: "agent-fabric"
     working_copy: "agent-fabric"
 derived_from:
+  - 940dedd881f7fd38
   - e4582c7ad346d944
 ---
 
@@ -26,6 +27,12 @@ Lesson: a re-review range that spans a main merge lists the merged paths, and th
 2026-10-31 08:32Z: F5 fixed by devex-tooling e31e795d (REPLY 01a19116), folded by fast-forward into #437 and pushed; round 4 full review (request in scratchpad review437-r4.yaml, range c6d82919..e31e795d) goes out after the suite on e31e795d.
 
 2026-10-31 08:5xZ: round 4 = review 5722055086 (full, on e31e795d), the first live j486 carry: F2 not fixed, F5-F7 fixed; new F8 (to devex-tooling, REQUEST 01a19127) and F9 (fixed 2f8901c1).
+
+2026-10-31 18:00Z (session f4aaa4da): round 5 (saved, unpostable: drain made the coverage block 204k > 60k) found F10-F13 only in the drain. Owner chose "take drain out": revert 59a9a813 of bb235eb3+bc5e5b69 pushed; redo is j511 (own PR after #437; j497-j506 take fabric-ref from it). Round 6 = re-review e31e795d..59a9a813 (8 paths), request scratchpad r6.yaml, dispatched. Then post, arm (owner: F2 deferred to j104, arm without it).
+
+2026-10-31 18:25Z: round 6 posted 5724201645 (F8/F9 fixed, F10 P3 toml comment), F10 fixed e2d0de9f, round 7 posted 5724242262 Finding: none. Armed via THIS tree's bin/fabric-pr (bare fabric-pr = main checkout, has no gate 4c and armed silently past F2) with --defer 50468796:F2 and --defer-job j410/j449/j468/j469/j481. Pre-existing render KeyError -> j512. After merge: distribute, unblock j497-j506 via j511 first.
+
+2026-10-31 ~18:40Z: #437 MERGED 0c0938d4; fabric-ctl all upgrade fabric: 30 accounts c6d82919->0c0938d4; INFO 01a1933c broadcast (gate 4c, --defer, --defer-job). j468/j478/j481/j485/j486/j488 closed. Thread closed; follow-ups j449 (F2/j104), j511 (drain redo), j512.
 
 *References: arm-reads-every-rounds-open-findings, j468-arm-gate-4c-dispatched*
 

@@ -5,7 +5,7 @@ topic: bndr
 description: "bndr: MIT Go one-binary Linux dashboard that finds loopback HTTP dev servers via /proc/net/tcp and bridges them onto the LAN; not adopted (shared host namespace = every login's ports incl. relay/agentd/InterWeave exposed, no auth, 0…"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-05"
 origin:
   - agent: user
     host: "develop-qzapp"
@@ -13,6 +13,7 @@ origin:
     working_copy: "agent-fabric"
 derived_from:
   - 58886dba556590de
+  - 60011e22cc77f6e6
 ---
 
 ## bndr: MIT Go one-binary Linux dashboard that finds loopback HTTP dev servers via /proc/net/tcp and bridges them onto the LAN; not adopted (shared host namespace = every login's ports incl. relay/agentd/InterWeave exposed, no auth, 0 stars); borrow socket->uid discovery for a FleetDeck 'what is serving' view, Host-header pinning, preview origin filter, installer shape
@@ -52,4 +53,4 @@ Related: [[moli-headless-browser]], [[trust-philosophy-uniform]].
 
 *References: fleet-deck-boot, moli-headless-browser, trust-philosophy-uniform*
 
-*Observed 2026-10-28 (fabric-coordinator)*
+*Observed 2026-11-01 (fabric-coordinator)*

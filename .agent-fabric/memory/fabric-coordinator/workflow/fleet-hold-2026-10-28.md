@@ -5,13 +5,14 @@ topic: "fleet-hold-2026-10-28"
 description: "LIFTED 2026-10-30 (DECISION 01a18b15-73ae). Owner 2026-10-28: orderly fleet pause — finish the active job, start or unpause none; sent as broadcast DECISION 01a182e0-647c, lifted only by a DECISION naming it"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-05"
 origin:
   - agent: user
     host: "develop-qzapp"
     project: "agent-fabric"
     working_copy: "agent-fabric"
 derived_from:
+  - 4f4c7a9cef641c2b
   - 9d5727aec8eb4bfa
 ---
 
@@ -23,7 +24,7 @@ The owner, 2026-10-28 ~14:18Z: "orderly pause the fabric: each agent complete th
 
 **How to apply:** before lifting, read `fabric-ctl all jobs` for who is still active; lift with a DECISION citing 01a182e0. A built-in hold (switch refusing while a fleet hold is set) is worth a job. Related: [[fleet-shutdown-procedure]].
 
-**Lifted** 2026-10-30 on the owner's word ("the HOLD decision is superseded, agents can restart their jobs"), broadcast DECISION 01a18b15-73ae-7590-9d62-aa035ca65183 (seq 654500), after the fleet was moved to andrea-benetton-blueteam-ge (claude-pzhuy-8alias-com at 100% weekly until 2026-11-02 16:00 UTC).
+**Lifted** 2026-10-30 on the owner's word ("the HOLD decision is superseded, agents can restart their jobs"), broadcast DECISION 01a18b15-73ae-7590-9d62-aa035ca65183 (seq 654500), after the fleet was moved to the CEO's Claude account (claude-pzhuy-8alias-com at 100% weekly until 2026-11-02 16:00 UTC).
 
 *References: fleet-shutdown-procedure*
 

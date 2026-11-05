@@ -5,7 +5,7 @@ topic: "review-class-leaves-run-user-scratch"
 description: "a code-review dispatch leaves scratch it cannot delete — /run/user/<uid>/rv.* trees, or an empty tmp.* in the scratchpad; the session removes them"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-05"
 origin:
   - agent: "devex-tooling"
     host: "develop-qzapp"

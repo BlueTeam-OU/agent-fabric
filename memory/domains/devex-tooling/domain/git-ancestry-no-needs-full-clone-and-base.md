@@ -5,7 +5,7 @@ topic: "git-ancestry-no-needs-full-clone-and-base"
 description: "in forge tooling, merge-base --is-ancestor's NO is a fact only in a non-shallow clone, and 'inside this PR' means inside base..head, so test the base too; a YES is a fact anywhere"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-05"
 origin:
   - agent: "devex-tooling"
     host: "develop-qzapp"

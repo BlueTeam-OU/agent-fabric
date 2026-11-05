@@ -5,7 +5,7 @@ topic: "stale-control-plane-root"
 description: "gzcoord-inbox exit 6 / gzcoord-send 'not sent' with 'episodic.db is at schema version 3, newer than this code's 2' — the session's AGENT_FABRIC_ROOT is a stale job worktree; run with AGENT_FABRIC_ROOT=<main checkout>"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-05"
 origin:
   - agent: user
     host: "develop-qzapp"
@@ -13,6 +13,7 @@ origin:
     working_copy: "agent-fabric"
 derived_from:
   - 2e3915b849aea533
+  - 56e3083c31013810
 ---
 
 ## gzcoord-inbox exit 6 / gzcoord-send 'not sent' with 'episodic.db is at schema version 3, newer than this code's 2' — the session's AGENT_FABRIC_ROOT is a stale job worktree; run with AGENT_FABRIC_ROOT=<main checkout>
@@ -27,6 +28,8 @@ Fix used: prefix the command with a literal `AGENT_FABRIC_ROOT=~/projects/agent-
 Second time, the same day (j457's next session): the job's recorded `working copy` was still the j381 worktree while its branch lived in the j467 worktree, so `fabric-fresh --job` launched there again. A send refused and the inbox watch ran stale until restarted with the prefix. j474 is raised to high: the fence belongs in the launcher or in the job's working copy record.
 
 Third time (2026-10-30 ~16:21Z, j474's own session). Root causes on 57d6d0cb: (1) launch.py's fresh branch reads only the job's `working_copy` and ignores `worktree`. (2) The launcher never exports its verified fabric_root, so session-start.sh's `${AGENT_FABRIC_ROOT:-$root}` takes the start checkout. Also, `fabric-jobs project --working-copy` refuses a job that has a worktree, even to point it at that worktree. Contract sent to python-dev-02: REQUEST 01a18d9f-64e6 plus addendum REPLY 01a18da0. Decision: warn, do not refuse. Until it merges, restart the inbox watch with the prefix at every session start in a stale worktree.
+
+**A second cause of the same exit 6** (reflection 2026-W44, 2026-10-30). After `fabric-ctl all upgrade fabric` moved the journal to schema 3, long-running readers kept the old code until they were restarted. The boot-started carrier unit `interweave-client@gzcoord.service` was one of them, and it made three agents' inboxes hold at once. My broadcast said "arm the watch again". That was wrong for the carrier, and devex-tooling corrected it: the fix was `systemctl --user restart` of the unit. The same distribution also voided a parity window that was running. So after any distribution that migrates a store, list its long-running readers (units, watches), restart them, read each one back, and check first for a soak or parity window. Messages: 01a18c45-983c-7caa-8aed-9bdf8929d40f, 01a18c47-77f4-7dcb-b3fb-677b4841ac13, 01a18c47-4d19-7a42-a753-87b59dfee452, 01a18c94-e8ff-715c-bc15-c9a9e924b4ba.
 
 *References: launch-time-change-needs-relaunch*
 

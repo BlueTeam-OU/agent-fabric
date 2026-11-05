@@ -5,7 +5,7 @@ topic: "arm-import-closure-needs-boundary-hunk"
 description: "A new import into fabric-pr arm (a new github/ module, or one pulling github/ modules in) turns tests/test_arm_fabric_config.py red until agent-fabric's arm.json boundary pattern names it — outside my entry"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-05"
 origin:
   - agent: "devex-tooling"
     host: "develop-qzapp"

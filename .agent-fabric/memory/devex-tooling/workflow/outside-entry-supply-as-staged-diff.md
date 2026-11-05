@@ -5,7 +5,7 @@ topic: "outside-entry-supply-as-staged-diff"
 description: "a supply outside my authority entry cannot be committed, so no format-patch; stage it in a worktree, review INDEX..WORKTREE, send git diff --binary + message"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-05"
 origin:
   - agent: "devex-tooling"
     host: "develop-qzapp"

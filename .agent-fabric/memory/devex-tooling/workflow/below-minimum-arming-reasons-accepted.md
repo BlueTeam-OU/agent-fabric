@@ -5,7 +5,7 @@ topic: "below-minimum-arming-reasons-accepted"
 description: "when to ask the arming authority for a below-minimum AUTHORIZES instead of waiting for a batch, and what the request carries; the word covers that head only"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-05"
 origin:
   - agent: "devex-tooling"
     host: "develop-qzapp"
@@ -13,6 +13,7 @@ origin:
     working_copy: "agent-fabric"
 derived_from:
   - 35eb242d3fc6027b
+  - cbd6c2d9eec227a6
 ---
 
 ## when to ask the arming authority for a below-minimum AUTHORIZES instead of waiting for a batch, and what the request carries; the word covers that head only
@@ -36,6 +37,10 @@ thread. The REQUEST carries `<owner/repo>#<n>@<head>`, the counts against the mi
 it is a boundary by path, the review rounds and their findings, what was measured, and why
 waiting costs more than landing. The authority reads the diff itself and authorizes that head
 and no later push. A fold or fix after the word needs a new word, so ask last.
+So does a push between the ask and the answer (InterWeave #464, 2026-10-26). A help-comment
+commit pushed after the REQUEST moved the head, and the word was declined for the asked
+head. It took a re-review of the new range and a second REQUEST. From the ask to the arm,
+push nothing, and say so in the REQUEST.
 Background on the count rule: the `arming-by-work-commit-count` slice.
 
 *Anchors: `policies/pull-requests/SKILL.md::AUTHORIZES: <owner/repo>#<n>@<head>`*

@@ -5,7 +5,7 @@ topic: "repo-policy-verify-ignores-description"
 description: "fabric-repo-policy verify says \"matches\" while a settings record's description still says \"no ruleset\" — prose is never compared; re-read it after an apply"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-05"
 origin:
   - agent: "devex-tooling"
     host: "develop-qzapp"

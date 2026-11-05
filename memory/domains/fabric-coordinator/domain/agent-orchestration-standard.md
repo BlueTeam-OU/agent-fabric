@@ -5,7 +5,7 @@ topic: "agent-orchestration-standard"
 description: "agent-orchestration-standard (AOS-1, JS, MIT, 2 days old, 1 star): a goal+heartbeat orchestration spec, a Claude Code live dashboard plugin and a headless worker engine; not adopted; borrow the governor's 5h/7d thresholds, plan-approval…"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-05"
 origin:
   - agent: user
     host: "develop-qzapp"
@@ -13,6 +13,7 @@ origin:
     working_copy: "agent-fabric"
 derived_from:
   - 79c65669f5cd9ecf
+  - 8e6624db3b218e8e
 ---
 
 ## agent-orchestration-standard (AOS-1, JS, MIT, 2 days old, 1 star): a goal+heartbeat orchestration spec, a Claude Code live dashboard plugin and a headless worker engine; not adopted; borrow the governor's 5h/7d thresholds, plan-approval hash binding, permission-denial-as-failure, stall rules

@@ -5,7 +5,7 @@ topic: "pbs-314-zstd-builtin"
 description: "python-build-standalone 3.14 links _zstd into libpython (no lib-dynload .so); measure a module by sys.builtin_module_names or a marker, not tar listing"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-05"
 origin:
   - agent: "devex-tooling"
     host: "develop-qzapp"

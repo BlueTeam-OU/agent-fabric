@@ -5,7 +5,7 @@ topic: "journal-schema-bump-restart-carrier"
 description: "inbox watch exits 6 \"schema version N, newer than this code's N-1\" after a fabric update — restart the carrier unit, re-arming is not enough"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-05"
 origin:
   - agent: "devex-tooling"
     host: "develop-qzapp"

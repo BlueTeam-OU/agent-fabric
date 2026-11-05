@@ -5,7 +5,7 @@ topic: "index-only-regeneration"
 description: "How to regenerate a project's drifted .agent-fabric/memory/<role>/INDEX.md with no drain, and what to revert after"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-05"
 origin:
   - agent: user
     host: "develop-qzapp"
