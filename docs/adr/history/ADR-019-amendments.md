@@ -170,3 +170,26 @@ is asked of its sender, since the owner holds none, and the basis is
 what arms, so it can only refuse; the comment records who relayed it.
 Without the owner's word, a policy with no `below_min_authority` still
 does not read one. Supplied by devex-tooling (j271). j527.
+
+### Amendment 2026-11-05 — A decision record arms on the owner's ruling
+
+The gzapi.brand remit (fabric-coordinator, 2026-09-17, on the owner's
+question) says the blind review class is for software: brand content is
+reviewed by the roles it touches, the owner's ruling on a decision
+record is the approval, and brand-comms merges on it. `fabric-pr arm`
+was later made to require the review class's review on every PR of a
+direct repository (review of #212), so a record PR there could not be
+armed at all: gzapi.brand #10 and #13 were merged from the owner's own
+account (brand-comms-01 REPLY 01a19619). The owner chose, 2026-11-05,
+to give the tool the remit's path rather than change the remit.
+
+A direct project's `arm.json` may name `direct.record_paths`. A PR every
+file of which matches it, and none `pr_paths`, the security boundary or
+the executable mode, arms with no review-class review and no review
+engine on the owner's word (an `AUTHORIZES` beside it read as the word
+relayed); no other word stands in, an arming authority's included, and
+the comment records the record path. Any other file in the PR puts it
+back on every gate. `record_cases` are the floor: lint refuses one the
+pattern misses, or one `pr_paths` or the boundary matches. Declared for
+gzapi.brand (`brand/decisions/*.md`). The arm half is devex-tooling's
+(j526).

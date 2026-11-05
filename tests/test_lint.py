@@ -1717,6 +1717,19 @@ def case_arm_direct_block() -> None:
         assert any("not_case 'lib/key.rs' matches" in f for f in lint.arm_direct_findings(root)), lint.arm_direct_findings(root)
         arm({**good, "not_cases": "design-tokens.json"})
         assert any("direct.not_cases must be a list" in f for f in lint.arm_direct_findings(root))
+        # record_paths drops the review gate for what it names, so its cases are held out of pr_paths and the boundary.
+        rec = {**good, "record_paths": "^decisions/[^/]+\\.md$", "record_cases": ["decisions/0001-a.md"]}
+        arm(rec)
+        assert lint.arm_direct_findings(root) == [], lint.arm_direct_findings(root)
+        for bad, word in (({**rec, "record_paths": "("}, "direct.record_paths must be"),
+                          ({k: v for k, v in rec.items() if k != "record_paths"}, "direct.record_paths must be"),
+                          ({k: v for k, v in rec.items() if k != "record_cases"}, "direct.record_cases must list"),
+                          ({**rec, "record_cases": []}, "direct.record_cases must list"),
+                          ({**rec, "record_cases": ["notes/a.md"]}, "'notes/a.md' is not a record"),
+                          ({**rec, "record_paths": "\\.md$", "record_cases": ["key.md"]}, "'key.md' matches direct.pr_paths"),
+                          ({**rec, "record_paths": ".", "record_cases": ["src/a.md"]}, "'src/a.md' is inside the security boundary")):
+            arm(bad)
+            assert any(word in f for f in lint.arm_direct_findings(root)), (bad, lint.arm_direct_findings(root))
 
 
 def case_arm_boundary_cases_only_leave_retired() -> None:
