@@ -2564,6 +2564,32 @@ def test_an_oversized_single_claim_is_written_whole_and_reported(tmp: str) -> No
     assert "OVER BUDGET" in proc.stderr and "split the memory" in proc.stderr, proc.stderr
 
 
+def test_an_oversized_claim_is_reported_under_its_origin_login(tmp: str) -> None:
+    """The author of an oversized claim is the only one who may split it, so the report groups by origin login, with the
+    memory's file, its size against the budget, and one ready split request per login; a claim with no readable origin
+    is listed under "unknown", and a claim under budget is listed nowhere."""
+    drain, claims_dir, out = build(tmp, {"alpha": claims("alpha", [
+        {"class": "threads", "topic": "big-memory", "title": "Big", "body": "x" * 9000, "evidence": ["ha"]},
+        {"class": "workflow", "topic": "big-too", "title": "Big too", "body": "y" * 9000, "evidence": ["ha"]},
+        {"class": "threads", "topic": "small-memory", "title": "Small", "body": "z" * 100, "evidence": ["ha"]},
+        {"class": "domain", "topic": "orphan-big", "title": "Orphan", "body": "w" * 9000, "evidence": ["h1"]},
+    ])})
+    with open(os.path.join(drain, "observations.jsonl"), "a", encoding="utf-8") as fh:
+        fh.write(json.dumps({"content_hash": "ha", "agent": "python-dev-02", "host": "hostA"}) + "\n")
+    proc = run_assemble(drain, claims_dir, out, "--budget", "1000")
+    assert proc.returncode == 0, proc.stderr
+    with open(report_path(out), encoding="utf-8") as fh:
+        by_origin = json.load(fh)["oversized_by_origin"]
+    assert sorted(by_origin) == ["python-dev-02", "unknown"], by_origin
+    mine = by_origin["python-dev-02"]
+    assert sorted(c["source_file"] for c in mine["claims"]) == ["big-memory.md", "big-too.md"], mine
+    assert all(c["tokens"] == 2250 and c["budget"] == 1000 for c in mine["claims"]), mine
+    assert "big-memory.md" in mine["split_request"] and "big-too.md" in mine["split_request"], mine
+    assert "small-memory" not in json.dumps(by_origin), "a claim under budget was reported"
+    assert [c["source_file"] for c in by_origin["unknown"]["claims"]] == ["orphan-big.md"], by_origin
+    assert "split request for python-dev-02" in proc.stderr and "split request for unknown" in proc.stderr, proc.stderr
+
+
 def set_claims(claims_dir: str, role: str, items: list[dict]) -> None:
     with open(os.path.join(claims_dir, f"{role}.json"), "w", encoding="utf-8") as fh:
         json.dump(claims(role, items), fh)
@@ -4163,6 +4189,7 @@ def main() -> int:
         test_a_flat_file_that_moves_into_the_directory_keeps_its_untouched_sections_writers,
         test_a_name_pattern_that_spares_the_terminal_phrases_still_withholds_the_name,
         test_an_oversized_single_claim_is_written_whole_and_reported,
+        test_an_oversized_claim_is_reported_under_its_origin_login,
         test_drain_report_carries_the_watermark_forward,
         test_the_drain_report_lists_the_memory_marks_and_call_counts,
         test_helpful_marks_are_counted_per_section_and_only_those,
