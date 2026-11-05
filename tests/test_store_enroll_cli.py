@@ -71,6 +71,11 @@ def main() -> int:
             os.makedirs(f"{t}/{r}/projects")
             os.makedirs(f"{t}/{r}-gnupg", 0o700)
             time.sleep(0.05)
+        def raw_birth(path: str) -> str:
+            # The stamp as `stat` prints it, kept for a check's detail line.
+            r = subprocess.run(["stat", "-c", "%w", path], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, timeout=10)
+            return r.stdout.strip()
+        stamped = {r: raw_birth(f"{t}/{r}") for r in ("parent", "kid")}
         os.symlink(ROOT, f"{t}/kid/projects/agent-fabric")   # the account's own checkout, from its home
         calls = f"{t}/calls"
 
@@ -159,7 +164,7 @@ def main() -> int:
               rc == 0 and bool(pid) and os.path.isdir(f"{t}/remotes/fabric-agent-{pid}.git") and first_parent is None,
               f"rc={rc}\n{out}")
         check("…its id's time is its home's creation time", bool(pid) and id_ms(pid) == born_ms(f"{t}/parent"),
-              f"{pid} vs {born_ms(f'{t}/parent')}")
+              f"{pid} vs {born_ms(f'{t}/parent')}; at creation {stamped['parent']!r}, now {raw_birth(f'{t}/parent')!r}")
         publish()
 
         # #65 carried: --self with a malformed .agent-id in its store stops and
@@ -221,7 +226,8 @@ def main() -> int:
         check("…its repository is named by its agent id",
               bool(kid) and os.path.isdir(f"{t}/remotes/fabric-agent-{kid}.git"), " ".join(listing(f"{t}/remotes")))
         check("…its id's time is ITS home's creation time, read on its host",
-              bool(kid) and id_ms(kid) == born_ms(f"{t}/kid"), kid)
+              bool(kid) and id_ms(kid) == born_ms(f"{t}/kid"),
+              f"{kid} vs {born_ms(f'{t}/kid')}; at creation {stamped['kid']!r}, now {raw_birth(f'{t}/kid')!r}")
         check("…and the parent holds a mirror of the child's store",
               os.path.isdir(f"{t}/parent/.local/share/agent-fabric/children/{kid}/.git"))
         verify = subprocess.run([sys.executable, STORE, "verify"], env={**base, "AGENT_FABRIC_ROOT": fab},
