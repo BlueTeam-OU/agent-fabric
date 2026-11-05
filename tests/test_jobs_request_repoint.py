@@ -215,6 +215,13 @@ def main() -> int:
         run("start", jid)
         run("done", jid, "--no-artifact", "test")
 
+        case("nobody", "ack, looking", mid(14))
+        case("nobody", "decided: no", mid(14), "DECISION")
+        jid, r = blocked_on_request("ack then decision", mid(14))
+        check("an unreadable ack does not hold back a later DECISION", job(jid, "--stored")["cleared"] is True, job(jid, "--stored"))
+        run("start", jid)
+        run("done", jid, "--no-artifact", "test")
+
         print("a board row whose id is not a job id is no job")
         boards["liar"] = [{"id": "j3\nINJECTED", "state": "active", "title": f"x (REQUEST {mid(13)})"}]
         put_boards()

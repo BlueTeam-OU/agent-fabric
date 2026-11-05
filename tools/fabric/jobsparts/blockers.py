@@ -187,7 +187,8 @@ def check_request(message_id: str) -> Check:
         return Check("unknown", f"journal: {e}"[:160])
     try:
         # lower(): the id is stored as the sender wrote it, the blocker as normalise() made it.
-        # Any type: a DECISION answers a REQUEST as a REPLY does, and settle.py counts an outbound answer the same way. The id is
+        # Any type: a DECISION answers a REQUEST as a REPLY does, and settle.py counts an outbound answer the same way (a DECISION is told
+        # apart below only in whether it can leave the answer unknown). The id is
         # never empty, so an empty IN-REPLY-TO matches nothing.
         rows = conn.execute("SELECT sender, content, type FROM episodes WHERE direction='inbound' AND lower(in_reply_to)=? "
                             "ORDER BY happened_at, recorded_at, id", (message_id,)).fetchall()
@@ -198,17 +199,19 @@ def check_request(message_id: str) -> Check:
     if not rows:
         return Check("waiting", "no reply yet")
     # A REPLY answers the request, it does not deliver the work: when the answerer made a job of it, the wait is that job.
-    unreadable = None
+    unreadable, decided = None, False
     for sender, content, kind in rows:
         login = _login_of(sender)
         if login is None:
             continue
         body = str(content or "").partition("\n\n")[2]
-        job, seen, why = _became(message_id, login, body, str(kind).upper() == "DECISION")
+        decision = str(kind).upper() == "DECISION"
+        decided = decided or decision
+        job, seen, why = _became(message_id, login, body, decision)
         if job:
             return Check("waiting", f"answered; now waiting on {job}", job, seen)
         unreadable = unreadable or why
-    if unreadable:
+    if unreadable and not decided:      # a DECISION settles the question whatever an earlier unreadable answer left open
         # We cannot tell a "taken" from a "no": a clear we cannot justify hands the job back with nothing delivered.
         return Check("unknown", f"answered, but whether it became a job is not known: {unreadable}"[:160])
     return Check("cleared", "answered")
