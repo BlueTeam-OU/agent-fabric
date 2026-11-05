@@ -419,7 +419,7 @@ def test_an_applied_correction_is_not_harvested_again_and_the_original_it_replac
     assert sorted(c["topic"] for c in claims_of(out3)) == ["fix", "fix2", "orig", "plain"]
 
 
-def _report_case(tmp: str, tag: str, report: dict, memories: list[tuple[str, str, str | None]]) -> tuple[Any, list[str]]:
+def _report_case(tmp: str, tag: str, report: dict, memories: list[tuple[str, str, str | None]]) -> tuple[subprocess.CompletedProcess, list[str]]:
     """Run a harvest over a planted drain report and memory set; (the process, the topics filed as claims)."""
     mem, out = os.path.join(tmp, f"m-{tag}"), os.path.join(tmp, f"o-{tag}")
     wc = os.path.join(tmp, f"wc-{tag}")
