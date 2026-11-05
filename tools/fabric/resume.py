@@ -151,7 +151,8 @@ def own_dir(path: str) -> bool:
     return stat.S_ISDIR(st.st_mode) and st.st_uid == os.getuid()
 
 
-# tests/run.py's slot sets it for every suite it runs (lease.cpu_child_env); no production launch has it.
+# tests/run.py sets it (lease.cpu_child_env) only while it holds a cpu slot, so a run without one (CI, opt-out, no
+# lease directory, a suite started by hand) is not covered; no production launch sets it.
 SUITE_MARKER = "AGENT_FABRIC_TEST_JOBS"
 
 
