@@ -9,7 +9,7 @@ import re
 from collections import defaultdict
 from typing import Callable, Any
 from corrections import section_key
-from assembler.core import layout, TIER1, CHARS_PER_TOKEN, CLASS_FILES, origin_key, render_frontmatter, hygiene_check, hygiene_substitute, patterns_for, DESCRIPTION_MAX, Run, base_for, in_report
+from assembler.core import layout, TIER1, CHARS_PER_TOKEN, UNKNOWN_ORIGIN, CLASS_FILES, origin_key, render_frontmatter, hygiene_check, hygiene_substitute, patterns_for, DESCRIPTION_MAX, Run, base_for, in_report
 from assembler.slices import retire_in_siblings, sibling_parts, remove_sections, restamp, read_existing_slice, OBSERVED_RE, undated, claim_heading, absorbed, claim_block, is_retire
 from assembler.shapes import report_home
 from assembler.targets import existing_sections, is_budget_part, slice_candidates, is_carried
@@ -449,6 +449,14 @@ def restore_part_one(run: Run, directory: str, stem: str, topic: str, role: str,
                 entry["path"] = new
 
 
+def claim_origin_logins(run: Run, claim: dict[str, Any]) -> list[str]:
+    """The logins whose observations the claim rests on, the only agents who may split its memory. A claim whose
+    evidence names no login (an old clone-bound row, an unresolved agent, a hash with no observation) is "unknown",
+    never dropped: the report must still say a claim is oversized."""
+    logins = {o["agent"] for h in claim.get("evidence", []) if (o := run.origins.get(h)) and o.get("agent") not in (None, "unresolved")}
+    return sorted(logins) or [UNKNOWN_ORIGIN]
+
+
 def split_by_budget(
     run: Run, claims: list[dict[str, Any]], carried: int = 0
 ) -> list[list[dict[str, Any]]]:
@@ -641,6 +649,15 @@ def write_role(run: Run, role: str) -> None:
                 if len(claim["body"]) > limit:
                     run.oversized.append(f"{role}/{klass}:{topic}: one claim is ~{len(claim['body']) // CHARS_PER_TOKEN} tokens, "
                                      f"over the {run.args.budget} budget; split the memory it came from")
+                    run.oversized_details.append({
+                        "slice": f"{role}/{klass}:{topic}",
+                        "memory": claim.get("topic") or topic,
+                        # The harvest names a claim's topic after the memory (its frontmatter name, else the file's stem).
+                        "source_file": f"{claim.get('topic') or topic}.md",
+                        "tokens": len(claim["body"]) // CHARS_PER_TOKEN,
+                        "budget": run.args.budget,
+                        "origins": claim_origin_logins(run, claim),
+                    })
             for part, group in enumerate(groups, start=1):
                 suffix = "" if part == 1 else f"-{part}"
                 if not group:

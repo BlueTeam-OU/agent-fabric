@@ -39,6 +39,7 @@ TIER1 = {"charter", "workflow", "index"}
 DEFAULT_SLICE_BUDGET_TOKENS = 1800
 
 
+UNKNOWN_ORIGIN = "unknown"  # the group of an oversized claim whose evidence names no login
 CHARS_PER_TOKEN = 4  # rough, and only used to decide when to split a slice
 
 
@@ -386,6 +387,8 @@ class Run:
     redactions: list[str] = field(default_factory=list)
     problems: list[str] = field(default_factory=list)
     oversized: list[str] = field(default_factory=list)
+    # The same claims as `oversized`, as records the report groups by origin login (report.oversized_by_origin).
+    oversized_details: list[dict[str, Any]] = field(default_factory=list)
     migrated: list[str] = field(default_factory=list)
     decisions: dict[str, str] = field(default_factory=dict)
     class_plan: dict[tuple[str, str], ClassPlanEntry] = field(default_factory=dict)
