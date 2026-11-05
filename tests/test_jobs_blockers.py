@@ -52,7 +52,10 @@ login = a[0]
 if doc.get("refuse"):
     sys.stderr.write("fabric-ctl: " + doc["refuse"] + "\\n")
     sys.exit(2)
-if login not in doc.get("logins", {}):
+# "peer" is the login the request: tests' replies come from; its board is readable and holds nothing, so an answer
+# from it became no job (tests/test_jobs_request_repoint.py has the boards that do).
+doc.setdefault("logins", {}).setdefault("peer", [])
+if login not in doc["logins"]:
     print(json.dumps({"account": login, "host": "h", "status": "no answer"}))
     sys.exit(1)
 print(json.dumps({"account": login, "host": "h", "status": "ok", "jobs": {"status": "ok", "jobs": doc["logins"][login]}}))

@@ -16,7 +16,8 @@ def blockers_note(job: dict, cache: dict | None) -> str:
     states = bl.states_of(job, cache)
     if all(s["state"] == "cleared" for s in states):
         return f" — blocker cleared: {', '.join(s['spec'] for s in states)}"
-    return " — " + ", ".join(f"{s['spec']} {s['state']}" + (f" ({s['detail']})" if s["state"] != "unknown" and s.get("detail") else "")
+    return " — " + ", ".join(f"{s['spec']} answered; now waiting on {s['became']}" if s.get("became")
+                             else f"{s['spec']} {s['state']}" + (f" ({s['detail']})" if s["state"] != "unknown" and s.get("detail") else "")
                              for s in states)
 
 

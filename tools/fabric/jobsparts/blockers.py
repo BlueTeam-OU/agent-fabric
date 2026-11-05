@@ -4,10 +4,21 @@ contract.
 
 THE FORMS (`block <id> --on <blocker>`, several allowed, all must clear)
   pr:<owner/repo>#<n>       cleared when the pull request is merged or closed (gh, through tools/fabric/gh.py)
-  request:<message-id>      cleared when an inbound message of any type (a DECISION as well as a REPLY) whose
+  request:<message-id>      answered when an inbound message of any type (a DECISION as well as a REPLY) whose
                             non-empty IN-REPLY-TO is that id is in this login's journal, as settle.py reads
                             the outbound side
-                            (episodic.open_readonly, the one reader's door)
+                            (episodic.open_readonly, the one reader's door). A REPLY answers the request, it does
+                            not deliver the work, so the answer is read first for the job the request became on the
+                            answerer's board (the message's sender; `fabric-ctl <login> jobs --json`, as job: reads
+                            it): a row whose title ends "(REQUEST <id>)" (records.request_id_of), the board being
+                            authoritative. Only without that row is the body read: exactly one job of the sender,
+                            as job:<login>/j<n> or a bare j<n>, is the candidate (two or more: none), taken when
+                            the board lists it or could not be read. Found: the stored blocker is replaced by
+                            job:<login>/j<n> under the list's lock (the new spec starts with seen_open when the
+                            board showed it), the job stays blocked, and the listings say once
+                            "request:<id> answered; now waiting on job:<login>/j<n>". Not found (a decline, a
+                            DECISION, a job closed or never on the board): cleared. The board unreadable and no
+                            body match: unknown, never cleared. The re-pointed job then follows job: as below.
   job:<login>/j<n>          cleared when that job is delivered, or has left the open list because it is done or
                             dropped; read through `fabric-ctl <login> jobs` (a host operator's op: any other
                             caller gets `unknown` with fabric-ctl's own refusal)
@@ -41,7 +52,8 @@ import subprocess
 import tempfile
 import time
 from typing import Any, Callable, NamedTuple
-from fabric_jobs.base import FABRIC_ROOT, MESSAGE_ID, Refused, _load, identity
+from fabric_jobs.base import FABRIC_ROOT, MESSAGE_ID, Refused, _load, identity, mutate
+from fabric_jobs.records import request_id_of
 
 CACHE_TTL_S = 600
 CTL_TIMEOUT_S = 30
@@ -59,6 +71,8 @@ FORMS = "pr:<owner/repo>#<n>, request:<message-id>, job:<login>/j<n> or clock:<Y
 class Check(NamedTuple):
     state: str          # "cleared", "waiting" or "unknown"
     detail: str
+    became: str | None = None      # a request blocker only: the job:<login>/j<n> the answered request turned into
+    became_seen: bool = False      # ...and whether it was found on that login's board (so it has been seen open)
 
 
 # The clock, replaceable: the cache bound is tested without waiting.
@@ -118,6 +132,48 @@ def check_pr(repo: str, number: str) -> Check:
     return Check("waiting", state.lower() or "no state")
 
 
+BARE_JOB = re.compile(r"(?<![A-Za-z0-9_])(j[1-9][0-9]{0,8})(?![A-Za-z0-9_])", re.ASCII)
+LOGIN = re.compile(r"[a-z0-9][a-z0-9_-]{0,63}", re.ASCII)
+
+
+def _login_of(sender: object) -> str | None:
+    """The login of a `<host>/<login>` address; None for anything else."""
+    login = sender.rsplit("/", 1)[-1] if isinstance(sender, str) else ""
+    return login if LOGIN.fullmatch(login) else None
+
+
+def _jobs_named(body: str, login: str) -> set[str]:
+    """The jobs of `login` a message body names: job:<login>/j<n>, or a bare j<n>. A job:<other>/j<n> names someone
+    else's job and its j<n> is not the sender's."""
+    mine = {m.group(2) for m in JOB.finditer(body) if m.group(1) == login}
+    return mine | {m.group(1) for m in BARE_JOB.finditer(JOB.sub(" ", body))}
+
+
+def _title_request(title: str) -> str | None:
+    """records.request_id_of, the id folded to lower case as normalise stores a blocker's."""
+    return request_id_of(re.sub(r"[0-9A-Fa-f-]{36}\)\Z", lambda m: m.group(0).lower(), " ".join(title.split())))
+
+
+def _became(mid: str, login: str, body: str) -> tuple[str | None, bool, str | None]:
+    """(the job the request became, whether the board showed it, why the board could not be read). The board is the
+    authority: a row whose title ends "(REQUEST <mid>)". Only without a match is the body read, and a token there is
+    taken when the board lists that job, or could not be read at all."""
+    board, why = read_board(login)
+    if board is not None:
+        for j in board:
+            if _title_request(str(j.get("title", ""))) == mid and isinstance(j.get("id"), str):
+                return f"job:{login}/{j['id']}", True, None
+    named = _jobs_named(body, login)
+    if len(named) != 1:
+        return None, False, why
+    (job_id,) = named
+    if board is None:
+        return f"job:{login}/{job_id}", False, why
+    # A readable board without that job: closed, or not the sender's work for this request, and the wait is over.
+    listed = any(isinstance(j, dict) and j.get("id") == job_id for j in board)
+    return (f"job:{login}/{job_id}", True, None) if listed else (None, False, None)
+
+
 def check_request(message_id: str) -> Check:
     episodic = _load("fabric_episodic", os.path.join(FABRIC_ROOT, "tools", "fabric", "episodic.py"))
     path = episodic.db_path()
@@ -131,13 +187,29 @@ def check_request(message_id: str) -> Check:
         # lower(): the id is stored as the sender wrote it, the blocker as normalise() made it.
         # Any type: a DECISION answers a REQUEST as a REPLY does, and settle.py counts an outbound answer the same way. The id is
         # never empty, so an empty IN-REPLY-TO matches nothing.
-        row = conn.execute("SELECT 1 FROM episodes WHERE direction='inbound' AND lower(in_reply_to)=? LIMIT 1",
-                           (message_id,)).fetchone()
+        rows = conn.execute("SELECT sender, content FROM episodes WHERE direction='inbound' AND lower(in_reply_to)=? "
+                            "ORDER BY happened_at, recorded_at, id", (message_id,)).fetchall()
     except Exception as e:  # noqa: BLE001 — an unreadable journal is unknown, never a traceback in a listing
         return Check("unknown", f"journal: {e}"[:160])
     finally:
         conn.close()
-    return Check("cleared", "answered") if row else Check("waiting", "no reply yet")
+    if not rows:
+        return Check("waiting", "no reply yet")
+    # A REPLY answers the request, it does not deliver the work: when the answerer made a job of it, the wait is that job.
+    unreadable = None
+    for sender, content in rows:
+        login = _login_of(sender)
+        if login is None:
+            continue
+        body = str(content or "").partition("\n\n")[2]
+        job, seen, why = _became(message_id, login, body)
+        if job:
+            return Check("waiting", f"answered; now waiting on {job}", job, seen)
+        unreadable = unreadable or why
+    if unreadable:
+        # We cannot tell a "taken" from a "no": a clear we cannot justify hands the job back with nothing delivered.
+        return Check("unknown", f"answered, but whether it became a job is not known: {unreadable}"[:160])
+    return Check("cleared", "answered")
 
 
 def check_clock(epoch: float) -> Check:
@@ -155,16 +227,15 @@ def ctl_program() -> list[str]:
     return [os.environ.get("AGENT_FABRIC_CTL") or os.path.join(FABRIC_ROOT, "bin", "fabric-ctl")]
 
 
-def check_job(login: str, job_id: str, seen_open: bool) -> tuple[Check, bool]:
-    """(the check, whether the job has now been seen on the open list). Absent from the open list is done or
-    dropped only for a job seen open before."""
+def read_board(login: str) -> tuple[list[dict] | None, str]:
+    """(`login`'s open list as fabric-ctl gives it, ""), or (None, why it could not be read)."""
     try:
         p = subprocess.run([*ctl_program(), login, "jobs", "--json", "--timeout", "20"], capture_output=True, text=True,
                            timeout=CTL_TIMEOUT_S, stdin=subprocess.DEVNULL, check=False)
     except subprocess.TimeoutExpired:
-        return Check("unknown", f"fabric-ctl did not answer within {CTL_TIMEOUT_S} s"), seen_open
+        return None, f"fabric-ctl did not answer within {CTL_TIMEOUT_S} s"
     except OSError as e:
-        return Check("unknown", f"fabric-ctl could not run ({e.strerror or e})"), seen_open
+        return None, f"fabric-ctl could not run ({e.strerror or e})"
     row = None
     for text in p.stdout.splitlines():
         try:
@@ -175,11 +246,20 @@ def check_job(login: str, job_id: str, seen_open: bool) -> tuple[Check, bool]:
             row = doc
     if row is None or row.get("status") != "ok":
         why = (p.stderr.strip().splitlines() or [f"{login}: no answer" if row is None else f"{login}: {row.get('status')}"])[-1]
-        return Check("unknown", f"fabric-ctl: {why}"[:160]), seen_open
+        return None, f"fabric-ctl: {why}"
     listed = (row.get("jobs") or {}).get("jobs") if isinstance(row.get("jobs"), dict) else None
     if not isinstance(listed, list):
-        return Check("unknown", f"fabric-ctl: {login} gave no list of jobs"), seen_open
-    job = next((j for j in listed if isinstance(j, dict) and j.get("id") == job_id), None)
+        return None, f"fabric-ctl: {login} gave no list of jobs"
+    return [j for j in listed if isinstance(j, dict)], ""
+
+
+def check_job(login: str, job_id: str, seen_open: bool) -> tuple[Check, bool]:
+    """(the check, whether the job has now been seen on the open list). Absent from the open list is done or
+    dropped only for a job seen open before."""
+    board, why = read_board(login)
+    if board is None:
+        return Check("unknown", why[:160]), seen_open
+    job = next((j for j in board if j.get("id") == job_id), None)
     if job is None:
         if seen_open:
             return Check("cleared", "closed (done or dropped)"), True
@@ -201,6 +281,8 @@ def _sane(entry: dict) -> dict:
     the listing that formats it), and the `seen_open` memory."""
     at = entry.get("checked_at")
     out = {k: entry[k] for k in ("detail", "seen_open") if k in entry}
+    if isinstance(entry.get("became"), str) and JOB.fullmatch(entry["became"]):
+        out["became"] = entry["became"]
     if entry.get("state") in ("cleared", "waiting", "unknown"):
         out["state"] = entry["state"]
     if isinstance(at, (int, float)) and not isinstance(at, bool) and math.isfinite(at) and 0 <= at <= now() + 60:
@@ -267,12 +349,14 @@ def forget(specs: list[str]) -> None:
 def run_check(spec: str, entry: dict | None) -> dict:
     """The cache entry for `spec`, freshly checked."""
     seen = bool((entry or {}).get("seen_open"))
+    became, became_seen = None, False
     try:
         m = PR.fullmatch(spec)
         if m:
             result = check_pr(m.group(1), m.group(2))
         elif (m := REQUEST.fullmatch(spec)):
             result = check_request(m.group(1))
+            became, became_seen = result.became, result.became_seen
         elif (m := JOB.fullmatch(spec)):
             result, seen = check_job(m.group(1), m.group(2), seen)
         elif (epoch := clock_epoch(spec)) is not None:
@@ -281,7 +365,9 @@ def run_check(spec: str, entry: dict | None) -> dict:
             result = Check("unknown", "not a checkable form")
     except Exception as e:  # noqa: BLE001 — a check can fail in ways nobody listed (gh not executable, an answer of another shape): unknown, never a dead listing
         result = Check("unknown", f"the check failed: {type(e).__name__}: {e}"[:160])
-    return {"state": result.state, "detail": result.detail, "checked_at": now(), **({"seen_open": True} if seen else {})}
+    return {"state": result.state, "detail": result.detail, "checked_at": now(), **({"seen_open": True} if seen else {}),
+            # `became_seen` is private to refresh(), which turns it into the new spec's own cache entry
+            **({"became": became, "became_seen": became_seen} if became else {})}
 
 
 def refresh(specs: list[str], *, check: bool = True) -> dict[str, dict]:
@@ -303,6 +389,8 @@ def refresh(specs: list[str], *, check: bool = True) -> dict[str, dict]:
                                     or (isinstance(entry.get("checked_at"), (int, float)) and now() - entry["checked_at"] < CACHE_TTL_S))):
             continue
         fresh[spec] = run_check(spec, entry)
+    # A re-point that could not be written last time is made again by the next look.
+    repointed: dict[str, str] = {s: cache[s]["became"] for s in specs if (cache.get(s) or {}).get("became")}
     if fresh:
         with _locked():
             cache = load_cache()
@@ -312,9 +400,40 @@ def refresh(specs: list[str], *, check: bool = True) -> dict[str, dict]:
                     continue
                 if old.get("seen_open"):
                     new["seen_open"] = True
+                if (became := new.get("became")) and new.pop("became_seen", False):
+                    cache[became] = {**(cache.get(became) or {}), "seen_open": True}
+                new.pop("became_seen", None)
+                if became:
+                    repointed[spec] = became
                 cache[spec] = new
             save_cache(cache)
+    for spec, became in repointed.items():
+        repoint_blocker(spec, became)
     return {s: cache[s] for s in specs if s in cache}
+
+
+def repoint_blocker(spec: str, became: str) -> None:
+    """Replace the stored blocker `spec` (a request) by `became` (the job it turned into) in every blocked job that holds
+    it, under the list's lock. The job stays blocked: a REPLY answers the request, the work is delivered by the job. Never
+    called inside that lock: refresh() runs before any verb's mutate."""
+    mid = spec.split(":", 1)[1]
+
+    def edit(doc: dict) -> None:
+        for job in doc["jobs"]:
+            if job["state"] != "blocked" or spec not in specs_of(job):
+                continue
+            job["blockers"] = list(dict.fromkeys(became if s == spec else s for s in specs_of(job)))
+            if job.get("waits_on") == mid:
+                job.pop("waits_on")      # the state stream ranks the job that request asked for; this one is answered
+            on = str(job.get("blocked_on") or "")
+            job["blocked_on"] = on.replace(spec, became).replace(f"request {mid}", became) if mid in on else on
+            job["updated"] = identity.now_iso()
+            job.setdefault("log", []).append({"at": job["updated"], "kind": "repoint",       # no `state`: not a transition
+                                              "note": f"{spec} answered; now waiting on {became}"})
+    try:
+        mutate(edit)
+    except (OSError, Refused):
+        pass    # the cache says what was found; the job is re-pointed by the next look
 
 
 # ── what a job says of its blockers ─────────────────────────────────────────────────────────────────────────────
@@ -336,7 +455,7 @@ def states_of(job: dict, cache: dict[str, dict]) -> list[dict[str, Any]]:
         except (OverflowError, ValueError, OSError):
             when = None
         out.append({"spec": spec, "state": e.get("state") if e.get("state") in ("cleared", "waiting", "unknown") else "unknown",
-                    "detail": e.get("detail"), "checked_at": when})
+                    "detail": e.get("detail"), "checked_at": when, **({"became": e["became"]} if e.get("became") else {})})
     return out
 
 
