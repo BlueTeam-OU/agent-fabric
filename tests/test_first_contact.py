@@ -268,6 +268,20 @@ esac
               and not os.path.exists(mirror), r.stderr)
         shutil.rmtree(kept_record)
         g(fab, "update-ref", "refs/remotes/origin/main", main_now)
+        # Back on main the mirror is rebuilt from the remote, and this remote holds a commit its writers did not sign.
+        bad_remote = os.path.join(t, "bad-remote.git")
+        g(t, "clone", "-q", "--bare", stray, bad_remote)
+        r = parent("python3", STORE, "seed-child", kid_id, "--remote", bad_remote, stdin=bad_bundle)
+        check("control: a rebuild's refusal record is kept beside the mirror, with no loss said",
+              r.returncode != 0 and "not signed" in r.stderr and "no mirror is kept" in r.stderr
+              and "could not be kept" not in r.stderr and os.path.isfile(kept_record) and not os.path.exists(mirror), (r.stderr, os.path.exists(kept_record)))
+        os.remove(kept_record)
+        os.makedirs(os.path.join(kept_record, "in-the-way"))
+        r = parent("python3", STORE, "seed-child", kid_id, "--remote", bad_remote, stdin=bad_bundle)
+        check("a rebuild's record that cannot be moved is named as lost, with where it was to be kept",
+              r.returncode != 0 and "not signed" in r.stderr and "no mirror is kept" in r.stderr
+              and f"could not be kept at {kept_record}" in r.stderr and not os.path.exists(mirror), r.stderr)
+        shutil.rmtree(kept_record)
         os.rename(mirror_aside, mirror)
 
         print("first contact: a mirror deleted by hand")

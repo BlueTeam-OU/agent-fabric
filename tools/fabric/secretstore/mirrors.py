@@ -143,6 +143,24 @@ def bundle_own() -> str:
     return _bundle_armored(store)
 
 
+def _keep_refusal(mirror: str) -> str:
+    """Moves the mirror's refusal record beside it, so it outlives the mirror
+    about to be removed, or status never says the refusal (review of #96).
+    "" when kept or there was none; else the clause a refusal appends to say
+    the record is lost and where it was to be kept: a loss the owner must
+    read, never a silent one (#483 F7)."""
+    record, kept = os.path.join(mirror, ".git", REFUSAL_FILE), _kept_refusal(mirror)
+    if not os.path.lexists(record):
+        return ""
+    if kept is None:
+        return f" (its refusal record could not be kept: {mirror} has no place beside it, and is lost with the mirror)"
+    try:
+        os.replace(record, kept)
+    except OSError as e:
+        return f" (its refusal record could not be kept at {kept}: {type(e).__name__}, and is lost with the mirror)"
+    return ""
+
+
 def _rebuild_mirror(mirror: str, remote: str, agent_id: str) -> None:
     """A child's mirror made from its remote alone, every commit verified
     against the writers on the fabric's main, its base the verified head.
@@ -160,17 +178,8 @@ def _rebuild_mirror(mirror: str, remote: str, agent_id: str) -> None:
         git(mirror, "checkout", "-q", "-B", "main", tip)
         _set_base(mirror, tip)
     except BaseException as e:
-        record = os.path.join(mirror, ".git", REFUSAL_FILE)
-        refused = isinstance(e, StoreError) and os.path.lexists(record)
-        lost = ""
-        if refused:
-            # The record outlives the mirror, or status never said the
-            # refusal: it read the record inside the mirror removed here
-            # (review of #96).
-            try:
-                os.replace(record, _kept_refusal(mirror))
-            except OSError as kept:
-                lost = f" (its refusal record could not be kept: {type(kept).__name__})"
+        refused = isinstance(e, StoreError) and os.path.lexists(os.path.join(mirror, ".git", REFUSAL_FILE))
+        lost = _keep_refusal(mirror) if refused else ""
         shutil.rmtree(mirror, ignore_errors=True)
         if refused:
             # Removing the mirror again rebuilds the same refusal: a child
@@ -244,19 +253,10 @@ def seed_child(agent_id: str, remote: str, text: str) -> dict:
                 require_tree(mirror, "refs/remotes/origin/main")
             except StoreError as refused:
                 # Not left behind: the next call would find a mirror and take it as one.
-                # Its refusal record outlives it, beside it, as _rebuild_mirror's does.
-                record, kept = os.path.join(mirror, ".git", REFUSAL_FILE), _kept_refusal(mirror)
-                lost = None
-                if kept and os.path.lexists(record):
-                    try:
-                        os.replace(record, kept)
-                    except OSError as e:
-                        lost = e
+                lost = _keep_refusal(mirror)
                 shutil.rmtree(mirror, ignore_errors=True)
-                if lost is not None:
-                    # Said, not swallowed: the record went with the mirror, and status can no longer read it.
-                    raise StoreError(f"{refused} (its refusal record could not be kept at {kept}: "
-                                     f"{type(lost).__name__}, and is lost with the mirror)") from refused
+                if lost:
+                    raise StoreError(f"{refused}{lost}") from refused
                 raise
             git(mirror, "checkout", "-q", "-B", "main", "refs/remotes/origin/main")
             git(mirror, "remote", "set-url", "origin", remote)
