@@ -213,7 +213,8 @@ def _record_path_findings(rel: str, doc: dict, d: dict, pr_paths: re.Pattern | N
         return [f"{rel}: direct.record_cases must list the paths that are records under direct.record_paths"]
     b = doc.get("boundary") if isinstance(doc.get("boundary"), dict) else {}
     try:
-        inside = re.compile(b["paths"]) if b.get("paths") else None
+        # As arm_rules.load_config reads them: the boundary case-insensitive, the exemption as written.
+        inside = re.compile(b["paths"], re.I) if b.get("paths") else None
         exempt = re.compile(b["exempt"]) if b.get("exempt") else None
     except (TypeError, re.error):
         inside = exempt = None  # arm_boundary_findings names the unusable pattern

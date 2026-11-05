@@ -1727,7 +1727,9 @@ def case_arm_direct_block() -> None:
                           ({**rec, "record_cases": []}, "direct.record_cases must list"),
                           ({**rec, "record_cases": ["notes/a.md"]}, "'notes/a.md' is not a record"),
                           ({**rec, "record_paths": "\\.md$", "record_cases": ["key.md"]}, "'key.md' matches direct.pr_paths"),
-                          ({**rec, "record_paths": ".", "record_cases": ["src/a.md"]}, "'src/a.md' is inside the security boundary")):
+                          ({**rec, "record_paths": ".", "record_cases": ["src/a.md"]}, "'src/a.md' is inside the security boundary"),
+                          # arm matches the boundary case-insensitively, so lint must too (#488 round 1 F3)
+                          ({**rec, "record_paths": ".", "record_cases": ["SRC/a.md"]}, "'SRC/a.md' is inside the security boundary")):
             arm(bad)
             assert any(word in f for f in lint.arm_direct_findings(root)), (bad, lint.arm_direct_findings(root))
 
