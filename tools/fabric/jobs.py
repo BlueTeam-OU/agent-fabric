@@ -103,7 +103,11 @@ waits would be said by nobody, and read as a wait by a person.
 
 A job can be blocked on something the tool can check (`block --on`, tools/fabric/jobsparts/blockers.py is the
 contract): a pull request (`pr:<owner/repo>#<n>`, cleared when it is merged or closed), a request this login sent
-(`request:<message-id>`, cleared when a message of any type, a DECISION as well as a REPLY, with a non-empty IN-REPLY-TO naming it is in the journal) or a peer's job (`job:<login>/j<n>`, cleared
+(`request:<message-id>`, answered when a message of any type, a DECISION as well as a REPLY, with a non-empty IN-REPLY-TO naming it is in the journal;
+a REPLY does not deliver the work, so the job the request became on the answerer's board (a title ending "(REQUEST <id>)"; failing the board,
+the one job of the sender the body names, as job:<login>/j<n> or a bare j<n>) replaces the blocker, `request:<id> answered; now waiting on
+job:<login>/j<n>` is said once and the job stays blocked; with no such job it clears, and with the board unreadable and no body match it is unknown,
+never cleared; blockers.py has the whole) or a peer's job (`job:<login>/j<n>`, cleared
 when it is delivered, or closed after it was seen open; read through fabric-ctl, a host operator's op) or a
 time of your own (`clock:<YYYY-MM-DDTHH:MM[:SS]Z>`, UTC with the Z, cleared once now is at or after it; `block`
 refuses one already past; it reads only the clock, so it is evaluated on every look, `--stored` and `--cached`
