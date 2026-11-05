@@ -78,6 +78,20 @@ def gh_mock(s: str, a: list[str], stdin: str) -> tuple[int, str, str]:
         return 1, "", "gh: Not Found (HTTP 404)"
     if line.startswith("api repos/gzapi-org/agent-fabric-settings "):
         return 0, json.dumps({"full_name": "gzapi-org/agent-fabric-settings"}), ""
+    # The head's tree, one directory a call (arm_rules.head_modes), built from the PR's files: the head itself is the
+    # root, "tree:<dir>" a directory; `modes.json` {path: mode} overrides a file's 100644. Each read is a call.
+    if line.startswith("api repos/gzapi-org/gzapp/git/trees/"):
+        sha = a[1].rsplit("/", 1)[1]
+        at = "" if sha == pr["headRefOid"] else sha[len("tree:"):] + "/"
+        modes = json.loads(_state(s, "modes.json", "{}"))
+        names = {f.rpartition("->")[2] for f in pr["files"]}
+        entries = {}
+        for f in sorted(names):
+            if f.startswith(at):
+                part, _, rest = f[len(at):].partition("/")
+                entries[part] = ({"path": part, "type": "tree", "mode": "040000", "sha": f"tree:{at}{part}"} if rest
+                                 else {"path": part, "type": "blob", "mode": modes.get(f, "100644"), "sha": "b" * 40})
+        return 0, json.dumps({"sha": sha, "truncated": False, "tree": list(entries.values())}), ""
     # Gate 4c's read: every review object of the PR (`reviews.json`, none without it; `reviews_fail` a failed call).
     if line.startswith("api repos/gzapi-org/gzapp/pulls/7/reviews") and "--paginate --slurp" in line:
         if has("reviews_fail"):
@@ -259,7 +273,7 @@ def main() -> int:
             claude_only (gate 4b): a case about a missing review says reviewed=False."""
             for n in ("calls", "armed", "queued", "merged", "closed", "noarm", "nohead", "pushed", "viewfail", "blind", "independent", "unresolved", "no_blind_field", "unavailable",
                       "mergefail", "inbase", "unasked", "moved", "statusfail", "reviews.json", "reviews_fail", "viewer", "viewer_fail", "jobs.json", "jobs_fail", "shows.json",
-                      "waiver.out", "waiver_rc", "presence.out", "ctl_rc", "gh_repos"):
+                      "waiver.out", "waiver_rc", "presence.out", "ctl_rc", "gh_repos", "modes.json"):
                 if os.path.exists(f"{state}/{n}"):
                     os.remove(f"{state}/{n}")
             put("review_rc", "0" if reviewed else "1")
@@ -702,6 +716,75 @@ def main() -> int:
         reset(); set_pr(me, "plain", mig); set_gate(9); put("review_rc", "0"); put("blind", "abcdef01 abcdef01:codex")
         rc, out = run("7", "--basis", "b")
         check("…while the review class's own review of the head, beside a codex one, still arms", rc == 0 and "ARMED #7" in out, out)
+
+        print("arm: the record path — a decision record on a direct repository arms on the owner's word, no review (ADR-019 A 2026-11-05)")
+        rules = json.load(open(GZAPP_CONFIG))
+        rules["direct"] = {"roles": ["brand-comms"], "pr_paths": "(^|/)secrets?([/._-]|$)|\\.sh$",
+                           "record_paths": "^records/[^/]+\\.md$"}
+        put("record-rules.json", json.dumps(rules))
+        renv = {"AGENT_FABRIC_ARM_CONFIG": f"{state}/record-rules.json"}
+        direct = dict(claude_only, mode="direct")
+        rec = ["records/0009-no-capture-yet.md"]
+        note = "Record path: no review-class review (agent-fabric ADR-019 rule 1, A 2026-11-05)."
+
+        def record_run(files: list[str], basis: str = owner, policy: dict = direct, *extra: str, work: int = 1,
+                       modes: dict | None = None, reviewed: bool = False) -> tuple[int, str]:
+            """A dry run of #7 on the record rules: no review of the head unless `reviewed`."""
+            reset(reviewed=reviewed); set_pr(me, "plain", files); set_gate(work)
+            if modes:
+                put("modes.json", json.dumps(modes))
+            return run("7", "--basis", basis, "--dry-run", *extra, env=renv, policy=policy)
+
+        rc, out = record_run(rec)
+        check("a record PR with the owner's word and no review: would arm on the record path",
+              rc == 0 and "record path: every changed file is a record" in out and f"would post: Arming basis: {owner}"
+              " — 1 work commits, head abcdef01. " + note in out and "would run: gh pr merge 7 --merge --match-head-commit" in out, out)
+        check("…its threads read (the review-status call), no engine asked",
+              "record path: the policy's review engines are not asked" in out and "7 -q --json" in calls(), out + calls())
+        check("…its mode read from the head's tree", f"api repos/gzapi-org/gzapp/git/trees/{HEAD}" in calls(), calls())
+        rc, out = record_run(rec, "the ruling is in")
+        check("the same without the owner's word: refused, naming the record path",
+              rc == 1 and "a record PR (records/0009-no-capture-yet.md ) takes the record path" in out
+              and "arms only on the owner's word" in out, out)
+        rc, out = record_run(rec, "the ruling is in", work=12)
+        check("…at 12 work commits too: the record path asks the word at any count", rc == 1 and "takes the record path" in out, out)
+        rc, out = record_run(rec, "brand-comms's word", dict(direct, commits=dict(direct["commits"], below_min_authority="brand-comms")))
+        check("…and a below_min_authority's word does not stand in for it",
+              rc == 1 and "takes the record path" in out and "whatever role or authority asks" in out, out)
+        rc, out = record_run(rec, owner, dict(direct, commits=dict(direct["commits"], below_min="refuse")))
+        check("commits.below_min refuse still stands on a record PR",
+              rc == 1 and "commits.below_min: refuse" in out, out)
+        put("unresolved", "1"); rc, out = run("7", "--basis", owner, "--dry-run", env=renv, policy=direct)
+        check("an unresolved thread on a record PR: refused", rc == 1 and "a record PR with 1 unresolved review thread" in out, out)
+        for label, files, modes in (("one extra non-record file", rec + ["docs/a.md"], None),
+                                    ("a pr_paths file under record_paths", ["records/secret.md"], None),
+                                    ("a boundary file under record_paths", ["records/0003-jwt-rotation.md"], None),
+                                    ("an executable record", rec, {rec[0]: "100755"}),
+                                    ("a record renamed from a non-record", ["notes/x.md->records/0010-x.md"], None)):
+            rc, out = record_run(files, modes=modes)
+            check(f"{label}: no record path, the review gate refuses",
+                  rc == 1 and "with no review-class review of the current head" in out
+                  and "record path:" not in out, out)
+            rc, out = record_run(files, modes=modes, reviewed=True)
+            check(f"…and with the review of the head it arms as any PR, no record note",
+                  rc == 0 and "DRY RUN" in out and "Record path" not in out, out)
+        rc, out = record_run(rec, modes={rec[0]: "100755"})
+        check("the executable's mode is said", "records/0009-no-capture-yet.md has mode 100755 at the head" in out, out)
+        rc, out = record_run(rec, owner, claude_only)
+        check("a non-direct repository ignores record_paths: the engines' review is asked",
+              rc == 1 and "by the claude engine" in out and "record path" not in out, out)
+        rc, out = record_run(rec, owner, direct, "--boundary")
+        check("--boundary forces the gates on a record PR", rc == 1 and "no review-class review" in out, out)
+        authz = f"gzapi-org/gzapp#7@{HEAD[:8]}"
+        reset(); set_waiver(line=None, extra={"AUTHORIZES": authz})
+        set_pr(me, "plain", rec); set_gate(1); put("review_rc", "1")
+        rc, out = run("7", "--basis", owner, "--dry-run", "--authorization", mid, env=renv, policy=direct)
+        check("an --authorization beside the owner's word is read as the word relayed",
+              rc == 0 and "the owner's word, as architect-cto-01 relayed it" in out
+              and f"The owner's word relayed by architect-cto-01 ({mid})." in out and "ctl " not in calls(), out + calls())
+        set_waiver(line=None, extra={"AUTHORIZES": "gzapi-org/gzapp#7@01234567"})
+        rc, out = run("7", "--basis", owner, "--dry-run", "--authorization", mid, env=renv, policy=direct)
+        check("…and one naming another head refuses", rc == 1 and "an approval of one head arms no other" in out, out)
 
         print("arm: an additional engine (additional_reviews) — its review, its unavailable marker, or absent: never blocking")
         extra = dict(claude_only, reviews=["claude"], boundary_reviews=["claude"], additional_reviews=["codex"])
