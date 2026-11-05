@@ -195,6 +195,27 @@ def run_one(argv: list[str], cwd: str, env: dict[str, str]) -> tuple[int | str, 
                     proc.wait()
 
 
+def failing_lines(text: str, limit: int = 40) -> list[str]:
+    """The lines that say what failed: any with FAIL or Error, and the lines
+    indented deeper than a FAIL line, which are the check's detail (the values
+    it compared). Without them a red nightly says which check failed and
+    never why, as the flaky birth-time check of test_store_enroll_cli did."""
+    kept: list[str] = []
+    fail_indent: int | None = None
+    for ln in text.splitlines():
+        indent = len(ln) - len(ln.lstrip())
+        if "FAIL" in ln:
+            fail_indent = indent
+            kept.append(ln)
+        elif fail_indent is not None and ln.strip() and indent > fail_indent:
+            kept.append(ln)
+        else:
+            fail_indent = None
+            if "Error" in ln:
+                kept.append(ln)
+    return kept[:limit]
+
+
 def run(tree: str, files: list[str], out=print, skip: dict[str, str] | None = None) -> int:
     # Resolved once: the in-copy check compares resolved paths, and a TMPDIR
     # reached through a link (macOS's /var) would refuse every file.
@@ -227,7 +248,7 @@ def run(tree: str, files: list[str], out=print, skip: dict[str, str] | None = No
             else:
                 failed += 1
                 out(f"{f}: FAILED (exit {code})")
-                for line in [ln for ln in text.splitlines() if "FAIL" in ln or "Error" in ln][:12] or text.splitlines()[-5:]:
+                for line in failing_lines(text) or text.splitlines()[-5:]:
                     out(f"    {line}")
         return 1 if failed else 0
     finally:
