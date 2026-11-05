@@ -151,13 +151,24 @@ def own_dir(path: str) -> bool:
     return stat.S_ISDIR(st.st_mode) and st.st_uid == os.getuid()
 
 
+# tests/run.py sets it (lease.cpu_child_env) only while it holds a cpu slot, so a run without one (CI, opt-out, no
+# lease directory, a suite started by hand) is not covered; no production launch sets it.
+SUITE_MARKER = "AGENT_FABRIC_TEST_JOBS"
+
+
 def profile_provider(login: str, role: str | None, agent_only: bool = False) -> str | None:
     """routing/profiles.json's launch_provider, nearest layer first: the
     agent's, the role's, the defaults'; agent_only stops at the agent's.
     Unreadable, or not the shape the schema gives it (a hand-edited or
     unmerged checkout runs this without the lint), is none."""
     # A test points this at a fixture; nothing else sets it.
-    path = os.environ.get("AGENT_FABRIC_RESUME_PROFILES") or roots.routing_profiles(engine=FABRIC)
+    path = os.environ.get("AGENT_FABRIC_RESUME_PROFILES")
+    if not path:
+        if os.environ.get(SUITE_MARKER):
+            # A suite that forgot the fixture would read the live agent layer, so its result would depend on
+            # which login runs it (j438, j523): under a suite there is no profile instead.
+            return None
+        path = roots.routing_profiles(engine=FABRIC)
     try:
         with open(path, encoding="utf-8") as fh:
             prof = json.load(fh)
