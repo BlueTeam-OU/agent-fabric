@@ -485,22 +485,20 @@ its record disagree, the record wins. Look it up, never read it whole:
 - Posted by `fabric-pr post-review` with the marker; counted when marked
   by the PR's account or a named poster, or unmarked from a trusted
   account (§5 rules 6–7); legacy markers until sunset (rule 8).
-- A 2026-10-05 — reviewer inherits no secret: clean environment
-  (rule 4).
+- A 2026-10-05 — clean environment, no secret (rule 4).
 - A 2026-10-14 — card governs from base; only `pinned`
   review covers a head (rules 9–10).
 - A 2026-10-15 — pinned reads a detached head worktree (rule 10).
 - A 2026-10-16 — review covers the commit it read (rule 6).
-- A 2026-10-22 — a supplier dispatches no review of its own part; the
-  caller reviews the folded head (rule 11).
+- A 2026-10-22 — caller reviews the folded head; supplier none (rule 11).
 - A 2026-10-24 — pinned read tools, proved sandbox, no Bash (rules 4/6;
   ADR-065).
-- A 2026-10-25 — the guard also knows a supplier by its active job's
-  `deliver_to` (rule 11).
+- A 2026-10-25 — guard knows supplier by job's `deliver_to` (rule 11).
 - A 2026-10-30 — pre-commit hook and lint judge the card cap (rule
   9).
 - A 2026-11-02 — under a launch no model passes (rule 2).
 - A 2026-11-03 — Dependabot PRs: push account posts (rule 7).
+- A 2026-11-05 — record PR arms unreviewed (rule 1).
 - Keywords: blind review, fabric-review, pr-review-status, coverage,
   review card, run_in_background.
 
@@ -1228,14 +1226,15 @@ its record disagree, the record wins. Look it up, never read it whole:
   arming policy names (`reviews`, `boundary_reviews`; data, not this
   record) has reviewed the head with no open P1/P2 (§5 rule 6). Codex is
   pinned (§5 rule 7).
-- A 2026-10-13 — sandbox proven before the run; Codex's fetches off (§5 rules 2-3).
-- A 2026-10-13 — every login on a synced access token; both engines by default (§5 rules 6/8).
-- A 2026-10-13 — review required; arming policy names the engines (§5 rule 6).
-- A 2026-10-13 — codex additional: its review or unavailable marker per head (§5 rule 6, ADR-055 rule 8).
-- A 2026-10-14 — findings judged once per head, one dispatch (§5 rule 5).
-- A 2026-10-16 — post names the commit read (`--head`) (§5 rule 4).
-- A 2026-10-24 — v2 posts: header, coverage block (§5 rule 4).
-- A 2026-11-05 — ls-tree/cat-file extract, verified; read-allowlist profile, canary (§5 rule 2).
+- A 2026-10-13 — sandbox proven before the run; Codex's fetches off (rules 2-3).
+- A 2026-10-13 — logins on synced access token; both engines default (rules 6/8).
+- A 2026-10-13 — review required; arming policy names the engines (rule 6).
+- A 2026-10-13 — codex additional: its review or unavailable marker per head (rule 6, ADR-055 rule 8).
+- A 2026-10-14 — findings judged once per head, one dispatch (rule 5).
+- A 2026-10-16 — post names the commit read (`--head`) (rule 4).
+- A 2026-10-24 — v2 posts: header, coverage block (rule 4).
+- A 2026-11-05 — ls-tree/cat-file extract, verified; read-allowlist profile, canary (rule 2).
+- A 2026-11-05 — record PR: no engine (rule 6).
 
 ### ADR-054 — Codex as an alternative session harness: AGENTS.md is the instruction file, a harness is an adapter (Accepted)
 

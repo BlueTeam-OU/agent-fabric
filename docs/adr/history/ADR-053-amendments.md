@@ -128,3 +128,7 @@ same proof refuses under the old `:read-only` profile. Known limit:
 `/usr` did not exec); no account file or secret store is. The review of
 #455 raised the stale rule as a P3 (F3), and python-dev-02 routed it to
 fabric-coordinator (OBSERVATION 01a1981f).
+
+### Amendment 2026-11-05 — No engine reviews a record PR
+
+The review of #488 (round 1 on 2bf7557b, F1) found that rule 6 still said the review class's review is always required, with ADR-054 rule 10's substitution as the one exception, while ADR-019 §5 rule 1 (A 2026-11-05) arms a record PR on a direct project on the owner's ruling and `fabric-pr arm` asks no engine of it (gate 4b). Rule 6 now says no engine reviews a record PR, and calls ADR-054 rule 10's case a substitution, which it is: an engine is read as another, none is dropped.

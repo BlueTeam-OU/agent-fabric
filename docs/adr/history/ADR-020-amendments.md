@@ -174,3 +174,7 @@ fleet's that runs these tools trusts only its own posts, as it already
 does on the PRs it authors; when GitHub cannot name the account, the
 reader stops (exit 2), never reads the review as another login's.
 Supplied by devex-tooling (j271). j527.
+
+### Amendment 2026-11-05 — A record PR is not reviewed
+
+The review of #488 (round 1 on 2bf7557b, F1) found that rule 1 still said every pull request's head is reviewed by the review class before it is armed, while ADR-019 §5 rule 1 (A 2026-11-05) now arms a record PR on a direct project on the owner's ruling with no review-class review, and `fabric-pr arm` does so. A later session reading this record alone would either put the review back into arm or file the record path as a gate bypass. Rule 1 now names the exception and points to ADR-019 for its conditions (every file a record path, none a PR path or in the security boundary, every file at the head a regular file); nothing else in this record changes.
