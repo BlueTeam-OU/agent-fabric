@@ -5,7 +5,7 @@ topic: "j146-pr-repo-flag-design"
 description: "j146 fabric-pr --repo design survey: where each verb reads repo and project from the cwd, what to reuse, the worktree/branch already set up"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-05"
 origin:
   - agent: "devex-tooling"
     host: "develop-qzapp"

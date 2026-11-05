@@ -5,7 +5,7 @@ topic: "generic-file-names-no-project"
 description: "agent-fabric lint refuses a managed project's name (herdr, gzapp, …) in a generic file's comments; say \"<id>\" or describe it"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-05"
 origin:
   - agent: "devex-tooling"
     host: "develop-qzapp"

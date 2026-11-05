@@ -5,7 +5,7 @@ topic: "supplied-fix-of-callers-review-is-answers"
 description: "A supplier's commit that fixes a finding from the caller's PR review carries Answers:, not Kind: work, even on a for/ branch"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-05"
 origin:
   - agent: "devex-tooling"
     host: "develop-qzapp"

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-"""tools/fabric/resume.py profile_provider(): under a suite (AGENT_FABRIC_TEST_JOBS, which tests/run.py sets
-while it holds a cpu slot) an unset AGENT_FABRIC_RESUME_PROFILES means no profile, never the live routing/profiles.json,
+"""tools/fabric/resume.py profile_provider(): under a suite (AGENT_FABRIC_SUITE_RUN, which tests/run.py
+run_environment sets on every run) an unset AGENT_FABRIC_RESUME_PROFILES means no profile, never the live routing/profiles.json,
 whose agent layer for the login running the suite would change the result (j438, j523)."""
 from __future__ import annotations
 
@@ -36,6 +36,10 @@ class SuiteMarker(unittest.TestCase):
 
     def test_control_without_marker_reads_the_live_file(self):
         with self.env():
+            self.assertEqual(resume.profile_provider(LOGIN, None), "openrouter")
+
+    def test_old_jobs_variable_is_no_marker(self):
+        with self.env(AGENT_FABRIC_TEST_JOBS="4"):
             self.assertEqual(resume.profile_provider(LOGIN, None), "openrouter")
 
     def test_marker_reads_no_profile(self):

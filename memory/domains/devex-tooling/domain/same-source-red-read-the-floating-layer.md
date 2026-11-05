@@ -5,7 +5,7 @@ topic: "same-source-red-read-the-floating-layer"
 description: "a tree that was green goes red, or slow, with no commit: read from each run's own log which floating layer moved (runner image, base-image digest behind a tag) before blaming dependencies"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-05"
 origin:
   - agent: "devex-tooling"
     host: "develop-qzapp"

@@ -5,7 +5,7 @@ topic: "arm-word-authorizes-line"
 description: "How I give a contributor my arm word for a security-boundary PR under the minimum — an AUTHORIZES metadata line in a REPLY, head-pinned"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-05"
 origin:
   - agent: user
     host: "develop-qzapp"

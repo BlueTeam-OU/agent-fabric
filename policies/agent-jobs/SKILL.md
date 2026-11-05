@@ -64,6 +64,9 @@ agent for, block it with `--on-request` and the id of the REQUEST you
 sent. Your control agent then tells the fleet you wait on that message,
 and the job it became on the other agent's list ranks `blocking` there,
 whatever priority they gave it. A plain-text block tells nobody.
+A "taken" REPLY does not clear it: your block moves to the job the
+request became (`request:<id> answered; now waiting on job:<login>/j<n>`)
+and clears when that job is delivered; a decline clears it (ADR-037 rule 8).
 
 **Ranked blocking for someone else.** `fabric-jobs list` shows a queued
 job that another agent waits on as blocking, with the address that

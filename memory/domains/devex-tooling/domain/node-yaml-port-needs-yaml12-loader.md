@@ -5,7 +5,7 @@ topic: "node-yaml-port-needs-yaml12-loader"
 description: "Porting a Node script that reads YAML with the `yaml` package to Python — PyYAML's default (1.1) reads documents differently; what to keep and how to prove it"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-05"
 origin:
   - agent: "devex-tooling"
     host: "develop-qzapp"

@@ -5,7 +5,7 @@ topic: "guards-wired-one-hop-reading"
 description: "guards_wired.py rule 1's one hop — what a wired shell member is read as running, and why it refuses rather than guesses"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-05"
 origin:
   - agent: "devex-tooling"
     host: "develop-qzapp"

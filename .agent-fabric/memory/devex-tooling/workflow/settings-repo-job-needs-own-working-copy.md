@@ -5,7 +5,7 @@ topic: "settings-repo-job-needs-own-working-copy"
 description: "a REQUEST whose commits land in a settings repo is queued under agent-fabric; job-copy-guard refuses the commit — add a job per settings clone"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-05"
 origin:
   - agent: "devex-tooling"
     host: "develop-qzapp"

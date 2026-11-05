@@ -280,7 +280,7 @@ def main() -> int:
         base = fresh(files={"tests/test_env.py": suite(
             "import json\n"
             "keys = ['TMPDIR', 'PYTHONUNBUFFERED', 'GZCOORD_DEFAULT_LOCALE_ONLY', 'GIT_CONFIG_COUNT', 'GIT_CONFIG_KEY_0',\n"
-            "        'GIT_CONFIG_VALUE_0', 'GIT_CONFIG_KEY_1', 'GIT_CONFIG_VALUE_1']\n"
+            "        'GIT_CONFIG_VALUE_0', 'GIT_CONFIG_KEY_1', 'GIT_CONFIG_VALUE_1', 'AGENT_FABRIC_SUITE_RUN']\n"
             "print('ENV ' + json.dumps({k: os.environ.get(k) for k in keys}))\n"
             "print('TMPDIR-EXISTS ' + str(os.path.isdir(os.environ['TMPDIR'])))\n")})
         r = run(base, "python")
@@ -296,6 +296,9 @@ def main() -> int:
               got.get("PYTHONUNBUFFERED") == "1" and got.get("GZCOORD_DEFAULT_LOCALE_ONLY") == "1"
               and got.get("GIT_CONFIG_COUNT") == "2" and (got.get("GIT_CONFIG_KEY_0"), got.get("GIT_CONFIG_VALUE_0")) == ("commit.gpgsign", "false")
               and (got.get("GIT_CONFIG_KEY_1"), got.get("GIT_CONFIG_VALUE_1")) == ("tag.gpgsign", "false"), got)
+        # env() starts from nothing of the session's, so the marker seen here is the run's own, not inherited.
+        check("the suite marker is set, so resume reads no live routing/profiles.json (j556)",
+              got.get("AGENT_FABRIC_SUITE_RUN") == "1", got)
         r = subprocess.run([sys.executable, os.path.join(base, "tests", "run.py"), "python"], cwd=base, capture_output=True, text=True,
                            env=env(base, XDG_RUNTIME_DIR="/nonexistent-runtime"), timeout=120)
         line = next((ln for ln in r.stdout.splitlines() if ln.startswith("ENV ")), "ENV {}")

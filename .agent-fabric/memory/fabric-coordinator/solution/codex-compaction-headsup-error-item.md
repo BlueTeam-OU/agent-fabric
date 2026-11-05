@@ -5,7 +5,7 @@ topic: "codex-compaction-headsup-error-item"
 description: "Codex 0.162.1 emits its \"Heads up: Long threads and multiple compactions\" warning as an error item; review_codex refused on it"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-05"
 origin:
   - agent: user
     host: "develop-qzapp"

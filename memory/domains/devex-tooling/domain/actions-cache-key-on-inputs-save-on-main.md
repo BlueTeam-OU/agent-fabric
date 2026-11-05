@@ -5,7 +5,7 @@ topic: "actions-cache-key-on-inputs-save-on-main"
 description: "GitHub Actions cache: a key ending in github.sha or run_id saves every run, fills the 10 GB store and evicts the caches reused across commits; key on the inputs, save on a miss from main only, cache dependencies not the workspace, and…"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-05"
 origin:
   - agent: "devex-tooling"
     host: "develop-qzapp"

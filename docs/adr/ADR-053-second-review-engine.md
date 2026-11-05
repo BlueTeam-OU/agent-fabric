@@ -66,15 +66,25 @@ repository whose policy names `reviews`.
    renders the brief with `review_brief.py`, unchanged: facts, never the
    author's conclusions (ADR-020). The engine adds only the shape of its
    answer.
-2. **One process, read-only, on an extract.** Codex runs once per review
-   as a child of the reviewing session, in a scratch extract of the head
-   (`git archive`), with its sandbox read-only and a time budget (20
-   minutes by default). Before the run the engine proves the sandbox:
-   Codex's own `codex sandbox` must start read-only on the extract and
-   refuse a write there; a sandbox that does not start or lets the write
-   through is a failed review (A 2026-10-13). The scratch is removed on
-   every path, a timeout or failure included, and the working copy is
-   never touched.
+2. **One process, reading an allowlist, on a verified extract.** Codex
+   runs once per review as a child of the reviewing session, with a time
+   budget (20 minutes by default), in a scratch extract of the head
+   written from git's plumbing (`ls-tree`, `cat-file`) and verified
+   against `ls-tree` of the head: its paths, modes and blob ids. Never
+   `git archive`, whose `export-ignore` and `export-subst` attributes drop
+   and rewrite tracked files; a path with a `.git` component or `..`, or
+   a link resolving outside the extract, refuses the review
+   (A 2026-11-05). Codex runs under a permission profile that writes
+   nothing and reads only Codex's platform defaults, the extract, the
+   Codex binary and its tool host, and the repository's git history;
+   never `--sandbox read-only`, which reads the whole filesystem
+   (A 2026-11-05). Before the run the engine proves the sandbox under the
+   same profile: `codex sandbox` must start on the extract, refuse a
+   write there, refuse to read a canary planted outside the allowlist,
+   and read a control file in the extract; a sandbox that does not start,
+   lets the write through, reads the canary or cannot read the control is
+   a failed review (A 2026-10-13). The scratch is removed on every path,
+   a timeout or failure included, and the working copy is never touched.
 3. **Its own gateway, never the session's credential.** Codex's base URL
    is the root of a gateway process serving `openai-responses`, and its
    key is that gateway's local key, passed by environment variable only.
@@ -104,7 +114,9 @@ repository whose policy names `reviews`.
    `boundary_reviews` for a security-boundary change, in
    `policies/arming.json` for the fleet and in a repository's own
    policy, whose list replaces the fleet's. The review class's review is
-   always required (ADR-020). The one exception is ADR-054 rule 10's: for
+   always required (ADR-020), and no engine reviews a record PR on a
+   direct project, which arms on the owner's ruling by ADR-019 §5 rule 1
+   (A 2026-11-05). The one substitution is ADR-054 rule 10's: for
    a pull request whose every work commit was written in a Codex
    session, `codex` in the lists is read as `claude`, since Codex does
    not review its own harness's work. An engine listed under
@@ -180,3 +192,5 @@ The body above reads current; each change's full note is in [history/ADR-053-ame
 | 2026-10-14 | Findings are judged once per head | §5 rule 5: one judging dispatch per head for every open finding of both engines |
 | 2026-10-16 | the post names the commit Codex read | §5 rule 4: `--head <sha>` on the post, since post-review records a headerless report only on the head it names (ADR-020 §5 rule 6) |
 | 2026-10-24 | Codex posts a v2 review with its coverage | §5 rule 4: the dispatch header and a coverage block from the answer's required `coverage`, no `--head` (ADR-065) |
+| 2026-11-05 | the extract is git's raw tree, verified; Codex reads an allowlist | §5 rule 2: ls-tree/cat-file extract verified against ls-tree; a read-allowlist permission profile, proved by a write and a canary-read probe |
+| 2026-11-05 | No engine reviews a record PR | §5 rule 6: a record PR on a direct project needs no engine's review, the owner's ruling being its approval (ADR-019 §5 rule 1, A 2026-11-05) |

@@ -3,7 +3,7 @@ role: "db-admin"
 class: index
 description: "What db-admin knows and where it lives."
 tier: 1
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-05"
 ---
 
 # db-admin — knowledge index

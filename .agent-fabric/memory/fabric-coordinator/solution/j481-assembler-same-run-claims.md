@@ -5,7 +5,7 @@ topic: "j481-assembler-same-run-claims"
 description: "assembler same-run defects (InterWeave #516 F1/F2) — contract D1-D4 sent to python-dev-04 2026-10-31"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-05"
 origin:
   - agent: user
     host: "develop-qzapp"
@@ -13,6 +13,7 @@ origin:
     working_copy: "agent-fabric"
 derived_from:
   - 5ad4e47432240d7c
+  - 70c03212e52b2b2c
 ---
 
 ## assembler same-run defects (InterWeave #516 F1/F2) — contract D1-D4 sent to python-dev-04 2026-10-31
@@ -25,6 +26,10 @@ The 2026-10-28 InterWeave drain (j403, #516 review 5716071440) showed four assem
 REQUEST 01a19094-2acb (seq 690948) went to python-dev-04 for a for/user/j481-assembler-same-run-claims branch. j481 is blocked on it. Once it is delivered, fold it into my agent-fabric PR.
 
 2026-10-31 (session cea4dd7d): D1-D4 (a28358fc) and j485 (0fa284dc) folded into #437 (merge c23c7f3e). Round 3 marked their files "not read" (it treated them as main-merge content), so round 4 was a full review: review 5722055086 on e31e795d read every path, with no finding on the assembler. Suite on e31e795d: FAILED_SUITES=0, red only on the sibling corpus lint. Round 4: F9 (review_brief render's second read) fixed in 2f8901c1. F8 (arm_findings same-chain, same-head judgement) went to devex-tooling as REQUEST 01a19127, and j481 is blocked on it. The reviewer's one-line fix would have dropped an H..H adjudication's judgement, so the contract says "unless its base is that head". Next: fold their commit, run the suite, re-review, then arm once F2 clears (python-dev-02's installer PR on main).
+
+2026-10-31 14:47Z (session d9e6bf31): devex-tooling's F8 fix ab871063 folded (merge a17065d4), pushed; suite FAILED_SUITES=0, red only on sibling corpus lint. Owner: "arm 437" (relayed by rust-ui-dev-01, INFO 01a1926b) and then "do these" to me directly — push, re-review, arm without waiting on python-dev-02's j104, F2 deferred to it. Round 5 = re-review e31e795d..a17065d4, card_base c6d82919, request in the session scratchpad r5.yaml.
+Round 5 (saved round-5.md): F2 not-fixed; F5-F9 fixed; new F10/F11 P2 + F12/F13 P3, all in the bb235eb3 drain (python-dev bodies replaced by "project", ugrep section not replaced, headings cut at 100 chars, stale slices). post-review refuses it: coverage block 204811 chars, minimum possible 124338 > MAX_BLOCK_CHARS 60000 (review_coverage.py:42), so a range carrying a 1253-path drain cannot be posted. 698 paths "not read" would not count as coverage anyway. Not armed.
+15:2xZ: owner "do j104". python-dev-02 had built it (58fd00bc) and sat idle since 04:25Z, waiting for my pin 58fa8eae, which was already on its branch; a stray detached inbox watch had swallowed the notice. Nudged it with INFO 01a19294 (REPLY-EXPECTED yes) to merge main, run the suite, open a PR, review and merge. j481 is blocked on job:python-dev-02/j104. Still pending the owner's answer: take the drain (bb235eb3, bc5e5b69) out of #437 and redo it in its own PR with F10-F13 fixed.
 
 *Anchors: `tools/fabric/assembler/collisions.py::check_collisions`, `tools/fabric/assembler/writer.py::write_slice`*
 

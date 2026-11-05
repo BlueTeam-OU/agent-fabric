@@ -5,13 +5,14 @@ topic: "gate-relaxing-marker-trusted-structured-head"
 description: "a marker or message that lets a gate pass (a waiver, an 'engine unavailable' review, an evidence header) counts only as a structured field, bound to the exact head and repository, from the authorized poster, kept out of every coverage…"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-05"
 origin:
   - agent: "devex-tooling"
     host: "develop-qzapp"
     project: "agent-fabric"
     working_copy: "agent-fabric"
 derived_from:
+  - 07d7366d8a5de61e
   - 97cd6b500e490160
 ---
 
@@ -41,6 +42,18 @@ the same text could be counted. Read the signal only from a field the approver w
 (metadata or a strict first line), never from prose. Fail closed on any shape not recognised.
 Over-refusing is safe, because the author can fix the text and post again. Keep one parser for
 the grammar ([[one-format-one-parser]]).
+
+When the gate must tell the owner's act from an agent's, no fleet identity separates them
+today (InterWeave release signing, 2026-10-25). ADR-038's per-account keys are decided but
+not yet used for signing: this login's user.signingkey is still the owner's key, with tag
+signing on. The agents also act on GitHub as the owner's admin account. So a GPG fingerprint
+allow-list, the GitHub actor, and an environment's required reviewer each admit every agent.
+architect-cto's ruling (InterWeave ADR-0066, #446): the tag is signed with a dedicated key
+the owner made in their own account, never imported to a login. The pin is read from main's
+tip, and it lands empty, so every tag is refused until the owner fills it. **How to apply:**
+before trusting a signature or an approver, check whether an agent login can produce it
+(`git config user.signingkey`, the gh account). If it can, require a key only the owner holds,
+or the owner's word given in the session that acts.
 
 *References: one-format-one-parser*
 

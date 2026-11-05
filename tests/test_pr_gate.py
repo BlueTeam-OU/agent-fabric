@@ -433,6 +433,60 @@ def main() -> int:
         gh.graphql = real
 
 
+    # A record PR on a direct repository (agent-fabric ADR-019 rule 1, A 2026-11-05): arm asks it no review, so the
+    # gate must not block it on one; the same row elsewhere, or not a record, still blocks.
+    print("the record path: arm and the gate agree")
+    direct = dict(arm_policy.default(), mode="direct")
+    unreviewed = arm_policy.review_summary(set(), ["claude"], "abcdef01")
+    rv = lambda work, record, policy=direct, **st: pr_gate.verdict(  # noqa: E731
+        1, "main", False, commits(work), dict(CLEAR, **st), unreviewed, [], policy, record)
+    check("a record PR with no review: MERGEABLE, record (owner's ruling), any count",
+          rv(1, True).startswith("MERGEABLE — record (owner's ruling): no review-class review is asked; arm with the"
+                                 " owner's word in the basis (1 work commits, any count) and gh pr merge 1 --merge")
+          and rv(12, True).startswith("MERGEABLE — record (owner's ruling)"))
+    check("…control: not a record, the same row is BLOCKED on the review",
+          rv(1, False).startswith("BLOCKED: not every required engine has reviewed the head"))
+    check("…a non-direct policy has no record path", rv(1, True, arm_policy.default()).startswith("BLOCKED: not every required"))
+    check("…an unreadable policy has none either", rv(1, True, "cannot read").startswith("BLOCKED: not every required"))
+    check("…its other blocks stand", rv(1, True, unresolved="2") == "BLOCKED: 2 unresolved thread(s)")
+    check("…and commits.below_min refuse stays said",
+          "policy refuses below the minimum" in rv(1, True, dict(direct, commits=dict(direct["commits"], below_min="refuse"))))
+
+    print("record_of: the files and the head's tree, read as arm reads them")
+    import gh
+    from github import arm_rules
+    rules = (re.compile("migrations/|jwt", re.I), re.compile(r"^docs/"), (re.compile(r"^records/[^/]+\.md$", re.I), None))
+
+    def api_of(files: list[dict], mode: str = "100644", fail: str = ""):
+        def api(path: str, **kw):
+            if fail and fail in path:
+                raise gh.GhError("gh api", "HTTP 502")
+            if "/files" in path:
+                return files
+            if path.endswith("/git/trees/HEADSHA"):
+                return {"truncated": False, "tree": [{"path": "records", "type": "tree", "sha": "t1", "mode": "040000"}]}
+            return {"truncated": False, "tree": [{"path": f["filename"].split("/")[-1], "type": "blob", "mode": mode}
+                                                 for f in files]}
+        return api
+    one = [{"filename": "records/0001-x.md"}]
+    notes = []
+    with mock.patch.object(pr_gate, "note", notes.append):
+        for label, api, want in (("a record", api_of(one), True),
+                                 ("an executable record", api_of(one, "100755"), False),
+                                 ("a record beside another file", api_of(one + [{"filename": "src/a.py"}]), False),
+                                 ("a record inside the boundary (gate 4 reads it in arm; here only record_of)",
+                                  api_of([{"filename": "records/0003-jwt.md"}]), False),
+                                 ("a tree that cannot be read: said, no record", api_of(one, fail="trees"), False)):
+            with mock.patch.object(gh, "api", api):
+                check(f"{label}: {want}", pr_gate.record_of(rules, "o/r", 1, "HEADSHA") is want)
+        check("…the unread tree said", any("could not be read" in n for n in notes))
+        check("no rules (not direct, or no record_paths): no record, nothing read", pr_gate.record_of(None, "o/r", 1, "H") is False)
+        check("record_rules reads nothing for a policy that is not direct",
+              pr_gate.record_rules(arm_policy.default()) is None and pr_gate.record_rules("unreadable") is None)
+        with mock.patch.object(arm_rules, "config_path", lambda: "/nonexistent/arm.json"):
+            check("…and an arm.json it cannot read is said, no record", pr_gate.record_rules(direct) is None
+                  and any("the record path is not read" in n for n in notes))
+
     # The Kind: declaration reaches the classifier through split_range's
     # own git log, in a real range: each row's subject would read the
     # other way without it, and a revert pair declared work still nets.

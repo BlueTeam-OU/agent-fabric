@@ -5,7 +5,7 @@ topic: "role-tools-on-qubes-host"
 description: "how a role's extra host tools (not the fabric's host contract) get onto develop-qzapp, and who has to run the install"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-05"
 origin:
   - agent: "devex-tooling"
     host: "develop-qzapp"

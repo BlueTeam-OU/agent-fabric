@@ -82,7 +82,9 @@ outage procedure.
 ## 5. Binding Rules
 
 1. Every pull request's head is reviewed by the review class, dispatched
-   by the session that owns the PR, before it is armed (ADR-019); a
+   by the session that owns the PR, before it is armed (ADR-019), except
+   a record PR on a direct project, which arms on the owner's ruling by
+   ADR-019 §5 rule 1 (A 2026-11-05); a
    finding is judged with the review class before it is answered; a fix
    range is re-reviewed with the previous report as `previous_findings`.
 2. A review dispatch is `subagent_type: code-review`, `model: fable`, a
@@ -266,3 +268,4 @@ The body above reads current; each change's full note is in [history/ADR-020-ame
 | 2026-10-30 | The card's cap is judged at commit and in CI | §5 rule 9: `CARD_CAP` lives in `tools/fabric/review_card.py`; the pre-commit hook refuses a commit that stages the card over it, whoever commits, and lint refuses a tree that holds one, so a project CI catches what passed the hook; a project's card had grown past it over two commits that nothing refused |
 | 2026-11-02 | The guard passes its own answer | §5 rule 2: under a fabric launch that resolves a `code-review` pin, a review dispatch with no `model` passes, the agent file still held to routing; the harness runs the managed hook again on its `updatedInput` when the dispatch sets `run_in_background`; elsewhere an unset model is denied |
 | 2026-11-03 | On an app's PR the push account posts the review | §5 rule 7: on a PR an app opened, a marked review from the account `gh` acts as is coverage in review-status, the checkpoint, arm's gate 4c and pr-counts; an account it cannot read stops the reader |
+| 2026-11-05 | A record PR is not reviewed | §5 rule 1: a record PR on a direct project arms on the owner's ruling with no review-class review, as ADR-019 §5 rule 1 (A 2026-11-05) decided; the rule names the exception |

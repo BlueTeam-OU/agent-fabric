@@ -5,7 +5,7 @@ topic: "job-landed-check-by-commit"
 description: "Closing jobs as \"landed\": check each named commit on origin/main (ancestor, else same subject), not the PR state the coordinator matched"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-05"
 origin:
   - agent: "devex-tooling"
     host: "develop-qzapp"

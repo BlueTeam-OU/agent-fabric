@@ -16,6 +16,8 @@ own_instance_tree()
 scrub_process_env()
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.join(ROOT, "tools", "fabric"))
+import layout  # noqa: E402 — memory_slug, the one rule for a memory directory's name
 HOOK = os.path.join(ROOT, "runtime", "claude-code", "hooks", "memory-write-check.py")
 
 
@@ -59,7 +61,8 @@ def merge_target_cases() -> int:
             json.dump({"role": "fixture-role", "project": "fixture-proj", "working_copy": wc}, fh)
         env = {**os.environ, "AGENT_FABRIC_STATE_DIR": state}
         env.pop("AGENT_FABRIC_WORKING_COPY", None)
-        home = os.path.join(tmp, ".claude", "projects", "slug", "memory")
+        # The drain reads a memory directory as the one of the working copy whose slug names it, so the fixture's is.
+        home = os.path.join(tmp, ".claude", "projects", layout.memory_slug(wc), "memory")
         os.makedirs(home)
         elsewhere = os.path.join(tmp, "elsewhere")      # not a git checkout: the project comes from the binding
         os.makedirs(elsewhere)
@@ -95,7 +98,50 @@ def merge_target_cases() -> int:
         good = rc == 0 and not out
         print(f"  {'ok  ' if good else 'FAIL'} merge_target: a working copy that is gone: silent" + ("" if good else f": {out!r}"))
         fails += not good
+        fails += other_project_cases(tmp, binding, env)
     return fails
+
+
+def other_project_cases(tmp: str, binding: str, env: dict) -> int:
+    """j567: the memory is judged by the project of the working copy that owns its memory directory, as the
+    drain does, not by the session's cwd: cwd in A (project gzapp), the memory in B's slug directory (gzapi.ge)."""
+    fails = 0
+    copies = {}
+    for name, project, heading in (("wc-a", "gzapp", "Only in a"), ("wc-b", "gzapi.ge", "Only in b")):
+        top = os.path.join(tmp, name)
+        slices = os.path.join(top, ".agent-fabric", "memory", "fixture-role", "solution")
+        os.makedirs(slices)
+        with open(os.path.join(top, ".agent-fabric-project"), "w", encoding="utf-8") as fh:
+            fh.write(project + "\n")
+        with open(os.path.join(slices, "topic.md"), "w", encoding="utf-8") as fh:
+            fh.write(f"---\nrole: fixture-role\n---\n\n## {heading}\n\ntext\n")
+        subprocess.run(["git", "init", "-q", top], check=True, env=git_env())
+        copies[name] = top
+    with open(binding, "w", encoding="utf-8") as fh:
+        json.dump({"role": "fixture-role", "project": "gzapp", "working_copy": copies["wc-a"]}, fh)
+    home_b = os.path.join(tmp, ".claude", "projects", layout.memory_slug(copies["wc-b"]), "memory")
+    os.makedirs(home_b)
+    cases = [
+        ("cwd in A, memory of B naming a heading of B's slice", "Only in b", None),
+        ("cwd in A, memory of B naming a heading only A's slice has", "Only in a", "no shared_with"),
+    ]
+    for i, (label, heading, expect) in enumerate(cases):
+        path = memory(home_b, f"o{i}", "a correction",
+                      f'  roles_class: solution\n{ANCHORS}  merge_target: "{heading}"\n', "body")
+        rc, out = run(path, env={**env, "AGENT_FABRIC_WORKING_COPY": copies["wc-b"]}, cwd=copies["wc-a"])
+        good = rc == 0 and ((not out) if expect is None else expect in out)
+        print(f"  {'ok  ' if good else 'FAIL'} merge_target: {label}" + ("" if good else f": {out!r}"))
+        fails += not good
+    # The slug is lossy: one matching no known working copy names no project, so nothing is said.
+    home_x = os.path.join(tmp, ".claude", "projects", "-no-such-copy", "memory")
+    os.makedirs(home_x)
+    path = memory(home_x, "o9", "a correction",
+                  f'  roles_class: solution\n{ANCHORS}  merge_target: "Only in b"\n', "body")
+    rc, out = run(path, env=env, cwd=copies["wc-a"])
+    good = rc == 0 and not out
+    print(f"  {'ok  ' if good else 'FAIL'} merge_target: a slug matching no working copy: silent"
+          + ("" if good else f": {out!r}"))
+    return fails + (not good)
 
 
 def main() -> int:

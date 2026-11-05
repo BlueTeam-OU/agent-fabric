@@ -5,7 +5,7 @@ topic: "deliver-not-done-on-open-pr"
 description: "job finished on a still-open PR — run `fabric-jobs deliver`, never `done`; done is terminal and switch then refuses"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-05"
 origin:
   - agent: user
     host: "develop-qzapp"

@@ -74,7 +74,10 @@ def main() -> int:
             h, g = os.path.join(tmp, name), os.path.join(tmp, f"{name}-gnupg")
             os.makedirs(h)
             os.makedirs(g, mode=0o700)
-            return {**{k: v for k, v in os.environ.items() if k != "CLAUDECODE" and not k.startswith("GIT_")},
+            # No AGENT_FABRIC_ variable of the running session: a holder's launch stamps its addenda there
+            # (AGENT_FABRIC_LAUNCH_STORE_SHA), and "a launch that stamped nothing" was red on every holder (j619).
+            return {**{k: v for k, v in os.environ.items()
+                       if k != "CLAUDECODE" and not k.startswith(("GIT_", "AGENT_FABRIC_"))},
                     "HOME": h, "GNUPGHOME": g, "AGENT_FABRIC_ROOT": fabric, "AGENT_FABRIC_OPERATOR": fabric,
                     "AGENT_FABRIC_SECRET_STORE": os.path.join(h, "store"),
                     "GIT_CONFIG_GLOBAL": os.path.join(h, ".gitconfig"), "GIT_CONFIG_NOSYSTEM": "1"}
