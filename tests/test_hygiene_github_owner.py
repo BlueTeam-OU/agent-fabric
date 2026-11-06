@@ -75,6 +75,8 @@ FINE = [
     "https://objects.githubusercontent.com/github-production-release-asset-2e65be/1", "https://camo.githubusercontent.com/abc123",
     # A stated gap: gh api after a flag on a path that ends in no listed API resource.
     "gh api -X PATCH repos/someperson/x -f a=b",
+    # A bare number after a host is a gist id or an asset, never an owner (#497 round 5 F10).
+    "https://gist.github.com/1234567", "https://gist.github.com/1234567.js", "https://github.com/sponsors/1234",
 ]
 # The drain substitutes refer_as for the match: the text around the owner survives (#497 round 1 F3).
 SUBSTITUTED = {
