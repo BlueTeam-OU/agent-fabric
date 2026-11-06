@@ -9,7 +9,7 @@ fourth pattern lists (#497 round 3 F6). The organizations the corpus already nam
 Plain script: prints ok/FAIL, exit 1 on any failure.
 Kills: dropping any of the four patterns; one without the owner list, or with a list that lets an owner beginning with a
 listed name through; an owner list that differs between the four; a lost case-insensitivity; a match wider than the owner;
-GitHub's own routes or another github.com subdomain read as owners; the handle after sponsors/ or users/ left in."""
+GitHub's own routes, its API root or another of its sites read as owners; the handle after sponsors/ or users/ left in."""
 from __future__ import annotations
 
 import json
@@ -38,7 +38,8 @@ LEAKS = [
     # A user's Projects board, and the hosts beside github.com that carry the owner first (#497 round 3 F7, F8).
     "https://github.com/users/someperson/projects/1", "https://gist.githubusercontent.com/someperson/abc123/raw/f.sh",
     "https://codeload.github.com/someperson/x/tar.gz/main", "https://uploads.github.com/repos/someperson/x/releases/1/assets",
-    "https://objects.githubusercontent.com/someperson/x",
+    "https://media.githubusercontent.com/media/someperson/x/main/f.bin", "https://www.github.com/someperson/x",
+    "https://www.github.com/users/someperson/projects/2", "https://www.github.com/sponsors/someperson",
     # gh api with a flag, on an API resource the fourth pattern lists (#497 round 3 F6).
     "gh api --paginate repos/someperson/x/contributors", 'gh api -H "x" repos/someperson/x/pages',
     "gh api --paginate repos/someperson/x/stats/contributors",
@@ -67,6 +68,11 @@ FINE = [
     "uses: actions/checkout@v4", "uses: docker/build-push-action@v5", "https://avatars.githubusercontent.com/u/12345",
     "https://user-images.githubusercontent.com/12345/x.png", "https://github.com/sponsors/accounts",
     "https://support.github.com/contact", "https://skills.github.com/x",
+    # GitHub's API root and its other sites, and a host that only ends in github.com (#497 round 4 F9).
+    "https://api.github.com/graphql", "https://api.github.com/meta", "https://api.github.com/user/repos",
+    "https://api.github.com/rate_limit", "https://cli.github.com/manual/gh_api", "https://desktop.github.com/download",
+    "https://pages.github.com/versions", "https://status.github.com/x", "https://mygithub.com/foo",
+    "https://objects.githubusercontent.com/github-production-release-asset-2e65be/1", "https://camo.githubusercontent.com/abc123",
     # A stated gap: gh api after a flag on a path that ends in no listed API resource.
     "gh api -X PATCH repos/someperson/x -f a=b",
 ]
@@ -85,6 +91,7 @@ SUBSTITUTED = {
     "https://github.com/users/someperson/projects/1": "https://github.com/users/<owner>/projects/1",
     "https://gist.githubusercontent.com/someperson/abc/raw/f.sh": "https://gist.githubusercontent.com/<owner>/abc/raw/f.sh",
     "https://uploads.github.com/repos/someperson/x/releases": "https://uploads.github.com/repos/<owner>/x/releases",
+    "https://media.githubusercontent.com/media/someperson/x/main/f": "https://media.githubusercontent.com/media/<owner>/x/main/f",
 }
 
 
