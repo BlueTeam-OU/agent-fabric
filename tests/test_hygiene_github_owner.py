@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
-"""policies/hygiene.json: a GitHub URL, an <owner>/<repo>#N reference, and a gh api repos/ path or --repo argument never
-carry a personal handle into a slice, skill or prompt section: an owner that is no listed organization is refused by lint and
+"""policies/hygiene.json: a GitHub URL, an <owner>/<repo>#N reference, a --repo, gh repo or uses: argument, and a gh api
+repos/ path never carry a personal handle into a slice, skill or prompt section: an owner that is no listed organization is refused by lint and
 becomes <owner> in a drain (j533). A personal handle in a distilled slice travels into every project's repository, a privacy
 matter as a name is. Each pattern matches the owner alone, so the drain's substitution leaves the URL or reference readable
-(#497 round 1 F3). Not read, because a path looks the same: a bare owner/repo in prose or a heading, a repo label, gh's -R
-(#497 round 1 F1). The organizations the corpus already names are the list; owner, o and testorg are placeholders.
+(#497 round 1 F3). Not read, because a path looks the same: a bare owner/repo in prose or a heading, a repo label, gh's -R,
+a variable such as REPO=owner/repo (#497 round 1 F1). The organizations the corpus already names are the list; owner, o and testorg are placeholders.
 Plain script: prints ok/FAIL, exit 1 on any failure.
-Kills: dropping any of the three patterns; one without the owner list, or with a list that lets an owner beginning with a
-listed name through; an owner list that differs between the three; a lost case-insensitivity; a match wider than the owner;
-GitHub's own routes read as owners."""
+Kills: dropping any of the four patterns; one without the owner list, or with a list that lets an owner beginning with a
+listed name through; an owner list that differs between the four; a lost case-insensitivity; a match wider than the owner;
+GitHub's own routes or another github.com subdomain read as owners; the handle after sponsors/ or users/ left in."""
 from __future__ import annotations
 
 import json
@@ -28,6 +28,12 @@ LEAKS = [
     "fixed in someperson/overgraph#12", "the review on someperson/tool#7.", "(some-person/x_y#3)", "<someperson/tool#7>",
     "BlueTeam-OU-evil/x#1", "githubber/x#1",
     "gh api repos/someperson/x/pulls", "gh pr list --repo someperson/x", "gh pr list --repo=someperson/x", "--repo githubber/x",
+    # A Sponsors page and the users API name the owner one segment on (#497 round 2 F5).
+    "https://github.com/sponsors/someperson", "curl https://api.github.com/users/someperson",
+    # gh api with a flag or a quote before repos/, as the corpus writes it (#497 round 2 F6).
+    "gh api --paginate repos/someperson/x/pulls", "gh api -X POST repos/someperson/x/issues",
+    'gh api -H "Accept: x" repos/someperson/x/code-scanning/alerts', 'gh api "repos/someperson/x/pulls"', "gh api  repos/someperson/x/pulls",
+    'gh pr list --repo "someperson/x"', "gh repo clone someperson/x", "uses: someperson/action@v1",
 ]
 FINE = [
     "https://github.com/BlueTeam-OU/herdr", "https://github.com/gzapi-org/x/pull/3", "https://github.com/BLUETEAM-OU/herdr",
@@ -42,7 +48,13 @@ FINE = [
     "the OR/equality case", "## tests/run.sh", "x/y#", "~/projects/x#3", "a.b-c/x_y#3",
     "cp -R templates/base dest", "ls -R docs/adr", "~/repos/agent-fabric/tools", "/srv/git/repos/herdr/hooks",
     "the repo tools/fabric/lint.py", "the repository docs/adr records", "gh issue -R someperson/x list",
-    "text then someperson/overgraph in prose", "## someperson/overgraph",
+    "text then someperson/overgraph in prose", "## someperson/overgraph", "REPO=someperson/x",
+    # More of GitHub's routes, and its docs host (#497 round 2 F2).
+    "https://github.com/advisories/GHSA-abcd-1234", "https://docs.github.com/en/rest/pulls", "https://github.com/copilot",
+    "https://github.com/new", "https://github.com/pulls", "https://github.com/codespaces", "https://github.com/explore",
+    "https://github.com/sponsors/BlueTeam-OU", "https://api.github.com/users/apache",
+    # A relative path with a heading anchor, and repos/ in a path with no API resource after it.
+    "adr/ADR-013.md#2-hygiene", "under repos/herdr/hooks dir", "gh api -H \"Accept: x\" repos/<o>/<r>/code-scanning",
 ]
 # The drain substitutes refer_as for the match: the text around the owner survives (#497 round 1 F3).
 SUBSTITUTED = {
@@ -52,6 +64,10 @@ SUBSTITUTED = {
     "gh api repos/someperson/x/pulls": "gh api repos/<owner>/x/pulls",
     "git@github.com:someperson/tool.git": "git@github.com:<owner>/tool.git",
     "https://api.github.com/repos/someperson/x": "https://api.github.com/repos/<owner>/x",
+    "https://github.com/sponsors/someperson": "https://github.com/sponsors/<owner>",
+    "https://api.github.com/users/someperson": "https://api.github.com/users/<owner>",
+    'gh api -H "Accept: x" repos/someperson/x/pulls': 'gh api -H "Accept: x" repos/<owner>/x/pulls',
+    "uses: someperson/action@v1": "uses: <owner>/action@v1",
 }
 
 
@@ -68,14 +84,14 @@ def main() -> int:
     with open(os.path.join(ROOT, "policies", "hygiene.json"), encoding="utf-8") as fh:
         entries = json.load(fh)["patterns"]
     owner = [e for e in entries if "owner that is no listed organization" in e["label"]]
-    check("three patterns, each with refer_as <owner> and the case-insensitive flag",
-          len(owner) == 3 and all(e.get("refer_as") == "<owner>" and e.get("flags") == "i" for e in owner))
+    check("four patterns, each with refer_as <owner> and the case-insensitive flag",
+          len(owner) == 4 and all(e.get("refer_as") == "<owner>" and e.get("flags") == "i" for e in owner))
     # The URL pattern's routes lookahead has the same shape: the owner list is the one naming the fabric's organization.
     found = [[x for x in re.findall(r"\(\?!\(\?:([^)]*)\)\(\?!\[\\w-\]\)\)", e["pattern"]) if "BlueTeam-OU" in x.split("|")]
              for e in owner]
-    check("each pattern carries the owner list, closed by a name boundary", len(found) == 3 and all(len(f) == 1 for f in found))
+    check("each pattern carries the owner list, closed by a name boundary", len(found) == 4 and all(len(f) == 1 for f in found))
     lists = {f[0] for f in found if f}
-    check("one owner list, in all three", len(lists) == 1)
+    check("one owner list, in all four", len(lists) == 1)
     listed = set(next(iter(lists)).split("|")) if lists else set()
     for org in ("BlueTeam-OU", "gzapi-org"):
         check(f"{org} is listed", org in listed)
@@ -86,7 +102,8 @@ def main() -> int:
         check(f"not matched: {text!r}", not any(p.search(text) for p in compiled))
     for pat, texts in zip(compiled, (("github.com/someperson/x", "github.com/githubber/x", "github.com/BlueTeam-OU-x/y"),
                                      ("someperson/x#1", "githubber/x#1", "BlueTeam-OU-x/y#1"),
-                                     ("--repo someperson/x", "--repo githubber/x", "--repo BlueTeam-OU-x/y"))):
+                                     ("--repo someperson/x", "--repo githubber/x", "--repo BlueTeam-OU-x/y"),
+                                     (" repos/someperson/x/pulls", " repos/githubber/x/pulls", " repos/BlueTeam-OU-x/y/pulls"))):
         for text in texts:
             m = pat.search(text)
             check(f"{text!r} is caught by its own pattern, the owner alone", bool(m) and "/" not in m.group(0))
