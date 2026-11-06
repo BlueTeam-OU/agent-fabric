@@ -4,7 +4,8 @@ repos/ path never carry a personal handle into a slice, skill or prompt section:
 becomes <owner> in a drain (j533). A personal handle in a distilled slice travels into every project's repository, a privacy
 matter as a name is. Each pattern matches the owner alone, so the drain's substitution leaves the URL or reference readable
 (#497 round 1 F3). Not read, because a path looks the same: a bare owner/repo in prose or a heading, a repo label, gh's -R,
-a variable such as REPO=owner/repo (#497 round 1 F1). The organizations the corpus already names are the list; owner, o and testorg are placeholders.
+a variable such as REPO=owner/repo (#497 round 1 F1), a gh api path after a flag that ends in no API resource the
+fourth pattern lists (#497 round 3 F6). The organizations the corpus already names are the list; owner, o and testorg are placeholders.
 Plain script: prints ok/FAIL, exit 1 on any failure.
 Kills: dropping any of the four patterns; one without the owner list, or with a list that lets an owner beginning with a
 listed name through; an owner list that differs between the four; a lost case-insensitivity; a match wider than the owner;
@@ -34,6 +35,13 @@ LEAKS = [
     "gh api --paginate repos/someperson/x/pulls", "gh api -X POST repos/someperson/x/issues",
     'gh api -H "Accept: x" repos/someperson/x/code-scanning/alerts', 'gh api "repos/someperson/x/pulls"', "gh api  repos/someperson/x/pulls",
     'gh pr list --repo "someperson/x"', "gh repo clone someperson/x", "uses: someperson/action@v1",
+    # A user's Projects board, and the hosts beside github.com that carry the owner first (#497 round 3 F7, F8).
+    "https://github.com/users/someperson/projects/1", "https://gist.githubusercontent.com/someperson/abc123/raw/f.sh",
+    "https://codeload.github.com/someperson/x/tar.gz/main", "https://uploads.github.com/repos/someperson/x/releases/1/assets",
+    "https://objects.githubusercontent.com/someperson/x",
+    # gh api with a flag, on an API resource the fourth pattern lists (#497 round 3 F6).
+    "gh api --paginate repos/someperson/x/contributors", 'gh api -H "x" repos/someperson/x/pages',
+    "gh api --paginate repos/someperson/x/stats/contributors",
 ]
 FINE = [
     "https://github.com/BlueTeam-OU/herdr", "https://github.com/gzapi-org/x/pull/3", "https://github.com/BLUETEAM-OU/herdr",
@@ -55,6 +63,12 @@ FINE = [
     "https://github.com/sponsors/BlueTeam-OU", "https://api.github.com/users/apache",
     # A relative path with a heading anchor, and repos/ in a path with no API resource after it.
     "adr/ADR-013.md#2-hygiene", "under repos/herdr/hooks dir", "gh api -H \"Accept: x\" repos/<o>/<r>/code-scanning",
+    # GitHub's own Actions and Docker's are organizations; an avatar id and a Sponsors route are no owner.
+    "uses: actions/checkout@v4", "uses: docker/build-push-action@v5", "https://avatars.githubusercontent.com/u/12345",
+    "https://user-images.githubusercontent.com/12345/x.png", "https://github.com/sponsors/accounts",
+    "https://support.github.com/contact", "https://skills.github.com/x",
+    # A stated gap: gh api after a flag on a path that ends in no listed API resource.
+    "gh api -X PATCH repos/someperson/x -f a=b",
 ]
 # The drain substitutes refer_as for the match: the text around the owner survives (#497 round 1 F3).
 SUBSTITUTED = {
@@ -68,6 +82,9 @@ SUBSTITUTED = {
     "https://api.github.com/users/someperson": "https://api.github.com/users/<owner>",
     'gh api -H "Accept: x" repos/someperson/x/pulls': 'gh api -H "Accept: x" repos/<owner>/x/pulls',
     "uses: someperson/action@v1": "uses: <owner>/action@v1",
+    "https://github.com/users/someperson/projects/1": "https://github.com/users/<owner>/projects/1",
+    "https://gist.githubusercontent.com/someperson/abc/raw/f.sh": "https://gist.githubusercontent.com/<owner>/abc/raw/f.sh",
+    "https://uploads.github.com/repos/someperson/x/releases": "https://uploads.github.com/repos/<owner>/x/releases",
 }
 
 
