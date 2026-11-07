@@ -516,10 +516,12 @@ def main() -> int:
         rc.gh.api = real_api
     check("Levels: the level on the finding's own line; a missing finding or an unreadable review is None",
           got_levels == ["P2", None, None, None, None], got_levels)
-    rc.gh.api = lambda path, **kw: {"id": 1, "body": 5}
+    odd_bodies = {1: 5, 2: 0, 3: [], 4: False}
+    rc.gh.api = lambda path, **kw: {"id": int(path.rsplit("/", 1)[1]), "body": odd_bodies[int(path.rsplit("/", 1)[1])]}
     try:
         odd = rc.Levels()
-        odd_level = odd(rc.Coordinates("o/r", 9, 1, "F1"))
+        odd_levels = [odd(rc.Coordinates("o/r", 9, n, "F1")) for n in odd_bodies]
+        odd_level = None if odd_levels == [None] * 4 else odd_levels
         try:
             rc.fetch_summary(rc.Coordinates("o/r", 9, 1, "F1"))
             odd_summary = "read"
@@ -528,7 +530,7 @@ def main() -> int:
     finally:
         rc.gh.api = real_api
     check("a review body that is no text is an unreadable review and a one-line refusal, not a traceback",
-          odd_level is None and odd.unreadable == {("o/r", 9, 1)} and "no longer readable" in odd_summary, (odd.unreadable, odd_summary))
+          odd_level is None and odd.unreadable == {("o/r", 9, n) for n in odd_bodies} and "no longer readable" in odd_summary, (odd.unreadable, odd_summary))
     check("Levels: one read per review, and the unreadable review is counted apart",
           len(gets) == 3 and lv.unreadable == {("o/r", 9, 556), ("o/r", 9, 557)}, (gets, lv.unreadable))
 

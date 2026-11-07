@@ -611,7 +611,8 @@ class Levels:
                 found = {c.coords: c.level for c in findings_of(coords.repo, coords.pr, review)}
                 # Finding lines that findings_of rejected (no marker, a malformed line) are an unreadable review, not
                 # a review of findings without a level.
-                body = review.get("body") or ""
+                body = review.get("body")
+                body = "" if body is None else body       # only an absent body is a review; 0 or [] is a malformed one
                 lines = errors.FINDING_LINE.findall(body) if isinstance(body, str) else ["a body that is no text"]
                 self._reviews[key] = found if found or all(rest.strip() == "none" for rest in lines) else None
         found = self._reviews[key]
@@ -742,7 +743,8 @@ class Candidate:
 
 
 def findings_of(repo: str, pr: int, review: dict) -> list[Candidate]:
-    body = review.get("body") or ""
+    body = review.get("body")
+    body = "" if body is None else body
     if not isinstance(body, str):
         return []
     marker = review_coverage.parse_marker(body)
