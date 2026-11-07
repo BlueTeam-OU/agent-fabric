@@ -72,7 +72,15 @@ class Private(unittest.TestCase):
         self.agent = os.path.join(self.state, "agents", LOGIN)
         os.makedirs(self.agent)
 
+    def older(self, name: str) -> None:
+        """A file an older build made at the umask's 0644: atomic_write without a mode keeps the bits it finds."""
+        path = os.path.join(self.agent, name)
+        with open(path, "w") as fh:
+            fh.write("{}")
+        os.chmod(path, 0o644)
+
     def test_the_launch_provider_record_is_0600_and_keep_existing_still_refuses(self) -> None:
+        self.older(launch_provider_record.RECORD)
         self.assertTrue(launch_provider_record.write(self.agent, "openai"))
         path = os.path.join(self.agent, launch_provider_record.RECORD)
         self.assertEqual(mode(path), 0o600)
@@ -82,6 +90,7 @@ class Private(unittest.TestCase):
         self.assertEqual([n for n in os.listdir(self.agent) if n.startswith(".tmp-")], [], "no temporary left behind")
 
     def test_the_gateway_record_and_its_usage_file_are_0600(self) -> None:
+        self.older("gateway.json")
         gw = gateway.Gateway(proc=mock.Mock(pid=7), listener="l", plan_digest="d", version="v", runtime_contract=1, key="k",
                              control=mock.Mock(), started_at="t")
         gateway.record_state(self.agent, gw)
@@ -90,6 +99,7 @@ class Private(unittest.TestCase):
         self.assertEqual(mode(os.path.join(self.agent, gateway_usage.FILE)), 0o600)
 
     def test_the_launch_record_is_written_and_read_by_identity_s_state_directory(self) -> None:
+        self.older(launch_locale.FILE)
         launch_locale.record(self.agent, "ru")
         self.assertEqual(mode(os.path.join(self.agent, launch_locale.FILE)), 0o600)
         self.assertEqual(launch_locale.read(LOGIN), "ru")
