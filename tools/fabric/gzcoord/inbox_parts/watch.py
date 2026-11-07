@@ -326,6 +326,9 @@ def wait_loop(fetch_page: Callable[[int, threading.Event], Any], ack: Callable[[
             return {"classified": [c for c in classified if not c.get("quiet")], "waited": waited,
                     "delivered": delivered, "keywordHit": hit, "ledger": lock, "ack_later": ack_later,
                     "relayError": relay_error,
+                    # Whether the relay itself answered this slice: not when the fetch failed (a carrier delivery says
+                    # nothing of the relay) nor when a hold emptied the page. The relay-down marker is cleared on this.
+                    "relayAnswered": relay_error is None and not dropped,
                     "othersPassed": len([c for c in classified if not c["isMine"]])}
         # Nothing for this session, no keyword hit: the cursor is past the
         # slice, and the remaining budget keeps waiting.

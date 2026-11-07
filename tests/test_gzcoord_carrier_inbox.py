@@ -250,6 +250,21 @@ def main() -> int:
     check("relay down, the carrier delivers (--until-delivery): shown, the relay's line beside it, exit 0",
           r.returncode == 0 and "subject-4" in r.stdout and "HTTP 500" in r.stdout, f"{r.returncode}\n{r.stdout}{r.stderr}")
     w.close()
+    # the relay-down marker (a Stop hook reads it) survives a carrier delivery made while the relay fails, and goes when the relay answers
+    w = World([[]], carrier_records=[urec(5)])
+    login = subprocess.run(["id", "-un"], capture_output=True, text=True, timeout=10).stdout.strip()
+    marker = os.path.join(w.env["XDG_RUNTIME_DIR"], "agent-fabric", f"gzcoord-inbox-{login}.relay-down")
+    os.makedirs(os.path.dirname(marker), mode=0o700, exist_ok=True)
+    with open(marker, "w") as fh:
+        fh.write("1\n")
+    w.relay_down = True
+    r = w.watch()
+    check("relay down, the carrier delivers: the relay-down marker stays", r.returncode == 0 and "subject-5" in r.stdout
+          and os.path.exists(marker), f"{r.returncode}\n{r.stdout}{r.stderr}")
+    w.relay_down = False
+    r = w.watch(deadline=3)
+    check("the relay answered (an empty page): the marker is removed", not os.path.exists(marker), f"{r.returncode}\n{r.stdout}{r.stderr}")
+    w.close()
     # --follow: an arm failed (the watch is "down"), then the carrier delivers while the relay still fails: not "the relay is back".
     # The watch retries every 30 s, so the record arrives after the first failed arm and the case waits for the second.
     recs = []

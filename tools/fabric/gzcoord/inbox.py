@@ -627,7 +627,8 @@ def main(argv: list[str]) -> int:
                 # carry the watch past the deadline it promised, and a shorter bound (a test's) is not slept through twice.
                 time.sleep(max(0.0, min(30.0, UNTIL_DELIVERY_DOWN_S - (time.monotonic() - down_since), deadline - time.monotonic())) if until_delivery else 30)
                 continue
-            clear_relay_down(who["agent"])
+            if r.get("relayAnswered"):
+                clear_relay_down(who["agent"])
             if r.get("sessionEnded"):
                 print(SESSION_ENDED.format(pid=session.pid), flush=True)
                 return 0
