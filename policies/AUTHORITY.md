@@ -107,10 +107,10 @@ rule is one file; there are no globs. Each entry keeps out what a role
 *is* and what enforces the fence: identities, routing, policies (but the
 bash allowlist the port shrinks), the protocol, the decision records,
 the guards and the `git.py` they import, the lint, the suite runners and
-the helper they source, all of `runtime/claude-code/` (the reviewer's
-agent file, the harness hooks and the settings that register them, the
-workspace prompt, and what installs them), and the role, routing, prompt
-and review-brief code. CI judges a branch with main's copy of the
+the helper they source, `runtime/claude-code/` (the reviewer's agent
+file, the guard hooks and the settings that register them, the workspace
+prompt, `bootstrap.sh`), and the role, routing and review-brief code —
+but the supply tier below, which an entry admits only as supply. CI judges a branch with main's copy of the
 guards, run isolated before any of the branch's code
 (`docs/live-checks/2026-10-01-guard-shadowing.md`), since a module
 beside the guards can shadow one they import whatever an entry excludes.
@@ -118,6 +118,19 @@ Lint holds every entry to that list (`CONTRIBUTOR_NEVER` in
 `tools/fabric/lint.py`), comparing rules as prefixes. The owner chose
 this for a Python developer sharing the port of the fabric's bash
 (ADR-040), over sending patches (agent-fabric ADR-018 §5 rule 8).
+
+Between the entry and the fence lies the **supply tier**
+(`CONTRIBUTOR_SUPPLY`, the owner 2026-11-07): code that runs with an
+account's reach but that no guard, lint or runner loads or runs — the
+prompt renderer, bootstrap and what it installs, the Python pin, the
+episodic history and relay readers, and the workspace hooks that refuse
+nothing a commit or review depends on (file by file; every guard hook
+stays hard). An entry names such paths under `supplies`. Its role
+commits them, whatever `paths`, `excluding` and `merges` say, only on a
+branch `<host>/<login>/for/<holder>/<what>` whose caller holds the owner
+role in this file, and CI refuses a pull request carrying such a commit
+unless a commit in it declares the owner role: the coordinator folds,
+reviews blind and merges supply, never the contributor itself.
 
 - **At the keyboard**, `pre-commit` and `commit-msg` admit a commit from
   a session bound to that role, on a branch

@@ -86,6 +86,27 @@ def main() -> int:
         ("the shell's name quoted", "\"bash\" -c 'fabric-pr post-review 12 < r.md'"),
         ("source as a command word", ". /dev/stdin <<'EOF'\nfabric-pr post-review 12 < r.md\nEOF"),
         ("a quote left open over the words", "cd /x; 'fabric-pr post-review 12 < r.md"),
+        # `.` reading stdin where the command word was misread (j543, #451 round 4 F11): a brace group, an elif, a
+        # case arm, a leading redirection.
+        ("source in a brace group", "{ . /dev/stdin <<'EOF'\nfabric-pr post-review 12 < r.md\nEOF\n}"),
+        ("source after elif", "if false; then :; elif . /dev/stdin <<'EOF'\nfabric-pr post-review 12 < r.md\nEOF\nthen :; fi"),
+        ("source in a case arm", "case x in x) . /dev/stdin <<'EOF'\nfabric-pr post-review 12 < r.md\nEOF\n;; esac"),
+        ("source after a leading redirection", "2>/dev/null . /dev/stdin <<'EOF'\nfabric-pr post-review 12 < r.md\nEOF"),
+        # A runner by path is one only as a command word (j543, F12); by bare name it still counts anywhere.
+        ("a shell by path as the command word", "/bin/bash -c 'fabric-pr post-review 12 < r.md'"),
+        ("a shell by path after a wrapper", "sudo /usr/bin/bash -c 'fabric-pr post-review 12 < r.md'"),
+        ("a bare shell name as an argument: find -exec", "find . -exec bash -c 'fabric-pr post-review 1' \\;"),
+        # A shell by path where the walk misreads the command word: refused unless a reader is the command
+        # (review of #501 round 4, F6: each passed at 393cd13c).
+        ("a shell by path after sudo -u", "sudo -u root /bin/bash -c 'fabric-pr post-review 12 < r.md'"),
+        ("a shell by path after a leading redirection", "2>/dev/null /bin/bash -c 'fabric-pr post-review 12 < r.md'"),
+        ("a shell by path after timeout 5s", "timeout 5s /bin/sh -c 'fabric-pr post-review 12 < r.md'"),
+        ("a shell by path after timeout -s KILL 60", "timeout -s KILL 60 /bin/bash -c 'fabric-pr post-review 12 < r.md'"),
+        ("source -- after a leading redirection (round 4 risk)",
+         "2>/dev/null . -- /dev/stdin <<'EOF'\nfabric-pr post-review 12 < r.md\nEOF"),
+        ("source of another fd's heredoc (round 4 risk)", "2>/dev/null . /dev/fd/3 3<<'EOF'\nfabric-pr post-review 12 < r.md\nEOF"),
+        ("a heredoc fed to a shell by path after 2>&1",
+         "2>&1 /usr/bin/bash <<'EOF'\nfabric-pr post-review 12 < r.md\nEOF"),
     ]
     # Mentions the shell may run, refused on purpose: the deny names the way through (single quotes, a quoted heredoc,
     # a file). Pinned so a change to what is over-reported is a decision, not a drift.
@@ -96,6 +117,7 @@ def main() -> int:
         ("a double-quoted commit message", 'git commit -m "post-review: bare form\n\nfabric-pr post-review 12 < r.md"'),
         ("a double-quoted grep", 'grep -E "arm|fabric-pr post-review" docs'),
         ("a redirection target named post-review", "fabric-pr arm 3 > post-review.log"),
+        ("a bare runner name as an argument", "grep -rn 'fabric-pr post-review' bash"),
     ]
     allowed = [
         ("the bare form", "fabric-pr post-review 449 --model fable < /home/a/scratchpad/review1.md"),
@@ -126,6 +148,10 @@ def main() -> int:
         # Each decided by one reading alone, so each is pinned on its own (the F10 cases above fall to the open quote too).
         ("ANSI-C quoting, then a single-quoted mention", "echo $'a\\'b' 'fabric-pr post-review'"),
         ("an indented line like the delimiter inside a quoted heredoc", "cat <<'EOF'\n  EOF\nfabric-pr post-review 1\nEOF\nls"),
+        # A path whose last part names a runner, as an argument, runs nothing (j543, #451 round 4 F12).
+        ("a single-quoted grep of a directory named ssh", "grep -rn 'fabric-pr post-review' runtime/ssh"),
+        ("a single-quoted grep of tests/bash/", "grep -rln 'fabric-pr post-review' tests/bash/x.sh docs/flock"),
+        ("git log of a path ending in sh", "git log -S 'fabric-pr post-review' -- policies/watch"),
     ]
     for label, cmd in refused:
         check(f"refused: {label}", g.refused(cmd), cmd[:200])
