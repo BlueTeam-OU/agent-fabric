@@ -1482,7 +1482,7 @@ its record disagree, the record wins. Look it up, never read it whole:
   marker, coverage default, moved report, re-review, card_base, open
   findings, open-code-review, P3.
 
-### ADR-066 — The review class is measured like a classifier: owner labels for its judgements, seeded defects for its recall, every rate with its interval (Proposed)
+### ADR-066 — The review class is measured like a classifier: owner labels for its judgements, seeded defects for its recall, every rate with its interval (Accepted)
 
 - A result belongs to one configuration: engine, resolved model id,
   effort and the instructions' sha256; never pooled (§2, §5 rule 1).

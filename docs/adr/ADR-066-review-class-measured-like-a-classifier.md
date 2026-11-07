@@ -1,7 +1,8 @@
 # ADR-066 — The review class is measured like a classifier: owner labels for its judgements, seeded defects for its recall, every rate with its interval
 
 **Date:** 2026-11-07
-**Status:** Proposed
+**Status:** Accepted
+**Ratified:** owner, 2026-11-07, in the coordinator's session ("accepted"), carried by the pull request that marks it Accepted
 **Decision Makers:** the owner; drafted by fabric-coordinator
 **Scope:** how well the review class judges and finds. The ground truth it is measured against (owner labels, seeded defects), the configuration a result belongs to, the rates and their intervals, the split that keeps tuning from leaking into the measure, and what a change to the review class's routing or instructions must show. The reader `fabric-review-calibration` and the code it ports. Not who erred (ADR-061), not cost (ADR-036)
 **Pillar:** P3
@@ -247,9 +248,9 @@ label's half fixed.
 
 ## 8. Decision Status
 
-Proposed. It waits on the owner's acceptance. After it, the reader is
-requested of python-dev, the labelling run is the owner's, and the first
-seeded defects are requested of a writing class.
+Accepted. The reader is requested of python-dev, the labelling run is
+the owner's, and the first seeded defects are requested of a writing
+class.
 
 ## References
 
