@@ -59,7 +59,10 @@ def merge_target_cases() -> int:
         binding = os.path.join(state, "agents", pwd.getpwuid(os.geteuid()).pw_name, "binding.json")
         with open(binding, "w", encoding="utf-8") as fh:
             json.dump({"role": "fixture-role", "project": "fixture-proj", "working_copy": wc}, fh)
-        env = {**os.environ, "AGENT_FABRIC_STATE_DIR": state}
+        # The live registry is instance data and a stripped copy has none: every case reads the operator tree this builds.
+        env = {**os.environ, "AGENT_FABRIC_STATE_DIR": state,
+               "AGENT_FABRIC_OPERATOR": write_operator_projects(
+                   os.path.join(tmp, "operator"), {"fixture-proj": ["git@example.org:o/fixture-proj.git"]})}
         env.pop("AGENT_FABRIC_WORKING_COPY", None)
         # The drain reads a memory directory as the one of the working copy whose slug names it, so the fixture's is.
         home = os.path.join(tmp, ".claude", "projects", layout.memory_slug(wc), "memory")
