@@ -464,8 +464,11 @@ def settings_repo_findings(root: str) -> list[str]:
 
 def license_findings(root: str) -> list[str]:
     """This repository is one license, Apache-2.0, throughout — REUSE.toml
-    assigns nothing else, and every identifier it does use has its text
-    under LICENSES/. projects/registry.json names each project's OWN
+    assigns nothing else, but for code ported from elsewhere, which keeps
+    its upstream notice beside ours: `Apache-2.0 AND <its license>`, with
+    the upstream named in SPDX-FileContributor (agent-fabric ADR-066 §5
+    rule 10, gavel's MIT). Every identifier it uses has its text under
+    LICENSES/. projects/registry.json names each project's OWN
     license as information about that project's tree; it is required (a
     project with no stated license cannot be reasoned about) but binds
     nothing here. A project's knowledge never lives here at all."""
@@ -496,10 +499,14 @@ def license_findings(root: str) -> list[str]:
     licenses_dir = os.path.join(root, "LICENSES")
     for ann in reuse.get("annotations") or []:
         lic = ann.get("SPDX-License-Identifier", "")
-        if lic != "Apache-2.0":
-            findings.append(f"REUSE.toml: assigns {lic!r} to {ann.get('path')}; this repository is Apache-2.0 throughout")
-        if lic and not os.path.exists(os.path.join(licenses_dir, lic + ".txt")):
-            findings.append(f"REUSE.toml: {lic!r} has no LICENSES/{lic}.txt")
+        terms = lic.split(" AND ") if isinstance(lic, str) else []
+        ported = len(terms) > 1 and "Apache-2.0" in terms and bool(ann.get("SPDX-FileContributor"))
+        if lic != "Apache-2.0" and not ported:
+            findings.append(f"REUSE.toml: assigns {lic!r} to {ann.get('path')}; this repository is Apache-2.0 throughout, "
+                            "or 'Apache-2.0 AND <license>' for a port that names its upstream in SPDX-FileContributor")
+        for term in terms if lic else []:
+            if not os.path.exists(os.path.join(licenses_dir, term + ".txt")):
+                findings.append(f"REUSE.toml: {term!r} has no LICENSES/{term}.txt")
     return findings
 
 

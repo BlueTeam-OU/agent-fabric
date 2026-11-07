@@ -1,0 +1,11 @@
+#!/usr/local/bin/fabric-python
+"""fabric-review-calibration — the review class measured like a classifier (ADR-066), from
+any directory. A thin entry point to tools/fabric/review_calibration.py, run by its real
+path."""
+import os
+import runpy
+import sys
+
+TOOL = os.path.join(os.path.dirname(os.path.realpath(__file__)), "..", "tools", "fabric", "review_calibration.py")
+sys.argv[0] = TOOL
+runpy.run_path(TOOL, run_name="__main__")
