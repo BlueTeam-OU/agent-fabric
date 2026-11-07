@@ -267,6 +267,16 @@ esac
               r.returncode != 0 and "stray.txt" in r.stderr and f"could not be kept at {kept_record}" in r.stderr
               and not os.path.exists(mirror), r.stderr)
         shutil.rmtree(kept_record)
+        # A directory with something in it where the record goes, planted in the clone by git's template:
+        # the record's replace fails with an OSError, and the clone must go all the same.
+        template = os.path.join(t, "git-template")
+        os.makedirs(os.path.join(template, "agent-fabric-refusal.json", "in-the-way"))
+        r = subprocess.run(["python3", STORE, "seed-child", kid_id, "--remote", repo], env={**penv, "GIT_TEMPLATE_DIR": template},
+                           input=bad_bundle, capture_output=True, text=True, timeout=300, cwd=t)
+        check("a refusal whose record cannot be written still removes the fresh clone, and says so",
+              r.returncode != 0 and "stray.txt" in r.stderr and "refusal record could not be written" in r.stderr
+              and "Traceback" not in r.stderr and not os.path.exists(mirror), (r.stderr, os.path.exists(mirror)))
+        shutil.rmtree(kept_record, ignore_errors=True)   # _keep_refusal moved the planted directory beside the mirror
         g(fab, "update-ref", "refs/remotes/origin/main", main_now)
         # Back on main the mirror is rebuilt from the remote, and this remote holds a commit its writers did not sign.
         bad_remote = os.path.join(t, "bad-remote.git")

@@ -631,7 +631,7 @@ def main(argv: list[str]) -> int:
             if r.get("sessionEnded"):
                 print(SESSION_ENDED.format(pid=session.pid), flush=True)
                 return 0
-            if down:
+            if down and r.get("relayError") is None:   # a delivery the carrier made says nothing of the relay
                 if not until_delivery:
                     print(t("watch.relay-back"), flush=True)
                 down = False
@@ -640,6 +640,10 @@ def main(argv: list[str]) -> int:
                 mark_retransmissions(r["classified"], fetch_recent)
                 show_page(r, lambda: print(with_queued(render(r, me, channel, taxonomy, cap=NOTIFICATION_CAP, t=t,
                                                                 reminder=reminder), r["classified"], me), flush=True))
+                if r.get("relayError") is not None:
+                    # The carrier delivered while the relay failed: the session is still told the relay is failing.
+                    print(explain_relay_error(r["relayError"], relay_url, t)["line"],
+                          file=sys.stdout if until_delivery else sys.stderr, flush=True)
                 if until_delivery:
                     return 0
 
@@ -666,6 +670,11 @@ def main(argv: list[str]) -> int:
                                              res["classified"], me)))
     # show_page acknowledged the slice once the page was written (wait_loop did, for a
     # slice that delivered nothing).
+    if res.get("relayError") is not None:
+        # The carrier delivered while the relay failed: the relay's line and exit code stand as without the carrier.
+        x = explain_relay_error(res["relayError"], relay_url, t)
+        print(x["line"], file=sys.stderr)
+        return x["code"]
     return 0
 
 
