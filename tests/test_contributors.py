@@ -127,6 +127,10 @@ def main() -> int:
         check("devex-tooling commits the suites that test only tools/fabric/github/ beside it (j574: the fence refused a test on #465)",
               co.admitted(real, "devex-tooling", ["tools/fabric/github/review_checkpoint.py", *github_suites]))
         check("…never the fence's own suite", not co.admitted(real, "devex-tooling", ["tests/test_contributors.py"]))
+        check("python-dev supplies bootstrap and a workspace hook, never a guard hook (A 2026-11-07)",
+              co.supplies_in(real, "python-dev", ["tools/fabric/bootstrap.py", "runtime/claude-code/hooks/statusline.sh"])
+              == ["tools/fabric/bootstrap.py", "runtime/claude-code/hooks/statusline.sh"]
+              and not co.admitted(real, "python-dev", ["runtime/claude-code/hooks/review-fence.py"]))
 
     print("branch_problem: <host>/<login>/for/<caller>/<what>")
     check("the shape", co.branch_problem(f"h/{LOGIN}/for/user/x", LOGIN) is None)

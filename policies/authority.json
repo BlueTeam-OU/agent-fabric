@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "description": "Who holds the role that may change role definitions. Authority attaches to the ROLE (fabric-coordinator); this file names the Linux logins currently recognised as its holders, because the charter guard cannot read another account's runtime binding. Only a login listed here holds the role: an account named for it (fabric-coordinator-02) holds nothing until it is listed. This file is itself a role definition and is guarded. `contributors` names a role that may commit, in agent-fabric itself, the paths its entry lists and none it excludes (a rule ending in / is a directory, any other one file), on its own contributor branch; CI reads this list from the base, never the branch (agent-fabric ADR-018 §5 rule 8).",
+  "description": "Who holds the role that may change role definitions. Authority attaches to the ROLE (fabric-coordinator); this file names the Linux logins currently recognised as its holders, because the charter guard cannot read another account's runtime binding. Only a login listed here holds the role: an account named for it (fabric-coordinator-02) holds nothing until it is listed. This file is itself a role definition and is guarded. `contributors` names a role that may commit, in agent-fabric itself, the paths its entry lists and none it excludes (a rule ending in / is a directory, any other one file), on its own contributor branch; `supplies` names paths of the supply tier it commits only on a branch <host>/<login>/for/<holder>/<what> whose caller holds role_definitions, folded and merged by that role whatever `merges` says (lint.py CONTRIBUTOR_SUPPLY holds each to the tier). CI reads this list from the base, never the branch (agent-fabric ADR-018 §5 rule 8).",
   "role_definitions": {
     "role": "fabric-coordinator",
     "holders": [
@@ -11,7 +11,7 @@
     {
       "role": "python-dev",
       "merges": true,
-      "note": "agent-fabric ADR-018 §5 rule 8: the code of the port of the fabric's bash to Python (ADR-040) and its Python tooling, on python-dev's own branch: since 2026-10-07 (`merges`) it opens, blind-reviews and merges its own pull request; fabric-coordinator distributes the merge. Definitions and the fence stay out: identities/, routing/, policies/ (but the allowlist the port shrinks), communication/ (but GZCoord's scripts and their tests, ADR-040's Wave 7), docs/adr/, memory/, .agent-fabric/, .github/; the guards and git.py, which they import; the lint and the suite runners (tests/run.sh and static.sh, and the run.py, static.py and run_python_suites.py they forward to, which decide every CI gate); runtime/claude-code/ whole (the reviewer's agent file, the harness hooks and the settings that register them, the workspace prompt, bootstrap and install-agent-files); the review brief and its tooling; the role, routing and prompt code; the harness pins; the Python pin's installer and the managed settings' (ADR-043), which run as root on every host. Lint holds every entry to that list (CONTRIBUTOR_NEVER).",
+      "note": "agent-fabric ADR-018 §5 rule 8: the code of the port of the fabric's bash to Python (ADR-040) and its Python tooling, on python-dev's own branch: since 2026-10-07 (`merges`) it opens, blind-reviews and merges its own pull request; fabric-coordinator distributes the merge. Definitions and the fence stay out: identities/, routing/, policies/ (but the allowlist the port shrinks), communication/ (but GZCoord's scripts and their tests, ADR-040's Wave 7), docs/adr/, memory/, .agent-fabric/, .github/; the guards and git.py, which they import; the lint and the suite runners (tests/run.sh and static.sh, and the run.py, static.py and run_python_suites.py they forward to, which decide every CI gate); runtime/claude-code/ whole (the reviewer's agent file, the harness hooks and the settings that register them, the workspace prompt, bootstrap and install-agent-files); the review brief and its tooling; the role and routing code; the harness pins; the managed settings' installer (ADR-043), which runs as root on every host. Lint holds every entry to that list (CONTRIBUTOR_NEVER). Since 2026-11-07 the supply tier (`supplies`: the prompt code, bootstrap and what it installs, the Python pin, the episodic history and relay readers, the workspace hooks that refuse nothing a commit or review depends on) is its to commit on a for/<holder> branch only; fabric-coordinator folds, reviews and merges it.",
       "paths": [
         "tools/",
         "tests/",
@@ -71,6 +71,38 @@
         "bin/fabric-reflect",
         "tools/fabric/relay_catchup.py",
         "tools/fabric/review_rounds.py"
+      ],
+      "supplies": [
+        "tools/fabric/launch_prompt.py",
+        "tools/fabric/python_pin.py",
+        "runtime/python.json",
+        "tools/fabric/workspace_trust.py",
+        "tools/fabric/bootstrap.py",
+        "tools/fabric/fabric_writes.py",
+        "tools/fabric/install_agent_files.py",
+        "tools/fabric/episodic.py",
+        "tools/fabric/episodic_import.py",
+        "tools/fabric/relay.py",
+        "tools/fabric/history.py",
+        "bin/fabric-history",
+        "tools/fabric/reflect.py",
+        "bin/fabric-reflect",
+        "tools/fabric/relay_catchup.py",
+        "runtime/claude-code/hooks/context-sample.py",
+        "runtime/claude-code/hooks/freshness.py",
+        "runtime/claude-code/hooks/inbox-watch.py",
+        "runtime/claude-code/hooks/memory-write-check.py",
+        "runtime/claude-code/hooks/model-fallback-note.sh",
+        "runtime/claude-code/hooks/plan-hold.sh",
+        "runtime/claude-code/hooks/pr-counts.py",
+        "runtime/claude-code/hooks/session-start.py",
+        "runtime/claude-code/hooks/session-start.sh",
+        "runtime/claude-code/hooks/session-state.py",
+        "runtime/claude-code/hooks/statusline.sh",
+        "runtime/claude-code/hooks/subagent-ledger.py",
+        "runtime/claude-code/hooks/tab-title.sh",
+        "runtime/claude-code/hooks/watch-on-stop.py",
+        "runtime/claude-code/hooks/testdata/"
       ]
     },
     {
@@ -156,6 +188,23 @@
         "bin/fabric-reflect",
         "tools/fabric/relay_catchup.py",
         "tools/fabric/review_rounds.py"
+      ],
+      "supplies": [
+        "runtime/claude-code/hooks/context-sample.py",
+        "runtime/claude-code/hooks/freshness.py",
+        "runtime/claude-code/hooks/inbox-watch.py",
+        "runtime/claude-code/hooks/memory-write-check.py",
+        "runtime/claude-code/hooks/model-fallback-note.sh",
+        "runtime/claude-code/hooks/plan-hold.sh",
+        "runtime/claude-code/hooks/pr-counts.py",
+        "runtime/claude-code/hooks/session-start.py",
+        "runtime/claude-code/hooks/session-start.sh",
+        "runtime/claude-code/hooks/session-state.py",
+        "runtime/claude-code/hooks/statusline.sh",
+        "runtime/claude-code/hooks/subagent-ledger.py",
+        "runtime/claude-code/hooks/tab-title.sh",
+        "runtime/claude-code/hooks/watch-on-stop.py",
+        "runtime/claude-code/hooks/testdata/"
       ]
     },
     {
