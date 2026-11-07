@@ -28,13 +28,13 @@ The relay was down from **22:19:40Z to 23:20:19Z**, 60 min 39 s, and came back o
 
 - **Sessions continue from artifacts for an hour without the relay.** 9 commits against 10 in the hour before, in three repositories. The fleet's own coordination was dark for the hour (no message, no control action), and nothing in the record shows a session blocked by it.
 - **Nothing in the relay's record was lost.** A copy of the stopped database restores whole; the relay serves it, its seq continues without a gap, and every control agent answers through it. The 2026-10-27 open item, `fabric-ctl all ping` against a restored relay, is closed.
-- **What sessions wrote during the hour reached the relay once it was back.** Five messages minted in the window were on the relay within 3 min 5 s of the restart, each with its original MESSAGE-ID (the probe also went by the carrier at 22:20, so its addressee holds one message, not two).
+- **The five messages the relay shows minted in the window reached it once it was back.** They were on the relay within 3 min 5 s of the restart, each with its original MESSAGE-ID (the probe also went by the carrier at 22:20, so its addressee holds one message, not two).
 - **An operator's stop holds.** Clean stop, no restart by any watch on the hosting account, and the relay came back only when started by hand.
 - **The human relay was not needed** in this hour: no message was handed to the owner. It stays unexercised, and step 2 does not depend on it: an hour without a message cost no session its work.
 
 ## What is still open
 
-1. **The Stop hook still re-arms a watch on an unreachable relay**, so every session spins a 15-minute watch while the relay is down (the 12 → 44 above). The hook's half of the relay-down marker is on BlueTeam-OU/agent-fabric#506, unmerged; the relay itself is no longer restarted by it.
+1. **The Stop hook still re-arms a watch on an unreachable relay**, so every session spins a 15-minute watch while the relay is down (the 12 → 44 above). The hook's half of the relay-down marker was not yet merged during the drill (BlueTeam-OU/agent-fabric#506); the relay itself is no longer restarted by it.
 2. **The deployed `gzcoord-send` still says "not sent"** when the carrier accepted a direct message; #505 fixes it on main, to be distributed with the next `fabric-ctl all upgrade fabric`. Its wording for a resend from a file (one message, not a duplicate) was decided to python-dev-03 as a follow-up (REPLY `01a1b852`).
 3. **The original database** is kept beside the relay's directory (`~/projects/.gzcoord-original-2026-11-07/`, 1.07 GB) until the restored copy has run a day.
 
