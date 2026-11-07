@@ -40,7 +40,6 @@ next; only a rebind there reads it, to replace it.
 """
 from __future__ import annotations
 
-import argparse
 import contextlib
 import datetime
 import fcntl
@@ -51,8 +50,8 @@ import pwd
 import re
 import socket
 import sys
-import tempfile
 import threading
+import time
 from typing import TypedDict
 
 # The repository this module lives in. AGENT_FABRIC_ROOT lets a test point
@@ -124,12 +123,20 @@ def binding_path(agent: str | None = None) -> str:
 # rewrote JSON in place and bypassed write_binding; nothing serialized the
 # binding, the history or the model profile).
 
-def atomic_write(path: str, data: "bytes | str", mode: int | None = None) -> None:
+def atomic_write(path: str, data: "bytes | str", mode: int | None = None, *, replace: bool = True) -> None:
     """Write `data` to `path` all-or-nothing: a temporary file beside it,
     flushed and fsynced, then os.replace — the reader sees the old file
     or the new one, never a torn one. The temporary is removed on any
     failure. `mode` sets the permission bits (0o600 for a private file);
-    otherwise the existing file's bits are kept, or the umask applies."""
+    otherwise the existing file's bits are kept, or the umask applies.
+    With replace=False the temporary is linked into place instead, and a
+    file already at `path` is left alone and raises FileExistsError: a
+    writer that must never overwrite (provisioning beside an account's
+    own launch record) checks and writes in one step, not two."""
+    # Imported here, not at the top: tempfile (with shutil and random) is
+    # most of this module's import, and the hooks that load it on every
+    # tool call (session-state.py) mostly write nothing.
+    import tempfile
     directory = os.path.dirname(os.path.abspath(path)) or "."
     fd, tmp = tempfile.mkstemp(prefix=".tmp-", dir=directory)
     try:
@@ -141,7 +148,10 @@ def atomic_write(path: str, data: "bytes | str", mode: int | None = None) -> Non
             os.chmod(tmp, mode)
         elif os.path.exists(path):
             os.chmod(tmp, os.stat(path).st_mode & 0o7777)
-        os.replace(tmp, path)
+        if replace:
+            os.replace(tmp, path)
+        else:
+            os.link(tmp, path)
     finally:
         if os.path.exists(tmp):
             os.unlink(tmp)
@@ -334,7 +344,7 @@ def append_history(record: dict, agent: str | None = None) -> str:
     return path
 
 
-def append_line(path: str, line: str, *, max_bytes: int | None = None) -> None:
+def append_line(path: str, line: str, *, max_bytes: int | None = None, wait: float | None = None) -> None:
     """One line appended to a per-agent log: O_APPEND, created 0600, the
     whole line written under an exclusive flock on the log itself, so
     parallel writers (subagents stopping at once, a hook beside a review)
@@ -346,21 +356,40 @@ def append_line(path: str, line: str, *, max_bytes: int | None = None) -> None:
     `<path>.lock`: two writers seeing the same size would otherwise both
     rename, and the second would put a one-line file over the generation
     the first just kept. A writer that opened the log just before the
-    rename appends to `.1`, which keeps the line."""
+    rename appends to `.1`, which keeps the line.
+
+    `wait` bounds each lock: None waits as long as the holder holds; a
+    number of seconds raises TimeoutError (an OSError) past it, for a
+    writer a stalled holder must not hang (a review that has posted)."""
     data = (line if line.endswith("\n") else line + "\n").encode("utf-8")
     os.makedirs(os.path.dirname(os.path.abspath(path)), mode=0o700, exist_ok=True)
     if max_bytes is not None:
-        _rotate(path, max_bytes)
+        _rotate(path, max_bytes, wait)
     fd = os.open(path, os.O_WRONLY | os.O_APPEND | os.O_CREAT | os.O_CLOEXEC, 0o600)
     try:
-        fcntl.flock(fd, fcntl.LOCK_EX)
+        _flock(fd, path, wait)
         while data:   # a short write (a full disk, a signal) is finished before another writer starts
             data = data[os.write(fd, data):]
     finally:
         os.close(fd)
 
 
-def _rotate(path: str, max_bytes: int) -> None:
+def _flock(fd: int, path: str, wait: float | None) -> None:
+    if wait is None:
+        fcntl.flock(fd, fcntl.LOCK_EX)
+        return
+    deadline = time.monotonic() + wait
+    while True:
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            return
+        except BlockingIOError:
+            if time.monotonic() >= deadline:
+                raise TimeoutError(f"{path} is locked by another writer") from None
+            time.sleep(0.05)
+
+
+def _rotate(path: str, max_bytes: int, wait: float | None) -> None:
     try:
         if os.path.getsize(path) <= max_bytes:
             return
@@ -368,7 +397,7 @@ def _rotate(path: str, max_bytes: int) -> None:
         return
     fd = os.open(path + ".lock", os.O_WRONLY | os.O_CREAT | os.O_CLOEXEC, 0o600)
     try:
-        fcntl.flock(fd, fcntl.LOCK_EX)
+        _flock(fd, path + ".lock", wait)
         try:
             if os.path.getsize(path) > max_bytes:
                 os.replace(path, path + ".1")
@@ -624,6 +653,7 @@ def resolve_context(cwd: str | None = None, session: str | None = None,
 
 
 def main(argv: list[str] | None = None) -> int:
+    import argparse   # the command line only; importers never need it
     ap = argparse.ArgumentParser(description="Resolve the current agent identity and its runtime context.")
     ap.add_argument("--json", action="store_true", help="print the full context as JSON")
     ap.add_argument("--host", action="store_true", help="print the host label only")

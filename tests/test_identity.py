@@ -248,6 +248,32 @@ def test_append_line_is_whole_private_and_rotates_once(tmp: str) -> None:
     identity.append_line(path, "again", max_bytes=1000)
     assert open(path).read() == "after\nagain\n" and open(path + ".1").read().startswith("one\n")
     assert os.stat(path + ".lock").st_mode & 0o777 == 0o600
+    # A bounded wait gives up on a holder that does not let go, and writes nothing.
+    held = os.open(path, os.O_WRONLY)
+    try:
+        fcntl.flock(held, fcntl.LOCK_EX)
+        try:
+            identity.append_line(path, "late", wait=0.2)
+            raise AssertionError("append_line waited past its bound")
+        except TimeoutError:
+            pass
+    finally:
+        os.close(held)
+    assert open(path).read() == "after\nagain\n"
+    identity.append_line(path, "free", wait=0.2)
+    assert open(path).read().endswith("free\n")
+
+
+def test_atomic_write_without_replace_never_overwrites(tmp: str) -> None:
+    path = os.path.join(tmp, "record.json")
+    identity.atomic_write(path, "first", 0o600, replace=False)
+    try:
+        identity.atomic_write(path, "second", 0o600, replace=False)
+        raise AssertionError("an existing file was overwritten")
+    except FileExistsError:
+        pass
+    assert open(path).read() == "first" and os.stat(path).st_mode & 0o777 == 0o600
+    assert os.listdir(tmp) == ["record.json"], os.listdir(tmp)
 
 
 def test_agent_state_mutations_serialize_across_processes(tmp: str) -> None:
@@ -554,6 +580,7 @@ def main() -> int:
     cases = [
         test_atomic_write_leaves_the_old_file_whole_on_failure,
         test_append_line_is_whole_private_and_rotates_once,
+        test_atomic_write_without_replace_never_overwrites,
         test_agent_state_mutations_serialize_across_processes,
         test_a_second_thread_waits_for_the_holder,
         test_the_owner_thread_reenters_and_holds_to_the_outermost_exit,
