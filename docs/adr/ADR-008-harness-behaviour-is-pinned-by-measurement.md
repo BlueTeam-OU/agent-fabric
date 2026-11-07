@@ -104,7 +104,8 @@ behaviour a property of the account, not of where a session was started.
    change to `runtime/claude-code/harness.json` and `fabric-ctl … upgrade
    claude`.
 5. `runtime/claude-code/harness/en.md` is the captured text as sent,
-   slips included (2.1.274's glued "clickable.Write"), with the memory
+   slips included (a sentence glued to the next, as in "publish
+   again.Write"), with the memory
    directory as `{memory_dir}`. Refreshing it is a live-check duty on a
    new build; a translation that lags by digest is served and named by
    lint, never a launch failure. The launcher stamps
@@ -157,3 +158,4 @@ The body above reads current; each change's full note is in [history/ADR-008-ame
 | 2026-09-28 | The terminal keeps its scrollback | §2: `tui` "default" joins the display keys the settings writer pins |
 | 2026-09-28 | The settings writer adds the memory-write check | §2: a user-scope PostToolUse hook for ADR-013 rule 14 |
 | 2026-10-01 | The fleet's auto-mode picture is written centrally | §2 the keys and §5 rule 7: `autoMode` from policies/auto-mode.json, the setup wizard off |
+| 2026-11-07 | Rule 5's example slip follows the 2.1.311 capture | §5 rule 5 |

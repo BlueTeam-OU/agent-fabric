@@ -251,6 +251,7 @@ its record disagree, the record wins. Look it up, never read it whole:
 - A 2026-10-01 — the auto-mode classifier's picture of the fleet is
   policies/auto-mode.json, written into every login's user settings; the
   setup wizard is off (§5 rule 7).
+- A 2026-11-07 — rule 5 cites the 2.1.311 capture's slip (§5 rule 5).
 - Keywords: Claude Code, harness, settings.json, attribution, Co-Authored-By,
   auto-update, DISABLE_AUTOUPDATER, verbose, auto mode, system prompt, build.
 

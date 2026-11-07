@@ -130,7 +130,8 @@ database (`docs/live-checks/2026-11-07-relay-down-drill-hour.md`).
 Sessions went on from artifacts (9 commits on origin against 10 in the
 hour before); the copy restored whole, seq continued without a gap,
 `fabric-ctl all ping` answered from every account through it, and the
-messages written during the hour reached the relay once it was back.
+five messages the relay shows written during the hour reached it once it
+was back; a message never resent is not shown either way.
 An operator's stop holds: no watch restarts the relay. The human relay
 was not needed in that hour and stays unexercised.
 
