@@ -97,6 +97,7 @@
   "send.deduplicated": " (дубликат: релей уже его получал)",
   "start.relay-no-token-file": "нет {token_file}; релей не запустить",
   "start.relay-unit-silent": "{unit} запущен, но не ответил за 8 с; смотрите systemctl --user status {unit} и {log}",
+  "start.relay-stopped": "{unit} остановлен намеренно и оставлен остановленным; запустить его снова: systemctl --user start {unit}",
   "start.relay-silent": "релей не ответил за 8 с; проверьте {log}",
   "start.token-retry": "gzcoord inbox: токен отвергнут; пробую заново со значением из secrets.env",
   "relay.refused": "gzcoord inbox: релей по адресу {relay_url} отверг этот токен (HTTP {status}): токен сменили; выполните fabric-secrets sync и запустите наблюдение заново (inbox сам читает синхронизированный файл)",

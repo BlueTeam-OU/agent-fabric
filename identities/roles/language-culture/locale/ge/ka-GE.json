@@ -102,6 +102,7 @@
   "send.deduplicated": " (დუბლიკატი: რელეს უკვე ჰქონდა)",
   "start.relay-no-token-file": "{token_file} არ არსებობს; გაშვება შეუძლებელია",
   "start.relay-unit-silent": "{unit} გაეშვა, მაგრამ 8 წამში არ უპასუხა; შეამოწმე: systemctl --user status {unit} და {log}",
+  "start.relay-stopped": "{unit} შეგნებულად გააჩერეს და გაჩერებული დარჩება; ხელახლა გასაშვებად: systemctl --user start {unit}",
   "start.relay-silent": "რელემ 8 წამში არ უპასუხა; შეამოწმე {log}",
   "start.token-retry": "gzcoord inbox: ტოკენი უარყოფილია; ვცდი ხელახლა secrets.env-იდან სინქრონიზებული მნიშვნელობით",
   "relay.refused": "gzcoord inbox: რელემ ({relay_url}) ეს ტოკენი უარყო (HTTP {status}) — ის შეიცვალა; გაუშვი fabric-secrets sync და დაკვირვება თავიდან ჩართე (შემოსულები სინქრონიზებულ ფაილს თავად კითხულობს)",

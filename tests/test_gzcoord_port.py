@@ -915,6 +915,68 @@ def _():
     ok("the watch ended" in r.stdout and "waiting for it" not in r.stdout, r.stdout)
 
 
+def _down_marker(env: dict) -> str:
+    # beside the watch's lock, named as it is (watchlock.down_marker_path)
+    login = subprocess.run(["id", "-un"], capture_output=True, text=True, timeout=10).stdout.strip()
+    return os.path.join(env["XDG_RUNTIME_DIR"], "agent-fabric", f"gzcoord-inbox-{login}.relay-down")
+
+
+@case("--until-delivery: the exit-5 give-up leaves the time beside the lock for the Stop hook")
+def _():
+    stub, _calls = _wait_stub([])
+    url = stub.url
+    stub.close()
+    env = _replay_env(stub, GZCOORD_JOURNAL="off", GZCOORD_UNTIL_DELIVERY_DOWN_S="1")
+    env["CLAUDE_BRIDGE_URL"] = url
+    marker = _down_marker(env)
+    ok(not os.path.exists(marker), "no marker before the watch")
+    before = time.time()
+    r = subprocess.run([P.INBOX_CMD, "--until-delivery"], env=env, capture_output=True, text=True, timeout=20)
+    eq(r.returncode, 5, r.stdout + r.stderr)
+    with open(marker) as fh:
+        written = float(fh.read().strip())
+    ok(before - 2 <= written <= time.time() + 2, f"the marker holds the time: {written}")
+    eq(os.stat(marker).st_dev, os.stat(os.path.dirname(marker)).st_dev)
+
+
+@case("--until-delivery: a fetch the relay answered removes the marker")
+def _():
+    stub, _calls = _wait_stub([[_rec(1, "for-this-session", None)]])
+    try:
+        env = _replay_env(stub, GZCOORD_JOURNAL="off")
+        marker = _down_marker(env)
+        os.makedirs(os.path.dirname(marker), mode=0o700, exist_ok=True)
+        with open(marker, "w") as fh:
+            fh.write("1\n")
+        r = subprocess.run([P.INBOX_CMD, "--until-delivery"], env=env, capture_output=True, text=True, timeout=30)
+        eq(r.returncode, 0, r.stdout + r.stderr)
+        ok("for-this-session" in r.stdout, r.stdout)
+        ok(not os.path.exists(marker), "the answered fetch cleared the marker")
+    finally:
+        stub.close()
+
+
+@case("--until-delivery: a refused token (exit 4) leaves no relay-down marker; a runtime directory that cannot hold one does not change exit 5")
+def _():
+    stub, _calls = _wait_stub([], status=401)
+    try:
+        env = _replay_env(stub, GZCOORD_JOURNAL="off")
+        r = subprocess.run([P.INBOX_CMD, "--until-delivery"], env=env, capture_output=True, text=True, timeout=40)
+        eq(r.returncode, 4, r.stdout + r.stderr)
+        ok(not os.path.exists(_down_marker(env)), "exit 4 is not a give-up on an unreachable relay")
+    finally:
+        stub.close()
+    stub, _calls = _wait_stub([])
+    url = stub.url
+    stub.close()
+    blocked = P.scratch("blocked-")
+    open(os.path.join(blocked, "agent-fabric"), "w").close()   # the lock's directory cannot be made: no lock, and no marker
+    env = _replay_env(stub, GZCOORD_JOURNAL="off", GZCOORD_UNTIL_DELIVERY_DOWN_S="1", XDG_RUNTIME_DIR=blocked)
+    env["CLAUDE_BRIDGE_URL"] = url
+    r = subprocess.run([P.INBOX_CMD, "--until-delivery"], env=env, capture_output=True, text=True, timeout=20)
+    eq(r.returncode, 5, r.stdout + r.stderr)
+
+
 QUIET = "gzcoord inbox: quiet for 0 min, nothing delivered; run the watch again\n"
 
 
