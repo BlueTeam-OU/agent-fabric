@@ -17,6 +17,7 @@ import subprocess
 import sys
 import tempfile
 import threading
+import time
 from instance_fixtures import own_instance_tree  # noqa: E402 — tests/, the script's own directory
 own_instance_tree()
 
@@ -243,7 +244,11 @@ def test_append_line_is_whole_private_and_rotates_once(tmp: str) -> None:
     lines = open(path).read().splitlines()[2:]
     assert len(lines) == 20 and all(ln[1:] == long and ln[0] in "0123" for ln in lines), [len(ln) for ln in lines]
     # Past max_bytes the log moves to .1 once; the next line starts a new one.
-    identity.append_line(path, "after", max_bytes=1000)
+    old = os.umask(0o022)
+    try:
+        identity.append_line(path, "after", max_bytes=1000)
+    finally:
+        os.umask(old)
     assert open(path).read() == "after\n" and open(path + ".1").read().startswith("one\ntwo\n")
     identity.append_line(path, "again", max_bytes=1000)
     assert open(path).read() == "after\nagain\n" and open(path + ".1").read().startswith("one\n")
@@ -405,6 +410,35 @@ def test_an_exclusive_request_inside_a_shared_hold_is_refused(tmp: str) -> None:
         assert flock_is_free(state, "upgrade"), "the refusal left the flock held"
     finally:
         del os.environ["AGENT_FABRIC_STATE_DIR"]
+
+
+def test_writers_past_max_bytes_at_once_rotate_once(tmp: str) -> None:
+    # Every writer has seen the oversized log and waits on <log>.lock; the
+    # first rotates, and the size re-checked under the lock keeps the rest
+    # from moving the new log over the generation the first just kept.
+    path = os.path.join(tmp, "agents", "r", "log.jsonl")
+    os.makedirs(os.path.dirname(path))
+    with open(path, "w") as fh:
+        fh.write("old\n" * 500)
+    held = os.open(path + ".lock", os.O_WRONLY | os.O_CREAT, 0o600)
+    fcntl.flock(held, fcntl.LOCK_EX)
+    ino = os.fstat(held).st_ino
+    procs = [subprocess.Popen([sys.executable, "-c",
+                               "import sys; sys.path.insert(0, sys.argv[1]); import identity; "
+                               "identity.append_line(sys.argv[2], 'new' + sys.argv[3], max_bytes=1000)",
+                               os.path.join(ROOT, "runtime"), path, str(i)]) for i in range(4)]
+    try:
+        deadline = time.monotonic() + 30
+        def waiting() -> int:   # blocked flocks on the lock file, as the kernel lists them
+            return sum(1 for ln in open("/proc/locks") if "->" in ln and ln.split()[-3].endswith(f":{ino}"))
+        while waiting() < 4:
+            assert time.monotonic() < deadline and all(p.poll() is None for p in procs), "the writers never all waited on the lock"
+            time.sleep(0.05)
+    finally:
+        os.close(held)
+    assert all(p.wait() == 0 for p in procs)
+    assert open(path + ".1").read() == "old\n" * 500, "a later writer moved the new log over the kept generation"
+    assert sorted(open(path).read().splitlines()) == [f"new{i}" for i in range(4)], open(path).read()
 
 
 def test_a_forked_child_takes_the_flock_itself(tmp: str) -> None:
@@ -580,6 +614,7 @@ def main() -> int:
     cases = [
         test_atomic_write_leaves_the_old_file_whole_on_failure,
         test_append_line_is_whole_private_and_rotates_once,
+        test_writers_past_max_bytes_at_once_rotate_once,
         test_atomic_write_without_replace_never_overwrites,
         test_agent_state_mutations_serialize_across_processes,
         test_a_second_thread_waits_for_the_holder,
