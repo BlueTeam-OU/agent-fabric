@@ -529,6 +529,21 @@ def main() -> int:
             odd_summary = str(e)
     finally:
         rc.gh.api = real_api
+    absent = {5: {"id": 5}, 6: {"id": 6, "body": None}}         # an absent body is a review without findings, not a malformed one
+    rc.gh.api = lambda path, **kw: absent[int(path.rsplit("/", 1)[1])]
+    try:
+        none_lv = rc.Levels()
+        none_levels = [none_lv(rc.Coordinates("o/r", 9, n, "F1")) for n in absent]
+        try:
+            rc.fetch_summary(rc.Coordinates("o/r", 9, 5, "F1"))
+            none_summary = "read"
+        except rc.Refused as e:
+            none_summary = str(e)
+    finally:
+        rc.gh.api = real_api
+    check("a review with no body or a null body stays readable: no level, not unreadable, a refused summary",
+          none_levels == [None, None] and none_lv.unreadable == set() and "no longer readable" in none_summary,
+          (none_levels, none_lv.unreadable, none_summary))
     check("a review body that is no text is an unreadable review and a one-line refusal, not a traceback",
           odd_level is None and odd.unreadable == {("o/r", 9, n) for n in odd_bodies} and "no longer readable" in odd_summary, (odd.unreadable, odd_summary))
     check("Levels: one read per review, and the unreadable review is counted apart",
