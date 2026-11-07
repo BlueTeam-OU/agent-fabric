@@ -628,7 +628,7 @@ def main(argv: list[str]) -> int:
                              " sends without it\n")
             return 2
 
-    def via_carrier() -> None:
+    def via_carrier() -> bool:
         """The same message to the second carrier (ADR-064 rules 6, 7), after
         the relay's outcome is known and whatever it was: both carriers get every
         message, and the journal row is accepted when either accepts. Nothing
@@ -636,14 +636,17 @@ def main(argv: list[str]) -> int:
         (rule 11), and the carrier's trouble is a stderr line from the adapter.
         With no carrier running, and with the journal off (rule 8), it is a no-op. A carrier
         that did not accept is reported to nobody: `failed` marks only a pending row (ADR-041
-        rule 3), and the row is the relay's outcome's to set, so there is nothing to write."""
+        rule 3), and the row is the relay's outcome's to set, so there is nothing to write.
+        True when the carrier accepted it: a failed relay's line must then not say "not sent"."""
         if _journal_off():
-            return
+            return False
         from .carrier import CARRIER_NAME, adapter
-        if adapter.Adapter().post(mid, text) == "accepted":
-            done = journal(["gzcoord-out-final", mid, "--state", "accepted", "--carrier", CARRIER_NAME], "")
-            if done["status"] != 0:
-                sys.stderr.write(done["stderr"] or "episodic: the message was not marked accepted by the carrier\n")
+        if adapter.Adapter().post(mid, text) != "accepted":
+            return False
+        done = journal(["gzcoord-out-final", mid, "--state", "accepted", "--carrier", CARRIER_NAME], "")
+        if done["status"] != 0:
+            sys.stderr.write(done["stderr"] or "episodic: the message was not marked accepted by the carrier\n")
+        return True
 
     def post(auth: str) -> Any:
         return inbox.api(auth, "/api/send", relay_url, method="POST",
@@ -679,8 +682,13 @@ def main(argv: list[str]) -> int:
                 done = journal(["gzcoord-out-final", mid, "--state", "failed"], "")
                 if done["status"] != 0:
                     sys.stderr.write(done["stderr"])
-        via_carrier()
+        carried = via_carrier()
         status = getattr(e, "status", None)
+        if carried:
+            # The relay's outcome alone is the exit status (ADR-064 rule 11), but "not sent" and "send it
+            # again" would be false: the addressee has the message, and a resend is a second copy.
+            print(t("send.carrier-took-it", {"relay_url": relay_url, "detail": str(e)}), file=sys.stderr)
+            return 3
         if status in (401, 403):
             print(t("send.token-refused", {"status": status}), file=sys.stderr)
             return 3

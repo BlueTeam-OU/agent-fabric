@@ -2180,6 +2180,55 @@ def _():
     eq([x[:3] for x in journal_rows(state, store)], [["outbound", "failed", VALID_ID]])
 
 
+def carrier_send(relay_url: str, carried: int = 1) -> tuple[Ran, str, str, list]:
+    """A send with a fake InterWeave carrier on the case's own runtime directory, answering a send as the
+    real one does (`carried` recipients, all queued); the requests it saw come back."""
+    from gzcoord.carrier import server
+    run = scratch("run-")
+    seen: list = []
+
+    def handler(req: dict) -> dict:
+        seen.append(req)
+        return {"ok": True, "carried": carried, "queued": carried}
+
+    srv = server.Server(server.socket_path(run), handler)
+    try:
+        base = scratch("send-journal-")
+        state, store = os.path.join(base, "state"), id_store()
+        r = send_with(relay_url, VALID, AGENT_FABRIC_STATE_DIR=state, AGENT_FABRIC_SECRET_STORE=store, XDG_RUNTIME_DIR=run)
+    finally:
+        srv.close()
+    return r, state, store, seen
+
+
+@case("a relay that did not take the message while the carrier did: exit 3 as before, and the line says the carrier carried it and a resend would duplicate it")
+def _():
+    import socket
+    s = socket.socket()
+    s.bind(("127.0.0.1", 0))
+    port = s.getsockname()[1]
+    s.close()
+    down = f"http://127.0.0.1:{port}"
+    relay_409, relay_503, relay_401 = Relay(status=409), Relay(status=503), Relay(status=401)
+    try:
+        for label, url in (("unreachable", down), ("refused", relay_409.url), ("no answer", relay_503.url),
+                           ("token refused", relay_401.url)):
+            r, state, store, seen = carrier_send(url)
+            eq(r.code, 3, f"{label}: the exit status follows the relay alone (ADR-064 rule 11): {r.err}")
+            eq(len(seen), 1, f"{label}: the carrier was asked once")
+            has(r"the relay did not take it .*the InterWeave carrier did .*a resend would duplicate it", r.err, label)
+            hasnt(r"not sent|safe|hand", r.err, label)
+            eq([x[1] for x in journal_rows(state, store)], ["accepted"], f"{label}: the carrier's acceptance marks the row")
+        # Positive control: the carrier running but carrying to nobody (no roster recipient) took nothing.
+        r, state, store, seen = carrier_send(down, carried=0)
+        eq(r.code, 3, r.err)
+        has(r"relay unreachable .* not sent", r.err)
+        hasnt(r"carrier did", r.err)
+    finally:
+        for x in (relay_409, relay_503, relay_401):
+            x.close()
+
+
 @case("a failed retransmission leaves a row pending whose earlier outcome was never written (review of #78)")
 def _():
     relay = Relay(status=500)
