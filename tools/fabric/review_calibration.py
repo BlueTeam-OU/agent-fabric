@@ -44,8 +44,9 @@ CONTRACT.
           the finding's coordinates, never its text. --instructions is required: a check that can be left out is
           not a refusal. `config` is the sha256 of the instructions the configuration was measured with: a
           file whose sha256 is the config of no configuration, and a configuration no file matches, refuse.
-          Corrected precision is given overall and per level (P1, P2, P3), the level read from the configuration's
-          raised records, under the stated assumption that the judge's accuracy does not depend on level.
+          Corrected precision is given overall and per level (P1, P2, P3), the level read through gh from the
+          finding's own `Finding:` line in its review (a fact of the finding, not of the judging configuration),
+          under the stated assumption that the judge's accuracy does not depend on level.
 
 LEDGER (docs/review-calibration/labels.jsonl): one JSON object per line, exactly the keys repo, pr, review,
 finding, verdict, date, labeller, prev, hash. `prev` is the line before's `hash` ("genesis" for the first) and
@@ -481,12 +482,12 @@ def corrected_view(d: Debiased) -> dict:
 
 
 def judge_section(conf: Configuration, adjudications: list[dict], labels: dict[Coordinates, str],
-                  iterations: int, levels: dict[Coordinates, str]) -> dict:
+                  iterations: int, level_of: Callable[[Coordinates], str | None]) -> dict:
     matrix = [0, 0, 0, 0]       # tp fn tn fp
     held = {"real": 0, "not-real": 0, "unsure": 0}
     partly = dev = 0
     unlabelled_pass = unlabelled_total = 0
-    by_level: dict[str, list[int]] = {level: [0, 0] for level in ("P1", "P2", "P3")}     # passes, total
+    unlabelled: list[tuple[Coordinates, bool]] = []
     for rec in adjudications:
         coords = coordinates_of(rec)
         label = labels.get(coords)
@@ -494,9 +495,7 @@ def judge_section(conf: Configuration, adjudications: list[dict], labels: dict[C
         if label is None:
             unlabelled_total += 1
             unlabelled_pass += positive
-            if (level := levels.get(coords)) is not None:
-                by_level[level][0] += positive
-                by_level[level][1] += 1
+            unlabelled.append((coords, positive))
         elif label == "unsure":
             held["unsure"] += coords.half() == "held-out"
         elif coords.half() == "dev":
@@ -527,7 +526,13 @@ def judge_section(conf: Configuration, adjudications: list[dict], labels: dict[C
         out["corrected_precision"] = corrected_view(debias(m, unlabelled_pass, unlabelled_total, iterations, seed_of(conf)))
     except Undefined as e:
         out["corrected_precision"] = {"undefined": str(e)}
-    # A finding with no raised record has no known level; it is in the totals above and in no level below.
+    # Only a published section asks for levels: each lookup may be a gh call.
+    by_level: dict[str, list[int]] = {level: [0, 0] for level in ("P1", "P2", "P3")}     # passes, total
+    for coords, positive in unlabelled:
+        if (level := level_of(coords)) is not None:
+            by_level[level][0] += positive
+            by_level[level][1] += 1
+    # A finding whose line carries no readable level is in the totals above and in no level below.
     out["unlevelled"] = unlabelled_total - sum(total for _, total in by_level.values())
     out["level_assumption"] = LEVEL_ASSUMPTION
     out["corrected_precision_by_level"] = {}
@@ -584,6 +589,33 @@ def fetch_summary(coords: Coordinates) -> str:
                   "readable in its review, so the instructions cannot be checked against it")
 
 
+class Levels:
+    """A finding's level, from its own `Finding:` line in the review that raised it (ADR-066 §2 rate 2): a fact of the
+    finding, not of the configuration that judges it. One gh read per review. A review that cannot be read, or a
+    finding whose line is gone, gives None, which the report counts as unlevelled; the unreadable reviews are
+    counted apart so a gh outage does not look like findings without a level."""
+
+    def __init__(self) -> None:
+        self._reviews: dict[tuple[str, int, int], dict[Coordinates, str] | None] = {}
+        self.unreadable: set[tuple[str, int, int]] = set()
+
+    def __call__(self, coords: Coordinates) -> str | None:
+        key = (coords.repo, coords.pr, coords.review)
+        if key not in self._reviews:
+            try:
+                review = gh.api(f"repos/{coords.repo}/pulls/{coords.pr}/reviews/{coords.review}")
+            except gh.GhError:
+                self._reviews[key] = None
+            else:
+                self._reviews[key] = {c.coords: c.level for c in
+                                      findings_of(coords.repo, coords.pr, review if isinstance(review, dict) else {})}
+        found = self._reviews[key]
+        if found is None:
+            self.unreadable.add(key)
+            return None
+        return found.get(coords)
+
+
 @dataclasses.dataclass(frozen=True)
 class Instructions:
     path: str
@@ -618,7 +650,7 @@ def check_instructions(ledger: list[dict], instructions: list[Instructions]) -> 
                               f"{coords.review} {coords.finding}; a held-out finding is never quoted in the instructions")
 
 
-def build_report(ledger: list[dict], runs: list[Run], iterations: int = ITERATIONS) -> dict:
+def build_report(ledger: list[dict], runs: list[Run], level_of: Levels, iterations: int = ITERATIONS) -> dict:
     labels = {coordinates_of(r): r["verdict"] for r in ledger}
     halves = {"dev": 0, "held-out": 0}
     for coords in labels:
@@ -633,13 +665,13 @@ def build_report(ledger: list[dict], runs: list[Run], iterations: int = ITERATIO
         raised = [r.rec for r in mine if r.kind == "raised"]
         seeded = [r.rec for r in mine if r.kind == "seeded"]
         if adjudications:
-            levels = {coordinates_of(r): r["level"] for r in raised}
-            entry["adjudication"] = judge_section(conf, adjudications, labels, iterations, levels)
+            entry["adjudication"] = judge_section(conf, adjudications, labels, iterations, level_of)
         if raised:
             entry["raised"] = raised_section(raised, labels)
         if seeded:
             entry["seeded"] = seeded_section(seeded)
         report["configurations"].append(entry)
+    report["level_reviews_unreadable"] = len(level_of.unreadable)
     return report
 
 
@@ -677,7 +709,7 @@ def render(report: dict) -> str:
                 out.append(corrected_line("corrected precision", a["corrected_precision"]))
                 for level, cp in a["corrected_precision_by_level"].items():
                     out.append(corrected_line(f"corrected precision {level}", cp))
-                out.append(f"  {a['unlevelled']} unlabelled adjudicated findings have no raised record, so no level; "
+                out.append(f"  {a['unlevelled']} unlabelled adjudicated findings have no readable level in their review; "
                            f"{a['level_assumption']}")
         for level, e in c.get("raised", {}).items():
             line = f"  raised {level} (held-out): real {e['real']}, not-real {e['not_real']}, unsure {e['unsure']}"
@@ -686,6 +718,8 @@ def render(report: dict) -> str:
             s = c["seeded"]
             out.append(f"  seeded (held-out defects {s['defects']}, {s['incomplete_defects']} without three runs; "
                        f"no floor set by ADR-066): pass@1 {_fmt(s['pass_at_1'])}, pass^3 {_fmt(s['pass_hat_3'])}")
+    if report["level_reviews_unreadable"]:
+        out.append(f"\n{report['level_reviews_unreadable']} review(s) could not be read for their findings' levels")
     return "\n".join(out)
 
 
@@ -699,6 +733,7 @@ class Candidate:
     path: str
     line: int | None
     summary: str
+    level: str
 
 
 def findings_of(repo: str, pr: int, review: dict) -> list[Candidate]:
@@ -711,10 +746,10 @@ def findings_of(repo: str, pr: int, review: dict) -> list[Candidate]:
     for rest in errors.FINDING_LINE.findall(body):
         if rest.strip() == "none" or errors.parse_finding_line(rest) is None:
             continue
-        label, _level, _confidence, where, summary = (f.strip() for f in rest.split("|", 4))
+        label, level, _confidence, where, summary = (f.strip() for f in rest.split("|", 4))
         path, _, line = where.rpartition(":") if re.fullmatch(r".+:\d+", where) else (where, "", "")
         found.append(Candidate(Coordinates(repo, pr, review["id"], label), marker.base, marker.head, path,
-                               int(line) if line else None, summary))
+                               int(line) if line else None, summary, level))
     return found
 
 
@@ -825,7 +860,7 @@ def main(argv: list[str] | None = None, ask: Callable[[str], str] = input, out=N
             instructions = read_instructions(args.instructions)
             check_binding(runs, instructions)
             check_instructions(ledger, instructions)
-            report = build_report(ledger, runs, args.iterations)
+            report = build_report(ledger, runs, Levels(), args.iterations)
             print(json.dumps(report, indent=2, sort_keys=True) if args.json else render(report), file=out)
             return 0
         args.repo = args.repo.lower()

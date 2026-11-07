@@ -93,6 +93,17 @@ def main() -> int:
         f.write(INSTRUCTIONS_TEXT)
     real_fetch = rc.fetch_summary
     rc.fetch_summary = lambda c: f"summary of {c.finding} in review {c.review}"
+    real_levels = rc.Levels
+    known_levels: dict = {}
+
+    class FakeLevels:
+        unreadable: set = set()
+        asked: list = []
+
+        def __call__(self, coords):
+            self.asked.append(coords)
+            return known_levels.get(coords)
+    rc.Levels = FakeLevels
 
     # --- the rates, by hand: 17 of 20 real found, 15 of 20 not-real found
     m = rc.Confusion(tp=17, fn=3, tn=15, fp=5)
@@ -259,6 +270,7 @@ def main() -> int:
     check("below the floor the report prints counts and no rate",
           rcode == 0 and "counts only, no rate" in out and "true-positive rate" not in out and "kappa" not in out
           and "real 3, not-real 2" in out, out)
+    check("below the floor no level is looked up (each lookup may be a gh call)", FakeLevels.asked == [], FakeLevels.asked)
     rcode, out, _ = run_main(["report", "--instructions", instructions, "--runs", runs_path, "--ledger", labels_path, "--json"])
     js = json.loads(out)
     adj = js["configurations"][0]["adjudication"]
@@ -286,8 +298,7 @@ def main() -> int:
         for i, c in enumerate(unlabelled):
             f.write(adjudication(c, "real" if i % 2 == 0 else "not-real") + "\n")
         for i, c in enumerate(unlabelled[:20]):                       # P1: the ten the judge passed; P2: the ten it did not
-            f.write(json.dumps({"kind": "raised", "configuration": CONF, "repo": c.repo, "pr": c.pr,
-                                "review": c.review, "finding": c.finding, "level": "P1" if i % 2 == 0 else "P2"}) + "\n")
+            known_levels[c] = "P1" if i % 2 == 0 else "P2"            # the level is the finding's own, not a raised record
         f.write(json.dumps({"kind": "raised", "configuration": CONF, "repo": reals[0].repo, "pr": reals[0].pr,
                             "review": reals[0].review, "finding": reals[0].finding, "level": "P2"}) + "\n")
     rcode, out, err = run_main(["report", "--instructions", instructions, "--runs", runs_big, "--ledger", big_path, "--json", "--iterations", "300"])
@@ -318,10 +329,13 @@ def main() -> int:
     twin_levels = {rc.coordinates_of(r): "P1" if i % 20 < 10 else "P2" for i, r in enumerate(twin[-20:])}
     for i, r in enumerate(twin[-20:]):
         r["verdict"] = "real" if i % 2 == 0 else "not-real"
-    twin_by = rc.judge_section(tuple(CONF.values()), twin, labels_big, 400, twin_levels)["corrected_precision_by_level"]
+    twin_by = rc.judge_section(tuple(CONF.values()), twin, labels_big, 400, twin_levels.get)["corrected_precision_by_level"]
     check("two levels with the same counts get different bootstrap intervals",
           twin_by["P1"]["observed"] == twin_by["P2"]["observed"] == 0.5
           and twin_by["P1"]["bootstrap95"] != twin_by["P2"]["bootstrap95"], twin_by)
+    check("every review was readable for its levels", json.loads(run_main(
+        ["report", "--instructions", instructions, "--runs", runs_big, "--ledger", big_path, "--json", "--iterations", "20"]
+    )[1])["level_reviews_unreadable"] == 0)
     check("the level assumption is stated", "does not depend on a finding's level" in a["level_assumption"], a)
     rcode, out, _ = run_main(["report", "--instructions", instructions, "--runs", runs_big, "--ledger", big_path, "--iterations", "300"])
     check("the per-level lines and the assumption are printed", "corrected precision P1 1.0" in out
@@ -440,6 +454,7 @@ def main() -> int:
     r_, _, e_ = run_main(["report", "--runs", runs_big, *tail, "--instructions", os.path.join(tmp, "absent.md")])
     check("an unreadable instructions file is a refusal", r_ == 1 and "absent.md" in e_, e_)
     rc.fetch_summary = real_fetch
+    rc.Levels = real_levels
     seen = []
 
     def review_api(path, **kw):
@@ -467,6 +482,26 @@ def main() -> int:
     check("fetch_summary reads the summary from the review; a missing review or finding refuses rather than passes",
           got == "the loop never ends" and "cannot be read" in outcomes[0] and "no longer readable" in outcomes[1],
           (got, outcomes, lone))
+
+    # --- a finding's level is read from its own Finding: line, one gh read per review
+    gets = []
+
+    def levels_api(path, **kw):
+        gets.append(path)
+        if path.endswith("/reviews/555"):
+            return {"id": 555, "body": body_for_rule4}
+        raise rc.gh.GhError("gh api GET", "HTTP 502", status=502)
+    rc.gh.api = levels_api
+    try:
+        lv = rc.Levels()
+        got_levels = [lv(rc.Coordinates("o/r", 9, 555, "F1")), lv(rc.Coordinates("o/r", 9, 555, "F2")),
+                      lv(rc.Coordinates("o/r", 9, 556, "F1")), lv(rc.Coordinates("o/r", 9, 556, "F2"))]
+    finally:
+        rc.gh.api = real_api
+    check("Levels: the level on the finding's own line; a missing finding or an unreadable review is None",
+          got_levels == ["P2", None, None, None], got_levels)
+    check("Levels: one read per review, and the unreadable review is counted apart",
+          len(gets) == 2 and lv.unreadable == {("o/r", 9, 556)}, (gets, lv.unreadable))
 
     # --- the real entry points, with a minimal environment
     stripped_ledger = os.path.join(tmp, "stripped.jsonl")
