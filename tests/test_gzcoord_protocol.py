@@ -1873,6 +1873,9 @@ def _():
     timeout = int(re.search(r"^TimeoutStopSec=(\d+)$", unit, re.M).group(1))
     ok(grace + 2 < timeout, f"the grace window ({grace} s) ends well inside TimeoutStopSec ({timeout} s)")
     ok(re.search(r"^SuccessExitStatus=.*\bSIGKILL\b", unit, re.M) is not None, "SIGKILL is a clean stop")
+    # …and a SIGKILL from outside a stop still restarts it (review of #501 round 4, F7)
+    ok(re.search(r"^RestartForceExitStatus=.*\bSIGKILL\b", unit, re.M) is not None, "kill -9 restarts the relay")
+    ok(cmd.startswith('/bin/sh -c \'[ -n "$MAINPID" ] || exit 0;'), "no kill of an empty pid after the relay died")
 
 
 @case("ensureRelay: a client hosts nothing; with the unit installed the relay is started by name, not spawned")

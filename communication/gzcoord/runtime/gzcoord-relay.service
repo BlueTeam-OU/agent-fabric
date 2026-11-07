@@ -21,7 +21,12 @@
 # the timeout, Fedora's TimeoutStopFailureMode=abort (a service.d drop-in,
 # which a unit file cannot override) kills it with SIGABRT, a core dump and
 # a failed unit. So ExecStop sends the SIGINT, gives it 5 s to close, then
-# SIGKILL, which SuccessExitStatus counts as a clean stop. SQLite's journal
+# SIGKILL, which SuccessExitStatus counts as a clean stop; RestartForce-
+# ExitStatus keeps a SIGKILL from outside a stop (kill -9) restarting, as
+# a stop job never restarts (review of #501 round 4, F7: read back, the
+# relay stayed dead without it, came back with it). ExecStop also runs
+# after the relay died on its own, with $MAINPID empty: then it does
+# nothing. SQLite's journal
 # keeps the database whole either way; the kill skips only the lifespan's
 # loop cancellation, as the abort did. Read back on throwaway units with a
 # held long-poll, 2026-11-07: 5.4 s and success, 1.1 s idle; the control
@@ -40,8 +45,9 @@ ExecStart=%h/projects/.gzcoord/venv/bin/claude-bridge --host 127.0.0.1 --port 87
 Restart=on-failure
 RestartSec=3
 KillSignal=SIGINT
-ExecStop=/bin/sh -c 'kill -INT "$MAINPID"; i=0; while kill -0 "$MAINPID" 2>/dev/null && [ $$i -lt 5 ]; do sleep 1; i=$$((i+1)); done; kill -KILL "$MAINPID" 2>/dev/null; exit 0'
+ExecStop=/bin/sh -c '[ -n "$MAINPID" ] || exit 0; kill -INT "$MAINPID"; i=0; while kill -0 "$MAINPID" 2>/dev/null && [ $$i -lt 5 ]; do sleep 1; i=$$((i+1)); done; kill -KILL "$MAINPID" 2>/dev/null; exit 0'
 SuccessExitStatus=SIGKILL
+RestartForceExitStatus=SIGKILL
 TimeoutStopSec=10
 StandardOutput=append:%h/projects/.gzcoord/bridge.log
 StandardError=append:%h/projects/.gzcoord/bridge.log
