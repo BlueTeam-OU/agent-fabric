@@ -86,6 +86,12 @@ def main() -> int:
         ("the shell's name quoted", "\"bash\" -c 'fabric-pr post-review 12 < r.md'"),
         ("source as a command word", ". /dev/stdin <<'EOF'\nfabric-pr post-review 12 < r.md\nEOF"),
         ("a quote left open over the words", "cd /x; 'fabric-pr post-review 12 < r.md"),
+        # `.` reading stdin where the command word was misread (j543, #451 round 4 F11): a brace group, an elif, a
+        # case arm, a leading redirection.
+        ("source in a brace group", "{ . /dev/stdin <<'EOF'\nfabric-pr post-review 12 < r.md\nEOF\n}"),
+        ("source after elif", "if false; then :; elif . /dev/stdin <<'EOF'\nfabric-pr post-review 12 < r.md\nEOF\nthen :; fi"),
+        ("source in a case arm", "case x in x) . /dev/stdin <<'EOF'\nfabric-pr post-review 12 < r.md\nEOF\n;; esac"),
+        ("source after a leading redirection", "2>/dev/null . /dev/stdin <<'EOF'\nfabric-pr post-review 12 < r.md\nEOF"),
     ]
     # Mentions the shell may run, refused on purpose: the deny names the way through (single quotes, a quoted heredoc,
     # a file). Pinned so a change to what is over-reported is a decision, not a drift.
