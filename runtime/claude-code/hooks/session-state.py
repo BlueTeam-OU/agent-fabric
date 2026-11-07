@@ -75,12 +75,16 @@ def identity():
     return _identity
 
 
-def open_lock(directory: str):
-    """The lock file beside the state file, 0600 and never truncated, written or removed:
+def state_dir() -> str:
+    return identity().agent_state_dir()
+
+
+def open_lock(directory: str, name: str = FILE):
+    """The lock file beside `name` in `directory`, 0600 and never truncated, written or removed:
     what makes it a lock and not state (ADR-003 §2). The mode is set on
     every open, not only at creation: an account the old hooks ran on has
     the file already, made 0644 by `open(…, "a")` under umask 022."""
-    fd = os.open(os.path.join(directory, FILE + ".lock"), os.O_WRONLY | os.O_CREAT | os.O_CLOEXEC | os.O_NOFOLLOW, 0o600)
+    fd = os.open(os.path.join(directory, name + ".lock"), os.O_WRONLY | os.O_CREAT | os.O_CLOEXEC | os.O_NOFOLLOW, 0o600)
     os.fchmod(fd, 0o600)
     return os.fdopen(fd, "w")
 
@@ -172,7 +176,7 @@ def record(payload: dict, directory: str | None = None, now: float | None = None
     transcript = transcript if isinstance(transcript, str) and os.path.isabs(transcript) else None
     if not isinstance(sid, str) or not sid or state is None:
         return False
-    directory = directory or identity().agent_state_dir()
+    directory = directory or state_dir()
     os.makedirs(directory, mode=0o700, exist_ok=True)
     path = os.path.join(directory, FILE)
     with open_lock(directory) as held:
