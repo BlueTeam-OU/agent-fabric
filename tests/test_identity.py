@@ -223,6 +223,33 @@ def test_atomic_write_leaves_the_old_file_whole_on_failure(tmp: str) -> None:
     assert open(path).read() == "v3\n" and (os.stat(path).st_mode & 0o777) == 0o600, "the mode was not kept"
 
 
+def test_append_line_is_whole_private_and_rotates_once(tmp: str) -> None:
+    path = os.path.join(tmp, "agents", "a", "log.jsonl")
+    old = os.umask(0o022)
+    try:
+        identity.append_line(path, "one")
+        identity.append_line(path, "two\n")
+    finally:
+        os.umask(old)
+    assert open(path).read() == "one\ntwo\n", open(path).read()
+    assert os.stat(path).st_mode & 0o777 == 0o600, oct(os.stat(path).st_mode)
+    # Parallel writers each land a line longer than a pipe buffer whole.
+    long = "x" * 70000
+    procs = [subprocess.Popen([sys.executable, "-c",
+                               "import sys; sys.path.insert(0, sys.argv[1]); import identity; "
+                               "[identity.append_line(sys.argv[2], sys.argv[3] + sys.argv[4]) for _ in range(5)]",
+                               os.path.join(ROOT, "runtime"), path, str(i), long]) for i in range(4)]
+    assert all(p.wait() == 0 for p in procs)
+    lines = open(path).read().splitlines()[2:]
+    assert len(lines) == 20 and all(ln[1:] == long and ln[0] in "0123" for ln in lines), [len(ln) for ln in lines]
+    # Past max_bytes the log moves to .1 once; the next line starts a new one.
+    identity.append_line(path, "after", max_bytes=1000)
+    assert open(path).read() == "after\n" and open(path + ".1").read().startswith("one\ntwo\n")
+    identity.append_line(path, "again", max_bytes=1000)
+    assert open(path).read() == "after\nagain\n" and open(path + ".1").read().startswith("one\n")
+    assert os.stat(path + ".lock").st_mode & 0o777 == 0o600
+
+
 def test_agent_state_mutations_serialize_across_processes(tmp: str) -> None:
     """Two processes doing read-modify-write on the binding under
     update_binding never lose an increment; history lines never interleave.
@@ -526,6 +553,7 @@ def test_hold_round_trip_and_a_corrupt_hold_still_holds(tmp: str) -> None:
 def main() -> int:
     cases = [
         test_atomic_write_leaves_the_old_file_whole_on_failure,
+        test_append_line_is_whole_private_and_rotates_once,
         test_agent_state_mutations_serialize_across_processes,
         test_a_second_thread_waits_for_the_holder,
         test_the_owner_thread_reenters_and_holds_to_the_outermost_exit,

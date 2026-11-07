@@ -31,8 +31,9 @@ The state layer (ADR-003). Every file under
 file stays whole through a crash or a full disk), `agent_lock` (a
 flock on `agents/<login>/.lock`, re-entrant only in the thread holding
 it; every read-modify-write of per-agent state holds it, across processes
-and threads), `update_binding` and
-`append_history` on top of both. A binding is per (agent, host): one
+and threads), `append_line` (one line to a per-agent log, O_APPEND 0600
+under the log's own flock, rotated to `.1` under `<log>.lock`),
+`update_binding` and `append_history` on top of the first two. A binding is per (agent, host): one
 written on another machine is refused by `read_binding` the way another
 agent's is, so a shared home never carries a role from one host to the
 next; only a rebind there reads it, to replace it.
@@ -331,6 +332,50 @@ def append_history(record: dict, agent: str | None = None) -> str:
             fh.flush()
             os.fsync(fh.fileno())
     return path
+
+
+def append_line(path: str, line: str, *, max_bytes: int | None = None) -> None:
+    """One line appended to a per-agent log: O_APPEND, created 0600, the
+    whole line written under an exclusive flock on the log itself, so
+    parallel writers (subagents stopping at once, a hook beside a review)
+    never interleave and a line longer than a pipe buffer stays whole.
+    The flock is on the log, not agent_lock: a log written from a hook
+    must not wait behind a binding's read-modify-write.
+
+    With `max_bytes`, a log past it moves to `<path>.1` first, under
+    `<path>.lock`: two writers seeing the same size would otherwise both
+    rename, and the second would put a one-line file over the generation
+    the first just kept. A writer that opened the log just before the
+    rename appends to `.1`, which keeps the line."""
+    data = (line if line.endswith("\n") else line + "\n").encode("utf-8")
+    os.makedirs(os.path.dirname(os.path.abspath(path)), mode=0o700, exist_ok=True)
+    if max_bytes is not None:
+        _rotate(path, max_bytes)
+    fd = os.open(path, os.O_WRONLY | os.O_APPEND | os.O_CREAT | os.O_CLOEXEC, 0o600)
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX)
+        while data:   # a short write (a full disk, a signal) is finished before another writer starts
+            data = data[os.write(fd, data):]
+    finally:
+        os.close(fd)
+
+
+def _rotate(path: str, max_bytes: int) -> None:
+    try:
+        if os.path.getsize(path) <= max_bytes:
+            return
+    except FileNotFoundError:
+        return
+    fd = os.open(path + ".lock", os.O_WRONLY | os.O_CREAT | os.O_CLOEXEC, 0o600)
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX)
+        try:
+            if os.path.getsize(path) > max_bytes:
+                os.replace(path, path + ".1")
+        except FileNotFoundError:
+            pass
+    finally:
+        os.close(fd)
 
 
 def jobs_path(agent: str | None = None) -> str:
