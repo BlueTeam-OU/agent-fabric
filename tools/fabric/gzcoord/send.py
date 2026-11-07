@@ -628,6 +628,8 @@ def main(argv: list[str]) -> int:
                              " sends without it\n")
             return 2
 
+    to_one_login = bool(msg["metadata"].get("TO"))   # exactly one of TO, TO-ROLE, BROADCAST: the validator's rule
+
     def via_carrier() -> bool:
         """The same message to the second carrier (ADR-064 rules 6, 7), after
         the relay's outcome is known and whatever it was: both carriers get every
@@ -684,7 +686,9 @@ def main(argv: list[str]) -> int:
                     sys.stderr.write(done["stderr"])
         carried = via_carrier()
         status = getattr(e, "status", None)
-        if carried:
+        # Only a message TO one login: the carrier's "accepted" counts roster members, and a TO-ROLE or
+        # a broadcast is queued for all of them, so it says nothing of the addressee (review of #505, F1).
+        if carried and to_one_login:
             # The relay's outcome alone is the exit status (ADR-064 rule 11), but "not sent" and "send it
             # again" would be false: the addressee has the message, and a resend is a second copy.
             print(t("send.carrier-took-it", {"relay_url": relay_url, "detail": str(e)}), file=sys.stderr)
