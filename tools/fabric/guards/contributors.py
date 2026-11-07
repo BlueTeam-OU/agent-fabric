@@ -8,6 +8,16 @@ merges it — unless the entry carries `"merges": true`, when the role
 may also open, review and merge its own pull request from a branch
 `<host>/<login>/<type>/<what>` (the owner, 2026-10-07).
 
+THE SUPPLY TIER (the owner, 2026-11-07). An entry's `supplies` lists paths
+the role commits only as supply to the coordinator: on a branch
+`<host>/<login>/for/<holder>/<what>` whose caller is a login
+`role_definitions.holders` names, folded into a pull request in which a
+commit declares the owner role. They are admitted whatever `paths` and
+`excluding` say — supplies are their own tier, so an entry keeps a supply
+path excluded from `paths` and names it again here — and `merges` never
+reaches them. The tier is what no guard, lint or runner loads or runs;
+lint holds each rule to it (lint.py CONTRIBUTOR_SUPPLY).
+
 One decision, three callers. The pre-commit and commit-msg hooks ask it
 through `hook` with the staged paths and the live binding; the CI tripwire
 (agent_fabric_dir_authority.py) imports `admitted` and asks it per commit
@@ -18,7 +28,8 @@ branch that edits the file is judged by what main says.
 
   contributors.py hook <fabric-root> <held-role>
     exit 0  every staged path is the held role's, on its own branch (its
-            for/ branch, or its own <type>/ branch when it merges)
+            for/ branch, or its own <type>/ branch when it merges; a supply
+            path only on for/<holder>/)
     exit 1  the held role is a contributor and this commit is outside its
             entry, or not on its branch; the reason is on stderr
     exit 3  the held role is no contributor (silent: the caller refuses as
@@ -30,7 +41,8 @@ branch it was made on — once folded, the commit is on the coordinator's
 branch — so that shape is checked where the branch is readable, as the
 locale carve-out holds the login to its suffix there. What CI does read is
 the pull request's head branch (pull_request_problem): a for/ branch opens
-no pull request, and a contributor-only pull request needs `merges`.
+no pull request, a contributor-only pull request needs `merges`, and a
+supply commit needs an owner-role commit beside it.
 """
 from __future__ import annotations
 
@@ -44,8 +56,8 @@ BRANCH_SEGMENT = "for"
 def contributors_of(text: str) -> dict[str, dict]:
     """role -> entry, from an authority.json's text. An entry is kept only
     when its shape is whole (a role, a non-empty list of path strings, a list
-    of exclusion strings): a half-written entry admits nothing rather than
-    everything."""
+    of exclusion strings, a list of supply strings): a half-written entry
+    admits nothing rather than everything."""
     try:
         entries = json.loads(text).get("contributors") or []
     except (ValueError, AttributeError):
@@ -57,13 +69,14 @@ def contributors_of(text: str) -> dict[str, dict]:
         if not isinstance(e, dict):
             continue
         role, paths, excl = e.get("role"), e.get("paths"), e.get("excluding", [])
-        merges = e.get("merges", False)
+        merges, supplies = e.get("merges", False), e.get("supplies", [])
         if not (isinstance(role, str) and role and isinstance(paths, list) and paths
                 and all(isinstance(p, str) and p for p in paths)
                 and isinstance(excl, list) and all(isinstance(p, str) and p for p in excl)
+                and isinstance(supplies, list) and all(isinstance(p, str) and p for p in supplies)
                 and isinstance(merges, bool)):
             continue
-        out[role] = {"paths": paths, "excluding": excl, "merges": merges}
+        out[role] = {"paths": paths, "excluding": excl, "supplies": supplies, "merges": merges}
     return out
 
 
@@ -78,9 +91,29 @@ def outside(entry: dict, paths: list[str]) -> list[str]:
     to judge (an amend or an empty commit is not a contribution)."""
     if not paths:
         return ["(no path staged: an amend or an empty commit)"]
-    return [p for p in paths
-            if not any(_covers(r, p) for r in entry["paths"])
-            or any(_covers(r, p) for r in entry["excluding"])]
+    return [p for p in paths if not supplied(entry, [p])
+            and (not any(_covers(r, p) for r in entry["paths"])
+                 or any(_covers(r, p) for r in entry["excluding"]))]
+
+
+def supplied(entry: dict, paths: list[str]) -> list[str]:
+    """The paths this entry admits only as supply to the coordinator."""
+    return [p for p in paths if any(_covers(r, p) for r in entry.get("supplies", []))]
+
+
+def supplies_in(authority_text: str, role: str, paths: list[str]) -> list[str]:
+    entry = contributors_of(authority_text).get(role)
+    return supplied(entry, paths) if entry else []
+
+
+def holders_of(authority_text: str) -> list[str]:
+    """The logins authority.json names as holding the owner role: the only
+    callers a supply branch may name."""
+    try:
+        holders = (json.loads(authority_text).get("role_definitions") or {}).get("holders") or []
+    except (ValueError, AttributeError):
+        return []
+    return [h for h in holders if isinstance(h, str) and h] if isinstance(holders, list) else []
 
 
 def admitted(authority_text: str, role: str, paths: list[str]) -> bool:
@@ -101,23 +134,41 @@ def branch_problem(branch: str, login: str, merges: bool = False) -> str | None:
             f"<host>/{login}/{BRANCH_SEGMENT}/<caller>/<what>{own}")
 
 
+def supply_branch_problem(branch: str, holders: list[str]) -> str | None:
+    """A supply path is committed only for the coordinator to fold: its
+    branch's caller segment is a holder of the owner role. Called beside
+    branch_problem, which holds the login and the shape."""
+    parts = branch.split("/")
+    if len(parts) >= 5 and parts[2] == BRANCH_SEGMENT and parts[3] in holders:
+        return None
+    return (f"branch '{branch or '(detached)'}' is no supply branch: a supply path (the entry's `supplies`) is "
+            f"committed only on <host>/<login>/{BRANCH_SEGMENT}/<holder>/<what>, a holder being one of "
+            f"{', '.join(holders) or '(none named in policies/authority.json)'}")
+
+
 def merges_own(authority_text: str, role: str) -> bool:
     entry = contributors_of(authority_text).get(role)
     return bool(entry) and entry["merges"]
 
 
-def pull_request_problem(authority_text: str, head_ref: str, declared: list[str], owner_role: str) -> str | None:
+def pull_request_problem(authority_text: str, head_ref: str, declared: list[str], owner_role: str,
+                         supply: bool = False) -> str | None:
     """CI's half of the pull-request rule. A supply branch
     `<host>/<login>/for/<caller>/<what>` is folded, never opened as a pull
     request. A pull request in which no commit declares the owner role is
     a contributor's own: it passes when a role in it merges its own work
     (the folder), and otherwise each contributor role in it must. Which login holds which role is runtime state, never committed,
     so the commits' declared roles are what is judged: a tripwire, like the
-    trailer it reads."""
+    trailer it reads. `supply`: a commit in it was admitted only through an
+    entry's `supplies`, which the owner role alone folds — a role that
+    merges its own work folds no supply path."""
     parts = head_ref.split("/")
     if len(parts) >= 5 and parts[2] == BRANCH_SEGMENT:
         return (f"'{head_ref}' is a supply branch: its caller folds it into its own pull request "
                 "(ADR-018 §5 rule 8); it opens none")
+    if supply and owner_role not in declared:
+        return (f"a commit in it is supply (an entry's `supplies`), and no commit declares {owner_role}: "
+                f"supply reaches main only folded by {owner_role} into its own pull request (ADR-018 §5 rule 8)")
     if not declared or owner_role in declared:
         return None
     entries = contributors_of(authority_text)
@@ -197,6 +248,10 @@ def hook(fabric_root: str, held: str) -> int:
     if b:
         problems.append(b)
     staged = staged_paths()
+    if supplied(entry, staged) and not b:
+        b = supply_branch_problem(branch, holders_of(committed_authority()))
+        if b:
+            problems.append(b)
     # A merge that adds nothing of its own (a clean fold) brings only
     # commits already judged; an empty list is otherwise an amend.
     bad = [] if not staged and _merge_heads() else outside(entry, staged)

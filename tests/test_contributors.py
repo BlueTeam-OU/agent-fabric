@@ -38,6 +38,13 @@ HOST = subprocess.run(["hostname", "-s"], capture_output=True, text=True, check=
 ENTRY = {"role": "python-dev", "paths": ["tools/", "bin/fabric-x", "policies/bash-allowlist.json"],
          "excluding": ["tools/fabric/guards/"]}
 AUTHORITY = {"role_definitions": {"role": "fabric-coordinator", "holders": []}, "contributors": [ENTRY]}
+# The supply tier (A 2026-11-07): tools/sup.py is excluded from `paths` and
+# supplied again, as the fabric's own entry keeps it; runtime/sup.json lies
+# outside `paths` altogether. "user" holds the owner role.
+SUPPLY_ENTRY = {**ENTRY, "excluding": ENTRY["excluding"] + ["tools/sup.py"],
+                "supplies": ["tools/sup.py", "runtime/sup.json"]}
+SUPPLY_AUTHORITY = {"role_definitions": {"role": "fabric-coordinator", "holders": ["user"]},
+                    "contributors": [SUPPLY_ENTRY]}
 
 
 def sh(cwd: str, *args: str, env: dict[str, str] | None = None, check: bool = True) -> subprocess.CompletedProcess:
@@ -63,7 +70,12 @@ def main() -> int:
     print("contributors_of keeps whole entries only")
     check("the entry", co.contributors_of(text) == {"python-dev": {"paths": ENTRY["paths"],
                                                                     "excluding": ENTRY["excluding"],
-                                                                    "merges": False}})
+                                                                    "supplies": [], "merges": False}})
+    check("supplies are kept", co.contributors_of(json.dumps(SUPPLY_AUTHORITY))["python-dev"]["supplies"]
+          == SUPPLY_ENTRY["supplies"])
+    check("a supplies that is not a list of paths spoils the entry",
+          co.contributors_of(json.dumps({"contributors": [{**ENTRY, "supplies": "tools/sup.py"}]})) == {}
+          and co.contributors_of(json.dumps({"contributors": [{**ENTRY, "supplies": [""]}]})) == {})
     check("merges: true is kept", co.contributors_of(json.dumps(
         {"contributors": [{**ENTRY, "merges": True}]}))["python-dev"]["merges"] is True)
     check("a merges that is not a boolean spoils the entry",
@@ -88,6 +100,22 @@ def main() -> int:
     check("no path is no contribution", not ok([]))
     check("another role", not ok(["tools/a.py"], role="web-dev"))
     check("the owner role is no contributor", not ok(["tools/a.py"], role="fabric-coordinator"))
+
+    print("the supply tier: admitted whatever paths and excluding say, and named as supply")
+    supply_text = json.dumps(SUPPLY_AUTHORITY)
+    check("an excluded path it supplies", co.admitted(supply_text, "python-dev", ["tools/sup.py"]))
+    check("a path outside its paths it supplies", co.admitted(supply_text, "python-dev", ["runtime/sup.json", "tools/a.py"]))
+    check("…named as supply, the ordinary path not",
+          co.supplies_in(supply_text, "python-dev", ["runtime/sup.json", "tools/a.py"]) == ["runtime/sup.json"])
+    check("still nothing else", not co.admitted(supply_text, "python-dev", ["runtime/other.json"]))
+    check("no supply without an entry", co.supplies_in(supply_text, "web-dev", ["tools/sup.py"]) == [])
+    check("holders_of", co.holders_of(supply_text) == ["user"] and co.holders_of(text) == []
+          and co.holders_of("{") == [] and co.holders_of('{"role_definitions": {"holders": "user"}}') == [])
+    sb = co.supply_branch_problem
+    check("a supply branch for a holder", sb(f"h/{LOGIN}/for/user/x", ["user"]) is None)
+    check("…for another caller: refused", sb(f"h/{LOGIN}/for/python-dev-02/x", ["user"]) is not None)
+    check("…its own four-segment branch: refused", sb(f"h/{LOGIN}/feat/x", ["user"]) is not None)
+    check("…no holder named: refused, saying so", "none named" in (sb(f"h/{LOGIN}/for/user/x", []) or ""))
 
     print("the fabric's own authority.json")
     real_path = os.path.join(HERE, "policies", "authority.json")
@@ -131,6 +159,12 @@ def main() -> int:
           pr(two, f"h/{LOGIN}/feat/x", ["python-dev", "devex-tooling"], owner) is None)
     check("the non-merging role alone: refused, naming it",
           "devex-tooling does not merge" in (pr(two, f"h/{LOGIN}/feat/x", ["devex-tooling"], owner) or ""))
+    check("supply in a merging role's own pull request: refused",
+          "is supply" in (pr(merging, f"h/{LOGIN}/feat/x", ["python-dev"], owner, True) or ""))
+    check("…folded by a merging role for another: refused",
+          pr(two, f"h/{LOGIN}/feat/x", ["python-dev", "devex-tooling"], owner, True) is not None)
+    check("supply folded by the owner role: admitted",
+          pr(merging, f"h/{LOGIN}/feat/x", [owner, "python-dev"], owner, True) is None)
 
     tmp = tempfile.mkdtemp(prefix="contributors-")
     try:
@@ -289,6 +323,37 @@ def main() -> int:
         check("…and still only within its paths", r.returncode != 0, r.stderr)
         sh(fab, "reset", "-q", "--hard", "HEAD~2")
 
+        print("the supply tier at the keyboard: for/<holder> only, merges or not")
+        sh(fab, "checkout", "-q", "-b", f"h/{LOGIN}/for/user/supply", "main")
+
+        def owner_writes(authority: dict, msg: str) -> None:
+            bind("fabric-coordinator")
+            with open(os.path.join(fab, "policies", "authority.json"), "w") as f:
+                json.dump(authority, f)
+            sh(fab, "add", "policies/authority.json")
+            r = sh(fab, "commit", "-q", "-m", msg, env={**GIT_ENV, "AGENT_FABRIC_STATE_DIR": state}, check=False)
+            check(f"({msg})", r.returncode == 0, r.stderr)
+            bind("python-dev")
+        owner_writes(SUPPLY_AUTHORITY, "the owner names supplies")
+        r = attempt("tools/sup.py")
+        check("a supplied path, excluded from its paths, on for/<holder>: committed", r.returncode == 0, r.stderr)
+        r = attempt("runtime/sup.json", "tools/a.py")
+        check("a supplied path beside an ordinary one: committed", r.returncode == 0, r.stderr)
+        sh(fab, "checkout", "-q", "-b", f"h/{LOGIN}/for/python-dev-02/supply")
+        r = attempt("tools/sup.py")
+        check("a supplied path for a caller that holds no owner role: refused",
+              r.returncode != 0 and "no supply branch" in r.stderr, r.stderr)
+        r = attempt("tools/a.py")
+        check("…while an ordinary path there is committed", r.returncode == 0, r.stderr)
+        sh(fab, "checkout", "-q", f"h/{LOGIN}/for/user/supply")
+        owner_writes({**SUPPLY_AUTHORITY, "contributors": [{**SUPPLY_ENTRY, "merges": True}]}, "merges on")
+        sh(fab, "checkout", "-q", "-b", f"h/{LOGIN}/feat/supply")
+        r = attempt("tools/a.py")
+        check("with merges, an ordinary path on its own branch: committed", r.returncode == 0, r.stderr)
+        r = attempt("tools/sup.py")
+        check("…a supplied path there: refused (merges never reaches supply)",
+              r.returncode != 0 and "no supply branch" in r.stderr, r.stderr)
+
         sh(fab, "checkout", "-q", f"h/{LOGIN}/for/user/port")
         bind("web-dev")
         r = attempt("tools/a.py")
@@ -359,6 +424,25 @@ def main() -> int:
         commit_raw("src/a.py", "uses the widening\n\nFabric-Role: python-dev")
         rc, o, e = ci()
         check("a branch's own widening is not read: main's entry decides", rc == 1, o + e)
+
+        print("the CI tripwire: supply reaches main only in the owner role's pull request")
+        sh(fab, "checkout", "-q", "main")
+        with open(os.path.join(fab, "policies", "authority.json"), "w") as f:
+            json.dump({**SUPPLY_AUTHORITY, "contributors": [{**SUPPLY_ENTRY, "merges": True}]}, f)
+        sh(fab, "add", "-A")
+        sh(fab, "-c", "core.hooksPath=/dev/null", "commit", "-qm", "supplies\n\nFabric-Role: fabric-coordinator")
+        sh(fab, "checkout", "-q", "-b", "ci-supply")
+        commit_raw("tools/sup.py", "supply\n\nFabric-Role: python-dev")
+        rc, o, e = ci()
+        check("a supply commit within its entry passes the path check, named as supply",
+              rc == 0 and "as supply" in o, o + e)
+        rc, o, e = ci(f"h/{LOGIN}/feat/supply")
+        check("…in the merging contributor's own pull request: refused", rc == 1 and "is supply" in e, o + e)
+        commit_raw("tools/b.py", "fold\n\nFabric-Role: fabric-coordinator")
+        rc, o, e = ci(f"h/{LOGIN}/feat/fold")
+        check("…folded into the owner's pull request: admitted", rc == 0, o + e)
+        sh(fab, "checkout", "-q", "main")
+        sh(fab, "reset", "-q", "--hard", "HEAD~1")
 
         print("a managed project's .agent-fabric/ admits no contributor, even one whose entry lists it")
         # A fabric whose entry DOES list .agent-fabric/ (review of #75, finding
