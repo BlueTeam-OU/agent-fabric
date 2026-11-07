@@ -11,6 +11,21 @@
 # is %h/projects, the only variable. Restart=on-failure and no start
 # limit: a crash comes back, a clean stop stays stopped. The log is the
 # same bridge.log the hand-started relay wrote.
+#
+# THE STOP (j624: defect 1 of the 2026-11-05 relay-down drill, whose
+# live-check record is j622's).
+# One SIGINT starts uvicorn's graceful shutdown, which waits for every open
+# connection — and the fleet's watches hold long-polls open. uvicorn's own
+# "second SIGINT forces quit" does not end it on Python 3.12+: it still
+# awaits server.wait_closed(), which waits for those connections. Left to
+# the timeout, Fedora's TimeoutStopFailureMode=abort (a service.d drop-in,
+# which a unit file cannot override) kills it with SIGABRT, a core dump and
+# a failed unit. So ExecStop sends the SIGINT, gives it 5 s to close, then
+# SIGKILL, which SuccessExitStatus counts as a clean stop. SQLite's journal
+# keeps the database whole either way; the kill skips only the lifespan's
+# loop cancellation, as the abort did. Read back on throwaway units with a
+# held long-poll, 2026-11-07: 5.4 s and success, 1.1 s idle; the control
+# without it 10.7 s, timeout, core dumped.
 [Unit]
 Description=GZCoord relay (claude-bridge) on 127.0.0.1:8765
 Documentation=file:%h/projects/agent-fabric/projects/gzapp/integration/gzcoord/BRIDGE-RELAY-SETUP.md
@@ -25,6 +40,8 @@ ExecStart=%h/projects/.gzcoord/venv/bin/claude-bridge --host 127.0.0.1 --port 87
 Restart=on-failure
 RestartSec=3
 KillSignal=SIGINT
+ExecStop=/bin/sh -c 'kill -INT "$MAINPID"; i=0; while kill -0 "$MAINPID" 2>/dev/null && [ $$i -lt 5 ]; do sleep 1; i=$$((i+1)); done; kill -KILL "$MAINPID" 2>/dev/null; exit 0'
+SuccessExitStatus=SIGKILL
 TimeoutStopSec=10
 StandardOutput=append:%h/projects/.gzcoord/bridge.log
 StandardError=append:%h/projects/.gzcoord/bridge.log

@@ -1854,6 +1854,27 @@ def _():
 # ensure_relay starts the unit by name and never spawns beside it; a workspace
 # without the venv is a client and hosts nothing; without a unit file (or a
 # user manager) the detached spawn stays the fallback.
+# The relay's stop (j624, the 2026-11-05 drill's defect 1): uvicorn waits on
+# the watches' open long-polls after SIGINT and a second one does not end it,
+# so the unit's ExecStop kills after a grace window; left to the timeout,
+# Fedora's abort drop-in dumps core. The live read-back is in the unit's header.
+@case("the relay unit stops by SIGINT, a grace window inside its timeout, then SIGKILL counted as success")
+def _():
+    import re
+    with open(os.path.join(HERE, "communication", "gzcoord", "runtime", "gzcoord-relay.service")) as fh:
+        unit = fh.read()
+    stop = re.search(r"^ExecStop=(.*)$", unit, re.M)
+    ok(stop is not None, "an ExecStop")
+    cmd = stop.group(1)
+    ok(0 <= cmd.find('kill -INT "$MAINPID"') < cmd.find('kill -KILL "$MAINPID"'), cmd)
+    # systemd expands $NAME in an Exec line: the shell's own variables are written $$ or they arrive empty
+    ok(re.search(r"(?<!\$)\$(?!\$|MAINPID|\()", cmd.replace("$$", "")) is None, "every shell variable is $$-escaped")
+    grace = int(re.search(r"-lt (\d+)", cmd).group(1))
+    timeout = int(re.search(r"^TimeoutStopSec=(\d+)$", unit, re.M).group(1))
+    ok(grace + 2 < timeout, f"the grace window ({grace} s) ends well inside TimeoutStopSec ({timeout} s)")
+    ok(re.search(r"^SuccessExitStatus=.*\bSIGKILL\b", unit, re.M) is not None, "SIGKILL is a clean stop")
+
+
 @case("ensureRelay: a client hosts nothing; with the unit installed the relay is started by name, not spawned")
 def _():
     import time
