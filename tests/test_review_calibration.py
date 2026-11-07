@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import contextlib
 import fractions
+import hashlib
 import io
 import json
 import math
@@ -21,7 +22,9 @@ import review_calibration as rc  # noqa: E402
 
 TOOL = os.path.join(ROOT, "tools", "fabric", "review_calibration.py")
 SHIM = os.path.join(ROOT, "bin", "fabric-review-calibration")
-CONF = {"engine": "code-review", "model": "m-1", "effort": "high", "config": "a" * 64}
+INSTRUCTIONS_TEXT = "Judge each finding by its hunk. Nothing about any labelled finding is quoted here.\n"
+CONF = {"engine": "code-review", "model": "m-1", "effort": "high",
+        "config": hashlib.sha256(INSTRUCTIONS_TEXT.encode()).hexdigest()}
 BASE, HEAD = "b" * 40, "c" * 40
 
 
@@ -87,7 +90,7 @@ def main() -> int:
     tmp = holder.name
     instructions = os.path.join(tmp, "code-review.md")
     with open(instructions, "w") as f:
-        f.write("Judge each finding by its hunk. Nothing about any labelled finding is quoted here.\n")
+        f.write(INSTRUCTIONS_TEXT)
     real_fetch = rc.fetch_summary
     rc.fetch_summary = lambda c: f"summary of {c.finding} in review {c.review}"
 
@@ -282,6 +285,9 @@ def main() -> int:
         f.write(adjudication(unsure_c, "real") + "\n")                                                   # unsure: out of every denominator
         for i, c in enumerate(unlabelled):
             f.write(adjudication(c, "real" if i % 2 == 0 else "not-real") + "\n")
+        for i, c in enumerate(unlabelled[:20]):                       # P1: the ten the judge passed; P2: the ten it did not
+            f.write(json.dumps({"kind": "raised", "configuration": CONF, "repo": c.repo, "pr": c.pr,
+                                "review": c.review, "finding": c.finding, "level": "P1" if i % 2 == 0 else "P2"}) + "\n")
         f.write(json.dumps({"kind": "raised", "configuration": CONF, "repo": reals[0].repo, "pr": reals[0].pr,
                             "review": reals[0].review, "finding": reals[0].finding, "level": "P2"}) + "\n")
     rcode, out, err = run_main(["report", "--instructions", instructions, "--runs", runs_big, "--ledger", big_path, "--json", "--iterations", "300"])
@@ -298,7 +304,28 @@ def main() -> int:
     cp = a["corrected_precision"]
     check("corrected precision shows raw, corrected, interval, draws and the discarded", cp["draws"] == 300
           and "rogan_gladen_raw" in cp and "discarded" in cp and cp["bootstrap95"] is not None, cp)
+    by = a["corrected_precision_by_level"]
+    check("corrected precision per level (hand: P1 passed 10/10 -> (1 + 0.76 - 1) / 0.6 = 1.267, clamped 1.0; "
+          "P2 passed 0/10 -> (0 + 0.76 - 1) / 0.6 = -0.4, clamped 0.0)",
+          by["P1"]["observed"] == 1.0 and near(by["P1"]["rogan_gladen_raw"], 1.267, 1e-3) and by["P1"]["corrected"] == 1.0
+          and by["P2"]["observed"] == 0.0 and near(by["P2"]["rogan_gladen_raw"], -0.4, 1e-3) and by["P2"]["corrected"] == 0.0
+          and by["P1"]["draws"] == 300, by)
+    check("a level with no adjudicated finding is undefined, and 20 findings without a raised record belong to no level",
+          "undefined" in by["P3"] and a["unlevelled"] == 20, (by["P3"], a["unlevelled"]))
+    # equal counts at two levels: the levels draw from their own streams, so their intervals are not copies
+    labels_big = {rc.coordinates_of(r): r["verdict"] for r in rc.read_ledger(big_path)}
+    twin = [json.loads(line) for line in open(runs_big).read().splitlines() if '"adjudication"' in line]
+    twin_levels = {rc.coordinates_of(r): "P1" if i % 20 < 10 else "P2" for i, r in enumerate(twin[-20:])}
+    for i, r in enumerate(twin[-20:]):
+        r["verdict"] = "real" if i % 2 == 0 else "not-real"
+    twin_by = rc.judge_section(tuple(CONF.values()), twin, labels_big, 400, twin_levels)["corrected_precision_by_level"]
+    check("two levels with the same counts get different bootstrap intervals",
+          twin_by["P1"]["observed"] == twin_by["P2"]["observed"] == 0.5
+          and twin_by["P1"]["bootstrap95"] != twin_by["P2"]["bootstrap95"], twin_by)
+    check("the level assumption is stated", "does not depend on a finding's level" in a["level_assumption"], a)
     rcode, out, _ = run_main(["report", "--instructions", instructions, "--runs", runs_big, "--ledger", big_path, "--iterations", "300"])
+    check("the per-level lines and the assumption are printed", "corrected precision P1 1.0" in out
+          and "corrected precision P3 undefined" in out and "does not depend on a finding's level" in out, out)
     check("the text names the discarded draws and the configuration, never an author",
           "draws discarded as degenerate" in out and "model m-1" in out and "author" not in out.lower(), out)
     two = os.path.join(tmp, "runs-two.jsonl")
@@ -307,15 +334,18 @@ def main() -> int:
         for line in open(runs_big).read().splitlines()[:50]:
             f.write(line + "\n")
         f.write(adjudication(reals[0], "real", other_conf) + "\n")
-    fp_conf = dict(CONF, config="f" * 64)
+    instructions2 = os.path.join(tmp, "code-review-2.md")
+    with open(instructions2, "w") as f:
+        f.write(INSTRUCTIONS_TEXT + "A second version.\n")
+    fp_conf = dict(CONF, config=hashlib.sha256(open(instructions2, "rb").read()).hexdigest())
     with open(two, "a") as f:
         f.write(adjudication(reals[0], "real", fp_conf) + "\n")
-    rcode, out, _ = run_main(["report", "--instructions", instructions, "--runs", two, "--ledger", big_path, "--json", "--iterations", "50"])
+    rcode, out, _ = run_main(["report", "--instructions", instructions, instructions2, "--runs", two, "--ledger", big_path, "--json", "--iterations", "50"])
     confs = json.loads(out)["configurations"]
     check("configurations differing only in the review's config fingerprint are never pooled", rcode == 0
-          and sorted(c["config"] for c in confs if c["model"] == "m-1") == ["a" * 64, "f" * 64], confs)
+          and sorted(c["config"] for c in confs if c["model"] == "m-1") == sorted([CONF["config"], fp_conf["config"]]), confs)
     check("two configurations are never pooled", rcode == 0 and sorted({c["model"] for c in confs}) == ["m-1", "m-2"]
-          and all(c["adjudication"]["published"] is False for c in confs if c["config"] != "a" * 64 or c["model"] == "m-2"), confs)
+          and all(c["adjudication"]["published"] is False for c in confs if c["config"] != CONF["config"] or c["model"] == "m-2"), confs)
     one_sided = os.path.join(tmp, "report", "one-sided.jsonl")
     write_ledger(one_sided, [(c, "real") for c in reals])
     only_real = os.path.join(tmp, "runs-only-real.jsonl")
@@ -365,19 +395,49 @@ def main() -> int:
     quoting = os.path.join(tmp, "quoting.md")
     with open(quoting, "w") as f:
         f.write("Example:\n  summary of  " + held_c.finding + "\nin review " + str(held_c.review) + "\n\nend\n")
-    base = ["report", "--runs", runs_big, "--ledger", big_path, "--iterations", "20"]
-    r_, o_, e_ = run_main([*base, "--instructions", instructions, quoting])
+    def runs_of(extra_file, only=False):
+        """runs_big with the configuration of extra_file added, or rebound to it when only."""
+        path = os.path.join(tmp, "runs-rebound.jsonl")
+        sha = hashlib.sha256(open(extra_file, "rb").read()).hexdigest()
+        with open(path, "w") as f:
+            for line in open(runs_big).read().splitlines():
+                rec = json.loads(line)
+                if only:
+                    rec["configuration"] = dict(rec["configuration"], config=sha)
+                    f.write(json.dumps(rec) + "\n")
+                else:
+                    f.write(line + "\n")
+            if not only:
+                f.write(adjudication(reals[0], "real", dict(CONF, config=sha)) + "\n")
+        return path
+    tail = ["--ledger", big_path, "--iterations", "20"]
+    r_, o_, e_ = run_main(["report", "--runs", runs_of(quoting), *tail, "--instructions", instructions, quoting])
     check("a held-out summary in any instructions text refuses the run, naming the finding and not its text",
           r_ == 1 and o_ == "" and held_c.finding in e_ and str(held_c.review) in e_ and "summary of F4" not in e_, e_)
-    r_, o_, _ = run_main([*base, "--instructions", instructions])
+    r_, o_, _ = run_main(["report", "--runs", runs_big, *tail, "--instructions", instructions])
     check("the same run without the quotation is accepted (positive control)", r_ == 0 and o_ != "")
     with open(quoting, "w") as f:
         f.write(f"summary of {dev_c.finding} in review {dev_c.review}\n")
-    r_, _, e_ = run_main([*base, "--instructions", quoting])
+    r_, _, e_ = run_main(["report", "--runs", runs_of(quoting, only=True), *tail, "--instructions", quoting])
     check("a dev-half finding's summary in the instructions is allowed", r_ == 0, e_)
+    # rule 4's binding: the file is the instructions the configuration was measured with
+    stray = os.path.join(tmp, "stray.md")
+    with open(stray, "w") as f:
+        f.write("some other instructions\n")
+    r_, o_, e_ = run_main(["report", "--runs", runs_big, *tail, "--instructions", instructions, stray])
+    check("a file whose sha256 is the config of no configuration is refused, naming the file",
+          r_ == 1 and o_ == "" and "stray.md" in e_ and "no configuration" in e_, (r_, e_))
+    edited = os.path.join(tmp, "edited.md")
+    with open(edited, "w") as f:
+        f.write(INSTRUCTIONS_TEXT + "\n")
+    r_, o_, e_ = run_main(["report", "--runs", runs_big, *tail, "--instructions", edited])
+    check("one added newline changes the sha256 and the run is refused", r_ == 1 and o_ == "" and "edited.md" in e_, e_)
+    r_, o_, e_ = run_main(["report", "--runs", runs_of(stray), *tail, "--instructions", instructions])
+    check("a configuration with no instructions file is refused, naming its config",
+          r_ == 1 and o_ == "" and hashlib.sha256(b"some other instructions\n").hexdigest() in e_ and "no --instructions" in e_, (r_, e_))
     r_, _, e_ = run_main(["report", "--runs", runs_big, "--ledger", big_path])
     check("the instructions are required, not optional", r_ == 2)
-    r_, _, e_ = run_main([*base, "--instructions", os.path.join(tmp, "absent.md")])
+    r_, _, e_ = run_main(["report", "--runs", runs_big, *tail, "--instructions", os.path.join(tmp, "absent.md")])
     check("an unreadable instructions file is a refusal", r_ == 1 and "absent.md" in e_, e_)
     rc.fetch_summary = real_fetch
     seen = []

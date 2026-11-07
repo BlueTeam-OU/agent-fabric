@@ -34,7 +34,7 @@ CONTRACT.
           joined as repo, PR, review id, finding label, one per line, no trailing newline; the digest's low bit
           is the half: 0 dev, 1 held-out. The record does not say which parity is which; fixing it here is a
           decision of this reader that the first label makes permanent.
-  report  Per configuration (engine, model, effort, the review's v2 `config` fingerprint), from the ledger and
+  report  Per configuration (engine, model, effort, `config`), from the ledger and
           the runs file: the held-out counts always, a rate only at or above the floor of §5 rule 6 (20 real and
           20 not-real held-out labels behind it), each with its interval. A configuration is never pooled with
           another. It names no author (§5 rule 11). Before anything is computed it reads, through gh, the summary
@@ -42,7 +42,10 @@ CONTRACT.
           --instructions text, the configuration's rendered reviewer instructions (§5 rule 4); a summary that
           cannot be read refuses too, since "not in the instructions" would then be unknown. The refusal names
           the finding's coordinates, never its text. --instructions is required: a check that can be left out is
-          not a refusal.
+          not a refusal. `config` is the sha256 of the instructions the configuration was measured with: a
+          file whose sha256 is the config of no configuration, and a configuration no file matches, refuse.
+          Corrected precision is given overall and per level (P1, P2, P3), the level read from the configuration's
+          raised records, under the stated assumption that the judge's accuracy does not depend on level.
 
 LEDGER (docs/review-calibration/labels.jsonl): one JSON object per line, exactly the keys repo, pr, review,
 finding, verdict, date, labeller, prev, hash. `prev` is the line before's `hash` ("genesis" for the first) and
@@ -456,7 +459,7 @@ def read_runs(path: str) -> list[Run]:
     return runs
 
 
-def seed_of(configuration: Configuration) -> int:
+def seed_of(configuration: tuple[str, ...]) -> int:
     return int.from_bytes(hashlib.sha256("\0".join(configuration).encode()).digest()[:8], "big")
 
 
@@ -468,12 +471,22 @@ def rate_view(k: int, n: int) -> dict:
     return {"k": k, "n": n, "rate": None if n == 0 else round(k / n, 3), "wilson95": interval_view(wilson(k, n))}
 
 
+LEVEL_ASSUMPTION = ("the judge's accuracy does not depend on a finding's level: each level is corrected with the one "
+                    "true-positive and true-negative rate above")
+
+
+def corrected_view(d: Debiased) -> dict:
+    return {"observed": round(d.observed, 3), "rogan_gladen_raw": round(d.raw, 3), "corrected": round(d.corrected, 3),
+            "bootstrap95": interval_view(d.interval), "draws": d.draws, "discarded": d.discarded}
+
+
 def judge_section(conf: Configuration, adjudications: list[dict], labels: dict[Coordinates, str],
-                  iterations: int) -> dict:
+                  iterations: int, levels: dict[Coordinates, str]) -> dict:
     matrix = [0, 0, 0, 0]       # tp fn tn fp
     held = {"real": 0, "not-real": 0, "unsure": 0}
     partly = dev = 0
     unlabelled_pass = unlabelled_total = 0
+    by_level: dict[str, list[int]] = {level: [0, 0] for level in ("P1", "P2", "P3")}     # passes, total
     for rec in adjudications:
         coords = coordinates_of(rec)
         label = labels.get(coords)
@@ -481,6 +494,9 @@ def judge_section(conf: Configuration, adjudications: list[dict], labels: dict[C
         if label is None:
             unlabelled_total += 1
             unlabelled_pass += positive
+            if (level := levels.get(coords)) is not None:
+                by_level[level][0] += positive
+                by_level[level][1] += 1
         elif label == "unsure":
             held["unsure"] += coords.half() == "held-out"
         elif coords.half() == "dev":
@@ -508,12 +524,19 @@ def judge_section(conf: Configuration, adjudications: list[dict], labels: dict[C
         out[name] = None if value is None else round(value, 3)
     out["unlabelled"] = {"adjudicated": unlabelled_total, "real_or_partly": unlabelled_pass}
     try:
-        d = debias(m, unlabelled_pass, unlabelled_total, iterations, seed_of(conf))
-        out["corrected_precision"] = {"observed": round(d.observed, 3), "rogan_gladen_raw": round(d.raw, 3),
-                                      "corrected": round(d.corrected, 3), "bootstrap95": interval_view(d.interval),
-                                      "draws": d.draws, "discarded": d.discarded}
+        out["corrected_precision"] = corrected_view(debias(m, unlabelled_pass, unlabelled_total, iterations, seed_of(conf)))
     except Undefined as e:
         out["corrected_precision"] = {"undefined": str(e)}
+    # A finding with no raised record has no known level; it is in the totals above and in no level below.
+    out["unlevelled"] = unlabelled_total - sum(total for _, total in by_level.values())
+    out["level_assumption"] = LEVEL_ASSUMPTION
+    out["corrected_precision_by_level"] = {}
+    for level, (passes, total) in by_level.items():
+        try:
+            out["corrected_precision_by_level"][level] = corrected_view(
+                debias(m, passes, total, iterations, seed_of((*conf, level))))
+        except Undefined as e:
+            out["corrected_precision_by_level"][level] = {"undefined": str(e)}
     return out
 
 
@@ -561,9 +584,29 @@ def fetch_summary(coords: Coordinates) -> str:
                   "readable in its review, so the instructions cannot be checked against it")
 
 
-def check_instructions(ledger: list[dict], texts: dict[str, str]) -> None:
+@dataclasses.dataclass(frozen=True)
+class Instructions:
+    path: str
+    sha256: str
+    text: str
+
+
+def check_binding(runs: list[Run], instructions: list[Instructions]) -> None:
+    """ADR-066 §5 rules 1 and 4: a configuration's `config` is the sha256 of the instructions it was measured with, so
+    the files given are exactly those instructions. A file no configuration names would be checked for nothing; a
+    configuration with no file would be reported without its instructions having been checked."""
+    configs = {r.configuration[3] for r in runs}
+    for ins in instructions:
+        if ins.sha256 not in configs:
+            raise Refused(f"{ins.path}: sha256 {ins.sha256} is the config of no configuration in the runs file")
+    given = {ins.sha256 for ins in instructions}
+    for config in sorted(configs - given):
+        raise Refused(f"the runs file holds a configuration with config {config} and no --instructions file has that sha256")
+
+
+def check_instructions(ledger: list[dict], instructions: list[Instructions]) -> None:
     """ADR-066 §5 rule 4: no held-out labelled finding's summary appears in the instructions."""
-    folded = {name: " ".join(text.split()) for name, text in texts.items()}
+    folded = {ins.path: " ".join(ins.text.split()) for ins in instructions}
     for rec in ledger:
         coords = coordinates_of(rec)
         if coords.half() != "held-out":
@@ -590,7 +633,8 @@ def build_report(ledger: list[dict], runs: list[Run], iterations: int = ITERATIO
         raised = [r.rec for r in mine if r.kind == "raised"]
         seeded = [r.rec for r in mine if r.kind == "seeded"]
         if adjudications:
-            entry["adjudication"] = judge_section(conf, adjudications, labels, iterations)
+            levels = {coordinates_of(r): r["level"] for r in raised}
+            entry["adjudication"] = judge_section(conf, adjudications, labels, iterations, levels)
         if raised:
             entry["raised"] = raised_section(raised, labels)
         if seeded:
@@ -602,6 +646,15 @@ def build_report(ledger: list[dict], runs: list[Run], iterations: int = ITERATIO
 def _fmt(rate: dict) -> str:
     iv = rate["wilson95"]
     return f"{rate['rate']:.3f} [{iv[0]:.3f}, {iv[1]:.3f}] ({rate['k']}/{rate['n']})" if iv else f"undefined ({rate['k']}/{rate['n']})"
+
+
+def corrected_line(name: str, cp: dict) -> str:
+    if "undefined" in cp:
+        return f"  {name} undefined: {cp['undefined']}"
+    iv = cp["bootstrap95"]
+    return (f"  {name} {cp['corrected']} (raw Rogan-Gladen {cp['rogan_gladen_raw']}, observed {cp['observed']}), "
+            f"bootstrap 95% {'undefined' if iv is None else f'[{iv[0]}, {iv[1]}]'}; "
+            f"{cp['discarded']} of {cp['draws']} draws discarded as degenerate")
 
 
 def render(report: dict) -> str:
@@ -621,15 +674,11 @@ def render(report: dict) -> str:
                 out.append(f"  true-negative rate {_fmt(a['tnr'])}")
                 for name in ("precision", "kappa", "youden_j", "mcc"):
                     out.append(f"  {name} {'undefined' if a[name] is None else a[name]} (no interval)")
-                cp = a["corrected_precision"]
-                if "undefined" in cp:
-                    out.append(f"  corrected precision undefined: {cp['undefined']}")
-                else:
-                    iv = cp["bootstrap95"]
-                    out.append(f"  corrected precision {cp['corrected']} (raw Rogan-Gladen {cp['rogan_gladen_raw']}, "
-                               f"observed {cp['observed']}), bootstrap 95% "
-                               f"{'undefined' if iv is None else f'[{iv[0]}, {iv[1]}]'}; "
-                               f"{cp['discarded']} of {cp['draws']} draws discarded as degenerate")
+                out.append(corrected_line("corrected precision", a["corrected_precision"]))
+                for level, cp in a["corrected_precision_by_level"].items():
+                    out.append(corrected_line(f"corrected precision {level}", cp))
+                out.append(f"  {a['unlevelled']} unlabelled adjudicated findings have no raised record, so no level; "
+                           f"{a['level_assumption']}")
         for level, e in c.get("raised", {}).items():
             line = f"  raised {level} (held-out): real {e['real']}, not-real {e['not_real']}, unsure {e['unsure']}"
             out.append(line + (f"; precision {_fmt(e['precision'])}" if e["published"] else "; below the floor: counts only"))
@@ -728,15 +777,16 @@ def run_label(args, ask: Callable[[str], str], out, today: Callable[[], str]) ->
     return 0
 
 
-def read_instructions(paths: list[str]) -> dict[str, str]:
-    texts = {}
+def read_instructions(paths: list[str]) -> list[Instructions]:
+    found = []
     for path in paths:
         try:
-            with open(path, encoding="utf-8") as f:
-                texts[path] = f.read()
+            with open(path, "rb") as f:
+                raw = f.read()
+            found.append(Instructions(path, hashlib.sha256(raw).hexdigest(), raw.decode("utf-8")))
         except (OSError, UnicodeDecodeError) as e:
             raise Refused(f"{path}: cannot be read: {getattr(e, 'strerror', None) or e}") from None
-    return texts
+    return found
 
 
 def main(argv: list[str] | None = None, ask: Callable[[str], str] = input, out=None,
@@ -772,7 +822,9 @@ def main(argv: list[str] | None = None, ask: Callable[[str], str] = input, out=N
         if args.command == "report":
             ledger = read_ledger(args.ledger)
             runs = read_runs(args.runs)
-            check_instructions(ledger, read_instructions(args.instructions))
+            instructions = read_instructions(args.instructions)
+            check_binding(runs, instructions)
+            check_instructions(ledger, instructions)
             report = build_report(ledger, runs, args.iterations)
             print(json.dumps(report, indent=2, sort_keys=True) if args.json else render(report), file=out)
             return 0
