@@ -428,6 +428,7 @@ def test_j112_every_link_and_references_topic_that_resolves_to_no_slice_is_repor
 def tree_bytes(root: str) -> dict[str, bytes]:
     found = {}
     for dirpath, _dirs, names in os.walk(root):
+        found[dirpath + os.sep] = b""  # a directory is an entry: a refused run that only made one is a write
         for name in names:
             with open(os.path.join(dirpath, name), "rb") as fh:
                 found[os.path.join(dirpath, name)] = fh.read()
@@ -438,8 +439,8 @@ def test_j207_a_source_accounts_root_named_by_the_environment_is_not_written(tmp
     """The 2026-10-31 incident: 29 domain slices, and no project slice, landed in a source account's own checkout.
     A source's memory op harvests with AGENT_FABRIC_ROOT naming its checkout; a drain run that inherits that root
     (or an AGENT_FABRIC_OPERATOR naming it) and passes no --fabric took the domain and shared slices there while
-    the project slices followed --working-copy. The harvest writes nothing into the source tree; the assembly
-    refuses before it writes; --fabric on purpose still writes (the control)."""
+    the project slices followed --working-copy. The harvest's own writes are not under test (it
+    caches bytecode beside the modules it loads from the root); the assembly refuses before it writes; --fabric on purpose still writes (the control)."""
     source = os.path.join(tmp, "source")
     for sub in (os.path.join("identities", "schemas"), "runtime", os.path.join("tools", "fabric")):
         os.makedirs(os.path.join(source, sub))
@@ -477,6 +478,17 @@ def test_j207_a_source_accounts_root_named_by_the_environment_is_not_written(tmp
         assert f"{leak} names {source}" in proc.stderr, proc.stderr
         assert tree_bytes(source) == source_before, f"{leak}: a file changed in the source tree"
         assert tree_bytes(wc) == wc_before, f"{leak}: the run wrote before it refused"
+    # The accepted spelling: a root variable that names this very checkout, also through a link, passes the check
+    # and fails later, on the unknown project, with that error and not the refusal.
+    link = os.path.join(tmp, "checkout-link")
+    os.symlink(ta.ROOT, link)
+    for spelled in (ta.ROOT, link):
+        for leak in ("AGENT_FABRIC_OPERATOR", "AGENT_FABRIC_ROOT"):
+            late = subprocess.run([sys.executable, ta.ASSEMBLE, "--bundle", bundle, "--project", "no-such-project",
+                                   "--stamp", "2026-10-31"], capture_output=True, text=True,
+                                  env={**base_env, leak: spelled}, cwd=tmp)
+            assert late.returncode != 0 and "no working copy known" in late.stderr, late.stderr
+            assert f"{leak} names" not in late.stderr, late.stderr
     # The positive control: the source tree is writable and the bundle assembles, once a run names the tree.
     ok = subprocess.run([*assemble, "--fabric", source], capture_output=True, text=True,
                         env={**base_env, "AGENT_FABRIC_OPERATOR": source}, cwd=tmp)

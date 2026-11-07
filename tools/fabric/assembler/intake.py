@@ -21,7 +21,7 @@ def parse_args() -> argparse.Namespace:
     ap.add_argument("--project", required=True,
                     help="logical project id the project-scoped classes are filed under")
     ap.add_argument("--fabric", default=None,
-                    help="agent-fabric root (default: this checkout, or $AGENT_FABRIC_ROOT)")
+                    help="agent-fabric root (default: this checkout; an exported AGENT_FABRIC_ROOT or AGENT_FABRIC_OPERATOR naming another tree is refused)")
     ap.add_argument("--working-copy", default=None,
                     help="the project's checkout; its .agent-fabric/memory/ receives the "
                          "project-scoped classes (default: the agent's binding, or this checkout "
