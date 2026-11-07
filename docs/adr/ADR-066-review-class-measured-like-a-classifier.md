@@ -65,7 +65,8 @@ published with its interval and its count.
      Youden's J beside them as point values (a Wilson interval exists
      only for a proportion).
   2. **Finding precision.** The share of findings that are real, per
-     level (P1, P2, P3). Measured directly on owner-labelled findings.
+     level (P1, P2, P3), a finding's level being the one its own
+     `Finding:` line states. Measured directly on owner-labelled findings.
      On the far larger unlabelled population it is the adjudicated rate
      corrected by Rogan-Gladen with rate 1's numbers, with a bootstrap
      interval.
@@ -187,7 +188,10 @@ label's half fixed.
    patch, and the test that proves it: the test fails on the planted
    tree and passes on the original, and the suite checks both. Defects
    are planted by a writing class from the kinds of P1 and P2 findings
-   seen in the fleet, and split dev or held-out by the same hash rule.
+   seen in the fleet, and split dev or held-out by rule 4's hash over
+   a defect's own coordinates, joined by newlines in the order
+   repository, base sha, head sha, defect id (its directory's name
+   under `defects/`).
    A seeded range is reviewed with an ordinary brief whose objective
    does not mention the plant.
 8. Each held-out seeded range is reviewed three times per configuration.

@@ -1490,10 +1490,12 @@ its record disagree, the record wins. Look it up, never read it whole:
   findings blind (`real`, `not-real`, `unsure`); seeded defects are
   planted in pinned public ranges, each with a test that proves it
   (§2, §5 rules 2, 7).
-- Rates: adjudication TPR/TNR/κ against owner labels, finding precision
-  (labelled, and Rogan-Gladen-corrected on the rest), seeded recall as
-  pass@1 and pass^3, each with its interval; none below 20 real and 20
-  not-real held-out labels (§5 rules 5, 6, 8).
+- Rates: adjudication TPR/TNR against owner labels, each with its
+  interval, κ and J as point values; finding precision per level
+  (labelled, and Rogan-Gladen-corrected on the rest) and seeded recall
+  as pass@1 and pass^3, each with its interval; adjudication and
+  precision unpublished below 20 real and 20 not-real held-out labels
+  (§5 rules 5, 6, 8).
 - Labels hold coordinates and verdicts, never text, sha256-chained,
   fail-closed; halves by `sha256(coordinates) mod 2`; held-out never
   quoted in instructions (§5 rules 3, 4).
