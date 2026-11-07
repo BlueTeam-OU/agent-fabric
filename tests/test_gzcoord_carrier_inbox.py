@@ -237,6 +237,40 @@ def main() -> int:
           r.stdout.count("subject-2") == 1 and "subject-2" not in r2.stdout, r.stdout + r2.stdout)
     w.close()
 
+    # the carrier's delivery does not hide that the relay failed
+    w = World([], carrier_records=[urec(3)])
+    w.relay_down = True
+    r = w.drain()
+    check("relay down, the carrier delivers (drain): shown, and the relay's line is on stderr, exit 0",
+          r.returncode == 0 and "subject-3" in r.stdout and "HTTP 500" in r.stderr, f"{r.returncode}\n{r.stdout}{r.stderr}")
+    w.close()
+    w = World([], carrier_records=[urec(4)])
+    w.relay_down = True
+    r = w.watch()
+    check("relay down, the carrier delivers (--until-delivery): shown, the relay's line beside it, exit 0",
+          r.returncode == 0 and "subject-4" in r.stdout and "HTTP 500" in r.stdout, f"{r.returncode}\n{r.stdout}{r.stderr}")
+    w.close()
+    # --follow: an arm failed (the watch is "down"), then the carrier delivers while the relay still fails: not "the relay is back".
+    # The watch retries every 30 s, so the record arrives after the first failed arm and the case waits for the second.
+    recs = []
+    w = World([], carrier_records=recs)
+    w.relay_down = True
+    pr = subprocess.Popen([P.INBOX_CMD, "--follow"], env=w.env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+                          stdin=subprocess.DEVNULL)
+    try:
+        import time
+        time.sleep(3)
+        recs.append(urec(5))
+        time.sleep(34)
+    finally:
+        pr.terminate()
+        out, err = pr.communicate(timeout=30)
+    check("--follow, relay down, then the carrier delivers: shown, the relay still reported, and no relay-back line",
+          "subject-5" in out and "HTTP 500" in err
+          and [x for x in out.splitlines() if x.startswith("gzcoord watch:")] == [x for x in out.splitlines() if "relay unreachable" in x],
+          f"{out}{err}")
+    w.close()
+
     for d in P.SCRATCH:
         shutil.rmtree(d, ignore_errors=True)
     print(f"\ntest_gzcoord_carrier_inbox: {'OK' if not fails else f'FAILED — {fails} check(s)'}")

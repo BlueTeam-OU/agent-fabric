@@ -90,6 +90,10 @@ def wait_loop(fetch_page: Callable[[int, threading.Event], Any], ack: Callable[[
     does, with `sessionEnded` in the result: a slice abandoned or a page that landed with it is unread and unacknowledged, so
     the relay shows it again to the next watch (a page already being journaled and shown is finished, and is in the journal).
 
+    A relay fetch that raises is read as an empty page when `iw` and `ledger` are given, so the carrier is still asked
+    (ADR-064: the relay is the channel of record, not the only one). If nothing is delivered the error is raised as
+    without a carrier; if the carrier delivers, the result carries it as `relayError` and the caller must still report it.
+
     `iw` is the second carrier's adapter (carrier/adapter.py), None when there is none: it only supplies `unseen`, the arrivals
     the carrier journaled, which pass through the same ledger as a relay record. `ledger` (carrier/ledger.py) decides what is shown:
     with one, a delivered result carries `ledger`, the exclusive lock still held, and the caller must `finish()` it once it has
