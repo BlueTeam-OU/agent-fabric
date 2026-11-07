@@ -45,9 +45,11 @@ looked for in everything except text the shell provably never runs —
     `<<-`;
 and those two last are live after all when the command names a word that
 runs its arguments (RUNNERS: a shell, `eval`, `source`, `su`, `ssh`,
-`watch`, `flock`; by name, its quotes off, anywhere) or `.` as a command
-word, since a `-c` string, a piped script or a heredoc fed to a shell
-runs; `.` as an argument is a path (`grep -rn '…' .`, F9). Everything
+`watch`, `flock`; by bare name, its quotes off, anywhere, and by a path unless
+the command only reads files, since `grep … runtime/ssh` reads one) or `.` as a command
+word (after `{`, `elif` or a case arm's `)` too) or before `/dev/stdin`,
+since a `-c` string, a piped script or a heredoc fed to a shell runs;
+`.` as an argument is a path (`grep -rn '…' .`, F9). Everything
 else is live: unquoted words,
 double-quoted strings (a `$(…)` in one runs), an unquoted heredoc's body.
 Over-reported, on purpose, and named in the deny so the session knows the
@@ -78,7 +80,17 @@ BARE = re.compile(r"fabric-pr\s+post-review(?:\s[^;&|$`()<>\n]*)?(?:<[^;&|$`()<>
 # rephrase. `.` is `source` only as a command word: as an argument it is a path (`grep -rn '…' .`; review of #451, F9).
 RUNNERS = {"bash", "sh", "dash", "zsh", "ksh", "eval", "source", "su", "ssh", "watch", "flock"}
 WRAPPERS = {"sudo", "env", "exec", "command", "builtin", "nohup", "nice", "time", "timeout", "xargs", "then", "do",
-            "else", "if", "while", "until", "!"}
+            "else", "elif", "if", "while", "until", "!", "{"}
+# What `.` reads a script from when it is fed a heredoc or a pipe, and any /dev/fd/N (`3<<'EOF'`). `.` followed by one of these runs that input,
+# wherever the reading of command words placed it: a leading redirection (`2>/dev/null . /dev/stdin`) is a word
+# the walk cannot tell from a command (j543, #451 round 4 F11). Over-reported as an argument, which costs a rephrase.
+STDIN_PATHS = {"/dev/stdin", "/dev/fd/0", "/proc/self/fd/0"}
+# Commands that only read the files they are given: under one of these, a path whose last part names a runner
+# (`grep … runtime/ssh`) is a file, not a shell (j543, F12). Anything else keeps a runner by path live, so a command
+# word the walk misreads (`2` of `2>/dev/null`, `root` of `sudo -u root`) over-reports instead of letting
+# `/bin/bash -c '…'` through (review of #501 round 4, F6). find, sed and awk are not readers: each can run a command.
+READERS = {"grep", "egrep", "fgrep", "rg", "ag", "ack", "git", "ls", "cat", "head", "tail", "wc", "diff", "stat",
+           "file", "less", "more"}
 WORD_END = set(" \t\n;&|()<>")
 REASON = ("Post the review as the bare command `fabric-pr post-review [--repo <owner/name>] [--model <m>] <n> < <report>`, "
           "and nothing else in the call: no `cd … &&` (use --repo for another repository), no `2>&1`, no pipe, no `;`, "
@@ -100,24 +112,35 @@ def live_text(cmd: str) -> str:
     depth = [0]                 # open parentheses inside each $( … )
     pending: list[tuple[str, bool, bool]] = []      # heredocs opened on this line: (delimiter, quoted, <<-)
     first, after_wrapper = True, False      # the next word is a command word; the last command word was a wrapper
+    prev = ""                               # the previous word of this simple command
+    command = ""                            # the word the walk took as this simple command's name
     n, i = len(cmd), 0
 
     def end_word() -> None:
         """Close the word: its quotes are already off (`"bash" -c` names bash), so it is a runner by its name."""
-        nonlocal runner, first, after_wrapper
+        nonlocal runner, first, after_wrapper, prev, command
         if word:
-            name = "".join(word).rsplit("/", 1)[-1]
-            runner = runner or name in RUNNERS or (first and name == ".")
+            full = "".join(word)
+            name = full.rsplit("/", 1)[-1]
+            # A runner by bare name counts anywhere (`find -exec bash -c '…'` runs it); by path, unless the command
+            # only reads files (READERS says why).
+            named = name in RUNNERS and ("/" not in full or command not in READERS)
+            stdin = full in STDIN_PATHS or (full.startswith("/dev/fd/") and full[8:].isdigit())
+            runner = runner or named or (first and name == ".") or (prev == "." and stdin)
+            if not (prev == "." and full == "--"):          # `. -- /dev/stdin` reads the path after the --
+                prev = full
             if first:
                 option = after_wrapper and (name.startswith("-") or "=" in name or name.isdigit())
                 after_wrapper = name in WRAPPERS or option
                 first = after_wrapper or "=" in name     # an assignment leaves the command word still to come
+                if not first:
+                    command = name
             word.clear()
 
     def separator() -> None:
-        nonlocal first, after_wrapper
+        nonlocal first, after_wrapper, prev, command
         end_word()
-        first, after_wrapper = True, False
+        first, after_wrapper, prev, command = True, False, "", ""
 
     while i < n:
         c = cmd[i]
@@ -248,7 +271,7 @@ def live_text(cmd: str) -> str:
             live.append("$(")
             i += 2
             continue
-        if c in ";&|(\n":
+        if c in ";&|(\n" or (c == ")" and top == "N"):        # `x) cmd`: a case arm's command word follows
             separator()
         elif c in WORD_END:
             end_word()

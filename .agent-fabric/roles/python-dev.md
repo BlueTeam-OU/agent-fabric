@@ -84,8 +84,14 @@ checked return code; a body goes on stdin, never into argv.
 lint, `tests/run.sh`, `tests/static.sh` and the `run.py`, `static.py` and
 `run_python_suites.py` they forward to, all
 of `runtime/claude-code/` (its `bootstrap.sh` too, though a Wave 5
-script: the coordinator ports it), the role, routing, prompt and
-review-brief code — `policies/authority.json` lists each. A rule you
+script: the coordinator ports it) but the workspace hooks your entry
+supplies, the role, routing and review-brief code — `policies/authority.json`
+lists each. **Supply only** (your entry's `supplies`, agent-fabric
+ADR-018 §5 rule 8 since 2026-11-07): the prompt renderer, bootstrap and
+what it installs, the Python pin, the history, relay and reflection code
+and the listed workspace hooks are yours to write on a
+`<host>/<login>/for/<coordinator>/<what>` branch only, never on your own
+pull request; fabric-coordinator folds, reviews and merges them. A rule you
 find wrong while porting it is a finding to fabric-coordinator, with the
 case that shows it; the port keeps the old behaviour until the rule
 changes.

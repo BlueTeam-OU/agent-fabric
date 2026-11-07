@@ -92,3 +92,41 @@ python-dev-02's #116 folded devex-tooling's InterWeave configs, as the coordinat
 ### Amendment 2026-10-18 — The shared prompt pieces' renderings are language-culture's
 
 ADR-060's stage 3 moved the header, team, memory and brief-missing renderings out of `identities/roles/language-culture/locale/<suffix>/` into `identities/prompt/locale/<suffix>/`, so that a holder of any role in that language reads them (abdf5db8). The carve-out matched only the first directory, so the holder that writes those renderings could no longer commit them. The pattern the pre-commit hook and the CI check share (`policies/githooks/locale-carve-out.sh`, `tools/fabric/guards/agent_fabric_dir_authority.py`) now takes either, and counts a prompt-locale path as `language-culture`'s; two suffixes, or another role's locale beside it, are refused as before.
+
+### Amendment 2026-11-07 — A supply tier between a contributor's paths and the fence
+
+§5 rule 8 extended. The owner, asked on 2026-11-07 to review the
+never-list ("likely a bit too strict"), chose a supply tier over keeping
+it and over letting contributors merge those paths themselves. The list
+fenced 133 files, 28k of the fabric's 261k code lines, and delegating into
+it meant hand-applied patches (j319, j334).
+
+The list is now two. Hard (`CONTRIBUTOR_NEVER`): the definitions, and
+whatever judges a contributor's own commit or its review — the guards and
+`git.py`, lint and what it loads by path, the suite runners, the
+authority suites, the review brief and its tooling, the role and routing
+code and the binding (`identity.py`, which the commit hooks run;
+`role.py`, `bin/fabric-role`; `routing.py`, which the runner and the
+dispatch guard run; `fabric_settings.py`, which lint loads), the managed
+settings' installer, every hook the managed settings run, `hook_jq.py`
+and `session-seal.py`, which guards load, the carrier's fence and
+GitHub's host keys. Supply (`CONTRIBUTOR_SUPPLY`): the prompt renderer,
+bootstrap and what it installs, the workspace trust writer, the Python
+pin, the episodic history, relay and reflection code, and the workspace
+hooks that refuse nothing a commit or review depends on, named file by
+file so a new hook is hard until listed. The test for moving a path is
+whether a guard, lint or runner loads or runs it; four files the first
+draft put in supply went back to hard on it before anything landed.
+
+A supply path is admitted by an entry's `supplies` whatever its `paths`,
+`excluding` and `merges` say, so an entry keeps it excluded from `paths`
+and names it again; the keyboard admits it only on
+`<host>/<login>/for/<holder>/<what>` with the caller a holder of the owner
+role, and CI refuses a pull request carrying such a commit unless a commit
+in it declares the owner role. `merges` never reaches supply, and a
+merging role folds none (the 2026-10-08 carve-out stops short of it).
+python-dev's entry supplies the whole tier, devex-tooling's the
+workspace hooks. The guard (`tools/fabric/guards/contributors.py`,
+`agent_fabric_dir_authority.py`), lint (`tools/fabric/lint.py`) and their
+suites (`tests/test_contributors.py`, `tests/test_lint.py`) change with
+this rule.
