@@ -116,14 +116,14 @@ from __future__ import annotations
 
 import json
 import os
-import pwd
 import re
 import subprocess
 import sys
 
 # Self-contained on purpose: the hook runs before every Agent dispatch, so
-# it imports nothing of the fabric's (start-up is the cost ADR-040 §6
-# names), and a copy of this file alone still decides — without the
+# it imports nothing of the fabric's at the top (start-up is the cost
+# ADR-040 §6 names; supplier_job loads identity.py for a review dispatch
+# alone), and a copy of this file alone still decides — without the
 # aliases beside it, by denying every class dispatch.
 HERE = os.path.dirname(os.path.realpath(__file__))
 FABRIC = os.path.dirname(os.path.dirname(os.path.dirname(HERE)))
@@ -168,18 +168,21 @@ def supplier_job(cwd) -> tuple[str, str]:
     the caller's own PR branch is a supply all the same (ADR-020 §5 rule 11), and fabric-jobs records
     the request's DELIVER-TO on the job. The same rule as supply_branch: a jobs file or a cwd this
     cannot read is no supplier, and nothing is guessed from a job whose directory is another's.
-    The record is read here, not through the fabric's job code, because this hook imports nothing of it.
+    The record is parsed here, not through the fabric's job code, which this hook does not import; its path is identity's.
     A job whose record predates deliver_to is no supplier: the record keeps no request text to compare,
     and a hook reads no relay (j365's clause (c), left out on purpose)."""
     if not isinstance(cwd, str) or not cwd:
         return "", ""
     try:
-        agent = pwd.getpwuid(os.geteuid()).pw_name
-        override = os.environ.get("AGENT_FABRIC_STATE_DIR")
-        root = os.path.abspath(override) if override else os.path.join(
-            os.environ.get("XDG_STATE_HOME") or os.path.join(os.path.expanduser("~"), ".local", "state"),
-            "agent-fabric")
-        with open(os.path.join(root, "agents", agent, "jobs.json"), encoding="utf-8") as fh:
+        # The path is identity's (ADR-003 rule 1), loaded here and not at the
+        # top: only a review dispatch reaches this, so the start-up cost stays
+        # off every other one; a copy of this file without the tree beside it
+        # finds no identity.py and so no supplier, like an unreadable jobs file.
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("fabric_identity", os.path.join(FABRIC, "runtime", "identity.py"))
+        identity = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(identity)
+        with open(identity.jobs_path(), encoding="utf-8") as fh:
             jobs = json.load(fh)["jobs"]
         here = os.path.realpath(cwd)
         for job in jobs:

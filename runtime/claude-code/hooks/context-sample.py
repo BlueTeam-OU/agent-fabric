@@ -83,7 +83,7 @@ def record(payload: object, directory: str | None = None, now: float | None = No
     directory = directory or _ss().state_dir()
     os.makedirs(directory, mode=0o700, exist_ok=True)
     path = os.path.join(directory, FILE)
-    with _ss().open_lock(os.path.join(directory, FILE + ".lock")) as held:
+    with _ss().open_lock(directory, FILE) as held:
         try:
             fcntl.flock(held, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except OSError:

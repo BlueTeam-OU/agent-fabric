@@ -54,10 +54,17 @@ def main() -> int:
         sh("commit", "-q", "--allow-empty", "-m", "three", cwd=other)
         sh("push", "-q", "origin", "main", cwd=other)
         sh("fetch", "-q", "origin", cwd=wc)
-        line = fresh.note(p, state=state)
+        umask = os.umask(0o022)   # the 0600 check below bites only where the umask would not give it anyway
+        try:
+            line = fresh.note(p, state=state)
+        finally:
+            os.umask(umask)
         check("behind origin/main: one line, with the count and the remote ref to read",
               line is not None and "lacks 2 commit(s) of origin/main" in line and "git show origin/main:" in line, line)
         check("…said once: the same gap is not said again", fresh.note(p, state=state) is None)
+        note_file = os.path.join(state, "freshness-s1.json")
+        check("…its note is identity.atomic_write's, 0600 under umask 022 (ADR-003 rule 1)",
+              os.stat(note_file).st_mode & 0o777 == 0o600, oct(os.stat(note_file).st_mode))
         check("…another session is told too", fresh.note({**p, "session_id": "s2"}, state=state) is not None)
         sh("merge", "-q", "--ff-only", "origin/main", cwd=wc)
         check("caught up: nothing said", fresh.note(p, state=state) is None)

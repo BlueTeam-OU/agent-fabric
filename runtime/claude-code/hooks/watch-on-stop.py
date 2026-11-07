@@ -37,7 +37,6 @@ import glob
 import importlib.util
 import json
 import os
-import pwd
 import sys
 import time
 
@@ -144,12 +143,27 @@ def lock_holder_is_watch(procs: dict, run_dir: str | None = None) -> bool:
     return False
 
 
+_identity = None
+
+
+def load_identity():
+    spec = importlib.util.spec_from_file_location("fabric_identity", os.path.join(FABRIC_ROOT, "runtime", "identity.py"))
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def identity():
+    """runtime/identity.py, loaded once: the state directory and the
+    state layer's one writer (ADR-003 rule 1)."""
+    global _identity
+    if _identity is None:
+        _identity = load_identity()
+    return _identity
+
+
 def state_path() -> str:
-    login = pwd.getpwuid(os.getuid()).pw_name
-    root = os.environ.get("AGENT_FABRIC_STATE_DIR")
-    root = os.path.abspath(root) if root else os.path.join(
-        os.environ.get("XDG_STATE_HOME") or os.path.join(os.path.expanduser("~"), ".local", "state"), "agent-fabric")
-    return os.path.join(root, "agents", login, STATE_FILE)
+    return os.path.join(identity().agent_state_dir(), STATE_FILE)
 
 
 def recently_blocked(path: str, session: str, now: float) -> bool:
@@ -168,11 +182,8 @@ def remember(path: str, session: str, now: float) -> None:
     except (OSError, ValueError, TypeError, AttributeError):
         seen = {}
     seen[session] = now
-    tmp = f"{path}.{os.getpid()}"
-    os.makedirs(os.path.dirname(path), exist_ok=True)
-    with open(tmp, "w", encoding="utf-8") as fh:
-        json.dump(seen, fh)
-    os.replace(tmp, path)
+    os.makedirs(os.path.dirname(path), mode=0o700, exist_ok=True)
+    identity().atomic_write(path, json.dumps(seen), 0o600)
 
 
 def integrated(cwd: str | None, session: str | None) -> bool:
@@ -182,16 +193,14 @@ def integrated(cwd: str | None, session: str | None) -> bool:
     be certain."""
     sys.path.insert(0, os.path.join(FABRIC_ROOT, "tools", "fabric"))
     try:
-        spec = importlib.util.spec_from_file_location("fabric_identity", os.path.join(FABRIC_ROOT, "runtime", "identity.py"))
-        identity = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(identity)
-        ctx = identity.resolve_context(cwd=cwd or os.getcwd(), session=session)
+        ident = load_identity()
+        ctx = ident.resolve_context(cwd=cwd or os.getcwd(), session=session)
         if not ctx.get("agent") or not ctx.get("project"):
             return False
         # A login with no fabric binding (or one without a role) was not
         # launched by the fabric: resolve_context fills agent and project
         # for any registered working copy, so the binding is the evidence.
-        if not (identity.read_binding(ctx["agent"]) or {}).get("role"):
+        if not (ident.read_binding(ctx["agent"]) or {}).get("role"):
             return False
         from gzcoord.inbox_parts.config import integration_config
         return bool(integration_config(ctx["project"])["configured"])
