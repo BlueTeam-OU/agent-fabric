@@ -1290,6 +1290,23 @@ def case_the_repository_is_one_license() -> None:
         _write_license_layout(fabric, registry, REUSE_OK + '[[annotations]]\npath = ["projects/demo/**"]\nprecedence = "override"\nSPDX-FileCopyrightText = "t"\nSPDX-License-Identifier = "LicenseRef-demo-Proprietary"\n', licenses=("Apache-2.0", "LicenseRef-demo-Proprietary"))
         code, out = run_lint(fabric)
         assert code == 1 and "Apache-2.0 throughout" in out, f"a second license passed:\n{out}"
+        # a port keeps its upstream's notice beside ours, naming the upstream (ADR-066 §5 rule 10)
+        port = ('[[annotations]]\npath = ["tools/fabric/ported.py"]\nprecedence = "override"\n'
+                'SPDX-FileCopyrightText = ["2026 Upstream", "2026 t"]\nSPDX-License-Identifier = "Apache-2.0 AND MIT"\n')
+        upstream = 'SPDX-FileContributor = "https://example.com/upstream/tree/abc"\n'
+        _write_license_layout(fabric, registry, REUSE_OK + port + upstream, licenses=("Apache-2.0", "MIT"))
+        code, out = run_lint(fabric)
+        assert code == 0, f"a port with its upstream notice was refused:\n{out}"
+        _write_license_layout(fabric, registry, REUSE_OK + port, licenses=("Apache-2.0", "MIT"))
+        code, out = run_lint(fabric)
+        assert code == 1 and "Apache-2.0 throughout" in out, f"a port naming no upstream passed:\n{out}"
+        _write_license_layout(fabric, registry, REUSE_OK + port.replace("Apache-2.0 AND MIT", "MIT") + upstream,
+                              licenses=("Apache-2.0", "MIT"))
+        code, out = run_lint(fabric)
+        assert code == 1 and "Apache-2.0 throughout" in out, f"a file under MIT alone passed:\n{out}"
+        _write_license_layout(fabric, registry, REUSE_OK + port + upstream)
+        code, out = run_lint(fabric)
+        assert code == 1 and "no LICENSES/MIT.txt" in out, f"a port's license with no text passed:\n{out}"
         # the one license has no text
         _write_license_layout(fabric, registry, REUSE_OK, licenses=())
         code, out = run_lint(fabric)
