@@ -111,7 +111,8 @@ def main() -> int:
     check("no supply without an entry", co.supplies_in(supply_text, "web-dev", ["tools/sup.py"]) == [])
     check("holders_of", co.holders_of(supply_text) == ["user"] and co.holders_of(text) == []
           and co.holders_of("{") == [] and co.holders_of('{"role_definitions": {"holders": "user"}}') == [])
-    check("…a mixed list names nobody, as charter_authority reads it (review of #501, F4)",
+    check("…a mixed list names nobody, and an empty login spoils it too, stricter than charter_authority "
+          "(review of #501, F4, F5)",
           co.holders_of('{"role_definitions": {"holders": ["user", 5]}}') == []
           and co.holders_of('{"role_definitions": {"holders": ["user", ""]}}') == [])
     sb = co.supply_branch_problem
