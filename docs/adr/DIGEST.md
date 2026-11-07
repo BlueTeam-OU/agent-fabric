@@ -69,6 +69,7 @@ its record disagree, the record wins. Look it up, never read it whole:
 | fabric-ctl assist; asking about the fabric with the fleet down; the claude-pzhuy API key; who may spend an API key | ADR-063 |
 | GZCoord over InterWeave; the InterWeave carrier; dual run beside the relay; the agents' PeerIds and roster; switching transport | ADR-064 |
 | the reviewer's tools; the review sandbox; coverage blocks; the v2 review marker; where a re-review starts | ADR-065 |
+| the reviewer's own accuracy; calibrating the review class; owner labels; seeded defects; a review routing change's evidence | ADR-066 |
 
 ### ADR-000 — The enduring organization (Accepted)
 
@@ -1480,3 +1481,26 @@ its record disagree, the record wins. Look it up, never read it whole:
   read-only, bubblewrap, sandbox, checks, coverage manifest, checkpoint
   marker, coverage default, moved report, re-review, card_base, open
   findings, open-code-review, P3.
+
+### ADR-066 — The review class is measured like a classifier: owner labels for its judgements, seeded defects for its recall, every rate with its interval (Proposed)
+
+- A result belongs to one configuration: engine, resolved model id,
+  effort and the instructions' sha256; never pooled (§2, §5 rule 1).
+- Ground truth never comes from the review class: the owner labels
+  findings blind (`real`, `not-real`, `unsure`); seeded defects are
+  planted in pinned public ranges, each with a test that proves it
+  (§2, §5 rules 2, 7).
+- Rates: adjudication TPR/TNR/κ against owner labels, finding precision
+  (labelled, and Rogan-Gladen-corrected on the rest), seeded recall as
+  pass@1 and pass^3, each with its interval; none below 20 real and 20
+  not-real held-out labels (§5 rules 5, 6, 8).
+- Labels hold coordinates and verdicts, never text, sha256-chained,
+  fail-closed; halves by `sha256(coordinates) mod 2`; held-out never
+  quoted in instructions (§5 rules 3, 4).
+- A review-class routing or instruction change shows a paired McNemar
+  (and TOST for a cost cut) on the same held-out items; the owner
+  decides (§5 rule 9).
+- `fabric-review-calibration` ports gavel's arithmetic (MIT) to stdlib
+  Python, fixing undefined-as-zero, silent bootstrap drops and a
+  fail-open ledger (§5 rule 10).
+- Keywords: review calibration, calibrate, classifier, judge, owner labels, held-out, seeded defects, recall, precision, TPR, TNR, Rogan-Gladen, McNemar, TOST, pass^k, gavel, review routing, P3.
