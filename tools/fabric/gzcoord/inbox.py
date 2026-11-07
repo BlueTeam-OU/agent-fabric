@@ -219,7 +219,7 @@ from .inbox_parts.hold import hold_dir, pid_start, pid_alive, hold_status, HOLD_
 from .inbox_parts.render import NOTIFICATION_CAP, MAX_FLAG_LINES, _SECTION, cut_at_line  # noqa: F401
 from .inbox_parts.render import _drop_final_newline, split_message, render  # noqa: F401
 from .inbox_parts.watch import JOURNAL_RETRY_MS, bypass_inbound, wait_loop  # noqa: F401
-from .inbox_parts.watchlock import take_or_report  # noqa: F401
+from .inbox_parts.watchlock import take_or_report, mark_relay_down, clear_relay_down  # noqa: F401
 from .inbox_parts import session as watch_session
 
 
@@ -620,12 +620,14 @@ def main(argv: list[str]) -> int:
                     down_since = time.monotonic()
                 elif until_delivery and time.monotonic() - down_since >= UNTIL_DELIVERY_DOWN_S:
                     print(t("watch.relay-gave-up", {"relay_url": relay_url}), flush=True)
+                    mark_relay_down(who["agent"], time.time())
                     return 5
                 # The 30 s between tries, shortened to the time left before the give-up bound and, under --until-delivery,
                 # before the --deadline (never negative: sleep refuses that): a relay that refuses connections must not
                 # carry the watch past the deadline it promised, and a shorter bound (a test's) is not slept through twice.
                 time.sleep(max(0.0, min(30.0, UNTIL_DELIVERY_DOWN_S - (time.monotonic() - down_since), deadline - time.monotonic())) if until_delivery else 30)
                 continue
+            clear_relay_down(who["agent"])
             if r.get("sessionEnded"):
                 print(SESSION_ENDED.format(pid=session.pid), flush=True)
                 return 0
