@@ -87,7 +87,7 @@
   "send.token-refused": "send: the relay refused this token (HTTP {status}) — it was rotated; run fabric-secrets sync — not sent",
   "send.relay-unreachable": "send: relay unreachable at {relay_url} ({detail}) — not sent",
   "send.relay-refused": "send: the relay at {relay_url} answered and refused it ({detail}) — not sent",
-  "send.carrier-took-it": "send: the relay did not take it ({detail}, {relay_url}), but the InterWeave carrier did — it is delivered; do not send it again, a resend would duplicate it",
+  "send.carrier-took-it": "send: the relay did not take it ({detail}, {relay_url}), but the carrier did — it is delivered; do not send it again, a resend would duplicate it",
   "send.outcome-unknown": "send: no answer the relay can be held to at {relay_url} ({detail}) — the message may have been delivered; {again}",
   "send.again-file": "sending the same file again is safe: it carries the same id",
   "send.again-stdin": "a resend from stdin mints a new id unless the text carries MESSAGE-ID: {id}",
