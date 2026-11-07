@@ -31,15 +31,15 @@ The state layer (ADR-003). Every file under
 file stays whole through a crash or a full disk), `agent_lock` (a
 flock on `agents/<login>/.lock`, re-entrant only in the thread holding
 it; every read-modify-write of per-agent state holds it, across processes
-and threads), `update_binding` and
-`append_history` on top of both. A binding is per (agent, host): one
+and threads), `append_line` (one line to a per-agent log, O_APPEND 0600
+under the log's own flock, rotated to `.1` under `<log>.lock`),
+`update_binding` and `append_history` on top of the first two. A binding is per (agent, host): one
 written on another machine is refused by `read_binding` the way another
 agent's is, so a shared home never carries a role from one host to the
 next; only a rebind there reads it, to replace it.
 """
 from __future__ import annotations
 
-import argparse
 import contextlib
 import datetime
 import fcntl
@@ -50,8 +50,8 @@ import pwd
 import re
 import socket
 import sys
-import tempfile
 import threading
+import time
 from typing import TypedDict
 
 # The repository this module lives in. AGENT_FABRIC_ROOT lets a test point
@@ -123,12 +123,21 @@ def binding_path(agent: str | None = None) -> str:
 # rewrote JSON in place and bypassed write_binding; nothing serialized the
 # binding, the history or the model profile).
 
-def atomic_write(path: str, data: "bytes | str", mode: int | None = None) -> None:
+def atomic_write(path: str, data: "bytes | str", mode: int | None = None, *, replace: bool = True) -> None:
     """Write `data` to `path` all-or-nothing: a temporary file beside it,
     flushed and fsynced, then os.replace — the reader sees the old file
     or the new one, never a torn one. The temporary is removed on any
     failure. `mode` sets the permission bits (0o600 for a private file);
-    otherwise the existing file's bits are kept, or the umask applies."""
+    otherwise the existing file's bits are kept, and a new file is 0600,
+    mkstemp's mode, whatever the umask.
+    With replace=False the temporary is linked into place instead, and a
+    file already at `path` is left alone and raises FileExistsError: a
+    writer that must never overwrite (provisioning beside an account's
+    own launch record) checks and writes in one step, not two."""
+    # Imported here, not at the top: tempfile (with shutil and random) is
+    # most of this module's import, and the hooks that load it on every
+    # tool call (session-state.py) mostly write nothing.
+    import tempfile
     directory = os.path.dirname(os.path.abspath(path)) or "."
     fd, tmp = tempfile.mkstemp(prefix=".tmp-", dir=directory)
     try:
@@ -140,7 +149,10 @@ def atomic_write(path: str, data: "bytes | str", mode: int | None = None) -> Non
             os.chmod(tmp, mode)
         elif os.path.exists(path):
             os.chmod(tmp, os.stat(path).st_mode & 0o7777)
-        os.replace(tmp, path)
+        if replace:
+            os.replace(tmp, path)
+        else:
+            os.link(tmp, path)
     finally:
         if os.path.exists(tmp):
             os.unlink(tmp)
@@ -331,6 +343,69 @@ def append_history(record: dict, agent: str | None = None) -> str:
             fh.flush()
             os.fsync(fh.fileno())
     return path
+
+
+def append_line(path: str, line: str, *, max_bytes: int | None = None, wait: float | None = None) -> None:
+    """One line appended to a per-agent log: O_APPEND, created 0600, the
+    whole line written under an exclusive flock on the log itself, so
+    parallel writers (subagents stopping at once, a hook beside a review)
+    never interleave and a line longer than a pipe buffer stays whole.
+    The flock is on the log, not agent_lock: a log written from a hook
+    must not wait behind a binding's read-modify-write.
+
+    With `max_bytes`, a log past it moves to `<path>.1` first, under
+    `<path>.lock`: two writers seeing the same size would otherwise both
+    rename, and the second would put a one-line file over the generation
+    the first just kept. A writer that opened the log just before the
+    rename appends to `.1`, which keeps the line.
+
+    `wait` bounds each lock: None waits as long as the holder holds; a
+    number of seconds raises TimeoutError (an OSError) past it, for a
+    writer a stalled holder must not hang (a review that has posted)."""
+    data = (line if line.endswith("\n") else line + "\n").encode("utf-8")
+    os.makedirs(os.path.dirname(os.path.abspath(path)), mode=0o700, exist_ok=True)
+    if max_bytes is not None:
+        _rotate(path, max_bytes, wait)
+    fd = os.open(path, os.O_WRONLY | os.O_APPEND | os.O_CREAT | os.O_CLOEXEC, 0o600)
+    try:
+        _flock(fd, path, wait)
+        while data:   # a short write (a full disk, a signal) is finished before another writer starts
+            data = data[os.write(fd, data):]
+    finally:
+        os.close(fd)
+
+
+def _flock(fd: int, path: str, wait: float | None) -> None:
+    if wait is None:
+        fcntl.flock(fd, fcntl.LOCK_EX)
+        return
+    deadline = time.monotonic() + wait
+    while True:
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            return
+        except BlockingIOError:
+            if time.monotonic() >= deadline:
+                raise TimeoutError(f"{path} is locked by another writer") from None
+            time.sleep(0.05)
+
+
+def _rotate(path: str, max_bytes: int, wait: float | None) -> None:
+    try:
+        if os.path.getsize(path) <= max_bytes:
+            return
+    except FileNotFoundError:
+        return
+    fd = os.open(path + ".lock", os.O_WRONLY | os.O_CREAT | os.O_CLOEXEC, 0o600)
+    try:
+        _flock(fd, path + ".lock", wait)
+        try:
+            if os.path.getsize(path) > max_bytes:
+                os.replace(path, path + ".1")
+        except FileNotFoundError:
+            pass
+    finally:
+        os.close(fd)
 
 
 def jobs_path(agent: str | None = None) -> str:
@@ -579,6 +654,7 @@ def resolve_context(cwd: str | None = None, session: str | None = None,
 
 
 def main(argv: list[str] | None = None) -> int:
+    import argparse   # the command line only; importers never need it
     ap = argparse.ArgumentParser(description="Resolve the current agent identity and its runtime context.")
     ap.add_argument("--json", action="store_true", help="print the full context as JSON")
     ap.add_argument("--host", action="store_true", help="print the host label only")

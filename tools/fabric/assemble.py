@@ -17,6 +17,10 @@ agent and host the same in manifest and report, nothing in the tar the
 manifest does not name. A bundle that was cut short or changed on the
 way is refused with the file named.
 
+THE TREE A RUN WRITES is --fabric when given, else the checkout this file is in. Without --fabric, an exported
+AGENT_FABRIC_ROOT or AGENT_FABRIC_OPERATOR naming another tree is refused before anything is written (exit 1): it
+would take the domain and shared slices there while the project slices follow --working-copy.
+
 Where a slice lands is decided by tools/fabric/layout.py from its class:
 domain knowledge under memory/domains/<role>/, everything learned about
 the project under <working copy>/.agent-fabric/memory/<role>/ (the

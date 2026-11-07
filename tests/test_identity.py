@@ -17,6 +17,7 @@ import subprocess
 import sys
 import tempfile
 import threading
+import time
 from instance_fixtures import own_instance_tree  # noqa: E402 — tests/, the script's own directory
 own_instance_tree()
 
@@ -223,6 +224,63 @@ def test_atomic_write_leaves_the_old_file_whole_on_failure(tmp: str) -> None:
     assert open(path).read() == "v3\n" and (os.stat(path).st_mode & 0o777) == 0o600, "the mode was not kept"
 
 
+def test_append_line_is_whole_private_and_rotates_once(tmp: str) -> None:
+    path = os.path.join(tmp, "agents", "a", "log.jsonl")
+    old = os.umask(0o022)
+    try:
+        identity.append_line(path, "one")
+        identity.append_line(path, "two\n")
+    finally:
+        os.umask(old)
+    assert open(path).read() == "one\ntwo\n", open(path).read()
+    assert os.stat(path).st_mode & 0o777 == 0o600, oct(os.stat(path).st_mode)
+    # Parallel writers each land a line longer than a pipe buffer whole.
+    long = "x" * 70000
+    procs = [subprocess.Popen([sys.executable, "-c",
+                               "import sys; sys.path.insert(0, sys.argv[1]); import identity; "
+                               "[identity.append_line(sys.argv[2], sys.argv[3] + sys.argv[4]) for _ in range(5)]",
+                               os.path.join(ROOT, "runtime"), path, str(i), long]) for i in range(4)]
+    assert all(p.wait() == 0 for p in procs)
+    lines = open(path).read().splitlines()[2:]
+    assert len(lines) == 20 and all(ln[1:] == long and ln[0] in "0123" for ln in lines), [len(ln) for ln in lines]
+    # Past max_bytes the log moves to .1 once; the next line starts a new one.
+    old = os.umask(0o022)
+    try:
+        identity.append_line(path, "after", max_bytes=1000)
+    finally:
+        os.umask(old)
+    assert open(path).read() == "after\n" and open(path + ".1").read().startswith("one\ntwo\n")
+    identity.append_line(path, "again", max_bytes=1000)
+    assert open(path).read() == "after\nagain\n" and open(path + ".1").read().startswith("one\n")
+    assert os.stat(path + ".lock").st_mode & 0o777 == 0o600
+    # A bounded wait gives up on a holder that does not let go, and writes nothing.
+    held = os.open(path, os.O_WRONLY)
+    try:
+        fcntl.flock(held, fcntl.LOCK_EX)
+        try:
+            identity.append_line(path, "late", wait=0.2)
+            raise AssertionError("append_line waited past its bound")
+        except TimeoutError:
+            pass
+    finally:
+        os.close(held)
+    assert open(path).read() == "after\nagain\n"
+    identity.append_line(path, "free", wait=0.2)
+    assert open(path).read().endswith("free\n")
+
+
+def test_atomic_write_without_replace_never_overwrites(tmp: str) -> None:
+    path = os.path.join(tmp, "record.json")
+    identity.atomic_write(path, "first", 0o600, replace=False)
+    try:
+        identity.atomic_write(path, "second", 0o600, replace=False)
+        raise AssertionError("an existing file was overwritten")
+    except FileExistsError:
+        pass
+    assert open(path).read() == "first" and os.stat(path).st_mode & 0o777 == 0o600
+    assert os.listdir(tmp) == ["record.json"], os.listdir(tmp)
+
+
 def test_agent_state_mutations_serialize_across_processes(tmp: str) -> None:
     """Two processes doing read-modify-write on the binding under
     update_binding never lose an increment; history lines never interleave.
@@ -352,6 +410,35 @@ def test_an_exclusive_request_inside_a_shared_hold_is_refused(tmp: str) -> None:
         assert flock_is_free(state, "upgrade"), "the refusal left the flock held"
     finally:
         del os.environ["AGENT_FABRIC_STATE_DIR"]
+
+
+def test_writers_past_max_bytes_at_once_rotate_once(tmp: str) -> None:
+    # Every writer has seen the oversized log and waits on <log>.lock; the
+    # first rotates, and the size re-checked under the lock keeps the rest
+    # from moving the new log over the generation the first just kept.
+    path = os.path.join(tmp, "agents", "r", "log.jsonl")
+    os.makedirs(os.path.dirname(path))
+    with open(path, "w") as fh:
+        fh.write("old\n" * 500)
+    held = os.open(path + ".lock", os.O_WRONLY | os.O_CREAT, 0o600)
+    fcntl.flock(held, fcntl.LOCK_EX)
+    ino = os.fstat(held).st_ino
+    procs = [subprocess.Popen([sys.executable, "-c",
+                               "import sys; sys.path.insert(0, sys.argv[1]); import identity; "
+                               "identity.append_line(sys.argv[2], 'new' + sys.argv[3], max_bytes=1000)",
+                               os.path.join(ROOT, "runtime"), path, str(i)]) for i in range(4)]
+    try:
+        deadline = time.monotonic() + 30
+        def waiting() -> int:   # blocked flocks on the lock file, as the kernel lists them
+            return sum(1 for ln in open("/proc/locks") if "->" in ln and ln.split()[-3].endswith(f":{ino}"))
+        while waiting() < 4:
+            assert time.monotonic() < deadline and all(p.poll() is None for p in procs), "the writers never all waited on the lock"
+            time.sleep(0.05)
+    finally:
+        os.close(held)
+    assert all(p.wait() == 0 for p in procs)
+    assert open(path + ".1").read() == "old\n" * 500, "a later writer moved the new log over the kept generation"
+    assert sorted(open(path).read().splitlines()) == [f"new{i}" for i in range(4)], open(path).read()
 
 
 def test_a_forked_child_takes_the_flock_itself(tmp: str) -> None:
@@ -526,6 +613,9 @@ def test_hold_round_trip_and_a_corrupt_hold_still_holds(tmp: str) -> None:
 def main() -> int:
     cases = [
         test_atomic_write_leaves_the_old_file_whole_on_failure,
+        test_append_line_is_whole_private_and_rotates_once,
+        test_writers_past_max_bytes_at_once_rotate_once,
+        test_atomic_write_without_replace_never_overwrites,
         test_agent_state_mutations_serialize_across_processes,
         test_a_second_thread_waits_for_the_holder,
         test_the_owner_thread_reenters_and_holds_to_the_outermost_exit,
