@@ -87,6 +87,7 @@
   "send.token-refused": "send: релей отверг этот токен (HTTP {status}): токен сменили; выполните fabric-secrets sync — не отправлено",
   "send.relay-unreachable": "send: релей недоступен по адресу {relay_url} ({detail}) — не отправлено",
   "send.relay-refused": "send: релей по адресу {relay_url} ответил и отклонил сообщение ({detail}) — не отправлено",
+  "send.carrier-took-it": "send: релей по адресу {relay_url} не принял сообщение ({detail}), но оно доставлено другим путём; не отправляйте его повторно, иначе появится дубликат",
   "send.outcome-unknown": "send: от релея по адресу {relay_url} нет определённого ответа ({detail}) — сообщение могло быть доставлено; {again}",
   "send.again-file": "повторная отправка того же файла безопасна: id в нём тот же",
   "send.again-stdin": "при повторной отправке из stdin будет выдан новый id, если в тексте нет строки «MESSAGE-ID: {id}»",
