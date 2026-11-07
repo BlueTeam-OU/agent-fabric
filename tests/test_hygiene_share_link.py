@@ -5,7 +5,7 @@ review found one in a drained slice that no pattern caught (j554). A ~/ path is 
 account, and the /home/<login>/ and ~/scratch/ patterns already take the paths that name one account.
 Plain script: prints ok/FAIL, exit 1 on any failure.
 Kills: dropping the pattern; one that matches the gallery or claude.ai alone; one that keeps the scheme or eats the
-sentence's period in the drain's substitution; one that reads a host that only ends in claude.ai."""
+sentence's period in the drain's substitution; one that reads a host that only ends in claude.ai; a lost case-insensitivity."""
 from __future__ import annotations
 
 import json
@@ -21,10 +21,12 @@ LEAKS = [
     "explored in Claude Design: https://claude.ai/artifact/4vFfDYtCHgcsYLTiEmBJgM).", "claude.ai/share/0b1c2d3e-aaaa-bbbb",
     "https://claude.ai/code/artifact/5f0e3c2a-1111-2222-3333-444455556666", "http://claude.ai/chat/abc-123",
     "https://claude.ai/public/artifacts/abc-123", "https://claude.ai/project/0193-abc", "(https://claude.ai/code/session_01AbCdEf)",
+    # A host and a scheme are case-insensitive, and prose capitalises the product (#497 round 7 F11).
+    "Claude.ai/share/abc-1", "HTTPS://claude.ai/chat/x", "https://CLAUDE.AI/artifact/abc",
 ]
 FINE = [
     "the gallery at claude.ai/code/artifacts lists them", "https://claude.ai/", "log in at claude.ai", "claude.ai/artifact alone",
-    "https://notclaude.ai/artifact/abc", "https://docs.claude.ai/artifact/abc", "~/.local/bin and ~/projects/agent-fabric",
+    "https://notclaude.ai/artifact/abc", "https://docs.claude.ai/artifact/abc", "https://Docs.Claude.ai/share/abc", "~/.local/bin and ~/projects/agent-fabric",
 ]
 # The drain substitutes refer_as for the whole link, scheme included; the sentence around it survives.
 SUBSTITUTED = {
