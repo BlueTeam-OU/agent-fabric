@@ -58,6 +58,9 @@ def main() -> int:
         check("behind origin/main: one line, with the count and the remote ref to read",
               line is not None and "lacks 2 commit(s) of origin/main" in line and "git show origin/main:" in line, line)
         check("…said once: the same gap is not said again", fresh.note(p, state=state) is None)
+        note_file = os.path.join(state, "freshness-s1.json")
+        check("…its note is identity.atomic_write's, 0600 (ADR-003 rule 1)",
+              os.stat(note_file).st_mode & 0o777 == 0o600, oct(os.stat(note_file).st_mode))
         check("…another session is told too", fresh.note({**p, "session_id": "s2"}, state=state) is not None)
         sh("merge", "-q", "--ff-only", "origin/main", cwd=wc)
         check("caught up: nothing said", fresh.note(p, state=state) is None)

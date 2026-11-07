@@ -110,10 +110,9 @@ never stands in a session's way.
 """
 from __future__ import annotations
 
-import fcntl
+import importlib.util
 import json
 import os
-import pwd
 import re
 import subprocess
 import sys
@@ -168,14 +167,15 @@ KEYS = ("schema_version", "engine", "attribution", "purpose", "description",
         "first_turn_context", "model", "provider", "effort")
 
 
-def state_dir() -> str:
-    # session-state.py's rule, so the ledger sits beside the state the
-    # account's control agent already reads.
-    login = pwd.getpwuid(os.getuid()).pw_name
-    root = os.environ.get("AGENT_FABRIC_STATE_DIR")
-    root = os.path.abspath(root) if root else os.path.join(
-        os.environ.get("XDG_STATE_HOME") or os.path.join(os.path.expanduser("~"), ".local", "state"), "agent-fabric")
-    return os.path.join(root, "agents", login)
+def identity():
+    """runtime/identity.py, by this file's place in the tree (as session-state.py
+    finds it): the state directory and the per-agent logs' one writer (ADR-003 rule 1)."""
+    spec = importlib.util.spec_from_file_location(
+        "fabric_identity",
+        os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.realpath(__file__)))), "identity.py"))
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
 
 
 def seconds(ts: str | None) -> float | None:
@@ -446,17 +446,12 @@ def row(payload: dict) -> dict | None:
     return {k: entry.get(k) for k in KEYS}
 
 
-def append(directory: str, entry: dict) -> None:
-    os.makedirs(directory, mode=0o700, exist_ok=True)
-    line = json.dumps(entry, separators=(",", ":")) + "\n"
-    # One write under an exclusive lock: parallel subagents stopping at
-    # once each append a whole line, never an interleaving.
-    fd = os.open(os.path.join(directory, FILE), os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o600)
-    try:
-        fcntl.flock(fd, fcntl.LOCK_EX)
-        os.write(fd, line.encode("utf-8"))
-    finally:
-        os.close(fd)
+def append(entry: dict) -> None:
+    # Parallel subagents stopping at once each append a whole line:
+    # append_line writes it under the log's flock, which tools/fabric/ledger.py
+    # takes on the same file.
+    ident = identity()
+    ident.append_line(os.path.join(ident.agent_state_dir(), FILE), json.dumps(entry, separators=(",", ":")))
 
 
 def main() -> int:
@@ -464,7 +459,7 @@ def main() -> int:
         payload = json.load(sys.stdin)
         entry = row(payload) if isinstance(payload, dict) else None
         if entry:
-            append(state_dir(), entry)
+            append(entry)
     except Exception:  # noqa: BLE001 — a measurement never fails the session
         pass
     return 0

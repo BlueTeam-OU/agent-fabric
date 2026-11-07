@@ -90,6 +90,8 @@ def main() -> int:
         stale = {k: v for k, v in other.items() if k != 300}
         out = go({}, stale)
         check("decide: the lock names a watch that is gone: blocked", out and out["decision"] == "block", out)
+        check("…its record is identity.atomic_write's, 0600 (ADR-003 rule 1)",
+              os.stat(path).st_mode & 0o777 == 0o600, oct(os.stat(path).st_mode))
         os.remove(lock)
         fresh()
         out = go({}, table((300, (200, "python3", "gzcoord-inbox --follow"))))

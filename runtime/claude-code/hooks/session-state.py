@@ -23,7 +23,7 @@ tools/fabric/control/upgrade.py's state dir name), mode 0600, rewritten whole
 under a lock and only when a session's state, reason or transcript changes: PreToolUse fires on
 every tool call and writes nothing while the session stays working. The
 rewrite is identity.atomic_write's, the state layer's one writer (ADR-003
-rule 1), loaded only when there is something to write; the lock file
+rule 1), and so is the state directory it is under; the lock file
 beside it, session-state.json.lock, is a lock and never state (ADR-003 §2).
 
 Beside the state, the session's own `claude` process (the nearest
@@ -47,7 +47,6 @@ import fcntl
 import importlib.util
 import json
 import os
-import pwd
 import sys
 import time
 
@@ -60,20 +59,13 @@ NEEDS_A_PERSON = {"permission_prompt", "worker_permission_prompt", "elicitation_
                   "elicitation_url_dialog", "agent_needs_input"}
 
 
-def state_dir() -> str:
-    login = pwd.getpwuid(os.getuid()).pw_name
-    root = os.environ.get("AGENT_FABRIC_STATE_DIR")
-    root = os.path.abspath(root) if root else os.path.join(
-        os.environ.get("XDG_STATE_HOME") or os.path.join(os.path.expanduser("~"), ".local", "state"), "agent-fabric")
-    return os.path.join(root, "agents", login)
-
-
 _identity = None
 
 
 def identity():
-    """runtime/identity.py, loaded on the first write and kept: the load is
-    most of a hook's run, and most events write nothing."""
+    """runtime/identity.py, loaded once and kept: the state directory and
+    the writer. Every event pays the load, which is why identity.py imports
+    its heavy modules (tempfile) only where it writes."""
     global _identity
     if _identity is None:
         spec = importlib.util.spec_from_file_location("fabric_identity", IDENTITY)
@@ -83,12 +75,12 @@ def identity():
     return _identity
 
 
-def open_lock(path: str):
-    """The lock file `path`, 0600 and never truncated, written or removed:
+def open_lock(directory: str):
+    """The lock file beside the state file, 0600 and never truncated, written or removed:
     what makes it a lock and not state (ADR-003 §2). The mode is set on
     every open, not only at creation: an account the old hooks ran on has
     the file already, made 0644 by `open(…, "a")` under umask 022."""
-    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_CLOEXEC | os.O_NOFOLLOW, 0o600)
+    fd = os.open(os.path.join(directory, FILE + ".lock"), os.O_WRONLY | os.O_CREAT | os.O_CLOEXEC | os.O_NOFOLLOW, 0o600)
     os.fchmod(fd, 0o600)
     return os.fdopen(fd, "w")
 
@@ -180,10 +172,10 @@ def record(payload: dict, directory: str | None = None, now: float | None = None
     transcript = transcript if isinstance(transcript, str) and os.path.isabs(transcript) else None
     if not isinstance(sid, str) or not sid or state is None:
         return False
-    directory = directory or state_dir()
+    directory = directory or identity().agent_state_dir()
     os.makedirs(directory, mode=0o700, exist_ok=True)
     path = os.path.join(directory, FILE)
-    with open_lock(os.path.join(directory, FILE + ".lock")) as held:
+    with open_lock(directory) as held:
         if not lock(held):
             return False
         try:
