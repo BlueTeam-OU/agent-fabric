@@ -166,6 +166,28 @@ def main() -> int:
             os.remove(lock)
             check("lock holder: no lock file", mod.lock_holder_is_watch(procs, rd) is False)
 
+        # A watch that ended on an unreachable relay leaves the time beside its lock: fresh passes, stale or absent asks.
+        with tempfile.TemporaryDirectory() as rd:
+            os.makedirs(os.path.join(rd, "agent-fabric"))
+            marker = os.path.join(rd, "agent-fabric", "gzcoord-inbox-x.relay-down")
+            st = os.path.join(rd, "state.json")
+            other = {**table(), }
+
+            def asked(now):
+                return mod.decide({"session_id": "s1"}, other, now, st, yes, own_pid=ME, run_dir=rd)
+            check("relay-down marker absent: asks as before", (asked(5000.0) or {}).get("decision") == "block")
+            os.remove(st)
+            for body, age_now, passes, label in (("4500\n", 5000.0, True, "fresh"), ("4500\n", 5399.0, True, "just inside the budget"),
+                                                 ("4500\n", 5400.0, False, "at the budget"), ("junk\n", 5000.0, False, "unparseable"),
+                                                 ("6000\n", 5000.0, False, "dated in the future"), ("", 5000.0, False, "empty")):
+                with open(marker, "w", encoding="utf-8") as fh:
+                    fh.write(body)
+                got = asked(age_now)
+                check(f"relay-down marker {label}: {'passes silently' if passes else 'asks'}",
+                      (got is None) if passes else (got or {}).get("decision") == "block", got)
+                if os.path.exists(st):
+                    os.remove(st)
+
         def boom(*a, **k):
             raise RuntimeError("x")
         orig, mod.read_procs = mod.read_procs, boom

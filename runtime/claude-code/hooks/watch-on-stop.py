@@ -24,7 +24,8 @@ refuses a second, so asking this session for one would only loop. A lock
 naming a pid that is gone, or that is no watch, counts for nothing. The
 lock directory is passed in as `run_dir`, so a test supplies its own.
 
-It passes, printing nothing, when: stop_hook_active; no harness ancestor; the
+It passes, printing nothing, when: stop_hook_active; no harness ancestor; the login's watch ended on an
+unreachable relay less than DOWN_S ago (relay_down_recently); the
 session has no fabric binding or its project has no GZCoord integration
 (the watch would exit 3 at once, and "start it" would loop); or it blocked
 this session less than WINDOW_S ago. The last guard is the loop breaker: a
@@ -43,6 +44,8 @@ import time
 FABRIC_ROOT = os.environ.get("AGENT_FABRIC_ROOT") or os.path.dirname(
     os.path.dirname(os.path.dirname(os.path.dirname(os.path.realpath(__file__)))))
 WINDOW_S = 300
+# gzcoord-inbox's UNTIL_DELIVERY_DOWN_S default: how long a watch tries an unreachable relay before it gives up.
+DOWN_S = 900
 STATE_FILE = "watch-on-stop.json"
 KEEP_S = 86400
 COMMAND = "gzcoord-inbox --until-delivery"
@@ -122,6 +125,24 @@ def has_watch(procs: dict, session: int, run_dir: str | None = None) -> bool:
             if a <= 1:
                 break
     return lock_holder_is_watch(procs, run_dir)
+
+
+def relay_down_recently(now: float, run_dir: str | None = None) -> bool:
+    """A watch that ended on an unreachable relay (exit 5) wrote the time beside its lock
+    ($XDG_RUNTIME_DIR/agent-fabric/gzcoord-inbox-<login>.relay-down, inbox_parts/watchlock.py); the next
+    answered fetch removes it. While it is younger than the watch's own give-up budget (DOWN_S) re-arming
+    would only spin on the same relay, or bring back one an operator stopped on purpose. A marker that is
+    unreadable, unparseable or dated in the future counts for nothing: the session is asked as before."""
+    run_dir = run_dir or os.environ.get("XDG_RUNTIME_DIR") or f"/run/user/{os.getuid()}"
+    for path in glob.glob(os.path.join(run_dir, "agent-fabric", "gzcoord-inbox-*.relay-down")):
+        try:
+            with open(path, encoding="utf-8", errors="replace") as fh:
+                age = now - float(fh.read(64).split()[0])
+        except (OSError, ValueError, IndexError):
+            continue
+        if 0 <= age < DOWN_S:
+            return True
+    return False
 
 
 def lock_holder_is_watch(procs: dict, run_dir: str | None = None) -> bool:
@@ -217,6 +238,8 @@ def decide(payload: dict, procs: dict, now: float, path: str, is_integrated=inte
         return None
     session = harness_pid(procs, own_pid or os.getpid())
     if session is None or has_watch(procs, session, run_dir):
+        return None
+    if relay_down_recently(now, run_dir):
         return None
     if recently_blocked(path, session_id, now) or not is_integrated(payload.get("cwd"), session_id):
         return None
