@@ -52,7 +52,7 @@ import time
 from dataclasses import dataclass
 
 from fabric_launcher import gateway_usage
-from fabric_launcher.base import BROKER_ENV, _load, die, say
+from fabric_launcher.base import BROKER_ENV, _load, die, identity, say
 from fabric_launcher.routing import CLAUDE_ALIAS
 
 # The runtime_contract values and plan schema versions this launcher speaks
@@ -391,12 +391,9 @@ def record_state(state_dir: str, gw: Gateway) -> None:
     path = os.path.join(state_dir, "gateway.json")
     try:
         os.makedirs(state_dir, exist_ok=True)
-        tmp = f"{path}.tmp-{os.getpid()}"
-        with open(tmp, "w", encoding="utf-8") as fh:
-            json.dump({"pid": gw.pid, "gateway_version": gw.version, "runtime_contract": gw.runtime_contract,
-                       "listener": gw.listener, "plan_digest": gw.plan_digest, "started_at": gw.started_at}, fh)
-            fh.write("\n")
-        os.replace(tmp, path)
+        doc = {"pid": gw.pid, "gateway_version": gw.version, "runtime_contract": gw.runtime_contract,
+               "listener": gw.listener, "plan_digest": gw.plan_digest, "started_at": gw.started_at}
+        identity.atomic_write(path, json.dumps(doc) + "\n", 0o600)
     except OSError as exc:
         say(f"launch: could not record the gateway in {path}: {exc}")
 

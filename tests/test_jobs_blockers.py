@@ -479,6 +479,14 @@ def main() -> int:
         lock_path = bl.cache_path() + ".lock"
         check("the cache and its lock exist and are private", os.path.exists(bl.cache_path()) and os.path.exists(lock_path)
               and all(os.stat(p).st_mode & 0o777 == 0o600 for p in (bl.cache_path(), lock_path)))
+        written = []
+        real_write = bl.identity.atomic_write
+        bl.identity.atomic_write = lambda path, data, mode=None, **kw: (written.append((path, mode)), real_write(path, data, mode, **kw))[1]
+        try:
+            bl.save_cache({"pr:o/r#1": {"seen_open": True}})
+        finally:
+            bl.identity.atomic_write = real_write
+        check("the cache is replaced by identity.atomic_write, 0600", written == [(bl.cache_path(), 0o600)], written)
         import fcntl
         import threading
         held = os.open(lock_path, os.O_RDWR)

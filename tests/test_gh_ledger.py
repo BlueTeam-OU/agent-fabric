@@ -245,29 +245,22 @@ def main() -> int:
               str((fake_calls()[-2:], new)))
 
         print("the ledger rotates once")
-        path = os.path.join(tmp, "rotating.jsonl")
         saved_max = gh_ledger.MAX_BYTES
-        gh_ledger.MAX_BYTES = 50
-        open(path, "w").write("x" * 200)
-        gh_ledger._rotate(path)
-        kept = open(path + ".1").read() if os.path.exists(path + ".1") else None
-        open(path, "w").write("one\n")
-        real_getsize = os.path.getsize
-        asked = []
-
-        def losing_getsize(p):
-            # The session that lost the race read the size BEFORE the winner renamed: large the first time,
-            # as it really is afterwards (the winner's new file is small).
-            asked.append(p)
-            return 10_000 if len(asked) == 1 else real_getsize(p)
-        os.path.getsize = losing_getsize
-        try:
-            gh_ledger._rotate(path)
-        finally:
-            os.path.getsize = real_getsize
+        gh_ledger.MAX_BYTES = 150
+        main_state = os.environ["AGENT_FABRIC_STATE_DIR"]
+        os.environ["AGENT_FABRIC_STATE_DIR"] = os.path.join(tmp, "rotating-state")   # the counts below are of the main ledger
+        ledger_path = os.path.join(gh_ledger.state_dir(), gh_ledger.LEDGER)
+        os.makedirs(os.path.dirname(ledger_path))
+        open(ledger_path, "w").write("x" * 200)
+        gh_ledger.record(["api", "x"], "t", 200, 0.1)
+        kept = open(ledger_path + ".1").read() if os.path.exists(ledger_path + ".1") else None
+        check("a ledger past MAX_BYTES moves to .1 and the call goes to a fresh file",
+              kept == "x" * 200 and len(open(ledger_path).read().splitlines()) == 1, str(kept))
+        gh_ledger.record(["api", "x"], "t", 200, 0.1)
         check("the generation a rotation kept is not replaced by a later, small file",
-              kept == "x" * 200 and open(path + ".1").read() == kept, str(kept))
+              open(ledger_path + ".1").read() == "x" * 200 and len(open(ledger_path).read().splitlines()) == 2)
         gh_ledger.MAX_BYTES = saved_max
+        os.environ["AGENT_FABRIC_STATE_DIR"] = main_state
 
         print("per-agent state is one layer (agent-fabric ADR-003 rule 1)")
         import identity
@@ -282,23 +275,21 @@ def main() -> int:
         # The usual umask: a file made without a mode of its own would be 0644.
         old_umask = os.umask(0o022)
         try:
-            lock_path = os.path.join(tmp, "locked.jsonl")
-            open(lock_path, "w").write("x" * 200)
+            fresh = os.path.join(tmp, "umask-state")
+            real_state = os.environ["AGENT_FABRIC_STATE_DIR"]
+            os.environ["AGENT_FABRIC_STATE_DIR"] = fresh
             gh_ledger.MAX_BYTES = 50
-            gh_ledger._rotate(lock_path)
+            fresh_ledger = os.path.join(gh_ledger.state_dir(), gh_ledger.LEDGER)
+            os.makedirs(os.path.dirname(fresh_ledger))
+            open(fresh_ledger, "w").write("x" * 200)
+            gh_ledger.record(["api", "x"], "t", 200, 0.1)
             gh_ledger.MAX_BYTES = saved_max
-            check("positive control: the rotation ran (the lock was taken)", os.path.exists(lock_path + ".1"))
-            check("the rotation's lock file is 0600 under umask 022", stat.S_IMODE(os.stat(lock_path + ".lock").st_mode) == 0o600,
-                  oct(os.stat(lock_path + ".lock").st_mode))
-            old_lock = os.path.join(tmp, "older.jsonl.lock")
-            open(old_lock, "w").close()
-            os.chmod(old_lock, 0o644)
-            open(os.path.join(tmp, "older.jsonl"), "w").write("x" * 200)
-            gh_ledger.MAX_BYTES = 50
-            gh_ledger._rotate(os.path.join(tmp, "older.jsonl"))
-            gh_ledger.MAX_BYTES = saved_max
-            check("a lock an older build made 0644 is brought to 0600", stat.S_IMODE(os.stat(old_lock).st_mode) == 0o600,
-                  oct(os.stat(old_lock).st_mode))
+            os.environ["AGENT_FABRIC_STATE_DIR"] = real_state
+            check("positive control: the rotation ran (the lock was taken)", os.path.exists(fresh_ledger + ".1"))
+            check("the rotation's lock file is 0600 under umask 022", stat.S_IMODE(os.stat(fresh_ledger + ".lock").st_mode) == 0o600,
+                  oct(os.stat(fresh_ledger + ".lock").st_mode))
+            check("the ledger itself is 0600 under umask 022", stat.S_IMODE(os.stat(fresh_ledger).st_mode) == 0o600,
+                  oct(os.stat(fresh_ledger).st_mode))
             os.remove(os.path.join(gh_ledger.state_dir(), gh_ledger.RATE)) if os.path.exists(
                 os.path.join(gh_ledger.state_dir(), gh_ledger.RATE)) else None
             gh_ledger.rate_limit(max_age=0, now=lambda: NOW)

@@ -196,7 +196,7 @@ def ledger_path() -> str:
 
 def send_request(send: list[str], text: str, timeout: float = SEND_TIMEOUT_S) -> tuple[int, str]:
     """(gzcoord-send's exit status, its last stderr line). The message goes through a private file, never argv."""
-    with tempfile.TemporaryDirectory(prefix="memory-flags.", dir=_scratch_base()) as d:
+    with tempfile.TemporaryDirectory(prefix="memory-flags.") as d:
         path = os.path.join(d, "request.txt")
         with open(path, "w", encoding="utf-8") as fh:
             fh.write(text)
@@ -209,14 +209,6 @@ def send_request(send: list[str], text: str, timeout: float = SEND_TIMEOUT_S) ->
     # gzcoord-send's warnings and presence lines come before the refusal itself.
     said = (r.stderr or r.stdout or "").strip().splitlines()
     return r.returncode, memory_flags.one_line(said[-1] if said else "", 200)
-
-
-def _scratch_base() -> str | None:
-    try:
-        base = identity.agent_state_dir()
-    except Exception:  # noqa: BLE001 — no identity (a test, a bare shell): the temporary directory
-        return None
-    return base if os.path.isdir(base) else None
 
 
 @dataclass

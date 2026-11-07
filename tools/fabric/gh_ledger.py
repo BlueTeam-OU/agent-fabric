@@ -51,6 +51,7 @@ RATE = "gh-rate.json"
 # A ledger past this is moved to .1 (one generation): the summary asks for an
 # hour or a day, and a runaway poller must not fill the state volume.
 MAX_BYTES = 8 * 1024 * 1024
+LOCK_WAIT_S = 5
 # A snapshot younger than this answers `budget()` without a call.
 RATE_MAX_AGE_S = 30.0
 RATE_TIMEOUT_S = 20
@@ -108,26 +109,6 @@ def caller_module(skip_file: str) -> str:
     return "?"
 
 
-def _rotate(path: str) -> None:
-    """Move a ledger past MAX_BYTES to .1, once: two sessions seeing the same size would otherwise both
-    rename, and the second would put a one-line file over the generation the first just kept."""
-    try:
-        if os.path.getsize(path) <= MAX_BYTES:
-            return
-        import fcntl
-        # 0600 whatever the umask (ADR-003 rule 1, the 2026-10-31 amendment), and fchmod for a lock an older build made 0644.
-        fd = os.open(path + ".lock", os.O_WRONLY | os.O_CREAT, 0o600)
-        try:
-            os.fchmod(fd, 0o600)
-            fcntl.flock(fd, fcntl.LOCK_EX)
-            if os.path.getsize(path) > MAX_BYTES:
-                os.replace(path, path + ".1")
-        finally:
-            os.close(fd)
-    except OSError:
-        return
-
-
 def record(args: list[str], caller: str, status, seconds: float) -> None:
     kind, call = classify(args)
     if status == 304:
@@ -138,17 +119,9 @@ def record(args: list[str], caller: str, status, seconds: float) -> None:
     line = json.dumps({"t": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
                        "login": os.path.basename(directory), "kind": kind, "call": call, "caller": caller,
                        "status": status, "s": round(seconds, 2)}, separators=(",", ":")) + "\n"
-    path = os.path.join(directory, LEDGER)
     try:
-        os.makedirs(directory, mode=0o700, exist_ok=True)
-        _rotate(path)
-        # One O_APPEND write of a short line: two processes of this account
-        # never interleave inside it.
-        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
-        try:
-            os.write(fd, line.encode())
-        finally:
-            os.close(fd)
+        # Bounded: a stalled holder of the log's lock must not hold up the gh call this line is about.
+        identity.append_line(os.path.join(directory, LEDGER), line, max_bytes=MAX_BYTES, wait=LOCK_WAIT_S)
     except OSError:
         return
 

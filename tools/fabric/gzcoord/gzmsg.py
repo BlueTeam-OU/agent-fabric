@@ -245,7 +245,7 @@ class _WhoamiKeys(TypedDict):
     role: str | None
     project: str | None
     working_copy: str | None
-    binding: str
+    binding: str | None   # None only in the fallback, when identity.py could not be loaded to say where it is
 
 
 class Whoami(_WhoamiKeys, total=False):
@@ -321,19 +321,13 @@ def parse(text: str, t: i18n.Printer | None = None) -> ParsedMessage:
 # WHO AM I. The agent is the Linux login of the effective user, and the one
 # place that derivation lives is runtime/identity.py — this asks it, in
 # this process (the Node ran it as `python3 identity.py --json`; the answer
-# is the same dict). If it cannot answer, the fallback computes the same
-# thing (effective uid -> login) and reads the same binding file by the
-# same path rule; it never looks at the working directory's name.
-def binding_file(agent: str) -> str:
-    # Set but empty is set, as `??` read both in the Node.
-    base = os.environ.get("AGENT_FABRIC_STATE_DIR")
-    if base is None:
-        state = os.environ.get("XDG_STATE_HOME")
-        base = os.path.join(os.path.join(os.path.expanduser("~"), ".local", "state") if state is None else state,
-                            "agent-fabric")
-    return os.path.join(base, "agents", agent, "binding.json")
-
-
+# is the same dict). If that cannot answer (a fabric root without runtime/,
+# a resolve_context that raises), the fallback computes the same thing
+# (effective uid -> login) and reads the binding at the path
+# binding_path gives in the identity.py beside this very file, so the path
+# rule is still identity's and never a copy; if even that cannot be loaded
+# the binding is unknown (None), never a guess at where it lives. It never
+# looks at the working directory's name.
 def _identity_module(root: str):
     spec = importlib.util.spec_from_file_location("fabric_runtime_identity", os.path.join(root, "runtime", "identity.py"))
     module = importlib.util.module_from_spec(spec)
@@ -343,26 +337,29 @@ def _identity_module(root: str):
 
 def whoami() -> Whoami:
     try:
-        me = _identity_module(paths.fabric_root()).resolve_context()
+        ident = _identity_module(paths.fabric_root())
+        me = ident.resolve_context()
         if not isinstance(me, dict) or not isinstance(me.get("agent"), str):
             raise TypeError("no agent")
         me = json.loads(json.dumps(me))
-        me["binding"] = binding_file(me["agent"])
+        me["binding"] = ident.binding_path(me["agent"])
         return me
     except (Exception, SystemExit):  # noqa: BLE001 — any failure is the Node's non-zero exit: the fallback
         pass
     agent = pwd.getpwuid(os.geteuid()).pw_name
     binding: Any = {}
+    file = None
     try:
-        with open(binding_file(agent), encoding="utf-8") as fh:
+        file = _identity_module(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))).binding_path(agent)
+        with open(file, encoding="utf-8") as fh:
             binding = json.load(fh)
-    except (OSError, ValueError):
+    except (Exception, SystemExit):  # noqa: BLE001 — an unreadable binding is no binding; the file's name, if known, still stands
         pass
     if not isinstance(binding, dict):
         binding = {}
     return {"agent": agent, "host": socket.gethostname().split(".")[0], "role": binding.get("role"),
             "project": binding.get("project"), "working_copy": binding.get("working_copy"),
-            "binding": binding_file(agent), "fallback": True}
+            "binding": file, "fallback": True}
 
 
 class Taxonomy:
@@ -400,7 +397,9 @@ def recorded_role(taxonomy: Taxonomy | None, me: Whoami | None = None) -> RoleRe
     if taxonomy is None or not taxonomy.path:
         return {"role": None}
     me = whoami() if me is None else me
-    file = me["binding"] if me.get("binding") is not None else binding_file(me["agent"])
+    file = me["binding"]
+    if file is None:
+        return {"role": None, "warning": "the binding file cannot be located (runtime/identity.py could not be loaded)"}
     if me.get("role") is None:
         if not os.path.exists(file):
             return {"role": None}

@@ -45,12 +45,13 @@ from __future__ import annotations
 import json
 import locale
 import os
-import pwd
 import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import roots  # noqa: E402
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(HERE)), "runtime"))
+import identity  # noqa: E402
 
 HELP = """\
 Ask the corpus what it knows about an artifact.
@@ -233,15 +234,7 @@ def project_roots(root: str, memory: str) -> list[str]:
     env = os.environ
     wcs = [root, env.get("AGENT_FABRIC_WORKING_COPY", "")]
     wcs += env.get("AGENT_FABRIC_WORKING_COPIES", "").split(":")
-    state = env.get("AGENT_FABRIC_STATE_DIR")
-    if not state:
-        base = env.get("XDG_STATE_HOME") or (f"{env['HOME']}/.local/state" if env.get("HOME") else "")
-        if base:
-            state = f"{base}/agent-fabric/agents/{pwd.getpwuid(os.geteuid()).pw_name}"
-        else:
-            say("query: HOME is not set, so the binding is not read")
-    if state:
-        wcs += binding_working_copy(state)
+    wcs += binding_working_copy(identity.agent_state_dir())
     found = subdirs(f"{memory}/projects")
     found += [f"{wc}/.agent-fabric/memory" for wc in sort_u([w for w in wcs if w.strip(" \t")])
               if os.path.isdir(f"{wc}/.agent-fabric/memory")]

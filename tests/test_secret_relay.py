@@ -104,7 +104,7 @@ def main() -> int:
 
         def relay(*args: str, **kw) -> subprocess.CompletedProcess:
             return subprocess.run([sys.executable, TOOL, *args], env={**env, **kw.get("env", {})}, cwd=tmp,
-                                  capture_output=True, text=True, timeout=300)
+                                  capture_output=True, text=True, timeout=300, umask=0o022)
 
         def scratch_left() -> list[str]:
             return sorted(os.listdir(scratch))
@@ -156,6 +156,9 @@ def main() -> int:
         lines = open(logfile).read().splitlines() if os.path.exists(logfile) else []
         check("…and the manifest line (time, sha256, size) is kept locally", len(lines) == 1
               and set(json.loads(lines[0])) == {"at", "sha256", "size"}, lines)
+        check("…the log is 0600 and its directory 0700, whatever the umask (ADR-003 rule 1)",
+              os.stat(logfile).st_mode & 0o777 == 0o600 and os.stat(os.path.dirname(logfile)).st_mode & 0o777 == 0o700,
+              (oct(os.stat(logfile).st_mode), oct(os.stat(os.path.dirname(logfile)).st_mode)))
         at_upload = open(os.path.join(flags, "at-upload")).read().split()
         check("…at upload the scratch held the encrypted blob and the manifest, no plain or gzipped snapshot (disk peak)",
               sorted(at_upload[:2]) == ["claude-bridge.db.gz.gpg", "claude-bridge.manifest.json"], at_upload)
