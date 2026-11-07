@@ -2240,7 +2240,7 @@ def _():
             r, state, store, seen = carrier_send(url)
             eq(r.code, 3, f"{label}: the exit status follows the relay alone (ADR-064 rule 11): {r.err}")
             eq(len(seen), 1, f"{label}: the carrier was asked once")
-            has(r"the relay did not take it .*the InterWeave carrier did .*a resend would duplicate it", r.err, label)
+            has(r"the relay did not take it .*but the carrier did .*a resend would duplicate it", r.err, label)
             hasnt(r"not sent|safe|hand", r.err, label)
             eq([x[1] for x in journal_rows(state, store)], ["accepted"], f"{label}: the carrier's acceptance marks the row")
         # Positive control: the carrier running but carrying to nobody (no roster recipient) took nothing.
