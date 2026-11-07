@@ -1180,10 +1180,11 @@ def arm(argv: list[str]) -> int:
             boundary_unwaived = is_boundary and not waiver
 
     # 4b. the review engines the policy requires (ADR-053 rule 6, ADR-020 rule 1); the fleet's default requires claude
-    # alone (reviews ["claude"]); additional_reviews names the engines that never block. Every PR needs EACH named
-    # engine's review of the current head, and no open thread from either — ["claude"]
-    # alone included: gate 4 asks a review only of a boundary or a direct repository, so skipping this for a Claude-only
-    # policy armed a plain PR with no review at all (#235, Codex finding 1).
+    # alone (reviews ["claude"]); additional_reviews names the engines that never block. Every PR but a record PR
+    # (whose review is the owner's ruling, above) needs EACH named engine's review of the current head, and no open
+    # thread from either — ["claude"] alone included: gate 4 asks a review only of a boundary or a direct
+    # repository, so skipping this for a Claude-only policy armed a plain PR with no review at all (#235, Codex
+    # finding 1).
     # An additional engine (additional_reviews) never blocks: its review counts (an open P1 or P2 of it is a thread),
     # its unavailable marker or its absence lets the arm proceed on the required ones, and the basis says which.
     if record:

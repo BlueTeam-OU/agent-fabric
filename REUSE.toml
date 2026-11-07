@@ -1,5 +1,6 @@
 # REUSE (https://reuse.software, spec 3.3) — one license for the whole
-# repository: Apache-2.0. A managed project's knowledge lives in the
+# repository: Apache-2.0, beside which a ported file keeps its upstream's
+# notice (Apache-2.0 AND <its license>, agent-fabric ADR-066 §5 rule 10). A managed project's knowledge lives in the
 # project's own repository under its own license (<working copy>/
 # .agent-fabric/memory/), never here; projects/<id>/ here holds a project's
 # binding and integration material, which the license holder placed under
@@ -32,3 +33,14 @@ path = ["policies/skill-creator/README.md"]
 precedence = "override"
 SPDX-FileCopyrightText = "2026 Andrea Benetton"
 SPDX-License-Identifier = "Apache-2.0"
+
+# Ported, then changed: gavel's calibration arithmetic. Upstream
+# https://github.com/TechTideOhio/gavel, commit
+# 27ff6e1d9d7ea38c4adb44809a147f24fe008fdf (its LICENSE is MIT, kept as
+# LICENSES/MIT.txt); the changes and the rest of the module are ours.
+[[annotations]]
+path = ["tools/fabric/review_calibration.py"]
+precedence = "override"
+SPDX-FileCopyrightText = ["2026 TechTide Ohio", "2026 Andrea Benetton"]
+SPDX-License-Identifier = "Apache-2.0 AND MIT"
+SPDX-FileContributor = "https://github.com/TechTideOhio/gavel/tree/27ff6e1d9d7ea38c4adb44809a147f24fe008fdf"
