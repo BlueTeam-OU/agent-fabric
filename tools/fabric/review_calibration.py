@@ -22,7 +22,7 @@ FOUR BEHAVIOURS DIFFER FROM GAVEL, each pinned by a test that fails on gavel's:
 
 CONTRACT.
   fabric-review-calibration label  --repo OWNER/NAME [--pr N]... [--limit K] [--ledger F] [--labeller L]
-  fabric-review-calibration report --runs F [--ledger F] [--json] [--iterations N]
+  fabric-review-calibration report --runs F --instructions F... [--ledger F] [--json] [--iterations N]
   fabric-review-calibration split  OWNER/NAME PR REVIEW_ID FINDING
 
   label   Shows the next unlabelled finding blind (its summary, its path and line, its hunk and the range; never
@@ -37,7 +37,12 @@ CONTRACT.
   report  Per configuration (engine, model, effort, the review's v2 `config` fingerprint), from the ledger and
           the runs file: the held-out counts always, a rate only at or above the floor of §5 rule 6 (20 real and
           20 not-real held-out labels behind it), each with its interval. A configuration is never pooled with
-          another. It names no author (§5 rule 11).
+          another. It names no author (§5 rule 11). Before anything is computed it reads, through gh, the summary
+          of every held-out labelled finding and refuses the run when one appears (whitespace folded) in any
+          --instructions text, the configuration's rendered reviewer instructions (§5 rule 4); a summary that
+          cannot be read refuses too, since "not in the instructions" would then be unknown. The refusal names
+          the finding's coordinates, never its text. --instructions is required: a check that can be left out is
+          not a refusal.
 
 LEDGER (docs/review-calibration/labels.jsonl): one JSON object per line, exactly the keys repo, pr, review,
 finding, verdict, date, labeller, prev, hash. `prev` is the line before's `hash` ("genesis" for the first) and
@@ -540,6 +545,34 @@ def seeded_section(seeded: list[dict]) -> dict:
             "incomplete_defects": len(by_defect) - len(complete)}
 
 
+def fetch_summary(coords: Coordinates) -> str:
+    """The finding's summary, read through gh from its review now; Refused when it cannot be."""
+    try:
+        review = gh.api(f"repos/{coords.repo}/pulls/{coords.pr}/reviews/{coords.review}")
+    except gh.GhError as e:
+        raise Refused(f"{coords.repo}#{coords.pr} review {coords.review} {coords.finding}: the review cannot be read "
+                      f"to check the instructions against it: {e}") from None
+    for c in findings_of(coords.repo, coords.pr, review if isinstance(review, dict) else {}):
+        if c.coords == coords:
+            return c.summary
+    raise Refused(f"{coords.repo}#{coords.pr} review {coords.review} {coords.finding}: the finding is no longer "
+                  "readable in its review, so the instructions cannot be checked against it")
+
+
+def check_instructions(ledger: list[dict], texts: dict[str, str]) -> None:
+    """ADR-066 §5 rule 4: no held-out labelled finding's summary appears in the instructions."""
+    folded = {name: " ".join(text.split()) for name, text in texts.items()}
+    for rec in ledger:
+        coords = coordinates_of(rec)
+        if coords.half() != "held-out":
+            continue
+        summary = " ".join(fetch_summary(coords).split())
+        for name, text in folded.items():
+            if summary in text:
+                raise Refused(f"{name}: holds the summary of held-out finding {coords.repo}#{coords.pr} review "
+                              f"{coords.review} {coords.finding}; a held-out finding is never quoted in the instructions")
+
+
 def build_report(ledger: list[dict], runs: list[Run], iterations: int = ITERATIONS) -> dict:
     labels = {coordinates_of(r): r["verdict"] for r in ledger}
     halves = {"dev": 0, "held-out": 0}
@@ -693,6 +726,17 @@ def run_label(args, ask: Callable[[str], str], out, today: Callable[[], str]) ->
     return 0
 
 
+def read_instructions(paths: list[str]) -> dict[str, str]:
+    texts = {}
+    for path in paths:
+        try:
+            with open(path, encoding="utf-8") as f:
+                texts[path] = f.read()
+        except (OSError, UnicodeDecodeError) as e:
+            raise Refused(f"{path}: cannot be read: {getattr(e, 'strerror', None) or e}") from None
+    return texts
+
+
 def main(argv: list[str] | None = None, ask: Callable[[str], str] = input, out=None,
          today: Callable[[], str] = lambda: dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%d")) -> int:
     out = out or sys.stdout
@@ -711,6 +755,7 @@ def main(argv: list[str] | None = None, ask: Callable[[str], str] = input, out=N
     p.add_argument("finding")
     p = sub.add_parser("report", help="the rates per configuration, with intervals and the floor")
     p.add_argument("--runs", required=True)
+    p.add_argument("--instructions", required=True, nargs="+", metavar="FILE")
     p.add_argument("--ledger", default=LEDGER)
     p.add_argument("--json", action="store_true")
     p.add_argument("--iterations", type=int, default=ITERATIONS)
@@ -723,7 +768,10 @@ def main(argv: list[str] | None = None, ask: Callable[[str], str] = input, out=N
             print(coordinates_of(rec).half(), file=out)
             return 0
         if args.command == "report":
-            report = build_report(read_ledger(args.ledger), read_runs(args.runs), args.iterations)
+            ledger = read_ledger(args.ledger)
+            runs = read_runs(args.runs)
+            check_instructions(ledger, read_instructions(args.instructions))
+            report = build_report(ledger, runs, args.iterations)
             print(json.dumps(report, indent=2, sort_keys=True) if args.json else render(report), file=out)
             return 0
         args.labeller = args.labeller or getpass.getuser()

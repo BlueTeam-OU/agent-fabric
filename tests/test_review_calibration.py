@@ -43,12 +43,32 @@ def write_ledger(path: str, labels: list[tuple[rc.Coordinates, str]]) -> None:
 def run_main(argv, **kw):
     out, err = io.StringIO(), io.StringIO()
     with contextlib.redirect_stderr(err):
-        rc_ = rc.main(argv, out=out, **kw)
+        try:
+            rc_ = rc.main(argv, out=out, **kw)
+        except SystemExit as e:      # argparse's usage error
+            rc_ = e.code
     return rc_, out.getvalue(), err.getvalue()
 
 
+def fake_gh(directory: str) -> str:
+    """A `gh` that answers a review read with one v2 review holding F1..F3000, the only call a report makes."""
+    os.makedirs(directory, exist_ok=True)
+    path = os.path.join(directory, "gh")
+    with open(path, "w") as f:
+        f.write(f"""#!{sys.executable}
+import json, sys
+rid = int(sys.argv[2].rsplit("/", 1)[1])
+head = "<!-- agent-fabric-review v2 base={BASE} head={HEAD} card={'d' * 40} config={'e' * 64} -->"
+lines = [f"Finding: F{{n}} | P3 | likely | a.py:1 | summary {{n}}" for n in range(1, 3001)]
+print(json.dumps({{"id": rid, "body": "\\n".join([head] + lines)}}))
+""")
+    os.chmod(path, 0o755)
+    return directory
+
+
 def child(argv: list[str], home: str) -> subprocess.CompletedProcess:
-    env = {"PATH": "/usr/bin:/bin", "HOME": home, "LC_ALL": "C.UTF-8", "TMPDIR": home}
+    env = {"PATH": fake_gh(os.path.join(home, "fake-bin")) + ":/usr/bin:/bin", "HOME": home, "LC_ALL": "C.UTF-8",
+           "TMPDIR": home, "GH_TOKEN": "x"}
     return subprocess.run([sys.executable, *argv], env=env, capture_output=True, text=True, timeout=120, check=False)
 
 
@@ -65,6 +85,11 @@ def main() -> int:
 
     holder = tempfile.TemporaryDirectory(prefix="rc-")
     tmp = holder.name
+    instructions = os.path.join(tmp, "code-review.md")
+    with open(instructions, "w") as f:
+        f.write("Judge each finding by its hunk. Nothing about any labelled finding is quoted here.\n")
+    real_fetch = rc.fetch_summary
+    rc.fetch_summary = lambda c: f"summary of {c.finding} in review {c.review}"
 
     # --- the rates, by hand: 17 of 20 real found, 15 of 20 not-real found
     m = rc.Confusion(tp=17, fn=3, tn=15, fp=5)
@@ -196,7 +221,7 @@ def main() -> int:
     check("a finding labelled twice is refused", "already labelled" in (refused([good[0], good[0]]) or "")
           or "broken chain" in (refused([good[0], good[0]]) or ""))
     check("a whole good ledger is accepted (positive control)", refused(good) is None)
-    rcode, out, err = run_main(["report", "--runs", os.path.join(tmp, "none"), "--ledger", ledger])
+    rcode, out, err = run_main(["report", "--instructions", instructions, "--runs", os.path.join(tmp, "none"), "--ledger", ledger])
     check("a missing runs file is a refusal, one line", rcode == 1 and len(err.splitlines()) == 1, err)
     check("labelling the same finding again is refused and leaves the ledger as it was",
           _again(ledger, cs[0]) and open(ledger).read().splitlines() == good)
@@ -221,11 +246,11 @@ def main() -> int:
         for c in few:
             f.write(json.dumps({"kind": "adjudication", "configuration": CONF, "repo": c.repo, "pr": c.pr,
                                 "review": c.review, "finding": c.finding, "verdict": "real"}) + "\n")
-    rcode, out, err = run_main(["report", "--runs", runs_path, "--ledger", labels_path])
+    rcode, out, err = run_main(["report", "--instructions", instructions, "--runs", runs_path, "--ledger", labels_path])
     check("below the floor the report prints counts and no rate",
           rcode == 0 and "counts only, no rate" in out and "true-positive rate" not in out and "kappa" not in out
           and "real 3, not-real 2" in out, out)
-    rcode, out, _ = run_main(["report", "--runs", runs_path, "--ledger", labels_path, "--json"])
+    rcode, out, _ = run_main(["report", "--instructions", instructions, "--runs", runs_path, "--ledger", labels_path, "--json"])
     js = json.loads(out)
     adj = js["configurations"][0]["adjudication"]
     check("the json below the floor holds the matrix and no rate key", adj["published"] is False and "tpr" not in adj
@@ -253,7 +278,7 @@ def main() -> int:
             f.write(adjudication(c, "real" if i % 2 == 0 else "not-real") + "\n")
         f.write(json.dumps({"kind": "raised", "configuration": CONF, "repo": reals[0].repo, "pr": reals[0].pr,
                             "review": reals[0].review, "finding": reals[0].finding, "level": "P2"}) + "\n")
-    rcode, out, err = run_main(["report", "--runs", runs_big, "--ledger", big_path, "--json", "--iterations", "300"])
+    rcode, out, err = run_main(["report", "--instructions", instructions, "--runs", runs_big, "--ledger", big_path, "--json", "--iterations", "300"])
     a = json.loads(out)["configurations"][0]["adjudication"]
     check("at the floor the rates are published with Wilson intervals (hand: TPR 21/25, TNR 19/25)",
           rcode == 0 and a["published"] and near(a["tpr"]["rate"], 0.84) and near(a["tnr"]["rate"], 0.76)
@@ -267,7 +292,7 @@ def main() -> int:
     cp = a["corrected_precision"]
     check("corrected precision shows raw, corrected, interval, draws and the discarded", cp["draws"] == 300
           and "rogan_gladen_raw" in cp and "discarded" in cp and cp["bootstrap95"] is not None, cp)
-    rcode, out, _ = run_main(["report", "--runs", runs_big, "--ledger", big_path, "--iterations", "300"])
+    rcode, out, _ = run_main(["report", "--instructions", instructions, "--runs", runs_big, "--ledger", big_path, "--iterations", "300"])
     check("the text names the discarded draws and the configuration, never an author",
           "draws discarded as degenerate" in out and "model m-1" in out and "author" not in out.lower(), out)
     two = os.path.join(tmp, "runs-two.jsonl")
@@ -279,7 +304,7 @@ def main() -> int:
     fp_conf = dict(CONF, config="f" * 64)
     with open(two, "a") as f:
         f.write(adjudication(reals[0], "real", fp_conf) + "\n")
-    rcode, out, _ = run_main(["report", "--runs", two, "--ledger", big_path, "--json", "--iterations", "50"])
+    rcode, out, _ = run_main(["report", "--instructions", instructions, "--runs", two, "--ledger", big_path, "--json", "--iterations", "50"])
     confs = json.loads(out)["configurations"]
     check("configurations differing only in the review's config fingerprint are never pooled", rcode == 0
           and sorted(c["config"] for c in confs if c["model"] == "m-1") == ["a" * 64, "f" * 64], confs)
@@ -291,11 +316,11 @@ def main() -> int:
     with open(only_real, "w") as f:
         for c in reals:
             f.write(adjudication(c, "real") + "\n")
-    ad = json.loads(run_main(["report", "--runs", only_real, "--ledger", one_sided, "--json"])[1])["configurations"][0]["adjudication"]
+    ad = json.loads(run_main(["report", "--instructions", instructions, "--runs", only_real, "--ledger", one_sided, "--json"])[1])["configurations"][0]["adjudication"]
     check("25 real labels and no not-real label: below the floor on one side is below the floor",
           ad["published"] is False and "tpr" not in ad, ad)
     check("raised findings: P2 counted held-out, below its floor", json.loads(
-        run_main(["report", "--runs", runs_big, "--ledger", big_path, "--json", "--iterations", "50"])[1]
+        run_main(["report", "--instructions", instructions, "--runs", runs_big, "--ledger", big_path, "--json", "--iterations", "50"])[1]
     )["configurations"][0]["raised"]["P2"] == {"real": 1, "not_real": 0, "unsure": 0, "floor": 20, "published": False})
 
     bad_runs = os.path.join(tmp, "runs-bad.jsonl")
@@ -305,11 +330,11 @@ def main() -> int:
                                                                            configuration=dict(CONF, config="x")))):
         with open(bad_runs, "w") as f:
             f.write(json.dumps(line) + "\n")
-        r_, _, e_ = run_main(["report", "--runs", bad_runs, "--ledger", big_path])
+        r_, _, e_ = run_main(["report", "--instructions", instructions, "--runs", bad_runs, "--ledger", big_path])
         check(f"a runs file with {label} is refused, naming its line", r_ == 1 and "line 1" in e_, e_)
     with open(bad_runs, "w") as f:
         f.write(adjudication(reals[0], "real") + "\n" + adjudication(reals[0], "not-real") + "\n")
-    r_, _, e_ = run_main(["report", "--runs", bad_runs, "--ledger", big_path])
+    r_, _, e_ = run_main(["report", "--instructions", instructions, "--runs", bad_runs, "--ledger", big_path])
     check("a duplicate record is refused", r_ == 1 and "line 2" in e_ and "duplicate" in e_, e_)
 
     seeded_path = os.path.join(tmp, "runs-seeded.jsonl")
@@ -319,20 +344,68 @@ def main() -> int:
             for n, found in enumerate(outcomes, 1):
                 f.write(json.dumps({"kind": "seeded", "configuration": CONF, "defect": defect, "run": n,
                                     "found": found}) + "\n")
-    s = json.loads(run_main(["report", "--runs", seeded_path, "--ledger", big_path, "--json"])[1])["configurations"][0]["seeded"]
+    s = json.loads(run_main(["report", "--instructions", instructions, "--runs", seeded_path, "--ledger", big_path, "--json"])[1])["configurations"][0]["seeded"]
     check("seeded recall: pass@1 5/6, pass^3 1/2", s["pass_at_1"]["k"] == 5 and s["pass_at_1"]["n"] == 6
           and s["pass_hat_3"]["k"] == 1 and s["pass_hat_3"]["n"] == 2, s)
+
+    # --- rule 4: a held-out finding's summary in the instructions refuses the run
+    held_c, dev_c = reals[0], other[0]
+    quoting = os.path.join(tmp, "quoting.md")
+    with open(quoting, "w") as f:
+        f.write("Example:\n  summary of  " + held_c.finding + "\nin review " + str(held_c.review) + "\n\nend\n")
+    base = ["report", "--runs", runs_big, "--ledger", big_path, "--iterations", "20"]
+    r_, o_, e_ = run_main([*base, "--instructions", instructions, quoting])
+    check("a held-out summary in any instructions text refuses the run, naming the finding and not its text",
+          r_ == 1 and o_ == "" and held_c.finding in e_ and str(held_c.review) in e_ and "summary of F4" not in e_, e_)
+    r_, o_, _ = run_main([*base, "--instructions", instructions])
+    check("the same run without the quotation is accepted (positive control)", r_ == 0 and o_ != "")
+    with open(quoting, "w") as f:
+        f.write(f"summary of {dev_c.finding} in review {dev_c.review}\n")
+    r_, _, e_ = run_main([*base, "--instructions", quoting])
+    check("a dev-half finding's summary in the instructions is allowed", r_ == 0, e_)
+    r_, _, e_ = run_main(["report", "--runs", runs_big, "--ledger", big_path])
+    check("the instructions are required, not optional", r_ == 2)
+    r_, _, e_ = run_main([*base, "--instructions", os.path.join(tmp, "absent.md")])
+    check("an unreadable instructions file is a refusal", r_ == 1 and "absent.md" in e_, e_)
+    rc.fetch_summary = real_fetch
+    seen = []
+
+    def review_api(path, **kw):
+        seen.append(path)
+        if path.endswith("/reviews/555"):
+            return {"id": 555, "body": body_for_rule4}
+        raise rc.gh.GhError("gh api GET", "HTTP 404", status=404)
+    body_for_rule4 = "\n".join([f"<!-- agent-fabric-review v2 base={BASE} head={HEAD} card={'d' * 40} config={'e' * 64} -->",
+                                "Finding: F1 | P2 | certain | src/a.py:12 | the loop never ends"])
+    real_api = rc.gh.api
+    rc.gh.api = review_api
+    try:
+        c555 = rc.Coordinates("o/r", 9, 555, "F1")
+        got = rc.fetch_summary(c555)
+        lone = {"repo": "o/r", "pr": 9, "review": 555, "finding": "F1"}
+        outcomes = []
+        for coords in (rc.Coordinates("o/r", 9, 556, "F1"), rc.Coordinates("o/r", 9, 555, "F2")):
+            try:
+                rc.fetch_summary(coords)
+                outcomes.append("read")
+            except rc.Refused as e:
+                outcomes.append(str(e))
+    finally:
+        rc.gh.api = real_api
+    check("fetch_summary reads the summary from the review; a missing review or finding refuses rather than passes",
+          got == "the loop never ends" and "cannot be read" in outcomes[0] and "no longer readable" in outcomes[1],
+          (got, outcomes, lone))
 
     # --- the real entry points, with a minimal environment
     stripped_ledger = os.path.join(tmp, "stripped.jsonl")
     with open(stripped_ledger, "w") as f:
         f.write(good[0] + "\n" + json.dumps(stripped) + "\n")
     for name, argv in (("module", [TOOL]), ("shim", [SHIM])):
-        r = child([*argv, "report", "--runs", runs_path, "--ledger", stripped_ledger], tmp)
+        r = child([*argv, "report", "--instructions", instructions, "--runs", runs_path, "--ledger", stripped_ledger], tmp)
         check(f"{name}: a ledger with a stripped hash is refused, exit 1, named, no traceback",
               r.returncode == 1 and "line 2" in r.stderr and "Traceback" not in r.stderr and r.stdout == "",
               (r.returncode, r.stderr))
-        r = child([*argv, "report", "--runs", runs_path, "--ledger", labels_path], tmp)
+        r = child([*argv, "report", "--instructions", instructions, "--runs", runs_path, "--ledger", labels_path], tmp)
         check(f"{name}: below the floor, exit 0 and counts only", r.returncode == 0 and "counts only" in r.stdout
               and "true-positive rate" not in r.stdout, (r.returncode, r.stderr, r.stdout))
         r = child([*argv, "bogus"], tmp)
