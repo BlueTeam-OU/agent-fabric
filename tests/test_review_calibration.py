@@ -605,6 +605,10 @@ def main() -> int:
               and summary not in open(lp).read(), recs)
         r_, _, e_ = run_main(["label", "--repo", "o/r", "--limit", "200", "--ledger", lp])
         check("label: --limit above 100 is a usage error, not a silent cap", r_ == 2)
+        for bad in ("0", "-5", "many"):
+            r_, o_, e_ = run_main(["report", "--runs", "x", "--instructions", "y", "--iterations", bad])
+            check(f"report: --iterations {bad} is a usage error, not a bootstrap of no draws",
+                  r_ == 2 and o_ == "" and "--iterations" in e_, (r_, o_, e_))
         again = io.StringIO()
         with contextlib.redirect_stderr(io.StringIO()):
             rc.main(["label", "--repo", "o/r", "--pr", "9", "--ledger", lp], ask=lambda p: "quit", out=again)

@@ -833,6 +833,17 @@ def read_instructions(paths: list[str]) -> list[Instructions]:
     return found
 
 
+def positive_int(text: str) -> int:
+    """argparse type: a bootstrap with no draws has no interval to report, so 0 and below are a usage error."""
+    try:
+        value = int(text)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"not a whole number: {text!r}") from None
+    if value < 1:
+        raise argparse.ArgumentTypeError(f"must be at least 1, not {value}")
+    return value
+
+
 def main(argv: list[str] | None = None, ask: Callable[[str], str] = input, out=None,
          today: Callable[[], str] = lambda: dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%d")) -> int:
     out = out or sys.stdout
@@ -854,7 +865,7 @@ def main(argv: list[str] | None = None, ask: Callable[[str], str] = input, out=N
     p.add_argument("--instructions", required=True, nargs="+", metavar="FILE")
     p.add_argument("--ledger", default=LEDGER)
     p.add_argument("--json", action="store_true")
-    p.add_argument("--iterations", type=int, default=ITERATIONS)
+    p.add_argument("--iterations", type=positive_int, default=ITERATIONS)
     args = parser.parse_args(argv)
     try:
         if args.command == "split":
