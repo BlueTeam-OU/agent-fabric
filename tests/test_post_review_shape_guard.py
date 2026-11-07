@@ -96,6 +96,17 @@ def main() -> int:
         ("a shell by path as the command word", "/bin/bash -c 'fabric-pr post-review 12 < r.md'"),
         ("a shell by path after a wrapper", "sudo /usr/bin/bash -c 'fabric-pr post-review 12 < r.md'"),
         ("a bare shell name as an argument: find -exec", "find . -exec bash -c 'fabric-pr post-review 1' \\;"),
+        # A shell by path where the walk misreads the command word: refused unless a reader is the command
+        # (review of #501 round 4, F6: each passed at 393cd13c).
+        ("a shell by path after sudo -u", "sudo -u root /bin/bash -c 'fabric-pr post-review 12 < r.md'"),
+        ("a shell by path after a leading redirection", "2>/dev/null /bin/bash -c 'fabric-pr post-review 12 < r.md'"),
+        ("a shell by path after timeout 5s", "timeout 5s /bin/sh -c 'fabric-pr post-review 12 < r.md'"),
+        ("a shell by path after timeout -s KILL 60", "timeout -s KILL 60 /bin/bash -c 'fabric-pr post-review 12 < r.md'"),
+        ("source -- after a leading redirection (round 4 risk)",
+         "2>/dev/null . -- /dev/stdin <<'EOF'\nfabric-pr post-review 12 < r.md\nEOF"),
+        ("source of another fd's heredoc (round 4 risk)", "2>/dev/null . /dev/fd/3 3<<'EOF'\nfabric-pr post-review 12 < r.md\nEOF"),
+        ("a heredoc fed to a shell by path after 2>&1",
+         "2>&1 /usr/bin/bash <<'EOF'\nfabric-pr post-review 12 < r.md\nEOF"),
     ]
     # Mentions the shell may run, refused on purpose: the deny names the way through (single quotes, a quoted heredoc,
     # a file). Pinned so a change to what is over-reported is a decision, not a drift.
