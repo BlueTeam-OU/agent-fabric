@@ -425,6 +425,66 @@ def test_j112_every_link_and_references_topic_that_resolves_to_no_slice_is_repor
     assert "[[here]] and [[unwritten-note]]" in ta.read(ta.proj(out, "alpha", "solution", "here.md"))
 
 
+def tree_bytes(root: str) -> dict[str, bytes]:
+    found = {}
+    for dirpath, _dirs, names in os.walk(root):
+        for name in names:
+            with open(os.path.join(dirpath, name), "rb") as fh:
+                found[os.path.join(dirpath, name)] = fh.read()
+    return found
+
+
+def test_j207_a_source_accounts_root_named_by_the_environment_is_not_written(tmp: str) -> None:
+    """The 2026-10-31 incident: 29 domain slices, and no project slice, landed in a source account's own checkout.
+    A source's memory op harvests with AGENT_FABRIC_ROOT naming its checkout; a drain run that inherits that root
+    (or an AGENT_FABRIC_OPERATOR naming it) and passes no --fabric took the domain and shared slices there while
+    the project slices followed --working-copy. The harvest writes nothing into the source tree; the assembly
+    refuses before it writes; --fabric on purpose still writes (the control)."""
+    source = os.path.join(tmp, "source")
+    for sub in (os.path.join("identities", "schemas"), "runtime", os.path.join("tools", "fabric")):
+        os.makedirs(os.path.join(source, sub))
+    # What the harvest loads by path from the root it is told (identity.py, and the working-copy resolver it loads).
+    for rel in (os.path.join("runtime", "identity.py"), os.path.join("tools", "fabric", "workingcopy.py")):
+        shutil.copy2(os.path.join(ta.ROOT, rel), os.path.join(source, rel))
+    for name in os.listdir(ta.SCHEMA_DIR):
+        shutil.copy2(os.path.join(ta.SCHEMA_DIR, name), os.path.join(source, "identities", "schemas", name))
+    memory = os.path.join(tmp, "memory")
+    os.makedirs(memory)
+    with open(os.path.join(memory, "a-fact.md"), "w", encoding="utf-8") as fh:
+        fh.write("---\nname: a-fact\ndescription: d\nmetadata:\n  type: reference\n  roles_class: domain\n---\n\n"
+                 "A subprocess needs a timeout.\n")
+    wc = ta.working_copy(os.path.join(tmp, "drain-tree"))
+    os.makedirs(os.path.join(wc, ".agent-fabric", "memory"))
+    state = os.path.join(tmp, "state")
+    os.makedirs(state)
+    home = os.path.join(tmp, "home")
+    os.makedirs(home)
+    bundle = os.path.join(tmp, "source.tar")
+    base_env = {"PATH": os.environ["PATH"], "HOME": home, "AGENT_FABRIC_STATE_DIR": state}
+    harvest = subprocess.run(
+        [sys.executable, os.path.join(ta.ROOT, "tools", "fabric", "harvest_memory.py"), "--bundle", bundle,
+         "--memory", memory, "--working-copy", source, "--role", "architect-cto", "--project", ta.PROJECT,
+         "--host", "h1", "--all"],
+        capture_output=True, text=True, env={**base_env, "AGENT_FABRIC_ROOT": source}, cwd=source)
+    assert harvest.returncode == 0, harvest.stderr
+    assert os.path.getsize(bundle) > 0
+    source_before, wc_before = tree_bytes(source), tree_bytes(wc)
+    assemble = [sys.executable, ta.ASSEMBLE, "--bundle", bundle, "--project", ta.PROJECT, "--working-copy", wc,
+                "--stamp", "2026-10-31"]
+    for leak in ("AGENT_FABRIC_OPERATOR", "AGENT_FABRIC_ROOT"):
+        proc = subprocess.run(assemble, capture_output=True, text=True, env={**base_env, leak: source}, cwd=tmp)
+        assert proc.returncode != 0, f"{leak} naming another tree did not stop the run: {proc.stderr}"
+        assert f"{leak} names {source}" in proc.stderr, proc.stderr
+        assert tree_bytes(source) == source_before, f"{leak}: a file changed in the source tree"
+        assert tree_bytes(wc) == wc_before, f"{leak}: the run wrote before it refused"
+    # The positive control: the source tree is writable and the bundle assembles, once a run names the tree.
+    ok = subprocess.run([*assemble, "--fabric", source], capture_output=True, text=True,
+                        env={**base_env, "AGENT_FABRIC_OPERATOR": source}, cwd=tmp)
+    assert ok.returncode == 0, ok.stderr
+    assert os.path.exists(os.path.join(source, "memory", "domains", "architect-cto", "domain.md")), \
+        sorted(set(tree_bytes(source)) - set(source_before))
+
+
 def main() -> int:
     cases = [
         test_an_owner_named_only_in_shared_with_gets_its_index,
@@ -441,6 +501,7 @@ def main() -> int:
         test_j485_a_body_that_carries_its_own_observed_footer_gets_one_footer,
         test_j485_a_slice_re_rendered_from_a_body_with_its_footer_carries_one,
         test_j88_a_run_writes_only_into_the_fabric_and_working_copy_it_names,
+        test_j207_a_source_accounts_root_named_by_the_environment_is_not_written,
         test_j112_every_link_and_references_topic_that_resolves_to_no_slice_is_reported,
     ]
     # Cases run because they are listed, so one written and not listed
