@@ -487,10 +487,12 @@ def gzcoord_declared_findings(root: str) -> list[str]:
 # What a role IS, never a contributor's to commit (ADR-018 §5 rule 8): a rule
 # ending in "/" is a directory, any other one file, as in an entry. The
 # guards and what they import (git.py) or run in CI (the suite runners:
-# run.sh and static.sh and the Python they forward to); the definitions; runtime/claude-code/ whole — the
-# reviewer's agent file, the harness hooks and the settings that register
-# them, the workspace prompt, and what installs them; the role, routing,
-# prompt and review-brief code (review and re-review of #75). What judges a
+# run.sh and static.sh and the Python they forward to); the definitions; runtime/claude-code/ — the
+# reviewer's agent file, the guard hooks and the settings that register
+# them, the workspace prompt, bootstrap.sh — but the workspace hooks
+# CONTRIBUTOR_SUPPLY carves out; the role, routing and review-brief code
+# (review and re-review of #75; prompt and installer code moved to supply on
+# 2026-11-07, review of #501 F2). What judges a
 # contributor's own commit or its review stays here; what none of that loads
 # or runs is CONTRIBUTOR_SUPPLY below (the owner, 2026-11-07).
 CONTRIBUTOR_NEVER = (
@@ -569,8 +571,9 @@ def contributor_rule_findings(paths: list[str], excluding: list[str], supplies: 
             inside = _rule_covers(n, r)
             above = r.endswith("/") and n.startswith(r) and not any(_rule_covers(e, n) for e in excluding)
             if inside or above:
-                tier = ", a supply path: name it under `supplies`" if n in CONTRIBUTOR_SUPPLY else ""
-                out.append(f"rule {r!r} reaches {n}{tier}")
+                why = (", a supply path: name it under `supplies`" if n in CONTRIBUTOR_SUPPLY else
+                       ", which defines what a role is or enforces the fence (ADR-018 §5 rule 8)")
+                out.append(f"rule {r!r} reaches {n}{why}")
     for r in supplies:
         if not any(_rule_covers(n, r) for n in CONTRIBUTOR_SUPPLY):
             out.append(f"supplies rule {r!r} is outside the supply tier (lint.py CONTRIBUTOR_SUPPLY)")
@@ -581,7 +584,8 @@ def contributor_findings(root: str) -> list[str]:
     """policies/authority.json `contributors`: each entry is whole
     (contributors.py drops a half-written one, which then admits nothing —
     said here rather than found at a refused commit), names a catalogued role
-    other than the owner, and reaches nothing in CONTRIBUTOR_NEVER."""
+    other than the owner, reaches nothing in CONTRIBUTOR_NEVER, and reaches
+    CONTRIBUTOR_SUPPLY only through its `supplies`."""
     path = roots.policy("authority.json", engine=root)
     try:
         text = open(path, encoding="utf-8").read()
@@ -630,7 +634,7 @@ def contributor_findings(root: str) -> list[str]:
         if catalogued is not None and role not in catalogued:
             findings.append(f"{where}: not in identities/roles/catalog.json")
         for f in contributor_rule_findings(whole[role]["paths"], whole[role]["excluding"], whole[role]["supplies"]):
-            findings.append(f"{where}: {f}, which defines what a role is or enforces the fence (ADR-018 §5 rule 8)")
+            findings.append(f"{where}: {f}")
         # A path the tree no longer has still reads, in the entry and the remit
         # that quotes it, as a lane the role holds (runtime/github/ and
         # communication/gzcoord/scripts/ outlived their deletion by days).

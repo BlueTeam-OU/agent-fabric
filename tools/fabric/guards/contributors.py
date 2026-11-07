@@ -108,12 +108,16 @@ def supplies_in(authority_text: str, role: str, paths: list[str]) -> list[str]:
 
 def holders_of(authority_text: str) -> list[str]:
     """The logins authority.json names as holding the owner role: the only
-    callers a supply branch may name."""
+    callers a supply branch may name. All or nothing, as
+    charter_authority.holders_of reads the same list: a malformed one names
+    nobody (review of #501, F4). Not imported from there, since this module
+    is loaded alone by path, by lint and the hooks."""
     try:
         holders = (json.loads(authority_text).get("role_definitions") or {}).get("holders") or []
     except (ValueError, AttributeError):
         return []
-    return [h for h in holders if isinstance(h, str) and h] if isinstance(holders, list) else []
+    whole = isinstance(holders, list) and all(isinstance(h, str) and h for h in holders)
+    return holders if whole else []
 
 
 def admitted(authority_text: str, role: str, paths: list[str]) -> bool:

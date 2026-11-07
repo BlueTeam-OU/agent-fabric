@@ -2640,6 +2640,8 @@ def case_a_contributor_entry_never_reaches_a_definition() -> None:
         # and a `supplies` rule outside the tier is refused.
         got = findings({**good, "excluding": [e for e in excl if e != "tools/fabric/bootstrap.py"]})
         assert any("rule 'tools/' reaches tools/fabric/bootstrap.py, a supply path" in f for f in got), got
+        # …and is never told it reached the fence (review of #501, F1).
+        assert not any("bootstrap.py" in f and "enforces the fence" in f for f in got), got
         got = findings({**good, "paths": good["paths"] + ["tools/fabric/bootstrap.py"]})
         assert any("name it under `supplies`" in f for f in got), got
         write(os.path.join(root, "tools", "fabric", "bootstrap.py"), "")
