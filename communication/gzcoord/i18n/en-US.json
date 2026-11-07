@@ -96,6 +96,7 @@
   "send.deduplicated": " (deduplicated: the relay already had it)",
   "start.relay-no-token-file": "no {token_file}; cannot start",
   "start.relay-unit-silent": "{unit} was started and did not answer within 8s; systemctl --user status {unit}, {log}",
+  "start.relay-stopped": "{unit} was stopped on purpose and is left stopped; systemctl --user start {unit} brings it back",
   "start.relay-silent": "relay did not answer within 8s; check {log}",
   "start.token-retry": "gzcoord inbox: token refused; retrying with the synced value from secrets.env",
   "relay.refused": "gzcoord inbox: the relay at {relay_url} refused this token (HTTP {status}) — it was rotated; run fabric-secrets sync and re-arm the watch (the inbox reads the synced file itself)",
