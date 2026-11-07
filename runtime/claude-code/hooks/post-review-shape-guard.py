@@ -45,7 +45,8 @@ looked for in everything except text the shell provably never runs —
     `<<-`;
 and those two last are live after all when the command names a word that
 runs its arguments (RUNNERS: a shell, `eval`, `source`, `su`, `ssh`,
-`watch`, `flock`; by name, its quotes off, anywhere) or `.` as a command
+`watch`, `flock`; by bare name, its quotes off, anywhere, and by a path only
+as the command word, since `grep … runtime/ssh` reads a file) or `.` as a command
 word (after `{`, `elif` or a case arm's `)` too) or before `/dev/stdin`,
 since a `-c` string, a piped script or a heredoc fed to a shell runs;
 `.` as an argument is a path (`grep -rn '…' .`, F9). Everything
@@ -114,7 +115,10 @@ def live_text(cmd: str) -> str:
         if word:
             full = "".join(word)
             name = full.rsplit("/", 1)[-1]
-            runner = runner or name in RUNNERS or (first and name == ".") or (prev == "." and full in STDIN_PATHS)
+            # A runner by path (`/bin/bash`, `runtime/ssh`) only as the command word: as an argument it is a file to
+            # read (j543, F12). By its bare name, anywhere: `find -exec bash -c '…'` runs it.
+            named = name in RUNNERS and (first or "/" not in full)
+            runner = runner or named or (first and name == ".") or (prev == "." and full in STDIN_PATHS)
             prev = full
             if first:
                 option = after_wrapper and (name.startswith("-") or "=" in name or name.isdigit())
