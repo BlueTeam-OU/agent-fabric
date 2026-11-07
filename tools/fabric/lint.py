@@ -490,7 +490,9 @@ def gzcoord_declared_findings(root: str) -> list[str]:
 # run.sh and static.sh and the Python they forward to); the definitions; runtime/claude-code/ whole — the
 # reviewer's agent file, the harness hooks and the settings that register
 # them, the workspace prompt, and what installs them; the role, routing,
-# prompt and review-brief code (review and re-review of #75).
+# prompt and review-brief code (review and re-review of #75). What judges a
+# contributor's own commit or its review stays here; what none of that loads
+# or runs is CONTRIBUTOR_SUPPLY below (the owner, 2026-11-07).
 CONTRIBUTOR_NEVER = (
     "identities/", "routing/", "policies/", "communication/gzcoord/protocol/", "docs/adr/", "memory/",
     ".agent-fabric/", ".github/", "AGENTS.md", "CLAUDE.md",
@@ -502,29 +504,47 @@ CONTRIBUTOR_NEVER = (
     "tools/fabric/secretstore/lineage.py", "tests/test_lineage_fence.py",
     "tests/test_contributors.py", "tests/test_agent_fabric_dir_authority.py", "tests/test_charter_authority.py",
     "runtime/identity.py", "runtime/claude-code/",
-    "bin/fabric-role", "tools/fabric/role.py", "tools/fabric/routing.py", "tools/fabric/launch_prompt.py",
+    "bin/fabric-role", "tools/fabric/role.py", "tools/fabric/routing.py",
     "bin/fabric-review", "tools/fabric/review_brief.py", "tools/fabric/review_card.py",
-    # Runs as root on every host and installs the interpreter every tool runs on.
-    "tools/fabric/python_pin.py", "runtime/python.json",
     # Runs as root on every host and installs the fleet's guards (ADR-043 rule 2).
     "tools/fabric/managed_settings.py", "bin/fabric-managed", "runtime/claude-code/managed/",
     # Wires the fleet's hooks into a session started in this clone.
     ".claude/", "tools/fabric/fabric_settings.py",
-    # Bootstrap runs it as every account, and it rewrites ~/.claude.json.
-    "tools/fabric/workspace_trust.py",
-    # Bootstrap and the agent files it installs, ported out of runtime/claude-code/ (ADR-040).
-    "tools/fabric/bootstrap.py", "tools/fabric/fabric_writes.py", "tools/fabric/install_agent_files.py",
-    # Writes and reads each agent's private conversational history (ADR-041).
-    "tools/fabric/episodic.py", "tools/fabric/episodic_import.py", "tools/fabric/relay.py", "tools/fabric/history.py", "bin/fabric-history",
-    "tools/fabric/reflect.py", "bin/fabric-reflect",
-    # Reads the relay as the account, with its token, and prints what it finds.
-    "tools/fabric/relay_catchup.py",
     # Derives a re-review's brief, as review_brief.py renders one.
     "tools/fabric/review_rounds.py",
     # The carrier release every account installs, and who it admits (ADR-064).
     *CARRIER_FENCE,
     # GitHub's published host keys, appended to every account's known_hosts.
     "runtime/provisioning/github-host-keys", "runtime/provisioning/github-host-keys.fingerprints",
+)
+# The supply tier (ADR-018 §5 rule 8, A 2026-11-07): a contributor commits
+# these only under its entry's `supplies`, on a for/<holder> branch the
+# coordinator folds, reviews blind and merges. Each runs with an account's
+# reach — as root, as every account, with its relay token or its private
+# history — so it is no `paths` rule's; but no guard, lint or runner loads
+# or runs it. Check that before moving a path here: identity.py, role.py,
+# routing.py and fabric_settings.py went back to the hard list on it.
+# A hook under runtime/claude-code/ is named file by file, so a new hook is
+# hard until it is listed; what the managed settings run (hook_entry.py
+# GUARDS), hook_jq.py and session-seal.py, which guards load, never are.
+CONTRIBUTOR_SUPPLY = (
+    "tools/fabric/launch_prompt.py",
+    # Runs as root on every host and installs the interpreter every tool runs on.
+    "tools/fabric/python_pin.py", "runtime/python.json",
+    # Bootstrap runs it as every account, and it rewrites ~/.claude.json.
+    "tools/fabric/workspace_trust.py",
+    # Bootstrap and the agent files it installs, ported out of runtime/claude-code/ (ADR-040).
+    "tools/fabric/bootstrap.py", "tools/fabric/fabric_writes.py", "tools/fabric/install_agent_files.py",
+    # Writes and reads each agent's private conversational history (ADR-041).
+    "tools/fabric/episodic.py", "tools/fabric/episodic_import.py", "tools/fabric/relay.py", "tools/fabric/history.py",
+    "bin/fabric-history", "tools/fabric/reflect.py", "bin/fabric-reflect",
+    # Reads the relay as the account, with its token, and prints what it finds.
+    "tools/fabric/relay_catchup.py",
+    # The workspace hooks that refuse nothing a commit or a review depends on.
+    *(f"runtime/claude-code/hooks/{h}" for h in (
+        "context-sample.py", "freshness.py", "inbox-watch.py", "memory-write-check.py", "model-fallback-note.sh",
+        "plan-hold.sh", "pr-counts.py", "session-start.py", "session-start.sh", "session-state.py", "statusline.sh",
+        "subagent-ledger.py", "tab-title.sh", "watch-on-stop.py", "testdata/")),
 )
 # The one path under a never-prefix an entry may name: the list the port
 # shrinks, which lint itself holds to shrinking (ADR-040 §5 rule 2).
@@ -535,19 +555,25 @@ def _rule_covers(rule: str, path: str) -> bool:
     return path.startswith(rule) if rule.endswith("/") else path == rule
 
 
-def contributor_rule_findings(paths: list[str], excluding: list[str]) -> list[str]:
-    """Each never-path a rule reaches, compared as prefixes rather than by
-    sample files (review of #75): a rule inside a never-prefix is refused
-    outright; a rule above one is refused unless an exclusion covers it."""
+def contributor_rule_findings(paths: list[str], excluding: list[str], supplies: list[str] = ()) -> list[str]:
+    """Each fenced path a rule reaches, compared as prefixes rather than by
+    sample files (review of #75): a `paths` rule inside a never- or supply
+    prefix is refused outright, and one above either is refused unless an
+    exclusion covers it. A `supplies` rule lies inside the supply tier,
+    which carves nothing hard out (the suite holds the tier to that)."""
     out = []
     for r in paths:
         if r in CONTRIBUTOR_MAY:
             continue
-        for n in CONTRIBUTOR_NEVER:
+        for n in (*CONTRIBUTOR_NEVER, *CONTRIBUTOR_SUPPLY):
             inside = _rule_covers(n, r)
             above = r.endswith("/") and n.startswith(r) and not any(_rule_covers(e, n) for e in excluding)
             if inside or above:
-                out.append(f"rule {r!r} reaches {n}")
+                tier = ", a supply path: name it under `supplies`" if n in CONTRIBUTOR_SUPPLY else ""
+                out.append(f"rule {r!r} reaches {n}{tier}")
+    for r in supplies:
+        if not any(_rule_covers(n, r) for n in CONTRIBUTOR_SUPPLY):
+            out.append(f"supplies rule {r!r} is outside the supply tier (lint.py CONTRIBUTOR_SUPPLY)")
     return out
 
 
@@ -596,19 +622,19 @@ def contributor_findings(root: str) -> list[str]:
             seen.add(role)
         if not isinstance(role, str) or role not in alone:
             findings.append(f"policies/authority.json: contributors[{i}]: not a whole entry (a role, a non-empty "
-                            "list of paths, a list of exclusions, `merges` a boolean when present) — it admits nothing")
+                            "list of paths, a list of exclusions, `merges` a boolean and `supplies` a list when present) — it admits nothing")
             continue
         where = f"policies/authority.json: contributors[{i}] ({role})"
         if role == owner:
             findings.append(f"{where}: the owner role needs no entry")
         if catalogued is not None and role not in catalogued:
             findings.append(f"{where}: not in identities/roles/catalog.json")
-        for f in contributor_rule_findings(whole[role]["paths"], whole[role]["excluding"]):
+        for f in contributor_rule_findings(whole[role]["paths"], whole[role]["excluding"], whole[role]["supplies"]):
             findings.append(f"{where}: {f}, which defines what a role is or enforces the fence (ADR-018 §5 rule 8)")
         # A path the tree no longer has still reads, in the entry and the remit
         # that quotes it, as a lane the role holds (runtime/github/ and
         # communication/gzcoord/scripts/ outlived their deletion by days).
-        for r in whole[role]["paths"]:
+        for r in whole[role]["paths"] + whole[role]["supplies"]:
             if not os.path.exists(os.path.join(root, r)):
                 findings.append(f"{where}: path {r!r} is not in the tree; drop it or say where its files went")
     return findings
