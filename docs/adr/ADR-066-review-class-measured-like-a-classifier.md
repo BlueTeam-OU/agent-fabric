@@ -61,7 +61,9 @@ published with its interval and its count.
   1. **Adjudication agreement.** A fresh review-class dispatch judges
      labelled findings (`Judgement: … | real` or `not-real`). Against
      the owner's labels this gives its true-positive and true-negative
-     rates, Cohen's κ, and Youden's J, each with a Wilson 95% interval.
+     rates, each with a Wilson 95% interval, and Cohen's κ and
+     Youden's J beside them as point values (a Wilson interval exists
+     only for a proportion).
   2. **Finding precision.** The share of findings that are real, per
      level (P1, P2, P3). Measured directly on owner-labelled findings.
      On the far larger unlabelled population it is the adjudicated rate
@@ -157,8 +159,11 @@ label's half fixed.
    the repository is public and the findings are not all from public
    repositories. The reader refuses a ledger with a missing or broken
    chain hash. It never skips a line that has no hash.
-4. Each labelled finding's half is `sha256(coordinates) mod 2`: dev or
-   held-out. The half is fixed for good, whatever labels are added
+4. Each labelled finding's half is `sha256(coordinates) mod 2`, the
+   coordinates joined by newlines in the order repository, PR, review
+   id (the GitHub id of the PR review), finding label, and the digest
+   read as a big-endian integer: 0 dev, 1 held-out. The half is fixed
+   for good, whatever labels are added
    later. The judging and finding parts of the reviewer's instructions
    may be changed on dev evidence. A held-out finding is never quoted in
    an agent file, a brief template, a review card, a slice or a memory,
@@ -171,9 +176,10 @@ label's half fixed.
    for the binary rates and is reported apart.
 6. Rates 1 and 2 are published for a configuration only when its
    held-out half holds at least 20 `real` and 20 `not-real` labels.
-   Below that the counts are published and the rate is not. Every rate
-   carries its Wilson 95% interval (rate 1, rate 3 and labelled
-   precision) or its bootstrap 95% interval (corrected precision). The
+   Below that the counts are published and the rate is not. Every
+   proportion carries its Wilson 95% interval (TPR, TNR, rate 3 and
+   labelled precision) and corrected precision its bootstrap 95%
+   interval; κ and J are point values derived from them. The
    corrected value is shown beside the raw Rogan-Gladen value and the
    number of bootstrap draws discarded as degenerate.
 7. Seeded defects live under `tests/review-calibration/defects/`. Each
