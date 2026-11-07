@@ -607,8 +607,12 @@ class Levels:
             except gh.GhError:
                 self._reviews[key] = None
             else:
-                self._reviews[key] = {c.coords: c.level for c in
-                                      findings_of(coords.repo, coords.pr, review if isinstance(review, dict) else {})}
+                review = review if isinstance(review, dict) else {}
+                found = {c.coords: c.level for c in findings_of(coords.repo, coords.pr, review)}
+                # Finding lines that findings_of rejected (no marker, a malformed line) are an unreadable review, not
+                # a review of findings without a level.
+                lines = errors.FINDING_LINE.findall(review.get("body") or "")
+                self._reviews[key] = found if found or all(rest.strip() == "none" for rest in lines) else None
         found = self._reviews[key]
         if found is None:
             self.unreadable.add(key)

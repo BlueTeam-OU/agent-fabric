@@ -266,6 +266,9 @@ def main() -> int:
         for c in few:
             f.write(json.dumps({"kind": "adjudication", "configuration": CONF, "repo": c.repo, "pr": c.pr,
                                 "review": c.review, "finding": c.finding, "verdict": "real"}) + "\n")
+        z = coords_in("held-out", 1, repo="o/zz")[0]           # unlabelled, so a level lookup would happen if asked
+        f.write(json.dumps({"kind": "adjudication", "configuration": CONF, "repo": z.repo, "pr": z.pr,
+                            "review": z.review, "finding": z.finding, "verdict": "real"}) + "\n")
     rcode, out, err = run_main(["report", "--instructions", instructions, "--runs", runs_path, "--ledger", labels_path])
     check("below the floor the report prints counts and no rate",
           rcode == 0 and "counts only, no rate" in out and "true-positive rate" not in out and "kappa" not in out
@@ -321,7 +324,7 @@ def main() -> int:
           by["P1"]["observed"] == 1.0 and near(by["P1"]["rogan_gladen_raw"], 1.267, 1e-3) and by["P1"]["corrected"] == 1.0
           and by["P2"]["observed"] == 0.0 and near(by["P2"]["rogan_gladen_raw"], -0.4, 1e-3) and by["P2"]["corrected"] == 0.0
           and by["P1"]["draws"] == 300, by)
-    check("a level with no adjudicated finding is undefined, and 20 findings without a raised record belong to no level",
+    check("a level with no adjudicated finding is undefined, and 20 findings whose review gives no level belong to no level",
           "undefined" in by["P3"] and a["unlevelled"] == 20, (by["P3"], a["unlevelled"]))
     # equal counts at two levels: the levels draw from their own streams, so their intervals are not copies
     labels_big = {rc.coordinates_of(r): r["verdict"] for r in rc.read_ledger(big_path)}
@@ -336,6 +339,16 @@ def main() -> int:
     check("every review was readable for its levels", json.loads(run_main(
         ["report", "--instructions", instructions, "--runs", runs_big, "--ledger", big_path, "--json", "--iterations", "20"]
     )[1])["level_reviews_unreadable"] == 0)
+    FakeLevels.unreadable = {("o/r", 9, 556)}
+    try:
+        counted = json.loads(run_main(["report", "--instructions", instructions, "--runs", runs_big, "--ledger", big_path,
+                                       "--json", "--iterations", "20"])[1])["level_reviews_unreadable"]
+        shown = run_main(["report", "--instructions", instructions, "--runs", runs_big, "--ledger", big_path,
+                          "--iterations", "20"])[1]
+    finally:
+        FakeLevels.unreadable = set()
+    check("unreadable reviews are counted in the json and named in the text", counted == 1
+          and "1 review(s) could not be read for their findings' levels" in shown, (counted, shown[-200:]))
     check("the level assumption is stated", "does not depend on a finding's level" in a["level_assumption"], a)
     rcode, out, _ = run_main(["report", "--instructions", instructions, "--runs", runs_big, "--ledger", big_path, "--iterations", "300"])
     check("the per-level lines and the assumption are printed", "corrected precision P1 1.0" in out
@@ -490,18 +503,21 @@ def main() -> int:
         gets.append(path)
         if path.endswith("/reviews/555"):
             return {"id": 555, "body": body_for_rule4}
+        if path.endswith("/reviews/557"):       # edited: its Finding: line has lost the marker that makes it readable
+            return {"id": 557, "body": "Finding: F1 | P2 | certain | src/a.py:12 | the loop never ends"}
         raise rc.gh.GhError("gh api GET", "HTTP 502", status=502)
     rc.gh.api = levels_api
     try:
         lv = rc.Levels()
         got_levels = [lv(rc.Coordinates("o/r", 9, 555, "F1")), lv(rc.Coordinates("o/r", 9, 555, "F2")),
-                      lv(rc.Coordinates("o/r", 9, 556, "F1")), lv(rc.Coordinates("o/r", 9, 556, "F2"))]
+                      lv(rc.Coordinates("o/r", 9, 556, "F1")), lv(rc.Coordinates("o/r", 9, 556, "F2")),
+                      lv(rc.Coordinates("o/r", 9, 557, "F1"))]
     finally:
         rc.gh.api = real_api
     check("Levels: the level on the finding's own line; a missing finding or an unreadable review is None",
-          got_levels == ["P2", None, None, None], got_levels)
+          got_levels == ["P2", None, None, None, None], got_levels)
     check("Levels: one read per review, and the unreadable review is counted apart",
-          len(gets) == 2 and lv.unreadable == {("o/r", 9, 556)}, (gets, lv.unreadable))
+          len(gets) == 3 and lv.unreadable == {("o/r", 9, 556), ("o/r", 9, 557)}, (gets, lv.unreadable))
 
     # --- the real entry points, with a minimal environment
     stripped_ledger = os.path.join(tmp, "stripped.jsonl")
