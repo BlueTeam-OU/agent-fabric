@@ -115,9 +115,15 @@ class Private(unittest.TestCase):
         with open(os.path.join(xdg, "agent-fabric", "agents", LOGIN, "binding.json"), "w") as fh:
             json.dump({"role": "python-dev"}, fh)
         real = gzmsg._identity_module
-        # identity cannot answer for the fabric root: the fallback, which asks identity.py beside gzmsg for the binding path
+        first = []
+
+        def answers_once_wrongly(root: str):
+            if not first:   # the first load is whoami's own; the fallback's load, beside gzmsg, is the second
+                first.append(root)
+                raise RuntimeError("identity cannot answer")
+            return real(root)
         with mock.patch.dict(os.environ, {"AGENT_FABRIC_STATE_DIR": "", "XDG_STATE_HOME": xdg}), \
-                mock.patch.object(gzmsg, "_identity_module", lambda root: (_ for _ in ()).throw(RuntimeError()) if root == gzmsg.paths.fabric_root() else real(root)):
+                mock.patch.object(gzmsg, "_identity_module", answers_once_wrongly):
             me = gzmsg.whoami()
         self.assertTrue(me.get("fallback"))
         self.assertEqual(me["binding"], os.path.join(xdg, "agent-fabric", "agents", LOGIN, "binding.json"))
