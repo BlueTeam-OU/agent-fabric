@@ -629,7 +629,7 @@ def main(argv: list[str]) -> int:
             if r.get("sessionEnded"):
                 print(SESSION_ENDED.format(pid=session.pid), flush=True)
                 return 0
-            if down:
+            if down and r.get("relayError") is None:   # a delivery the carrier made says nothing of the relay
                 if not until_delivery:
                     print(t("watch.relay-back"), flush=True)
                 down = False
