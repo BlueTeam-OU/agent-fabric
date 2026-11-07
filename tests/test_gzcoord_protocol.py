@@ -1903,7 +1903,8 @@ def _():
             fh.write("#!/usr/bin/env bash\n" + body)
         os.chmod(os.path.join(binp, name), 0o755)
     # fake systemctl records the call; fake curl answers the probe only after systemctl ran
-    tool("systemctl", f'echo "$*" >> {json.dumps(log)}\n')
+    # (`show` answers nothing: a unit whose state is unknown is started as before)
+    tool("systemctl", f'[[ "$2" == show ]] && exit 0\necho "$*" >> {json.dumps(log)}\n')
     tool("curl", f"[[ -f {json.dumps(log)} ]]\n")
     keys = ("HOME", "PATH", "XDG_RUNTIME_DIR", "GZCOORD_TEST_BUS_ANY")
     saved = {k: os.environ.get(k) for k in keys}
@@ -1937,7 +1938,7 @@ def _():
         ok(s2.get("pid") and not s2.get("unit"), "a failed systemctl falls back to the spawn")
         ok(time.monotonic() - t0 < 6, "no eight-second wait on a unit that was never asked")
         # the passed environment: systemctl sees XDG_RUNTIME_DIR even when the shell had none
-        tool("systemctl", f'echo "XDG=$XDG_RUNTIME_DIR" >> {json.dumps(log)}\n')
+        tool("systemctl", f'[[ "$2" == show ]] && exit 0\necho "XDG=$XDG_RUNTIME_DIR" >> {json.dumps(log)}\n')
         tool("curl", f"[[ -f {json.dumps(log)} ]]\n")
         del os.environ["XDG_RUNTIME_DIR"]   # the shell has none: the resolved /run/user/<uid> must reach systemctl anyway
         s3 = inbox.ensure_relay(runtime, "http://127.0.0.1:1")
@@ -1957,6 +1958,82 @@ def _():
                 os.environ.pop(k, None)
             else:
                 os.environ[k] = v
+
+
+# An operator's `systemctl stop` holds (the 2026-11-05 relay-down drill, defect 4):
+# a unit that ran this boot and ended inactive/success is left stopped; a failed
+# unit and one never started are started as ever.
+def _unit_fixture():
+    runtime = scratch("gzc-")
+    os.makedirs(os.path.join(runtime, "venv", "bin"))
+    bridge = os.path.join(runtime, "venv", "bin", "claude-bridge")
+    with open(bridge, "w") as fh:
+        fh.write('#!/usr/bin/env bash\necho SPAWNED >> "$(dirname "$0")/../../spawned"\nsleep 30\n')
+    os.chmod(bridge, 0o755)
+    with open(os.path.join(runtime, "bridge-token"), "w") as fh:
+        fh.write("tok\n")
+    home, binp, xdg = scratch("home-"), scratch("bin-"), scratch("xdg-")
+    open(os.path.join(xdg, "bus"), "w").close()
+    unit = os.path.join(home, ".config", "systemd", "user", "gzcoord-relay.service")
+    os.makedirs(os.path.dirname(unit))
+    with open(unit, "w") as fh:
+        fh.write("[Service]\n")
+    return runtime, home, binp, xdg
+
+
+def _unit_case(show: str, want_started: bool) -> dict:
+    runtime, home, binp, xdg = _unit_fixture()
+    log = os.path.join(runtime, "systemctl.log")
+    for name, body in (("systemctl", f'if [[ "$2" == show ]]; then printf %b {json.dumps(show)}; exit 0; fi\n'
+                                     f'echo "$*" >> {json.dumps(log)}\n'),
+                       ("curl", f"[[ -f {json.dumps(log)} ]]\n")):
+        with open(os.path.join(binp, name), "w") as fh:
+            fh.write("#!/usr/bin/env bash\n" + body)
+        os.chmod(os.path.join(binp, name), 0o755)
+    keys = ("HOME", "PATH", "XDG_RUNTIME_DIR", "GZCOORD_TEST_BUS_ANY")
+    saved = {k: os.environ.get(k) for k in keys}
+    os.environ.update(HOME=home, PATH=f"{binp}:{os.environ['PATH']}", XDG_RUNTIME_DIR=xdg, GZCOORD_TEST_BUS_ANY="1")
+    try:
+        r = inbox.ensure_relay(runtime, "http://127.0.0.1:1")
+    finally:
+        for k, v in saved.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
+    eq(os.path.exists(log), want_started, f"systemctl start called: {r}")
+    ok(not os.path.exists(os.path.join(runtime, "spawned")), "the venv binary was never spawned")
+    return r
+
+
+def _show(state: str, result: str, entered: int, left: int) -> str:
+    return (f"ActiveState={state}\nResult={result}\n"
+            f"ActiveEnterTimestampMonotonic={entered}\nInactiveEnterTimestampMonotonic={left}\n")
+
+
+@case("ensureRelay: a unit stopped cleanly this boot is left stopped, and the result says so")
+def _():
+    r = _unit_case(_show("inactive", "success", 1000, 5000), False)
+    eq((r["hosted"], r["started"]), (True, False))
+    ok(r.get("note"), "a note says it was left stopped")
+
+
+@case("ensureRelay: a failed unit is started")
+def _():
+    r = _unit_case(_show("failed", "exit-code", 1000, 5000), True)
+    eq(r, {"hosted": True, "started": True, "unit": "gzcoord-relay"})
+    r = _unit_case(_show("inactive", "signal", 1000, 5000), True)   # inactive but not a clean stop
+    eq(r["started"], True)
+
+
+@case("ensureRelay: a unit never started this boot is started")
+def _():
+    r = _unit_case(_show("inactive", "success", 0, 0), True)
+    eq(r, {"hosted": True, "started": True, "unit": "gzcoord-relay"})
+    r = _unit_case(_show("inactive", "success", 5000, 1000), True)   # stopped BEFORE its last entry: not a stop to hold
+    eq(r["started"], True)
+    r = _unit_case("garbage", True)   # unparseable: unknown is started as before
+    eq(r["started"], True)
 
 
 # ── the command cases of the deleted communication/gzcoord/tests/protocol.test.mjs ──
