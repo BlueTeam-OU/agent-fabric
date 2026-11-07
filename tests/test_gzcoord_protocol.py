@@ -2281,6 +2281,79 @@ def _():
     eq([x[:3] for x in journal_rows(state, store)], [["outbound", "failed", VALID_ID]])
 
 
+def carrier_send(relay_url: str, text: str = VALID, carried: int = 1, extra: list[str] | None = None,
+                 **env: str) -> tuple[Ran, str, str, list]:
+    """A send with a fake InterWeave carrier on the case's own runtime directory, answering a send as the
+    real one does (`carried` recipients, all queued); the requests it saw come back."""
+    from gzcoord.carrier import server
+    run = scratch("run-")
+    seen: list = []
+
+    def handler(req: dict) -> dict:
+        seen.append(req)
+        return {"ok": True, "carried": carried, "queued": carried}
+
+    srv = server.Server(server.socket_path(run), handler)
+    try:
+        base = scratch("send-journal-")
+        state, store = os.path.join(base, "state"), id_store()
+        r = send_with(relay_url, text, extra, AGENT_FABRIC_STATE_DIR=state, AGENT_FABRIC_SECRET_STORE=store,
+                      XDG_RUNTIME_DIR=run, **env)
+    finally:
+        srv.close()
+    return r, state, store, seen
+
+
+@case("a relay that did not take a message TO one login while the carrier did: exit 3 as before, and the line says the carrier carried it and a resend would duplicate it")
+def _():
+    import socket
+    s = socket.socket()
+    s.bind(("127.0.0.1", 0))
+    port = s.getsockname()[1]
+    s.close()
+    down = f"http://127.0.0.1:{port}"
+    relay_409, relay_503, relay_401 = Relay(status=409), Relay(status=503), Relay(status=401)
+    hosts = PresenceRelay({})   # only its hosts registry: --force skips the presence ask
+    direct = addressed("TO: h/alpha")
+    try:
+        for label, url in (("unreachable", down), ("refused", relay_409.url), ("no answer", relay_503.url),
+                           ("token refused", relay_401.url)):
+            r, state, store, seen = carrier_send(url, direct, extra=["--force"], **hosts.env)
+            eq(r.code, 3, f"{label}: the exit status follows the relay alone (ADR-064 rule 11): {r.err}")
+            eq(len(seen), 1, f"{label}: the carrier was asked once")
+            has(r"the relay did not take it .*but the carrier did .*a resend would duplicate it", r.err, f"{label}: {r.err}")
+            hasnt(r"not sent|is safe|hand it", r.err, f"{label}: {r.err}")
+            eq([x[1] for x in journal_rows(state, store)], ["accepted"], f"{label}: the carrier's acceptance marks the row")
+        # Positive control: the carrier running but carrying to nobody (no roster recipient) took nothing.
+        r, state, store, seen = carrier_send(down, direct, carried=0, extra=["--force"], **hosts.env)
+        eq(r.code, 3, r.err)
+        has(r"relay unreachable .* not sent", r.err)
+        hasnt(r"carrier did", r.err)
+    finally:
+        for x in (relay_409, relay_503, relay_401, hosts):
+            x.close()
+
+
+@case("a TO-ROLE or broadcast message the carrier queued for roster members is not told it was delivered: the carrier's count is roster members, not the addressee (review of #505, F1)")
+def _():
+    import socket
+    s = socket.socket()
+    s.bind(("127.0.0.1", 0))
+    port = s.getsockname()[1]
+    s.close()
+    down = f"http://127.0.0.1:{port}"
+    hosts = PresenceRelay({})
+    try:
+        for label, text in (("broadcast", VALID), ("TO-ROLE", addressed("TO-ROLE: backend-dev"))):
+            r, state, store, seen = carrier_send(down, text, extra=["--force"], **hosts.env)
+            eq(r.code, 3, f"{label}: {r.err}")
+            eq(len(seen), 1, f"{label}: the carrier was asked")
+            has(r"relay unreachable .* not sent", r.err, label)
+            hasnt(r"carrier did|delivered", r.err, label)
+    finally:
+        hosts.close()
+
+
 @case("a failed retransmission leaves a row pending whose earlier outcome was never written (review of #78)")
 def _():
     relay = Relay(status=500)
