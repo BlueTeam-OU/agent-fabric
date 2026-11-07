@@ -300,6 +300,7 @@ def run(env: dict[str, str]) -> int:
     authority = base_authority(top, base) if fabric_itself else ""
     bad: list[str] = []
     roles: list[str] = []
+    supply = False
     for c in commits:
         message = git.run(top, "log", "-1", "--format=%B", c).stdout
         declared = declared_role(message, git.run(top, "interpret-trailers", "--parse", input=message).stdout)
@@ -321,9 +322,14 @@ def run(env: dict[str, str]) -> int:
         # `contributors`, within its entry's paths. The branch shape was held
         # at the keyboard; folded into the coordinator's branch it is not
         # visible here.
+        # A commit admitted through `supplies` reaches main only in a pull
+        # request the owner role folds it into (pull_request_problem).
         if fabric_itself and declared and contributors.admitted(authority, declared, touched):
+            supplied = contributors.supplies_in(authority, declared, touched)
+            supply = supply or bool(supplied)
             say(f"check_agent_fabric_dir_authority: {log1(top, c, '%h')} declares Fabric-Role: {declared} "
-                "and stays within its contributor entry — the contributor carve-out.")
+                "and stays within its contributor entry — the contributor carve-out"
+                + (f", {len(supplied)} path(s) as supply." if supplied else "."))
             continue
         # The Dependabot carve-out: Dependabot bumps the SHA-pinned actions
         # (.github/dependabot.yml) and can carry no trailer. Its commit may
@@ -340,7 +346,7 @@ def run(env: dict[str, str]) -> int:
     # Who may open the pull request (ADR-018 §5 rule 8): in a pull request's
     # CI only, where GitHub names the head branch.
     head_ref = env.get("GITHUB_HEAD_REF", "")
-    pr_problem = contributors.pull_request_problem(authority, head_ref, roles, owner_role) \
+    pr_problem = contributors.pull_request_problem(authority, head_ref, roles, owner_role, supply) \
         if fabric_itself and head_ref else None
     if pr_problem:
         err(f"FAIL: {pr_problem}.")
