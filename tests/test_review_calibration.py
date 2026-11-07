@@ -100,6 +100,12 @@ def main() -> int:
     got = rc.tost_paired(10, 10, 100)
     check("TOST 10 vs 10 of 100: the one-sided tail at the bound, and not equivalent (> 0.05)",
           near(got, want, 1e-9) and got > 0.05, (got, want))
+    asym = rc.tost_paired(2, 18, 100)
+    mirror = rc.tost_paired(18, 2, 100)
+    want_asym = float(sum(math.comb(20, i) * fractions.Fraction(3, 8) ** i * fractions.Fraction(5, 8) ** (20 - i)
+                          for i in range(2, 21)))
+    check("TOST 2 vs 18 of 100: the lower bound's tail decides (~1), the same mirrored",
+          near(asym, want_asym, 1e-9) and asym > 0.99 and near(mirror, asym, 1e-9), (asym, mirror, want_asym))
     check("TOST where every possible difference is inside the margin is 0", rc.tost_paired(1, 1, 100) == 0.0)
     check("TOST with no discordant pair or no pair is undefined, not 0 or 1",
           rc.tost_paired(0, 0, 100) is None and rc.tost_paired(0, 0, 0) is None)
@@ -175,6 +181,10 @@ def main() -> int:
     blank = dict(json.loads(good[1]), hash="")
     check("a stripped hash is refused, naming the line", "line 2" in (refused([good[0], json.dumps(stripped), good[2]]) or ""))
     check("an empty hash is refused (gavel passes it)", "line 2" in (refused([good[0], json.dumps(blank), good[2]]) or ""))
+    gavel = json.loads(good[1])
+    gavel["prev"] = gavel["hash"] = ""
+    check("both chain fields emptied on a line (gavel's accepted shape) is refused",
+          "line 2" in (refused([good[0], json.dumps(gavel), good[2]]) or ""))
     check("an empty prev is refused", "line 2" in (refused([good[0], edit(1, prev=""), good[2]]) or ""))
     check("a changed verdict is refused", "hash does not match" in (refused([good[0], edit(1, verdict="real"), good[2]]) or ""))
     check("a line dropped from the middle breaks the chain", "line 2" in (refused([good[0], good[2]]) or "")
@@ -194,6 +204,8 @@ def main() -> int:
     # --- the half of a finding
     halves = [c.half() for c in coords_in("dev", 3)] + [c.half() for c in coords_in("held-out", 3)]
     check("the half is fixed by the coordinates", halves == ["dev"] * 3 + ["held-out"] * 3)
+    check("the split is pinned: sha256 of 'o/r\\n7\\n1001\\nF1' ends in 0x30 (dev), of ...1004\\nF4 in 0xb1 (held-out)",
+          rc.Coordinates("o/r", 7, 1001, "F1").half() == "dev" and rc.Coordinates("o/r", 7, 1004, "F4").half() == "held-out")
     c0 = coords_in("dev", 1)[0]
     rcode, out, _ = run_main(["split", c0.repo, str(c0.pr), str(c0.review), c0.finding])
     check("split prints the half", rcode == 0 and out == "dev\n", out)
@@ -221,7 +233,9 @@ def main() -> int:
 
     big_path = os.path.join(tmp, "report", "big.jsonl")
     reals, nots, other = coords_in("held-out", 25), coords_in("held-out", 25, start=500), coords_in("dev", 2, start=900)
-    write_ledger(big_path, [(c, "real") for c in reals] + [(c, "not-real") for c in nots] + [(other[0], "real")])
+    unsure_c = coords_in("held-out", 1, start=700)[0]
+    write_ledger(big_path, [(c, "real") for c in reals] + [(c, "not-real") for c in nots] + [(other[0], "real"),
+                                                                                              (unsure_c, "unsure")])
     runs_big = os.path.join(tmp, "runs-big.jsonl")
 
     def adjudication(c, verdict, conf=CONF):
@@ -234,6 +248,7 @@ def main() -> int:
         for i, c in enumerate(nots):
             f.write(adjudication(c, "real" if i < 6 else "not-real") + "\n")                             # TNR 19/25
         f.write(adjudication(other[0], "not-real") + "\n")                                                # dev: unused
+        f.write(adjudication(unsure_c, "real") + "\n")                                                   # unsure: out of every denominator
         for i, c in enumerate(unlabelled):
             f.write(adjudication(c, "real" if i % 2 == 0 else "not-real") + "\n")
         f.write(json.dumps({"kind": "raised", "configuration": CONF, "repo": reals[0].repo, "pr": reals[0].pr,
@@ -247,6 +262,8 @@ def main() -> int:
     check("the dev-half label is counted apart and used by no rate", a["dev_labelled_not_used"] == 1
           and a["matrix"] == {"tp": 21, "fn": 4, "tn": 19, "fp": 6}, a["matrix"])
     check("`partly` is reported apart", a["held_out"]["judged_partly"] == 1)
+    check("an unsure label is counted and kept out of every denominator, the unlabelled population too",
+          a["held_out"]["unsure"] == 1 and a["unlabelled"]["adjudicated"] == 40, a)
     cp = a["corrected_precision"]
     check("corrected precision shows raw, corrected, interval, draws and the discarded", cp["draws"] == 300
           and "rogan_gladen_raw" in cp and "discarded" in cp and cp["bootstrap95"] is not None, cp)
@@ -259,10 +276,24 @@ def main() -> int:
         for line in open(runs_big).read().splitlines()[:50]:
             f.write(line + "\n")
         f.write(adjudication(reals[0], "real", other_conf) + "\n")
+    fp_conf = dict(CONF, config="f" * 64)
+    with open(two, "a") as f:
+        f.write(adjudication(reals[0], "real", fp_conf) + "\n")
     rcode, out, _ = run_main(["report", "--runs", two, "--ledger", big_path, "--json", "--iterations", "50"])
     confs = json.loads(out)["configurations"]
-    check("two configurations are never pooled", rcode == 0 and [c["model"] for c in confs] == ["m-1", "m-2"]
-          and confs[1]["adjudication"]["published"] is False, confs)
+    check("configurations differing only in the review's config fingerprint are never pooled", rcode == 0
+          and sorted(c["config"] for c in confs if c["model"] == "m-1") == ["a" * 64, "f" * 64], confs)
+    check("two configurations are never pooled", rcode == 0 and sorted({c["model"] for c in confs}) == ["m-1", "m-2"]
+          and all(c["adjudication"]["published"] is False for c in confs if c["config"] != "a" * 64 or c["model"] == "m-2"), confs)
+    one_sided = os.path.join(tmp, "report", "one-sided.jsonl")
+    write_ledger(one_sided, [(c, "real") for c in reals])
+    only_real = os.path.join(tmp, "runs-only-real.jsonl")
+    with open(only_real, "w") as f:
+        for c in reals:
+            f.write(adjudication(c, "real") + "\n")
+    ad = json.loads(run_main(["report", "--runs", only_real, "--ledger", one_sided, "--json"])[1])["configurations"][0]["adjudication"]
+    check("25 real labels and no not-real label: below the floor on one side is below the floor",
+          ad["published"] is False and "tpr" not in ad, ad)
     check("raised findings: P2 counted held-out, below its floor", json.loads(
         run_main(["report", "--runs", runs_big, "--ledger", big_path, "--json", "--iterations", "50"])[1]
     )["configurations"][0]["raised"]["P2"] == {"real": 1, "not_real": 0, "unsure": 0, "floor": 20, "published": False})
