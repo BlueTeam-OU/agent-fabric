@@ -88,8 +88,14 @@ def main() -> int:
         check("decide: an out-of-tree live watch holding the lock: passes", out is None, out)
         check("…and no state written for it", not os.path.exists(path))
         stale = {k: v for k, v in other.items() if k != 300}
-        out = go({}, stale)
+        umask = os.umask(0o022)   # the 0600 check below bites only where the umask would not give it anyway
+        try:
+            out = go({}, stale)
+        finally:
+            os.umask(umask)
         check("decide: the lock names a watch that is gone: blocked", out and out["decision"] == "block", out)
+        check("…its record is identity.atomic_write's, 0600 under umask 022 (ADR-003 rule 1)",
+              os.stat(path).st_mode & 0o777 == 0o600, oct(os.stat(path).st_mode))
         os.remove(lock)
         fresh()
         out = go({}, table((300, (200, "python3", "gzcoord-inbox --follow"))))

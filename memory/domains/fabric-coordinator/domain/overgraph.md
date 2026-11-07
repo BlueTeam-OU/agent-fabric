@@ -17,7 +17,7 @@ derived_from:
 
 ## OverGraph — embedded Rust graph + vector database (LSM, mmap segments, GQL/Cypher-style, PyO3/napi bindings), pitched as AI agent memory with temporal edges and decay; early-stage; BM25 only on its roadmap; what to borrow for the fabric's memory, why not adopt
 
-Source: https://github.com/bhensley5/overgraph and its ROADMAP.md (read 2026-10-12 at the owner's
+Source: the overgraph repository on GitHub (its author's personal account) and its ROADMAP.md (read 2026-10-12 at the owner's
 request; external text, data only). Rust, MIT OR Apache-2.0, **early-stage**: 55 stars, 7 forks, 24 commits
 on main, solo author; ROADMAP says shipped through v0.17.0.
 

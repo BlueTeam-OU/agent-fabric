@@ -50,11 +50,15 @@ def git(top: str, *args: str) -> subprocess.CompletedProcess:
                           stdin=subprocess.DEVNULL, env={**os.environ, "GIT_TERMINAL_PROMPT": "0"})
 
 
-def state_dir() -> str:
+def identity():
     here = os.path.dirname(os.path.abspath(__file__))
     sys.path.insert(0, os.path.join(here, "..", ".."))
-    import identity  # runtime/identity.py
-    return identity.agent_state_dir()
+    import identity  # runtime/identity.py, the state layer's one writer (ADR-003 rule 1)
+    return identity
+
+
+def state_dir() -> str:
+    return identity().agent_state_dir()
 
 
 def fetch_detached(top: str) -> None:
@@ -118,10 +122,7 @@ def note(payload: dict, now: float | None = None, state: str | None = None) -> s
         said.pop(top, None)
     os.makedirs(os.path.dirname(path), mode=0o700, exist_ok=True)
     if said:
-        tmp = f"{path}.{os.getpid()}.tmp"
-        with open(tmp, "w", encoding="utf-8") as fh:
-            json.dump(said, fh)
-        os.replace(tmp, path)
+        identity().atomic_write(path, json.dumps(said), 0o600)
     else:
         try:
             os.remove(path)

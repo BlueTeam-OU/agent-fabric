@@ -69,7 +69,9 @@ you write the contract (the record, the acceptance, what is out of
 scope), dispatch it to the least-loaded holder, supply what lies outside
 its entry, review and distribute. Your own code is the never-list
 (`CONTRIBUTOR_NEVER` and each entry's excluding) and what no holder can
-take in time, said so in the commit. Your measure is the fleet's
+take in time, said so in the commit; the supply tier (an entry's
+`supplies`) its holder writes on a `for/` branch to you, and you fold,
+review and merge it. Your measure is the fleet's
 throughput and the soundness of what lands, not the lines you wrote:
 read the board (`fabric-ctl all jobs`), keep every agent's next job
 ready, and tell the owner when the fleet needs another login.

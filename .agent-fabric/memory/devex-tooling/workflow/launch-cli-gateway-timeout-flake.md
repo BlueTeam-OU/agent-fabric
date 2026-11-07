@@ -2,10 +2,10 @@
 role: "devex-tooling"
 class: workflow
 topic: "launch-cli-gateway-timeout-flake"
-description: test_launch_cli (groups 6, 8) and test_gzcoord_protocol can FAIL in a full tests/run.sh under load and pass alone, at base too
+description: "test_launch_cli (groups 6, 8) and test_gzcoord_protocol can FAIL in a full tests/run.sh under load and pass alone, at base too; test_reads_live.py is a fixture, never a suite"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-11-05"
+distilled_at: "2026-11-07"
 origin:
   - agent: "devex-tooling"
     host: "develop-qzapp"
@@ -13,14 +13,17 @@ origin:
     working_copy: "agent-fabric"
 derived_from:
   - bff7da192272d014
+  - 4c3a3a525634d95c
 ---
 
 ## test_launch_cli (groups 6, 8) and test_gzcoord_protocol can FAIL in a full tests/run.sh under load and pass alone, at base too
 
-In a full `tests/run.sh` (CI env, 2026-10-15, j134), `tests/test_launch_cli.py` group 8 failed one check: "a gateway that never answers the ask does not hold the end of the session". Rerun alone, it passed on the branch and on a clean origin/main worktree. Before calling it a regression, rerun the suite alone, at base and on the branch. Parse the `==` blocks to find which suite failed ([[run-python-suites-names-no-failure]]). The other usual local red in the same run is corpus lint on sibling index drift ([[lint-no-siblings-for-own-tree]]).
+In a full `tests/run.sh` (CI env, 2026-10-15, j134), `tests/test_launch_cli.py` group 8 failed one check: "a gateway that never answers the ask does not hold the end of the session". Rerun alone, it passed on the branch and on a clean origin/main worktree. Before calling it a regression, rerun each suite alone, at base and on the branch. Parse the `==` blocks to find which suite failed ([[run-python-suites-names-no-failure]]). The other usual local red in the same run is corpus lint on sibling index drift ([[lint-no-siblings-for-own-tree]]).
 
-Seen again 2026-10-16 (j137): FAILED_SUITES=2 were test_launch_cli (group 6, 3 checks; group 8, 1) and test_gzcoord_protocol (1 of 105 cases); both passed alone on the branch and on origin/main. A `tests/test_reads_live.py: FAILED` line in the same output is test_stripped_run's fixture, not a suite.
+Seen again 2026-10-16 (j137): FAILED_SUITES=2 were test_launch_cli (group 6, 3 checks; group 8, 1) and test_gzcoord_protocol (1 of 105 cases); both passed alone on the branch and on origin/main.
+
+A `FAILED` line naming test_reads_live.py is not a suite. That name is a fixture: tests/test_stripped_run.py writes it into its own scratch tree as a control. It was never a tracked file, so a path check will always call it gone. Re-checked on agent-fabric origin/main, 2026-10-20: both suites and test_stripped_run.py are present.
 
 *References: lint-no-siblings-for-own-tree, run-python-suites-names-no-failure*
 
-*Observed 2026-10-16 (devex-tooling)*
+*Observed 2026-10-16, re-checked 2026-10-20 (devex-tooling)*

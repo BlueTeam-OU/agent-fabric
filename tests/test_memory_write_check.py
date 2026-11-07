@@ -11,7 +11,7 @@ import subprocess
 import sys
 import tempfile
 from git_env import git_env, scrub_process_env  # noqa: E402 — tests/, the script's own directory
-from instance_fixtures import own_instance_tree  # noqa: E402 — tests/, the script's own directory
+from instance_fixtures import own_instance_tree, write_operator_projects  # noqa: E402 — tests/, the script's own directory
 own_instance_tree()
 scrub_process_env()
 
@@ -59,7 +59,10 @@ def merge_target_cases() -> int:
         binding = os.path.join(state, "agents", pwd.getpwuid(os.geteuid()).pw_name, "binding.json")
         with open(binding, "w", encoding="utf-8") as fh:
             json.dump({"role": "fixture-role", "project": "fixture-proj", "working_copy": wc}, fh)
-        env = {**os.environ, "AGENT_FABRIC_STATE_DIR": state}
+        # The live registry is instance data and a stripped copy has none: every case reads the operator tree this builds.
+        env = {**os.environ, "AGENT_FABRIC_STATE_DIR": state,
+               "AGENT_FABRIC_OPERATOR": write_operator_projects(
+                   os.path.join(tmp, "operator"), {"fixture-proj": ["git@example.org:o/fixture-proj.git"]})}
         env.pop("AGENT_FABRIC_WORKING_COPY", None)
         # The drain reads a memory directory as the one of the working copy whose slug names it, so the fixture's is.
         home = os.path.join(tmp, ".claude", "projects", layout.memory_slug(wc), "memory")
@@ -119,6 +122,11 @@ def other_project_cases(tmp: str, binding: str, env: dict) -> int:
         copies[name] = top
     with open(binding, "w", encoding="utf-8") as fh:
         json.dump({"role": "fixture-role", "project": "gzapp", "working_copy": copies["wc-a"]}, fh)
+    # Both projects are registered in the operator's tree the case builds: the live registry is instance data,
+    # and a stripped copy without it resolves no project, so the hook stays silent and "only A's slice" fails.
+    env = {**env, "AGENT_FABRIC_OPERATOR": write_operator_projects(
+        os.path.join(tmp, "operator"), {"gzapp": ["git@example.org:o/gzapp.git"],
+                                        "gzapi.ge": ["git@example.org:o/gzapi.ge.git"]})}
     home_b = os.path.join(tmp, ".claude", "projects", layout.memory_slug(copies["wc-b"]), "memory")
     os.makedirs(home_b)
     cases = [

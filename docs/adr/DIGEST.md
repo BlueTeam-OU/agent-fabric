@@ -69,6 +69,7 @@ its record disagree, the record wins. Look it up, never read it whole:
 | fabric-ctl assist; asking about the fabric with the fleet down; the claude-pzhuy API key; who may spend an API key | ADR-063 |
 | GZCoord over InterWeave; the InterWeave carrier; dual run beside the relay; the agents' PeerIds and roster; switching transport | ADR-064 |
 | the reviewer's tools; the review sandbox; coverage blocks; the v2 review marker; where a re-review starts | ADR-065 |
+| the reviewer's own accuracy; calibrating the review class; owner labels; seeded defects; a review routing change's evidence | ADR-066 |
 
 ### ADR-000 — The enduring organization (Accepted)
 
@@ -438,14 +439,15 @@ its record disagree, the record wins. Look it up, never read it whole:
 - A 2026-09-28 — the charter tripwire runs in CI.
 - A 2026-09-30 — the stores are this role's (References).
 - A 2026-10-01 — the contributor carve-out (§5 rules 7–8).
-- A 2026-10-01 — the fence's code is in no entry (§5 rule 8).
+- A 2026-10-01 — the fence's code is in no entry.
 - A 2026-10-01 — CI runs main's guards (§5 rule 4).
-- A 2026-10-04 — a merge is judged on its own change (§5 rules 3–4).
-- A 2026-10-07 — an entry that `merges` opens its PR (§5 rule 8).
-- A 2026-10-08 — and may fold another's supply (§5 rule 8).
+- A 2026-10-04 — a merge is judged on its own change.
+- A 2026-10-07 — an entry that `merges` opens its PR.
+- A 2026-10-08 — and may fold another's supply.
 - A 2026-10-18 — prompt/locale/ is language-culture's (§5 rule 5).
-- Keywords: Fabric-Role, pre-commit, commit-msg,
-  locale carve-out, contributor, merges.
+- A 2026-11-07 — `supplies`, the supply tier: for/<holder> only (§5 rule 8).
+- Keywords: pre-commit, commit-msg, locale carve-out,
+  never-list.
 
 ### ADR-019 — Work arrives as pull requests: one open PR per agent and repository, 8 or more work commits to arm, the gate read before arming, no machine attribution, repository settings (Accepted)
 
@@ -1480,3 +1482,28 @@ its record disagree, the record wins. Look it up, never read it whole:
   read-only, bubblewrap, sandbox, checks, coverage manifest, checkpoint
   marker, coverage default, moved report, re-review, card_base, open
   findings, open-code-review, P3.
+
+### ADR-066 — The review class is measured like a classifier: owner labels for its judgements, seeded defects for its recall, every rate with its interval (Accepted)
+
+- A result belongs to one configuration: engine, resolved model id,
+  effort and the instructions' sha256; never pooled (§2, §5 rule 1).
+- Ground truth never comes from the review class: the owner labels
+  findings blind (`real`, `not-real`, `unsure`); seeded defects are
+  planted in pinned public ranges, each with a test that proves it
+  (§2, §5 rules 2, 7).
+- Rates: adjudication TPR/TNR against owner labels, each with its
+  interval, κ and J as point values; finding precision per level
+  (labelled, and Rogan-Gladen-corrected on the rest) and seeded recall
+  as pass@1 and pass^3, each with its interval; adjudication and
+  precision unpublished below 20 real and 20 not-real held-out labels
+  (§5 rules 5, 6, 8).
+- Labels hold coordinates and verdicts, never text, sha256-chained,
+  fail-closed; halves by `sha256(coordinates) mod 2`; held-out never
+  quoted in instructions (§5 rules 3, 4).
+- A review-class routing or instruction change shows a paired McNemar
+  (and TOST for a cost cut) on the same held-out items; the owner
+  decides (§5 rule 9).
+- `fabric-review-calibration` ports gavel's arithmetic (MIT) to stdlib
+  Python, fixing undefined-as-zero, silent bootstrap drops and a
+  fail-open ledger (§5 rule 10).
+- Keywords: review calibration, calibrate, classifier, judge, owner labels, held-out, seeded defects, recall, precision, TPR, TNR, Rogan-Gladen, McNemar, TOST, pass^k, gavel, review routing, P3.

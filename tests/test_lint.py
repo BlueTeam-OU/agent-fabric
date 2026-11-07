@@ -1290,6 +1290,23 @@ def case_the_repository_is_one_license() -> None:
         _write_license_layout(fabric, registry, REUSE_OK + '[[annotations]]\npath = ["projects/demo/**"]\nprecedence = "override"\nSPDX-FileCopyrightText = "t"\nSPDX-License-Identifier = "LicenseRef-demo-Proprietary"\n', licenses=("Apache-2.0", "LicenseRef-demo-Proprietary"))
         code, out = run_lint(fabric)
         assert code == 1 and "Apache-2.0 throughout" in out, f"a second license passed:\n{out}"
+        # a port keeps its upstream's notice beside ours, naming the upstream (ADR-066 §5 rule 10)
+        port = ('[[annotations]]\npath = ["tools/fabric/ported.py"]\nprecedence = "override"\n'
+                'SPDX-FileCopyrightText = ["2026 Upstream", "2026 t"]\nSPDX-License-Identifier = "Apache-2.0 AND MIT"\n')
+        upstream = 'SPDX-FileContributor = "https://example.com/upstream/tree/abc"\n'
+        _write_license_layout(fabric, registry, REUSE_OK + port + upstream, licenses=("Apache-2.0", "MIT"))
+        code, out = run_lint(fabric)
+        assert code == 0, f"a port with its upstream notice was refused:\n{out}"
+        _write_license_layout(fabric, registry, REUSE_OK + port, licenses=("Apache-2.0", "MIT"))
+        code, out = run_lint(fabric)
+        assert code == 1 and "Apache-2.0 throughout" in out, f"a port naming no upstream passed:\n{out}"
+        _write_license_layout(fabric, registry, REUSE_OK + port.replace("Apache-2.0 AND MIT", "MIT") + upstream,
+                              licenses=("Apache-2.0", "MIT"))
+        code, out = run_lint(fabric)
+        assert code == 1 and "Apache-2.0 throughout" in out, f"a file under MIT alone passed:\n{out}"
+        _write_license_layout(fabric, registry, REUSE_OK + port + upstream)
+        code, out = run_lint(fabric)
+        assert code == 1 and "no LICENSES/MIT.txt" in out, f"a port's license with no text passed:\n{out}"
         # the one license has no text
         _write_license_layout(fabric, registry, REUSE_OK, licenses=())
         code, out = run_lint(fabric)
@@ -2552,7 +2569,7 @@ def case_a_contributor_entry_never_reaches_a_definition() -> None:
                   json.dumps({"role_definitions": {"role": "fabric-coordinator"}, "contributors": list(entries)}))
             return lint.contributor_findings(root)
 
-        excl = [n for n in lint.CONTRIBUTOR_NEVER if n.startswith(("tools/", "tests/"))]
+        excl = [n for n in (*lint.CONTRIBUTOR_NEVER, *lint.CONTRIBUTOR_SUPPLY) if n.startswith(("tools/", "tests/"))]
         good = {"role": "python-dev", "paths": ["tools/", "tests/", "policies/bash-allowlist.json"], "excluding": excl}
         for d in ("tools", "tests"):
             os.makedirs(os.path.join(root, d))
@@ -2583,6 +2600,24 @@ def case_a_contributor_entry_never_reaches_a_definition() -> None:
         for loaded in ("tools/fabric/layout.py", "tools/fabric/workingcopy.py", "tools/fabric/adr.py",
                        "tools/fabric/secretstore/lineage.py"):
             assert loaded in lint.CONTRIBUTOR_NEVER, f"{loaded} is loaded by lint by path: it is fenced like lint.py"
+        # The supply tier carves nothing hard out: no supply rule sits above
+        # a never-rule, and what the guards load or the managed settings run
+        # is in no supply rule (hook_entry.py GUARDS, hook_jq, the seal).
+        for s in lint.CONTRIBUTOR_SUPPLY:
+            assert not (s.endswith("/") and any(n.startswith(s) for n in lint.CONTRIBUTOR_NEVER)), s
+            assert s not in lint.CONTRIBUTOR_NEVER, f"{s} is in both tiers"
+        hooks = os.path.join(ROOT, "runtime", "claude-code", "hooks")
+        entry_spec = importlib.util.spec_from_file_location(
+            "fabric_hook_entry_under_test", os.path.join(ROOT, "runtime", "claude-code", "managed", "hook_entry.py"))
+        hook_entry = importlib.util.module_from_spec(entry_spec)
+        entry_spec.loader.exec_module(hook_entry)
+        hard = [m for m, _, _ in hook_entry.GUARDS.values()] + [
+            "runtime/claude-code/hooks/hook_jq.py", "runtime/claude-code/hooks/session-seal.py"]
+        hard += [f"runtime/claude-code/hooks/{h}" for h in os.listdir(hooks) if "guard" in h or "fence" in h]
+        for h in hard:
+            assert not any(lint._rule_covers(s, h) for s in lint.CONTRIBUTOR_SUPPLY), f"{h} is a guard: hard"
+        for s in lint.CONTRIBUTOR_SUPPLY:
+            assert os.path.exists(os.path.join(ROOT, s)), f"{s}: a supply rule names a path the tree lacks"
         got = findings({**good, "paths": good["paths"] + ["policies/"]})
         assert any("rule 'policies/' reaches policies/" in f for f in got), got
         # The carrier's pin and roster and GitHub's host keys: held by lint,
@@ -2616,6 +2651,25 @@ def case_a_contributor_entry_never_reaches_a_definition() -> None:
         got = findings({**good, "excluding": [e for e in excl if e != "tools/fabric/guards/"] + ["tools/fabric/guards/x.py"]})
         assert any("reaches tools/fabric/guards/" in f for f in got), "an exclusion of one file under it does not"
         got = findings({**good, "paths": [""]})
+        assert any("not a whole entry" in f for f in got), got
+        # The supply tier (A 2026-11-07): a `paths` rule above a supply path
+        # must exclude it, one inside is told to name it under `supplies`,
+        # and a `supplies` rule outside the tier is refused.
+        got = findings({**good, "excluding": [e for e in excl if e != "tools/fabric/bootstrap.py"]})
+        assert any("rule 'tools/' reaches tools/fabric/bootstrap.py, a supply path" in f for f in got), got
+        # …and is never told it reached the fence (review of #501, F1).
+        assert not any("bootstrap.py" in f and "enforces the fence" in f for f in got), got
+        got = findings({**good, "paths": good["paths"] + ["tools/fabric/bootstrap.py"]})
+        assert any("name it under `supplies`" in f for f in got), got
+        write(os.path.join(root, "tools", "fabric", "bootstrap.py"), "")
+        write(os.path.join(root, "runtime", "claude-code", "hooks", "statusline.sh"), "")
+        supplying = {**good, "supplies": ["tools/fabric/bootstrap.py", "runtime/claude-code/hooks/statusline.sh"]}
+        assert findings(supplying) == [], findings(supplying)
+        for outside_tier in ("tools/fabric/guards/common.py", "runtime/claude-code/hooks/review-fence.py",
+                             "runtime/claude-code/hooks/", "tools/fabric/"):
+            got = findings({**supplying, "supplies": [outside_tier]})
+            assert any(f"supplies rule {outside_tier!r} is outside the supply tier" in f for f in got), (outside_tier, got)
+        got = findings({**good, "supplies": "tools/fabric/bootstrap.py"})
         assert any("not a whole entry" in f for f in got), got
         got = findings({**good, "role": ["python-dev"]})
         assert any("not a whole entry" in f for f in got), got

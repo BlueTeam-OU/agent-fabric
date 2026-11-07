@@ -17,11 +17,14 @@ written when a second role first worked here.
 **Yours here.** Every file. What a role is — `identities/`, `routing/`,
 `policies/`, `communication/gzcoord/protocol/`, `docs/adr/`, `memory/`,
 `.agent-fabric/`, `.github/`, the guards and what they import or run,
-all of `runtime/claude-code/`, the role, routing, prompt and
-review-brief code (`CONTRIBUTOR_NEVER` in `tools/fabric/lint.py`) — is
-yours alone. The rest is yours too, and a contributor role may also
+`runtime/claude-code/` but its listed workspace hooks, the role, routing
+and review-brief code (`CONTRIBUTOR_NEVER` in `tools/fabric/lint.py`) —
+is yours alone. The rest is yours too, and a contributor role may also
 commit it within its entry in `policies/authority.json` (ADR-018 §5 rule
-8).
+8). The supply tier between them (`CONTRIBUTOR_SUPPLY`: the prompt
+renderer, bootstrap, the Python pin, the history and relay code, those
+hooks) a contributor commits only under its entry's `supplies`, on a
+`for/<you>/` branch, and only you fold and merge it.
 
 **A contribution.** A contributor whose entry does not merge delivers a
 branch `<host>/<login>/for/<you>/<what>` and opens no pull request. You fold it

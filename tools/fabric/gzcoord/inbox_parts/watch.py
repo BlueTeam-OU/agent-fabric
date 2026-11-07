@@ -90,6 +90,10 @@ def wait_loop(fetch_page: Callable[[int, threading.Event], Any], ack: Callable[[
     does, with `sessionEnded` in the result: a slice abandoned or a page that landed with it is unread and unacknowledged, so
     the relay shows it again to the next watch (a page already being journaled and shown is finished, and is in the journal).
 
+    A relay fetch that raises is read as an empty page when `iw` and `ledger` are given, so the carrier is still asked
+    (ADR-064: the relay is the channel of record, not the only one). If nothing is delivered the error is raised as
+    without a carrier; if the carrier delivers, the result carries it as `relayError` and the caller must still report it.
+
     `iw` is the second carrier's adapter (carrier/adapter.py), None when there is none: it only supplies `unseen`, the arrivals
     the carrier journaled, which pass through the same ledger as a relay record. `ledger` (carrier/ledger.py) decides what is shown:
     with one, a delivered result carries `ledger`, the exclusive lock still held, and the caller must `finish()` it once it has
@@ -103,6 +107,7 @@ def wait_loop(fetch_page: Callable[[int, threading.Event], Any], ack: Callable[[
     out_of_time = {"classified": [], "waited": 0.0, "delivered": False, "keywordHit": None, "othersPassed": 0}
     was_held = False
     while True:
+        relay_error: BaseException | None = None
         if session_gone():
             return {**out_of_time, "waited": waited, "sessionEnded": True}
         if held():
@@ -150,7 +155,13 @@ def wait_loop(fetch_page: Callable[[int, threading.Event], Any], ack: Callable[[
             dropped = True
         elif "error" in box:
             abort.set()
-            raise box["error"]
+            if ledger is None or iw is None:
+                raise box["error"]
+            # ADR-064: the relay is the channel of record, not the only one. A fetch that fails is read as an
+            # empty page so the carrier is still asked; if it brings nothing, the relay's error is raised below
+            # as it always was (the caller's down/give-up accounting is unchanged).
+            relay_error = box["error"]
+            page = {"messages": []}
         else:
             page = box["page"]
         abort.set()
@@ -281,6 +292,8 @@ def wait_loop(fetch_page: Callable[[int, threading.Event], Any], ack: Callable[[
                 if lock is not None and not delivered:
                     lock.release()
                     lock = None
+        if relay_error is not None and not delivered:
+            raise relay_error
         def acknowledge() -> None:
             for rec in retired:
                 try:
@@ -312,6 +325,10 @@ def wait_loop(fetch_page: Callable[[int, threading.Event], Any], ack: Callable[[
         if delivered or hit or wait_total == 0 or waited >= wait_total:
             return {"classified": [c for c in classified if not c.get("quiet")], "waited": waited,
                     "delivered": delivered, "keywordHit": hit, "ledger": lock, "ack_later": ack_later,
+                    "relayError": relay_error,
+                    # Whether the relay itself answered this slice: not when the fetch failed (a carrier delivery says
+                    # nothing of the relay) nor when a hold emptied the page. The relay-down marker is cleared on this.
+                    "relayAnswered": relay_error is None and not dropped,
                     "othersPassed": len([c for c in classified if not c["isMine"]])}
         # Nothing for this session, no keyword hit: the cursor is past the
         # slice, and the remaining budget keeps waiting.

@@ -297,6 +297,19 @@ def _record_refusal(store: str, commit: str, reason: str) -> None:
         raise
 
 
+def _record_refusal_or_say(store: str, commit: str, reason: str) -> str:
+    """_record_refusal for a caller that is about to raise the refusal: a
+    record that cannot be written must not replace the refusal with an
+    OSError, or the caller's cleanup (a fresh clone removed under
+    `except StoreError`) is skipped. "" when written, else the clause that
+    says it was not."""
+    try:
+        _record_refusal(store, commit, reason)
+    except OSError as e:
+        return f" (its refusal record could not be written: {type(e).__name__}: {e})"
+    return ""
+
+
 def _kept_refusal(store: str) -> str | None:
     """Where a child's mirror's refusal is kept once the mirror is gone:
     beside it, as its lock is, so removing the mirror leaves it. None for a
@@ -535,8 +548,8 @@ def require_tree(store: str, tip: str) -> None:
     reason = _tree_reason(store, None, tip)
     if reason:
         commit = _full(store, tip)
-        _record_refusal(store, commit, reason)
-        raise StoreError(f"commit {commit[:12]} refused: {reason}; nothing applied (ADR-042)")
+        lost = _record_refusal_or_say(store, commit, reason)
+        raise StoreError(f"commit {commit[:12]} refused: {reason}; nothing applied (ADR-042){lost}")
 
 
 def _verify_incoming(store: str, tip: str, agent_id: str | None = None, fabric: str | None = None,
@@ -557,8 +570,8 @@ def _verify_incoming(store: str, tip: str, agent_id: str | None = None, fabric: 
     aid = agent_id or own_agent_id(store)
 
     def refuse(commit: str, reason: str) -> StoreError:
-        _record_refusal(store, commit, reason)
-        return StoreError(f"commit {commit[:12]} refused: {reason}; nothing applied (ADR-042) — "
+        lost = _record_refusal_or_say(store, commit, reason)
+        return StoreError(f"commit {commit[:12]} refused: {reason}; nothing applied (ADR-042){lost} — "
                           "the store's parent or the owner repairs it")
     try:
         allowed = writers(aid, fabric)

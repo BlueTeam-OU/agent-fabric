@@ -5,7 +5,7 @@ topic: "role-tools-on-qubes-host"
 description: "how a role's extra host tools (not the fabric's host contract) get onto develop-qzapp, and who has to run the install"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-11-05"
+distilled_at: "2026-11-07"
 origin:
   - agent: "devex-tooling"
     host: "develop-qzapp"
@@ -14,6 +14,7 @@ origin:
 derived_from:
   - 22e591c7d77f40a4
   - 534f3db13981d588
+  - 8a770cf51b3f576f
 ---
 
 ## how a role's extra host tools (not the fabric's host contract) get onto develop-qzapp, and who has to run the install
@@ -43,20 +44,24 @@ template), sudo is the `qubes` group's and only the operator account `user` is i
   and CI installs the whole list, so a role's tools never go in it. Nor does
   FABRIC_OPERATOR_TOOLS, which is the operator login's own GUI packages. fabric-coordinator
   (REPLY 01a15195, 2026-10-19, superseding the host-tools.json idea of 01a1402b) decided that a
-  role's tool is an entry in that project's `tools` in projects/registry.json, carrying
-  `roles: [<role>]`, `where: host`, a `proof` and a `why`. A host package the owner installs
-  has no install block; one an account fetches itself has an `install` block with a pinned
-  sha256. `fabric-tools` checks them. The registry is fabric-coordinator's: send the entries
-  as message text (brand-comms' went as REPLY 01a15196-a734, 2026-10-19).
+  role's tool is an entry in that project's `tools` in projects/registry.json: name, proof,
+  version, why, `where` (`host` or `account`), optional `roles: [<role>]`, and for an account
+  tool an `install` block with a pinned sha256. brand-comms' five are `where: host` entries
+  there. `fabric-tools [--project P | --all] [--role R]` checks them on the account; a tool
+  marked `optional` is reported but never fails the check. An `account` tool is installed by
+  the account itself (`fabric-tools --install <name>`); a `host` tool by the owner. The
+  per-role host-tools.json list and its schema of the 2026-10-15 idea never landed: neither
+  has any history on main (re-checked 2026-10-20). The registry is fabric-coordinator's: send the entries as message text
+  (brand-comms' went as REPLY 01a15196-a734, 2026-10-19).
 - Fedora's python3-fonttools has no CLI. `fonttools`, `pyftsubset` and `ttx` come in the
   separate `fonttools` package; use `python3 -m fontTools.subset` instead.
 
-**Why:** a role account cannot run dnf or write to /usr/local, so these installs need the owner.
+**Why:** a role account cannot run dnf or write to /usr/local, so a `host` tool's install needs the owner.
 
 **How to apply:** verify everything as your own login in the scratchpad (download, checksum,
 smoke run, a mutation with a wrong sha), then give the owner the one dnf line plus one
 `sudo bash` line.
 
-*Anchors: `runtime/provisioning/platform/fedora-qubes.sh::PERSISTS_ACROSS_REBOOT=0`, `runtime/provisioning/platform/detect.sh::FABRIC_HOST_TOOLS`, `projects/registry.json::"roles"`*
+*Anchors: `runtime/provisioning/platform/fedora-qubes.sh::PERSISTS_ACROSS_REBOOT=0`, `runtime/provisioning/platform/detect.sh::FABRIC_HOST_TOOLS`, `projects/registry.json::"roles"`, `tools/fabric/tools_check.py::optional`*
 
-*Observed 2026-10-15 (devex-tooling)*
+*Observed 2026-10-15, re-checked 2026-10-20 (devex-tooling)*
