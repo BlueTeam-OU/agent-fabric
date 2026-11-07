@@ -342,7 +342,7 @@ def main() -> int:
         f.write(adjudication(reals[0], "real", fp_conf) + "\n")
     rcode, out, _ = run_main(["report", "--instructions", instructions, instructions2, "--runs", two, "--ledger", big_path, "--json", "--iterations", "50"])
     confs = json.loads(out)["configurations"]
-    check("configurations differing only in the review's config fingerprint are never pooled", rcode == 0
+    check("configurations differing only in their instructions' sha256 are never pooled", rcode == 0
           and sorted(c["config"] for c in confs if c["model"] == "m-1") == sorted([CONF["config"], fp_conf["config"]]), confs)
     check("two configurations are never pooled", rcode == 0 and sorted({c["model"] for c in confs}) == ["m-1", "m-2"]
           and all(c["adjudication"]["published"] is False for c in confs if c["config"] != CONF["config"] or c["model"] == "m-2"), confs)
