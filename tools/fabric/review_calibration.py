@@ -9,7 +9,7 @@ licence, Copyright (c) 2026 TechTide Ohio (the notice is kept through REUSE.toml
   src/dataset.rs     SplitMix64, which seeds the bootstrap so a run reproduces
 The exact McNemar and TOST tests are written from their formulas with math.comb; gavel has neither.
 
-FOUR BEHAVIOURS DIFFER FROM GAVEL, each pinned by a test that fails on gavel's:
+THREE BEHAVIOURS DIFFER FROM GAVEL, each pinned by a test that fails on gavel's:
   1. A rate with no denominator is None, never 0.0 (gavel's tpr() of a matrix with no positives is 0.0, so a
      judge never shown a real finding reads as one that rejects them all). The same rule covers kappa, MCC,
      precision and the Wilson interval of an empty sample (gavel: kappa 0.0/1.0, MCC 0.0, interval (0, 1)).
@@ -274,7 +274,9 @@ def tost_paired(b: int, c: int, pairs: int, margin: float = 0.05) -> float | Non
 
 # ---------------------------------------------------------------- the ledger
 
-REPO = re.compile(r"[A-Za-z0-9._-]+/[A-Za-z0-9._-]+")
+# Lowercase only: GitHub answers any case, and the half is a hash of the coordinates, so two spellings of one
+# repository would be two findings, possibly in different halves.
+REPO = re.compile(r"[a-z0-9._-]+/[a-z0-9._-]+")
 FINDING = re.compile(r"F[0-9]+")
 LEDGER_KEYS = ("repo", "pr", "review", "finding", "verdict", "date", "labeller", "prev", "hash")
 HEX64 = re.compile(r"[0-9a-f]{64}")
@@ -427,7 +429,7 @@ def read_runs(path: str) -> list[Run]:
         except ValueError:
             raise Refused(f"{where}: not a JSON object") from None
         kind = rec.get("kind") if isinstance(rec, dict) else None
-        if kind not in RUN_KINDS:
+        if not isinstance(kind, str) or kind not in RUN_KINDS:
             raise Refused(f"{where}: kind is not one of {sorted(RUN_KINDS)}")
         if set(rec) != {"kind", "configuration", *RUN_KINDS[kind]}:
             raise Refused(f"{where}: keys {sorted(rec)} do not fit a {kind} record")
@@ -745,7 +747,7 @@ def main(argv: list[str] | None = None, ask: Callable[[str], str] = input, out=N
     p = sub.add_parser("label", help="label the next unlabelled finding, blind")
     p.add_argument("--repo", required=True)
     p.add_argument("--pr", type=int, action="append", default=[])
-    p.add_argument("--limit", type=int, default=50)
+    p.add_argument("--limit", type=int, default=50, choices=range(1, 101), metavar="1-100")
     p.add_argument("--ledger", default=LEDGER)
     p.add_argument("--labeller", default=None)
     p = sub.add_parser("split", help="the half of a finding: dev or held-out")
@@ -764,7 +766,7 @@ def main(argv: list[str] | None = None, ask: Callable[[str], str] = input, out=N
         if args.command == "split":
             rec = {"repo": args.repo, "pr": args.pr, "review": args.review, "finding": args.finding}
             if not _valid_coordinates(rec):
-                raise Refused("coordinates are OWNER/NAME, a PR number, a review id and a label like F3")
+                raise Refused("coordinates are lowercase owner/name, a PR number, a review id and a label like F3")
             print(coordinates_of(rec).half(), file=out)
             return 0
         if args.command == "report":
@@ -774,6 +776,7 @@ def main(argv: list[str] | None = None, ask: Callable[[str], str] = input, out=N
             report = build_report(ledger, runs, args.iterations)
             print(json.dumps(report, indent=2, sort_keys=True) if args.json else render(report), file=out)
             return 0
+        args.repo = args.repo.lower()
         args.labeller = args.labeller or getpass.getuser()
         return run_label(args, ask, out, today)
     except Refused as e:

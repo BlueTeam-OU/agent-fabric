@@ -151,7 +151,8 @@ def main() -> int:
     d = rc.debias(weak, 25, 50, 400, 1)
     check("a weak judge discards bootstrap draws, and the report counts them", d.discarded > 0 and d.draws == 400
           and 0 < d.discarded < 400, (d.discarded, d.draws))
-    check("the raw Rogan-Gladen value is beside the corrected one", d.raw != d.corrected or 0.0 <= d.raw <= 1.0)
+    check("the raw Rogan-Gladen value is beside the clamped one: raw -4.0 -> corrected 0.0",
+          d.raw == rc.rogan_gladen(25 / 50, 11 / 20, 23 / 50).raw and d.raw < 0.0 and d.corrected == 0.0, d)
     check("the same seed reproduces the draws", rc.debias(weak, 25, 50, 400, 1) == d
           and rc.debias(weak, 25, 50, 400, 2) != d)
     exact = rc.debias(rc.Confusion(tp=10, tn=10), 0, 20, 50, 3)
@@ -218,8 +219,11 @@ def main() -> int:
     check("a blank line is refused, not skipped", "line 2" in (refused([good[0], "", good[1], good[2]]) or ""))
     check("a comment line is refused, not skipped", "line 1" in (refused(["# note", good[0]]) or ""))
     check("a last line without its newline is refused", "newline" in (refused([], "\n".join(good)) or ""))
-    check("a finding labelled twice is refused", "already labelled" in (refused([good[0], good[0]]) or "")
-          or "broken chain" in (refused([good[0], good[0]]) or ""))
+    twice = json.loads(good[0])
+    twice.update(prev=twice["hash"], verdict="not-real")
+    twice["hash"] = rc.chain_hash(twice)
+    check("a finding labelled twice, properly chained, is refused by the reader", "already labelled" in
+          (refused([good[0], json.dumps(twice)]) or ""), refused([good[0], json.dumps(twice)]))
     check("a whole good ledger is accepted (positive control)", refused(good) is None)
     rcode, out, err = run_main(["report", "--instructions", instructions, "--runs", os.path.join(tmp, "none"), "--ledger", ledger])
     check("a missing runs file is a refusal, one line", rcode == 1 and len(err.splitlines()) == 1, err)
@@ -234,6 +238,8 @@ def main() -> int:
     c0 = coords_in("dev", 1)[0]
     rcode, out, _ = run_main(["split", c0.repo, str(c0.pr), str(c0.review), c0.finding])
     check("split prints the half", rcode == 0 and out == "dev\n", out)
+    rcode, _, err = run_main(["split", "Mixed/Case", "1", "2", "F1"])
+    check("split refuses a repository that is not lowercase (one spelling per finding)", rcode == 1 and "lowercase" in err, err)
     rcode, _, err = run_main(["split", "nonsense", "1", "2", "F1"])
     check("split refuses malformed coordinates", rcode == 1 and "coordinates" in err, err)
 
@@ -332,6 +338,12 @@ def main() -> int:
             f.write(json.dumps(line) + "\n")
         r_, _, e_ = run_main(["report", "--instructions", instructions, "--runs", bad_runs, "--ledger", big_path])
         check(f"a runs file with {label} is refused, naming its line", r_ == 1 and "line 1" in e_, e_)
+    for kind in ("[]", "{}", "5"):
+        with open(bad_runs, "w") as f:
+            f.write('{"kind": ' + kind + '}\n')
+        r_, _, e_ = run_main(["report", "--instructions", instructions, "--runs", bad_runs, "--ledger", big_path])
+        check(f"a runs-file kind of {kind} is a one-line refusal, no traceback", r_ == 1 and "line 1" in e_
+              and len(e_.splitlines()) == 1, e_)
     with open(bad_runs, "w") as f:
         f.write(adjudication(reals[0], "real") + "\n" + adjudication(reals[0], "not-real") + "\n")
     r_, _, e_ = run_main(["report", "--instructions", instructions, "--runs", bad_runs, "--ledger", big_path])
@@ -434,9 +446,11 @@ def main() -> int:
     try:
         lp = os.path.join(tmp, "label", "labels.jsonl")
         answers = iter(["maybe", "unsure", "skip"])
-        rcode, out, _ = run_main(["label", "--repo", "o/r", "--pr", "9", "--ledger", lp, "--labeller", "owner"],
+        rcode, out, _ = run_main(["label", "--repo", "O/R", "--pr", "9", "--ledger", lp, "--labeller", "owner"],
                                  ask=lambda prompt: next(answers), today=lambda: "2026-11-08")
         recs = rc.read_ledger(lp)
+        check("label: --repo is lowercased into the coordinates, whatever its spelling",
+              all(r["repo"] == "o/r" for r in recs))
         check("label: the summary, place, range and hunk are shown; a bad answer asks again", rcode == 0
               and summary in out and "src/a.py:12" in out and "+y: the changed line" in out
               and f"{BASE[:12]}..{HEAD[:12]}" in out and "@@ -1,3" not in out, out)
@@ -448,6 +462,8 @@ def main() -> int:
               len(recs) == 1 and recs[0]["verdict"] == "unsure" and recs[0]["finding"] == "F1" and recs[0]["review"] == 555
               and recs[0]["date"] == "2026-11-08" and recs[0]["labeller"] == "owner"
               and summary not in open(lp).read(), recs)
+        r_, _, e_ = run_main(["label", "--repo", "o/r", "--limit", "200", "--ledger", lp])
+        check("label: --limit above 100 is a usage error, not a silent cap", r_ == 2)
         again = io.StringIO()
         with contextlib.redirect_stderr(io.StringIO()):
             rc.main(["label", "--repo", "o/r", "--pr", "9", "--ledger", lp], ask=lambda p: "quit", out=again)
