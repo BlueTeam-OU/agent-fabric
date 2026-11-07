@@ -17,9 +17,9 @@ derived_from:
 
 ## a REQUEST sent with PROJECT agent-fabric becomes a job homed in agent-fabric even when the work is in another repo; the commit guard then blocks it
 
-REQUEST 01a16cdc-019f-754d-91fe-e93901e19280 asked for work in [redacted]-shop-transit, but its header said PROJECT agent-fabric. Intake queued it as job j15 with working copy ~/projects/agent-fabric and a worktree agent-fabric-j15-…, which is the wrong repository.
+REQUEST 01a16cdc-019f-754d-91fe-e93901e19280 asked for work in [redacted]-shop-transit, but its header said PROJECT agent-fabric. Intake queued it as job j15 with agent-fabric's working copy and an agent-fabric worktree, which is the wrong repository.
 
-The PreToolUse guard then refused `git commit` in ~/projects/[redacted]-shop-transit (ADR-037 rule 3), and fabric-jobs has no command to move a job to another working copy.
+The PreToolUse guard then refused `git commit` in the [redacted]-shop-transit working copy (ADR-037 rule 3), and fabric-jobs has no command to move a job to another working copy.
 
 What worked: `fabric-jobs add "<artifact>" --working-copy <the right copy> --topic …`, then drop the wrong job pointing at the new one, then `fabric-jobs switch`.
 
