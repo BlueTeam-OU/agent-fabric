@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""tools/fabric/review_calibration.py — the reader of agent-fabric ADR-066: the review class measured like a
+"""tools/fabric/review_calibration.py — the reader of ADR-066 (PR #497): the review class measured like a
 classifier. Standard library only (gh through gh.py).
 
 PORTED FROM gavel, https://github.com/TechTideOhio/gavel at 27ff6e1d9d7ea38c4adb44809a147f24fe008fdf, MIT
