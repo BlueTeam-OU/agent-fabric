@@ -62,7 +62,7 @@ HERE = os.path.dirname(os.path.realpath(__file__))
 sys.path.insert(0, os.path.dirname(HERE))
 import gh  # noqa: E402
 import review_brief  # noqa: E402
-from github import common, local, review_coverage  # noqa: E402
+from github import common, evidence, local, review_coverage  # noqa: E402
 from github.review_checkpoint import last_checkpoint_review  # noqa: E402
 
 REVIEW_MARKER = "<!-- agent-fabric-review v1 -->"
@@ -173,8 +173,6 @@ Exit codes:
 AUTOMATION = {"dependabot", "renovate", "github-actions", "weblate", "imgbot", "allcontributors", "pre-commit-ci",
               "snyk-bot"}
 LOCALE_FILE = re.compile(r"identities/roles/[^/\n]+/locale/[^/\n]+/[^/\n]+")
-# GitHub lists up to 250 of a pull request's commits, and stops there as it does for its files (common.PR_FILE_LIST_CAP).
-COMMIT_LIST_CAP = 250
 SHA = re.compile(r"[0-9a-f]{40}|[0-9a-f]{64}")
 SHA40 = re.compile(r"[0-9a-f]{40}")
 SHA256 = re.compile(r"[0-9a-f]{64}")
@@ -229,15 +227,10 @@ def locale_only(repo: str, pr: str) -> bool:
     having read the list (review of #70). The status decides first; then
     only an array of pages of file objects is a list."""
     try:
-        out = gh.run(["api", "--paginate", "--slurp", f"repos/{repo}/pulls/{pr}/files?per_page=100"],
-                     what=f"gh api GET repos/{repo}/pulls/{pr}/files")
-        pages = json.loads(out)
-    except (gh.GhError, ValueError):
+        files = evidence.PrEvidence(repo, pr).files()
+    except gh.GhError:
         return False
-    if not isinstance(pages, list) or not all(isinstance(p, list) for p in pages):
-        return False
-    files = [f for page in pages for f in page]
-    if not 1 <= len(files) < common.PR_FILE_LIST_CAP or not all(isinstance(f, dict) for f in files):
+    if isinstance(files, evidence.Incomplete) or not files:
         return False
     paths = [f.get("filename") for f in files] + [f["previous_filename"] for f in files if f.get("previous_filename")]
     return all(isinstance(p, str) and LOCALE_FILE.fullmatch(p) for p in paths)
@@ -418,18 +411,13 @@ def pr_commit_refusal(repo: str, pr: str, sha: str) -> str:
     """Why sha is not known to be a commit of the PR, or "" when it is. FAILS CLOSED, as locale_only: a list not
     read, or one GitHub may have cut, does not say the sha is in it."""
     try:
-        out = gh.run(["api", "--paginate", "--slurp", f"repos/{repo}/pulls/{pr}/commits?per_page=100"],
-                     what=f"gh api GET repos/{repo}/pulls/{pr}/commits")
-        pages = json.loads(out)
-    except (gh.GhError, ValueError):
+        listed = evidence.PrEvidence(repo, pr).has_commit(sha)
+    except gh.GhError:
         return f"the commits of PR #{pr} could not be read"
-    if not isinstance(pages, list) or not all(isinstance(p, list) for p in pages):
-        return f"the commits of PR #{pr} could not be read"
-    commits = [c for page in pages for c in page]
-    if any(isinstance(c, dict) and c.get("sha") == sha for c in commits):
+    if listed is True:
         return ""
-    if len(commits) >= COMMIT_LIST_CAP:
-        return f"{sha[:12]} is not among the {len(commits)} commits GitHub lists for PR #{pr}, a list it cuts there"
+    if isinstance(listed, evidence.Incomplete):
+        return f"{sha[:12]} is not among the {listed.count} commits GitHub lists for PR #{pr}, a list it cuts there"
     return f"{sha[:12]} is not a commit of PR #{pr} (a force-push may have dropped it)"
 
 

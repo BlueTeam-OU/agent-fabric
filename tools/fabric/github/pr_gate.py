@@ -40,7 +40,7 @@ HERE = os.path.dirname(os.path.realpath(__file__))
 sys.path.insert(0, os.path.dirname(HERE))
 import gh  # noqa: E402
 import git  # noqa: E402
-from github import arm_policy, arm_rules, commit_class, common, landed, local, pr_review_status  # noqa: E402, F401  (commit_class: the unit suite reaches it here)
+from github import arm_policy, arm_rules, commit_class, common, evidence, landed, local, pr_review_status  # noqa: E402, F401  (commit_class: the unit suite reaches it here)
 from github.review_status.base import listed, obj  # noqa: E402
 # What was split out of this module stays importable from here: the unit
 # suite, pr_compliance and the other callers reach it as pr_gate.<name>.
@@ -500,8 +500,8 @@ def record_of(rules: tuple | None, repo: str, num: int, head: str) -> bool:
     if rules is None:
         return False
     try:
-        listed = gh.api(f"repos/{repo}/pulls/{num}/files?per_page=100", paginate=True)
-        if not isinstance(listed, list) or len(listed) >= common.PR_FILE_LIST_CAP:
+        listed = evidence.PrEvidence(repo, num).files()
+        if isinstance(listed, evidence.Incomplete):
             raise arm_rules.Unanswered(f"#{num}'s file list is not whole")
         return arm_rules.record_pr(listed, rules[2], rules[0], rules[1],
                                    lambda paths: arm_rules.head_modes(repo, head, paths))[0]

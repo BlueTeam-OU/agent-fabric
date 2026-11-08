@@ -212,7 +212,7 @@ sys.path.insert(0, os.path.dirname(HERE))
 import gh  # noqa: E402
 import git  # noqa: E402
 import roots  # noqa: E402
-from github import arm_findings, arm_policy, common, landed, pr_gate, repo_policy, review_posters as posters_of  # noqa: E402
+from github import arm_findings, arm_policy, common, evidence, landed, pr_gate, repo_policy, review_posters as posters_of  # noqa: E402
 # The rules' names stay importable from here, where the oracle and callers
 # reach them as arm.<name>.
 from github.arm_rules import (  # noqa: E402, F401
@@ -416,8 +416,6 @@ ROLE_TRAILER = re.compile(r"^Fabric-Role:[ \t]*([a-z][a-z0-9-]*)[ \t]*$", re.M)
 ARMED_DESCRIPTION = "Armed through fabric-pr arm: this head passed its gates"
 # The merge method as the flag gh takes: a fixed table, not the policy's text put into an argument.
 MERGE_FLAGS = {"merge": "--merge", "squash": "--squash", "rebase": "--rebase"}
-# GitHub lists at most this many commits of a pull request; a role is not read from a part of them.
-PR_COMMITS_CAP = 250
 
 
 def author_role(repo: str, num: str) -> str | None:
@@ -426,8 +424,9 @@ def author_role(repo: str, num: str) -> str | None:
     carries a trailer, or they name several. A role is a minimum the repository may lower for it, so the answer is
     None unless it is certain. Raises Unanswered when GitHub cannot list the commits."""
     try:
-        listed = gh.api(f"repos/{repo}/pulls/{num}/commits?per_page=100", paginate=True)
-        if len(listed) >= PR_COMMITS_CAP:
+        listed = evidence.PrEvidence(repo, num).commits()
+        # A role is not read from a part of the commits.
+        if isinstance(listed, evidence.Incomplete):
             return None
         roles = set()
         for c in listed:
@@ -1097,15 +1096,16 @@ def arm(argv: list[str]) -> int:
     # GitHub names it by where it ended up (previous_filename is the
     # other; review of this port, pre-existing in the bash it was ported from).
     try:
-        listed = gh.api(f"repos/{repo}/pulls/{num}/files?per_page=100", paginate=True)
-        files = [f.get("filename", "") for f in listed]
-        files += [f["previous_filename"] for f in listed if f.get("previous_filename")]
+        listed = evidence.PrEvidence(repo, num).files()
+        if not isinstance(listed, evidence.Incomplete):
+            files = [f.get("filename", "") for f in listed]
+            files += [f["previous_filename"] for f in listed if f.get("previous_filename")]
     except (gh.GhError, AttributeError, TypeError):
         raise Unanswered(f"cannot list #{num}'s files") from None
-    # Past the cap the list is a part of the change: the boundary, the class and the no-CI checks below would each
+    # At the cap the list is a part of the change: the boundary, the class and the no-CI checks below would each
     # judge only that part, so none of them is read from it (external review F08).
-    if len(listed) >= common.PR_FILE_LIST_CAP:
-        raise Unanswered(f"#{num} lists {len(listed)} files, GitHub's cap: the list may be cut, so neither the boundary"
+    if isinstance(listed, evidence.Incomplete):
+        raise Unanswered(f"#{num} lists {listed.count} files, GitHub's cap: the list may be cut, so neither the boundary"
                          f" nor a class can be read from it; split the PR, or the owner merges it by hand")
     boundary_files = [f for f in files if not (exempt_re and exempt_re.search(f)) and boundary_re.search(f)]
     is_boundary = False

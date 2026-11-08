@@ -64,7 +64,7 @@ HERE = os.path.dirname(os.path.realpath(__file__))
 sys.path.insert(0, os.path.dirname(HERE))
 import gh  # noqa: E402
 import roots  # noqa: E402
-from github import arm_policy, commit_class, review_coverage, review_posters  # noqa: E402
+from github import arm_policy, commit_class, evidence, review_coverage, review_posters  # noqa: E402
 from github.pr_split import split_rows  # noqa: E402
 from github.review_status.config import BUILTIN_LEGACY_MARKER, REVIEW_MARKER  # noqa: E402
 from github.review_status.verdicts import engine_of, unavailable_of  # noqa: E402
@@ -72,7 +72,6 @@ from github.review_status.verdicts import engine_of, unavailable_of  # noqa: E40
 PROG = "fabric-pr counts"
 DEFAULT_TIMEOUT_S = 20.0
 PER_QUERY = 10
-REST_COMMIT_CAP = 250
 REF = re.compile(r"(?:(?P<where>[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)?)?#|(?=[0-9]))(?P<n>[1-9][0-9]*)")
 REPO = re.compile(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+")
 FIELDS = """number state isDraft mergedAt headRefOid baseRefName author { __typename login }
@@ -250,9 +249,9 @@ def commit_rows(pr: dict, repo: str, number: int, budget: Budget) -> tuple[list[
     nodes = []
     commits = pr.get("commits") or {}
     if (commits.get("pageInfo") or {}).get("hasNextPage"):
-        listed = gh.api(f"repos/{repo}/pulls/{number}/commits?per_page=100", paginate=True, timeout=budget.left())
-        if len(listed) >= REST_COMMIT_CAP:
-            raise Unreadable(f"it has {REST_COMMIT_CAP} commits or more, past what GitHub lists")
+        listed = evidence.PrEvidence(repo, number).commits(timeout=budget.left())
+        if isinstance(listed, evidence.Incomplete):
+            raise Unreadable(f"it has {listed.cap} commits or more, past what GitHub lists")
         for c in listed:
             nodes.append((c["sha"], len(c.get("parents") or []), c["commit"]["message"]))
     else:

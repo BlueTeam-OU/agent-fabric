@@ -68,8 +68,10 @@ case "$1" in
       [ -n "$f" ] && [ -f "$f" ] && { printf 'HTTP/2.0 200 OK\r\n\r\n'; cat "$f"; exit 0; }
       echo "gh: Not Found (HTTP 404)" >&2; exit 1
     fi
-    if [ "$2" = "--paginate" ]; then
-      case "$4" in */commits*)
+    # evidence.py reads through gh.api: `api <path> --method GET --paginate --slurp`; the older form put the flags first.
+    if [ "$2" = "--paginate" ] || [ "$3" = "--method" -a "$4" = "GET" -a "$5" = "--paginate" ]; then
+      P="$2"; [ "$2" = "--paginate" ] && P="$4"
+      case "$P" in */commits*)
         [ -f "$S/commits.json" ] && { cat "$S/commits.json"; exit 0; }
         echo '[{"message":"Not Found","documentation_url":"https://docs.github.com","status":"404"}]'
         echo "gh: Not Found (HTTP 404)" >&2; exit 1 ;;
