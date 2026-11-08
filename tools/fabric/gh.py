@@ -3,7 +3,7 @@ the `gh` CLI (ADR-040 §5 rule 6).
 
     import gh
     gh.api("repos/o/r/pulls/7")                          # one object
-    gh.api("repos/o/r/pulls/7/commits", paginate=True)   # every page, one list
+    gh.api("repos/o/r/pulls/7/reviews", paginate=True)   # every page, one list
     gh.api("repos/o/r/pulls/7/reviews", method="POST", body={...})
     gh.graphql("query($n:Int!){...}", n=7)
     gh.pr_view(7, ["number", "mergedAt"], repo="o/r")

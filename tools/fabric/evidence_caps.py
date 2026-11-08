@@ -37,12 +37,20 @@ def _cap(node: ast.AST | None) -> bool:
 
 
 def _text(node: ast.AST) -> str | None:
-    """A string argument as text, an f-string's placeholders as `x`."""
+    """A string expression as text: an f-string's placeholders, and any non-literal operand of a `+`, as `x`. A path
+    built in a variable or by concatenation before the call is read as the call's own argument would be."""
     if isinstance(node, ast.Constant) and isinstance(node.value, str):
         return node.value
     if isinstance(node, ast.JoinedStr):
         return "".join(v.value if isinstance(v, ast.Constant) else "x" for v in node.values)
+    if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add):
+        left, right = _text(node.left), _text(node.right)
+        return None if left is None and right is None else (left or "x") + (right or "x")
     return None
+
+
+def _reads_pr_list(expr: ast.AST) -> bool:
+    return any((t := _text(part)) is not None and PR_LIST_PATH.search(t) for part in ast.walk(expr))
 
 
 def scan(rel: str, text: str) -> list[str]:
@@ -68,18 +76,13 @@ def scan(rel: str, text: str) -> list[str]:
                        "PR_FILE_LIST_CAP through github/evidence.py")
         elif isinstance(node, ast.Compare) and any(_cap(c) for c in [node.left, *node.comparators]):
             out.append(f"{rel}:{node.lineno}: cap: compared against GitHub's list cap; ask github/evidence.py")
-        elif isinstance(node, ast.Call):
-            for arg in [*node.args, *(k.value for k in node.keywords)]:
-                for part in ast.walk(arg):
-                    t = _text(part)
-                    if t is not None and PR_LIST_PATH.search(t):
-                        out.append(f"{rel}:{node.lineno}: read: a pull request's files or commits read outside "
-                                   "github/evidence.py")
-                        break
-                else:
-                    continue
-                break
-    return out
+        # A call's argument, or the value a name is given (the path built before the call): a docstring's example is
+        # neither.
+        exprs = [*node.args, *(k.value for k in node.keywords)] if isinstance(node, ast.Call) \
+            else [node.value] if isinstance(node, (ast.Assign, ast.AnnAssign)) and node.value is not None else []
+        if any(_reads_pr_list(x) for x in exprs):
+            out.append(f"{rel}:{node.lineno}: read: a pull request's files or commits read outside github/evidence.py")
+    return list(dict.fromkeys(out))
 
 
 def findings(root: str) -> list[str]:

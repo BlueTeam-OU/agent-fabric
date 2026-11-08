@@ -5,8 +5,10 @@ Stdlib only; runnable as `python3 tests/test_evidence_caps.py`. **Each case name
   planted_cap_in_arm        <- CAPS emptied, or _cap's Assign / Compare branch dropped
   caps_are_the_two          <- CAPS widened to every integer (500 flagged), or one of the two dropped
   read_is_found             <- PR_LIST_PATH narrowed to the paginated form, or the list-argument walk dropped
-  owners_and_others_pass    <- OWNERS not exempt, or a module outside github/ (or in a subdirectory) judged
-  the_tree_is_clean         <- a cap or a files/commits read left in tools/fabric/github/ outside the two owners
+  owners_and_others_pass    <- OWNERS not exempt, a module outside tools/fabric/ judged, a GitHub reader outside github/ not
+                                judged, or a cap literal counted in a module that imports neither gh nor github
+  the_tree_is_clean         <- a cap or a files/commits read left anywhere in tools/fabric/ outside the two owners
+  read_built_before_the_call <- the Assign / BinOp handling dropped: a path in a variable or a `+` read unseen
 """
 from __future__ import annotations
 
@@ -45,6 +47,12 @@ class Caps(unittest.TestCase):
                 got = ec.scan(ARM, src + "\n")
                 self.assertEqual(len(got), 1, got)
                 self.assertIn("read:", got[0])
+        for src in ('p = f"repos/{r}/pulls/{n}/files?per_page=100"\ngh.api(p, paginate=True)',
+                    'gh.api(f"repos/{r}/pulls/{n}" + "/commits", paginate=True)',
+                    'path: str = "repos/o/r/pulls/7/commits"'):
+            with self.subTest(built=src):
+                self.assertEqual(len(ec.scan(ARM, src + "\n")), 1, ec.scan(ARM, src + "\n"))
+        self.assertEqual(ec.scan(ARM, '"""gh.api(\'repos/o/r/pulls/7/commits\')"""\n'), [])   # a docstring example
         # Other pull-request reads and other lists are not this rule's.
         for src in ('gh.api(f"repos/{r}/pulls/{n}/reviews?per_page=100", paginate=True)',
                     'gh.api(f"repos/{r}/commits?since=x", paginate=True)',
