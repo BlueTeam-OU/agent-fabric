@@ -181,3 +181,7 @@ the per-agent logs still to add to `identity.py` (j576). Fifteen are in
 the contributor lane (j577): hand-made replaces, `O_APPEND` logs, copies
 of the resolution, `resume.lock` truncated and given the holder's pid,
 and a snapshot lock opened `"w"`.
+
+### Amendment 2026-11-08 — The send ledger's gap is closed
+
+Rule 1 named the send ledger's trim, a rewrite without `agent_lock`, as a known gap to close. Reading `tools/fabric/gzcoord/send.py` for the review of #511 (round 4, 2026-11-08) found it closed: the append and the trim both hold `identity.agent_lock`, and the trim writes through `identity.atomic_write`. python-dev-01 confirmed it while porting the binding readers (j212), and `policies/state-writers.json` no longer gives the ledger as send.py's reason. The rule now states it as done; nothing it decides changes.

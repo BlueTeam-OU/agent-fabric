@@ -142,28 +142,29 @@ its record disagree, the record wins. Look it up, never read it whole:
 - Every write under `agents/<login>/` goes through `runtime/identity.py`
   (`atomic_write`, `update_binding`, `append_history`); no caller opens a
   state file for writing but the control code (`tools/fabric/control/`),
-  which replaces by rename, appends its logs (§5 rule 1).
-- Every read-modify-write holds `agent_lock`, but control code's (§5 rule 2).
-- A binding is per (agent, host), refused on another host (§5 rule 3).
-- A working-copy rename merges history, never overwrites (§5 rule 4); the
-  session-start hook stays non-blocking (§5 rule 5).
+  which replaces by rename, appends its logs (r1).
+- Every read-modify-write holds `agent_lock`, but control code's (r2).
+- A binding is per (agent, host), refused on another host (r3).
+- A working-copy rename merges history, never overwrites (r4); the
+  session-start hook stays non-blocking (r5).
 - A 2026-09-28 — `fabric-fresh` writes `restart.json` through
   `identity.py`; `fabric-branches` records sweeps.
-- A 2026-09-28 — `jobs.json`, the job list, by `update_jobs` (§5 rule 1).
+- A 2026-09-28 — `jobs.json`, the job list, by `update_jobs` (r1).
 - A 2026-10-05 — `episodic.db`, a self-contained transactional store,
-  written only by `episodic.py` (§5 rule 1).
+  written only by `episodic.py` (r1).
 - A 2026-10-05 — GZCoord logs (`journal-bypass.jsonl`, send ledger) are a
-  writer class; unlocked trim a named gap (§5 rule 1).
+  writer class; unlocked trim a named gap (r1).
 - A 2026-10-30 — `actions-seen.json`'s writers, agentd and `fabric-op`,
-  claim under the state directory's flock (§2, §5 rules 1–2).
+  claim under the state directory's flock (§2/r1–2).
 - A 2026-10-30 — `pool.json` rewritten under a flock on `pool.json.lock`
-  (§2, §5 rule 2).
+  (§2/r2).
 - A 2026-10-31 — a lock file, only `flock`ed, never written, read or
-  removed, is not state (§2, §5 rule 1).
+  removed, is not state (§2/r1).
 - A 2026-11-01 — the session hooks write by `atomic_write`, under own
-  lock files (§2, §5 rule 2).
+  lock files (§2/r2).
 - A 2026-11-03 — `state_writes.py` guards rule 1 (lint, pre-commit);
-  `policies/state-writers.json` lists exceptions, gaps (§5 rule 1).
+  `policies/state-writers.json` lists exceptions, gaps (r1).
+- A 2026-11-08 — send ledger trim locked (r1).
 - Keywords: atomic write, flock, XDG_STATE_HOME, actions-seen.json, action ledger, fabric-op.jsonl, session-state.json.
 
 ### ADR-004 — Adding a role without breaking anyone's CI (Accepted)
