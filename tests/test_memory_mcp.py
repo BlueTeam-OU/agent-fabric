@@ -445,6 +445,44 @@ def main() -> int:
             os.chmod(state, 0o700)
         check("a log that cannot be written does not fail the call", res["isError"] is False)
 
+        print("the session is the binding's, as identity reads it")
+        sess_state = f"{t}/sess-state"
+        old = os.environ.get("AGENT_FABRIC_STATE_DIR")
+        os.environ["AGENT_FABRIC_STATE_DIR"] = sess_state
+        try:
+            me = srv.identity.current_agent()
+            check("no binding: a session with no role and no state directory", srv.session_of_binding("/s") == tools.Session())
+            put(f"{sess_state}/agents/{me}/binding.json", "{}")
+            check("a binding that records nothing is still a binding: the state directory is kept",
+                  srv.session_of_binding("/s") == tools.Session(state_dir="/s"))
+            put(f"{sess_state}/agents/{me}/binding.json", json.dumps({"role": "python-dev", "project": "p", "working_copy": "/w"}))
+            check("a bound role, project and working copy",
+                  srv.session_of_binding("/s") == tools.Session(role="python-dev", project="p", working_copy="/w", state_dir="/s"))
+            bad = os.path.join(t, "unregistered-checkout")   # #511 F15: a marker the registry lacks costs no binding
+            os.makedirs(bad)
+            subprocess.run(["git", "-C", bad, "init", "-q"], check=True)
+            with open(os.path.join(bad, ".agent-fabric-project"), "w", encoding="utf-8") as fh:
+                fh.write("not-registered\n")
+            here = os.getcwd()
+            os.chdir(bad)
+            try:
+                got = srv.session_of_binding("/s")
+                check("...and cwd in a checkout whose marker names an unregistered project keeps the binding",
+                      got == tools.Session(role="python-dev", project="p", working_copy="/w", state_dir="/s"), got)
+            finally:
+                os.chdir(here)
+            os.remove(f"{sess_state}/agents/{me}/binding.json")
+            os.mkdir(f"{sess_state}/agents/{me}/binding.json")
+            check("a binding that cannot be opened is no session, not a crash", srv.session_of_binding("/s") == tools.Session())
+            os.rmdir(f"{sess_state}/agents/{me}/binding.json")
+            put(f"{sess_state}/agents/{me}/binding.json", "{not json")
+            check("a binding identity refuses is no session", srv.session_of_binding("/s") == tools.Session())
+        finally:
+            if old is None:
+                os.environ.pop("AGENT_FABRIC_STATE_DIR", None)
+            else:
+                os.environ["AGENT_FABRIC_STATE_DIR"] = old
+
         print("the server process, over stdio")
         env = {"PATH": os.environ.get("PATH", ""), "AGENT_FABRIC_PYTHON": sys.executable, "AGENT_FABRIC_OPERATOR": f"{t}/op",
                "AGENT_FABRIC_STATE_DIR": state}

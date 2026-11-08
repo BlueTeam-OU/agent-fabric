@@ -70,6 +70,7 @@ its record disagree, the record wins. Look it up, never read it whole:
 | GZCoord over InterWeave; the InterWeave carrier; dual run beside the relay; the agents' PeerIds and roster; switching transport | ADR-064 |
 | the reviewer's tools; the review sandbox; coverage blocks; the v2 review marker; where a re-review starts | ADR-065 |
 | the reviewer's own accuracy; calibrating the review class; owner labels; seeded defects; a review routing change's evidence | ADR-066 |
+| one owning module per mechanism; a reimplementation; policies/mechanisms.json; a checker and its exceptions | ADR-067 |
 
 ### ADR-000 — The enduring organization (Accepted)
 
@@ -141,28 +142,29 @@ its record disagree, the record wins. Look it up, never read it whole:
 - Every write under `agents/<login>/` goes through `runtime/identity.py`
   (`atomic_write`, `update_binding`, `append_history`); no caller opens a
   state file for writing but the control code (`tools/fabric/control/`),
-  which replaces by rename, appends its logs (§5 rule 1).
-- Every read-modify-write holds `agent_lock`, but control code's (§5 rule 2).
-- A binding is per (agent, host), refused on another host (§5 rule 3).
-- A working-copy rename merges history, never overwrites (§5 rule 4); the
-  session-start hook stays non-blocking (§5 rule 5).
+  which replaces by rename, appends its logs (r1).
+- Every read-modify-write holds `agent_lock`, but control code's (r2).
+- A binding is per (agent, host), refused on another host (r3).
+- A working-copy rename merges history, never overwrites (r4); the
+  session-start hook stays non-blocking (r5).
 - A 2026-09-28 — `fabric-fresh` writes `restart.json` through
   `identity.py`; `fabric-branches` records sweeps.
-- A 2026-09-28 — `jobs.json`, the job list, by `update_jobs` (§5 rule 1).
+- A 2026-09-28 — `jobs.json`, the job list, by `update_jobs` (r1).
 - A 2026-10-05 — `episodic.db`, a self-contained transactional store,
-  written only by `episodic.py` (§5 rule 1).
+  written only by `episodic.py` (r1).
 - A 2026-10-05 — GZCoord logs (`journal-bypass.jsonl`, send ledger) are a
-  writer class; unlocked trim a named gap (§5 rule 1).
+  writer class; unlocked trim a named gap (r1).
 - A 2026-10-30 — `actions-seen.json`'s writers, agentd and `fabric-op`,
-  claim under the state directory's flock (§2, §5 rules 1–2).
+  claim under the state directory's flock (§2/r1–2).
 - A 2026-10-30 — `pool.json` rewritten under a flock on `pool.json.lock`
-  (§2, §5 rule 2).
+  (§2/r2).
 - A 2026-10-31 — a lock file, only `flock`ed, never written, read or
-  removed, is not state (§2, §5 rule 1).
+  removed, is not state (§2/r1).
 - A 2026-11-01 — the session hooks write by `atomic_write`, under own
-  lock files (§2, §5 rule 2).
+  lock files (§2/r2).
 - A 2026-11-03 — `state_writes.py` guards rule 1 (lint, pre-commit);
-  `policies/state-writers.json` lists exceptions, gaps (§5 rule 1).
+  `policies/state-writers.json` lists exceptions, gaps (r1).
+- A 2026-11-08 — send ledger trim locked (r1).
 - Keywords: atomic write, flock, XDG_STATE_HOME, actions-seen.json, action ledger, fabric-op.jsonl, session-state.json.
 
 ### ADR-004 — Adding a role without breaking anyone's CI (Accepted)
@@ -865,30 +867,31 @@ its record disagree, the record wins. Look it up, never read it whole:
 ### ADR-037 — Each agent keeps a job list (Accepted)
 
 - One list per login (`agents/<login>/jobs.json`); seven states, one
-  active (§5 rules 1–2).
+  active (r1–2).
 - `fabric-jobs switch` (alias `next`): after a worked job, next starts
-  fresh (`fabric-fresh --job <id>`); else in place (§5 rule 3).
-- Jobs: agent, owner, delivered REQUEST (§5 rules 4–5, 11).
-- Owner reads all lists (`fabric-ctl jobs`, §5 rule 6).
+  fresh (`fabric-fresh --job <id>`); else in place (r3).
+- Jobs: agent, owner, delivered REQUEST (r4–5/r11).
+- Owner reads all lists (`fabric-ctl jobs`, r6).
 - A 2026-10-08 — priority, never preempting; blocking rank; role pool
-  (§5 rules 7–10).
+  (r7–10).
 - A 2026-10-09 — stale waiter blocks.
-- A 2026-10-09 — a login's REQUEST queues (§5 rule 11).
-- A 2026-10-09 — jobs as plan steps (§5 rule 11).
-- A 2026-10-11 — fresh after worked job (§5 rule 3).
-- A 2026-10-12 — checkable blockers (§5 rule 8).
-- A 2026-10-14 — `paused`; `switch` (§5 rules 2, 10).
+- A 2026-10-09 — a login's REQUEST queues (r11).
+- A 2026-10-09 — jobs as plan steps (r11).
+- A 2026-10-11 — fresh after worked job (r3).
+- A 2026-10-12 — checkable blockers (r8).
+- A 2026-10-14 — `paused`; `switch` (r2/r10).
 - A 2026-10-15 — reads as built.
-- A 2026-10-16 — delivered swept to done (§5 rule 12).
-- A 2026-10-18 — no-artifact close, a reason (§5 rule 10).
+- A 2026-10-16 — delivered swept to done (r12).
+- A 2026-10-18 — no-artifact close, a reason (r10).
 - A 2026-10-20 — commits fenced to job copies.
 - A 2026-10-21 — switch cleans targets.
-- A 2026-10-30 — fleet hold (§5 rule 13).
+- A 2026-10-30 — fleet hold (r13).
 - A 2026-10-30 — held, no start.
 - A 2026-10-31 — clock blocker.
-- A 2026-10-31 — cleanup built (§5 rule 10).
-- A 2026-10-31 — in place only inside its copy (§5 rule 3).
-- A 2026-11-05 — answered request re-points to its job (§5 rule 8).
+- A 2026-10-31 — cleanup built (r10).
+- A 2026-10-31 — in place only inside its copy (r3).
+- A 2026-11-05 — answered request re-points to its job (r8).
+- A 2026-11-08 — one transition table (r14).
 - Keywords: fresh session, intake, priority, claim, sweep, unhold, request blocker.
 
 ### ADR-038 — Each agent owns its key and its secrets (Accepted)
@@ -1512,3 +1515,16 @@ its record disagree, the record wins. Look it up, never read it whole:
   Python, fixing undefined-as-zero, silent bootstrap drops and a
   fail-open ledger (§5 rule 10).
 - Keywords: review calibration, calibrate, classifier, judge, owner labels, held-out, seeded defects, recall, precision, TPR, TNR, Rogan-Gladen, McNemar, TOST, pass^k, gavel, review routing, P3.
+
+### ADR-067 — One owning module per cross-cutting mechanism (Proposed)
+
+- A cross-cutting mechanism is implemented only in its owning module;
+  elsewhere a reimplementation is a finding unless its exceptions file
+  names the module with a reason (§5 r1).
+- `policies/mechanisms.json` names each mechanism's record, owner and
+  status: `enforced` (checker loaded by lint, the pre-commit hook and
+  a test), `pending` (the `<login>/j<n>` building it) or `planned`
+  (what it waits on) (§5 r2).
+- Lint reads the catalogue and refuses a claim the tree does not bear
+  out (§5 r3); a new mechanism enters with its owner (§5 r4).
+- Keywords: mechanism, duplicate, reimplementation, owning module, catalogue, fitness function, process lifetime, killpg, evidence cap, binding read.

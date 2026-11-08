@@ -67,6 +67,7 @@ import review_card  # noqa: E402  the card's path and cap, as the brief renderer
 import roots  # noqa: E402  the hook's own checkout is the root it is given; roots spells the policy's path (test_roots_seam)
 import secret_values  # noqa: E402  the account's own secret values, searched in what a commit records (ADR-012 §5 rule 9)
 import state_writes  # noqa: E402  ADR-003 rule 1's predicate, as lint asks it (tools/fabric/state_writes.py)
+import context_reads  # noqa: E402  who reads an agent's binding, as lint asks it (tools/fabric/context_reads.py, ADR-067)
 
 ITSELF = "agent-fabric itself"
 AGENT_FABRIC_DIR = ".agent-fabric/"
@@ -368,6 +369,16 @@ def _check_hidden_unicode(root: str) -> None:
                      "— not committed. What is refused, and what is allowed, is defined in tools/fabric/hidden_unicode.py.")
 
 
+def _staged_deletion(path: str) -> bool:
+    """Whether the commit deletes `path`. The judging checks list staged files with --diff-filter=ACMRT, which leaves a
+    deletion out: a policy deleted whole removes every entry, and its modules must be judged as for any removed entry
+    (#511 F16)."""
+    r = _git("diff", "--cached", "-z", "--no-renames", "--name-only", "--diff-filter=D", "--", path)
+    if r.returncode != 0:
+        raise Refuse(f"pre-commit: cannot tell whether this commit deletes {path} — not committed")
+    return path in r.stdout.split("\0")
+
+
 def _check_state_writes(root: str) -> None:
     """In agent-fabric itself, whoever commits: a staged module of the fabric's own Python is judged against ADR-003 rule 1
     (tools/fabric/state_writes.py), with the policy the commit stages; a module whose entry this commit removes is judged
@@ -380,14 +391,15 @@ def _check_state_writes(root: str) -> None:
         raise Refuse("pre-commit: cannot list the staged files to judge them for ADR-003 rule 1 — not committed")
     staged = [p for p in r.stdout.split("\0") if p]
     judged = [p for p in staged if state_writes.judged_path(p)]
-    if not judged and state_writes.POLICY not in staged:
+    deleted = _staged_deletion(state_writes.POLICY)
+    if not judged and state_writes.POLICY not in staged and not deleted:
         return
     policy = _git("cat-file", "blob", f":{state_writes.POLICY}")
     try:
         writers = state_writes.parse_writers(policy.stdout) if policy.returncode == 0 else {}
     except ValueError:
         raise Refuse(f"pre-commit: the staged {state_writes.POLICY} is not JSON — not committed") from None
-    if state_writes.POLICY in staged:
+    if state_writes.POLICY in staged or deleted:
         # An entry dropped in this commit, its module unchanged: judge that module too, from the index.
         before = _git("cat-file", "blob", f"HEAD:{state_writes.POLICY}")
         try:
@@ -411,6 +423,50 @@ def _check_state_writes(root: str) -> None:
         raise Refuse("\n".join(lines) + f"\npre-commit: a module writes per-agent state outside runtime/identity.py, or "
                      f"opens a lock file off its terms — not committed. Write through identity, or name the module and "
                      f"the record's clause in {state_writes.POLICY} (agent-fabric ADR-003 rule 1).")
+
+
+def _check_context_reads(root: str) -> None:
+    """In agent-fabric itself, whoever commits: a staged module of the fabric's own Python that reads an agent's binding
+    outside identity is refused unless the staged policies/context-reads.json names it (ADR-067 rule 1); a module whose
+    entry this commit removes is judged too. Lint judges the whole tree in CI; this stops the reader before it is recorded."""
+    if not same_repository(root):
+        return
+    r = _git("diff", "--cached", "-z", "--no-renames", "--name-only", "--diff-filter=ACMRT")
+    if r.returncode != 0:
+        raise Refuse("pre-commit: cannot list the staged files to judge who reads the binding — not committed")
+    staged = [p for p in r.stdout.split("\0") if p]
+    judged = [p for p in staged if context_reads.judged_path(p)]
+    deleted = _staged_deletion(context_reads.POLICY)
+    if not judged and context_reads.POLICY not in staged and not deleted:
+        return
+    policy = _git("cat-file", "blob", f":{context_reads.POLICY}")
+    try:
+        readers = context_reads.parse_readers(policy.stdout) if policy.returncode == 0 else {}
+    except ValueError:
+        raise Refuse(f"pre-commit: the staged {context_reads.POLICY} is not JSON — not committed") from None
+    if context_reads.POLICY in staged or deleted:
+        before = _git("cat-file", "blob", f"HEAD:{context_reads.POLICY}")
+        try:
+            was = context_reads.parse_readers(before.stdout) if before.returncode == 0 else {}
+        except ValueError:
+            was = {}   # HEAD's list unreadable admitted nothing then either
+        listed = _git("ls-files", "-z")
+        if listed.returncode != 0:
+            raise Refuse("pre-commit: cannot read the index to judge the modules whose context-reads entries this commit "
+                         "removes — not committed")
+        tracked = set(listed.stdout.split("\0"))
+        judged += [m for m in sorted(set(was) - set(readers)) if m in tracked and m not in judged
+                   and context_reads.judged_path(m)]
+    lines: list[str] = []
+    for path, data in _staged_blobs(judged, "for who reads the binding").items():
+        try:
+            lines += context_reads.scan(path, data.decode("utf-8"), readers)
+        except UnicodeDecodeError:
+            lines.append(f"{path}: not UTF-8; who reads the binding is not judged")
+    if lines:
+        raise Refuse("\n".join(lines) + "\npre-commit: a module reads an agent's binding outside runtime/identity.py — not "
+                     f"committed. Read it through identity.resolve_context().binding, or name the module and why in "
+                     f"{context_reads.POLICY} (agent-fabric ADR-067 rule 1).")
 
 
 def _check_review_card() -> None:
@@ -452,6 +508,7 @@ def pre_commit(root: str) -> int:
     _check_hidden_unicode(root)
     _check_review_card()
     _check_state_writes(root)
+    _check_context_reads(root)
     what, staged = guarded_change(root)
     if not staged:
         return 0

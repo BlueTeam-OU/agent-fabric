@@ -13,6 +13,8 @@ from __future__ import annotations
 import json
 import math
 import os
+import shutil
+import socket
 import subprocess
 import sys
 import tempfile
@@ -34,7 +36,25 @@ def ms(text):
     return cs.date_parse(text)
 
 
+AGENT = "sess-test"
+
+
 def main() -> int:
+    """identity reads the binding, from the state root this sets for the run."""
+    saved = os.environ.get("AGENT_FABRIC_STATE_DIR")
+    state = tempfile.mkdtemp(prefix="sessions-state-")
+    os.environ["AGENT_FABRIC_STATE_DIR"] = os.path.join(state, "state")
+    try:
+        return run()
+    finally:
+        if saved is None:
+            os.environ.pop("AGENT_FABRIC_STATE_DIR")
+        else:
+            os.environ["AGENT_FABRIC_STATE_DIR"] = saved
+        shutil.rmtree(state, ignore_errors=True)
+
+
+def run() -> int:
     fails = 0
 
     def check(label: str, good: bool, detail: object = "") -> None:
@@ -159,12 +179,13 @@ def main() -> int:
         check("ts is the instant's whole milliseconds, never a second ahead", posts4[-1]["ts"] == "2025-10-09T08:53:20.999Z", posts4[-1:])
 
         print("sessions.test.mjs: when the watcher posts")
-        binding = os.path.join(d, "binding.json")
+        binding = os.path.join(os.environ["AGENT_FABRIC_STATE_DIR"], "agents", AGENT, "binding.json")
+        os.makedirs(os.path.dirname(binding))
         with open(binding, "w") as fh:
             json.dump({"role": "backend-dev", "project": "gzapp", "session": "s", "working_copy": "/home/x/projects/private-wc", "pid": 31337}, fh)
         os.remove(file)
         posts, t = [], [1_000_000.0]
-        w = cs.StateWatcher(address="h/x", post=posts.append, file=file, binding=binding, proc=proc, now=lambda: t[0],
+        w = cs.StateWatcher(address="h/x", post=posts.append, file=file, agent=AGENT, proc=proc, now=lambda: t[0],
                             heartbeat_ms=60_000, log=lambda m: None)
         check("the first tick says what there is", w.tick() is True)
         check("...a State, the binding's role and project",
@@ -265,7 +286,7 @@ def main() -> int:
             json.dump({"role": "python-dev", "project": "agent-fabric", "session": sid, "working_copy": "/home/x/projects/private-wc"}, fh)
         write({})
         posts, t = [], [0.0]
-        w = cs.StateWatcher(address="h/x", post=posts.append, file=file, binding=binding, proc=proc, now=lambda: t[0],
+        w = cs.StateWatcher(address="h/x", post=posts.append, file=file, agent=AGENT, proc=proc, now=lambda: t[0],
                             heartbeat_ms=60_000, log=lambda m: None, config_dir=cfg)
         w.tick()
         check("the last session's id", posts[-1].get("last_session") == sid)
@@ -293,6 +314,18 @@ def main() -> int:
         w.tick()
         check("a binding that is not UTF-8 binds nothing, as Node's fatal decode reads it",
               "role" not in posts[-1] and "project" not in posts[-1], posts[-1])
+        for why, rec in (("another login's", {"agent": "someone-else", "role": "python-dev", "project": "agent-fabric"}),
+                         ("another host's", {"host": "not-this-host", "role": "python-dev", "project": "agent-fabric"})):
+            with open(binding, "w") as fh:
+                json.dump(rec, fh)
+            t[0] += 1
+            w.tick()
+            check(f"{why} binding binds nothing", "role" not in posts[-1] and "project" not in posts[-1] and "last_session" not in posts[-1], posts[-1])
+        with open(binding, "w") as fh:
+            json.dump({"host": socket.gethostname().split(".")[0], "agent": AGENT, "role": "python-dev", "project": "agent-fabric"}, fh)
+        t[0] += 1
+        w.tick()
+        check("...and this host's, this login's own, binds (the positive control)", posts[-1].get("role") == "python-dev", posts[-1])
         check("no last session: neither field",
               cs.state_record("h/x", {"sessions": [], "role": None, "project": None, "last_session": None}, "t")
               == {"v": 1, "kind": "state", "from": "h/x", "ts": "t", "sessions": []})
