@@ -458,6 +458,23 @@ def main() -> int:
             put(f"{sess_state}/agents/{me}/binding.json", json.dumps({"role": "python-dev", "project": "p", "working_copy": "/w"}))
             check("a bound role, project and working copy",
                   srv.session_of_binding("/s") == tools.Session(role="python-dev", project="p", working_copy="/w", state_dir="/s"))
+            bad = os.path.join(t, "unregistered-checkout")   # #511 F15: a marker the registry lacks costs no binding
+            os.makedirs(bad)
+            subprocess.run(["git", "-C", bad, "init", "-q"], check=True)
+            with open(os.path.join(bad, ".agent-fabric-project"), "w", encoding="utf-8") as fh:
+                fh.write("not-registered\n")
+            here = os.getcwd()
+            os.chdir(bad)
+            try:
+                got = srv.session_of_binding("/s")
+                check("...and cwd in a checkout whose marker names an unregistered project keeps the binding",
+                      got == tools.Session(role="python-dev", project="p", working_copy="/w", state_dir="/s"), got)
+            finally:
+                os.chdir(here)
+            os.remove(f"{sess_state}/agents/{me}/binding.json")
+            os.mkdir(f"{sess_state}/agents/{me}/binding.json")
+            check("a binding that cannot be opened is no session, not a crash", srv.session_of_binding("/s") == tools.Session())
+            os.rmdir(f"{sess_state}/agents/{me}/binding.json")
             put(f"{sess_state}/agents/{me}/binding.json", "{not json")
             check("a binding identity refuses is no session", srv.session_of_binding("/s") == tools.Session())
         finally:

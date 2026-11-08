@@ -251,7 +251,8 @@ class _WhoamiKeys(TypedDict):
 class Whoami(_WhoamiKeys, total=False):
     """whoami(): runtime/identity.py's resolve_context() with this login's
     binding file, or, when identity cannot answer, the fallback, which
-    carries only the six keys above and fallback=True."""
+    carries only the six keys above, bound_project and bound_working_copy (both read from the binding file, as
+    project and working_copy are), and fallback=True."""
     address: str
     project_source: str | None
     working_copy_id: str | None

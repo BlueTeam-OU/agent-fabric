@@ -210,8 +210,8 @@ def binding_working_copy() -> list[str]:
     """The working copy this agent's binding records, as identity reads it: a binding identity refuses (not JSON,
     another agent's, another host's) costs the binding, said once, never the answer."""
     try:
-        wc = identity.resolve_context().binding.working_copy
-    except SystemExit as e:
+        wc = identity.binding_record().working_copy
+    except (OSError, ValueError, AttributeError, SystemExit) as e:
         say(f"query: the binding is not read: {e}")
         return []
     return [wc] if wc else []

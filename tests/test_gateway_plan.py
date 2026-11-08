@@ -300,6 +300,17 @@ def main() -> int:
             with open(binding, "w") as fh:
                 json.dump({"role": "python-dev"}, fh)
             check("a binding's role", gp._role_of(ME) == "python-dev")
+            bad = os.path.join(t, "unregistered-checkout")   # #511 F15: a marker the registry lacks costs no binding
+            os.makedirs(bad)
+            subprocess.run(["git", "-C", bad, "init", "-q"], check=True)
+            with open(os.path.join(bad, ".agent-fabric-project"), "w", encoding="utf-8") as fh:
+                fh.write("not-registered\n")
+            here = os.getcwd()
+            os.chdir(bad)
+            try:
+                check("...and cwd in a checkout whose marker names an unregistered project keeps it", gp._role_of(ME) == "python-dev")
+            finally:
+                os.chdir(here)
             with open(binding, "w") as fh:
                 fh.write("{not json")
             check("a binding identity refuses is no role, not a crash", gp._role_of(ME) is None)

@@ -27,7 +27,7 @@ names it with the record's clause that admits it. Three findings:
   A 2026-10-31).
 
 A listed module is admitted whole, every finding in it. An entry that
-admits nothing is lint's finding (lint_rules/state.py), so an entry
+admits nothing is lint's finding (lint_rules/state.py), so a gap's entry
 leaves the policy when its job lands, and the module is held to all three.
 
 runtime/identity.py is the writer and is not judged for copy or write."""
@@ -198,7 +198,7 @@ def scan(rel: str, text: str, writers: dict[str, str]) -> list[str]:
     return sorted(out, key=lambda s: int(s.split(":")[1]) if s.split(":")[1].isdigit() else 0)
 
 
-REASONS = ("ADR-003 ", "not state: ")
+REASONS = ("ADR-003 ", "not state: ", "gap (j")
 
 
 def policy_findings(writers: dict[str, str], present: set[str]) -> list[str]:
