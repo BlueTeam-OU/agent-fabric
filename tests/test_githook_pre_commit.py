@@ -718,5 +718,56 @@ class StateWrites(PreCommit):
         self.assertEqual((r.returncode, r.stderr), (0, ""))
 
 
+class ContextReads(PreCommit):
+    """In agent-fabric itself a staged module that reads an agent's binding outside identity is refused whoever commits,
+    unless the policy the commit stages names it (ADR-067 rule 1, tools/fabric/context_reads.py). Mutations: the call
+    removed from pre_commit (the refusal case); the policy read from the work tree instead of the index (the unstaged-entry
+    case); a removed entry's module left unjudged (the drop case); the not-JSON refusal turned into an empty list."""
+
+    READER = "import identity\n\ndef bound():\n    return open(identity.binding_path()).read()\n"
+    POLICY = "policies/context-reads.json"
+
+    def setUp(self):
+        self.build(owner_role="fabric-coordinator")
+
+    def test_a_staged_reader_is_refused_for_the_owner_too(self):
+        repo = self.fabric.itself()
+        repo.stage("tools/fabric/x.py", self.READER)
+        self.fabric.bind("fabric-coordinator")
+        r = self.run_hook(repo)
+        self.assertEqual(r.returncode, 1, r.stderr)
+        self.assertIn("tools/fabric/x.py:4: calls identity.binding_path", r.stderr)
+        self.assertIn("ADR-067 rule 1", r.stderr)
+
+    def test_the_staged_policy_admits_and_an_unstaged_entry_does_not(self):
+        repo = self.fabric.itself()
+        repo.stage("tools/fabric/x.py", self.READER)
+        repo.write(self.POLICY, json.dumps({"readers": {"tools/fabric/x.py": "a test"}}))
+        self.fabric.bind("fabric-coordinator")
+        self.assertEqual(self.run_hook(repo).returncode, 1)
+        repo.git("add", self.POLICY)
+        r = self.run_hook(repo)
+        self.assertEqual((r.returncode, r.stderr), (0, ""))
+
+    def test_a_commit_that_only_drops_an_entry_judges_its_module(self):
+        entry = json.dumps({"readers": {"tools/fabric/x.py": "a test"}})
+        repo = self.fabric.itself({"tools/fabric/x.py": self.READER, self.POLICY: entry})
+        repo.write(self.POLICY, json.dumps({"readers": {}}))
+        repo.git("add", self.POLICY)
+        self.fabric.bind("fabric-coordinator")
+        r = self.run_hook(repo)
+        self.assertEqual(r.returncode, 1, r.stderr)
+        self.assertIn("tools/fabric/x.py:4: calls identity.binding_path", r.stderr)
+
+    def test_a_list_that_is_not_json_refuses(self):
+        repo = self.fabric.itself()
+        repo.stage("tools/fabric/x.py", "x = 1\n")
+        repo.stage(self.POLICY, "{")
+        self.fabric.bind("fabric-coordinator")
+        r = self.run_hook(repo)
+        self.assertEqual(r.returncode, 1, r.stderr)
+        self.assertIn("pre-commit: the staged policies/context-reads.json is not JSON — not committed", r.stderr)
+
+
 if __name__ == "__main__":
     unittest.main()

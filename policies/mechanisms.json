@@ -23,8 +23,9 @@
     "agent-context": {
       "adr": "ADR-003",
       "owner": "runtime/identity.py",
-      "status": "pending",
-      "job": "python-dev-01/j212"
+      "status": "enforced",
+      "checker": "tools/fabric/context_reads.py",
+      "exceptions": "policies/context-reads.json"
     },
     "job-lifecycle": {
       "adr": "ADR-037",
