@@ -666,6 +666,7 @@ class BindingRecord:
     role: str | None
     project: str | None
     working_copy: str | None
+    session: str | None = None   # as recorded and unchecked: a reader that resumes it validates its shape (sessions.py)
 
 
 @_frozen
@@ -717,9 +718,15 @@ def binding_record(agent: str | None = None, *, rebind: bool = False) -> Binding
     binding = read_binding(agent, other_host=rebind)
     if binding.get("host") not in (None, current_host()):
         binding = {}
+    return _record(agent, binding)
+
+
+def _record(agent: str, binding: dict) -> BindingRecord:
+    # The one builder binding_record and resolve_context share, so their `.binding` cannot drift apart.
     path = binding_path(agent)
     return BindingRecord(file=path, present=os.path.lexists(path), role=_text(binding.get("role")),
-                         project=_text(binding.get("project")), working_copy=_text(binding.get("working_copy")))
+                         project=_text(binding.get("project")), working_copy=_text(binding.get("working_copy")),
+                         session=_text(binding.get("session")))
 
 
 def resolve_context(cwd: str | None = None, session: str | None = None,
@@ -756,9 +763,7 @@ def resolve_context(cwd: str | None = None, session: str | None = None,
         cwd=cwd,
         fabric_root=FABRIC_ROOT,
         state_dir=agent_state_dir(agent),
-        binding=BindingRecord(file=binding_path(agent), present=os.path.lexists(binding_path(agent)), role=_text(binding.get("role")),
-                              project=_text(binding.get("project")), working_copy=_text(binding.get("working_copy"))),
-        # binding_record() reads the same fields without the working copy; tests/test_identity_context.py holds them equal.
+        binding=_record(agent, binding),
     )
 
 
