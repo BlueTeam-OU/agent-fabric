@@ -414,6 +414,23 @@ def main() -> int:
     time.sleep(0.2)
     check("a child left behind by a program that exited is ended with the group, and the exit is kept",
           ran.returncode == 0 and not ran.timed_out and not alive(child), str(child))
+    real_select = runner.select.select
+
+    def interrupted(*a, **kw):
+        raise KeyboardInterrupt
+
+    runner.select.select = interrupted
+    try:
+        runner.run_bounded(["/bin/sh", "-c", f'sleep 4713.{TAG} & echo $! > "{pidfile}"; wait'], {"PATH": "/usr/bin:/bin"}, scratch, 20, 1000)
+        raised = False
+    except KeyboardInterrupt:
+        raised = True
+    finally:
+        runner.select.select = real_select
+    child = int(open(pidfile, encoding="utf-8").read())
+    time.sleep(0.2)
+    check("an interrupt in the read ends the whole process group and is not swallowed",
+          raised and not alive(child) and not processes_with(f"4713.{TAG}"), str(child))
     gittools.CAP_BYTES, gittools.BUDGET_S = 200, 20.0
     try:
         err, text = call("review_log", head=head, max_count=1000, patch=True)

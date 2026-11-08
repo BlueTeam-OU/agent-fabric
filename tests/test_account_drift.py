@@ -14,6 +14,7 @@ environment of every child is built here, not inherited.
 Plain script: prints ok/FAIL, exit 1 on any failure."""
 from __future__ import annotations
 
+import errno
 import hashlib
 import json
 import os
@@ -360,6 +361,63 @@ def bounded(tmp: str) -> None:
     check("the child bootstrap started is killed with it, not left running", pid is not None and gone, f"child pid {pid}")
     if pid and not gone:
         os.kill(pid, signal.SIGKILL)
+    # The same child, with an interrupt in the wait instead of the bound: it leads a session of its own, which a Ctrl-C does not reach.
+    os.unlink(os.path.join(w.stub, "child-pid"))
+    real_communicate = subprocess.Popen.communicate
+
+    def interrupted(self, *a, **kw):
+        for _ in range(200):
+            if os.path.exists(os.path.join(w.stub, "child-pid")) and open(os.path.join(w.stub, "child-pid")).read().strip():
+                break
+            time.sleep(0.05)
+        raise KeyboardInterrupt
+
+    os.environ["STUB_DIR"] = w.stub
+    subprocess.Popen.communicate = interrupted
+    try:
+        account_drift.check(state=w.record_dir, root=w.root, home=w.home, timeout=30.0)
+        raised = False
+    except KeyboardInterrupt:
+        raised = True
+    finally:
+        subprocess.Popen.communicate = real_communicate
+        del os.environ["STUB_DIR"]
+    pid = int(open(os.path.join(w.stub, "child-pid")).read())
+    for _ in range(200):
+        try:
+            with open(f"/proc/{pid}/stat") as f:
+                gone = f.read().rsplit(")", 1)[1].split()[0] == "Z"
+        except OSError:
+            gone = True
+        if gone:
+            break
+        time.sleep(0.05)
+    check("an interrupt is not swallowed, and the child bootstrap it started is ended", raised and gone, (raised, pid))
+    if not gone:
+        os.kill(pid, signal.SIGKILL)
+    # A read error after the start is not "cannot run": unknown stays unknown.
+    os.unlink(os.path.join(w.stub, "child-pid"))
+    os.environ["STUB_DIR"] = w.stub
+
+    def broken(self, *a, **kw):
+        raise OSError(errno.EIO, "Input/output error")
+
+    subprocess.Popen.communicate = broken
+    try:
+        account_drift.check(state=w.record_dir, root=w.root, home=w.home, timeout=30.0)
+        said = None
+    except OSError as e:
+        said = ("OSError", e.errno)
+    except account_drift.DriftError as e:
+        said = ("DriftError", str(e))
+    finally:
+        subprocess.Popen.communicate = real_communicate
+        del os.environ["STUB_DIR"]
+    check("an OSError from the wait is not reported as a bootstrap that cannot run", said == ("OSError", errno.EIO), said)
+    try:
+        os.kill(int(open(os.path.join(w.stub, "child-pid")).read()), signal.SIGKILL)
+    except (OSError, ValueError):
+        pass
 
 
 def real_dry_run(tmp: str) -> None:
