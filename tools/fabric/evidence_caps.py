@@ -53,6 +53,15 @@ def _reads_pr_list(expr: ast.AST) -> bool:
     return any((t := _text(part)) is not None and PR_LIST_PATH.search(t) for part in ast.walk(expr))
 
 
+def _cap_findings(rel: str, node: ast.AST) -> list[str]:
+    if isinstance(node, (ast.Assign, ast.AnnAssign, ast.AugAssign)) and _cap(node.value):
+        return [f"{rel}:{node.lineno}: cap: a local copy of GitHub's list cap; use common.PR_COMMIT_LIST_CAP or "
+                "PR_FILE_LIST_CAP through github/evidence.py"]
+    if isinstance(node, ast.Compare) and any(_cap(c) for c in [node.left, *node.comparators]):
+        return [f"{rel}:{node.lineno}: cap: compared against GitHub's list cap; ask github/evidence.py"]
+    return []
+
+
 def scan(rel: str, text: str) -> list[str]:
     """`path:line: <finding>` lines for one module's source; none when rel is not judged or the source does not parse
     (a syntax error is the compiler's finding)."""
@@ -69,13 +78,8 @@ def scan(rel: str, text: str) -> list[str]:
         or (isinstance(n, ast.ImportFrom) and (n.module or "").split(".")[0] in ("gh", "github"))
         for n in ast.walk(tree))
     for node in ast.walk(tree):
-        if not caps_judged and not isinstance(node, ast.Call):
-            continue
-        if isinstance(node, (ast.Assign, ast.AnnAssign, ast.AugAssign)) and _cap(node.value):
-            out.append(f"{rel}:{node.lineno}: cap: a local copy of GitHub's list cap; use common.PR_COMMIT_LIST_CAP or "
-                       "PR_FILE_LIST_CAP through github/evidence.py")
-        elif isinstance(node, ast.Compare) and any(_cap(c) for c in [node.left, *node.comparators]):
-            out.append(f"{rel}:{node.lineno}: cap: compared against GitHub's list cap; ask github/evidence.py")
+        if caps_judged:
+            out += _cap_findings(rel, node)
         # A call's argument, or the value a name is given (the path built before the call): a docstring's example is
         # neither.
         exprs = [*node.args, *(k.value for k in node.keywords)] if isinstance(node, ast.Call) \

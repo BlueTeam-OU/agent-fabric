@@ -8,7 +8,8 @@ Stdlib only; runnable as `python3 tests/test_evidence_caps.py`. **Each case name
   owners_and_others_pass    <- OWNERS not exempt, a module outside tools/fabric/ judged, a GitHub reader outside github/ not
                                 judged, or a cap literal counted in a module that imports neither gh nor github
   the_tree_is_clean         <- a cap or a files/commits read left anywhere in tools/fabric/ outside the two owners
-  read_built_before_the_call <- the Assign / BinOp handling dropped: a path in a variable or a `+` read unseen
+  (in test_read_is_found, test_owners_and_others_pass) the Assign / BinOp handling dropped, or gated on the module importing gh:
+                                a path in a variable or a `+` read unseen
 """
 from __future__ import annotations
 
@@ -70,7 +71,10 @@ class Caps(unittest.TestCase):
         outside = "tools/fabric/results.py"
         self.assertEqual(len(ec.scan(outside, "import gh\n" + src)), 2)   # outside github/, a GitHub reader is judged too
         self.assertEqual(len(ec.scan(outside, "from github import x\n" + src)), 2)
-        self.assertEqual(len(ec.scan(outside, src)), 1)   # a 250 in a module that reads no GitHub is not a cap
+        self.assertEqual(len(ec.scan(outside, src)), 1)
+        # A path put in a variable is read in a module that imports neither gh nor github, as a literal one is.
+        built = 'import subprocess\np = f"repos/{r}/pulls/{n}/files"\nsubprocess.run(["gh", "api", "--paginate", p])\n'
+        self.assertEqual(len(ec.scan(outside, built)), 1, ec.scan(outside, built))   # a 250 in a module that reads no GitHub is not a cap
         self.assertEqual(ec.scan(ARM, "def ("), [])   # a syntax error is the compiler's
 
     def test_the_tree_is_clean(self):
