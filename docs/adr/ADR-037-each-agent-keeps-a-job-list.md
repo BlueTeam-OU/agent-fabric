@@ -287,8 +287,8 @@ Why these choices:
     | — | `open` in a role's pool | the pool holder's control agent, on a signed `pool-add` (rule 9) | role, title, project, priority |
     | `open` in the pool | `claimed` there | the pool holder's control agent, on `pool-claim` | the claimant's reported binding holds the role; no other claimant |
     | — | `queued` | the claimant's own `fabric-jobs pool-claim`, on the holder's `claimed` answer (rule 1: no other writer of its list) | the pool's job, by generation and id |
-    | `claimed` in the pool | `closed` there | the pool holder's control agent (A 2026-11-09) | the claimant's state record shows the job that claim became `done` or `dropped`; the pool keeps the record, closed, never removed |
-    | `claimed` in the pool | `open` again | the pool holder's control agent (A 2026-11-09) | no list of the claimant holds a job for that claim a day after it was claimed, read from its state record: the answer was lost or the job never queued; the same claimant claiming again within the day gets it again (rule 9) |
+    | `claimed` in the pool | `closed` there | the pool holder's control agent (A 2026-11-09) | the claimant's state record, fresh within the stream's bound, reports that claim (the pool's generation and id) as a job `done` or `dropped`; `pool.json` keeps the claim with when and how it closed, never removing it |
+    | `claimed` in the pool | `open` again | the pool holder's control agent (A 2026-11-09) | a day or more after the claim, the claimant's fresh state record reports its claims and holds none for this one; a missing, stale or unreadable record, or one that does not report claims, is unknown and reopens nothing |
     | — | `queued` | `fabric-jobs add`; the inbox intake (rule 11); the control agent's `jobs-add` (rule 4) | a title and project; from a REQUEST, its id, once per id |
     | — | any state, as exported | `fabric-jobs import` (rule 13) | an empty list; at most one job `active`; a list moved, not a job started |
     | `queued`, `paused`, `blocked`, `delivered` | `active` | `fabric-jobs start` or `switch` only | no other job active; no hold (rule 13); a working copy; from `blocked` by `switch`, every blocker cleared; by `switch`, a branch chosen (rule 10 step 3) |
@@ -299,6 +299,12 @@ Why these choices:
     | `delivered` | `done` | `fabric-jobs sweep`, run by the agent or hourly by its control agent (rule 12) | rule 10's `done` test |
     | `active`, `delivered` | `done` | `fabric-jobs done` | rule 10's `done` test: the artifact merged or on the default branch; or a recorded `--no-artifact` reason where the job names no artifact |
     | `queued`, `active`, `paused`, `blocked`, `delivered` | `dropped` | `fabric-jobs drop` | a reason; a REQUEST it came from answered |
+
+    Both pool rows read a field the state record does not carry yet:
+    the claims an account holds, by the pool's generation and id, with
+    the state of the job each became. It is an optional field of the
+    control wire, added with the job module of Wave 2. Until it is,
+    neither row is made, and a claim stays `claimed`.
 
     `done` and `dropped` are terminal: nothing reopens them, and new
     work is a new job. `switch` and `next` make no transition beyond
@@ -366,4 +372,4 @@ The body above reads current; each change's full note is in [history/ADR-037-ame
 | 2026-10-31 | In place only from inside the job's copy | §5 rule 3: a session that has worked no job takes the next in place only from inside its working copy or worktree; elsewhere, or unreadable, `switch` says fresh with the reason (`outside_copy`, `place_unreadable`) |
 | 2026-11-05 | An answered request waits on the job it became | §5 rule 8: an answered `request:` blocker is re-pointed to `job:<login>/j<n>` when the answerer's board, or failing it the REPLY's body, names the job the request became; cleared only without one, unknown when the board cannot be read and the body names none; built in #491 |
 | 2026-11-08 | One transition table for a job | §5 rule 14 added: every state change of a job is a row naming the one subsystem that may make it and what must be true when it is made; `done` and `dropped` terminal; code outside the table is a finding, characterised before it changes |
-| 2026-11-09 | A pool claim ends | §5 rule 14: two rows for the pool's own end, both the holder's control agent's: `claimed` to `closed` when the claimant's job is done or dropped, `claimed` back to `open` when no list holds the claim's job a day on; decided, built with the job module of Wave 2 |
+| 2026-11-09 | A pool claim ends | §5 rule 14: two rows for the pool's own end, both the holder's control agent's, read from the claimant's fresh state record: `claimed` to `closed` when it reports the claim's job done or dropped, `claimed` back to `open` when a day on it reports its claims and holds none for this one; an unknown record reopens nothing; the record's claims field and the rows are built with Wave 2's job module |
