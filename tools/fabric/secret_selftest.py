@@ -45,6 +45,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
+import process  # noqa: E402
 import roots  # noqa: E402
 from secretstore.core import StoreError, git, login, store_dir  # noqa: E402
 from secretstore.keys import key_of_store  # noqa: E402
@@ -83,8 +84,8 @@ def _cmd(args: list[str], stdin: str | None = None) -> tuple[int, str, str]:
     gpg it runs, not only the direct child, which left them writing to the
     store after the step had been reported (the own-secrets review, R3)."""
     try:
-        proc = subprocess.Popen(args, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                                text=True, process_group=0, env={**os.environ, LOCK_WAIT_ENV: str(LOCK_WAIT_S)})
+        proc = process.popen_group(args, session=False, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                   text=True, env={**os.environ, LOCK_WAIT_ENV: str(LOCK_WAIT_S)})
     except OSError as e:
         return 127, "", f"{os.path.basename(args[0])}: {e.strerror}"
     try:
@@ -101,9 +102,7 @@ def _stop_group(proc: subprocess.Popen) -> None:
     A gpg-agent the command started has left the group (it daemonizes),
     and is the account's, so it stays."""
     for sig, grace in ((signal.SIGTERM, STOP_GRACE_S), (signal.SIGKILL, None)):
-        try:
-            os.killpg(proc.pid, sig)
-        except ProcessLookupError:
+        if not process.signal_group(proc.pid, sig):
             break
         if grace is None:
             break
@@ -112,9 +111,7 @@ def _stop_group(proc: subprocess.Popen) -> None:
         except subprocess.TimeoutExpired:
             continue
         # The leader is gone; what it started may not be.
-        try:
-            os.killpg(proc.pid, 0)
-        except ProcessLookupError:
+        if not process.group_alive(proc.pid):
             break
     # Bounded too: a descendant that left the group with a pipe still open
     # would hold the read until selftest.mjs killed the whole run. A leader
