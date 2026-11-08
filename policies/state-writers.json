@@ -1,11 +1,11 @@
 {
-  "_comment": "ADR-003 §5 rule 1 (A 2026-11-03): the modules tools/fabric/state_writes.py admits although they resolve the per-agent state directory and write a file, or read AGENT_FABRIC_STATE_DIR themselves. Each value says why: the record's clause that admits it, 'not state:' and what it writes instead, or 'gap (jNNN):' and the job that closes it. An entry admits the whole module, a later write in it included, so a gap's entry leaves when its job lands. Lock files on their terms (os.open, O_CREAT, no O_TRUNC, 0o600) are never findings and need no entry.",
+  "_comment": "ADR-003 §5 rule 1 (A 2026-11-03): the modules tools/fabric/state_writes.py admits although they resolve the per-agent state directory and write a file, or read AGENT_FABRIC_STATE_DIR themselves. Each value says why: the record's clause that admits it, or 'not state:' and what it writes instead. An entry admits the whole module, a later write in it included. Lock files on their terms (os.open, O_CREAT, no O_TRUNC, 0o600) are never findings and need no entry.",
   "writers": {
     "tools/fabric/control/upgrade.py": "ADR-003 §2, rule 1: the control code; restart.json by temporary and rename, its path resolved for an explicit home",
     "tools/fabric/control/ops/usage.py": "ADR-003 §2, rule 1: the control code; writes under <state root>/accounts/, not agents/<login>/",
     "tools/fabric/episodic.py": "ADR-003 §2, rule 1: episodic.db, the self-contained transactional store (A 2026-10-05)",
     "tools/fabric/gzcoord/bypass.py": "ADR-003 rule 1: journal-bypass.jsonl, a GZCoord log (A 2026-10-05)",
-    "tools/fabric/gzcoord/send.py": "ADR-003 rule 1: gzcoord-sent.jsonl, the send ledger, a GZCoord log; its unlocked trim the record's named gap (A 2026-10-05)",
+    "tools/fabric/gzcoord/send.py": "ADR-003 rule 1: gzcoord-sent.jsonl, the send ledger, a GZCoord log; the append and the trim both under identity.agent_lock, the trim by identity.atomic_write (A 2026-10-05)",
     "runtime/claude-code/hooks/session-start.py": "not state: appends to the harness's CLAUDE_ENV_FILE",
     "tools/fabric/assembler/report.py": "not state: a project's last-drain-report.json and a caller-named commit message file",
     "tools/fabric/review_codex.py": "not state: the review's scratch under the account's temporary directory",
@@ -16,7 +16,7 @@
     "tools/fabric/secretstore/statecopy.py": "not state: reads the state directory (episodic.db by SQLite's online backup) and writes into the login's own store",
     "tools/fabric/launcher/session.py": "not state: marks the harness's onboarding done in <CLAUDE_CONFIG_DIR or home>/.claude.json; a state_dir it takes goes to launch_provider_record",
     "tools/fabric/memory_flagrun.py": "not state: the request goes through a private temporary directory, and its report is a project's last-drain-report.json",
-    "tools/fabric/launcher/gateway.py": "gap (j642): gateway.log, the gateway child's stderr, appended under agents/<login>/ outside identity; the gateway record goes through identity.atomic_write and the harness config is not state",
+    "tools/fabric/launcher/gateway.py": "not state: marks the gateway-local key approved in the harness's .claude.json by temporary and rename; the gateway's log descriptor comes from identity.open_log_fd and the gateway record goes through identity.atomic_write",
     "tools/fabric/secretstore/relaycopy.py": "not state: the backup's scratch, its manifest and a restored copy; relay-backup.jsonl goes through identity.append_line"
   }
 }

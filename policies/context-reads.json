@@ -1,0 +1,10 @@
+{
+  "_comment": "j212: the modules tools/fabric/context_reads.py admits although they build the binding's path or name binding.json outside runtime/identity.py and tools/fabric/workingcopy.py. Each value says why this reader is not on identity.resolve_context(). An entry admits the whole module, so it leaves when its reader moves.",
+  "readers": {
+    "tools/fabric/gzcoord/gzmsg.py": "whoami()'s fallback: when identity cannot answer (a fabric root without runtime/, a binding identity refuses), the login and its binding are read from the module beside this file, so a broken binding still yields an address; whoami's normal path takes the file from the context",
+    "tools/fabric/launch.py": "the restart read: after the control plane's upgrade wait the launcher reads the session id the binding records, by the file's path under its own state_dir, which tests/test_launch.py and test_control_restart.py hand to read_restart as a path",
+    "tools/fabric/role.py": "the writer: it saves the binding's bytes before a bind and puts them back on a rollback, under the agent lock; a record re-stamped by write_binding would carry another host's binding as ours",
+    "runtime/provisioning/moveto/moveto.py": "reads another account's binding over run_as (cat), to name its role; that account's home is not this process's, so identity.resolve_context(agent=) cannot reach it",
+    "tools/fabric/provisioning/verify.py": "a shell probe's glob, ~/.local/state/agent-fabric/agents/*/binding.json: it tests that a file exists in an account, and reads none"
+  }
+}
