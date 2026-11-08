@@ -70,6 +70,7 @@ its record disagree, the record wins. Look it up, never read it whole:
 | GZCoord over InterWeave; the InterWeave carrier; dual run beside the relay; the agents' PeerIds and roster; switching transport | ADR-064 |
 | the reviewer's tools; the review sandbox; coverage blocks; the v2 review marker; where a re-review starts | ADR-065 |
 | the reviewer's own accuracy; calibrating the review class; owner labels; seeded defects; a review routing change's evidence | ADR-066 |
+| one owning module per mechanism; a reimplementation; policies/mechanisms.json; a checker and its exceptions | ADR-067 |
 
 ### ADR-000 — The enduring organization (Accepted)
 
@@ -1513,3 +1514,16 @@ its record disagree, the record wins. Look it up, never read it whole:
   Python, fixing undefined-as-zero, silent bootstrap drops and a
   fail-open ledger (§5 rule 10).
 - Keywords: review calibration, calibrate, classifier, judge, owner labels, held-out, seeded defects, recall, precision, TPR, TNR, Rogan-Gladen, McNemar, TOST, pass^k, gavel, review routing, P3.
+
+### ADR-067 — One owning module per cross-cutting mechanism (Proposed)
+
+- A cross-cutting mechanism is implemented only in its owning module;
+  elsewhere a reimplementation is a finding unless its exceptions file
+  names the module with a reason (§5 r1).
+- `policies/mechanisms.json` names each mechanism's record, owner and
+  status: `enforced` (checker and exceptions tracked, run by lint and
+  the pre-commit hook), `pending` (the `<login>/j<n>` building it) or
+  `planned` (what it waits on) (§5 r2).
+- Lint reads the catalogue and refuses a claim the tree does not bear
+  out (§5 r3); a new mechanism enters with its owner (§5 r4).
+- Keywords: mechanism, duplicate, reimplementation, owning module, catalogue, fitness function, process lifetime, killpg, evidence cap, binding read.
