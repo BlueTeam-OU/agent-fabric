@@ -28,6 +28,6 @@ backend-dev-01's j41 worktree (2026-10-19) sat idle for over an hour this way.
 (`dotnet build Gzapp.sln && dotnet test --no-build ...`), or stop the earlier task with TaskStop
 first. Killing by pattern is refused by the fabric's hook; stop a background task with TaskStop.
 
-*Anchors: `agent-fabric/AGENTS.md::fabric-lease`*
+*Anchors: `agent-fabric:AGENTS.md::fabric-lease`*
 
 *Observed 2026-10-19 (backend-dev)*

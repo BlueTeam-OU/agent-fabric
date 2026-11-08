@@ -849,13 +849,6 @@
   ],
   "collision_decisions": [
     {
-      "agent": "backend-dev-01",
-      "decision": "supersede",
-      "key": "backend-dev/workflow:pgrep-wait-loop-self-match#A background \"wait until no dotnet build runs\" loop using pgrep -f deadlocks on its own command line",
-      "observed_at": "2026-10-19",
-      "rule": "same-agent"
-    },
-    {
       "agent": "brand-comms-01",
       "decision": "supersede",
       "key": "brand-comms/workflow:job-end-disk-cleanup#When a job ends, before fabric-jobs switch: measure and remove what only that job needed in your own account, and write what went into the job's evidence; where brand-comms' disk actually goes",
