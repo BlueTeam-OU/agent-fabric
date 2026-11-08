@@ -84,7 +84,8 @@ def _round(got: dict, groups: dict, section: str, until: str, send: Send) -> dic
                 acct["undated"] += int(r.get("undated") or 0)
             else:
                 # Unreadable lines of the drill's files: carried to meta, where parity refuses a drill it cannot judge.
-                acct["relay_outage"]["skipped"] += int(r.get("skipped") or 0)
+                # Every page of the section reports the whole file's count: the largest is the count, their sum is not.
+                acct["relay_outage"]["skipped"] = max(acct["relay_outage"]["skipped"], int(r.get("skipped") or 0))
             n = r.get("next")
             if n is None:
                 continue

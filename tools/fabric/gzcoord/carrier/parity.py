@@ -221,7 +221,7 @@ def load_relay_outage(path: str, window: tuple[float, float]) -> dict[str, dict]
             raise CollectedError(f"{login}: the relay-outage sections are not complete ({ro.get('reason') or 'no reason given'})")
         if ro.get("skipped"):
             # A torn or unreadable line may be the very acknowledgement or showing in question: unknown, so no report.
-            raise CollectedError(f"{login}: {ro['skipped']} line(s) of the shown ledger or acknowledgement log could not be read; the drill cannot be judged from the rest")
+            raise CollectedError(f"{login}: {ro['skipped']} line(s) of the account's shown ledger or acknowledgement log could not be read; the drill cannot be judged from the rest")
         want = meta.get("counts")
         if isinstance(want, dict) and (want.get("shown"), want.get("acks")) != (len(shown), len(acks)):
             raise CollectedError(f"{login}: the files do not hold what the collection counted of the shown ledger and acknowledgements (cut short, or edited)")

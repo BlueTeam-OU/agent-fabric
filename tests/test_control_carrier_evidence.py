@@ -780,6 +780,14 @@ class RelayOutageCollect(Collect):
             fh.write('{"mid": ')      # the watch died while writing the ack the relay had accepted
         got = ec.collect(["a"], iso(0), iso(100), self.sender())
         self.assertEqual((got["a"]["complete"], got["a"]["relay_outage"]["complete"], got["a"]["relay_outage"]["skipped"]), (True, True, 1))
+        # One unreadable line, several pages: each page repeats the file's count, which is not summed.
+        self.drill_account("b", [{"mid": mid(s, s), "via": "interweave", "t": iso(s)} for s in range(30)], [])
+        with open(os.path.join(self.states["b"], "gzcoord-shown.jsonl"), "a") as fh:
+            fh.write('{"mid": ')
+        with unittest.mock.patch.object(ev, "PAGE_BYTES", 900):
+            got = ec.collect(["b"], iso(0), iso(100), self.sender())
+        self.assertGreater(got["b"]["pages"]["shown"], 2)
+        self.assertEqual(got["b"]["relay_outage"]["skipped"], 1)
 
     def test_a_table_row_says_when_the_drill_sections_are_missing_and_the_rollback_report_stands(self):
         row = {"account": "a", "host": "h", "status": "ok", "interweaveEvidence": {
@@ -932,7 +940,7 @@ class RelayOutage(unittest.TestCase):
         r["relay_outage"] = {"complete": True, "reason": None, "skipped": 1}
         rc, _, err = self.report(r)
         self.assertEqual(rc, 2)
-        self.assertIn("1 line(s) of the shown ledger or acknowledgement log could not be read", err)
+        self.assertIn("1 line(s) of the account's shown ledger or acknowledgement log could not be read", err)
         out = self.collect(self.good())
         with open(os.path.join(out, "beta", "shown.jsonl"), "w") as fh:
             fh.write("not json\n")
