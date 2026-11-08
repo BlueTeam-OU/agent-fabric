@@ -63,6 +63,37 @@ def lock_path(login: str, runtime: str | None = None) -> str:
     return os.path.join(runtime, "agent-fabric", f"gzcoord-inbox-{urllib.parse.quote(login, safe='')}.lock")
 
 
+def down_marker_path(login: str, runtime: str | None = None) -> str:
+    return lock_path(login, runtime)[:-len(".lock")] + ".relay-down"
+
+
+def mark_relay_down(login: str, now: float, runtime: str | None = None) -> None:
+    """A watch that gave up on an unreachable relay (exit 5) leaves the time, beside its lock, for the Stop hook
+    (runtime/claude-code/hooks/watch-on-stop.py): re-arming at once would only spin on the same relay, and an
+    operator who stopped it on purpose would see it return. A marker that cannot be written is no marker: the hook
+    then asks as it always did, the safe side."""
+    path = down_marker_path(login, runtime)
+    tmp = f"{path}.{os.getpid()}.tmp"
+    try:
+        os.makedirs(os.path.dirname(path), mode=0o700, exist_ok=True)
+        with open(tmp, "w", encoding="utf-8") as fh:
+            fh.write(f"{now:.0f}\n")
+        os.replace(tmp, path)
+    except OSError:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+
+
+def clear_relay_down(login: str, runtime: str | None = None) -> None:
+    """The next fetch the relay answered: the marker's claim is over. A marker that cannot be removed ages out at the hook."""
+    try:
+        os.unlink(down_marker_path(login, runtime))
+    except OSError:
+        pass
+
+
 class WatchLock:
     """Held while the object lives and its file is open. `holder` is the
     (pid, started) of the watch that owns the lock when this one does not."""

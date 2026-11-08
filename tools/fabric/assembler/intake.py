@@ -21,7 +21,7 @@ def parse_args() -> argparse.Namespace:
     ap.add_argument("--project", required=True,
                     help="logical project id the project-scoped classes are filed under")
     ap.add_argument("--fabric", default=None,
-                    help="agent-fabric root (default: this checkout, or $AGENT_FABRIC_ROOT)")
+                    help="agent-fabric root (default: this checkout; an exported AGENT_FABRIC_ROOT or AGENT_FABRIC_OPERATOR naming another tree is refused)")
     ap.add_argument("--working-copy", default=None,
                     help="the project's checkout; its .agent-fabric/memory/ receives the "
                          "project-scoped classes (default: the agent's binding, or this checkout "
@@ -60,6 +60,19 @@ def parse_args() -> argparse.Namespace:
     return args
 
 
+def refuse_foreign_root() -> None:
+    """Without --fabric the drain's tree is the checkout this assemble.py is in. An exported AGENT_FABRIC_ROOT or
+    AGENT_FABRIC_OPERATOR naming another tree (a source account's checkout, in the 2026-10-31 incident: only the
+    domain slices went there, the project ones followed --working-copy) would take the domain and shared slices
+    to it unasked, so the run stops before it writes. --fabric is how a run names a tree on purpose."""
+    here = os.path.realpath(layout.roots.code_root())
+    for name, value in (("AGENT_FABRIC_ROOT", layout.FABRIC_ROOT), ("AGENT_FABRIC_OPERATOR", os.environ.get(layout.roots.ENV_OPERATOR))):
+        if value and os.path.realpath(value) != here:
+            sys.exit(f"assemble: {name} names {value}, not the checkout this assemble.py is in ({here}); "
+                     f"the drain would write its domain and shared slices there. Unset it, or pass --fabric {value} "
+                     "to write there on purpose")
+
+
 def open_layout(args: argparse.Namespace) -> str:
     """The project, with the layout told where the fabric and every
     working copy are, and the hygiene lists of all of them loaded."""
@@ -70,6 +83,8 @@ def open_layout(args: argparse.Namespace) -> str:
         # (found 2026-11-02, j88). --fabric is the one tree this run reads and writes; the flag phase's
         # children (fabric-ctl, gzcoord-send) inherit it, so they read the fleet from --fabric too.
         os.environ[layout.roots.ENV_OPERATOR] = layout.FABRIC_ROOT
+    else:
+        refuse_foreign_root()
     project = args.project
     if args.working_copy:
         layout.set_working_copy(project, args.working_copy)

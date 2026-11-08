@@ -8,6 +8,7 @@ import fcntl
 import importlib.util
 import json
 import os
+import pwd
 import shutil
 import stat
 import subprocess
@@ -160,7 +161,7 @@ class Command(Scratch):
     def test_a_sample_in_is_a_file_under_the_account_state_directory(self):
         r = self.run_cmd(json.dumps(status_json(63.2)))
         self.assertEqual((r.returncode, r.stdout, r.stderr), (0, "", ""))
-        login = ss.pwd.getpwuid(os.getuid()).pw_name
+        login = pwd.getpwuid(os.getuid()).pw_name
         path = os.path.join(self.dir, "agents", login, cs.FILE)
         with open(path, encoding="utf-8") as fh:
             self.assertEqual(json.load(fh)["sessions"]["s-one-aaaa"]["pct"], 63)
@@ -175,7 +176,7 @@ class StatusLine(Scratch):
                               capture_output=True, timeout=60, env=env, check=False)
 
     def sample_path(self) -> str:
-        return os.path.join(self.dir, "agents", ss.pwd.getpwuid(os.getuid()).pw_name, cs.FILE)
+        return os.path.join(self.dir, "agents", pwd.getpwuid(os.getuid()).pw_name, cs.FILE)
 
     def test_drawing_the_line_keeps_the_sample_and_the_line_is_unchanged_by_it(self):
         payload = {**status_json(37), "workspace": {"current_dir": self.dir}, "model": {"display_name": "M"}, "version": "9.9.9"}

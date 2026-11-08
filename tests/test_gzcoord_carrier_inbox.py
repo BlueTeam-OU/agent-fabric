@@ -49,6 +49,7 @@ def relay_rec(n: int, frm: str = "x/y") -> dict:
 
 class World:
     def __init__(self, pages: list[list[dict]], carrier_records: list[dict] | None = None, journal: bool = True) -> None:
+        self.relay_down = False   # every /api/wait fetch answers 500
         self.acks: list[str] = []
         self.calls = 0
         self.pages = pages
@@ -62,6 +63,8 @@ class World:
                 return 200, "{}"
             if path.startswith("/api/wait"):
                 self.calls += 1
+                if self.relay_down:
+                    return 500, "{}"
                 page = self.pages[self.calls - 1] if self.calls <= len(self.pages) else []
                 return 200, json.dumps({"messages": page})
             return 200, "{}"
@@ -96,6 +99,13 @@ class World:
             if "gzcoord-shown.jsonl" in fs:
                 out += [json.loads(x) for x in open(os.path.join(dp, "gzcoord-shown.jsonl")) if x.strip()]
         return out
+
+    def watch(self, deadline: int = 8) -> subprocess.CompletedProcess:
+        """The real watch (--until-delivery) with a short give-up bound, so a relay that never answers ends it."""
+        self.calls = 0
+        env = {**self.env, "GZCOORD_UNTIL_DELIVERY_DOWN_S": "3"}
+        return subprocess.run([P.INBOX_CMD, "--until-delivery", "--deadline", str(deadline)], env=env, capture_output=True,
+                              text=True, timeout=120, stdin=subprocess.DEVNULL)
 
     def drain(self) -> subprocess.CompletedProcess:
         self.calls = 0
@@ -190,6 +200,90 @@ def main() -> int:
     w.pages = [[relay_rec(7)]]
     r = w.drain()
     check("... and then it is settled", "subject-7" not in r.stdout, r.stdout)
+    w.close()
+
+    # ADR-064: the relay is the channel of record, but the carrier must carry a message when every relay fetch fails.
+    # (a) only the carrier has it, the relay fails every fetch
+    recs: list[dict] = []
+    w = World([], carrier_records=recs)
+    w.relay_down = True
+    r = w.watch()
+    check("relay down, nothing on the carrier: the watch gives up with the relay's line, shows nothing",
+          r.returncode == 5 and "subject-" not in r.stdout, f"{r.returncode}\n{r.stdout}{r.stderr}")
+    # (b) the watch above ended and a new one starts: the message that arrived meanwhile is shown
+    recs.append(urec(1))
+    r = w.watch()
+    check("(a)(b) relay down: a message only the carrier has reaches a watch started after the first one ended",
+          r.returncode == 0 and r.stdout.count("subject-1") == 1 and w.acks == [], f"{r.returncode}\n{r.stdout}{r.stderr}")
+    r = w.watch()
+    check("(b) a restart of the watch does not show it again, the carrier still listing it",
+          "subject-1" not in r.stdout and r.returncode == 5, f"{r.returncode}\n{r.stdout}{r.stderr}")
+    # (c) the relay comes back carrying the same message
+    w.relay_down = False
+    w.pages = [[relay_rec(1)]]
+    r = w.watch()
+    check("(c) the relay back with the same message: shown no second time, and acknowledged",
+          "subject-1" not in r.stdout and w.acks == ["r1"], f"{r.returncode}\n{r.stdout}{r.stderr}\n{w.acks}")
+    check("(c) the ledger holds it once (pending line, final line)",
+          [(x["mid"], bool(x.get("pending"))) for x in w.ledger_lines()] == [(mid(1), True), (mid(1), False)], str(w.ledger_lines()))
+    w.close()
+
+    # the relay's copy arrives first, the relay then goes down and the carrier lists it: still once
+    w = World([[relay_rec(2)]], carrier_records=[urec(2)])
+    r = w.watch()
+    w.relay_down = True
+    r2 = w.watch()
+    check("relay copy shown, then the relay fails and the carrier lists it: once",
+          r.stdout.count("subject-2") == 1 and "subject-2" not in r2.stdout, r.stdout + r2.stdout)
+    w.close()
+
+    # the carrier's delivery does not hide that the relay failed
+    w = World([], carrier_records=[urec(3)])
+    w.relay_down = True
+    r = w.drain()
+    check("relay down, the carrier delivers (drain): shown, and the relay's line is on stderr, exit 0",
+          r.returncode == 0 and "subject-3" in r.stdout and "HTTP 500" in r.stderr, f"{r.returncode}\n{r.stdout}{r.stderr}")
+    w.close()
+    w = World([], carrier_records=[urec(4)])
+    w.relay_down = True
+    r = w.watch()
+    check("relay down, the carrier delivers (--until-delivery): shown, the relay's line beside it, exit 0",
+          r.returncode == 0 and "subject-4" in r.stdout and "HTTP 500" in r.stdout, f"{r.returncode}\n{r.stdout}{r.stderr}")
+    w.close()
+    # the relay-down marker (a Stop hook reads it) survives a carrier delivery made while the relay fails, and goes when the relay answers
+    w = World([[]], carrier_records=[urec(5)])
+    login = subprocess.run(["id", "-un"], capture_output=True, text=True, timeout=10).stdout.strip()
+    marker = os.path.join(w.env["XDG_RUNTIME_DIR"], "agent-fabric", f"gzcoord-inbox-{login}.relay-down")
+    os.makedirs(os.path.dirname(marker), mode=0o700, exist_ok=True)
+    with open(marker, "w") as fh:
+        fh.write("1\n")
+    w.relay_down = True
+    r = w.watch()
+    check("relay down, the carrier delivers: the relay-down marker stays", r.returncode == 0 and "subject-5" in r.stdout
+          and os.path.exists(marker), f"{r.returncode}\n{r.stdout}{r.stderr}")
+    w.relay_down = False
+    r = w.watch(deadline=3)
+    check("the relay answered (an empty page): the marker is removed", not os.path.exists(marker), f"{r.returncode}\n{r.stdout}{r.stderr}")
+    w.close()
+    # --follow: an arm failed (the watch is "down"), then the carrier delivers while the relay still fails: not "the relay is back".
+    # The watch retries every 30 s, so the record arrives after the first failed arm and the case waits for the second.
+    recs = []
+    w = World([], carrier_records=recs)
+    w.relay_down = True
+    pr = subprocess.Popen([P.INBOX_CMD, "--follow"], env=w.env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+                          stdin=subprocess.DEVNULL)
+    try:
+        import time
+        time.sleep(3)
+        recs.append(urec(5))
+        time.sleep(34)
+    finally:
+        pr.terminate()
+        out, err = pr.communicate(timeout=30)
+    check("--follow, relay down, then the carrier delivers: shown, the relay still reported, and no relay-back line",
+          "subject-5" in out and "HTTP 500" in err
+          and [x for x in out.splitlines() if x.startswith("gzcoord watch:")] == [x for x in out.splitlines() if "relay unreachable" in x],
+          f"{out}{err}")
     w.close()
 
     for d in P.SCRATCH:

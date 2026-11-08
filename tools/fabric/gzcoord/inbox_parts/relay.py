@@ -29,6 +29,30 @@ def _relay_up(relay_url: str, seconds: int) -> bool:
         return False
 
 
+def _stopped_by_operator(unit: str, env: dict[str, str]) -> bool:
+    """True only for a unit that ran this boot and was stopped cleanly:
+    inactive, Result success, left after it was entered. A failed unit, one
+    never started (monotonic stamps 0) or an answer systemctl would not give
+    is False — those are started as before. The monotonic stamps are compared
+    because they are integers; the wall-clock ones are locale text."""
+    try:
+        shown = subprocess.run(["systemctl", "--user", "show", unit, "-p", "ActiveState", "-p", "Result",
+                                "-p", "ActiveEnterTimestampMonotonic", "-p", "InactiveEnterTimestampMonotonic"],
+                               stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                               timeout=15, env=env, text=True)
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+    if shown.returncode != 0:
+        return False
+    props = dict(line.split("=", 1) for line in shown.stdout.splitlines() if "=" in line)
+    try:
+        entered = int(props["ActiveEnterTimestampMonotonic"])
+        left = int(props["InactiveEnterTimestampMonotonic"])
+    except (KeyError, ValueError):
+        return False
+    return props.get("ActiveState") == "inactive" and props.get("Result") == "success" and 0 < entered < left
+
+
 def ensure_relay(runtime_dir: str, relay_url: str | None = None, t: i18n.Printer | None = None) -> dict:
     """The hosting workspace (whose runtime dir holds the relay's venv) is
     the coordinator's: its session start brings the relay up — the user
@@ -60,10 +84,15 @@ def ensure_relay(runtime_dir: str, relay_url: str | None = None, t: i18n.Printer
     except OSError:
         bus_is_socket = False
     if os.path.exists(unit_file) and (bus_is_socket or os.environ.get("GZCOORD_TEST_BUS_ANY") == "1"):
+        env = {**os.environ, "XDG_RUNTIME_DIR": runtime}
+        # An operator's `systemctl stop` holds: the unit file says the relay is
+        # supervised, so neither a start nor the detached spawn below may undo it.
+        if _stopped_by_operator(unit, env):
+            return {"hosted": True, "started": False, "note": t("start.relay-stopped", {"unit": unit})}
         try:
             asked = subprocess.run(["systemctl", "--user", "start", unit], stdin=subprocess.DEVNULL,
                                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=15,
-                                   env={**os.environ, "XDG_RUNTIME_DIR": runtime}).returncode == 0
+                                   env=env).returncode == 0
         except (OSError, subprocess.TimeoutExpired):
             asked = False   # systemctl itself failed: the spawn below is the fallback
         if asked:

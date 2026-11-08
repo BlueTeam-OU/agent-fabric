@@ -171,7 +171,19 @@ record says so rather than claim otherwise.
    no commit declares the owner role unless a contributor role in it
    merges its own work, which may fold another contributor's supply as
    the coordinator does; which login holds a role is never committed, so
-   the declared roles are judged (A 2026-10-08).
+   the declared roles are judged (A 2026-10-08). Between an entry's paths
+   and the fence lies the supply tier: what runs with an account's reach
+   (as root, as every account, with its relay token or private history)
+   but that no guard, lint or suite runner loads or runs. An entry names
+   such paths under `supplies`; its role commits them, whatever `paths`,
+   `excluding` and `merges` say, only on a branch
+   `<host>/<login>/for/<holder>/<what>` whose caller is a login
+   `role_definitions` names, and CI refuses a pull request carrying such
+   a commit unless a commit in it declares the owner role, which folds,
+   reviews blind and merges it. Lint holds every `supplies` rule inside
+   the tier (`CONTRIBUTOR_SUPPLY`) and every `paths` rule out of it; what
+   judges a contributor's commit or its review stays in the hard list
+   (`CONTRIBUTOR_NEVER`) (A 2026-11-07).
 
 ## 6. Consequences
 
@@ -242,3 +254,4 @@ The body above reads current; each change's full note is in [history/ADR-018-ame
 | 2026-10-07 | A contributor that merges its own pull request | §5 rule 8: an entry's `merges` lets its role open, review and merge its own pull request within its entry; CI refuses a pull request from a for/ branch, and a contributor-only one whose role does not merge |
 | 2026-10-08 | A role that merges its own work may fold another contributor's supply | §5 rule 8: a PR with no owner-role commit passes when a role in it merges its own work |
 | 2026-10-18 | The shared prompt pieces' renderings are language-culture's | §5 rule 5: `identities/prompt/locale/<suffix>/` falls under the locale carve-out as `language-culture`'s (ADR-060) |
+| 2026-11-07 | A supply tier between a contributor's paths and the fence | §5 rule 8: an entry's `supplies` admits supply-tier paths on a for/<holder> branch only; CI requires an owner-role commit beside them; lint splits the never-list into hard and supply |

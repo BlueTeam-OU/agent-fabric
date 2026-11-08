@@ -439,14 +439,15 @@ its record disagree, the record wins. Look it up, never read it whole:
 - A 2026-09-28 — the charter tripwire runs in CI.
 - A 2026-09-30 — the stores are this role's (References).
 - A 2026-10-01 — the contributor carve-out (§5 rules 7–8).
-- A 2026-10-01 — the fence's code is in no entry (§5 rule 8).
+- A 2026-10-01 — the fence's code is in no entry.
 - A 2026-10-01 — CI runs main's guards (§5 rule 4).
-- A 2026-10-04 — a merge is judged on its own change (§5 rules 3–4).
-- A 2026-10-07 — an entry that `merges` opens its PR (§5 rule 8).
-- A 2026-10-08 — and may fold another's supply (§5 rule 8).
+- A 2026-10-04 — a merge is judged on its own change.
+- A 2026-10-07 — an entry that `merges` opens its PR.
+- A 2026-10-08 — and may fold another's supply.
 - A 2026-10-18 — prompt/locale/ is language-culture's (§5 rule 5).
-- Keywords: Fabric-Role, pre-commit, commit-msg,
-  locale carve-out, contributor, merges.
+- A 2026-11-07 — `supplies`, the supply tier: for/<holder> only (§5 rule 8).
+- Keywords: pre-commit, commit-msg, locale carve-out,
+  never-list.
 
 ### ADR-019 — Work arrives as pull requests: one open PR per agent and repository, 8 or more work commits to arm, the gate read before arming, no machine attribution, repository settings (Accepted)
 
@@ -1490,10 +1491,12 @@ its record disagree, the record wins. Look it up, never read it whole:
   findings blind (`real`, `not-real`, `unsure`); seeded defects are
   planted in pinned public ranges, each with a test that proves it
   (§2, §5 rules 2, 7).
-- Rates: adjudication TPR/TNR/κ against owner labels, finding precision
-  (labelled, and Rogan-Gladen-corrected on the rest), seeded recall as
-  pass@1 and pass^3, each with its interval; none below 20 real and 20
-  not-real held-out labels (§5 rules 5, 6, 8).
+- Rates: adjudication TPR/TNR against owner labels, each with its
+  interval, κ and J as point values; finding precision per level
+  (labelled, and Rogan-Gladen-corrected on the rest) and seeded recall
+  as pass@1 and pass^3, each with its interval; adjudication and
+  precision unpublished below 20 real and 20 not-real held-out labels
+  (§5 rules 5, 6, 8).
 - Labels hold coordinates and verdicts, never text, sha256-chained,
   fail-closed; halves by `sha256(coordinates) mod 2`; held-out never
   quoted in instructions (§5 rules 3, 4).

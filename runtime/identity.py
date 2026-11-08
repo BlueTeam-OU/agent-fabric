@@ -128,7 +128,8 @@ def atomic_write(path: str, data: "bytes | str", mode: int | None = None, *, rep
     flushed and fsynced, then os.replace — the reader sees the old file
     or the new one, never a torn one. The temporary is removed on any
     failure. `mode` sets the permission bits (0o600 for a private file);
-    otherwise the existing file's bits are kept, or the umask applies.
+    otherwise the existing file's bits are kept, and a new file is 0600,
+    mkstemp's mode, whatever the umask.
     With replace=False the temporary is linked into place instead, and a
     file already at `path` is left alone and raises FileExistsError: a
     writer that must never overwrite (provisioning beside an account's

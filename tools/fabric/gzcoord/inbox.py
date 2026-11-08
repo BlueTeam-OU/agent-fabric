@@ -219,7 +219,7 @@ from .inbox_parts.hold import hold_dir, pid_start, pid_alive, hold_status, HOLD_
 from .inbox_parts.render import NOTIFICATION_CAP, MAX_FLAG_LINES, _SECTION, cut_at_line  # noqa: F401
 from .inbox_parts.render import _drop_final_newline, split_message, render  # noqa: F401
 from .inbox_parts.watch import JOURNAL_RETRY_MS, bypass_inbound, wait_loop  # noqa: F401
-from .inbox_parts.watchlock import take_or_report  # noqa: F401
+from .inbox_parts.watchlock import take_or_report, mark_relay_down, clear_relay_down  # noqa: F401
 from .inbox_parts import session as watch_session
 
 
@@ -620,16 +620,19 @@ def main(argv: list[str]) -> int:
                     down_since = time.monotonic()
                 elif until_delivery and time.monotonic() - down_since >= UNTIL_DELIVERY_DOWN_S:
                     print(t("watch.relay-gave-up", {"relay_url": relay_url}), flush=True)
+                    mark_relay_down(who["agent"], time.time())
                     return 5
                 # The 30 s between tries, shortened to the time left before the give-up bound and, under --until-delivery,
                 # before the --deadline (never negative: sleep refuses that): a relay that refuses connections must not
                 # carry the watch past the deadline it promised, and a shorter bound (a test's) is not slept through twice.
                 time.sleep(max(0.0, min(30.0, UNTIL_DELIVERY_DOWN_S - (time.monotonic() - down_since), deadline - time.monotonic())) if until_delivery else 30)
                 continue
+            if r.get("relayAnswered"):
+                clear_relay_down(who["agent"])
             if r.get("sessionEnded"):
                 print(SESSION_ENDED.format(pid=session.pid), flush=True)
                 return 0
-            if down:
+            if down and r.get("relayError") is None:   # a delivery the carrier made says nothing of the relay
                 if not until_delivery:
                     print(t("watch.relay-back"), flush=True)
                 down = False
@@ -638,6 +641,10 @@ def main(argv: list[str]) -> int:
                 mark_retransmissions(r["classified"], fetch_recent)
                 show_page(r, lambda: print(with_queued(render(r, me, channel, taxonomy, cap=NOTIFICATION_CAP, t=t,
                                                                 reminder=reminder), r["classified"], me), flush=True))
+                if r.get("relayError") is not None:
+                    # The carrier delivered while the relay failed: the session is still told the relay is failing.
+                    print(explain_relay_error(r["relayError"], relay_url, t)["line"],
+                          file=sys.stdout if until_delivery else sys.stderr, flush=True)
                 if until_delivery:
                     return 0
 
@@ -664,6 +671,11 @@ def main(argv: list[str]) -> int:
                                              res["classified"], me)))
     # show_page acknowledged the slice once the page was written (wait_loop did, for a
     # slice that delivered nothing).
+    if res.get("relayError") is not None:
+        # The carrier delivered while the relay failed: the relay's line and exit code stand as without the carrier.
+        x = explain_relay_error(res["relayError"], relay_url, t)
+        print(x["line"], file=sys.stderr)
+        return x["code"]
     return 0
 
 

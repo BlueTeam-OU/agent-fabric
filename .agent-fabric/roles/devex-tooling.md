@@ -92,7 +92,10 @@ Python, standard library only, on the interpreter the fabric pins.
   fabric-coordinator's.
 - The guards, the lint, `tests/run.sh`, `tests/static.sh` and the
   `run.py`, `static.py` and `run_python_suites.py` they forward to.
-- All of `runtime/claude-code/`.
+- All of `runtime/claude-code/`, but the workspace hooks your entry's
+  `supplies` lists (agent-fabric ADR-018 §5 rule 8, since 2026-11-07):
+  those you write on a `<host>/<login>/for/<coordinator>/<what>` branch
+  only, and fabric-coordinator folds, reviews and merges them.
 - The review-brief code (`fabric-review`, `review_brief.py`,
   `review_rounds.py`).
 - The journal's modules.
