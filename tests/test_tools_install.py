@@ -1157,8 +1157,8 @@ ln -sf rustup "$CARGO_HOME/bin/cargo"; ln -sf rustup "$CARGO_HOME/bin/rustc"
             home = account("pa")
             tools_install.exit_on_sigterm()
             tools_install.RUN_TIMEOUT_S["installer"] = 1
-            saved_grace = tools_install.bounded.STOP_GRACE_S
-            tools_install.bounded.STOP_GRACE_S = 3
+            saved_grace = tools_install.process.STOP_GRACE_S
+            tools_install.process.STOP_GRACE_S = 3
             flag(home, ".fake-init-sleeps")
             term_timer = threading.Timer(2.0, os.kill, (os.getpid(), signal.SIGTERM))
             term_timer.start()
@@ -1171,7 +1171,7 @@ ln -sf rustup "$CARGO_HOME/bin/cargo"; ln -sf rustup "$CARGO_HOME/bin/rustc"
             finally:
                 term_timer.cancel()  # a run that ended early must not leave a SIGTERM for the runner
                 signal.signal(signal.SIGTERM, signal.SIG_DFL)
-                tools_install.bounded.STOP_GRACE_S = saved_grace
+                tools_install.process.STOP_GRACE_S = saved_grace
                 tools_install.RUN_TIMEOUT_S.update(saved_bound)
             took = time.monotonic() - t0
             time.sleep(0.2)
