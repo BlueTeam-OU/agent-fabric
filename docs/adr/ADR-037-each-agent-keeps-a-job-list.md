@@ -285,19 +285,22 @@ Why these choices:
     | from | to | who | needs |
     |---|---|---|---|
     | — | `open` in a role's pool | the pool holder's control agent, on a signed `pool-add` (rule 9) | role, title, project, priority |
-    | `open` in the pool | `claimed` there, `queued` on the claimant's list | the pool holder's control agent, on `pool-claim` | the claimant's reported binding holds the role; no other claimant |
-    | — | `queued` | `fabric-jobs add`; the inbox intake (rule 11); the control agent's `jobs-add` (rule 4); `import` into an empty list | a title and project; from a REQUEST, its id, once per id |
+    | `open` in the pool | `claimed` there | the pool holder's control agent, on `pool-claim` | the claimant's reported binding holds the role; no other claimant |
+    | — | `queued` | the claimant's own `fabric-jobs pool-claim`, on the holder's `claimed` answer (rule 1: no other writer of its list) | the pool's job, by generation and id |
+    | — | `queued` | `fabric-jobs add`; the inbox intake (rule 11); the control agent's `jobs-add` (rule 4) | a title and project; from a REQUEST, its id, once per id |
+    | — | any state, as exported | `fabric-jobs import` (rule 13) | an empty list; at most one job `active`; a list moved, not a job started |
     | `queued`, `paused`, `blocked`, `delivered` | `active` | `fabric-jobs start` or `switch` only | no other job active; no hold (rule 13); a working copy; from `blocked` by `switch`, every blocker cleared; by `switch`, a branch chosen (rule 10 step 3) |
     | `active` | `paused` | `fabric-jobs pause` | a reason; the branch pushed |
     | `queued`, `active`, `paused`, `blocked` | `blocked` | `fabric-jobs block` | a blocker: checkable (rule 8) or a named owner's decision; on a blocked job, it replaces the wait |
+    | `queued`, `paused`, `blocked` | `blocked` | `fabric-jobs switch` (rule 10 step 3) | the job needs a pull request not yet merged: `pr:` added to its blockers, never substituted |
     | `active`, `blocked` | `delivered` | `fabric-jobs deliver` | an artifact that is open: a pull request, a branch on origin not on the default branch, a sent REPLY |
     | `delivered` | `done` | `fabric-jobs sweep`, run by the agent or hourly by its control agent (rule 12) | rule 10's `done` test |
     | `active`, `delivered` | `done` | `fabric-jobs done` | rule 10's `done` test: the artifact merged or on the default branch; or a recorded `--no-artifact` reason where the job names no artifact |
     | `queued`, `active`, `paused`, `blocked`, `delivered` | `dropped` | `fabric-jobs drop` | a reason; a REQUEST it came from answered |
 
     `done` and `dropped` are terminal: nothing reopens them, and new
-    work is a new job. `switch` and `next` make no transition of their
-    own beyond the table's; step 1 of rule 10 checks the left job's row
+    work is a new job. `switch` and `next` make no transition beyond
+    the table's rows that name them; step 1 of rule 10 checks the left job's row
     again before it lets the next one start. Wherever today's code
     makes a transition outside this table, or makes one without what
     the row needs, that is a finding against the code, characterised

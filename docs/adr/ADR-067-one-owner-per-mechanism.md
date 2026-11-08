@@ -21,9 +21,9 @@ shape. Read against `origin/main` at 27af8227 the same day:
   sites and left the siblings to a later job.
 - **Remote evidence completeness.** The 3,000-file cap moved into
   `tools/fabric/github/common.py` with F08; the 250-commit cap is still
-  four constants in four modules (`arm.py`, `pr_counts.py`,
-  `post_review.py`, `review_checkpoint.py`), each deciding for itself
-  whether a capped list is complete.
+  five constants in five modules (`arm.py`, `pr_counts.py`,
+  `post_review.py`, `review_checkpoint.py`, `results.py`), each
+  deciding for itself whether a capped list is complete.
 - **Agent context.** `identity.resolve_context` is canonical, yet
   `query.py`, `memory_mcp/server.py` and `launch.py` open
   `binding.json` themselves.
@@ -32,8 +32,8 @@ shape. Read against `origin/main` at 27af8227 the same day:
   the role pool, and no rule said which changes exist (ADR-037 rule 14,
   A 2026-11-08).
 - **Per-agent state.** The review counted fifteen writers outside
-  `runtime/identity.py`. That count is out of date: j576 and j577
-  (#497) closed all but one, and `tools/fabric/state_writes.py` with
+  `runtime/identity.py`. That count is out of date: j576 (#497) and
+  j577 (#506) closed all but one, and `tools/fabric/state_writes.py` with
   `policies/state-writers.json` already enforces ADR-003 rule 1 in
   lint, the pre-commit hook and the suite. It is the pattern the other
   mechanisms lack.
@@ -87,19 +87,24 @@ lets lint check that the claim is true.
    owning module. Another module uses that module's interface; a
    reimplementation is a finding unless the mechanism's exceptions file
    names the module with the reason that admits it.
-2. Each catalogue entry names the record the mechanism comes from, its
-   owning module and its `status`:
-   - `enforced`: its checker and its exceptions file are named and
-     tracked, and the checker runs in lint, in the pre-commit hook and
-     in the suite, as a guard does;
-   - `pending`: its checker is being built, and the entry names the
-     job building it as `<login>/j<n>`;
-   - `planned`: decided here, its owner and checker not yet built, and
-     the entry says what it waits on.
-3. Lint reads the catalogue on every run. A catalogue that is not
-   JSON, an entry missing a field rule 2 asks for, an owning module,
-   checker or exceptions file that is not tracked, or an `enforced`
-   entry without a checker, is a finding.
+2. Each catalogue entry names the record the mechanism comes from and
+   its `status`:
+   - `enforced`: its owning module, checker and exceptions file are
+     named, and the checker is loaded by a lint rule that lint runs
+     (so CI runs it), by the pre-commit hook and by a case under
+     `tests/`, as a guard is;
+   - `pending`: its owning module is named and its checker is being
+     built; the entry names the job building it as `<login>/j<n>`, and
+     the checker's paths enter with enforcement;
+   - `planned`: decided here, its owner not yet built; the entry says
+     what it waits on and names the owner once it exists.
+3. Lint reads the catalogue on every run. A finding is: a catalogue
+   that is not JSON; an entry missing a field rule 2 asks for of its
+   status; any path an entry names that is not a tracked file; an
+   `enforced` entry whose checker is not loaded where rule 2 says, a
+   load being an import or lint's `_load` call, never a mention. An
+   absent catalogue is no finding: `policies/*.json` is instance data
+   (ADR-045 rule 2).
 4. A new cross-cutting mechanism enters the catalogue in the same pull
    request as its owning module. A pull request that adds a second
    implementation of a catalogued mechanism moves it into the owner or
@@ -134,8 +139,8 @@ lets lint check that the claim is true.
 
 ## 8. Decision Status
 
-Proposed. Rules 2 and 3 are built with this record (the catalogue and
-its lint rule); per-agent state is `enforced`, process lifetime, remote
+Proposed. Rules 2 and 3 are built with this record (the catalogue,
+its lint rule and `tests/test_mechanisms.py`); per-agent state is `enforced`, process lifetime, remote
 evidence and agent context are `pending` on python-dev-02's,
 python-dev-03's and python-dev-01's Wave 1 jobs, and the job lifecycle
 and transport are `planned`.
