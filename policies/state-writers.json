@@ -5,7 +5,7 @@
     "tools/fabric/control/ops/usage.py": "ADR-003 §2, rule 1: the control code; writes under <state root>/accounts/, not agents/<login>/",
     "tools/fabric/episodic.py": "ADR-003 §2, rule 1: episodic.db, the self-contained transactional store (A 2026-10-05)",
     "tools/fabric/gzcoord/bypass.py": "ADR-003 rule 1: journal-bypass.jsonl, a GZCoord log (A 2026-10-05)",
-    "tools/fabric/gzcoord/send.py": "ADR-003 rule 1: gzcoord-sent.jsonl, the send ledger, a GZCoord log; the append and the trim both under identity.agent_lock, the trim by identity.atomic_write (A 2026-10-05)",
+    "tools/fabric/gzcoord/send.py": "not state: the caller's message file, rewritten with its minted MESSAGE-ID by temporary and rename; gzcoord-sent.jsonl, the send ledger, is appended and trimmed under identity.agent_lock with identity.atomic_write",
     "runtime/claude-code/hooks/session-start.py": "not state: appends to the harness's CLAUDE_ENV_FILE",
     "tools/fabric/assembler/report.py": "not state: a project's last-drain-report.json and a caller-named commit message file",
     "tools/fabric/review_codex.py": "not state: the review's scratch under the account's temporary directory",

@@ -670,8 +670,9 @@ class BindingRecord:
 
 @_frozen
 class AgentContext(collections.abc.Mapping):
-    """What resolve_context answers, and the only place a binding's content is read into: every other caller asks
-    this, none opens binding.json (tools/fabric/context_reads.py holds them to it). Built by resolve_context alone.
+    """What resolve_context answers, and with binding_record() the only place a binding's content is read into.
+    tools/fabric/context_reads.py refuses a module that names binding.json or builds its path; a path handed on as a
+    value (whoami()["binding"]) is beyond a syntax checker, so that rule is held by review too. Built by resolve_context alone.
 
     As a Mapping it reads as the flat dict `--json` prints and callers took before this type existed
     (as_dict()), so none of them changed shape; `binding` carries what that dict never held."""
@@ -705,6 +706,20 @@ class AgentContext(collections.abc.Mapping):
 
 def _text(value) -> str | None:
     return value if isinstance(value, str) and value else None
+
+
+def binding_record(agent: str | None = None, *, rebind: bool = False) -> BindingRecord:
+    """The agent's binding alone, without resolving the checkout cwd sits in: a reader that wants only its own role,
+    project and working copy must not lose them to an unregistered marker or a broken registry in an unrelated
+    checkout (#511 F15). What resolve_context's `.binding` holds, read the same way; another host's record reads empty.
+    Raises what read_binding raises (an unreadable or foreign binding), which the caller decides on."""
+    agent = agent or current_agent()
+    binding = read_binding(agent, other_host=rebind)
+    if binding.get("host") not in (None, current_host()):
+        binding = {}
+    path = binding_path(agent)
+    return BindingRecord(file=path, present=os.path.lexists(path), role=_text(binding.get("role")),
+                         project=_text(binding.get("project")), working_copy=_text(binding.get("working_copy")))
 
 
 def resolve_context(cwd: str | None = None, session: str | None = None,
@@ -743,6 +758,7 @@ def resolve_context(cwd: str | None = None, session: str | None = None,
         state_dir=agent_state_dir(agent),
         binding=BindingRecord(file=binding_path(agent), present=os.path.lexists(binding_path(agent)), role=_text(binding.get("role")),
                               project=_text(binding.get("project")), working_copy=_text(binding.get("working_copy"))),
+        # binding_record() reads the same fields without the working copy; tests/test_identity_context.py holds them equal.
     )
 
 

@@ -369,6 +369,16 @@ def _check_hidden_unicode(root: str) -> None:
                      "— not committed. What is refused, and what is allowed, is defined in tools/fabric/hidden_unicode.py.")
 
 
+def _staged_deletion(path: str) -> bool:
+    """Whether the commit deletes `path`. The judging checks list staged files with --diff-filter=ACMRT, which leaves a
+    deletion out: a policy deleted whole removes every entry, and its modules must be judged as for any removed entry
+    (#511 F16)."""
+    r = _git("diff", "--cached", "-z", "--no-renames", "--name-only", "--diff-filter=D", "--", path)
+    if r.returncode != 0:
+        raise Refuse(f"pre-commit: cannot tell whether this commit deletes {path} — not committed")
+    return path in r.stdout.split("\0")
+
+
 def _check_state_writes(root: str) -> None:
     """In agent-fabric itself, whoever commits: a staged module of the fabric's own Python is judged against ADR-003 rule 1
     (tools/fabric/state_writes.py), with the policy the commit stages; a module whose entry this commit removes is judged
@@ -381,14 +391,15 @@ def _check_state_writes(root: str) -> None:
         raise Refuse("pre-commit: cannot list the staged files to judge them for ADR-003 rule 1 — not committed")
     staged = [p for p in r.stdout.split("\0") if p]
     judged = [p for p in staged if state_writes.judged_path(p)]
-    if not judged and state_writes.POLICY not in staged:
+    deleted = _staged_deletion(state_writes.POLICY)
+    if not judged and state_writes.POLICY not in staged and not deleted:
         return
     policy = _git("cat-file", "blob", f":{state_writes.POLICY}")
     try:
         writers = state_writes.parse_writers(policy.stdout) if policy.returncode == 0 else {}
     except ValueError:
         raise Refuse(f"pre-commit: the staged {state_writes.POLICY} is not JSON — not committed") from None
-    if state_writes.POLICY in staged:
+    if state_writes.POLICY in staged or deleted:
         # An entry dropped in this commit, its module unchanged: judge that module too, from the index.
         before = _git("cat-file", "blob", f"HEAD:{state_writes.POLICY}")
         try:
@@ -425,14 +436,15 @@ def _check_context_reads(root: str) -> None:
         raise Refuse("pre-commit: cannot list the staged files to judge who reads the binding — not committed")
     staged = [p for p in r.stdout.split("\0") if p]
     judged = [p for p in staged if context_reads.judged_path(p)]
-    if not judged and context_reads.POLICY not in staged:
+    deleted = _staged_deletion(context_reads.POLICY)
+    if not judged and context_reads.POLICY not in staged and not deleted:
         return
     policy = _git("cat-file", "blob", f":{context_reads.POLICY}")
     try:
         readers = context_reads.parse_readers(policy.stdout) if policy.returncode == 0 else {}
     except ValueError:
         raise Refuse(f"pre-commit: the staged {context_reads.POLICY} is not JSON — not committed") from None
-    if context_reads.POLICY in staged:
+    if context_reads.POLICY in staged or deleted:
         before = _git("cat-file", "blob", f"HEAD:{context_reads.POLICY}")
         try:
             was = context_reads.parse_readers(before.stdout) if before.returncode == 0 else {}

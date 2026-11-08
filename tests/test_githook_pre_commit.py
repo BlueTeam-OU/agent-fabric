@@ -689,6 +689,15 @@ class StateWrites(PreCommit):
         self.assertEqual(r.returncode, 1, r.stderr)
         self.assertIn("tools/fabric/x.py:4: open(..., 'w')", r.stderr)
 
+    def test_a_commit_that_deletes_the_policy_judges_its_modules(self):
+        # #511 F16: --diff-filter=ACMRT drops a deletion, so the whole list's removal judged nothing.
+        repo = self.fabric.itself({"tools/fabric/x.py": self.WRITER, self.POLICY: json.dumps({"writers": {"tools/fabric/x.py": "not state: a test"}})})
+        repo.git("rm", "-q", self.POLICY)
+        self.fabric.bind("fabric-coordinator")
+        r = self.run_hook(repo)
+        self.assertEqual(r.returncode, 1, r.stderr)
+        self.assertIn("tools/fabric/x.py:4: open(..., 'w')", r.stderr)
+
     def test_a_list_that_is_not_json_refuses(self):
         repo = self.fabric.itself()
         repo.stage("tools/fabric/x.py", "x = 1\n")
@@ -758,6 +767,15 @@ class ContextReads(PreCommit):
         r = self.run_hook(repo)
         self.assertEqual(r.returncode, 1, r.stderr)
         self.assertIn("tools/fabric/x.py:4: calls identity.binding_path", r.stderr)
+
+    def test_a_commit_that_deletes_the_policy_judges_its_modules(self):
+        # #511 F16: --diff-filter=ACMRT drops a deletion, so the whole list's removal judged nothing.
+        repo = self.fabric.itself({"tools/fabric/x.py": self.READER, self.POLICY: json.dumps({"readers": {"tools/fabric/x.py": "a test"}})})
+        repo.git("rm", "-q", self.POLICY)
+        self.fabric.bind("fabric-coordinator")
+        r = self.run_hook(repo)
+        self.assertEqual(r.returncode, 1, r.stderr)
+        self.assertIn('tools/fabric/x.py:4: calls identity.binding_path', r.stderr)
 
     def test_a_list_that_is_not_json_refuses(self):
         repo = self.fabric.itself()

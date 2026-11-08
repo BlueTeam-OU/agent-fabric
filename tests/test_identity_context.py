@@ -12,6 +12,8 @@ Each case names the mutation it kills:
   refused_binding_still_raises  <- resolve_context catching what read_binding refuses
   loaded_by_path_without_registering <- the _frozen stand-in dropped: tools load identity.py with spec_from_file_location
   json_matches_the_context      <- `identity.py --json` printing something other than as_dict()
+  binding_record_skips_the_copy <- binding_record resolving cwd's working copy (a bad marker or registry there costs the
+                                   binding, #511 F15), or reading fields resolve_context's .binding does not
 """
 from __future__ import annotations
 
@@ -143,6 +145,23 @@ class Context(unittest.TestCase):
         with open(path, "rb") as fh:
             self.assertEqual(fh.read(), b"a\nb\n")
         self.assertEqual(os.stat(path).st_mode & 0o777, 0o600)
+
+    def test_binding_record_skips_the_copy(self) -> None:
+        self.bind({"role": "python-dev", "project": "p", "working_copy": "/w"})
+        self.assertEqual(self.identity.binding_record(), self.identity.resolve_context(cwd=self.cwd).binding)
+        # A checkout whose marker names a project the registry lacks: resolve_context refuses, the binding alone does not.
+        bad = os.path.join(self.tmp.name, "bad")
+        os.makedirs(bad)
+        subprocess.run(["git", "-C", bad, "init", "-q"], check=True)
+        with open(os.path.join(bad, ".agent-fabric-project"), "w", encoding="utf-8") as fh:
+            fh.write("not-registered\n")
+        with self.assertRaises(SystemExit):
+            self.identity.resolve_context(cwd=bad)
+        old = os.getcwd()
+        os.chdir(bad)
+        self.addCleanup(os.chdir, old)
+        rec = self.identity.binding_record()
+        self.assertEqual((rec.role, rec.project, rec.working_copy, rec.present), ("python-dev", "p", "/w", True))
 
 
 if __name__ == "__main__":
