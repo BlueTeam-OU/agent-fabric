@@ -554,6 +554,14 @@ def main(argv: list[str]) -> int:
             "topic": topic or t("send.fallback-unknown-topic"),
             "topic_again": topic or t("send.fallback-unknown-topic-again")}), file=sys.stderr)
     sha = hashlib.sha256(text.encode("utf-8")).hexdigest()
+    # The ledger sits beside the binding file, whose name is unknown only when
+    # runtime/identity.py could not be loaded (gzmsg.whoami's fallback): the
+    # id cannot be checked against what went out, so nothing is posted.
+    if who["binding"] is None:
+        print(t("send.cannot-read", {"file": "gzcoord-sent.jsonl",
+                                     "detail": "runtime/identity.py could not be loaded, so the agent's state directory is unknown"}),
+              file=sys.stderr)
+        return 2
     ledger = sent_ledger_path(who)
     spent = spent_elsewhere(ledger, mid, sha, t) if mid != "(none)" else None
     if spent:

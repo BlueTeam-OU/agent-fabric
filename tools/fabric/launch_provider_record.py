@@ -16,7 +16,7 @@ import json
 import os
 from collections.abc import Callable
 
-# By path: provisioning runs this in a checkout whose tools/fabric/ is not on sys.path.
+# By path: runtime/ is on sys.path for neither caller (provisioning, and the launcher, which loads this file by path).
 _spec = importlib.util.spec_from_file_location(
     "fabric_launch_provider_record_identity",
     os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "runtime", "identity.py"))
