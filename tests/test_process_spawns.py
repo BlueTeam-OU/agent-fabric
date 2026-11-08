@@ -29,6 +29,9 @@ import tempfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
+sys.path.insert(0, HERE)
+from instance_fixtures import own_instance_tree  # noqa: E402
+own_instance_tree()
 sys.path.insert(0, os.path.join(ROOT, "tools", "fabric"))
 import process_spawns as ps  # noqa: E402
 
