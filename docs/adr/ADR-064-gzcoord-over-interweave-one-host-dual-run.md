@@ -247,7 +247,10 @@ address, where the relay's `sender` is a claim (ADR-033 §6).
     every fetch mid-window: a message the carrier alone holds reaches
     its addressee's session, is not shown again when the watch restarts
     or when the relay returns with its own copy, and the relay copy is
-    acknowledged), and one `TO-ROLE` recipient among its logins.
+    acknowledged), and one `TO-ROLE` recipient among its logins. The
+    arrival logs cannot show the relay-outage drill: its evidence is a
+    record in `docs/live-checks/` read from the addressee's shown ledger
+    and the relay's acknowledgements.
 12. This carrier carries GZCoord application messages only. The control
     plane rides the same profile on its own `fabric-control` endpoint,
     through `interweave-human` under the account's agentd (ADR-029 rule

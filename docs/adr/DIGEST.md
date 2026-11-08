@@ -1456,9 +1456,9 @@ its record disagree, the record wins. Look it up, never read it whole:
 - A 2026-10-28 — control via `interweave-human` (§3, rules 12/14).
 - A 2026-10-31 — minisign signature (rule 4).
 - A 2026-11-01 — kept by `fabric-host persist` (rule 1).
-- A 2026-11-08 — relay-outage drill (rule 11).
+- A 2026-11-08 — relay-outage drill, live-checks (rule 11).
 - Parity from arrival logs: missed, duplicate, offline counts,
-  rollback, relay-outage drills (rule 11).
+  rollback drill (rule 11).
 - Keywords: InterWeave, carrier, relay, P5.
 
 ### ADR-065 — The reviewer reads through pinned tools, says what it covered, and the next round starts where the last one stopped (Accepted)
