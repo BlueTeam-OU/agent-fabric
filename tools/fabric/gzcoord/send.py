@@ -692,7 +692,8 @@ def main(argv: list[str]) -> int:
             # The relay's outcome alone is the exit status (ADR-064 rule 11), but "not sent" and "send it
             # again" would be false: the addressee has the message. A resend from a file carries the id
             # written into it, so it is one message and only puts it on the relay's record; from stdin the
-            # id was minted in memory, and a resend is a second copy (j117, the owner's decision).
+            # id is minted in memory unless the text names its own, and a resend is then a second copy; the
+            # line stays the cautious one for a text that does name it (j117, the owner's decision).
             fields = {"relay_url": relay_url, "detail": str(e)}
             print(t("send.carrier-took-it-file", fields) if file != "-" else t("send.carrier-took-it", fields),
                   file=sys.stderr)

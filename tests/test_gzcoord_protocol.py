@@ -2338,9 +2338,9 @@ def _():
             has(r"the relay did not take it .*but the carrier did .*sending the same file again is safe", r.err, f"{label}: {r.err}")
             hasnt(r"not sent|duplicate|hand it", r.err, f"{label}: {r.err}")
             eq([x[1] for x in journal_rows(state, store)], ["accepted"], f"{label}: the carrier's acceptance marks the row")
-        # The same relay failure from stdin: the id is minted in memory, so a resend is a second copy and
-        # the file line's "safe" must not appear (and the file case above must not say "duplicate").
-        with_stdin = send_stdin_carrier(down, direct, **hosts.env)
+        # The same relay failure from stdin, the text naming no id: it is minted in memory, so a resend is a
+        # second copy and the file line's "safe" must not appear (nor the file case above say "duplicate").
+        with_stdin = send_stdin_carrier(down, re.sub(r"^MESSAGE-ID: .*\n", "", direct, flags=re.M), **hosts.env)
         eq(with_stdin.code, 3, with_stdin.err)
         has(r"but the carrier did .*a resend would duplicate it", with_stdin.err)
         hasnt(r"is safe|same id|one message", with_stdin.err)
