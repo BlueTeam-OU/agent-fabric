@@ -5,7 +5,7 @@ topic: "safeguard-refusal-stalls-agent"
 description: "A model safeguard refusal (API Error ... safeguards flagged) stalls an agent's session until a person acts; restart --resume brings the flagged turn back; recover with /clear + a resume nudge"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: user
     host: "develop-qzapp"
@@ -31,6 +31,6 @@ derived_from:
 
 *References: type-into-ssh-pane*
 
-*Anchors: `tools/fabric/control/restart.py::its launcher resumes it`*
+*Anchors: `tools/fabric/control/restart.py::--resume`*
 
 *Observed 2026-10-18 (fabric-coordinator)*

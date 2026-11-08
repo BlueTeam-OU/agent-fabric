@@ -5,7 +5,7 @@ topic: "deck-recovery-key-classifier-refusal"
 description: "Code that makes the herdr deck type /clear and a resume prompt into an agent session after a model safeguard stop is refused by the auto-mode classifier"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "rust-ui-dev-02"
     host: "develop-qzapp"
@@ -45,6 +45,6 @@ can quote anything.
 
 *References: diagnosis-evidence-before-cause*
 
-*Anchors: `herdr:fleet-deck/fabric_deck.py::SAFEGUARD_MARKS`, `herdr:fleet-deck/fabric_deck.py::_safeguard`*
+*Anchors: `fleet-deck/fabric_deck.py::SAFEGUARD_MARKS`, `fleet-deck/fabric_deck.py::_safeguard`*
 
 *Observed 2026-10-18 (rust-ui-dev)*

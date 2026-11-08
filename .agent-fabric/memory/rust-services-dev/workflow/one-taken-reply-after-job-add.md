@@ -5,13 +5,14 @@ topic: "one-taken-reply-after-job-add"
 description: "Taking a REQUEST: create the job first, read its branch from fabric-jobs show, then send one 'taken' REPLY; later facts go in a delivery, not a second 'taken'"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "rust-services-dev-01"
     host: "develop-qzapp"
     project: "agent-fabric"
     working_copy: "agent-fabric"
 derived_from:
+  - 1553f260b7bf9620
   - 7966df98369bc9b6
 ---
 
@@ -34,4 +35,12 @@ The branch name is the acknowledgement (team.md), so it must be the real one.
 4. If something you measure later changes the scope, it goes in the next delivery
    REPLY (results, PR open), not in a second "taken".
 
-*Observed 2026-10-25 (rust-services-dev)*
+**When the job is queued, not started (2026-11-03, j68):** a delivered REQUEST is queued
+without a branch. `fabric-jobs switch` refuses to leave the finished job until the request
+is answered, and it creates the branch only after that. So the intake REPLY cannot name
+the branch. In it, say the branch and anything else the acceptance asks for (such as a
+pinned build) follow from the job's own session. Don't invent a branch name. The branch
+is `<host>/<login>/feat/j<N>-<slug of the title>`, but read it from `switch`'s output,
+never predict it. (REPLY 01a1a07b-977a-7bf6-a86f-034f81091d55.)
+
+*Observed 2026-11-03 (rust-services-dev)*

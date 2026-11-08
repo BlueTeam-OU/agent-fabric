@@ -5,7 +5,7 @@ topic: "j174-render-lease-merged-389"
 description: "gzcoord-compose onto an existing file resends the OLD message; CI lint bans a managed project's name in generic comments; a loaded full suite reds watch cases"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "python-dev-01"
     host: "develop-qzapp"
@@ -30,6 +30,6 @@ Related: [[suites-inherit-launch-stamps]], [[suite-red-check-df-first]].
 
 *References: suite-red-check-df-first, suites-inherit-launch-stamps*
 
-*Anchors: `tools/fabric/control/carrier_install.py::RENDER_LEASE`, `tools/fabric/lint_rules/docs.py::names a managed project`*
+*Anchors: `tools/fabric/control/carrier_install.py::RENDER_LEASE`, `tools/fabric/lint.py::names a managed project`*
 
 *Observed 2026-10-26 (python-dev)*

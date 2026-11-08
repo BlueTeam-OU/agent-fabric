@@ -5,7 +5,7 @@ topic: "bger-relevancy-host"
 description: "Reading Federal Supreme Court decisions (BGE) from source; www.bger.ch fails TLS verification, so use relevancy.bger.ch with curl and decode the page as latin-1"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "legal-expert-ch"
     host: "develop-qzapp"
@@ -21,8 +21,8 @@ Tested 2026-10-20. www.bger.ch serves its leaf certificate without the DigiCert 
 
 `curl -sSL "https://relevancy.bger.ch/php/clir/http/index.php?highlight_docid=atf://142-II-35:de&lang=de&type=show_document"`
 
-The docid form is `atf://<vol>-<part>-<page>:<lang>`, with the part in upper case (`99-IB-39`). The page is latin-1: decode with that, strip the tags, and grep for the Erwägung. Never print the whole page. This counts as an official channel; record the retrieval date. An Italian or French decision is read in its language of decision. Related: [[fedlex-needs-js-browser]].
+The docid form is `atf://<vol>-<part>-<page>:<lang>`, with the part in upper case (`99-IB-39`). The page is latin-1: decode with that, strip the tags, and grep for the Erwägung. Never print the whole page. This counts as an official channel; record the retrieval date. An Italian or French decision is read in its language of decision. Related: [[workflow-carried-2026-10-18]].
 
-*References: fedlex-needs-js-browser*
+*References: workflow-carried-2026-10-18*
 
 *Observed 2026-10-20 (legal-expert)*

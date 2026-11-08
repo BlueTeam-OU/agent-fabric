@@ -5,7 +5,7 @@ topic: "job-in-other-repo-needs-fresh-session"
 description: "a session launched in agent-fabric cannot commit for a job in another repository; the one-job guard judges the session cwd, which the harness resets"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: user
     host: "develop-qzapp"
@@ -42,6 +42,6 @@ so it can write against it now, and give the other job its next step with
 blocks the job with a warning and never clears by itself; a checkable blocker that has already cleared keeps the job
 eligible at the next switch while still carrying the note.
 
-*Anchors: `tools/fabric/fresh.py::--job`*
+*Anchors: `bin/fabric-fresh::--job`*
 
 *Observed 2026-10-30 (fabric-coordinator)*

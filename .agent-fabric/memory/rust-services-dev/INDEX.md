@@ -3,7 +3,7 @@ role: "rust-services-dev"
 class: index
 description: "What rust-services-dev knows and where it lives."
 tier: 1
-distilled_at: "2026-11-05"
+distilled_at: "2026-11-08"
 ---
 
 # rust-services-dev — knowledge index
@@ -31,9 +31,11 @@ control plane checked out beside it.
 - [`memory/domains/rust-services-dev/domain/backpressure-blocks-keepalive.md`](memory/domains/rust-services-dev/domain/backpressure-blocks-keepalive.md) — A consumer that applies backpressure by not reading its single stream also stops answering liveness probes on it, so a paused consumer is closed as wedged and accepted messages are lost
 - [`memory/domains/rust-services-dev/domain/cargo-exports-ssl-cert-env.md`](memory/domains/rust-services-dev/domain/cargo-exports-ssl-cert-env.md) — cargo sets SSL_CERT_FILE/SSL_CERT_DIR for every child; rustls-native-certs then reads them instead of the host store
 - [`memory/domains/rust-services-dev/domain/cargo-machete-silent-pass.md`](memory/domains/rust-services-dev/domain/cargo-machete-silent-pass.md) — cargo-machete 0.9.2 default mode skips dev-deps; --with-metadata reports unreadable crates clean with exit 0
-- [`memory/domains/rust-services-dev/domain/claude-code-print-session-channel-facts.md`](memory/domains/rust-services-dev/domain/claude-code-print-session-channel-facts.md) — Claude Code 2.1.286 -p sessions with a channel: mid-turn events queue, closed stdin still answers, manual mode denies MCP tools, plugin configure needs --values-stdin
+- [`memory/domains/rust-services-dev/domain/claude-code-compacts-before-prompt-too-long.md`](memory/domains/rust-services-dev/domain/claude-code-compacts-before-prompt-too-long.md) — A channel event at the bridge bound in a long Claude Code conversation is not refused: the host auto-compacts first (2.1.311); DISABLE_COMPACT=1 to measure the refusal
+- [`memory/domains/rust-services-dev/domain/claude-code-print-session-channel-facts.md`](memory/domains/rust-services-dev/domain/claude-code-print-session-channel-facts.md) — Claude Code 2.1.286 -p sessions with a channel: a mid-user-turn event waited (one run), mid-event-turn events joined (one burst), closed stdin still answers, which permission modes deny reply, host prompts need --permission-prompt-tool…
 - [`memory/domains/rust-services-dev/domain/credential-companion-resolved-together.md`](memory/domains/rust-services-dev/domain/credential-companion-resolved-together.md) — A value that must match the backend credential (account id, org id) has to be resolved with the credential, per attempt; a static header diverges on an account switch
 - [`memory/domains/rust-services-dev/domain/credential-coupled-value-one-read.md`](memory/domains/rust-services-dev/domain/credential-coupled-value-one-read.md) — A value that must stay consistent with a rotating credential (a per-account pseudonym key) is read in the same atomic read as the credential, never from a second source
+- [`memory/domains/rust-services-dev/domain/dependency-diff-check-feature-gate.md`](memory/domains/rust-services-dev/domain/dependency-diff-check-feature-gate.md) — before claiming a dependency release changes behaviour, check the hunk's cfg(feature) and follow it to what the caller observes
 - [`memory/domains/rust-services-dev/domain/eprintln-panics-on-closed-stderr.md`](memory/domains/rust-services-dev/domain/eprintln-panics-on-closed-stderr.md) — In a stdio child of a host that may die, never eprintln!; it panics on EPIPE (exit 101)
 - [`memory/domains/rust-services-dev/domain/git-commit-stamp-watches-per-ref-backend.md`](memory/domains/rust-services-dev/domain/git-commit-stamp-watches-per-ref-backend.md) — A cargo build script that stamps the git commit goes stale unless it watches what each ref backend actually writes
 - [`memory/domains/rust-services-dev/domain/guarded-kind-classifier-fails-toward-guard.md`](memory/domains/rust-services-dev/domain/guarded-kind-classifier-fails-toward-guard.md) — When a classifier decides whether a payload takes a protective path, a malformed or unreadable instance of the guarded kind must classify as that kind (three-way answer), never fall through to the forward-raw path
@@ -59,6 +61,7 @@ control plane checked out beside it.
 - [`memory/domains/rust-services-dev/domain/spike-fact-is-its-configuration.md`](memory/domains/rust-services-dev/domain/spike-fact-is-its-configuration.md) — a spike's wire observation describes the client configuration it ran; check it in the configuration the gateway serves and commit it to the record before a contract relies on it
 - [`memory/domains/rust-services-dev/domain/tracing-optional-field-omitted.md`](memory/domains/rust-services-dev/domain/tracing-optional-field-omitted.md) — How to make a tracing log field appear only when a value is recorded (absent, not "None"), and validating an HTTP header's shape before logging it
 - [`memory/domains/rust-services-dev/domain/tracing-set-default-misses-events.md`](memory/domains/rust-services-dev/domain/tracing-set-default-misses-events.md) — a thread-scoped tracing subscriber in a unit test misses events when other tests hit the same callsite; log tests need their own binary
+- [`memory/domains/rust-services-dev/domain/two-version-probe-renamed-path-copies.md`](memory/domains/rust-services-dev/domain/two-version-probe-renamed-path-copies.md) — to probe two semver-compatible versions of one crate side by side, copy each registry src into a renamed path crate; cargo refuses two =x.y.z deps of one name
 - [`memory/domains/rust-services-dev/domain/validator-shares-runtime-construction.md`](memory/domains/rust-services-dev/domain/validator-shares-runtime-construction.md) — a validator that copies the runtime's acceptance rule as a pattern drifts both ways; validate by calling the constructor the runtime uses
 
 ## solution
@@ -76,6 +79,7 @@ control plane checked out beside it.
 - [`.agent-fabric/memory/rust-services-dev/workflow/classifier-session-driver.md`](.agent-fabric/memory/rust-services-dev/workflow/classifier-session-driver.md) — Auto mode refuses a script that launches claude sessions with dev-channel flags, even after the owner says yes in chat; it needs allow rules
 - [`.agent-fabric/memory/rust-services-dev/workflow/disk-hygiene.md`](.agent-fabric/memory/rust-services-dev/workflow/disk-hygiene.md) — clean a finished job's worktree target/ when the job ends; the fleet's disks fill up
 - [`.agent-fabric/memory/rust-services-dev/workflow/housekeeping-is-not-a-job.md`](.agent-fabric/memory/rust-services-dev/workflow/housekeeping-is-not-a-job.md) — an asked-for cleanup with no PR, commit or reply goes in the active job's note, never as its own job
+- [`.agent-fabric/memory/rust-services-dev/workflow/inbox-watch-never-detached.md`](.agent-fabric/memory/rust-services-dev/workflow/inbox-watch-never-detached.md) — gzcoord-inbox only as a harness background command; a detached one blocks the real watch and swallows deliveries — recover with --history
 - [`.agent-fabric/memory/rust-services-dev/workflow/interweave-ci-target-size.md`](.agent-fabric/memory/rust-services-dev/workflow/interweave-ci-target-size.md) — one InterWeave `cargo xtask ci` grows target/ to ~64G on the shared /home; clean it when the run ends
 - [`.agent-fabric/memory/rust-services-dev/workflow/interweave-pr-merge-order-repin.md`](.agent-fabric/memory/rust-services-dev/workflow/interweave-pr-merge-order-repin.md) — When two open InterWeave PRs interact through a test that pins behaviour the other changes, agree up front that whichever lands second re-pins, and expect the merge queue to catch it
 - [`.agent-fabric/memory/rust-services-dev/workflow/interweave-suite-crate-partition.md`](.agent-fabric/memory/rust-services-dev/workflow/interweave-suite-crate-partition.md) — InterWeave root test suites (tests/<suite>/) are partitioned by file between open PRs, not by crate; library and app crates stay one open PR per crate
@@ -85,6 +89,7 @@ control plane checked out beside it.
 - [`.agent-fabric/memory/rust-services-dev/workflow/rustup-pin.md`](.agent-fabric/memory/rust-services-dev/workflow/rustup-pin.md) — Which cargo runs on this account, and why a rust-toolchain.toml pin was ignored before 2026-10-19
 - [`.agent-fabric/memory/rust-services-dev/workflow/rustup-pinned-toolchain.md`](.agent-fabric/memory/rust-services-dev/workflow/rustup-pinned-toolchain.md) — which cargo/rustc this account builds the gateway with, and since when the rust-toolchain.toml pin is honoured
 - [`.agent-fabric/memory/rust-services-dev/workflow/shape-only-capture.md`](.agent-fabric/memory/rust-services-dev/workflow/shape-only-capture.md) — how to measure what identifiers a harness sends without recording any value; reading a login's real Claude config is refused
+- [`.agent-fabric/memory/rust-services-dev/workflow/watch-exit6-after-upgrade.md`](.agent-fabric/memory/rust-services-dev/workflow/watch-exit6-after-upgrade.md) — Inbox watch exits 6 with 'schema version N, newer than this code's N-1' after a fabric upgrade: the watch still runs the old code; start it again once, nothing is lost
 
 ## threads
 

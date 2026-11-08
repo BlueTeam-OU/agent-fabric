@@ -5,7 +5,7 @@ topic: "guard-reads-heredoc-beside-bash"
 description: Fixture scripts that commit in scratch — write with the Write tool, run in a separate call
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: user
     host: "develop-qzapp"
@@ -24,6 +24,6 @@ derived_from:
 
 *References: guard-counts-session-cwd*
 
-*Anchors: `runtime/claude-code/hooks/job-copy-guard.py::Every heredoc body in the command is read as commands`*
+*Anchors: `runtime/claude-code/hooks/job-copy-guard.py::runs stdin`*
 
 *Observed 2026-10-30 (fabric-coordinator)*

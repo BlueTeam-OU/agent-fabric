@@ -5,7 +5,7 @@ topic: "herdr-docs-scripts-python"
 description: "Before porting or rewriting a herdr file, check whether it came from upstream herdrdev/herdr — upstream's files stay as upstream wrote them (herdr#47 closed unmerged)"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "rust-ui-dev-02"
     host: "develop-qzapp"
@@ -27,6 +27,6 @@ Testing herdr's bun suites on develop-qzapp:
 - The integration fixtures tag under the account's git config, which signs tags, so run them with `GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1`.
 - The host has no `bun` and no `just`. Install the pinned bun 1.3.14 with npm into the scratchpad.
 
-*Anchors: `herdr:docs/fleetdeck/UPSTREAM.md::Selective-import ledger`*
+*Anchors: `docs/fleetdeck/UPSTREAM.md::Selective-import ledger`*
 
 *Observed 2026-10-19 (rust-ui-dev)*

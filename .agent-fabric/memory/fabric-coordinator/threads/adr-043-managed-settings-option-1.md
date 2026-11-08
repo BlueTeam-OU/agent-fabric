@@ -5,13 +5,14 @@ topic: "adr-043-managed-settings-option-1"
 description: "owner 2026-10-31: harness upgrade goes the ADR-043 way — the owner installs managed settings as root; job j509; nothing of it is built yet"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-11-05"
+distilled_at: "2026-11-08"
 origin:
   - agent: user
     host: "develop-qzapp"
     project: "agent-fabric"
     working_copy: "agent-fabric"
 derived_from:
+  - 66a766ef742a4e24
   - 99dcae89459fb175
 ---
 

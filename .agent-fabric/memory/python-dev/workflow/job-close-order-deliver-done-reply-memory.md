@@ -5,7 +5,7 @@ topic: "job-close-order-deliver-done-reply-memory"
 description: "Closing a job after its PR merges: fabric-pr arm needs --basis even with --authorization; switch refuses until done, reply sent and memory changed"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "python-dev-04"
     host: "develop-qzapp"
@@ -22,6 +22,6 @@ After a security-boundary PR is authorized: `fabric-pr arm N --basis "<line>" --
 **Why:** j59 (PR 351, 2026-10-21) needed three switch attempts for these three reasons.
 **How to apply:** do deliver/done, answer pending REQUESTs and write the memory before the first `fabric-jobs switch`.
 
-*Anchors: `tools/fabric/github/arm.py::--basis`*
+*Anchors: `bin/fabric-pr::basis`*
 
 *Observed 2026-10-22 (python-dev)*

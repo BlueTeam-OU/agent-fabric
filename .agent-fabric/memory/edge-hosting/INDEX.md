@@ -3,7 +3,7 @@ role: "edge-hosting"
 class: index
 description: "What edge-hosting knows and where it lives."
 tier: 1
-distilled_at: "2026-11-05"
+distilled_at: "2026-11-08"
 ---
 
 # edge-hosting — knowledge index
@@ -30,6 +30,7 @@ control plane checked out beside it.
 - [`memory/domains/edge-hosting/domain/cloudflare-origin-errors.md`](memory/domains/edge-hosting/domain/cloudflare-origin-errors.md) — Cloudflare 521 vs 522/523 — what each error class actually means
 - [`memory/domains/edge-hosting/domain/cloudflare-pages-custom-domain.md`](memory/domains/edge-hosting/domain/cloudflare-pages-custom-domain.md) — Cloudflare Pages custom-domain cutover: attach via API, then swap the DNS record
 - [`memory/domains/edge-hosting/domain/cloudflare-worker-has-no-pause.md`](memory/domains/edge-hosting/domain/cloudflare-worker-has-no-pause.md) — A Cloudflare Worker has no pause switch: the reversible ways to suspend one, what visitors see under each, and why a redeploy may not undo them
+- [`memory/domains/edge-hosting/domain/long-max-age-unversioned-asset.md`](memory/domains/edge-hosting/domain/long-max-age-unversioned-asset.md) — Before publishing a change to a CSS/JS file, read the host's Cache-Control for it; a long max-age on an unversioned URL serves new pages with the old asset
 - [`memory/domains/edge-hosting/domain/node-to-python-port-parity-traps.md`](memory/domains/edge-hosting/domain/node-to-python-port-parity-traps.md) — Where a Python port of a Node script silently differs from it (regex, whitespace, paths, decoding, file names, locale) — check these before claiming parity
 - [`memory/domains/edge-hosting/domain/tileserver-public-url-flag.md`](memory/domains/edge-hosting/domain/tileserver-public-url-flag.md) — TileServer-GL's --public_url flag rewrites embedded URLs so a fronting proxy needs no body-rewriting logic
 - [`memory/domains/edge-hosting/domain/wrangler-miniflare-cve-pinning.md`](memory/domains/edge-hosting/domain/wrangler-miniflare-cve-pinning.md) — sharp CVEs in a Workers project are fixed by bumping wrangler, and range updates can lag the fix by a day

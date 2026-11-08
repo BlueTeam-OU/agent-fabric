@@ -3,7 +3,7 @@ role: "brand-comms"
 class: index
 description: "What brand-comms knows and where it lives."
 tier: 1
-distilled_at: "2026-11-05"
+distilled_at: "2026-11-08"
 ---
 
 # brand-comms — knowledge index
@@ -38,6 +38,7 @@ control plane checked out beside it.
 - [`.agent-fabric/memory/brand-comms/solution/brand-comms-arms-own-prs.md`](.agent-fabric/memory/brand-comms/solution/brand-comms-arms-own-prs.md) — In blueteam.brand, blueteam.ee, gzapi.brand, gzapi.ge and gzapp.decks, brand-comms arms its own PRs at 1 work commit once the head is reviewed; boundary paths still need 8 or the owner's word.
 - [`.agent-fabric/memory/brand-comms/solution/brand-tools-on-develop-qzapp.md`](.agent-fabric/memory/brand-comms/solution/brand-tools-on-develop-qzapp.md) — Where the logo, icon and font tools live on develop-qzapp (resvg, vtracer, scour, fonttools, uharfbuzz), so no throwaway venv is built.
 - [`.agent-fabric/memory/brand-comms/solution/gzapp-claim-vocabulary.md`](.agent-fabric/memory/brand-comms/solution/gzapp-claim-vocabulary.md) — Before a deck or page states a Gzapp product fact about stops, restrictions, demand data or arrivals: the words architect-cto allows and forbids (2026-10-27)
+- [`.agent-fabric/memory/brand-comms/solution/joined-stop-names-for-captures.md`](.agent-fabric/memory/brand-comms/solution/joined-stop-names-for-captures.md) — Before using or requesting a gzapp passenger/driver app capture that shows a [redacted] stop name, check the name is native, not a scraped Russian romanisation; ask for a joined stop
 - [`.agent-fabric/memory/brand-comms/solution/marp-hangs-on-open-stdin.md`](.agent-fabric/memory/brand-comms/solution/marp-hangs-on-open-stdin.md) — gzapp.decks builds and new-deck releases since #32 (1187f2ed): no < /dev/null, no opening hand commit; release --dry-run first
 
 ## rationale
@@ -50,10 +51,13 @@ control plane checked out beside it.
 - [`.agent-fabric/memory/brand-comms/workflow/agent-store-written-only-by-its-tool.md`](.agent-fabric/memory/brand-comms/workflow/agent-store-written-only-by-its-tool.md) — An agent's fabric-agent-<id> repository is its secrets store — never clone, commit or push to it by hand, even for persona files
 - [`.agent-fabric/memory/brand-comms/workflow/avatar-appearance-follows-surname-culture.md`](.agent-fabric/memory/brand-comms/workflow/avatar-appearance-follows-surname-culture.md) — ADR-056 avatars — the face is drawn from the surname's culture (the surnames.json `from`), not cast freely; the owner's ruling
 - [`.agent-fabric/memory/brand-comms/workflow/blueteam-owner-wants-imagery-flag-curves.md`](.agent-fabric/memory/brand-comms/workflow/blueteam-owner-wants-imagery-flag-curves.md) — What the owner rejects and wants in blueteam.ee's look — never a text-only page; the flag's blue/black/white sections with curves; woven imagery
+- [`.agent-fabric/memory/brand-comms/workflow/capture-handover-by-for-branch.md`](.agent-fabric/memory/brand-comms/workflow/capture-handover-by-for-branch.md) — When asking another role (flutter-dev, any capturer) for a screenshot or image for a deck, name a for/ branch in gzapp.decks as the landing place, never a design system or artifact page
+- [`.agent-fabric/memory/brand-comms/workflow/draining-memory-no-urls-or-host-paths.md`](.agent-fabric/memory/brand-comms/workflow/draining-memory-no-urls-or-host-paths.md) — Writing a memory that carries a roles_class — no claude.ai share URL, no host path, no [[link]] to a memory that does not drain
 - [`.agent-fabric/memory/brand-comms/workflow/finding-in-one-language-check-the-other.md`](.agent-fabric/memory/brand-comms/workflow/finding-in-one-language-check-the-other.md) — When a language review finds a defect in one language, or a ruling changes one language, check the same span in every other language against the same rule before release
 - [`.agent-fabric/memory/brand-comms/workflow/fleet-avatars-kept-current.md`](.agent-fabric/memory/brand-comms/workflow/fleet-avatars-kept-current.md) — Owner standing instruction 2026-10-16 — a new agent gets its avatar drawn as soon as it can be, and the fleet sheet is rebuilt after every draw
 - [`.agent-fabric/memory/brand-comms/workflow/harness-neutral-strip-tokens-not-clauses.md`](.agent-fabric/memory/brand-comms/workflow/harness-neutral-strip-tokens-not-clauses.md) — When moving a fleet snippet from CLAUDE.md into AGENTS.md (ADR-054), remove only the Claude Code tokens; keep every harness-neutral clause around them.
 - [`.agent-fabric/memory/brand-comms/workflow/job-end-disk-cleanup.md`](.agent-fabric/memory/brand-comms/workflow/job-end-disk-cleanup.md) — When a job ends, before fabric-jobs switch: measure and remove what only that job needed in your own account, and write what went into the job's evidence; where brand-comms' disk actually goes
+- [`.agent-fabric/memory/brand-comms/workflow/live-publish-needs-owner-in-edge-hosting-session.md`](.agent-fabric/memory/brand-comms/workflow/live-publish-needs-owner-in-edge-hosting-session.md) — When asking edge-hosting to publish a site commit, expect the live upload to wait for the owner's word in edge-hosting's own session; a relayed "the owner asked" does not cover it
 - [`.agent-fabric/memory/brand-comms/workflow/pr-paths-is-route-not-owner.md`](.agent-fabric/memory/brand-comms/workflow/pr-paths-is-route-not-owner.md) — arm.json pr_paths says a file reaches main by PR instead of direct, not which role owns it
 - [`.agent-fabric/memory/brand-comms/workflow/publish-request-after-merges-settle.md`](.agent-fabric/memory/brand-comms/workflow/publish-request-after-merges-settle.md) — When asking edge-hosting to publish a site, wait until the owner's run of merges settles; if main moves after the request, send an update naming the new commit and its delta.
 - [`.agent-fabric/memory/brand-comms/workflow/request-job-lands-in-senders-clone.md`](.agent-fabric/memory/brand-comms/workflow/request-job-lands-in-senders-clone.md) — Before starting a job queued from a REQUEST, check which project and working copy fabric-jobs filed it under: it follows the message's PROJECT, which names the sender's clone, not necessarily where the work is

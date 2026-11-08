@@ -5,7 +5,7 @@ topic: "request-needs-a-job"
 description: "A REQUEST becomes a job on the addressee's list by its inbox intake (2026-10-10); read their list after the send, jobs-add only if no job appeared"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: user
     host: "develop-qzapp"
@@ -13,6 +13,7 @@ origin:
     working_copy: "agent-fabric"
 derived_from:
   - 195b39a33eee8629
+  - 9eb206dbea9a2bce
 ---
 
 ## A REQUEST becomes a job on the addressee's list by its inbox intake (2026-10-10); read their list after the send, jobs-add only if no job appeared
@@ -31,5 +32,11 @@ itself (five correction REQUESTs each became a job, j65/j80/j16/j8/j76, within a
 My jobs-add on top made five duplicates. Now: send, then read `fabric-ctl <login> jobs`;
 jobs-add only when no job carries the REQUEST's subject (an agent with no session running
 yet still needs it).
+
+**A REPLY that hands work queues nothing (2026-11-05, j556):** my REPLY to python-dev-02
+("yes — yours: SUITE_MARKER reads AGENT_FABRIC_SUITE_RUN, deliver as a for/ branch") was
+received, but intake makes a job only from a REQUEST; an hour later its board showed no open
+jobs and no branch. A REQUEST with the same text (IN-REPLY-TO the thread) became j117 within
+a minute. An agreement reached in a REPLY thread is sent again as a REQUEST to its doer.
 
 *Observed 2026-10-09 (fabric-coordinator)*

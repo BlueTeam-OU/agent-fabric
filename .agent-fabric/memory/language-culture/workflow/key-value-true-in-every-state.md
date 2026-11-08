@@ -5,7 +5,7 @@ topic: "key-value-true-in-every-state"
 description: "before writing a key's value, read the code path that shows it — the value must be true in every state, platform and reader that path reaches"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "language-culture-en"
     host: "develop-qzapp"
@@ -13,6 +13,7 @@ origin:
     working_copy: "agent-fabric"
 derived_from:
   - 23466a2cb22d8cf9
+  - 7419a156e74fd66f
   - 96a653a88e58b623
 ---
 
@@ -77,6 +78,22 @@ composer, 01a16e03), and KeyDirUnsafe (a link, a folder another account
 owns, or a file). Ask the author for the case list. A Where cell that
 names "two cases" has more than once had three or four.
 
+Reflection 2026-W44: a status, a tense or a direction is the word most
+likely to hold in one state only. I worded CardSentPhoto ("Your photo
+was sent with the card.") against the Accepted row alone. The row is
+also shown as Sending and Not sent, and there the text and the status
+contradicted each other. CardSentLabel ("You shared your card") had the
+same fault. Both now claim no act ("Your contact card", "The card
+includes your photo.", InterWeave origin/main 817ac44b0; 01a17b8b,
+01a17b99). The start window's "Loading earlier messages" named the wrong
+direction in a gap reached from above. The five texts now name no
+direction ("Show more messages", 01a17de0). AddClose became "Back"
+because one text had to hold for both screens that open the page
+(01a17ce8). CardUpdatesPhotoRemoved shows before Update contact, so a
+past participle read as already done (01a1729f). For each past tense,
+each "sent", "shared", "earlier", "above" or "here", list every status
+and every way in that the row or screen can have.
+
 *References: dictionary-value-has-readers-outside-the-dictionary*
 
-*Observed 2026-10-25 (language-culture)*
+*Observed 2026-10-31 (language-culture)*

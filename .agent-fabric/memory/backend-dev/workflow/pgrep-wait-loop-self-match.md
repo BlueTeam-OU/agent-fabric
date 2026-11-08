@@ -5,7 +5,7 @@ topic: "pgrep-wait-loop-self-match"
 description: "A background \"wait until no dotnet build runs\" loop using pgrep -f deadlocks on its own command line"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "backend-dev-01"
     host: "develop-qzapp"
@@ -28,6 +28,6 @@ backend-dev-01's j41 worktree (2026-10-19) sat idle for over an hour this way.
 (`dotnet build Gzapp.sln && dotnet test --no-build ...`), or stop the earlier task with TaskStop
 first. Killing by pattern is refused by the fabric's hook; stop a background task with TaskStop.
 
-*Anchors: `agent-fabric:AGENTS.md::fabric-lease`*
+*Anchors: `agent-fabric/AGENTS.md::fabric-lease`*
 
 *Observed 2026-10-19 (backend-dev)*

@@ -5,13 +5,14 @@ topic: "locked-phone-ble-scan"
 description: "A locked Android phone hears the beacon only with a FILTERED scan, renewed, and a beacon advertising fast enough — measured 2026-09-28 on the bench phone"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "flutter-dev-01"
     host: "develop-qzapp"
     project: gzapp
     working_copy: gzapp
 derived_from:
+  - 28e80151589d7ec9
   - 2a75bf5f43dbe630
   - 32f0101e89fa040e
   - 481405ccf0e10fdf
@@ -96,4 +97,4 @@ Related: [[passenger-background-crowding-owed]], [[android-build-on-phone]].
 
 *References: android-build-on-phone, passenger-background-crowding-owed*
 
-*Observed 2026-09-28 (flutter-dev)*
+*Observed 2026-10-31 (flutter-dev)*

@@ -3,7 +3,7 @@ role: "flutter-dev"
 class: index
 description: "What flutter-dev knows and where it lives."
 tier: 1
-distilled_at: "2026-11-05"
+distilled_at: "2026-11-08"
 ---
 
 # flutter-dev — knowledge index
@@ -52,12 +52,13 @@ control plane checked out beside it.
 
 ## solution
 
-- [`.agent-fabric/memory/flutter-dev/solution/flutter-test-reads-repo-data-ci-filter.md`](.agent-fabric/memory/flutter-dev/solution/flutter-test-reads-repo-data-ci-filter.md) — A gzapp Flutter test that reads repo data outside its package (contract fixtures, product/i18n, tileserver styles) must be watched by that app's ci.yml filter, or a data-only PR skips it until the merge queue
+- [`.agent-fabric/memory/flutter-dev/solution/flutter-test-reads-repo-data-ci-filter.md`](.agent-fabric/memory/flutter-dev/solution/flutter-test-reads-repo-data-ci-filter.md) — A gzapp Flutter test that reads repo data outside its package (contract fixtures, product/i18n, tileserver styles) must be watched by that app's filter in ci.yml AND flutter-coverage.yml, or a data-only PR skips it
 - [`.agent-fabric/memory/flutter-dev/solution/gpg-keyboxd-stale-lock.md`](.agent-fabric/memory/flutter-dev/solution/gpg-keyboxd-stale-lock.md) — gpg hangs with "database_open ... waiting for lock (held by <pid>)" and the pid is dead — clearing a stale keyboxd lock in your own ~/.gnupg
 
 ## workflow
 
 - [`.agent-fabric/memory/flutter-dev/workflow/a-memory-lives-with-the-project-it-describes.md`](.agent-fabric/memory/flutter-dev/workflow/a-memory-lives-with-the-project-it-describes.md) — Write a memory into the memory directory of the project it is about, not the session's starting one — the drain stamps that directory's project as its origin and checks its anchors there
+- [`.agent-fabric/memory/flutter-dev/workflow/assets-for-another-agent-go-on-a-for-branch.md`](.agent-fabric/memory/flutter-dev/workflow/assets-for-another-agent-go-on-a-for-branch.md) — Delivering files (captures, images) to another agent: a commit on a <host>/<login>/for/<caller>/<what> branch in the caller's repository, never an artifact page — a private page does not reach another account
 - [`.agent-fabric/memory/flutter-dev/workflow/blocked-job-notes-outlive-the-session.md`](.agent-fabric/memory/flutter-dev/workflow/blocked-job-notes-outlive-the-session.md) — Before a job blocks across sessions, put its working notes in the job itself or a pushed branch — fabric-branches --sweep deletes an ended session's scratchpad whole
 - [`.agent-fabric/memory/flutter-dev/workflow/jobs-chore-without-artifact.md`](.agent-fabric/memory/flutter-dev/workflow/jobs-chore-without-artifact.md) — recording a chore that lands nothing (e.g. a REPLY-EXPECTED: no broadcast's disk cleanup) in fabric-jobs — drop it with the reason, never mark it done
 - [`.agent-fabric/memory/flutter-dev/workflow/passenger-apk-local-build.md`](.agent-fabric/memory/flutter-dev/workflow/passenger-apk-local-build.md) — How to build gzapp's passenger release APK on develop-qzapp despite the read-only, incomplete /opt/android-sdk; never run flutter test during the build

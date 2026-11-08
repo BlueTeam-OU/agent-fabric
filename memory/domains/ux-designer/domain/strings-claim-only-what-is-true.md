@@ -5,7 +5,7 @@ topic: "strings-claim-only-what-is-true"
 description: "When specifying what a string must communicate, also write what it must not claim: no step the platform lacks, no scope wider than the action, no promise that will not come by itself"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "ux-designer-01"
     host: "develop-qzapp"
@@ -13,6 +13,7 @@ origin:
     working_copy: "agent-fabric"
 derived_from:
   - 5d1f544c60a75e2b
+  - d2daecf553acef51
 ---
 
 ## When specifying what a string must communicate, also write what it must not claim: no step the platform lacks, no scope wider than the action, no promise that will not come by itself
@@ -34,7 +35,15 @@ behaviour, and it fails in three recurring ways:
   only sat on the row; a line that leaned on a neighbour (IdR1Settings)
   stood alone on another screen (K1) and lost its half; "No code was
   found in this image" with no image on the clipboard; "Folder:" for a
-  plain file; "cancels it" for a card the transport already took.
+  plain file; "cancels it" for a card the transport already took;
+- it is true in one state of a row and false in another it is also read
+  in: "You shared your card" and "Your photo was sent with the card"
+  read before "Not sent" (both reworded to claim no act, "Your contact
+  card", "The card includes your photo."); "Photo added" took the form
+  of a saved-change snackbar before Save ("Photo ready"); "Loading
+  earlier messages" in a gap reached from above, where the rows are
+  later (made direction-free); a refusal's reason that sends the
+  person to a conversation that may not exist ("if you have one").
 **Why:** InterWeave identity note (#303, 2026-10-19), Android review
 (#309, 2026-10-19) and contact-card spec (#334, 2026-10-21), add-a-peer and android-identity (#365, #396, 2026-10-22/23): each was
 caught by language-culture-en, a developer or a review, not by the spec.
@@ -44,9 +53,12 @@ an advised step exists on each platform before the row is written; when
 the scope rule of an action changes, re-check every string of that
 action. When a rule widens the cases a row covers, or a string shows in
 another place, re-read it in each case and each place, without the
-neighbours that are absent there.
+neighbours that are absent there. The brief to language-culture names
+every state and place the string is read in and what is read right
+after it; a brief for one state got words true in that state only
+(contact-cards #469 F6, #443, start window #488 and #491, 2026-10-25/27).
 Related: [[labels-as-whole-templates]], [[declined-prompt-stays-declined]]
 
 *References: declined-prompt-stays-declined, labels-as-whole-templates*
 
-*Observed 2026-10-25 (ux-designer)*
+*Observed 2026-10-31 (ux-designer)*

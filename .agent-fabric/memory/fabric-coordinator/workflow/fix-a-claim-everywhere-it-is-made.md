@@ -5,7 +5,7 @@ topic: "fix-a-claim-everywhere-it-is-made"
 description: Answering a review finding about a wrong claim, grep the whole change for the same claim before committing, or the next round finds it in a sibling file
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: user
     host: "develop-qzapp"
@@ -39,6 +39,6 @@ quoting a project's file in a remit, read that file on `origin/<default>` today,
 
 *References: fold-then-full-suite*
 
-*Anchors: `tools/fabric/github/commit_class.py::trailer_values(body, "Answers")`, `policies/hygiene.json::refer_as`*
+*Anchors: `policies/githooks/commit-msg::Answers`, `policies/hygiene.json::refer_as`*
 
 *Observed 2026-10-19 (fabric-coordinator)*

@@ -5,7 +5,7 @@ topic: "review-request-fields"
 description: "fabric-review brief request fields that refuse a render — repository is a local path, previous_findings left out of a PR re-review, a re-review needs card_base"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: user
     host: "develop-qzapp"
@@ -13,6 +13,7 @@ origin:
     working_copy: "agent-fabric"
 derived_from:
   - 19080710aa959fe2
+  - 8d30ee4899f233c9
 ---
 
 ## fabric-review brief request fields that refuse a render — repository is a local path, previous_findings left out of a PR re-review, a re-review needs card_base
@@ -24,12 +25,15 @@ A `bin/fabric-review brief <request.yaml>` request was refused twice on #352 (j3
 - `threat_model:` must be a list of `- ` items. A folded `>-` scalar is refused (2026-10-30, #425).
 - A requirement that says what the code does ("X is taken after Y, in that fixed order") is refused as naming what was fixed. Write what must be true instead ("…so two runs never each hold one and wait on the other").
 - More than 3 `lenses:` renders, but with a warning that the bias is diluted. Keep 3.
-- In a re-review whose base is the previous head (not on main), add `card_base: <full sha of the first round's base on main>`. The review card is read from a commit main contains.
+- `general` counts toward the 3: name at most two `lenses:` yourself (2026-11-08, #506).
+- In a re-review, or a first-round review of a fold range, whose base is not on main, add `card_base: <full sha of the first round's base on main>` (for a fold range, `git merge-base origin/main HEAD`). The review card is read from a commit main contains.
 
 **Why:** each refusal costs a render round trip, and the skill text does not list these fields.
 **How to apply:** start a re-review request from repository, range and card_base. Render it with the PR worktree's own `bin/fabric-review` ([[threads-2026-10-14-259-state]]).
 
-*References: threads-2026-10-14-259-state*
+Range base: [[review-range-base-after-main-merge]] — from `git merge-base origin/main HEAD` after the last main merge.
+
+*References: review-range-base-after-main-merge, threads-2026-10-14-259-state*
 
 *Anchors: `tools/fabric/review_brief.py::card_base`, `tools/fabric/review_brief.py::previous_findings`*
 

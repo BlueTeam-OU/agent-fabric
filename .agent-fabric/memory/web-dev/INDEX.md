@@ -3,7 +3,7 @@ role: "web-dev"
 class: index
 description: "What web-dev knows and where it lives."
 tier: 1
-distilled_at: "2026-11-05"
+distilled_at: "2026-11-08"
 ---
 
 # web-dev — knowledge index
@@ -46,6 +46,7 @@ control plane checked out beside it.
 - [`memory/domains/web-dev/domain/per-call-mutate-callbacks-are-dropped.md`](memory/domains/web-dev/domain/per-call-mutate-callbacks-are-dropped.md) — a write's outcome toast in mutate(vars, {onError}) is lost when the page unmounts or a second mutate starts; put it on the hook and pin it with an unmount test
 - [`memory/domains/web-dev/domain/popup-session-not-keyed-to-click-state.md`](memory/domains/web-dev/domain/popup-session-not-keyed-to-click-state.md) — a per-act object whose window a click opens must not be re-created by the state that same click sets — the swap drops the window it just opened
 - [`memory/domains/web-dev/domain/react-refresh-export-rule.md`](memory/domains/web-dev/domain/react-refresh-export-rule.md) — ESLint's react-refresh/only-export-components rejects a file that exports both a component and a plain function/hook/constant
+- [`memory/domains/web-dev/domain/refusal-copy-names-the-rule-not-a-cause.md`](memory/domains/web-dev/domain/refusal-copy-names-the-rule-not-a-cause.md) — When a page shows a server refusal, a withheld value or a disappearance the client cannot explain: the state and its copy name the rule or limits, never a cause the client guessed
 - [`memory/domains/web-dev/domain/responsive-overflow-css.md`](memory/domains/web-dev/domain/responsive-overflow-css.md) — Preventing horizontal overflow from images and long unbreakable heading tokens needs explicit CSS, not just max-width
 - [`memory/domains/web-dev/domain/rtl-text-matching.md`](memory/domains/web-dev/domain/rtl-text-matching.md) — React Testing Library's getByText cannot match a sentence split across sibling DOM nodes
 - [`memory/domains/web-dev/domain/tanstack-invalidate-joins-first-read.md`](memory/domains/web-dev/domain/tanstack-invalidate-joins-first-read.md) — why invalidateQueries after a write can still show pre-write data — it joins a first read that has no data yet
@@ -72,6 +73,7 @@ control plane checked out beside it.
 - [`.agent-fabric/memory/web-dev/workflow/jobs-done-needs-evidence-at-switch.md`](.agent-fabric/memory/web-dev/workflow/jobs-done-needs-evidence-at-switch.md) — fabric-jobs done <id> with no artifact is accepted, but switch then refuses to leave it — record the evidence when closing, a REPLY as reply:<MESSAGE-ID>
 - [`.agent-fabric/memory/web-dev/workflow/never-tmp-shared-across-logins.md`](.agent-fabric/memory/web-dev/workflow/never-tmp-shared-across-logins.md) — scratch output in a shell command — /tmp is shared by every login on the host; a fixed name can be another agent's file
 - [`.agent-fabric/memory/web-dev/workflow/pr-status-names-its-head.md`](.agent-fabric/memory/web-dev/workflow/pr-status-names-its-head.md) — Before telling anyone a PR is green, reviewed or 'gate met': which head that was true of, and what a later push does to it
+- [`.agent-fabric/memory/web-dev/workflow/reflection-verify-in-code-not-docs.md`](.agent-fabric/memory/web-dev/workflow/reflection-verify-in-code-not-docs.md) — In a reflection pass, a broadcast's instruction may already be enforced in code — grep origin/main's code, not only the ADRs/docs, before admitting it
 - [`.agent-fabric/memory/web-dev/workflow/repeat-a-transition-to-test-the-server-guard.md`](.agent-fabric/memory/web-dev/workflow/repeat-a-transition-to-test-the-server-guard.md) — When a screen sends a state transition (approve, publish, deprecate) or words a dialog about one: check the server refuses it from the wrong state before trusting the UI's hidden button
 - [`.agent-fabric/memory/web-dev/workflow/workflow-carried-2026-10-12.md`](.agent-fabric/memory/web-dev/workflow/workflow-carried-2026-10-12.md) — Before reading gzapp code for a claim or a build, branch from origin/main — the local main checkout can be thousands of commits behind
 - [`.agent-fabric/memory/web-dev/workflow/workflow-trigger-comments-move-with-workflow.md`](.agent-fabric/memory/web-dev/workflow/workflow-trigger-comments-move-with-workflow.md) — When devex-tooling changes a CI trigger that a web config comment names, let them edit the comment in the same commit series

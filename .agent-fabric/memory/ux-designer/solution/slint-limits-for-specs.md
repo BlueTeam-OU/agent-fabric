@@ -5,13 +5,14 @@ topic: "slint-limits-for-specs"
 description: "InterWeave's UI is Slint 1.18: Text cannot be selected or copied, a layout cannot change with the window's width (binding loop), and StyledText's inline code font and background are not ours; a spec states the purpose beside any mechanism…"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "ux-designer-01"
     host: "develop-qzapp"
     project: "agent-fabric"
     working_copy: "agent-fabric"
 derived_from:
+  - abab2d799a230c5a
   - e40b8dab0ccd8101
 ---
 
@@ -30,7 +31,13 @@ because of a binding loop that held the window wide):
   a copy takes" has no effect;
 - inline styling exists only as StyledText (markdown), whose code span
   font and background the app cannot set, and remote text never goes
-  through it; an address in the code font is a Text of its own.
+  through it; an address in the code font is a Text of its own;
+- an element's accessible actions are generated from the handlers it
+  declares, at compile time, so a row cannot stop being announced as
+  activatable in one state (an accepted own-card row): the spec keeps
+  the rule as the target and acceptance records it as blocked by the
+  toolkit, not passed, while activation must still do and say nothing
+  (contact-cards §5.5 and item 27, #469, 2026-10-27).
 **Why:** contact-cards 7.1 (desktop refusal actions) and add-a-peer's
 AddRefused span (#390) were both written as mechanisms the toolkit lacks;
 rust-ui-dev-01 measured and asked before building.
@@ -40,4 +47,4 @@ developer can substitute; ask rust-ui-dev before fixing an inline span,
 a width-dependent layout or a copy affordance. Re-check on a Slint
 upgrade.
 
-*Observed 2026-10-25 (ux-designer)*
+*Observed 2026-10-31 (ux-designer)*

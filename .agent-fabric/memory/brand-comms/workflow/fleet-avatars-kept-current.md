@@ -5,7 +5,7 @@ topic: "fleet-avatars-kept-current"
 description: "Owner standing instruction 2026-10-16 — a new agent gets its avatar drawn as soon as it can be, and the fleet sheet is rebuilt after every draw"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "brand-comms-01"
     host: "develop-qzapp"
@@ -14,6 +14,7 @@ origin:
 derived_from:
   - 61c44c768838cb1c
   - 86a7ab0c2b5f1d64
+  - ce6cb1d963562798
 ---
 
 ## Owner standing instruction 2026-10-16 — a new agent gets its avatar drawn as soon as it can be, and the fleet sheet is rebuilt after every draw
@@ -25,8 +26,8 @@ The owner said on 2026-10-16: "update fleet avatars as soon as new avatars are c
 **How to apply:**
 - Provisioning (`new-agent --surname`) lands a claim in identities/personas/claims.json with `first_name: null` (ADR-056 rule 4). When one appears, ask the new agent by a REQUEST to its login for its sex: ADR-056 rules 5 and 6 have it choose its sex first, then a first name of that sex. Draw only once it has answered.
 - Never take the sex from the first name, even when a first name has already been claimed. The agent's choice is what fixes the avatar's appearance.
-- After every draw, offer or acceptance, update offered.tsv and run `~/work/avatars/sheet.py`. The script reads `fabric-persona --all --json` and offered.tsv. It captions each tile "AI <First> <Surname>" plus the login, sets the type in Outfit, and draws a "not drawn yet" tile for a claim with no candidate yet.
-- The owner's "fleet avatars" also covers the page avatars.html with its page/*.jpg, in the 2026-10-13 session's scratchpad (…/50f13eb4-cafa-4786-a062-5605107be3b6/scratchpad/). It is not a published artifact. `~/work/avatars/page.py` regenerates it from fabric-persona and offered.tsv; run it beside sheet.py. offered.tsv must say "(accepted)" on every row that is accepted, because the page dims any row that doesn't.
+- After every draw, offer or acceptance, update offered.tsv and run brand-comms' contact-sheet script (`sheet.py`, in no repository). The script reads `fabric-persona --all --json` and offered.tsv. It captions each tile "AI <First> <Surname>" plus the login, sets the type in Outfit, and draws a "not drawn yet" tile for a claim with no candidate yet.
+- The owner's "fleet avatars" also covers the page avatars.html with its page/*.jpg, kept outside any repository. It is not a published artifact. brand-comms' `page.py` regenerates it from fabric-persona and offered.tsv; run it beside sheet.py. offered.tsv must say "(accepted)" on every row that is accepted, because the page dims any row that doesn't.
 
 **Cases:**
 - First case: on 2026-10-16, j23 asked legal-expert-ch (Huber) and legal-expert-ge (Javakhishvili) for their sex in REQUEST 01a141b5-92dd and REQUEST 01a141b5-9451.

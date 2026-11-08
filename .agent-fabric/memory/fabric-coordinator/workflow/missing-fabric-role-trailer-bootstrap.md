@@ -5,19 +5,20 @@ topic: "missing-fabric-role-trailer-bootstrap"
 description: "A commit made in a clone without fabric hooks lacks Fabric-Role; hand-adding the trailer is refused, bootstrap then re-commit is the way"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-11-05"
+distilled_at: "2026-11-08"
 origin:
   - agent: user
     host: "develop-qzapp"
     project: "agent-fabric"
     working_copy: "agent-fabric"
 derived_from:
+  - 84af3c8c78d170f9
   - f16efa7e145e907f
 ---
 
 ## A commit made in a clone without fabric hooks lacks Fabric-Role; hand-adding the trailer is refused, bootstrap then re-commit is the way
 
-A clone registered after the last bootstrap has no core.hooksPath, so its commits lack the `Fabric-Role:` trailer, and the .agent-fabric/ authority check fails on them. Adding the trailer by hand (`git commit --amend --trailer "Fabric-Role: …"`) is refused by the auto-mode classifier as "Security Weaken". This happened on 2026-10-28, on [redacted]-shop-transit PR #2.
+A clone registered after the last bootstrap has no core.hooksPath, so its commits lack the `Fabric-Role:` trailer, and the .agent-fabric/ authority check fails on them. Adding the trailer by hand (`git commit --amend --trailer "Fabric-Role: …"`) is refused by the auto-mode classifier as "Security Weaken". This happened on 2026-10-28, on <city>-shop-transit PR #2.
 
 **Why:** the trailer is meant to come from the hook. A trailer typed in by a session proves nothing about the binding.
 

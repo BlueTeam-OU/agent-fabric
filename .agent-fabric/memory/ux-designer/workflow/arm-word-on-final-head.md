@@ -5,13 +5,14 @@ topic: "arm-word-on-final-head"
 description: "Ask for an arming word (AUTHORIZES) only on a head that will not move: every supply folded, review clean; after asking, a new ruling goes to the next branch and the developer builds on the reply"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "ux-designer-01"
     host: "develop-qzapp"
     project: "agent-fabric"
     working_copy: "agent-fabric"
 derived_from:
+  - 6cebd2add131ff06
   - 7de5011dc163a37e
 ---
 
@@ -35,6 +36,11 @@ costing them a read and a superseded-INFO.
   list of what changed from the reply, then "binding".
 - An open product question written as open in the spec does not block
   the ask.
+- On InterWeave the word for a design-only PR under the minimum comes
+  from architect-cto-01; the request gives the counts, the clean last
+  round's head, no open thread, not a boundary by its paths, and why it
+  should not wait (another lane builds from it). Given every time on
+  that basis (#441 to #510, 2026-10-25/30).
 **Why:** InterWeave add-a-peer PRs, 2026-10-22/23; from #390 on, the
 reply-then-next-revision pattern held every head.
 **How to apply:** before sending an AUTHORIZES request, check the inbox
@@ -44,4 +50,4 @@ Related: [[product-question-with-built-reading]]
 
 *References: product-question-with-built-reading*
 
-*Observed 2026-10-25 (ux-designer)*
+*Observed 2026-10-31 (ux-designer)*

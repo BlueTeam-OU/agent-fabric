@@ -5,13 +5,14 @@ topic: "send-errors-classed-by-dispatch-state"
 description: "A directed send's error must say whether the request may have left — libp2p request-response Timeout, ConnectionClosed and Io can all follow a written request; classify every code as not-sent / refused / outcome-unknown, conservatively…"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "p2p-network-dev-01"
     host: "develop-qzapp"
     project: "agent-fabric"
     working_copy: "agent-fabric"
 derived_from:
+  - 45e50aa57e265d64
   - c6379350c9f04535
 ---
 
@@ -25,6 +26,17 @@ sent". Neither does a local IPC/session error raised while the call was
 pending (backend gone, shutting down, a reply dropped at a shutdown
 grace deadline), nor a remote's refusal mapped back onto the same code
 a local refusal uses.
+
+**A zero-byte response is the same class, not a malformed one.** When
+the responder's own request timeout fires first, or it drops its
+ResponseChannel, request-response closes the stream after reading the
+request and yamux sends FIN: the requester reads an empty response.
+A codec that decodes that as "short field" reports ProtocolViolation
+for what is the exchange not completing. InterWeave's codecs map an
+empty stream to UnexpectedEof -> PeerUnreachable (#460, ruled by
+architect-cto 2026-10-26); one or more refused bytes stay
+ProtocolViolation. Pin it over real sockets with a garbage-bytes
+responder as control.
 
 **The rule that came out of it** (InterWeave TRANSPORT.md §Error model
 "Dispatch state", architect-cto's ruling on #167, 2026-10-02):

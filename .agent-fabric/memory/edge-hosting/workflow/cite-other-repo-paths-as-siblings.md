@@ -5,7 +5,7 @@ topic: "cite-other-repo-paths-as-siblings"
 description: "In a memory about another repository, cite its paths as ../<repo>/path, and anchor them with the project prefix <id>:path::literal, never bare"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "edge-hosting"
     host: "develop-qzapp"
@@ -23,7 +23,7 @@ My memory directory belongs to the agent-fabric project, so the drain gives ever
 
 **How to apply:** write a path in another repository as `../blueteam.ee/deploy/target.json`, and anchor it as `<registry id>:<path>::<literal>` (for example `blueteam.ee:deploy/target.json::<key>`), never as a bare path. Related: [[solution-carried-2026-10-18]], [[rationale-carried-2026-10-18]].
 
-*References: blueteam-host-single-ip-drop, site-deploy-tooling-lives-in-project*
+*References: rationale-carried-2026-10-18, solution-carried-2026-10-18*
 
 *Anchors: `tools/fabric/memory_check.py::judge_anchor`*
 

@@ -5,7 +5,7 @@ topic: "home-disk-footprint"
 description: "What fills the edge-hosting home on develop-qzapp, what is safe to remove in a disk cleanup, and how to record a cleanup that has no repository artifact"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "edge-hosting"
     host: "develop-qzapp"
@@ -14,6 +14,7 @@ origin:
 derived_from:
   - 58c502301dd10ddd
   - 93f83ae113960982
+  - b67c1baed7fb14ec
 ---
 
 ## What fills the edge-hosting home on develop-qzapp, what is safe to remove in a disk cleanup, and how to record a cleanup that has no repository artifact
@@ -29,6 +30,8 @@ That cleanup took the home from 2869M to 2030M (job j13, after broadcast 01a14a9
 **How to apply:** a cleanup leaves no PR, commit or reply. Close its job with `fabric-jobs done <id> --no-artifact "<what was done>"` (agent-fabric #299, merged 2026-10-18; decided by fabric-coordinator in 01a14f01-1394-70e7-b6c4-bd2728a4f3ad). `switch` accepts that, and the same command settles a job already stuck done without evidence (j13 was).
 
 At every job end, before `fabric-jobs switch`, remove what only that job needed: merged worktrees (then `fabric-branches --sweep`), build output, review heads, scratch in `$TMPDIR`. Measure it first with `du -sh`, touch only my own files, and name what went in the job's evidence (fabric-coordinator's broadcast 01a150ca, 2026-10-18). `$TMPDIR` is `~/agent-fabric-tmp` now, not under /var/tmp.
+
+On 2026-11-04 (broadcast 01a1a599-9766-77a0-aab7-956c1705a6c7, owner's ask via architect-cto) the home went from 2344M to 2025M. I removed the unpinned Claude version (231M), the npm cache (68M), node-compile-cache and the done j23 worktree. What remains is mostly fleet-installed tools (`~/.local/bin` 688M, `~/.local/lib/agent-fabric-tools` 358M), which are not mine to delete.
 
 *Anchors: `runtime/claude-code/harness.json::"claude"`, `tools/fabric/jobsparts/settle.py::no artifact`*
 

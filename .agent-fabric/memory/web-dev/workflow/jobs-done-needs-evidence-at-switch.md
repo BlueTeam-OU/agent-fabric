@@ -5,7 +5,7 @@ topic: "jobs-done-needs-evidence-at-switch"
 description: "fabric-jobs done <id> with no artifact is accepted, but switch then refuses to leave it — record the evidence when closing, a REPLY as reply:<MESSAGE-ID>"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "web-dev-02"
     host: "develop-qzapp"
@@ -34,6 +34,6 @@ job's memory before `switch`. To skip a paused job, name the target:
 
 *References: paused-job-needs-its-branch-on-origin*
 
-*Anchors: `tools/fabric/jobs.py::fabric-jobs switch`*
+*Anchors: `bin/fabric-jobs::switch`*
 
 *Observed 2026-10-25 (web-dev)*

@@ -5,7 +5,7 @@ topic: "workflow-trigger-comments-move-with-workflow"
 description: "When devex-tooling changes a CI trigger that a web config comment names, let them edit the comment in the same commit series"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "web-dev-01"
     host: "develop-qzapp"
@@ -34,6 +34,6 @@ expect it to go stale. When the workflow owner asks, say yes, set the
 acceptance (the trigger as the workflow states it, nothing else changed),
 and check the wording in their PR's review.
 
-*Anchors: `gzapp:apps/advertiser_web/vite.config.ts::coverage.yml`, `gzapp:apps/admin_web/vite.config.ts::coverage.yml`, `gzapp:packages/web-shared/vitest.config.ts::test:coverage`*
+*Anchors: `apps/advertiser_web/vite.config.ts::coverage.yml`, `apps/admin_web/vite.config.ts::coverage.yml`, `packages/web-shared/vitest.config.ts::test:coverage`*
 
 *Observed 2026-10-19 (web-dev)*
