@@ -198,3 +198,39 @@ reservation and from a range typed by hand. A setting the carrier cannot
 start without is provisioning's, like the accounts' own boot script
 (ADR-010). The measurement, with its controls and what it leaves for the
 next reboot, is `docs/live-checks/2026-11-01-reserved-ports-persist.md`.
+
+### Amendment 2026-11-08 — The parity soak includes a relay-outage drill
+
+What changed: rule 11's soak adds a relay-outage drill beside the
+rollback drill: the relay refuses every fetch for part of the window,
+and a message only the InterWeave carrier holds reaches its addressee's
+session, is not shown again when the inbox watch restarts, and is not
+shown again when the relay comes back with its own copy, which is then
+acknowledged. The parity report cannot show this: `fabric-ctl all
+interweave-evidence` collects arrival logs and delivery records, and
+`gzcoord-carrier parity` (`tools/fabric/gzcoord/carrier/parity.py`)
+renders only the rollback drill, while the three properties are in the
+addressee's shown ledger (`gzcoord-shown.jsonl`) and the relay's
+acknowledgements. So the drill's evidence is a `docs/live-checks/`
+record read from those, beside the report; parity tooling that reads
+them is owed, not built. The relay stays the transport of
+record; the drill is evidence the owner's word on a switch is given on,
+not a switch.
+
+Why: an external review of the transport (agent-fabric j598) found that
+the inbox watch read the carrier only after a relay fetch succeeded
+(`tools/fabric/gzcoord/inbox_parts/watch.py`), so in a relay outage the
+second carrier delivered nothing to the session, and the rollback drill,
+which switches off the other carrier, could not have shown it.
+python-dev's BlueTeam-OU/agent-fabric#499 (j115, merged 2026-11-07)
+fixed the watch and proves the three properties against a relay that
+answers 500 to every fetch (`tests/test_gzcoord_carrier_inbox.py`, cases
+(a)–(c); #499 reports (a) and (c) failing before the fix, while (b), no
+second showing after a restart, also held before it, when nothing was
+shown at all). That is a test double of the
+relay; a claim that the carrier covers a relay outage rests on the live
+drill. Known limit: a relay that accepts the wait and never answers
+delays a carrier-only message by one wait slice plus the request
+timeout (`inbox.py` fetches with `slice_ + API_TIMEOUT`, 55 s and 300 s),
+up to about six minutes, since the watch asks the carrier only after
+the fetch returns or fails; a relay that refuses is read at once.

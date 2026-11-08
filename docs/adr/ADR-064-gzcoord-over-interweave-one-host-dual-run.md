@@ -243,8 +243,14 @@ address, where the relay's `sender` is a claim (ADR-033 §6).
     delivered while their addressee was offline, direct and broadcast
     apart; the messages compressed and the messages chunked. The soak
     includes a rollback drill (the InterWeave carrier switched off
-    mid-window, nothing lost), and one `TO-ROLE` recipient among its
-    logins.
+    mid-window, nothing lost), a relay-outage drill (the relay refusing
+    every fetch mid-window: a message the carrier alone holds reaches
+    its addressee's session, is not shown again when the watch restarts
+    or when the relay returns with its own copy, and the relay copy is
+    acknowledged), and one `TO-ROLE` recipient among its logins. The
+    arrival logs cannot show the relay-outage drill: its evidence is a
+    record in `docs/live-checks/` read from the addressee's shown ledger
+    and the relay's acknowledgements.
 12. This carrier carries GZCoord application messages only. The control
     plane rides the same profile on its own `fabric-control` endpoint,
     through `interweave-human` under the account's agentd (ADR-029 rule
@@ -353,3 +359,4 @@ The body above reads current; each change's full note is in [history/ADR-064-ame
 | 2026-10-28 | The control plane rides the profile's fabric-control endpoint through interweave-human | §3 first alternative; §5 rules 12 and 14; §6 |
 | 2026-10-31 | The archive is checked against the owner's minisign signature as well as its digest | §5 rule 4 |
 | 2026-11-01 | Provisioning makes the reserved ports and keeps them across a reboot | §5 rule 1 |
+| 2026-11-08 | The parity soak includes a relay-outage drill | §5 rule 11 |
