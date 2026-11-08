@@ -723,7 +723,7 @@ def run_program(argv: list[str], env: dict[str, str], cwd: str, timeout: float) 
     it (process.end_group: TERM, then KILL after a grace): a cargo build left running would outlive the
     control agent's bound."""
     try:
-        with process.group(argv, label="tools-install", sweep=False, env=env, cwd=cwd, stdin=subprocess.DEVNULL,
+        with process.group(argv, label="tools-install", env=env, cwd=cwd, stdin=subprocess.DEVNULL,
                            stdout=subprocess.PIPE, stderr=subprocess.STDOUT) as proc:
             out, _ = proc.communicate(timeout=timeout)
     except subprocess.TimeoutExpired:

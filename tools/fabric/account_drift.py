@@ -69,7 +69,6 @@ import hashlib
 import json
 import os
 import re
-import signal
 import stat
 import subprocess
 import sys
@@ -78,6 +77,7 @@ from typing import Any
 HERE = os.path.dirname(os.path.realpath(__file__))
 sys.path.insert(0, HERE)
 import fabric_writes  # noqa: E402
+import process  # noqa: E402
 
 # bootstrap --dry-run measured at about 3 s on a warm host; the children it
 # runs (the langid and settings dry runs) are what make it that long.
@@ -158,38 +158,24 @@ def judge(path: str, recorded: str) -> tuple[str, str | None]:
     return ("ok", None) if got == recorded else ("edited", None)
 
 
-def _reap(proc: subprocess.Popen) -> None:
-    """The child and what it started, gone: bootstrap's own children (the
-    settings and langid dry runs) share its group, and subprocess.run kills
-    only the direct child. The wait is bounded; a grandchild that left the
-    group and holds the pipes open is left to finish."""
-    try:
-        os.killpg(proc.pid, signal.SIGKILL)
-    except ProcessLookupError:
-        pass
-    try:
-        proc.communicate(timeout=5)
-    except subprocess.TimeoutExpired:
-        pass
-
-
 def would_change(root: str, env: dict[str, str], timeout: float) -> list[str]:
     """What the dry run says it would write or link, one subject per line,
     in its order."""
     script = os.path.join(root, "tools", "fabric", "bootstrap.py")
+    started = False
     try:
-        proc = subprocess.Popen([sys.executable, script, "--dry-run"], stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
-                                stderr=subprocess.PIPE, text=True, errors="replace", env=env, start_new_session=True)
+        # bootstrap's own children (the settings and langid dry runs) share its group, and subprocess.run kills only
+        # the direct child; process.group ends the whole tree on a timeout and on an interrupt.
+        with process.group([sys.executable, script, "--dry-run"], label="account-drift", stdin=subprocess.DEVNULL,
+                           stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, errors="replace", env=env) as proc:
+            started = True
+            out, err = proc.communicate(timeout=timeout)
     except OSError as e:
+        if started:
+            raise
         raise DriftError(f"cannot run bootstrap --dry-run: {e.strerror or e}") from None
-    try:
-        out, err = proc.communicate(timeout=timeout)
     except subprocess.TimeoutExpired:
-        _reap(proc)
         raise DriftError(f"bootstrap --dry-run did not finish in {timeout:g} s") from None
-    except BaseException:   # an interrupt must not strand a child in its own session
-        _reap(proc)
-        raise
     if proc.returncode != 0:
         said = [ln for ln in err.splitlines() if ln.strip()]
         raise DriftError(f"bootstrap --dry-run exited {proc.returncode}" + (f": {said[-1].strip()[:200]}" if said else ""))

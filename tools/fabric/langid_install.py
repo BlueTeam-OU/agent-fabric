@@ -68,7 +68,7 @@ def quiet(argv: list[str], timeout: int) -> bool:
     a pip still building into the venv. process.group holds SIGINT across the
     spawn. It does not sweep a group the child left behind once waited for."""
     try:
-        with process.group(argv, label="langid", sweep=False, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+        with process.group(argv, label="langid", stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
                            stderr=subprocess.DEVNULL) as proc:
             return proc.wait(timeout=timeout) == 0
     except (OSError, subprocess.TimeoutExpired):

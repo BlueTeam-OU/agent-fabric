@@ -69,7 +69,7 @@ class World:
         for d in (self.home, self.state, self.stub, os.path.join(self.root, "bin"), os.path.join(self.root, "tools", "fabric")):
             os.makedirs(d)
         shutil.copy(os.path.join(ROOT, "bin", "fabric-drift"), os.path.join(self.root, "bin", "fabric-drift"))
-        for m in ("account_drift.py", "fabric_writes.py"):
+        for m in ("account_drift.py", "fabric_writes.py", "process.py"):
             shutil.copy(os.path.join(ROOT, "tools", "fabric", m), os.path.join(self.root, "tools", "fabric", m))
         # fabric_writes.py resolves the state directory through identity (ADR-003 rule 1)
         os.makedirs(os.path.join(self.root, "runtime"))

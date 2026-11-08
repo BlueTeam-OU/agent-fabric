@@ -145,7 +145,6 @@ import datetime as dt
 import json
 import os
 import re
-import signal
 import stat
 import subprocess
 import sys
@@ -161,6 +160,7 @@ HERE = os.path.dirname(os.path.realpath(__file__))
 sys.path.insert(0, HERE)
 import roots  # noqa: E402
 import fleet_proc  # noqa: E402
+import process  # noqa: E402
 
 SCHEMA = 1
 CACHE_VERSION = 2   # 2: prs rows carry the gate's fields, closed_jobs done_total
@@ -281,20 +281,9 @@ def run_program(argv: list[str], *, timeout: float, cwd: str | None = None, env:
     Its own process group, killed whole on a timeout: pr-gate's git and gh,
     and the executor's ssh, are grandchildren that `subprocess.run`'s kill
     of the direct child would leave running."""
-    p = subprocess.Popen(argv, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, cwd=cwd, env=env,
-                         stdin=subprocess.DEVNULL, start_new_session=True)
-    try:
+    with process.group(argv, label="fleet", stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, cwd=cwd, env=env,
+                       stdin=subprocess.DEVNULL) as p:
         out, err = p.communicate(timeout=timeout)
-    except subprocess.TimeoutExpired:
-        try:
-            os.killpg(p.pid, signal.SIGKILL)
-        except OSError:
-            p.kill()   # the group is already gone; the leader at least. A sudo'd member we may not signal is skipped without error and is what the bounded communicate() below covers
-        try:
-            p.communicate(timeout=5)   # a survivor holding the pipes must not hold us
-        except subprocess.TimeoutExpired:
-            pass
-        raise
     return subprocess.CompletedProcess(argv, p.returncode, out, err)
 
 

@@ -224,7 +224,7 @@ def _sigint_held() -> Iterator[list[bool]]:
 
 
 @contextlib.contextmanager
-def group(argv: list[str], *, label: str = "new-agent", sweep: bool = True, **popen) -> Iterator[subprocess.Popen]:
+def group(argv: list[str], *, label: str = "new-agent", sweep: bool = False, **popen) -> Iterator[subprocess.Popen]:
     """The command in a session of its own, ended with its tree on any way
     out of the body (a timeout, an interrupt, an error). An interrupt that
     lands inside Popen, or between it and the body, would unwind past the
@@ -233,7 +233,9 @@ def group(argv: list[str], *, label: str = "new-agent", sweep: bool = True, **po
     KeyboardInterrupt, once the body is entered. OSError from the spawn goes
     to the caller (with a held interrupt raised instead: no child exists).
     `sweep` also ends what a command that exited left in its group (a server,
-    a build daemon); off, a command that was waited for is left as it ended."""
+    a build daemon); off, a command that was waited for is left as it ended
+    (a caller that never swept would otherwise gain a kill it did not have).
+    On an error the group is always ended while anything is left of it."""
     with _sigint_held() as interrupted:
         try:
             proc = popen_group(argv, **popen)
@@ -247,7 +249,8 @@ def group(argv: list[str], *, label: str = "new-agent", sweep: bool = True, **po
             raise KeyboardInterrupt
         yield proc
     except BaseException:
-        end_group(proc, label)
+        if proc.poll() is None or group_alive(proc.pid):
+            end_group(proc, label)
         raise
     else:
         if proc.poll() is None or (sweep and group_alive(proc.pid)):
