@@ -34,6 +34,13 @@ def main() -> int:
     check("the apply entry is bound to fabric-coordinator, registered projects, never --fleet-default",
           all("bound to fabric-coordinator" in a and "projects/registry.json" in a and "never with --fleet-default" in a
               for a in applies), applies)
+    # An uninstall deletes; the entry must keep it to InterWeave's packages on the two leased test phones,
+    # or the classifier reads it as a licence to remove any package, on any device, without the lease.
+    uninstalls = [a for a in POLICY["allow"] if "adb uninstall" in a]
+    check("one entry allows adb uninstall", len(uninstalls) == 1, uninstalls)
+    check("the uninstall entry is bound to org.interweave., both phone leases, and nothing without the lease",
+          all("`org.interweave.`" in a and "`pixel-9a`" in a and "`samsung-a40`" in a and "Without the lease" in a
+              for a in uninstalls), uninstalls)
 
     print(f"\n{'FAILED' if fails else 'all passed'}")
     return 1 if fails else 0
