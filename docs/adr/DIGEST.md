@@ -865,30 +865,31 @@ its record disagree, the record wins. Look it up, never read it whole:
 ### ADR-037 — Each agent keeps a job list (Accepted)
 
 - One list per login (`agents/<login>/jobs.json`); seven states, one
-  active (§5 rules 1–2).
+  active (r1–2).
 - `fabric-jobs switch` (alias `next`): after a worked job, next starts
-  fresh (`fabric-fresh --job <id>`); else in place (§5 rule 3).
-- Jobs: agent, owner, delivered REQUEST (§5 rules 4–5, 11).
-- Owner reads all lists (`fabric-ctl jobs`, §5 rule 6).
+  fresh (`fabric-fresh --job <id>`); else in place (r3).
+- Jobs: agent, owner, delivered REQUEST (r4–5/r11).
+- Owner reads all lists (`fabric-ctl jobs`, r6).
 - A 2026-10-08 — priority, never preempting; blocking rank; role pool
-  (§5 rules 7–10).
+  (r7–10).
 - A 2026-10-09 — stale waiter blocks.
-- A 2026-10-09 — a login's REQUEST queues (§5 rule 11).
-- A 2026-10-09 — jobs as plan steps (§5 rule 11).
-- A 2026-10-11 — fresh after worked job (§5 rule 3).
-- A 2026-10-12 — checkable blockers (§5 rule 8).
-- A 2026-10-14 — `paused`; `switch` (§5 rules 2, 10).
+- A 2026-10-09 — a login's REQUEST queues (r11).
+- A 2026-10-09 — jobs as plan steps (r11).
+- A 2026-10-11 — fresh after worked job (r3).
+- A 2026-10-12 — checkable blockers (r8).
+- A 2026-10-14 — `paused`; `switch` (r2/r10).
 - A 2026-10-15 — reads as built.
-- A 2026-10-16 — delivered swept to done (§5 rule 12).
-- A 2026-10-18 — no-artifact close, a reason (§5 rule 10).
+- A 2026-10-16 — delivered swept to done (r12).
+- A 2026-10-18 — no-artifact close, a reason (r10).
 - A 2026-10-20 — commits fenced to job copies.
 - A 2026-10-21 — switch cleans targets.
-- A 2026-10-30 — fleet hold (§5 rule 13).
+- A 2026-10-30 — fleet hold (r13).
 - A 2026-10-30 — held, no start.
 - A 2026-10-31 — clock blocker.
-- A 2026-10-31 — cleanup built (§5 rule 10).
-- A 2026-10-31 — in place only inside its copy (§5 rule 3).
-- A 2026-11-05 — answered request re-points to its job (§5 rule 8).
+- A 2026-10-31 — cleanup built (r10).
+- A 2026-10-31 — in place only inside its copy (r3).
+- A 2026-11-05 — answered request re-points to its job (r8).
+- A 2026-11-08 — one transition table (r14).
 - Keywords: fresh session, intake, priority, claim, sweep, unhold, request blocker.
 
 ### ADR-038 — Each agent owns its key and its secrets (Accepted)
