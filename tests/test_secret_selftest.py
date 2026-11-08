@@ -288,11 +288,17 @@ def main() -> int:
     with tempfile.TemporaryDirectory() as gtmp:
         bounds = st.STEP_TIMEOUT_S, st.STOP_GRACE_S
         st.STEP_TIMEOUT_S, st.STOP_GRACE_S = 1, 1
-        for trap, what in (("", "a grandchild"), ("trap '' TERM; ", "a grandchild that ignores SIGTERM")):
+        for trap, what in (("", "a grandchild"), ("trap '' TERM; ", "a grandchild that ignores SIGTERM"),
+                           ("dies", "a grandchild that ignores SIGTERM, left by a leader that died of it")):
             pidfile = os.path.join(gtmp, "pid")
             t0 = time.monotonic()
-            got = st._cmd(["bash", "-c", f"{trap}(trap '' TERM; exec sleep 60) & echo $! > {pidfile}; wait"
-                           if trap else f"sleep 60 & echo $! > {pidfile}; wait"])
+            if trap == "dies":
+                script = f"(trap '' TERM; exec sleep 60) & echo $! > {pidfile}; wait"
+            elif trap:
+                script = f"{trap}(trap '' TERM; exec sleep 60) & echo $! > {pidfile}; wait"
+            else:
+                script = f"sleep 60 & echo $! > {pidfile}; wait"
+            got = st._cmd(["bash", "-c", script])
             took = time.monotonic() - t0
             pid = int(open(pidfile).read())
             gone = False
@@ -313,6 +319,8 @@ def main() -> int:
             if not gone:
                 os.kill(pid, 9)
         st.STEP_TIMEOUT_S, st.STOP_GRACE_S = bounds
+    shape = st._cmd([sys.executable, "-c", "import os; print(os.getpgrp() == os.getpid(), os.getsid(0) == os.getsid(os.getppid()))"])
+    check("a command leads a process group of its own, in the caller's session", shape[:2] == (0, "True True\n"), shape)
     calls: list[list[str]] = []
 
     def fake(args, stdin=None):
