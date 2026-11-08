@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
-"""The pool's half of the work lifecycle, pinned against agent-fabric ADR-037 rule 14 (A 2026-11-08), rows R1 and R2:
+"""The pool's half of the work lifecycle, pinned against agent-fabric ADR-037 rule 14 (A 2026-11-08), rows R1, R2 and R2b (rule 14 as corrected at eee64007):
 
-  R1  -> open in a role's pool           the holder's control agent, on a signed pool-add       needs role, title, project, priority
-  R2  open -> claimed / queued           the holder's control agent, on pool-claim              needs the claimant's reported binding to hold
+  R1   -> open in a role's pool          the holder's control agent, on a signed pool-add       needs role, title, project, priority
+  R2   open -> claimed there             the holder's control agent, on pool-claim              needs the claimant's reported binding to hold
                                                                                                  the role; no other claimant
+  R2b  -> queued                         the claimant's own fabric-jobs pool-claim, on the      needs the pool's job, by generation and id
+                                         holder's `claimed` answer (rule 1: no other writer of its list)
 
 The holder's side is tools/fabric/control/pool.py called as agentd calls it (its own suite, tests/test_control_pool.py, holds the port's
 oracle; this one holds what a job's lifecycle reads of it). The claimant's side is what `fabric-jobs pool-claim` does with the holder's
@@ -11,7 +13,7 @@ answer: the same functions, in process, writing the scratch list the CLI then re
 them is not exercised here; tests/test_jobs.py runs the verb against a fake holder.
 
 The pool's own end is a gap, not a disagreement: no row says what the pool's record does when the claimant's job is done or dropped
-(finding F11, pinned by the *_today case and a skip that names it)."""
+(finding F9, pinned by the *_today case and a skip that names it)."""
 from __future__ import annotations
 
 import importlib.util
@@ -112,7 +114,7 @@ class Pool(unittest.TestCase):
         self.assertEqual(self.stored("p1")["claimed"], {"by": CLAIMANT, "at": "2026-11-08T00:00:01Z"})
         self.assertEqual(self.listed()["jobs"], [])
 
-    def test_r2_the_claimant_gets_a_queued_job_with_the_pool_as_its_source(self):
+    def test_r2b_the_claimant_gets_a_queued_job_with_the_pool_as_its_source(self):
         self.add(priority="high", project="fixture-proj")
         said = self.claim("p1")
         job = self.on_the_claimants_list(said)[0]
@@ -125,7 +127,7 @@ class Pool(unittest.TestCase):
         self.assertEqual(self.w.run("start", job["id"]).returncode, 0)
         self.assertEqual(self.w.job(job["id"])["state"], "active")
 
-    def test_r2_one_claim_is_one_job_however_many_answers_reach_the_claimant(self):
+    def test_r2b_one_claim_is_one_job_however_many_answers_reach_the_claimant(self):
         self.add()
         first = self.claim("p1")
         again = self.claim("p1")
@@ -176,7 +178,7 @@ class Pool(unittest.TestCase):
             self.assertEqual(self.w.run("done", job["id"], "--no-artifact", "housekeeping").returncode, 0)
         return job
 
-    def test_f11_today_a_claimed_pool_job_stays_claimed_whatever_became_of_the_claimants_job(self):
+    def test_f9_today_a_claimed_pool_job_stays_claimed_whatever_became_of_the_claimants_job(self):
         for how in ("dropped", "done"):
             with self.subTest(how):
                 self.finish_claimed(how)
@@ -184,7 +186,7 @@ class Pool(unittest.TestCase):
                 self.assertEqual(self.listed()["jobs"], [])
                 os.unlink(self.file)
 
-    def test_f11_today_a_claim_whose_answer_was_lost_is_a_claim_nobody_holds(self):
+    def test_f9_today_a_claim_whose_answer_was_lost_is_a_claim_nobody_holds(self):
         # The holder recorded the claim; the claimant never listed a job. Only the same login claiming again lands it.
         self.add()
         self.claim("p1")
@@ -192,9 +194,9 @@ class Pool(unittest.TestCase):
         self.assertEqual(self.listed()["jobs"], [])
         self.assertTrue(self.claim("p1")["again"])
 
-    @unittest.skip("F11: rule 14 has no row for the pool's record once the claimant's job is done or dropped; "
+    @unittest.skip("F9: rule 14 has no row for the pool's record once the claimant's job is done or dropped; "
                    "the pool keeps `claimed` for ever (control/pool.py pool_claim never rewrites it) — the table must say what the pool holds then")
-    def test_f11_the_pool_learns_that_the_claimed_job_ended(self):
+    def test_f9_the_pool_learns_that_the_claimed_job_ended(self):
         self.finish_claimed("dropped")
         self.assertNotEqual(self.stored("p1")["claimed"], {"by": CLAIMANT, "at": "2026-11-08T00:00:01Z"})
 

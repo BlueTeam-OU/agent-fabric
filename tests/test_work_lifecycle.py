@@ -1,26 +1,29 @@
 #!/usr/bin/env python3
 """The work lifecycle as the job list lives it today, pinned against the transition table of agent-fabric ADR-037 rule 14
-(A 2026-11-08): a characterisation, not a specification. Every case runs the real command, `bin/fabric-jobs`, against a scratch state
-directory, bare origins and a fake gh (tests/work_lifecycle_world.py), so that the one model of a job that follows (the WorkItem of
-wave 2) can be checked against what the paths do now. No production module is changed or read by name; the observable contract of
-the command is all that is pinned.
+(A 2026-11-08, as corrected at eee64007): a characterisation, not a specification. Every case runs the real command, `bin/fabric-jobs`,
+against a scratch state directory, bare origins and a fake gh (tests/work_lifecycle_world.py), so that the one model of a job that
+follows (the WorkItem of wave 2) can be checked against what the paths do now. No production module is changed or read by name; the
+observable contract of the command is all that is pinned.
 
 The table's rows, by the label the cases carry:
-  R1  -> open in a role's pool            pool-add                     tests/test_work_lifecycle_pool.py
-  R2  open -> claimed / queued            pool-claim                   tests/test_work_lifecycle_pool.py
-  R3  -> queued                           add, intake, jobs-add, import   Entry here; tests/test_work_lifecycle_intake.py
-  R4  queued, paused, blocked, delivered -> active     start, switch     Working
-  R5  active -> paused                    pause                        Working
-  R6  queued, active, paused, blocked -> blocked       block            Blocked; tests/test_work_lifecycle_blockers.py
-  R7  active, blocked -> delivered        deliver                      Delivered
-  R8  delivered -> done                   sweep                        Delivered
-  R9  active, delivered -> done           done                         Delivered, Leaving
-  R10 queued, active, paused, blocked, delivered -> dropped   drop      Closed
+  R1   -> open in a role's pool            pool-add                      tests/test_work_lifecycle_pool.py
+  R2   open -> claimed (the holder's)      pool-claim                    tests/test_work_lifecycle_pool.py
+  R2b  -> queued (the claimant's own)      fabric-jobs pool-claim        tests/test_work_lifecycle_pool.py
+  R3   -> queued                           add, intake, jobs-add         Entry here; tests/test_work_lifecycle_intake.py
+  R3b  -> any state, as exported           import                        Entry
+  R4   queued, paused, blocked, delivered -> active     start, switch    Working
+  R5   active -> paused                    pause                         Working
+  R6   queued, active, paused, blocked -> blocked       block            Blocked; tests/test_work_lifecycle_blockers.py
+  R6b  queued, paused, blocked -> blocked  switch (rule 10 step 3)       Blocked
+  R7   active, blocked -> delivered        deliver                       Delivered
+  R8   delivered -> done                   sweep                         Delivered
+  R9   active, delivered -> done           done                          Delivered, Leaving
+  R10  queued, active, paused, blocked, delivered -> dropped   drop      Closed
 and the terminal states: nothing reopens done or dropped (Closed). `Leaving` is rule 10 step 1, the row's "needs" asked again of the
 job `switch` leaves. VerbMatrix runs every verb from every state and names the cells the table does not have; Findings holds, for
 each place where today's code makes a transition outside the table, or one without what its row needs, a case with today's answer and
-an expectedFailure case with the answer the table gives (F1..F10, listed in the pull request). A fix turns the second green; the
-change that makes it removes the decorator.
+an expectedFailure case with the answer the table gives (F1..F8 here; F9 in the pool suite, F10 in the blockers', F11 in the intake's;
+all listed in the pull request). A fix turns the second green; the change that makes it removes the decorator.
 """
 from __future__ import annotations
 
@@ -134,8 +137,8 @@ class Entry(Case):
         self.assertEqual([e["state"] for e in job["log"]], ["queued"])
 
     def test_import_keeps_every_state_and_id(self):
-        # The one path that writes a state without a transition: the document's states are taken as written (a done job needs
-        # no evidence, an active one is active), so what import accepts is the checks on the document, not the lifecycle's.
+        # Row R3b: any state as exported, an empty list, at most one job active. The document's states are taken as written (a done
+        # job needs no evidence), so what import accepts is the checks on the document, not the lifecycle's.
         self.w.add("a")
         self.w.add("b")
         self.ok("done", "j2", "--no-artifact", "housekeeping")
@@ -308,7 +311,7 @@ class Blocked(Case):
         self.assertNotIn("blockers", job)
 
     def test_switch_blocks_a_job_on_the_pull_request_that_must_merge_first(self):
-        # The one path on which `switch` writes `blocked` itself (R6 names `block` as the only subsystem: finding F7).
+        # Row R6b: the one path on which `switch` writes `blocked`, adding the pull request to the blockers, never substituting it.
         self.w.add("needs the open one merged")
         rc, said = self.switch_needing_merged()
         self.assertEqual(rc, 0, said)
@@ -736,41 +739,7 @@ class Findings(Case):
         self.w.put(lambda doc: doc["jobs"][0].update(source={"kind": "request", "message_id": RID, "from": "h/u", "seq": 1}))
         self.assertNotEqual(self.w.run("drop", "j1", "no longer needed").returncode, 0)
 
-    # F7 ── R6 names `block` the only subsystem; the branch choice of `switch` writes blocked itself.
-    def test_f7_today_switch_blocks_a_queued_job_on_an_open_pull_request(self):
-        self.w.add("a")
-        rc, said = self.switch_needing_merged()
-        self.assertEqual((rc, self.state()), (0, "blocked"), said)
-
-    @unittest.expectedFailure
-    def test_f7_switch_makes_no_transition_of_its_own_beyond_start(self):
-        self.w.add("a")
-        self.switch_needing_merged()
-        self.assertNotEqual(self.state(), "blocked")
-
-    # F8 ── R3: import is "into an empty list", and a row into `queued`. It keeps the document's states and ids.
-    def test_f8_today_import_writes_a_job_straight_into_active_and_into_done(self):
-        self.w.add("a")
-        self.w.add("b")
-        self.ok("start", "j1")
-        self.ok("done", "j2", "--no-artifact", "housekeeping")
-        exported = self.ok("export").stdout
-        other = World()
-        self.addCleanup(other.close)
-        self.assertEqual(other.run("import", stdin=exported).returncode, 0)
-        self.assertEqual([j["state"] for j in other.jobs()], ["active", "done"])
-
-    @unittest.expectedFailure
-    def test_f8_import_makes_every_job_queued(self):
-        self.w.add("a")
-        self.ok("start", "j1")
-        exported = self.ok("export").stdout
-        other = World()
-        self.addCleanup(other.close)
-        other.run("import", stdin=exported)
-        self.assertEqual({j["state"] for j in other.jobs()}, {"queued"})
-
-    # F9 ── R8 and R9 both name "rule 10's done test", which sweep and settle each implement. A bare commit sha: settle takes it as
+    # F7 ── R8 and R9 both name "rule 10's done test", which sweep and settle each implement. A bare commit sha: settle takes it as
     # landed evidence, sweep never reads it (a sha counts only in an artifact that names the job's own project).
     def sha_world(self) -> str:
         sha = subprocess.run(["git", "-C", self.w.alpha, "rev-parse", "HEAD"], check=True, capture_output=True, text=True,
@@ -779,7 +748,7 @@ class Findings(Case):
         self.ok("deliver", j1, sha)
         return j1
 
-    def test_f9_today_settle_accepts_a_bare_sha_and_sweep_keeps_the_job(self):
+    def test_f7_today_settle_accepts_a_bare_sha_and_sweep_keeps_the_job(self):
         j1 = self.sha_world()
         self.assertIn("no artifact names a pull request, a commit or a branch it can resolve", self.ok("sweep").stdout)
         self.ok("done", j1)
@@ -788,12 +757,12 @@ class Findings(Case):
         self.assertIn("on origin/main", p.stdout)
 
     @unittest.expectedFailure
-    def test_f9_sweep_closes_a_job_whose_bare_sha_settle_accepts_as_landed(self):
+    def test_f7_sweep_closes_a_job_whose_bare_sha_settle_accepts_as_landed(self):
         j1 = self.sha_world()
         self.ok("sweep")
         self.assertEqual(self.state(j1), "done")
 
-    # F10 ── "<project> #N": sweep resolves it through the registry to that project's repository; settle reads the #N in the job's own
+    # F8 ── "<project> #N": sweep resolves it through the registry to that project's repository; settle reads the #N in the job's own
     # repository. A job sweep closed on landed evidence then cannot be left by switch.
     def project_pr_world(self) -> str:
         self.w.gh_says({f"{OTHER_REPO}#4": "MERGED"})
@@ -801,7 +770,7 @@ class Findings(Case):
         self.ok("deliver", j1, "other-proj #4")
         return j1
 
-    def test_f10_today_sweep_closes_it_and_switch_cannot_leave_the_closed_job(self):
+    def test_f8_today_sweep_closes_it_and_switch_cannot_leave_the_closed_job(self):
         j1 = self.project_pr_world()
         self.assertIn(f"closed ({OTHER_REPO}#4 merged)", self.ok("sweep").stdout)
         p = self.leave(j1)
@@ -809,7 +778,7 @@ class Findings(Case):
         self.assertIn(f"could not tell whether {jobs_world.GH_REPO}#4 is merged", p.stderr)
 
     @unittest.expectedFailure
-    def test_f10_a_job_sweep_closed_on_landed_evidence_can_be_left(self):
+    def test_f8_a_job_sweep_closed_on_landed_evidence_can_be_left(self):
         j1 = self.project_pr_world()
         self.ok("sweep")
         p = self.leave(j1)
