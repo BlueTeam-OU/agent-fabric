@@ -2041,6 +2041,40 @@ def _():
     ok("is unknown" in err and "no placement and hosts tables" in err, err)
 
 
+@case("send: a whoami with no binding file (identity.py not loadable) is refused in one line, exit 2, never a traceback; with it, the dry run passes")
+def _():
+    me = gzmsg.whoami()
+    stub = P.Stub(lambda _h, _m, _p, _b: (200, '{"messages": []}'))
+    saved = (gzmsg.whoami, dict(os.environ))
+    try:
+        env = _replay_env(stub, GZCOORD_JOURNAL="off")
+        reg = os.path.join(env["HOME"], "hosts.json")
+        with open(reg, "w", encoding="utf-8") as fh:
+            json.dump({"hosts": {me["host"]: {"operator": "user"}}, "placement": {me["agent"]: me["host"]}}, fh)
+        env["AGENT_FABRIC_HOSTS_REGISTRY"] = reg
+        f = os.path.join(env["HOME"], "m.txt")
+        with open(f, "w", encoding="utf-8") as fh:
+            fh.write(f"[GZCOORD/1] INFO\nFROM: {me['host']}/{me['agent']}\nROLE: backend-dev\nPROJECT: fixture\n"
+                     f"TO: {me['host']}/{me['agent']}\nSUBJECT: s\n\nNOTES:\nn\n")
+        os.environ.clear()
+        os.environ.update(env)
+        results = []
+        for binding in (me["binding"], None):
+            gzmsg.whoami = lambda b=binding: {**me, "binding": b}
+            err = io.StringIO()
+            with contextlib.redirect_stderr(err):
+                rc = send.main([f, "--dry-run"])
+            results.append((rc, err.getvalue()))
+    finally:
+        gzmsg.whoami = saved[0]
+        os.environ.clear()
+        os.environ.update(saved[1])
+        stub.close()
+    eq(results[0][0], 0, results[0][1])
+    eq(results[1][0], 2, results[1][1])
+    ok("gzcoord-sent.jsonl" in results[1][1] and "Traceback" not in results[1][1], results[1][1])
+
+
 @case("placement.judge: a placed address is none; a role slug unplaced is a role; the rest is not-placed; operators are placed")
 def _():
     from gzcoord import placement
