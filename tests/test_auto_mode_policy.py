@@ -40,7 +40,8 @@ def main() -> int:
     # names adb is selected, so a second, unbounded one cannot sit beside it unchecked.
     adb_entries = [a for a in POLICY["allow"] if "adb " in a]
     check("one entry allows adb uninstall or pm clear", len(adb_entries) == 1, adb_entries)
-    bounds = ("`org.interweave.`", "`.agent-fabric/bin/phone-run`", "`pixel-9a`", "`fabric-lease samsung-a40 -- ...`",
+    bounds = ("Running `adb uninstall <package>` or `adb shell pm clear <package>` for a package",
+              "`org.interweave.`", "`.agent-fabric/bin/phone-run`", "`pixel-9a`", "aimed at the Pixel", "`fabric-lease samsung-a40 -- ...`",
               "192.168.100.6", "j648", "removes this entry when j648 is delivered",
               "An adb command outside that wrapper, a wrapper aimed at the other phone, or any other package, device or host path is not covered")
     for bound in bounds:
