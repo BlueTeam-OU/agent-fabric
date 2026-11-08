@@ -19,7 +19,7 @@ import time
 HERE = os.path.dirname(os.path.realpath(__file__))
 sys.path.insert(0, os.path.dirname(HERE))
 import git  # noqa: E402
-from provisioning import bounded  # noqa: E402
+import process  # noqa: E402
 
 
 class Refused(Exception):
@@ -28,7 +28,7 @@ class Refused(Exception):
 
 def run_git(repo: str, *args: str, timeout: float = git.TIMEOUT_S) -> subprocess.CompletedProcess:
     """git.run(repo, *args, check=False), except that a timeout ends git's
-    whole process tree before GitError is raised (bounded.run_bounded):
+    whole process tree before GitError is raised (process.run_bounded):
     git.run's subprocess.run kills git alone, and what git started (a
     fetch's remote helper and its ssh, a merge's driver, a filter) ran on
     past the trial (#477's sibling list). Every git call trial_merge and
@@ -39,7 +39,7 @@ def run_git(repo: str, *args: str, timeout: float = git.TIMEOUT_S) -> subprocess
     start no helper to outlive them."""
     what = "git " + (args[0] if args else "")
     try:
-        return bounded.run_bounded(["git", "-C", repo, *args], timeout=timeout, label="trial-merge",
+        return process.run_bounded(["git", "-C", repo, *args], timeout=timeout, label="trial-merge",
                                    stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                                    text=True, errors="surrogateescape")
     except FileNotFoundError:
@@ -242,8 +242,11 @@ def signal_all(claimed: dict[int, int], wt: str, cpid: int | None, sig: int) -> 
 
 
 def terminate(pid: int, group: bool = False) -> None:
+    if group:
+        process.signal_group(pid, signal.SIGTERM)
+        return
     try:
-        (os.killpg if group else os.kill)(pid, signal.SIGTERM)
+        os.kill(pid, signal.SIGTERM)
     except OSError:
         pass
 

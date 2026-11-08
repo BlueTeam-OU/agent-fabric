@@ -61,6 +61,7 @@ HERE = os.path.dirname(os.path.realpath(__file__))
 sys.path.insert(0, os.path.dirname(HERE))
 import git  # noqa: E402
 import gh  # noqa: E402
+import process  # noqa: E402
 import roots  # noqa: E402
 # The worktree's names stay importable from here: the unit suite and callers
 # reach them as trial_merge.<name>, as before the split.
@@ -303,9 +304,9 @@ def run_check(wt: str, argv: list[str], timeout: str, lease: str, fabric: str, s
         # check (PR 482 round 1 F1). preexec_fn is safe here: no other thread.
         held = signal.pthread_sigmask(signal.SIG_BLOCK, EXIT_SIGNALS.keys())
         try:
-            proc = subprocess.Popen([*runner, *argv], cwd=wt, stdin=subprocess.DEVNULL, stdout=out_fh,
-                                    stderr=subprocess.STDOUT, start_new_session=True,
-                                    preexec_fn=lambda: signal.pthread_sigmask(signal.SIG_SETMASK, held))
+            proc = process.popen_group([*runner, *argv], cwd=wt, stdin=subprocess.DEVNULL, stdout=out_fh,
+                                       stderr=subprocess.STDOUT,
+                                       preexec_fn=lambda: signal.pthread_sigmask(signal.SIG_SETMASK, held))
             started(proc.pid)
         except PermissionError:
             return 126, ""
