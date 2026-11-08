@@ -267,6 +267,7 @@ def main() -> int:
         for f in ("new_agent.py", "project_clone.py", "pin_entry.py", "roots.py", "hostexec.py", "hostworker.py", "fabric_writes.py", "launch_provider_record.py", "gh.py", "gh_ledger.py"):
             shutil.copy2(f"{ROOT}/tools/fabric/{f}", f"{fab}/tools/fabric/")
         shutil.copytree(f"{ROOT}/tools/fabric/provisioning", f"{fab}/tools/fabric/provisioning", ignore=shutil.ignore_patterns("__pycache__"))
+        shutil.copy2(f"{ROOT}/tools/fabric/process.py", f"{fab}/tools/fabric/process.py")   # provisioning/bounded.py re-exports it
         put(f"{sandbox}/home/.local/bin/claude", "#!/bin/sh\necho fake\n", 0o755)
         # The host registry the orchestrator reads: this host (direct) and a
         # far one reached over a fake ssh that runs the same worker here.

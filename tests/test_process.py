@@ -20,7 +20,9 @@ Stdlib only; runnable as `python3 tests/test_process.py`. **Each case names the 
 """
 from __future__ import annotations
 
+import atexit
 import os
+import shutil
 import signal
 import subprocess
 import sys
@@ -34,6 +36,7 @@ import process  # noqa: E402
 from provisioning import bounded  # noqa: E402
 
 TMP = tempfile.mkdtemp(prefix="process-")
+atexit.register(shutil.rmtree, TMP, ignore_errors=True)
 process.STOP_GRACE_S = 2   # a TERM-deaf child costs the grace, not the default five seconds
 WAIT_S = 20
 
@@ -199,7 +202,7 @@ def case_group_spawn_error() -> None:
 def case_group_sweep() -> None:
     """The leader exits at once and leaves a member in its group (a server, a build daemon)."""
     argv = ["sh", "-c", f"sleep 300 & echo $! > {TMP}/sw.tmp; mv {TMP}/sw.tmp {TMP}/sw"]
-    with process.group(argv, stdin=subprocess.DEVNULL) as p:
+    with process.group(argv, sweep=True, stdin=subprocess.DEVNULL) as p:
         p.wait()
         pid = pid_from(os.path.join(TMP, "sw"))
     try:
@@ -268,8 +271,6 @@ def main() -> int:
     for name, fn in cases:
         fn()
         print(f"  ok   {name[5:].replace('_', ' ')}")
-    import shutil
-    shutil.rmtree(TMP, ignore_errors=True)
     print("test_process.py: OK")
     return 0
 
