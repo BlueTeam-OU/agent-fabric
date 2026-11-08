@@ -65,6 +65,12 @@ if argv[:1] == ["sandbox"]:
         with open(os.path.join(S, "sandbox-grandchild"), "w") as f:
             f.write(f"{os.getpid()} {gc.pid}")
         time.sleep(300)
+    if smode == "ok-leaves":
+        # a sandbox that behaves, and whose command left a member in the group (a server, a daemon) when it exited
+        smode = "ok"
+        gc = subprocess.Popen(["sleep", "300"], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        with open(os.path.join(S, "sandbox-grandchild"), "w") as f:
+            f.write(f"{os.getpid()} {gc.pid}")
     if smode == "noop":
         sys.exit(0)                                   # a "sandbox" that runs nothing and says all is well
     if smode == "writable":
@@ -865,6 +871,17 @@ def main() -> int:
             if alive:
                 time.sleep(0.05)
         check("…and the probe's whole process group is ended, the grandchild too", not alive, alive)
+
+        check("a probe that exited and left a member in its group passes, and the member is ended with the group",
+              prove("ok-leaves") == "ok")
+        with open(os.path.join(state, "sandbox-grandchild")) as f:
+            left = int(f.read().split()[1])
+        deadline = time.time() + 10
+        while running(left) and time.time() < deadline:
+            time.sleep(0.05)
+        check("…the member a probe left behind is gone", not running(left), left)
+        if running(left):
+            os.kill(left, 9)
 
         review_codex.SANDBOX_PROOF_TIMEOUT_S = 1
         try:

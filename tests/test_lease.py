@@ -244,6 +244,13 @@ def main() -> int:
         check("the variable a caller sets cannot ignore SIGPIPE for it",
               sigign(lambda: signal.signal(signal.SIGPIPE, signal.SIG_DFL), {"_FABRIC_LEASE_PIPE_IGNORED": "1"}) & (1 << (signal.SIGPIPE - 1)) == 0)
 
+        print("the command leads a process group of its own and stays in the wrapper's session (the terminal's)")
+        grp = os.path.join(scratch, "grp.out")
+        subprocess.run([SHIM, "gp", "--", sys.executable, "-c",
+                        f"import os; open({grp!r}, 'w').write(f'{{os.getpgrp() == os.getpid()}} {{os.getsid(0) == os.getsid(os.getppid())}}')"],
+                       env={**base_env(), "AGENT_FABRIC_LEASES": leases}, timeout=TIMEOUT, check=False)
+        check("a group of its own, in the wrapper's session", open(grp).read() == "True True", open(grp).read())
+
         print("signals to the wrapper: forwarded to the group; ignored on entry, not")
         out = os.path.join(scratch, "sig.out")
         child = 'echo started pid=$$; trap "echo got-term; exit 9" TERM; while :; do sleep 0.2; done'

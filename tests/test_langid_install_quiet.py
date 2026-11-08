@@ -74,6 +74,11 @@ class Quiet(unittest.TestCase):
         self.assertFalse(langid_install.quiet(["false"], 10))
         self.assertFalse(langid_install.quiet([os.path.join(self.sandbox, "absent")], 10))
 
+    def test_a_command_that_exited_leaves_its_group_as_it_ended(self) -> None:
+        # Not swept: this site never ended a waited-for command's group, and moving it to process.group must not add that.
+        self.assertTrue(langid_install.quiet(["sh", "-c", f"sleep 300 & echo $! > {self.pidfile}"], 10))
+        self.assertTrue(alive(self.grandchild()))
+
     def test_timeout_is_no_and_kills_the_group(self) -> None:
         started = time.monotonic()
         self.assertFalse(langid_install.quiet(self.hang, 1))
