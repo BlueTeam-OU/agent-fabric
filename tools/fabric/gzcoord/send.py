@@ -690,8 +690,13 @@ def main(argv: list[str]) -> int:
         # a broadcast is queued for all of them, so it says nothing of the addressee (review of #505, F1).
         if carried and to_one_login:
             # The relay's outcome alone is the exit status (ADR-064 rule 11), but "not sent" and "send it
-            # again" would be false: the addressee has the message, and a resend is a second copy.
-            print(t("send.carrier-took-it", {"relay_url": relay_url, "detail": str(e)}), file=sys.stderr)
+            # again" would be false: the addressee has the message. A resend from a file carries the id
+            # written into it, so it is one message and only puts it on the relay's record; from stdin the
+            # id is minted in memory unless the text names its own, and a resend is then a second copy; the
+            # line stays the cautious one for a text that does name it (j117, the owner's decision).
+            fields = {"relay_url": relay_url, "detail": str(e)}
+            print(t("send.carrier-took-it-file", fields) if file != "-" else t("send.carrier-took-it", fields),
+                  file=sys.stderr)
             return 3
         if status in (401, 403):
             print(t("send.token-refused", {"status": status}), file=sys.stderr)

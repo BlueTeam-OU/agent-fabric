@@ -2304,7 +2304,21 @@ def carrier_send(relay_url: str, text: str = VALID, carried: int = 1, extra: lis
     return r, state, store, seen
 
 
-@case("a relay that did not take a message TO one login while the carrier did: exit 3 as before, and the line says the carrier carried it and a resend would duplicate it")
+def send_stdin_carrier(relay_url: str, text: str, **env: str) -> Ran:
+    from gzcoord.carrier import server
+    run = scratch("run-")
+    srv = server.Server(server.socket_path(run), lambda req: {"ok": True, "carried": 1, "queued": 1})
+    try:
+        d = scratch("send-")
+        base = scratch("send-journal-")
+        return run_cmd(SEND_CMD, ["-", "--force"],
+                       send_env(relay_url, d, AGENT_FABRIC_STATE_DIR=os.path.join(base, "state"),
+                                AGENT_FABRIC_SECRET_STORE=id_store(), XDG_RUNTIME_DIR=run, **env), stdin=text)
+    finally:
+        srv.close()
+
+
+@case("a relay that did not take a message TO one login while the carrier did: exit 3 as before; from a file the line says a resend is safe (same id), from stdin that it would duplicate it")
 def _():
     import socket
     s = socket.socket()
@@ -2321,9 +2335,15 @@ def _():
             r, state, store, seen = carrier_send(url, direct, extra=["--force"], **hosts.env)
             eq(r.code, 3, f"{label}: the exit status follows the relay alone (ADR-064 rule 11): {r.err}")
             eq(len(seen), 1, f"{label}: the carrier was asked once")
-            has(r"the relay did not take it .*but the carrier did .*a resend would duplicate it", r.err, f"{label}: {r.err}")
-            hasnt(r"not sent|is safe|hand it", r.err, f"{label}: {r.err}")
+            has(r"the relay did not take it .*but the carrier did .*sending the same file again is safe", r.err, f"{label}: {r.err}")
+            hasnt(r"not sent|duplicate|hand it", r.err, f"{label}: {r.err}")
             eq([x[1] for x in journal_rows(state, store)], ["accepted"], f"{label}: the carrier's acceptance marks the row")
+        # The same relay failure from stdin, the text naming no id: it is minted in memory, so a resend is a
+        # second copy and the file line's "safe" must not appear (nor the file case above say "duplicate").
+        with_stdin = send_stdin_carrier(down, re.sub(r"^MESSAGE-ID: .*\n", "", direct, flags=re.M), **hosts.env)
+        eq(with_stdin.code, 3, with_stdin.err)
+        has(r"but the carrier did .*a resend would duplicate it", with_stdin.err)
+        hasnt(r"is safe|same id|one message", with_stdin.err)
         # Positive control: the carrier running but carrying to nobody (no roster recipient) took nothing.
         r, state, store, seen = carrier_send(down, direct, carried=0, extra=["--force"], **hosts.env)
         eq(r.code, 3, r.err)
