@@ -47,9 +47,16 @@ def _loads(tree: ast.AST | None, stem: str) -> bool:
 
 
 def _run_rules(root: str) -> list[str]:
-    """The lint rule modules lint.py imports: a rule module nothing imports never runs."""
-    names = {str(n.module or "").split(".")[-1] for n in ast.walk(_tree(root, LINT) or ast.Module(body=[], type_ignores=[]))
-             if isinstance(n, ast.ImportFrom) and str(n.module or "").startswith("fabric_lint_rules.")}
+    """The lint rule modules lint.py imports, in any of the three spellings of a package's module: a rule module nothing
+    imports never runs."""
+    names: set[str] = set()
+    for n in ast.walk(_tree(root, LINT) or ast.Module(body=[], type_ignores=[])):
+        if isinstance(n, ast.ImportFrom) and str(n.module or "").startswith("fabric_lint_rules."):
+            names.add(str(n.module).split(".")[-1])
+        elif isinstance(n, ast.ImportFrom) and n.module == "fabric_lint_rules":
+            names.update(a.name for a in n.names)
+        elif isinstance(n, ast.Import):
+            names.update(a.name.split(".")[-1] for a in n.names if a.name.startswith("fabric_lint_rules."))
     return [f"{LINT_RULES}/{n}.py" for n in sorted(names)]
 
 
@@ -83,7 +90,7 @@ def mechanism_findings(root: str) -> list[str]:
         for key in ("owner", "checker", "exceptions"):
             path = e.get(key)
             if path is None and (key == "owner" and status != "planned" or key != "owner" and status == "enforced"):
-                out.append(f"{where}: an {status} mechanism names its {key} (ADR-067 rule 2)")
+                out.append(f"{where}: {'an' if status[0] in 'aeiou' else 'a'} {status} mechanism must name its {key} (ADR-067 rule 2)")
             elif path is not None and (not isinstance(path, str) or path not in tracked):
                 out.append(f"{where}: {key} {path!r} is not a tracked file")
         checker = e.get("checker")

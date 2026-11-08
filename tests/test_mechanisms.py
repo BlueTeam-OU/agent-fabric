@@ -4,14 +4,14 @@
 Stdlib only; runnable as `python3 tests/test_mechanisms.py`. **Each case names the mutation it kills**:
 
   well_formed_passes        <- any check firing on a catalogue the tree bears out, a planned entry's missing owner included
-  enforced_needs_wiring     <- _loads dropped from the lint-rule, pre-commit or tests leg, or a rule module lint.py does not
-                               import counted as running
+  enforced_needs_wiring     <- _loads dropped from the lint-rule, pre-commit or tests leg, a rule module lint.py does not
+                               import counted as running, or one of _run_rules' three import spellings dropped
   mention_is_not_a_load     <- a comment or a docstring naming the checker counted as loading it (text, not syntax, read)
   real_loads_count          <- `import os, <stem>` or `from <stem> import x` not counted as a load
   enforced_needs_files      <- the checker/exceptions presence or tracked test dropped
   named_paths_are_tracked   <- a pending or planned entry's named path not checked, or a non-string path crashing lint
   pending_and_planned       <- the JOB pattern or the waits_on test dropped
-  entry_fields              <- the ADR, owner-tracked or status test dropped
+  entry_fields              <- the ADR, owner-required, owner-tracked or status test dropped
   unreadable_and_absent     <- an unreadable catalogue read as empty, or an absent one (instance data) made a finding
   lint_is_wired             <- mechanism_findings not called from lint.main
 
@@ -95,6 +95,8 @@ def case_enforced_needs_wiring() -> None:
     # A rule module lint.py never imports never runs, however it loads the checker.
     out = m.mechanism_findings(tree({"state": ENFORCED}, {"tools/fabric/lint.py": "x = 1\n"}))
     assert [f for f in out if "no lint rule that tools/fabric/lint.py imports" in f], out
+    for spelling in ("from fabric_lint_rules import state\n", "import fabric_lint_rules.state\n"):
+        assert m.mechanism_findings(tree({"state": ENFORCED}, {"tools/fabric/lint.py": spelling})) == [], spelling
 
 
 def case_mention_is_not_a_load() -> None:
@@ -116,7 +118,7 @@ def case_real_loads_count() -> None:
 
 def case_enforced_needs_files() -> None:
     out = m.mechanism_findings(tree({"state": {**ENFORCED, "exceptions": None}}))
-    assert any("names its exceptions" in f for f in out), out
+    assert any("an enforced mechanism must name its exceptions" in f for f in out), out
     out = m.mechanism_findings(tree({"state": ENFORCED}, {"tools/fabric/state_writes.py": None}))
     assert any("checker 'tools/fabric/state_writes.py' is not a tracked file" in f for f in out), out
 
@@ -145,7 +147,9 @@ def case_pending_and_planned() -> None:
 
 def case_entry_fields() -> None:
     out = m.mechanism_findings(tree({"x": {"adr": "037", "status": "done"},
-                                     "y": {"adr": "ADR-001", "owner": "tools/nowhere.py", "status": "pending", "job": "a/j1"}}))
+                                     "y": {"adr": "ADR-001", "owner": "tools/nowhere.py", "status": "pending", "job": "a/j1"},
+                                     "z": {"adr": "ADR-001", "status": "pending", "job": "a/j1"}}))
+    assert f"{m.POLICY}: z: a pending mechanism must name its owner (ADR-067 rule 2)" in out, out
     assert any("\"adr\" names the record" in f for f in out), out
     assert any("owner 'tools/nowhere.py' is not a tracked file" in f for f in out), out
     assert any("status 'done' is not one of" in f for f in out), out
