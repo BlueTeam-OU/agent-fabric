@@ -41,7 +41,7 @@ Send = Callable[[list[str], str, str, str], dict]
 def _fresh() -> dict:
     return {"arrivals": [], "deliveries": [], "shown": [], "acks": [], "kinds": {}, "journal": "ok",
             "pages": {s: 0 for s in ev.ALL_SECTIONS}, "skipped": 0, "undated": 0, "complete": True, "reason": None,
-            "answered": False, "relay_outage": {"complete": True, "reason": None}}
+            "answered": False, "relay_outage": {"complete": True, "reason": None, "skipped": 0}}
 
 
 def collect(logins: list[str], since: str, until: str, send: Send, max_pages: int = MAX_PAGES) -> dict[str, dict]:
@@ -82,6 +82,9 @@ def _round(got: dict, groups: dict, section: str, until: str, send: Send) -> dic
                     acct["journal"] = r.get("journal") or "unreadable"
             elif section == "deliveries":
                 acct["undated"] += int(r.get("undated") or 0)
+            else:
+                # Unreadable lines of the drill's files: carried to meta, where parity refuses a drill it cannot judge.
+                acct["relay_outage"]["skipped"] += int(r.get("skipped") or 0)
             n = r.get("next")
             if n is None:
                 continue

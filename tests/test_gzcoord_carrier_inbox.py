@@ -242,6 +242,14 @@ def main() -> int:
           f"{w.read('gzcoord-acks.jsonl')}\n{w.acks}")
     w.close()
 
+    # Others' traffic the watch passes through is acknowledged but is no evidence of ours: no line names it under this address.
+    w = World([[{"seq": 6, "id": "r6", "ts": "T", "sender": "x/y", "content": msg(6).replace(f"TO: {ME}", "TO: x/someone-else")}, relay_rec(5)]])
+    r = w.drain()
+    check("a record addressed to another account is acknowledged and not in the acknowledgement log; ours is",
+          "r6" in w.acks and "r5" in w.acks and [x["mid"] for x in w.read("gzcoord-acks.jsonl")] == [mid(5)],
+          f"{w.acks}\n{w.read('gzcoord-acks.jsonl')}\n{r.stdout}{r.stderr}")
+    w.close()
+
     # the relay's copy arrives first, the relay then goes down and the carrier lists it: still once
     w = World([[relay_rec(2)]], carrier_records=[urec(2)])
     r = w.watch()

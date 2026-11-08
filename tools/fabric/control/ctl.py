@@ -240,11 +240,11 @@ VERBS: tuple[Verb, ...] = (
     Verb(EVIDENCE_OP, f"Each account's {CARRIER_LABEL} parity evidence for a window: the arrival lines, the delivery records and the kind of each message, and for the relay-outage drill the shown ledger's lines and the relay acknowledgements made, metadata only, never a body. Paged by itself.",
          f"fabric-ctl all {EVIDENCE_OP} --since 2026-10-26T05:20:00Z --until 2026-10-27T05:20:00Z --out ./evidence",
          usage=((f"<login|all> {EVIDENCE_OP} --since T --until T [--out <dir>]",
-                 f"a signed read: each account's gzcoord-arrivals.jsonl lines, {CARRIER_LABEL} delivery records and message kinds for [T, T) as YYYY-MM-DDTHH:MM:SSZ, paged until complete; with --out filed as <dir>/<login>/ for gzcoord-carrier parity --collected; a body never leaves an account"),),
+                 f"a signed read: each account's gzcoord-arrivals.jsonl lines, {CARRIER_LABEL} delivery records and message kinds, and its shown ledger and acknowledgement log lines (the relay-outage drill's), for [T, T) as YYYY-MM-DDTHH:MM:SSZ, paged until complete; with --out filed as <dir>/<login>/ for gzcoord-carrier parity --collected; a body never leaves an account"),),
          args="--since T --until T [--out <dir>] [--section S]", signed="always",
          options=(("--since T", "the window's start, YYYY-MM-DDTHH:MM:SSZ (required)"), ("--until T", "the window's end, exclusive (required)"),
-                  ("--out DIR", "file the collection as DIR/<login>/{arrivals.jsonl,deliveries.jsonl,kinds.json,meta.json}"),
-                  ("--section S", "arrivals or deliveries: one page of that section only, from --since; its `next` is the --since of the following page")) + COMMON),
+                  ("--out DIR", "file the collection as DIR/<login>/{arrivals.jsonl,deliveries.jsonl,shown.jsonl,acks.jsonl,kinds.json,meta.json}"),
+                  ("--section S", "arrivals, deliveries, shown or acks: one page of that section only, from --since; its `next` is the --since of the following page")) + COMMON),
     Verb("jobs-add", "Add a job to one agent's list. A job is one agent's, never the fleet's.", 'fabric-ctl db-admin jobs-add --project agent-fabric "port the thing"',
          usage=(('<login> jobs-add [--topic T] [--project P] [--priority P] [--] "<title>"', None),), target="<login>",
          args='[--topic T] [--project P] [--priority P] [--] "<title>"', signed="always",
@@ -1461,6 +1461,9 @@ def _table_carrier_evidence(rs: list) -> list[str]:
         if isinstance(c, dict):       # a whole collection
             cells = [S(c.get(k)) for k in ("arrivals", "deliveries", "kinds")]
             note = nullish(dig(u, "reason"), "")
+            drill = dig(u, "relay_outage")
+            if not note and isinstance(drill, dict) and drill.get("complete") is not True:
+                note = f"relay-outage sections: {S(nullish(drill.get('reason'), 'incomplete'))}"      # the rollback report stands; --relay-drill is refused
         else:                         # one page of one section
             n = len(dig(u, "rows")) if isinstance(dig(u, "rows"), list) else "-"
             cells = [S(n) if dig(u, "section") == "arrivals" else "-", S(n) if dig(u, "section") == "deliveries" else "-", S(len(dig(u, "kinds"))) if isinstance(dig(u, "kinds"), dict) else "-"]

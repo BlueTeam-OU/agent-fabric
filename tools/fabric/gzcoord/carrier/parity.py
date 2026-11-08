@@ -140,9 +140,10 @@ def _account(who: str, meta: dict, arrivals: list, deliveries: list, kinds: dict
         raise CollectedError(f"{who}: the files do not hold what the collection counted (cut short, or edited)")
 
 
-def _read_parts(path: str) -> dict[str, tuple[dict, list, list, dict, list | None, list | None]]:
+def _read_parts(path: str, drill: bool = False) -> dict[str, tuple[dict, list, list, dict, list | None, list | None]]:
     """login -> (meta, arrivals, deliveries, kinds, shown, acks) as filed; shown and acks are None
-    where the collection has none (one made before the relay-outage drill's sections)."""
+    where the collection has none (one made before the relay-outage drill's sections) and always
+    when `drill` is false: the rollback report must not depend on files it does not use."""
     parts: dict[str, tuple[dict, list, list, dict, list | None, list | None]] = {}
     if os.path.isdir(path):
         try:
@@ -166,8 +167,8 @@ def _read_parts(path: str) -> dict[str, tuple[dict, list, list, dict, list | Non
                 raise CollectedError(f"{login}: cannot read its collection ({e}); a directory written by a run that stopped has no meta.json") from e
             if not isinstance(meta, dict) or meta.get("login") != login:
                 raise CollectedError(f"{login}: meta.json is not this account's")
-            drill = [_jsonl(os.path.join(d, n), login) if os.path.exists(os.path.join(d, n)) else None for n in ("shown.jsonl", "acks.jsonl")]
-            parts[login] = (meta, _jsonl(os.path.join(d, "arrivals.jsonl"), login), _jsonl(os.path.join(d, "deliveries.jsonl"), login), kinds, *drill)
+            extra = [_jsonl(os.path.join(d, n), login) if drill and os.path.exists(os.path.join(d, n)) else None for n in ("shown.jsonl", "acks.jsonl")]
+            parts[login] = (meta, _jsonl(os.path.join(d, "arrivals.jsonl"), login), _jsonl(os.path.join(d, "deliveries.jsonl"), login), kinds, *extra)
     else:
         for n, line in enumerate(_jsonl(path, "collected"), 1):
             body = line.get("interweaveEvidence") if isinstance(line, dict) else None
@@ -176,7 +177,7 @@ def _read_parts(path: str) -> dict[str, tuple[dict, list, list, dict, list | Non
                 raise CollectedError(f"line {n}: not a row of `fabric-ctl --json interweave-evidence` with its rows (was it printed with --out?)")
             if login in parts:
                 raise CollectedError(f"{login}: collected twice")
-            parts[login] = (body, body["arrivals"], body["deliveries"], body.get("kinds") or {}, body.get("shown"), body.get("acks"))
+            parts[login] = (body, body["arrivals"], body["deliveries"], body.get("kinds") or {}, body.get("shown") if drill else None, body.get("acks") if drill else None)
     if not parts:
         raise CollectedError("nothing was collected")
     return parts
@@ -211,13 +212,16 @@ def load_relay_outage(path: str, window: tuple[float, float]) -> dict[str, dict]
     same collection. Refuses an account whose drill sections were not collected whole: an empty ledger from
     a daemon that never sent one would read as 'never shown', which is a verdict the files do not support."""
     out: dict[str, dict] = {}
-    for login, (meta, arr, dels, kinds, shown, acks) in _read_parts(path).items():
+    for login, (meta, arr, dels, kinds, shown, acks) in _read_parts(path, drill=True).items():
         _account(login, meta, arr, dels, kinds, window)
         ro = meta.get("relay_outage")
         if shown is None or acks is None or not isinstance(ro, dict):
             raise CollectedError(f"{login}: the collection has no shown ledger or acknowledgement log (made before the relay-outage drill's sections)")
         if ro.get("complete") is not True:
             raise CollectedError(f"{login}: the relay-outage sections are not complete ({ro.get('reason') or 'no reason given'})")
+        if ro.get("skipped"):
+            # A torn or unreadable line may be the very acknowledgement or showing in question: unknown, so no report.
+            raise CollectedError(f"{login}: {ro['skipped']} line(s) of the shown ledger or acknowledgement log could not be read; the drill cannot be judged from the rest")
         want = meta.get("counts")
         if isinstance(want, dict) and (want.get("shown"), want.get("acks")) != (len(shown), len(acks)):
             raise CollectedError(f"{login}: the files do not hold what the collection counted of the shown ledger and acknowledgements (cut short, or edited)")
@@ -266,9 +270,15 @@ def relay_outage(per_account: dict[str, dict], drill: tuple[float, float]) -> di
                           "flagged_reshow": len(flagged), "acked": acked})
     exercised = [p for p in pairs if p["carrier_only"] and p["interweave"]]
     for p in pairs:
-        p["ok"] = p in exercised and p["shown"] == "once" and p["first_via"] == "interweave" and p["acked"] == "yes"
-    return {"window": drill, "pairs": pairs, "exercised": len(exercised),
-            "holds": bool(exercised) and all(p["ok"] for p in exercised)}
+        p["ok"] = None
+        if p not in exercised:
+            continue
+        failed = p["shown"] not in ("once", "unknown") or p["again"] or (p["first_via"] not in (None, "interweave")) or p["acked"] == "no"
+        p["ok"] = False if failed else None if "unknown" in (p["shown"], p["acked"]) else True
+    judged = [p["ok"] for p in exercised]
+    # True: every property held for every pair held by the carrier alone; False: one failed; None: none failed, some cannot be told yet.
+    return {"window": drill, "pairs": pairs, "exercised": len(exercised), "unknown": judged.count(None),
+            "holds": None if not judged else False if False in judged else None if None in judged else True}
 
 
 def compute(arrivals: list[dict], senders: dict[str, list[dict]], kinds: dict[str, str], window: tuple[float, float],
@@ -386,7 +396,8 @@ def render_markdown(rep: dict, title: str = "InterWeave carrier parity report") 
               f"interweave {'yes' if x['interweave'] else 'no'}" for x in d["pairs"]] or ["- no pair was made inside the drill"]
     if "relay_outage" in rep:
         d = rep["relay_outage"]
-        verdict = "no message was held by the carrier alone" if not d["exercised"] else "the three properties hold" if d["holds"] else "A PROPERTY FAILED"
+        verdict = ("no message was held by the carrier alone" if not d["exercised"] else "the three properties hold" if d["holds"] is True
+                   else "A PROPERTY FAILED" if d["holds"] is False else f"UNSETTLED, none failed and {d['unknown']} pair(s) cannot be told yet")
         L += ["", f"## Relay-outage drill ({iso(d['window'][0])} to {iso(d['window'][1])}): {verdict}", "",
               "Per pair made inside the drill: held by the carrier alone (a relay copy before the drill ended means the pair proves nothing), "
               "shown to the session once or not, shown again, the relay copy acknowledged.", ""]
@@ -397,7 +408,7 @@ def render_markdown(rep: dict, title: str = "InterWeave carrier parity report") 
             L.append(f"- {x['mid']} to {x['addressee']} ({x['account']}): {held}; shown {x['shown']}"
                      f"{' by ' + x['first_via'] if x['first_via'] else ''}; shown again: {', '.join(x['again']) or 'no'}; "
                      f"relay copy {'back' if x['relay_back'] else 'not back'}, acknowledged: {x['acked']}"
-                     f"{' -- FAILS' if exercised and not x['ok'] else ''}")
+                     f"{' -- FAILS' if x['ok'] is False else ' -- UNKNOWN' if exercised and x['ok'] is None else ''}")
         if not d["pairs"]:
             L.append("- no pair was made inside the drill")
     return "\n".join(L) + "\n"

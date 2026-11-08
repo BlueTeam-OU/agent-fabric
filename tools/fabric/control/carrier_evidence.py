@@ -158,22 +158,30 @@ def _read_lines(path: str, convert) -> tuple[list[dict], int]:
             r = convert(o) if isinstance(o, dict) else None
             if r is None:
                 skipped += 1
-                continue
-            rows.append(r)
+            elif r is not DROP:
+                rows.append(r)
     return rows, skipped
 
 
-def _shown_row(o: dict) -> dict | None:
+# A line the drill's sections leave out on purpose, which is not an unreadable one (it is not counted as skipped).
+DROP = object()
+
+
+def _shown_row(o: dict):
     r = _row(o, SHOWN_KEYS, SHOWN_KEYS)
     if r is None or _time(r["t"]) is None:
         return None
+    if not parity.UUID7.fullmatch(r["mid"]):
+        return DROP       # a mid built from a hash of the text (a message with no MESSAGE-ID): a text hash does not leave
     return {**r, **{k: True for k in ("pending", "flagged") if o.get(k) is True}}
 
 
-def _ack_row(o: dict) -> dict | None:
+def _ack_row(o: dict):
     r = _row(o, ACK_KEYS, ACK_KEYS)
     if r is None or _time(r["t"]) is None or not isinstance(o.get("ok"), bool):
         return None
+    if not parity.UUID7.fullmatch(r["mid"]):
+        return DROP
     return {**r, "ok": o["ok"]}
 
 

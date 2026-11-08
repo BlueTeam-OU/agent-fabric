@@ -381,15 +381,18 @@ def ack_log():
     return arrivals.AckLog(os.path.join(ep.state_dir(), "gzcoord-acks.jsonl"), iso_now=ep.now)
 
 
-def remember_relay_ids(into: dict, page: Any) -> None:
-    """relay record id -> MESSAGE-ID (as the arrival log names it) for a fetched page: /api/ack
-    knows only the first, and the relay-outage drill's evidence is by the second."""
+def remember_relay_ids(into: dict, page: Any, me: dict) -> None:
+    """relay record id -> MESSAGE-ID for the records of a fetched page addressed here: /api/ack knows
+    only the first, and the relay-outage drill's evidence is by the second. Others' traffic the watch
+    passes through acknowledged is no evidence of ours, and a message with no MESSAGE-ID has no id
+    worth keeping (the arrival log's hash of its text is not sent anywhere)."""
     for r in (page.get("messages") if isinstance(page, dict) else None) or []:
         try:
-            into[r["id"]] = gzmsg.parse(r["content"])["metadata"].get("MESSAGE-ID") or \
-                "sha256:" + hashlib.sha256(r["content"].encode("utf-8", "surrogatepass")).hexdigest()
+            msg = gzmsg.parse(r["content"])
+            if for_me(msg, me) and msg["metadata"].get("MESSAGE-ID"):
+                into[r["id"]] = msg["metadata"]["MESSAGE-ID"]
         except (gzmsg.NotGzcoord, AttributeError, TypeError, KeyError):
-            continue      # not GZCOORD/1: never an arrival, so no evidence is kept for its acknowledgement
+            continue      # not GZCOORD/1: never an arrival
 
 
 def record_ack(log: Any, mid: Any, address: str, ok: bool) -> None:
@@ -556,14 +559,14 @@ def main(argv: list[str]) -> int:
         except Exception:
             record_ack(acks, mid_of_relay_id.get(message_id), me["address"], False)
             raise
-        record_ack(acks, mid_of_relay_id.get(message_id), me["address"], True)
+        record_ack(acks, mid_of_relay_id.pop(message_id, None), me["address"], True)
         return r
 
     def fetch_page(slice_: float, abort: threading.Event) -> Any:
         q = urllib.parse.urlencode({"channel": channel, "consumer_id": me["address"],
                                     "timeout_seconds": js.string(slice_), "limit": "50"})
         page = api(state["tok"], f"/api/wait?{q}", relay_url, timeout=slice_ + API_TIMEOUT)
-        remember_relay_ids(mid_of_relay_id, page)
+        remember_relay_ids(mid_of_relay_id, page, me)
         return page
 
     def held() -> bool:

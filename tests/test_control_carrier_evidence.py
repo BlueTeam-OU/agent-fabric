@@ -738,6 +738,14 @@ class RelayOutageAccount(Account):
         self.assertEqual([x["ok"] for x in r["rows"]], [True, False])
         self.assertEqual(r["skipped"], 2, "the row with a non-boolean ok and the torn line are counted, not sent")
 
+    def test_a_mid_built_from_a_hash_of_the_text_does_not_leave_and_is_not_an_unreadable_line(self):
+        self.files([{"mid": "sha256:" + "ab" * 32, "via": "relay", "t": iso(10)}, {"mid": mid(1), "via": "relay", "t": iso(11)}],
+                   [{"mid": "sha256:" + "ab" * 32, "addressee": "h/a", "t": iso(12), "ok": True}])
+        for section, n in (("shown", 1), ("acks", 0)):
+            r = ev.carrier_evidence(request(section, 0, 100), state=self.state)
+            self.assertEqual((len(r["rows"]), r["skipped"]), (n, 0), section)
+            self.assertNotIn("sha256:", json.dumps(r))
+
     def test_the_drill_sections_are_windowed_and_a_missing_file_is_an_empty_page(self):
         r = ev.carrier_evidence(request("shown", 0, 100), state=self.state)
         self.assertEqual((r["status"], r["rows"]), ("ok", []))
@@ -760,11 +768,23 @@ class RelayOutageCollect(Collect):
         m = mid(1, 1)
         self.drill_account("a", [{"mid": m, "via": "interweave", "t": iso(5)}], [{"mid": m, "addressee": "h/a", "t": iso(9), "ok": True}])
         got = ec.collect(["a"], iso(0), iso(100), self.sender())
-        self.assertEqual((len(got["a"]["shown"]), len(got["a"]["acks"]), got["a"]["relay_outage"]), (1, 1, {"complete": True, "reason": None}))
+        self.assertEqual((len(got["a"]["shown"]), len(got["a"]["acks"]), got["a"]["relay_outage"]), (1, 1, {"complete": True, "reason": None, "skipped": 0}))
         d = ec.write_dir(os.path.join(self.root, "out"), "a", got["a"], iso(0), iso(100))
         with open(os.path.join(d, "meta.json")) as fh:
             meta = json.load(fh)
         self.assertEqual((meta["counts"]["shown"], meta["counts"]["acks"], meta["relay_outage"]["complete"]), (1, 1, True))
+
+    def test_unreadable_drill_lines_are_carried_to_meta_and_a_drill_report_refuses_them(self):
+        self.drill_account("a", [{"mid": mid(1, 1), "via": "interweave", "t": iso(5)}], [])
+        with open(os.path.join(self.states["a"], "gzcoord-acks.jsonl"), "w") as fh:
+            fh.write('{"mid": ')      # the watch died while writing the ack the relay had accepted
+        got = ec.collect(["a"], iso(0), iso(100), self.sender())
+        self.assertEqual((got["a"]["complete"], got["a"]["relay_outage"]["complete"], got["a"]["relay_outage"]["skipped"]), (True, True, 1))
+
+    def test_a_table_row_says_when_the_drill_sections_are_missing_and_the_rollback_report_stands(self):
+        row = {"account": "a", "host": "h", "status": "ok", "interweaveEvidence": {
+            "complete": True, "reason": None, "counts": {"arrivals": 1}, "journal": "ok", "relay_outage": {"complete": False, "reason": "shown: section is one of arrivals, deliveries"}}}
+        self.assertIn("relay-outage sections: shown: section is one of", "\n".join(ctl._table_carrier_evidence([row])))
 
     def test_an_account_that_cannot_send_the_drill_sections_stays_complete_for_the_report_it_had(self):
         self.account("a", [arrival(mid(1, 1), "h/a", "relay", 1)])
@@ -839,7 +859,7 @@ class RelayOutage(unittest.TestCase):
         self.assertIn("A PROPERTY FAILED", self.report(r)[1])
         r["shown"] = self.good()["shown"][:1]
         p = self.drill_of(r)["pairs"][0]
-        self.assertEqual((p["shown"], p["ok"]), ("unknown", False), "pending alone: whether it reached the session is not known")
+        self.assertEqual((p["shown"], p["ok"]), ("unknown", None), "pending alone: whether it reached the session is not known")
 
     def test_shown_again_after_a_restart_or_on_the_relays_return_fails_and_says_which(self):
         for via, words in (("interweave", "after a restart"), ("relay", "on the relay's return")):
@@ -874,13 +894,19 @@ class RelayOutage(unittest.TestCase):
         r["arrivals"] = r["arrivals"][:1]
         r["acks"] = []
         p = self.drill_of(r)["pairs"][0]
-        self.assertEqual((p["acked"], p["relay_back"], p["ok"]), ("unknown", False, False))
+        self.assertEqual((p["acked"], p["relay_back"], p["ok"]), ("unknown", False, None))
+        out = self.report(r)[1]
+        self.assertIn("UNSETTLED, none failed and 1 pair(s) cannot be told yet", out, "unknown is not a failure")
+        self.assertIn("acknowledged: unknown -- UNKNOWN", out)
+        self.assertNotIn("A PROPERTY FAILED", out)
+        r["shown"] = []
+        self.assertIn("A PROPERTY FAILED", self.report(r)[1], "positive control: a definite failure beside the unknown still fails")
 
     def test_a_message_the_relay_delivered_during_the_outage_proves_nothing(self):
         r = self.good()
         r["arrivals"] = [arrival(self.M, self.ME, "relay", 150), arrival(self.M, self.ME, "interweave", 151)]
         d = self.drill_of(r)
-        self.assertEqual((d["exercised"], d["holds"]), (0, False), "no pair was held by the carrier alone: the drill is not shown")
+        self.assertEqual((d["exercised"], d["holds"]), (0, None), "no pair was held by the carrier alone: the drill is not shown")
         out = self.report(r)[1]
         self.assertIn("no message was held by the carrier alone", out)
         self.assertIn("NOT exercised (the relay delivered it during the outage)", out)
@@ -901,6 +927,19 @@ class RelayOutage(unittest.TestCase):
         self.assertEqual(rc, 2)
         self.assertIn("the relay-outage sections are not complete (shown: no answer)", err)
 
+    def test_unreadable_lines_of_the_drill_files_refuse_a_drill_report_and_not_the_rollback_one(self):
+        r = self.good()
+        r["relay_outage"] = {"complete": True, "reason": None, "skipped": 1}
+        rc, _, err = self.report(r)
+        self.assertEqual(rc, 2)
+        self.assertIn("1 line(s) of the shown ledger or acknowledgement log could not be read", err)
+        out = self.collect(self.good())
+        with open(os.path.join(out, "beta", "shown.jsonl"), "w") as fh:
+            fh.write("not json\n")
+        rc, text, err = self.report_path(out, drill=False)
+        self.assertEqual((rc, err), (0, ""), "the rollback report does not read the drill files")
+        self.assertNotIn("Relay-outage", text)
+
     def test_shown_and_acknowledgements_cut_short_are_refused_by_their_counts(self):
         out = self.collect(self.good())
         open(os.path.join(out, "beta", "acks.jsonl"), "w").close()
@@ -915,10 +954,11 @@ class RelayOutage(unittest.TestCase):
         self.assertEqual(rc, 1)
         self.assertIn("only --collected holds", err.getvalue())
 
-    def report_path(self, path: str) -> tuple[int, str, str]:
+    def report_path(self, path: str, drill: bool = True) -> tuple[int, str, str]:
         out, err = io.StringIO(), io.StringIO()
+        extra = ["--relay-drill", iso(100), iso(200)] if drill else []
         with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
-            rc = carrier_main.main(["parity", "--window", iso(0), iso(1000), "--collected", path, "--host", "h", "--relay-drill", iso(100), iso(200)])
+            rc = carrier_main.main(["parity", "--window", iso(0), iso(1000), "--collected", path, "--host", "h", *extra])
         return rc, out.getvalue(), err.getvalue()
 
 
