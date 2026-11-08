@@ -13,6 +13,7 @@ import urllib.request
 from typing import Any
 
 import httpsafe
+import process
 from .. import i18n
 from ..gzmsg import en
 from .config import default_relay
@@ -102,9 +103,9 @@ def ensure_relay(runtime_dir: str, relay_url: str | None = None, t: i18n.Printer
                 time.sleep(0.5)
             return {"hosted": True, "started": False, "note": t("start.relay-unit-silent", {"unit": unit, "log": log})}
     with open(log, "a") as out:
-        child = subprocess.Popen([binary, "--host", "127.0.0.1", "--port", "8765", "--db", db,
-                                  "--auth-token-file", token_file],
-                                 stdin=subprocess.DEVNULL, stdout=out, stderr=out, start_new_session=True)
+        child = process.spawn_service([binary, "--host", "127.0.0.1", "--port", "8765", "--db", db,
+                                       "--auth-token-file", token_file],
+                                      stdin=subprocess.DEVNULL, stdout=out, stderr=out)
     for _ in range(16):
         if _relay_up(relay_url, 1):
             return {"hosted": True, "started": True, "pid": child.pid}

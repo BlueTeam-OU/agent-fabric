@@ -28,6 +28,7 @@ def _load(name: str, path: str):
 # directory on sys.path would answer for its imports.
 git = _load("fabric_git", os.path.join(HERE, "git.py"))
 roots = _load("fabric_roots", os.path.join(HERE, "roots.py"))
+process = _load("fabric_process", os.path.join(HERE, "process.py"))
 identity = _load("fabric_identity", os.path.join(CODE_ROOT, "runtime", "identity.py"))
 
 
