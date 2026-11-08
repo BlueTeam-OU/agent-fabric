@@ -112,8 +112,9 @@ lets lint check that the claim is true.
 5. The catalogue and every exceptions file are fabric-coordinator's
    (`policies/`, ADR-018). A contributor that builds a checker
    supplies its exceptions file on a `for/` branch, and
-   fabric-coordinator wires the checker into lint, the hook and CI and
-   marks the entry `enforced`.
+   fabric-coordinator wires the checker into lint (and so CI), the
+   pre-commit hook and a `tests/` case, as rule 2 asks, and marks the
+   entry `enforced`.
 
 ## 6. Consequences
 
