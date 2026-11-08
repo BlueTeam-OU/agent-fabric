@@ -93,11 +93,6 @@ def inbox_root(who: dict) -> str:
         return top
     if who.get("working_copy"):
         return who["working_copy"]
-    try:
-        with open(who.get("binding") or "", encoding="utf-8") as fh:
-            b = json.load(fh)
-        if b.get("working_copy") and os.path.exists(b["working_copy"]):
-            return b["working_copy"]
-    except (OSError, ValueError, AttributeError):
-        pass
+    if who.get("bound_working_copy") and os.path.exists(who["bound_working_copy"]):
+        return who["bound_working_copy"]
     return os.getcwd()

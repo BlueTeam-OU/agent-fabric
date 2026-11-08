@@ -260,6 +260,8 @@ class Whoami(_WhoamiKeys, total=False):
     cwd: str
     fabric_root: str
     state_dir: str
+    bound_project: str | None   # what the binding records, not what cwd resolves to (identity.BindingRecord)
+    bound_working_copy: str | None
     fallback: bool
 
 
@@ -338,11 +340,13 @@ def _identity_module(root: str):
 def whoami() -> Whoami:
     try:
         ident = _identity_module(paths.fabric_root())
-        me = ident.resolve_context()
-        if not isinstance(me, dict) or not isinstance(me.get("agent"), str):
+        ctx = ident.resolve_context()
+        if not isinstance(ctx, ident.AgentContext) or not isinstance(ctx.identity.agent, str):
             raise TypeError("no agent")
-        me = json.loads(json.dumps(me))
-        me["binding"] = ident.binding_path(me["agent"])
+        me = json.loads(json.dumps(ctx.as_dict()))
+        me["binding"] = ctx.binding.file
+        me["bound_project"] = ctx.binding.project
+        me["bound_working_copy"] = ctx.binding.working_copy
         return me
     except (Exception, SystemExit):  # noqa: BLE001 — any failure is the Node's non-zero exit: the fallback
         pass
@@ -359,6 +363,7 @@ def whoami() -> Whoami:
         binding = {}
     return {"agent": agent, "host": socket.gethostname().split(".")[0], "role": binding.get("role"),
             "project": binding.get("project"), "working_copy": binding.get("working_copy"),
+            "bound_project": binding.get("project"), "bound_working_copy": binding.get("working_copy"),
             "binding": file, "fallback": True}
 
 
