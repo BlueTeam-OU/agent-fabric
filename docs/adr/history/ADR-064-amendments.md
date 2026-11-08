@@ -198,3 +198,28 @@ reservation and from a range typed by hand. A setting the carrier cannot
 start without is provisioning's, like the accounts' own boot script
 (ADR-010). The measurement, with its controls and what it leaves for the
 next reboot, is `docs/live-checks/2026-11-01-reserved-ports-persist.md`.
+
+### Amendment 2026-11-08 — The parity soak includes a relay-outage drill
+
+What changed: rule 11's soak adds a relay-outage drill beside the
+rollback drill: the relay refuses every fetch for part of the window,
+and the report shows that a message only the InterWeave carrier holds
+reaches its addressee's session, is not shown again when the inbox watch
+restarts, and is not shown again when the relay comes back with its own
+copy, which is then acknowledged. The relay stays the transport of
+record; the drill is evidence the owner's word on a switch is given on,
+not a switch.
+
+Why: an external review of the transport (agent-fabric j598) found that
+the inbox watch read the carrier only after a relay fetch succeeded
+(`tools/fabric/gzcoord/inbox_parts/watch.py`), so in a relay outage the
+second carrier delivered nothing to the session, and the rollback drill,
+which switches off the other carrier, could not have shown it.
+python-dev's BlueTeam-OU/agent-fabric#499 (j115, merged 2026-11-07)
+fixed the watch and proves the three properties against a relay that
+answers 500 to every fetch (`tests/test_gzcoord_carrier_inbox.py`, cases
+(a)–(c), each failing before the fix). That is a test double of the
+relay; a claim that the carrier covers a relay outage rests on the live
+drill. Known limit, from #499: a relay that hangs rather than refuses
+delays a carrier-only message by up to one relay wait slice (about a
+minute).
