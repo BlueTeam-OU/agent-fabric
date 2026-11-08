@@ -508,7 +508,9 @@ def main() -> int:
     errors.read_needed = lambda repo, agg: NEEDED
     sinces = []
     errors.results.main_commits = lambda repo, since: sinces.append(since) or []
-    errors.results.merged_prs = lambda repo, since, extra=(): [pr(merged="2026-10-25T00:00:00Z")]
+    # Merged days ago, never on a fixed date: a fixed one outlived its window on 2026-11-08 and turned every PR red.
+    recent = (dt.datetime.now(dt.timezone.utc) - dt.timedelta(days=5)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    errors.results.merged_prs = lambda repo, since, extra=(): [pr(merged=recent)]
     errors.gh.api = lambda path, **k: ([{"id": 5, "path": errors.WORKFLOW}] if "/actions/runs" in path else
                                        [{**cr("static", "failure"), "details_url": "https://github.com/o/r/actions/runs/5/job/1"}])
     try:
