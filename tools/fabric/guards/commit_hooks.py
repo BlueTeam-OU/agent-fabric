@@ -68,6 +68,7 @@ import roots  # noqa: E402  the hook's own checkout is the root it is given; roo
 import secret_values  # noqa: E402  the account's own secret values, searched in what a commit records (ADR-012 §5 rule 9)
 import state_writes  # noqa: E402  ADR-003 rule 1's predicate, as lint asks it (tools/fabric/state_writes.py)
 import context_reads  # noqa: E402  who reads an agent's binding, as lint asks it (tools/fabric/context_reads.py, ADR-067)
+import evidence_caps  # noqa: E402  GitHub's list caps have one owner, as lint asks it (tools/fabric/evidence_caps.py, ADR-067)
 
 ITSELF = "agent-fabric itself"
 AGENT_FABRIC_DIR = ".agent-fabric/"
@@ -469,6 +470,61 @@ def _check_context_reads(root: str) -> None:
                      f"{context_reads.POLICY} (agent-fabric ADR-067 rule 1).")
 
 
+EVIDENCE_POLICY = "policies/evidence-caps.json"   # lint_rules/evidence.py's POLICY; the hook does not import lint
+
+
+def _evidence_modules(text: str) -> dict[str, str]:
+    doc = json.loads(text)
+    modules = doc.get("modules") if isinstance(doc, dict) else None
+    return {k: v for k, v in modules.items() if isinstance(k, str) and isinstance(v, str) and v.strip()} \
+        if isinstance(modules, dict) else {}
+
+
+def _check_evidence_caps(root: str) -> None:
+    """In agent-fabric itself, whoever commits: a staged module under tools/fabric/ that holds a GitHub list cap or reads
+    a pull request's files or commits outside github/evidence.py is refused unless the staged policy names it
+    (ADR-067 rule 1, tools/fabric/evidence_caps.py); a module whose entry this commit removes, or a deleted policy's, is
+    judged too. Lint judges the whole tree in CI; this stops the copy before it is recorded."""
+    if not same_repository(root):
+        return
+    r = _git("diff", "--cached", "-z", "--no-renames", "--name-only", "--diff-filter=ACMRT")
+    if r.returncode != 0:
+        raise Refuse("pre-commit: cannot list the staged files to judge GitHub's list caps — not committed")
+    staged = [p for p in r.stdout.split("\0") if p]
+    judged = [p for p in staged if evidence_caps.judged_path(p)]
+    deleted = _staged_deletion(EVIDENCE_POLICY)
+    if not judged and EVIDENCE_POLICY not in staged and not deleted:
+        return
+    policy = _git("cat-file", "blob", f":{EVIDENCE_POLICY}")
+    try:
+        admitted = _evidence_modules(policy.stdout) if policy.returncode == 0 else {}
+    except ValueError:
+        raise Refuse(f"pre-commit: the staged {EVIDENCE_POLICY} is not JSON — not committed") from None
+    if EVIDENCE_POLICY in staged or deleted:
+        before = _git("cat-file", "blob", f"HEAD:{EVIDENCE_POLICY}")
+        try:
+            was = _evidence_modules(before.stdout) if before.returncode == 0 else {}
+        except ValueError:
+            was = {}   # HEAD's list unreadable admitted nothing then either
+        listed = _git("ls-files", "-z")
+        if listed.returncode != 0:
+            raise Refuse("pre-commit: cannot read the index to judge the modules whose evidence-caps entries this commit "
+                         "removes — not committed")
+        tracked = set(listed.stdout.split("\0"))
+        judged += [m for m in sorted(set(was) - set(admitted)) if m in tracked and m not in judged
+                   and evidence_caps.judged_path(m)]
+    lines: list[str] = []
+    for path, data in _staged_blobs([p for p in judged if p not in admitted], "for GitHub's list caps").items():
+        try:
+            lines += evidence_caps.scan(path, data.decode("utf-8"))
+        except UnicodeDecodeError:
+            lines.append(f"{path}: not UTF-8; GitHub's list caps are not judged")
+    if lines:
+        raise Refuse("\n".join(lines) + "\npre-commit: a module holds a GitHub list cap or reads a pull request's files or "
+                     "commits outside tools/fabric/github/evidence.py — not committed. Read through evidence.PrEvidence, "
+                     f"or name the module and why in {EVIDENCE_POLICY} (agent-fabric ADR-067 rule 1).")
+
+
 def _check_review_card() -> None:
     """A commit that stages the project review card over its cap is refused, whoever commits (j475: a project's card reached 2396
     bytes over two commits, and every review of the project failed at render until it was cut). Only a commit that changes the card
@@ -509,6 +565,7 @@ def pre_commit(root: str) -> int:
     _check_review_card()
     _check_state_writes(root)
     _check_context_reads(root)
+    _check_evidence_caps(root)
     what, staged = guarded_change(root)
     if not staged:
         return 0

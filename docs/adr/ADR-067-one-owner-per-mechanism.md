@@ -141,11 +141,13 @@ lets lint check that the claim is true.
 ## 8. Decision Status
 
 Proposed. Rules 2 and 3 are built with this record (the catalogue,
-its lint rule and `tests/test_mechanisms.py`). Per-agent state and
-agent context are `enforced`, the second by python-dev-01's j212
-(`tools/fabric/context_reads.py`, `policies/context-reads.json`);
-process lifetime and remote evidence are `pending` on python-dev-02's
-and python-dev-03's Wave 1 jobs; the job lifecycle and transport are
+its lint rule and `tests/test_mechanisms.py`). Per-agent state, agent
+context and remote evidence are `enforced`: the second by
+python-dev-01's j212 (`tools/fabric/context_reads.py`,
+`policies/context-reads.json`), the third by python-dev-03's j119
+(`tools/fabric/github/evidence.py`, `tools/fabric/evidence_caps.py`,
+`policies/evidence-caps.json`). Process lifetime is `pending` on
+python-dev-02's Wave 1 job; the job lifecycle and transport are
 `planned`.
 
 ## References
