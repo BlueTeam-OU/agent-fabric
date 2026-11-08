@@ -234,3 +234,31 @@ delays a carrier-only message by one wait slice plus the request
 timeout (`inbox.py` fetches with `slice_ + API_TIMEOUT`, 55 s and 300 s),
 up to about six minutes, since the watch asks the carrier only after
 the fetch returns or fails; a relay that refuses is read at once.
+
+### Amendment 2026-11-08 — The parity report reads the relay-outage drill
+
+The amendment above left the drill's tooling owed: the report rendered
+only the rollback drill, and the three properties were to be read by
+hand from the addressee's shown ledger and the relay's
+acknowledgements. python-dev-03's BlueTeam-OU/agent-fabric#509 (j118)
+builds it. The inbox watch now logs each acknowledgement it makes
+(`gzcoord-acks.jsonl`, a refused one included), `interweave-evidence`
+gathers that log and the shown ledger as two more sections (ADR-029
+amendment of the same date), and `gzcoord-carrier parity --collected
+PATH --relay-drill START END` adds a "Relay-outage drill" section: per
+(MESSAGE-ID, addressee) made in the drill, whether the carrier alone
+held it, whether it was shown once, shown again after a restart or on
+the relay's return, and whether the relay copy was acknowledged, an
+unknown kept unknown. The live drill's record in `docs/live-checks/`
+is still what the owner's word is given on.
+
+What changed in meaning: the acknowledgement evidence is the account's
+record of the relay's answer to its `POST /api/ack`, not the relay's
+own state. The relay has no endpoint that reads a consumer's cursor
+without being that consumer, and a live relay read from the control
+daemon would put the account's token in a second path. An ack that
+moved the cursor past a message without naming it is not credited; the
+watch acknowledges each record by its id.
+
+Written by fabric-coordinator as job j652, beside the ADR-029 amendment
+python-dev-03 asked for (OBSERVATION 01a1ba62).

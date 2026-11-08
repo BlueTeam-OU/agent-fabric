@@ -667,9 +667,9 @@ its record disagree, the record wins. Look it up, never read it whole:
 
 ### ADR-029 — The control plane: a control agent per account answers signed actions over the relay (Accepted)
 
-- Each agentd answers `fabric:control`; down, requests are lost
+- Agentds answer `fabric:control`; down, requests lost
   (r1–2).
-- Closed op set, no field reaches shells; actions carry fresh
+- Closed ops, no field reaches shells; actions carry fresh
   Ed25519 operator signatures (r3–5).
 - Replies: no secret; silence, failure exit 1 (r6–9).
 - A 2026-09-27 — actions (r12).
@@ -685,10 +685,10 @@ its record disagree, the record wins. Look it up, never read it whole:
 - A 2026-10-09 — forged claims (r4).
 - A 2026-10-09 — Scope.
 - A 2026-10-09 — `tools-install` (r3/r12).
-- A 2026-10-09 — closed jobs (§2).
-- A 2026-10-10 — gateway ops (§2).
+- A 2026-10-09 — closed jobs.
+- A 2026-10-10 — gateway ops.
 - A 2026-10-12 — switch controller.
-- A 2026-10-18 — installer pins (§2).
+- A 2026-10-18 — installer pins.
 - A 2026-10-19 — rustup-target (§2).
 - A 2026-10-25 — install/read.
 - A 2026-10-25 — start/stop.
@@ -702,6 +702,7 @@ its record disagree, the record wins. Look it up, never read it whole:
 - A 2026-10-30 — budgets (r12).
 - A 2026-10-30 — hold (r13).
 - A 2026-10-31 — roles.
+- A 2026-11-08 — drill sections.
 - Keywords: fabric-ctl, keys, operator_key, usage, tokens, herdr,
   resume, interweave-evidence, interweave-human, fabric-control,
   control_carrier, break-glass.
@@ -1431,16 +1432,16 @@ its record disagree, the record wins. Look it up, never read it whole:
 
 ### ADR-064 — GZCoord carried over InterWeave: one host, beside the relay (Accepted)
 
-- One host, loopback only, first; a second host next, by
+- One host, loopback only, first; second host next, by
   amendment; control on a `fabric-control` endpoint
   via `interweave-human` (rules 1, 12).
-- Dual run: both carriers, relay of record (ADR-033 rule 7
+- Dual run: both carriers, relay of record (ADR-033 r7
   unchanged); journal collapses by MESSAGE-ID; switching: ADR-033
   amendment on owner's word, parity report (rule 11).
 - Carrier: fabric's own client, not `interweave-human`/
   `claude-channel` (rule 5).
 - A roster keyed by agent id, each row signed by its login,
-  countersigned by the coordinator, renders each profile's
+  countersigned by coordinator, renders each profile's
   deny-by-default allowlist; keys minted in own account; a
   tagged release pinned in release.json, signed (rules 2-4).
 - One direct send per recipient, no GossipSub; receipt awaited,
@@ -1448,15 +1449,16 @@ its record disagree, the record wins. Look it up, never read it whole:
   compress, then chunk, past 48 KiB; FROM checked against PeerId;
   no transport-native value as metadata (rules 6-10).
 - A 2026-10-24 — zlib; receipts; CARRIER-CONTRACT.md (rules 7/8).
-- A 2026-10-25 — install: checked control action (rule 14).
-- A 2026-10-26 — roster ports reserved (rule 1).
+- A 2026-10-25 — install: control action (rule 14).
+- A 2026-10-26 — ports reserved (rule 1).
 - A 2026-10-26 — evidence (rule 11).
-- A 2026-10-27 — one host a milestone (rule 1).
+- A 2026-10-27 — one-host milestone (rule 1).
 - A 2026-10-28 — pin v0.2.0 (§8).
-- A 2026-10-28 — control via `interweave-human` (§3, rules 12/14).
+- A 2026-10-28 — control via `interweave-human` (§3/r12/r14).
 - A 2026-10-31 — minisign signature (rule 4).
 - A 2026-11-01 — kept by `fabric-host persist` (rule 1).
 - A 2026-11-08 — relay-outage drill, live-checks (rule 11).
+- A 2026-11-08 — drill parity (rule 11).
 - Parity from arrival logs: missed, duplicate, offline counts,
   rollback drill (rule 11).
 - Keywords: InterWeave, carrier, relay, P5.

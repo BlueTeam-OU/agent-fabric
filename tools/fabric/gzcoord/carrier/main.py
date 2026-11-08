@@ -15,7 +15,8 @@ CONTRACT
                                recorded with this login as who
           parity --window START END (--arrivals FILE... --senders DIR...
                  [--journal DB...] | --collected PATH)
-                 [--drill START END] [--host HOST]
+                 [--drill START END] [--relay-drill START END]
+                 [--host HOST]
                                  the ADR-064 rule 11 parity report as Markdown
                                  on stdout, computed from the files the
                                  accounts keep (parity.py); START/END are
@@ -82,7 +83,7 @@ from gzcoord.carrier import CARRIER_NAME, admit, arrivals, engine, ipc, record, 
 ADMIT_LOCK_WAIT = 30.0
 USAGE = ("usage: gzcoord-carrier run [--profile P] | status | abandon <message-id> <recipient-login> | "
          "render-config [--write PATH] | roster-row | roster-admit ROW.json --port N | parity --window START END (--arrivals FILE... --senders DIR... "
-         "[--journal DB...] | --collected PATH) [--drill START END] [--host HOST]")
+         "[--journal DB...] | --collected PATH) [--drill START END] [--relay-drill START END] [--host HOST]")
 
 
 def say(msg: str) -> None:
@@ -322,11 +323,15 @@ def cmd_parity(args: list[str]) -> int:
     p.add_argument("--journal", nargs="+", default=[])
     p.add_argument("--collected")
     p.add_argument("--drill", nargs=2)
+    p.add_argument("--relay-drill", nargs=2)
     p.add_argument("--host", default="")
     try:
         a = p.parse_args(args)
         window = (parity.parse_t(a.window[0]), parity.parse_t(a.window[1]))
         drill = (parity.parse_t(a.drill[0]), parity.parse_t(a.drill[1])) if a.drill else None
+        relay_drill = (parity.parse_t(a.relay_drill[0]), parity.parse_t(a.relay_drill[1])) if a.relay_drill else None
+        if relay_drill and a.collected is None:
+            raise ValueError("--relay-drill reads the shown ledgers and acknowledgement logs, which only --collected holds")
         if a.collected is None and not (a.arrivals and a.senders):
             raise ValueError("--collected PATH, or --arrivals and --senders")
         if a.collected is not None and (a.arrivals or a.senders or a.journal):
@@ -340,6 +345,8 @@ def cmd_parity(args: list[str]) -> int:
         try:
             lines, senders, kinds, journals = parity.load_collected(a.collected, window)
             rep = parity.compute(lines, senders, kinds, window, drill, host=a.host)
+            if relay_drill:
+                rep["relay_outage"] = parity.relay_outage(parity.load_relay_outage(a.collected, window), relay_drill)
         except parity.CollectedError as e:
             return _refuse(f"cannot compute the report: {e}")
         rep["accounts"] = journals

@@ -341,3 +341,26 @@ account with no bound role is skipped the same way. A declaration
 without `roles` is for every role, as in the check.
 
 Found in the review of agent-fabric #421 (§2); fixed by fabric-coordinator as job j463.
+
+### Amendment 2026-11-08 — The parity evidence carries the relay-outage drill's shown and acks
+
+ADR-064 rule 11's relay-outage drill (amended 2026-11-08 by #508) is
+judged from what the arrival logs cannot show: whether the addressee's
+session was shown a message once, and whether the relay's copy was
+acknowledged. python-dev-03's #509 (j118) gives `interweave-evidence`
+two more sections. `shown` is the lines of the account's
+`gzcoord-shown.jsonl` (MESSAGE-ID, the carrier whose copy was shown,
+time, pending and flagged when set) without `h`, the ledger's hash of
+the text. `acks` is the lines of the new `gzcoord-acks.jsonl` that the
+inbox watch writes, one per acknowledgement it made: MESSAGE-ID,
+addressee, time, and whether the relay answered, a refused one
+included. A line whose MESSAGE-ID is not a UUIDv7 leaves neither: its
+id is built from a hash of the text. Paging, the 64 KiB page and the
+60 s budget are unchanged. A failure of the two ends only them, so an
+account whose daemon predates them still yields the rollback report;
+`gzcoord-carrier parity --relay-drill` refuses that account's drill
+instead. The §2 row says so, and rule 6 adds that no hash of a text
+leaves either.
+
+Reported by python-dev-03 (OBSERVATION 01a1ba62), as F3 of the blind
+review of #509; written by fabric-coordinator as job j652.

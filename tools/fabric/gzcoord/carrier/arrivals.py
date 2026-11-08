@@ -66,7 +66,9 @@ class ArrivalLog:
         self._lock = threading.Lock()
 
     def append(self, mid: str, addressee: str, carrier: str, verdict: str) -> None:
-        line = {"mid": mid, "addressee": addressee, "carrier": carrier, "t": self._iso(), "verdict": verdict}
+        self._append({"mid": mid, "addressee": addressee, "carrier": carrier, "t": self._iso(), "verdict": verdict})
+
+    def _append(self, line: dict) -> None:
         with self._lock:
             os.makedirs(os.path.dirname(self.path), mode=0o700, exist_ok=True)
             fd = os.open(self.path, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
@@ -76,6 +78,17 @@ class ArrivalLog:
                 jsonl.append(fd, line)
             finally:
                 os.close(fd)
+
+
+class AckLog(ArrivalLog):
+    """gzcoord-acks.jsonl: one line per POST /api/ack the relay's inbox path made for a record addressed
+    here, {"mid","addressee","t","ok"}; `ok` is whether the relay answered it. The relay keeps no cursor
+    anyone can read without being the consumer, so this is the acknowledgement's evidence for the
+    relay-outage drill (ADR-064 rule 11): the cursor move the relay accepted, as its answer was seen here.
+    A failed call is a line too (ok false): "not acknowledged" is then a fact, not an absence."""
+
+    def append_ack(self, mid: str, addressee: str, ok: bool) -> None:
+        self._append({"mid": mid, "addressee": addressee, "t": self._iso(), "ok": ok})
 
 
 class Spool:

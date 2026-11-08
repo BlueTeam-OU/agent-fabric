@@ -248,9 +248,13 @@ address, where the relay's `sender` is a claim (ADR-033 §6).
     its addressee's session, is not shown again when the watch restarts
     or when the relay returns with its own copy, and the relay copy is
     acknowledged), and one `TO-ROLE` recipient among its logins. The
-    arrival logs cannot show the relay-outage drill: its evidence is a
-    record in `docs/live-checks/` read from the addressee's shown ledger
-    and the relay's acknowledgements.
+    arrival logs cannot show the relay-outage drill: `interweave-evidence`
+    also gathers each account's shown ledger and the acknowledgements its
+    watch made (ADR-029 §2), `gzcoord-carrier parity --relay-drill`
+    judges the three properties from them, and the drill's evidence is a
+    record in `docs/live-checks/` beside the report (A 2026-11-08). An
+    acknowledgement there is the account's record of the relay's answer,
+    not the relay's own cursor.
 12. This carrier carries GZCoord application messages only. The control
     plane rides the same profile on its own `fabric-control` endpoint,
     through `interweave-human` under the account's agentd (ADR-029 rule
@@ -360,3 +364,4 @@ The body above reads current; each change's full note is in [history/ADR-064-ame
 | 2026-10-31 | The archive is checked against the owner's minisign signature as well as its digest | §5 rule 4 |
 | 2026-11-01 | Provisioning makes the reserved ports and keeps them across a reboot | §5 rule 1 |
 | 2026-11-08 | The parity soak includes a relay-outage drill | §5 rule 11 |
+| 2026-11-08 | The parity report reads the relay-outage drill | §5 rule 11 (#509) |
