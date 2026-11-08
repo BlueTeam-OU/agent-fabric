@@ -71,10 +71,10 @@ class Caps(unittest.TestCase):
         outside = "tools/fabric/results.py"
         self.assertEqual(len(ec.scan(outside, "import gh\n" + src)), 2)   # outside github/, a GitHub reader is judged too
         self.assertEqual(len(ec.scan(outside, "from github import x\n" + src)), 2)
-        self.assertEqual(len(ec.scan(outside, src)), 1)
+        self.assertEqual(len(ec.scan(outside, src)), 1)   # a 250 in a module that reads no GitHub is not a cap
         # A path put in a variable is read in a module that imports neither gh nor github, as a literal one is.
         built = 'import subprocess\np = f"repos/{r}/pulls/{n}/files"\nsubprocess.run(["gh", "api", "--paginate", p])\n'
-        self.assertEqual(len(ec.scan(outside, built)), 1, ec.scan(outside, built))   # a 250 in a module that reads no GitHub is not a cap
+        self.assertEqual(len(ec.scan(outside, built)), 1, ec.scan(outside, built))
         self.assertEqual(ec.scan(ARM, "def ("), [])   # a syntax error is the compiler's
 
     def test_the_tree_is_clean(self):
