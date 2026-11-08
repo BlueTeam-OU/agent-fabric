@@ -31,9 +31,10 @@ ROOT = f"{T}/root"      # basename "root" labels its own roles
 WC_A = f"{T}/wc-a"      # AGENT_FABRIC_WORKING_COPY
 WC_B = f"{T}/wc-b"      # AGENT_FABRIC_WORKING_COPIES
 WC_C = f"{T}/wc-c"      # named by the binding
-STATE = f"{T}/state"
-HOME = f"{T}/home"
 LOGIN = subprocess.run(["id", "-un"], capture_output=True, text=True, check=True).stdout.strip()
+STATE_ROOT = f"{T}/state"
+STATE = f"{STATE_ROOT}/agents/{LOGIN}"
+HOME = f"{T}/home"
 
 fails = 0
 rc = 0
@@ -84,7 +85,7 @@ def run(*args: str, **env: str) -> None:
 
 
 def full(**more: str) -> dict[str, str]:
-    e = dict(AGENT_FABRIC_ROOT=ROOT, AGENT_FABRIC_STATE_DIR=STATE, AGENT_FABRIC_WORKING_COPY=WC_A,
+    e = dict(AGENT_FABRIC_ROOT=ROOT, AGENT_FABRIC_STATE_DIR=STATE_ROOT, AGENT_FABRIC_WORKING_COPY=WC_A,
              AGENT_FABRIC_WORKING_COPIES=f"{WC_B}::{T}/nonexistent: :{WC_A}")
     e.update(more)
     return e
@@ -416,7 +417,7 @@ def main() -> int:
     run("adr", "ADR-054", **full())
     expect("a binding with no working copy", 0, adr054_all, "")
     os.remove(f"{STATE}/binding.json")
-    run("adr", "ADR-002", AGENT_FABRIC_ROOT=ROOT, AGENT_FABRIC_STATE_DIR=STATE, AGENT_FABRIC_WORKING_COPIES="")
+    run("adr", "ADR-002", AGENT_FABRIC_ROOT=ROOT, AGENT_FABRIC_STATE_DIR=STATE_ROOT, AGENT_FABRIC_WORKING_COPIES="")
     expect("no binding file, no working copy: wc-c is not seen", 0, nothing("ADR-002"), "")
     # The state directory when AGENT_FABRIC_STATE_DIR is unset: XDG_STATE_HOME, then HOME.
     wc_c_ops = head_("wc-c/ops") + hit("ADR-002", 1, "lesson:found")
@@ -444,6 +445,8 @@ def main() -> int:
     for name in os.listdir(cli_dir):
         if os.path.isfile(f"{cli_dir}/{name}") and name.endswith(".py"):
             shutil.copy2(f"{cli_dir}/{name}", f"{T}/copy/tools/fabric")
+    os.makedirs(f"{T}/copy/runtime")
+    shutil.copy2(os.path.join(HERE, "runtime", "identity.py"), f"{T}/copy/runtime")   # query.py reads the binding through it
     shutil.copy2(CLI, copy_cli_dir)
     xref(f"{T}/copy/memory/projects/fixtureproj/fixturerole/crossref.json", "fixturerole",
          '{"adrs": {"ADR-001": {"observations": [], "slices": ["lesson:a"]}}}')

@@ -633,6 +633,7 @@ def main() -> int:
             shutil.copytree(f"{ROOT}/tools/fabric", f"{code}/tools/fabric", ignore=shutil.ignore_patterns("__pycache__"))
             os.makedirs(f"{code}/runtime/openrouter")
             shutil.copy2(LAUNCHER, f"{code}/runtime/openrouter/launch")
+            shutil.copy2(f"{ROOT}/runtime/identity.py", f"{code}/runtime/")   # launcher/base.py and launch_locale.py load it by path
             put(f"{code}/tools/fabric/addenda.py", """import json, os, sys
 out = sys.argv[sys.argv.index("--out") + 1]
 with open(out, "w", encoding="utf-8") as fh:
@@ -1523,6 +1524,7 @@ print("a" * 40, "b" * 40)
             shutil.copytree(f"{ROOT}/tools/fabric", f"{code}/tools/fabric", ignore=shutil.ignore_patterns("__pycache__"))
             os.makedirs(f"{code}/runtime/openrouter")
             shutil.copy2(LAUNCHER, f"{code}/runtime/openrouter/launch")
+            shutil.copy2(f"{ROOT}/runtime/identity.py", f"{code}/runtime/")   # launcher/base.py and launch_locale.py load it by path
             put(f"{code}/tools/fabric/addenda.py", """import json, os, sys
 out = sys.argv[sys.argv.index("--out") + 1]
 spec = os.environ.get("FAKE_HOLDER")

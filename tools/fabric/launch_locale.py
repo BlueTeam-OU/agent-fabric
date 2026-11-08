@@ -12,12 +12,18 @@ record existed is read from launch-holder.json (holder.locale), which every laun
 Stdlib only, loaded by path from the launcher and imported by the readers."""
 from __future__ import annotations
 
+import importlib.util
 import json
 import os
 import re
 import sys
-import tempfile
-from collections.abc import Mapping
+
+# By path, not `import identity`: the launcher loads this file by path, so tools/fabric/ need not be on sys.path.
+_spec = importlib.util.spec_from_file_location(
+    "fabric_launch_locale_identity",
+    os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "runtime", "identity.py"))
+identity = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(identity)
 
 FILE = "launch-locale.json"
 DEFAULT = "en"
@@ -27,26 +33,9 @@ HOLDER_FILE = "launch-holder.json"
 TAG_RE = re.compile(r"[a-z]{2,3}(?:-[a-z0-9]{2,8})*")
 
 
-def state_dir(agent: str, environ: Mapping[str, str] | None = None) -> str:
-    """runtime/identity.py's agent_state_dir() for `agent`, without importing it."""
-    environ = os.environ if environ is None else environ
-    override = environ.get("AGENT_FABRIC_STATE_DIR")
-    root = os.path.abspath(override) if override else os.path.join(
-        environ.get("XDG_STATE_HOME") or os.path.join(os.path.expanduser("~"), ".local", "state"), "agent-fabric")
-    return os.path.join(root, "agents", agent)
-
-
 def record(directory: str, tag: str) -> None:
     """Replace the launch record whole, so a reader never sees half of it."""
-    fd, tmp = tempfile.mkstemp(prefix=".tmp-", dir=directory)
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as fh:
-            json.dump({"locale": tag}, fh)
-            fh.write("\n")
-        os.replace(tmp, os.path.join(directory, FILE))
-    finally:
-        if os.path.exists(tmp):
-            os.unlink(tmp)
+    identity.atomic_write(os.path.join(directory, FILE), json.dumps({"locale": tag}) + "\n", 0o600)
 
 
 def _tag_in(path: str, pick) -> str | None:
@@ -77,12 +66,12 @@ def _holder_locale(doc: dict) -> object:
     return _NO_HOLDER if holder is None else holder["locale"]
 
 
-def read(agent: str, environ: Mapping[str, str] | None = None) -> str:
+def read(agent: str) -> str:
     """The tag the launcher recorded for `agent`; "en" when it recorded none. A record that is there but
     unusable is also "en" and said on stderr, since it is the launcher's own file and a fault, not an absence.
     A session launched before launch-locale.json existed has only launch-holder.json (holder.locale); that file
     answers until a relaunch writes the record. Never the login's name."""
-    directory = state_dir(agent, environ)
+    directory = identity.agent_state_dir(agent)
     path = os.path.join(directory, FILE)
     if os.path.lexists(path):
         if not os.path.exists(path):  # a dangling link: there, so a fault, and the older file does not stand in for it

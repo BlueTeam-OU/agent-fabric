@@ -662,6 +662,8 @@ def main() -> int:
                         ignore=shutil.ignore_patterns("__pycache__"))
         for f in ("launch.py", "git.py", "roots.py", "launch_provider_record.py", "addenda_check.py", "launch_locale.py"):   # launcher/holder.py loads these: its locale rules, the record it leaves
             shutil.copy(os.path.join(os.path.dirname(MODULE), f), f"{copy}/{f}")
+        os.makedirs(f"{tmp}/copy/runtime")
+        shutil.copy(os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(MODULE))), "runtime", "identity.py"), f"{tmp}/copy/runtime/identity.py")   # launcher/base.py and launch_locale.py load it
         code = ("import importlib.util, inspect, sys\n"
                 "def load(name, path):\n"
                 "    spec = importlib.util.spec_from_file_location(name, path)\n"

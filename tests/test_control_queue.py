@@ -314,8 +314,10 @@ def main() -> int:
     # as it is, never "not in this tree yet": a scratch copy of tools/fabric.
     import shutil
     with tempfile.TemporaryDirectory() as tmp:
-        fabric = os.path.join(tmp, "fabric")
+        fabric = os.path.join(tmp, "tools", "fabric")
         shutil.copytree(os.path.join(HERE, "tools", "fabric"), fabric, ignore=shutil.ignore_patterns("__pycache__"))
+        os.makedirs(os.path.join(tmp, "runtime"))
+        shutil.copy(os.path.join(HERE, "runtime", "identity.py"), os.path.join(tmp, "runtime"))   # modules of tools/fabric load it by path
         with open(os.path.join(fabric, "control", "agentd.py"), "w", encoding="utf-8") as fh:
             fh.write("import control_agentd_missing_dependency\n")
         env = {"PATH": os.environ.get("PATH", ""), "HOME": tmp, "LANG": "C.UTF-8", "PYTHONDONTWRITEBYTECODE": "1"}

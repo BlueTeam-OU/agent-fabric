@@ -251,6 +251,7 @@ its record disagree, the record wins. Look it up, never read it whole:
 - A 2026-10-01 — the auto-mode classifier's picture of the fleet is
   policies/auto-mode.json, written into every login's user settings; the
   setup wizard is off (§5 rule 7).
+- A 2026-11-07 — rule 5 cites the 2.1.311 capture's slip (§5 rule 5).
 - Keywords: Claude Code, harness, settings.json, attribution, Co-Authored-By,
   auto-update, DISABLE_AUTOUPDATER, verbose, auto mode, system prompt, build.
 
@@ -815,8 +816,9 @@ its record disagree, the record wins. Look it up, never read it whole:
 - First step, done: the relay's database is scheduled to be copied every 6 h and a
   restore was read back (§7).
 - A 2026-09-30 — the inventory's key and secrets rows name the stores; Doppler is gone (§1, §5 rule 4).
-- A 2026-10-27 — the relay's database is scheduled to be copied every 6 h to Proton Drive, encrypted and signed, restore read back; §1, §6, §7 say so.
-- A 2026-10-28 — undrained memory has a daily copy (restore unread); §7 step 3 decided: a weekly timer collects every account's drain bundle, a 14-day age bound, a report and one drain job; landing stays reviewed (§1, §2, §6, §7).
+- A 2026-10-27 — the relay's database copied every 6 h to Proton Drive, encrypted and signed, restore read back (§1, §6, §7).
+- A 2026-10-28 — undrained memory has a daily copy (restore unread); §7 step 3 decided: a weekly timer collects every account's drain bundle, 14-day age bound, one report, one drain job; landing reviewed (§1, §2, §6, §7).
+- A 2026-11-07 — §7 step 2 done: relay down an hour (§7).
 - Keywords: decentralization, resilience, single point of failure,
   degraded mode, relay, host, crash, backup, autonomy, P5,
   scheduled drain, drain timer, undrained memory, state backup.

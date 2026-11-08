@@ -24,10 +24,10 @@ fresh, while another one could be running on the account:
     execs the launcher, which therefore holds it for its own life — its
     restart wait and every session it relaunches — and never hands it to
     the harness (the launcher's Popen keeps close_fds). The kernel drops it
-    when the launcher exits; there is no pid file to go stale. The pid is
-    written into the file once the lock is taken, and is the launcher's
-    too, since an exec keeps it. Held: refused, naming that pid, or
-    "pid not yet written" in the moment between the two;
+    when the launcher exits; there is no pid file to go stale. Nothing is
+    written into the file: the holder's pid is read from /proc/locks, and
+    is the launcher's too, since an exec keeps it. Held: refused, naming
+    that pid, or "holder not found" if it let go in the moment between;
   - then the account's own session state, <state>/session-state.json, as
     tools/fabric/control/sessions.py counts it: an entry in a known state
     whose recorded process is alive with its recorded start time, or that
@@ -329,16 +329,15 @@ def live_sessions(state: str, proc: str = "/proc", now: float | None = None) -> 
 
 
 def holder(path: str) -> str:
-    """The pid in the lock file, believed only when /proc/locks shows that
-    pid holding it: a holder that has locked and not yet written still
-    finds the last, exited holder's pid in the file."""
+    """The pid(s) /proc/locks shows holding the lock, never a pid read from the file: a lock file is never written
+    to (ADR-003 rule 1), and the kernel's table is true when the holder has locked and not yet done anything else."""
     try:
-        with open(path, encoding="utf-8", errors="replace") as fh:
-            pid = fh.read().strip()
-        holding = lock_holders(path)
-    except (OSError, Refused):
-        pid, holding = "", set()
-    return f"pid {pid}" if pid.isdigit() and int(pid) in holding else "pid not yet written"
+        holding = sorted(lock_holders(path))
+    except Refused:
+        holding = []
+    if not holding:
+        return "holder not found"
+    return f"pid {holding[0]}" if len(holding) == 1 else "pids " + ", ".join(map(str, holding))
 
 
 def held_message(path: str) -> str:
@@ -401,10 +400,11 @@ def holds_open(pid: int, st: os.stat_result) -> bool:
     return False
 
 
-def take_lock(path: str) -> int:
+def take_lock(state: str) -> int:
     """The open, locked descriptor (close-on-exec until main execs);
-    Refused when another holds it, OSError when it cannot be had."""
-    fd = os.open(path, os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW | os.O_CLOEXEC, 0o600)
+    Refused when another holds it, OSError when it cannot be had. Nothing is written into the file."""
+    path = os.path.join(state, LOCK_FILE)
+    fd = os.open(os.path.join(state, LOCK_FILE), os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW | os.O_CLOEXEC, 0o600)
     try:
         fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
     except OSError as exc:
@@ -412,8 +412,6 @@ def take_lock(path: str) -> int:
         if exc.errno in (errno.EWOULDBLOCK, errno.EAGAIN):
             raise Refused(held_message(path)) from None
         raise
-    os.ftruncate(fd, 0)
-    os.pwrite(fd, f"{os.getpid()}\n".encode(), 0)
     return fd
 
 
@@ -479,7 +477,7 @@ def main(argv: list[str]) -> int:
             fd = None
         else:
             os.makedirs(state, mode=0o700, exist_ok=True)
-            fd = take_lock(lock_path)
+            fd = take_lock(state)
         refuse_live(state)
     except Refused as exc:
         say(f"refused: {exc}")

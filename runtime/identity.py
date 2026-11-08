@@ -398,6 +398,8 @@ def _rotate(path: str, max_bytes: int, wait: float | None) -> None:
         return
     fd = os.open(path + ".lock", os.O_WRONLY | os.O_CREAT | os.O_CLOEXEC, 0o600)
     try:
+        # The mode above binds only a new file: a lock an older build left 0644 is narrowed here.
+        os.fchmod(fd, 0o600)
         _flock(fd, path + ".lock", wait)
         try:
             if os.path.getsize(path) > max_bytes:

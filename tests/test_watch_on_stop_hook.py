@@ -98,6 +98,19 @@ def main() -> int:
               os.stat(path).st_mode & 0o777 == 0o600, oct(os.stat(path).st_mode))
         os.remove(lock)
         fresh()
+        # A watch that gave up on the relay (exit 5) leaves its time beside the lock, in
+        # watchlock.mark_relay_down's format: the hook leaves the session be while it is fresh (j626).
+        down = os.path.join(run_dir, "agent-fabric", "gzcoord-inbox-x.relay-down")
+        for content, now, want, label in (("900\n", 1000.0, None, "a fresh relay-down marker: passes"),
+                                          ("900\n", 900.0 + mod.RELAY_DOWN_S, "block", "a marker past RELAY_DOWN_S: blocks"),
+                                          ("2000\n", 1000.0, "block", "a marker in the future: blocks"),
+                                          ("garbage\n", 1000.0, "block", "an unreadable marker: blocks")):
+            with open(down, "w", encoding="utf-8") as fh:
+                fh.write(content)
+            out = go({}, table(), now=now)
+            check(label, (out or {}).get("decision") == want, out)
+            fresh()
+        os.remove(down)
         out = go({}, table((300, (200, "python3", "gzcoord-inbox --follow"))))
         check("--follow counts as a watch, as in session-start", out is None, out)
         out = go({}, table((300, (200, "python3", "gzcoord-inbox --status"))))

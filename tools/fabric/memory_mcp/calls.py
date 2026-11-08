@@ -6,19 +6,16 @@ import json
 import os
 import sys
 
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))), "runtime"))
+import identity  # noqa: E402
+
 LOG = "memory-calls.jsonl"
 
 
 def append_line(state_dir: str, filename: str, row: dict) -> str | None:
     """One JSON line appended to a private file of the login's state; None, or why it could not be."""
-    line = json.dumps(row, separators=(",", ":"), ensure_ascii=False) + "\n"
     try:
-        os.makedirs(state_dir, exist_ok=True)
-        fd = os.open(os.path.join(state_dir, filename), os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o600)
-        try:
-            os.write(fd, line.encode())
-        finally:
-            os.close(fd)
+        identity.append_line(os.path.join(state_dir, filename), json.dumps(row, separators=(",", ":"), ensure_ascii=False))
     except OSError as e:
         return e.strerror or str(e)
     return None

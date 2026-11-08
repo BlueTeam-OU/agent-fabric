@@ -583,6 +583,8 @@ def broken_tree(contents: str | None) -> str:
     SCRATCH.append(d)
     src = os.path.join(HERE, "tools", "fabric")
     shutil.copytree(src, os.path.join(d, "tools", "fabric"), ignore=shutil.ignore_patterns("__pycache__"))
+    os.makedirs(os.path.join(d, "runtime"))
+    shutil.copy(os.path.join(HERE, "runtime", "identity.py"), os.path.join(d, "runtime"))   # launch_locale loads it by path
     i18n_dir = os.path.join(d, "communication", "gzcoord", "i18n")
     os.makedirs(i18n_dir)
     if contents is not None:

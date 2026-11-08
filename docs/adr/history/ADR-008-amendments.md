@@ -44,3 +44,7 @@ the fabric already writes its keys. Read back with `claude auto-mode
 config` (2.1.282) from a scratch configuration: 21 environment entries,
 the built-in 17 allow rules, 70 soft blocks plus the fleet's one, and 1
 hard block plus the fleet's one.
+
+### Amendment 2026-11-07 — Rule 5's example slip follows the 2.1.311 capture
+
+`runtime/claude-code/harness/en.md` was re-captured on Claude Code 2.1.311 (`docs/live-checks/2026-11-07-claude-code-harness-prompt.md`, j579). The glued sentence rule 5 cited, 2.1.274's "clickable.Write", is no longer in the text; the build's glued sentence is now "publish again.Write". Rule 5 names that one, without a build, so the example holds as long as the capture does; the rule itself is unchanged.

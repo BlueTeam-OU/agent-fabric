@@ -7,23 +7,22 @@ devex-tooling's INFO 01a139cc; this module owns only the file: where it
 is, how a line is appended, and how rows are read back for a reader
 (control/ops/usage.py's tokens op).
 
-The path is computed by the hook's rule (AGENT_FABRIC_STATE_DIR, else
-XDG_STATE_HOME or ~/.local/state, then agents/<login>), not through
-runtime/identity.py, so a writer and the hook land in one file for the
-same environment whatever tool resolves it.
+The path is runtime/identity.py's agent_state_dir(), the one resolution the
+hook shares, so a writer and the hook land in one file.
 
 Nothing reads the ledger for authorization; it is a measurement.
 """
 from __future__ import annotations
 
-import fcntl
 import json
 import os
-import pwd
 import re
-import time
+import sys
 from datetime import datetime
 from typing import Any, Mapping
+
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "runtime"))
+import identity  # noqa: E402
 
 FILE = "ledger.jsonl"
 SCHEMA_VERSION = 1
@@ -45,19 +44,8 @@ HEADER_SHA = ("base_sha", "head_sha")
 EVIDENCE = ("pinned", "working-tree")
 
 
-def state_dir(environ: Mapping[str, str]) -> str:
-    login = pwd.getpwuid(os.getuid()).pw_name
-    override = environ.get("AGENT_FABRIC_STATE_DIR")
-    if override:
-        root = os.path.abspath(override)
-    else:
-        home = environ.get("HOME") or os.path.expanduser("~")
-        root = os.path.join(environ.get("XDG_STATE_HOME") or os.path.join(home, ".local", "state"), "agent-fabric")
-    return os.path.join(root, "agents", login)
-
-
-def path(environ: Mapping[str, str]) -> str:
-    return os.path.join(state_dir(environ), FILE)
+def path() -> str:
+    return os.path.join(identity.agent_state_dir(), FILE)
 
 
 def append(file: str, row: Mapping[str, Any]) -> None:
@@ -65,26 +53,10 @@ def append(file: str, row: Mapping[str, Any]) -> None:
     the same file from other processes, and a row longer than a pipe buffer
     is not atomic without it. Raises OSError; the caller decides whether a
     measurement that could not be written may stand in a review's way (it
-    may not)."""
-    line = json.dumps(row, separators=(",", ":"), ensure_ascii=True) + "\n"
-    os.makedirs(os.path.dirname(file), mode=0o700, exist_ok=True)
-    fd = os.open(file, os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o600)
-    try:
-        # Bounded: a stalled holder (the hook) must not hang a review that has already posted.
-        deadline = time.monotonic() + LOCK_WAIT_S
-        while True:
-            try:
-                fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-                break
-            except BlockingIOError:
-                if time.monotonic() >= deadline:
-                    raise TimeoutError(f"{file} is locked by another writer") from None
-                time.sleep(0.05)
-        data = line.encode("ascii")
-        while data:   # a short write under the lock is finished before another writer starts
-            data = data[os.write(fd, data):]
-    finally:
-        os.close(fd)
+    may not). The lock is waited for LOCK_WAIT_S, not as long as its holder
+    holds it: a stalled holder (the hook) must not hang a review that has
+    already posted."""
+    identity.append_line(file, json.dumps(row, separators=(",", ":"), ensure_ascii=True), wait=LOCK_WAIT_S)
 
 
 # Past a double's exact integers a count is not a measurement, and equivalent() would overflow on it.

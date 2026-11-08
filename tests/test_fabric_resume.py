@@ -95,8 +95,7 @@ def never_second(check, run, bind, transcript, bdir: str, tmp: str, env: dict, s
     holder = subprocess.Popen([sys.executable, "-c", (
         "import fcntl,os,sys\n"
         "fd=os.open(sys.argv[1],os.O_RDWR|os.O_CREAT,0o600); fcntl.flock(fd,fcntl.LOCK_EX)\n"
-        "if sys.argv[2]=='pid': os.ftruncate(fd,0); os.write(fd,b'%d\\n'%os.getpid())\n"
-        "print('held',flush=True); sys.stdin.read()"), lock, "pid"],
+        "print('held',flush=True); sys.stdin.read()"), lock],
         stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True)
     try:
         holder.stdout.readline()
@@ -111,8 +110,8 @@ def never_second(check, run, bind, transcript, bdir: str, tmp: str, env: dict, s
     finally:
         holder.stdin.close()
         holder.wait()
-    # The last holder's pid is still in the file, its process gone: the
-    # new holder has locked and not yet written.
+    # An older build wrote the last holder's pid into the file, its process gone:
+    # the holder is named from /proc/locks, never from the file.
     gone = subprocess.Popen(["true"])
     gone.wait()
     with open(lock, "w") as f:
@@ -125,8 +124,8 @@ def never_second(check, run, bind, transcript, bdir: str, tmp: str, env: dict, s
     try:
         holder.stdout.readline()
         r = run()
-        check("a lock held with no pid of its own in it yet: said so, never the last holder's",
-              r.returncode == 3 and "pid not yet written" in r.stderr and str(gone.pid) not in r.stderr, r.stderr)
+        check("a pid left in the lock file is not believed: the holder is the one /proc/locks shows",
+              r.returncode == 3 and f"(pid {holder.pid})" in r.stderr and str(gone.pid) not in r.stderr, r.stderr)
     finally:
         holder.stdin.close()
         holder.wait()
@@ -150,9 +149,9 @@ def never_second(check, run, bind, transcript, bdir: str, tmp: str, env: dict, s
     os.remove(lock)
     r = run(AGENT_FABRIC_RESUME_LAUNCHER=stub, LOCK=os.path.realpath(lock), SEEN=seen)
     got = json.load(open(seen)) if os.path.exists(seen) else {}
-    check("the exec'd launcher has the lock open and held, its own pid written",
+    check("the exec'd launcher has the lock open and held, nothing written into it",
           r.returncode == 0 and len(got.get("fds", [])) == 1 and got.get("locked") is True
-          and got.get("written") == str(got.get("pid")), (r.returncode, r.stderr, got))
+          and got.get("written") == "", (r.returncode, r.stderr, got))
     check("…and the lock goes with it", run("--print").returncode == 0)
     os.remove(seen)
     os.remove(lock)

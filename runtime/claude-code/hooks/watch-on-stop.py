@@ -24,6 +24,14 @@ refuses a second, so asking this session for one would only loop. A lock
 naming a pid that is gone, or that is no watch, counts for nothing. The
 lock directory is passed in as `run_dir`, so a test supplies its own.
 
+A watch that gave up on an unreachable relay (exit 5, after 15 minutes)
+leaves the time beside its lock (gzcoord-inbox-*.relay-down, watchlock.py).
+While that is younger than RELAY_DOWN_S the hook passes: asking at once
+would only spin a new watch against the same relay, and a relay an operator
+stopped on purpose would see its sessions hammer it (j626, the 2026-11-05
+relay-down drill). The next fetch the relay answers removes the marker; one
+that outlives RELAY_DOWN_S is asked again, a probe of one watch an hour.
+
 It passes, printing nothing, when: stop_hook_active; no harness ancestor; the
 session has no fabric binding or its project has no GZCoord integration
 (the watch would exit 3 at once, and "start it" would loop); or it blocked
@@ -45,6 +53,7 @@ FABRIC_ROOT = os.environ.get("AGENT_FABRIC_ROOT") or os.path.dirname(
 WINDOW_S = 300
 STATE_FILE = "watch-on-stop.json"
 KEEP_S = 86400
+RELAY_DOWN_S = 3600
 COMMAND = "gzcoord-inbox --until-delivery"
 REASON = ("No GZCoord inbox watch is running for this session, so no message can wake it. Before you finish, start it "
           "in the background: Bash(command: '" + COMMAND + "', run_in_background: true, timeout: 7200000, "
@@ -143,6 +152,20 @@ def lock_holder_is_watch(procs: dict, run_dir: str | None = None) -> bool:
     return False
 
 
+def relay_down(now: float, run_dir: str | None = None) -> bool:
+    """A watch of this login gave up on the relay less than RELAY_DOWN_S ago. A marker that cannot be read, or
+    whose time is in the future, is no marker: the hook then asks as it always did, the safe side."""
+    run_dir = run_dir or os.environ.get("XDG_RUNTIME_DIR") or f"/run/user/{os.getuid()}"
+    for path in glob.glob(os.path.join(run_dir, "agent-fabric", "gzcoord-inbox-*.relay-down")):
+        try:
+            with open(path, encoding="utf-8", errors="replace") as fh:
+                if 0 <= now - float(fh.read(64).strip()) < RELAY_DOWN_S:
+                    return True
+        except (OSError, ValueError):
+            continue
+    return False
+
+
 _identity = None
 
 
@@ -216,7 +239,7 @@ def decide(payload: dict, procs: dict, now: float, path: str, is_integrated=inte
     if not isinstance(session_id, str) or not session_id:
         return None
     session = harness_pid(procs, own_pid or os.getpid())
-    if session is None or has_watch(procs, session, run_dir):
+    if session is None or has_watch(procs, session, run_dir) or relay_down(now, run_dir):
         return None
     if recently_blocked(path, session_id, now) or not is_integrated(payload.get("cwd"), session_id):
         return None

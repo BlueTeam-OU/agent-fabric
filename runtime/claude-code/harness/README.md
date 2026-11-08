@@ -2,7 +2,8 @@
 
 `en.md` is the text Claude Code puts before the fabric's appended prompt
 — Anthropic's, not ours — captured verbatim from a live session
-(`docs/live-checks/2026-09-17-claude-code-harness-prompt.md`), with the
+(`docs/live-checks/2026-11-07-claude-code-harness-prompt.md`, build
+2.1.311; the first capture, 2.1.274, is `2026-09-17-…`), with the
 one login-specific span, the memory directory, replaced by the
 placeholder `{memory_dir}` that `tools/fabric/launch_prompt.py` fills at
 render (`harvest_memory.default_memory_dir`, the path the harness uses).
@@ -20,8 +21,9 @@ section — which is why the Memory section is in here with its path as a
 placeholder.
 
 **As captured, verbatim.** The text carries the harness's own slips
-(build 2.1.274: "it's clickable.Write code that reads…" — two sentences
-glued at a lost newline), and they stay: the file is what the harness
+(build 2.1.311: "…correct the Edit and publish again.Write code that
+reads…" — two sentences glued at a lost newline, which on 2.1.274
+followed "it's clickable."), and they stay: the file is what the harness
 sends. The token list therefore counts that `Write` as a tool name, and
 a translation keeps a literal `Write` there (the ge holder, 2026-09-17).
 

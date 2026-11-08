@@ -1244,10 +1244,10 @@ def ledger_row(observed: Observed, *, brief: str, pr: str, head: str,
     }
 
 
-def write_ledger(environ: dict[str, str], observed: Observed) -> None:
+def write_ledger(observed: Observed) -> None:
     """Never raises: a measurement does not stand in a review's way, and says when it could not be made."""
     try:
-        ledger.append(ledger.path(environ), ledger_row(observed, now=_utc_now(), **observed.facts))
+        ledger.append(ledger.path(), ledger_row(observed, now=_utc_now(), **observed.facts))
     except (OSError, ValueError, TypeError, KeyError) as err:
         print(f"fabric-review: the ledger row could not be written ({err}); the review is unaffected", file=sys.stderr)
 
@@ -1267,7 +1267,7 @@ def review(pr: str, request: str, **kw) -> int:
         # No run, no row: a refusal before Codex started cost nothing and is no dispatch (the hook writes
         # none for a subagent that made no API call either).
         if observed.runs:
-            write_ledger(kw["environ"], observed)
+            write_ledger(observed)
 
 
 def _review(pr: str, request: str, *, model_flag: str | None, timeout_min: float, allow_rationale: bool,

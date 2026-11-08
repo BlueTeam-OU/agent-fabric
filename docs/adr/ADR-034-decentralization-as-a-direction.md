@@ -120,17 +120,23 @@ is scheduled to be copied every 6 h (`agent-fabric-relay-backup.timer`, on the r
 account) to Proton Drive, encrypted and signed, with `fabric-secrets
 relay backup|--verify|restore`. Its restore was read back: a second relay
 started on the copy and `gzcoord-inbox --replay` showed the channel's
-past (`docs/live-checks/2026-10-27-relay-backup-restore.md`). Not
-shown there: the timer's scheduled runs; a restore off the host (it ran
-on the host that holds the database); and `fabric-ctl all ping` against
-the restored relay, which needs the control agents on it and belongs to
-the drill below.
+past (`docs/live-checks/2026-10-27-relay-backup-restore.md`). The
+timer's scheduled runs have been read back since; a restore off the
+host (it ran on the host that holds the database) is not shown.
 
-After it: a drill of the relay being down for a working hour — sessions
-continue from artifacts, what must go goes by the human relay, nothing is
-lost — read back as a live check; a scheduled drain, so undrained
-memory is bounded in age; and only then the second host, which reopens
-ADR-029 §7 and ADR-033 §7.
+**The second step is done:** the relay was down for a working hour
+and came back on the restored copy of its
+database (`docs/live-checks/2026-11-07-relay-down-drill-hour.md`).
+Sessions went on from artifacts (9 commits on origin against 10 in the
+hour before); the copy restored whole, seq continued without a gap,
+`fabric-ctl all ping` answered from every account through it, and the
+five messages the relay shows written during the hour reached it once it
+was back; a message never resent is not shown either way.
+An operator's stop holds: no watch restarts the relay. The human relay
+was not needed in that hour and stays unexercised.
+
+After it: a scheduled drain, so undrained memory is bounded in age; and
+only then the second host, which reopens ADR-029 §7 and ADR-033 §7.
 
 **Step 3, the scheduled drain, is decided as follows (j434; to be
 built).** The loss of the host is covered by the daily state copy (§1),
@@ -191,3 +197,4 @@ The body above reads current; each change's full note is in [history/ADR-034-ame
 | 2026-09-30 | Doppler is retired: the stores replace it | §1 table (signed actions, secrets), §5 rule 4 |
 | 2026-10-27 | The relay's database is copied off the host: step 1 of §7 done | §1 relay row, §6, §7 first step |
 | 2026-10-28 | Undrained memory has a daily copy; §7 step 3, the scheduled drain, decided | §1 memory row, §2, §3, §6, §7 step 3 |
+| 2026-11-07 | The relay down for a working hour: step 2 of §7 done | §7 first and second steps |
