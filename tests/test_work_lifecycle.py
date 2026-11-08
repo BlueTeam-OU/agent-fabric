@@ -2,8 +2,8 @@
 """The work lifecycle as the job list lives it today, pinned against the transition table of agent-fabric ADR-037 rule 14
 (A 2026-11-08, as corrected at eee64007): a characterisation, not a specification. Every case runs the real command, `bin/fabric-jobs`,
 against a scratch state directory, bare origins and a fake gh (tests/work_lifecycle_world.py), so that the one model of a job that
-follows (the WorkItem of wave 2) can be checked against what the paths do now. No production module is changed or read by name; the
-observable contract of the command is all that is pinned.
+follows (the WorkItem of wave 2) can be checked against what the paths do now. No production module is changed. The command is what is pinned; one case (R6b, `switch --needs-merged`) loads jobs.py in
+process to stub the pull-request count, `branching._addable`, which has no other seam.
 
 The table's rows, by the label the cases carry:
   R1   -> open in a role's pool            pool-add                      tests/test_work_lifecycle_pool.py
@@ -122,6 +122,12 @@ class Case(unittest.TestCase):
                 os.chdir(cwd)
         return rc, buf.getvalue()
 
+    def working_after(self, previous: str, title: str) -> str:
+        """The job `leave(previous)` started, which is active in this session; `title` names it for the reader of a failure."""
+        (job,) = [j for j in self.w.jobs() if j["state"] == "active"]
+        self.assertNotEqual(job["id"], previous, title)
+        return job["id"]
+
     def leave(self, job_id: str, then: str = "next") -> subprocess.CompletedProcess:
         """switch away from the job this session worked last, to another queued one."""
         return self.w.switch(self.w.add(then))
@@ -154,7 +160,9 @@ class Entry(Case):
         self.w.add("a")
         exported = self.ok("export").stdout
         self.w.add("b")
-        self.refused("import", said="", stdin=exported)
+        p = self.w.run("import", stdin=exported)
+        self.assertEqual(p.returncode, 1, p.stdout)
+        self.assertTrue(p.stderr.strip(), "a refusal names itself")
         self.assertEqual([j["id"] for j in self.w.jobs()], ["j1", "j2"])
 
 
@@ -497,7 +505,7 @@ class VerbMatrix(Case):
 
 class Leaving(Case):
     """The evidence `switch` asks of the job it leaves, by the state it is left in (rule 10 step 1): the reconciliation the
-    verbs do not make. One case per state with its positive control in the same world."""
+    verbs do not make. One case per state; the positive control of a refusal is the sibling case that leaves the same state."""
 
     def left(self, job_id: str) -> subprocess.CompletedProcess:
         return self.leave(job_id)
@@ -524,6 +532,14 @@ class Leaving(Case):
         p = self.left(j1)
         self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
         self.assertIn("no artifact: moved a file", p.stdout)
+        j2 = self.working_after(j1, "named an artifact")
+        closed = f"{jobs_world.GH_REPO}#7"
+        self.w.gh_says({closed: "CLOSED"})
+        self.ok("deliver", j2, closed)
+        self.ok("done", j2, "--no-artifact", "a reason does not stand in for it")
+        p = self.leave(j2)
+        self.assertEqual(p.returncode, 1, p.stdout + p.stderr)
+        self.assertIn("did not land on the default branch", p.stderr)
 
     def test_done_on_an_open_pull_request_is_not_done(self):
         j1 = self.working("still open")
@@ -600,7 +616,7 @@ class Leaving(Case):
         self.assertEqual(p.returncode, 1, p.stdout + p.stderr)
         self.assertIn(f"{j1} is still active", p.stderr)
 
-    def test_an_uncommitted_copy_and_an_unanswered_reply_keep_a_finished_job(self):
+    def test_an_uncommitted_copy_keeps_a_finished_job(self):
         j1 = self.working("dirty")
         self.ok("deliver", j1, OPEN_PR)
         with open(os.path.join(self.w.job(j1)["worktree"], "scratch.txt"), "w", encoding="utf-8") as fh:
@@ -613,7 +629,7 @@ class Leaving(Case):
 class Findings(Case):
     """Where today's code makes a transition outside rule 14's table, or one without what the row needs. Each finding is a pair:
     the case that holds today's answer, and an expectedFailure case that holds the answer the table gives. The pull request lists
-    them F1..F10 with the two behaviours."""
+    them F1..F11 with the two behaviours; F1..F8 are here, F9 to F11 in the pool, blockers and intake suites."""
 
     # F1 ── R9 needs "the artifact merged or on the default branch; or a recorded --no-artifact reason". The verb records `done`
     # on none of it, from states the row does not name; `switch` asks for the evidence only of the job this session worked last.
@@ -701,6 +717,18 @@ class Findings(Case):
         by_switch = self.w.switch("j1").returncode
         self.assertEqual(self.w.run("start", "j1").returncode, by_switch)
 
+    def test_f4_today_start_on_the_active_job_is_taken_and_logs_an_active_entry_again(self):
+        self.w.add("a")
+        self.ok("start", "j1")
+        self.ok("start", "j1")
+        self.assertEqual([e["state"] for e in self.w.job("j1")["log"]], ["queued", "active", "active"])
+
+    @unittest.expectedFailure
+    def test_f4_start_is_not_taken_from_active(self):
+        self.w.add("a")
+        self.ok("start", "j1")
+        self.assertNotEqual(self.w.run("start", "j1").returncode, 0)
+
     # F5 ── R5: pause "the branch pushed". The verb pauses a job with no branch, and one whose branch origin does not have; only
     # `switch` asks, when it leaves the paused job.
     def test_f5_today_pause_takes_a_job_with_no_branch_and_one_with_an_unpushed_branch(self):
@@ -716,7 +744,16 @@ class Findings(Case):
     @unittest.expectedFailure
     def test_f5_pause_needs_the_branch_pushed(self):
         j1 = self.working("unpushed")
-        self.assertNotEqual(self.w.run("pause", j1, "later", cwd=self.w.job(j1)["worktree"]).returncode, 0)
+        wt = self.w.job(j1)["worktree"]
+        # A commit of its own: a branch the default branch already holds is landed, which settle counts as pushed.
+        subprocess.run(["git", "-C", wt, "commit", "-q", "--allow-empty", "-m", "work"], check=True, env=git_env())
+        self.assertNotEqual(self.w.run("pause", j1, "later", cwd=wt).returncode, 0)
+
+    @unittest.expectedFailure
+    def test_f5_pause_needs_a_branch_to_be_pushed(self):
+        self.w.add("no branch")
+        self.ok("start", "j1")
+        self.assertNotEqual(self.w.run("pause", "j1", "later").returncode, 0)
 
     # F6 ── R10: drop "a reason; a REQUEST it came from answered". The verb stores an empty reason and drops an unanswered REQUEST.
     def test_f6_today_drop_takes_an_empty_reason_and_a_request_nobody_answered(self):
