@@ -156,8 +156,9 @@ def _supplementary_groups(login: str, etc: str) -> str:
 
 
 def _lock(snap: str, wait_s: float):
-    """The snapshot's writer lock, held for the life of the process; None when another writer holds it."""
-    fh = open(os.path.join(snap, ".lock"), "w")
+    """The snapshot's writer lock, held for the life of the process; None when another writer holds it. Opened
+    0600 and never truncated: a lock file takes no content and no umask default (ADR-003 §2)."""
+    fh = os.fdopen(os.open(os.path.join(snap, ".lock"), os.O_WRONLY | os.O_CREAT | os.O_CLOEXEC, 0o600), "w")
     deadline = time.monotonic() + wait_s
     while True:
         try:

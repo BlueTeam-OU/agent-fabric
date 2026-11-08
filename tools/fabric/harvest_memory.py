@@ -724,44 +724,38 @@ def main() -> int:
     # sitting beside it aborts the run with KeyError: 'role'.
     claims_dir = os.path.join(args.out, "claims")
     os.makedirs(claims_dir, exist_ok=True)
-    with open(os.path.join(claims_dir, f"{role}.json"), "w", encoding="utf-8") as fh:
-        # Only the keys the claims contract declares; it sets
-        # additionalProperties: false, and the assembler reads these to
-        # print the per-role admitted/rejected line.
-        json.dump({"role": role, "claims": claims,
-                   # observations_in counts every memory READ, not every
-                   # one admitted: an observation is appended in the same
-                   # iteration as its claim, so len(observations) equalled
-                   # len(claims) for every drain and the admitted/read
-                   # ratio the schema describes as an alarm was always 1.
-                   # rejected counts opt-outs only; a memory whose class is
-                   # unfilable aborts the whole drain and never reaches
-                   # this writer.
-                   "telemetry": {"observations_in": len(claims) + len(skipped),
-                                 "candidates": len(claims) + len(skipped),
-                                 "admitted": len(claims),
-                                 "merged_into_existing": 0,
-                                 "rejected": len(skipped)}},
-                  fh, ensure_ascii=False, indent=2, sort_keys=True)
-        fh.write("\n")
-    with open(os.path.join(args.out, "observations.jsonl"), "w", encoding="utf-8") as fh:
-        for row in observations:
-            fh.write(json.dumps(row, ensure_ascii=False, sort_keys=True) + "\n")
+    # Only the keys the claims contract declares; it sets
+    # additionalProperties: false, and the assembler reads these to
+    # print the per-role admitted/rejected line.
+    identity.atomic_write(os.path.join(claims_dir, f"{role}.json"), json.dumps(
+        {"role": role, "claims": claims,
+         # observations_in counts every memory READ, not every
+         # one admitted: an observation is appended in the same
+         # iteration as its claim, so len(observations) equalled
+         # len(claims) for every drain and the admitted/read
+         # ratio the schema describes as an alarm was always 1.
+         # rejected counts opt-outs only; a memory whose class is
+         # unfilable aborts the whole drain and never reaches
+         # this writer.
+         "telemetry": {"observations_in": len(claims) + len(skipped),
+                       "candidates": len(claims) + len(skipped),
+                       "admitted": len(claims),
+                       "merged_into_existing": 0,
+                       "rejected": len(skipped)}},
+        ensure_ascii=False, indent=2, sort_keys=True) + "\n")
+    identity.atomic_write(os.path.join(args.out, "observations.jsonl"), "".join(
+        json.dumps(row, ensure_ascii=False, sort_keys=True) + "\n" for row in observations))
     if use is not None:
-        with open(os.path.join(args.out, "marks.jsonl"), "w", encoding="utf-8") as fh:
-            for row in marks:
-                fh.write(json.dumps(row, ensure_ascii=False, sort_keys=True) + "\n")
+        identity.atomic_write(os.path.join(args.out, "marks.jsonl"), "".join(
+            json.dumps(row, ensure_ascii=False, sort_keys=True) + "\n" for row in marks))
     # assemble.py requires this file to exist; memories cite each other by
     # name, not by git object, so there is no citation graph to build.
-    with open(os.path.join(args.out, "references.json"), "w", encoding="utf-8") as fh:
-        json.dump({}, fh)
-        fh.write("\n")
+    identity.atomic_write(os.path.join(args.out, "references.json"), "{}\n")
     # What the assembler reads for the committed report's `harvest` and
     # `watermarks`: the same dict, minus the memory directory (an absolute
     # path into a home; the assembler drops such things, this never offers).
-    with open(os.path.join(args.out, "harvest-report.json"), "w", encoding="utf-8") as fh:
-        json.dump({k: v for k, v in report.items() if k != "memory_dir"}, fh, indent=2, sort_keys=True)
-        fh.write("\n")
+    identity.atomic_write(os.path.join(args.out, "harvest-report.json"), json.dumps(
+        {k: v for k, v in report.items() if k != "memory_dir"}, indent=2, sort_keys=True) + "\n")
 
     if args.bundle:
         return write_bundle(args.out, args.bundle, report)
@@ -798,19 +792,19 @@ def write_bundle(drain: str, target: str, report: dict) -> int:
         "files": {f: sha256_of(os.path.join(drain, f)) for f in files},
     }
     mbytes = (json.dumps(manifest, indent=2, sort_keys=True) + "\n").encode()
-    out = sys.stdout.buffer if target == "-" else open(target, "wb")
-    try:
-        with tarfile.open(fileobj=out, mode="w|") as tar:
-            info = tarfile.TarInfo("manifest.json"); info.size = len(mbytes); info.mtime = 0; info.mode = 0o644
-            tar.addfile(info, io.BytesIO(mbytes))
-            for f in files:
-                info = tar.gettarinfo(os.path.join(drain, f), arcname=f)
-                info.mtime = 0; info.uid = info.gid = 0; info.uname = info.gname = ""
-                with open(os.path.join(drain, f), "rb") as fh:
-                    tar.addfile(info, fh)
-    finally:
-        if target != "-":
-            out.close()
+    tar_bytes = io.BytesIO()
+    with tarfile.TarFile(fileobj=tar_bytes, mode="w") as tar:
+        info = tarfile.TarInfo("manifest.json"); info.size = len(mbytes); info.mtime = 0; info.mode = 0o644
+        tar.addfile(info, io.BytesIO(mbytes))
+        for f in files:
+            info = tar.gettarinfo(os.path.join(drain, f), arcname=f)
+            info.mtime = 0; info.uid = info.gid = 0; info.uname = info.gname = ""
+            with open(os.path.join(drain, f), "rb") as fh:
+                tar.addfile(info, fh)
+    if target == "-":
+        sys.stdout.buffer.write(tar_bytes.getvalue())
+    else:
+        identity.atomic_write(target, tar_bytes.getvalue())
     shutil.rmtree(drain, ignore_errors=True)
     print(json.dumps({k: v for k, v in report.items() if k != "memory_dir"}, indent=2, sort_keys=True), file=sys.stderr)
     return 0

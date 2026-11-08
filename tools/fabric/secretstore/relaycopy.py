@@ -53,10 +53,13 @@ import os
 import shutil
 import sqlite3
 import stat
+import sys
 import tempfile
 import urllib.parse
 import zlib
 
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))), "runtime"))
+import identity  # noqa: E402
 from .core import StoreError, gpg, store_dir
 from .backup import PROTON_ROOT, _proton, _proton_folder, _upload, recovery_pub
 from .keys import key_of_store
@@ -162,9 +165,7 @@ def relay_backup(db: str, state_dir: str) -> dict:
         _upload(manifest, folder)
         sent = os.path.getsize(blob)
     try:
-        os.makedirs(state_dir, mode=0o700, exist_ok=True)
-        with open(os.path.join(state_dir, LOG), "a", encoding="utf-8") as fh:
-            fh.write(json.dumps(line, sort_keys=True) + "\n")
+        identity.append_line(os.path.join(state_dir, LOG), json.dumps(line, sort_keys=True))
     except OSError as e:
         raise StoreError(f"uploaded, but the manifest line could not be kept ({e.strerror})") from None
     return {**line, "uploaded": sent}

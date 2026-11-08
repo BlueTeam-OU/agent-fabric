@@ -49,7 +49,6 @@ import os
 import re
 import sqlite3
 import subprocess
-import tempfile
 import time
 from typing import Any, Callable, NamedTuple
 from fabric_jobs.base import FABRIC_ROOT, MESSAGE_ID, Refused, _load, identity, mutate, request_id_of
@@ -308,11 +307,7 @@ def save_cache(cache: dict[str, dict]) -> None:
     path = cache_path()
     try:
         os.makedirs(os.path.dirname(path), mode=0o700, exist_ok=True)
-        fd, tmp = tempfile.mkstemp(prefix=".jobs-blockers.", dir=os.path.dirname(path))
-        with os.fdopen(fd, "w", encoding="utf-8") as fh:
-            json.dump(cache, fh, indent=1)
-        os.chmod(tmp, 0o600)
-        os.replace(tmp, path)
+        identity.atomic_write(path, json.dumps(cache, indent=1), 0o600)
     except OSError:
         pass   # a cache that cannot be written is checked again next time; it never fails a listing
 

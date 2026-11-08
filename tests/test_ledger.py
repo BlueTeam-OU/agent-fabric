@@ -38,12 +38,19 @@ def header(body: str, fence: str = "```") -> str:
 
 
 def main() -> int:
-    print("the path: the hook's rule")
-    check("AGENT_FABRIC_STATE_DIR wins", ledger.path({"AGENT_FABRIC_STATE_DIR": "/s", "XDG_STATE_HOME": "/x", "HOME": "/h"})
-          == f"/s/agents/{LOGIN}/ledger.jsonl")
-    check("else XDG_STATE_HOME", ledger.path({"XDG_STATE_HOME": "/x", "HOME": "/h"}) == f"/x/agent-fabric/agents/{LOGIN}/ledger.jsonl")
-    check("else the home's .local/state", ledger.path({"HOME": "/h"}) == f"/h/.local/state/agent-fabric/agents/{LOGIN}/ledger.jsonl")
-    check("an empty override is no override", ledger.path({"AGENT_FABRIC_STATE_DIR": "", "HOME": "/h"}).startswith("/h/.local/state/"))
+    print("the path: identity's resolution, which the hook shares")
+    saved = {k: os.environ.pop(k, None) for k in ("AGENT_FABRIC_STATE_DIR", "XDG_STATE_HOME")}
+    try:
+        os.environ["AGENT_FABRIC_STATE_DIR"] = "/s"
+        check("AGENT_FABRIC_STATE_DIR wins", ledger.path() == f"/s/agents/{LOGIN}/ledger.jsonl")
+        os.environ["AGENT_FABRIC_STATE_DIR"] = ""
+        os.environ["XDG_STATE_HOME"] = "/x"
+        check("an empty override is no override: XDG_STATE_HOME", ledger.path() == f"/x/agent-fabric/agents/{LOGIN}/ledger.jsonl")
+    finally:
+        for k, v in saved.items():
+            os.environ.pop(k, None)
+            if v is not None:
+                os.environ[k] = v
 
     with tempfile.TemporaryDirectory(prefix="test_ledger.") as tmp:
         print("append: one whole line, private, concurrent writers do not interleave")

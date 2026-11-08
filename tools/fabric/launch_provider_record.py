@@ -11,9 +11,17 @@ has launched, in a checkout that holds nothing of the launcher).
 from __future__ import annotations
 
 import datetime
+import importlib.util
 import json
 import os
 from collections.abc import Callable
+
+# By path: provisioning runs this in a checkout whose tools/fabric/ is not on sys.path.
+_spec = importlib.util.spec_from_file_location(
+    "fabric_launch_provider_record_identity",
+    os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "runtime", "identity.py"))
+identity = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(identity)
 
 RECORD = "launch-provider.json"
 
@@ -26,23 +34,15 @@ def write(state_dir: str, provider: str, transport: str = "", keep_existing: boo
     the account's own launch: the record is linked into place, which refuses
     rather than replace, and False is returned."""
     path = os.path.join(state_dir, RECORD)
-    tmp = f"{path}.tmp-{os.getpid()}"
     try:
         os.makedirs(state_dir, exist_ok=True)
-        with open(tmp, "w", encoding="utf-8") as fh:
-            # `transport` only when it is not direct: install_agent_files reads "provider" alone.
-            json.dump({"provider": provider, **({"transport": transport} if transport else {}),
-                       "at": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")}, fh)
-            fh.write("\n")
-        if not keep_existing:
-            os.replace(tmp, path)
-            return True
+        # `transport` only when it is not direct: install_agent_files reads "provider" alone.
+        doc = {"provider": provider, **({"transport": transport} if transport else {}),
+               "at": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")}
         try:
-            os.link(tmp, path)
+            identity.atomic_write(path, json.dumps(doc) + "\n", 0o600, replace=not keep_existing)
         except FileExistsError:
             return False
-        finally:
-            os.unlink(tmp)
         return True
     except OSError as exc:
         say(f"launch: could not record the provider in {path}: {exc}")

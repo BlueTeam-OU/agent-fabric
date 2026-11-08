@@ -29,6 +29,8 @@ import socket
 import threading
 from typing import Callable
 
+from fabric_launcher.base import identity
+
 FILE = "gateway-usage.json"
 REQUEST = b'{"op":"usage"}\n'
 INTERVAL_S = 60.0
@@ -87,18 +89,10 @@ def now_utc() -> str:
 def write(state_dir: str, doc: dict) -> str | None:
     """Atomic; the reason it could not, else None."""
     path = os.path.join(state_dir, FILE)
-    tmp = f"{path}.tmp-{os.getpid()}"
     try:
         os.makedirs(state_dir, exist_ok=True)
-        with open(os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600), "w", encoding="utf-8") as fh:
-            json.dump(doc, fh)
-            fh.write("\n")
-        os.replace(tmp, path)
+        identity.atomic_write(path, json.dumps(doc) + "\n", 0o600)
     except OSError as exc:
-        try:
-            os.unlink(tmp)
-        except OSError:
-            pass
         return exc.strerror or str(exc)
     return None
 
