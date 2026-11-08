@@ -225,7 +225,9 @@ which switches off the other carrier, could not have shown it.
 python-dev's BlueTeam-OU/agent-fabric#499 (j115, merged 2026-11-07)
 fixed the watch and proves the three properties against a relay that
 answers 500 to every fetch (`tests/test_gzcoord_carrier_inbox.py`, cases
-(a)–(c), each failing before the fix). That is a test double of the
+(a)–(c); #499 reports (a) and (c) failing before the fix, while (b), no
+second showing after a restart, also held before it, when nothing was
+shown at all). That is a test double of the
 relay; a claim that the carrier covers a relay outage rests on the live
 drill. Known limit: a relay that accepts the wait and never answers
 delays a carrier-only message by one wait slice plus the request
