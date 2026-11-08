@@ -253,6 +253,12 @@ def test_append_line_is_whole_private_and_rotates_once(tmp: str) -> None:
     identity.append_line(path, "again", max_bytes=1000)
     assert open(path).read() == "after\nagain\n" and open(path + ".1").read().startswith("one\n")
     assert os.stat(path + ".lock").st_mode & 0o777 == 0o600
+    # A lock an older build left 0644 is brought to 0600 by the next rotation.
+    os.chmod(path + ".lock", 0o644)
+    open(path, "a").write("x" * 1000)
+    identity.append_line(path, "wider", max_bytes=1000)
+    assert open(path).read() == "wider\n", "positive control: the rotation ran"
+    assert os.stat(path + ".lock").st_mode & 0o777 == 0o600, oct(os.stat(path + ".lock").st_mode)
     # A bounded wait gives up on a holder that does not let go, and writes nothing.
     held = os.open(path, os.O_WRONLY)
     try:
@@ -264,7 +270,7 @@ def test_append_line_is_whole_private_and_rotates_once(tmp: str) -> None:
             pass
     finally:
         os.close(held)
-    assert open(path).read() == "after\nagain\n"
+    assert open(path).read() == "wider\n"
     identity.append_line(path, "free", wait=0.2)
     assert open(path).read().endswith("free\n")
 
