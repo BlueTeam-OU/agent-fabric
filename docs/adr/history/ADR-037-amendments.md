@@ -120,3 +120,13 @@ Rule 14 is one table. Each row is a transition, the one subsystem that may make 
 The table is the specification, not yet the code. python-dev-04 pins today's behaviour against it in tests (its j100, REQUEST 01a1bce2), and each disagreement is a finding in that pull request, fixed afterwards and never in the characterisation. A single module that makes every transition, with a checker refusing a state write anywhere else, is the next step and gets its own decision.
 
 Rejected: new state names for the plan's stages (`claimed`, `working`, `reconciled`). They would change the on-disk format and every reader for no new distinction; the existing seven states and the pool's two already carry them.
+
+### Amendment 2026-11-09 — A pool claim ends
+
+python-dev-04's characterisation of rule 14 (#512, its j100, finding F9) found that the table had no row for the pool's own end. `control/pool.py` writes a job `claimed` and never rewrites it: whatever becomes of the claimant's job, the pool shows it claimed for ever, and a claim whose answer was lost is held by nobody, since the claimant's list never queued it. That needs a rule, not a fix of code against one.
+
+Two rows, both made by the pool holder's control agent, which is the pool's only writer (rule 9). A claim is `closed` once the claimant's state record shows the job it became `done` or `dropped`. The record is kept, closed, because the pool is also the history of what a role was offered. A claim is `open` again when, a day after it was claimed, no list of the claimant holds a job for it. The answer was lost, or the job never queued, and the work is offered again. Within that day, the same claimant claiming again gets it again, as rule 9 already says, which recovers a lost answer without a release. The state record is the evidence for both rows, as for rule 8's waiters: the holder reads it and never another account's list.
+
+Rejected: removing a closed claim from the pool. A record that disappears cannot be told from one never made. Also rejected: releasing on the claimant's silence alone. A claimant whose control agent is down still holds its job; the day bound and the state record keep a busy claimant's work from being handed to a second one.
+
+Decided, not built: the rows are implemented with the single module for job transitions of Wave 2 (ADR-067, j674's plan).
