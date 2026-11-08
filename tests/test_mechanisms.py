@@ -3,15 +3,20 @@
 
 Stdlib only; runnable as `python3 tests/test_mechanisms.py`. **Each case names the mutation it kills**:
 
-  well_formed_passes        <- any check firing on a catalogue the tree bears out
-  enforced_needs_wiring     <- _loads dropped from either the lint-rule or the pre-commit test, or a comment counted as loading
+  well_formed_passes        <- any check firing on a catalogue the tree bears out, a planned entry's missing owner included
+  enforced_needs_wiring     <- _loads dropped from the lint-rule, pre-commit or tests leg, or a rule module lint.py does not
+                               import counted as running
+  mention_is_not_a_load     <- a comment or a docstring naming the checker counted as loading it (text, not syntax, read)
+  real_loads_count          <- `import os, <stem>` or `from <stem> import x` not counted as a load
   enforced_needs_files      <- the checker/exceptions presence or tracked test dropped
+  named_paths_are_tracked   <- a pending or planned entry's named path not checked, or a non-string path crashing lint
   pending_and_planned       <- the JOB pattern or the waits_on test dropped
   entry_fields              <- the ADR, owner-tracked or status test dropped
   unreadable_and_absent     <- an unreadable catalogue read as empty, or an absent one (instance data) made a finding
   lint_is_wired             <- mechanism_findings not called from lint.main
 
-The tree itself is judged by the suite's corpus lint, not here: policies/*.json is instance data (ADR-045 rule 3).
+The tree itself is judged by the suite's corpus lint, not here: policies/*.json is instance data (ADR-045 rule 2), which a
+case may not read live (rule 3).
 """
 from __future__ import annotations
 
@@ -49,6 +54,8 @@ FILES = {
     "policies/state-writers.json": "{}\n",
     "tools/fabric/lint_rules/state.py": 'state_writes = _load("state_writes")\n',
     "tools/fabric/guards/commit_hooks.py": "import state_writes  # noqa: E402\n",
+    "tools/fabric/lint.py": "from fabric_lint_rules.state import state_write_findings\n",
+    "tests/test_state_writes.py": "import state_writes as sw\n",
 }
 
 
@@ -73,17 +80,38 @@ def case_well_formed_passes() -> None:
     out = m.mechanism_findings(tree({
         "state": ENFORCED,
         "process": {"adr": "ADR-067", "owner": "runtime/identity.py", "status": "pending", "job": "python-dev-02/j125"},
-        "jobs": {"adr": "ADR-037", "owner": "runtime/identity.py", "status": "planned", "waits_on": "j100"},
+        "jobs": {"adr": "ADR-037", "status": "planned", "waits_on": "j100"},
     }))
     assert out == [], out
 
 
 def case_enforced_needs_wiring() -> None:
-    out = m.mechanism_findings(tree({"state": ENFORCED}, {"tools/fabric/lint_rules/state.py": "# state_writes\n"}))
-    assert any("no lint rule" in f for f in out), out
-    assert not any("pre-commit" in f for f in out), out
+    out = m.mechanism_findings(tree({"state": ENFORCED}, {"tools/fabric/lint_rules/state.py": "x = 1\n"}))
+    assert [f for f in out if "no lint rule" in f] and not [f for f in out if "pre-commit" in f or "tests/" in f], out
     out = m.mechanism_findings(tree({"state": ENFORCED}, {"tools/fabric/guards/commit_hooks.py": "import state_writes2\n"}))
-    assert any("pre-commit hook" in f for f in out) and not any("no lint rule" in f for f in out), out
+    assert [f for f in out if "pre-commit hook" in f] and not [f for f in out if "no lint rule" in f], out
+    out = m.mechanism_findings(tree({"state": ENFORCED}, {"tests/test_state_writes.py": "x = 1\n"}))
+    assert out == [f"{m.POLICY}: state: enforced, but no tests/test_*.py loads tools/fabric/state_writes.py"], out
+    # A rule module lint.py never imports never runs, however it loads the checker.
+    out = m.mechanism_findings(tree({"state": ENFORCED}, {"tools/fabric/lint.py": "x = 1\n"}))
+    assert [f for f in out if "no lint rule that tools/fabric/lint.py imports" in f], out
+
+
+def case_mention_is_not_a_load() -> None:
+    out = m.mechanism_findings(tree({"state": ENFORCED}, {
+        "tools/fabric/lint_rules/state.py": '# state_writes = _load("state_writes")\n',
+        # This module's own comment names the loader call too; it must not answer for the rule that runs.
+        "tools/fabric/lint_rules/mechanisms.py": '# `_load("state_writes")` by path\n',
+        "tools/fabric/guards/commit_hooks.py": '"""\nimport state_writes\n"""\n',
+        "tools/fabric/lint.py": "from fabric_lint_rules.state import a\nfrom fabric_lint_rules.mechanisms import b\n"}))
+    assert [f for f in out if "no lint rule" in f] and [f for f in out if "pre-commit hook" in f], out
+
+
+def case_real_loads_count() -> None:
+    out = m.mechanism_findings(tree({"state": ENFORCED}, {
+        "tools/fabric/lint_rules/state.py": "from state_writes import scan\n",
+        "tools/fabric/guards/commit_hooks.py": "import os, state_writes\n"}))
+    assert out == [], out
 
 
 def case_enforced_needs_files() -> None:
@@ -91,6 +119,19 @@ def case_enforced_needs_files() -> None:
     assert any("names its exceptions" in f for f in out), out
     out = m.mechanism_findings(tree({"state": ENFORCED}, {"tools/fabric/state_writes.py": None}))
     assert any("checker 'tools/fabric/state_writes.py' is not a tracked file" in f for f in out), out
+
+
+def case_named_paths_are_tracked() -> None:
+    out = m.mechanism_findings(tree({
+        "p": {"adr": "ADR-067", "owner": "runtime/identity.py", "status": "pending", "job": "a-b/j1",
+              "checker": "tools/nowhere.py"},
+        "q": {"adr": "ADR-067", "owner": "tools/nowhere.py", "status": "planned", "waits_on": "x"},
+        "r": {**ENFORCED, "checker": ["x"], "exceptions": {"a": 1}},
+    }))
+    assert any(": p: checker 'tools/nowhere.py' is not a tracked file" in f for f in out), out
+    assert any(": q: owner 'tools/nowhere.py' is not a tracked file" in f for f in out), out
+    assert any(": r: checker ['x'] is not a tracked file" in f for f in out), out
+    assert any(": r: exceptions {'a': 1} is not a tracked file" in f for f in out), out
 
 
 def case_pending_and_planned() -> None:
@@ -103,7 +144,8 @@ def case_pending_and_planned() -> None:
 
 
 def case_entry_fields() -> None:
-    out = m.mechanism_findings(tree({"x": {"adr": "037", "owner": "tools/nowhere.py", "status": "done"}}))
+    out = m.mechanism_findings(tree({"x": {"adr": "037", "status": "done"},
+                                     "y": {"adr": "ADR-001", "owner": "tools/nowhere.py", "status": "pending", "job": "a/j1"}}))
     assert any("\"adr\" names the record" in f for f in out), out
     assert any("owner 'tools/nowhere.py' is not a tracked file" in f for f in out), out
     assert any("status 'done' is not one of" in f for f in out), out

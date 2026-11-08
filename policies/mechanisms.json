@@ -1,5 +1,5 @@
 {
-  "_comment": "agent-fabric ADR-067: each cross-cutting mechanism has one owning module, and every other module uses it. One entry per mechanism: the record it comes from, its owner, and its status. enforced: its checker and exceptions file are tracked, and lint and the pre-commit hook run the checker. pending: the job building the checker, as <login>/j<n>. planned: what it waits on. tools/fabric/lint_rules/mechanisms.py reads this file.",
+  "_comment": "agent-fabric ADR-067: each cross-cutting mechanism has one owning module, and every other module uses it. One entry per mechanism: the record it comes from, its owner, and its status. enforced: its checker and exceptions file are tracked, and a lint rule lint.py runs, the pre-commit hook and a tests/ case load the checker. pending: the job building the checker, as <login>/j<n>; the checker's paths enter with enforcement. planned: what it waits on; its owner is named once built. Every path named is tracked. tools/fabric/lint_rules/mechanisms.py reads this file.",
   "mechanisms": {
     "state-persistence": {
       "adr": "ADR-003",
@@ -12,9 +12,7 @@
       "adr": "ADR-067",
       "owner": "tools/fabric/provisioning/bounded.py",
       "status": "pending",
-      "job": "python-dev-02/j125",
-      "checker": "tools/fabric/process_spawns.py",
-      "exceptions": "policies/process-spawns.json"
+      "job": "python-dev-02/j125"
     },
     "remote-evidence": {
       "adr": "ADR-067",
@@ -26,21 +24,17 @@
       "adr": "ADR-003",
       "owner": "runtime/identity.py",
       "status": "pending",
-      "job": "python-dev-01/j212",
-      "checker": "tools/fabric/context_reads.py",
-      "exceptions": "policies/context-reads.json"
+      "job": "python-dev-01/j212"
     },
     "job-lifecycle": {
       "adr": "ADR-037",
-      "owner": "tools/fabric/jobsparts/records.py",
       "status": "planned",
-      "waits_on": "python-dev-04/j100: today's code characterised against ADR-037 rule 14, then one module making every transition"
+      "waits_on": "python-dev-04/j100: today's code characterised against ADR-037 rule 14; then one module making every transition, its owner"
     },
     "message-transport": {
       "adr": "ADR-064",
-      "owner": "tools/fabric/gzcoord/send.py",
       "status": "planned",
-      "waits_on": "W1-A landed: a transport interface over the relay and InterWeave carriers, the relay staying primary"
+      "waits_on": "W1-A landed: a transport interface over the relay and InterWeave carriers as its owner, the relay staying primary (ADR-064)"
     }
   }
 }
