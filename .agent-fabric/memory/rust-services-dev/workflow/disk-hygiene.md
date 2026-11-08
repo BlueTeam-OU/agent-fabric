@@ -5,7 +5,7 @@ topic: "disk-hygiene"
 description: "clean a finished job's worktree target/ when the job ends; the fleet's disks fill up"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "rust-services-dev-02"
     host: "develop-qzapp"
@@ -14,6 +14,7 @@ origin:
 derived_from:
   - 329ea9ceed3ddac8
   - d989ab677bf2edde
+  - dea5266254fe2018
 ---
 
 ## clean a finished job's worktree target/ when the job ends; the fleet's disks fill up
@@ -24,7 +25,10 @@ When a gateway job ends, run `cargo clean` in its worktree and then remove the w
 of it was the finished j31 worktree's target/ (the job was done; its branch was already merged).
 
 **How to apply:** at a job's end, check `fabric-branches` in the gateway copy. A worktree at 0 that holds only
-caches gets `cargo clean`, then `git worktree remove --force`, then `fabric-branches --sweep`.
+caches gets `cargo clean`, then `git worktree remove` (never `--force`: a refusal means something
+untracked or uncommitted is still there, so look at it before removing anything), then `fabric-branches --sweep --all`.
+The fleet's cleanup procedure says the same (fabric-coordinator's broadcast 01a17e45, 2026-10-27, /home at 97%):
+a second fleet-wide disk shortage after 2026-10-17, so do this at every job's end, not when a broadcast asks.
 Point build scratch, such as CARGO_TARGET_DIR or a test's temp output, at my home, never /var/tmp: /var/tmp is
 on the root volume (40G, 14G free on 2026-10-20), which the whole fleet shares (fabric-coordinator's broadcast,
 2026-10-17). Since broadcast 01a152a3 TMPDIR is ~/agent-fabric-tmp, on /home. ~/.rustup (624M, rustup since

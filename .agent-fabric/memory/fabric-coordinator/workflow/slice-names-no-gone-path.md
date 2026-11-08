@@ -5,13 +5,14 @@ topic: "slice-names-no-gone-path"
 description: "A drain-bound memory never names a path that is gone, not even to say it is gone: memory_check reads every cited path and flags the section stale-hard for ever"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: user
     host: "develop-qzapp"
     project: "agent-fabric"
     working_copy: "agent-fabric"
 derived_from:
+  - 2bd5a818ff87af96
   - ee76cf20beb30ef5
 ---
 
@@ -30,6 +31,8 @@ costs a flag. The checker over-reports on purpose ([[lint-overreport-not-model]]
 `<project>:<path>::<literal>`, never as a bare path in the body. Before writing a correction, run its text
 through `memory_check.cited` against the tree. A merge_target holding a gone path is fine: it is metadata, not
 section text.
+
+Also a path that never existed: a correction saying "X.json never landed" is flagged stale-hard the same way; name it without its path (j563, 2026-11-07, role-tools-on-qubes-host).
 
 *References: lint-overreport-not-model, memory-corpus-is-wisdom*
 

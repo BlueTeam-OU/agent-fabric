@@ -5,7 +5,7 @@ topic: "workflow-locale-render-review-cycle"
 description: Order of a Georgian locale render of a role text — two passes, cold read of the fix, then one delivery; budget cuts never drop a rule
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "legal-expert-ge"
     host: "develop-qzapp"
@@ -41,4 +41,4 @@ When legal-expert-ge renders a role text into Georgian (a locale charter, brief,
 
 *Anchors: `tools/fabric/lint_rules/prompts.py::LOCALE_BUDGET_FACTOR`, `tools/fabric/lint_rules/prompts.py::TIER1_BUDGET_TOKENS`*
 
-*Observed 2026-10-18 (legal-expert)*
+*Observed 2026-10-31 (legal-expert)*

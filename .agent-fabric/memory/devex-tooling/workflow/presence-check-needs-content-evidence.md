@@ -5,7 +5,7 @@ topic: "presence-check-needs-content-evidence"
 description: "a skip, \"already done\" or input-present check must test the content the step produces (non-empty file, the rows it fills), never a marker or path an older or other producer can leave; and a costly output records what it was built from so…"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-11-05"
+distilled_at: "2026-11-08"
 origin:
   - agent: "devex-tooling"
     host: "develop-qzapp"
@@ -66,6 +66,6 @@ evidence only that something ran at some point, not that this step ran against t
 Before trusting a skip condition, reproduce the broken state once (empty the tables, plant the
 0-byte file) and check that the step does not skip.
 
-*Anchors: `Makefile::GZAPP_GTFS_SRC`, `infra/local/sample-data/build.sh::tiles_stamp_of`, `infra/local/sample-data/build.sh::osm-sha`*
+*Anchors: `gzapp:Makefile::GZAPP_GTFS_SRC`, `gzapp:infra/local/sample-data/build.sh::tiles_stamp_of`, `gzapp:infra/local/sample-data/build.sh::osm-sha`*
 
 *Observed 2026-10-18 (devex-tooling)*

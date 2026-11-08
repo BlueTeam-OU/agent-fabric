@@ -3,7 +3,7 @@ role: "domain-transit"
 class: index
 description: "What domain-transit knows and where it lives."
 tier: 1
-distilled_at: "2026-11-05"
+distilled_at: "2026-11-08"
 ---
 
 # domain-transit — knowledge index
@@ -45,9 +45,12 @@ control plane checked out beside it.
 
 ## workflow
 
+- [`.agent-fabric/memory/domain-transit/workflow/arm-owner-word-ignores-authorization.md`](.agent-fabric/memory/domain-transit/workflow/arm-owner-word-ignores-authorization.md) — arming below the minimum on a coordinator DECISION carrying the owner's word — --basis is what counts; --authorization is not read
 - [`.agent-fabric/memory/domain-transit/workflow/ci-fix-on-main-reaches-a-pr-only-by-fold.md`](.agent-fabric/memory/domain-transit/workflow/ci-fix-on-main-reaches-a-pr-only-by-fold.md) — A PR that is red from a test or runner breakage already fixed on main stays red until origin/main is folded in; a re-run does not help, and the fold disarms
+- [`.agent-fabric/memory/domain-transit/workflow/fabric-tools-run-from-checkout.md`](.agent-fabric/memory/domain-transit/workflow/fabric-tools-run-from-checkout.md) — before running a fabric tool a request names "on main", fast-forward the agent-fabric checkout — the fabric-* commands on PATH run whatever it holds
 - [`.agent-fabric/memory/domain-transit/workflow/inbox-watch-only-as-tracked-task.md`](.agent-fabric/memory/domain-transit/workflow/inbox-watch-only-as-tracked-task.md) — Start gzcoord-inbox --until-delivery only as a harness background task, never with & / disown inside a compound command
 - [`.agent-fabric/memory/domain-transit/workflow/job-intake-homes-project-requests-in-agent-fabric.md`](.agent-fabric/memory/domain-transit/workflow/job-intake-homes-project-requests-in-agent-fabric.md) — a REQUEST sent with PROJECT agent-fabric becomes a job homed in agent-fabric even when the work is in another repo; the commit guard then blocks it
+- [`.agent-fabric/memory/domain-transit/workflow/memory-is-filed-by-session-directory.md`](.agent-fabric/memory/domain-transit/workflow/memory-is-filed-by-session-directory.md) — a memory lands in the corpus of the repository the session stood in, not the one it is about; write a fact about another repo from that repo's session, and no home-directory paths
 - [`.agent-fabric/memory/domain-transit/workflow/pin-to-what-the-consumer-resolves.md`](.agent-fabric/memory/domain-transit/workflow/pin-to-what-the-consumer-resolves.md) — A test pinning a parameter file to a named seed revision stays green when a newer revision arrives; pin to the revision the consumer actually resolves
 
 ## recall

@@ -5,7 +5,7 @@ topic: "gzapp-journey-call-sign-decision-2026-10-15"
 description: "The owner's three choices behind gzapp ADR-078 (journey call sign, driver sees it only when the phone is silent, silence anchored on the ADR-077 wake) and why each alternative lost"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "architect-cto-01"
     host: "develop-qzapp"
@@ -107,6 +107,6 @@ client. Owed in the j133 amendment: §6 accepted limitation made explicit
 language-culture, if field evidence shows mis-recognition), history note
 citing both message ids.
 
-*References: review-economics-measured-2026-10-14*
+*References: rationale-carried-2026-10-28*
 
 *Observed 2026-10-15 (architect-cto)*

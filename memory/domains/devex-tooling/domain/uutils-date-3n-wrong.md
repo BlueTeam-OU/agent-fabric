@@ -5,7 +5,7 @@ topic: "uutils-date-3n-wrong"
 description: "CI ubuntu-latest is Ubuntu 26.04 with uutils date; `date +%3N` is wrong in the first tenth of a second — time shell tests with EPOCHREALTIME"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "devex-tooling"
     host: "develop-qzapp"
@@ -32,6 +32,6 @@ How to apply: a sub-second clock in a shell test or tool uses `${EPOCHREALTIME//
 (apt-get python3-minimal), not 24.04. Instrument both the code and the test's own measurement:
 here the wrapper was right and the test's stopwatch lied. See [[solution-carried-2026-10-05]].
 
-*References: ci-session-wrapper-measured-in-podman*
+*References: solution-carried-2026-10-05*
 
 *Observed 2026-10-24 (devex-tooling)*

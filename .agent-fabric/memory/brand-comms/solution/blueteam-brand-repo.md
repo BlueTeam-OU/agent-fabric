@@ -5,13 +5,14 @@ topic: "blueteam-brand-repo"
 description: "blueteam.brand is BlueTeam OÜ's brand source of authority (created 2026-10-15); blueteam.ee copies its tokens at a pinned commit"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "brand-comms-01"
     host: "develop-qzapp"
     project: "agent-fabric"
     working_copy: "agent-fabric"
 derived_from:
+  - 7b5b9711fb6c82b7
   - 8bfa65dd0c2c7241
 ---
 
@@ -23,4 +24,4 @@ HK Grotesk Pro is licensed to blueteam.ee only, so it is never copied into the b
 
 *References: blueteam-positioning-human-plus-agentic*
 
-*Observed 2026-10-15 (brand-comms)*
+*Observed 2026-11-02 (brand-comms)*

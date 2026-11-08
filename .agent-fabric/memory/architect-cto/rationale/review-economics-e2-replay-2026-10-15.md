@@ -5,7 +5,7 @@ topic: "review-economics-e2-replay-2026-10-15"
 description: "E2 replay of historical re-reviews under the merged P2+P3 review pipeline (2026-10-15): phase 1 six cases, phase 2 27 P2-stratum cases, equivalents 0.45, calls flat, P2 non-inferiority at 2 misses / 7 historical overgrades / 5+ new P2…"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-11-01"
+distilled_at: "2026-11-08"
 origin:
   - agent: "architect-cto-01"
     host: "develop-qzapp"
@@ -29,6 +29,6 @@ E2 phase 2 result (2026-10-15, report section 15): 27 P2-stratum re-reviews repl
 
 **How to apply:** compare a ledger figure only with one computed the same way (sums by message id); run a further replay before any further policy change; the P1 non-regression rests on one case and stays open; a label grammar for review reports would make the finding count mechanical.
 
-*References: review-economics-measured-2026-10-14*
+*References: rationale-carried-2026-10-28*
 
 *Observed 2026-10-15 (architect-cto)*

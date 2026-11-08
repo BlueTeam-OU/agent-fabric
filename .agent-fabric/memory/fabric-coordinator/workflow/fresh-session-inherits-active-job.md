@@ -5,7 +5,7 @@ topic: "fresh-session-inherits-active-job"
 description: "a fresh session launched for job B can start with job A still active and A's branch ahead of origin; the push guard then refuses from the agent-fabric cwd, so leaving A means dropping a re-creatable merge, not pushing"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-11-05"
+distilled_at: "2026-11-08"
 origin:
   - agent: user
     host: "develop-qzapp"
@@ -13,6 +13,7 @@ origin:
     working_copy: "agent-fabric"
 derived_from:
   - 098db945d7ac304a
+  - b6e7d1d500d8a072
 ---
 
 ## a fresh session launched for job B can start with job A still active and A's branch ahead of origin; the push guard then refuses from the agent-fabric cwd, so leaving A means dropping a re-creatable merge, not pushing
@@ -26,6 +27,11 @@ because the only extra commit was a merge of main that can be redone with one co
 `git log origin/<branch>..HEAD --not origin/main` first. If it shows real work, run `fabric-fresh --job <A>` and push
 from there instead.
 Related: [[switch-to-named-job-directly]], [[block-active-job-locks-session]].
+
+2026-11-07, again (j631 named, j577 active at launch, same copy): pause j577 + start j631 worked, but the publish
+guard still refused `fabric-pr post-review` — the session counts as having worked the job active at launch. So when
+the launch's active job is not the one the start message names, do nothing that publishes: pause the named job's
+predecessor, `fabric-jobs switch`, and run the `fabric-fresh --job` it prints straight away.
 
 *References: block-active-job-locks-session, guard-counts-session-cwd, switch-to-named-job-directly*
 

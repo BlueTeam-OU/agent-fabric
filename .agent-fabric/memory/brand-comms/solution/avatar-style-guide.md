@@ -5,13 +5,14 @@ topic: "avatar-style-guide"
 description: "ADR-056 avatar generation — where the style guide is, the fixed prompt template, and what gpt-image-1 does with framing words"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "brand-comms-01"
     host: "develop-qzapp"
     project: "agent-fabric"
     working_copy: "agent-fabric"
 derived_from:
+  - a08129f5ab2d16c6
   - adfa55726d7aff89
 ---
 
@@ -27,7 +28,7 @@ Mouths: gpt-image-1 draws an anime smile line plus a lower-lip tone; on a long t
 
 Related: [[avatar-appearance-follows-surname-culture]].
 
-2026-10-16 (j23, legal-expert-ch and legal-expert-ge): six more draws with even stronger mouth/chin wording ("lips painted only as flat colour, no outline… between the lips and the chin only plain smooth skin… completely blank") still produced the dash under the lower lip in all six. Re-prompting does not fix it. What works and is cheaper: draw once or twice, take the best one, and paint out the dash with `~/work/avatars/retouch.py <in> <out> x0 y0 x1 y1`. The box goes under the lip and must not include lip pixels: the fill is the skin of the box's bottom row plus paper grain. Record the retouch and its box in `<n>.prompt.txt`, and check a full-size crop before and after.
+2026-10-16 (j23, legal-expert-ch and legal-expert-ge): six more draws with even stronger mouth/chin wording ("lips painted only as flat colour, no outline… between the lips and the chin only plain smooth skin… completely blank") still produced the dash under the lower lip in all six. Re-prompting does not fix it. What works and is cheaper: draw once or twice, take the best one, and paint out the dash with `retouch.py <in> <out> x0 y0 x1 y1` (brand-comms\' own retouch script, in no repository). The box goes under the lip and must not include lip pixels: the fill is the skin of the box's bottom row plus paper grain. Record the retouch and its box in `<n>.prompt.txt`, and check a full-size crop before and after.
 
 2026-10-16 (j24): I described 3.png to ux-designer-01 from its prompt ("hazel eyes"), but the model drew brown and the agent noticed. Describe an offered candidate from the image, never from the prompt. Also: agents do not know that `settings-put` is a subcommand of `fabric-secrets store`. Give the full command and the profile.json fields in the offer itself.
 

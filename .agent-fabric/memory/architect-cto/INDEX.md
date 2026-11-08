@@ -3,7 +3,7 @@ role: "architect-cto"
 class: index
 description: "What architect-cto knows and where it lives."
 tier: 1
-distilled_at: "2026-11-05"
+distilled_at: "2026-11-08"
 ---
 
 # architect-cto — knowledge index
@@ -88,9 +88,12 @@ control plane checked out beside it.
 
 ## workflow
 
+- [`.agent-fabric/memory/architect-cto/workflow/arm-authorization-job-is-delivered-as-reply-id.md`](.agent-fabric/memory/architect-cto/workflow/arm-authorization-job-is-delivered-as-reply-id.md) — An arming authorization answered over GZCoord is a job delivered with `reply:<MESSAGE-ID>`, never `gzcoord:<id>`; the AUTHORIZES header rides a REPLY to a QUESTION as well as a DECISION, and vouches for one head only
 - [`.agent-fabric/memory/architect-cto/workflow/authorizes-line-send-refused-by-auto-mode.md`](.agent-fabric/memory/architect-cto/workflow/authorizes-line-send-refused-by-auto-mode.md) — The auto-mode classifier refuses gzcoord-send of a DECISION carrying an AUTHORIZES line (boundary arm below minimum) as "CI Bypass"; the judgement is done in-session, the line reaches the arm only by the owner's hand
-- [`.agent-fabric/memory/architect-cto/workflow/auto-mode-classifier-refuses-authorizes-send.md`](.agent-fabric/memory/architect-cto/workflow/auto-mode-classifier-refuses-authorizes-send.md) — gzcoord-send of a message carrying an AUTHORIZES header for another agent's PR is refused by the auto-mode classifier (Auto-Mode Bypass), even on the owner's explicit word in session; the owner's word to the PR owner directly is the…
+- [`.agent-fabric/memory/architect-cto/workflow/auto-mode-classifier-refuses-authorizes-send.md`](.agent-fabric/memory/architect-cto/workflow/auto-mode-classifier-refuses-authorizes-send.md) — Correction, 2026-11-03: gzcoord-send of a REPLY or DECISION carrying AUTHORIZES from gzapp's arming authority is allowed in auto mode since agent-fabric f5968f1c (policies/auto-mode.json allow[1]); the 2026-10-18 refusal is history
 - [`.agent-fabric/memory/architect-cto/workflow/drain-heading-comes-from-description.md`](.agent-fabric/memory/architect-cto/workflow/drain-heading-comes-from-description.md) — the drain derives a slice's heading and INDEX line from the memory's description; a person's domain or name in a description travels into every project, so name the artifact, never its author
+- [`.agent-fabric/memory/architect-cto/workflow/drain-leftovers-in-a-read-only-checkout-are-stashed-never-discarded.md`](.agent-fabric/memory/architect-cto/workflow/drain-leftovers-in-a-read-only-checkout-are-stashed-never-discarded.md) — Drain-written slice edits that block a control-plane fast-forward are stashed under a job-named entry, then merge --ff-only; the stash is the drain owner's evidence
+- [`.agent-fabric/memory/architect-cto/workflow/drain-pr-assembler-findings-are-deferred-to-agent-fabric-jobs.md`](.agent-fabric/memory/architect-cto/workflow/drain-pr-assembler-findings-are-deferred-to-agent-fabric-jobs.md) — A drain PR's review findings that name the assembler (unresolved links, References not repointed, a stale section_writers key) are agent-fabric's to fix and are deferred on the arm with --defer to an agent-fabric job, never fixed on the…
 - [`.agent-fabric/memory/architect-cto/workflow/fold-by-merge-breaks-follow-on-a-rename.md`](.agent-fabric/memory/architect-cto/workflow/fold-by-merge-breaks-follow-on-a-rename.md) — A branch that renames a file must not fold origin/main by merge while main still has a file under the renamed-to name; git log --follow loses the history. Rebase instead, and measure in a scratch clone.
 - [`.agent-fabric/memory/architect-cto/workflow/gzapp-active-contract-member-needs-dto-in-same-pr.md`](.agent-fabric/memory/architect-cto/workflow/gzapp-active-contract-member-needs-dto-in-same-pr.md) — In gzapp, a contract that goes ACTIVE carries its dependants in the same PR: a new member of an active closed contract needs the backend DTO member (the merge queue runs the conformance test the PR CI skips), and an activation needs every…
 - [`.agent-fabric/memory/architect-cto/workflow/gzapp-journey-call-sign-decision-2026-10-15.md`](.agent-fabric/memory/architect-cto/workflow/gzapp-journey-call-sign-decision-2026-10-15.md) — The owner's three choices behind gzapp ADR-078 (journey call sign, driver sees it only when the phone is silent, silence anchored on the ADR-077 wake) and why each alternative lost

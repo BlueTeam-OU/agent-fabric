@@ -5,7 +5,7 @@ topic: "antique-anthropic-code-review-surface"
 description: "Antique is Anthropic's internal code review surface (2026), beside Scion source control; what is public about it and what is not"
 tier: 2
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "architect-cto-01"
     host: "develop-qzapp"
@@ -23,6 +23,6 @@ Public facts (the post, plus Simon Willison's chart reading): Antique "change re
 
 Not public: who reviews (humans vs agents), stacking, review cost or token accounting, how a review gates a merge. Nothing to copy from it yet for [[rationale-carried-2026-10-28]]; the one transferable idea is approval constraints that classify a change by what it touches, which our arming policy does only by work-commit count and security-boundary paths.
 
-*References: review-economics-measured-2026-10-14*
+*References: rationale-carried-2026-10-28*
 
 *Observed 2026-10-15 (architect-cto)*

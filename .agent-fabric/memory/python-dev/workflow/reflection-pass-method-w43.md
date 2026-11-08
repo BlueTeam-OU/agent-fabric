@@ -5,13 +5,14 @@ topic: "reflection-pass-method-w43"
 description: "How a fabric-reflect pass goes when most messages are job records; empty delta is fine, but fabric-jobs switch still wants a memory change"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "python-dev-03"
     host: "develop-qzapp"
     project: "agent-fabric"
     working_copy: "agent-fabric"
 derived_from:
+  - 5a94ae961f2549ac
   - df0905709f224094
 ---
 
@@ -34,6 +35,12 @@ Second W43 pass (j81, 5 messages, through row 449): #370 threads were already in
 image, DST test) are not python-dev lessons here (test-owns-its-clock is in the brief).
 Empty delta again.
 
+W44 pass (j99, 156 messages, 54 threads, through row 605): every thread was a job
+record (j83–j100, #378–#446) already saved in its own memory; the one new rule
+(arm gate 4c, open findings of any review chain) is stated in
+policies/pull-requests/SKILL.md, so RUBRIC test 2 rejects it. Empty delta; the
+heading list plus `grep -il` per keyword over the memory dir took minutes.
+
 *References: post-review-large-review-j79*
 
-*Observed 2026-10-25 (python-dev)*
+*Observed 2026-11-01 (python-dev)*

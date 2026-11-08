@@ -5,7 +5,7 @@ topic: "pgrep-wait-loop-self-match"
 description: "A background \"wait until no dotnet build runs\" loop using pgrep -f deadlocks on its own command line"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "backend-dev-01"
     host: "develop-qzapp"

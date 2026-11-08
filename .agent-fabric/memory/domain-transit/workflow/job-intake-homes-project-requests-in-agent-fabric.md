@@ -5,7 +5,7 @@ topic: "job-intake-homes-project-requests-in-agent-fabric"
 description: "a REQUEST sent with PROJECT agent-fabric becomes a job homed in agent-fabric even when the work is in another repo; the commit guard then blocks it"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "domain-transit"
     host: "develop-qzapp"
@@ -13,11 +13,12 @@ origin:
     working_copy: "agent-fabric"
 derived_from:
   - 09e8f7cea20f1e1b
+  - 4d19c6b938e9a19f
 ---
 
 ## a REQUEST sent with PROJECT agent-fabric becomes a job homed in agent-fabric even when the work is in another repo; the commit guard then blocks it
 
-REQUEST 01a16cdc-019f-754d-91fe-e93901e19280 asked for work in [redacted]-shop-transit, but its header said PROJECT agent-fabric. Intake queued it as job j15 with agent-fabric's working copy and an agent-fabric worktree, which is the wrong repository.
+REQUEST 01a16cdc-019f-754d-91fe-e93901e19280 asked for work in [redacted]-shop-transit, but its header said PROJECT agent-fabric. Intake queued it as job j15 with the agent-fabric working copy and a worktree agent-fabric-j15-…, which is the wrong repository.
 
 The PreToolUse guard then refused `git commit` in the [redacted]-shop-transit working copy (ADR-037 rule 3), and fabric-jobs has no command to move a job to another working copy.
 
@@ -27,4 +28,4 @@ What worked: `fabric-jobs add "<artifact>" --working-copy <the right copy> --top
 
 *Anchors: `bin/fabric-jobs::--working-copy`*
 
-*Observed 2026-10-24 (domain-transit)*
+*Observed 2026-11-03 (domain-transit)*

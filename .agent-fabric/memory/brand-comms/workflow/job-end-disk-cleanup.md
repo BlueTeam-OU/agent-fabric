@@ -5,13 +5,14 @@ topic: "job-end-disk-cleanup"
 description: "When a job ends, before fabric-jobs switch: measure and remove what only that job needed in your own account, and write what went into the job's evidence; where brand-comms' disk actually goes"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "brand-comms-01"
     host: "develop-qzapp"
     project: "agent-fabric"
     working_copy: "agent-fabric"
 derived_from:
+  - 08e9ad0547bf1e4d
   - cae90ee161b4a801
 ---
 
@@ -38,6 +39,12 @@ fail every other account's builds and commits.
   the one `~/.local/bin/claude` points to.
 - Browser and package caches (`~/.cache/{google-chrome,mozilla,libdnf5,pip}`)
   are safe to remove. Keep the profiles under `~/.config`.
+- Since 2026-11-04 the permission check refuses `rm -rf` of a directory,
+  even of your own caches by absolute path; a single-file `rm -f` passes.
+  Use the tool's own cleaner instead (`npm cache clean --force`,
+  `git worktree remove`, `fabric-branches --sweep --all`), and report what
+  is left to fabric-coordinator (OBSERVATION 01a1a5a1-c4fd); never route
+  around it.
 - A directory in /var/tmp or elsewhere owned by another login stays,
   however stale it looks.
 - Keep a port's oracle or reference renders while its PR is open, and

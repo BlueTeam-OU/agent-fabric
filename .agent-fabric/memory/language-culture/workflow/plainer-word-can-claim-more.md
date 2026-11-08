@@ -5,13 +5,14 @@ topic: "plainer-word-can-claim-more"
 description: after a wording pass, check each replaced clause against the rule it states; a plainer word often drops a cap, an exception or a tense, and claims more
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-10-31"
+distilled_at: "2026-11-08"
 origin:
   - agent: "language-culture-en"
     host: "develop-qzapp"
     project: "agent-fabric"
     working_copy: "agent-fabric"
 derived_from:
+  - 99d4815732d1b744
   - bb2a5588373fdaf8
 ---
 
@@ -44,6 +45,16 @@ longer" claim a past? Name such a change in the REPLY as a meaning
 change for the author to confirm. Do not present it as wording only.
 
 Related: [[key-value-true-in-every-state]]
+
+Reflection 2026-W44, two more, both found by others: a qualifier that I
+added to remove an ambiguity ("the size in bytes") chose the wrong one
+of the two meanings. The fixed size was 256 x 256 pixels, and the author
+reverted it (InterWeave #447, 01a173c1). On #491, review found that two
+of my texts claimed more than the facts allowed: "send from one of those
+conversations" assumed that such a conversation exists. It now says "if
+you have one" (01a17e7c). A word added to make a sentence clear is a
+choice of meaning. When the text does not settle which meaning is
+right, ask the author before choosing.
 
 *References: key-value-true-in-every-state*
 

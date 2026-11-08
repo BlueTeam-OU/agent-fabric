@@ -3,7 +3,7 @@ role: "backend-dev"
 class: index
 description: "What backend-dev knows and where it lives."
 tier: 1
-distilled_at: "2026-11-05"
+distilled_at: "2026-11-08"
 ---
 
 # backend-dev — knowledge index
@@ -41,6 +41,7 @@ control plane checked out beside it.
 - [`memory/domains/backend-dev/domain/media-urls-meet-the-browser-element.md`](memory/domains/backend-dev/domain/media-urls-meet-the-browser-element.md) — Before shaping a media read, check how the client's element will load the URL: an <img>/<video> src sends no Authorization header, so a 302 from a bearer-only route never reaches it; and an HLS manifest plays natively only in Safari.
 - [`memory/domains/backend-dev/domain/middleware-error-ordering.md`](memory/domains/backend-dev/domain/middleware-error-ordering.md) — Guard middleware that throws must be registered after the problem-details middleware — correction qualifying the gzapp ADR citations
 - [`memory/domains/backend-dev/domain/name-the-failing-half-not-a-quantifier.md`](memory/domains/backend-dev/domain/name-the-failing-half-not-a-quantifier.md) — Writing or reviewing prose, a log line or an error message about a guard over two or more conditions — name which condition failed; a quantified sentence ("both", "and", "no X and Y") inverts under negation
+- [`memory/domains/backend-dev/domain/npgsql-command-timeout-ends-lock-waits.md`](memory/domains/backend-dev/domain/npgsql-command-timeout-ends-lock-waits.md) — Setting or documenting a statement bound next to a lock bound (Npgsql Command Timeout, lock_timeout) — the client-side timeout cancels a lock wait too, so the wait ends at the lower of the two with a different error; the factory bakes 30…
 - [`memory/domains/backend-dev/domain/npgsql-pooling.md`](memory/domains/backend-dev/domain/npgsql-pooling.md) — NpgsqlDataSource, not raw NpgsqlConnection, is what OTel query-span instrumentation hooks — correction qualifying the gzapp ADR citation
 - [`memory/domains/backend-dev/domain/offset-less-instants-take-the-process-zone.md`](memory/domains/backend-dev/domain/offset-less-instants-take-the-process-zone.md) — Parsing a date-time at any boundary in .NET (request body, engine response, feed) — a string without an offset is read in the process's local zone, UTC in a container; require the offset or read the exact scalar
 - [`memory/domains/backend-dev/domain/one-read-test-needs-a-moving-clock.md`](memory/domains/backend-dev/domain/one-read-test-needs-a-moving-clock.md) — How to write a test that pins "one clock read per operation" so it can actually fail
@@ -51,7 +52,9 @@ control plane checked out beside it.
 
 ## workflow
 
-- [`.agent-fabric/memory/backend-dev/workflow.md`](.agent-fabric/memory/backend-dev/workflow.md) — A background "wait until no dotnet build runs" loop using pgrep -f deadlocks on its own command line
+- [`.agent-fabric/memory/backend-dev/workflow/fabric-jobs-mark-active-before-the-work.md`](.agent-fabric/memory/backend-dev/workflow/fabric-jobs-mark-active-before-the-work.md) — Doing a short job (a memory fix, a reply) before running fabric-jobs to make it active — switch then refuses to leave it, because it dates "memory changed" from the last active stamp
+- [`.agent-fabric/memory/backend-dev/workflow/fabric-review-rereview-card-base.md`](.agent-fabric/memory/backend-dev/workflow/fabric-review-rereview-card-base.md) — Writing a fabric-review brief request — a PR's re-review gives pr + range from the last posted review's head, and NO previous_findings or card_base (both read from that review); card_base only for a PR-less ranged request whose base is…
+- [`.agent-fabric/memory/backend-dev/workflow/pgrep-wait-loop-self-match.md`](.agent-fabric/memory/backend-dev/workflow/pgrep-wait-loop-self-match.md) — A background "wait until no dotnet build runs" loop using pgrep -f deadlocks on its own command line
 
 ## recall
 
