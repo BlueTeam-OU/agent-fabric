@@ -187,13 +187,13 @@ class Intake(unittest.TestCase):
         doc = {"jobs": [], "seq": 0}
         return self.jobs.request_job(doc, msg)["title"]
 
-    def test_f12_today_add_request_titles_the_job_by_its_subject_and_the_inbox_by_subject_and_request_id(self):
+    def test_f13_today_add_request_titles_the_job_by_its_subject_and_the_inbox_by_subject_and_request_id(self):
         self.receive(self.delivery())
         self.assertEqual(self.w.job("j1")["title"], f"a subject (REQUEST {MID})")
         self.assertEqual(self.request_job_title(), "a subject")
 
     @unittest.expectedFailure
-    def test_f12_a_request_is_titled_the_same_by_every_path_that_makes_it_a_job(self):
+    def test_f13_a_request_is_titled_the_same_by_every_path_that_makes_it_a_job(self):
         # The requester's `request:<id>` blocker finds the job its REQUEST became by this title's suffix (blockers._became); a job
         # added by `add --request` has none, so the board shows no such job and the wait reads as cleared.
         self.assertEqual(self.jobs.request_id_of(self.request_job_title()), MID)
