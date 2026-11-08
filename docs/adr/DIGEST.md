@@ -667,9 +667,9 @@ its record disagree, the record wins. Look it up, never read it whole:
 
 ### ADR-029 — The control plane: a control agent per account answers signed actions over the relay (Accepted)
 
-- Each agentd answers `fabric:control`; down, requests are lost
+- Agentds answer `fabric:control`; down, requests lost
   (r1–2).
-- Closed op set, no field reaches shells; actions carry fresh
+- Closed ops, no field reaches shells; actions carry fresh
   Ed25519 operator signatures (r3–5).
 - Replies: no secret; silence, failure exit 1 (r6–9).
 - A 2026-09-27 — actions (r12).
@@ -685,10 +685,10 @@ its record disagree, the record wins. Look it up, never read it whole:
 - A 2026-10-09 — forged claims (r4).
 - A 2026-10-09 — Scope.
 - A 2026-10-09 — `tools-install` (r3/r12).
-- A 2026-10-09 — closed jobs (§2).
-- A 2026-10-10 — gateway ops (§2).
+- A 2026-10-09 — closed jobs.
+- A 2026-10-10 — gateway ops.
 - A 2026-10-12 — switch controller.
-- A 2026-10-18 — installer pins (§2).
+- A 2026-10-18 — installer pins.
 - A 2026-10-19 — rustup-target (§2).
 - A 2026-10-25 — install/read.
 - A 2026-10-25 — start/stop.
@@ -702,6 +702,7 @@ its record disagree, the record wins. Look it up, never read it whole:
 - A 2026-10-30 — budgets (r12).
 - A 2026-10-30 — hold (r13).
 - A 2026-10-31 — roles.
+- A 2026-11-08 — drill sections.
 - Keywords: fabric-ctl, keys, operator_key, usage, tokens, herdr,
   resume, interweave-evidence, interweave-human, fabric-control,
   control_carrier, break-glass.
