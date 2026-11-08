@@ -57,7 +57,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.realpath(__file__
 sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
 import gh  # noqa: E402
 import roots  # noqa: E402
-from github import commit_class, review_coverage  # noqa: E402
+from github import commit_class, evidence, review_coverage  # noqa: E402
 from github.post_review import REVIEW_MARKER  # noqa: E402
 BAND_FLOOR = 8                                       # ADR-019: fewer work commits, the owner arms
 GREEN = {"SUCCESS", "SKIPPED", "NEUTRAL"}
@@ -138,8 +138,6 @@ def judge(pr: dict, later: list[dict], now: dt.datetime, window_days: int, cls=c
             "work": work, "fix": fix, "supervision": supervision}
 
 
-REST_COMMITS_CAP = 250
-
 
 def merged_prs(repo: str, since: dt.datetime, extra_fields: tuple = ()) -> list[dict]:
     # The numbers first, then each PR alone: GitHub refuses one query over
@@ -153,12 +151,15 @@ def merged_prs(repo: str, since: dt.datetime, extra_fields: tuple = ()) -> list[
         pr = gh.pr_view(p["number"], fields, repo=repo)
         # gh's commit list has no parents; the REST list has them, so a
         # merge folded into the branch is not counted as work (review of #68).
-        rest = gh.api(f"repos/{repo}/pulls/{p['number']}/commits?per_page=100", paginate=True)
+        rest = evidence.PrEvidence(repo, p["number"]).commits()
+        cut = isinstance(rest, evidence.Incomplete)
+        if cut:
+            rest = list(rest.partial)
         parents = {c["sha"]: [x.get("sha") for x in c.get("parents") or []] for c in rest}
         messages = {c["sha"]: ((c.get("commit") or {}).get("message") or "").split("\n", 1)[0] for c in rest}
         # GitHub's commit list of a PR ends at 250 commits however it is paged, and gives no sign of it: a list that
         # long, or a commit of gh's list missing from it, is a PR read in part, said apart and never counted whole.
-        pr["cut"] = len(rest) >= REST_COMMITS_CAP or any(c["oid"] not in parents for c in pr.get("commits") or [])
+        pr["cut"] = cut or any(c["oid"] not in parents for c in pr.get("commits") or [])
         for c in pr.get("commits") or []:
             c["parents"] = len(parents.get(c["oid"], [None]))
             c["parentShas"] = parents.get(c["oid"], [])

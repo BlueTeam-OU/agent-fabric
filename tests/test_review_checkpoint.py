@@ -19,6 +19,7 @@ scrub_process_env()
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(HERE, "tools", "fabric"))
 import gh  # noqa: E402
+from github import common  # noqa: E402
 from github import review_checkpoint as cp  # noqa: E402
 from github import review_coverage as rcov  # noqa: E402
 from github import review_posters  # noqa: E402
@@ -183,7 +184,7 @@ def main() -> int:
         check("no coverage block", ask([rv(body().split("```")[0])]) is None)
         check("a marker naming another head than the review is on", ask([rv(body(), commit_id=c2)]) is None)
         check("a head that is not a commit of the PR", ask([rv(body())], listed=(c2,)) is None)
-        check("a commit list GitHub may have cut", ask([rv(body())], listed=[c1] + [f"{i:040x}" for i in range(cp.COMMIT_LIST_CAP)]) is None)
+        check("a commit list GitHub may have cut", ask([rv(body())], listed=[c1] + [f"{i:040x}" for i in range(common.PR_COMMIT_LIST_CAP)]) is None)
         check("a force-push: the head is no ancestor of the PR's head now", ask([rv(body())], current=forced) is None)
         check("a base that is not an ancestor of the head", ask([rv(body(base=forced))]) is None)
         check("a config that changed since", ask([rv(body())], cfg=lambda card: "7" * 64) is None)

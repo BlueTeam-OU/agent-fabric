@@ -59,6 +59,9 @@ def project_config_path(setting: str, filename: str, subdir: str | None = "gh") 
 # takes it as the whole change (re-review of #70; external review F08, where
 # arm read 3000 docs paths as a docs-only change).
 PR_FILE_LIST_CAP = 3000
+# The same for its commits, at 250. Both caps live here and are read through github/evidence.py alone
+# (tools/fabric/evidence_caps.py is the check): a second copy of either is how a reader once took a cut list as whole.
+PR_COMMIT_LIST_CAP = 250
 
 PR_PROJECT_SETTING = "AGENT_FABRIC_PR_PROJECT"
 _OWNER_NAME = re.compile(r"[A-Za-z0-9._-]+/[A-Za-z0-9._-]+")

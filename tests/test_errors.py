@@ -12,6 +12,7 @@ import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "tools", "fabric"))
 import errors  # noqa: E402
+from github import common  # noqa: E402
 
 NOW = dt.datetime(2026, 10, 30, tzinfo=dt.timezone.utc)
 MARK = errors.REVIEW_MARKER
@@ -415,7 +416,7 @@ def main() -> int:
     row = lambda i: {"sha": f"s{i}", "parents": [{"sha": f"s{i - 1}"}], "commit": {"message": "x"}}  # noqa: E731
     try:
         whole = read_with([row(i) for i in range(3)], ["s0", "s1", "s2"])
-        at_cap = read_with([row(i) for i in range(errors.results.REST_COMMITS_CAP)], ["s0"])
+        at_cap = read_with([row(i) for i in range(common.PR_COMMIT_LIST_CAP)], ["s0"])
         lacking = read_with([row(0)], ["s0", "s1"])
     finally:
         errors.results.gh.pr_list, errors.results.gh.pr_view, errors.results.gh.api = saved
