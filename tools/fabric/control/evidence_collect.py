@@ -9,8 +9,15 @@ CONTRACT
              there with a reason, and the account is `incomplete`: parity refuses an
              incomplete account, because a report computed from half a log would read as
              carrier misses. At most MAX_PAGES pages of one section of one account.
-  write_dir  <out>/<login>/arrivals.jsonl, deliveries.jsonl, kinds.json and meta.json
-             ({login, since, until, margin_s, complete, journal, pages, counts}), the
+             The relay-outage drill's two sections (shown, acks) are paged the same way but
+             a failure of theirs ends only them: the account stays `complete` for the report
+             it already had and its meta says `relay_outage` {complete, reason}, which only
+             `parity --relay-drill` reads (an account whose daemon predates the sections
+             must not turn every rollback report into a refusal). Unknown stays unknown:
+             that account has no drill evidence, never an empty one.
+  write_dir  <out>/<login>/arrivals.jsonl, deliveries.jsonl, shown.jsonl, acks.jsonl, kinds.json and
+             meta.json ({login, since, until, margin_s, complete, journal, pages, counts,
+             relay_outage}), the
              directories 0700 and the files 0600 (other accounts' traffic is not for
              everyone), each replaced atomically; a login's directory is written whole or
              not touched. Every account asked has one, an account that never answered with
@@ -32,15 +39,16 @@ Send = Callable[[list[str], str, str, str], dict]
 
 
 def _fresh() -> dict:
-    return {"arrivals": [], "deliveries": [], "kinds": {}, "journal": "ok", "pages": {"arrivals": 0, "deliveries": 0},
-            "skipped": 0, "undated": 0, "complete": True, "reason": None, "answered": False}
+    return {"arrivals": [], "deliveries": [], "shown": [], "acks": [], "kinds": {}, "journal": "ok",
+            "pages": {s: 0 for s in ev.ALL_SECTIONS}, "skipped": 0, "undated": 0, "complete": True, "reason": None,
+            "answered": False, "relay_outage": {"complete": True, "reason": None}}
 
 
 def collect(logins: list[str], since: str, until: str, send: Send, max_pages: int = MAX_PAGES) -> dict[str, dict]:
     got = {login: _fresh() for login in logins}
-    for section in ev.SECTIONS:
+    for section in ev.ALL_SECTIONS:
         start, end = ev.window_for(section, since, until)
-        at: dict[str, str] = {login: start for login in logins if got[login]["complete"]}
+        at: dict[str, str] = {login: start for login in logins if got[login]["complete"] and got[login]["relay_outage"]["complete"]}
         for _ in range(max_pages):
             if not at:
                 break
@@ -72,7 +80,7 @@ def _round(got: dict, groups: dict, section: str, until: str, send: Send) -> dic
                 acct["skipped"] += int(r.get("skipped") or 0)
                 if r.get("journal") != "ok":
                     acct["journal"] = r.get("journal") or "unreadable"
-            else:
+            elif section == "deliveries":
                 acct["undated"] += int(r.get("undated") or 0)
             n = r.get("next")
             if n is None:
@@ -85,11 +93,16 @@ def _round(got: dict, groups: dict, section: str, until: str, send: Send) -> dic
 
 
 def _stop(acct: dict, reason: str) -> None:
+    section = reason.split(":", 1)[0]
+    if section in ev.DRILL_SECTIONS:
+        acct["relay_outage"]["complete"], acct["relay_outage"]["reason"] = False, acct["relay_outage"]["reason"] or reason
+        return
     acct["complete"], acct["reason"] = False, acct["reason"] or reason
 
 
 def counts(acct: dict) -> dict:
-    return {"arrivals": len(acct["arrivals"]), "deliveries": len(acct["deliveries"]), "kinds": len(acct["kinds"])}
+    return {"arrivals": len(acct["arrivals"]), "deliveries": len(acct["deliveries"]), "kinds": len(acct["kinds"]),
+            "shown": len(acct["shown"]), "acks": len(acct["acks"])}
 
 
 def _atomic(path: str, data: bytes) -> None:
@@ -121,7 +134,7 @@ def write_dir(out: str, login: str, acct: dict, since: str, until: str) -> str:
     os.chmod(d, 0o700)
     meta = {"login": login, "since": since, "until": until, "margin_s": ev.LOOKBACK_S, "complete": acct["complete"],
             "reason": acct["reason"], "journal": acct["journal"], "pages": acct["pages"], "counts": counts(acct),
-            "skipped": acct["skipped"], "undated": acct["undated"]}
+            "skipped": acct["skipped"], "undated": acct["undated"], "relay_outage": acct["relay_outage"]}
     # meta.json last: a reader that finds it finds the files it describes (a crash between leaves no meta, and parity refuses that).
     for name in ("meta.json",):
         try:
@@ -130,6 +143,8 @@ def write_dir(out: str, login: str, acct: dict, since: str, until: str) -> str:
             pass
     _atomic(os.path.join(d, "arrivals.jsonl"), _lines(acct["arrivals"]))
     _atomic(os.path.join(d, "deliveries.jsonl"), _lines(acct["deliveries"]))
+    _atomic(os.path.join(d, "shown.jsonl"), _lines(acct["shown"]))
+    _atomic(os.path.join(d, "acks.jsonl"), _lines(acct["acks"]))
     _atomic(os.path.join(d, "kinds.json"), (json.dumps(acct["kinds"], sort_keys=True, separators=(",", ":")) + "\n").encode("utf-8"))
     _atomic(os.path.join(d, "meta.json"), (json.dumps(meta, sort_keys=True, indent=1) + "\n").encode("utf-8"))
     return d
@@ -151,8 +166,9 @@ def clear_manifest(out: str) -> None:
 def row_of(login: str, host: Any, acct: dict, since: str, until: str, *, full: bool) -> dict:
     """The row `--json` prints: the whole collection when it is not filed, its counts when it is."""
     body = {"since": since, "until": until, "margin_s": ev.LOOKBACK_S, "complete": acct["complete"], "reason": acct["reason"],
-            "journal": acct["journal"], "pages": acct["pages"], "counts": counts(acct), "skipped": acct["skipped"], "undated": acct["undated"]}
+            "journal": acct["journal"], "pages": acct["pages"], "counts": counts(acct), "skipped": acct["skipped"], "undated": acct["undated"],
+            "relay_outage": acct["relay_outage"]}
     if full:
-        body.update(arrivals=acct["arrivals"], deliveries=acct["deliveries"], kinds=acct["kinds"])
+        body.update(arrivals=acct["arrivals"], deliveries=acct["deliveries"], shown=acct["shown"], acks=acct["acks"], kinds=acct["kinds"])
     return {"account": login, "host": host, "status": "ok" if acct["answered"] else "no answer",
             f"{ev.CARRIER_NAME}Evidence": body}

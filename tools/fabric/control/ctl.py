@@ -125,7 +125,7 @@ from control.clone import CLONE_BUDGET_S
 from control.gateway import GATEWAY_INSTALL_BUDGET_S
 from control.carrier_install import (CARRIER_INSTALL_BUDGET_S, CARRIER_READ_BUDGET_S, CARRIER_START_BUDGET_S, CARRIER_STOP_BUDGET_S,
                                      INSTALL_OP, START_OP, STOP_OP)
-from control.carrier_evidence import EVIDENCE_BUDGET_S, EVIDENCE_OP, ISO_RE as EVIDENCE_TIME, SECTIONS as EVIDENCE_SECTIONS
+from control.carrier_evidence import EVIDENCE_BUDGET_S, EVIDENCE_OP, ISO_RE as EVIDENCE_TIME, ALL_SECTIONS as EVIDENCE_SECTIONS
 from control import evidence_collect
 from gzcoord.carrier import CARRIER_LABEL, CARRIER_NAME, parity as _parity
 from control.tools import TOOL_NAME, TOOLS_INSTALL_BUDGET_S
@@ -237,7 +237,7 @@ VERBS: tuple[Verb, ...] = (
          f"fabric-ctl db-admin {STOP_OP}",
          usage=((f"<login|all> {STOP_OP}", f"an action: disable --now the {CARRIER_LABEL} client and daemon units and confirm both are inactive (the rollback of {START_OP})"),),
          signed="always", options=COMMON),
-    Verb(EVIDENCE_OP, f"Each account's {CARRIER_LABEL} parity evidence for a window: the arrival lines, the delivery records and the kind of each message, metadata only, never a body. Paged by itself.",
+    Verb(EVIDENCE_OP, f"Each account's {CARRIER_LABEL} parity evidence for a window: the arrival lines, the delivery records and the kind of each message, and for the relay-outage drill the shown ledger's lines and the relay acknowledgements made, metadata only, never a body. Paged by itself.",
          f"fabric-ctl all {EVIDENCE_OP} --since 2026-10-26T05:20:00Z --until 2026-10-27T05:20:00Z --out ./evidence",
          usage=((f"<login|all> {EVIDENCE_OP} --since T --until T [--out <dir>]",
                  f"a signed read: each account's gzcoord-arrivals.jsonl lines, {CARRIER_LABEL} delivery records and message kinds for [T, T) as YYYY-MM-DDTHH:MM:SSZ, paged until complete; with --out filed as <dir>/<login>/ for gzcoord-carrier parity --collected; a body never leaves an account"),),

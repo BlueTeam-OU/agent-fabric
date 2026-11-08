@@ -154,7 +154,8 @@ again, flagged. A showing that died between its two ledger lines is shown once
 more, flagged "may repeat". When the carrier is running, the arrivals it journaled
 come in the same page as the relay's, titled from the roster's address; they are
 never acknowledged to the relay. The arrival log (gzcoord-arrivals.jsonl) gets a line
-per relay copy addressed here, journal on or off. A ledger that cannot be opened is
+per relay copy addressed here, journal on or off. The acknowledgement log (gzcoord-acks.jsonl) gets
+a line per POST /api/ack for such a copy, by MESSAGE-ID, with whether the relay answered (the relay-outage drill's evidence). A ledger that cannot be opened is
 said on stderr and the relay's messages are shown without it.
 
 The rest of the Node's header — the modes, the hold, the addressee rule —
@@ -374,6 +375,33 @@ def carrier_hooks(address: str, journal_off: bool):
     return (None if journal_off else adapter.Adapter()), on_arrival, shown
 
 
+def ack_log():
+    from .carrier import arrivals
+    ep = _episodic()
+    return arrivals.AckLog(os.path.join(ep.state_dir(), "gzcoord-acks.jsonl"), iso_now=ep.now)
+
+
+def remember_relay_ids(into: dict, page: Any) -> None:
+    """relay record id -> MESSAGE-ID (as the arrival log names it) for a fetched page: /api/ack
+    knows only the first, and the relay-outage drill's evidence is by the second."""
+    for r in (page.get("messages") if isinstance(page, dict) else None) or []:
+        try:
+            into[r["id"]] = gzmsg.parse(r["content"])["metadata"].get("MESSAGE-ID") or \
+                "sha256:" + hashlib.sha256(r["content"].encode("utf-8", "surrogatepass")).hexdigest()
+        except (gzmsg.NotGzcoord, AttributeError, TypeError, KeyError):
+            continue      # not GZCOORD/1: never an arrival, so no evidence is kept for its acknowledgement
+
+
+def record_ack(log: Any, mid: Any, address: str, ok: bool) -> None:
+    if not isinstance(mid, str):
+        return
+    try:
+        log.append_ack(mid, address, ok)
+    except OSError as e:
+        # Evidence for the parity report, not a condition of acknowledging.
+        print(f"gzcoord: the acknowledgement log could not be written ({e.strerror or e})", file=sys.stderr)
+
+
 def show_page(res: dict, write: Callable[[], None]) -> None:
     """Write a delivered page to the session while the shown ledger's lock is held
     (wait_loop took it), then record the showing; if the write fails the lock is
@@ -519,14 +547,24 @@ def main(argv: list[str]) -> int:
     # Drain mode spends 1 s on the cursor page and lists everything; wait
     # mode chains slices until a message ADDRESSED TO THIS SESSION lands,
     # passing others' traffic through acknowledged and unprinted.
+    acks, mid_of_relay_id = ack_log(), {}
+
     def ack(message_id: Any) -> Any:
-        return api(state["tok"], "/api/ack", relay_url, method="POST",
-                   body=js.stringify({"consumer_id": me["address"], "channel": channel, "message_id": message_id}))
+        try:
+            r = api(state["tok"], "/api/ack", relay_url, method="POST",
+                    body=js.stringify({"consumer_id": me["address"], "channel": channel, "message_id": message_id}))
+        except Exception:
+            record_ack(acks, mid_of_relay_id.get(message_id), me["address"], False)
+            raise
+        record_ack(acks, mid_of_relay_id.get(message_id), me["address"], True)
+        return r
 
     def fetch_page(slice_: float, abort: threading.Event) -> Any:
         q = urllib.parse.urlencode({"channel": channel, "consumer_id": me["address"],
                                     "timeout_seconds": js.string(slice_), "limit": "50"})
-        return api(state["tok"], f"/api/wait?{q}", relay_url, timeout=slice_ + API_TIMEOUT)
+        page = api(state["tok"], f"/api/wait?{q}", relay_url, timeout=slice_ + API_TIMEOUT)
+        remember_relay_ids(mid_of_relay_id, page)
+        return page
 
     def held() -> bool:
         return hold_status(t=t)["held"]

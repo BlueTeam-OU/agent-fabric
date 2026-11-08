@@ -50,6 +50,7 @@ def relay_rec(n: int, frm: str = "x/y") -> dict:
 class World:
     def __init__(self, pages: list[list[dict]], carrier_records: list[dict] | None = None, journal: bool = True) -> None:
         self.relay_down = False   # every /api/wait fetch answers 500
+        self.ack_down = False     # every /api/ack answers 500
         self.acks: list[str] = []
         self.calls = 0
         self.pages = pages
@@ -58,6 +59,8 @@ class World:
 
         def answer(_h, method, path, body):
             if path.startswith("/api/ack"):
+                if self.ack_down:
+                    return 500, "{}"
                 self.acks.append(json.loads(body)["message_id"])
                 self.ledger_at_ack.append(len(self.ledger_lines()))
                 return 200, "{}"
@@ -226,6 +229,17 @@ def main() -> int:
           "subject-1" not in r.stdout and w.acks == ["r1"], f"{r.returncode}\n{r.stdout}{r.stderr}\n{w.acks}")
     check("(c) the ledger holds it once (pending line, final line)",
           [(x["mid"], bool(x.get("pending"))) for x in w.ledger_lines()] == [(mid(1), True), (mid(1), False)], str(w.ledger_lines()))
+    # The relay-outage drill's evidence of the acknowledgement (parity.relay_outage): a line per call, by MESSAGE-ID, with what the relay answered.
+    check("(c) the acknowledgement is logged by MESSAGE-ID, answered, without the text",
+          [(x["mid"], x["addressee"], x["ok"]) for x in w.read("gzcoord-acks.jsonl")] == [(mid(1), ME, True)]
+          and "subject-1" not in json.dumps(w.read("gzcoord-acks.jsonl")), str(w.read("gzcoord-acks.jsonl")))
+    # an acknowledgement the relay does not answer is a line too: "not acknowledged" must be a fact, not an absence
+    w.pages = [[relay_rec(4)]]
+    w.ack_down = True
+    w.watch()
+    check("an acknowledgement the relay refused is logged as not ok, and the relay never recorded it",
+          [(x["mid"], x["ok"]) for x in w.read("gzcoord-acks.jsonl")][-1:] == [(mid(4), False)] and "r4" not in w.acks,
+          f"{w.read('gzcoord-acks.jsonl')}\n{w.acks}")
     w.close()
 
     # the relay's copy arrives first, the relay then goes down and the carrier lists it: still once

@@ -8,7 +8,7 @@ CONTRACT
             every op's, so what it carries is metadata a channel reader could already
             infer from the traffic, and never a body. With
             args {section, since, until}:
-              section  `arrivals` | `deliveries`
+              section  `arrivals` | `deliveries` | `shown` | `acks`
               since, until  YYYY-MM-DDTHH:MM:SSZ, since < until
             No other key, no other value: an argument never names a path.
   reply     data["<carrier>-evidence"] = {status: "ok", section, since, until,
@@ -23,6 +23,15 @@ CONTRACT
   deliveries rows {mid, to, enc, queued, state, code?, by?} of
             record.read_deliveries with `queued` in [since, until), oldest first;
             `undated`, how many have no `queued` and so belong to no window.
+  shown     rows {mid, via, t, pending?, flagged?} of the account's shown ledger
+            (gzcoord-shown.jsonl) with `t` in [since, until): one line per step of a
+            showing (carrier/ledger.py), `via` the carrier that brought the copy shown,
+            `pending` and `flagged` present as true when set. The ledger's `h`, a hash
+            of the text, does not leave.
+  acks      rows {mid, addressee, t, ok} of gzcoord-acks.jsonl (carrier/arrivals.py
+            AckLog): the relay's acknowledgements this account made, `ok` whether the
+            relay answered the call. Both feed the relay-outage drill (ADR-064 rule 11)
+            and nothing else.
   never     a body. Rows are built key by key from a closed list, each value a
             short string: a line of the log with a text, a path or a key in it
             that a later version adds does not leave. The journal is opened
@@ -47,6 +56,12 @@ from gzcoord.carrier import CARRIER_NAME, parity, record
 
 EVIDENCE_OP = f"{CARRIER_NAME}-evidence"
 SECTIONS = ("arrivals", "deliveries")
+# Collected beside the two the report counts: the relay-outage drill's evidence (parity.relay_outage). Kept
+# apart so an account whose daemon predates them still yields a collection the rollback report is computed from.
+DRILL_SECTIONS = ("shown", "acks")
+ALL_SECTIONS = SECTIONS + DRILL_SECTIONS
+SHOWN_KEYS = ("mid", "via", "t")
+ACK_KEYS = ("mid", "addressee", "t")
 ARRIVAL_KEYS = ("mid", "addressee", "carrier", "t", "verdict")
 DELIVERY_KEYS = ("mid", "to", "enc", "queued", "state", "code", "by")
 # The relay's message limit is 128 KiB and a record is posted as a JSON string inside a JSON record, which
@@ -78,8 +93,8 @@ def check_args(args: Any) -> str | None:
     extra = sorted(set(args) - {"section", "since", "until"})
     if extra:
         return f"{EVIDENCE_OP} takes no argument {extra[0]!r}"
-    if args.get("section") not in SECTIONS:
-        return f"section is one of {', '.join(SECTIONS)}"
+    if args.get("section") not in ALL_SECTIONS:
+        return f"section is one of {', '.join(ALL_SECTIONS)}"
     start, end = _time(args.get("since")), _time(args.get("until"))
     if start is None or end is None:
         return "since and until are YYYY-MM-DDTHH:MM:SSZ"
@@ -120,6 +135,46 @@ def _read_arrivals(path: str) -> tuple[list[dict], int]:
                 continue
             rows.append(r)
     return rows, skipped
+
+
+def _read_lines(path: str, convert) -> tuple[list[dict], int]:
+    """The rows `convert` accepts from a JSON-lines file of the account's, and how many lines it did not
+    (a torn last line, a line of a shape this version does not know). A file that is not there holds nothing."""
+    rows: list[dict] = []
+    skipped = 0
+    try:
+        fh = open(path, encoding="utf-8")
+    except FileNotFoundError:
+        return rows, 0
+    with fh:
+        for line in fh:
+            if not line.strip():
+                continue
+            try:
+                o = json.loads(line)
+            except ValueError:
+                skipped += 1
+                continue
+            r = convert(o) if isinstance(o, dict) else None
+            if r is None:
+                skipped += 1
+                continue
+            rows.append(r)
+    return rows, skipped
+
+
+def _shown_row(o: dict) -> dict | None:
+    r = _row(o, SHOWN_KEYS, SHOWN_KEYS)
+    if r is None or _time(r["t"]) is None:
+        return None
+    return {**r, **{k: True for k in ("pending", "flagged") if o.get(k) is True}}
+
+
+def _ack_row(o: dict) -> dict | None:
+    r = _row(o, ACK_KEYS, ACK_KEYS)
+    if r is None or _time(r["t"]) is None or not isinstance(o.get("ok"), bool):
+        return None
+    return {**r, "ok": o["ok"]}
 
 
 def _page(rows: list[dict], key: str) -> tuple[list[dict], str | None] | str:
@@ -170,7 +225,13 @@ def carrier_evidence(request: Any, *, state: str | None = None, db_path: str | N
     state = util.state_dir() if state is None else state
     section, since, until = args["section"], args["since"], args["until"]
     start, end = _time(since), _time(until)
-    if section == "arrivals":
+    if section in DRILL_SECTIONS:
+        name, convert = ("gzcoord-shown.jsonl", _shown_row) if section == "shown" else ("gzcoord-acks.jsonl", _ack_row)
+        every, skipped = _read_lines(os.path.join(state, name), convert)
+        # File order breaks a tie on the second: a ledger's pending line comes before its final line.
+        inside = sorted((r for r in every if start <= _time(r["t"]) < end), key=lambda r: r["t"])
+        key, extra = "t", {"skipped": skipped}
+    elif section == "arrivals":
         every, skipped = _read_arrivals(os.path.join(state, "gzcoord-arrivals.jsonl"))
         inside = sorted((r for r in every if start <= _time(r["t"]) < end), key=lambda r: r["t"])
         key, extra = "t", {"skipped": skipped}
@@ -206,4 +267,4 @@ def window_for(section: str, since: str, until: str) -> tuple[str, str]:
     import time
     fmt = lambda t: time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(t))  # noqa: E731
     first = fmt(parity.parse_t(since) - LOOKBACK_S)
-    return (first, fmt(parity.parse_t(until) + LOOKBACK_S)) if section == "arrivals" else (first, until)
+    return (first, fmt(parity.parse_t(until) + LOOKBACK_S)) if section != "deliveries" else (first, until)
