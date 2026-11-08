@@ -98,6 +98,8 @@ class Callers(unittest.TestCase):
         seen = []
 
         def record_pr(listed, *rest):
+            # AssertionError, not the TypeError record_of would catch: a cut list reaching the judge must be loud.
+            assert isinstance(listed, list), listed
             seen.append(len(listed))
             return (True,)
         rules = ("boundary", "exempt", "rules")
