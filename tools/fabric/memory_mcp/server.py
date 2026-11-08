@@ -44,8 +44,8 @@ def session_of_binding(state_dir: str) -> tools.Session:
     """The session the binding describes: its own role, project and working copy, not the checkout cwd sits in. A
     binding identity refuses, or none, gives a session with no role; an unreadable one is no binding."""
     try:
-        bound = identity.resolve_context().binding
-    except SystemExit:
+        bound = identity.binding_record()
+    except (OSError, ValueError, SystemExit):
         return tools.Session()
     if not bound.present:
         return tools.Session()

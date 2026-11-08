@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import os
 import shutil
+import subprocess
 import sys
 import tempfile
 
@@ -101,6 +102,20 @@ def main() -> int:
         open(f"{d}/wc/INDEX.md", "w").close()
         check("…and with one", q.count_md(f"{d}/wc") == 1)
         os.makedirs(q.identity.agent_state_dir())
+        with open(q.identity.binding_path(), "w") as fh:
+            fh.write('{"working_copy": "/bound/wc"}')
+        bad = os.path.join(d, "unregistered-checkout")   # #511 F15: a marker the registry lacks costs no binding
+        os.makedirs(bad)
+        subprocess.run(["git", "-C", bad, "init", "-q"], check=True)
+        with open(os.path.join(bad, ".agent-fabric-project"), "w", encoding="utf-8") as fh:
+            fh.write("not-registered\n")
+        here = os.getcwd()
+        os.chdir(bad)
+        try:
+            check("cwd in a checkout whose marker names an unregistered project keeps the binding's working copy",
+                  q.binding_working_copy() == ["/bound/wc"])
+        finally:
+            os.chdir(here)
         with open(q.identity.binding_path(), "w") as fh:
             fh.write("{broken")
         check("a binding that is not JSON costs the binding", q.binding_working_copy() == [])

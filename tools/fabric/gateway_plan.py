@@ -370,8 +370,8 @@ def _role_of(login: str) -> str | None:
     identity refuses — not JSON, another login's, another host's — is no role, not a guess."""
     import identity
     try:
-        return identity.resolve_context(agent=login).binding.role
-    except (OSError, SystemExit):
+        return identity.binding_record(login).role
+    except (OSError, ValueError, AttributeError, SystemExit):
         return None
 
 
