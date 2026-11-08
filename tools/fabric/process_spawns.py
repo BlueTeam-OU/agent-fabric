@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """tools/fabric/process_spawns.py — process lifetime has one owner, tools/fabric/process.py (the owner's 2026-11-08 ask,
-j125); this is the predicate lint and the pre-commit hook ask about everything else.
+j125); this is the predicate for everything else. Wiring it into lint and
+the pre-commit hook, and the allowlist it reads (policies/process-spawns.json), are the control plane's.
 
 A module that starts a command in a session or group of its own, or signals a group, owns a lifetime it does not
 test the same way twice: 14 modules did, each with its own answer to "the interrupt landed between Popen and the try",

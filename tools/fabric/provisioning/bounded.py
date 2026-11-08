@@ -18,16 +18,20 @@ from process import descendants, run_bounded, stop_tree  # noqa: F401  (the name
 READBACK_TIMEOUT_S = 120
 
 
+_FORWARDED = frozenset({"STOP_GRACE_S", "stop_tree", "descendants"})
+
+
 class _Shim(types.ModuleType):
-    """STOP_GRACE_S is process.py's: a suite that bounds the grace sets it
-    here, where it has always been set, and process.stop_tree must read it."""
+    """The names process.py's functions read from their own globals are
+    process.py's: a suite that bounds the grace or spies on stop_tree sets
+    it here, where it has always been set, and run_bounded must see it."""
 
     def __getattr__(self, name: str):
         return getattr(process, name)
 
     def __setattr__(self, name: str, value: object) -> None:
-        if name == "STOP_GRACE_S":
-            process.STOP_GRACE_S = value
+        if name in _FORWARDED:
+            setattr(process, name, value)
         else:
             super().__setattr__(name, value)
 

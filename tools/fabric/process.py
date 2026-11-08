@@ -229,24 +229,28 @@ def group(argv: list[str], *, label: str = "new-agent", sweep: bool = False, **p
     out of the body (a timeout, an interrupt, an error). An interrupt that
     lands inside Popen, or between it and the body, would unwind past the
     only handle of a child that leads a session of its own and that nothing
-    else signals; so SIGINT is held from before the spawn and delivered, as a
-    KeyboardInterrupt, once the body is entered. OSError from the spawn goes
+    else signals; so SIGINT is held from before the spawn and delivered to the
+    caller's handler once the body is entered. OSError from the spawn goes
     to the caller (with a held interrupt raised instead: no child exists).
     `sweep` also ends what a command that exited left in its group (a server,
     a build daemon); off, a command that was waited for is left as it ended
     (a caller that never swept would otherwise gain a kill it did not have).
     On an error the group is always ended while anything is left of it."""
+    failed: OSError | None = None
     with _sigint_held() as interrupted:
         try:
             proc = popen_group(argv, **popen)
-        except OSError:
-            if interrupted[0]:
-                raise KeyboardInterrupt from None
-            raise
-    # The handler is back: a second SIGINT is the default's, delivered below by the body's own try.
+        except OSError as exc:
+            failed = exc
+    # The handler is back. A held interrupt is delivered to it, not raised here: a caller's own SIGINT handler
+    # (review_codex's, which turns it into a cancelled ledger row) decides what it becomes.
+    if failed is not None:
+        if interrupted[0]:
+            signal.raise_signal(signal.SIGINT)   # no child exists
+        raise failed
     try:
         if interrupted[0]:
-            raise KeyboardInterrupt
+            signal.raise_signal(signal.SIGINT)
         yield proc
     except BaseException:
         if proc.poll() is None or group_alive(proc.pid):

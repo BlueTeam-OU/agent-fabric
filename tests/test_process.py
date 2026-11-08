@@ -9,6 +9,7 @@ Stdlib only; runnable as `python3 tests/test_process.py`. **Each case names the 
   run_interrupt_ends_tree    <- the `except BaseException` stop_tree in run_bounded dropped
   group_error_ends_tree      <- group's `except BaseException: end_group` dropped
   group_ends_setsid_helper   <- end_group's descendants walk dropped (the group KILL alone misses a helper in a session of its own)
+  group_interrupt_to_handler <- raise_signal replaced by a bare KeyboardInterrupt in group
   group_interrupt_held       <- _sigint_held not entered before the spawn, or the held interrupt not raised in the body's try
   group_interrupt_no_child   <- the held interrupt not raised when the spawn itself failed
   group_spawn_error          <- OSError from the spawn swallowed
@@ -16,7 +17,7 @@ Stdlib only; runnable as `python3 tests/test_process.py`. **Each case names the 
   group_leaves_waited_alone  <- end_group called on a normal exit with nothing left
   signal_group_is_bool       <- ProcessLookupError not turned into False
   popen_group_shapes         <- start_new_session / process_group swapped
-  shim_forwards_grace        <- bounded's STOP_GRACE_S write not forwarded to process
+  shim_forwards_grace        <- bounded's STOP_GRACE_S or stop_tree write not forwarded to process
 """
 from __future__ import annotations
 
@@ -172,6 +173,39 @@ def case_group_interrupt_held() -> None:
         reap(started[0].pid)
 
 
+def case_group_interrupt_goes_to_the_callers_handler() -> None:
+    """review_codex turns SIGINT into its own exception (a cancelled ledger row); a held one must reach that handler."""
+    class Cancelled(Exception):
+        pass
+
+    def handler(signum, frame):
+        raise Cancelled
+
+    real = process.popen_group
+    started: list[subprocess.Popen] = []
+
+    def spawn_then_interrupt(*a, **kw):
+        p = real(*a, **kw)
+        started.append(p)
+        os.kill(os.getpid(), signal.SIGINT)
+        return p
+
+    process.popen_group = spawn_then_interrupt
+    previous = signal.signal(signal.SIGINT, handler)
+    try:
+        with process.group(["sleep", "300"]):
+            raise AssertionError("body entered")
+    except Cancelled:
+        pass
+    finally:
+        signal.signal(signal.SIGINT, previous)
+        process.popen_group = real
+    try:
+        assert started[0].returncode is not None and not alive(started[0].pid), "the child was left running"
+    finally:
+        reap(started[0].pid)
+
+
 def case_group_interrupt_no_child() -> None:
     real = process.popen_group
 
@@ -264,6 +298,17 @@ def case_shim_forwards_grace() -> None:
     finally:
         bounded.STOP_GRACE_S = saved
     assert bounded.stop_tree is process.stop_tree and bounded.run_bounded is process.run_bounded
+    spy_calls: list[str] = []
+    real_stop = bounded.stop_tree
+    bounded.stop_tree = lambda proc, label="": (spy_calls.append(label), real_stop(proc, label))
+    try:
+        try:
+            bounded.run_bounded(["sleep", "300"], timeout=0.3, label="spy")
+        except subprocess.TimeoutExpired:
+            pass
+    finally:
+        bounded.stop_tree = real_stop
+    assert spy_calls == ["spy"] and process.stop_tree is real_stop, (spy_calls, process.stop_tree)
 
 
 def main() -> int:
