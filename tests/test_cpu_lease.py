@@ -550,7 +550,7 @@ def main() -> int:
         directory = first.split(": ", 1)[1]
         check("install: places the copy and both forwarders; a second run changes nothing and says so",
               first.startswith("cpu shims installed: ") and again == f"cpu shims already in place: {directory}"
-              and sorted(os.listdir(directory)) == ["cpu_shim.py", "host-load.json", "lease.py"]
+              and sorted(os.listdir(directory)) == ["cpu_shim.py", "host-load.json", "lease.py", "process.py"]
               and all(os.stat(f"{pfx}/bin/{t}").st_mode & 0o777 == 0o755 for t in ("cargo", "dotnet"))
               and all(os.stat(f"{directory}/{n}").st_mode & 0o777 == 0o644 for n in os.listdir(directory)), f"{first} / {again}")
         before = {t: os.stat(f"{pfx}/bin/{t}").st_ino for t in ("cargo", "dotnet")}

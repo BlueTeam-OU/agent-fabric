@@ -138,6 +138,11 @@ import time
 from collections.abc import Callable
 from dataclasses import dataclass
 
+# Run through runpy under -I (bin/fabric-lease) and from the installed cpu-lease directory, where nothing puts this
+# file's directory on the path; process.py is installed beside it (provisioning/install_cpu_shims.py PAYLOAD).
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import process  # noqa: E402
+
 USAGE = """usage: fabric-lease <name> [--wait SECS] [--need-mem MB] [--label JOB] -- <cmd> [args...]
        fabric-lease <name> --who              who holds it, if anyone; exit 0 free, 1 held
 """
@@ -427,7 +432,7 @@ def spawn(argv: list[str], pipe_ignored: bool) -> subprocess.Popen:
     # Its own process group (the bash's `set -m`): a signal forwarded to the
     # group reaches the suite and its postgres, not the wrapper alone. Other
     # descriptors pass to the command, as in the bash, so close_fds is off.
-    return subprocess.Popen(argv, close_fds=False, process_group=0, preexec_fn=prepare)
+    return process.popen_group(argv, session=False, close_fds=False, preexec_fn=prepare)
 
 
 def start(argv: list[str], pipe_ignored: bool) -> subprocess.Popen | int:
@@ -496,10 +501,7 @@ def run_command(a: Args, pipe_ignored: bool, ignored_on_entry: set[int]) -> int:
         if pid is None:
             state["pending"] = signum
             return
-        try:
-            os.killpg(pid, signum)  # type: ignore[arg-type]
-        except OSError:
-            pass
+        process.signal_group(pid, signum)  # type: ignore[arg-type]
 
     for sig in (signal.SIGTERM, signal.SIGINT, signal.SIGHUP):
         if sig not in ignored_on_entry:
