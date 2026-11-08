@@ -135,10 +135,18 @@ def table(*rows: tuple) -> str:
     return "".join(f"{a:<28} {b:<8} {c:<8} {d}\n" for a, b, c, d in rows)
 
 
+def resolver(root: str) -> None:
+    """identity.resolve_context, which query asks for the binding, loads the working-copy resolver from the root it serves."""
+    os.makedirs(f"{root}/tools/fabric")
+    for module in ("workingcopy.py", "roots.py"):
+        shutil.copy(f"{HERE}/tools/fabric/{module}", f"{root}/tools/fabric/{module}")
+
+
 def fixtures() -> None:
     os.makedirs(STATE)
     os.makedirs(HOME)
     os.makedirs(f"{ROOT}/memory")
+    resolver(ROOT)
     put(f"{ROOT}/memory/domains/devrole/a.md", "a")
     put(f"{ROOT}/memory/domains/devrole/b.md", "b")
     put(f"{ROOT}/memory/domains/devrole/INDEX.md", "index")
@@ -243,6 +251,7 @@ def main() -> int:
     run("--help", AGENT_FABRIC_ROOT=f"{T}/empty")
     expect("no corpus: the help does not get past it", 2, "", nocorpus)
     os.makedirs(f"{T}/bare/memory")
+    resolver(f"{T}/bare")
     run("roles", **bare)
     expect("a corpus with no crossref: the header only", 0, "project/role                 project  domain   citations\n", "")
     run("adr", "ADR-054", **bare)

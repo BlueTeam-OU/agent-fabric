@@ -100,11 +100,10 @@ def main() -> int:
         open(f"{d}/wc/a.md", "w").close()
         open(f"{d}/wc/INDEX.md", "w").close()
         check("…and with one", q.count_md(f"{d}/wc") == 1)
-        with open(f"{d}/state-binding.json", "w") as fh:
+        os.makedirs(q.identity.agent_state_dir())
+        with open(q.identity.binding_path(), "w") as fh:
             fh.write("{broken")
-        os.makedirs(f"{d}/st")
-        os.replace(f"{d}/state-binding.json", f"{d}/st/binding.json")
-        check("a binding that is not JSON costs the binding", q.binding_working_copy(f"{d}/st") == [])
+        check("a binding that is not JSON costs the binding", q.binding_working_copy() == [])
     finally:
         for k in ("AGENT_FABRIC_WORKING_COPIES", "AGENT_FABRIC_STATE_DIR"):
             os.environ.pop(k, None)

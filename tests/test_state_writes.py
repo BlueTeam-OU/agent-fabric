@@ -139,14 +139,15 @@ def case_lock_on_terms_is_not_a_write() -> None:
 def case_listed_module_is_admitted() -> None:
     body = RESOLVE + "open(D, 'w')\nopen(D + '.lock', 'w')\n"
     assert len(sw.scan("tools/x.py", body, {})) == 3
-    assert sw.scan("tools/x.py", body, {"tools/x.py": "gap (j1): a test"}) == []
+    assert sw.scan("tools/x.py", body, {"tools/x.py": "not state: a test"}) == []
 
 
 def case_policy_entries() -> None:
     writers = {"tools/a.py": "ADR-003 §2: control", "tools/b.py": "not state: x", "tools/c.py": "gap (j9): y",
                "tools/gone.py": "not state: z", "tools/bare.py": "because"}
     got = sw.policy_findings(writers, {"tools/a.py", "tools/b.py", "tools/c.py", "tools/bare.py"})
-    assert len(got) == 2 and "tools/gone.py is listed" in got[0] and "tools/bare.py's reason" in got[1], got
+    assert len(got) == 3 and "tools/gone.py is listed" in got[0] and "tools/bare.py's reason" in got[1], got
+    assert "tools/c.py's reason" in got[2], "a gap names no ground any more: j212 closed the last one"
     assert sw.parse_writers('{"writers": {"a.py": "x", "b.py": 3}}') == {"a.py": "x"}
     try:
         sw.parse_writers("{")
