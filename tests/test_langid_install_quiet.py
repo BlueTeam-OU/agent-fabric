@@ -139,7 +139,7 @@ class Quiet(unittest.TestCase):
 
         previous = real_signal(signal.SIGINT, signal.SIG_IGN)
         self.addCleanup(real_signal, signal.SIGINT, previous)
-        with mock.patch.object(langid_install.signal, "signal", signal_then_sigint):
+        with mock.patch.object(signal, "signal", signal_then_sigint):
             self.assertTrue(langid_install.quiet(["true"], 10))
         self.assertEqual(installed, [], "the hold was installed over an ignored SIGINT")
         self.assertIs(signal.getsignal(signal.SIGINT), signal.SIG_IGN)
