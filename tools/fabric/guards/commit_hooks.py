@@ -470,16 +470,6 @@ def _check_context_reads(root: str) -> None:
                      f"{context_reads.POLICY} (agent-fabric ADR-067 rule 1).")
 
 
-EVIDENCE_POLICY = "policies/evidence-caps.json"   # lint_rules/evidence.py's POLICY; the hook does not import lint
-
-
-def _evidence_modules(text: str) -> dict[str, str]:
-    doc = json.loads(text)
-    modules = doc.get("modules") if isinstance(doc, dict) else None
-    return {k: v for k, v in modules.items() if isinstance(k, str) and isinstance(v, str) and v.strip()} \
-        if isinstance(modules, dict) else {}
-
-
 def _check_evidence_caps(root: str) -> None:
     """In agent-fabric itself, whoever commits: a staged module under tools/fabric/ that holds a GitHub list cap or reads
     a pull request's files or commits outside github/evidence.py is refused unless the staged policy names it
@@ -492,18 +482,18 @@ def _check_evidence_caps(root: str) -> None:
         raise Refuse("pre-commit: cannot list the staged files to judge GitHub's list caps — not committed")
     staged = [p for p in r.stdout.split("\0") if p]
     judged = [p for p in staged if evidence_caps.judged_path(p)]
-    deleted = _staged_deletion(EVIDENCE_POLICY)
-    if not judged and EVIDENCE_POLICY not in staged and not deleted:
+    deleted = _staged_deletion(evidence_caps.POLICY)
+    if not judged and evidence_caps.POLICY not in staged and not deleted:
         return
-    policy = _git("cat-file", "blob", f":{EVIDENCE_POLICY}")
+    policy = _git("cat-file", "blob", f":{evidence_caps.POLICY}")
     try:
-        admitted = _evidence_modules(policy.stdout) if policy.returncode == 0 else {}
+        admitted = evidence_caps.parse_modules(policy.stdout) if policy.returncode == 0 else {}
     except ValueError:
-        raise Refuse(f"pre-commit: the staged {EVIDENCE_POLICY} is not JSON — not committed") from None
-    if EVIDENCE_POLICY in staged or deleted:
-        before = _git("cat-file", "blob", f"HEAD:{EVIDENCE_POLICY}")
+        raise Refuse(f"pre-commit: the staged {evidence_caps.POLICY} is not JSON — not committed") from None
+    if evidence_caps.POLICY in staged or deleted:
+        before = _git("cat-file", "blob", f"HEAD:{evidence_caps.POLICY}")
         try:
-            was = _evidence_modules(before.stdout) if before.returncode == 0 else {}
+            was = evidence_caps.parse_modules(before.stdout) if before.returncode == 0 else {}
         except ValueError:
             was = {}   # HEAD's list unreadable admitted nothing then either
         listed = _git("ls-files", "-z")
@@ -522,7 +512,7 @@ def _check_evidence_caps(root: str) -> None:
     if lines:
         raise Refuse("\n".join(lines) + "\npre-commit: a module holds a GitHub list cap or reads a pull request's files or "
                      "commits outside tools/fabric/github/evidence.py — not committed. Read through evidence.PrEvidence, "
-                     f"or name the module and why in {EVIDENCE_POLICY} (agent-fabric ADR-067 rule 1).")
+                     f"or name the module and why in {evidence_caps.POLICY} (agent-fabric ADR-067 rule 1).")
 
 
 def _check_review_card() -> None:

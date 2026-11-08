@@ -18,6 +18,7 @@ rewritten, or the number named, not excused. The lint and CI wiring is the owner
 from __future__ import annotations
 
 import ast
+import json
 import os
 import re
 
@@ -26,6 +27,25 @@ GITHUB_DIR = FABRIC_DIR + "/github"
 OWNERS = frozenset({f"{GITHUB_DIR}/common.py", f"{GITHUB_DIR}/evidence.py"})
 CAPS = frozenset({250, 3000})
 PR_LIST_PATH = re.compile(r"/pulls/[^/]*/(?:files|commits)(?:[?/]|$)")
+POLICY = "policies/evidence-caps.json"   # the modules admitted with their reason (ADR-067 rule 1); lint and the hook read it
+
+
+def parse_modules(text: str) -> dict[str, str]:
+    """{module: why it is admitted} from the policy's text; ValueError when it is not JSON. A pair that is not two
+    non-empty strings admits nothing."""
+    doc = json.loads(text)
+    modules = doc.get("modules") if isinstance(doc, dict) else None
+    return {k: v for k, v in modules.items() if isinstance(k, str) and isinstance(v, str) and v.strip()} \
+        if isinstance(modules, dict) else {}
+
+
+def policy_findings(admitted: dict[str, str], tracked: set[str]) -> list[str]:
+    """An entry naming a file that is gone would admit the next file at that path unread; one naming a file this check
+    never judges (an owner, a path outside tools/fabric/, not Python) admits nothing."""
+    out = [f"{POLICY}: {m} is not a tracked file" for m in sorted(admitted) if m not in tracked]
+    out += [f"{POLICY}: {m} is not judged by this check (an owner, outside tools/fabric/, or not Python) and needs no "
+            "entry" for m in sorted(admitted) if m in tracked and not judged_path(m)]
+    return out
 
 
 def judged_path(rel: str) -> bool:

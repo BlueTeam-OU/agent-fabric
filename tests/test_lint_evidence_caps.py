@@ -7,7 +7,8 @@ Stdlib only; runnable as `python3 tests/test_lint_evidence_caps.py`. **Each case
 
   lint_is_wired            <- evidence_cap_findings not called from lint.main, or a judged module's finding dropped
   declared_module_passes   <- the policy's entry not honoured
-  entry_that_admits_nothing <- an entry for a clean module left silent, or one naming an untracked file
+  entry_that_admits_nothing <- an entry for a clean module left silent, one naming an untracked file, or one naming a
+                               tracked file the check never judges (an owner, outside tools/fabric/, not Python)
   unreadable_policy        <- a policy that is not JSON read as empty (every finding then raised, or none)
 """
 from __future__ import annotations
@@ -33,8 +34,10 @@ POLICY = "policies/evidence-caps.json"
 COPY = "import gh\n\nCAP = 250\n"
 
 
-def fabric(policy: dict | str | None) -> str:
+def fabric(policy: dict | str | None, extra: dict[str, str] | None = None) -> str:
     root = make_base(tempfile.mkdtemp(dir=TMP))
+    for rel, text in (extra or {}).items():
+        write(os.path.join(root, rel), text)
     write(os.path.join(root, "tools", "fabric", "evx.py"), COPY)
     write(os.path.join(root, "tools", "fabric", "clean.py"), "x = 1\n")
     if policy is not None:
@@ -59,6 +62,10 @@ def case_entry_that_admits_nothing() -> None:
                                           "tools/fabric/gone.py": "a test"}}))
     assert f"{POLICY}: tools/fabric/clean.py admits nothing" in out, out
     assert f"{POLICY}: tools/fabric/gone.py is not a tracked file" in out, out
+    owners = {"tools/fabric/github/evidence.py": "x = 1\n", "tools/fabric/notes.txt": "x\n"}
+    _, out = run_lint(fabric({"modules": {m: "a test" for m in owners}}, owners))
+    assert f"{POLICY}: tools/fabric/github/evidence.py is not judged by this check" in out, out
+    assert f"{POLICY}: tools/fabric/notes.txt is not judged by this check" in out, out
 
 
 def case_unreadable_policy() -> None:

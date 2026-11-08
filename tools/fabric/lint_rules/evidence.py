@@ -6,13 +6,11 @@ of tools/fabric/lint.py, the entry point."""
 from __future__ import annotations
 
 import importlib.util
-import json
 import os
 
 from .base import _is_under, _not_ours, _tracked
 
 _FABRIC = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
-POLICY = "policies/evidence-caps.json"
 
 
 def _load(name: str):
@@ -24,28 +22,20 @@ def _load(name: str):
 
 
 evidence_caps = _load("evidence_caps")
-
-
-def parse_modules(text: str) -> dict[str, str]:
-    """{module: why it is admitted} from the policy's text; ValueError when it is not JSON. A pair that is not two
-    non-empty strings admits nothing."""
-    doc = json.loads(text)
-    modules = doc.get("modules") if isinstance(doc, dict) else None
-    return {k: v for k, v in modules.items() if isinstance(k, str) and isinstance(v, str) and v.strip()} \
-        if isinstance(modules, dict) else {}
+POLICY = evidence_caps.POLICY
 
 
 def evidence_cap_findings(root: str) -> list[str]:
     try:
         with open(os.path.join(root, POLICY), encoding="utf-8") as fh:
-            admitted = parse_modules(fh.read())
+            admitted = evidence_caps.parse_modules(fh.read())
     except FileNotFoundError:
         admitted = {}       # instance data (ADR-045 rule 2): a stripped engine copy still judges every module
     except (OSError, ValueError) as exc:
         return [f"{POLICY}: cannot be read as JSON ({exc.__class__.__name__}); GitHub's list caps are not judged"]
     tracked = set(_tracked(root))
     not_ours = _not_ours(root)
-    out = [f"{POLICY}: {m} is not a tracked file" for m in sorted(admitted) if m not in tracked]
+    out = evidence_caps.policy_findings(admitted, tracked)
     for rel in sorted(r for r in tracked if evidence_caps.judged_path(r) and not _is_under(r, not_ours)):
         try:
             with open(os.path.join(root, rel), encoding="utf-8") as fh:
