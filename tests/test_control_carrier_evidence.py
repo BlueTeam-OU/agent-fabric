@@ -788,6 +788,16 @@ class RelayOutageCollect(Collect):
             got = ec.collect(["b"], iso(0), iso(100), self.sender())
         self.assertGreater(got["b"]["pages"]["shown"], 2)
         self.assertEqual(got["b"]["relay_outage"]["skipped"], 1)
+        # Both files torn, the acknowledgement log over several pages too: the two files' counts add up.
+        self.drill_account("d", [{"mid": mid(s, s), "via": "interweave", "t": iso(s)} for s in range(30)],
+                           [{"mid": mid(s, s), "addressee": "h/d", "t": iso(s), "ok": True} for s in range(30)])
+        for f, torn in (("gzcoord-shown.jsonl", 1), ("gzcoord-acks.jsonl", 2)):
+            with open(os.path.join(self.states["d"], f), "a") as fh:
+                fh.write('{"mid": \n' * (torn - 1) + '{"mid": ')
+        with unittest.mock.patch.object(ev, "PAGE_BYTES", 900):
+            got = ec.collect(["d"], iso(0), iso(100), self.sender())
+        self.assertGreater(got["d"]["pages"]["acks"], 2)
+        self.assertEqual(got["d"]["relay_outage"]["skipped"], 3)
 
     def test_a_table_row_says_when_the_drill_sections_are_missing_and_the_rollback_report_stands(self):
         row = {"account": "a", "host": "h", "status": "ok", "interweaveEvidence": {

@@ -41,7 +41,8 @@ Send = Callable[[list[str], str, str, str], dict]
 def _fresh() -> dict:
     return {"arrivals": [], "deliveries": [], "shown": [], "acks": [], "kinds": {}, "journal": "ok",
             "pages": {s: 0 for s in ev.ALL_SECTIONS}, "skipped": 0, "undated": 0, "complete": True, "reason": None,
-            "answered": False, "relay_outage": {"complete": True, "reason": None, "skipped": 0}}
+            "answered": False, "relay_outage": {"complete": True, "reason": None, "skipped": 0},
+            "drill_skipped": {s: 0 for s in ev.DRILL_SECTIONS}}
 
 
 def collect(logins: list[str], since: str, until: str, send: Send, max_pages: int = MAX_PAGES) -> dict[str, dict]:
@@ -84,8 +85,10 @@ def _round(got: dict, groups: dict, section: str, until: str, send: Send) -> dic
                 acct["undated"] += int(r.get("undated") or 0)
             else:
                 # Unreadable lines of the drill's files: carried to meta, where parity refuses a drill it cannot judge.
-                # Every page of the section reports the whole file's count: the largest is the count, their sum is not.
-                acct["relay_outage"]["skipped"] = max(acct["relay_outage"]["skipped"], int(r.get("skipped") or 0))
+                # Every page of a section reports its whole file's count: the largest is that file's count, their sum is
+                # not; the two files' counts are added, since they are two files.
+                acct["drill_skipped"][section] = max(acct["drill_skipped"][section], int(r.get("skipped") or 0))
+                acct["relay_outage"]["skipped"] = sum(acct["drill_skipped"].values())
             n = r.get("next")
             if n is None:
                 continue
