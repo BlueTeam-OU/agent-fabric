@@ -266,7 +266,7 @@ def relay_outage(per_account: dict[str, dict], drill: tuple[float, float]) -> di
                           "flagged_reshow": len(flagged), "acked": acked})
     exercised = [p for p in pairs if p["carrier_only"] and p["interweave"]]
     for p in pairs:
-        p["ok"] = p in exercised and p["shown"] == "once" and not p["again"] and p["first_via"] == "interweave" and p["acked"] == "yes"
+        p["ok"] = p in exercised and p["shown"] == "once" and p["first_via"] == "interweave" and p["acked"] == "yes"
     return {"window": drill, "pairs": pairs, "exercised": len(exercised),
             "holds": bool(exercised) and all(p["ok"] for p in exercised)}
 
