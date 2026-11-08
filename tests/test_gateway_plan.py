@@ -289,6 +289,37 @@ def main() -> int:
                            env={**env, "PATH": nowhere}, capture_output=True, text=True, timeout=60)
         check("--validate with no binary on PATH says so and is not a failure", r.returncode == 0 and json.loads(r.stdout)["validation"]["ran"] is False, r.stdout + r.stderr)
 
+    print("the default role is the login's binding, as identity reads it")
+    with tempfile.TemporaryDirectory() as t:
+        old = os.environ.get("AGENT_FABRIC_STATE_DIR")
+        os.environ["AGENT_FABRIC_STATE_DIR"] = t
+        try:
+            binding = os.path.join(t, "agents", ME, "binding.json")
+            os.makedirs(os.path.dirname(binding))
+            check("no binding: no role", gp._role_of(ME) is None)
+            with open(binding, "w") as fh:
+                json.dump({"role": "python-dev"}, fh)
+            check("a binding's role", gp._role_of(ME) == "python-dev")
+            bad = os.path.join(t, "unregistered-checkout")   # #511 F15: a marker the registry lacks costs no binding
+            os.makedirs(bad)
+            subprocess.run(["git", "-C", bad, "init", "-q"], check=True)
+            with open(os.path.join(bad, ".agent-fabric-project"), "w", encoding="utf-8") as fh:
+                fh.write("not-registered\n")
+            here = os.getcwd()
+            os.chdir(bad)
+            try:
+                check("...and cwd in a checkout whose marker names an unregistered project keeps it", gp._role_of(ME) == "python-dev")
+            finally:
+                os.chdir(here)
+            with open(binding, "w") as fh:
+                fh.write("{not json")
+            check("a binding identity refuses is no role, not a crash", gp._role_of(ME) is None)
+        finally:
+            if old is None:
+                os.environ.pop("AGENT_FABRIC_STATE_DIR", None)
+            else:
+                os.environ["AGENT_FABRIC_STATE_DIR"] = old
+
     print("test_gateway_plan:", "OK" if not fails else f"{fails} FAILED")
     return 1 if fails else 0
 

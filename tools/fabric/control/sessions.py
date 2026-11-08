@@ -376,16 +376,17 @@ def transcript_exists(sid, config_dir: str | None = None) -> bool:
     return any(os.path.exists(os.path.join(projects, d, f"{sid}.jsonl")) for d in dirs)
 
 
-def _bound(file: str, config_dir: str | None) -> dict:
+def _bound(agent: str, config_dir: str | None) -> dict:
+    """What `agent`'s binding says, read by identity: a record that names another login or was written on another
+    host, or that is not JSON, is no binding (identity refuses it with SystemExit)."""
+    from control import hold   # the by-path identity loader; imported here as only the watcher needs it
     try:
-        with open(file, encoding="utf-8") as fh:
-            b = js.json_parse(fh.read())
-        sid = b.get("session") if isinstance(b, dict) else None
-        sid = sid if isinstance(sid, str) and SESSION_ID.fullmatch(sid) else None
-        return {"role": b.get("role"), "project": b.get("project"), "last_session": sid,
-                "resumable": transcript_exists(sid, config_dir) if sid else False}
-    except (OSError, UnicodeDecodeError, ValueError, AttributeError):
+        b = hold.identity_module().binding_record(agent)
+    except (OSError, ValueError, SystemExit):
         return {"role": None, "project": None, "last_session": None, "resumable": False}
+    sid = b.session if b.session and SESSION_ID.fullmatch(b.session) else None
+    return {"role": b.role, "project": b.project, "last_session": sid,
+            "resumable": transcript_exists(sid, config_dir) if sid else False}
 
 
 class StateWatcher:
@@ -395,11 +396,11 @@ class StateWatcher:
     not awaited: an asynchronous caller passes a post that completes (or
     raises) before it returns."""
 
-    def __init__(self, *, address: str, post: Callable[[dict], object], file: str, binding: str | None = None,
+    def __init__(self, *, address: str, post: Callable[[dict], object], file: str, agent: str | None = None,
                  jobs: str | None = None, proc: str = "/proc", now: Callable[[], float] = lambda: time.time() * 1000,
                  heartbeat_ms: float = STATE_HEARTBEAT_MS, log: Callable[[str], None] = lambda m: print(m, file=sys.stderr),
                  config_dir: str | None = None):
-        self.address, self.post, self.file, self.binding, self.jobs = address, post, file, binding, jobs
+        self.address, self.post, self.file, self.agent, self.jobs = address, post, file, agent, jobs
         self.proc, self.now, self.heartbeat_ms, self.log, self.config_dir = proc, now, heartbeat_ms, log, config_dir
         self.last_key, self.last_at, self.busy, self.failing = None, 0.0, False, False
         self.last_waits: list = []
@@ -451,7 +452,7 @@ class StateWatcher:
             now_ms = self.now()
             sessions = self._sessions_now(now_ms)
             said = {"sessions": sessions,
-                    **(_bound(self.binding, self.config_dir) if self.binding else
+                    **(_bound(self.agent, self.config_dir) if self.agent else
                        {"role": None, "project": None, "last_session": None, "resumable": False}),
                     "waits_on": self._waits_now()}
             key = json.dumps(said, sort_keys=False, ensure_ascii=True)

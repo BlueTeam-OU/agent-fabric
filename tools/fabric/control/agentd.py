@@ -1013,7 +1013,7 @@ def main(argv: list[str] | None = None) -> int:
         # What the account's sessions are doing, posted when it changes
         # (sessions.py); first at start, so a restart re-says it.
         states = sessions.StateWatcher(address=me["address"], post=state_poster(call, cfg, me["address"]),
-                                       file=os.path.join(state_dir(), sessions.STATE_FILE), binding=who.get("binding"),
+                                       file=os.path.join(state_dir(), sessions.STATE_FILE), agent=who.get("agent"),
                                        jobs=os.path.join(state_dir(), "jobs.json"))
         # First at start, in its own thread: the Node did not await it, and a
         # relay that is down must not hold the read loop's start behind the post.

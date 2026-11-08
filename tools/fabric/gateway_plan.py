@@ -366,14 +366,13 @@ def validate_with_binary(path: str, binary: str) -> dict:
 
 
 def _role_of(login: str) -> str | None:
-    """The role in the login's binding, when its state is readable from here (this login's own, in practice)."""
+    """The role in the login's binding, when its state is readable from here (this login's own, in practice). A binding
+    identity refuses — not JSON, another login's, another host's — is no role, not a guess."""
     import identity
     try:
-        with open(identity.binding_path(login), encoding="utf-8") as fh:
-            role = json.load(fh).get("role")
-    except (OSError, ValueError, AttributeError):
+        return identity.binding_record(login).role
+    except (OSError, ValueError, AttributeError, SystemExit):
         return None
-    return role if isinstance(role, str) and role else None
 
 
 def main(argv: list[str] | None = None) -> int:

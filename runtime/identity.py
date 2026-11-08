@@ -40,7 +40,9 @@ next; only a rebind there reads it, to replace it.
 """
 from __future__ import annotations
 
+import collections.abc
 import contextlib
+import dataclasses
 import datetime
 import fcntl
 import importlib.util
@@ -52,6 +54,7 @@ import socket
 import sys
 import threading
 import time
+import types
 from typing import TypedDict
 
 # The repository this module lives in. AGENT_FABRIC_ROOT lets a test point
@@ -375,6 +378,13 @@ def append_line(path: str, line: str, *, max_bytes: int | None = None, wait: flo
         os.close(fd)
 
 
+def open_log_fd(path: str) -> int:
+    """A descriptor on a per-agent log for a child to write its stderr to: O_APPEND 0600, created if absent.
+    The child writes, not the caller, so there is no line to hand append_line; the descriptor is the one
+    primitive rule 1 admits for it. The caller closes it."""
+    return os.open(path, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
+
+
 def _flock(fd: int, path: str, wait: float | None) -> None:
     if wait is None:
         fcntl.flock(fd, fcntl.LOCK_EX)
@@ -610,8 +620,117 @@ def _workingcopy():
     return module
 
 
+def _frozen(cls):
+    """dataclass(frozen=True) for a module that tools load by path, which nothing registers in sys.modules: with
+    `from __future__ import annotations` dataclasses reads each string annotation through sys.modules[cls.__module__]
+    and fails on the missing entry (3.14). The stand-in lives for this one call."""
+    name = cls.__module__
+    standin = name not in sys.modules
+    if standin:
+        sys.modules[name] = types.ModuleType(name)
+    try:
+        return dataclasses.dataclass(frozen=True)(cls)
+    finally:
+        if standin:
+            del sys.modules[name]
+
+
+@_frozen
+class AgentIdentity:
+    """Who the agent is: the login, the host it runs on, the GZCoord address composed once from both
+    (SPEC §3.1), so a message written by hand takes it as printed rather than rebuilt from two fields."""
+    agent: str
+    host: str
+    address: str
+
+
+@_frozen
+class ProjectContext:
+    """The project and working copy the agent is on. `source` says where `project` came from ("working-copy",
+    "binding" or None); the working copy is a path and an id, never a name."""
+    project: str | None
+    source: str | None
+    working_copy: str | None
+    working_copy_id: str | None
+    remote: str | None
+
+
+@_frozen
+class BindingRecord:
+    """What the agent's binding file records, as written and not resolved: `file` is where it sits (a path,
+    existing or not); `project` and `working_copy` are the binding's own, which differ from ProjectContext's when
+    `cwd` sits in another checkout. Empty and non-string values read as None; `present` says a file is there,
+    which an empty record does not (a missing binding and a `{}` one both read all None)."""
+    file: str
+    present: bool
+    role: str | None
+    project: str | None
+    working_copy: str | None
+    session: str | None = None   # as recorded and unchecked: a reader that resumes it validates its shape (sessions.py)
+
+
+@_frozen
+class AgentContext(collections.abc.Mapping):
+    """What resolve_context answers, and with binding_record() the only place a binding's content is read into.
+    tools/fabric/context_reads.py refuses a module that names binding.json or builds its path; a path handed on as a
+    value (whoami()["binding"]) is beyond a syntax checker, so that rule is held by review too. Built by resolve_context alone.
+
+    As a Mapping it reads as the flat dict `--json` prints and callers took before this type existed
+    (as_dict()), so none of them changed shape; `binding` carries what that dict never held."""
+    identity: AgentIdentity
+    project: ProjectContext
+    role: str | None
+    session: str | None
+    cwd: str
+    fabric_root: str
+    state_dir: str
+    binding: BindingRecord
+
+    def as_dict(self) -> dict:
+        i, p = self.identity, self.project
+        return {
+            "agent": i.agent, "host": i.host, "address": i.address, "role": self.role,
+            "project": p.project, "project_source": p.source,
+            "working_copy": p.working_copy, "working_copy_id": p.working_copy_id, "remote": p.remote,
+            "session": self.session, "cwd": self.cwd, "fabric_root": self.fabric_root, "state_dir": self.state_dir,
+        }
+
+    def __getitem__(self, key: str):
+        return self.as_dict()[key]
+
+    def __iter__(self):
+        return iter(self.as_dict())
+
+    def __len__(self) -> int:
+        return len(self.as_dict())
+
+
+def _text(value) -> str | None:
+    return value if isinstance(value, str) and value else None
+
+
+def binding_record(agent: str | None = None, *, rebind: bool = False) -> BindingRecord:
+    """The agent's binding alone, without resolving the checkout cwd sits in: a reader that wants only its own role,
+    project and working copy must not lose them to an unregistered marker or a broken registry in an unrelated
+    checkout (#511 F15). What resolve_context's `.binding` holds, read the same way; another host's record reads empty.
+    Raises what read_binding raises (an unreadable or foreign binding), which the caller decides on."""
+    agent = agent or current_agent()
+    binding = read_binding(agent, other_host=rebind)
+    if binding.get("host") not in (None, current_host()):
+        binding = {}
+    return _record(agent, binding)
+
+
+def _record(agent: str, binding: dict) -> BindingRecord:
+    # The one builder binding_record and resolve_context share, so their `.binding` cannot drift apart.
+    path = binding_path(agent)
+    return BindingRecord(file=path, present=os.path.lexists(path), role=_text(binding.get("role")),
+                         project=_text(binding.get("project")), working_copy=_text(binding.get("working_copy")),
+                         session=_text(binding.get("session")))
+
+
 def resolve_context(cwd: str | None = None, session: str | None = None,
-                    agent: str | None = None, rebind: bool = False) -> dict:
+                    agent: str | None = None, rebind: bool = False) -> AgentContext:
     """The agent plus everything bound to it right now.
 
     `project` comes from the working copy `cwd` sits in when that copy is a
@@ -635,24 +754,17 @@ def resolve_context(cwd: str | None = None, session: str | None = None,
     else:
         project, source = None, None
     host = current_host()
-    return {
-        "agent": agent,
-        "host": host,
-        # The GZCoord address (SPEC §3.1), composed once here so a message
-        # written by hand takes it as printed rather than rebuilt from two
-        # fields; the relay transport doc points here for it.
-        "address": f"{host}/{agent}",
-        "role": binding.get("role"),
-        "project": project,
-        "project_source": source,
-        "working_copy": wc.get("path"),
-        "working_copy_id": wc.get("id"),
-        "remote": wc.get("remote"),
-        "session": session or os.environ.get("CLAUDE_SESSION_ID"),
-        "cwd": cwd,
-        "fabric_root": FABRIC_ROOT,
-        "state_dir": agent_state_dir(agent),
-    }
+    return AgentContext(
+        identity=AgentIdentity(agent=agent, host=host, address=f"{host}/{agent}"),
+        project=ProjectContext(project=project, source=source, working_copy=wc.get("path"),
+                               working_copy_id=wc.get("id"), remote=wc.get("remote")),
+        role=binding.get("role"),
+        session=session or os.environ.get("CLAUDE_SESSION_ID"),
+        cwd=cwd,
+        fabric_root=FABRIC_ROOT,
+        state_dir=agent_state_dir(agent),
+        binding=_record(agent, binding),
+    )
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -672,7 +784,7 @@ def main(argv: list[str] | None = None) -> int:
         print((read_binding() or {}).get("role") or "")
         return 0
     if args.json:
-        print(json.dumps(resolve_context(args.cwd, args.session), ensure_ascii=False, indent=2, sort_keys=True))
+        print(json.dumps(resolve_context(args.cwd, args.session).as_dict(), ensure_ascii=False, indent=2, sort_keys=True))
         return 0
     print(current_agent())
     return 0

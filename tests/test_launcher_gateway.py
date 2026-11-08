@@ -201,6 +201,26 @@ def main() -> int:
         check("the recorded parent: the gateway runs (here it exits without READY, which is its own refusal)",
               os.path.exists(plan + ".ran") and "stopped before READY" in why and "exit 127" not in why, why)
 
+    print("the gateway's log is identity's descriptor (ADR-003 rule 1)")
+    with tempfile.TemporaryDirectory(prefix="test_launcher_gateway.") as tmp:
+        fake = os.path.join(tmp, "gw")
+        with open(fake, "w") as fh:
+            fh.write("#!/usr/bin/env python3\nimport sys\nsys.stderr.write('boom\\n')\n")
+        os.chmod(fake, 0o755)
+        plan = os.path.join(tmp, "plan.json")
+        with open(plan, "w") as fh:
+            fh.write("{}\n")
+        opened: list[str] = []
+        real = gateway.identity.open_log_fd
+        gateway.identity.open_log_fd = lambda path: opened.append(path) or real(path)
+        try:
+            refused(gateway.start, fake, plan, os.path.join(tmp, "gw.log"), {"gateway_version": "1"}, ready_timeout=5)
+        finally:
+            gateway.identity.open_log_fd = real
+        check("start opens the log through identity.open_log_fd", opened == [os.path.join(tmp, "gw.log")], str(opened))
+        with open(os.path.join(tmp, "gw.log")) as fh:
+            check("…and the child's stderr lands in it", fh.read() == "boom\n")
+
     print("approving the gateway-local key for the harness")
     with tempfile.TemporaryDirectory(prefix="test_launcher_gateway.") as tmp:
         path = os.path.join(tmp, ".claude.json")
