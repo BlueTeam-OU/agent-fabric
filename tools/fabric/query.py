@@ -206,17 +206,15 @@ def citations(path: str) -> int:
 
 # ── where the crossrefs are ─────────────────────────────────────────────
 
-def binding_working_copy(state: str) -> list[str]:
-    path = f"{state}/binding.json"
-    if not os.path.isfile(path):
-        return []
+def binding_working_copy() -> list[str]:
+    """The working copy this agent's binding records, as identity reads it: a binding identity refuses (not JSON,
+    another agent's, another host's) costs the binding, said once, never the answer."""
     try:
-        with open(path, "rb") as fh:
-            wc = json.load(fh).get("working_copy")
-    except (OSError, ValueError, AttributeError) as e:
-        say(f"query: the binding {path} is not read: {e}")
+        wc = identity.binding_record().working_copy
+    except (OSError, ValueError, AttributeError, SystemExit) as e:
+        say(f"query: the binding is not read: {e}")
         return []
-    return [wc] if isinstance(wc, str) else []
+    return [wc] if wc else []
 
 
 def subdirs(path: str) -> list[str]:
@@ -234,7 +232,7 @@ def project_roots(root: str, memory: str) -> list[str]:
     env = os.environ
     wcs = [root, env.get("AGENT_FABRIC_WORKING_COPY", "")]
     wcs += env.get("AGENT_FABRIC_WORKING_COPIES", "").split(":")
-    wcs += binding_working_copy(identity.agent_state_dir())
+    wcs += binding_working_copy()
     found = subdirs(f"{memory}/projects")
     found += [f"{wc}/.agent-fabric/memory" for wc in sort_u([w for w in wcs if w.strip(" \t")])
               if os.path.isdir(f"{wc}/.agent-fabric/memory")]

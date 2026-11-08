@@ -41,18 +41,15 @@ SERVER_INFO = {"name": "fabric-memory", "version": "1"}
 
 
 def session_of_binding(state_dir: str) -> tools.Session:
+    """The session the binding describes: its own role, project and working copy, not the checkout cwd sits in. A
+    binding identity refuses, or none, gives a session with no role; an unreadable one is no binding."""
     try:
-        with open(os.path.join(state_dir, "binding.json"), encoding="utf-8") as fh:
-            binding = json.load(fh)
-    except (OSError, ValueError):
+        bound = identity.binding_record()
+    except (OSError, ValueError, SystemExit):
         return tools.Session()
-    if not isinstance(binding, dict):
+    if not bound.present:
         return tools.Session()
-
-    def text(key: str) -> str | None:
-        value = binding.get(key)
-        return value if isinstance(value, str) and value else None
-    return tools.Session(role=text("role"), project=text("project"), working_copy=text("working_copy"), state_dir=state_dir)
+    return tools.Session(role=bound.role, project=bound.project, working_copy=bound.working_copy, state_dir=state_dir)
 
 
 class Server:

@@ -150,9 +150,9 @@ state file an obvious place to get its writer.
    third: `journal-bypass.jsonl` (ADR-041 rule 10), append-only, written
    by `tools/fabric/gzcoord/bypass.py` under `agent_lock` with
    `O_NOFOLLOW`, mode 0600, one write and an fsync per batch of lines;
-   and `gzcoord-sent.jsonl`, the send ledger, appended by
-   `tools/fabric/gzcoord/send.py` and trimmed by rewrite, without
-   `agent_lock` yet (a known gap, to close) (A 2026-10-05). A lock
+   and `gzcoord-sent.jsonl`, the send ledger, appended and trimmed by
+   `tools/fabric/gzcoord/send.py` under `agent_lock`, the trim by
+   `atomic_write` (A 2026-10-05) (A 2026-11-08). A lock
    file (§2) is not a write of state: one opened only to hold a
    `flock`, never written, read, truncated or removed, mode 0600, needs
    no writer in `identity.py` (A 2026-10-31). Rule 1 is checked, not
@@ -241,3 +241,4 @@ The body above reads current; each change's full note is in [history/ADR-003-ame
 | 2026-10-31 | A lock file is not state | §2, §5 rule 1: a file opened `O_CREAT` only to hold a `flock` (`.lock`, `pool.json.lock`, `busy-*`), never written, read, truncated or removed, mode 0600, is outside rule 1 |
 | 2026-11-01 | The session hooks write through `identity.py`, under their own lock files | §2, §5 rule 2: `session-state.json` and `session-context.json` replaced by `atomic_write`, read-modify-write under a `flock` on their `.lock` beside them, never `agent_lock`; both lock files 0600 |
 | 2026-11-03 | Rule 1 has a guard, and its exceptions a list | §5 rule 1: `state_writes.py` in lint and at pre-commit; `policies/state-writers.json` names each admitted module and why, gaps with their jobs; `fabric_writes.py` writes through `identity` |
+| 2026-11-08 | The send ledger's gap is closed | §5 rule 1: `gzcoord-sent.jsonl` is appended and trimmed under `agent_lock`, the trim by `atomic_write`; the known gap the rule named is gone; no rule changes |

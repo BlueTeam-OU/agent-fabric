@@ -229,7 +229,7 @@ def start(binary: str, plan_path: str, log_path: str, version: dict, *, ready_ti
     key_r, key_w = os.pipe()
     ready_r, ready_w = os.pipe()
     mine, theirs = socket.socketpair(socket.AF_UNIX, socket.SOCK_STREAM)
-    log_fd = os.open(log_path, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
+    log_fd = identity.open_log_fd(log_path)
     proc = None
     try:
         # Written before the start: the pipe holds it, so the gateway's read cannot wait on us.

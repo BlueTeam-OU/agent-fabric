@@ -275,6 +275,37 @@ Why these choices:
     naming it. The hold fences off a session that never read the
     announcement. It does not stop an agent that edits its own state:
     a login can delete its own `hold.json`, and must not.
+14. A job changes state only by a row of this table; no other
+    transition exists (A 2026-11-08). "Who" is the one subsystem that
+    may make it; "needs" is what must be true when it is made, not
+    later. A field edit that changes no state (a retitle by the drain,
+    a rename's rewrite, `prio`, `retract`, evidence added to a closed
+    job) is no transition.
+
+    | from | to | who | needs |
+    |---|---|---|---|
+    | — | `open` in a role's pool | the pool holder's control agent, on a signed `pool-add` (rule 9) | role, title, project, priority |
+    | `open` in the pool | `claimed` there | the pool holder's control agent, on `pool-claim` | the claimant's reported binding holds the role; no other claimant |
+    | — | `queued` | the claimant's own `fabric-jobs pool-claim`, on the holder's `claimed` answer (rule 1: no other writer of its list) | the pool's job, by generation and id |
+    | — | `queued` | `fabric-jobs add`; the inbox intake (rule 11); the control agent's `jobs-add` (rule 4) | a title and project; from a REQUEST, its id, once per id |
+    | — | any state, as exported | `fabric-jobs import` (rule 13) | an empty list; at most one job `active`; a list moved, not a job started |
+    | `queued`, `paused`, `blocked`, `delivered` | `active` | `fabric-jobs start` or `switch` only | no other job active; no hold (rule 13); a working copy; from `blocked` by `switch`, every blocker cleared; by `switch`, a branch chosen (rule 10 step 3) |
+    | `active` | `paused` | `fabric-jobs pause` | a reason; the branch pushed |
+    | `queued`, `active`, `paused`, `blocked` | `blocked` | `fabric-jobs block` | a blocker: checkable (rule 8) or a named owner's decision; on a blocked job, it replaces the wait |
+    | `queued`, `paused`, `blocked` | `blocked` | `fabric-jobs switch` (rule 10 step 3) | the job needs a pull request not yet merged: `pr:` added to its blockers, never substituted |
+    | `active`, `blocked` | `delivered` | `fabric-jobs deliver` | an artifact that is open: a pull request, a branch on origin not on the default branch, a sent REPLY |
+    | `delivered` | `done` | `fabric-jobs sweep`, run by the agent or hourly by its control agent (rule 12) | rule 10's `done` test |
+    | `active`, `delivered` | `done` | `fabric-jobs done` | rule 10's `done` test: the artifact merged or on the default branch; or a recorded `--no-artifact` reason where the job names no artifact |
+    | `queued`, `active`, `paused`, `blocked`, `delivered` | `dropped` | `fabric-jobs drop` | a reason; a REQUEST it came from answered |
+
+    `done` and `dropped` are terminal: nothing reopens them, and new
+    work is a new job. `switch` and `next` make no transition beyond
+    the table's rows that name them; step 1 of rule 10 checks the left job's row
+    again before it lets the next one start. Wherever today's code
+    makes a transition outside this table, or makes one without what
+    the row needs, that is a finding against the code, characterised
+    by tests before any of it changes (python-dev-04's j100); one
+    module making every transition is the next step, not this rule.
 
 ## 6. Consequences
 
@@ -299,7 +330,7 @@ Why these choices:
 
 ## 8. Decision Status
 
-Accepted and in force, rules 7–10 included (built in agent-fabric #118). Rule 13, the fleet hold, is built in agent-fabric #431 (the control plane, `fabric-jobs`, `fabric-fresh`, `fabric-status`) and #429 (the session-start line, the skill) (A 2026-10-30).
+Accepted and in force, rules 7–10 included (built in agent-fabric #118). Rule 13, the fleet hold, is built in agent-fabric #431 (the control plane, `fabric-jobs`, `fabric-fresh`, `fabric-status`) and #429 (the session-start line, the skill) (A 2026-10-30). Rule 14's table is decided; today's code is characterised against it before any of it changes (A 2026-11-08).
 
 ## References
 
@@ -332,3 +363,4 @@ The body above reads current; each change's full note is in [history/ADR-037-ame
 | 2026-10-31 | Cleaning a left job's targets is built | §5 rule 10 step 1 reads as built (#350, `fabric-jobs switch`, jobsparts/leave_targets.py); no rule changes |
 | 2026-10-31 | In place only from inside the job's copy | §5 rule 3: a session that has worked no job takes the next in place only from inside its working copy or worktree; elsewhere, or unreadable, `switch` says fresh with the reason (`outside_copy`, `place_unreadable`) |
 | 2026-11-05 | An answered request waits on the job it became | §5 rule 8: an answered `request:` blocker is re-pointed to `job:<login>/j<n>` when the answerer's board, or failing it the REPLY's body, names the job the request became; cleared only without one, unknown when the board cannot be read and the body names none; built in #491 |
+| 2026-11-08 | One transition table for a job | §5 rule 14 added: every state change of a job is a row naming the one subsystem that may make it and what must be true when it is made; `done` and `dropped` terminal; code outside the table is a finding, characterised before it changes |

@@ -1099,16 +1099,13 @@ def _():
     SCRATCH.append(tmp)
     wc = os.path.join(tmp, "clone")
     os.mkdir(wc)
-    binding = os.path.join(tmp, "binding.json")
-    with open(binding, "w", encoding="utf-8") as fh:
-        json.dump({"working_copy": wc}, fh)
     cwd = os.getcwd()
     try:
         os.chdir(tmp)   # tmp is outside any repository
-        eq(inbox.inbox_root({"working_copy": None, "binding": binding}), wc)
-        eq(inbox.inbox_root({"working_copy": wc, "binding": "/nonexistent"}), wc)
+        eq(inbox.inbox_root({"working_copy": None, "bound_working_copy": wc}), wc)
+        eq(inbox.inbox_root({"working_copy": wc, "bound_working_copy": "/nonexistent"}), wc)
         shutil.rmtree(wc)
-        eq(inbox.inbox_root({"working_copy": None, "binding": binding}), tmp, "a vanished working copy falls back to the cwd")
+        eq(inbox.inbox_root({"working_copy": None, "bound_working_copy": wc}), tmp, "a vanished working copy falls back to the cwd")
     finally:
         os.chdir(cwd)
 

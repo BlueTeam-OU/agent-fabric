@@ -186,9 +186,7 @@ def presence(uid: int | None = None, run: Callable[..., Any] = subprocess.run, p
     # field 22 of stat, starttime, in clock ticks since boot (USER_HZ, 100 on Linux)
     starts = sorted(util.iso_ms((btime + float(f[19]) / 100) * 1000) for _, f in live if btime is not None)
     me = gzmsg.whoami() if who is None else who
-    b = binding if binding is not None else util.read_json(me.get("binding") or "")
-    if not isinstance(b, dict):
-        b = {}
+    b = binding if binding is not None else {"project": me.get("bound_project")}
     role = None
     try:
         tp = gzmsg.find_taxonomy()
