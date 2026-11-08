@@ -22,7 +22,7 @@ from __future__ import annotations
 
 import os
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.realpath(__file__))))
 import gh  # noqa: E402
@@ -35,6 +35,8 @@ class Incomplete:
     what: str      # "files" or "commits"
     count: int
     cap: int
+    # What was listed, for the one reader that says it read a PR in part (results.py); a gate never judges on it.
+    partial: tuple = field(default=(), compare=False, repr=False)
 
     @property
     def reason(self) -> str:
@@ -70,5 +72,5 @@ class PrEvidence:
         if not isinstance(listed, list) or not all(isinstance(x, dict) for x in listed):
             raise gh.GhError(f"gh api GET {path}", "the answer is not a list of objects")
         self._items[what] = listed
-        self._read[what] = Incomplete(what, len(listed), cap) if len(listed) >= cap else listed
+        self._read[what] = Incomplete(what, len(listed), cap, tuple(listed)) if len(listed) >= cap else listed
         return self._read[what]

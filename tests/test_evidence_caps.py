@@ -55,10 +55,14 @@ class Caps(unittest.TestCase):
     def test_owners_and_others_pass(self):
         src = "A = 250\ngh.api('repos/o/r/pulls/7/files')\n"
         self.assertEqual(len(ec.scan(ARM, src)), 2)   # the positive control
-        for rel in ("tools/fabric/github/common.py", "tools/fabric/github/evidence.py", "tools/fabric/gh.py",
-                    "tools/fabric/github/review_status/base.py", "tests/test_x.py", "tools/fabric/github/x.sh"):
+        for rel in ("tools/fabric/github/common.py", "tools/fabric/github/evidence.py", "tests/x.py", "bin/x.py",
+                    "tests/test_x.py", "tools/fabric/github/x.sh"):
             with self.subTest(rel=rel):
                 self.assertEqual(ec.scan(rel, src), [])
+        outside = "tools/fabric/results.py"
+        self.assertEqual(len(ec.scan(outside, "import gh\n" + src)), 2)   # outside github/, a GitHub reader is judged too
+        self.assertEqual(len(ec.scan(outside, "from github import x\n" + src)), 2)
+        self.assertEqual(len(ec.scan(outside, src)), 1)   # a 250 in a module that reads no GitHub is not a cap
         self.assertEqual(ec.scan(ARM, "def ("), [])   # a syntax error is the compiler's
 
     def test_the_tree_is_clean(self):

@@ -4,10 +4,10 @@
 
 GitHub cuts a pull request's file list at 3000 and its commit list at 250 without an error, so every reader of either
 must treat a list of that length as possibly cut. That is done once, in tools/fabric/github/evidence.py over the
-constants of tools/fabric/github/common.py. In any other module of tools/fabric/github/, two findings:
+constants of tools/fabric/github/common.py. In any other module of tools/fabric/ (results.py reads commits outside github/), two findings:
 
-- **cap**: the integer literal 250 or 3000 as an assigned value or a comparison operand — a local copy of a cap (arm's
-  PR_COMMITS_CAP, pr_counts' REST_COMMIT_CAP and the two COMMIT_LIST_CAPs were four). Another number is another list's
+- **cap**: (in github/ and in a module that imports gh or github) the integer literal 250 or 3000 as an assigned value or a comparison operand — a local copy of a cap (arm's
+  PR_COMMITS_CAP, pr_counts' REST_COMMIT_CAP, the two COMMIT_LIST_CAPs and results' REST_COMMITS_CAP were five). Another number is another list's
   cap (pr_gate_base.LIST_CAP) and is not judged.
 - **read**: a call that names the REST path of a pull request's files or commits (`.../pulls/<n>/files`,
   `.../commits`), paginated or not: the read goes through evidence.PrEvidence, which returns the list whole or as
@@ -21,15 +21,15 @@ import ast
 import os
 import re
 
-GITHUB_DIR = "tools/fabric/github"
+FABRIC_DIR = "tools/fabric"
+GITHUB_DIR = FABRIC_DIR + "/github"
 OWNERS = frozenset({f"{GITHUB_DIR}/common.py", f"{GITHUB_DIR}/evidence.py"})
 CAPS = frozenset({250, 3000})
 PR_LIST_PATH = re.compile(r"/pulls/[^/]*/(?:files|commits)(?:[?/]|$)")
 
 
 def judged_path(rel: str) -> bool:
-    return rel.startswith(GITHUB_DIR + "/") and rel.endswith(".py") and "/" not in rel[len(GITHUB_DIR) + 1:] \
-        and rel not in OWNERS
+    return rel.startswith(FABRIC_DIR + "/") and rel.endswith(".py") and rel not in OWNERS
 
 
 def _cap(node: ast.AST | None) -> bool:
@@ -55,7 +55,14 @@ def scan(rel: str, text: str) -> list[str]:
     except SyntaxError:
         return []
     out = []
+    # A literal 250 is a cap only where GitHub is read: in github/, or in a module that imports gh or github.
+    caps_judged = rel.startswith(GITHUB_DIR + "/") or any(
+        (isinstance(n, ast.Import) and any(a.name.split(".")[0] in ("gh", "github") for a in n.names))
+        or (isinstance(n, ast.ImportFrom) and (n.module or "").split(".")[0] in ("gh", "github"))
+        for n in ast.walk(tree))
     for node in ast.walk(tree):
+        if not caps_judged and not isinstance(node, ast.Call):
+            continue
         if isinstance(node, (ast.Assign, ast.AnnAssign, ast.AugAssign)) and _cap(node.value):
             out.append(f"{rel}:{node.lineno}: cap: a local copy of GitHub's list cap; use common.PR_COMMIT_LIST_CAP or "
                        "PR_FILE_LIST_CAP through github/evidence.py")
@@ -76,13 +83,13 @@ def scan(rel: str, text: str) -> list[str]:
 
 
 def findings(root: str) -> list[str]:
-    """Every finding under root's tools/fabric/github/, sorted by module."""
+    """Every finding under root's tools/fabric/, sorted by module."""
     out = []
-    base = os.path.join(root, GITHUB_DIR)
-    for name in sorted(os.listdir(base)):
-        rel = f"{GITHUB_DIR}/{name}"
-        if not judged_path(rel):
-            continue
-        with open(os.path.join(base, name), encoding="utf-8") as fh:
-            out += scan(rel, fh.read())
+    for dirpath, dirs, names in os.walk(os.path.join(root, FABRIC_DIR)):
+        dirs[:] = sorted(d for d in dirs if d != "__pycache__")
+        for name in sorted(names):
+            rel = os.path.relpath(os.path.join(dirpath, name), root)
+            if judged_path(rel):
+                with open(os.path.join(root, rel), encoding="utf-8") as fh:
+                    out += scan(rel, fh.read())
     return out
