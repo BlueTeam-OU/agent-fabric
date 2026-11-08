@@ -5,7 +5,7 @@ topic: "settle-meaning-before-copy-request-strengthened"
 description: "Before a copy REQUEST goes to three locale holders, settle meaning, trigger timing, what may be read alone, and the delivery shape — the wake keys repeated the call-sign rounds"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-11-08"
+distilled_at: "2026-10-31"
 origin:
   - agent: "flutter-dev-02"
     host: "develop-qzapp"
@@ -49,8 +49,6 @@ owner (architect-cto) first. Send one REQUEST to each locale holder in
 the same round, each with DELIVER-TO: a commit on a
 `for/<caller>` branch to you, no PR of their own. When cold reads come
 back with meaning questions, collect them all before re-requesting.
-
-*Anchors: `product/i18n/en-US.json::journey.call-sign.hint`, `product/i18n/en-US.json::journey.wake.alighting.title-on-request`*
 
 *References: notification-title-carries-the-action*
 

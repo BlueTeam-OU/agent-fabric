@@ -5,7 +5,7 @@ topic: "agents-clean-stale-things"
 description: "Owner 2026-10-19: every agent clears out its own stale worktrees, branches and scratch, not only me; broadcast 01a15576 is the interim, a fabric-branches/switch change the durable form"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-11-08"
+distilled_at: "2026-10-31"
 origin:
   - agent: user
     host: "develop-qzapp"
@@ -34,6 +34,6 @@ Related: [[tmpdir-in-home-2026-10-17]], [[own-checkout-is-fleet-tooling]].
 
 *References: own-checkout-is-fleet-tooling, tmpdir-in-home-2026-10-17*
 
-*Anchors: `bin/fabric-branches::--sweep`*
+*Anchors: `tools/fabric/branches.py::--sweep`*
 
 *Observed 2026-10-19 (fabric-coordinator)*

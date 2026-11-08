@@ -56,6 +56,6 @@ against the remote before ending idle.
 
 *References: job-guard-judges-session-cwd, settings-repo-job-needs-own-working-copy*
 
-*Anchors: `tools/fabric/jobsparts/blockers.py::a host operators op`*
+*Anchors: `tools/fabric/jobsparts/blockers.py::a host operator's op`*
 
 *Observed 2026-11-07 (devex-tooling)*

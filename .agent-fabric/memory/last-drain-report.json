@@ -683,17 +683,6 @@
       "stamp": "2026-11-08"
     },
     {
-      "agent": "p2p-network-dev-01",
-      "applied_key": "3db54c48cd98b41e",
-      "heading": "Third shape of the port-0 picker class: a test that makes a 'down' peer address by binding tcp/0 and dropping it can have another test process listen there; the dial then meets a stranger (Unexpected peer ID) and takes the quarantine path instead of the refusal under test",
-      "host": "develop-qzapp",
-      "memory": "a-released-port-is-not-a-down-address",
-      "replaced": "two bind-port-0 \"free port\" asks in a row can return the same port; libp2p-tcp's SO_REUSEPORT lets both daemons bind it, and each one's dial to the other is stripped as its own listen address (NoAddresses)",
-      "replaced_key": "c3bbbf3d8f60cd02",
-      "slice": "memory/domains/p2p-network-dev/domain/domain-free-port-same-port-reuseport.md",
-      "stamp": "2026-11-08"
-    },
-    {
       "agent": "python-dev-01",
       "applied_key": "b1d930fd42c454d4",
       "heading": "un-folded branch artifact is excused only by a merged PR whose headRefOid is that branch's tip (PR 475, 2026-11-04); other landed evidence no longer settles it",
@@ -791,7 +780,6 @@
     "memory/domains/p2p-network-dev/domain/a-socketed-pipeline-bound-includes-the-kernel-buffer.md: description clipped from 322 to 233 characters",
     "memory/domains/p2p-network-dev/domain/an-untried-address-is-not-held-by-a-backoff-it-did-not-earn.md: description clipped from 280 to 239 characters",
     "memory/domains/p2p-network-dev/domain/claude-code-sends-no-channel-capability.md: description clipped from 255 to 226 characters",
-    "memory/domains/p2p-network-dev/domain/domain-free-port-same-port-reuseport.md: description clipped from 272 to 239 characters",
     "memory/domains/p2p-network-dev/domain/enumerate-a-behaviours-toswarm-emissions.md: description clipped from 243 to 239 characters",
     "memory/domains/p2p-network-dev/domain/libp2p-autonat-v2-server-facts.md: description clipped from 243 to 237 characters",
     "memory/domains/p2p-network-dev/domain/libp2p-mdns-049-facts.md: description clipped from 375 to 239 characters",
@@ -890,6 +878,20 @@
     {
       "agent": "devex-tooling",
       "decision": "supersede",
+      "key": "devex-tooling/solution:gzapp-api-surface-validator-is-python#gzapp tools/validate_api_surface is Python since Wave 10 — check 4 is jsonschema over a vendored OAS 3.1 schema; what differs from the Node one",
+      "observed_at": "2026-10-19",
+      "rule": "same-agent"
+    },
+    {
+      "agent": "devex-tooling",
+      "decision": "supersede",
+      "key": "devex-tooling/solution:gzapp-ci-artifacts-and-gradle-cache#gzapp Actions storage audit: unexpired artifacts are retention, not a leak; Gradle caches look unread but are weekly by design; a cancelled shard still runs a cancelled()-guarded step",
+      "observed_at": "2026-10-18",
+      "rule": "same-agent"
+    },
+    {
+      "agent": "devex-tooling",
+      "decision": "supersede",
       "key": "devex-tooling/workflow:job-blocker-own-done-job-reads-unknown#a job:<login>/jN blocker (own or another login's) shows \"unknown\", never cleared — it never wakes the job; check the artifact on the remote yourself; to move umbrella → sub-job, block the umbrella on the sub-job, then switch",
       "observed_at": "2026-11-07",
       "rule": "same-agent"
@@ -911,6 +913,13 @@
     {
       "agent": "devex-tooling",
       "decision": "supersede",
+      "key": "devex-tooling/workflow:presence-check-needs-content-evidence#a skip, \"already done\" or input-present check must test the content the step produces (non-empty file, the rows it fills), never a marker or path an older or other producer can leave; and a costly output records what it was built from so skip/status compare inputs, not existence",
+      "observed_at": "2026-10-18",
+      "rule": "same-agent"
+    },
+    {
+      "agent": "devex-tooling",
+      "decision": "supersede",
       "key": "devex-tooling/workflow:role-tools-on-qubes-host#how a role's extra host tools (not the fabric's host contract) get onto develop-qzapp, and who has to run the install",
       "observed_at": "2026-10-15",
       "rule": "same-agent"
@@ -920,13 +929,6 @@
       "decision": "supersede",
       "key": "domain-transit/workflow:job-intake-homes-project-requests-in-agent-fabric#a REQUEST sent with PROJECT agent-fabric becomes a job homed in agent-fabric even when the work is in another repo; the commit guard then blocks it",
       "observed_at": "2026-11-03",
-      "rule": "same-agent"
-    },
-    {
-      "agent": "edge-hosting",
-      "decision": "supersede",
-      "key": "edge-hosting/workflow:deploy-sh-dry-run-is-gated#Running blueteam.ee deploy/deploy.sh, even a credential-less dry run, can be refused by auto mode as a production deploy; verify a deploy-tool change by its parts",
-      "observed_at": "2026-10-19",
       "rule": "same-agent"
     },
     {
@@ -953,22 +955,8 @@
     {
       "agent": "flutter-dev-02",
       "decision": "supersede",
-      "key": "flutter-dev/workflow:passenger-apk-local-build#How to build gzapp's passenger release APK on develop-qzapp despite the read-only, incomplete /opt/android-sdk; never run flutter test during the build",
-      "observed_at": "2026-10-19",
-      "rule": "same-agent"
-    },
-    {
-      "agent": "flutter-dev-02",
-      "decision": "supersede",
       "key": "flutter-dev/workflow:same-role-sibling-routing#When a role has two holders, a request or \"they wait on you\" may concern the sibling's work; establish whose it is on origin before building or answering",
       "observed_at": "2026-10-15",
-      "rule": "same-agent"
-    },
-    {
-      "agent": "flutter-dev-02",
-      "decision": "supersede",
-      "key": "flutter-dev/workflow:settle-meaning-before-copy-request-strengthened#Before a copy REQUEST goes to three locale holders, settle meaning, trigger timing, what may be read alone, and the delivery shape — the wake keys repeated the call-sign rounds",
-      "observed_at": "2026-10-24",
       "rule": "same-agent"
     },
     {
@@ -1028,24 +1016,10 @@
       "rule": "same-agent"
     },
     {
-      "agent": "python-dev-01",
-      "decision": "supersede",
-      "key": "python-dev/workflow:j174-render-lease-merged-389#gzcoord-compose onto an existing file resends the OLD message; CI lint bans a managed project's name in generic comments; a loaded full suite reds watch cases",
-      "observed_at": "2026-10-26",
-      "rule": "same-agent"
-    },
-    {
       "agent": "python-dev-03",
       "decision": "supersede",
       "key": "python-dev/workflow:reflection-pass-method-w43#How a fabric-reflect pass goes when most messages are job records; empty delta is fine, but fabric-jobs switch still wants a memory change",
       "observed_at": "2026-11-01",
-      "rule": "same-agent"
-    },
-    {
-      "agent": "python-dev-04",
-      "decision": "supersede",
-      "key": "python-dev/workflow:job-close-order-deliver-done-reply-memory#Closing a job after its PR merges: fabric-pr arm needs --basis even with --authorization; switch refuses until done, reply sent and memory changed",
-      "observed_at": "2026-10-22",
       "rule": "same-agent"
     },
     {
@@ -1076,45 +1050,10 @@
       "observed_at": "2026-10-15"
     },
     {
-      "agent": "rust-ui-dev-01",
-      "decision": "supersede",
-      "key": "rust-ui-dev/solution:solution-carried-2026-10-18#an Undo of a destructive outbound action restores the deleted record (ids + stored bytes), never a re-composed copy; held in session memory only",
-      "observed_at": "2026-10-16",
-      "rule": "same-agent"
-    },
-    {
-      "agent": "rust-ui-dev-02",
-      "decision": "supersede",
-      "key": "rust-ui-dev/workflow:deck-recovery-key-classifier-refusal#Code that makes the herdr deck type /clear and a resume prompt into an agent session after a model safeguard stop is refused by the auto-mode classifier",
-      "observed_at": "2026-10-18",
-      "rule": "same-agent"
-    },
-    {
-      "agent": "rust-ui-dev-02",
-      "decision": "supersede",
-      "key": "rust-ui-dev/workflow:herdr-docs-scripts-python#Before porting or rewriting a herdr file, check whether it came from upstream herdrdev/herdr — upstream's files stay as upstream wrote them (herdr#47 closed unmerged)",
-      "observed_at": "2026-10-19",
-      "rule": "same-agent"
-    },
-    {
-      "agent": "user",
-      "decision": "supersede",
-      "key": "fabric-coordinator/workflow:agents-clean-stale-things#Owner 2026-10-19: every agent clears out its own stale worktrees, branches and scratch, not only me; broadcast 01a15576 is the interim, a fabric-branches/switch change the durable form",
-      "observed_at": "2026-10-19",
-      "rule": "same-agent"
-    },
-    {
       "agent": "user",
       "decision": "supersede",
       "key": "fabric-coordinator/workflow:block-on-job-not-request-after-reply#fabric-jobs block --on-request clears once the assignee REPLYs \"undertaken\"; block on job:<login>/<jid> to wait for the work itself",
       "observed_at": "2026-10-22",
-      "rule": "same-agent"
-    },
-    {
-      "agent": "user",
-      "decision": "supersede",
-      "key": "fabric-coordinator/workflow:drain-commit-message-per-project#A drain's project commits each get a message written from that project's own last-drain-report.json, never one text copied to every project",
-      "observed_at": "2026-10-18",
       "rule": "same-agent"
     },
     {
@@ -1134,13 +1073,6 @@
     {
       "agent": "user",
       "decision": "supersede",
-      "key": "fabric-coordinator/workflow:guard-reads-heredoc-beside-bash#Fixture scripts that commit in scratch — write with the Write tool, run in a separate call",
-      "observed_at": "2026-10-30",
-      "rule": "same-agent"
-    },
-    {
-      "agent": "user",
-      "decision": "supersede",
       "key": "fabric-coordinator/threads:j419-harness-on-435#where FleetDeck part 2's agent-fabric side waits — my two commits ride python-dev-03's #435, then upgrade and the owner's rollout",
       "observed_at": "2026-10-31",
       "rule": "same-agent"
@@ -1148,15 +1080,15 @@
     {
       "agent": "user",
       "decision": "supersede",
-      "key": "fabric-coordinator/workflow:job-in-other-repo-needs-fresh-session#a session launched in agent-fabric cannot commit for a job in another repository; the one-job guard judges the session cwd, which the harness resets",
-      "observed_at": "2026-10-30",
+      "key": "fabric-coordinator/workflow:missing-fabric-role-trailer-bootstrap#A commit made in a clone without fabric hooks lacks Fabric-Role; hand-adding the trailer is refused, bootstrap then re-commit is the way",
+      "observed_at": "2026-10-28",
       "rule": "same-agent"
     },
     {
       "agent": "user",
       "decision": "supersede",
-      "key": "fabric-coordinator/workflow:missing-fabric-role-trailer-bootstrap#A commit made in a clone without fabric hooks lacks Fabric-Role; hand-adding the trailer is refused, bootstrap then re-commit is the way",
-      "observed_at": "2026-10-28",
+      "key": "fabric-coordinator/workflow:no-edit-under-running-suite#A running tests/run.sh reads the worktree's live files; no stash, checkout or edit there until it ends, or its verdict proves nothing",
+      "observed_at": "2026-10-24",
       "rule": "same-agent"
     },
     {
@@ -1171,13 +1103,6 @@
       "decision": "supersede",
       "key": "fabric-coordinator/workflow:review-request-fields#fabric-review brief request fields that refuse a render — repository is a local path, previous_findings left out of a PR re-review, a re-review needs card_base",
       "observed_at": "2026-10-30",
-      "rule": "same-agent"
-    },
-    {
-      "agent": "user",
-      "decision": "supersede",
-      "key": "fabric-coordinator/workflow:safeguard-refusal-stalls-agent#A model safeguard refusal (API Error ... safeguards flagged) stalls an agent's session until a person acts; restart --resume brings the flagged turn back; recover with /clear + a resume nudge",
-      "observed_at": "2026-10-18",
       "rule": "same-agent"
     },
     {
@@ -1220,20 +1145,6 @@
       "decision": "supersede",
       "key": "ux-designer/domain:strings-claim-only-what-is-true#When specifying what a string must communicate, also write what it must not claim: no step the platform lacks, no scope wider than the action, no promise that will not come by itself",
       "observed_at": "2026-10-31",
-      "rule": "same-agent"
-    },
-    {
-      "agent": "web-dev-01",
-      "decision": "supersede",
-      "key": "web-dev/workflow:workflow-trigger-comments-move-with-workflow#When devex-tooling changes a CI trigger that a web config comment names, let them edit the comment in the same commit series",
-      "observed_at": "2026-10-19",
-      "rule": "same-agent"
-    },
-    {
-      "agent": "web-dev-02",
-      "decision": "supersede",
-      "key": "web-dev/workflow:jobs-done-needs-evidence-at-switch#fabric-jobs done <id> with no artifact is accepted, but switch then refuses to leave it — record the evidence when closing, a REPLY as reply:<MESSAGE-ID>",
-      "observed_at": "2026-10-25",
       "rule": "same-agent"
     }
   ],
@@ -1567,7 +1478,6 @@
     "memory/domains/p2p-network-dev/domain/an-untried-address-is-not-held-by-a-backoff-it-did-not-earn.md",
     "memory/domains/p2p-network-dev/domain/claude-code-sends-no-channel-capability.md",
     "memory/domains/p2p-network-dev/domain/dialer-established-precedes-listener-auth.md",
-    "memory/domains/p2p-network-dev/domain/domain-free-port-same-port-reuseport.md",
     "memory/domains/p2p-network-dev/domain/enumerate-a-behaviours-toswarm-emissions.md",
     "memory/domains/p2p-network-dev/domain/json-schema-maxlength-counts-characters.md",
     "memory/domains/p2p-network-dev/domain/libp2p-autonat-v2-server-facts.md",
@@ -2264,6 +2174,7 @@
     ".agent-fabric/memory/fabric-coordinator/workflow/owner-commands-one-line.md",
     ".agent-fabric/memory/fabric-coordinator/workflow/owner-defers-findings-to-bugfix-pr.md",
     ".agent-fabric/memory/fabric-coordinator/workflow/park-a-job-block-not-pause.md",
+    ".agent-fabric/memory/fabric-coordinator/workflow/phone-order-no-overlap-on-shared-peer.md",
     ".agent-fabric/memory/fabric-coordinator/workflow/post-review-own-pr-only.md",
     ".agent-fabric/memory/fabric-coordinator/workflow/post-review-run-bare.md",
     ".agent-fabric/memory/fabric-coordinator/workflow/post-review-self-approval-refused.md",
@@ -2795,7 +2706,9 @@
       "skipped_no_roles_class": []
     }
   },
-  "held_back": [],
+  "held_back": [
+    "p2p-network-dev/domain:a-released-port-is-not-a-down-address"
+  ],
   "hygiene_problems": [],
   "memory_helpful": {},
   "memory_marks": {},
@@ -3618,10 +3531,7 @@
     "python-dev/workflow:arming-minimum-1-and-boundary-authorization#agent-fabric arms at 1 work commit since 2026-10-19; tests of guards are a security boundary and need the coordinator's AUTHORIZES id: merge_target 'Arm under 8 on a boundary PR' names no section of python-dev/workflow; the claim stands in its own topic — if it replaced that section before, drop the merge_target",
     "python-dev/workflow:job-hook-commit-in-main-checkout-works#a for/ branch checked out in a sibling worktree cannot be committed there; remove the worktree, switch the job's own checkout to the branch, commit, push, switch back: merge_target 'How to apply' names no section of python-dev/workflow; the claim stands in its own topic — if it replaced that section before, drop the merge_target",
     "python-dev/workflow:launcher-print-comparison-script-deleted#tests/parity/launch_print.py (the --print comparison against the deleted bash launcher) is gone; compare --print output by running the launcher with its fake ori and claude as tests/test_launch_cli.py does: merge_target 'launch --help installs no agent files; it still passes through to claude, so read usage from source' names no section of python-dev/workflow; the claim stands in its own topic — if it replaced that section before, drop the merge_target",
-    "rust-services-dev/threads:retire-stage6-thread#Retires the closed Gateway Stage 6 step-5 thread (#52 merged 78e8848; decisions now in the gateway's ADR-012 rule 18 and plan-v0 README): retire of 'Gateway Stage 6 — who does steps 4-7, the agreed API of gateway-protocol-openai-responses, and the usage-op contract decision': no section of rust-services-dev/threads has that heading; nothing to retire (already retired?)",
-    "fabric-coordinator/solution:corr-subagent-tools-and-transcripts#What a Claude Code custom agent file's tools line really does (empty = every tool; none is refused), and what a subagent's transcript and sidecar carry — read back live 2026-09-17: merge_target \"What a Claude Code custom agent file's tools line really does (empty = every tool; none is refused), and what a subagent's transcript and sidecar carry — read back live 2026-09-17\" names no section of fabric-coordinator/solution; written as its own topic",
-    "fabric-coordinator/solution:corr-system-prompt-replacement-mechanics#What --system-prompt-file replaces and what the harness still injects (read back live 2026-09-17), and the identifier rule a translated prompt must keep: merge_target 'What --system-prompt-file replaces and what the harness still injects (read back live 2026-09-17), and the identifier rule a translated prompt must keep' names no section of fabric-coordinator/solution; written as its own topic",
-    "fabric-coordinator/workflow:corr-smoke-container-before-ci#Run a platform smoke job under podman as an unprivileged login before pushing a CI change that adds a container job: merge_target \"Run a platform smoke job under podman on this host, as an unprivileged login, before pushing a CI change that adds a container job — the containers find host facts (a missing cmp, Debian's /etc/profile resetting PATH, dash as sh) that the ubuntu runners never do\" names no section of fabric-coordinator/workflow; the claim stands in its own topic — if it replaced that section before, drop the merge_target"
+    "rust-services-dev/threads:retire-stage6-thread#Retires the closed Gateway Stage 6 step-5 thread (#52 merged 78e8848; decisions now in the gateway's ADR-012 rule 18 and plan-v0 README): retire of 'Gateway Stage 6 — who does steps 4-7, the agreed API of gateway-protocol-openai-responses, and the usage-op contract decision': no section of rust-services-dev/threads has that heading; nothing to retire (already retired?)"
   ],
   "migrated": [
     ".agent-fabric/memory/architect-cto/rationale/review-economics-e2-replay-2026-10-15.md: links to corrected memories pointed at the slice they were written into",
@@ -3709,7 +3619,6 @@
     "fabric-coordinator/workflow:fix-a-claim-everywhere-it-is-made body: external project name (dcs, DCS, Dcs, in paths, headers and compounds). Every project's slices are held to it, so the terminal term DCS is redacted too, except as a DCS string, sequence, passthrough or intermediate(s); elsewhere a slice writes it Device Control String -> '[redacted]'",
     "fabric-coordinator/threads:j378-rule13-waits-on-tag body: host scratch path -- name the artifact by commit, sha and how to rebuild it; a path on one host's volatile volume is gone after a wipe and means nothing elsewhere -> 'a host scratch path'",
     "fabric-coordinator/threads:j443-rides-j444-pr body: city name -> '[redacted]'",
-    "fabric-coordinator/threads:j629-reuse-supply-for-j120 body: person's name -- refer to the CEO by role -> 'the CEO'",
     "fabric-coordinator/workflow:locale-codes-say-the-language body: country name -> '[redacted]'",
     "fabric-coordinator/workflow:review-dispatch-no-cd title: a /home/<login>/ path -- write the path from the repository root or ~/ -> '~/'",
     "fabric-coordinator/workflow:review-dispatch-no-cd body: a /home/<login>/ path -- write the path from the repository root or ~/ -> '~/'",
@@ -4369,11 +4278,6 @@
       "heading": "Reading Swiss federal law from Fedlex needs a JavaScript browser; WebFetch gets only the splash screen, so without moli every Swiss citation goes out unverified",
       "home": ".agent-fabric/memory/legal-expert/workflow",
       "key": "0089045d4fdc423b"
-    },
-    {
-      "heading": "two bind-port-0 \"free port\" asks in a row can return the same port; libp2p-tcp's SO_REUSEPORT lets both daemons bind it, and each one's dial to the other is stripped as its own listen address (NoAddresses)",
-      "home": "memory/domains/p2p-network-dev/domain",
-      "key": "c3bbbf3d8f60cd02"
     },
     {
       "heading": "A directed send's error must say whether the request may have left — libp2p request-response Timeout, ConnectionClosed and Io can all follow a written request; classify every code as not-sent / refused / outcome-unknown, conservatively, and retry under a dedup id persisted before the first attempt",
@@ -5635,7 +5539,7 @@
     ".agent-fabric/memory/fabric-coordinator/solution/lock-file-open-a-is-umask-mode.md#when reviewing or writing a flock lock file under agents/<login>/ — open(path, \"a\") gives the umask's 0644, not the 0600 ADR-003 §2 requires": {
       "agent": "user",
       "host": "develop-qzapp",
-      "observed": "2026-11-01"
+      "observed": "2026-11-08"
     },
     ".agent-fabric/memory/fabric-coordinator/solution/merge-tree-attributes-in-guards.md#A guard that recomputes a merge (git merge-tree) in CI must not read merge attributes from the checkout it is judging": {
       "agent": "user",
@@ -5917,10 +5821,10 @@
       "host": "develop-qzapp",
       "observed": "2026-11-07"
     },
-    ".agent-fabric/memory/fabric-coordinator/threads/j629-reuse-supply-for-j120.md#j629 next step: supply LICENSES/MIT.txt + a REUSE.toml override for tools/fabric/review_calibration.py onto develop-qzapp/user/for/python-dev-02/j120-reuse-mit, cut from python-dev-02's j120 branch head": {
+    ".agent-fabric/memory/fabric-coordinator/threads/j629-reuse-supply-for-j120.md#j629 closed: gavel's MIT notice for tools/fabric/review_calibration.py is in REUSE.toml (e683ba88, 2026-11-07)": {
       "agent": "user",
       "host": "develop-qzapp",
-      "observed": "2026-11-07"
+      "observed": "2026-11-08"
     },
     ".agent-fabric/memory/fabric-coordinator/threads/post-review-moved-report-checkpoint-gap.md#post-review moves an over-65000-char report to a PR comment (#370); a later round's checkpoint brief then quotes only the pointer": {
       "agent": "user",
@@ -6667,6 +6571,11 @@
       "host": "develop-qzapp",
       "observed": "2026-10-20"
     },
+    ".agent-fabric/memory/fabric-coordinator/workflow/phone-order-no-overlap-on-shared-peer.md#a phone step that resets an identity leaves every other phone trusting the old one (retries look like interference); hold the lease for the whole case": {
+      "agent": "user",
+      "host": "develop-qzapp",
+      "observed": "2026-11-08"
+    },
     ".agent-fabric/memory/fabric-coordinator/workflow/post-review-own-pr-only.md#fabric-pr post-review refuses another session's PR: a review I dispatch on a contributor's PR goes as a PR comment, and the author's own re-review is the counted one": {
       "agent": "user",
       "host": "develop-qzapp",
@@ -6850,7 +6759,7 @@
     ".agent-fabric/memory/fabric-coordinator/workflow/safeguard-refusal-stalls-agent.md#A model safeguard refusal (API Error ... safeguards flagged) stalls an agent's session until a person acts; restart --resume brings the flagged turn back; recover with /clear + a resume nudge": {
       "agent": "user",
       "host": "develop-qzapp",
-      "observed": "2026-10-18"
+      "observed": "2026-11-08"
     },
     ".agent-fabric/memory/fabric-coordinator/workflow/scratch-fabric-worktree-misses-sibling-hygiene.md#assembling a drain from a scratch agent-fabric worktree skips other projects' hygiene bans (e.g. gzapp's city name) unless their working copies sit beside it": {
       "agent": "user",
@@ -9807,11 +9716,6 @@
       "host": "develop-qzapp",
       "observed": "2026-10-16"
     },
-    "memory/domains/p2p-network-dev/domain/domain-free-port-same-port-reuseport.md#Third shape of the port-0 picker class: a test that makes a 'down' peer address by binding tcp/0 and dropping it can have another test process listen there; the dial then meets a stranger (Unexpected peer ID) and takes the quarantine path instead of the refusal under test": {
-      "agent": "p2p-network-dev-01",
-      "host": "develop-qzapp",
-      "observed": "2026-10-31"
-    },
     "memory/domains/p2p-network-dev/domain/enumerate-a-behaviours-toswarm-emissions.md#Before enabling a libp2p behaviour, grep its ToSwarm emissions — libp2p-mdns 0.49 emits NewExternalAddrOfPeer for every discovered (peer, addr), untrusted; a Dial needs an origin at the gate; an address emission is a door into the address book": {
       "agent": "p2p-network-dev-01",
       "host": "develop-qzapp",
@@ -12213,7 +12117,7 @@
     "legal-expert-ch@develop-qzapp": 1793527345520,
     "legal-expert-ee-eu@develop-qzapp": 1792959520072,
     "legal-expert-ge@develop-qzapp": 1794124792560,
-    "p2p-network-dev-01@develop-qzapp": 1793438141778,
+    "p2p-network-dev-01@develop-qzapp": 1793438103999,
     "p2p-network-dev-01@develop-qzapp#projects-root": 1792403189859,
     "python-dev-01@develop-qzapp": 1794078503731,
     "python-dev-02@develop-qzapp": 1794125514923,

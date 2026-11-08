@@ -5,7 +5,7 @@ topic: "deploy-sh-dry-run-is-gated"
 description: "Running blueteam.ee deploy/deploy.sh, even a credential-less dry run, can be refused by auto mode as a production deploy; verify a deploy-tool change by its parts"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-11-08"
+distilled_at: "2026-10-31"
 origin:
   - agent: "edge-hosting"
     host: "develop-qzapp"
@@ -35,6 +35,6 @@ A live deploy still needs the owner's word in session
 
 *References: publish-needs-owner-word-in-session*
 
-*Anchors: `deploy/site_upload.py::dry run without the host`, `deploy/deploy.sh::check_dist.py`*
+*Anchors: `blueteam.ee:deploy/site_upload.py::dry run without the host`, `blueteam.ee:deploy/deploy.sh::check_dist.py`*
 
 *Observed 2026-10-19 (edge-hosting)*

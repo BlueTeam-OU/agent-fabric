@@ -5,7 +5,7 @@ topic: "no-edit-under-running-suite"
 description: "A running tests/run.sh reads the worktree's live files; no stash, checkout or edit there until it ends, or its verdict proves nothing"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-11-05"
+distilled_at: "2026-11-08"
 origin:
   - agent: user
     host: "develop-qzapp"
@@ -28,6 +28,6 @@ derived_from:
 
 *References: checks-need-a-control, no-worktree-remove-under-running-suite, suite-snapshots-git-config*
 
-*Anchors: `tests/run.sh::FAILED_SUITES=`*
+*Anchors: `tests/run_python_suites.py::FAILED_SUITES=`*
 
 *Observed 2026-10-24 (fabric-coordinator)*

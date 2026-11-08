@@ -5,7 +5,7 @@ topic: "drain-commit-message-per-project"
 description: "A drain's project commits each get a message written from that project's own last-drain-report.json, never one text copied to every project"
 tier: 1
 knowledge_scope: full
-distilled_at: "2026-11-08"
+distilled_at: "2026-10-31"
 origin:
   - agent: user
     host: "develop-qzapp"
@@ -30,6 +30,6 @@ held_back, oversized_claims), or use the summary the assembler prints once pytho
 
 *References: fold-then-full-suite*
 
-*Anchors: `tools/fabric/assemble.py::last-drain-report.json`*
+*Anchors: `tools/fabric/assembler/shapes.py::last-drain-report.json`*
 
 *Observed 2026-10-18 (fabric-coordinator)*
