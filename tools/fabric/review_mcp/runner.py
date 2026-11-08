@@ -8,10 +8,11 @@ from __future__ import annotations
 
 import os
 import select
-import signal
 import subprocess
 import time
 from dataclasses import dataclass
+
+import process
 
 READ_CHUNK = 65536
 STDERR_CAP = 8192        # a child's complaint is for one line of ours; never a way to flood the result
@@ -28,19 +29,12 @@ class Ran:
     err_cut: bool = False         # stderr reached STDERR_CAP; the child is let run on, so this alone does not end it
 
 
-def _kill_group(pgid: int) -> None:
-    try:
-        os.killpg(pgid, signal.SIGKILL)
-    except ProcessLookupError:
-        pass
-
-
 def run_bounded(argv: list[str], env: dict[str, str], cwd: str, budget_s: float, cap_bytes: int, pass_fds: tuple[int, ...] = ()) -> Ran:
     """argv run without a shell, stdin closed, in a session of its own. The group is killed before the leader is reaped: while the leader
     is a zombie its pid, which is the group's id, cannot be handed to a stranger, so the final kill never reaches one."""
     deadline = time.monotonic() + budget_s
-    p = subprocess.Popen(argv, env=env, cwd=cwd, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                         start_new_session=True, pass_fds=pass_fds)
+    p = process.popen_group(argv, env=env, cwd=cwd, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                            pass_fds=pass_fds)
     out, err = bytearray(), bytearray()
     cut = timed_out = err_cut = False
     open_fds = {p.stdout.fileno(): out, p.stderr.fileno(): err}
@@ -72,9 +66,9 @@ def run_bounded(argv: list[str], env: dict[str, str], cwd: str, budget_s: float,
                 time.sleep(POLL_S / 5)
             if not exited and os.waitid(os.P_PID, p.pid, os.WEXITED | os.WNOHANG | os.WNOWAIT) is not None:
                 exited = True
-                _kill_group(p.pid)
+                process.signal_group(p.pid)
     finally:
-        _kill_group(p.pid)
+        process.signal_group(p.pid)
         p.wait()
         p.stdout.close()
         p.stderr.close()
