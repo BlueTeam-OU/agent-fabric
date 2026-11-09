@@ -1229,6 +1229,46 @@ def test_the_oldest_memory_that_still_waits_is_in_the_report_and_the_manifest(tm
     assert json.loads(members["harvest-report.json"])["oldest_drainable_ms"] is None
 
 
+def test_under_all_the_age_and_the_count_cover_only_what_the_committed_watermark_has_not_drained(tmp: str) -> None:
+    """--all bundles the whole store but only memories newer than the report's watermark wait; a held one waits at any age.
+    Kills: measuring the age from since_ms (0) under --all, dropping the held from the exemption, a count that stays at
+    every harvested memory, the watermark read from the wrong store key."""
+    wm = 1_000_000
+
+    def run(name: str, ages: dict[str, int], *, held: str | None = None, report: bool | str = True) -> tuple[dict, dict]:
+        mem = os.path.join(tmp, f"mem-{name}")
+        os.makedirs(mem)
+        for n, ms in ages.items():
+            write_memory(mem, n, "project", roles_class="solution")
+            os.utime(os.path.join(mem, f"{n}.md"), (ms / 1000, ms / 1000))
+        if held:
+            write_memory(mem, held, "project", body="მხოლოდ ქართული ტექსტი, თარგმანის გარეშე.", roles_class="solution")
+            os.utime(os.path.join(mem, f"{held}.md"), ((wm - 9000) / 1000,) * 2)
+        wc = os.path.join(tmp, f"wc-{name}")
+        os.makedirs(os.path.join(wc, ".agent-fabric", "memory"))
+        if report:
+            with open(os.path.join(wc, ".agent-fabric", "memory", "last-drain-report.json"), "w", encoding="utf-8") as fh:
+                fh.write(report if isinstance(report, str) else json.dumps({"watermarks": {f"{LOGIN}@hostA": wm}}))
+        target = os.path.join(tmp, f"{name}.tar")
+        r = subprocess.run([sys.executable, TOOL, "--role", "architect-cto", "--memory", mem, "--bundle", target, "--working-copy", wc,
+                            "--project", "demo", "--host", "hostA", "--all"], capture_output=True, text=True)
+        assert r.returncode == 0, r.stderr
+        with tarfile.open(target) as tar:
+            return json.load(tar.extractfile("manifest.json")), json.load(tar.extractfile("harvest-report.json"))
+    manifest, rep = run("drained", {"a": wm - 5000, "b": wm})
+    assert rep["claims"] == 2 and manifest["claims"] == 2, "the bundle keeps the whole store"
+    assert rep["oldest_drainable_ms"] is None and rep["drainable"] == 0 and manifest["oldest_drainable_ms"] is None, (rep, manifest)
+    manifest, rep = run("newer", {"a": wm - 5000, "b": wm + 2000})
+    assert rep["oldest_drainable_ms"] == wm + 2000 and rep["drainable"] == 1 and manifest["oldest_drainable_ms"] == wm + 2000, (rep, manifest)
+    manifest, rep = run("held", {"a": wm - 5000}, held="h")
+    assert rep["oldest_drainable_ms"] == wm - 9000 and rep["drainable"] == 1, rep
+    manifest, rep = run("noreport", {"a": wm - 5000, "b": wm}, report=False)
+    assert rep["oldest_drainable_ms"] == wm - 5000 and rep["drainable"] == 2, "no committed watermark: everything waits"
+    for label, text in (("list", "[]"), ("marks list", '{"watermarks": [1]}')):
+        manifest, rep = run(f"odd-{label.replace(' ', '-')}", {"a": wm - 5000, "b": wm}, report=text)
+        assert rep["oldest_drainable_ms"] == wm - 5000 and rep["drainable"] == 2, (label, rep)
+
+
 def test_a_call_the_caller_got_wrong_is_counted_apart(tmp: str) -> None:
     _state(calls=[{"t": "2026-10-10T07:00:00Z", "tool": "memory_find", "hits": 0, "ids": [], "error": True},
                   {"t": "2026-10-10T07:00:01Z", "tool": "memory_find", "hits": 0, "ids": []}])
@@ -1476,6 +1516,7 @@ def main() -> int:
         test_rows_after_the_scan_began_wait_and_the_watermark_stays_behind_them,
         test_a_call_the_caller_got_wrong_is_counted_apart,
         test_the_oldest_memory_that_still_waits_is_in_the_report_and_the_manifest,
+        test_under_all_the_age_and_the_count_cover_only_what_the_committed_watermark_has_not_drained,
         test_an_id_with_a_trailing_newline_is_not_an_id,
         test_a_note_with_a_credential_is_withheld_and_a_query_is_never_carried,
         test_a_second_store_of_the_login_carries_no_marks,
