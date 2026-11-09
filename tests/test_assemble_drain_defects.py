@@ -151,7 +151,12 @@ def test_a_shared_slice_is_held_only_when_no_owner_is_bound(tmp: str) -> None:
     assert report(out)["held_back"] == [] and os.path.isdir(ta.proj(out, "shared")), sorted(ta.tree(out))
     assert not os.path.exists(ta.proj(out, "beta")), sorted(ta.tree(out))
     shared = ta.read(os.path.join(ta.proj(out, "shared"), "workflow-w.md"))
-    assert "beta" not in shared.split("\n---\n")[0], "the written slice does not name the unbound owner among its owners:\n" + shared
+    head = shared.split("\n---\n")[0]
+    # The owner list is a corpus fact kept as recorded: dropping the unbound owner left a one-owner intersection, which lint
+    # refuses (replay of #519 at 96595a24).
+    assert "alpha" in head and "beta" in head, "the written slice keeps both owners in shared_with:\n" + shared
+    assert "workflow-w.md" in "".join(ta.read(os.path.join(d, f)) for d, _, fs in os.walk(ta.proj(out, "alpha")) for f in fs if f.startswith("INDEX")), \
+        "positive control: the bound owner's index lists the slice"
 
     drain, claims_dir, out = ta.build(os.path.join(tmp, "none"), {"alpha": ta.claims("alpha", [
         {"class": "workflow", "topic": "w", "title": "T", "body": "The body.", "evidence": ["h1"], "shared_with": ["beta"]}])})
@@ -163,6 +168,60 @@ def test_a_shared_slice_is_held_only_when_no_owner_is_bound(tmp: str) -> None:
     bind(out, "alpha", "beta")
     proc = ta.run_assemble(drain, claims_dir, out)
     assert proc.returncode == 0 and os.path.isdir(ta.proj(out, "shared")), proc.stderr
+
+
+def test_an_unbound_owner_with_a_directory_already_is_reindexed_from_shared_with(tmp: str) -> None:
+    """Replay of #531 at d1e1f1f8 (herdr): python-dev is unbound but has its directory from before the binding. This run
+    writes it no entry (unindexed_owners), yet the re-index of an existing directory lists every shared slice on disk whose
+    shared_with names the role, so the entry stays, as it does in the repository. Pinned so it is a decision, not a
+    surprise; the control is the same bundle with no directory, where beta gets none."""
+    for existing in (True, False):
+        with tempfile.TemporaryDirectory() as sub:
+            drain, claims_dir, out = ta.build(sub, {"alpha": ta.claims("alpha", [
+                {"class": "workflow", "topic": "w", "title": "T", "body": "The body.", "evidence": ["h1"], "shared_with": ["beta"]}])})
+            bind(out, "alpha")
+            if existing:
+                os.makedirs(ta.proj(out, "beta"))
+            proc = ta.run_assemble(drain, claims_dir, out)
+            assert proc.returncode == 0, proc.stderr
+            index = os.path.join(ta.proj(out, "beta"), "INDEX.md")
+            listed = os.path.isfile(index) and "workflow-w.md" in ta.read(index)
+            assert listed == existing, (existing, sorted(ta.tree(out)))
+
+
+def test_an_unbound_owner_of_a_claim_moved_by_merge_target_is_not_indexed(tmp: str) -> None:
+    """Review of #531 at aa300433, F1: the claim shared with the unbound beta names a section another shared topic holds, so it
+    moves there and carries its owners; beta must still get no index and no project directory (the control: gamma, bound, does)."""
+    drain, claims_dir, out = ta.build(tmp, {"alpha": ta.claims("alpha", [
+        {"class": "workflow", "topic": "h", "title": "Old", "body": "Old body.", "evidence": ["h1"], "shared_with": ["gamma"]}])})
+    bind(out, "alpha", "gamma")
+    assert ta.run_assemble(drain, claims_dir, out).returncode == 0
+    with open(os.path.join(claims_dir, "alpha.json"), "w", encoding="utf-8") as fh:
+        json.dump(ta.claims("alpha", [
+            {"class": "workflow", "topic": "t", "title": "New", "body": "New body.", "evidence": ["h1"],
+             "shared_with": ["beta", "gamma"], "merge_target": "Old"}]), fh)
+    proc = ta.run_assemble(drain, claims_dir, out)
+    assert proc.returncode == 0, proc.stderr
+    assert "New body." in ta.read(os.path.join(ta.proj(out, "shared"), "workflow-h.md")), "positive control: the claim moved"
+    assert os.path.isdir(ta.proj(out, "gamma")), "positive control: the bound owner is indexed"
+    assert not os.path.exists(ta.proj(out, "beta")), sorted(ta.tree(out))
+
+
+def test_an_unbound_owner_keeps_its_index_entry_for_a_shared_domain_slice(tmp: str) -> None:
+    """Re-review of #531, F3: the unbound beta is a co-owner of a project-class shared slice (left out of the indexes) and of a
+    shared domain slice, which the taxonomy never judges; the domain slice stays in beta's index. The control: with no
+    project-class claim beta is indexed as before."""
+    for with_project_claim in (True, False):
+        with tempfile.TemporaryDirectory() as sub:
+            items = [{"class": "domain", "topic": "field", "title": "F", "body": "Field.", "evidence": ["h1"], "shared_with": ["alpha"]}]
+            if with_project_claim:
+                items.append({"class": "workflow", "topic": "s", "title": "S", "body": "Shared.", "evidence": ["h1"], "shared_with": ["alpha"]})
+            drain, claims_dir, out = ta.build(sub, {"beta": ta.claims("beta", items)})
+            bind(out, "alpha")
+            proc = ta.run_assemble(drain, claims_dir, out)
+            assert proc.returncode == 0, proc.stderr
+            index = os.path.join(ta.proj(out, "beta"), "INDEX.md")
+            assert os.path.isfile(index) and "domain-field.md" in ta.read(index), (with_project_claim, sorted(ta.tree(out)))
 
 
 def anchored(anchor_list: list[str], **extra) -> dict:
@@ -228,6 +287,39 @@ def test_an_incoming_anchor_that_resolves_stands_and_so_does_one_that_cannot_be_
             text = ta.read(ta.proj(out, "alpha", "solution.md"))
             assert f"*Anchors: `{incoming}`*" in text, (corpus_anchor, incoming, text)
             assert report(out).get("anchors_kept", []) == [], report(out)
+
+
+def test_a_resolving_corpus_anchor_replaced_by_one_that_is_gone_is_reported_not_changed(tmp: str) -> None:
+    """Drain of 2026-11-08 replay (b): the memory's newer anchor names another file, or another string of the same file,
+    and names nothing, over the corpus's anchor that resolves. Nothing pairs the two safely, so the claim is written as it
+    stands and the report names both with the author. The controls: a new anchor that resolves, and a corpus anchor that
+    was gone already, tell nothing."""
+    cases = (
+        ("path", "gzapp:src/b.py::marker", "gzapp:src/c.py::marker", True, True),
+        ("literal", "gzapp:src/b.py::a marker", "gzapp:src/b.py::a marker's", True, True),
+        ("control: the new anchor resolves", "gzapp:src/b.py::marker", "gzapp:src/c.py::marker", True, False),
+        ("control: the old one is gone too", "gzapp:src/b.py::marker", "gzapp:src/c.py::marker", False, True),
+    )
+    for name, corpus_anchor, incoming, old_there, new_is_gone in cases:
+        with tempfile.TemporaryDirectory() as sub:
+            drain, claims_dir, out = ta.build(sub, {"alpha": ta.claims("alpha", [anchored([corpus_anchor])])})
+            ta.with_agents(drain, {"h1": "dev-01"})
+            seed_file(out, "gzapp/src/b.py", "a marker\n")
+            ta.write_registry(out)
+            assert ta.run_assemble(drain, claims_dir, out).returncode == 0
+            seed_file(out, "gzapp/src/b.py", "a marker\n" if old_there else "nothing\n")
+            if not new_is_gone:
+                seed_file(out, "gzapp/src/c.py", "a marker\n")
+            with open(os.path.join(claims_dir, "alpha.json"), "w", encoding="utf-8") as fh:
+                json.dump(ta.claims("alpha", [anchored([incoming])]), fh)
+            proc = ta.run_assemble(drain, claims_dir, out)
+            assert proc.returncode == 0, (name, proc.stderr)
+            assert f"*Anchors: `{incoming}`*" in ta.read(ta.proj(out, "alpha", "solution.md")), name
+            assert report(out)["anchors_kept"] == [], name
+            want = [{"slice": "alpha/solution:one", "heading": "T", "lost": corpus_anchor, "gained": incoming, "agent": "dev-01",
+                     "host": "hostA", "memory": "one"}] if name in ("path", "literal") else []
+            assert report(out)["anchors_lost"] == want, (name, report(out)["anchors_lost"])
+            assert (f"{corpus_anchor} -> {incoming}" in proc.stderr) == bool(want), (name, proc.stderr)
 
 
 def test_a_link_in_a_code_span_is_not_cited(tmp: str) -> None:
@@ -358,8 +450,12 @@ def main() -> int:
         test_the_fabrics_own_project_is_not_judged_by_its_taxonomy,
         test_a_project_with_no_taxonomy_binds_every_role,
         test_a_shared_slice_is_held_only_when_no_owner_is_bound,
+        test_an_unbound_owner_with_a_directory_already_is_reindexed_from_shared_with,
+        test_an_unbound_owner_of_a_claim_moved_by_merge_target_is_not_indexed,
+        test_an_unbound_owner_keeps_its_index_entry_for_a_shared_domain_slice,
         test_an_anchor_that_resolves_is_not_replaced_by_one_that_does_not,
         test_an_incoming_anchor_that_resolves_stands_and_so_does_one_that_cannot_be_judged,
+        test_a_resolving_corpus_anchor_replaced_by_one_that_is_gone_is_reported_not_changed,
         test_a_link_in_a_code_span_is_not_cited,
         test_a_toml_array_header_in_a_code_span_is_not_cited,
         test_a_title_made_one_line_is_not_told_for_a_held_slice,
