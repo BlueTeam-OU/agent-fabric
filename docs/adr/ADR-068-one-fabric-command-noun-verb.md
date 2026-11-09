@@ -191,9 +191,11 @@ does not know.
   `status`) are amendments under rule 4, each keeping its alias.
 - Shell completion for `fabric`, read from the same table, is a natural
   next step and needs no decision.
-- If the fabric gains a second harness whose command list differs, the
-  table moves out of `runtime/claude-code/` to a harness-neutral home
-  with `commands.json` reading it; that move is an amendment.
+- The dispatcher is harness-neutral and its table is not: it sits in
+  the Claude Code adapter's `commands.json`. When ADR-054's Codex
+  adapter (`runtime/codex/`, not built) needs the same list, the
+  command list and its table move to a harness-neutral home that both
+  adapters read; that move is an amendment.
 - If every account and every text has used only the `fabric` form for
   a long while, retiring the old names can be proposed under rule 10.
 
@@ -211,6 +213,6 @@ after distribution.
 - ADR-018 — `runtime/claude-code/` and `policies/` are fabric-coordinator's; the contributor entries.
 - ADR-040 — §5 rule 1, the forwarder; rule 7, `fabric-pr` as one command with verbs.
 - ADR-051 — `also_allowed` and `also_asked`, the prefix rules for one tool's subcommands.
-- ADR-054 — the harness-neutral and Claude Code instruction files.
+- ADR-054 — the harness is an adapter; the Codex adapter, not yet built.
 - ADR-067 — one owning module per mechanism; the catalogue rule 7 enters.
 - `runtime/claude-code/commands.json`, `runtime/claude-code/user-settings.py`, `runtime/claude-code/hooks/post-review-shape-guard.py`, `runtime/claude-code/hooks/job-copy-guard.py`, `tools/fabric/gzcoord/inbox_parts/session.py`.
