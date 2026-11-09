@@ -257,6 +257,23 @@ def main() -> int:
         finally:
             cmd_stub.close()
 
+        # ── through the sender: the journal row says which transport accepted it ─────────────────────────────────────
+        hosts = P.PresenceRelay({})   # only its hosts registry: --force skips the presence ask
+        for label, relay, who in (("the relay down", P.Relay(status=503), CARRIER_NAME), ("the relay up", P.Relay(), "claude-bridge")):
+            try:
+                r, state, store, seen = P.carrier_send(relay.url, P.addressed("TO: h/alpha"), extra=["--force"], **hosts.env)
+                code = ("import sqlite3,json,sys\nsys.path.insert(0, sys.argv[1]); import episodic\n"
+                        "c = sqlite3.connect(episodic.db_path())\n"
+                        "print(json.dumps(c.execute('SELECT state, carrier FROM episodes').fetchall()))")
+                q = subprocess.run([sys.executable, "-c", code, P.TOOLS], capture_output=True, text=True, timeout=60,
+                                   env={**os.environ, "AGENT_FABRIC_STATE_DIR": state, "AGENT_FABRIC_SECRET_STORE": store})
+                rows = json.loads(q.stdout) if q.returncode == 0 else q.stderr
+                check(f"send, {label} and a carrier that takes it: the carrier is asked once and the row names {who} (the first to accept)",
+                      len(seen) == 1 and isinstance(rows, list) and len(rows) == 1 and rows[0][0] == "accepted"
+                      and rows[0][1] == who, f"{r.code} {r.err}\n{rows}")
+            finally:
+                relay.close()
+
         # ── the shown ledger's decision ──────────────────────────────────────────────────────────────────────────
         lg = L.Ledger(os.path.join(scratch, "shown.jsonl"), iso_now=lambda: NOW)
         rec = {"id": "r1", "seq": 1, "content": text("D-1")}
