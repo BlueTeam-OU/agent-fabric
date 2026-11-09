@@ -3,7 +3,8 @@ A part of tools/fabric/jobs.py, whose docstring is the contract.
 
 The order: the for/ branch a supply job's request names (job["deliver_to"]), unless a pull request from it merged; else the job's own
 recorded branch, always: a job that records a branch is resumed on it (its worktree recreated from the branch when gone) and is never
-given another job's, so a branch that has landed or is gone from this clone and origin is refused, said, never replaced; only a job
+given another job's, so a branch that has landed or is gone from this clone and origin is refused, said, never replaced (the one
+exception: a paused job asked to --repoint is taken from a landed branch to this agent's one open pull request); only a job
 with no branch gets one: this agent's open pull request in the repository, when it is still addable; else, for a job that needs that
 pull request merged first, a block on it; else a new branch off the freshly fetched default branch. Whatever is chosen is never behind
 the default branch: an existing branch gets the default merged into it, locally and unpushed, in a worktree of its own."""
@@ -26,6 +27,7 @@ class Choice(NamedTuple):
     pr: int | None = None
     repo: str | None = None
     note: str = ""
+    repointed: bool = False    # a paused job's landed branch replaced by the open pull request's (--repoint)
 
 
 def slug_of(job: dict) -> str:
@@ -119,7 +121,7 @@ def _repoint(wc: str, repo: str, job: dict, landed: str, default: str) -> Choice
     if why is not None:
         raise Refused(f"{job['id']} records branch {landed}, which a pull request has landed, and the one open pull request cannot take it: {why}")
     return Choice("open-pr", head, bring_up_to_date(wc, head, default), number, repo,
-                  f"re-pointed from {landed}, which a pull request landed, to your open pull request #{number}")
+                  f"re-pointed from {landed}, which a pull request landed, to your open pull request #{number}", repointed=True)
 
 
 def _resume(wc: str, repo: str, job: dict, default: str, repoint: bool) -> Choice:
@@ -131,7 +133,8 @@ def _resume(wc: str, repo: str, job: dict, default: str, repoint: bool) -> Choic
     if _landed(wc, repo, own):
         if repoint and job["state"] == "paused":
             return _repoint(wc, repo, job, own, default)
-        offer = (f"; --repoint takes a paused job to this login's one open pull request" if job["state"] == "paused" else "")
+        offer = ("; --repoint takes a paused job to this login's one open pull request" if job["state"] == "paused"
+                 else f"; --repoint was asked and applies only to a paused job ({job['id']} is {job['state']})" if repoint else "")
         raise Refused(f"{job['id']} records branch {own}, which a pull request has landed: it is not replaced; close {job['id']} "
                       f"(fabric-jobs done or drop), or switch to another job by its id{offer}")
     if not (vcs.local_branch_exists(wc, own) or vcs.remote_tip(wc, own)):

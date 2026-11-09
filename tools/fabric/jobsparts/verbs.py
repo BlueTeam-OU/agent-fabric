@@ -298,11 +298,20 @@ def switch_job(args) -> int:
         if late:
             raise Refused(held_refusal(late, "no job started"))
         job = find(doc, nxt["id"])
+        if choice.repointed and job["state"] != "paused":
+            # `choose` read the state before the lock; the re-point is for a paused job only.
+            raise Refused(f"{job['id']} is {job['state']} now, not paused: --repoint takes a paused job; run switch again")
         verdict = decide(doc, job, session)
         who = waiters(job, waits)
         was_cleared = blockers_note(job, cache) if job["state"] == "blocked" and bl.cleared_flag(job, cache) is True else ""
         resumed = job.get("reason") if job["state"] == "paused" else None
         where = f"branch {choice.branch}" if choice.branch else f"no branch ({choice.note})"
+        if choice.repointed:
+            # The open pull request's branch is shared by design (one open pull request per agent), but never silently.
+            sharing = [j["id"] for j in doc["jobs"] if j["id"] != job["id"] and j["state"] not in TERMINAL and j.get("branch") == choice.branch]
+            if sharing:
+                where += f" (also recorded by {', '.join(sharing)})"
+                verdict_for["sharing"] = sharing
         mark = f"switch from {old['id']} ({settled}); {where}" if settled else f"switch; {where}"
         if choice.kind == "blocked":
             on = f"pr:{choice.repo}#{choice.pr}"
@@ -362,6 +371,8 @@ def switch_job(args) -> int:
         for said in swept:
             print(f"    {said}")
     print(f"  branch {choice.branch} ({choice.note}) in {choice.worktree}")
+    if verdict_for.get("sharing"):
+        print(f"  note: {', '.join(verdict_for['sharing'])} also record{'s' if len(verdict_for['sharing']) == 1 else ''} this branch")
     if verdict_for["who"] and stored_priority(job) != "blocking":
         print(f"  ranked blocking: {named(verdict_for['who'], stale)} {'waits' if len(verdict_for['who']) == 1 else 'wait'} on its request "
               f"(stored {stored_priority(job)})")

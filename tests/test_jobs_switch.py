@@ -1362,6 +1362,42 @@ def main() -> int:
                   rc == 1 and "landed" in err and said in err and w.job(ja)["branch"] == a["branch"] and w.job(ja)["state"] == "paused"
                   and w.job(ja)["worktree"] == a["worktree"], out + err + repr(w.job(ja)))
 
+        # F1: the open pull request's branch is recorded by another open job (jc took it as a job with no branch): taken, and said.
+        w, ((ja, a), (jb, b)) = two_with_branches()
+        jc = w.add("gamma")
+        rc, out, err = w.switch(jc, cwd=b["worktree"])
+        assert rc == 0 and w.job(jc)["branch"] == mine, out + err
+        w.sw("pause", jc, "later", cwd=w.job(jc)["worktree"])
+        gh_says(merged_heads=[a["branch"]], open_prs=[pr40])
+        rc, out, err = w.switch(ja, "--repoint", cwd=b["worktree"])
+        # Kills: dropping the sharing note (the output and the log).
+        check("--repoint onto a branch another open job records takes it and names that job",
+              rc == 0 and w.job(ja)["branch"] == mine and f"{jc} also record" in out and f"also recorded by {jc}" in w.job(ja)["log"][-1].get("note", ""),
+              out + err + repr(w.job(ja)))
+
+        # F2: a pull request that cannot take commits.
+        w, ((ja, a), (jb, b)) = two_with_branches()
+        gh_says(merged_heads=[a["branch"]], open_prs=[pr40])
+        counted[40] = "o/r#40 is armed"
+        try:
+            rc, out, err = w.switch(ja, "--repoint", cwd=b["worktree"])
+        finally:
+            counted.pop(40, None)
+        # Kills: deleting the `why is not None` raise in _repoint.
+        check("--repoint onto a pull request that cannot take commits is refused, saying why; the record is as it was",
+              rc == 1 and "is armed" in err and "landed" in err and w.job(ja)["branch"] == a["branch"] and w.job(ja)["state"] == "paused",
+              out + err + repr(w.job(ja)))
+
+        # F2/F3: a job that is not paused.
+        w, ((ja, a), (jb, b)) = two_with_branches()
+        gh_says(merged_heads=[a["branch"]], open_prs=[pr40])
+        w.sw("block", ja, "owner: a decision")
+        rc, out, err = w.switch(ja, "--repoint", cwd=b["worktree"])
+        # Kills: `if repoint:` without the paused test; and the missing explanation.
+        check("--repoint on a job that is not paused is refused as a landed branch and says the flag applies to a paused job only",
+              rc == 1 and "landed" in err and "applies only to a paused job" in err and w.job(ja)["branch"] == a["branch"] and w.job(ja)["state"] == "blocked",
+              out + err + repr(w.job(ja)))
+
         w, ((ja, a), (jb, b)) = two_with_branches()
         gh_says(merged_heads=[a["branch"]], open_prs=[pr40])
         rc, out, err = w.switch(ja, cwd=b["worktree"])
