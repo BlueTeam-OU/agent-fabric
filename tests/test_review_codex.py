@@ -886,7 +886,8 @@ def main() -> int:
         while running(left) and time.time() < deadline:
             time.sleep(0.05)
         check("…the member a probe left behind is gone", not running(left), left)
-        reap(left)
+        if running(left):
+            reap(left)
 
         review_codex.SANDBOX_PROOF_TIMEOUT_S = 1
         try:
