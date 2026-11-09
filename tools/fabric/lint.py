@@ -130,6 +130,12 @@ from fabric_lint_rules.slices import CLASS_DIRS, flat_and_dir_findings, link_war
 BOUNDARY_LOCATOR = re.compile(r"\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b"
                               r"|(?:^|[\s(])(?:[\w.-]+/[\w.-]+)?#\d+\b|\bseq \d+\b", re.I)
 
+# An INDEX entry is one line: the writer makes each break a frontmatter
+# description decodes to (a YAML `\n`) one space (assembler/core.one_line), so
+# lint reads it the same way or calls the entry drift (j670). Copied, not
+# imported, because lint loads no assembler module; a test pins the two equal.
+LINE_BREAK_RE = re.compile(r"\s*[\n\r\x0b\x0c\x1c-\x1e\x85\u2028\u2029]+\s*")
+
 
 def _boundary_record_ok(value: object) -> bool:
     return isinstance(value, str) and bool(value.strip()) and BOUNDARY_LOCATOR.search(value) is not None
@@ -980,11 +986,12 @@ def main() -> int:
                 described = descriptions.get(fabric_side.get(rel, rel))
                 if listed is None or described is None:
                     continue
-                if listed != described.strip():
+                one_line = LINE_BREAK_RE.sub(" ", described.strip())
+                if listed != one_line:
                     findings.append(
                         f"{label}/INDEX.md: the entry for {rel} describes it as "
                         f"{listed!r} but the slice's frontmatter says "
-                        f"{described.strip()!r} — the index has drifted; "
+                        f"{one_line!r} — the index has drifted; "
                         f"re-run tools/fabric/assemble.py"
                     )
 

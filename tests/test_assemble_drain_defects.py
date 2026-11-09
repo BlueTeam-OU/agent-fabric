@@ -322,6 +322,68 @@ def test_a_resolving_corpus_anchor_replaced_by_one_that_is_gone_is_reported_not_
             assert (f"{corpus_anchor} -> {incoming}" in proc.stderr) == bool(want), (name, proc.stderr)
 
 
+def test_a_checkout_given_by_working_copy_project_dir_is_where_the_guard_judges(tmp: str) -> None:
+    """Drain of 2026-11-08 replay (a): the drain's checkouts sat under its own directory, beside nothing, and lint was told
+    where with `--working-copy PROJECT=DIR`; the guard looked only beside the tree, found nothing, read the corpus's
+    anchor as unknown and let the harvest's old one replace it. Given by the flag, the checkout is the one the guard
+    judges in. The control: a project the map does not name stays unknown, and unknown is never swapped."""
+    for name, mapped in (("given", True), ("control: not given", False)):
+        with tempfile.TemporaryDirectory() as sub:
+            drain, claims_dir, out = ta.build(sub, {"alpha": ta.claims("alpha", [anchored(["gzapp:src/b.py::marker"])])})
+            ta.with_agents(drain, {"h1": "dev-01"})
+            ta.write_registry(out)
+            elsewhere = os.path.join(sub, "drain-wt", "gzapp")          # beside no tree of this run
+            seed_file(elsewhere, "src/b.py", "a marker\n")
+            flag = ("--working-copy", f"gzapp={elsewhere}") if mapped else ()
+            # The corpus is written with the anchor in place: the first run has no standing anchor to compare with.
+            assert ta.run_assemble(drain, claims_dir, out, *flag).returncode == 0
+            with open(os.path.join(claims_dir, "alpha.json"), "w", encoding="utf-8") as fh:
+                json.dump(ta.claims("alpha", [anchored(["src/b.py::marker"])]), fh)
+            proc = ta.run_assemble(drain, claims_dir, out, *flag)
+            assert proc.returncode == 0, (name, proc.stderr)
+            text = ta.read(ta.proj(out, "alpha", "solution.md"))
+            if mapped:
+                # incoming `src/b.py::marker` is judged in the demo project's own tree (gone) and the corpus's in the mapped one
+                assert "*Anchors: `gzapp:src/b.py::marker`*" in text and "`src/b.py::marker`" not in text, text
+                assert [r["kept"] for r in report(out)["anchors_kept"]] == ["gzapp:src/b.py::marker"], report(out)
+            else:
+                assert "*Anchors: `src/b.py::marker`*" in text, text
+                assert report(out)["anchors_kept"] == [], report(out)
+
+
+def test_a_working_copy_project_dir_that_is_no_directory_is_refused_with_its_name(tmp: str) -> None:
+    drain, claims_dir, out = ta.build(tmp, {"alpha": ta.claims("alpha", [anchored(["a.py"])])})
+    missing = os.path.join(tmp, "no-such-checkout")
+    proc = ta.run_assemble(drain, claims_dir, out, "--working-copy", f"gzapp={missing}")
+    assert proc.returncode == 2 and f"gzapp={missing}" in proc.stderr, (proc.returncode, proc.stderr)
+    assert not os.path.exists(ta.proj(out, "alpha", "solution.md"))
+
+
+def test_the_own_project_form_and_the_malformed_working_copy_arguments(tmp: str) -> None:
+    """lint's `--working-copy PROJECT=DIR` for the run's own project is the checkout the corpus is written in, as the bare
+    flag is (it was parsed and dropped); two different checkouts for it, two bare flags and `=DIR` are refused."""
+    drain, claims_dir, out = ta.build(tmp, {"alpha": ta.claims("alpha", [anchored(["a.py"])])})
+    wc = ta.working_copy(out)
+    os.makedirs(os.path.join(wc, ".agent-fabric"), exist_ok=True)
+    base = [sys.executable, ta.ASSEMBLE, "--claims", claims_dir, "--drain", drain, "--fabric", out, "--project", ta.PROJECT,
+            "--stamp", "2026-01-01"]
+    other = os.path.join(tmp, "other")
+    os.makedirs(other)
+    for name, flags, want in (
+            ("own form alone", [f"{ta.PROJECT}={wc}"], 0),
+            ("own form beside the same bare", [wc, f"{ta.PROJECT}={wc}"], 0),
+            ("own form beside another bare", [other, f"{ta.PROJECT}={wc}"], 2),
+            ("two bare", [wc, other], 2),
+            ("no project", [f"={wc}"], 2)):
+        argv = base + [a for f in flags for a in ("--working-copy", f)]
+        proc = subprocess.run(argv, capture_output=True, text=True)
+        assert proc.returncode == want, (name, proc.returncode, proc.stderr)
+        if want == 2:
+            assert "--working-copy" in proc.stderr, (name, proc.stderr)
+    assert os.path.exists(ta.proj(out, "alpha", "solution.md")), "positive control: the own form wrote the corpus in the checkout"
+    assert not os.path.exists(os.path.join(other, ".agent-fabric")), "nothing was written to the checkout that was refused"
+
+
 def test_a_link_in_a_code_span_is_not_cited(tmp: str) -> None:
     """Drain of 2026-11-08 (j663): the harvest cites every `[[x]]` of a body, code or not, and the section carried it in
     its References line. A code span is literal text. The link written outside code is still cited (the control), and
@@ -429,6 +491,16 @@ def test_a_break_in_a_title_does_not_split_the_heading_or_cut_the_index_entry(tm
         fh.write(edited.replace("description: Double  space stays", 'description: "Older\\nbreak"'))
     from assembler.writer import described
     assert described(old, "fallback") == "Older break", described(old, "fallback")
+    # And lint reads that entry as the writer wrote it, not as drift from the decoded break.
+    index_path = ta.proj(out, "alpha", "INDEX.md")
+    with open(index_path, "w", encoding="utf-8") as fh:
+        fh.write(index.replace("— Double  space stays\n", "— Older break\n"))
+    lint = subprocess.run([sys.executable, ta.LINT, "--fabric", out, "--working-copy", f"{ta.PROJECT}={ta.working_copy(out)}"],
+                          capture_output=True, text=True)
+    assert lint.returncode == 0 and "describes it as" not in lint.stderr, lint.stderr
+    import lint as lint_module
+    from assembler.core import LINE_BREAK_RE
+    assert lint_module.LINE_BREAK_RE.pattern == LINE_BREAK_RE.pattern, "lint reads a break as the INDEX writer makes it"
 
 
 def main() -> int:
@@ -446,6 +518,9 @@ def main() -> int:
         test_an_anchor_that_resolves_is_not_replaced_by_one_that_does_not,
         test_an_incoming_anchor_that_resolves_stands_and_so_does_one_that_cannot_be_judged,
         test_a_resolving_corpus_anchor_replaced_by_one_that_is_gone_is_reported_not_changed,
+        test_a_checkout_given_by_working_copy_project_dir_is_where_the_guard_judges,
+        test_a_working_copy_project_dir_that_is_no_directory_is_refused_with_its_name,
+        test_the_own_project_form_and_the_malformed_working_copy_arguments,
         test_a_link_in_a_code_span_is_not_cited,
         test_a_toml_array_header_in_a_code_span_is_not_cited,
         test_a_title_made_one_line_is_not_told_for_a_held_slice,

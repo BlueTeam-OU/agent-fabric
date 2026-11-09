@@ -929,7 +929,7 @@ class RelayOutage(unittest.TestCase):
         self.assertEqual((d["exercised"], d["holds"], d["pairs"][0]["carrier_only"], d["pairs"][0]["ok"]), (0, None, False, None))
         out = self.report(r)[1]
         self.assertIn(f"{self.M} to {self.ME}", out, "still printed")
-        self.assertIn("NOT exercised (the InterWeave copy came after the drill ended, so the sender sent it late; it does not count)", out)
+        self.assertIn("NOT exercised (the InterWeave copy arrived outside the drill; it does not count)", out)
         self.assertNotIn("A PROPERTY FAILED", out)
         r["arrivals"] = [arrival(self.M, self.ME, "interweave", 111), arrival(self.M, self.ME, "relay", 260)]
         self.assertEqual(self.drill_of(r)["exercised"], 1, "positive control: inside the drill it counts")

@@ -255,8 +255,8 @@ def relay_outage(per_account: dict[str, dict], drill: tuple[float, float]) -> di
             acks = [x for x in acct["acks"] if x["mid"] == mid and x["addressee"] == addressee]
             relay_first = min(by["relay"]) if by.get("relay") else None
             carrier_first = min(by["interweave"]) if by.get("interweave") else None
-            # Held by the carrier alone means its copy arrived inside the drill and the relay's did not: a pair both
-            # carriers delivered after the relay returned was sent late and proves nothing about the outage.
+            # Held by the carrier alone means its copy arrived inside the drill and the relay's did not: a pair whose
+            # InterWeave copy arrived outside the drill proves nothing about the outage.
             in_drill = carrier_first is not None and drill[0] <= carrier_first < drill[1]
             held_alone = in_drill and (relay_first is None or relay_first >= drill[1])
             if plain:
@@ -413,7 +413,7 @@ def render_markdown(rep: dict, title: str = "InterWeave carrier parity report") 
               "shown to the session once or not, shown again, the relay copy acknowledged.", ""]
         for x in d["pairs"]:
             exercised = x["carrier_only"]
-            why = ("no InterWeave copy" if not x["interweave"] else "the InterWeave copy came after the drill ended, so the sender sent it late"
+            why = ("no InterWeave copy" if not x["interweave"] else "the InterWeave copy arrived outside the drill"
                    if not x["in_drill"] else "the relay delivered it during the outage")
             held = "carrier alone" if exercised else f"NOT exercised ({why}; it does not count)"
             L.append(f"- {x['mid']} to {x['addressee']} ({x['account']}): {held}; shown {x['shown']}"

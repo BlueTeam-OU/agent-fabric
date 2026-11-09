@@ -223,12 +223,16 @@ def origin_trees(meta: dict, tree: str, own_project: str | None) -> tuple[list[s
     return here, sorted(set(missing))
 
 
-def named_trees(project: str, meta: dict, tree: str, own_project: str | None) -> tuple[list[str], list[str]]:
+def named_trees(project: str, meta: dict, tree: str, own_project: str | None,
+                checkouts: dict[str, str] | None = None) -> tuple[list[str], list[str]]:
     """(the checkout a named anchor `<project>:…` is judged in if it is here, why not). The corpus's own project
     is the tree; another is the checkout beside the tree named by the slice's origin working_copy for that project,
     else by the project id itself. Absent, the answer is "unknown": the caller reads it as unchecked, never gone."""
     if project == own_project:
         return [tree], []
+    given = (checkouts or {}).get(project)
+    if given and readable_dir(given):
+        return [given], []
     wc = project
     for o in meta.get("origin") or []:
         if isinstance(o, dict) and o.get("project") == project and isinstance(o.get("working_copy"), str) and o["working_copy"]:
