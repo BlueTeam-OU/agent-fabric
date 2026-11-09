@@ -28,6 +28,7 @@ state directory, and starts nothing but that fetch.
 """
 from __future__ import annotations
 
+import importlib.util
 import json
 import os
 import re
@@ -61,11 +62,20 @@ def state_dir() -> str:
     return identity().agent_state_dir()
 
 
+def process():
+    """tools/fabric/process.py, loaded by path: the one owner of starting a command in a session of its own."""
+    here = os.path.dirname(os.path.abspath(__file__))
+    spec = importlib.util.spec_from_file_location("fabric_process", os.path.join(here, "..", "..", "..", "tools", "fabric", "process.py"))
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
 def fetch_detached(top: str) -> None:
     """A fetch nobody waits for: its own session, no terminal, bounded."""
-    subprocess.Popen(["timeout", str(FETCH_TIMEOUT_S), "git", "-C", top, "fetch", "--quiet", "origin"],
-                     stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                     start_new_session=True, env={**os.environ, "GIT_TERMINAL_PROMPT": "0"})
+    process().spawn_service(["timeout", str(FETCH_TIMEOUT_S), "git", "-C", top, "fetch", "--quiet", "origin"],
+                            stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                            env={**os.environ, "GIT_TERMINAL_PROMPT": "0"})
 
 
 def note(payload: dict, now: float | None = None, state: str | None = None) -> str | None:

@@ -146,9 +146,10 @@ context and remote evidence are `enforced`: the second by
 python-dev-01's j212 (`tools/fabric/context_reads.py`,
 `policies/context-reads.json`), the third by python-dev-03's j119
 (`tools/fabric/github/evidence.py`, `tools/fabric/evidence_caps.py`,
-`policies/evidence-caps.json`). Process lifetime is `pending` on
-python-dev-02's Wave 1 job; the job lifecycle and transport are
-`planned`.
+`policies/evidence-caps.json`). Process lifetime is `enforced` by
+python-dev-02's j125 (`tools/fabric/process.py`,
+`tools/fabric/process_spawns.py`, `policies/process-spawns.json`).
+The job lifecycle and transport are `planned`.
 
 ## References
 

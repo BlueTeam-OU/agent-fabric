@@ -10,9 +10,10 @@
     },
     "process-lifetime": {
       "adr": "ADR-067",
-      "owner": "tools/fabric/provisioning/bounded.py",
-      "status": "pending",
-      "job": "python-dev-02/j125"
+      "owner": "tools/fabric/process.py",
+      "status": "enforced",
+      "checker": "tools/fabric/process_spawns.py",
+      "exceptions": "policies/process-spawns.json"
     },
     "remote-evidence": {
       "adr": "ADR-067",

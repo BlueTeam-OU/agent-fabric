@@ -837,5 +837,55 @@ class EvidenceCaps(PreCommit):
         self.assertIn("pre-commit: the staged policies/evidence-caps.json is not JSON — not committed", r.stderr)
 
 
+class ProcessSpawns(PreCommit):
+    """In agent-fabric itself a staged module that starts or signals a process group outside tools/fabric/process.py is
+    refused whoever commits, unless the staged policy names it (ADR-067 rule 1, tools/fabric/process_spawns.py).
+    Mutations: the call removed from pre_commit (the refusal case); the policy read from the work tree (the
+    unstaged-entry case); a deleted policy's modules left unjudged (the deletion case); not-JSON read as empty."""
+
+    SPAWN = "import os\n\ndef stop(p):\n    os.killpg(p, 9)\n"
+    POLICY = "policies/process-spawns.json"
+
+    def setUp(self):
+        self.build(owner_role="fabric-coordinator")
+
+    def test_a_staged_spawn_is_refused_for_the_owner_too(self):
+        repo = self.fabric.itself()
+        repo.stage("tools/fabric/spx.py", self.SPAWN)
+        self.fabric.bind("fabric-coordinator")
+        r = self.run_hook(repo)
+        self.assertEqual(r.returncode, 1, r.stderr)
+        self.assertIn("tools/fabric/spx.py:4:", r.stderr)
+        self.assertIn("ADR-067 rule 1", r.stderr)
+
+    def test_the_staged_policy_admits_and_an_unstaged_entry_does_not(self):
+        repo = self.fabric.itself()
+        repo.stage("tools/fabric/spx.py", self.SPAWN)
+        repo.write(self.POLICY, json.dumps({"spawns": {"tools/fabric/spx.py": "a test"}}))
+        self.fabric.bind("fabric-coordinator")
+        self.assertEqual(self.run_hook(repo).returncode, 1)
+        repo.git("add", self.POLICY)
+        r = self.run_hook(repo)
+        self.assertEqual((r.returncode, r.stderr), (0, ""))
+
+    def test_a_commit_that_deletes_the_policy_judges_its_modules(self):
+        repo = self.fabric.itself({"tools/fabric/spx.py": self.SPAWN,
+                                   self.POLICY: json.dumps({"spawns": {"tools/fabric/spx.py": "a test"}})})
+        repo.git("rm", "-q", self.POLICY)
+        self.fabric.bind("fabric-coordinator")
+        r = self.run_hook(repo)
+        self.assertEqual(r.returncode, 1, r.stderr)
+        self.assertIn("tools/fabric/spx.py:4:", r.stderr)
+
+    def test_a_list_that_is_not_json_refuses(self):
+        repo = self.fabric.itself()
+        repo.stage("tools/fabric/x.py", "x = 1\n")
+        repo.stage(self.POLICY, "{")
+        self.fabric.bind("fabric-coordinator")
+        r = self.run_hook(repo)
+        self.assertEqual(r.returncode, 1, r.stderr)
+        self.assertIn("pre-commit: the staged policies/process-spawns.json is not JSON — not committed", r.stderr)
+
+
 if __name__ == "__main__":
     unittest.main()

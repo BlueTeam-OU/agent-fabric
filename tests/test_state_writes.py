@@ -19,6 +19,7 @@ Stdlib only; runnable as `python3 tests/test_state_writes.py`. **Each case names
   policy_entries             <- policy_findings' tracked test or reason test dropped
   lint_is_wired              <- state_write_findings not called from lint.main; tests/ judged; either admits-nothing finding
                                 dropped; an unreadable list read as empty
+  vendored_is_judged         <- lint narrowed by ruff.toml's exclude, which the pre-commit hook is not (#516 F1)
 
 The tree itself is judged by the suite's corpus lint (tests/run.py), not here: a case reading the live
 policies/state-writers.json is red on a stripped copy, which removes it as instance data (ADR-045 rule 3).
@@ -178,6 +179,24 @@ def case_lint_is_wired() -> None:
     subprocess.run(["git", "-C", fabric, "add", "-A"], check=True, env=git_env())
     rc, out = run_lint(fabric)
     assert "policies/state-writers.json: cannot be read as JSON" in out and "tools/fabric/w.py:3" not in out, out
+
+
+def case_vendored_is_judged() -> None:
+    """#516 F1/F2: ruff.toml's exclude does not narrow lint, as it does not narrow the pre-commit hook."""
+    from test_lint import make_base, run_lint, write
+
+    def vendored(policy: dict) -> str:
+        root = make_base(tempfile.mkdtemp(dir=TMP))
+        write(os.path.join(root, "ruff.toml"), 'exclude = ["vendor"]\n')
+        write(os.path.join(root, "vendor/w.py"), RESOLVE + "open(D, 'w')\n")
+        write(os.path.join(root, "policies/state-writers.json"), json.dumps(policy))
+        subprocess.run(["git", "-C", root, "init", "-q"], check=True, env=git_env())
+        subprocess.run(["git", "-C", root, "add", "-A"], check=True, env=git_env())
+        return root
+    _, out = run_lint(vendored({"writers": {}}))
+    assert "vendor/w.py:3:" in out, out
+    _, out = run_lint(vendored({"writers": {"vendor/w.py": "not state: a vendored tool"}}))
+    assert "vendor/w.py" not in out, out
 
 
 def main() -> int:
