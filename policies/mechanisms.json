@@ -16,9 +16,10 @@
     },
     "remote-evidence": {
       "adr": "ADR-067",
-      "owner": "tools/fabric/github/common.py",
-      "status": "pending",
-      "job": "python-dev-03/j119"
+      "owner": "tools/fabric/github/evidence.py",
+      "status": "enforced",
+      "checker": "tools/fabric/evidence_caps.py",
+      "exceptions": "policies/evidence-caps.json"
     },
     "agent-context": {
       "adr": "ADR-003",

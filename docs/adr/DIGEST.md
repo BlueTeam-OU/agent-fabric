@@ -892,6 +892,7 @@ its record disagree, the record wins. Look it up, never read it whole:
 - A 2026-10-31 — in place only inside its copy (r3).
 - A 2026-11-05 — answered request re-points to its job (r8).
 - A 2026-11-08 — one transition table (r14).
+- A 2026-11-09 — pool claim closes or reopens (r14).
 - Keywords: fresh session, intake, priority, claim, sweep, unhold, request blocker.
 
 ### ADR-038 — Each agent owns its key and its secrets (Accepted)

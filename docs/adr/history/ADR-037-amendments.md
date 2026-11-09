@@ -120,3 +120,19 @@ Rule 14 is one table. Each row is a transition, the one subsystem that may make 
 The table is the specification, not yet the code. python-dev-04 pins today's behaviour against it in tests (its j100, REQUEST 01a1bce2), and each disagreement is a finding in that pull request, fixed afterwards and never in the characterisation. A single module that makes every transition, with a checker refusing a state write anywhere else, is the next step and gets its own decision.
 
 Rejected: new state names for the plan's stages (`claimed`, `working`, `reconciled`). They would change the on-disk format and every reader for no new distinction; the existing seven states and the pool's two already carry them.
+
+### Amendment 2026-11-09 — A pool claim ends
+
+python-dev-04's characterisation of rule 14 (#512, its j100, finding F9) found that the table had no row for the pool's own end. `control/pool.py` writes a job `claimed` and never rewrites it: whatever becomes of the claimant's job, the pool shows it claimed for ever, and a claim whose answer was lost is held by nobody, since the claimant's list never queued it. That needs a rule, not a fix of code against one.
+
+Two rows, both made by the pool holder's control agent, which is the pool's only writer (rule 9), and both read from the claimant's state record, fresh within the stream's bound, since the holder never reads another account's list. A claim is `closed` once that record reports the job it became `done` or `dropped`. The pool keeps the claim with when and how it closed, because the pool is also the history of what a role was offered. A claim is `open` again when, a day or more after it was claimed, the record reports the claimant's claims and holds none for this one: the answer was lost, or the job never queued, and the work is offered again.
+
+A record that is missing, stale, unreadable or silent about claims is unknown, and nothing is reopened on it. A claimant whose control agent is down still holds its job, and handing that job to a second claimant would break rule 9's one claimant. The review of #515 (round 1, F1) found that the first wording left this undefined. It also found that the state record carries no claims at all: the control wire's envelope is frozen at the session fields and the optional extras `tools/fabric/control/protocol.py` lists (role, project, last_session, resumable, waits_on). The claims field is therefore part of the rows' build: an optional field added with the job module of Wave 2. Until it exists, neither row is made and a claim stays `claimed`, as today.
+
+A lost answer needs no row. `pool.py` already gives a claim back to the same claimant whenever it claims again (`pool_claim`), so the claimant recovers by asking again. The first wording credited that to rule 9 and bounded it by the day; neither was so (#515 F2).
+
+A closed claim is never handed out again, which the closed row requires of the build. Today's `pool_claim` returns any claim to its claimant (`control/pool.py`, the `claimed.by` check), with no closed state to tell apart. Wave 2's closed shape changes that check, with a test that a closed claim refuses a `pool-claim`, its claimant's included, so finished work cannot become a second job (#515 rounds 2 and 3).
+
+Rejected: removing a closed claim from the pool, since a record that disappears cannot be told from one never made. Also rejected: reopening on the claimant's silence alone, for the reason above.
+
+Decided, not built: the claims field and both rows are implemented with the single module for job transitions of Wave 2 (ADR-067, j674's plan).
