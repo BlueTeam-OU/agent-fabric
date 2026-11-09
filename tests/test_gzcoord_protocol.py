@@ -2798,13 +2798,13 @@ def _():
     relay = Relay()
     try:
         grant = "AUTHORIZES: acme-org/widgets#7@0123abcd"
-        warning = "a line AUTHORIZES: in a section grants nothing"
+        # The dictionary's line, not its wording: en-US is fabric-coordinator's to phrase.
+        warning = gzmsg.en()("send.authorizes-in-body")
         # A section line wherever it stands in the body, and the grant a quotation would carry (indented) is not one.
         for body in (f"REPLY:\n{grant}\n", f"REPLY:\nok\n{grant}\n\nREFERENCES:\n"):
             r = send_with(relay.url, with_body("REPLY", body))
             eq(r.code, 0, r.err)
-            has(warning, r.err)
-            has("gzcoord-compose --authorizes", r.err)
+            has(re.escape(warning), r.err)
         r = send_with(relay.url, with_body("REPLY", f"REPLY:\nok\n  {grant}\n"))
         eq(r.code, 0, r.err)
         hasnt(re.escape(warning), r.err)
