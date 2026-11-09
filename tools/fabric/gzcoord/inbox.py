@@ -183,17 +183,15 @@ is logged when the drain or the watch delivers it.
 from __future__ import annotations
 
 import contextlib
-import hashlib
 import io
 import math
 import os
 import sys
 import threading
 import time
-import urllib.parse
 from typing import Any, Callable
 
-from . import bypass, gzmsg, i18n, intake, paths
+from . import bypass, gzmsg, i18n, intake, paths, transport
 from . import jsvalues as js
 from .gzmsg import en  # noqa: F401 — send.py calls inbox.en()
 
@@ -210,6 +208,8 @@ from .inbox_parts.config import ControlChannel, assert_not_control_channel, git_
 from .inbox_parts.config import inbox_root  # noqa: F401
 from .inbox_parts.tokens import synced_var, TokenRefused, checked_token, synced_token, token  # noqa: F401
 from .inbox_parts.tokens import _token, identity, for_me  # noqa: F401
+# Kept for the tests and tools that reach the relay's client as inbox.<name> (the protocol and port suites run unchanged
+# as the oracle of the move to transport/); nothing in this module calls them.
 from .inbox_parts.relay import _relay_up, ensure_relay, RelayError, API_TIMEOUT  # noqa: F401
 from .inbox_parts.relay import _OPENER, api, explain_relay_error  # noqa: F401
 from .inbox_parts.records import _records, _when, one_line, _parse_quiet, replay, HISTORY_WINDOW  # noqa: F401
@@ -347,64 +347,6 @@ def _arg_after(argv: list[str], flag: str) -> Any:
     return (argv[i + 1] if i + 1 < len(argv) else js.UNDEFINED) if i >= 0 else None
 
 
-def carrier_hooks(address: str, journal_off: bool):
-    """(the carrier's adapter, the arrival-log hook, the shown ledger) of ADR-064.
-    The ledger decides what a session sees whichever carrier brought a message and
-    needs no carrier; the arrival log is parity evidence, kept journal on or off. The
-    carrier's adapter is None with the journal off: then the route is the relay alone
-    (rule 8). With no carrier running the adapter is a no-op."""
-    from .carrier import adapter, arrivals, ledger
-    ep = _episodic()
-    log = arrivals.ArrivalLog(os.path.join(ep.state_dir(), "gzcoord-arrivals.jsonl"), iso_now=ep.now)
-    shown = ledger.Ledger(os.path.join(ep.state_dir(), "gzcoord-shown.jsonl"), iso_now=ep.now)
-
-    def on_arrival(recs: list[dict]) -> None:
-        copies = []
-        for r in recs:
-            try:
-                meta = gzmsg.parse(r["content"])["metadata"]
-            except (gzmsg.NotGzcoord, AttributeError, TypeError, KeyError):
-                continue
-            copies.append((str(r.get("id") or r.get("seq")),
-                           meta.get("MESSAGE-ID") or "sha256:" + hashlib.sha256(r["content"].encode("utf-8", "surrogatepass")).hexdigest()))
-        try:
-            adapter.relay_arrivals(log, address, copies)
-        except OSError as e:
-            # Evidence for the parity report, not a condition of delivery.
-            print(f"gzcoord: the arrival log could not be written ({e.strerror or e}); the message is shown", file=sys.stderr)
-    return (None if journal_off else adapter.Adapter()), on_arrival, shown
-
-
-def ack_log():
-    from .carrier import arrivals
-    ep = _episodic()
-    return arrivals.AckLog(os.path.join(ep.state_dir(), "gzcoord-acks.jsonl"), iso_now=ep.now)
-
-
-def remember_relay_ids(into: dict, page: Any, me: dict) -> None:
-    """relay record id -> MESSAGE-ID for the records of a fetched page addressed here: /api/ack knows
-    only the first, and the relay-outage drill's evidence is by the second. Others' traffic the watch
-    passes through acknowledged is no evidence of ours, and a message with no MESSAGE-ID has no id
-    worth keeping (the arrival log's hash of its text is not sent anywhere)."""
-    for r in (page.get("messages") if isinstance(page, dict) else None) or []:
-        try:
-            msg = gzmsg.parse(r["content"])
-            if for_me(msg, me) and msg["metadata"].get("MESSAGE-ID"):
-                into[r["id"]] = msg["metadata"]["MESSAGE-ID"]
-        except (gzmsg.NotGzcoord, AttributeError, TypeError, KeyError):
-            continue      # not GZCOORD/1: never an arrival
-
-
-def record_ack(log: Any, mid: Any, address: str, ok: bool) -> None:
-    if not isinstance(mid, str):
-        return
-    try:
-        log.append_ack(mid, address, ok)
-    except OSError as e:
-        # Evidence for the parity report, not a condition of acknowledging.
-        print(f"gzcoord: the acknowledgement log could not be written ({e.strerror or e})", file=sys.stderr)
-
-
 def show_page(res: dict, write: Callable[[], None]) -> None:
     """Write a delivered page to the session while the shown ledger's lock is held
     (wait_loop took it), then record the showing; if the write fails the lock is
@@ -501,7 +443,7 @@ def main(argv: list[str]) -> int:
     relay_url, channel = cfg["relay_url"], cfg["channel"]
     # What this session owns first: the hosting working copy starts its
     # relay here, so a session restart is also the relay's.
-    up = ensure_relay(relay_runtime_dir(cfg), relay_url, t)
+    up = transport.start_hosted(cfg, t)
     if up.get("started"):
         print(t("start.relay-started-unit", {"unit": up["unit"]}) if up.get("unit")
               else t("start.relay-started-pid", {"pid": up.get("pid")}), file=sys.stderr)
@@ -517,58 +459,32 @@ def main(argv: list[str]) -> int:
     me = identity(who, taxonomy)
     if me.get("roleError"):
         print(t("start.error", {"detail": me["roleError"]}), file=sys.stderr)
-    state = {"tok": tok}
-
-    def with_fresh_token(fn: Callable[[str], Any]) -> Any:
+    def with_fresh_token(primary: transport.Primary, fn: Callable[[], Any]) -> Any:
         """Once: a refused token is retried with the synced file's value
         when that differs from what the environment carried."""
         try:
-            return fn(state["tok"])
-        except RelayError as e:
-            fresh = synced_token() if e.status in (401, 403) else None
-            if fresh and fresh != state["tok"]:
-                state["tok"] = fresh
-                print(t("start.token-retry"), file=sys.stderr)
-                return fn(state["tok"])
-            raise
+            return fn()
+        except Exception as e:  # noqa: BLE001 — the primary says whether it was a refused token
+            if not primary.refresh(e):
+                raise
+            print(t("start.token-retry"), file=sys.stderr)
+            return fn()
 
-    if history_given:
+    if history_given or replay_which:
+        # The record the primary keeps, read whole; no cursor moves, so no mirror and no logs.
+        primary = transport.open_transport(cfg, token=tok, me=me, journal_off=True).primary
         try:
-            return with_fresh_token(lambda tk: history(tk, relay_url, channel, history_from, me, t))
-        except Exception as e:  # noqa: BLE001 — any failure of the read is the relay's line
-            x = explain_relay_error(e, relay_url, t)
-            print(x["line"], file=sys.stderr)
-            return x["code"] or 1
-    if replay_which:
-        try:
-            return with_fresh_token(lambda tk: replay(tk, relay_url, channel, replay_which, me, t, "--json" in argv))
-        except Exception as e:  # noqa: BLE001
-            x = explain_relay_error(e, relay_url, t)
+            if history_given:
+                return with_fresh_token(primary, lambda: history(primary.history(HISTORY_WINDOW), channel, history_from, me, t))
+            return with_fresh_token(primary, lambda: replay(primary.history(500), channel, replay_which, me, t, "--json" in argv))
+        except Exception as e:  # noqa: BLE001 — any failure of the read is the primary's line
+            x = primary.explain(e, t)
             print(x["line"], file=sys.stderr)
             return x["code"] or 1
 
     # Drain mode spends 1 s on the cursor page and lists everything; wait
     # mode chains slices until a message ADDRESSED TO THIS SESSION lands,
     # passing others' traffic through acknowledged and unprinted.
-    acks, mid_of_relay_id = ack_log(), {}
-
-    def ack(message_id: Any) -> Any:
-        try:
-            r = api(state["tok"], "/api/ack", relay_url, method="POST",
-                    body=js.stringify({"consumer_id": me["address"], "channel": channel, "message_id": message_id}))
-        except Exception:
-            record_ack(acks, mid_of_relay_id.get(message_id), me["address"], False)
-            raise
-        record_ack(acks, mid_of_relay_id.pop(message_id, None), me["address"], True)
-        return r
-
-    def fetch_page(slice_: float, abort: threading.Event) -> Any:
-        q = urllib.parse.urlencode({"channel": channel, "consumer_id": me["address"],
-                                    "timeout_seconds": js.string(slice_), "limit": "50"})
-        page = api(state["tok"], f"/api/wait?{q}", relay_url, timeout=slice_ + API_TIMEOUT)
-        remember_relay_ids(mid_of_relay_id, page, me)
-        return page
-
     def held() -> bool:
         return hold_status(t=t)["held"]
 
@@ -579,7 +495,9 @@ def main(argv: list[str]) -> int:
 
     off = bypass.is_off()
     journal = bypass_inbound if off else (lambda recs: journal_inbound(recs, who))
-    iw, on_arrival, ledger = carrier_hooks(me["address"], off)
+    ep = _episodic()
+    tp = transport.open_transport(cfg, token=tok, me=me, journal_off=off, state_dir=ep.state_dir(), iso_now=ep.now)
+    primary = tp.primary
     cause = {"reason": None}
 
     def held_line(reason: str, n: int) -> str:
@@ -602,9 +520,7 @@ def main(argv: list[str]) -> int:
         print(held_line(reason, n), flush=True)
 
     def fetch_recent(_done: threading.Event) -> Any:
-        return api(state["tok"], "/api/messages?" + urllib.parse.urlencode(
-            {"channel": channel, "limit": str(HISTORY_WINDOW), "full": "1"}), relay_url,
-            timeout=RETRANSMISSION_LOOKUP_MS / 1000)
+        return primary.history(HISTORY_WINDOW, RETRANSMISSION_LOOKUP_MS / 1000)
 
     def mine_fn(msg: dict) -> bool:
         return for_me(msg, me)
@@ -640,17 +556,17 @@ def main(argv: list[str]) -> int:
                 print(QUIET_LINE.format(minutes=int((time.monotonic() - started) // 60)), flush=True)
                 return 0
             try:
-                r = with_fresh_token(lambda _tk: wait_loop(fetch_page, ack, min(3600, math.ceil(left)) if until_delivery else 3600,
+                r = with_fresh_token(primary, lambda: wait_loop(tp.fetch_page, tp.ack, min(3600, math.ceil(left)) if until_delivery else 3600,
                                                            mine_fn, [], me["address"], held, on_hold, journal=journal,
                                                            on_journal_fail=on_journal_fail,
                                                            deadline=deadline if until_delivery else None,
-                                                           session_gone=session_gone, iw=iw, on_arrival=on_arrival,
-                                                           ledger=ledger))
+                                                           session_gone=session_gone, iw=tp.iw, on_arrival=tp.on_arrival,
+                                                           ledger=tp.ledger))
             except _JournalHeld as e:
                 print(e.line, flush=True)
                 return 6
             except Exception as e:  # noqa: BLE001 — every failure of an arm is the relay's, said once
-                x = explain_relay_error(e, relay_url, t)
+                x = primary.explain(e, t)
                 if x["code"] == 4:
                     print(x["line"], file=sys.stdout if until_delivery else sys.stderr, flush=True)
                     return 4
@@ -684,17 +600,17 @@ def main(argv: list[str]) -> int:
                                                                 reminder=reminder), r["classified"], me), flush=True))
                 if r.get("relayError") is not None:
                     # The carrier delivered while the relay failed: the session is still told the relay is failing.
-                    print(explain_relay_error(r["relayError"], relay_url, t)["line"],
+                    print(primary.explain(r["relayError"], t)["line"],
                           file=sys.stdout if until_delivery else sys.stderr, flush=True)
                 if until_delivery:
                     return 0
 
     try:
-        res = with_fresh_token(lambda _tk: wait_loop(fetch_page, ack, wait_total, mine_fn, keywords, me["address"],
-                                                     journal=journal, on_journal_fail=on_journal_fail, iw=iw,
-                                                     on_arrival=on_arrival, ledger=ledger))
+        res = with_fresh_token(primary, lambda: wait_loop(tp.fetch_page, tp.ack, wait_total, mine_fn, keywords, me["address"],
+                                                     journal=journal, on_journal_fail=on_journal_fail, iw=tp.iw,
+                                                     on_arrival=tp.on_arrival, ledger=tp.ledger))
     except Exception as e:  # noqa: BLE001
-        x = explain_relay_error(e, relay_url, t)
+        x = primary.explain(e, t)
         print(x["line"], file=sys.stderr)
         return x["code"]
     if res.get("keywordHit") and wait_given:
@@ -714,7 +630,7 @@ def main(argv: list[str]) -> int:
     # slice that delivered nothing).
     if res.get("relayError") is not None:
         # The carrier delivered while the relay failed: the relay's line and exit code stand as without the carrier.
-        x = explain_relay_error(res["relayError"], relay_url, t)
+        x = primary.explain(res["relayError"], t)
         print(x["line"], file=sys.stderr)
         return x["code"]
     return 0

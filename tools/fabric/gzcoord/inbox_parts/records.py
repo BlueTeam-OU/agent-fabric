@@ -5,14 +5,12 @@ from __future__ import annotations
 import re
 import sys
 import threading
-import urllib.parse
 from typing import Any, Callable
 from .. import gzmsg
 from .. import i18n
 from .. import jsvalues as js
 from ..gzmsg import en
 from .tokens import for_me
-from .relay import api
 
 
 def _records(page: Any) -> Any:
@@ -44,17 +42,15 @@ def _parse_quiet(text: Any) -> dict | None:
         return None
 
 
-def replay(tok: str, relay_url: str, channel: str, which: str, me: dict, t: i18n.Printer | None = None,
+def replay(page: Any, channel: str, which: str, me: dict, t: i18n.Printer | None = None,
            as_json: bool = False) -> int:
     """Re-read one message already past this session's cursor — the case a
     read was piped through something that dropped the body. The recent
     history, no consumer id, so no cursor moves; the body only when it is
     addressed here: SPEC §17 does not stop applying because it is a replay.
     By relay seq, or by the MESSAGE-ID inside the body (the relay's own id
-    is a transport detail nobody quotes)."""
+    is a transport detail nobody quotes). `page` is that history, read by the caller."""
     t = t or en()
-    page = api(tok, "/api/messages?" + urllib.parse.urlencode({"channel": channel, "limit": "500", "full": "1"}),
-               relay_url)
     lst = _records(page)
 
     def mid_of(r: dict) -> Any:
@@ -97,11 +93,8 @@ def replay(tok: str, relay_url: str, channel: str, which: str, me: dict, t: i18n
 HISTORY_WINDOW = 500
 
 
-def history(tok: str, relay_url: str, channel: str, from_seq: float | None, me: dict,
-            t: i18n.Printer | None = None) -> int:
+def history(page: Any, channel: str, from_seq: float | None, me: dict, t: i18n.Printer | None = None) -> int:
     t = t or en()
-    page = api(tok, "/api/messages?" + urllib.parse.urlencode(
-        {"channel": channel, "limit": str(HISTORY_WINDOW), "full": "1"}), relay_url)
     lst = _records(page)
     lines = []
     for rec in lst:
