@@ -11,7 +11,11 @@ import json
 import os
 import subprocess
 import sys
+import socket
 import tempfile
+import threading
+import time
+from http.server import BaseHTTPRequestHandler, HTTPServer
 
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 HOOK = os.path.join(HERE, "runtime", "claude-code", "hooks", "watch-on-stop.py")
@@ -26,6 +30,25 @@ BASE = {1: (0, "init", "init"), 100: (1, "claude", "claude"), 200: (100, "bash",
 
 def table(*extra):
     return {**BASE, **dict(extra)}
+
+
+class Relay(BaseHTTPRequestHandler):
+    seen: list = []
+
+    def do_GET(self):
+        Relay.seen.append(self.path)
+        self.send_response(self.server.status)
+        self.send_header("Content-Length", "0")
+        self.end_headers()
+
+    def log_message(self, *a):
+        pass
+
+
+def closed_port() -> int:
+    with socket.socket() as s:
+        s.bind(("127.0.0.1", 0))
+        return s.getsockname()[1]
 
 
 def main() -> int:
@@ -45,8 +68,11 @@ def main() -> int:
         os.makedirs(os.path.join(run_dir, "agent-fabric"))
         lock = os.path.join(run_dir, "agent-fabric", "gzcoord-inbox-x.lock")
 
-        def go(payload, procs, now=1000.0, integ=yes):
-            return mod.decide({"session_id": "s1", **payload}, procs, now, path, integ, own_pid=ME, run_dir=run_dir)
+        dead = f"http://127.0.0.1:{closed_port()}/"
+
+        def go(payload, procs, now=1000.0, integ=yes, relay_url=dead):
+            return mod.decide({"session_id": "s1", **payload}, procs, now, path, integ, own_pid=ME, run_dir=run_dir,
+                              relay_url=relay_url)
 
         def fresh():
             if os.path.exists(path):
@@ -110,6 +136,40 @@ def main() -> int:
             out = go({}, table(), now=now)
             check(label, (out or {}).get("decision") == want, out)
             fresh()
+        # A fresh marker is probed (j638): any HTTP answer, an error status included, lifts it; a relay that
+        # does not answer leaves it silencing, inside the probe's bound. The hook never removes the marker.
+        srv = HTTPServer(("127.0.0.1", 0), Relay)
+        threading.Thread(target=srv.serve_forever, daemon=True).start()
+        live = f"http://127.0.0.1:{srv.server_address[1]}/"
+        with open(down, "w", encoding="utf-8") as fh:
+            fh.write("900\n")
+        for status in (200, 401, 404, 500):
+            srv.status = status
+            fresh()
+            out = go({}, table(), relay_url=live)
+            check(f"a fresh marker and a relay answering {status}: blocks", (out or {}).get("decision") == "block", out)
+        check("…the marker is still there: the watch's relayAnswered is its one clearer", os.path.exists(down))
+        fresh()
+        t0 = time.monotonic()
+        out = go({}, table(), relay_url=dead)
+        check("a fresh marker and a closed port: passes", out is None, out)
+        check("…inside the probe bound", time.monotonic() - t0 < mod.RELAY_PROBE_S + 1, time.monotonic() - t0)
+        check("an unusable relay url (none, file:) passes", go({}, table(), relay_url="file:///etc/hostname") is None
+              and mod.relay_answers(None) is False)
+        Relay.seen.clear()
+        fresh()
+        os.remove(down)
+        out = go({}, table(), relay_url=live)
+        check("no marker: blocks", (out or {}).get("decision") == "block", out)
+        check("…and no probe was made", Relay.seen == [], Relay.seen)
+        with open(down, "w", encoding="utf-8") as fh:
+            fh.write("900\n")
+        fresh()
+        go({}, table(), now=900.0 + mod.RELAY_DOWN_S, relay_url=live)
+        check("a marker past RELAY_DOWN_S: asked without a probe", Relay.seen == [], Relay.seen)
+        srv.shutdown()
+        srv.server_close()
+        fresh()
         os.remove(down)
         out = go({}, table((300, (200, "python3", "gzcoord-inbox --follow"))))
         check("--follow counts as a watch, as in session-start", out is None, out)
