@@ -63,6 +63,22 @@ def test_a_slice_of_a_role_the_taxonomy_does_not_bind_is_held_and_named(tmp: str
     assert report(out)["held_back"] == [] and report(out)["held_unbound_role"] == [], report(out)
 
 
+def test_the_fabrics_own_project_is_not_judged_by_its_taxonomy(tmp: str) -> None:
+    """Control: agent-fabric's taxonomy binds the roles that own the control plane's paths, while its project memory is
+    every role's (the drain of 2026-11-08 wrote backend-dev's workflow there)."""
+    drain, claims_dir, out = ta.build(tmp, {"beta": ta.claims("beta", [
+        {"class": "workflow", "topic": "w", "title": "T", "body": "The body.", "evidence": ["h1"]}])})
+    wc = os.path.join(out, "wc-fabric")
+    os.makedirs(os.path.join(wc, ".agent-fabric"))
+    with open(os.path.join(wc, ".agent-fabric", "taxonomy.json"), "w", encoding="utf-8") as fh:
+        json.dump({"version": 1, "project": "agent-fabric", "roles": [{"id": "alpha"}]}, fh)
+    proc = subprocess.run([sys.executable, ta.ASSEMBLE, "--claims", claims_dir, "--drain", drain, "--fabric", out,
+                           "--project", "agent-fabric", "--working-copy", wc, "--stamp", "2026-01-01"],
+                          capture_output=True, text=True)
+    assert proc.returncode == 0, proc.stderr
+    assert os.path.isfile(os.path.join(wc, ".agent-fabric", "memory", "beta", "workflow.md")), sorted(ta.tree(out))
+
+
 def test_a_project_with_no_taxonomy_binds_every_role(tmp: str) -> None:
     """Control: nothing says which roles the project binds, so nothing is held."""
     drain, claims_dir, out = ta.build(tmp, {"beta": ta.claims("beta", [
@@ -129,17 +145,20 @@ def test_an_incoming_anchor_that_resolves_stands_and_so_does_one_that_cannot_be_
             ("gzapp:src/b.py::marker", "src/b.py::marker", True, True),        # both resolve: the claim is the newer text
             ("gzapp:src/b.py::marker", "src/b.py::marker", False, False),      # the corpus's cannot be looked at: unknown, not there
             ("gzapp:src/b.py::marker", "gzapp:src/b.py::other", False, True),  # another string is another anchor
+            ("gzapp:src/b.py::marker", "src/b.py::marker", False, "lacks"),    # the corpus's is gone too: nothing to keep
     ):
         with tempfile.TemporaryDirectory() as sub:
             drain, claims_dir, out = ta.build(sub, {"alpha": ta.claims("alpha", [anchored([corpus_anchor])])})
             ta.with_agents(drain, {"h1": "dev-01"})
             if other_checkout:
-                seed_file(out, "gzapp/src/b.py", "a marker\n")
+                seed_file(out, "gzapp/src/b.py", "a marker\n")   # present while the corpus is written
             ta.write_registry(out)
             if has_file:
                 seed_file(ta.working_copy(out), "src/b.py", "a marker\n")
             proc = ta.run_assemble(drain, claims_dir, out)
             assert proc.returncode == 0, (corpus_anchor, proc.stderr)
+            if other_checkout == "lacks":
+                seed_file(out, "gzapp/src/b.py", "nothing\n")
             with open(os.path.join(claims_dir, "alpha.json"), "w", encoding="utf-8") as fh:
                 json.dump(ta.claims("alpha", [anchored([incoming])]), fh)
             proc = ta.run_assemble(drain, claims_dir, out)
@@ -192,10 +211,19 @@ def test_a_break_in_a_title_does_not_split_the_heading_or_cut_the_index_entry(tm
                           capture_output=True, text=True)
     assert lint.returncode == 0 and "describes it as" not in lint.stderr, lint.stderr
 
+    # A slice written before titles were made one line holds the break in its frontmatter: its entry is one line too.
+    old = ta.dom(out, "alpha", "domain", "two.md")
+    edited = ta.read(old)
+    with open(old, "w", encoding="utf-8") as fh:
+        fh.write(edited.replace("description: Double  space stays", 'description: "Older\\nbreak"'))
+    from assembler.writer import described
+    assert described(old, "fallback") == "Older break", described(old, "fallback")
+
 
 def main() -> int:
     cases = [
         test_a_slice_of_a_role_the_taxonomy_does_not_bind_is_held_and_named,
+        test_the_fabrics_own_project_is_not_judged_by_its_taxonomy,
         test_a_project_with_no_taxonomy_binds_every_role,
         test_a_shared_slice_with_an_unbound_owner_is_held,
         test_an_anchor_that_resolves_is_not_replaced_by_one_that_does_not,
