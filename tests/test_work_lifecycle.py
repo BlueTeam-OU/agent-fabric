@@ -49,7 +49,7 @@ STATES = ("queued", "active", "paused", "blocked", "delivered", "done", "dropped
 VERBS = {
     "start": ("start", "j1"),
     "pause": ("pause", "j1", "set aside"),
-    "block": ("block", "j1", "a review"),
+    "block": ("block", "j1", "owner: a review"),
     "deliver": ("deliver", "j1", OPEN_PR),
     "done": ("done", "j1"),
     "drop": ("drop", "j1", "no longer wanted"),
@@ -147,7 +147,7 @@ class Entry(Case):
         # job needs no evidence), so what import accepts is the checks on the document, not the lifecycle's.
         self.w.add("a")
         self.w.add("b")
-        self.ok("done", "j2", "--no-artifact", "housekeeping")
+        self.seed("done", "j2", no_artifact="housekeeping")
         self.ok("start", "j1")
         exported = self.ok("export").stdout
         other = World()
@@ -184,9 +184,7 @@ class Working(Case):
 
     def test_start_resumes_a_paused_job_and_drops_its_reason(self):
         self.w.add("a")
-        self.ok("start", "j1")
-        self.ok("pause", "j1", "later")
-        self.assertEqual((self.state(), self.w.job("j1")["reason"]), ("paused", "later"))
+        self.seed("paused", "j1", reason="later")
         self.ok("start", "j1")
         self.assertEqual(self.state(), "active")
         self.assertNotIn("reason", self.w.job("j1"))
@@ -195,6 +193,10 @@ class Working(Case):
         self.w.add("a")
         self.ok("block", "j1", "--on-request", "01a11a18-4728-7d8b-afd9-0edb2d30a59c")
         self.assertIn("waits_on", self.w.job("j1"))
+        # R4 from blocked: every blocker cleared (F4). The wait is over when the cache says so; the same start refuses before.
+        self.refused("start", "j1", said="is still blocked")
+        self.seed("blocked", "j1", waits_on="01a11a18-4728-7d8b-afd9-0edb2d30a59c", blockers=["clock:2020-01-01T00:00:00Z"],
+                  blocked_on="clock:2020-01-01T00:00:00Z")
         self.ok("start", "j1")
         job = self.w.job("j1")
         self.assertEqual(job["state"], "active")
@@ -237,12 +239,12 @@ class Working(Case):
         self.assertEqual(p.returncode, 1)
         self.assertIn("j1 is still active", p.stderr)
 
-    def test_switch_by_id_refuses_a_delivered_job(self):
+    def test_switch_by_id_takes_a_delivered_job_as_start_does(self):
+        # R4 names start and switch for one set of from-states, delivered included (F4).
         self.w.add("a")
-        self.ok("deliver", "j1", OPEN_PR)
+        self.seed("delivered", "j1", artifacts=[OPEN_PR])
         p = self.w.switch("j1")
-        self.assertEqual(p.returncode, 1, p.stdout + p.stderr)
-        self.assertIn("j1 is delivered; switch takes a queued, paused or blocked job", p.stderr)
+        self.assertEqual((p.returncode, self.state()), (0, "active"), p.stdout + p.stderr)
 
     def test_start_and_switch_start_nothing_while_the_login_is_held(self):
         self.w.add("a")
@@ -266,28 +268,28 @@ class Working(Case):
 
 
     def test_pause_sets_the_active_job_aside_with_its_reason(self):
-        self.w.add("a")
-        self.ok("start", "j1")
-        self.ok("pause", "j1", "  needs   a review ")
+        j1 = self.working("a")
+        self.ok("pause", j1, "  needs   a review ", cwd=self.w.job(j1)["worktree"])
         self.assertEqual((self.state(), self.w.job("j1")["reason"]), ("paused", "needs a review"))
 
     def test_pause_refuses_a_job_that_is_not_active_and_a_reason_that_is_empty(self):
         self.w.add("a")
-        self.refused("pause", "j1", "why", said="j1 is queued; only the active job is paused")
-        self.ok("start", "j1")
-        self.refused("pause", "j1", "  ", said="pause needs a reason")
+        self.refused("pause", "j1", "why", said="j1 is queued; pause takes a job that is active")
+        p = self.w.switch()
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        self.refused("pause", "j1", "  ", said="pause needs a reason", cwd=self.w.job("j1")["worktree"])
         self.assertEqual(self.state(), "active")
 
 
 class Blocked(Case):
     """active -> blocked, by block and by switch; the checkable forms; leaving blocked drops what it waited on."""
 
-    def test_block_records_free_text_and_nothing_checkable(self):
+    def test_block_records_an_owners_decision_and_nothing_checkable(self):
         self.w.add("a")
         self.ok("start", "j1")
-        self.ok("block", "j1", "a review of the PR")
+        self.ok("block", "j1", "owner: a review of the PR")
         job = self.w.job("j1")
-        self.assertEqual((job["state"], job["blocked_on"]), ("blocked", "a review of the PR"))
+        self.assertEqual((job["state"], job["blocked_on"]), ("blocked", "owner: a review of the PR"))
         self.assertNotIn("blockers", job)
 
     def test_block_on_a_checkable_blocker_keeps_it_in_the_list(self):
@@ -313,9 +315,9 @@ class Blocked(Case):
     def test_a_new_block_replaces_the_whole_wait(self):
         self.w.add("a")
         self.ok("block", "j1", "--on", "pr:o/r#5")
-        self.ok("block", "j1", "words only")
+        self.ok("block", "j1", "owner: words only")
         job = self.w.job("j1")
-        self.assertEqual(job["blocked_on"], "words only")
+        self.assertEqual(job["blocked_on"], "owner: words only")
         self.assertNotIn("blockers", job)
 
     def test_switch_blocks_a_job_on_the_pull_request_that_must_merge_first(self):
@@ -353,14 +355,18 @@ class Delivered(Case):
     def test_deliver_names_artifacts_and_a_second_deliver_adds_without_duplicating(self):
         self.w.add("a")
         self.ok("start", "j1")
-        self.ok("deliver", "j1", "org/repo#12", "abc1234")
-        self.ok("deliver", "j1", "abc1234", "org/repo#13")
+        second = f"{jobs_world.GH_REPO}#3"
+        self.w.gh_says({LANDED: "MERGED", OPEN_PR: "OPEN", second: "OPEN"})
+        self.ok("deliver", "j1", OPEN_PR, "abc1234")
+        self.ok("deliver", "j1", "abc1234", second)
         job = self.w.job("j1")
-        self.assertEqual((job["state"], job["artifacts"]), ("delivered", ["org/repo#12", "abc1234", "org/repo#13"]))
+        self.assertEqual((job["state"], job["artifacts"]), ("delivered", [OPEN_PR, "abc1234", second]))
+        # Evidence added to a delivered job is no transition: one `delivered` entry in the log.
+        self.assertEqual([e["state"] for e in job["log"] if "state" in e], ["queued", "active", "delivered"])
 
     def test_deliver_refuses_a_dropped_job_and_adds_evidence_to_a_done_one_without_reopening_it(self):
         self.w.add("a")
-        self.ok("done", "j1", "--no-artifact", "housekeeping")
+        self.seed("done", "j1", no_artifact="housekeeping")
         self.ok("deliver", "j1", LANDED)
         self.assertEqual((self.state(), self.w.job("j1")["artifacts"]), ("done", [LANDED]))
         self.w.add("b")
@@ -369,7 +375,7 @@ class Delivered(Case):
 
     def test_sweep_closes_a_delivered_job_whose_pull_request_merged(self):
         self.w.add("a")
-        self.ok("deliver", "j1", LANDED)
+        self.seed("delivered", "j1", artifacts=[LANDED])
         p = self.ok("sweep", "--dry-run")
         self.assertIn("would close", p.stdout)
         self.assertEqual(self.state(), "delivered")
@@ -383,9 +389,9 @@ class Delivered(Case):
         self.w.add("open")
         self.w.add("unreadable")
         self.w.add("no repository")
-        self.ok("deliver", "j1", OPEN_PR)
-        self.ok("deliver", "j2", f"{jobs_world.GH_REPO}#99")
-        self.ok("deliver", "j3", "#3")
+        self.seed("delivered", "j1", artifacts=[OPEN_PR])
+        self.seed("delivered", "j2", artifacts=[f"{jobs_world.GH_REPO}#99"])
+        self.seed("delivered", "j3", artifacts=["#3"])
         out = self.ok("sweep").stdout
         self.assertEqual([self.state(j) for j in ("j1", "j2", "j3")], ["delivered"] * 3, out)
         self.assertIn("names no repository", out)
@@ -394,9 +400,8 @@ class Delivered(Case):
         self.w.add("delivered")
         self.w.add("queued")
         self.w.add("paused")
-        self.ok("deliver", "j1", LANDED)
-        self.ok("start", "j3")
-        self.ok("pause", "j3", "x")
+        self.seed("delivered", "j1", artifacts=[LANDED])
+        self.seed("paused", "j3", reason="x")
         # Evidence that has landed on the jobs that are not delivered: only the state decides what sweep may close.
         self.w.put(lambda doc: [doc["jobs"][i].update(artifacts=[LANDED]) for i in (1, 2)])
         self.ok("sweep")
@@ -407,6 +412,7 @@ class Delivered(Case):
 
     def test_done_records_a_reason_when_the_work_leaves_no_artifact(self):
         self.w.add("a")
+        self.ok("start", "j1")
         self.ok("done", "j1", "--no-artifact", " moved   a   file ")
         self.assertEqual((self.state(), self.w.job("j1")["no_artifact"]), ("done", "moved a file"))
         self.ok("done", "j1", "--no-artifact", "replaced reason")
@@ -441,18 +447,20 @@ class Closed(Case):
 
 
 class VerbMatrix(Case):
-    """Every verb on a job in every state, the answer today, against the table. A cell is True when the verb is accepted (exit 0)."""
+    """Every verb on a job in every state against rule 14's table. A cell is True when the verb is accepted (exit 0). Each cell is
+    given what its row needs where the table's state lets it (a pushed branch for pause, a landed artifact for done), so the matrix
+    reads the from-states of the table and nothing else; the needs have cases of their own (Findings, Leaving)."""
 
     ACCEPTED = {
-        "start":   {"queued": True,  "active": True,  "paused": True,  "blocked": True,  "delivered": True,  "done": False, "dropped": False},
+        "start":   {"queued": True,  "active": False, "paused": True,  "blocked": True,  "delivered": True,  "done": False, "dropped": False},
         "pause":   {"queued": False, "active": True,  "paused": False, "blocked": False, "delivered": False, "done": False, "dropped": False},
-        "block":   {"queued": True,  "active": True,  "paused": True,  "blocked": True,  "delivered": True,  "done": False, "dropped": False},
-        "deliver": {"queued": True,  "active": True,  "paused": True,  "blocked": True,  "delivered": True,  "done": True,  "dropped": False},
-        "done":    {"queued": True,  "active": True,  "paused": True,  "blocked": True,  "delivered": True,  "done": False, "dropped": False},
+        "block":   {"queued": True,  "active": True,  "paused": True,  "blocked": True,  "delivered": False, "done": False, "dropped": False},
+        "deliver": {"queued": False, "active": True,  "paused": False, "blocked": True,  "delivered": True,  "done": True,  "dropped": False},
+        "done":    {"queued": False, "active": True,  "paused": False, "blocked": False, "delivered": True,  "done": False, "dropped": False},
         "drop":    {"queued": True,  "active": True,  "paused": True,  "blocked": True,  "delivered": True,  "done": False, "dropped": False},
     }
-    # Rule 14's "from" column per verb. `deliver` on a done job adds evidence and is no transition (the rule says so), so it is
-    # not a cell of the table either way.
+    # Rule 14's "from" column per verb. `deliver` on a delivered or a done job adds evidence and is no transition (the rule says
+    # so for a closed job), so it is not a cell of the table either way.
     TABLE = {
         "start":   {"queued", "paused", "blocked", "delivered"},
         "pause":   {"active"},
@@ -461,33 +469,30 @@ class VerbMatrix(Case):
         "done":    {"active", "delivered"},
         "drop":    {"queued", "active", "paused", "blocked", "delivered"},
     }
-    # The cells today's verbs accept that the table has no row for: F1 (done), F2 (deliver), F3 (block), F4 (start from active).
-    OUTSIDE_THE_TABLE = {
-        ("start", "active"), ("block", "delivered"), ("deliver", "queued"), ("deliver", "paused"), ("deliver", "delivered"),
-        ("done", "queued"), ("done", "paused"), ("done", "blocked"),
-    }
     RESULT = {"start": "active", "pause": "paused", "block": "blocked", "deliver": "delivered", "done": "done", "drop": "dropped"}
+    GIVEN = {"pause": {"branch": "main"}, "done": {"artifacts": [LANDED]}}
 
     def test_the_verbs_against_the_states(self):
         self.w.add("subject")
         got: dict[str, dict[str, bool]] = {verb: {} for verb in VERBS}
         for state in STATES:
             for verb, argv in VERBS.items():
-                self.seed(state)
+                self.seed(state, **self.GIVEN.get(verb, {}))
                 p = self.w.run(*argv)
                 got[verb][state] = p.returncode == 0
                 if p.returncode == 0:
-                    # An accepted verb lands in its own state, except `deliver` on a done job, which only adds evidence.
-                    want = "done" if (verb, state) == ("deliver", "done") else self.RESULT[verb]
+                    # An accepted verb lands in its own state, except `deliver` on a job already delivered or done, which only adds
+                    # evidence.
+                    want = state if (verb, state) in (("deliver", "done"), ("deliver", "delivered")) else self.RESULT[verb]
                     self.assertEqual(self.state(), want, (verb, state, p.stderr))
                 else:
                     self.assertEqual(self.state(), state, (verb, state, p.stderr))
         self.assertEqual(got, self.ACCEPTED)
 
-    def test_the_cells_outside_the_table_are_exactly_the_findings(self):
+    def test_the_cells_accepted_are_exactly_the_tables(self):
         accepted = {(verb, state) for verb, row in self.ACCEPTED.items() for state, yes in row.items() if yes}
         in_table = {(verb, state) for verb, states in self.TABLE.items() for state in states}
-        self.assertEqual(accepted - in_table - {("deliver", "done")}, self.OUTSIDE_THE_TABLE)
+        self.assertEqual(accepted - in_table - {("deliver", "done"), ("deliver", "delivered")}, set(), "a cell outside the table")
         self.assertEqual(in_table - accepted, set(), "a row of the table that no verb makes")
 
     def test_a_closed_job_is_reopened_by_no_verb(self):
@@ -498,21 +503,28 @@ class VerbMatrix(Case):
                 self.seed(state)
                 p = self.w.run(*VERBS[verb])
                 self.assertEqual(p.returncode, 1, (state, verb, p.stdout))
-                # `pause` answers with its own rule (only the active job is paused); the others with the terminal one.
-                self.assertIn("only the active job is paused" if verb == "pause" else "a closed job is not reopened", p.stderr)
+                self.assertIn("a closed job is not reopened", p.stderr)
                 self.assertEqual(self.state(), state)
 
 
 class Leaving(Case):
-    """The evidence `switch` asks of the job it leaves, by the state it is left in (rule 10 step 1): the reconciliation the
-    verbs do not make. One case per state; the positive control of a refusal is the sibling case that leaves the same state."""
+    """The evidence `switch` asks of the job it leaves, by the state it is left in (rule 10 step 1): the row's needs asked again. The
+    verbs now ask them when the state is entered (Findings), so a job in a state its row would not have let it into is forced here,
+    as another writer of jobs.json could: one case per state; the positive control of a refusal is the sibling case that leaves the same
+    state."""
 
     def left(self, job_id: str) -> subprocess.CompletedProcess:
         return self.leave(job_id)
 
+    def delivered_then_merged(self, job_id: str, pr: str = LANDED) -> None:
+        """A pull request delivered while it was open and merged since: the road to `done` the table has."""
+        self.w.gh_says({pr: "OPEN"})
+        self.ok("deliver", job_id, pr)
+        self.w.gh_says({pr: "MERGED"})
+
     def test_done_is_left_on_a_merged_pull_request_and_refused_with_none(self):
         j1 = self.working("landed")
-        self.ok("deliver", j1, LANDED)
+        self.delivered_then_merged(j1)
         self.ok("done", j1)
         p = self.left(j1)
         self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
@@ -520,7 +532,8 @@ class Leaving(Case):
 
     def test_done_with_no_evidence_is_refused_when_it_is_left(self):
         j1 = self.working("nothing to show")
-        self.ok("done", j1)
+        self.refused("done", j1, said="done needs evidence it landed")
+        self.seed("done", j1)
         p = self.left(j1)
         self.assertEqual(p.returncode, 1, p.stdout + p.stderr)
         self.assertIn("done needs evidence it landed", p.stderr)
@@ -535,8 +548,12 @@ class Leaving(Case):
         j2 = self.working_after(j1, "named an artifact")
         closed = f"{jobs_world.GH_REPO}#7"
         self.w.gh_says({closed: "CLOSED"})
-        self.ok("deliver", j2, closed)
-        self.ok("done", j2, "--no-artifact", "a reason does not stand in for it")
+        self.seed("active", j2, artifacts=[closed])
+        self.refused("done", j2, "--no-artifact", "a reason does not stand in for it", said="did not land on the default branch")
+        self.seed("done", j2, artifacts=[closed], no_artifact="a reason does not stand in for it")
+        # The verb `done` leaves `last` at the job it closed; the forced state does not, and with stamps of one second's resolution
+        # a fast host leaves j1 and j2 tied, which `last` is what breaks.
+        self.w.put(lambda doc: doc.__setitem__("last", j2))
         p = self.leave(j2)
         self.assertEqual(p.returncode, 1, p.stdout + p.stderr)
         self.assertIn("did not land on the default branch", p.stderr)
@@ -544,7 +561,8 @@ class Leaving(Case):
     def test_done_on_an_open_pull_request_is_not_done(self):
         j1 = self.working("still open")
         self.ok("deliver", j1, OPEN_PR)
-        self.ok("done", j1)
+        self.refused("done", j1, said="is still open: the job is delivered, not done")
+        self.seed("done", j1, artifacts=[OPEN_PR])
         p = self.left(j1)
         self.assertEqual(p.returncode, 1, p.stdout + p.stderr)
         self.assertIn("is still open: the job is delivered, not done", p.stderr)
@@ -558,7 +576,8 @@ class Leaving(Case):
 
     def test_delivered_on_a_merged_pull_request_is_refused_as_done(self):
         j1 = self.working("merged already")
-        self.ok("deliver", j1, LANDED)
+        self.refused("deliver", j1, LANDED, said=f"{LANDED} is merged: the job is done, not delivered")
+        self.seed("delivered", j1, artifacts=[LANDED])
         p = self.left(j1)
         self.assertEqual(p.returncode, 1, p.stdout + p.stderr)
         self.assertIn(f"{LANDED} is merged: the job is done, not delivered", p.stderr)
@@ -572,11 +591,12 @@ class Leaving(Case):
 
     def test_blocked_on_free_text_is_refused_and_an_owner_decision_is_not(self):
         j1 = self.working("words")
-        self.ok("block", j1, "someone to look")
+        self.refused("block", j1, "someone to look", said="is blocked on free text")
+        self.seed("blocked", j1, blocked_on="someone to look")
         p = self.left(j1)
         self.assertEqual(p.returncode, 1, p.stdout + p.stderr)
         self.assertIn("is blocked on free text", p.stderr)
-        self.ok("block", j1, "owner: which of the two")
+        self.seed("blocked", j1, blocked_on="owner: which of the two")
         p = self.w.switch(self.w.add("another"))
         self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
         self.assertIn("blocked on owner: which of the two", p.stdout)
@@ -594,7 +614,8 @@ class Leaving(Case):
         wt = self.w.job(j1)["worktree"]
         # A commit of its own: a branch the default branch already holds is landed, which is evidence by itself.
         subprocess.run(["git", "-C", wt, "commit", "-q", "--allow-empty", "-m", "work"], check=True, env=git_env())
-        self.ok("pause", j1, "later", cwd=wt)
+        self.refused("pause", j1, "later", cwd=wt, said="is not on origin: push it")
+        self.seed("paused", j1, reason="later")
         p = self.left(j1)
         self.assertEqual(p.returncode, 1, p.stdout + p.stderr)
         self.assertIn("is not on origin: push it", p.stderr)
@@ -627,199 +648,171 @@ class Leaving(Case):
 
 
 class Findings(Case):
-    """Where today's code makes a transition outside rule 14's table, or one without what the row needs. Each finding is a pair:
-    the case that holds today's answer, and an expectedFailure case that holds the answer the table gives. The pull request lists
-    them F1..F11 with the two behaviours; F1..F8 are here, F9 to F11 in the pool, blockers and intake suites."""
+    """Where the code made a transition outside rule 14's table, or one without what the row needs (F1..F8 of j100; F9 in the pool
+    suite, F10 in the blockers', F11 in the intake's). j100 pinned each as a case holding the answer of the day and an expectedFailure
+    case holding the table's; the owner (tools/fabric/work, tools/fabric/jobsparts/needs.py) makes the second green, and the first is
+    gone with the behaviour it pinned."""
 
-    # F1 ── R9 needs "the artifact merged or on the default branch; or a recorded --no-artifact reason". The verb records `done`
-    # on none of it, from states the row does not name; `switch` asks for the evidence only of the job this session worked last.
-    def test_f1_today_done_is_recorded_without_its_evidence_and_never_asked_for_a_job_not_worked(self):
-        self.w.add("never worked")
-        self.w.add("next")
-        self.ok("done", "j1")
-        self.assertEqual((self.state("j1"), self.w.job("j1").get("artifacts")), ("done", []))
-        self.assertEqual(self.w.switch().returncode, 0)
-
-    @unittest.expectedFailure
+    # F1 ── R9: done from active or delivered, on the done test or a recorded --no-artifact reason.
     def test_f1_done_without_an_artifact_or_a_reason_is_refused(self):
-        self.w.add("never worked")
-        self.assertNotEqual(self.w.run("done", "j1").returncode, 0)
+        j1 = self.working("never delivered")
+        self.refused("done", j1, said="done needs evidence it landed")
+        self.assertEqual(self.state(j1), "active")
 
-    @unittest.expectedFailure
     def test_f1_done_is_taken_from_active_and_delivered_only(self):
         self.w.add("a")
-        self.assertNotEqual(self.w.run("done", "j1", "--no-artifact", "x").returncode, 0)
+        self.refused("done", "j1", "--no-artifact", "x", said="j1 is queued; done takes a job that is active or delivered")
+        self.assertEqual(self.state(), "queued")
 
-    # F2 ── R7: deliver from active or blocked, with "an artifact that is open". The verb takes any state and any string.
-    def test_f2_today_deliver_takes_a_queued_job_and_an_artifact_that_is_nothing(self):
-        self.w.add("a")
-        self.ok("deliver", "j1", "not-an-artifact")
-        self.assertEqual((self.state(), self.w.job("j1")["artifacts"]), ("delivered", ["not-an-artifact"]))
-
-    @unittest.expectedFailure
+    # F2 ── R7: deliver from active or blocked, with "an artifact that is open".
     def test_f2_deliver_is_taken_from_active_and_blocked_only(self):
         self.w.add("a")
-        self.assertNotEqual(self.w.run("deliver", "j1", OPEN_PR).returncode, 0)
+        self.refused("deliver", "j1", OPEN_PR, said="j1 is queued; deliver takes a job that is active or blocked")
+        self.assertEqual(self.w.job("j1")["artifacts"], [])
 
-    @unittest.expectedFailure
     def test_f2_deliver_needs_an_artifact_that_is_open_not_one_already_merged(self):
         self.w.add("a")
         self.ok("start", "j1")
-        self.assertNotEqual(self.w.run("deliver", "j1", LANDED).returncode, 0)
+        self.refused("deliver", "j1", LANDED, said="is merged: the job is done, not delivered")
+        self.refused("deliver", "j1", "not-an-artifact", said="delivered needs an artifact that is open")
+        self.assertEqual((self.state(), self.w.job("j1")["artifacts"]), ("active", []))
+        self.ok("deliver", "j1", OPEN_PR)         # the positive control: the same job with an open one
+        self.assertEqual(self.state(), "delivered")
 
     # F3 ── R6: block from queued, active, paused or blocked, on "a checkable blocker or a named owner's decision".
-    def test_f3_today_block_takes_a_delivered_job_and_free_text_that_is_neither(self):
-        self.w.add("a")
-        self.ok("deliver", "j1", OPEN_PR)
-        self.ok("block", "j1", "someone to look")
-        self.assertEqual((self.state(), self.w.job("j1")["blocked_on"]), ("blocked", "someone to look"))
-
-    @unittest.expectedFailure
     def test_f3_block_does_not_take_a_delivered_job(self):
         self.w.add("a")
-        self.ok("deliver", "j1", OPEN_PR)
-        self.assertNotEqual(self.w.run("block", "j1", "owner: which of the two").returncode, 0)
+        self.seed("delivered", "j1", artifacts=[OPEN_PR])
+        self.refused("block", "j1", "owner: which of the two", said="j1 is delivered; block takes a job that is")
+        self.assertEqual(self.state(), "delivered")
 
-    @unittest.expectedFailure
     def test_f3_block_on_free_text_is_refused_where_leaving_would_refuse_it(self):
         self.w.add("a")
-        self.assertNotEqual(self.w.run("block", "j1", "someone to look").returncode, 0)
+        self.refused("block", "j1", "someone to look", said="is blocked on free text")
+        self.assertEqual(self.state(), "queued")
+        self.ok("block", "j1", "owner: someone to look")    # the positive control: a named owner's decision
+        self.assertEqual(self.state(), "blocked")
 
     # F4 ── R4: into active from queued, paused, blocked or delivered, "from blocked by switch, every blocker cleared".
-    def test_f4_today_start_and_switch_by_id_take_a_blocked_job_whose_wait_is_not_over(self):
-        self.w.add("a")
-        self.w.add("b")
-        self.ok("block", "j1", "--on", "clock:2099-01-01T00:00Z")
-        self.ok("block", "j2", "--on", "clock:2099-01-01T00:00Z")
-        self.assertEqual(self.w.switch().returncode, 1, "without an id, `next` takes only a blocked job whose blockers cleared")
-        by_id = self.w.switch("j2")
-        self.assertEqual((by_id.returncode, self.state("j2")), (0, "active"), by_id.stdout + by_id.stderr)
-        self.ok("pause", "j2", "x")
-        self.ok("start", "j1")
-        self.assertEqual(self.state("j1"), "active")
-
-    @unittest.expectedFailure
     def test_f4_start_does_not_take_a_job_whose_checkable_blocker_still_waits(self):
         self.w.add("a")
         self.ok("block", "j1", "--on", "clock:2099-01-01T00:00Z")
-        self.assertNotEqual(self.w.run("start", "j1").returncode, 0)
+        self.refused("start", "j1", said="is still blocked")
+        self.assertEqual(self.state(), "blocked")
 
-    @unittest.expectedFailure
     def test_f4_switch_by_id_does_not_take_a_job_whose_checkable_blocker_still_waits(self):
         self.w.add("a")
         self.ok("block", "j1", "--on", "clock:2099-01-01T00:00Z")
-        self.assertNotEqual(self.w.switch("j1").returncode, 0)
+        p = self.w.switch("j1")
+        self.assertEqual(p.returncode, 1, p.stdout + p.stderr)
+        self.assertIn("is still blocked", p.stderr)
+        self.assertEqual(self.state(), "blocked")
 
-    @unittest.expectedFailure
+    def over(self) -> None:
+        self.w.add("a")
+        self.seed("blocked", "j1", blockers=["clock:2020-01-01T00:00:00Z"], blocked_on="clock:2020-01-01T00:00:00Z")
+
+    def test_f4_a_wait_that_is_over_is_taken_by_start(self):
+        self.over()
+        self.ok("start", "j1")
+        self.assertEqual(self.state(), "active")
+
+    def test_f4_a_wait_that_is_over_is_taken_by_switch_by_id(self):
+        self.over()
+        p = self.w.switch("j1")
+        self.assertEqual((p.returncode, self.state()), (0, "active"), p.stdout + p.stderr)
+
     def test_f4_start_and_switch_by_id_agree_on_a_delivered_job(self):
         self.w.add("a")
-        self.ok("deliver", "j1", OPEN_PR)
+        self.seed("delivered", "j1", artifacts=[OPEN_PR])
         by_switch = self.w.switch("j1").returncode
+        self.assertEqual(by_switch, 0)
+        self.seed("delivered", "j1", artifacts=[OPEN_PR])
         self.assertEqual(self.w.run("start", "j1").returncode, by_switch)
 
-    def test_f4_today_start_on_the_active_job_is_taken_and_logs_an_active_entry_again(self):
-        self.w.add("a")
-        self.ok("start", "j1")
-        self.ok("start", "j1")
-        self.assertEqual([e["state"] for e in self.w.job("j1")["log"]], ["queued", "active", "active"])
-
-    @unittest.expectedFailure
     def test_f4_start_is_not_taken_from_active(self):
         self.w.add("a")
         self.ok("start", "j1")
-        self.assertNotEqual(self.w.run("start", "j1").returncode, 0)
+        self.refused("start", "j1", said="j1 is active; start takes a job that is queued, paused, blocked or delivered")
+        self.assertEqual([e["state"] for e in self.w.job("j1")["log"]], ["queued", "active"])
 
-    # F5 ── R5: pause "the branch pushed". The verb pauses a job with no branch, and one whose branch origin does not have; only
-    # `switch` asks, when it leaves the paused job.
-    def test_f5_today_pause_takes_a_job_with_no_branch_and_one_with_an_unpushed_branch(self):
-        self.w.add("no branch")
-        self.ok("start", "j1")
-        self.ok("pause", "j1", "later")
-        self.assertEqual(self.state("j1"), "paused")
-        self.ok("drop", "j1", "x")
-        j2 = self.working("unpushed")
-        self.ok("pause", j2, "later", cwd=self.w.job(j2)["worktree"])
-        self.assertEqual(self.state(j2), "paused")
-
-    @unittest.expectedFailure
+    # F5 ── R5: pause "the branch pushed".
     def test_f5_pause_needs_the_branch_pushed(self):
         j1 = self.working("unpushed")
         wt = self.w.job(j1)["worktree"]
         # A commit of its own: a branch the default branch already holds is landed, which settle counts as pushed.
         subprocess.run(["git", "-C", wt, "commit", "-q", "--allow-empty", "-m", "work"], check=True, env=git_env())
-        self.assertNotEqual(self.w.run("pause", j1, "later", cwd=wt).returncode, 0)
+        self.refused("pause", j1, "later", cwd=wt, said="is not on origin: push it")
+        self.assertEqual(self.state(j1), "active")
+        subprocess.run(["git", "-C", wt, "push", "-q", "origin", self.w.job(j1)["branch"]], check=True, env=git_env())
+        self.ok("pause", j1, "later", cwd=wt)         # the positive control: the same branch, pushed
+        self.assertEqual(self.state(j1), "paused")
 
-    @unittest.expectedFailure
     def test_f5_pause_needs_a_branch_to_be_pushed(self):
         self.w.add("no branch")
         self.ok("start", "j1")
-        self.assertNotEqual(self.w.run("pause", "j1", "later").returncode, 0)
+        self.refused("pause", "j1", "later", said="a paused job names the branch holding its work")
+        self.assertEqual(self.state(), "active")
 
-    # F6 ── R10: drop "a reason; a REQUEST it came from answered". The verb stores an empty reason and drops an unanswered REQUEST.
-    def test_f6_today_drop_takes_an_empty_reason_and_a_request_nobody_answered(self):
-        self.w.add("a")
-        self.ok("drop", "j1", "   ")
-        self.assertEqual((self.state(), self.w.job("j1")["reason"]), ("dropped", ""))
-        self.w.add("from a request")
-        self.w.put(lambda doc: doc["jobs"][1].update(source={"kind": "request", "message_id": RID, "from": "h/u", "seq": 1}))
-        self.ok("drop", "j2", "no longer needed")
-        self.assertEqual(self.state("j2"), "dropped")
-
-    @unittest.expectedFailure
+    # F6 ── R10: drop "a reason; a REQUEST it came from answered".
     def test_f6_drop_needs_a_reason(self):
         self.w.add("a")
-        self.assertNotEqual(self.w.run("drop", "j1", "   ").returncode, 0)
+        self.refused("drop", "j1", "   ", said="drop needs a reason")
+        self.assertEqual(self.state(), "queued")
 
-    @unittest.expectedFailure
+    def from_a_request(self, title: str = "from a request") -> None:
+        self.w.add(title)
+        self.w.put(lambda doc: doc["jobs"][-1].update(source={"kind": "request", "message_id": RID, "from": "h/u", "seq": 1}))
+
     def test_f6_drop_needs_the_request_it_came_from_answered(self):
-        self.w.add("from a request")
-        self.w.put(lambda doc: doc["jobs"][0].update(source={"kind": "request", "message_id": RID, "from": "h/u", "seq": 1}))
-        self.assertNotEqual(self.w.run("drop", "j1", "no longer needed").returncode, 0)
+        self.from_a_request()
+        self.refused("drop", "j1", "no longer needed", said=f"REQUEST {RID}, which this login has not answered")
+        self.assertEqual(self.state(), "queued")
+        self.w.answer(RID)
+        self.ok("drop", "j1", "no longer needed")     # the positive control: the same drop once the REQUEST is answered
+        self.assertEqual(self.state(), "dropped")
 
-    # F7 ── R8 and R9 both name "rule 10's done test", which sweep and settle each implement. A bare commit sha: settle takes it as
-    # landed evidence, sweep never reads it (a sha counts only in an artifact that names the job's own project).
+    # F7 ── R8 and R9 both name "rule 10's done test", which sweep and settle each implemented. A bare commit sha: settle took it as
+    # landed evidence, sweep never read it (a sha counted only in an artifact that named the job's own project).
     def sha_world(self) -> str:
         sha = subprocess.run(["git", "-C", self.w.alpha, "rev-parse", "HEAD"], check=True, capture_output=True, text=True,
                              env=git_env()).stdout.strip()
         j1 = self.working("sha")
-        self.ok("deliver", j1, sha)
+        self.seed("delivered", j1, artifacts=[sha])
         return j1
 
-    def test_f7_today_settle_accepts_a_bare_sha_and_sweep_keeps_the_job(self):
-        j1 = self.sha_world()
-        self.assertIn("no artifact names a pull request, a commit or a branch it can resolve", self.ok("sweep").stdout)
-        self.ok("done", j1)
-        p = self.leave(j1)
-        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
-        self.assertIn("on origin/main", p.stdout)
-
-    @unittest.expectedFailure
     def test_f7_sweep_closes_a_job_whose_bare_sha_settle_accepts_as_landed(self):
         j1 = self.sha_world()
         self.ok("sweep")
         self.assertEqual(self.state(j1), "done")
 
-    # F8 ── "<project> #N": sweep resolves it through the registry to that project's repository; settle reads the #N in the job's own
-    # repository. A job sweep closed on landed evidence then cannot be left by switch.
+    def test_f7_a_bare_sha_that_is_no_commit_here_closes_nothing(self):
+        j1 = self.working("sha")
+        self.seed("delivered", j1, artifacts=["deadbee"])
+        self.assertIn("no artifact names a pull request, a commit or a branch it can resolve", self.ok("sweep").stdout)
+        self.assertEqual(self.state(j1), "delivered")
+
+    # F8 ── "<project> #N": sweep resolved it through the registry to that project's repository; settle read the #N in the job's own
+    # repository. A job sweep closed on landed evidence then could not be left by switch.
     def project_pr_world(self) -> str:
-        self.w.gh_says({f"{OTHER_REPO}#4": "MERGED"})
+        self.w.gh_says({f"{OTHER_REPO}#4": "OPEN"})
         j1 = self.working("other project's pull request")
         self.ok("deliver", j1, "other-proj #4")
+        self.w.gh_says({f"{OTHER_REPO}#4": "MERGED"})
         return j1
 
-    def test_f8_today_sweep_closes_it_and_switch_cannot_leave_the_closed_job(self):
+    def test_f8_a_job_sweep_closed_on_landed_evidence_can_be_left(self):
         j1 = self.project_pr_world()
         self.assertIn(f"closed ({OTHER_REPO}#4 merged)", self.ok("sweep").stdout)
         p = self.leave(j1)
-        self.assertEqual(p.returncode, 1, p.stdout + p.stderr)
-        self.assertIn(f"could not tell whether {jobs_world.GH_REPO}#4 is merged", p.stderr)
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
 
-    @unittest.expectedFailure
-    def test_f8_a_job_sweep_closed_on_landed_evidence_can_be_left(self):
+    def test_f8_done_and_sweep_read_the_project_reference_alike(self):
         j1 = self.project_pr_world()
-        self.ok("sweep")
+        self.ok("done", j1)
         p = self.leave(j1)
         self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        self.assertIn(f"{OTHER_REPO}#4 merged", p.stdout)
 
 
 if __name__ == "__main__":

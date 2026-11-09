@@ -139,26 +139,31 @@ class Blockers(unittest.TestCase):
         self.w.add("a")
         self.ok("block", "j1", "--on-request", RID)
         self.assertEqual(sessions.waits_on(self.w.path), [RID])
-        self.ok("start", "j1")
+        self.ok("drop", "j1", "no longer needed")
         self.assertEqual(sessions.waits_on(self.w.path), [], "leaving blocked drops the wait")
+        self.assertNotIn("waits_on", self.w.job("j1"))
 
     def waiting_on_an_answered_request(self) -> None:
         self.w.add("a")
         self.ok("block", "j1", "--on-request", RID)
         self.seed_cache(f"request:{RID}", "cleared", "answered")
 
-    def test_f10_today_the_answered_request_still_ranks_the_answerers_job_blocking(self):
-        self.waiting_on_an_answered_request()
-        job = self.listed("--cached")["j1"]
-        self.assertEqual((job["state"], job["cleared"], job["waits_on"]), ("blocked", True, RID))
-        self.assertEqual(sessions.waits_on(self.w.path), [RID])
-
-    @unittest.expectedFailure
     def test_f10_a_wait_that_cleared_is_no_longer_published(self):
         # rule 8: the job that request asked for ranks blocking *while* this one waits; the cache says the wait is over, and the
-        # state record is read from jobs.json alone, so it goes on saying so until a start or switch takes the job.
+        # state record is read from jobs.json alone, so it used to go on saying so until a start or switch took the job.
         self.waiting_on_an_answered_request()
         self.assertEqual(sessions.waits_on(self.w.path), [])
+        job = self.listed("--cached")["j1"]
+        self.assertEqual((job["state"], job["cleared"], job["waits_on"]), ("blocked", True, RID), "the job itself stays blocked until moved on")
+
+    def test_f10_a_wait_the_cache_does_not_know_over_is_published(self):
+        self.w.add("a")
+        self.ok("block", "j1", "--on-request", RID)
+        self.assertEqual(sessions.waits_on(self.w.path), [RID], "the cache says waiting")
+        self.seed_cache(f"request:{RID}", "unknown", "journal unreadable")
+        self.assertEqual(sessions.waits_on(self.w.path), [RID], "unknown is not cleared")
+        os.unlink(self.cache_file)
+        self.assertEqual(sessions.waits_on(self.w.path), [RID], "no cache is not a cleared wait")
 
 
 if __name__ == "__main__":

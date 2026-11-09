@@ -195,7 +195,13 @@ def _():
 def _():
     import subprocess
     state = scratch()
-    env = {**os.environ, "AGENT_FABRIC_STATE_DIR": state}
+    # `deliver` asks gh whether the pull request is open (rule 14, R7): a gh that says every pull request is.
+    stub = os.path.join(scratch(), "bin")
+    os.makedirs(stub)
+    with open(os.path.join(stub, "gh"), "w", encoding="utf-8") as fh:
+        fh.write('#!/bin/sh\nif [ "$1 $2" = "pr view" ]; then echo \'{"state": "OPEN"}\'; exit 0; fi\nexit 1\n')
+    os.chmod(os.path.join(stub, "gh"), 0o755)
+    env = {**os.environ, "AGENT_FABRIC_STATE_DIR": state, "PATH": stub + os.pathsep + os.environ.get("PATH", "")}
     jobs = os.path.join(HERE, "tools", "fabric", "jobs.py")
 
     def run(*args: str) -> None:
@@ -208,11 +214,11 @@ def _():
     run("start", "j1")
     run("block", "j1", "--on-request", "01a111d3-7e46-744b-8159-5131b5598f4d", "a reply")
     run("start", "j2")
-    run("deliver", "j2", "branch x@abc")
+    run("deliver", "j2", "o/r#1")
     run("drop", "j3", "not needed")
     run("add", "fourth", "--priority", "high")
     run("start", "j4")
-    run("done", "j4")
+    run("done", "j4", "--no-artifact", "a cleanup")
     with open(os.path.join(state, "agents", jobs_login(), "jobs.json"), encoding="utf-8") as fh:
         doc = json.load(fh)
     states = sorted(j["state"] for j in doc["jobs"])

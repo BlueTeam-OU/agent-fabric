@@ -7,7 +7,7 @@ import math
 import os
 import re
 import subprocess
-from fabric_jobs.base import DEFAULT_PRIORITY, FABRIC_ROOT, Job, Refused, TERMINAL, _load, identity, request_id_of  # noqa: F401 — request_id_of lives in base (blockers reads it); records re-exports it
+from fabric_jobs.base import DEFAULT_PRIORITY, FABRIC_ROOT, Job, Refused, _load, identity, request_id_of, work  # noqa: F401 — request_id_of lives in base (blockers reads it); records re-exports it
 
 
 def find(doc: dict, job_id: str) -> Job:
@@ -45,40 +45,10 @@ def session_worked(doc: dict, session: str | None) -> str | None:
     return None
 
 
-def transition(doc: dict, job: dict, state: str, **fields) -> None:
-    if job["state"] in TERMINAL:
-        raise Refused(f"{job['id']} is {job['state']}; a closed job is not reopened — add a new one")
-    if state == "active":
-        current = active(doc)
-        if current and current["id"] != job["id"]:
-            raise Refused(f"{current['id']} is active ({current['title']}); deliver, block, finish or drop "
-                          "it first — one job is active at a time")
-    if job["state"] == "active" and state != "active":
-        # Only the no-session-id fallback of `next` reads this.
-        doc["last"] = job["id"]
-    if state != "blocked":
-        job.pop("waits_on", None)
-        job.pop("blockers", None)
-    if state == "active":
-        job.pop("reason", None)         # a paused job's why belongs to the pause; an active job has none
-    now = identity.now_iso()
-    # Entering or leaving `active`, not only entering: a session launched with
-    # its job already active never activates it, and is known by finishing it.
-    # A drop or block of a job that was never active here is no work done.
-    touches_active = state == "active" or job.get("state") == "active"
-    job["state"] = state
-    job["updated"] = now
-    entry = {"at": now, "state": state, **({"note": fields["note"]} if fields.get("note") else {})}
-    if touches_active and session_id():
-        entry["session"] = session_id()
-    job.setdefault("log", []).append(entry)
-    for key, value in fields.items():
-        if key != "note" and value is not None:
-            job[key] = value
-    # The record named two places for one job's work, and a relaunch followed the older (j474: 348 commits behind): where a
-    # job is given a worktree, that is its working copy, in the same write.
-    if fields.get("worktree"):
-        job["working_copy"] = fields["worktree"]
+def transition(doc: dict, job: dict, to: str, who: str, proof=None, **fields) -> None:
+    """Move `job` to `to` as `who` (rule 14): the owner's transition, with this login's clock and session. The row's needs are
+    asked first (needs.py) and handed over as `proof`."""
+    work.transition(doc, job, to, who, proof, now=identity.now_iso(), session=session_id(), **fields)
 
 
 def own_project(ctx: dict) -> str | None:
@@ -126,7 +96,8 @@ def named_working_copy(project: str | None, working_copy: str | None) -> str | N
 
 
 def new_job(doc: dict, title: str, *, topic=None, project=None, working_copy=None, source=None,
-            priority=DEFAULT_PRIORITY, deliver_to=None, project_from=None) -> Job:
+            priority=DEFAULT_PRIORITY, deliver_to=None, project_from=None, who: str = "add") -> Job:
+    """A queued job on the list, made as `who`: add, intake, jobs-add, or the claimant's pool-claim (rule 14, rows R2b and R3)."""
     # Control characters (C0, DEL, C1) would reach every terminal that
     # lists the job and the opening prompt of a fresh session. Tab, newline
     # and carriage return are whitespace, collapsed below as they always were
@@ -138,29 +109,19 @@ def new_job(doc: dict, title: str, *, topic=None, project=None, working_copy=Non
         raise Refused("a job needs a title")
     working_copy = named_working_copy(project, working_copy)
     ctx = identity.resolve_context(cwd=working_copy or os.getcwd())
-    doc["seq"] = int(doc.get("seq", 0)) + 1
-    now = identity.now_iso()
-    job = {
-        "id": f"j{doc['seq']}",
+    fields = {
         "title": title,
         "topic": " ".join(topic.split()) if topic else None,
         "project": project or own_project(ctx),
         # Never the current directory's checkout for another project's job.
         "working_copy": working_copy or (ctx.get("working_copy") if not project or own_project(ctx) == project else None),
-        "state": "queued",
         "priority": priority,
         "source": source or {"kind": "self"},
         "artifacts": [],
-        "created": now,
-        "updated": now,
-        "log": [{"at": now, "state": "queued"}],
+        **({"deliver_to": deliver_to} if deliver_to else {}),
+        **({"project_from": project_from} if project_from else {}),
     }
-    if deliver_to:
-        job["deliver_to"] = deliver_to
-    if project_from:
-        job["project_from"] = project_from
-    doc["jobs"].append(job)
-    return job
+    return work.create(doc, who, fields, now=identity.now_iso())
 
 
 # A for/ branch as DELIVER-TO writes it. A word with an angle bracket is the protocol's placeholder
@@ -323,6 +284,9 @@ def request_job(doc: dict, msg: dict, *, topic=None, project=None, working_copy=
         working_copy = working_copy_of(wanted)
     source = {"kind": "request" if msg.get("type") == "REQUEST" else (msg.get("type") or "message").lower(),
               "message_id": mid, "from": meta.get("FROM") or msg.get("sender"), "seq": msg.get("seq")}
-    return new_job(doc, meta.get("SUBJECT") or f"message {mid}", topic=topic, project=wanted,
+    subject = meta.get("SUBJECT") or f"message {mid}"
+    # The title the inbox and the sender's jobs-add give the same REQUEST (F11): the requester's `request:` blocker finds the job by it.
+    # A message with no MESSAGE-ID (a relay seq stands in) has no id to carry.
+    return new_job(doc, work.request_title(subject, mid) if work.MESSAGE_ID.fullmatch(mid) else subject, topic=topic, project=wanted,
                    working_copy=working_copy, source=source, priority=priority,
                    deliver_to=deliver_branch(msg), project_from=project_from)

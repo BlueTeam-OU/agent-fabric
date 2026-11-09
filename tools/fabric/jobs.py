@@ -8,7 +8,7 @@ behind bin/fabric-jobs.
     fabric-jobs prio <id> <blocking|high|normal|low>
     fabric-jobs start <id>
     fabric-jobs pause <id> "<why>"
-    fabric-jobs block <id> "<on what>"
+    fabric-jobs block <id> "owner: <the decision awaited>"
     fabric-jobs block <id> --on-request <MESSAGE-ID> ["<on what>"]
     fabric-jobs block <id> --on <blocker> [--on <blocker>…] ["<on what>"]   blocker: pr:<owner/repo>#<n> | request:<message-id> | job:<login>/j<n> | clock:<YYYY-MM-DDTHH:MM[:SS]Z>
     fabric-jobs deliver <id> <artifact>...
@@ -66,8 +66,8 @@ through the control plane says so, until the receiving side, which reads REPOSIT
 whose evidence has landed, by the test `switch` applies to a done job: a pull request merged, a commit or a branch tip (a branch
 that is on origin now) on origin's default branch, a reply sent, and for a reflection job the fabric-reflect cursor. The artifacts are read as old jobs hold them: owner/repo#N, a pull request
 URL, "<project> #N" or "<project> PR #N" (the project's first github.com remote in projects/registry.json; a number that names
-no repository, "PR #N" or "#N" alone, is unresolved and keeps the job delivered), "branch:<name>" or a branch name holding a slash, and a commit sha in an artifact that names the
-job's own project (asked of the job's working copy). A job closes only when something landed and nothing its artifacts name is
+no repository, "PR #N" or "#N" alone, is unresolved and keeps the job delivered), "branch:<name>" or a branch name holding a slash, and any commit sha in an artifact (asked of the
+job's working copy; a word that is no commit there is not evidence). A job closes only when something landed and nothing its artifacts name is
 still open, could not be asked or could not be resolved to a repository; anything else stays delivered and the line says why.
 One line per delivered job: "would close (<evidence>)" under --dry-run, "closed (<evidence>)" without it, or "stays (<why>)". The
 transition carries the evidence as its note ("swept: …") and is applied under the list's lock, to a job still delivered with the
@@ -119,8 +119,8 @@ itself. `--stored` and `--cached` check nothing and read that cache (a clock blo
 `list --json` and the control plane's `jobs` carry, for such a job only, `blockers` ([{spec, state, detail,
 checked_at}]; state cleared, waiting or unknown, and unknown never clears) and `cleared` (true, false, or null
 while none is told). A request blocker is also kept as `waits_on`, as `--on-request` always kept it, and
-`--on-request` is now the same blocker. A free-text blocker behaves as it always did; one that names a pull
-request or a message id says once that a checkable form exists. Leaving `blocked` drops the blockers.
+`--on-request` is now the same blocker. Free text alone is refused unless it states an owner's decision ("owner: <what is awaited>",
+rule 14, R6), and the refusal names the checkable forms. Leaving `blocked` drops the blockers.
 
 The other half: a queued job whose source message is in any account's
 waits_on ranks blocking, its stored priority kept. `list` and `next` read
@@ -146,9 +146,28 @@ again, and a job already on the list by its pool id is not added twice.
 With nothing queued, `next` offers the pool's first job and says so; it
 claims nothing.
 
+THE TABLE (rule 14, A 2026-11-08): a job changes state only by a row of the transition table, which is data in tools/fabric/work/table.py
+and is checked against the record's own text by tests/test_work_table.py. tools/fabric/work/lifecycle.py is the only code that writes a
+job's state into a list, and tools/fabric/work_writes.py the check that says so. Each verb takes the states its row names and asks the
+row's needs at the moment it makes the change (tools/fabric/jobsparts/needs.py), refusing, naming what is missing, when one is not true:
+  start     queued, paused, blocked or delivered, no other job active, no fleet hold, a working copy; out of blocked, every checkable
+            blocker cleared (an owner's decision has none to check: starting the job is the agent saying it came)
+  pause     the active job, with a reason and its branch pushed (or its head already on origin's default branch); a job on no branch
+            cannot be paused, since nothing would hold its work
+  block     queued, active, paused or blocked, on a checkable blocker or on "owner: <the decision awaited>"; free text is refused
+  deliver   the active or blocked job, with an artifact that is open (a pull request, a branch on origin not on the default branch, a
+            sent reply); a pull request already merged is done, not delivered. On a job already delivered, `deliver` adds artifacts
+            held to the same need; on a done one it adds evidence (no transition)
+  done      the active or delivered job, on rule 10's `done` test, or a recorded --no-artifact reason where it names no artifact
+  drop      any open job, with a reason, and the REQUEST it came from answered
+  sweep     delivered jobs, on the same `done` test as the verb (tools/fabric/jobsparts/settle.py done_test, the artifacts read by
+            artifacts.py for both): a bare commit sha and "<project> #N" count alike
+`switch` makes the rows of `start` (a delivered job included, by id) and the one that blocks a job on the pull request it needs first.
+Retitle, rename, `prio`, `retract` and evidence on a closed job are field edits, not transitions.
+
 `pause <id> "<why>"` sets the active job aside (rule 2: blocked is a wait the agent does not control, paused is its own
-choice). It records the branch checked out where it runs, unless that is the default branch, and `switch` asks that this
-branch is pushed. A paused job is offered before queued jobs of the same priority, never ahead of a higher one, and is
+choice). It records the branch checked out where it runs, unless that is the default branch, and asks that this
+branch is pushed (switch asks again when it leaves the job). A paused job is offered before queued jobs of the same priority, never ahead of a higher one, and is
 taken back by `switch <id>` or when it is first in the order.
 
 `switch` (alias `next`) is the transition between jobs (rule 10, amended 2026-10-14), three steps, a refusal naming every
@@ -234,7 +253,7 @@ import sys
 # without -I's sys.path help, and a fixture fabric on sys.path must not answer
 # for its imports. A second jobs.py in one process (a fixture's copy beside the
 # real one) loads its own parts, never the first one's from sys.modules.
-for _name in [n for n in sys.modules if n == "fabric_jobs" or n.startswith("fabric_jobs.")]:
+for _name in [n for n in sys.modules if n in ("fabric_jobs", "fabric_work") or n.startswith(("fabric_jobs.", "fabric_work."))]:
     del sys.modules[_name]
 _spec = importlib.util.spec_from_file_location(
     "fabric_jobs", os.path.join(os.path.dirname(os.path.realpath(__file__)), "jobsparts", "__init__.py"),

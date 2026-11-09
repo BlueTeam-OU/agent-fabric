@@ -122,7 +122,7 @@ from control.jobs import jobs_add  # noqa: E402
 from control import hold as hold_mod  # noqa: E402
 from control.branches_op import branches_sweep  # noqa: E402
 from control.local import local_prune  # noqa: E402
-from control.pool import POOL_FILE, pool_add, pool_claim, pool_holder, pool_list, role_from_stream  # noqa: E402
+from control.pool import POOL_FILE, pool_add, pool_claim, pool_holder, pool_list, reconcile, role_from_stream, state_reader  # noqa: E402
 from control.secrets import secrets_sync  # noqa: E402
 from control.selftest import secrets_selftest  # noqa: E402
 from control.sign import ACTION_OPS, ACTION_TTL_MAX_S, public_key_from, verify_request  # noqa: E402
@@ -875,6 +875,22 @@ def jobs_sweep(run: Callable[..., Any] = subprocess.run, log: Callable[[str], No
         log(f"agentd: jobs sweep: closed {len(closed)} delivered job(s) whose evidence landed: {', '.join(closed)}")
 
 
+# The holder reads its claimants' state records for the pool's own end (ADR-037 rule 14, R2c and R2d). A record is posted at
+# least every ten minutes, so a quarter of an hour sees each claimant's newest; the reopening waits a day on top of it.
+POOL_CLAIMS_EVERY_S = 900
+
+
+def pool_claims_tick(*, me: str, holder: Callable[[], str | None], file: Callable[[], str], state_of, log: Callable[[str], None] = _stderr) -> None:
+    """Close the claims whose job ended and reopen the ones nobody holds, when this account holds the pool. Only a change is said."""
+    if holder() != me:
+        return
+    answer = reconcile(me=me, holder=holder(), file=file(), state_of=state_of)
+    if answer.get("status") != "ok":
+        log(f"agentd: pool claims: {answer.get('reason')}")
+    elif answer["closed"] or answer["reopened"]:
+        log(f"agentd: pool claims: closed {', '.join(answer['closed']) or 'none'}; reopened {', '.join(answer['reopened']) or 'none'}")
+
+
 def _status_of(first: dict, op: str) -> str:
     section = (first.get("data") or {}).get(op)
     status = section.get("status") if isinstance(section, dict) else None
@@ -1018,6 +1034,11 @@ def main(argv: list[str] | None = None) -> int:
         # First at start, in its own thread: the Node did not await it, and a
         # relay that is down must not hold the read loop's start behind the post.
         Ticker("session state", states.tick, sessions.STATE_POLL_MS / 1000).start()
+        # The pool holder's own end of a claim; the stream is read once for a claimant, as a claim is checked.
+        state_of = state_reader(call=call, cfg=cfg)
+        Ticker("pool claims", lambda: pool_claims_tick(me=me["address"], holder=lambda: pool_holder(control_config()),
+                                                       file=lambda: os.path.join(state_dir(), POOL_FILE), state_of=state_of),
+               POOL_CLAIMS_EVERY_S, first_s=tools_mod.first_run_delay_s(me["address"])).start()
 
     def beside(rec: dict, ledgered: bool) -> None:
         """An action can take minutes (a session to stop, an install): run

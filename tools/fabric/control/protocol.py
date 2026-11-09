@@ -35,7 +35,7 @@ ENVELOPE_KEYS = MappingProxyType({
     "request": _kinds(("v", "kind", "id", "from", "to", "op", "ts"), ("ttl_s", "days", "args", "sig")),
     "reply": _kinds(("v", "kind", "id", "in_reply_to", "from", "op", "ts", "ok"), ("data",)),
     "up": _kinds(("v", "kind", "from", "ts"), ()),
-    "state": _kinds(("v", "kind", "from", "ts", "sessions"), ("role", "project", "last_session", "resumable", "waits_on")),
+    "state": _kinds(("v", "kind", "from", "ts", "sessions"), ("role", "project", "last_session", "resumable", "waits_on", "claims")),
 })
 
 # A request: an operator's (or, for a public op, a placed account's) ask.
@@ -71,9 +71,10 @@ Up = TypedDict("Up", {"v": int, "kind": str, "from": str, "ts": str})
 # empty when none runs, or the string "unreadable" when the account cannot
 # read its own session state (j68; ctl shows that account unknown, never
 # none); `waits_on` the GZCoord ids the account's blocked jobs wait on
-# (ADR-037 rule 8).
+# (ADR-037 rule 8); `claims` the pool jobs the account's job list holds, [{"generation", "id", "state"}] (rule 14, rows
+# R2c and R2d; added with Wave 2's job module, after the Node's frozen set), absent where the account cannot say.
 _StateOptional = TypedDict("_StateOptional", {"role": str, "project": str, "last_session": str, "resumable": bool,
-                                              "waits_on": list}, total=False)
+                                              "waits_on": list, "claims": list}, total=False)
 _StateRequired = TypedDict("_StateRequired", {"v": int, "kind": str, "from": str, "ts": str, "sessions": list | str})
 
 
