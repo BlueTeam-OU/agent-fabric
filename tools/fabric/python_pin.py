@@ -48,6 +48,8 @@ import subprocess
 import sys
 import tarfile
 import tempfile
+import time
+import urllib.error
 import urllib.parse
 import urllib.request
 
@@ -167,9 +169,39 @@ def check(p: dict, prefix: str = PREFIX, link: str = LINK, machine: str | None =
     return build_problem(link, p, machine)
 
 
-def _download(url: str, dest: str) -> None:
-    with urllib.request.urlopen(url, timeout=300) as r, open(dest, "wb") as f:
-        shutil.copyfileobj(r, f)
+# Seconds slept before each retry; the length is the retry count. A gateway
+# hiccup (a 504 from the download host reddened a nightly's first step) is
+# over in seconds, and anything longer is an outage a person should see.
+RETRY_BACKOFF = (2, 5, 10)
+
+
+def _transient(e: BaseException) -> bool:
+    """A server-side or network failure that the same request may survive. A
+    4xx is the pin's fault (a wrong URL) and fails at once: retrying it
+    would only delay the message that names it. HTTPError is a URLError, so
+    it is judged first."""
+    if isinstance(e, urllib.error.HTTPError):
+        return e.code >= 500
+    return isinstance(e, (urllib.error.URLError, TimeoutError))
+
+
+def _download(url: str, dest: str, urlopen=urllib.request.urlopen, sleep=time.sleep) -> None:
+    for attempt in range(len(RETRY_BACKOFF) + 1):
+        try:
+            # "wb" starts the file afresh each attempt, so a body cut off
+            # mid-read is never a prefix of the next one.
+            with urlopen(url, timeout=300) as r, open(dest, "wb") as f:
+                shutil.copyfileobj(r, f)
+            return
+        except (urllib.error.URLError, TimeoutError) as e:
+            if not _transient(e) or attempt == len(RETRY_BACKOFF):
+                if os.path.lexists(dest):
+                    os.unlink(dest)
+                raise
+            delay = RETRY_BACKOFF[attempt]
+            print(f"python_pin: download attempt {attempt + 1} of {len(RETRY_BACKOFF) + 1} failed "
+                  f"({e}); retrying in {delay}s", file=sys.stderr)
+            sleep(delay)
 
 
 def _sha256(path: str) -> str:
