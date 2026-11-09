@@ -756,7 +756,7 @@ its record disagree, the record wins. Look it up, never read it whole:
 ### ADR-032 — GZCOORD/1 is a normative contract: the grammar frozen until a transport exercises it, GZCOORD/2 for a breaking change, adoption by observation (Accepted)
 
 - SPEC, MESSAGE-FORMAT, SEMANTICS and CONFORMANCE are GZCOORD/1's
-  normative text; `gzmsg.mjs` is the reference validator and every example
+  normative text; `gzmsg.py` is the reference validator and every example
   validates (§2, §5 rule 1). Only fabric-coordinator changes them (§5
   rule 2).
 - The grammar (SPEC §6) is frozen until an automated transport exercises
@@ -770,15 +770,15 @@ its record disagree, the record wins. Look it up, never read it whole:
 - Every change to the four files lands with an amendment of ADR-032 in the
   same PR; examples and validator move with the text (§5 rules 7–8).
 - A 2026-09-27 — HELLO and GOODBYE retired: a narrowing under rule 4.
-- A 2026-09-28 — SPEC is Normative; CAPABILITIES and SPECIALTIES are
-  optional metadata.
+- A 2026-09-28 — SPEC Normative; CAPABILITIES, SPECIALTIES optional metadata.
 - A 2026-10-04 — WAIVES (SPEC §7.5): a waiver role lets one PR head arm.
 - A 2026-10-15 — examples, validator renamed.
 - A 2026-10-15 — citations renamed.
 - A 2026-10-22 — SUPPLIER-REVIEW is the supplier's checks.
+- A 2026-11-09 — an exit-read watch rides out relay drops.
 - Keywords: GZCoord, GZCOORD/1, GZCOORD/2, protocol, SPEC, grammar,
-  freeze, frozen, compatibility, narrowing, conformance, validator,
-  extension, X-, protocol change, WAIVES, waiver.
+  freeze, compatibility, narrowing, conformance, validator,
+  extension, X-, protocol change, WAIVES.
 
 ### ADR-033 — GZCoord's transports: the human relay, the adapter contract, Telegram retired; the relay is central today (Accepted)
 
