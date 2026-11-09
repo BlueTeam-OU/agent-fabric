@@ -60,10 +60,10 @@ def main() -> int:
         check("...and the log keeps the note as given, on the entry for the state it moved to",
               j1["log"][-1]["state"] == "dropped" and j1["log"][-1].get("note") == "  gone   for\tgood ", j1["log"])
         run("start", "j2")
-        p = run("block", "j2", "a  review   of the PR")
+        p = run("block", "j2", "owner:  a  review   of the PR")
         j2 = next(j for j in listed() if j["id"] == "j2")
-        check("block: blocked_on and the log note are the collapsed text", p.returncode == 0 and j2["blocked_on"] == "a review of the PR"
-              and j2["log"][-1].get("note") == "a review of the PR", j2)
+        check("block: blocked_on and the log note are the collapsed text", p.returncode == 0 and j2["blocked_on"] == "owner: a review of the PR"
+              and j2["log"][-1].get("note") == "owner: a review of the PR", j2)
         check("a transition with no note writes no note key (log[1] is `start`'s entry; log[0] is the job's creation)",
               j2["log"][1]["state"] == "active" and "note" not in j2["log"][1], j2["log"])
 
