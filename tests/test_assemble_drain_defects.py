@@ -151,7 +151,12 @@ def test_a_shared_slice_is_held_only_when_no_owner_is_bound(tmp: str) -> None:
     assert report(out)["held_back"] == [] and os.path.isdir(ta.proj(out, "shared")), sorted(ta.tree(out))
     assert not os.path.exists(ta.proj(out, "beta")), sorted(ta.tree(out))
     shared = ta.read(os.path.join(ta.proj(out, "shared"), "workflow-w.md"))
-    assert "beta" not in shared.split("\n---\n")[0], "the written slice does not name the unbound owner among its owners:\n" + shared
+    head = shared.split("\n---\n")[0]
+    # The owner list is a corpus fact kept as recorded: dropping the unbound owner left a one-owner intersection, which lint
+    # refuses (replay of #519 at 96595a24).
+    assert "alpha" in head and "beta" in head, "the written slice keeps both owners in shared_with:\n" + shared
+    assert "workflow-w.md" in "".join(ta.read(os.path.join(d, f)) for d, _, fs in os.walk(ta.proj(out, "alpha")) for f in fs if f.startswith("INDEX")), \
+        "positive control: the bound owner's index lists the slice"
 
     drain, claims_dir, out = ta.build(os.path.join(tmp, "none"), {"alpha": ta.claims("alpha", [
         {"class": "workflow", "topic": "w", "title": "T", "body": "The body.", "evidence": ["h1"], "shared_with": ["beta"]}])})

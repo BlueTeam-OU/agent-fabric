@@ -384,6 +384,8 @@ class Run:
     per_role: dict[str, dict[tuple[str, str], list[Claim]]] = field(
         default_factory=lambda: defaultdict(lambda: defaultdict(list)))
     shared_owners: dict[tuple[str, str], set[str]] = field(default_factory=lambda: defaultdict(set))
+    # Owners of a written shared slice that are not bound here: still in its shared_with, left out of the role indexes.
+    shared_unindexed: dict[tuple[str, str], set[str]] = field(default_factory=dict)
     rejected_hygiene: list[str] = field(default_factory=list)
     redactions: list[str] = field(default_factory=list)
     problems: list[str] = field(default_factory=list)

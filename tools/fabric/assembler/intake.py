@@ -384,9 +384,10 @@ def hold_unbound_roles(run: Run) -> None:
             run.shared_owners.pop((klass, topic), None)
         elif unbound:
             # Some owner is bound (drain of 2026-11-08: a slice shared by an unbound and a bound role):
-            # the slice is the bound owners' knowledge and is written; only the unbound owners are left out of its indexes.
+            # the slice is the bound owners' knowledge and is written, its shared_with as recorded (a corpus fact, not a
+            # binding question); only the unbound owners are left out of the indexes.
             run.unbound_held_roles.update(c["_role"] for c in run.shared[(klass, topic)] if c.get("_role") in unbound)
-            owners -= set(unbound)
+            run.shared_unindexed[(klass, topic)] = set(unbound)
 
 
 def load_decisions(run: Run) -> None:

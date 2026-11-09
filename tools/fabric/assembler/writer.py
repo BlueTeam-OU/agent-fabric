@@ -575,6 +575,8 @@ def write_shared(run: Run) -> None:
             if written is None:
                 continue          # every section of it was retired: nothing to list
             for owner in owners:
+                if owner in run.shared_unindexed.get((klass, topic), ()):
+                    continue
                 run.shared_index[owner].append(
                     {"path": layout.link_rel(os.path.join(shared_dir, filename), run.project),
                      "description": written, "class": klass}
