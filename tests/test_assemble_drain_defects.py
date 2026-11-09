@@ -233,6 +233,20 @@ def test_a_link_in_a_code_span_is_not_cited(tmp: str) -> None:
     assert targets == ["real-topic"], targets
 
 
+def test_a_toml_array_header_in_a_code_span_is_not_cited(tmp: str) -> None:
+    """The cases fleetdeck #63's review (F2) found in the drain: a plugin manifest's `[[events]]` and `[[panes]] title`,
+    written in code beside a link that is one (`[[real-topic]]`), must not reach the References line."""
+    body = ("herdr emits events (socket or a plugin `[[events]]` hook), and the pane's `label` = its `[[panes]] title`.\n"
+            "See [[real-topic]].")
+    drain, claims_dir, out = ta.build(tmp, {"alpha": ta.claims("alpha", [
+        {"class": "domain", "topic": "one", "title": "T", "body": body, "evidence": ["h1"],
+         "citations": {"memories": ["events", "panes", "real-topic"]}}])})
+    proc = ta.run_assemble(drain, claims_dir, out)
+    assert proc.returncode == 0, proc.stderr
+    assert "*References: real-topic*" in ta.read(ta.dom(out, "alpha", "domain.md"))
+    assert [row["target"] for row in report(out)["unresolved_links"]] == ["real-topic"], report(out)["unresolved_links"]
+
+
 def test_a_break_in_a_title_does_not_split_the_heading_or_cut_the_index_entry(tmp: str) -> None:
     """Drain of 2026-11-08 (j670): a memory's description with a YAML `\\n` escape reaches the claim as a title with a
     line break, which split the section's heading and cut the INDEX entry at the break, so lint judged the entry
@@ -281,6 +295,7 @@ def main() -> int:
         test_an_anchor_that_resolves_is_not_replaced_by_one_that_does_not,
         test_an_incoming_anchor_that_resolves_stands_and_so_does_one_that_cannot_be_judged,
         test_a_link_in_a_code_span_is_not_cited,
+        test_a_toml_array_header_in_a_code_span_is_not_cited,
         test_a_break_in_a_title_does_not_split_the_heading_or_cut_the_index_entry,
     ]
     failures = 0
