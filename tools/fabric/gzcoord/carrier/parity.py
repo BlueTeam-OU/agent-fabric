@@ -255,8 +255,8 @@ def relay_outage(per_account: dict[str, dict], drill: tuple[float, float]) -> di
             acks = [x for x in acct["acks"] if x["mid"] == mid and x["addressee"] == addressee]
             relay_first = min(by["relay"]) if by.get("relay") else None
             carrier_first = min(by["interweave"]) if by.get("interweave") else None
-            # Held by the carrier alone means its copy arrived inside the drill and the relay's did not: a pair both
-            # carriers delivered after the relay returned was sent late and proves nothing about the outage.
+            # Held by the carrier alone means its copy arrived inside the drill and the relay's did not: a pair whose
+            # InterWeave copy arrived outside the drill proves nothing about the outage.
             in_drill = carrier_first is not None and drill[0] <= carrier_first < drill[1]
             held_alone = in_drill and (relay_first is None or relay_first >= drill[1])
             if plain:
