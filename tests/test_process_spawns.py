@@ -10,6 +10,8 @@ Stdlib only; runnable as `python3 tests/test_process_spawns.py`. **Each case nam
   a_listed_module_is_admitted <- scan ignoring `allowed`
   a_name_is_not_a_call        <- a string, a comment or an attribute that is not called counted
   unparseable_is_not_this     <- a SyntaxError turned into a finding
+  invalid_escape_is_not_unparseable <- the SyntaxWarning filter dropped: under -W error the module's own invalid escape reads as a
+                                syntax error and a planted violation beside it goes unfound
   policy_entries              <- policy_findings' tracked test or reason test dropped; an entry that is not a string pair admitting
   tests_are_not_judged        <- judged_path counting tests/
   tree_planted_killpg_is_red  <- tree_findings not scanning a tracked module, or main returning 0 with findings
@@ -19,6 +21,7 @@ Stdlib only; runnable as `python3 tests/test_process_spawns.py`. **Each case nam
 """
 from __future__ import annotations
 
+import ast
 import atexit
 import json
 import os
@@ -26,6 +29,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import warnings
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
@@ -81,6 +85,20 @@ def case_a_name_is_not_a_call() -> None:
 
 def case_unparseable_is_not_this() -> None:
     assert ps.scan("tools/x.py", "def (:\n", {}) == []
+
+
+def case_invalid_escape_is_not_unparseable() -> None:
+    src = 'import os\nos.killpg(1, 9)\nx = "\\ "\n'   # the invalid escape backslash-space beside a violation
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        try:
+            ast.parse(src)
+        except SyntaxError:
+            pass
+        else:
+            raise AssertionError("the fixture must fail to parse under -W error")
+        got = ps.scan("tools/x.py", src, {})
+    assert len(got) == 1, got
 
 
 def case_policy_entries() -> None:

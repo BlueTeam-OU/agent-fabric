@@ -12,6 +12,8 @@ Stdlib only; runnable as `python3 tests/test_work_writes.py`. **Each case names 
   a_listed_module_is_admitted     <- scan ignoring `allowed`
   a_read_is_not_a_write           <- a comparison, a get, a load or a comment counted
   unparseable_is_not_this         <- a SyntaxError turned into a finding
+  invalid_escape_is_not_unparseable <- the SyntaxWarning filter dropped: under -W error the module's own invalid escape reads as a
+                                syntax error and a planted violation beside it goes unfound
   policy_entries                  <- policy_findings' tracked test or reason test dropped
   tests_are_not_judged            <- judged_path counting tests/
   the_states_are_the_tables       <- STATES here and work/table.py drifting apart
@@ -23,6 +25,7 @@ Stdlib only; runnable as `python3 tests/test_work_writes.py`. **Each case names 
 """
 from __future__ import annotations
 
+import ast
 import atexit
 import json
 import os
@@ -30,6 +33,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import warnings
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
@@ -107,6 +111,20 @@ def case_a_read_is_not_a_write() -> None:
 
 def case_unparseable_is_not_this() -> None:
     assert ww.scan("tools/x.py", "def (:\n", {}) == []
+
+
+def case_invalid_escape_is_not_unparseable() -> None:
+    src = 'job["state"] = "done"\nx = "\\ "\n'   # the invalid escape backslash-space beside a violation
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        try:
+            ast.parse(src)
+        except SyntaxError:
+            pass
+        else:
+            raise AssertionError("the fixture must fail to parse under -W error")
+        got = ww.scan("tools/x.py", src, {})
+    assert len(got) == 1, got
 
 
 def case_policy_entries() -> None:

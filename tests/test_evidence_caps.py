@@ -7,15 +7,19 @@ Stdlib only; runnable as `python3 tests/test_evidence_caps.py`. **Each case name
   read_is_found             <- PR_LIST_PATH narrowed to the paginated form, or the list-argument walk dropped
   owners_and_others_pass    <- OWNERS not exempt, a module outside tools/fabric/ judged, a GitHub reader outside github/ not
                                 judged, or a cap literal counted in a module that imports neither gh nor github
+  invalid_escape_is_not_unparseable <- the SyntaxWarning filter dropped: under -W error the module's own invalid escape reads as a
+                                syntax error and a planted cap beside it goes unfound
   the_tree_is_clean         <- a cap or a files/commits read left anywhere in tools/fabric/ outside the two owners
   (in test_read_is_found, test_owners_and_others_pass) the Assign / BinOp handling dropped, or gated on the module importing gh:
                                 a path in a variable or a `+` read unseen
 """
 from __future__ import annotations
 
+import ast
 import os
 import sys
 import unittest
+import warnings
 
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(HERE, "tools", "fabric"))
@@ -76,6 +80,14 @@ class Caps(unittest.TestCase):
         built = 'import subprocess\np = f"repos/{r}/pulls/{n}/files"\nsubprocess.run(["gh", "api", "--paginate", p])\n'
         self.assertEqual(len(ec.scan(outside, built)), 1, ec.scan(outside, built))
         self.assertEqual(ec.scan(ARM, "def ("), [])   # a syntax error is the compiler's
+
+    def test_invalid_escape_is_not_unparseable(self):
+        src = 'A = 250\nx = "\\ "\n'   # the invalid escape backslash-space beside a cap
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            with self.assertRaises(SyntaxError):
+                ast.parse(src)   # the positive control: this fixture is a SyntaxError under -W error
+            self.assertEqual(len(ec.scan(ARM, src)), 1)
 
     def test_the_tree_is_clean(self):
         self.assertEqual(ec.findings(HERE), [])
