@@ -416,7 +416,16 @@ def main() -> int:
           ran.returncode == 0 and not ran.timed_out and not alive(child), str(child))
     real_select = runner.select.select
 
+    os.unlink(pidfile)
+
     def interrupted(*a, **kw):
+        # The shell writes its pidfile after the fork; an interrupt raised before that ends the group
+        # with nothing to read back, so wait (bounded) for the child's pid to be there.
+        deadline = time.monotonic() + 10
+        while time.monotonic() < deadline:
+            if os.path.exists(pidfile) and open(pidfile, encoding="utf-8").read().endswith("\n"):
+                break
+            time.sleep(0.01)
         raise KeyboardInterrupt
 
     runner.select.select = interrupted
