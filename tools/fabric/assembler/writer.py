@@ -575,6 +575,9 @@ def write_shared(run: Run) -> None:
             if written is None:
                 continue          # every section of it was retired: nothing to list
             for owner in owners:
+                # Project classes only: a domain slice is the fabric's, never judged by a project's taxonomy (hold_unbound_roles).
+                if klass in layout.PROJECT_CLASSES and owner in run.unindexed_owners:
+                    continue
                 run.shared_index[owner].append(
                     {"path": layout.link_rel(os.path.join(shared_dir, filename), run.project),
                      "description": written, "class": klass}
