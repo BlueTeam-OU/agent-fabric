@@ -81,7 +81,7 @@ class FakeJobs:
         return meta.get("PROJECT"), ("PROJECT" if meta.get("PROJECT") else None)
 
     def new_job(self, doc: dict, title: str, *, project: Any = None, source: Any = None, deliver_to: Any = None,
-                project_from: Any = None) -> dict:
+                project_from: Any = None, who: str = "add") -> dict:
         job = {"id": f"j{len(doc['jobs']) + 1}", "title": title, "project": project, "source": source}
         if deliver_to:
             job["deliver_to"] = deliver_to
