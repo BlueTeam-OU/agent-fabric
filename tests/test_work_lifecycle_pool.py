@@ -298,13 +298,12 @@ class Pool(unittest.TestCase):
         gen = "a" * 32
         jobs = [{"id": f"j{n}", "state": "done", "updated": f"2026-11-0{1 + n % 5}T00:00:00Z",
                  "source": {"kind": "pool", "pool_id": f"p{n}", "generation": gen}} for n in range(1, sessions.CLAIMS_MAX + 7)]
-        newest = {**jobs[2], "updated": "2026-11-09T00:00:00Z"}        # an early job, ended last
-        jobs[2] = newest
+        jobs[-1] = {**jobs[-1], "updated": "2026-11-09T00:00:00Z"}        # the last of the list, ended last: a list-order cut takes it first
         with open(self.w.path, "w", encoding="utf-8") as fh:
             json.dump({"jobs": jobs}, fh)
         told = sessions.claims(self.w.path)
         self.assertEqual(len(told), sessions.CLAIMS_MAX)
-        self.assertIn({"generation": gen, "id": "p3", "state": "done"}, told, "the newest end is told, whatever its place in the list")
+        self.assertIn({"generation": gen, "id": f"p{sessions.CLAIMS_MAX + 6}", "state": "done"}, told, "the newest end is told, whatever its place in the list")
         self.assertTrue(all("_updated" not in r for r in told))
 
     def test_f9_the_stream_is_read_outside_the_pools_lock(self):
