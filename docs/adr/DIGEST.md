@@ -114,6 +114,8 @@ its record disagree, the record wins. Look it up, never read it whole:
   each entry is at most 250 words (§2).
 - A 2026-10-09 — an exception keeps the past; new work follows the
   direction unless the exception admits it in words (§5 rule 12).
+- A 2026-11-09 — the budget is per bullet, at most 60 words; the
+  250-word entry total is gone (§2).
 - A 2026-10-18 — also checked at commit time (§5 rule 4).
 - Keywords: ADR, amendment, supersede, ratify, index, digest, rationale.
 
@@ -770,15 +772,17 @@ its record disagree, the record wins. Look it up, never read it whole:
 - Every change to the four files lands with an amendment of ADR-032 in the
   same PR; examples and validator move with the text (§5 rules 7–8).
 - A 2026-09-27 — HELLO and GOODBYE retired: a narrowing under rule 4.
-- A 2026-09-28 — SPEC Normative; CAPABILITIES, SPECIALTIES optional metadata.
+- A 2026-09-28 — SPEC is Normative; CAPABILITIES and SPECIALTIES are
+  optional metadata.
 - A 2026-10-04 — WAIVES (SPEC §7.5): a waiver role lets one PR head arm.
 - A 2026-10-15 — examples, validator renamed.
 - A 2026-10-15 — citations renamed.
 - A 2026-10-22 — SUPPLIER-REVIEW is the supplier's checks.
-- A 2026-11-09 — an exit-read watch rides out relay drops.
+- A 2026-11-09 — a watch read at its end rides out a relay drop it
+  recovers from; one read as it runs says down and back (SEMANTICS).
 - Keywords: GZCoord, GZCOORD/1, GZCOORD/2, protocol, SPEC, grammar,
-  freeze, compatibility, narrowing, conformance, validator,
-  extension, X-, protocol change, WAIVES.
+  freeze, frozen, compatibility, narrowing, conformance, validator,
+  extension, X-, protocol change, WAIVES, waiver.
 
 ### ADR-033 — GZCoord's transports: the human relay, the adapter contract, Telegram retired; the relay is central today (Accepted)
 
