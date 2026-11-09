@@ -424,10 +424,9 @@ def refuse_live(state: str) -> None:
 
 def plan() -> tuple[list[str], str, str]:
     """(launcher argv suffix, directory, the line that says it)."""
-    binding = identity.read_binding(identity.current_agent())
-    session = binding.get("session")
-    session = session if isinstance(session, str) and SESSION_RE.fullmatch(session) else ""
-    working_copy = str(binding.get("working_copy") or os.path.expanduser("~/projects"))
+    binding = identity.binding_record(identity.current_agent())
+    session = binding.session if binding.session and SESSION_RE.fullmatch(binding.session) else ""
+    working_copy = binding.working_copy or os.path.expanduser("~/projects")
     transcript = transcript_of(session)
     cwd = cwd_of(transcript) if transcript else None
     if transcript and cwd and own_dir(cwd):

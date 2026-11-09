@@ -14,11 +14,14 @@ Stdlib only; runnable as `python3 tests/test_context_reads.py`. **Each case name
   lint_is_wired              <- context_read_findings not called from lint.main; either admits-nothing finding dropped; an
                                 unreadable list read as empty
   vendored_is_judged      <- lint narrowed by ruff.toml's exclude, which the pre-commit hook is not (#516 F1)
+  invalid_escape_is_quiet <- the SyntaxWarning filter dropped from raw_findings: a scanned file's invalid escape printed
+                             on every lint run (tests/test_guard_hook_internals.py)
 
 The tree itself is judged by the suite's corpus lint (tests/run.py), not here.
 """
 from __future__ import annotations
 
+import ast
 import atexit
 import json
 import os
@@ -26,6 +29,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import warnings
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
@@ -141,6 +145,19 @@ def case_vendored_is_judged() -> None:
     assert "vendor/r.py:1:" in out, out
     _, out = run_lint(vendored({"readers": {"vendor/r.py": "a vendored tool"}}))
     assert "vendor/r.py" not in out, out
+
+
+def case_invalid_escape_is_quiet() -> None:
+    src = "x = '\\ '\nf = 'binding.json'\n"  # a source file holding the invalid escape backslash-space
+    with warnings.catch_warnings(record=True) as control:
+        warnings.simplefilter("always")
+        ast.parse(src)
+    assert any(issubclass(w.category, SyntaxWarning) for w in control), "the fixture must warn when parsed bare"
+    with warnings.catch_warnings(record=True) as got:
+        warnings.simplefilter("always")
+        found = cr.raw_findings("tools/x.py", src)
+    assert not got, [str(w.message) for w in got]
+    assert found == ["tools/x.py:2: names binding.json"], found
 
 
 def main() -> int:

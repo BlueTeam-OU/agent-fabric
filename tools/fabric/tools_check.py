@@ -58,7 +58,7 @@ def registry() -> dict:
 def bound_role() -> str | None:
     try:
         import identity
-        return identity.read_binding(identity.current_agent()).get("role")
+        return identity.binding_record(identity.current_agent()).role
     except (Exception, SystemExit):  # noqa: BLE001 - no binding (or another host's) is no role, not a failure
         return None
 
