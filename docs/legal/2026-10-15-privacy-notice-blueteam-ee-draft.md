@@ -1,6 +1,14 @@
 # Draft: privacy notice for blueteam.ee
 
 Drafted by `legal-expert-ee-eu`, 2026-10-15, for the owner to adopt.
+Revised 2026-11-09: sections 6, 8 and 10 take the Swiss wording of
+`legal-expert-ch`'s note
+`2026-11-09-fadp-swiss-marks-blueteam-ee-notice.md` (commit d0060b2e,
+on `develop-qzapp/legal-expert-ch/for/user/fadp-swiss-marks-blueteam-ee`),
+which replaces the two `[SWISS COUNSEL]` marks. The owner then dropped
+the two items that note calls optional (2026-11-09): the FDPIC sentence
+in section 9 and the bullet on a representative in Switzerland in
+section 10.
 The reasons are in `2026-10-15-privacy-notice-blueteam-ee.md`. Placing
 it on the site is brand-comms's work in the `blueteam.ee` repository,
 and the copy review is language-culture's.
@@ -17,9 +25,23 @@ notice in the same step.
 How to read this draft:
 
 - `[FACT: …]` is a fact the owner fills in before publishing.
-- `[SWISS COUNSEL]` marks text that a Swiss attorney should confirm.
 - Every article number in the text is GDPR, read from the official text
-  in this session; the opinion's section 3 lists each one.
+  on 2026-10-15; the opinion's section 3 lists each one.
+- The Swiss law in section 10 is `legal-expert-ch`'s reading of
+  the Federal Act on Data Protection and its ordinance, not the advice
+  of an attorney admitted in Switzerland; that note's section 6 names
+  what still needs one. Section 10 holds only while BlueTeam OÜ has no
+  seat or branch in Switzerland and processes no sensitive data, or
+  data at scale, as controller, and does no profiling.
+- Section 10's access bullet stays while section 8 keeps the GDPR's
+  "first copy is free" and "two more months", which section 8 does,
+  because they are correct under the GDPR.
+- On `legal-expert-ch`'s reading, the Swiss act requires neither the
+  FDPIC sentence nor the representative bullet in the notice (Art. 19),
+  and no representative for our processing (Art. 14); both stay out by
+  the owner's choice. If BlueTeam OÜ ever needs a representative in
+  Switzerland, its name and address must be published, and section 10
+  changes in the same step.
 
 ---
 
@@ -104,14 +126,17 @@ profile you.
 ### 6. Transfers outside the EEA
 
 Our providers keep your data in the EEA or in Switzerland
-[FACT: confirm that Smart Accounts hosts its data in the EEA; its
-privacy policy does not say]. Switzerland is covered by an adequacy
-decision of the European Commission. The one exception is OpenAI's
-copy for abuse monitoring in the United States (sections 4 and 5),
-covered by [FACT: the safeguard OpenAI's data processing agreement
-states — the EU-US Data Privacy Framework or Standard Contractual
-Clauses]. You can ask us for a copy of the safeguard at
-`info@blueteam.ee`. We do not transfer your data to any other country.
+[FACT: confirm in writing with Smart Accounts where it hosts its data;
+neither its privacy policy (English and Estonian) nor its terms of
+service says, read 2026-11-09; if outside the EEA, sections 4, 6 and 10
+change]. Under EU law, Switzerland is covered by an adequacy decision of
+the European Commission. The one exception is OpenAI's copy for abuse
+monitoring in the United States (sections 4 and 5), covered by
+[FACT: the safeguard OpenAI's data processing agreement states — the
+EU-US Data Privacy Framework or Standard Contractual Clauses]. You can
+ask us for a copy of the safeguard at `info@blueteam.ee`. We do not
+transfer your data to any other country. What Swiss law says of these
+transfers is in section 10.
 
 ### 7. Social media
 
@@ -136,7 +161,8 @@ Where we rely on consent, you can withdraw it at any time; that does not
 affect what we did before.
 
 We answer within one month. For complex or numerous requests we may take
-two more months, and if so we tell you within the first month.
+two more months, and if so we tell you within the first month. If you
+are in Switzerland, section 10 says what Swiss law adds to this.
 
 > **Your right to object.** Where we use your data on the basis of our
 > legitimate interests (section 2), you can object at any time, for
@@ -150,15 +176,21 @@ You can complain to the Estonian Data Protection Inspectorate
 (Andmekaitse Inspektsioon), Tatari 39, 10134 Tallinn, `info@aki.ee`,
 or to the supervisory authority where you live or work in the EEA.
 
-[SWISS COUNSEL] If you are in Switzerland, you can also contact the
-Federal Data Protection and Information Commissioner (FDPIC).
+### 10. If you are in Switzerland
 
-### 10. Swiss data protection law
+Where the Swiss Federal Act on Data Protection applies to our use of
+your data, the following also applies:
 
-[SWISS COUNSEL: whether BlueTeam OÜ needs a representative in
-Switzerland, and what the Federal Act on Data Protection adds to this
-notice. The current page's paragraph on this stays out until a Swiss
-attorney confirms it.]
+- Switzerland's Federal Council recognises Estonia, Finland, Iceland
+  and Ireland as countries with adequate data protection. For OpenAI's
+  copy in the United States, [FACT: either "OpenAI is certified under
+  the Swiss-U.S. Data Privacy Framework", or the safeguard OpenAI's
+  data processing agreement gives for Swiss data].
+- We answer a request for a copy of your data within 30 days, free of
+  charge. If we need longer, we tell you within those 30 days and say
+  when you will have it. We may ask you to share the cost, up to
+  CHF 300, only where answering takes disproportionate effort, and we
+  tell you the amount before we start.
 
 ### 11. Changes
 
