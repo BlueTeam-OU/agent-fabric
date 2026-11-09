@@ -77,11 +77,11 @@ def main() -> int:
     check("the relay is acknowledged once, after the journal row, the queued job and both ledger lines",
           r.returncode == 0 and w.acks == ["r1"]
           and [x[1] for x in snap.get("journal", [])] == [C.mid(1)]                       # journal row first (watch.py: journal before ack)
-          and bool(snap.get("jobs"))                                                      # intake: the REQUEST is on the job list (inbox.with_queued)
+          and C.mid(1) in json.dumps(snap.get("jobs"))                                    # intake: the REQUEST is on the job list (inbox.with_queued)
           and snap.get("ledger") == [(True, C.mid(1)), (False, C.mid(1))],                # pending and final: the page was shown (show_page)
           f"{r.stdout}{r.stderr}\n{w.acks}\n{snap}")
     check("... and what the session saw was printed whole, the queued line below the message",
-          "subject-" not in r.stdout and "queued as j1: do-1" in r.stdout and r.stdout.index("ACCEPTANCE") < r.stdout.index("queued as j1"),
+          "do it" in r.stdout and "queued as j1: do-1" in r.stdout and r.stdout.index("ACCEPTANCE") < r.stdout.index("queued as j1"),
           r.stdout)
     w.close()
 
@@ -247,8 +247,9 @@ def main() -> int:
     finally:
         if pr.poll() is None:
             pr.kill()
-    check("--until-delivery: a relay that drops and returns inside its bound is not told to the session (FINDING 1: SEMANTICS.md says the "
-          "watch says once when it drops and once when it returns)",
+    check("--until-delivery: a relay that drops and returns inside its bound is not told to the session (FINDING 1: two texts disagree, "
+          "SEMANTICS.md 'When the relay is down' says the watch says once when it drops and once when it returns, and inbox.py's "
+          "contract says --until-delivery prints no relay-down/back lines, which is what the code does)",
           "unreachable" in out and "back" in out, f"{out}{err}", expected_failure=True)
     w.close()
 

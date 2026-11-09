@@ -92,6 +92,8 @@ class World:
         """The account's journal rows, job list and ledger as they are now: read when the relay is acknowledged, they say
         what the acknowledgement waited for."""
         d = self.agent_dir()
+        if not d:     # no account directory yet: a relative path would read, and create, files in the runner's directory
+            return {"journal": [], "jobs": {}, "ledger": []}
         rows: list = []
         try:
             db = sqlite3.connect(os.path.join(d, "episodic.db"), timeout=5)
