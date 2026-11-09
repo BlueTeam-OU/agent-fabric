@@ -302,7 +302,10 @@ def main() -> int:
             bl.identity.current_agent, bl.identity.read_jobs = orig_identity
             for k in ("AGENT_FABRIC_STATE_DIR", "AGENT_FABRIC_SECRET_STORE"):
                 os.environ.pop(k, None)
-            os.environ["HOME"] = saved["HOME"]
+            if saved["HOME"] is None:     # a runner with no HOME: absent again, not the string "None"
+                os.environ.pop("HOME", None)
+            else:
+                os.environ["HOME"] = saved["HOME"]
 
     print(f"\n{'FAILED' if fails else 'all passed'}")
     return 1 if fails else 0
