@@ -1388,6 +1388,40 @@ def main() -> int:
               rc == 1 and "is armed" in err and "landed" in err and w.job(ja)["branch"] == a["branch"] and w.job(ja)["state"] == "paused",
               out + err + repr(w.job(ja)))
 
+        # F6: the sharing jobs are in --json too, as a list (empty when none).
+        w, ((ja, a), (jb, b)) = two_with_branches()
+        jc = w.add("gamma")
+        rc, out, err = w.switch(jc, cwd=b["worktree"])
+        assert rc == 0, out + err
+        w.sw("pause", jc, "later", cwd=w.job(jc)["worktree"])
+        gh_says(merged_heads=[a["branch"]], open_prs=[pr40])
+        rc, out, err = w.switch(ja, "--repoint", "--json", cwd=b["worktree"])
+        # Kills: dropping "sharing" from the JSON object.
+        check("--repoint --json names the jobs that also record the branch",
+              rc == 0 and json.loads(out).get("sharing") == [jc], out + err)
+        w, ((ja, a), (jb, b)) = two_with_branches()
+        gh_says(merged_heads=[a["branch"]], open_prs=[pr40])
+        rc, out, err = w.switch(ja, "--repoint", "--json", cwd=b["worktree"])
+        check("…and an empty list when none does (the positive control)", rc == 0 and json.loads(out).get("sharing") == [], out + err)
+
+        # F5: the job stopped being paused while the branch was prepared (after `choose`, before the lock).
+        w, ((ja, a), (jb, b)) = two_with_branches()
+        gh_says(merged_heads=[a["branch"]], open_prs=[pr40])
+        real_choose = sys.modules["fabric_jobs"].verbs.choose
+
+        def blocking(job, **kw):
+            made = real_choose(job, **kw)
+            w.sw("block", ja, "owner: a decision")
+            return made
+        sys.modules["fabric_jobs"].verbs.choose = blocking
+        try:
+            rc, out, err = w.switch(ja, "--repoint", cwd=b["worktree"])
+        finally:
+            sys.modules["fabric_jobs"].verbs.choose = real_choose
+        # Kills: deleting the `choice.repointed and job["state"] != "paused"` raise in switch_job's commit.
+        check("--repoint on a job that stopped being paused while the branch was prepared is refused under the lock; the record is as the block left it",
+              rc == 1 and "now, not paused" in err and w.job(ja)["state"] == "blocked" and w.job(ja)["branch"] == a["branch"], out + err + repr(w.job(ja)))
+
         # F2/F3: a job that is not paused.
         w, ((ja, a), (jb, b)) = two_with_branches()
         gh_says(merged_heads=[a["branch"]], open_prs=[pr40])
