@@ -286,6 +286,7 @@ def test_a_title_made_one_line_is_told_as_hygiene_leaves_it_and_not_for_a_refuse
     drain, claims_dir, out = ta.build(tmp, {"alpha": ta.claims("alpha", [
         {"class": "workflow", "topic": "kept", "title": "Springfield\nnotes", "body": "Fine.", "evidence": ["h1"]},
         {"class": "workflow", "topic": "handle", "title": "Fork with clone\nsomeuser/tool", "body": "Fine.", "evidence": ["h1"]},
+        {"class": "workflow", "topic": "runs", "title": "A\nB\r\n\nC", "body": "Fine.", "evidence": ["h1"]},
         {"class": "workflow", "topic": "refused", "title": "E\nF", "body": "Questo \u00e8 molto importante, sono qui.", "evidence": ["h1"]}])})
     os.makedirs(os.path.join(ta.working_copy(out), ".agent-fabric"), exist_ok=True)
     with open(os.path.join(ta.working_copy(out), ".agent-fabric", "hygiene.json"), "w", encoding="utf-8") as fh:
@@ -294,9 +295,9 @@ def test_a_title_made_one_line_is_told_as_hygiene_leaves_it_and_not_for_a_refuse
     proc = ta.run_assemble(drain, claims_dir, out)
     assert proc.returncode == 1 and "alpha/workflow:refused: reads as non-English" in proc.stderr, proc.stderr   # the refusal is the run's exit
     rows = report(out)["titles_one_lined"]
-    assert [r["slice"] for r in rows] == ["alpha/workflow:kept", "alpha/workflow:handle"], rows
-    assert [r["title"] for r in rows] == ["[redacted] notes", "Fork with clone [redacted]"], rows
-    assert all(r["breaks"] == 1 for r in rows), rows
+    assert [r["slice"] for r in rows] == ["alpha/workflow:kept", "alpha/workflow:handle", "alpha/workflow:runs"], rows
+    assert [r["title"] for r in rows] == ["[redacted] notes", "Fork with clone [redacted]", "A B C"], rows
+    assert [r["breaks"] for r in rows] == [1, 1, 2], rows      # runs of breaks, not breaks: "\r\n\n" is one
     assert "springfield" not in json.dumps(rows).lower() + proc.stderr.lower() and "someuser" not in json.dumps(rows) + proc.stderr, (rows, proc.stderr)
 
 
