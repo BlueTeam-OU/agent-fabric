@@ -207,6 +207,23 @@ def test_an_unbound_owner_of_a_claim_moved_by_merge_target_is_not_indexed(tmp: s
     assert not os.path.exists(ta.proj(out, "beta")), sorted(ta.tree(out))
 
 
+def test_an_unbound_owner_keeps_its_index_entry_for_a_shared_domain_slice(tmp: str) -> None:
+    """Re-review of #531, F3: the unbound beta is a co-owner of a project-class shared slice (left out of the indexes) and of a
+    shared domain slice, which the taxonomy never judges; the domain slice stays in beta's index. The control: with no
+    project-class claim beta is indexed as before."""
+    for with_project_claim in (True, False):
+        with tempfile.TemporaryDirectory() as sub:
+            items = [{"class": "domain", "topic": "field", "title": "F", "body": "Field.", "evidence": ["h1"], "shared_with": ["alpha"]}]
+            if with_project_claim:
+                items.append({"class": "workflow", "topic": "s", "title": "S", "body": "Shared.", "evidence": ["h1"], "shared_with": ["alpha"]})
+            drain, claims_dir, out = ta.build(sub, {"beta": ta.claims("beta", items)})
+            bind(out, "alpha")
+            proc = ta.run_assemble(drain, claims_dir, out)
+            assert proc.returncode == 0, proc.stderr
+            index = os.path.join(ta.proj(out, "beta"), "INDEX.md")
+            assert os.path.isfile(index) and "domain-field.md" in ta.read(index), (with_project_claim, sorted(ta.tree(out)))
+
+
 def anchored(anchor_list: list[str], **extra) -> dict:
     return {"class": "solution", "topic": "one", "title": "T", "body": "The body.", "evidence": ["h1"],
             "observed_at": "2026-11-01", "anchors": anchor_list, **extra}
@@ -425,6 +442,7 @@ def main() -> int:
         test_a_shared_slice_is_held_only_when_no_owner_is_bound,
         test_an_unbound_owner_with_a_directory_already_is_reindexed_from_shared_with,
         test_an_unbound_owner_of_a_claim_moved_by_merge_target_is_not_indexed,
+        test_an_unbound_owner_keeps_its_index_entry_for_a_shared_domain_slice,
         test_an_anchor_that_resolves_is_not_replaced_by_one_that_does_not,
         test_an_incoming_anchor_that_resolves_stands_and_so_does_one_that_cannot_be_judged,
         test_a_resolving_corpus_anchor_replaced_by_one_that_is_gone_is_reported_not_changed,
