@@ -1335,6 +1335,43 @@ def main() -> int:
         rc, out, err = w.switch(jb, cwd=b["worktree"])
         check("…and another job switches as before (the positive control)", rc == 0 and w.job(jb)["branch"] == b["branch"], out + err)
 
+        print("…--repoint: a paused job whose branch landed goes to the one open pull request (j641)")
+        pr40 = {"number": 40, "headRefName": mine, "isDraft": False}
+        w, ((ja, a), (jb, b)) = two_with_branches()
+        gh_says(merged_heads=[a["branch"]], open_prs=[pr40])
+        rc, out, err = w.switch(ja, "--repoint", cwd=b["worktree"])
+        rec = w.job(ja)
+        # Kills: dropping the flag test in _resume (the refusal case above then fails the other way: without the flag it would re-point);
+        # leaving the branch/worktree fields at the landed ones (the three field checks); not routing through the R4 row (state check).
+        check("--repoint with one open pull request takes the job: active, on the open pull request's branch, in its worktree",
+              rc == 0 and rec["state"] == "active" and rec["branch"] == mine and rec["worktree"] != a["worktree"]
+              and rec["working_copy"] == rec["worktree"] and os.path.isdir(rec["worktree"])
+              and subprocess.run(["git", "-C", rec["worktree"], "rev-parse", "--abbrev-ref", "HEAD"], capture_output=True, text=True).stdout.strip() == mine
+              and a["branch"] in out + err and "#40" in out, out + err + repr(rec))
+        rc, out, err = w.switch(jb, cwd=b["worktree"])
+        check("…the other paused job is untouched by it", w.job(jb)["branch"] == b["branch"] and w.job(jb)["state"] == "paused", out + err)
+
+        for label, prs, said in (("no open pull request", [], "0 open pull requests"),
+                                 ("two open pull requests", [pr40, {"number": 41, "headRefName": f"{me}/feat/other", "isDraft": False}],
+                                  "2 open pull requests")):
+            w, ((ja, a), (jb, b)) = two_with_branches()
+            gh_says(merged_heads=[a["branch"]], open_prs=prs)
+            rc, out, err = w.switch(ja, "--repoint", cwd=b["worktree"])
+            # Kills: taking prs[0] without counting (two), or the empty list as a fallback to a new branch (none).
+            check(f"--repoint with {label} is refused as without the flag, and says how many; the record is as it was",
+                  rc == 1 and "landed" in err and said in err and w.job(ja)["branch"] == a["branch"] and w.job(ja)["state"] == "paused"
+                  and w.job(ja)["worktree"] == a["worktree"], out + err + repr(w.job(ja)))
+
+        w, ((ja, a), (jb, b)) = two_with_branches()
+        gh_says(merged_heads=[a["branch"]], open_prs=[pr40])
+        rc, out, err = w.switch(ja, cwd=b["worktree"])
+        # Kills: making the re-point the default (no flag).
+        check("without --repoint the landed branch is refused as before, and the flag is offered",
+              rc == 1 and "landed" in err and "--repoint" in err and w.job(ja)["branch"] == a["branch"], out + err)
+        rc, out, err = w.switch(jb, "--repoint", cwd=b["worktree"])
+        check("--repoint on a paused job whose branch did not land changes nothing (the positive control)",
+              rc == 0 and w.job(jb)["branch"] == b["branch"], out + err + repr(w.job(jb)))
+
         w, ((ja, a), (jb, b)) = two_with_branches()
         gitc(w.repo, "worktree", "remove", "--force", b["worktree"])
         gitc(w.repo, "branch", "-q", "-D", b["branch"])

@@ -106,14 +106,34 @@ def _landed(wc: str, repo: str, branch: str) -> bool:
     return bool(vcs.gh.pr_list(["number"], repo=repo, state="merged", search=f"head:{branch}"))
 
 
-def _resume(wc: str, repo: str, job: dict, default: str) -> Choice:
+def _repoint(wc: str, repo: str, job: dict, landed: str, default: str) -> Choice:
+    """A paused job whose branch a pull request landed, taken to this agent's one open pull request in the repository (j641): the work
+    continued there. Never a pick among several, and never a pull request that cannot take more commits: the refusal says which."""
+    mine = _my_open_prs(repo)
+    if len(mine) != 1:
+        found = f"{len(mine)} open pull requests of this login in {repo}" + (f" ({', '.join('#' + str(p['number']) for p in mine)})" if mine else "")
+        raise Refused(f"{job['id']} records branch {landed}, which a pull request has landed, and --repoint needs exactly one open pull request "
+                      f"of this login to take it to: {found}; close {job['id']} (fabric-jobs done or drop), or switch to another job by its id")
+    number, head = int(mine[0]["number"]), str(mine[0]["headRefName"])
+    why = _addable(repo, number)
+    if why is not None:
+        raise Refused(f"{job['id']} records branch {landed}, which a pull request has landed, and the one open pull request cannot take it: {why}")
+    return Choice("open-pr", head, bring_up_to_date(wc, head, default), number, repo,
+                  f"re-pointed from {landed}, which a pull request landed, to your open pull request #{number}")
+
+
+def _resume(wc: str, repo: str, job: dict, default: str, repoint: bool) -> Choice:
     """The job's recorded branch, prepared. One that is on neither this clone nor origin, or that a pull request landed, is refused
-    and said: replacing it would hand the job a branch that is another's work (j511 got j513's)."""
+    and said: replacing it would hand the job a branch that is another's work (j511 got j513's). A paused job asked to `repoint` is the
+    one exception for a landed branch."""
     own = job["branch"]
     # Landed is asked first: a merged branch is usually deleted too, and "restore it" would be the wrong advice for it.
     if _landed(wc, repo, own):
+        if repoint and job["state"] == "paused":
+            return _repoint(wc, repo, job, own, default)
+        offer = (f"; --repoint takes a paused job to this login's one open pull request" if job["state"] == "paused" else "")
         raise Refused(f"{job['id']} records branch {own}, which a pull request has landed: it is not replaced; close {job['id']} "
-                      "(fabric-jobs done or drop), or switch to another job by its id")
+                      f"(fabric-jobs done or drop), or switch to another job by its id{offer}")
     if not (vcs.local_branch_exists(wc, own) or vcs.remote_tip(wc, own)):
         raise Refused(f"{job['id']} records branch {own}, which is on neither this clone nor origin: it is not replaced; restore the branch, "
                       f"or drop {job['id']} and add its work again")
@@ -135,7 +155,7 @@ def _checkout_of(job: dict) -> str:
                       f"name one with fabric-jobs project {job['id']} {job.get('project') or '<project>'} --working-copy DIR")
 
 
-def choose(job: dict, *, kind: str, needs_merged: bool) -> Choice:
+def choose(job: dict, *, kind: str, needs_merged: bool, repoint: bool = False) -> Choice:
     """The branch for `job`, prepared: fetched, checked out in a worktree and up to date. Refused when it cannot be one."""
     wc = _checkout_of(job)
     try:
@@ -154,7 +174,7 @@ def choose(job: dict, *, kind: str, needs_merged: bool) -> Choice:
             vcs.run(wc, "worktree", "add", "--no-track", "-b", supply, path, f"origin/{default}")
             return Choice("new", supply, path, note=f"the for/ branch the request names, new off origin/{default}")
         if own:
-            return _resume(wc, repo, job, default)
+            return _resume(wc, repo, job, default, repoint)
         mine = _my_open_prs(repo)
         if len(mine) > 1:
             raise Refused(f"{len(mine)} open pull requests of this login in {repo} ({', '.join('#' + str(p['number']) for p in mine)}): "

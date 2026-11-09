@@ -284,7 +284,7 @@ def switch_job(args) -> int:
         for said in swept:
             print(said, file=sys.stderr)
         raise Refused(held_refusal(hold, "no job started") + (f"; {old['id']} left ({settled})" if settled else ""))
-    choice = choose(nxt, kind=args.type, needs_merged=args.needs_merged)
+    choice = choose(nxt, kind=args.type, needs_merged=args.needs_merged, repoint=args.repoint)
     verdict_for = {}
     stands = standing()
 

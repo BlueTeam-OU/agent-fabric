@@ -21,7 +21,7 @@ behind bin/fabric-jobs.
     fabric-jobs show <id> [--json]
     fabric-jobs export                                           this login's whole list, every state, as one versioned JSON document on stdout
     fabric-jobs import                                           that document on stdin into this login's EMPTY list; ids kept
-    fabric-jobs switch [<id>] [--json] [--type feat|fix|docs|chore|test|refactor] [--needs-merged] [--keep-targets]
+    fabric-jobs switch [<id>] [--json] [--type feat|fix|docs|chore|test|refactor] [--needs-merged] [--repoint] [--keep-targets]
     fabric-jobs next [<id>] ...                                  alias of switch
     fabric-jobs pool-list [--role R] [--json]
     fabric-jobs pool-claim <pool id> [--topic T] [--working-copy W]
@@ -193,7 +193,9 @@ check that failed and changing nothing:
   3. Its branch is chosen before any work: the for/ branch a supply job records (`deliver_to`) when the job has no other branch of
      its own and no pull request from it merged (the open-pull-request refusal and --needs-merged below do not apply to it); else the job's own branch, whenever it records one: it is resumed there, its worktree made again from the branch when a sweep removed it, and a
      recorded branch that a pull request landed, or that is on neither this clone nor origin, is refused and said, never replaced by another job's
-     (j201); only a job with no branch is given one: this
+     (j201); except that `--repoint` takes a paused job whose branch a pull request landed to this login's one open pull request in the
+     repository (j641: the work continued there), when that can take more commits: the job records that branch and its worktree, in the
+     same R4 transition as any switch, and with none or several open the refusal stands and says how many; only a job with no branch is given one: this
      login's open pull request in the repository when it can take more commits (not armed or queued, fewer than 16 work
      commits), with the default branch merged into it first (locally, not pushed); else, with --needs-merged, the job is blocked
      on that pull request and not started; else a new branch <host>/<login>/<type>/<job id and title words> off the freshly
@@ -337,6 +339,7 @@ def main(argv: list[str] | None = None) -> int:
         n.add_argument("--json", action="store_true")
         n.add_argument("--type", choices=TYPES, default="feat", help="the kind of a new branch's name (default feat)")
         n.add_argument("--keep-targets", action="store_true", help="do not clear the left job's cargo target directories (a job resumed within the hour)")
+        n.add_argument("--repoint", action="store_true", help="a paused job whose recorded branch a pull request landed: take it to this agent's one open pull request in the repository (refused with none or several)")
         n.add_argument("--needs-merged", action="store_true", help="the job needs this agent's open pull request merged first: if it cannot take more commits, block on it")
     sub.add_parser("export", help="print this login's whole job list as one versioned JSON document")
     sub.add_parser("import", help="read that document on stdin into this login's empty list, keeping every id")
