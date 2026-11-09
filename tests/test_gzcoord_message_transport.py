@@ -243,6 +243,7 @@ def main() -> int:
                           text=True, stdin=subprocess.DEVNULL)
     try:
         time.sleep(3)
+        refused = w.calls     # fetches the fake answered 500: without one the drop was never exercised
         w.relay_down = False
         out, err = pr.communicate(timeout=60)
     finally:
@@ -251,8 +252,8 @@ def main() -> int:
     check("--until-delivery: a relay that drops and returns inside its bound is not told to the session (SEMANTICS.md 'When the relay is down'): "
           "no unreachable line and no back line, the watch ending at its deadline with the quiet line and nothing on stderr",
           pr.returncode == 0 and out.startswith("gzcoord inbox: quiet for ") and len(out.splitlines()) == 1
-          and not any("unreachable" in x or "back" in x for x in out.splitlines()) and "unreachable" not in err,
-          f"{pr.returncode}\n{out}{err}")
+          and not any("unreachable" in x or "back" in x for x in out.splitlines()) and err.strip() == "" and refused >= 1,
+          f"{pr.returncode}\nrefused={refused}\n{out}{err}")
     w.close()
 
     # ── send: what is posted, what is recorded, what a relay error leaves ───────────────────────────────────────────
