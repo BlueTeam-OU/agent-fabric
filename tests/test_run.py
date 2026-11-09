@@ -62,7 +62,8 @@ def tree(base: str, files: dict[str, str] | None = None, scripts: dict[str, str]
         shutil.copy(os.path.join(TESTS, name), os.path.join(base, "tests", name))
     if lease:
         os.makedirs(os.path.join(base, "tools", "fabric"))
-        shutil.copy(os.path.join(ROOT, "tools", "fabric", "lease.py"), os.path.join(base, "tools", "fabric", "lease.py"))
+        for name in ("lease.py", "process.py"):   # lease.py imports process.py
+            shutil.copy(os.path.join(ROOT, "tools", "fabric", name), os.path.join(base, "tools", "fabric", name))
     write(os.path.join(base, "tools/fabric/lint.py"), "pass\n")
     write(os.path.join(base, "tools/fabric/routing.py"), "pass\n")
     write(os.path.join(base, "runtime/provisioning/github-host-keys.fingerprints"), "")

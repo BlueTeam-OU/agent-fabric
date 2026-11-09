@@ -543,6 +543,8 @@ def main() -> int:
         check("the mask probe ran", rc == 0 and "SigBlk:" in out)
         check("the check's SigBlk is the caller's", rc == 0 and sig_blk(out) == before)
         check("the caller's mask is back after the spawn", sig_blk(open("/proc/self/status").read()) == before)
+        rc, out = tm.run_check(room4, [sys.executable, "-c", f"import os; print(os.getsid(0) != {os.getsid(0)})"], "60", "", HERE, lambda _pid: None)
+        check("the check leads a session of its own, which cleanup finds and ends", rc == 0 and out.strip() == "True")
         started_at = time.monotonic()
         rc, _ = tm.run_check(room4, ["sleep", "30"], "1", "", HERE, lambda _pid: None)
         check("a 1 s bound ends the check in about 1 s", rc == 124 and time.monotonic() - started_at < 5)

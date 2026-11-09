@@ -8,7 +8,7 @@ root; idempotent.
 
 CONTRACT
   installs  <prefix>/share/agent-fabric/cpu-lease-<hash>/{lease.py,cpu_shim.py,
-            host-load.json} (644, directories 755): a COPY of the repository's
+            process.py,host-load.json} (644, directories 755): a COPY of the repository's
             files, named by the hash of their contents, so the shim never runs a
             lease.py of one version beside a cpu_shim.py of another, and a
             policy change (policies/host-load.json) is applied by running this
@@ -38,7 +38,7 @@ import tempfile
 FABRIC = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 # (source in the repository, name in the installed directory)
 PAYLOAD = (("tools/fabric/lease.py", "lease.py"), ("tools/fabric/cpu_shim.py", "cpu_shim.py"),
-           ("policies/host-load.json", "host-load.json"))
+           ("tools/fabric/process.py", "process.py"), ("policies/host-load.json", "host-load.json"))
 TOOLS = ("cargo", "dotnet")
 SHARE = "share/agent-fabric"
 STEM = "cpu-lease-"

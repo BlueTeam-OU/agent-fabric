@@ -52,7 +52,7 @@ import time
 from dataclasses import dataclass
 
 from fabric_launcher import gateway_usage
-from fabric_launcher.base import BROKER_ENV, _load, die, identity, say
+from fabric_launcher.base import BROKER_ENV, _load, die, identity, process, say
 from fabric_launcher.routing import CLAUDE_ALIAS
 
 # The runtime_contract values and plan schema versions this launcher speaks
@@ -238,9 +238,9 @@ def start(binary: str, plan_path: str, log_path: str, version: dict, *, ready_ti
         key_w = -1
         argv = [binary, "serve", "--plan", plan_path, "--local-key-fd", str(key_r), "--ready-fd", str(ready_w),
                 "--control-fd", str(theirs.fileno())]
-        proc = subprocess.Popen(argv, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=log_fd,
-                                pass_fds=(key_r, ready_w, theirs.fileno()), start_new_session=True,
-                                preexec_fn=_parent_guard(launcher_pid))
+        proc = process.spawn_service(argv, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=log_fd,
+                                     pass_fds=(key_r, ready_w, theirs.fileno()),
+                                     preexec_fn=_parent_guard(launcher_pid))
     except OSError as exc:
         _close(key_w, key_r, ready_r, ready_w, log_fd)
         mine.close()

@@ -959,6 +959,38 @@ class RunProgram(unittest.TestCase):
             os.kill(pid, 9)
             self.fail("the grandchild outlived the timeout")
 
+    def test_an_interrupt_ends_the_children_the_program_started_too(self):
+        d = tempfile.mkdtemp(prefix="fleet-run-")
+        self.addCleanup(lambda: __import__("shutil").rmtree(d, ignore_errors=True))
+        pidfile = os.path.join(d, "pid")
+        real = subprocess.Popen.communicate
+
+        def interrupted(proc, *a, **kw):
+            for _ in range(200):
+                if os.path.exists(pidfile) and open(pidfile).read().strip():
+                    break
+                time.sleep(0.05)
+            raise KeyboardInterrupt
+
+        subprocess.Popen.communicate = interrupted
+        try:
+            with self.assertRaises(KeyboardInterrupt):
+                fleet.run_program(["sh", "-c", f"sleep 60 & echo $! > {pidfile}; wait"], timeout=30)
+        finally:
+            subprocess.Popen.communicate = real
+        with open(pidfile) as fh:
+            pid = int(fh.read())
+        for _ in range(100):
+            try:
+                with open(f"/proc/{pid}/stat") as fh:
+                    if fh.read().rsplit(")", 1)[1].split()[0] == "Z":
+                        return
+            except (FileNotFoundError, ProcessLookupError):
+                return
+            time.sleep(0.1)
+        os.kill(pid, 9)
+        self.fail("the grandchild outlived the interrupt")
+
     def test_a_finished_program_returns_its_streams_and_status(self):
         p = fleet.run_program(["sh", "-c", "echo out; echo err >&2; exit 3"], timeout=10)
         self.assertEqual((p.returncode, p.stdout, p.stderr), (3, "out\n", "err\n"))

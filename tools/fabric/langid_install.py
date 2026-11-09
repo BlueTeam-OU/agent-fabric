@@ -36,13 +36,15 @@ CONTRACT:
 """
 from __future__ import annotations
 
-import contextlib
 import json
 import os
 import shutil
-import signal
 import subprocess
 import sys
+
+# Run with -I (runtime/langid/install.sh), so the script's own directory is not on the path.
+sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+import process  # noqa: E402
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.realpath(__file__))))
 DETECTOR = os.path.join(ROOT, "runtime", "langid", "detector.json")
@@ -60,52 +62,17 @@ def say(line: str) -> None:
 def quiet(argv: list[str], timeout: int) -> bool:
     """True when argv ran and exited 0. A missing command, a timeout and a
     non-zero exit are all "no": the caller says one failure line for each.
-    The child leads its own process group so a timeout takes pip's compiler
-    children with it, not only pip."""
-    # An interrupt that lands inside Popen, or between it and the try below,
-    # would unwind past the only handle of a child that already leads a session
-    # of its own and that nothing else signals. So SIGINT is held from before
-    # the spawn until the try is entered, then delivered through its cleanup.
-    # Off the main thread, or with SIGINT ignored (a background job), there is
-    # no handler of ours to swap in.
-    interrupted = False
-
-    def note(signum: int, frame: object) -> None:
-        nonlocal interrupted
-        interrupted = True
-
-    previous: object = None
-    if signal.getsignal(signal.SIGINT) is not signal.SIG_IGN:
-        with contextlib.suppress(ValueError):
-            previous = signal.signal(signal.SIGINT, note)
+    The child leads its own session so a timeout takes pip's compiler
+    children with it, not only pip, and an interrupt (which reaches only the
+    foreground group, and the child left it) ends it too instead of stranding
+    a pip still building into the venv. process.group holds SIGINT across the
+    spawn. It does not sweep a group the child left behind once waited for."""
     try:
-        proc = subprocess.Popen(argv, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
-                                stderr=subprocess.DEVNULL, start_new_session=True)
-    except OSError:
-        if previous is not None:
-            signal.signal(signal.SIGINT, previous)
-            if interrupted:
-                raise KeyboardInterrupt from None
+        with process.group(argv, label="langid", stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                           stderr=subprocess.DEVNULL) as proc:
+            return proc.wait(timeout=timeout) == 0
+    except (OSError, subprocess.TimeoutExpired):
         return False
-    except BaseException:
-        if previous is not None:
-            signal.signal(signal.SIGINT, previous)
-        raise
-    try:
-        if previous is not None:
-            signal.signal(signal.SIGINT, previous)
-        if interrupted:
-            raise KeyboardInterrupt
-        return proc.wait(timeout=timeout) == 0
-    except BaseException as exc:
-        # An interrupt reaches only the foreground group, and the child left it:
-        # without this kill, Ctrl-C would strand a pip still building into the venv.
-        with contextlib.suppress(OSError):
-            os.killpg(proc.pid, signal.SIGKILL)
-        proc.wait()
-        if isinstance(exc, subprocess.TimeoutExpired):
-            return False
-        raise
 
 
 def has_detector(venv_python: str) -> bool:

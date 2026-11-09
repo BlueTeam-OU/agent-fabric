@@ -173,10 +173,10 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import gh  # noqa: E402
 import ledger  # noqa: E402
+import process  # noqa: E402
 import review_brief  # noqa: E402
 import review_gateway  # noqa: E402
 import review_lines  # noqa: E402
-from provisioning import bounded  # noqa: E402
 import routing  # noqa: E402
 from github.review_status.base import Die  # noqa: E402
 from github.review_status.config import read_config  # noqa: E402
@@ -756,16 +756,12 @@ def prove_sandbox(binary: str, workdir: str, env: dict[str, str]) -> None:
     try:
         for label, command, wanted in probes:
             argv = [binary, "sandbox", "-P", PROFILE, "-C", workdir, "--", *command]
-            p = subprocess.Popen(argv, env=env, cwd=workdir, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                                 start_new_session=True)
             try:
-                try:
+                with process.group(argv, label="fabric-review", sweep=True, env=env, cwd=workdir, stdin=subprocess.DEVNULL,
+                                   stdout=subprocess.PIPE, stderr=subprocess.PIPE) as p:
                     _, err = p.communicate(timeout=SANDBOX_PROOF_TIMEOUT_S)
-                except subprocess.TimeoutExpired:
-                    raise FailedReview(f"the read-only sandbox did not {label} within {SANDBOX_PROOF_TIMEOUT_S} s; no wider one is used") from None
-            finally:
-                if p.poll() is None or _group_alive(p.pid):
-                    _end_group(p)
+            except subprocess.TimeoutExpired:
+                raise FailedReview(f"the read-only sandbox did not {label} within {SANDBOX_PROOF_TIMEOUT_S} s; no wider one is used") from None
             if p.returncode != wanted:
                 why = re.sub(r"[\x00-\x1f\x7f-\x9f]", " ", err.decode("utf-8", "replace").replace(env.get(ENV_KEY, "\0"), "[key]"))[-200:].strip()
                 if p.returncode == WRITTEN_PROBE_EXIT and label == "refuse a write":
@@ -826,16 +822,12 @@ def _run_codex(binary: str, model: str, workdir: str, scratch: str, env: dict[st
             "--output-schema", SCHEMA_PATH, "--output-last-message", answer, "--color", "never", "-"]
     # stdout is the JSONL event stream and nothing else; Codex's own log lines go to stderr, kept apart.
     with open(events, "wb") as evf, open(log, "wb") as logf:
-        p = subprocess.Popen(argv, cwd=workdir, env=env, stdin=subprocess.PIPE, stdout=evf, stderr=logf,
-                             start_new_session=True)
         try:
-            try:
+            with process.group(argv, label="fabric-review", sweep=True, cwd=workdir, env=env, stdin=subprocess.PIPE, stdout=evf,
+                               stderr=logf) as p:
                 p.communicate(prompt.encode("utf-8"), timeout=timeout_s)
-            except subprocess.TimeoutExpired:
-                raise RunTimeout(f"codex did not answer within {timeout_s / 60:g} minutes") from None
-        finally:
-            if p.poll() is None or _group_alive(p.pid):
-                _end_group(p)
+        except subprocess.TimeoutExpired:
+            raise RunTimeout(f"codex did not answer within {timeout_s / 60:g} minutes") from None
     run = read_events(events)
     if run.failed and (gone := unavailable(run.failed)):
         raise gone
@@ -961,30 +953,6 @@ def judge_run(run: CodexRun) -> None:
                            "the code; an answer from the brief alone is not a review")
     if run.last_message is None:
         raise FailedReview("Codex's run ended without an agent message")
-
-
-def _group_alive(pgid: int) -> bool:
-    try:
-        os.killpg(pgid, 0)
-        return True
-    except (ProcessLookupError, PermissionError):
-        return False
-
-
-def _end_group(p: subprocess.Popen) -> None:
-    """The child's descendants by parentage (stop_tree: TERM, then KILL for the TERM-deaf), then its group: a helper
-    that made a session of its own is in no group of ours, and only the parentage finds it, so the walk comes before
-    any signal (a group TERM first would kill the parent and orphan the helper out of the walk). The group KILL takes
-    a member orphaned to init, which the walk cannot see."""
-    helpers = bounded.descendants(p.pid)   # noted first: a signal inside stop_tree's grace skips its own KILL
-    try:
-        bounded.stop_tree(p, "fabric-review")
-    finally:
-        for pid in helpers:
-            with contextlib.suppress(ProcessLookupError, PermissionError):
-                os.kill(pid, signal.SIGKILL)
-        with contextlib.suppress(ProcessLookupError):
-            os.killpg(p.pid, signal.SIGKILL)
 
 
 def _tail(path: str, limit: int = 1500) -> str:

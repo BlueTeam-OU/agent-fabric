@@ -141,9 +141,9 @@ import urllib.request
 import zlib
 from typing import Callable
 
+import process
 import tools_check
 import workingcopy
-from provisioning import bounded
 
 TOOL_NAME = re.compile(r"[a-z0-9][a-z0-9._-]{0,63}")
 SHA256 = re.compile(r"[0-9a-f]{64}")
@@ -720,42 +720,14 @@ def program_env(home: str, path: list[str], tmpdir: str | None = None) -> dict[s
 def run_program(argv: list[str], env: dict[str, str], cwd: str, timeout: float) -> tuple[int | None, str]:
     """(exit status, last line of its output); status None when the bound ran out. The program is a
     group of its own, and an end of the run, timeout or SIGTERM to this process, ends the group with
-    it (TERM, then KILL after a grace): a cargo build left running would outlive the control agent's bound."""
-    with subprocess.Popen(argv, env=env, cwd=cwd, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
-                          stderr=subprocess.STDOUT, start_new_session=True) as proc:
-        def stop() -> None:
-            # stop_tree walks the program's descendants before it signals anything, so a helper that left the
-            # group (setsid) is ended too; a group TERM first would kill the parent and orphan the helper out of
-            # the walk. The group KILL after it takes what the walk cannot see, a member orphaned to init. KILL
-            # always follows, also when a second signal interrupts the grace wait: a build that ignores TERM must
-            # not outlive the run. The group id cannot be reused while a member is left, and ESRCH says none is.
-            # The descendants are noted first: an interrupt inside stop_tree's grace skips its own KILL, and a
-            # helper in a session of its own is out of the group KILL's reach.
-            helpers = bounded.descendants(proc.pid)
-            try:
-                bounded.stop_tree(proc, "tools-install")
-            finally:
-                for pid in helpers:
-                    try:
-                        os.kill(pid, signal.SIGKILL)
-                    except (ProcessLookupError, PermissionError):
-                        pass
-                try:
-                    os.killpg(proc.pid, signal.SIGKILL)
-                except ProcessLookupError:
-                    pass
-                proc.wait()
-        try:
-            try:
-                out, _ = proc.communicate(timeout=timeout)
-            except subprocess.TimeoutExpired:
-                return None, ""
-        finally:
-            # Any way out with the program unreaped (the bound, SIGTERM, an error) ends its group; one
-            # `finally` rather than an except per way. A first SIGTERM can still land in the few bytecodes
-            # before stop() opens its own try; Python runs handlers at a call's start and this module does not mask it.
-            if proc.returncode is None:
-                stop()
+    it (process.end_group: TERM, then KILL after a grace): a cargo build left running would outlive the
+    control agent's bound."""
+    try:
+        with process.group(argv, label="tools-install", env=env, cwd=cwd, stdin=subprocess.DEVNULL,
+                           stdout=subprocess.PIPE, stderr=subprocess.STDOUT) as proc:
+            out, _ = proc.communicate(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        return None, ""
     lines = [ln.strip() for ln in out.decode("utf-8", "replace").splitlines() if ln.strip()]
     return proc.returncode, (lines[-1][:200] if lines else "")
 

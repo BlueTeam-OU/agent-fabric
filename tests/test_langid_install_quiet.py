@@ -74,6 +74,13 @@ class Quiet(unittest.TestCase):
         self.assertFalse(langid_install.quiet(["false"], 10))
         self.assertFalse(langid_install.quiet([os.path.join(self.sandbox, "absent")], 10))
 
+    def test_a_command_that_exited_leaves_its_group_as_it_ended(self) -> None:
+        # Not swept: this site never ended a waited-for command's group, and moving it to process.group must not add that.
+        self.assertTrue(langid_install.quiet(["sh", "-c", f"sleep 300 & echo $! > {self.pidfile}"], 10))
+        pid = self.grandchild()
+        time.sleep(0.5)   # a SIGKILL sent by quiet is acted on by the kernel a moment later; alive() before that proves nothing
+        self.assertTrue(alive(pid))
+
     def test_timeout_is_no_and_kills_the_group(self) -> None:
         started = time.monotonic()
         self.assertFalse(langid_install.quiet(self.hang, 1))
@@ -139,7 +146,7 @@ class Quiet(unittest.TestCase):
 
         previous = real_signal(signal.SIGINT, signal.SIG_IGN)
         self.addCleanup(real_signal, signal.SIGINT, previous)
-        with mock.patch.object(langid_install.signal, "signal", signal_then_sigint):
+        with mock.patch.object(signal, "signal", signal_then_sigint):
             self.assertTrue(langid_install.quiet(["true"], 10))
         self.assertEqual(installed, [], "the hold was installed over an ignored SIGINT")
         self.assertIs(signal.getsignal(signal.SIGINT), signal.SIG_IGN)
