@@ -450,8 +450,8 @@ class Run:
     # The anchors a claim brought that did not resolve, kept out for the corpus's that does (anchorkeep): {slice, heading,
     # dropped, kept, agent, host, memory}, the author named so the memory can be repaired.
     anchors_kept: list[dict[str, Any]] = field(default_factory=list)
-    # The claim titles one_line changed: {slice, old, new}. A decoded break is text the title stood for (a YAML `\n` the author
-    # meant as the two characters), so the change is told, not silent.
+    # The claim titles one_line changed: {slice, breaks, title}. A decoded break is text the title stood for (a YAML `\n` the author
+    # meant as the two characters), so the change is told, not silent; the title is the one written, never the text before hygiene.
     titles_one_lined: list[dict[str, str]] = field(default_factory=list)
     # The evidence a held claim stands on, and when each memory was written
     # (the observation's created_at_epoch, seconds): the store's mark stays

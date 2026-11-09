@@ -9,7 +9,7 @@ import sys
 from typing import Any
 import anchors
 import memory_horizons
-from assembler.core import layout, workingcopy, DEFAULT_SLICE_BUDGET_TOKENS, BANNED_PATTERNS, PROJECT_PATTERNS, patterns_for, store_error, slugify, origin_of_row, REDACTED, hygiene_check, hygiene_substitute, role_id_error, bound_role_ids, one_line, Run
+from assembler.core import layout, workingcopy, DEFAULT_SLICE_BUDGET_TOKENS, BANNED_PATTERNS, PROJECT_PATTERNS, patterns_for, store_error, slugify, origin_of_row, REDACTED, hygiene_check, hygiene_substitute, role_id_error, bound_role_ids, one_line, LINE_BREAK_RE, Run
 from assembler.slices import cited_outside_code
 from assembler.bundle import open_bundle
 
@@ -293,11 +293,13 @@ def bucket_claims(run: Run) -> None:
             owners.discard(role)
             before = claim.pop("_title_before_one_line", None)
             if before is not None:
-                # After screen_hygiene: a claim it rejected is told of nowhere, and the old title is shown as the hygiene lists leave
-                # it, since the report is committed. Named as the claim is filed, so holding that slice drops the entry.
-                old, _ = hygiene_substitute(before, "", patterns_for(claim["class"]))
+                # After screen_hygiene: a claim it rejected is told of nowhere. Named as the claim is filed, so holding that slice
+                # drops the entry. The old title is not copied: the report is committed, and a pattern that needs the space
+                # one_line made (a lookbehind such as "gh repo clone ") does not match across the break, so the old text could
+                # carry what hygiene replaced in the new one. The breaks are counted; the title shown is the one hygiene screened.
+                breaks = len(LINE_BREAK_RE.findall(before))
                 run.titles_one_lined.append({"slice": f"{'shared' if owners else role}/{claim['class']}:{claim['topic']}",
-                                             "old": old, "new": claim["title"]})
+                                             "breaks": breaks, "title": claim["title"]})
             if owners:
                 owners.add(role)
                 run.shared[key].append(claim)

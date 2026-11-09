@@ -445,7 +445,7 @@ def report(run: Run) -> int:
         print("\nTITLES MADE ONE LINE (a line break in the title became a space; fix the memory's description if the break was an escape "
               "meant literally):", file=sys.stderr)
         for row in lined:
-            print(f"  {row['slice']}: {row['old']!r} -> {row['new']!r}", file=sys.stderr)
+            print(f"  {row['slice']}: {row['breaks']} break(s) in {row['title']!r}", file=sys.stderr)
     if run.superseded_harvests:
         print("\nSUPERSEDED HARVESTS (a memory whose text is a section a correction replaced, in this run or an earlier "
               "one; not written — update or delete the memory):", file=sys.stderr)

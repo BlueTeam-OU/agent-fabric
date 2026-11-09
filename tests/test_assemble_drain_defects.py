@@ -280,17 +280,24 @@ def test_a_title_made_one_line_is_not_told_for_a_held_slice(tmp: str) -> None:
 
 
 def test_a_title_made_one_line_is_told_as_hygiene_leaves_it_and_not_for_a_refused_claim(tmp: str) -> None:
-    """Round 7: the report is committed, so the old title shows what the hygiene lists leave of it (the demo project's list
-    bans a city name), and a claim hygiene refuses gets no entry for a slice that received nothing."""
+    """Round 7-8: the report is committed, so it carries the title hygiene screened and never the text before the break
+    was made a space (a lookbehind that needs the space does not match across the break), and a claim hygiene refuses
+    gets no entry for a slice that received nothing."""
     drain, claims_dir, out = ta.build(tmp, {"alpha": ta.claims("alpha", [
         {"class": "workflow", "topic": "kept", "title": "Springfield\nnotes", "body": "Fine.", "evidence": ["h1"]},
+        {"class": "workflow", "topic": "handle", "title": "Fork with clone\nsomeuser/tool", "body": "Fine.", "evidence": ["h1"]},
         {"class": "workflow", "topic": "refused", "title": "E\nF", "body": "Questo \u00e8 molto importante, sono qui.", "evidence": ["h1"]}])})
+    os.makedirs(os.path.join(ta.working_copy(out), ".agent-fabric"), exist_ok=True)
+    with open(os.path.join(ta.working_copy(out), ".agent-fabric", "hygiene.json"), "w", encoding="utf-8") as fh:
+        json.dump({"patterns": [{"pattern": "\\bspringfield\\b", "flags": "i", "label": "city name"},
+                                {"pattern": "(?<=clone )\\S+", "label": "handle"}]}, fh)
     proc = ta.run_assemble(drain, claims_dir, out)
     assert proc.returncode == 1 and "alpha/workflow:refused: reads as non-English" in proc.stderr, proc.stderr   # the refusal is the run's exit
     rows = report(out)["titles_one_lined"]
-    assert [r["slice"] for r in rows] == ["alpha/workflow:kept"], rows
-    assert "springfield" not in json.dumps(rows).lower() and "springfield" not in proc.stderr.lower(), (rows, proc.stderr)
-    assert rows[0]["old"] == "[redacted]\nnotes" and rows[0]["new"] == "[redacted] notes", rows
+    assert [r["slice"] for r in rows] == ["alpha/workflow:kept", "alpha/workflow:handle"], rows
+    assert [r["title"] for r in rows] == ["[redacted] notes", "Fork with clone [redacted]"], rows
+    assert all(r["breaks"] == 1 for r in rows), rows
+    assert "springfield" not in json.dumps(rows).lower() + proc.stderr.lower() and "someuser" not in json.dumps(rows) + proc.stderr, (rows, proc.stderr)
 
 
 def test_a_break_in_a_title_does_not_split_the_heading_or_cut_the_index_entry(tmp: str) -> None:
@@ -306,8 +313,8 @@ def test_a_break_in_a_title_does_not_split_the_heading_or_cut_the_index_entry(tm
     assert "\n## Compose the sections of a message\n" in text, text
     assert "\n## Double  space stays\n" in ta.read(ta.dom(out, "alpha", "domain", "two.md")), "only breaks are touched"
     assert "description: Compose the sections of a message\n" in text, text
-    assert report(out)["titles_one_lined"] == [{"slice": "alpha/domain:one", "old": "Compose the sections\nof a message",
-                                                "new": "Compose the sections of a message"}], report(out)["titles_one_lined"]
+    assert report(out)["titles_one_lined"] == [{"slice": "alpha/domain:one", "breaks": 1,
+                                                "title": "Compose the sections of a message"}], report(out)["titles_one_lined"]
     ta.lint_inputs(out)
     os.makedirs(os.path.join(out, "identities", "roles"), exist_ok=True)
     with open(os.path.join(out, "identities", "roles", "catalog.json"), "w", encoding="utf-8") as fh:
