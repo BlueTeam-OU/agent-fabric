@@ -274,6 +274,18 @@ def main() -> int:
             finally:
                 relay.close()
 
+        # ── through the sender: a post the relay deduplicated is said, a fresh one is not ────────────────────────────
+        dup = P.Stub(lambda _h, _m, _p, _b: (200, json.dumps({"seq": 42, "id": "relay-id", "deduplicated": True})))
+        fresh = P.Relay()
+        try:
+            said_dup, said_fresh = P.send_with(dup.url, P.VALID), P.send_with(fresh.url, P.VALID)
+            check("send: the line for a post the relay deduplicated differs from a fresh post's by the relay's word for it",
+                  said_dup.code == 0 and said_fresh.code == 0 and said_dup.out.startswith(said_fresh.out.rstrip("\n"))
+                  and len(said_dup.out) > len(said_fresh.out), f"{said_dup.out!r}\n{said_fresh.out!r}")
+        finally:
+            dup.close()
+            fresh.close()
+
         # ── the shown ledger's decision ──────────────────────────────────────────────────────────────────────────
         lg = L.Ledger(os.path.join(scratch, "shown.jsonl"), iso_now=lambda: NOW)
         rec = {"id": "r1", "seq": 1, "content": text("D-1")}
