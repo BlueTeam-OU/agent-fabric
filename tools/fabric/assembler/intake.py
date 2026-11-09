@@ -372,7 +372,8 @@ def hold_unbound_roles(run: Run) -> None:
         for (klass, topic) in sorted(k for k in run.per_role[role] if k[0] in projectwide):
             hold(f"{role}/{klass}:{topic}", role, klass, topic, run.per_role[role].pop((klass, topic)))
             run.unbound_held_roles.add(role)
-    # A shared slice is listed by every owner's index: held when no owner is bound, else written without the unbound owners.
+    # A shared slice is listed by every bound owner's index: held when no owner is bound, else written with every owner in its
+    # shared_with and indexed for the bound ones only.
     for (klass, topic) in sorted(k for k in run.shared if k[0] in projectwide):
         owners = run.shared_owners[(klass, topic)]
         unbound = sorted(owners - bound)
@@ -387,7 +388,7 @@ def hold_unbound_roles(run: Run) -> None:
             # the slice is the bound owners' knowledge and is written, its shared_with as recorded (a corpus fact, not a
             # binding question); only the unbound owners are left out of the indexes.
             run.unbound_held_roles.update(c["_role"] for c in run.shared[(klass, topic)] if c.get("_role") in unbound)
-            run.shared_unindexed[(klass, topic)] = set(unbound)
+            run.unindexed_owners.update(unbound)
 
 
 def load_decisions(run: Run) -> None:
