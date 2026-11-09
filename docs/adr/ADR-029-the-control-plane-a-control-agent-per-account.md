@@ -77,7 +77,7 @@ sudo are in the loop.
 | `tools` | the account's tools report: every tool the bound role's projects declare, found or missing, with the report's age; written by the daemon from `fabric-tools --all --json` at start, hourly and after a rebind |
 | `pool-list` | a role's open pool of jobs, a public op (ADR-037) |
 | `pool-claim` | a claim of one pool job for the asker's own list, a public op, checked against the role the asker's own daemon reports (ADR-037) |
-| `job-state` | one job's state, by its id or by the request it was taken from, to that request's sender only; a public op (ADR-037 rule 8) |
+| `job-state` | one job's state, open or closed, by its id or by the request it was taken from, to that request's sender only, and `absent` to anyone; a public op (ADR-037 rule 8) |
 | `upgrade` | *action*: the account to the pinned Claude Code or to the merged fabric (ADR-009) |
 | `secrets-sync` | *action*: the account's store projected where its tools read it (ADR-038) |
 | `jobs-add` | *action*: the owner's job on the account's list (rule 13, ADR-037) |
@@ -177,16 +177,25 @@ claimant (rule 4).
    placed account's address; its `ts + ttl_s` is not past; and its id is
    not among the last 256 seen. An op is public only if its answer is
    nothing a relay-token holder could not already obtain by writing an
-   operator's address on an unsigned read. `pool-claim` is the one public
+   operator's address on an unsigned read, or by reading the relay's
+   channels, which every token holder reads whole (§2, ADR-033 §6).
+   `pool-claim` is the one public
    op that writes: it sets one pool job's claimant to the asker, checked
    against the role the asker's own daemon reports, and adds, removes or
    reorders no job; a forged claim takes a job off the pool for a role's
    holder. `pool-list` shows unclaimed jobs only, so the claim and its
    claimant are seen in the pool holder's `pool.json`. `job-state`
-   answers one job's state, and only to its request's `source.from`: a
-   state `jobs` shows an operator's address, or shows by the row's
-   absence, so it passes the test above; it never carries a title, a
-   list or another job (A 2026-11-09).
+   answers one job's state, open or closed, only to its request's
+   `source.from`, and `absent` to any asker; it never carries a title, a
+   list or another job. It says more than `jobs` does in two ways, and
+   each passes the test above. A closed job's state tells `done` from
+   `dropped`, where `jobs` shows both as the row's absence: the REPLY
+   that closes a request's job, its delivery or its reason for the drop
+   (ADR-037 rule 14), is on the one GZCoord channel. And refused against
+   `absent` tells any asker whether a job exists: ids are minted in
+   order, so `jobs` shows that every id below its highest has been
+   used, and whether a request became a job is in that REPLY
+   (A 2026-11-09).
 5. An action (`sign.py` `ACTION_OPS`) is answered only when it carries
    an Ed25519 signature over its canonical form by the key the operator's
    host commits as `operator_key`; it lives at most 600 s, is refused
@@ -487,4 +496,4 @@ The body above reads current; each change's full note is in [history/ADR-029-ame
 | 2026-10-30 | The fleet hold is set through the control plane | §2 table: `hold`, `unhold`; §5 rule 13: both may name `all`; built in #431 (ADR-037 rule 13) |
 | 2026-10-31 | A tool pinned for some roles is installed only on an account bound to one | §2 table: `tools-install`, skipped for another bound role (j463) |
 | 2026-11-08 | The parity evidence carries the relay-outage drill's shown and acks | §2 table: `interweave-evidence` takes four sections; §5 rule 6: nor a hash of the text (#509) |
-| 2026-11-09 | job-state, a fourth public op | §2 table: `job-state`; §5 rule 3: its one `job` or `request` argument; rule 4: public, answered to the job's request sender only, since its answer is a state `jobs` already shows an operator's address; built in #527 (ADR-037 rule 8) |
+| 2026-11-09 | job-state, a fourth public op | §2 table: `job-state`; §5 rule 3: its one `job` or `request` argument; rule 4: public, its state answered to the job's request sender only and `absent` to anyone, the test reading the relay's channels as a source a token holder already has, since done from dropped and a job's existence are on them; built in #527 (ADR-037 rule 8) |
