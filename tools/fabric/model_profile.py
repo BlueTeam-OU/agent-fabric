@@ -396,7 +396,7 @@ def main(argv: list[str] | None = None) -> int:
     args = ap.parse_args(argv)
 
     agent = identity.current_agent()
-    ctx = {"agent": agent, "role": identity.read_binding(agent).get("role")}
+    ctx = {"agent": agent, "role": identity.binding_record(agent).role}
     path = routing.local_override_path(agent)
     try:
         return {"list": cmd_list, "set": cmd_set, "unset": cmd_unset,

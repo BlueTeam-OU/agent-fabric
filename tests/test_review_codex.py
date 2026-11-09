@@ -864,6 +864,12 @@ def main() -> int:
                     return f.read().rsplit(b")", 1)[1].split()[0] != b"Z"
             except (FileNotFoundError, ProcessLookupError):
                 return False
+        def reap(pid):
+            # Cleanup of a failed check: the member may exit between running() and the kill, and that is the outcome wanted.
+            try:
+                os.kill(pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
         deadline = time.time() + 10
         alive = list(pids)
         while alive and time.time() < deadline:
@@ -881,7 +887,7 @@ def main() -> int:
             time.sleep(0.05)
         check("…the member a probe left behind is gone", not running(left), left)
         if running(left):
-            os.kill(left, 9)
+            reap(left)
 
         review_codex.SANDBOX_PROOF_TIMEOUT_S = 1
         try:
@@ -897,7 +903,7 @@ def main() -> int:
             if alive:
                 time.sleep(0.05)
         for pid in alive:
-            os.kill(pid, signal.SIGKILL)
+            reap(pid)
         check("…and a helper that moved into a session of its own is ended with the probe", not alive, alive)
 
         print("the account id and the effort")

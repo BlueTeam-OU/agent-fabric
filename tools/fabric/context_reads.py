@@ -28,6 +28,7 @@ from __future__ import annotations
 import ast
 import json
 import re
+import warnings
 
 POLICY = "policies/context-reads.json"
 HOMES = frozenset({"runtime/identity.py", "tools/fabric/workingcopy.py"})
@@ -66,7 +67,10 @@ def raw_findings(rel: str, text: str) -> list[str]:
     if not judged_path(rel):
         return []
     try:
-        tree = ast.parse(text, filename=rel)
+        with warnings.catch_warnings():
+            # A scanned file's own invalid escape is its own lint's to report, not noise in this one's output.
+            warnings.simplefilter("ignore", SyntaxWarning)
+            tree = ast.parse(text, filename=rel)
     except SyntaxError:
         return []
     docs = _docstrings(tree)

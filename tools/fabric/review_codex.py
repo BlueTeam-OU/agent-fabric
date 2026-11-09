@@ -352,7 +352,7 @@ class Route:
         try:
             identity = _identity()
             self.agent = identity.current_agent()
-            self.role = identity.read_binding(self.agent).get("role")
+            self.role = identity.binding_record(self.agent).role
             # The local layer's path from the identity beside this file, never another tree's: routing's own
             # local_override_path loads runtime/identity.py from the routing root, which a test may point elsewhere.
             self.local = routing.load_local(path=os.path.join(identity.agent_state_dir(self.agent),
