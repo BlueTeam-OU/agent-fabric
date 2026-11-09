@@ -86,8 +86,9 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
 
 from assembler.core import Run, layout  # noqa: E402
-from assembler.intake import parse_args, open_layout, read_claims, screen_hygiene, bucket_claims, hold_back, load_decisions  # noqa: E402
+from assembler.intake import parse_args, open_layout, read_claims, screen_hygiene, bucket_claims, hold_back, hold_unbound_roles, load_decisions  # noqa: E402
 from assembler.targets import plan_classes, held_files, resolve_all_targets, point_disk  # noqa: E402
+from assembler.anchorkeep import keep_resolving_anchors  # noqa: E402
 from assembler.collisions import check_collisions  # noqa: E402
 from assembler.shapes import check_correction_shapes, drop_replayed, verify_replacements  # noqa: E402
 from assembler.writer import write_shared, write_role  # noqa: E402
@@ -103,12 +104,14 @@ def main() -> int:
     screen_hygiene(run)
     bucket_claims(run)
     hold_back(run)
+    hold_unbound_roles(run)
     load_decisions(run)
     plan_classes(run)
     held_files(run)
     run.bound_roles = bound_roles_with_domain_slices(run)
     if resolve_all_targets(run):
         return 1
+    keep_resolving_anchors(run)
     drop_replayed(run)
     if check_correction_shapes(run):
         return 1
@@ -124,8 +127,11 @@ def main() -> int:
     # including one whose claims all live in shared slices, which would
     # otherwise end up with knowledge and no way to find it — and so does
     # every role the project binds whose domain holds slices.
-    run.owning_roles = sorted(set(run.per_role) | set(run.shared_index) | set(run.all_claims)
-                              | run.bound_roles)
+    # An unbound role whose every slice here was held owns nothing to write: indexing it would give the project the corpus
+    # the hold refused (a role with a domain claim, a shared slice or a bound role still has its index).
+    emptied = {r for r in run.unbound_held_roles if not run.per_role.get(r) and r not in run.shared_index} - run.bound_roles
+    run.owning_roles = sorted((set(run.per_role) | set(run.shared_index) | set(run.all_claims)
+                               | run.bound_roles) - emptied)
     for role in run.owning_roles:
         write_role(run, role)
         index_role(run, role)

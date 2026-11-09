@@ -7,6 +7,8 @@ Stdlib only; runnable as `python3 tests/test_state_writes.py`. **Each case names
   writer_is_found            <- _write_kind's open() branch dropped, or RESOLVERS emptied
   writer_without_state_passes <- the write findings raised without `resolves or copies`
   unparseable_is_not_this_rules <- a SyntaxError turned into a finding
+  invalid_escape_is_not_unparseable <- the SyntaxWarning filter dropped: under -W error the module's own invalid escape reads as a
+                                syntax error and a planted violation beside it goes unfound
   each_write_kind            <- one of os.open flags / mkstemp / os.replace / sqlite3.connect / an unknown mode / Path.open /
                                 shutil.copy, move / os.link dropped, or os.devnull counted
   state_dir_parameter_resolves <- STATE_PARAM not counted as resolving
@@ -26,6 +28,7 @@ policies/state-writers.json is red on a stripped copy, which removes it as insta
 """
 from __future__ import annotations
 
+import ast
 import atexit
 import json
 import os
@@ -33,6 +36,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import warnings
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
@@ -66,6 +70,20 @@ def case_writer_without_state_passes() -> None:
 def case_unparseable_is_not_this_rules() -> None:
     """A half-merged module is ruff's to refuse; refusing it here stood in the way of the contributor fence's own refusal."""
     assert sw.scan("tools/x.py", "<<<<<<< HEAD\nopen(D, 'w')\n", {}) == []
+
+
+def case_invalid_escape_is_not_unparseable() -> None:
+    src = 'def f(state_dir):\n    open(state_dir + "/a", "w")\nx = "\\ "\n'   # the invalid escape backslash-space beside a violation
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        try:
+            ast.parse(src)
+        except SyntaxError:
+            pass
+        else:
+            raise AssertionError("the fixture must fail to parse under -W error")
+        got = sw.scan("tools/x.py", src, {})
+    assert len(got) == 1, got
 
 
 def case_each_write_kind() -> None:

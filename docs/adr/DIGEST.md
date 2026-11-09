@@ -114,6 +114,8 @@ its record disagree, the record wins. Look it up, never read it whole:
   each entry is at most 250 words (§2).
 - A 2026-10-09 — an exception keeps the past; new work follows the
   direction unless the exception admits it in words (§5 rule 12).
+- A 2026-11-09 — the budget is per bullet, at most 60 words; the
+  250-word entry total is gone (§2).
 - A 2026-10-18 — also checked at commit time (§5 rule 4).
 - Keywords: ADR, amendment, supersede, ratify, index, digest, rationale.
 
@@ -756,7 +758,7 @@ its record disagree, the record wins. Look it up, never read it whole:
 ### ADR-032 — GZCOORD/1 is a normative contract: the grammar frozen until a transport exercises it, GZCOORD/2 for a breaking change, adoption by observation (Accepted)
 
 - SPEC, MESSAGE-FORMAT, SEMANTICS and CONFORMANCE are GZCOORD/1's
-  normative text; `gzmsg.mjs` is the reference validator and every example
+  normative text; `gzmsg.py` is the reference validator and every example
   validates (§2, §5 rule 1). Only fabric-coordinator changes them (§5
   rule 2).
 - The grammar (SPEC §6) is frozen until an automated transport exercises
@@ -776,6 +778,8 @@ its record disagree, the record wins. Look it up, never read it whole:
 - A 2026-10-15 — examples, validator renamed.
 - A 2026-10-15 — citations renamed.
 - A 2026-10-22 — SUPPLIER-REVIEW is the supplier's checks.
+- A 2026-11-09 — a watch read at its end rides out a relay drop it
+  recovers from; one read as it runs says down and back (SEMANTICS).
 - Keywords: GZCoord, GZCOORD/1, GZCOORD/2, protocol, SPEC, grammar,
   freeze, frozen, compatibility, narrowing, conformance, validator,
   extension, X-, protocol change, WAIVES, waiver.

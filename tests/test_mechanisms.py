@@ -10,6 +10,8 @@ Stdlib only; runnable as `python3 tests/test_mechanisms.py`. **Each case names t
   real_loads_count          <- `import os, <stem>` or `from <stem> import x` not counted as a load
   enforced_needs_files      <- the checker/exceptions presence or tracked test dropped
   named_paths_are_tracked   <- a pending or planned entry's named path not checked, or a non-string path crashing lint
+  owner_package             <- an owner directory/ refused, one holding no tracked file passed, the slash not required,
+                               or a checker allowed to be a directory
   pending_and_planned       <- the JOB pattern or the waits_on test dropped
   entry_fields              <- the ADR, owner-required, owner-tracked or status test dropped
   unreadable_and_absent     <- an unreadable catalogue read as empty, or an absent one (instance data) made a finding
@@ -134,6 +136,15 @@ def case_named_paths_are_tracked() -> None:
     assert any(": q: owner 'tools/nowhere.py' is not a tracked file" in f for f in out), out
     assert any(": r: checker ['x'] is not a tracked file" in f for f in out), out
     assert any(": r: exceptions {'a': 1} is not a tracked file" in f for f in out), out
+
+
+def case_owner_package() -> None:
+    def findings(owner: str, checker: str = "tools/fabric/state_writes.py") -> list[str]:
+        return m.mechanism_findings(tree({"state": {**ENFORCED, "owner": owner, "checker": checker}}))
+    assert not any("owner" in f for f in findings("runtime/")), findings("runtime/")
+    assert any("owner 'tools/nowhere/' is not a tracked file" in f for f in findings("tools/nowhere/"))
+    assert any("owner 'runtime' is not a tracked file" in f for f in findings("runtime"))
+    assert any("checker 'tools/fabric/' is not a tracked file" in f for f in findings("runtime/identity.py", "tools/fabric/"))
 
 
 def case_pending_and_planned() -> None:
