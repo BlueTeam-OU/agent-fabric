@@ -994,3 +994,25 @@ Per pair made inside the drill: held by the carrier alone (a relay copy before t
 - 01a1b81a-4214-77a3-b65e-79aa62a54a0b to develop-qzapp/rust-ui-dev-01 (rust-ui-dev-01): carrier alone; shown once by interweave; shown again: no; relay copy back, acknowledged: no -- FAILS
 - 01a1b81d-2e7e-7d12-b7d1-037388010756 to develop-qzapp/rust-ui-dev-02 (rust-ui-dev-02): carrier alone; shown once by relay; shown again: no; relay copy back, acknowledged: no -- FAILS
 - 01a1b81c-4d34-76f1-aa71-15b11dc9425e to develop-qzapp/ux-designer-01 (ux-designer-01): carrier alone; shown once by interweave; shown again: no; relay copy back, acknowledged: no -- FAILS
+
+# Re-run with the fixed judge (#534, 6323913f)
+
+The same collection and window, `gzcoord-carrier parity --relay-drill` for each drill, after #534 merged. The drill sections only; everything above them is unchanged.
+
+## Relay-outage drill (2026-11-05T15:50:19Z to 2026-11-05T16:08:24Z): UNSETTLED, none failed and 1 pair(s) cannot be told yet
+
+Per pair made inside the drill: held by the carrier alone (the InterWeave copy arrived inside the drill and the relay's did not; otherwise the pair proves nothing), shown to the session once or not, shown again, the relay copy acknowledged.
+
+- 01a1ac73-ed01-7bda-bc52-c270c23e028e to develop-qzapp/architect-cto-01 (architect-cto-01): NOT exercised (the InterWeave copy came after the drill ended, so the sender sent it late; it does not count); shown once by relay; shown again: no; relay copy back, acknowledged: unknown
+- 01a1ac68-bcdd-70db-ae31-5f7a5b1639d7 to develop-qzapp/devex-tooling (devex-tooling): carrier alone; shown once by interweave; shown again: no; relay copy not back, acknowledged: unknown -- UNKNOWN
+- 01a1ac73-ec74-734d-b082-50dfa36050a3 to develop-qzapp/rust-ui-dev-02 (rust-ui-dev-02): NOT exercised (the InterWeave copy came after the drill ended, so the sender sent it late; it does not count); shown once by relay; shown again: no; relay copy back, acknowledged: unknown
+## Relay-outage drill (2026-11-07T22:19:40Z to 2026-11-07T23:20:19Z): UNSETTLED, none failed and 4 pair(s) cannot be told yet
+
+Per pair made inside the drill: held by the carrier alone (the InterWeave copy arrived inside the drill and the relay's did not; otherwise the pair proves nothing), shown to the session once or not, shown again, the relay copy acknowledged.
+
+- 01a1b818-afd7-71f9-bc22-89eaf4c46e67 to develop-qzapp/devex-tooling (devex-tooling): NOT exercised (the InterWeave copy came after the drill ended, so the sender sent it late; it does not count); shown once by relay; shown again: no; relay copy back, acknowledged: unknown
+- 01a1b81f-f37e-745e-952a-4d8ac7349027 to develop-qzapp/devex-tooling (devex-tooling): carrier alone; shown once by interweave; shown again: no; relay copy back, acknowledged: unknown -- UNKNOWN
+- 01a1b819-45db-7886-aa0d-b75c62aa00a6 to develop-qzapp/python-dev-03 (python-dev-03): carrier alone; shown once by interweave; shown again: no; relay copy back, acknowledged: unknown -- UNKNOWN
+- 01a1b81a-4214-77a3-b65e-79aa62a54a0b to develop-qzapp/rust-ui-dev-01 (rust-ui-dev-01): carrier alone; shown once by interweave; shown again: no; relay copy back, acknowledged: unknown -- UNKNOWN
+- 01a1b81d-2e7e-7d12-b7d1-037388010756 to develop-qzapp/rust-ui-dev-02 (rust-ui-dev-02): NOT exercised (the InterWeave copy came after the drill ended, so the sender sent it late; it does not count); shown once by relay; shown again: no; relay copy back, acknowledged: unknown
+- 01a1b81c-4d34-76f1-aa71-15b11dc9425e to develop-qzapp/ux-designer-01 (ux-designer-01): carrier alone; shown once by interweave; shown again: no; relay copy back, acknowledged: unknown -- UNKNOWN

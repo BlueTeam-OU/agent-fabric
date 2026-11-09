@@ -68,9 +68,13 @@ seeing one twice. The cause was not traced in this run.
 
 ## The relay-outage drills
 
-The tool prints **A PROPERTY FAILED** for both drills. Read against
-the evidence, that verdict comes from two flaws in the judge, not from
-the carrier:
+The tool first printed **A PROPERTY FAILED** for both drills. Read
+against the evidence, that verdict came from two flaws in the judge,
+not from the carrier. #534 fixed both, and the re-run over the same
+collection (at the end of the computed file) reads both drills
+**UNSETTLED, none failed**: on 11-05, 1 pair exercised; on 11-07, 4
+pairs exercised; for each, the acknowledgement cannot be told. The
+flaws were:
 
 1. **The acknowledgement is read as "no" where nothing was logged.**
    `gzcoord-acks.jsonl` was added on 2026-11-08 (e4424b06), after both
