@@ -131,7 +131,7 @@ A record that is missing, stale, unreadable or silent about claims is unknown, a
 
 A lost answer needs no row. `pool.py` already gives a claim back to the same claimant whenever it claims again (`pool_claim`), so the claimant recovers by asking again. The first wording credited that to rule 9 and bounded it by the day; neither was so (#515 F2).
 
-A closed claim is never handed out again: `pool_claim` gives a claim back to its claimant only while it is `claimed`, so a claimant asking again for a closed one is refused, and finished work cannot become a second job (#515 round 2).
+A closed claim is never handed out again, which the closed row requires of the build. Today's `pool_claim` returns any claim to its claimant (`control/pool.py`, the `claimed.by` check), with no closed state to tell apart. Wave 2's closed shape changes that check, with a test that a closed claim refuses a `pool-claim`, its claimant's included, so finished work cannot become a second job (#515 rounds 2 and 3).
 
 Rejected: removing a closed claim from the pool, since a record that disappears cannot be told from one never made. Also rejected: reopening on the claimant's silence alone, for the reason above.
 
