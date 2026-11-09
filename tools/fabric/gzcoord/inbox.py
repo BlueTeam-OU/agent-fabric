@@ -475,8 +475,8 @@ def main(argv: list[str]) -> int:
         primary = transport.open_transport(cfg, token=tok, me=me, journal_off=True).primary
         try:
             if history_given:
-                return with_fresh_token(primary, lambda: history(primary.history(HISTORY_WINDOW), channel, history_from, me, t))
-            return with_fresh_token(primary, lambda: replay(primary.history(500), channel, replay_which, me, t, "--json" in argv))
+                return with_fresh_token(primary, lambda: history(primary.newest(HISTORY_WINDOW), channel, history_from, me, t))
+            return with_fresh_token(primary, lambda: replay(primary.newest(500), channel, replay_which, me, t, "--json" in argv))
         except Exception as e:  # noqa: BLE001 — any failure of the read is the primary's line
             x = primary.explain(e, t)
             print(x["line"], file=sys.stderr)
@@ -520,7 +520,7 @@ def main(argv: list[str]) -> int:
         print(held_line(reason, n), flush=True)
 
     def fetch_recent(_done: threading.Event) -> Any:
-        return primary.history(HISTORY_WINDOW, RETRANSMISSION_LOOKUP_MS / 1000)
+        return primary.newest(HISTORY_WINDOW, RETRANSMISSION_LOOKUP_MS / 1000)
 
     def mine_fn(msg: dict) -> bool:
         return for_me(msg, me)

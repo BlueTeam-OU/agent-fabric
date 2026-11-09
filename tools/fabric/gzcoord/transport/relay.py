@@ -62,7 +62,7 @@ class RelayTransport:
     def health(self) -> Health:
         return Health(self.name, _relay._relay_up(self.relay_url, 2))
 
-    def history(self, limit: int, timeout: float | None = None) -> Any:
+    def newest(self, limit: int, timeout: float | None = None) -> Any:
         q = "/api/messages?" + urllib.parse.urlencode({"channel": self.channel, "limit": str(limit), "full": "1"})
         return self._api(q) if timeout is None else self._api(q, timeout=timeout)
 

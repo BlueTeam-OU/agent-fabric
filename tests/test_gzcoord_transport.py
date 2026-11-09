@@ -12,6 +12,7 @@ import shutil
 import sys
 import tempfile
 import threading
+import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -105,16 +106,17 @@ def main() -> int:
               and (sent.name, sent.state, sent.seq, sent.deduplicated) == ("relay", "accepted", 42, True), f"{req}\n{sent}")
         got = tp.receive(3, threading.Event())
         req = stub.seen[-1]
+        asked = urllib.parse.parse_qs(urllib.parse.urlsplit(req["path"]).query)
         check("receive asks /api/wait for this consumer, 50 at most, and answers the page's records",
-              req["path"].startswith("/api/wait?") and "consumer_id=h%2Fbeta" in req["path"] and "limit=50" in req["path"]
-              and "timeout_seconds=3" in req["path"] and "channel=chan" in req["path"]
+              req["path"].startswith("/api/wait?")
+              and asked == {"channel": ["chan"], "consumer_id": ["h/beta"], "timeout_seconds": ["3"], "limit": ["50"]}
               and [r["id"] for r in got] == ["r1"], f"{req}\n{got}")
         tp.ack("r1")
         check("ack posts the record id as message_id for this consumer",
               stub.seen[-1]["body"] == {"consumer_id": "h/beta", "channel": "chan", "message_id": "r1"}, f"{stub.seen[-1]}")
-        tp.history(500)
-        tp.history(7, timeout=5)
-        check("history asks /api/messages for the newest records whole, no consumer",
+        tp.newest(500)
+        tp.newest(7, timeout=5)
+        check("newest asks /api/messages for the newest records whole, no consumer",
               stub.seen[-2]["path"] == "/api/messages?channel=chan&limit=500&full=1"
               and stub.seen[-1]["path"] == "/api/messages?channel=chan&limit=7&full=1", f"{stub.seen[-2:]}")
         check("health is the relay's /status probe: a stub that answers it is up, a port nobody listens on is not",

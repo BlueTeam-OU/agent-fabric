@@ -50,7 +50,7 @@ class Transport(Protocol):
 
 
 class Primary(Transport, Protocol):
-    def history(self, limit: int, timeout: float | None = None) -> Any:
+    def newest(self, limit: int, timeout: float | None = None) -> Any:
         """The newest `limit` records of the channel's record, whole, as the transport answered; no cursor moves."""
 
     def refresh(self, error: BaseException) -> bool:
