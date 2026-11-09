@@ -2,7 +2,6 @@
 A part of tools/fabric/gzcoord/inbox.py, whose docstring is the contract."""
 from __future__ import annotations
 
-import hashlib
 import math
 import sys
 import threading
@@ -11,7 +10,7 @@ from typing import Any, Callable
 from .. import bypass
 from .. import gzmsg
 from .. import jsvalues as js
-from ..carrier import CARRIER_NAME, ledger as _ledger_mod
+from ..transport.dedup import admit
 from .records import keyword_hit
 from .hold import HOLD_POLL_MS
 
@@ -38,25 +37,6 @@ def bypass_inbound(records: list[dict]) -> dict:
     print(f"gzcoord: GZCOORD_JOURNAL=off — {len(records)} message(s) addressed to you are shown without being kept"
           " in your journal (ADR-041)", flush=True)
     return {"ok": True, "said": []}
-
-
-def ledger_key(rec: dict, msg: dict) -> str:
-    """The id the ledger and the journal key a message by: its MESSAGE-ID, else its body's hash."""
-    mid = (msg.get("metadata") or {}).get("MESSAGE-ID")
-    return mid or "sha256:" + hashlib.sha256(str(rec.get("content", "")).encode("utf-8", "surrogatepass")).hexdigest()
-
-
-def body_hash(content: str) -> str:
-    """What tells two messages that share a MESSAGE-ID apart in the ledger (see ledger.py)."""
-    return _ledger_mod.body_hash(content)
-
-
-def _record(held: Any, d: Any, mid: str, via: str, h: str) -> None:
-    """The ledger line a showing starts with: a pending one, or, for a repeat, none (its final line is all)."""
-    if d.append_pending:
-        held.pending(mid, via, d.flagged, h)
-    else:
-        held.finish_repeat(mid, via, d.flagged, h)
 
 
 # ── the wait ─────────────────────────────────────────────────────────
@@ -253,29 +233,7 @@ def wait_loop(fetch_page: Callable[[int, threading.Event], Any], ack: Callable[[
                     delivered = any(c["isMine"] for c in classified)
             if lock is not None:
                 try:
-                    for c in relay_mine:
-                        mid = ledger_key(c["rec"], c["msg"])
-                        d = lock.decide(mid, "relay", "unauthenticated", body_hash(c["rec"]["content"]))
-                        if not d.show:
-                            c["quiet"] = True     # shown before: journaled and acknowledged, not shown twice
-                            continue
-                        c["may_repeat"] = d.may_repeat
-                        _record(lock, d, mid, "relay", body_hash(c["rec"]["content"]))
-                    for u in carrier_recs:
-                        try:
-                            msg = gzmsg.parse(u["content"])
-                        except (gzmsg.NotGzcoord, AttributeError, TypeError, KeyError):
-                            continue
-                        if msg["type"] in gzmsg.RETIRED_TYPES:
-                            continue      # presence is never shown (SPEC §8), whichever carrier brings it
-                        d = lock.decide(u["message_id"], CARRIER_NAME, u["verdict"], body_hash(u["content"]))
-                        if not d.show:
-                            continue
-                        classified.append({"rec": {"id": None, "seq": CARRIER_NAME, "sender": u.get("sender") or u["message_id"],
-                                                   "timestamp": u["ts"], "content": u["content"]},
-                                           "msg": msg, "isMine": True, "iw": {**u, "mid": u["message_id"]},
-                                           "flagged": d.flagged, "may_repeat": d.may_repeat})
-                        _record(lock, d, u["message_id"], CARRIER_NAME, body_hash(u["content"]))
+                    admit(lock, classified, relay_mine, carrier_recs)
                     delivered = any(c["isMine"] and not c.get("quiet") for c in classified)
                 except OSError as e:
                     # A ledger write failed (a full disk): said as what it is, not as the relay being
