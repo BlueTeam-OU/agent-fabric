@@ -249,8 +249,10 @@ def main() -> int:
         if pr.poll() is None:
             pr.kill()
     check("--until-delivery: a relay that drops and returns inside its bound is not told to the session (SEMANTICS.md 'When the relay is down'): "
-          "no unreachable line and no back line",
-          not any("unreachable" in x or "back" in x for x in out.splitlines()), f"{out}{err}")
+          "no unreachable line and no back line, the watch ending at its deadline with the quiet line and nothing on stderr",
+          pr.returncode == 0 and out.startswith("gzcoord inbox: quiet for ") and len(out.splitlines()) == 1
+          and not any("unreachable" in x or "back" in x for x in out.splitlines()) and "unreachable" not in err,
+          f"{pr.returncode}\n{out}{err}")
     w.close()
 
     # ── send: what is posted, what is recorded, what a relay error leaves ───────────────────────────────────────────
