@@ -69,6 +69,7 @@ import secret_values  # noqa: E402  the account's own secret values, searched in
 import state_writes  # noqa: E402  ADR-003 rule 1's predicate, as lint asks it (tools/fabric/state_writes.py)
 import context_reads  # noqa: E402  who reads an agent's binding, as lint asks it (tools/fabric/context_reads.py, ADR-067)
 import evidence_caps  # noqa: E402  GitHub's list caps have one owner, as lint asks it (tools/fabric/evidence_caps.py, ADR-067)
+import process_spawns  # noqa: E402  process lifetime has one owner, as lint asks it (tools/fabric/process_spawns.py, ADR-067)
 
 ITSELF = "agent-fabric itself"
 AGENT_FABRIC_DIR = ".agent-fabric/"
@@ -515,6 +516,49 @@ def _check_evidence_caps(root: str) -> None:
                      f"or name the module and why in {evidence_caps.POLICY} (agent-fabric ADR-067 rule 1).")
 
 
+def _check_process_spawns(root: str) -> None:
+    """In agent-fabric itself, whoever commits: a staged module that starts or signals a process group outside
+    tools/fabric/process.py is refused unless the staged policy names it (ADR-067 rule 1, tools/fabric/process_spawns.py);
+    a module whose entry this commit removes, or a deleted policy's, is judged too. Lint judges the whole tree in CI."""
+    if not same_repository(root):
+        return
+    r = _git("diff", "--cached", "-z", "--no-renames", "--name-only", "--diff-filter=ACMRT")
+    if r.returncode != 0:
+        raise Refuse("pre-commit: cannot list the staged files to judge process spawns — not committed")
+    staged = [p for p in r.stdout.split("\0") if p]
+    judged = [p for p in staged if process_spawns.judged_path(p)]
+    deleted = _staged_deletion(process_spawns.POLICY)
+    if not judged and process_spawns.POLICY not in staged and not deleted:
+        return
+    policy = _git("cat-file", "blob", f":{process_spawns.POLICY}")
+    try:
+        allowed = process_spawns.parse_allowed(policy.stdout) if policy.returncode == 0 else {}
+    except ValueError:
+        raise Refuse(f"pre-commit: the staged {process_spawns.POLICY} is not JSON — not committed") from None
+    if process_spawns.POLICY in staged or deleted:
+        before = _git("cat-file", "blob", f"HEAD:{process_spawns.POLICY}")
+        try:
+            was = process_spawns.parse_allowed(before.stdout) if before.returncode == 0 else {}
+        except ValueError:
+            was = {}   # HEAD's list unreadable admitted nothing then either
+        listed = _git("ls-files", "-z")
+        if listed.returncode != 0:
+            raise Refuse("pre-commit: cannot read the index to judge the modules whose process-spawns entries this commit "
+                         "removes — not committed")
+        tracked = set(listed.stdout.split("\0"))
+        judged += [m for m in sorted(set(was) - set(allowed)) if m in tracked and m not in judged
+                   and process_spawns.judged_path(m)]
+    lines: list[str] = []
+    for path, data in _staged_blobs(judged, "for process spawns").items():
+        try:
+            lines += process_spawns.scan(path, data.decode("utf-8"), allowed)
+        except UnicodeDecodeError:
+            lines.append(f"{path}: not UTF-8; process spawns are not judged")
+    if lines:
+        raise Refuse("\n".join(lines) + "\npre-commit: a module starts or signals a process group outside "
+                     "tools/fabric/process.py — not committed (agent-fabric ADR-067 rule 1).")
+
+
 def _check_review_card() -> None:
     """A commit that stages the project review card over its cap is refused, whoever commits (j475: a project's card reached 2396
     bytes over two commits, and every review of the project failed at render until it was cut). Only a commit that changes the card
@@ -556,6 +600,7 @@ def pre_commit(root: str) -> int:
     _check_state_writes(root)
     _check_context_reads(root)
     _check_evidence_caps(root)
+    _check_process_spawns(root)
     what, staged = guarded_change(root)
     if not staged:
         return 0
