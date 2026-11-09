@@ -99,7 +99,10 @@ def store_of(row: dict, bundle: dict, now_ms: int) -> dict:
     if claims is None or not isinstance(rendering, list):
         out["why"] = "no usable harvest report"
         return out
-    out["drainable"] = claims + len(rendering)
+    # `drainable` counts only what waits outside the corpus; an older control agent has none, and its `claims` (every
+    # harvested memory under --all) is then the count it gave, with the age it gave beside it.
+    counted = _count(report.get("drainable"))
+    out["drainable"] = counted if counted is not None else claims + len(rendering)
     if out["drainable"] == 0:
         out.update(status="ok", oldest_age_days=None, over_bound=False)
         return out

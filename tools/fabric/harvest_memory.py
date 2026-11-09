@@ -225,7 +225,7 @@ def previous_watermark(working_copy: str, host: str, agent: str | None = None,
         with open(report, encoding="utf-8") as fh:
             marks = json.load(fh).get("watermarks") or {}
         return int(marks.get(key or store_key(agent, host)) or 0), report
-    except (OSError, ValueError, TypeError):
+    except (OSError, ValueError, TypeError, AttributeError):   # AttributeError: valid JSON that is not an object
         return 0, None
 
 
@@ -511,6 +511,10 @@ def main() -> int:
     scan_start_ms = int(time.time() * 1000)
     store = store_key(ctx["agent"], host, args.store)
     since_ms, since_report = (0, None) if args.all else previous_watermark(working_copy, host, ctx["agent"], store)
+    # The age bound and the drainable count are measured against what the project's committed report says was drained,
+    # also under --all: --all re-reads the whole store for the assembler, but a memory at or below the watermark is
+    # already in the corpus and does not wait (j217). A held memory waits whatever its age.
+    age_since_ms = previous_watermark(working_copy, host, ctx["agent"], store)[0] if args.all else since_ms
     next_ms = since_ms
     total = 0
     before_watermark: list[str] = []
@@ -623,7 +627,8 @@ def main() -> int:
             **({"language": language} if language else {}),
         })
         next_ms = max(next_ms, parsed["mtime_ms"])
-        drainable_ms.append(parsed["mtime_ms"])
+        if parsed["mtime_ms"] > age_since_ms:
+            drainable_ms.append(parsed["mtime_ms"])
         if parsed["origin"] == "reflection":
             reflection += 1
         claims.append({
@@ -707,6 +712,8 @@ def main() -> int:
         # ADR-034 §7 step 3: the age bound is read from this, the file's own time of the oldest memory that
         # still waits outside the corpus (null when none), not from the watermark, which a held memory pins.
         "oldest_drainable_ms": min(drainable_ms) if drainable_ms else None,
+        # How many memories oldest_drainable_ms is the minimum of: the count drain_due reads, held ones included.
+        "drainable": len(drainable_ms),
         "counts": {"in_scope": total - len(before_watermark), "total": total,
                    "before_watermark": len(before_watermark), "provisional_agent": 0,
                    # Claims harvested this drain whose origin is exactly `reflection` (ADR-058 rule 5);
