@@ -1,7 +1,10 @@
 #!/usr/bin/env python3
 """Tests for tools/fabric/status.py's internals; the behaviour is
 tests/test_fabric_status_cli.py's, run against the bin/fabric-status shim
-(ADR-040 §5 rule 5). Plain script: prints ok/FAIL, exit 1 on any failure."""
+(ADR-040 §5 rule 5). Plain script: prints ok/FAIL, exit 1 on any failure.
+
+The binding is read once, by identity.resolve_context: binding_is_read_once <- status.build_report back on a second raw
+identity.read_binding (two reads of one file can disagree), or a field of the report read from anywhere but ctx.binding."""
 from __future__ import annotations
 
 import hashlib
@@ -443,6 +446,36 @@ def main() -> int:
             fh.write("{nope")
         f = run(SHIM)
         check("an unreadable binding fails loudly, not as a silent clean report", f.returncode != 0 and f.stdout == "" and f.stderr.strip() != "")
+
+        print("the binding is read once")
+        reads: list[str] = []
+        real_load = status.load
+
+        def counting_load(name, path):
+            module = real_load(name, path)
+            if name == "fabric_identity":
+                raw = module.read_binding
+
+                def counted(*a, **kw):
+                    reads.append("read")
+                    return raw(*a, **kw)
+                module.read_binding = counted
+            return module
+        with open(os.path.join(agent_dir, "binding.json"), "w", encoding="utf-8") as fh:
+            json.dump({"agent": LOGIN, "host": HOST, "role": "db-admin", "session": "s-1", "updated_at": "2026-01-02T03:04:05Z"}, fh)
+        saved_env = dict(os.environ)
+        os.environ.clear()
+        os.environ.update(env)
+        status.load = counting_load
+        try:
+            report, _ = status.build_report(HERE, environ=dict(env), cred_environ=dict(env))
+        finally:
+            status.load = real_load
+            os.environ.clear()
+            os.environ.update(saved_env)
+        check("build_report reads the binding file once: resolve_context's read, no second raw one", reads == ["read"])
+        check("…and role, session and updated_at come from that record",
+              (report["role"], report["session"], report["binding_updated"]) == ("db-admin", "s-1", "2026-01-02T03:04:05Z"))
 
     print("ok" if not fails else f"{fails} FAILED")
     return 1 if fails else 0

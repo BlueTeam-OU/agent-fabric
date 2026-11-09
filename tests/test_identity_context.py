@@ -92,10 +92,14 @@ class Context(unittest.TestCase):
         bound = self.identity.resolve_context(cwd=self.cwd).binding
         self.assertEqual((bound.role, bound.project, bound.working_copy, bound.present), ("python-dev", "bound-project", wc, True))
         self.assertEqual(bound.file, self.identity.binding_path())
+        self.bind({"role": "python-dev", "updated_at": "2026-01-02T03:04:05Z"})
+        self.assertEqual(self.identity.resolve_context(cwd=self.cwd).binding.updated_at, "2026-01-02T03:04:05Z")
+        self.assertEqual(self.identity.binding_record().updated_at, "2026-01-02T03:04:05Z")
         self.bind({"role": "", "project": 3, "working_copy": None})
         empty = self.identity.resolve_context(cwd=self.cwd).binding
         self.assertEqual((empty.role, empty.project, empty.working_copy, empty.present), (None, None, None, True),
                          "an empty or non-string value is no value; a file that is there is present")
+        self.assertIsNone(empty.updated_at)
         os.remove(self.identity.binding_path())
         gone = self.identity.resolve_context(cwd=self.cwd).binding
         self.assertEqual((gone.role, gone.present), (None, False))

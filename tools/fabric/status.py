@@ -414,7 +414,7 @@ def build_report(root, environ=None, cred_environ=None):
     hosttools = load("fabric_hosttools", os.path.join(root, "tools", "fabric", "hosttools.py"))
 
     ctx = identity.resolve_context()
-    binding = identity.read_binding(ctx["agent"])
+    binding = ctx.binding   # the record resolve_context already read: a second raw read could disagree with it
 
     # --- which API path is this process on? --------------------------------
     provider, path, host, base = api_path(environ)
@@ -443,7 +443,7 @@ def build_report(root, environ=None, cred_environ=None):
     alias_env = routing.load_aliases(root)["env"]
     for klass in routing.load_capabilities(root)["classes"]:
         try:
-            r = routing.resolve(klass, provider, binding.get("role"), ctx["agent"], local, root=root)
+            r = routing.resolve(klass, provider, binding.role, ctx["agent"], local, root=root)
             how = {"export": " (exported)" if pins.get(alias_env.get(r.get("alias") or "", "")) else " (not exported in this session)",
                    "file": " (the agent file)", "harness": " (the harness's tier)"}[r["via"]]
             eff = routing.effort_phrase(r.get("effort"))
@@ -459,7 +459,7 @@ def build_report(root, environ=None, cred_environ=None):
     # confident level from here (review of 2026-09-23, F4).
     session_effort = None
     try:
-        session_effort = {"asked": routing.session_effort(provider, binding.get("role"), ctx["agent"], local, root),
+        session_effort = {"asked": routing.session_effort(provider, binding.role, ctx["agent"], local, root),
                           "reported": environ.get("CLAUDE_EFFORT"),
                           "launched": environ.get("AGENT_FABRIC_LAUNCH_EFFORT")}
     except (KeyError, ValueError):
@@ -478,7 +478,7 @@ def build_report(root, environ=None, cred_environ=None):
             if not ad.serves_class(klass):
                 continue
             try:
-                r = routing.resolve(klass, name, binding.get("role"), ctx["agent"], local, root=root)
+                r = routing.resolve(klass, name, binding.role, ctx["agent"], local, root=root)
                 eff = routing.effort_phrase(r.get("effort"))
                 engines[f"{name} {klass}"] = r["composite"] + " (from %s)" % r["source"] + (
                     " %s (%s)" % (eff, routing.ENGINE_EFFORT_NOTE) if eff else "")
@@ -493,12 +493,12 @@ def build_report(root, environ=None, cred_environ=None):
     # reach a running session (its prompt and --model are fixed at exec);
     # say so rather than let the two disagree silently (backend-dev-01's
     # session on the previous session default, 2026-09-15).
-    role_drift = identity.launch_role_drift(binding)
+    role_drift = identity.launch_role_drift({"role": binding.role})
     model_drift = None
     launch_provider = environ.get("AGENT_FABRIC_LAUNCH_PROVIDER")
     if stamp and launch_provider in ("openrouter", "anthropic"):
         try:
-            now = routing.resolve_session(binding.get("role"), ctx["agent"], local, root=root, provider=launch_provider)
+            now = routing.resolve_session(binding.role, ctx["agent"], local, root=root, provider=launch_provider)
             current_session = now.get("composite") or now.get("model")
             if current_session and current_session != stamp:
                 model_drift = f"launched on {stamp}, the {launch_provider} session now resolves to {current_session} — relaunch to apply"
@@ -547,8 +547,8 @@ def build_report(root, environ=None, cred_environ=None):
 
     report = {
         "agent": ctx["agent"], "host": ctx["host"], "placement": placement,
-        "role": binding.get("role"), "project": ctx["project"], "working_copy": ctx["working_copy"],
-        "session": binding.get("session"), "binding_updated": binding.get("updated_at"),
+        "role": binding.role, "project": ctx["project"], "working_copy": ctx["working_copy"],
+        "session": binding.session, "binding_updated": binding.updated_at,
         "launched_role": environ.get("AGENT_FABRIC_LAUNCH_ROLE"),
         "launch_prompt_digest": digest,
         "drift": [d for d in (role_drift, model_drift, effort_drift, prompt_drift, holder_drift, placement_drift, fallback_drift, signin_drift) if d] or None,
