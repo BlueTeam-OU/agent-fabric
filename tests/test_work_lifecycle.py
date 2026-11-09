@@ -551,6 +551,9 @@ class Leaving(Case):
         self.seed("active", j2, artifacts=[closed])
         self.refused("done", j2, "--no-artifact", "a reason does not stand in for it", said="did not land on the default branch")
         self.seed("done", j2, artifacts=[closed], no_artifact="a reason does not stand in for it")
+        # The verb `done` leaves `last` at the job it closed; the forced state does not, and with stamps of one second's resolution
+        # a fast host leaves j1 and j2 tied, which `last` is what breaks.
+        self.w.put(lambda doc: doc.__setitem__("last", j2))
         p = self.leave(j2)
         self.assertEqual(p.returncode, 1, p.stdout + p.stderr)
         self.assertIn("did not land on the default branch", p.stderr)
