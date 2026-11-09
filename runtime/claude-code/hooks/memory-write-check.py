@@ -60,7 +60,7 @@ def owning_working_copy(hm, path: str) -> tuple[str, str] | None:
     one its binding names, then the ones the fabric already knows of."""
     slug = os.path.basename(os.path.dirname(os.path.dirname(path)))
     wcmod = hm.identity._workingcopy()
-    candidates = [wcmod.toplevel(os.getcwd()), (hm.identity.read_binding() or {}).get("working_copy"),
+    candidates = [wcmod.toplevel(os.getcwd()), hm.identity.binding_record().working_copy,
                   hm.layout.FABRIC_ROOT, *hm.layout.explicit_working_copies().values(),
                   *(hm.layout.working_copy_for(pid) for pid in hm.layout.project_ids()),
                   *wcmod.sibling_working_copies(hm.layout.FABRIC_ROOT).values()]

@@ -241,7 +241,7 @@ def project_config(cwd: str | None, session: str | None) -> dict | None:
         # A login with no fabric binding (or one without a role) was not
         # launched by the fabric: resolve_context fills agent and project
         # for any registered working copy, so the binding is the evidence.
-        if not (ident.read_binding(ctx["agent"]) or {}).get("role"):
+        if not ctx.binding.role:
             return None
         from gzcoord.inbox_parts.config import integration_config
         cfg = integration_config(ctx["project"])

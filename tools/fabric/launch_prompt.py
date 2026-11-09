@@ -321,8 +321,7 @@ def main(argv: list[str] | None = None) -> int:
 
     agent = identity.current_agent()
     host = identity.current_host()
-    binding = identity.read_binding(agent)
-    role = binding.get("role")
+    role = identity.binding_record(agent).role
     if not role:
         print(f"launch_prompt: agent {agent!r} has no active role binding; "
               "bind one first (fabric-role bind <role>).", file=sys.stderr)
