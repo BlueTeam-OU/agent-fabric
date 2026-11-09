@@ -6,7 +6,8 @@ A section is a claim rendered with its anchors (ADR-050 rule 1). A repair of an 
 still writes the old anchor: the claim then differs from the section only by that line, and the same-agent rule or the
 owner's supersede replaced the repaired anchor with the one that names nothing. Before the pre-pass judges the claims,
 each incoming anchor that does not resolve is replaced by the corpus's anchor of the same file and string that does, and
-the report names the one dropped, with its author.
+the report names the one dropped, with its author. An incoming anchor of another file or string is left as the claim has it,
+and the report names the corpus anchor that resolves and the one that is gone (anchors_lost).
 
 Judged the way memory_check judges (judge_anchor, in the checkouts the slice's origin names): only an incoming anchor that
 is gone (stale-hard) is replaced, and only by a corpus anchor that is there. An anchor that cannot be looked at (no checkout
@@ -80,6 +81,18 @@ def settle_topic(run: Run, role: str | None, label: str, klass: str, topic: str,
             if anchor not in settled:
                 settled.append(anchor)
         claim["anchors"] = settled
+        # Another file or string is another anchor, so nothing pairs the two safely and the claim stays as written; but an author
+        # whose newer anchor names nothing, over a corpus anchor that resolves, has to be told, as anchors_kept tells (drain of
+        # 2026-11-08: six memories had a repaired anchor replaced by one that is gone).
+        lost = [a for a in anchors_of(text) if a not in settled and verdict(run, a, path, meta, history) in RESOLVES]
+        gained = [a for a in settled if a not in anchors_of(text) and verdict(run, a, path, meta, history) == GONE]
+        if lost and gained:
+            origin = run.origins.get((claim.get("evidence") or [""])[0]) or {}
+            for anchor in lost:
+                run.anchors_lost.append({
+                    "slice": f"{label}/{klass}:{topic}", "heading": heading, "lost": anchor, "gained": ", ".join(gained),
+                    "agent": origin.get("agent") or "unresolved", **({"host": origin["host"]} if origin.get("host") else {}),
+                    "memory": claim["topic"]})
 
 
 def keep_resolving_anchors(run: Run) -> None:
@@ -89,6 +102,12 @@ def keep_resolving_anchors(run: Run) -> None:
             settle_topic(run, role, role, klass, topic, group, history)
     for (klass, topic), group in run.shared.items():
         settle_topic(run, None, "shared", klass, topic, group, history)
+    if run.anchors_lost:
+        print("ANCHORS LOST (the corpus's anchor resolves, the memory's new one names nothing; both written as the memory has it — "
+              "fix the memory):", file=sys.stderr)
+        for row in run.anchors_lost:
+            print(f"  {row['slice']}#{row['heading']} ({row['agent']}, memory {row['memory']}): {row['lost']} -> {row['gained']}",
+                  file=sys.stderr)
     if run.anchors_kept:
         print("ANCHORS KEPT (the corpus's anchor resolves, the memory's does not; the memory's was dropped — "
               "fix the memory so the next harvest needs none):", file=sys.stderr)

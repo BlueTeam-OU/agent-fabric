@@ -235,6 +235,39 @@ def test_an_incoming_anchor_that_resolves_stands_and_so_does_one_that_cannot_be_
             assert report(out).get("anchors_kept", []) == [], report(out)
 
 
+def test_a_resolving_corpus_anchor_replaced_by_one_that_is_gone_is_reported_not_changed(tmp: str) -> None:
+    """Drain of 2026-11-08 replay (b): the memory's newer anchor names another file, or another string of the same file,
+    and names nothing, over the corpus's anchor that resolves. Nothing pairs the two safely, so the claim is written as it
+    stands and the report names both with the author. The controls: a new anchor that resolves, and a corpus anchor that
+    was gone already, tell nothing."""
+    cases = (
+        ("path", "gzapp:src/b.py::marker", "gzapp:src/c.py::marker", True, True),
+        ("literal", "gzapp:src/b.py::a marker", "gzapp:src/b.py::a marker's", True, True),
+        ("control: the new anchor resolves", "gzapp:src/b.py::marker", "gzapp:src/c.py::marker", True, False),
+        ("control: the old one is gone too", "gzapp:src/b.py::marker", "gzapp:src/c.py::marker", False, True),
+    )
+    for name, corpus_anchor, incoming, old_there, new_is_gone in cases:
+        with tempfile.TemporaryDirectory() as sub:
+            drain, claims_dir, out = ta.build(sub, {"alpha": ta.claims("alpha", [anchored([corpus_anchor])])})
+            ta.with_agents(drain, {"h1": "dev-01"})
+            seed_file(out, "gzapp/src/b.py", "a marker\n")
+            ta.write_registry(out)
+            assert ta.run_assemble(drain, claims_dir, out).returncode == 0
+            seed_file(out, "gzapp/src/b.py", "a marker\n" if old_there else "nothing\n")
+            if not new_is_gone:
+                seed_file(out, "gzapp/src/c.py", "a marker\n")
+            with open(os.path.join(claims_dir, "alpha.json"), "w", encoding="utf-8") as fh:
+                json.dump(ta.claims("alpha", [anchored([incoming])]), fh)
+            proc = ta.run_assemble(drain, claims_dir, out)
+            assert proc.returncode == 0, (name, proc.stderr)
+            assert f"*Anchors: `{incoming}`*" in ta.read(ta.proj(out, "alpha", "solution.md")), name
+            assert report(out)["anchors_kept"] == [], name
+            want = [{"slice": "alpha/solution:one", "heading": "T", "lost": corpus_anchor, "gained": incoming, "agent": "dev-01",
+                     "host": "hostA", "memory": "one"}] if name in ("path", "literal") else []
+            assert report(out)["anchors_lost"] == want, (name, report(out)["anchors_lost"])
+            assert (f"{corpus_anchor} -> {incoming}" in proc.stderr) == bool(want), (name, proc.stderr)
+
+
 def test_a_link_in_a_code_span_is_not_cited(tmp: str) -> None:
     """Drain of 2026-11-08 (j663): the harvest cites every `[[x]]` of a body, code or not, and the section carried it in
     its References line. A code span is literal text. The link written outside code is still cited (the control), and
@@ -355,6 +388,7 @@ def main() -> int:
         test_a_shared_slice_is_held_only_when_no_owner_is_bound,
         test_an_anchor_that_resolves_is_not_replaced_by_one_that_does_not,
         test_an_incoming_anchor_that_resolves_stands_and_so_does_one_that_cannot_be_judged,
+        test_a_resolving_corpus_anchor_replaced_by_one_that_is_gone_is_reported_not_changed,
         test_a_link_in_a_code_span_is_not_cited,
         test_a_toml_array_header_in_a_code_span_is_not_cited,
         test_a_title_made_one_line_is_not_told_for_a_held_slice,
