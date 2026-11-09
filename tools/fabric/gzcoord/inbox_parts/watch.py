@@ -151,22 +151,24 @@ def wait_loop(fetch_page: Callable[[int, threading.Event], Any], ack: Callable[[
         if session_gone():
             return {**out_of_time, "waited": waited, "sessionEnded": True}   # landed as the session ended: the next watch is shown it
         waited += slice_
-        classified, retired = [], []
+        classified, retired, arrived = [], [], []
         delivered = False
         for rec in (page.get("messages") if isinstance(page, dict) else None) or []:
             try:
                 msg = gzmsg.parse(rec["content"])
             except (gzmsg.NotGzcoord, AttributeError, TypeError, KeyError):
                 msg = None   # not GZCOORD/1: never addressed
+            is_mine = bool(for_me_fn(msg)) if msg else False
+            if is_mine:
+                arrived.append(rec)   # a retired type is acknowledged and never shown, but it still arrived here (ADR-064 rule 11)
             if msg and msg["type"] in gzmsg.RETIRED_TYPES:
                 retired.append(rec)
                 continue
-            is_mine = bool(for_me_fn(msg)) if msg else False
             classified.append({"rec": rec, "msg": msg, "isMine": is_mine})
             delivered = delivered or is_mine
         mine = [c for c in classified if c["isMine"]]
-        if on_arrival and mine:
-            on_arrival([c["rec"] for c in mine])
+        if on_arrival and arrived:
+            on_arrival(arrived)
         if journal and mine:
             kept = journal([c["rec"] for c in mine])
             if not kept.get("ok"):

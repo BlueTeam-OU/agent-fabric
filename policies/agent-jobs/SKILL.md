@@ -67,6 +67,8 @@ whatever priority they gave it. A plain-text block tells nobody.
 A "taken" REPLY does not clear it: your block moves to the job the
 request became (`request:<id> answered; now waiting on job:<login>/j<n>`)
 and clears when that job is delivered; a decline clears it (ADR-037 rule 8).
+A peer answers a `job:` blocker only for a job your own REQUEST became;
+for any other peer job, block on its PR (`pr:`), which any login reads.
 
 **Ranked blocking for someone else.** `fabric-jobs list` shows a queued
 job that another agent waits on as blocking, with the address that

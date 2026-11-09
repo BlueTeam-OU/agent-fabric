@@ -1480,7 +1480,7 @@ class Refusals(unittest.TestCase):
 class Help(unittest.TestCase):
     # `fabric-ctl <login|all> <verb> --help`, `help <verb>` and `--verbs` read the verb table (ctl.VERBS) and nothing else: no registry,
     # no relay, no token. The golden usage text is the one the verbs had before the table (tests/fixtures/ctl-usage.txt).
-    NOT_VERBS = {"pool-list", "pool-claim", "branches-sweep"}   # ops the parser refuses or reaches through branches --sweep
+    NOT_VERBS = {"pool-list", "pool-claim", "job-state", "branches-sweep"}   # ops the parser refuses or reaches through branches --sweep
 
     def setUp(self):
         # parse_args checks a pool-add role against identities/roles/catalog.json, instance data a stripped tree does not carry: the

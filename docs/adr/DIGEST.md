@@ -707,6 +707,7 @@ its record disagree, the record wins. Look it up, never read it whole:
 - A 2026-10-30 — hold (r13).
 - A 2026-10-31 — roles.
 - A 2026-11-08 — drill sections.
+- A 2026-11-09 — job-state public (r3–4).
 - Keywords: fabric-ctl, keys, operator_key, usage, tokens, herdr,
   resume, interweave-evidence, interweave-human, fabric-control,
   control_carrier, break-glass.
@@ -897,7 +898,8 @@ its record disagree, the record wins. Look it up, never read it whole:
 - A 2026-11-05 — answered request re-points to its job (r8).
 - A 2026-11-08 — one transition table (r14).
 - A 2026-11-09 — pool claim closes or reopens (r14).
-- Keywords: fresh session, intake, priority, claim, sweep, unhold, request blocker.
+- A 2026-11-09 — peer job read by its waiter: public job-state op (r8).
+- Keywords: fresh session, intake, priority, claim, sweep, unhold, request blocker, job-state.
 
 ### ADR-038 — Each agent owns its key and its secrets (Accepted)
 

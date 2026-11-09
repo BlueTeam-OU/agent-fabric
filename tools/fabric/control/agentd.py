@@ -28,7 +28,7 @@ A `since_id_not_found` (the relay's history was cleared) re-primes.
 
 THE FENCE, v1. A request is answered only when its `from` is a host
 operator's address as runtime/hosts/registry.json places it — except a
-PUBLIC op (control/ops PUBLIC_OPS: `presence`, `pool-list` and `pool-claim`), answered for any placed
+PUBLIC op (control/ops PUBLIC_OPS: `presence`, `pool-list`, `pool-claim` and `job-state`), answered for any placed
 <host>/<login>, since every sender needs it and a relay-token holder
 could already get it by forging an operator's `from` on an unsigned
 read op (pool-claim is the one unsigned op that writes: one field, the
@@ -118,7 +118,7 @@ else:
 from control import clone as clone_mod, gateway as gateway_mod, carrier_install as carrier_mod, carrier_evidence as evidence_mod, gzcoord, js, ops, pressure, sessions, tools as tools_mod  # noqa: E402
 from control.gzcoord import FABRIC_ROOT  # noqa: E402
 from control.carrier_install import CARRIER_NAME, INSTALL_OP, START_OP, STOP_OP  # noqa: E402
-from control.jobs import jobs_add  # noqa: E402
+from control.jobs import job_state, jobs_add  # noqa: E402
 from control import hold as hold_mod  # noqa: E402
 from control.branches_op import branches_sweep  # noqa: E402
 from control.local import local_prune  # noqa: E402
@@ -734,6 +734,8 @@ def answer(request: dict, ctx: dict) -> dict:
         data = {"restart": restart(request, me=me, **(ctx.get("restart_opts") or {}))}
     elif op == "jobs-add":
         data = {"jobs-add": jobs_add(request, home=home, root=root, **(ctx.get("jobs_opts") or {}))}
+    elif op == "job-state":
+        data = {"job-state": job_state(request, home=home, root=root, **(ctx.get("jobs_opts") or {}))}
     elif op in ("hold", "unhold"):
         data = {op: getattr(hold_mod, op)(request, **(ctx.get("hold_opts") or {}))}
     elif op == "pool-add":
