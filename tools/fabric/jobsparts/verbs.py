@@ -569,5 +569,7 @@ def move(args, said: dict) -> Job:
         why = " ".join(args.no_artifact.split()) if args.no_artifact is not None else None
         if args.no_artifact is not None and not why:
             raise Refused("--no-artifact needs a reason: fabric-jobs done <id> --no-artifact \"<what was done>\"")
-        return needs.advance(args.id, "done", "done", lambda job: {"no_artifact": why})
+        # Artifacts named on the verb are recorded with the close: a pull request that merged before `deliver` was run is refused by
+        # `deliver` (done, not delivered), and this is the one way to keep it as the job's evidence.
+        return needs.advance(args.id, "done", "done", lambda job: {"no_artifact": why, **({"artifacts": list(dict.fromkeys((job.get("artifacts") or []) + args.artifacts))} if args.artifacts else {})})
     return needs.advance(args.id, "dropped", "drop", lambda job: {"reason": " ".join(args.why.split()), "note": args.why})
