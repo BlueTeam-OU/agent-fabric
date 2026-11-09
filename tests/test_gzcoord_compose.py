@@ -372,7 +372,8 @@ def main() -> int:
                 ("a role address", ["REPLY", "--to-role", "fixture-only-role", "--authorizes", grant]),
                 ("a broadcast", ["REPLY", "--broadcast", "--authorizes", grant]),
                 ("twice", ["REPLY", "--to", session, "--authorizes", grant, "--authorizes", grant])):
-            gone = os.path.join(sandbox, "never-authorizes.txt")
+            # One path per case: a case that wrongly composes would otherwise fail the ones after it for the file.
+            gone = os.path.join(sandbox, f"never-authorizes-{label.replace(' ', '-')}.txt")
             rc, out, err = compose(*argv, "--subject", "s", "-o", gone)
             check(f"{label}: exit 1, a reason on stderr, stdout empty, no file", rc == 1 and "--authorizes" in err
                   and out == "" and not os.path.exists(gone), f"rc={rc}\n{out}{err}")
