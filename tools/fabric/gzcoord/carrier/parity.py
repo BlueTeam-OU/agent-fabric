@@ -413,7 +413,7 @@ def render_markdown(rep: dict, title: str = "InterWeave carrier parity report") 
               "shown to the session once or not, shown again, the relay copy acknowledged.", ""]
         for x in d["pairs"]:
             exercised = x["carrier_only"]
-            why = ("no InterWeave copy" if not x["interweave"] else "the InterWeave copy came after the drill ended, so the sender sent it late"
+            why = ("no InterWeave copy" if not x["interweave"] else "the InterWeave copy arrived outside the drill"
                    if not x["in_drill"] else "the relay delivered it during the outage")
             held = "carrier alone" if exercised else f"NOT exercised ({why}; it does not count)"
             L.append(f"- {x['mid']} to {x['addressee']} ({x['account']}): {held}; shown {x['shown']}"
