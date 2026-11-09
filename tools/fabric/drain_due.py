@@ -266,7 +266,7 @@ def main(argv: list[str] | None = None, now_ms: Callable[[], int] = lambda: int(
     if args.timeout < 1:
         ap.error("--timeout must be at least 1 second")
     try:
-        role = identity.read_binding().get("role")
+        role = identity.binding_record().role
     except SystemExit as e:
         print(f"fabric-drain-due: {e}", file=sys.stderr)
         return 1
