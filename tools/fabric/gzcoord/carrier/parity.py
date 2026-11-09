@@ -254,7 +254,11 @@ def relay_outage(per_account: dict[str, dict], drill: tuple[float, float]) -> di
             flagged = [x for x in finals if x.get("flagged")]
             acks = [x for x in acct["acks"] if x["mid"] == mid and x["addressee"] == addressee]
             relay_first = min(by["relay"]) if by.get("relay") else None
-            held_alone = relay_first is None or relay_first >= drill[1]
+            carrier_first = min(by["interweave"]) if by.get("interweave") else None
+            # Held by the carrier alone means its copy arrived inside the drill and the relay's did not: a pair both
+            # carriers delivered after the relay returned was sent late and proves nothing about the outage.
+            in_drill = carrier_first is not None and drill[0] <= carrier_first < drill[1]
+            held_alone = in_drill and (relay_first is None or relay_first >= drill[1])
             if plain:
                 shown = "once" if len(plain) == 1 else f"{len(plain)} times"
             else:
@@ -262,13 +266,19 @@ def relay_outage(per_account: dict[str, dict], drill: tuple[float, float]) -> di
             again = [("after a restart" if x.get("via") == "interweave" else "on the relay's return") for x in plain[1:]]
             if relay_first is None:
                 acked = "unknown"       # the relay's copy has not arrived (in the collected window): nothing to acknowledge yet
+            elif any(x["ok"] for x in acks):
+                acked = "yes"
+            elif any(not x["ok"] for x in acks) or any(parse_t(x["t"]) <= relay_first for x in acct["acks"]):
+                # "no" is a fact: the relay refused (ok false), or the log was demonstrably kept when the copy arrived
+                # (an earlier line, of any message). The log did not exist before e4424b06; an empty one proves nothing.
+                acked = "no"
             else:
-                acked = "yes" if any(x["ok"] for x in acks) else "no"
+                acked = "unknown"
             pairs.append({"mid": mid, "addressee": addressee, "account": login, "carrier_only": held_alone,
-                          "interweave": bool(by.get("interweave")), "relay_back": relay_first is not None,
+                          "interweave": bool(by.get("interweave")), "in_drill": in_drill, "relay_back": relay_first is not None,
                           "shown": shown, "first_via": plain[0].get("via") if plain else None, "again": again,
                           "flagged_reshow": len(flagged), "acked": acked})
-    exercised = [p for p in pairs if p["carrier_only"] and p["interweave"]]
+    exercised = [p for p in pairs if p["carrier_only"]]
     for p in pairs:
         p["ok"] = None
         if p not in exercised:
@@ -399,12 +409,13 @@ def render_markdown(rep: dict, title: str = "InterWeave carrier parity report") 
         verdict = ("no message was held by the carrier alone" if not d["exercised"] else "the three properties hold" if d["holds"] is True
                    else "A PROPERTY FAILED" if d["holds"] is False else f"UNSETTLED, none failed and {d['unknown']} pair(s) cannot be told yet")
         L += ["", f"## Relay-outage drill ({iso(d['window'][0])} to {iso(d['window'][1])}): {verdict}", "",
-              "Per pair made inside the drill: held by the carrier alone (a relay copy before the drill ended means the pair proves nothing), "
+              "Per pair made inside the drill: held by the carrier alone (the InterWeave copy arrived inside the drill and the relay's did not; otherwise the pair proves nothing), "
               "shown to the session once or not, shown again, the relay copy acknowledged.", ""]
         for x in d["pairs"]:
-            exercised = x["carrier_only"] and x["interweave"]
-            held = "carrier alone" if exercised else "NOT exercised (" + (
-                "the relay delivered it during the outage" if not x["carrier_only"] else "no InterWeave copy") + ")"
+            exercised = x["carrier_only"]
+            why = ("no InterWeave copy" if not x["interweave"] else "the InterWeave copy arrived outside the drill"
+                   if not x["in_drill"] else "the relay delivered it during the outage")
+            held = "carrier alone" if exercised else f"NOT exercised ({why}; it does not count)"
             L.append(f"- {x['mid']} to {x['addressee']} ({x['account']}): {held}; shown {x['shown']}"
                      f"{' by ' + x['first_via'] if x['first_via'] else ''}; shown again: {', '.join(x['again']) or 'no'}; "
                      f"relay copy {'back' if x['relay_back'] else 'not back'}, acknowledged: {x['acked']}"
