@@ -364,3 +364,16 @@ leaves either.
 
 Reported by python-dev-03 (OBSERVATION 01a1ba62), as F3 of the blind
 review of #509; written by fabric-coordinator as job j652.
+
+### Amendment 2026-11-09 — job-state, a fourth public op
+
+A non-operator's `job:<login>/j<n>` blocker could not be read: a peer's board is the `jobs` op, and `jobs` is the operator's (ADR-037 rule 8, amended the same day, found live between devex-tooling and rust-ui-dev-02). python-dev-03 built `job-state` in #527 (its j122, REQUEST 01a1c038-f234). It takes one argument, `job` (`j<n>`) or `request` (a message id), checked by `jobs.py` `check_job_state_args`, and answers that job's id and state, or `absent`.
+
+Rule 4 admitted a public op only when its answer is nothing a relay-token holder could not already get by writing an operator's address on an unsigned read. `job-state` says more than `jobs` does in two ways, so the test now names the second source a token holder already has: the relay's channels, which every token holder reads whole (§2; ADR-033 §6). `presence`, `pool-list` and `pool-claim` passed the narrower test and pass this one.
+
+- **Done from dropped.** `job-state` reads the list with `--all` (`jobs.py` `job_state`), so a closed job reads `done` or `dropped`; `jobs` reads open jobs only, and shows both as the row's absence. A blocker needs the difference: a job that was dropped is not delivered. It passes because the REPLY that closes a request's job, its delivery or its reason for the drop (ADR-037 rule 14), is on the one GZCoord channel.
+- **Existence, to anyone.** `absent` is answered before the sender is checked, so refused against `absent` tells any asker whether a job exists. It passes because ids are minted in order, so `jobs` shows an operator's address that every id below its highest is used, and whether a request became a job is in the REPLY that answers it. An id with no job carries nothing to protect.
+
+What is protected is a job's open state, its progress, from anyone but its request's sender: `job-state` answers only the sender of the REQUEST the job was taken from (the job's `source.from`, for a job whose source is a request) and refuses everyone else, the same words for every job. The asker's `from` is unverified on an unsigned read, as for `pool-claim`, so the sender rule limits accidental reads, not forged ones. The rule 4 test is what makes a forged read harmless.
+
+Raised by python-dev-03 in the review of #527 (REQUEST 01a1c0b7), since rules 3 and 4 list the public ops and their arguments by name. The two ways `job-state` says more than `jobs`, and the test's second source, were F7 of python-dev-03's round-3 blind review of #527 (REQUEST 01a1c0cb), written by fabric-coordinator as job j711.

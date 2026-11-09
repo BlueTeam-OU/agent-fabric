@@ -61,7 +61,7 @@ from .account_drift import FINDINGS_MAX, drift_report, section as _drift_section
 from gzcoord.carrier import CARRIER_NAME
 
 OPS = ["ping", "identity", "usage", "keys", "fabric", "session", "script", "recall", "tokens", "memory", "host", "disk",
-       "accounts", "upgrade", "secrets-sync", "status", "presence", "jobs", "jobs-add", "tools", "tools-install", "local", "local-prune",
+       "accounts", "upgrade", "secrets-sync", "status", "presence", "jobs", "jobs-add", "job-state", "tools", "tools-install", "local", "local-prune",
        "secrets-selftest", "pool-add", "pool-list", "pool-claim", "gateway", "gateway-install", CARRIER_NAME, f"{CARRIER_NAME}-install", f"{CARRIER_NAME}-start", f"{CARRIER_NAME}-stop", f"{CARRIER_NAME}-evidence", "branches", "branches-sweep", "restart",
        "switch", "drift", "clone", "hold", "unhold"]
 
@@ -70,8 +70,10 @@ OPS = ["ping", "identity", "usage", "keys", "fabric", "session", "script", "reca
 # names nothing a relay reader could not already infer (the owner,
 # 2026-09-25: presence moves from HELLO/GOODBYE, now retired, to the
 # control plane). And a role's pool (pool, ADR-037 rule 9): every placed
-# agent lists its role's pool and claims from it, for itself.
-PUBLIC_OPS = ["presence", "pool-list", "pool-claim"]
+# agent lists its role's pool and claims from it, for itself. And one job's
+# state, to the sender of the request it was taken from (job-state,
+# control/jobs.py): the blocker `job:` of a login that is not an operator.
+PUBLIC_OPS = ["presence", "pool-list", "pool-claim", "job-state"]
 
 
 def _harness(ctx: Mapping[str, Any]) -> Any:
