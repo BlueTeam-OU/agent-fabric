@@ -476,6 +476,17 @@ def main() -> int:
         check("build_report reads the binding file once: resolve_context's read, no second raw one", reads == ["read"])
         check("…and role, session and updated_at come from that record",
               (report["role"], report["session"], report["binding_updated"]) == ("db-admin", "s-1", "2026-01-02T03:04:05Z"))
+        with open(os.path.join(agent_dir, "binding.json"), "w", encoding="utf-8") as fh:
+            json.dump({"agent": LOGIN, "host": HOST, "role": 5, "session": "", "updated_at": 7}, fh)
+        os.environ.clear()
+        os.environ.update(env)
+        try:
+            odd, _ = status.build_report(HERE, environ=dict(env), cred_environ=dict(env))
+        finally:
+            os.environ.clear()
+            os.environ.update(saved_env)
+        check("…and a value the record reads as none is none in the report, not the file's raw one (ctx['role'] is raw)",
+              (odd["role"], odd["session"], odd["binding_updated"]) == (None, None, None))
 
     print("ok" if not fails else f"{fails} FAILED")
     return 1 if fails else 0
