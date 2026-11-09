@@ -65,7 +65,7 @@
   "send.not-sent-no-account": "send: не отправлено — чтобы отправить всё равно, укажите --force: это на случай, когда аккаунт как раз сейчас добавляют на хост",
   "send.not-sent-role": "send: не отправлено — и с --force не отправится",
   "send.warning": "send: предупреждение: {detail}",
-  "send.authorizes-in-body": "send: предупреждение: строка AUTHORIZES: в разделе ничего не разрешает — fabric-pr arm читает её только из блока метаданных; запишите её в блок метаданных командой gzcoord-compose --authorizes <owner>/<repo>#<n>@<sha>",
+  "send.authorizes-in-body": "send: предупреждение: это сообщение отправлено, но строка AUTHORIZES: в разделе ничего не разрешает — fabric-pr arm читает её только из блока метаданных; отправьте новое сообщение командой gzcoord-compose --authorizes <owner>/<repo>#<n>@<sha>",
   "send.error": "send: {detail}",
   "send.does-not-validate": "send: не отправлено — сообщение не проходит проверку",
   "send.fallback-reminder": "send: напоминание — в {at} эта сессия перешла с {from_model} на {to_model}: защита отнесла запрос к категории {topic}. Уберите из этого сообщения всё, что относится к {topic_again}: назовите, где находка и какого она класса, но не её содержание.",
