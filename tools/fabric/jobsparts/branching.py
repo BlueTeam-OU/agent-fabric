@@ -4,7 +4,8 @@ A part of tools/fabric/jobs.py, whose docstring is the contract.
 The order: the for/ branch a supply job's request names (job["deliver_to"]), unless a pull request from it merged; else the job's own
 recorded branch, always: a job that records a branch is resumed on it (its worktree recreated from the branch when gone) and is never
 given another job's, so a branch that has landed or is gone from this clone and origin is refused, said, never replaced (the one
-exception: a paused job asked to --repoint is taken from a landed branch to this agent's one open pull request); only a job
+exception: a paused job asked to --repoint is taken from a landed branch to this agent's one open pull request, which may be armed
+if it is in no merge queue); only a job
 with no branch gets one: this agent's open pull request in the repository, when it is still addable; else, for a job that needs that
 pull request merged first, a block on it; else a new branch off the freshly fetched default branch. Whatever is chosen is never behind
 the default branch: an existing branch gets the default merged into it, locally and unpushed, in a worktree of its own."""
@@ -89,14 +90,19 @@ def _my_open_prs(repo: str) -> list[dict]:
     return [r for r in rows if isinstance(r, dict) and str(r.get("headRefName", "")).startswith(prefix)]
 
 
-def _addable(repo: str, number: int) -> str | None:
-    """None when pull request `number` can take another commit, else why not."""
+def _row(repo: str, number: int) -> dict:
     counts = _load("fabric_pr_counts", os.path.join(FABRIC_ROOT, "tools", "fabric", "github", "pr_counts.py"))
     rows = counts.count_rows([f"{repo}#{number}"])
-    row = rows[0] if rows else {}
+    return rows[0] if rows else {}
+
+
+def _addable(repo: str, number: int, held_ok: bool = False) -> str | None:
+    """None when pull request `number` can take another commit, else why not. `held_ok`: an armed pull request that is in no merge queue
+    takes one (its first push disarms it); a queued one never does, a push races the queue."""
+    row = _row(repo, number)
     if not row.get("ok") or row.get("state") != "open" or not isinstance(row.get("work"), int):
         return f"{repo}#{number} could not be read ({row.get('error') or row.get('line') or 'no row'})"
-    if row.get("armed") != "unarmed":
+    if row.get("armed") != "unarmed" and not (held_ok and row.get("armed") == "armed"):
         return f"{repo}#{number} is {row.get('armed')}"
     if row["work"] >= WORK_COMMITS_MAX:
         return f"{repo}#{number} holds {row['work']} work commits"
@@ -117,11 +123,13 @@ def _repoint(wc: str, repo: str, job: dict, landed: str, default: str) -> Choice
         raise Refused(f"{job['id']} records branch {landed}, which a pull request has landed, and --repoint needs exactly one open pull request "
                       f"of this login to take it to: {found}; close {job['id']} (fabric-jobs done or drop), or switch to another job by its id")
     number, head = int(mine[0]["number"]), str(mine[0]["headRefName"])
-    why = _addable(repo, number)
+    why = _addable(repo, number, held_ok=True)
     if why is not None:
         raise Refused(f"{job['id']} records branch {landed}, which a pull request has landed, and the one open pull request cannot take it: {why}")
+    # A second read, only here: `_addable` answers yes or no, and the agent must be told the push it is about to make disarms the pull request.
+    armed = ("; it is armed (held, in no merge queue): the first push disarms it" if _row(repo, number).get("armed") == "armed" else "")
     return Choice("open-pr", head, bring_up_to_date(wc, head, default), number, repo,
-                  f"re-pointed from {landed}, which a pull request landed, to your open pull request #{number}", repointed=True)
+                  f"re-pointed from {landed}, which a pull request landed, to your open pull request #{number}{armed}", repointed=True)
 
 
 def _resume(wc: str, repo: str, job: dict, default: str, repoint: bool) -> Choice:
