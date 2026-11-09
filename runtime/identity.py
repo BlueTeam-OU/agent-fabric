@@ -667,6 +667,7 @@ class BindingRecord:
     project: str | None
     working_copy: str | None
     session: str | None = None   # as recorded and unchecked: a reader that resumes it validates its shape (sessions.py)
+    updated_at: str | None = None   # as recorded and unchecked: fabric-status prints it
 
 
 @_frozen
@@ -726,7 +727,7 @@ def _record(agent: str, binding: dict) -> BindingRecord:
     path = binding_path(agent)
     return BindingRecord(file=path, present=os.path.lexists(path), role=_text(binding.get("role")),
                          project=_text(binding.get("project")), working_copy=_text(binding.get("working_copy")),
-                         session=_text(binding.get("session")))
+                         session=_text(binding.get("session")), updated_at=_text(binding.get("updated_at")))
 
 
 def resolve_context(cwd: str | None = None, session: str | None = None,
