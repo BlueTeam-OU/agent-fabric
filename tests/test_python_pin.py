@@ -8,6 +8,7 @@ refused, a build whose wheel is not the pinned version rebuilt, and a
 pinned import that fails refused."""
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import io
 import json
@@ -17,6 +18,7 @@ import subprocess
 import sys
 import tarfile
 import tempfile
+import urllib.error
 
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(HERE, "tools", "fabric"))
@@ -191,6 +193,63 @@ def legacy_flat_build(check) -> None:
               pp.builds_of(pinned, prefix) == [stem], pp.builds_of(pinned, prefix))
 
 
+def download_retry(check) -> None:
+    """_download through its urlopen and sleep seams: no network, no wait."""
+
+    class Body(io.BytesIO):
+        def __enter__(self):
+            return self
+
+    def run(script, dest):
+        calls, slept, err = [], [], io.StringIO()
+
+        def urlopen(url, timeout):
+            calls.append(timeout)
+            step = script[len(calls) - 1]
+            if isinstance(step, BaseException):
+                raise step
+            return step if isinstance(step, io.IOBase) else Body(step)
+
+        try:
+            with contextlib.redirect_stderr(err):
+                pp._download("http://host/x", dest, urlopen=urlopen, sleep=slept.append)
+            return None, calls, slept, err.getvalue()
+        except Exception as e:
+            return e, calls, slept, err.getvalue()
+
+    def http(code):
+        return urllib.error.HTTPError("http://host/x", code, "msg", {}, None)
+
+    with tempfile.TemporaryDirectory() as tmp:
+        dest = os.path.join(tmp, "f")
+        e, calls, slept, err = run([http(504), urllib.error.URLError("reset"), TimeoutError("slow"), b"good"], dest)
+        check("a 504, a URLError and a timeout are retried, then the download lands",
+              e is None and len(calls) == 4 and open(dest, "rb").read() == b"good", (e, calls))
+        check("…with a short backoff and one stderr line per retry naming attempt and error",
+              slept == list(pp.RETRY_BACKOFF) and len(err.splitlines()) == 3
+              and "attempt 1" in err and "504" in err and "attempt 3" in err and "slow" in err, (slept, err))
+
+        e, calls, slept, err = run([http(404), b"never"], dest)
+        check("a 404 fails at once: one request, no sleep, no retry line, the HTTPError raised",
+              isinstance(e, urllib.error.HTTPError) and e.code == 404 and len(calls) == 1 and not slept and not err, (e, calls))
+        check("…and no file is left", not os.path.lexists(dest))
+
+        e, calls, slept, err = run([http(503)] * (len(pp.RETRY_BACKOFF) + 2), dest)
+        check("a failure that persists stops after the fixed number of attempts and raises",
+              isinstance(e, urllib.error.HTTPError) and len(calls) == len(pp.RETRY_BACKOFF) + 1
+              and len(slept) == len(pp.RETRY_BACKOFF) and not os.path.lexists(dest), (e, calls))
+
+        class Cut(io.BytesIO):
+            def read(self, n=-1):
+                raise TimeoutError("cut mid-body")
+
+        with open(dest, "wb") as f:
+            f.write(b"stale")
+        e, calls, slept, err = run([Cut(b"partial"), b"whole"], dest)
+        check("a body cut off mid-read is retried and the file holds only the last attempt",
+              e is None and open(dest, "rb").read() == b"whole", (e, open(dest, "rb").read()))
+
+
 def main() -> int:
     fails = 0
 
@@ -334,6 +393,7 @@ def main() -> int:
             check("a build that cannot import a pinned module is refused, naming it",
                   "cannot import" in str(e) and "missing" in str(e) and pp.check(q2, wprefix, wlink, "x86_64") is None, e)
 
+    download_retry(check)
     kill_matrix(check)
     legacy_flat_build(check)
 
