@@ -9,7 +9,7 @@ import re
 from collections import defaultdict
 from typing import Callable, Any
 from corrections import section_key
-from assembler.core import layout, TIER1, CHARS_PER_TOKEN, UNKNOWN_ORIGIN, CLASS_FILES, origin_key, render_frontmatter, hygiene_check, hygiene_substitute, patterns_for, DESCRIPTION_MAX, Run, base_for, in_report
+from assembler.core import one_line, layout, TIER1, CHARS_PER_TOKEN, UNKNOWN_ORIGIN, CLASS_FILES, origin_key, render_frontmatter, hygiene_check, hygiene_substitute, patterns_for, DESCRIPTION_MAX, Run, base_for, in_report
 from assembler.slices import retire_in_siblings, sibling_parts, remove_sections, restamp, read_existing_slice, OBSERVED_RE, undated, claim_heading, absorbed, claim_block, is_retire
 from assembler.shapes import report_home
 from assembler.targets import existing_sections, is_budget_part, slice_candidates, is_carried
@@ -501,7 +501,8 @@ def described(path: str, fallback: str) -> str:
             description = json.loads(description)
         except json.JSONDecodeError:
             description = description.strip('"')
-    return description
+    # A slice written before titles were made one line may hold a decoded break; an INDEX entry is one line.
+    return one_line(description)
 
 
 def retire_writers(run: Run, keys: list[str]) -> None:

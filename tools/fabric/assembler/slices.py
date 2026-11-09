@@ -12,7 +12,7 @@ from assembler.core import layout, yaml_scalar
 
 
 REPORT_LISTS = ("files", "hygiene_problems", "rejected_hygiene", "redactions", "retired_in_siblings",
-                "oversized_claims", "oversized_claim_details", "clipped_descriptions", "migrated", "merge_target_unresolved", "superseded_harvests", "reharvested_replaced", "held_back")
+                "oversized_claims", "oversized_claim_details", "clipped_descriptions", "migrated", "merge_target_unresolved", "superseded_harvests", "reharvested_replaced", "held_back", "held_unbound_role", "anchors_kept", "titles_one_lined")
 
 
 def drop_held(report: dict[str, Any], keys: list[str], paths: set[str]) -> None:
@@ -32,7 +32,7 @@ def drop_held(report: dict[str, Any], keys: list[str], paths: set[str]) -> None:
         return isinstance(item, str) and (any(item == p or item.startswith(p + ":") for p in paths)
                                           or any(n.match(item) for n in slice_names))
     for key in REPORT_LISTS:
-        if key != "held_back":
+        if key not in ("held_back", "held_unbound_role"):
             report[key] = [x for x in report.get(key) or [] if not names_held(x)]
     report["files_written"] = len(report["files"])
     held_shared = {k.partition("/")[2] for k in keys if k.startswith("shared/")}
@@ -358,6 +358,31 @@ def parse_slice(text: str) -> tuple[dict[str, Any], dict[str, str]]:
         heading, _, rest = part.partition("\n")
         sections[heading.strip()] = rest.strip()
     return meta, sections
+
+
+# CommonMark lets a fence, opening or closing, stand up to three spaces in.
+FENCE_RE = re.compile(r"^ {0,3}(?P<fence>`{3,}|~{3,}).*?^ {0,3}(?P=fence)[ \t]*$", re.M | re.S)
+# A span closes on a run of the same length as the one that opened it (CommonMark), so ``a ` b`` is one span.
+# A span stops at a blank line (CommonMark): a lone backtick pairs with none in a later paragraph and blanks the links between.
+SPAN_RE = re.compile(r"(?<!`)(`+)(?!`)((?:(?!\n[ \t]*\n).)+?)(?<!`)\1(?!`)", re.S)
+
+
+def without_code(text: str) -> str:
+    """The text with fenced blocks and inline code spans blanked: a `[[x]]` written there is an example, not a citation."""
+    text = FENCE_RE.sub(lambda m: "\n" * m.group(0).count("\n"), text)
+    # An unclosed fence quotes everything after it.
+    unclosed = re.search(r"^ {0,3}(`{3,}|~{3,})", text, re.M)
+    if unclosed:
+        text = text[:unclosed.start()]
+    return SPAN_RE.sub(lambda m: " " * len(m.group(0)), text)
+
+
+def cited_outside_code(body: str, names: list[str]) -> list[str]:
+    """`names` (the memories a claim cites, as the harvest read them from every `[[name]]` of the body, code or not:
+    harvest_memory.WIKILINK_RE) without those the body writes only in code. A code span is literal text, so a link in one
+    is no citation; a name the body does not write as a link at all was cited some other way and stays."""
+    bare = without_code(body)
+    return [n for n in names if f"[[{n}]]" not in body or f"[[{n}]]" in bare]
 
 
 # ADR-050 rule 1: the anchors of a section, on a line of their own above its *Observed* tail, each in
