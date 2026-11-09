@@ -1409,6 +1409,18 @@ def main() -> int:
                 check("--repoint onto a queued pull request is refused, saying it is queued; the record is as it was",
                       rc == 1 and "is queued" in err and w.job(ja)["branch"] == a["branch"] and w.job(ja)["state"] == "paused", out + err + repr(w.job(ja)))
 
+        # F1 of the review: the scripted caller reads the armed warning in --json too.
+        w, ((ja, a), (jb, b)) = two_with_branches()
+        gh_says(merged_heads=[a["branch"]], open_prs=[pr40])
+        row_over[40] = {"ok": True, "state": "open", "armed": "armed", "work": 3}
+        try:
+            rc, out, err = w.switch(ja, "--repoint", "--json", cwd=b["worktree"])
+        finally:
+            row_over.pop(40, None)
+        # Kills: dropping "note" from the --json object.
+        check("--repoint --json onto an armed pull request carries the note that it is armed and the first push disarms it",
+              rc == 0 and "first push disarms it" in json.loads(out).get("note", ""), out + err)
+
         # Without the flag, a job with no branch is not put on an armed pull request: through `choose`, the real _addable.
         w, ((ja, a), (jb, b)) = two_with_branches()
         jc = w.add("gamma")

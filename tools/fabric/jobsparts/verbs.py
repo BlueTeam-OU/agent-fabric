@@ -356,7 +356,7 @@ def switch_job(args) -> int:
         for said in swept:
             print(said, file=sys.stderr)      # stdout is the one JSON object
         print(json.dumps({**verdict, "branch": choice.branch, "worktree": choice.worktree, "branch_kind": choice.kind, "settled": settled,
-                          "sharing": verdict_for.get("sharing", [])},
+                          "note": choice.note, "sharing": verdict_for.get("sharing", [])},
                          ensure_ascii=False, indent=2))
         return 0
     print(line(job) + verdict_for["was_cleared"])
