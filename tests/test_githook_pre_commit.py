@@ -827,6 +827,17 @@ class EvidenceCaps(PreCommit):
         self.assertEqual(r.returncode, 1, r.stderr)
         self.assertIn("tools/fabric/evx.py:3: cap:", r.stderr)
 
+    def test_a_commit_that_only_drops_an_entry_judges_its_module(self):
+        # Mutation: the module of a removed entry not judged (a commit staging only the list returns early).
+        repo = self.fabric.itself({"tools/fabric/evx.py": self.COPY,
+                                   self.POLICY: json.dumps({"modules": {"tools/fabric/evx.py": "a test"}})})
+        repo.write(self.POLICY, json.dumps({"modules": {}}))
+        repo.git("add", self.POLICY)
+        self.fabric.bind("fabric-coordinator")
+        r = self.run_hook(repo)
+        self.assertEqual(r.returncode, 1, r.stderr)
+        self.assertIn("tools/fabric/evx.py:3: cap:", r.stderr)
+
     def test_a_list_that_is_not_json_refuses(self):
         repo = self.fabric.itself()
         repo.stage("tools/fabric/x.py", "x = 1\n")
@@ -872,6 +883,17 @@ class ProcessSpawns(PreCommit):
         repo = self.fabric.itself({"tools/fabric/spx.py": self.SPAWN,
                                    self.POLICY: json.dumps({"spawns": {"tools/fabric/spx.py": "a test"}})})
         repo.git("rm", "-q", self.POLICY)
+        self.fabric.bind("fabric-coordinator")
+        r = self.run_hook(repo)
+        self.assertEqual(r.returncode, 1, r.stderr)
+        self.assertIn("tools/fabric/spx.py:4:", r.stderr)
+
+    def test_a_commit_that_only_drops_an_entry_judges_its_module(self):
+        # Mutation: the module of a removed entry not judged (a commit staging only the list returns early).
+        repo = self.fabric.itself({"tools/fabric/spx.py": self.SPAWN,
+                                   self.POLICY: json.dumps({"spawns": {"tools/fabric/spx.py": "a test"}})})
+        repo.write(self.POLICY, json.dumps({"spawns": {}}))
+        repo.git("add", self.POLICY)
         self.fabric.bind("fabric-coordinator")
         r = self.run_hook(repo)
         self.assertEqual(r.returncode, 1, r.stderr)
@@ -928,6 +950,17 @@ class WorkWrites(PreCommit):
         self.assertEqual(r.returncode, 1, r.stderr)
         self.assertIn("tools/fabric/wx.py:2:", r.stderr)
 
+    def test_a_commit_that_only_drops_an_entry_judges_its_module(self):
+        # Mutation: the module of a removed entry not judged (a commit staging only the list returns early).
+        repo = self.fabric.itself({"tools/fabric/wx.py": self.WRITE,
+                                   self.POLICY: json.dumps({"writes": {"tools/fabric/wx.py": "a test"}})})
+        repo.write(self.POLICY, json.dumps({"writes": {}}))
+        repo.git("add", self.POLICY)
+        self.fabric.bind("fabric-coordinator")
+        r = self.run_hook(repo)
+        self.assertEqual(r.returncode, 1, r.stderr)
+        self.assertIn("tools/fabric/wx.py:2:", r.stderr)
+
     def test_a_list_that_is_not_json_refuses(self):
         repo = self.fabric.itself()
         repo.stage("tools/fabric/x.py", "x = 1\n")
@@ -974,6 +1007,17 @@ class TransportCalls(PreCommit):
         repo = self.fabric.itself({"tools/fabric/wx.py": self.WRITE,
                                    self.POLICY: json.dumps({"calls": {"tools/fabric/wx.py": "a test"}})})
         repo.git("rm", "-q", self.POLICY)
+        self.fabric.bind("fabric-coordinator")
+        r = self.run_hook(repo)
+        self.assertEqual(r.returncode, 1, r.stderr)
+        self.assertIn("tools/fabric/wx.py:2:", r.stderr)
+
+    def test_a_commit_that_only_drops_an_entry_judges_its_module(self):
+        # Mutation: the module of a removed entry not judged (a commit staging only the list returns early).
+        repo = self.fabric.itself({"tools/fabric/wx.py": self.WRITE,
+                                   self.POLICY: json.dumps({"calls": {"tools/fabric/wx.py": "a test"}})})
+        repo.write(self.POLICY, json.dumps({"calls": {}}))
+        repo.git("add", self.POLICY)
         self.fabric.bind("fabric-coordinator")
         r = self.run_hook(repo)
         self.assertEqual(r.returncode, 1, r.stderr)
