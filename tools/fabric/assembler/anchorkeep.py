@@ -11,7 +11,7 @@ and the report names the corpus anchor that resolves and the one that is gone (a
 
 Judged the way memory_check judges (judge_anchor, in the checkouts the slice's origin names): only an incoming anchor that
 is gone (stale-hard) is replaced, and only by a corpus anchor that is there. An anchor that cannot be looked at (no checkout
-beside the tree) is unknown, never gone, and stands as the claim wrote it. An anchor of another file or string is another
+beside the tree, none given by --working-copy PROJECT=DIR) is unknown, never gone, and stands as the claim wrote it. An anchor of another file or string is another
 anchor: the author's new anchor is not replaced by the old one for being older.
 """
 from __future__ import annotations
@@ -45,8 +45,9 @@ def corpus_of(run: Run, path: str) -> tuple[str, str | None]:
 def verdict(run: Run, anchor: str, path: str, meta: dict[str, Any], history: Any) -> str:
     tree, own = corpus_of(run, path)
     project = anchors.split(anchor)[0]
-    trees, missing = (memory_check.named_trees(project, meta, tree, own) if project
-                      else memory_check.origin_trees(meta, tree, own))
+    given = getattr(run.args, "checkouts", None) or {}     # --working-copy PROJECT=DIR: where lint was told they are
+    trees, missing = (memory_check.named_trees(project, meta, tree, own, given) if project
+                      else memory_check.origin_trees(meta, tree, own, given))
     return memory_check.judge_anchor(anchor, trees, missing, None, history)["status"]
 
 

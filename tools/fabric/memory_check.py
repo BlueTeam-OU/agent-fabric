@@ -195,11 +195,13 @@ def known_dirs(tree: str) -> set[str]:
         raise Refused(f"cannot read the tree {tree}: {e.strerror or e}") from None
 
 
-def origin_trees(meta: dict, tree: str, own_project: str | None) -> tuple[list[str], list[str]]:
+def origin_trees(meta: dict, tree: str, own_project: str | None,
+                 checkouts: dict[str, str] | None = None) -> tuple[list[str], list[str]]:
     """(the trees this slice's paths may belong to that are here, why each other is not).
     A slice says where it came from (front matter `origin`: project and working_copy):
     the tree's own project's paths are the tree's, another project's are in the checkout
-    beside the tree that working_copy names, if there is one. No origin: the tree."""
+    beside the tree that working_copy names, if there is one. No origin: the tree. `checkouts` (project -> directory,
+    given by a caller that was told where they are) is looked in before the neighbours of the tree."""
     origins = [o for o in (meta.get("origin") or []) if isinstance(o, dict)]
     if not origins:
         return [tree], []
@@ -210,8 +212,8 @@ def origin_trees(meta: dict, tree: str, own_project: str | None) -> tuple[list[s
         if own_project is None or project is None or project == own_project:
             found = tree
         else:
-            found = None
-            if isinstance(wc, str) and wc and "/" not in wc and wc not in (".", ".."):
+            found = (checkouts or {}).get(project) if readable_dir((checkouts or {}).get(project) or "") else None
+            if found is None and isinstance(wc, str) and wc and "/" not in wc and wc not in (".", ".."):
                 beside = os.path.normpath(os.path.join(tree, "..", wc))
                 found = beside if readable_dir(beside) else None
             if found is None:
@@ -223,12 +225,16 @@ def origin_trees(meta: dict, tree: str, own_project: str | None) -> tuple[list[s
     return here, sorted(set(missing))
 
 
-def named_trees(project: str, meta: dict, tree: str, own_project: str | None) -> tuple[list[str], list[str]]:
+def named_trees(project: str, meta: dict, tree: str, own_project: str | None,
+                checkouts: dict[str, str] | None = None) -> tuple[list[str], list[str]]:
     """(the checkout a named anchor `<project>:…` is judged in if it is here, why not). The corpus's own project
     is the tree; another is the checkout beside the tree named by the slice's origin working_copy for that project,
     else by the project id itself. Absent, the answer is "unknown": the caller reads it as unchecked, never gone."""
     if project == own_project:
         return [tree], []
+    given = (checkouts or {}).get(project)
+    if given and readable_dir(given):
+        return [given], []
     wc = project
     for o in meta.get("origin") or []:
         if isinstance(o, dict) and o.get("project") == project and isinstance(o.get("working_copy"), str) and o["working_copy"]:

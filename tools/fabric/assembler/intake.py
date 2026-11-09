@@ -24,10 +24,12 @@ def parse_args() -> argparse.Namespace:
                     help="logical project id the project-scoped classes are filed under")
     ap.add_argument("--fabric", default=None,
                     help="agent-fabric root (default: this checkout; an exported AGENT_FABRIC_ROOT or AGENT_FABRIC_OPERATOR naming another tree is refused)")
-    ap.add_argument("--working-copy", default=None,
+    ap.add_argument("--working-copy", action="append", default=[], metavar="[PROJECT=]DIR",
                     help="the project's checkout; its .agent-fabric/memory/ receives the "
                          "project-scoped classes (default: the agent's binding, or this checkout "
-                         "for agent-fabric itself)")
+                         "for agent-fabric itself). PROJECT=DIR, repeatable as lint takes it, tells the anchor guard "
+                         "where another project's checkout is, so it judges an anchor there and not only in a "
+                         "checkout beside the tree")
     ap.add_argument("--stamp", required=True, help="distillation date (YYYY-MM-DD)")
     ap.add_argument("--budget", type=int, default=DEFAULT_SLICE_BUDGET_TOKENS)
     ap.add_argument("--hold", default=None, metavar="FILE",
@@ -50,6 +52,17 @@ def parse_args() -> argparse.Namespace:
     args = ap.parse_args()
     if args.send and not args.flags:
         ap.error("--send goes with --flags")
+    given, args.working_copy, args.checkouts = args.working_copy, None, {}
+    for wc in given:
+        project, sep, path = wc.partition("=")
+        if not sep:
+            if args.working_copy:
+                ap.error("--working-copy without PROJECT= is the --project's checkout, and is given once")
+            args.working_copy = wc
+        elif not project or not os.path.isdir(path):
+            ap.error(f"--working-copy {wc!r}: {'no project named' if not project else path + ' is no directory'}")
+        else:
+            args.checkouts[project] = os.path.abspath(path)
     if memory_horizons.day(args.stamp) is None:
         ap.error(f"--stamp {args.stamp!r} is no YYYY-MM-DD date")       # before anything is written: the horizons need it
     if args.bundle:

@@ -322,6 +322,43 @@ def test_a_resolving_corpus_anchor_replaced_by_one_that_is_gone_is_reported_not_
             assert (f"{corpus_anchor} -> {incoming}" in proc.stderr) == bool(want), (name, proc.stderr)
 
 
+def test_a_checkout_given_by_working_copy_project_dir_is_where_the_guard_judges(tmp: str) -> None:
+    """Drain of 2026-11-08 replay (a): the drain's checkouts sat under its own directory, beside nothing, and lint was told
+    where with `--working-copy PROJECT=DIR`; the guard looked only beside the tree, found nothing, read the corpus's
+    anchor as unknown and let the harvest's old one replace it. Given by the flag, the checkout is the one the guard
+    judges in. The control: a project the map does not name stays unknown, and unknown is never swapped."""
+    for name, mapped in (("given", True), ("control: not given", False)):
+        with tempfile.TemporaryDirectory() as sub:
+            drain, claims_dir, out = ta.build(sub, {"alpha": ta.claims("alpha", [anchored(["gzapp:src/b.py::marker"])])})
+            ta.with_agents(drain, {"h1": "dev-01"})
+            ta.write_registry(out)
+            elsewhere = os.path.join(sub, "drain-wt", "gzapp")          # beside no tree of this run
+            seed_file(elsewhere, "src/b.py", "a marker\n")
+            flag = ("--working-copy", f"gzapp={elsewhere}") if mapped else ()
+            # The corpus is written with the anchor in place: the first run has no standing anchor to compare with.
+            assert ta.run_assemble(drain, claims_dir, out, *flag).returncode == 0
+            with open(os.path.join(claims_dir, "alpha.json"), "w", encoding="utf-8") as fh:
+                json.dump(ta.claims("alpha", [anchored(["src/b.py::marker"])]), fh)
+            proc = ta.run_assemble(drain, claims_dir, out, *flag)
+            assert proc.returncode == 0, (name, proc.stderr)
+            text = ta.read(ta.proj(out, "alpha", "solution.md"))
+            if mapped:
+                # incoming `src/b.py::marker` is judged in the demo project's own tree (gone) and the corpus's in the mapped one
+                assert "*Anchors: `gzapp:src/b.py::marker`*" in text and "`src/b.py::marker`" not in text, text
+                assert [r["kept"] for r in report(out)["anchors_kept"]] == ["gzapp:src/b.py::marker"], report(out)
+            else:
+                assert "*Anchors: `src/b.py::marker`*" in text, text
+                assert report(out)["anchors_kept"] == [], report(out)
+
+
+def test_a_working_copy_project_dir_that_is_no_directory_is_refused_with_its_name(tmp: str) -> None:
+    drain, claims_dir, out = ta.build(tmp, {"alpha": ta.claims("alpha", [anchored(["a.py"])])})
+    missing = os.path.join(tmp, "no-such-checkout")
+    proc = ta.run_assemble(drain, claims_dir, out, "--working-copy", f"gzapp={missing}")
+    assert proc.returncode == 2 and f"gzapp={missing}" in proc.stderr, (proc.returncode, proc.stderr)
+    assert not os.path.exists(ta.proj(out, "alpha", "solution.md"))
+
+
 def test_a_link_in_a_code_span_is_not_cited(tmp: str) -> None:
     """Drain of 2026-11-08 (j663): the harvest cites every `[[x]]` of a body, code or not, and the section carried it in
     its References line. A code span is literal text. The link written outside code is still cited (the control), and
@@ -446,6 +483,8 @@ def main() -> int:
         test_an_anchor_that_resolves_is_not_replaced_by_one_that_does_not,
         test_an_incoming_anchor_that_resolves_stands_and_so_does_one_that_cannot_be_judged,
         test_a_resolving_corpus_anchor_replaced_by_one_that_is_gone_is_reported_not_changed,
+        test_a_checkout_given_by_working_copy_project_dir_is_where_the_guard_judges,
+        test_a_working_copy_project_dir_that_is_no_directory_is_refused_with_its_name,
         test_a_link_in_a_code_span_is_not_cited,
         test_a_toml_array_header_in_a_code_span_is_not_cited,
         test_a_title_made_one_line_is_not_told_for_a_held_slice,
