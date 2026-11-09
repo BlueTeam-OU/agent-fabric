@@ -95,6 +95,7 @@ class FakeAdapter:
 
 def main() -> int:
     scratch = tempfile.mkdtemp(prefix="transport-")
+    hosts = None
     try:
         # ── the relay as a Primary ───────────────────────────────────────────────────────────────────────────────
         stub = Stub({("POST", "/api/send"): (200, {"seq": 42, "deduplicated": True}),
@@ -322,7 +323,10 @@ def main() -> int:
               len(classified) == 1 and classified[0]["iw"]["mid"] == "D-2" and classified[0]["rec"]["seq"] == CARRIER_NAME,
               f"{classified}")
     finally:
-        shutil.rmtree(scratch, ignore_errors=True)
+        if hosts is not None:
+            hosts.close()
+        for d in [scratch, *P.SCRATCH]:
+            shutil.rmtree(d, ignore_errors=True)
     print(f"\ntest_gzcoord_transport: {'OK' if not fails else f'FAILED — {fails} check(s)'}")
     return 1 if fails else 0
 

@@ -40,6 +40,10 @@ def main() -> int:
         ("a concatenated path", 'api("/api/wait?" + urlencode(q))\n'),
         ("a path in a keyword", 'api(tok, path="/api/messages")\n'),
         ("a variable path with the relay's url named", 'api(tok, p, relay_url=cfg["relay_url"], **init)\n'),
+        ("the relay's url positional", 'inbox.api(tok, path, relay_url)\n'),
+        ("the relay's url as an attribute in an argument", 'api(tok, q, self.relay_url, method="POST")\n'),
+        ("three positional arguments", 'relay.api(tok, p, u)\n'),
+        ("a call through an alias of the relay's api", 'from .inbox_parts.relay import api as post\npost(tok, "/api/send", u)\n'),
         ("the call in a nested function", 'def f():\n    def g():\n        return client.api(t, "/api/x")\n'),
     ):
         got = found(SEND, src)
@@ -49,6 +53,8 @@ def main() -> int:
         ("gh.api of a repository path", 'gh.api("repos/o/r/pulls/7")\n'),
         ("gh.api of a path that starts like the relay's", 'gh.api("/api/v3/x")\n'),
         ("an api() with a path that is not the relay's", 'api("/repos/x")\n'),
+        ("an alias import that is never called", 'from .inbox_parts.relay import api as post\n'),
+        ("an api imported from a module that is not the relay's, called with one argument", 'from x import api as post\npost("p")\n'),
         ("a function named api that is only defined", 'def api(tok, path):\n    return path\n'),
         ("a string that mentions /api/ and is not a call's argument", 'URL = "/api/send"\n'),
         ("a call of something else with a relay path", 'fetch(tok, "/api/send")\n'),

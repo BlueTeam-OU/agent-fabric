@@ -74,7 +74,7 @@ def wait_loop(fetch_page: Callable[[int, threading.Event], Any], ack: Callable[[
     (ADR-064: the relay is the channel of record, not the only one). If nothing is delivered the error is raised as
     without a carrier; if the carrier delivers, the result carries it as `relayError` and the caller must still report it.
 
-    `iw` is the second carrier's adapter (carrier/adapter.py), None when there is none: it only supplies `unseen`, the arrivals
+    `iw` is anything with `unseen()` (the TransportMux of gzcoord/transport/), None when there is no mirror: it only supplies `unseen`, the arrivals
     the carrier journaled, which pass through the same ledger as a relay record. `ledger` (carrier/ledger.py) decides what is shown:
     with one, a delivered result carries `ledger`, the exclusive lock still held, and the caller must `finish()` it once it has
     written the page (or `release()` it if it could not), and then run `ack_later` (inbox.show_page does all three). The lock is taken before the relay's acknowledgement and the pending

@@ -4,7 +4,8 @@ predicate (message-transport in policies/mechanisms.json). Delivery has one owne
 from its factory and name neither the relay nor the second carrier. Two findings, anywhere else in the fabric's Python:
 
 - **relay**: a call to `api` (bare, or `x.api`, but not `gh.api`) that is a call of the relay's HTTP client: an argument holds
-  a path that starts `/api/`, or the call names a `relay_url`.
+  a path that starts `/api/`, or the call names a `relay_url` (by keyword or in an argument), or passes three positional
+  arguments, or goes through a name the relay's api was imported as.
 - **carrier**: an import of the carrier's adapter (`from .carrier import adapter`, `from gzcoord.carrier.adapter import …`,
   `import gzcoord.carrier.adapter`).
 
@@ -58,11 +59,26 @@ def _names_relay_path(node: ast.AST) -> bool:
                for n in ast.walk(node))
 
 
-def _relay_call(call: ast.Call) -> bool:
+def _mentions_relay_url(node: ast.AST) -> bool:
+    return any(_name(n) == "relay_url" for n in ast.walk(node) if isinstance(n, (ast.Name, ast.Attribute)))
+
+
+def _relay_aliases(tree: ast.Module) -> set[str]:
+    """Local names the relay client's api is imported under (`from .inbox_parts.relay import api as post`)."""
+    return {a.asname or a.name for n in ast.walk(tree) if isinstance(n, ast.ImportFrom) and (n.module or "").split(".")[-1] == "relay"
+            for a in n.names if a.name == "api"}
+
+
+def _relay_call(call: ast.Call, aliases: frozenset[str] | set[str] = frozenset()) -> bool:
+    """An `api(...)` that is the relay client's: a path that starts `/api/` among its arguments, a `relay_url` named by keyword
+    or mentioned in any argument, three or more positional arguments (token, path, url — gh.api takes one), or a call through a
+    name the relay's api was imported as."""
+    if isinstance(call.func, ast.Name) and call.func.id in aliases:
+        return True
     if _name(call.func) != "api" or _owner(call.func) == "gh":
         return False
-    return any(_names_relay_path(a) for a in call.args) \
-        or any(k.arg == "relay_url" or _names_relay_path(k.value) for k in call.keywords)
+    return len(call.args) >= 3 or any(_names_relay_path(a) or _mentions_relay_url(a) for a in call.args) \
+        or any(k.arg == "relay_url" or _names_relay_path(k.value) or _mentions_relay_url(k.value) for k in call.keywords)
 
 
 def _carrier_import(node: ast.AST) -> bool:
@@ -85,8 +101,9 @@ def scan(rel: str, text: str, allowed: dict[str, str]) -> list[str]:
     except SyntaxError:
         return []   # ruff refuses it in CI; a commit of a half-merged module is not this rule's to stop
     out = []
+    aliases = _relay_aliases(tree)
     for node in ast.walk(tree):
-        if isinstance(node, ast.Call) and _relay_call(node):
+        if isinstance(node, ast.Call) and _relay_call(node, aliases):
             what = "a call of the relay's api()"
         elif _carrier_import(node):
             what = "an import of the carrier's adapter"
