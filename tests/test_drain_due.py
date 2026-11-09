@@ -191,6 +191,14 @@ def main() -> int:
         edge = dd.stores_of([row("d", [{**bundle("x", 1, None), "report": {"claims": 1, "needs_rendering": [], "oldest_drainable_ms": NOW - 14 * DAY}}]),
                              row("d", [{**bundle("y", 1, None), "report": {"claims": 1, "needs_rendering": [], "oldest_drainable_ms": NOW - 14 * DAY - 1}}])], NOW)
         check("exactly the bound is within it, a millisecond more is over", [s["over_bound"] for s in edge] == [False, True], edge)
+        # j217: under --all `claims` is every harvested memory; `drainable` is what waits outside the corpus.
+        waiting = {**bundle("w", 800, 1.0, rendering=2), "report": {**bundle("w", 800, 1.0, rendering=2)["report"], "drainable": 3}}
+        none_waiting = {**bundle("n", 800, None), "report": {**bundle("n", 800, None)["report"], "drainable": 0, "oldest_drainable_ms": None}}
+        got = dd.stores_of([row("d", [waiting, none_waiting])], NOW)
+        check("the count is the report's drainable, held included, not claims plus the held",
+              got[0]["drainable"] == 3 and got[1]["drainable"] == 0 and got[1]["status"] == "ok" and got[1]["over_bound"] is False, got)
+        rep_ = dd.build_report([row("d", [waiting, none_waiting])], NOW)
+        check("the totals and the job title read it", rep_["totals"]["claims"] == 3 and "3 claims in 1 stores" in dd.title_of(rep_), dd.title_of(rep_))
 
         print("fabric-drain-due: the collection itself failing")
         runs = os.path.join(identity.agent_state_dir(), "drain")

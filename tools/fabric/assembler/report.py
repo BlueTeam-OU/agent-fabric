@@ -322,6 +322,7 @@ def report(run: Run) -> int:
         "held_back": sorted(run.held_back),
         "held_unbound_role": run.held_unbound,
         "anchors_kept": run.anchors_kept,
+        "anchors_lost": run.anchors_lost,
         "titles_one_lined": run.titles_one_lined,
         # What the memory server recorded in the account's state (harvest_memory.py carries it): the marks by section
         # id, and the counts of calls per source. Read, not routed: no slice changes by them yet.
