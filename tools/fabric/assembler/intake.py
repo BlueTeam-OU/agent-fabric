@@ -157,11 +157,7 @@ def read_claims(run: Run) -> int | None:
             if isinstance(claim.get("title"), str):
                 lined = one_line(claim["title"])
                 if lined != claim["title"]:
-                    # Named as bucket_claims will file the claim, so a hold of that slice (--hold, an unbound owner) drops the entry.
-                    shared = set(claim.get("shared_with") or []) - {role}
-                    home = "shared" if shared else role
-                    run.titles_one_lined.append({"slice": f"{home}/{claim.get('class')}:{claim.get('topic')}",
-                                                 "old": claim["title"], "new": lined})
+                    claim["_title_before_one_line"] = claim["title"]   # told by bucket_claims, once hygiene has judged the claim
                 claim["title"] = lined
             cites = claim.get("citations")
             if isinstance(cites, dict) and isinstance(cites.get("memories"), list) and isinstance(claim.get("body"), str):
@@ -295,6 +291,13 @@ def bucket_claims(run: Run) -> None:
             key = (claim["class"], claim["topic"])
             owners = set(claim.get("shared_with") or [])
             owners.discard(role)
+            before = claim.pop("_title_before_one_line", None)
+            if before is not None:
+                # After screen_hygiene: a claim it rejected is told of nowhere, and the old title is shown as the hygiene lists leave
+                # it, since the report is committed. Named as the claim is filed, so holding that slice drops the entry.
+                old, _ = hygiene_substitute(before, "", patterns_for(claim["class"]))
+                run.titles_one_lined.append({"slice": f"{'shared' if owners else role}/{claim['class']}:{claim['topic']}",
+                                             "old": old, "new": claim["title"]})
             if owners:
                 owners.add(role)
                 run.shared[key].append(claim)

@@ -279,6 +279,20 @@ def test_a_title_made_one_line_is_not_told_for_a_held_slice(tmp: str) -> None:
     assert "TITLES MADE ONE LINE" in proc.stderr, proc.stderr
 
 
+def test_a_title_made_one_line_is_told_as_hygiene_leaves_it_and_not_for_a_refused_claim(tmp: str) -> None:
+    """Round 7: the report is committed, so the old title shows what the hygiene lists leave of it (the demo project's list
+    bans a city name), and a claim hygiene refuses gets no entry for a slice that received nothing."""
+    drain, claims_dir, out = ta.build(tmp, {"alpha": ta.claims("alpha", [
+        {"class": "workflow", "topic": "kept", "title": "Springfield\nnotes", "body": "Fine.", "evidence": ["h1"]},
+        {"class": "workflow", "topic": "refused", "title": "E\nF", "body": "Questo \u00e8 molto importante, sono qui.", "evidence": ["h1"]}])})
+    proc = ta.run_assemble(drain, claims_dir, out)
+    assert proc.returncode == 1 and "alpha/workflow:refused: reads as non-English" in proc.stderr, proc.stderr   # the refusal is the run's exit
+    rows = report(out)["titles_one_lined"]
+    assert [r["slice"] for r in rows] == ["alpha/workflow:kept"], rows
+    assert "springfield" not in json.dumps(rows).lower() and "springfield" not in proc.stderr.lower(), (rows, proc.stderr)
+    assert rows[0]["old"] == "[redacted]\nnotes" and rows[0]["new"] == "[redacted] notes", rows
+
+
 def test_a_break_in_a_title_does_not_split_the_heading_or_cut_the_index_entry(tmp: str) -> None:
     """Drain of 2026-11-08 (j670): a memory's description with a YAML `\\n` escape reaches the claim as a title with a
     line break, which split the section's heading and cut the INDEX entry at the break, so lint judged the entry
@@ -331,6 +345,7 @@ def main() -> int:
         test_a_link_in_a_code_span_is_not_cited,
         test_a_toml_array_header_in_a_code_span_is_not_cited,
         test_a_title_made_one_line_is_not_told_for_a_held_slice,
+        test_a_title_made_one_line_is_told_as_hygiene_leaves_it_and_not_for_a_refused_claim,
         test_a_break_in_a_title_does_not_split_the_heading_or_cut_the_index_entry,
     ]
     failures = 0
