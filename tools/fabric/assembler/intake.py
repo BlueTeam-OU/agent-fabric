@@ -375,7 +375,7 @@ def hold_unbound_roles(run: Run) -> None:
             hold(f"shared/{klass}:{topic}", ",".join(unbound), klass, topic, claims)
             run.shared_owners.pop((klass, topic), None)
         elif unbound:
-            # Some owner is bound (drain of 2026-11-08, herdr fleet-deck-attention-seam: python-dev and the bound rust-ui-dev):
+            # Some owner is bound (drain of 2026-11-08: a slice shared by an unbound and a bound role):
             # the slice is the bound owners' knowledge and is written; only the unbound owners are left out of its indexes.
             run.unbound_held_roles.update(c["_role"] for c in run.shared[(klass, topic)] if c.get("_role") in unbound)
             owners -= set(unbound)

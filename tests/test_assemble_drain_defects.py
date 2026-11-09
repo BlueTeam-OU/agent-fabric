@@ -141,7 +141,7 @@ def test_a_project_with_no_taxonomy_binds_every_role(tmp: str) -> None:
 
 def test_a_shared_slice_is_held_only_when_no_owner_is_bound(tmp: str) -> None:
     """A shared slice is listed by every owner's index. With a bound owner it is written, and the unbound owner is left
-    out of the indexes (herdr fleet-deck-attention-seam of 2026-11-08: shared by an unbound and a bound role); with none
+    out of the indexes (drain of 2026-11-08: a slice shared by an unbound and a bound role); with none
     bound it is held, and written when the taxonomy binds one."""
     drain, claims_dir, out = ta.build(tmp, {"alpha": ta.claims("alpha", [
         {"class": "workflow", "topic": "w", "title": "T", "body": "The body.", "evidence": ["h1"], "shared_with": ["beta"]}])})
