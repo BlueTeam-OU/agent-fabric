@@ -440,10 +440,11 @@ def report(run: Run) -> int:
         for row in run.held_unbound:
             print(f"  {row['slice']} (role {row['role']}, project {row['project']}, from {', '.join(row['source']) or 'unknown'})",
                   file=sys.stderr)
-    if run.titles_one_lined:
+    lined = [row for row in run.titles_one_lined if row["slice"] not in run.held_back]
+    if lined:
         print("\nTITLES MADE ONE LINE (a line break in the title became a space; fix the memory's description if the break was an escape "
               "meant literally):", file=sys.stderr)
-        for row in run.titles_one_lined:
+        for row in lined:
             print(f"  {row['slice']}: {row['old']!r} -> {row['new']!r}", file=sys.stderr)
     if run.superseded_harvests:
         print("\nSUPERSEDED HARVESTS (a memory whose text is a section a correction replaced, in this run or an earlier "

@@ -150,7 +150,8 @@ def test_a_shared_slice_is_held_only_when_no_owner_is_bound(tmp: str) -> None:
     assert proc.returncode == 0, proc.stderr
     assert report(out)["held_back"] == [] and os.path.isdir(ta.proj(out, "shared")), sorted(ta.tree(out))
     assert not os.path.exists(ta.proj(out, "beta")), sorted(ta.tree(out))
-    assert "beta" not in ta.read(ta.proj(out, "alpha", "INDEX.md")).split("workflow")[0], "no index of the unbound owner"
+    shared = ta.read(os.path.join(ta.proj(out, "shared"), "workflow-w.md"))
+    assert "beta" not in shared.split("\n---\n")[0], "the written slice does not name the unbound owner among its owners:\n" + shared
 
     drain, claims_dir, out = ta.build(os.path.join(tmp, "none"), {"alpha": ta.claims("alpha", [
         {"class": "workflow", "topic": "w", "title": "T", "body": "The body.", "evidence": ["h1"], "shared_with": ["beta"]}])})
@@ -259,6 +260,25 @@ def test_a_toml_array_header_in_a_code_span_is_not_cited(tmp: str) -> None:
     assert [row["target"] for row in report(out)["unresolved_links"]] == ["real-topic"], report(out)["unresolved_links"]
 
 
+def test_a_title_made_one_line_is_not_told_for_a_held_slice(tmp: str) -> None:
+    """Replay review F1: the entry is named by the slice the claim is filed under, so holding a shared slice (here, no
+    owner bound) takes its entry out of the report and the stderr list; a written one keeps it."""
+    drain, claims_dir, out = ta.build(tmp, {"alpha": ta.claims("alpha", [
+        {"class": "workflow", "topic": "w", "title": "A\nB", "body": "Shared.", "evidence": ["h1"], "shared_with": ["beta"]},
+        {"class": "workflow", "topic": "own", "title": "C\nD", "body": "Own.", "evidence": ["h1"]}])})
+    bind(out, "gamma")
+    proc = ta.run_assemble(drain, claims_dir, out)
+    assert proc.returncode == 0, proc.stderr
+    assert report(out)["held_back"] == ["alpha/workflow:own", "shared/workflow:w"], report(out)["held_back"]
+    assert report(out)["titles_one_lined"] == [], report(out)["titles_one_lined"]
+    assert "TITLES MADE ONE LINE" not in proc.stderr, proc.stderr
+    bind(out, "alpha")      # alpha owns "own" and shares "w" with the unbound beta: both are written
+    proc = ta.run_assemble(drain, claims_dir, out)
+    assert proc.returncode == 0, proc.stderr
+    assert sorted(r["slice"] for r in report(out)["titles_one_lined"]) == ["alpha/workflow:own", "shared/workflow:w"], report(out)["titles_one_lined"]
+    assert "TITLES MADE ONE LINE" in proc.stderr, proc.stderr
+
+
 def test_a_break_in_a_title_does_not_split_the_heading_or_cut_the_index_entry(tmp: str) -> None:
     """Drain of 2026-11-08 (j670): a memory's description with a YAML `\\n` escape reaches the claim as a title with a
     line break, which split the section's heading and cut the INDEX entry at the break, so lint judged the entry
@@ -310,6 +330,7 @@ def main() -> int:
         test_an_incoming_anchor_that_resolves_stands_and_so_does_one_that_cannot_be_judged,
         test_a_link_in_a_code_span_is_not_cited,
         test_a_toml_array_header_in_a_code_span_is_not_cited,
+        test_a_title_made_one_line_is_not_told_for_a_held_slice,
         test_a_break_in_a_title_does_not_split_the_heading_or_cut_the_index_entry,
     ]
     failures = 0

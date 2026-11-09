@@ -157,7 +157,10 @@ def read_claims(run: Run) -> int | None:
             if isinstance(claim.get("title"), str):
                 lined = one_line(claim["title"])
                 if lined != claim["title"]:
-                    run.titles_one_lined.append({"slice": f"{role}/{claim.get('class')}:{claim.get('topic')}",
+                    # Named as bucket_claims will file the claim, so a hold of that slice (--hold, an unbound owner) drops the entry.
+                    shared = set(claim.get("shared_with") or []) - {role}
+                    home = "shared" if shared else role
+                    run.titles_one_lined.append({"slice": f"{home}/{claim.get('class')}:{claim.get('topic')}",
                                                  "old": claim["title"], "new": lined})
                 claim["title"] = lined
             cites = claim.get("citations")
