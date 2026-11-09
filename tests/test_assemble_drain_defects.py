@@ -170,6 +170,25 @@ def test_a_shared_slice_is_held_only_when_no_owner_is_bound(tmp: str) -> None:
     assert proc.returncode == 0 and os.path.isdir(ta.proj(out, "shared")), proc.stderr
 
 
+def test_an_unbound_owner_with_a_directory_already_is_reindexed_from_shared_with(tmp: str) -> None:
+    """Replay of #531 at d1e1f1f8 (herdr): python-dev is unbound but has its directory from before the binding. This run
+    writes it no entry (shared_unindexed), yet the re-index of an existing directory lists every shared slice on disk whose
+    shared_with names the role, so the entry stays, as it does in the repository. Pinned so it is a decision, not a
+    surprise; the control is the same bundle with no directory, where beta gets none."""
+    for existing in (True, False):
+        with tempfile.TemporaryDirectory() as sub:
+            drain, claims_dir, out = ta.build(sub, {"alpha": ta.claims("alpha", [
+                {"class": "workflow", "topic": "w", "title": "T", "body": "The body.", "evidence": ["h1"], "shared_with": ["beta"]}])})
+            bind(out, "alpha")
+            if existing:
+                os.makedirs(ta.proj(out, "beta"))
+            proc = ta.run_assemble(drain, claims_dir, out)
+            assert proc.returncode == 0, proc.stderr
+            index = os.path.join(ta.proj(out, "beta"), "INDEX.md")
+            listed = os.path.isfile(index) and "workflow-w.md" in ta.read(index)
+            assert listed == existing, (existing, sorted(ta.tree(out)))
+
+
 def anchored(anchor_list: list[str], **extra) -> dict:
     return {"class": "solution", "topic": "one", "title": "T", "body": "The body.", "evidence": ["h1"],
             "observed_at": "2026-11-01", "anchors": anchor_list, **extra}
@@ -386,6 +405,7 @@ def main() -> int:
         test_the_fabrics_own_project_is_not_judged_by_its_taxonomy,
         test_a_project_with_no_taxonomy_binds_every_role,
         test_a_shared_slice_is_held_only_when_no_owner_is_bound,
+        test_an_unbound_owner_with_a_directory_already_is_reindexed_from_shared_with,
         test_an_anchor_that_resolves_is_not_replaced_by_one_that_does_not,
         test_an_incoming_anchor_that_resolves_stands_and_so_does_one_that_cannot_be_judged,
         test_a_resolving_corpus_anchor_replaced_by_one_that_is_gone_is_reported_not_changed,
