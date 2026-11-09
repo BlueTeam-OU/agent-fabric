@@ -165,6 +165,11 @@ def never_second(check, run, bind, transcript, bdir: str, tmp: str, env: dict, s
         os.remove(seen)
 
 
+def bound(role: str | None):
+    import identity
+    return identity.BindingRecord(file="", present=role is not None, role=role, project=None, working_copy=None)
+
+
 def main() -> int:
     fails = 0
 
@@ -338,32 +343,32 @@ def main() -> int:
                 resume.identity.current_agent = lambda: "pd-x"
                 resume.install_agent_files.last_launch_provider = lambda: None
                 check("a first launch takes the profile's provider",
-                      resume.provider_args([], {"role": "python-dev"}) == ["--provider", "openrouter"])
+                      resume.provider_args([], bound("python-dev")) == ["--provider", "openrouter"])
                 resume.install_agent_files.last_launch_provider = lambda: "anthropic"
                 check("…the agent's own layer outranks a recorded launch (the declared choice, not the memory)",
-                      resume.provider_args([], {"role": "python-dev"}) == ["--provider", "openrouter"])
+                      resume.provider_args([], bound("python-dev")) == ["--provider", "openrouter"])
                 resume.identity.current_agent = lambda: "pd-y"
                 resume.install_agent_files.last_launch_provider = lambda: "openrouter"
                 check("…an agent with no layer of its own keeps its record over the role's",
-                      resume.provider_args([], {"role": "python-dev"}) == ["--provider", "openrouter"])
+                      resume.provider_args([], bound("python-dev")) == ["--provider", "openrouter"])
                 resume.install_agent_files.last_launch_provider = lambda: "anthropic"
-                check("…and over the defaults'", resume.provider_args([], {"role": "web-dev"}) == ["--provider", "anthropic"])
+                check("…and over the defaults'", resume.provider_args([], bound("web-dev")) == ["--provider", "anthropic"])
                 resume.install_agent_files.last_launch_provider = lambda: None
-                check("…with no record, the role's", resume.provider_args([], {"role": "python-dev"}) == ["--provider", "anthropic"])
+                check("…with no record, the role's", resume.provider_args([], bound("python-dev")) == ["--provider", "anthropic"])
                 resume.identity.current_agent = lambda: "pd-x"
-                check("…and the caller's --provider over both", resume.provider_args(["--provider", "x"], {}) == [])
+                check("…and the caller's --provider over both", resume.provider_args(["--provider", "x"], bound(None)) == [])
                 # A declaration of anthropic names the column; the record's transport is how it is reached.
                 profiles({"agents": {"pd-x": {"launch_provider": "anthropic"}}})
                 resume.install_agent_files.last_launch_provider = lambda: "anthropic"
                 resume.last_launch_transport = lambda: "gateway"
                 check("anthropic declared, anthropic over the gateway on record: gateway",
-                      resume.provider_args([], {}) == ["--provider", "gateway"])
+                      resume.provider_args([], bound(None)) == ["--provider", "gateway"])
                 resume.last_launch_transport = lambda: ""
-                check("…plain anthropic on record: anthropic", resume.provider_args([], {}) == ["--provider", "anthropic"])
+                check("…plain anthropic on record: anthropic", resume.provider_args([], bound(None)) == ["--provider", "anthropic"])
                 profiles({"agents": {"pd-x": {"launch_provider": "openrouter"}}})
                 resume.last_launch_transport = lambda: "gateway"
                 check("…a declaration of openrouter is not turned into the gateway",
-                      resume.provider_args([], {}) == ["--provider", "openrouter"])
+                      resume.provider_args([], bound(None)) == ["--provider", "openrouter"])
                 # The restart path: the original arguments, the declaration in place of their provider.
                 resume.last_launch_transport = lambda: ""
                 profiles({"agents": {"pd-x": {"launch_provider": "anthropic"}}})

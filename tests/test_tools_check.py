@@ -10,6 +10,7 @@ import io
 import json
 import os
 import sys
+import types
 from contextlib import redirect_stdout
 
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -56,7 +57,7 @@ def main() -> int:
     # bound_role: identity's refusals (SystemExit for a login another host
     # holds) are no role, never the end of the check.
     import identity
-    agent, binding = identity.current_agent, identity.read_binding
+    agent, binding = identity.current_agent, identity.binding_record
 
     def refuse(*_: object) -> str:
         raise SystemExit("identity: refused")
@@ -64,7 +65,7 @@ def main() -> int:
     def fail(*_: object) -> str:
         raise RuntimeError("unreadable")
     try:
-        identity.current_agent, identity.read_binding = (lambda: "pd-x"), (lambda login: {"role": "python-dev"})
+        identity.current_agent, identity.binding_record = (lambda: "pd-x"), (lambda login: types.SimpleNamespace(role="python-dev"))
         check("bound_role: the binding's role", tc.bound_role() == "python-dev")
         identity.current_agent = refuse
         try:
@@ -75,7 +76,7 @@ def main() -> int:
         identity.current_agent = fail
         check("…none when identity raises", tc.bound_role() is None)
     finally:
-        identity.current_agent, identity.read_binding = agent, binding
+        identity.current_agent, identity.binding_record = agent, binding
 
     # A tree pin: the proof printing the version is not enough (review of #229) — the single-file Codex
     # 0.162.1 did, and ran no command.

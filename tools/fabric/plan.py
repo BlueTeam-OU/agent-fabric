@@ -423,7 +423,7 @@ def parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None, reader: Any = None) -> int:
     a = parser().parse_args(argv)
     try:
-        role = (identity.read_binding() or {}).get("role")
+        role = identity.binding_record().role
         if role != ROLE:
             raise Refused(f"plans are kept by the role {ROLE}; this session is bound to {role or 'no role'}")
         for name in ("plan", "id"):
