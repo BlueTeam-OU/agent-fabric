@@ -12,11 +12,15 @@ import shutil
 import sys
 import tempfile
 import threading
+import subprocess
 import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, "tools", "fabric"))
+sys.path.insert(0, os.path.join(ROOT, "tests"))
+import test_gzcoord_carrier_inbox as C  # noqa: E402 — its message builders and the identity they are addressed to
+import test_gzcoord_protocol as P  # noqa: E402 — the real commands' minimal environment and stub relay
 from gzcoord import transport  # noqa: E402
 from gzcoord.carrier import CARRIER_NAME  # noqa: E402
 from gzcoord.carrier import ledger as L  # noqa: E402
@@ -227,6 +231,31 @@ def main() -> int:
         m3 = transport.TransportMux(mux.primary, [transport.CarrierTransport(FakeAdapter(unseen=[{"message_id": "a"}])),
                                                   transport.CarrierTransport(FakeAdapter(unseen=[{"message_id": "b"}]))], me=ME)
         check("unseen is every mirror's, flattened", [r["message_id"] for r in m3.unseen()] == ["a", "b"])
+
+        # ── through the command: the record the primary keeps is read 500 whole, by --history, --replay and a delivery ──
+        seen: list[str] = []
+
+        def answer(_h: object, method: str, path: str, body: str) -> tuple[int, str]:
+            seen.append(f"{method} {path}")
+            if path.startswith("/api/wait"):
+                return 200, json.dumps({"messages": [C.relay_rec(1)]})
+            if path.startswith("/api/messages"):
+                return 200, json.dumps({"messages": [C.relay_rec(1)]})
+            return 200, "{}"
+        cmd_stub = P.Stub(answer)
+        env = P.cmd_env(CLAUDE_BRIDGE_URL=cmd_stub.url, CLAUDE_BRIDGE_AUTH_TOKEN="tok", GZCOORD_CHANNEL="fixture:chan",
+                        AGENT_FABRIC_SECRET_STORE=P.id_store())
+        try:
+            for args in (["--history"], ["--replay", "1"], []):
+                del seen[:]
+                r = subprocess.run([P.INBOX_CMD, *args], env=env, capture_output=True, text=True, timeout=120,
+                                   stdin=subprocess.DEVNULL)
+                reads = [urllib.parse.parse_qs(x.split("?", 1)[1]) for x in seen if x.startswith("GET /api/messages?")]
+                check(f"gzcoord-inbox {' '.join(args) or '(a delivery)'} reads the channel's newest 500 records whole, once",
+                      r.returncode == 0 and reads == [{"channel": ["fixture:chan"], "limit": ["500"], "full": ["1"]}],
+                      f"{r.returncode} {r.stdout}{r.stderr}\n{seen}")
+        finally:
+            cmd_stub.close()
 
         # ── the shown ledger's decision ──────────────────────────────────────────────────────────────────────────
         lg = L.Ledger(os.path.join(scratch, "shown.jsonl"), iso_now=lambda: NOW)
