@@ -23,6 +23,7 @@ from typing import Any, Callable
 from control.local import takes_no_arguments
 from control.ops import util
 from gzcoord import gzmsg
+import roots  # noqa: E402 — control.ops.util puts tools/fabric on sys.path
 
 # Above the tool's own worst case (seven commands, each bounded at 60 s):
 # a test killed half-way may leave its canary, which the next one then
@@ -35,8 +36,7 @@ MAX_STEPS = 16
 
 
 def _default_root(home: str) -> str:
-    env = os.environ.get("AGENT_FABRIC_ROOT")
-    return os.path.join(home, "projects", "agent-fabric") if env is None else env
+    return roots.checkout_root(home, empty_is_set=True)
 
 
 def _last_line(s: Any) -> str:

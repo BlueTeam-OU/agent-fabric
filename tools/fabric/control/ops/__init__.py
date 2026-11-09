@@ -86,7 +86,8 @@ def _managed(ctx: Mapping[str, Any]) -> Any:
     the checker's own dict. The install is the host's, so every account on a host answers the same file state; the
     ref is the account's own view of main."""
     import managed_settings
-    root = ctx.get("root") or os.environ.get("AGENT_FABRIC_ROOT") or os.path.join(ctx.get("home") or os.path.expanduser("~"), "projects", "agent-fabric")
+    import roots
+    root = ctx.get("root") or roots.checkout_root(ctx.get("home") or os.path.expanduser("~"))
     return managed_settings.check(repo=root, ref="origin/main", **(ctx.get("managed_opts") or {}))
 
 

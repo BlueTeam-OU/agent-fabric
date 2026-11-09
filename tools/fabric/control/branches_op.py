@@ -35,6 +35,7 @@ import time
 from typing import Any, Callable
 
 from control.ops import util
+import roots  # noqa: E402 — control.ops.util puts tools/fabric on sys.path
 
 READ_TIMEOUT_S = 60
 # branches.py's fetch alone may take 600 s: one copy's bound; the op's budget is for all of them.
@@ -62,8 +63,7 @@ def _tool(root: str) -> str:
 
 
 def _default_root(home: str) -> str:
-    env = os.environ.get("AGENT_FABRIC_ROOT")
-    return os.path.join(home, "projects", "agent-fabric") if env is None else env
+    return roots.checkout_root(home, empty_is_set=True)
 
 
 def working_copies(home: str) -> list[tuple[str, str]]:

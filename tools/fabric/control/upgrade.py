@@ -89,6 +89,7 @@ from control import busy, js
 from control.ops import util
 from control.ops.usage import claude_bin
 from provisioning import bounded
+import roots  # noqa: E402 — control.ops puts tools/fabric on sys.path
 
 PIECES = ["claude", "fabric"]
 VERSION_RE = re.compile(r"\d{1,4}\.\d{1,4}\.\d{1,6}")
@@ -514,7 +515,7 @@ def upgrade_once(request: dict, *, home: str | None = None, root: str | None = N
                  managed_gate: Callable[[str], str | None] | None = None) -> dict:
     managed_gate = managed_gate or managed_refusal
     home = os.path.expanduser("~") if home is None else home
-    root = root or os.environ.get("AGENT_FABRIC_ROOT") or os.path.join(home, "projects", "agent-fabric")
+    root = root or roots.checkout_root(home)
     directory = directory or state_dir(home)
     now = now or (lambda: datetime.now(timezone.utc))
     lease = lease or (lambda: hold_lease(root))
@@ -674,7 +675,7 @@ def upgrade_fabric(request: dict, *, home: str | None = None, root: str | None =
                    pgrep: Callable[[list[str]], str] | None = None, sessions: list[int] | None = None, proc: str = "/proc",
                    env: dict[str, str] | None = None, **_unused: Any) -> dict:
     home = os.path.expanduser("~") if home is None else home
-    root = root or os.environ.get("AGENT_FABRIC_ROOT") or os.path.join(home, "projects", "agent-fabric")
+    root = root or roots.checkout_root(home)
     env = dict(os.environ) if env is None else env
     args = request.get("args")
     args = {} if args is None else args
