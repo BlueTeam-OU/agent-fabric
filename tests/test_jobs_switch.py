@@ -18,6 +18,7 @@ import subprocess
 import sys
 import tempfile
 import time
+from unittest import mock
 import jobs_world  # noqa: E402 — tests/, the script's own directory
 from git_env import git_env, scrub_process_env  # noqa: E402 — tests/, the script's own directory
 from instance_fixtures import own_instance_tree  # noqa: E402 — tests/, the script's own directory
@@ -115,6 +116,18 @@ def main() -> int:
                 jobs_world.touch_memory(home, self.memory_of)
 
             def sw(self, *argv: str, cwd: str | None = None) -> tuple[int, str, str]:
+                """The command in process. This suite is about what `switch` asks of the job it leaves (rule 10 step 1), and most of its
+                cases need a job in a state its row would not have let it into: done on no evidence, delivered on a reference that names
+                nothing, blocked on words. The verbs that enter those states ask their rows' needs since rule 14's owner (work/); here
+                they are run with the needs not asked, as another writer of the list could leave the job, and `strict` is the command as
+                it is (tests/test_work_lifecycle.py pins each verb's needs)."""
+                if argv[:1] and argv[0] in ("done", "deliver", "block", "pause"):
+                    needs = sys.modules["fabric_jobs"].needs
+                    with mock.patch.dict(needs.NEEDS, {name: (lambda job, fields, who: ["not asked: a setup"]) for name in needs.NEEDS}):
+                        return self.strict(*argv, cwd=cwd)
+                return self.strict(*argv, cwd=cwd)
+
+            def strict(self, *argv: str, cwd: str | None = None) -> tuple[int, str, str]:
                 os.chdir(cwd or self.repo)
                 out, err = io.StringIO(), io.StringIO()
                 with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
@@ -184,7 +197,7 @@ def main() -> int:
         check("pause on a checkout on the default branch records no branch", rc == 0 and w.job(j1)["state"] == "paused"
               and "branch" not in w.job(j1) and w.job(j1)["reason"] == "waiting for the owner's ordering", err + repr(w.job(j1)))
         rc, out, err = w.sw("pause", j1, "again")
-        check("only the active job is paused", rc == 1 and "only the active job" in err, err)
+        check("only the active job is paused", rc == 1 and "pause takes a job that is active" in err, err)
         j2 = w.add("next in line", "--priority", "high")
         rc, out, err = w.switch()
         check("a paused job with no branch is not settled: the refusal names how to pause it", rc == 1 and "names the branch holding its work" in err

@@ -43,7 +43,10 @@ def main() -> int:
     with open(os.path.join(HERE, "tests", "fixtures", "node-oracle-protocol.json"), encoding="utf-8") as fh:
         node = json.load(fh)["envelope_keys"]
     mine = {k: {"required": list(v["required"]), "optional": list(v["optional"])} for k, v in protocol.ENVELOPE_KEYS.items()}
-    check("ENVELOPE_KEYS is the Node's (frozen), kind for kind, key for key, in order", mine == node, (mine, node))
+    # Every key the Node had, in its order, and after them the keys added since: `claims` of the state record (ADR-037 rule 14).
+    added = {"state": ["claims"]}
+    node_then = {k: {"required": v["required"], "optional": v["optional"] + added.get(k, [])} for k, v in node.items()}
+    check("ENVELOPE_KEYS is the Node's (frozen), kind for kind, key for key, in order, and the keys added since", mine == node_then, (mine, node_then))
     for kind, typed in protocol.TYPES.items():
         want = protocol.ENVELOPE_KEYS[kind]
         got_required, got_optional = set(typed.__required_keys__), set(typed.__optional_keys__)

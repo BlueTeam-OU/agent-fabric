@@ -13,11 +13,12 @@ from fabric_jobs.leave_sweep import after_leaving
 from fabric_jobs.leave_targets import clean_targets
 from fabric_jobs.branching import choose
 from fabric_jobs import blockers as bl
-from fabric_jobs.base import MESSAGE_ID, Job, hold_view, NothingQueued, OPEN, POOL_ID, PRIORITIES, Refused, TERMINAL, identity, mutate
+from fabric_jobs.base import MESSAGE_ID, Job, hold_view, NothingQueued, OPEN, POOL_ID, PRIORITIES, Refused, TERMINAL, identity, mutate, work
 from fabric_jobs.ranking import effective_priority, named, queue_order, stored_priority, waiters
 from fabric_jobs.records import active, fetch_message, find, listed_request, named_working_copy, new_job, request_id_of, request_job, SENDER_ADD_LABEL, session_id, session_worked, transition
 from fabric_jobs.queue import stream_waits
 from fabric_jobs.pool import Unanswered, ask_pool, claim_generation, claimed_job, pool_job, pool_line, pool_offer, printable
+from fabric_jobs import needs
 from fabric_jobs.render import blockers_note, line, show, summary
 
 
@@ -55,9 +56,7 @@ def outside_copy(job: dict, here: str | None) -> dict | None:
     return {"fresh": True, "reason": "outside_copy" if here is not None else "place_unreadable", "here": here, "copies": copies}
 
 
-def held_refusal(record: dict, what: str) -> str:
-    """The answer to a start while the fleet hold is set (ADR-037 rule 13): the hold's own words, and what is not done."""
-    return f"{what}: this login is held, {hold_view.words(record)}"
+held_refusal = needs.held_refusal
 
 
 def add(args) -> int:
@@ -88,7 +87,8 @@ def add(args) -> int:
             return new_job(doc, args.title, topic=args.topic, project=args.project,
                            working_copy=args.working_copy, source=source, priority=args.priority,
                            project_from=((SENDER_ADD_LABEL if args.owner and request_id_of(args.title) else "--project")
-                                         if args.project else None)), True
+                                         if args.project else None),
+                           who="jobs-add" if args.owner else "add"), True
 
         job, added = mutate(add_titled)
         print(f"{'added' if added else 'already listed'} {line(job)}")
@@ -243,8 +243,9 @@ def switch_job(args) -> int:
             return None
         if args.id:
             nxt = find(doc, args.id)
-            if nxt["state"] not in ("queued", "blocked", "paused"):
-                raise Refused(f"{nxt['id']} is {nxt['state']}; switch takes a queued, paused or blocked job")
+            # The table's rows for `start` and `switch` are one (rule 14, R4): a delivered job is taken by either.
+            if nxt["state"] not in work.table.takes("switch", "active"):
+                raise Refused(f"{nxt['id']} is {nxt['state']}; switch takes a job that is {work.listed(work.table.takes('switch', 'active'))}")
         elif ready:
             nxt = ready[0]       # its wait is over: it goes first, ahead of anything queued
         else:
@@ -312,10 +313,12 @@ def switch_job(args) -> int:
                 # let the job be taken while the decision is still awaited.
                 raise Refused(f"{job['id']} is blocked on {before[0]!r}, which nothing can check: resolve that before it is blocked on a pull request")
             # A job already blocked keeps its blockers and waits_on: the pull request is added, never substituted.
-            transition(doc, job, "blocked", blocked_on=(before[0] if on in before[1] else f"{before[0]}; {on}") if was_blocked and before[0] else on, note=mark)
-            job["blockers"] = list(dict.fromkeys(before[1] + [on])) if was_blocked else [on]
+            fields = {"blocked_on": (before[0] if on in before[1] else f"{before[0]}; {on}") if was_blocked and before[0] else on, "note": mark,
+                      "blockers": list(dict.fromkeys(before[1] + [on])) if was_blocked else [on]}
+            transition(doc, job, "blocked", "switch-blocked", needs.prove(job, "switch-blocked", "blocked", fields), **fields)
         else:
-            transition(doc, job, "active", note=mark, branch=choice.branch, worktree=choice.worktree)
+            fields = {"note": mark, "branch": choice.branch, "worktree": choice.worktree}
+            transition(doc, job, "active", "switch", needs.combine(verdict_for["world"], needs.prove(job, "switch", "active", fields, asking=needs.LOCAL)), **fields)
         if settled:
             find(doc, old["id"]).setdefault("log", []).append(
                 {"at": identity.now_iso(), "kind": "switch", "note": f"switch to {job['id']}: {settled}; {where}"})   # no `state`: fleet.log_times reads the state of an entry as a transition
@@ -323,6 +326,10 @@ def switch_job(args) -> int:
             verdict.update(outside_copy(job, stands) or {})
         verdict_for.update(verdict=verdict, who=who, was_cleared=was_cleared, resumed=resumed, job=dict(job))
     try:
+        # What the row asks of the world (a blocked job's blockers cleared) is asked without the list's lock; the owner refuses the
+        # proof if the job changed meanwhile. A refusal here discards the prepared branch like any other.
+        if choice.kind != "blocked":
+            verdict_for["world"] = needs.prove(nxt, "switch", "active", {"branch": choice.branch, "worktree": choice.worktree}, asking=needs.WORLD)
         mutate(commit)
     except Refused:
         discard(choice)
@@ -425,72 +432,73 @@ def branch_here() -> dict:
         return {}
 
 
-def change(args) -> int:
-    """prio, start, pause, block, deliver, retract, done, drop: one job changed under the lock."""
-    said: dict = {}
-    paused_branch = branch_here() if args.cmd == "pause" else {}
-
-    def change(doc):
+def evidence_only(args, field: str, value) -> Job:
+    """`deliver` or `done --no-artifact` on a job that is done: evidence added, the job stays closed (rule 14's first paragraph:
+    no transition). `deliver` never removes an artifact; a wrong one is taken out with `retract`."""
+    def edit(doc):
         job = find(doc, args.id)
-        if args.cmd == "prio":
-            if job["state"] in TERMINAL:
-                raise Refused(f"{job['id']} is {job['state']}; a closed job has no place in the queue")
-            job["priority"] = args.priority
-            job["updated"] = identity.now_iso()
-        elif args.cmd == "start":
-            held = hold_view.read(identity)
-            # Whatever the job's state: a delivered job restarts too (rule 13 as amended in agent-fabric #433, which owns the ADR text); only import, which starts nothing, is let through.
-            if held:
-                raise Refused(held_refusal(held, f"{job['id']} not started"))
-            # A job with no project at all (added in a directory that is no checkout) never had one to find: it starts as it always did.
-            if job.get("project") and not job.get("working_copy") and job["state"] not in TERMINAL:
-                raise Refused(f"{job['id']} has no working copy ({job['project']} has none here or beside this one): "
-                              f"name one with fabric-jobs project {job['id']} {job['project']} --working-copy DIR")
-            transition(doc, job, "active")
-        elif args.cmd == "pause":
-            if job["state"] != "active":
-                raise Refused(f"{job['id']} is {job['state']}; only the active job is paused (it is the agent's own choice to set work aside)")
-            why = " ".join(args.why.split())
-            if not why:
-                raise Refused("pause needs a reason: fabric-jobs pause <id> \"<why>\"")
-            # The branch the paused work is on, read from where this command runs: switch asks that it is pushed.
-            # The branch `switch` recorded stays unless this runs in its checkout: another directory's branch is not the job's.
-            keep = bool(job.get("branch")) and paused_branch.get("worktree") != job.get("worktree")
-            transition(doc, job, "paused", reason=why, note=why, **({} if keep else paused_branch))
-        elif args.cmd == "block":
-            mid = args.on_request.strip().lower() if args.on_request is not None else None
-            if mid is not None and not MESSAGE_ID.fullmatch(mid):
-                raise Refused(f"--on-request takes a MESSAGE-ID (a UUID), not {args.on_request!r}")
-            specs = list(dict.fromkeys([bl.normalise(s) for s in (args.on_spec or [])] + ([f"request:{mid}"] if mid else [])))
-            for spec in specs:
-                at = bl.clock_epoch(spec)
-                if at is not None and at <= bl.now():
-                    raise Refused(f"{spec} has already passed: a time that has gone by is no wait")
-            text = " ".join(args.on.split()) if (args.on or "").strip() else None
-            if text is None and not specs:
-                raise Refused("block needs what the job waits on: free text, --on <blocker> or --on-request <MESSAGE-ID>")
-            # The words the agent gave, else the blockers; a lone --on-request keeps its old wording.
-            on = text or (f"request {mid}" if mid and len(specs) == 1 else ", ".join(specs))
-            transition(doc, job, "blocked", blocked_on=on, note=on)
-            # A request waited on is also kept as waits_on, which the state stream reads (rule 8).
-            requests = [s.split(":", 1)[1] for s in specs if s.startswith("request:")]
-            job.pop("waits_on", None)
-            job.pop("blockers", None)       # a new block replaces the whole wait: free text alone leaves no checkable blocker behind
-            if requests:
-                job["waits_on"] = requests[0]
-            if specs:
-                job["blockers"] = specs
-            said["specs"], said["hint"] = specs, text is not None and not specs and bl.names_a_checkable(text)
-        elif args.cmd == "deliver" and job["state"] == "done":
-            # Evidence only: the job stays closed (nothing reopens it), so a missing artifact can be added. `deliver` never removes one; a
-            # wrong artifact does not hide behind a landed one (settle makes a reply: naming no sent REPLY a problem whatever else
-            # landed), it is taken out with `retract`.
-            job["artifacts"] = list(dict.fromkeys((job.get("artifacts") or []) + args.artifacts))
-            job["updated"] = identity.now_iso()
-        elif args.cmd == "deliver":
-            arts = list(dict.fromkeys((job.get("artifacts") or []) + args.artifacts))
-            transition(doc, job, "delivered", artifacts=arts)
-        elif args.cmd == "retract":
+        if job["state"] != "done":
+            raise Refused(f"{job['id']} is {job['state']}, no longer done: run it again")
+        job[field] = value(job)
+        job["updated"] = identity.now_iso()
+        return job
+    return mutate(edit)
+
+
+def more_artifacts(args) -> Job:
+    """`deliver` on a job that is delivered already: its artifacts grow, and it is the same transition's evidence, not another (no row
+    takes delivered to delivered). What is added is held to R7's need all the same, an artifact that is open, so a delivered job is
+    never left holding nothing but what is not one."""
+    first = find(identity.read_jobs(), args.id)
+    arts = list(dict.fromkeys((first.get("artifacts") or []) + args.artifacts))
+    needs.NEEDS["artifact_open"]({**first, "artifacts": arts}, {}, "deliver")
+
+    def edit(doc):
+        job = find(doc, args.id)
+        if job["state"] != "delivered" or list(job.get("artifacts") or []) != list(first.get("artifacts") or []):
+            raise Refused(f"{job['id']} changed while its artifacts were checked: run it again")
+        job["artifacts"] = arts
+        job["updated"] = identity.now_iso()
+        return job
+    return mutate(edit)
+
+
+def block_fields(args) -> tuple[dict, list[str], bool]:
+    """(the fields `block` sets, the blockers it names, whether to hint that free text could be a checkable blocker)."""
+    mid = args.on_request.strip().lower() if args.on_request is not None else None
+    if mid is not None and not MESSAGE_ID.fullmatch(mid):
+        raise Refused(f"--on-request takes a MESSAGE-ID (a UUID), not {args.on_request!r}")
+    specs = list(dict.fromkeys([bl.normalise(s) for s in (args.on_spec or [])] + ([f"request:{mid}"] if mid else [])))
+    for spec in specs:
+        at = bl.clock_epoch(spec)
+        if at is not None and at <= bl.now():
+            raise Refused(f"{spec} has already passed: a time that has gone by is no wait")
+    text = " ".join(args.on.split()) if (args.on or "").strip() else None
+    if text is None and not specs:
+        raise Refused("block needs what the job waits on: free text, --on <blocker> or --on-request <MESSAGE-ID>")
+    # The words the agent gave, else the blockers; a lone --on-request keeps its old wording.
+    on = text or (f"request {mid}" if mid and len(specs) == 1 else ", ".join(specs))
+    # A request waited on is also kept as waits_on, which the state stream reads (rule 8).
+    requests = [s.split(":", 1)[1] for s in specs if s.startswith("request:")]
+    fields = {"blocked_on": on, "note": on, "blockers": specs or None, "waits_on": requests[0] if requests else None}
+    return fields, specs, text is not None and not specs and bl.names_a_checkable(text)
+
+
+def change(args) -> int:
+    """prio, start, pause, block, deliver, retract, done, drop: one job changed under the lock. A verb that moves a job to another
+    state is a row of rule 14's table (work/table.py) and goes through needs.advance; `prio` and `retract`, and evidence added to a
+    closed job, are field edits."""
+    said: dict = {}
+
+    if args.cmd in ("prio", "retract"):
+        def edit(doc):
+            job = find(doc, args.id)
+            if args.cmd == "prio":
+                if job["state"] in TERMINAL:
+                    raise Refused(f"{job['id']} is {job['state']}; a closed job has no place in the queue")
+                job["priority"] = args.priority
+                job["updated"] = identity.now_iso()
+                return job
             arts = list(job.get("artifacts") or [])
             if args.artifact not in arts:
                 raise Refused(f"{job['id']} has no artifact {args.artifact!r}; its artifacts: " + (", ".join(repr(a) for a in arts) or "none"))
@@ -499,22 +507,19 @@ def change(args) -> int:
             job["updated"] = now
             # No `state`: fleet.log_times reads the state of an entry as a transition, and settle dates the job's start by its last `active` one.
             job.setdefault("log", []).append({"at": now, "kind": "retract", "note": f"retracted artifact {args.artifact}"})
-        elif args.cmd == "done":
-            why = " ".join(args.no_artifact.split()) if args.no_artifact is not None else None
-            if args.no_artifact is not None and not why:
-                raise Refused("--no-artifact needs a reason: fabric-jobs done <id> --no-artifact \"<what was done>\"")
-            if job["state"] == "done" and why:
-                # Evidence only, as `deliver` on a done job: the job stays closed, the reason is added (or replaced).
-                job["no_artifact"] = why
-                job["updated"] = identity.now_iso()
-            elif why:
-                transition(doc, job, "done", no_artifact=why)
-            else:
-                transition(doc, job, "done")
-        elif args.cmd == "drop":
-            transition(doc, job, "dropped", reason=" ".join(args.why.split()), note=args.why)
-        return job
-    job = mutate(change)
+            return job
+        job = mutate(edit)
+    elif args.cmd == "deliver" and find(identity.read_jobs(), args.id)["state"] == "done":
+        job = evidence_only(args, "artifacts", lambda j: list(dict.fromkeys((j.get("artifacts") or []) + args.artifacts)))
+    elif args.cmd == "deliver" and find(identity.read_jobs(), args.id)["state"] == "delivered":
+        job = more_artifacts(args)
+    elif args.cmd == "done" and args.no_artifact is not None and find(identity.read_jobs(), args.id)["state"] == "done":
+        why = " ".join(args.no_artifact.split())
+        if not why:
+            raise Refused("--no-artifact needs a reason: fabric-jobs done <id> --no-artifact \"<what was done>\"")
+        job = evidence_only(args, "no_artifact", lambda j: why)
+    else:
+        job = move(args, said)
     if said.get("specs"):
         # The first look, outside the lock, from a clean cache entry: a blocker that is already over is said at once.
         bl.forget(said["specs"])
@@ -525,3 +530,32 @@ def change(args) -> int:
     if said.get("hint"):
         print(f"fabric-jobs: a blocker that names a pull request or a message can clear by itself: --on {bl.FORMS}", file=sys.stderr)
     return 0
+
+
+def move(args, said: dict) -> Job:
+    """The verbs that make a transition: the row is rule 14's, its needs are asked by needs.prove, the change is the owner's."""
+    if args.cmd == "start":
+        return needs.advance(args.id, "active", "start", lambda job: {})
+    if args.cmd == "pause":
+        paused_branch = branch_here()
+
+        def paused(job: dict) -> dict:
+            why = " ".join(args.why.split())
+            # The branch the paused work is on, read from where this command runs: pause asks that it is pushed.
+            # The branch `switch` recorded stays unless this runs in its checkout: another directory's branch is not the job's.
+            keep = bool(job.get("branch")) and paused_branch.get("worktree") != job.get("worktree")
+            return {"reason": why, "note": why, **({} if keep else paused_branch)}
+        return needs.advance(args.id, "paused", "pause", paused)
+    if args.cmd == "block":
+        fields, specs, hint = block_fields(args)
+        said["specs"], said["hint"] = specs, hint
+        return needs.advance(args.id, "blocked", "block", lambda job: fields)
+    if args.cmd == "deliver":
+        return needs.advance(args.id, "delivered", "deliver",
+                             lambda job: {"artifacts": list(dict.fromkeys((job.get("artifacts") or []) + args.artifacts))})
+    if args.cmd == "done":
+        why = " ".join(args.no_artifact.split()) if args.no_artifact is not None else None
+        if args.no_artifact is not None and not why:
+            raise Refused("--no-artifact needs a reason: fabric-jobs done <id> --no-artifact \"<what was done>\"")
+        return needs.advance(args.id, "done", "done", lambda job: {"no_artifact": why})
+    return needs.advance(args.id, "dropped", "drop", lambda job: {"reason": " ".join(args.why.split()), "note": args.why})

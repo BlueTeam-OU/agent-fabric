@@ -29,6 +29,12 @@ job has one claimant: a claim of a job another account holds is refused;
 the same account claiming again gets it again. The pool's `generation` (a random token stamped at its first write, after the Node's bytes)
 answers every claim, so the claimant names a claim by (generation, id): ids restart with a recreated file.
 
+THE POOL'S OWN END (ADR-037 rule 14, rows R2c and R2d; A 2026-11-09): a claim is closed once its claimant's fresh state record reports its
+job done or dropped, and opened again a day after it was made when that record reports its claims and none is this one; `reconcile` is
+the holder's half, run by its control agent every POOL_CLAIMS_EVERY_S, and tools/fabric/work/claims.py the only code that changes a claim.
+A closed claim stays in the file with when and how it closed, and `pool-claim` refuses it to everyone, its claimant included. A record
+that is missing, stale, unreadable or reports no claims is unknown, and unknown moves nothing.
+
 SERIALIZED, by a lock: every change to the file is one read-modify-write
 under flock on `pool.json.lock` (`_locked`). It is not serial by
 construction: pool-add is an action that agentd starts in a thread of its
@@ -78,10 +84,15 @@ if sys.path and os.path.realpath(sys.path[0] or ".") == os.path.dirname(os.path.
     sys.path[0] = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
 else:
     sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.realpath(__file__))))
+import by_path  # noqa: E402
 import roots  # noqa: E402
 from control import gzcoord, js  # noqa: E402
 from control.jobs import PRIORITIES, check_job_args  # noqa: E402
 from control.sessions import date_parse  # noqa: E402
+
+# The owner of the claims in a pool (ADR-037 rule 14, ADR-067), loaded by path as the job tool loads it.
+work = by_path.load_package("fabric_work", os.path.join(os.path.dirname(os.path.dirname(os.path.realpath(__file__))), "work"))
+claims = work.claims
 
 POOL_FILE = "pool.json"
 POOL_ID = re.compile(r"p[1-9][0-9]{0,8}")              # matched whole
@@ -302,11 +313,10 @@ def pool_add(request: dict, *, me: str, holder: str | None, file: str, known=_UN
             doc = read_pool(file)
             _stamp_generation(doc)
             doc["seq"] += 1
-            job = {"id": f"p{js.string(doc['seq'])}", "seq": doc["seq"], "role": a["role"], "title": _squash(a["title"]),
-                   "topic": _squash(topic) if isinstance(topic, str) else None, "project": a.get("project"),
-                   "priority": "normal" if a.get("priority") is None else a["priority"], "created": now(),
-                   "from": js.string(request.get("from", js.UNDEFINED)), "claimed": None}
-            doc["jobs"].append(job)
+            job = claims.add(doc, {"id": f"p{js.string(doc['seq'])}", "seq": doc["seq"], "role": a["role"], "title": _squash(a["title"]),
+                                   "topic": _squash(topic) if isinstance(topic, str) else None, "project": a.get("project"),
+                                   "priority": "normal" if a.get("priority") is None else a["priority"], "created": now(),
+                                   "from": js.string(request.get("from", js.UNDEFINED))})
             _write_pool(file, doc)
             return {"status": "added", "job": _shown(job)}
     except (PoolError, OSError) as e:
@@ -322,17 +332,18 @@ def pool_list(request: dict, *, me: str, holder: str | None, file: str) -> dict:
     if not isinstance(role, str) or not ROLE_SLUG.fullmatch(role):
         return _refused("pool-list takes { role }")
     try:
-        open_jobs = sorted((j for j in read_pool(file)["jobs"] if isinstance(j, dict) and j.get("role") == role and not js.truthy(j.get("claimed"))),
+        open_jobs = sorted((j for j in read_pool(file)["jobs"] if isinstance(j, dict) and j.get("role") == role and claims.state_of(j) == "open"),
                            key=by_priority)
         return {"status": "ok", "role": role, "jobs": [_shown(j) for j in open_jobs]}
     except PoolError as e:
         return _refused(str(e))
 
 
-def role_from_stream(*, call, cfg: dict, now: Callable[[], float] = lambda: datetime.now(timezone.utc).timestamp() * 1000):
-    """The claimant's role as its control agent last reported it, read from
-    the state channel: {"role"} or {"error"}."""
-    def role_of(address: str) -> dict:
+def state_reader(*, call, cfg: dict, now: Callable[[], float] = lambda: datetime.now(timezone.utc).timestamp() * 1000):
+    """`state_of(address)` -> {"record": its newest state record within STATES_STALE_MS} or {"error": why there is none}: read from
+    the state channel's last STATES_REPLAY records, one read for each call of state_of. A record older than the bound, none from the
+    address, or a stream that cannot be read says nothing of the address (its binding, and what it holds, are unknown)."""
+    def state_of(address: str) -> dict:
         try:
             page = call("/api/messages?" + js.search_params({"channel": cfg.get("state_channel", js.UNDEFINED),
                                                              "limit": js.string(STATES_REPLAY), "full": "1"}))
@@ -364,9 +375,69 @@ def role_from_stream(*, call, cfg: dict, now: Callable[[], float] = lambda: date
             return {"error": f"the state stream's last {len(rows)} records reach back {span} and none is from {address}: its binding is unknown"}
         if newest is None or not (n - date_parse(newest["ts"]) <= STATES_STALE_MS):
             return {"error": f"no state record from {address} in the last {js.string(STATES_STALE_MS / 60000)} min: its binding is unknown"}
-        role = newest.get("role")
+        return {"record": newest}
+    return state_of
+
+
+def role_from_stream(*, call, cfg: dict, now: Callable[[], float] = lambda: datetime.now(timezone.utc).timestamp() * 1000):
+    """The claimant's role as its control agent last reported it, read from
+    the state channel: {"role"} or {"error"}."""
+    state_of = state_reader(call=call, cfg=cfg, now=now)
+
+    def role_of(address: str) -> dict:
+        said = state_of(address)
+        if "error" in said:
+            return said
+        role = said["record"].get("role")
         return {"role": role} if isinstance(role, str) and role else {"error": f"{address} reports no bound role"}
     return role_of
+
+
+def reconcile(*, me: str, holder: str | None, file: str, state_of, now: Callable[[], str] = _iso_now) -> dict:
+    """The holder's half of the pool's own end (rule 14, R2c and R2d): each claimed job is closed once its claimant's fresh state record
+    reports that claim's job done or dropped, and opened again a day after the claim when the record reports claims and none is this
+    one. Anything else, a claimant whose record is missing, stale or unreadable, or one that reports no claims, changes nothing.
+    {"status": "ok", "closed": [ids], "reopened": [ids], "unknown": {id: why}} or a refusal."""
+    no = _not_holder(me, holder)
+    if no:
+        return no
+    closed, reopened, unknown, heard = [], [], {}, {}
+    try:
+        # The stream is read before the pool's lock is taken, as pool_claim reads its claimant's role: a claim or an add that arrives
+        # meanwhile waits POOL_LOCK_WAIT_S and is refused beyond it. One read for a claimant, however many jobs it holds; a claim made
+        # while the stream was read has no answer here and is left to the next tick.
+        for job in read_pool(file)["jobs"]:
+            if claims.state_of(job) == "claimed" and isinstance(job["claimed"], dict) and isinstance(job["claimed"].get("by"), str):
+                heard.setdefault(job["claimed"]["by"], None)
+        for by in heard:
+            heard[by] = state_of(by)
+        with _locked(file):
+            doc = read_pool(file)
+            generation = doc.get("generation")
+            at = now()
+            now_s = date_parse(at) / 1000
+            for job in doc["jobs"]:
+                if claims.state_of(job) != "claimed" or not isinstance(job["claimed"], dict) or not isinstance(job["claimed"].get("by"), str):
+                    continue
+                said = heard.get(job["claimed"]["by"])
+                if said is None:
+                    continue
+                reported = said["record"].get("claims") if "record" in said else None
+                verdict = claims.judge(job, generation, reported, fresh="record" in said, now_s=now_s)
+                if verdict is None:
+                    if "record" not in said or reported is None:
+                        unknown[job.get("id")] = said.get("error") or "its state record reports no claims"
+                elif verdict[0] == "close":
+                    claims.close(job, verdict[1], at)
+                    closed.append(job["id"])
+                else:
+                    claims.reopen(job)
+                    reopened.append(job["id"])
+            if closed or reopened:
+                _write_pool(file, doc)
+    except (PoolError, OSError) as e:
+        return _refused(str(e))
+    return {"status": "ok", "closed": closed, "reopened": reopened, "unknown": unknown}
 
 
 def pool_claim(request: dict, *, me: str, holder: str | None, file: str, role_of=None, now: Callable[[], str] = _iso_now) -> dict:
@@ -391,16 +462,12 @@ def pool_claim(request: dict, *, me: str, holder: str | None, file: str, role_of
                 return _refused(bound["error"])
             if bound.get("role") != job.get("role"):
                 return _refused(f"{sender} holds {js.string(bound.get('role', js.UNDEFINED))}, as its control agent reports it; {pid} is for {js.string(job.get('role', js.UNDEFINED))}")
-            claimed = job.get("claimed")
-            if js.truthy(claimed) and (claimed.get("by") if isinstance(claimed, dict) else js.UNDEFINED) != sender:
-                by = claimed.get("by", js.UNDEFINED) if isinstance(claimed, dict) else js.UNDEFINED
-                at = claimed.get("at", js.UNDEFINED) if isinstance(claimed, dict) else js.UNDEFINED
-                return _refused(f"{pid} is claimed by {js.string(by)} ({js.string(at)})")
-            again = js.truthy(claimed)
             changed = _stamp_generation(doc)
-            if not again:
-                job["claimed"] = {"by": sender, "at": now()}
-                changed = True
+            try:
+                again = claims.claim(job, sender, now)
+            except work.Refusal as e:
+                return _refused(str(e))
+            changed = changed or not again
             if changed:
                 _write_pool(file, doc)
             return {"status": "claimed", "job": _shown(job), "generation": doc["generation"],

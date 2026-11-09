@@ -155,8 +155,9 @@ def main() -> int:
         check("a normal job is raised to high when a store goes over (positive control of the above)", [j for j in jobs() if j["id"] == first][0]["priority"] == "high")
 
         print("fabric-drain-due: a delivered drain is past; a new one is a new job")
-        dd.jobs_cli("start", first)
-        dd.jobs_cli("deliver", first, "develop-qzapp/x/feat/landing")
+        # Delivered as another writer of the list could leave it: `deliver` asks for an artifact that is open (rule 14, R7), and no
+        # branch of this name is on any origin here. What the drain does with a delivered drain job is the case.
+        identity.update_jobs(lambda doc: next(j for j in doc["jobs"] if j["id"] == first).update(state="delivered", artifacts=["develop-qzapp/x/feat/landing"]))
         code, out, err = run(ctl(fleet, name="ctl4"))
         mine = [j for j in jobs() if j.get("topic") == "drain-due"]
         check("a second job beside the delivered one", code == 0 and len(mine) == 2 and sorted(j["state"] for j in mine) == ["delivered", "queued"], (code, err, mine))

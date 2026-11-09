@@ -52,7 +52,6 @@ from typing import Any, Callable
 from . import paths
 from registry_id import REGISTRY_ID as PROJECT_SLUG  # noqa: E402 — paths put tools/fabric on sys.path; one grammar with jobs-add and the job list
 
-TITLE_MAX = 300           # tools/fabric/control/jobs.py TITLE_MAX: jobs-add refuses a longer title
 CTL = os.path.join(paths.CHECKOUT, "bin", "fabric-ctl")
 CTL_TIMEOUT_S = 30
 _ADDED = re.compile(r"\b(added|listed)\s+(j[1-9][0-9]*)\b", re.ASCII)
@@ -72,12 +71,25 @@ def is_request_to(meta: dict, address: str, mtype: Any) -> bool:
     return mtype == "REQUEST" and isinstance(meta, dict) and meta.get("TO") == address
 
 
+def _work() -> Any:
+    """The work package (tools/fabric/work), the owner of the REQUEST title, loaded by path as the job tool loads it."""
+    tools = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
+    if tools not in sys.path:
+        sys.path.insert(0, tools)
+    import by_path  # noqa: E402 — the sibling module
+    return by_path.load_package("fabric_work", os.path.join(tools, "work"))
+
+
 def title_for(subject: str, message_id: str) -> str:
-    """The sender's title, cut to jobs-add's limit with the id kept: the
-    subject gives way, never the id the receiver dedupes on."""
-    tail = f" (REQUEST {message_id})"
-    subject = " ".join(str(subject or "").split())
-    return subject[:max(TITLE_MAX - len(tail), 0)].rstrip() + tail
+    """The title of a REQUEST's job, whichever path adds it (work/request_title.py, F11)."""
+    return _work().request_title(subject, message_id)
+
+
+def __getattr__(name: str) -> Any:
+    # jobs-add refuses a title longer than this (tools/fabric/control/jobs.py TITLE_MAX); the owner of the title holds it.
+    if name == "TITLE_MAX":
+        return _work().TITLE_MAX
+    raise AttributeError(name)
 
 
 def named_in(title: str, message_id: str) -> bool:
@@ -132,7 +144,7 @@ def queue_received(classified: list[dict], me: dict, *, jobs: Any = None, err: A
                                 and (project is None or held.get("project") == project))):
                         held["project_from"] = project_from
                     return None
-                return jobs.new_job(doc, title, project=project, source=source, deliver_to=deliver_to, project_from=project_from)
+                return jobs.new_job(doc, title, project=project, source=source, deliver_to=deliver_to, project_from=project_from, who="intake")
 
             job = jobs.mutate(add)
         except BaseException as e:  # noqa: BLE001 — any failure is a line; the delivery stands (SystemExit: identity's refusals)

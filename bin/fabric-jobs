@@ -4,7 +4,7 @@
 #
 #   fabric-jobs add "<title>" [--topic T] [--project P] [--working-copy W]
 #   fabric-jobs list [--all]
-#   fabric-jobs start|done <id>;  block <id> "<on what>";  drop <id> "<why>"
+#   fabric-jobs start|done <id>;  block <id> "owner: <the decision awaited>";  drop <id> "<why>"
 #   fabric-jobs deliver <id> <artifact>...
 #   fabric-jobs show <id>
 #   fabric-jobs next [<id>]     # start the next job: a fresh session (fabric-fresh --job) unless this one has worked no job yet and stands in the job's copy

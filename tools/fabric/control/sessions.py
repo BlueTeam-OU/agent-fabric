@@ -25,9 +25,14 @@ What leaves the account is the session id, its state and since when,
 and for a session that has them its `reason` (permission or question, blocked only), `context` (an integer
 percentage with its sample time) and `activity` (recent or quiet) and `ssh_client` (see SSH_CLIENTS_DIR), never the transcript's path,
 the binding's role and project, its last session's id with whether its
-transcript is here (resumable), and `waits_on`, the GZCoord message ids
-this login's blocked jobs wait on (ADR-037 rule 8): no path, no process
-id, no title, no job id.
+transcript is here (resumable), `waits_on`, the GZCoord message ids
+this login's blocked jobs wait on (ADR-037 rule 8; a wait the job tool's
+blocker cache records cleared is left out), and `claims`, the pool jobs
+its list holds by the pool's generation and id with the state of each
+(ADR-037 rule 14, rows R2c and R2d: what the pool holder's control
+agent reads to close a claim whose job ended and to reopen one nobody
+holds; absent where the list cannot be read): no path, no process id, no
+title, no job id.
 
 AN UNREADABLE SESSION STATE (j5; fabric-coordinator INFO 01a11e4e, the
 owner 2026-10-09; python-dev-02's contract, INFO 01a11e4c and
@@ -324,11 +329,32 @@ def activity(transcript, now_ms: float) -> str | None:
     return "recent" if age <= ACTIVITY_RECENT_MS else "quiet"
 
 
+# The job tool's blocker cache (tools/fabric/jobsparts/blockers.py), beside the job list. A cleared blocker stays cleared there.
+BLOCKERS_FILE = "jobs-blockers.json"
+
+
+def cleared_requests(jobs_file: str) -> set[str]:
+    """The message ids whose `request:<id>` blocker the cache records as cleared: the answer came. An absent, unreadable or
+    otherwise-shaped cache clears nothing, since a wait is published until it is known to be over."""
+    try:
+        with open(os.path.join(os.path.dirname(jobs_file), BLOCKERS_FILE), encoding="utf-8") as fh:
+            doc = js.json_parse(fh.read())
+    except (OSError, UnicodeDecodeError, ValueError):
+        return set()
+    if not isinstance(doc, dict):
+        return set()
+    return {k[len("request:"):] for k, v in doc.items()
+            if isinstance(k, str) and k.startswith("request:") and isinstance(v, dict) and v.get("state") == "cleared"}
+
+
 def waits_on(file: str | None) -> list | None:
     """The message ids this login's blocked jobs wait on, sorted, from its job
     list (agents/<login>/jobs.json, only read here). No list waits on
     nothing; a list that cannot be read is None — unknown, which the
-    watcher never says as "nothing"."""
+    watcher never says as "nothing". A wait the blocker cache records as
+    cleared (the REQUEST was answered; the job stays blocked until the
+    agent moves it on) is no wait: the job that request asked for ranks
+    blocking *while* this one waits (ADR-037 rule 8, F10 of j100)."""
     if not file:
         return []
     try:
@@ -340,9 +366,58 @@ def waits_on(file: str | None) -> list | None:
         return None
     if not isinstance(doc, dict) or not isinstance(doc.get("jobs"), list):
         return None
+    cleared = cleared_requests(file)
     ids = [j["waits_on"] for j in doc["jobs"] if isinstance(j, dict) and j.get("state") == "blocked"
-           and isinstance(j.get("waits_on"), str) and MESSAGE_ID.fullmatch(j["waits_on"])]
+           and isinstance(j.get("waits_on"), str) and MESSAGE_ID.fullmatch(j["waits_on"]) and j["waits_on"] not in cleared]
     return sorted(set(ids))[:WAITS_ON_MAX]
+
+
+# The jobs this login's list holds from a role's pool, by the pool's generation and id (ADR-037 rule 14, rows R2c and R2d): what the
+# holder's control agent reads to close a claim whose job ended and to reopen one nobody holds. The cap keeps a record a record.
+POOL_ID = re.compile(r"p[1-9][0-9]{0,8}")                 # matched whole
+GENERATION = re.compile(r"[0-9a-f]{32}")                  # matched whole
+CLAIMS_MAX = 64
+JOB_STATES = ("queued", "active", "paused", "blocked", "delivered", "done", "dropped")
+ENDED_STATES = ("done", "dropped")
+
+
+def claims(file: str | None) -> list | None:
+    """[{"generation", "id", "state"}] for every pool job on the job list, sorted by generation then id; [] when the list holds none
+    or there is no list yet; None when the list cannot be read, is not one, or holds more claims in a state not ended than a record
+    carries — unknown, which the record leaves out and the holder reads as no answer, never as "holds none". A claim from before
+    pools had generations is reported without one, which the holder counts as possibly any claim of that id."""
+    if not file:
+        return None
+    try:
+        with open(file, encoding="utf-8") as fh:
+            doc = js.json_parse(fh.read())
+    except FileNotFoundError:
+        return []
+    except (OSError, UnicodeDecodeError, ValueError):
+        return None
+    if not isinstance(doc, dict) or not isinstance(doc.get("jobs"), list):
+        return None
+    held, ended = [], []
+    for j in doc["jobs"]:
+        src = j.get("source") if isinstance(j, dict) else None
+        if not isinstance(src, dict) or src.get("kind") != "pool" or not isinstance(src.get("pool_id"), str) \
+                or not POOL_ID.fullmatch(src["pool_id"]) or j.get("state") not in JOB_STATES:
+            continue
+        gen = src.get("generation")
+        row = {**({"generation": gen} if isinstance(gen, str) and GENERATION.fullmatch(gen) else {}), "id": src["pool_id"], "state": j["state"],
+               "_updated": str(j.get("updated") or "")}
+        (ended if j["state"] in ENDED_STATES else held).append(row)
+    if len(held) > CLAIMS_MAX:
+        return None
+    # An ended claim is told until the holder has closed it. When a list holds more than fit, the ones that ended longest ago go (the
+    # holder closed them long ago); the newest `updated` stays, since a claim that ended since the last tick is the one to tell. A claim
+    # left out of a record the holder reads as "holds none for it", so no cut may take a claim that could still be open at the holder.
+    room = max(CLAIMS_MAX - len(held), 0)
+    ended.sort(key=lambda r: r.pop("_updated"), reverse=True)
+    rows = held + ended[:room]
+    for r in held:
+        r.pop("_updated", None)
+    return sorted(rows, key=lambda r: (r.get("generation", ""), int(r["id"][1:])))
 
 
 def state_record(address: str, said: dict, ts: str | None = None) -> dict:
@@ -358,6 +433,9 @@ def state_record(address: str, said: dict, ts: str | None = None) -> dict:
         rec["resumable"] = said.get("resumable") is True
     if said.get("waits_on"):
         rec["waits_on"] = said["waits_on"]
+    # Present even when empty: "holds no pool claim" is an answer, a record without the key is none (an agent from before it).
+    if said.get("claims") is not None:
+        rec["claims"] = said["claims"]
     return rec
 
 
@@ -454,7 +532,7 @@ class StateWatcher:
             said = {"sessions": sessions,
                     **(_bound(self.agent, self.config_dir) if self.agent else
                        {"role": None, "project": None, "last_session": None, "resumable": False}),
-                    "waits_on": self._waits_now()}
+                    "waits_on": self._waits_now(), "claims": claims(self.jobs)}
             key = json.dumps(said, sort_keys=False, ensure_ascii=True)
             if key == self.last_key and now_ms - self.last_at < self.heartbeat_ms:
                 return False

@@ -52,15 +52,26 @@ def main() -> int:
         for title in ("first job", "ünïcode — title", "third", "fourth", "fifth", "sixth"):
             ok("src", "add", title, "--topic", "t")
         ok("src", "prio", "j2", "high")
+        def force(job_id: str, state: str, **fields) -> None:
+            """A state set as another writer of the list could set it: this suite is about moving a list in every state, not about the
+            rows that reach them (tests/test_work_lifecycle*.py pin those), and `deliver` and `pause` ask for a pull request and a
+            pushed branch that no remote here has."""
+            (path,) = [os.path.join(d, "jobs.json") for d, _, fs in os.walk(os.path.join(tmp, "src")) if "jobs.json" in fs]
+            with open(path, encoding="utf-8") as fh:
+                doc = json.load(fh)
+            next(j for j in doc["jobs"] if j["id"] == job_id).update(state=state, **fields)
+            with open(path, "w", encoding="utf-8") as fh:
+                json.dump(doc, fh, ensure_ascii=False, indent=2, sort_keys=True)     # as identity.update_jobs lays it out: the listing is compared byte for byte
+
         ok("src", "start", "j1")
-        ok("src", "deliver", "j1", "owner/repo#1")
+        force("j1", "delivered", artifacts=["owner/repo#1"])
         ok("src", "start", "j3")
         ok("src", "block", "j3", "--on-request", MSG)
         ok("src", "block", "j4", "--on", "pr:owner/repo#7", "--on", f"job:someone/j2")
         ok("src", "start", "j5")
-        ok("src", "pause", "j5", "set aside")
+        force("j5", "paused", reason="set aside")
         ok("src", "drop", "j6", "not needed")
-        ok("src", "done", "j1", "--no-artifact", "x")
+        force("j1", "done", no_artifact="x")
         listing = ("list", "--all", "--json", "--stored")
 
         print("the round trip")
@@ -97,7 +108,7 @@ def main() -> int:
         got = run("held", "import", stdin=ok("busy", "export"))
         check("held: import of a list with an active job succeeds", got.returncode == 0 and b"imported 1 job" in got.stdout, got)
         check("held: ...and the job came in active", b'"state": "active"' in run("held", *listing).stdout, run("held", *listing).stdout)
-        ok("held", "pause", "j1", "aside")
+        ok("held", "block", "j1", "owner: aside")      # a job to start that is not active (a pause asks for a pushed branch)
         refused = run("held", "start", "j1")
         check("held: ...control, a start in the same state dir is refused, naming the hold",
               refused.returncode != 0 and b"release freeze" in refused.stderr, refused)

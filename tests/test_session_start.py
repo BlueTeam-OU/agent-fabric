@@ -706,7 +706,7 @@ def says_the_job_list(tmp: str, relays: list) -> None:
     jobs("start", "j1")
     ctx = context_of(run_hook({"cwd": here}, env))
     assert "jobs — active j1: the job here; 1 queued" in ctx and "Your active job is in" not in ctx, ctx
-    jobs("block", "j1", "a reply"); jobs("start", "j2")
+    jobs("block", "j1", "owner: a reply"); jobs("start", "j2")
     ctx = context_of(run_hook({"cwd": here}, env))
     assert f"active j2: the job there; 1 blocked" in ctx and f"Your active job is in {there}, and this session is in {here}" in ctx \
         and "fabric-fresh --job j2" in ctx, ctx

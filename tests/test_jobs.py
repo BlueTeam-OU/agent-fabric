@@ -32,12 +32,14 @@ def message(kind: str, to: str, mid: str, subject: str, project: str = "fixture"
 
 
 FAKE_GH = """#!/usr/bin/env python3
-import json, sys
+import json, os, sys
 a = sys.argv[1:]
 if a[:2] == ["pr", "list"]:
     print("[]")
 elif a[:2] == ["pr", "view"]:
-    print(json.dumps({"state": "OPEN" if a[2] == "2" else "MERGED"}))
+    # #2 is open and every other pull request merged, unless a case says otherwise in $FAKE_PRS ({"<number>": "<STATE>"})
+    said = json.load(open(os.environ["FAKE_PRS"])) if os.environ.get("FAKE_PRS") and os.path.exists(os.environ["FAKE_PRS"]) else {}
+    print(json.dumps({"state": said.get(a[2], "OPEN" if a[2] == "2" else "MERGED")}))
 else:
     sys.stderr.write("fake gh: unsupported: " + " ".join(a) + "\\n")
     sys.exit(1)
@@ -158,6 +160,8 @@ def main() -> int:
         os.chmod(os.path.join(fake_bin, "gh"), 0o755)
         env["PATH"] = fake_bin + os.pathsep + env.get("PATH", "")
         env["GH_REPO"] = jobs_world.GH_REPO
+        prs_file = os.path.join(tmp, "prs.json")
+        env["FAKE_PRS"] = prs_file
         env.update(jobs_world.identity_env())
 
         def seeded(path: str) -> str:
@@ -174,6 +178,17 @@ def main() -> int:
 
         def jobs() -> list[dict]:
             return json.loads(run("list", "--all", "--json").stdout)
+
+        def force(job_id: str, state: str, **fields) -> None:
+            """A state set as another writer of jobs.json could set it: the setup of a case about something other than the
+            lifecycle's rows, which tests/test_work_lifecycle*.py pin."""
+            path = os.path.join(env["AGENT_FABRIC_STATE_DIR"], "agents", login, "jobs.json")
+            with open(path, encoding="utf-8") as fh:
+                doc = json.load(fh)
+            job = next(j for j in doc["jobs"] if j["id"] == job_id)
+            job.update(state=state, **fields)
+            with open(path, "w", encoding="utf-8") as fh:
+                json.dump(doc, fh)
 
         p = run("list")
         check("an empty list says so", p.returncode == 0 and "no open jobs" in p.stdout, p.stdout + p.stderr)
@@ -192,7 +207,10 @@ def main() -> int:
               and jobs()[1]["state"] == "queued", p.stderr)
 
         p = run("block", "j1", "a review of the PR")
-        check("block records what it waits on", p.returncode == 0 and jobs()[0]["blocked_on"] == "a review of the PR",
+        check("block on words that name no owner's decision is refused", p.returncode == 1 and "blocked on free text" in p.stderr
+              and jobs()[0]["state"] == "active", p.stdout + p.stderr)
+        p = run("block", "j1", "owner: a review of the PR")
+        check("block records what it waits on", p.returncode == 0 and jobs()[0]["blocked_on"] == "owner: a review of the PR",
               p.stdout + p.stderr)
         mid = "01a11a18-4728-7d8b-afd9-0edb2d30a59c"
         p = run("block", "j1", "--on-request", mid.upper())
@@ -201,23 +219,31 @@ def main() -> int:
         p = run("block", "j1", "--on-request", "17")
         check("--on-request refuses what is not a MESSAGE-ID, and keeps the list", p.returncode == 1
               and "takes a MESSAGE-ID" in p.stderr and jobs()[0].get("waits_on") == mid, p.stderr)
-        p = run("block", "j1", "a review again")
+        p = run("block", "j1", "owner: a review again")
         check("blocked on something else: the request is no longer waited on", p.returncode == 0
               and "waits_on" not in jobs()[0], repr(jobs()[0]))
         p = run("block", "j1")
         check("block with nothing to wait on is refused", p.returncode == 1 and "waits on" in p.stderr, p.stderr)
         run("block", "j1", "--on-request", mid)
-        run("start", "j1")
+        p = run("start", "j1")
+        check("a request still waited on is not started", p.returncode == 1 and "is still blocked" in p.stderr, p.stdout + p.stderr)
+        run("block", "j1", "owner: a review of the PR")
+        p = run("start", "j1")
+        check("an owner's decision is the agent's to attest: start takes the job", p.returncode == 0
+              and jobs()[0]["state"] == "active", p.stdout + p.stderr)
         check("leaving blocked drops waits_on", "waits_on" not in jobs()[0], repr(jobs()[0]))
-        run("block", "j1", "a review of the PR")
+        run("block", "j1", "owner: a review of the PR")
         run("start", "j2")
-        p = run("deliver", "j2", "org/repo#12", "abc1234")
+        p = run("deliver", "j2", "org/repo#2", "abc1234")
         check("deliver names its artifacts", jobs()[1]["state"] == "delivered"
-              and jobs()[1]["artifacts"] == ["org/repo#12", "abc1234"], p.stdout + p.stderr)
-        run("deliver", "j2", "abc1234", "org/repo#13")
+              and jobs()[1]["artifacts"] == ["org/repo#2", "abc1234"], p.stdout + p.stderr)
+        run("deliver", "j2", "abc1234", "org/repo#3")
         check("a second deliver adds, never duplicates",
-              jobs()[1]["artifacts"] == ["org/repo#12", "abc1234", "org/repo#13"], repr(jobs()[1]))
+              jobs()[1]["artifacts"] == ["org/repo#2", "abc1234", "org/repo#3"], repr(jobs()[1]))
+        with open(prs_file, "w", encoding="utf-8") as fh:
+            json.dump({"2": "MERGED"}, fh)
         run("done", "j2")
+        os.unlink(prs_file)
         p = run("start", "j2")
         check("a closed job is not reopened", p.returncode == 1 and "not reopened" in p.stderr, p.stderr)
         run("drop", "j1", "superseded by another job")
@@ -234,16 +260,16 @@ def main() -> int:
         p = run("list", "--all")
         check("list --all shows them", "j1" in p.stdout and "j2" in p.stdout, p.stdout)
         p = run("show", "j2")
-        check("show gives the job in full", "artifacts:" in p.stdout and "org/repo#13" in p.stdout, p.stdout)
+        check("show gives the job in full", "artifacts:" in p.stdout and "org/repo#3" in p.stdout, p.stdout)
         p = run("show", "j2", "--line")
         check("show --line is one line for an opening prompt", p.stdout.count("\n") == 1
-              and p.stdout.startswith("j2, second (") and "artifacts org/repo#12, abc1234, org/repo#13" in p.stdout, p.stdout)
+              and p.stdout.startswith("j2, second (") and "artifacts org/repo#2, abc1234, org/repo#3" in p.stdout, p.stdout)
         p = run("show", "j2", "--field", "working_copy")
         check("show --field gives one value", p.stdout.strip() == repo_b, p.stdout)
         p = run("show", "j9")
         check("an unknown id is refused by name", p.returncode == 1 and "no job j9" in p.stderr, p.stderr)
         check("the log keeps every state change",
-              [e["state"] for e in jobs()[1]["log"]] == ["queued", "active", "delivered", "delivered", "done"],
+              [e["state"] for e in jobs()[1]["log"]] == ["queued", "active", "delivered", "done"],
               repr(jobs()[1]["log"]))
 
         # --project finds this login's checkout of the project beside the
@@ -464,7 +490,7 @@ def main() -> int:
         run("done", "j11")
         env["CLAUDE_CODE_SESSION_ID"] = saved
         p = run("next", "j3")
-        check("next refuses a closed job", p.returncode == 1 and "switch takes a queued" in p.stderr, p.stderr)
+        check("next refuses a closed job", p.returncode == 1 and "switch takes a job that is queued, paused, blocked or delivered" in p.stderr, p.stderr)
 
         # Priority (ADR-037 rule 7): the highest first, then the oldest; an
         # active job is never passed; a blocked one keeps its place.
@@ -555,7 +581,7 @@ def main() -> int:
             got = jobs()
             check("--request fills the job from the message", p.returncode == 0 and len(got) == 1
                   and got[0]["working_copy"] == repo_a
-                  and got[0]["title"] == "build the thing" and got[0]["project"] == "fixture"
+                  and got[0]["title"] == "build the thing (REQUEST 01a09fc1-0000-7000-8000-00000000000a)" and got[0]["project"] == "fixture"
                   and got[0]["source"] == {"kind": "request", "message_id": "01a09fc1-0000-7000-8000-00000000000a",
                                            "from": "other-host/sender", "seq": 11}, p.stdout + p.stderr + repr(got))
             p = run("add", "--request", "11")
@@ -621,7 +647,7 @@ def main() -> int:
                 with open(lst, "w", encoding="utf-8") as fh:
                     json.dump(doc, fh)
             # The refusals F1/F4 of the review: each fails when its guard is removed.
-            p = run("drop", moved, "a test")
+            force(moved, "dropped", reason="a test")
             p = run("project", moved, "another")
             check("project refuses a closed job", p.returncode == 1 and "is dropped" in p.stderr
                   and [j for j in jobs() if j["id"] == moved][0]["project"] == "fixture-proj", p.stderr)
@@ -884,8 +910,8 @@ def main() -> int:
             relay.shutdown()
             relay.server_close()
         env["CLAUDE_BRIDGE_URL"] = dead_url
-        run("done", "j1")
-        run("done", "j3")
+        force("j1", "done")       # the list is emptied of what is queued: nothing here is about how a job gets to be done
+        force("j3", "done")
         p = run("next")
         check("pool unreachable: next says so", p.returncode == 1 and "no queued job; the pool could not be asked" in p.stderr,
               p.stderr)

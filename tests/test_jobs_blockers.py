@@ -183,6 +183,10 @@ def main() -> int:
         r = run("block", "j1", "--on", "pr:o/r#99")
         check("a PR gh cannot find is unknown with gh's reason, and never clears",
               job("j1")["cleared"] is None and job("j1")["blockers"][0]["state"] == "unknown", job("j1"))
+        r = run("start", "j1")
+        check("a blocker that is unknown is not cleared: start refuses the job (rule 14, R4)", r.returncode == 1
+              and "is still blocked" in r.stderr and job("j1")["blockers"][0]["state"] == "unknown", (r.stderr, job("j1")))
+        run("block", "j1", "--on", "pr:o/r#8")
         run("start", "j1")
         check("leaving blocked drops the blockers", "blockers" not in job("j1") and "cleared" not in job("j1"), job("j1"))
         run("done", "j1")
@@ -252,18 +256,19 @@ def main() -> int:
         run("start", "j4")
         run("done", "j4")
 
-        print("a free-text blocker behaves as before, and a hint says once that a checkable form exists")
+        print("an owner's decision is stored as words; other free text is refused, naming the checkable forms")
         run("start", "j5")
         calls_before = (len(calls("gh.calls")), len(calls("ctl.calls")))
-        r = run("block", "j5", "the owner's decision")
-        check("free text: stored as it was, no blockers, no cleared, no hint", job("j5")["blocked_on"] == "the owner's decision"
+        r = run("block", "j5", "owner: the decision")
+        check("an owner's decision: stored as it was, no blockers, no cleared, no hint", job("j5")["blocked_on"] == "owner: the decision"
               and "blockers" not in job("j5") and "cleared" not in job("j5") and "checkable" not in r.stderr, (job("j5"), r.stderr))
         check("…and no call of any kind was made for it", (len(calls("gh.calls")), len(calls("ctl.calls"))) == calls_before, calls("gh.calls"))
         for text in ("waiting for PR 123 to merge", "waiting for #45", f"waiting on message {RID}"):
             run("start", "j5")
             r = run("block", "j5", text)
-            check(f"{text!r}: one hint line, the job blocked as written", r.stderr.count("can clear by itself") == 1 and job("j5")["blocked_on"] == text
-                  and "blockers" not in job("j5"), (r.stderr, job("j5")))
+            # Free text that names no owner's decision is refused (rule 14, R6), the checkable forms named in the refusal.
+            check(f"{text!r}: refused, naming the checkable forms, the job as it was", r.returncode == 1 and "blocked on free text" in r.stderr
+                  and "--on pr:<owner/repo>#<n>" in r.stderr and job("j5")["state"] == "active", (r.stderr, job("j5")))
         run("start", "j5")
         r = run("block", "j5", "waiting for PR 123", "--on", "pr:o/r#6")
         check("with a checkable blocker given, no hint", "checkable" not in r.stderr and "can clear" not in r.stderr, r.stderr)
@@ -333,10 +338,10 @@ def main() -> int:
         run("block", jid, "--on", "pr:o/r#20", "--on", f"request:{RID}")
         check("blocked on a PR and a request", sorted(b["spec"] for b in job(jid)["blockers"]) == sorted(["pr:o/r#20", f"request:{RID}"])
               and job(jid, "--stored")["waits_on"] == RID, job(jid))
-        run("block", jid, "now waiting on the owner")
+        run("block", jid, "owner: now waiting")
         j = job(jid, "--stored")
-        check("the free-text block leaves no checkable blocker and no waits_on behind",
-              "blockers" not in j and "cleared" not in j and "waits_on" not in j and j["blocked_on"] == "now waiting on the owner", j)
+        check("the owner's-decision block leaves no checkable blocker and no waits_on behind",
+              "blockers" not in j and "cleared" not in j and "waits_on" not in j and j["blocked_on"] == "owner: now waiting", j)
         put("gh.states", {"o/r#5": "OPEN", "o/r#6": "OPEN", "o/r#7": "MERGED", "o/r#8": "CLOSED", "o/r#20": "MERGED"})
         age()
         out = run("list").stdout
