@@ -9,9 +9,10 @@ THE FORMS (`block <id> --on <blocker>`, several allowed, all must clear)
                             the outbound side
                             (episodic.open_readonly, the one reader's door). A REPLY answers the request, it does
                             not deliver the work, so the answer is read first for the job the request became on the
-                            answerer's board (the message's sender; `fabric-ctl <login> jobs --json`, as job: reads
-                            it): a row whose title ends "(REQUEST <id>)" (records.request_id_of), the board being
-                            authoritative. Only without that row is the body read: exactly one job of the sender,
+                            answerer's board (the message's sender; through PEER READS below, as job: reads it): a row
+                            whose title ends "(REQUEST <id>)" (records.request_id_of), the board being authoritative.
+                            Only without a readable board is the body read (a board that says there is no such row
+                            is a board read: the wait is over): exactly one job of the sender,
                             as job:<login>/j<n> or a bare j<n>, is the candidate (two or more: none), taken when
                             the board lists it or could not be read. Found: the stored blocker is replaced by
                             job:<login>/j<n> under the list's lock (the new spec starts with seen_open when the
@@ -19,13 +20,29 @@ THE FORMS (`block <id> --on <blocker>`, several allowed, all must clear)
                             "request:<id> answered; now waiting on job:<login>/j<n>". Not found (a decline, a
                             DECISION, a job closed or never on the board): cleared. The board unreadable and no
                             body match: unknown, never cleared. The re-pointed job then follows job: as below.
+                            A re-point that would make a cycle is refused, said and never stored: the job it would
+                            wait on is blocked on a job of this login that holds this blocker (CYCLES below).
   job:<login>/j<n>          cleared when that job is delivered, or has left the open list because it is done or
-                            dropped; read through `fabric-ctl <login> jobs` (a host operator's op: any other
-                            caller gets `unknown` with fabric-ctl's own refusal)
+                            dropped; read as PEER READS below says
   clock:<YYYY-MM-DDTHH:MM[:SS]Z>
                             cleared once now() >= that UTC time (the Z is required: an offset or a bare local time is
                             refused). Stored as clock:YYYY-MM-DDTHH:MM:SSZ. `block` refuses a time already past (a
                             time that has gone by is no wait); an imported job may carry one, and it reads cleared.
+
+PEER READS. `fabric-ctl <login> jobs` is a host operator's op: peers see each other's presence, not each other's lists.
+So a caller that is a host operator reads the peer's board through it, as before; every other placed login asks the
+peer's control agent the public op `job-state` (tools/fabric/control/jobs.py, through control/queue.py), which answers
+one job's state to the sender of the request that job was taken from, and nothing else. Its answer: delivered, done
+and dropped clear a job: blocker; any other state waits; "absent" (no such job on the list) clears only a job seen open
+before, as an absent row of the board does; a refusal (the job is not one this login's request became) is unknown, with
+the refusal's words. When the op cannot be asked at all (the registry, the relay, the interpreter), the caller reads the
+board as before, so a failure is what fabric-ctl says of it, never a quiet default.
+
+CYCLES. A re-point onto a job that waits on one of this login's jobs holding the same request: blocker would leave both
+waiting for each other for ever. It is refused where it can be seen: when the target job is on this login's own list,
+by following job: blockers on it; when it is on a peer's board this login can read (an operator), by that row's own
+blockers. A peer's board the caller cannot read is not seen, and the public op will not say (it carries no blockers):
+the cycle is then the other side's to find from the blocker it holds.
 
 A CHECK says one of three things: `cleared`, `waiting`, or `unknown` (it could not be told: gh, the journal or
 fabric-ctl failed, or the job is not on the open list and was never seen there). Unknown never clears a job.
@@ -51,7 +68,8 @@ import sqlite3
 import subprocess
 import time
 from typing import Any, Callable, NamedTuple
-from fabric_jobs.base import FABRIC_ROOT, MESSAGE_ID, Refused, _load, identity, mutate, request_id_of
+from fabric_jobs.base import FABRIC_ROOT, MESSAGE_ID, Refused, STATES, _load, identity, mutate, request_id_of
+from fabric_jobs.queue import Unreachable, ask_queue
 
 CACHE_TTL_S = 600
 CTL_TIMEOUT_S = 30
@@ -152,27 +170,91 @@ def _title_request(title: str) -> str | None:
     return request_id_of(re.sub(r"[0-9A-Fa-f-]{36}\)\Z", lambda m: m.group(0).lower(), " ".join(title.split())))
 
 
-def _became(mid: str, login: str, body: str, decision: bool = False) -> tuple[str | None, bool, str | None]:
-    """(the job the request became, whether the board showed it, why the board could not be read). The board is the
-    authority: a row whose title ends "(REQUEST <mid>)". Only without a match is the body read, and a token there is
-    taken when the board lists that job, or could not be read at all."""
-    board, why = read_board(login)
+def ask_state(login: str, what: str) -> tuple[str, Any]:
+    """The public op `job-state` asked of `login`'s control agent about `what` (a job id, or a message id): ("answer", the
+    agent's answer), ("operator", None) when this login is a host operator and reads the board instead, or ("unreadable",
+    why) when it could not be asked."""
+    try:
+        said = ask_queue("job-state", login, what)
+    except Unreachable as e:
+        return "unreadable", f"job-state: {e}"[:160]
+    if said.get("operator") is True:
+        return "operator", None
+    answer = said.get("answer")
+    if not isinstance(answer, dict):
+        return "unreadable", "job-state: the answer is not one"
+    return "answer", answer
+
+
+def _refusal(answer: dict) -> str:
+    return f"{answer.get('status')}: {answer.get('reason')}"[:160] if answer.get("status") == "refused" else \
+        f"job-state: status {str(answer.get('status'))[:40]}"
+
+
+def _spec_names(blockers: object) -> list[str]:
+    """The specs of a board row's `blockers` (dicts with a spec, as fabric-jobs lists them) as text."""
+    return [b["spec"] if isinstance(b, dict) else b for b in blockers if isinstance(b, (dict, str))
+            and isinstance(b["spec"] if isinstance(b, dict) else b, str)] if isinstance(blockers, list) else []
+
+
+def _became(mid: str, login: str, body: str, decision: bool = False) -> tuple[str | None, bool, str | None, list[str]]:
+    """(the job the request became, whether the board showed it, why the board could not be read, the specs that job
+    waits on where the board showed them). The board is the authority: a row whose title ends "(REQUEST <mid>)". Only
+    without a readable board is the body read: a token there is taken when the board lists that job, or could not be
+    read at all."""
+    kind, got = ask_state(login, mid)
+    if kind == "answer":
+        # The control agent's own answer to "which job of yours did this request become": the state of that job, never its
+        # title or its list, so the body is never asked to name it.
+        if got.get("status") == "ok" and got.get("state") == "absent":
+            return None, False, None, []
+        if got.get("status") == "ok" and isinstance(got.get("id"), str) and got.get("state") in STATES \
+                and JOB.fullmatch(f"job:{login}/{got['id']}"):
+            return f"job:{login}/{got['id']}", True, None, []
+        board, why = None, _refusal(got)
+        # The body below is read only where the board could not be: a refusal is that.
+    elif kind == "unreadable" or kind == "operator":
+        board, why = read_board(login)
+    rows = board or []
     if board is not None:
         for j in board:
             if _title_request(str(j.get("title", ""))) == mid and isinstance(j.get("id"), str) \
                     and JOB.fullmatch(f"job:{login}/{j['id']}"):      # a board row is another agent's text: only the job: form is stored
-                return f"job:{login}/{j['id']}", True, None
+                return f"job:{login}/{j['id']}", True, None, _spec_names(j.get("blockers"))
     if decision:
-        return None, False, None        # a DECISION settles the question, it is not a job taken: no body token, no unknown
+        return None, False, None, []        # a DECISION settles the question, it is not a job taken: no body token, no unknown
     named = _jobs_named(body, login)
     if len(named) != 1:
-        return None, False, why
+        return None, False, why, []
     (job_id,) = named
     if board is None:
-        return f"job:{login}/{job_id}", False, why
+        return f"job:{login}/{job_id}", False, why, []
     # A readable board without that job: closed, or not the sender's work for this request, and the wait is over.
-    listed = any(isinstance(j, dict) and j.get("id") == job_id for j in board)
-    return (f"job:{login}/{job_id}", True, None) if listed else (None, False, None)
+    listed = any(isinstance(j, dict) and j.get("id") == job_id for j in rows)
+    return (f"job:{login}/{job_id}", True, None, []) if listed else (None, False, None, [])
+
+
+def _cycle(became: str, request: str, peer_specs: list[str]) -> str | None:
+    """The job of this login that holds `request:<request>` and that `became` already waits on, or None (see CYCLES in
+    the header). `peer_specs` are what a board this login could read shows the target waiting on."""
+    me = identity.current_agent()
+    doc = identity.read_jobs()
+    holders = {f"job:{me}/{j['id']}" for j in doc["jobs"] if isinstance(j.get("id"), str) and f"request:{request}" in specs_of(j)}
+    login, _, job_id = became[len("job:"):].partition("/")
+    if login != me:
+        return next((h for h in holders if h in peer_specs), None)
+    # On this login's own list the walk is whole: the target, then what it waits on there.
+    own = {f"job:{me}/{j['id']}": specs_of(j) for j in doc["jobs"] if isinstance(j.get("id"), str)}
+    seen: set[str] = set()
+    todo = [became]
+    while todo:
+        at = todo.pop()
+        if at in holders:
+            return at
+        if at not in seen:
+            seen.add(at)
+            todo.extend(s for s in own.get(at, []) if s.startswith("job:"))
+    return None
 
 
 def check_request(message_id: str) -> Check:
@@ -206,8 +288,11 @@ def check_request(message_id: str) -> Check:
         body = str(content or "").partition("\n\n")[2]
         decision = str(kind).upper() == "DECISION"
         decided = decided or decision
-        job, seen, why = _became(message_id, login, body, decision)
+        job, seen, why, peer_specs = _became(message_id, login, body, decision)
         if job:
+            loop = _cycle(job, message_id, peer_specs)
+            if loop:
+                return Check("unknown", f"answered, but {job} waits on {loop}, which waits on this request: not re-pointed (a cycle)"[:160])
             return Check("waiting", f"answered; now waiting on {job}", job, seen)
         unreadable = unreadable or why
     if unreadable and not decided:      # a DECISION settles the question whatever an earlier unreadable answer left open
@@ -260,17 +345,41 @@ def read_board(login: str) -> tuple[list[dict] | None, str]:
 def check_job(login: str, job_id: str, seen_open: bool) -> tuple[Check, bool]:
     """(the check, whether the job has now been seen on the open list). Absent from the open list is done or
     dropped only for a job seen open before."""
+    kind, got = ask_state(login, job_id)
+    if kind == "answer":
+        return _from_answer(login, job_id, got, seen_open)
     board, why = read_board(login)
     if board is None:
         return Check("unknown", why[:160]), seen_open
     job = next((j for j in board if j.get("id") == job_id), None)
     if job is None:
-        if seen_open:
-            return Check("cleared", "closed (done or dropped)"), True
-        return Check("unknown", f"{job_id} is not on {login}'s open list: no such job, or closed before it was seen"), False
+        return _absent(login, job_id, seen_open)
     if job.get("state") == "delivered":
         return Check("cleared", "delivered"), True
     return Check("waiting", str(job.get("state") or "open")), True
+
+
+def _absent(login: str, job_id: str, seen_open: bool) -> tuple[Check, bool]:
+    if seen_open:
+        return Check("cleared", "closed (done or dropped)"), True
+    return Check("unknown", f"{job_id} is not on {login}'s open list: no such job, or closed before it was seen"), False
+
+
+def _from_answer(login: str, job_id: str, answer: dict, seen_open: bool) -> tuple[Check, bool]:
+    """A check from the public op's answer. done and dropped are on the list the op reads (it reads --all), so they
+    clear whether or not the job was seen open; only a job gone from it altogether needs the sighting."""
+    state = answer.get("state")
+    if answer.get("status") != "ok":
+        return Check("unknown", f"{login}'s control agent: {_refusal(answer)}"[:160]), seen_open
+    if answer.get("id") not in (job_id, None) or not isinstance(state, str) or (state not in STATES and state != "absent"):
+        return Check("unknown", f"{login}'s control agent answered something that is not a state of {job_id}"), seen_open
+    if state == "absent":
+        return _absent(login, job_id, seen_open)
+    if state == "delivered":
+        return Check("cleared", "delivered"), True
+    if state in ("done", "dropped"):
+        return Check("cleared", "closed (done or dropped)"), True
+    return Check("waiting", state), True
 
 
 # ── the cache ───────────────────────────────────────────────────────────────────────────────────────────────────

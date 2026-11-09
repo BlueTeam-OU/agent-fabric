@@ -16,6 +16,10 @@ FABRIC_QUEUE_WAIT_MS (how long the holder may take to answer, 10 s):
                          "stale": {<address>: <age s, or null>}}; exit 0, 2, 3
   pool-list [<role>]    {"holder", "answer"}; exit 0, 2, 3, 4
   pool-claim <pool id>  the same; "sent" true / false / absent on exit 3
+  job-state <login> <j<n>|message id>
+                        {"operator": true} when this login is a host operator (the caller reads the board
+                        through fabric-ctl, which answers it more), else {"target", "answer"}: the public op
+                        `job-state` (control/jobs.py) asked of that login's control agent; exit 0, 3, 4
   waits_from, read_waits, budget_left, relay, bound_call, budget_spent,
   placed_accounts, relay_error, unsent, ask_holder   as queue.mjs's
 
@@ -38,6 +42,7 @@ from __future__ import annotations
 
 import math
 import os
+import re
 import sys
 import time
 
@@ -50,6 +55,7 @@ else:
     sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.realpath(__file__))))
 import roots  # noqa: E402
 from control import gzcoord, js  # noqa: E402
+from control.jobs import JOB_ID  # noqa: E402
 from control.pool import POOL_ID, ROLE_SLUG, STATES_REPLAY, STATES_STALE_MS, pool_holder  # noqa: E402
 from control.sessions import MESSAGE_ID, date_parse  # noqa: E402
 
@@ -242,7 +248,9 @@ def cli(argv: list[str] | None = None, out=print, err=lambda m: print(m, file=sy
     argv = sys.argv[1:] if argv is None else argv
     cmd = argv[0] if argv else None
     arg = argv[1] if len(argv) > 1 else None
-    usage = "usage: queue.mjs waits | pool-list [<role>] | pool-claim <pool id>"
+    usage = "usage: queue.mjs waits | pool-list [<role>] | pool-claim <pool id> | job-state <login> <job id|message id>"
+    if cmd == "job-state":
+        return job_state_cli(argv[1:], out, err, agentd=agentd, who=who, call=call, registry=registry, wait_ms=wait_ms, usage=usage)
     if (len(argv) > 2 or cmd not in ("waits", "pool-list", "pool-claim") or (cmd == "waits" and arg is not None)
             or (cmd == "pool-claim" and not POOL_ID.fullmatch(arg or "")) or (cmd == "pool-list" and arg is not None and not ROLE_SLUG.fullmatch(arg))):
         err(usage)
@@ -288,6 +296,54 @@ def cli(argv: list[str] | None = None, out=print, err=lambda m: print(m, file=sy
         out(js.stringify({"error": f"{holder} did not answer within {js.string(math.floor((clock() - asked) / 1000 + 0.5))} s", "holder": holder, "sent": True}))
         return 3
     out(js.stringify({"holder": holder, "answer": answer}))
+    return 0
+
+
+LOGIN = re.compile(r"[a-z0-9][a-z0-9_-]{0,63}", re.ASCII)
+
+
+def job_state_cli(argv: list[str], out, err, *, agentd, who, call, registry, wait_ms, usage: str) -> int:
+    """job-state <login> <j<n>|message id>: see the header. A registry that cannot be read is exit 3, never "not an
+    operator" and never "not placed": the caller then reads the board as it did before the op existed."""
+    if len(argv) != 2 or not LOGIN.fullmatch(argv[0]) or not (JOB_ID.fullmatch(argv[1]) or MESSAGE_ID.fullmatch(argv[1].lower())):
+        err(usage)
+        return 2
+    login, what = argv
+    try:
+        agentd = agentd or _agentd()
+    except NoAgentd as e:
+        out(js.stringify({"error": str(e), "sent": False}))
+        return 3
+    cfg = agentd.control_config()
+    try:
+        r = relay(who, cfg, call=call)
+        placed = placed_accounts(registry)
+    except Unreadable as e:
+        out(js.stringify({"error": relay_error(e, cfg), "sent": False}))
+        return 3
+    me = gzcoord.identity(r["who"])
+    if me["address"] in agentd.operator_addresses(registry):
+        out(js.stringify({"operator": True}))
+        return 0
+    if me["address"] not in placed:
+        out(js.stringify({"error": f"{me['address']} is not placed in the hosts registry: no agent would answer", "sent": False}))
+        return 4
+    target = next((a for a in sorted(placed) if a.rsplit("/", 1)[-1] == login), None)
+    if target is None:
+        out(js.stringify({"error": f"{login} is not placed in the hosts registry", "sent": False}))
+        return 4
+    try:
+        answer = ask_holder(call=r["call"], cfg=cfg, from_=me["address"], holder=target, op="job-state", new_id=agentd.new_id,
+                            args={"job": what} if JOB_ID.fullmatch(what) else {"request": what.lower()},
+                            **({"wait_ms": wait_ms} if wait_ms is not None else {}))
+    except Exception as e:  # noqa: BLE001 — as pool-list's catch: said, with what is known of the post
+        sent = {"sent": True} if getattr(e, "sent", False) is True else ({"sent": False} if unsent(e) else {})
+        out(js.stringify({"error": relay_error(e, cfg), "target": target, **sent}))
+        return 3
+    if not answer:
+        out(js.stringify({"error": f"{target} did not answer", "target": target, "sent": True}))
+        return 3
+    out(js.stringify({"target": target, "answer": answer}))
     return 0
 
 

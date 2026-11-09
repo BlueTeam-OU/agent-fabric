@@ -4,7 +4,8 @@
 
 `jobs` is a read op: this account's open jobs, as bin/fabric-jobs holds
 them, for an operator. Not public: peers see each other's presence, not
-each other's lists. `jobs-add` is an ACTION (sign.ACTION_OPS): the
+each other's lists. `job-state` is the one narrow public read beside it
+(see JOB-STATE below). `jobs-add` is an ACTION (sign.ACTION_OPS): the
 owner's job, added to this login's list with source `owner` and the
 operator's address. Both run tools/fabric/jobs.py as this login, by argv
 — no field of a request reaches a shell — with the root it was given, so
@@ -24,6 +25,29 @@ CONTRACT, frozen from jobs.mjs:
   jobs_add(request, home, root, run)
                              {"status": "added" or "listed", "job", ["warning"]} or
                              {"status": "refused", "reason"}
+  job_state(request, home, root, run)
+                             {"status": "ok", "id", "state"} (state: a job state, or "absent")
+                             or {"status": "refused", "reason"}
+
+JOB-STATE (PUBLIC, control/ops PUBLIC_OPS): a placed account asks this
+account about exactly one job, by `args` {job: "j<n>"} or {request: "<message
+id>"} (the job whose title ends "(REQUEST <id>)", work/request_title.py),
+and gets that job's id and state: queued, active, paused, blocked,
+delivered, done, dropped, or "absent" when the list holds no such job. It
+never carries a title, a list or another job.
+WHO MAY ASK: the sender of the REQUEST the job was taken from, the job's
+`source.from` (a job from a pool, an owner or self has none and is asked of
+by nobody); any other asker is refused, the same words for every job that
+exists, so a refusal names nothing. "absent" is said to anyone: an id with no
+job carries nothing to protect, and a job that left the list reads as closed
+only to a waiter that saw it open (jobsparts/blockers.py).
+WHAT IS NOT CHECKED, and why: the second reader the owner's request allowed,
+a login that names the job in its own blocker. A blocker is held in that
+login's own job list and in no record this account can read (the state stream
+carries `waits_on` message ids, not blockers, and one account never reads
+another's list), so the answering side cannot tell a real blocker from a
+claim of one: it would be the sender condition with a password anyone could
+say. Only the sender is answered.
 
 The arguments are judged as JavaScript judged them, since a request may
 come from a Node fabric-ctl during the rolling upgrade and must be
@@ -114,13 +138,12 @@ def _hold() -> dict | None:
     return hold_view.read(identity_module())
 
 
-def jobs(home: str | None = None, root: str | None = None, run: Runner = run_python, hold: Callable[[], dict | None] = _hold) -> dict:
-    home = os.path.expanduser("~") if home is None else home
-    root = _default_root(home) if root is None else root
+def _listed(root: str, run: Runner, *extra: str) -> list[dict]:
+    """The stored list as jobs.py gives it (`list --json --stored`), or JobsError."""
     # --stored: the operator reads what the list holds, and the daemon
     # answers in seconds, never behind a read of the state stream.
     try:
-        r = run([_jobs_py(root), "list", "--json", "--stored"], cwd=None, env={**os.environ, "AGENT_FABRIC_ROOT": root},
+        r = run([_jobs_py(root), "list", "--json", "--stored", *extra], cwd=None, env={**os.environ, "AGENT_FABRIC_ROOT": root},
                 timeout=JOBS_TIMEOUT_S)
     except subprocess.TimeoutExpired:
         raise JobsError(f"fabric-jobs list: no answer within {JOBS_TIMEOUT_S} s") from None
@@ -135,6 +158,13 @@ def jobs(home: str | None = None, root: str | None = None, run: Runner = run_pyt
         raise JobsError("fabric-jobs list: the answer is not JSON") from None
     if not isinstance(listed, list) or not all(isinstance(j, dict) for j in listed):
         raise JobsError("fabric-jobs list: the answer is not a list of jobs")
+    return listed
+
+
+def jobs(home: str | None = None, root: str | None = None, run: Runner = run_python, hold: Callable[[], dict | None] = _hold) -> dict:
+    home = os.path.expanduser("~") if home is None else home
+    root = _default_root(home) if root is None else root
+    listed = _listed(root, run)
 
     def nn(v, default=None):          # `v ?? default`
         return default if v is None else v
@@ -220,3 +250,54 @@ def _refused(stderr: str, otherwise: str) -> dict:
     last = js.trim(stderr).split("\n")[-1]
     why = re.sub(f"^fabric-jobs:[{js.SPACE}]*", "", last)
     return {"status": "refused", "reason": js.slice(why or otherwise, 200)}
+
+
+JOB_ID = re.compile(r"j[1-9][0-9]{0,8}", re.ASCII)
+MESSAGE_ID = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}", re.ASCII)
+_REQUEST_TAIL = re.compile(r"\(REQUEST ([0-9A-Fa-f-]{36})\)\Z")
+
+
+def _request_of(title: object) -> str | None:
+    """The message id a title ends in "(REQUEST <id>)" with, lower case; None for any other title."""
+    m = _REQUEST_TAIL.search(" ".join(title.split())) if isinstance(title, str) else None
+    return m.group(1).lower() if m and MESSAGE_ID.fullmatch(m.group(1).lower()) else None
+
+
+def check_job_state_args(args) -> str | None:
+    if not isinstance(args, dict) or len(args) != 1:
+        return "job-state takes { job } or { request }"
+    if "job" in args:
+        return None if isinstance(args["job"], str) and JOB_ID.fullmatch(args["job"]) else "job is j<n>"
+    if "request" in args:
+        return None if isinstance(args["request"], str) and MESSAGE_ID.fullmatch(args["request"].lower()) else "request is a message id"
+    return "job-state takes { job } or { request }"
+
+
+def job_state(request: dict, home: str | None = None, root: str | None = None, run: Runner = run_python) -> dict:
+    """See JOB-STATE in the header. `request["from"]` is a claim the relay does not verify (agentd's fence); what it
+    buys is the same as pool-claim's: a read of one job's state, by someone who already holds the REQUEST's id and
+    the relay's token."""
+    home = os.path.expanduser("~") if home is None else home
+    root = _default_root(home) if root is None else root
+    args = request.get("args")
+    bad = check_job_state_args(args)
+    if bad:
+        return {"status": "refused", "reason": bad}
+    asker = request.get("from")
+    try:
+        # --all: a job that is done or dropped is no longer open, and is still on the list the asker's blocker waits on.
+        listed = _listed(root, run, "--all")
+    except JobsError as e:
+        return {"status": "refused", "reason": js.slice(str(e), 200)}
+    if "job" in args:
+        found = next((j for j in listed if j.get("id") == args["job"]), None)
+    else:
+        wanted = args["request"].lower()
+        found = next((j for j in listed if _request_of(j.get("title")) == wanted), None)
+    if found is None:
+        return {"status": "ok", "id": args.get("job"), "state": "absent"}
+    source = found.get("source")
+    sender = source.get("from") if isinstance(source, dict) else None
+    if not (isinstance(asker, str) and isinstance(sender, str) and sender == asker):
+        return {"status": "refused", "reason": "job-state answers the sender of the request the job was taken from"}
+    return {"status": "ok", "id": found.get("id"), "state": found.get("state")}

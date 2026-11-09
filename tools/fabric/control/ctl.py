@@ -704,6 +704,8 @@ def parse_args(argv: list[str]) -> dict:
     # claim lands on its own list, which no operator's command can write.
     if op in ("pool-list", "pool-claim"):
         raise CtlError(f"{op} is fabric-jobs's: a placed agent runs fabric-jobs {op}")
+    if op == "job-state":
+        raise CtlError("job-state is fabric-jobs's: a blocker `job:<login>/j<n>` asks it")
     if op == "pool-add":
         bad = check_pool_args({**({"role": out["role"]} if out["role"] is not None else {}), **job_args(out)})
         if bad:
