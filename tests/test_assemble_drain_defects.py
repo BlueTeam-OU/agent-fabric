@@ -466,6 +466,16 @@ def test_a_break_in_a_title_does_not_split_the_heading_or_cut_the_index_entry(tm
         fh.write(edited.replace("description: Double  space stays", 'description: "Older\\nbreak"'))
     from assembler.writer import described
     assert described(old, "fallback") == "Older break", described(old, "fallback")
+    # And lint reads that entry as the writer wrote it, not as drift from the decoded break.
+    index_path = ta.proj(out, "alpha", "INDEX.md")
+    with open(index_path, "w", encoding="utf-8") as fh:
+        fh.write(index.replace("— Double  space stays\n", "— Older break\n"))
+    lint = subprocess.run([sys.executable, ta.LINT, "--fabric", out, "--working-copy", f"{ta.PROJECT}={ta.working_copy(out)}"],
+                          capture_output=True, text=True)
+    assert lint.returncode == 0 and "describes it as" not in lint.stderr, lint.stderr
+    import lint as lint_module
+    from assembler.core import LINE_BREAK_RE
+    assert lint_module.LINE_BREAK_RE.pattern == LINE_BREAK_RE.pattern, "lint reads a break as the INDEX writer makes it"
 
 
 def main() -> int:

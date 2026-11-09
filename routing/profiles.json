@@ -26,10 +26,10 @@
     "architect-cto-01": {
       "providers": {
         "anthropic": {
-          "session": "claude-fable-5-1"
+          "session": "claude-fable-5-2"
         }
       },
-      "notes": "The architect's main conversation runs on Fable 5.1, the top tier, not the coding tier's model (the owner, 2026-09-24). Only the model moves: its effort is the session's, routing/effort.json's medium, as every class's is since 2026-09-25; its code-plan subagents run on the column's model, Opus 5.5, at the same level."
+      "notes": "The architect's main conversation runs on Fable 5.2, the top tier, not the coding tier's model (the owner, 2026-09-24 on Fable 5.1; 2026-11-09 to Fable 5.2, read back in docs/live-checks/2026-11-09-fable-5-2.md). Only the model moves: its effort is the session's, routing/effort.json's medium, as every class's is since 2026-09-25; its code-plan subagents run on the column's model, Opus 5.5, at the same level."
     },
     "python-dev-03": {
       "launch_provider": "anthropic",

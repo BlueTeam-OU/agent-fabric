@@ -25,3 +25,7 @@ no-effort row narrowed to Haiku 4.x. code-medium stays on Sonnet 5.5.
 ### Amendment 2026-10-09 — python-dev's session is Sonnet 5.5, a role layer
 
 The owner made Sonnet 5.5 python-dev's session model after the pilot (2026-10-08, docs/live-checks/2026-10-08-python-dev-sonnet-pilot.md); #130 put it in `routing/profiles.json` as a role layer. §2 lists the exceptions to the default session, and did not name this one (#130's blind review, F4). The capability classes are unchanged.
+
+### Amendment 2026-11-09 — architect-cto-01's session is Fable 5.2
+
+The owner, 2026-11-09: Fable 5.2 had just become available, and architect-cto moves to it. The id was read back before the change (docs/live-checks/2026-11-09-fable-5-2.md): `claude-fable-5-2` is served, at low and at medium effort, while the dotted spelling and a made-up control are refused. Claude Code 2.1.311 printed `unrecognized_model` on stderr for two of the four probes, and served the id each time. Only the agent layer in `routing/profiles.json` moves. The capability classes, the fable alias's export (code-plan's Opus 5.5) and the session's medium effort are unchanged.
