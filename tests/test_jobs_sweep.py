@@ -248,7 +248,8 @@ def main() -> int:
 
         def edited_meanwhile(self, repo_name, number):
             if number == "31":
-                assert run("deliver", ids[0], "an artifact added meanwhile")[0] == 0
+                # Another writer of the list adds an artifact (a `deliver` would ask for one that is open, and this pull request merged).
+                jobs.identity.update_jobs(lambda doc: next(j for j in doc["jobs"] if j["id"] == ids[0])["artifacts"].append("an artifact added meanwhile"))
             return asked(self, repo_name, number)
         sweep_part.PrStates.__call__ = edited_meanwhile
         try:
