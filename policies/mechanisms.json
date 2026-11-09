@@ -32,7 +32,7 @@
     "job-lifecycle": {
       "adr": "ADR-037",
       "status": "planned",
-      "waits_on": "python-dev-04/j100: today's code characterised against ADR-037 rule 14; then one module making every transition, its owner"
+      "waits_on": "python-dev-04/j101 (W2-A): one module making every ADR-037 rule 14 transition, its owner, and its checker; pending once the owner is tracked"
     },
     "message-transport": {
       "adr": "ADR-064",
