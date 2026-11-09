@@ -131,10 +131,10 @@ lets lint check that the claim is true.
 ## 7. Future Evolution
 
 - Each `pending` entry becomes `enforced` as its job lands (Wave 1 of
-  j674: process lifetime, remote evidence, agent context). The job
-  lifecycle and transport are `planned` until their owners exist (a
-  `work/` module over ADR-037 rule 14; a transport interface under
-  ADR-064, with the relay still primary).
+  j674: process lifetime, remote evidence, agent context), and the job
+  lifecycle (`tools/fabric/work/`, over ADR-037 rule 14) and transport
+  (`tools/fabric/gzcoord/transport/`, under ADR-064, the relay still
+  primary) did once their owners existed. None is `planned` now.
 - A mechanism the catalogue lacks is added when a duplicate of it is
   found, not before.
 
