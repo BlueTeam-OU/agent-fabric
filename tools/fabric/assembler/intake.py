@@ -27,7 +27,7 @@ def parse_args() -> argparse.Namespace:
     ap.add_argument("--working-copy", action="append", default=[], metavar="[PROJECT=]DIR",
                     help="the project's checkout; its .agent-fabric/memory/ receives the "
                          "project-scoped classes (default: the agent's binding, or this checkout "
-                         "for agent-fabric itself; --project=DIR is the same). PROJECT=DIR, repeatable as lint takes it, tells the anchor guard "
+                         "for agent-fabric itself; <the --project's id>=DIR is the same). PROJECT=DIR, repeatable as lint takes it, tells the anchor guard "
                          "where another project's checkout is, so it judges an anchor there and not only in a "
                          "checkout beside the tree")
     ap.add_argument("--stamp", required=True, help="distillation date (YYYY-MM-DD)")
@@ -60,8 +60,9 @@ def parse_args() -> argparse.Namespace:
         elif not project or not os.path.isdir(path):
             ap.error(f"--working-copy {wc!r}: {'no project named' if not project else path + ' is no directory'}")
         if project == args.project:
-            # lint's own-project form: the corpus is written there, so it is the bare flag (the guard never reads the map
-            # for the run's own project: memory_check takes the tree). Two different ones cannot both receive it.
+            # lint's own-project form: the corpus is written there, so it is the bare flag. Not put in the map: for a
+            # project corpus memory_check has no own project, so a `<project>:` anchor of it is judged beside the tree by
+            # its id, map or not (as with the bare flag). Two different checkouts cannot both receive the corpus.
             if args.working_copy and os.path.abspath(args.working_copy) != os.path.abspath(path):
                 ap.error(f"--working-copy {wc!r}: the checkout of --project {project} is already {args.working_copy!r}")
             args.working_copy = path
