@@ -148,15 +148,18 @@ def main() -> int:
           f"{r.stdout}{r.stderr}")
     w.close()
 
-    # a retired type (HELLO, SPEC §8) addressed here is acknowledged and never shown
-    w = C.World([[{"seq": 1, "id": "r1", "ts": "T", "sender": "x/y", "content": C.msg(1).replace("INFO", "HELLO", 1)}, C.relay_rec(2)]])
+    # a retired type (HELLO, SPEC §8) addressed here is acknowledged and never shown; one addressed elsewhere is acknowledged and logs no arrival
+    elsewhere = C.msg(3).replace("INFO", "HELLO", 1).replace(f"TO: {ME}", "TO: x/someone-else")
+    w = C.World([[{"seq": 1, "id": "r1", "ts": "T", "sender": "x/y", "content": C.msg(1).replace("INFO", "HELLO", 1)}, C.relay_rec(2),
+                  {"seq": 3, "id": "r3", "ts": "T", "sender": "x/y", "content": elsewhere}]])
     r = w.drain()
     check("a retired HELLO addressed here is acknowledged and not shown, beside a message that is",
-          sorted(w.acks) == ["r1", "r2"] and "subject-1" not in r.stdout and "subject-2" in r.stdout, f"{r.stdout}{r.stderr}\n{w.acks}")
+          sorted(w.acks) == ["r1", "r2", "r3"] and "subject-1" not in r.stdout and "subject-2" in r.stdout, f"{r.stdout}{r.stderr}\n{w.acks}")
     arrived = {x["mid"] for x in w.read("gzcoord-arrivals.jsonl")}
     acked = {x["mid"] for x in w.read("gzcoord-acks.jsonl")}
     check("... and every acknowledgement line has an arrival line (inbox.py and ADR-064 rule 11: one per copy addressed here, retired types included)",
-          acked <= arrived and C.mid(1) in arrived, f"arrivals {sorted(arrived)}\nacks {sorted(acked)}")
+          acked <= arrived and C.mid(1) in arrived and C.mid(3) not in arrived,
+          f"arrivals {sorted(arrived)}\nacks {sorted(acked)}")
     w.close()
 
     # ── shown once, whichever arrives first ──────────────────────────────────────────────────────────────────────────
