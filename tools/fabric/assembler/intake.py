@@ -6,9 +6,11 @@ import argparse
 import json
 import os
 import sys
+from typing import Any
 import anchors
 import memory_horizons
-from assembler.core import layout, workingcopy, DEFAULT_SLICE_BUDGET_TOKENS, BANNED_PATTERNS, PROJECT_PATTERNS, patterns_for, store_error, slugify, origin_of_row, REDACTED, hygiene_check, hygiene_substitute, role_id_error, Run
+from assembler.core import layout, workingcopy, DEFAULT_SLICE_BUDGET_TOKENS, BANNED_PATTERNS, PROJECT_PATTERNS, patterns_for, store_error, slugify, origin_of_row, REDACTED, hygiene_check, hygiene_substitute, role_id_error, bound_role_ids, one_line, Run
+from assembler.slices import cited_outside_code
 from assembler.bundle import open_bundle
 
 
@@ -152,6 +154,15 @@ def read_claims(run: Run) -> int | None:
         run.all_claims[role] = payload.get("claims", [])
         for claim in run.all_claims[role]:
             claim["_role"] = role   # for the section's dated tail; never written to disk
+            if isinstance(claim.get("title"), str):
+                claim["title"] = one_line(claim["title"])
+            cites = claim.get("citations")
+            if isinstance(cites, dict) and isinstance(cites.get("memories"), list) and isinstance(claim.get("body"), str):
+                kept = cited_outside_code(claim["body"], cites["memories"])
+                if kept != cites["memories"]:
+                    claim["citations"] = {**cites, **({"memories": kept} if kept else {})}
+                    if not kept:
+                        del claim["citations"]["memories"]
             # A co-owner is a role id too: it gets a project directory and
             # an index (writer.write_shared, assemble.py's owning roles).
             for owner in claim.get("shared_with") or []:
@@ -318,6 +329,42 @@ def hold_back(run: Run) -> None:
         run.held_back.append(key)
     if unmatched:
         sys.exit(f"assemble: --hold names no slice of this drain: {', '.join(unmatched)}")
+
+
+def hold_unbound_roles(run: Run) -> None:
+    """A project-scoped slice of a role the project's taxonomy does not bind is HELD, not written (drain of 2026-11-08: a
+    bundle wrote a new fabric-coordinator corpus into a project that binds three other roles). Held, as --hold holds:
+    nothing of it is written, and the store's mark stays below its memories, so the harvest brings them again once the
+    drain re-homes them (the role is bound, or the memory moves). Refusing the run instead would drop every other
+    slice of the bundle for a role that is merely unbound here. The report names each with its role, project and source.
+
+    Not judged: a project with no taxonomy (nothing says which roles it binds), the fabric's own project (its taxonomy binds the
+    roles that own the control plane's paths, while its project memory is every role's), and domain slices, which
+    live in the fabric and belong to no project's roles."""
+    bound = bound_role_ids(run.project)
+    if bound is None or run.project == layout.FABRIC_PROJECT_ID:
+        return
+    projectwide = set(layout.PROJECT_CLASSES)
+
+    def source_of(claims: list[dict[str, Any]]) -> list[str]:
+        origins = (run.origins.get(h) for c in claims for h in c.get("evidence") or [])
+        return sorted({f"{o.get('agent') or o.get('clone_id')}@{o.get('host')}" for o in origins if o})
+
+    def hold(key: str, role: str, klass: str, topic: str, claims: list[dict[str, Any]]) -> None:
+        run.held_evidence.update(h for c in claims for h in c.get("evidence") or [])
+        run.held_back.append(key)
+        run.held_unbound.append({"slice": key, "role": role, "project": run.project, "class": klass, "topic": topic,
+                                 "source": source_of(claims)})
+
+    for role in sorted(set(run.per_role) - bound):
+        for (klass, topic) in sorted(k for k in run.per_role[role] if k[0] in projectwide):
+            hold(f"{role}/{klass}:{topic}", role, klass, topic, run.per_role[role].pop((klass, topic)))
+    # A shared slice is listed by every owner's index, so one unbound owner would index that role here.
+    for (klass, topic) in sorted(k for k in run.shared if k[0] in projectwide):
+        unbound = sorted(run.shared_owners[(klass, topic)] - bound)
+        if unbound:
+            hold(f"shared/{klass}:{topic}", ",".join(unbound), klass, topic, run.shared.pop((klass, topic)))
+            run.shared_owners.pop((klass, topic), None)
 
 
 def load_decisions(run: Run) -> None:

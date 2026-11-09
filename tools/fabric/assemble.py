@@ -86,8 +86,9 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
 
 from assembler.core import Run, layout  # noqa: E402
-from assembler.intake import parse_args, open_layout, read_claims, screen_hygiene, bucket_claims, hold_back, load_decisions  # noqa: E402
+from assembler.intake import parse_args, open_layout, read_claims, screen_hygiene, bucket_claims, hold_back, hold_unbound_roles, load_decisions  # noqa: E402
 from assembler.targets import plan_classes, held_files, resolve_all_targets, point_disk  # noqa: E402
+from assembler.anchorkeep import keep_resolving_anchors  # noqa: E402
 from assembler.collisions import check_collisions  # noqa: E402
 from assembler.shapes import check_correction_shapes, drop_replayed, verify_replacements  # noqa: E402
 from assembler.writer import write_shared, write_role  # noqa: E402
@@ -103,12 +104,14 @@ def main() -> int:
     screen_hygiene(run)
     bucket_claims(run)
     hold_back(run)
+    hold_unbound_roles(run)
     load_decisions(run)
     plan_classes(run)
     held_files(run)
     run.bound_roles = bound_roles_with_domain_slices(run)
     if resolve_all_targets(run):
         return 1
+    keep_resolving_anchors(run)
     drop_replayed(run)
     if check_correction_shapes(run):
         return 1

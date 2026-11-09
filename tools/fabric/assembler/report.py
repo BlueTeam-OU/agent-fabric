@@ -320,6 +320,8 @@ def report(run: Run) -> int:
         "harvest_sources": {source: harvest_meta} if harvest_meta is not None else {},
         "watermarks": watermarks,
         "held_back": sorted(run.held_back),
+        "held_unbound_role": run.held_unbound,
+        "anchors_kept": run.anchors_kept,
         # What the memory server recorded in the account's state (harvest_memory.py carries it): the marks by section
         # id, and the counts of calls per source. Read, not routed: no slice changes by them yet.
         "memory_marks": memory_marks,
@@ -367,6 +369,8 @@ def report(run: Run) -> int:
         klass, _, topic = rest.partition(":")
         return bool(run.shared.get((klass, topic)) if label == "shared" else run.per_role.get(label, {}).get((klass, topic)))
     report["held_back"] = sorted(k for k in report.get("held_back") or [] if k in run.held_back or not written_now(k))
+    # The records follow the keys: a hold a later run released (the role is bound now) leaves with it.
+    report["held_unbound_role"] = [r for r in report.get("held_unbound_role") or [] if r.get("slice") in report["held_back"]]
     # Derived from the corpus as it stands, like the collisions: a link a later drain made good leaves the list. Reported, never
     # rewritten, and never a failure: lint (lint_rules/slices.link_warnings) names what the whole committed corpus carries.
     undrained = {n.removesuffix(".md") for src in [*(report.get("harvest_sources") or {}).values(), harvest_meta]
@@ -429,6 +433,12 @@ def report(run: Run) -> int:
               file=sys.stderr)
         for note in run.unresolved_targets:
             print(f"  {note}", file=sys.stderr)
+    if run.held_unbound:
+        print("\nHELD, ROLE NOT BOUND BY THE PROJECT'S TAXONOMY (not written; the store's mark stays below them, so the "
+              "harvest brings them again once the drain re-homes them):", file=sys.stderr)
+        for row in run.held_unbound:
+            print(f"  {row['slice']} (role {row['role']}, project {row['project']}, from {', '.join(row['source']) or 'unknown'})",
+                  file=sys.stderr)
     if run.superseded_harvests:
         print("\nSUPERSEDED HARVESTS (a memory whose text is a section a correction replaced, in this run or an earlier "
               "one; not written — update or delete the memory):", file=sys.stderr)

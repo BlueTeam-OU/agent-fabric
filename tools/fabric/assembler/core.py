@@ -8,6 +8,7 @@ import json
 import os
 import hashlib
 import re
+import sys
 from collections import defaultdict
 from dataclasses import dataclass, field
 from typing import Any, TypedDict
@@ -440,11 +441,54 @@ class Run:
     # read before anything is written, since an unreadable taxonomy refuses.
     bound_roles: set[str] = field(default_factory=set)
     held_files: set[str] = field(default_factory=set)
+    # The slices held because their role is not one the project's taxonomy binds, as records the report names
+    # (hold_unbound_roles): {slice, role, project, class, topic, source}.
+    held_unbound: list[dict[str, Any]] = field(default_factory=list)
+    # The anchors a claim brought that did not resolve, kept out for the corpus's that does (anchorkeep): {slice, heading,
+    # dropped, kept, agent, host, memory}, the author named so the memory can be repaired.
+    anchors_kept: list[dict[str, Any]] = field(default_factory=list)
     # The evidence a held claim stands on, and when each memory was written
     # (the observation's created_at_epoch, seconds): the store's mark stays
     # below the oldest, so the hold is drained again once released.
     held_evidence: set[str] = field(default_factory=set)
     evidence_epoch: dict[str, Any] = field(default_factory=dict)
+
+
+# Every break str.splitlines() makes, which is what a reader of the INDEX line by line sees.
+LINE_BREAK_RE = re.compile(r"\s*[\n\r\x0b\x0c\x1c-\x1e\x85\u2028\u2029]+\s*")
+
+
+def one_line(text: str) -> str:
+    """`text` with each line break (and the spaces around it) made one space. A title or description is one line wherever it
+    is written: a heading is a line and so is an INDEX entry, and a YAML escape in a memory's description (`\\n`) is a break
+    once decoded, which cut the entry and split the heading (InterWeave #595, drain of 2026-11-08). Only breaks are touched,
+    so a heading that holds a double space keeps it and stays the heading the corpus already has."""
+    return LINE_BREAK_RE.sub(" ", text)
+
+
+def bound_role_ids(project: str) -> set[str] | None:
+    """The role ids the project's taxonomy binds, None when it has no taxonomy. A taxonomy that exists and cannot be
+    read stops the drain, as a broken hygiene list does: a skipped one would quietly bind nothing."""
+    path = layout.project_taxonomy_path(project)
+    if not path:
+        return None
+    try:
+        with open(path, encoding="utf-8") as fh:
+            tax = json.load(fh)
+    except (OSError, ValueError) as exc:
+        sys.exit(f"assemble: {path}: the project's taxonomy cannot be read ({exc})")
+    roles = tax.get("roles") if isinstance(tax, dict) else None
+    if not isinstance(roles, list):
+        sys.exit(f"assemble: {path}: the project's taxonomy has no roles list")
+    bound: set[str] = set()
+    for r in roles:
+        if not isinstance(r, dict):
+            sys.exit(f"assemble: {path}: the project's taxonomy binds {r!r}, not a role entry with an id")
+        why = role_id_error(r.get("id"))
+        if why:
+            sys.exit(f"assemble: {path}: the project's taxonomy binds {why}")
+        bound.add(r["id"])
+    return bound
 
 
 def base_for(run: Run, role: str, klass: str) -> str:
