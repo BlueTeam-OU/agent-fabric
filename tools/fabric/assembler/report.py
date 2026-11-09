@@ -322,6 +322,7 @@ def report(run: Run) -> int:
         "held_back": sorted(run.held_back),
         "held_unbound_role": run.held_unbound,
         "anchors_kept": run.anchors_kept,
+        "titles_one_lined": run.titles_one_lined,
         # What the memory server recorded in the account's state (harvest_memory.py carries it): the marks by section
         # id, and the counts of calls per source. Read, not routed: no slice changes by them yet.
         "memory_marks": memory_marks,
@@ -439,6 +440,11 @@ def report(run: Run) -> int:
         for row in run.held_unbound:
             print(f"  {row['slice']} (role {row['role']}, project {row['project']}, from {', '.join(row['source']) or 'unknown'})",
                   file=sys.stderr)
+    if run.titles_one_lined:
+        print("\nTITLES MADE ONE LINE (a line break in the title became a space; fix the memory's description if the break was an escape "
+              "meant literally):", file=sys.stderr)
+        for row in run.titles_one_lined:
+            print(f"  {row['slice']}: {row['old']!r} -> {row['new']!r}", file=sys.stderr)
     if run.superseded_harvests:
         print("\nSUPERSEDED HARVESTS (a memory whose text is a section a correction replaced, in this run or an earlier "
               "one; not written — update or delete the memory):", file=sys.stderr)

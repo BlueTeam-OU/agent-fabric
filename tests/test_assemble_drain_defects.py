@@ -80,15 +80,17 @@ def test_a_role_whose_every_slice_is_held_gets_no_project_corpus(tmp: str) -> No
 
 def test_an_unbound_author_of_a_shared_slice_gets_no_project_corpus(tmp: str) -> None:
     """Re-review round 2, F1: the unbound role is the AUTHOR of a slice it shares with a bound role, so it is in the
-    drain's claims files though it has no per-role slice. The hold wrote nothing, and so does the role's index."""
+    drain's claims files though it has no per-role slice. The slice is the bound owner's and is written (drain of
+    2026-11-08, replay defect 1); the unbound author gets no index of its own."""
     drain, claims_dir, out = ta.build(tmp, {"beta": ta.claims("beta", [
         {"class": "workflow", "topic": "s", "title": "T", "body": "Shared.", "evidence": ["h1"], "shared_with": ["alpha"]}])})
     bind(out, "alpha")
     proc = ta.run_assemble(drain, claims_dir, out)
     assert proc.returncode == 0, proc.stderr
-    assert report(out)["held_back"] == ["shared/workflow:s"], report(out)["held_back"]
+    assert report(out)["held_back"] == [], report(out)["held_back"]
+    assert os.path.isdir(ta.proj(out, "shared")), sorted(ta.tree(out))
     assert not os.path.exists(ta.proj(out, "beta")), sorted(ta.tree(out))
-    assert report(out)["roles"] == [], report(out)["roles"]
+    assert report(out)["roles"] == ["alpha"], report(out)["roles"]
 
 
 def test_an_unbound_hold_keeps_the_stores_mark_below_its_memory(tmp: str) -> None:
@@ -137,16 +139,26 @@ def test_a_project_with_no_taxonomy_binds_every_role(tmp: str) -> None:
     assert os.path.isfile(ta.proj(out, "beta", "workflow.md")) and report(out).get("held_unbound_role", []) == []
 
 
-def test_a_shared_slice_with_an_unbound_owner_is_held(tmp: str) -> None:
-    """A shared slice is listed by every owner's index; an unbound owner would be indexed in the project."""
-    sw = {"shared_with": ["beta"]}
+def test_a_shared_slice_is_held_only_when_no_owner_is_bound(tmp: str) -> None:
+    """A shared slice is listed by every owner's index. With a bound owner it is written, and the unbound owner is left
+    out of the indexes (herdr fleet-deck-attention-seam of 2026-11-08: shared by an unbound and a bound role); with none
+    bound it is held, and written when the taxonomy binds one."""
     drain, claims_dir, out = ta.build(tmp, {"alpha": ta.claims("alpha", [
-        {"class": "workflow", "topic": "w", "title": "T", "body": "The body.", "evidence": ["h1"], **sw}])})
+        {"class": "workflow", "topic": "w", "title": "T", "body": "The body.", "evidence": ["h1"], "shared_with": ["beta"]}])})
     bind(out, "alpha")
     proc = ta.run_assemble(drain, claims_dir, out)
     assert proc.returncode == 0, proc.stderr
+    assert report(out)["held_back"] == [] and os.path.isdir(ta.proj(out, "shared")), sorted(ta.tree(out))
+    assert not os.path.exists(ta.proj(out, "beta")), sorted(ta.tree(out))
+    assert "beta" not in ta.read(ta.proj(out, "alpha", "INDEX.md")).split("workflow")[0], "no index of the unbound owner"
+
+    drain, claims_dir, out = ta.build(os.path.join(tmp, "none"), {"alpha": ta.claims("alpha", [
+        {"class": "workflow", "topic": "w", "title": "T", "body": "The body.", "evidence": ["h1"], "shared_with": ["beta"]}])})
+    bind(out, "gamma")
+    proc = ta.run_assemble(drain, claims_dir, out)
+    assert proc.returncode == 0, proc.stderr
     assert report(out)["held_back"] == ["shared/workflow:w"], report(out)["held_back"]
-    assert not os.path.exists(ta.proj(out, "beta")) and not os.path.exists(os.path.join(ta.proj(out, "shared"))), sorted(ta.tree(out))
+    assert not os.path.exists(os.path.join(ta.proj(out, "shared"))), sorted(ta.tree(out))
     bind(out, "alpha", "beta")
     proc = ta.run_assemble(drain, claims_dir, out)
     assert proc.returncode == 0 and os.path.isdir(ta.proj(out, "shared")), proc.stderr
@@ -260,6 +272,8 @@ def test_a_break_in_a_title_does_not_split_the_heading_or_cut_the_index_entry(tm
     assert "\n## Compose the sections of a message\n" in text, text
     assert "\n## Double  space stays\n" in ta.read(ta.dom(out, "alpha", "domain", "two.md")), "only breaks are touched"
     assert "description: Compose the sections of a message\n" in text, text
+    assert report(out)["titles_one_lined"] == [{"slice": "alpha/domain:one", "old": "Compose the sections\nof a message",
+                                                "new": "Compose the sections of a message"}], report(out)["titles_one_lined"]
     ta.lint_inputs(out)
     os.makedirs(os.path.join(out, "identities", "roles"), exist_ok=True)
     with open(os.path.join(out, "identities", "roles", "catalog.json"), "w", encoding="utf-8") as fh:
@@ -291,7 +305,7 @@ def main() -> int:
         test_an_unbound_hold_keeps_the_stores_mark_below_its_memory,
         test_the_fabrics_own_project_is_not_judged_by_its_taxonomy,
         test_a_project_with_no_taxonomy_binds_every_role,
-        test_a_shared_slice_with_an_unbound_owner_is_held,
+        test_a_shared_slice_is_held_only_when_no_owner_is_bound,
         test_an_anchor_that_resolves_is_not_replaced_by_one_that_does_not,
         test_an_incoming_anchor_that_resolves_stands_and_so_does_one_that_cannot_be_judged,
         test_a_link_in_a_code_span_is_not_cited,

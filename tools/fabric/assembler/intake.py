@@ -155,7 +155,11 @@ def read_claims(run: Run) -> int | None:
         for claim in run.all_claims[role]:
             claim["_role"] = role   # for the section's dated tail; never written to disk
             if isinstance(claim.get("title"), str):
-                claim["title"] = one_line(claim["title"])
+                lined = one_line(claim["title"])
+                if lined != claim["title"]:
+                    run.titles_one_lined.append({"slice": f"{role}/{claim.get('class')}:{claim.get('topic')}",
+                                                 "old": claim["title"], "new": lined})
+                claim["title"] = lined
             cites = claim.get("citations")
             if isinstance(cites, dict) and isinstance(cites.get("memories"), list) and isinstance(claim.get("body"), str):
                 kept = cited_outside_code(claim["body"], cites["memories"])
@@ -360,15 +364,21 @@ def hold_unbound_roles(run: Run) -> None:
         for (klass, topic) in sorted(k for k in run.per_role[role] if k[0] in projectwide):
             hold(f"{role}/{klass}:{topic}", role, klass, topic, run.per_role[role].pop((klass, topic)))
             run.unbound_held_roles.add(role)
-    # A shared slice is listed by every owner's index, so one unbound owner would index that role here.
+    # A shared slice is listed by every owner's index: held when no owner is bound, else written without the unbound owners.
     for (klass, topic) in sorted(k for k in run.shared if k[0] in projectwide):
-        unbound = sorted(run.shared_owners[(klass, topic)] - bound)
-        if unbound:
+        owners = run.shared_owners[(klass, topic)]
+        unbound = sorted(owners - bound)
+        if unbound and owners <= set(unbound):
             claims = run.shared.pop((klass, topic))
             # The unbound role may be its author (a claim in its own file shared with a bound role), which is how it gets in all_claims.
             run.unbound_held_roles.update(c["_role"] for c in claims if c.get("_role") in unbound)
             hold(f"shared/{klass}:{topic}", ",".join(unbound), klass, topic, claims)
             run.shared_owners.pop((klass, topic), None)
+        elif unbound:
+            # Some owner is bound (drain of 2026-11-08, herdr fleet-deck-attention-seam: python-dev and the bound rust-ui-dev):
+            # the slice is the bound owners' knowledge and is written; only the unbound owners are left out of its indexes.
+            run.unbound_held_roles.update(c["_role"] for c in run.shared[(klass, topic)] if c.get("_role") in unbound)
+            owners -= set(unbound)
 
 
 def load_decisions(run: Run) -> None:
