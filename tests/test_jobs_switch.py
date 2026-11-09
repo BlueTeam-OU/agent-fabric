@@ -999,7 +999,7 @@ def main() -> int:
         # j105: what the repository says of itself (gh api), keyed by path: the workflow file, then the rules on the default branch.
         api_says: dict = {}
         api_asked: list = []
-        real_api = branching.vcs.gh.api
+        real_api = branching.vcs.gh.api     # restored after the j105 cases: later cases reach gh through the fake binary
         gh_error = branching.vcs.gh.GhError
 
         def fake_api(path, **kw):
@@ -1012,7 +1012,7 @@ def main() -> int:
             raise gh_error("gh api GET " + path, "HTTP 404", status=404)
 
         branching.vcs.gh.api = fake_api
-        WORKFLOW = {"contents/.github/workflows/disarm-on-push.yml": {"name": "disarm-on-push.yml"}}
+        WORKFLOW = {"contents/.github/workflows/disarm-on-push.yml": {"type": "file", "name": "disarm-on-push.yml"}}
         RULE = {"rules/branches/": [{"type": "required_status_checks", "parameters": {"required_status_checks": [{"context": "ci-ok"}, {"context": "fabric/armed"}]}}]}
 
         def other_clone(w: World) -> str:
@@ -1436,6 +1436,7 @@ def main() -> int:
                 ("a ruleset requiring fabric/armed", RULE, True),
                 ("a ruleset requiring only ci-ok", {"rules/branches/": [{"type": "required_status_checks", "parameters": {"required_status_checks": [{"context": "ci-ok"}]}}]}, False),
                 ("neither", {"rules/branches/": []}, False),
+                ("a workflow answer that is not a file", {"contents/": [{"type": "file"}], "rules/branches/": []}, False),
                 ("neither readable", {"contents/": gh_error("gh api GET x", "HTTP 500", status=500), "rules/branches/": gh_error("gh api GET y", "HTTP 403", status=403)}, False),
                 ("the workflow unreadable and the rules not a list", {"contents/": gh_error("gh api GET x", "HTTP 500", status=500), "rules/branches/": {"message": "x"}}, False),
                 ("the workflow unreadable, the rule present", {"contents/": gh_error("gh api GET x", "HTTP 500", status=500), **RULE}, True)):
@@ -1481,6 +1482,7 @@ def main() -> int:
             row_over.pop(40, None)
         # Kills: dropping "note" from the --json object.
         api_says.clear()
+        branching.vcs.gh.api = real_api
         check("--repoint --json onto an armed pull request carries the note that it is armed and the first push disarms it",
               rc == 0 and "first push disarms it" in json.loads(out).get("note", ""), out + err)
 

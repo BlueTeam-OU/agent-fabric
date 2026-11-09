@@ -98,7 +98,7 @@ def _row(repo: str, number: int) -> dict:
 
 def _judge(row: dict, repo: str, number: int, held_ok: bool = False) -> str | None:
     """None when the pull request `row` describes can take another commit, else why not. `held_ok`: an armed pull request that is in no
-    merge queue takes one (its first push disarms it); a queued one never does, a push races the queue."""
+    merge queue takes one (its first push disarms it; whether the repository does is _no_disarm's to say); a queued one never does, a push races the queue."""
     if not row.get("ok") or row.get("state") != "open" or not isinstance(row.get("work"), int):
         return f"{repo}#{number} could not be read ({row.get('error') or row.get('line') or 'no row'})"
     if row.get("armed") != "unarmed" and not (held_ok and row.get("armed") == "armed"):
@@ -124,8 +124,10 @@ def _no_disarm(repo: str, default: str) -> str | None:
     where this holds, and elsewhere an armed pull request would keep its arming on a head nobody reviewed (coordinator, 2026-11-09)."""
     reasons = []
     try:
-        vcs.gh.api(f"repos/{repo}/contents/.github/workflows/disarm-on-push.yml?ref={default}")
-        return None
+        found = vcs.gh.api(f"repos/{repo}/contents/.github/workflows/disarm-on-push.yml?ref={default}")
+        if isinstance(found, dict) and found.get("type") == "file":
+            return None
+        reasons.append("the workflow answer is not a file")
     except vcs.gh.GhError as e:
         reasons.append("no disarm-on-push.yml on " + default if e.status == 404 else f"the workflow could not be read ({e.reason})")
     try:
