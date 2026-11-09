@@ -47,6 +47,7 @@ def main() -> int:
               str(got))
     for label, src in (
         ("gh.api of a repository path", 'gh.api("repos/o/r/pulls/7")\n'),
+        ("gh.api of a path that starts like the relay's", 'gh.api("/api/v3/x")\n'),
         ("an api() with a path that is not the relay's", 'api("/repos/x")\n'),
         ("a function named api that is only defined", 'def api(tok, path):\n    return path\n'),
         ("a string that mentions /api/ and is not a call's argument", 'URL = "/api/send"\n'),

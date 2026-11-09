@@ -274,6 +274,16 @@ def main() -> int:
             finally:
                 relay.close()
 
+        # ── through the sender: with the journal off no mirror is asked (ADR-064 rule 8) ────────────────────────────
+        relay = P.Relay(status=503)
+        try:
+            r, state, store, seen = P.carrier_send(relay.url, P.addressed("TO: h/alpha"), extra=["--force"],
+                                                   GZCOORD_JOURNAL="off", **hosts.env)
+            check("send, journal off, relay down and a carrier running: the carrier is not asked", seen == [] and r.code == 3,
+                  f"{r.code} {r.err}\n{seen}")
+        finally:
+            relay.close()
+
         # ── through the sender: a post the relay deduplicated is said, a fresh one is not ────────────────────────────
         dup = P.Stub(lambda _h, _m, _p, _b: (200, json.dumps({"seq": 42, "id": "relay-id", "deduplicated": True})))
         fresh = P.Relay()
