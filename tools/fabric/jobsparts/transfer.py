@@ -19,7 +19,7 @@ import json
 import re
 import sys
 from fabric_jobs import blockers as bl
-from fabric_jobs.base import DEFAULT_PRIORITY, PRIORITIES, STATES, Refused, identity, mutate
+from fabric_jobs.base import DEFAULT_PRIORITY, PRIORITIES, STATES, Refused, identity, mutate, work
 
 FORMAT = "fabric-jobs-export"
 VERSION = 1
@@ -175,15 +175,8 @@ def import_jobs(args) -> int:
     doc = parse(read_stdin())
     check_document(doc, agent)
 
-    def fill(current: dict) -> None:
-        # Checked inside the lock: two imports, or an add racing one, must not both find the list empty.
-        if current["jobs"] or current.get("seq"):
-            raise Refused(f"this list is not empty ({len(current['jobs'])} jobs, next id j{int(current.get('seq', 0)) + 1}); import fills an empty one only")
-        current["seq"], current["jobs"] = doc["seq"], doc["jobs"]
-        if doc.get("last") is not None:
-            current["last"] = doc["last"]
-
-    mutate(fill)
+    # Checked inside the lock: two imports, or an add racing one, must not both find the list empty.
+    mutate(lambda current: work.fill(current, doc))
     # After the list: a cache that cannot be written is checked again next time, as everywhere. Only the specs the jobs name, and an
     # entry this host already has is kept (it may be newer).
     wanted = set(bl.all_specs(doc, only_blocked=False))

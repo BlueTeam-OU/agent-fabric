@@ -146,9 +146,28 @@ again, and a job already on the list by its pool id is not added twice.
 With nothing queued, `next` offers the pool's first job and says so; it
 claims nothing.
 
+THE TABLE (rule 14, A 2026-11-08): a job changes state only by a row of the transition table, which is data in tools/fabric/work/table.py
+and is checked against the record's own text by tests/test_work_table.py. tools/fabric/work/lifecycle.py is the only code that writes a
+job's state into a list, and tools/fabric/work_writes.py the check that says so. Each verb takes the states its row names and asks the
+row's needs at the moment it makes the change (tools/fabric/jobsparts/needs.py), refusing, naming what is missing, when one is not true:
+  start     queued, paused, blocked or delivered, no other job active, no fleet hold, a working copy; out of blocked, every checkable
+            blocker cleared (an owner's decision has none to check: starting the job is the agent saying it came)
+  pause     the active job, with a reason and its branch pushed (or its head already on origin's default branch); a job on no branch
+            cannot be paused, since nothing would hold its work
+  block     queued, active, paused or blocked, on a checkable blocker or on "owner: <the decision awaited>"; free text is refused
+  deliver   the active or blocked job, with an artifact that is open (a pull request, a branch on origin not on the default branch, a
+            sent reply); a pull request already merged is done, not delivered. On a job already delivered, `deliver` adds artifacts
+            held to the same need; on a done one it adds evidence (no transition)
+  done      the active or delivered job, on rule 10's `done` test, or a recorded --no-artifact reason where it names no artifact
+  drop      any open job, with a reason, and the REQUEST it came from answered
+  sweep     delivered jobs, on the same `done` test as the verb (tools/fabric/jobsparts/settle.py done_test, the artifacts read by
+            artifacts.py for both): a bare commit sha and "<project> #N" count alike
+`switch` makes the rows of `start` (a delivered job included, by id) and the one that blocks a job on the pull request it needs first.
+Retitle, rename, `prio`, `retract` and evidence on a closed job are field edits, not transitions.
+
 `pause <id> "<why>"` sets the active job aside (rule 2: blocked is a wait the agent does not control, paused is its own
-choice). It records the branch checked out where it runs, unless that is the default branch, and `switch` asks that this
-branch is pushed. A paused job is offered before queued jobs of the same priority, never ahead of a higher one, and is
+choice). It records the branch checked out where it runs, unless that is the default branch, and asks that this
+branch is pushed (switch asks again when it leaves the job). A paused job is offered before queued jobs of the same priority, never ahead of a higher one, and is
 taken back by `switch <id>` or when it is first in the order.
 
 `switch` (alias `next`) is the transition between jobs (rule 10, amended 2026-10-14), three steps, a refusal naming every
@@ -234,7 +253,7 @@ import sys
 # without -I's sys.path help, and a fixture fabric on sys.path must not answer
 # for its imports. A second jobs.py in one process (a fixture's copy beside the
 # real one) loads its own parts, never the first one's from sys.modules.
-for _name in [n for n in sys.modules if n == "fabric_jobs" or n.startswith("fabric_jobs.")]:
+for _name in [n for n in sys.modules if n in ("fabric_jobs", "fabric_work") or n.startswith(("fabric_jobs.", "fabric_work."))]:
     del sys.modules[_name]
 _spec = importlib.util.spec_from_file_location(
     "fabric_jobs", os.path.join(os.path.dirname(os.path.realpath(__file__)), "jobsparts", "__init__.py"),
