@@ -63,6 +63,42 @@ def test_a_slice_of_a_role_the_taxonomy_does_not_bind_is_held_and_named(tmp: str
     assert report(out)["held_back"] == [] and report(out)["held_unbound_role"] == [], report(out)
 
 
+def test_a_role_whose_every_slice_is_held_gets_no_project_corpus(tmp: str) -> None:
+    """Review round 1, F1: the hold wrote nothing of the slice but the role still got an INDEX and a crossref in the
+    project, which every later run re-indexed. A role with a domain claim keeps its index (the first case above)."""
+    drain, claims_dir, out = ta.build(tmp, {"alpha": ta.claims("alpha", [
+        {"class": "workflow", "topic": "w", "title": "T", "body": "The body.", "evidence": ["h1"]}]),
+        "beta": ta.claims("beta", [{"class": "workflow", "topic": "held", "title": "T", "body": "Held.", "evidence": ["h2"]}])})
+    bind(out, "alpha")
+    proc = ta.run_assemble(drain, claims_dir, out)
+    assert proc.returncode == 0, proc.stderr
+    assert not os.path.exists(ta.proj(out, "beta")), sorted(ta.tree(out))
+    rep = report(out)
+    assert rep["held_back"] == ["beta/workflow:held"] and rep["roles"] == ["alpha"], (rep["held_back"], rep["roles"])
+    assert "CROSSREF EMPTY" not in proc.stderr or "memory/beta" not in proc.stderr, proc.stderr
+
+
+def test_an_unbound_hold_keeps_the_stores_mark_below_its_memory(tmp: str) -> None:
+    """Review round 1, F2: a hold is not a drop. The mark stays below the oldest memory the held slice stands on, so the
+    harvest brings it again once the role is bound."""
+    drain, claims_dir, out = ta.build(tmp, {"alpha": ta.claims("alpha", [
+        {"class": "workflow", "topic": "w", "title": "T", "body": "The body.", "evidence": ["k1"]}]),
+        "beta": ta.claims("beta", [{"class": "workflow", "topic": "held", "title": "T", "body": "Held.", "evidence": ["w1"]}])})
+    with open(os.path.join(drain, "observations.jsonl"), "w", encoding="utf-8") as fh:
+        for cid, epoch in (("k1", 1), ("w1", 4)):
+            fh.write(json.dumps({"content_hash": cid, "agent": "dev-01", "host": "hostA", "created_at_epoch": epoch}) + "\n")
+    with open(os.path.join(drain, "harvest-report.json"), "w", encoding="utf-8") as fh:
+        json.dump({"agent": "dev-01", "host": "hostA", "since_watermark": 0, "next_watermark": 9000, "counts": {"in_scope": 2}}, fh)
+    bind(out, "alpha")
+    proc = ta.run_assemble(drain, claims_dir, out)
+    assert proc.returncode == 0, proc.stderr
+    assert report(out)["watermarks"] == {"dev-01@hostA": 3999}, report(out)["watermarks"]
+    bind(out, "alpha", "beta")
+    proc = ta.run_assemble(drain, claims_dir, out, "--stamp", "2026-01-02")
+    assert proc.returncode == 0, proc.stderr
+    assert report(out)["watermarks"] == {"dev-01@hostA": 9000}, ("nothing held now: the mark moves on", report(out)["watermarks"])
+
+
 def test_the_fabrics_own_project_is_not_judged_by_its_taxonomy(tmp: str) -> None:
     """Control: agent-fabric's taxonomy binds the roles that own the control plane's paths, while its project memory is
     every role's (the drain of 2026-11-08 wrote backend-dev's workflow there)."""
@@ -223,6 +259,8 @@ def test_a_break_in_a_title_does_not_split_the_heading_or_cut_the_index_entry(tm
 def main() -> int:
     cases = [
         test_a_slice_of_a_role_the_taxonomy_does_not_bind_is_held_and_named,
+        test_a_role_whose_every_slice_is_held_gets_no_project_corpus,
+        test_an_unbound_hold_keeps_the_stores_mark_below_its_memory,
         test_the_fabrics_own_project_is_not_judged_by_its_taxonomy,
         test_a_project_with_no_taxonomy_binds_every_role,
         test_a_shared_slice_with_an_unbound_owner_is_held,

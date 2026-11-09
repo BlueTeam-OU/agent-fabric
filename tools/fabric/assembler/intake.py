@@ -359,6 +359,7 @@ def hold_unbound_roles(run: Run) -> None:
     for role in sorted(set(run.per_role) - bound):
         for (klass, topic) in sorted(k for k in run.per_role[role] if k[0] in projectwide):
             hold(f"{role}/{klass}:{topic}", role, klass, topic, run.per_role[role].pop((klass, topic)))
+            run.unbound_held_roles.add(role)
     # A shared slice is listed by every owner's index, so one unbound owner would index that role here.
     for (klass, topic) in sorted(k for k in run.shared if k[0] in projectwide):
         unbound = sorted(run.shared_owners[(klass, topic)] - bound)

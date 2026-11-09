@@ -127,8 +127,11 @@ def main() -> int:
     # including one whose claims all live in shared slices, which would
     # otherwise end up with knowledge and no way to find it — and so does
     # every role the project binds whose domain holds slices.
-    run.owning_roles = sorted(set(run.per_role) | set(run.shared_index) | set(run.all_claims)
-                              | run.bound_roles)
+    # An unbound role whose every slice here was held owns nothing to write: indexing it would give the project the corpus
+    # the hold refused (a role with a domain claim, a shared slice or a bound role still has its index).
+    emptied = {r for r in run.unbound_held_roles if not run.per_role.get(r) and r not in run.shared_index} - run.bound_roles
+    run.owning_roles = sorted((set(run.per_role) | set(run.shared_index) | set(run.all_claims)
+                               | run.bound_roles) - emptied)
     for role in run.owning_roles:
         write_role(run, role)
         index_role(run, role)

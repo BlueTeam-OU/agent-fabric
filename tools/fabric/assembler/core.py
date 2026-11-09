@@ -444,6 +444,9 @@ class Run:
     # The slices held because their role is not one the project's taxonomy binds, as records the report names
     # (hold_unbound_roles): {slice, role, project, class, topic, source}.
     held_unbound: list[dict[str, Any]] = field(default_factory=list)
+    # The roles hold_unbound_roles took a slice from: one left with nothing to write is no owner of this drain, and gets no
+    # project directory, index or crossref (assemble.main).
+    unbound_held_roles: set[str] = field(default_factory=set)
     # The anchors a claim brought that did not resolve, kept out for the corpus's that does (anchorkeep): {slice, heading,
     # dropped, kept, agent, host, memory}, the author named so the memory can be repaired.
     anchors_kept: list[dict[str, Any]] = field(default_factory=list)
