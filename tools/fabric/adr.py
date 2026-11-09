@@ -67,10 +67,12 @@ PILLAR_ROW_RE = re.compile(r"^\s*\|\s*(P\d+)\s*\|")
 DIGEST_RE = re.compile(r"^### ADR-(\d{3}) — (.+) \((Proposed|Accepted|Superseded|Deprecated)\)\s*$")
 DIGEST_AMEND_RE = re.compile(r"^- A (\d{4}-\d{2}-\d{2})\b")
 # A DIGEST entry is looked up, one or two at a time, never read as a whole
-# file (ADR-001 §5): what keeps a lookup cheap is each entry staying short.
-# At 250 words the longest entry costs ~350 tokens; the whole DIGEST once
-# read first cost ~12,000, twice the launch prompt.
-DIGEST_ENTRY_WORDS = 250
+# file (ADR-001 §2): what keeps a lookup cheap is each bullet staying short.
+# The budget is per bullet, not per entry (A 2026-11-09): a per-entry total
+# made every amendment trim unrelated bullets, and dropped lookup words with
+# them. 60 is above the longest bullet when it changed (54); the whole
+# DIGEST once read first cost ~12,000 tokens, twice the launch prompt.
+DIGEST_BULLET_WORDS = 60
 INDEX_START, INDEX_END = "<!-- adr-index:start -->", "<!-- adr-index:end -->"
 # A bare ADR-NNN inside docs/adr is this repository's; another project's is
 # named with it ("<project>'s ADR-075", "<project> ADR-059") and is not checked here.
@@ -412,12 +414,15 @@ def check(root: str | None = None) -> list[str]:
             m = DIGEST_RE.fullmatch(ln)
             if m:
                 cur = m.group(1)
-                entries[cur] = {"title": m.group(2), "status": m.group(3), "dates": [], "words": len(ln.split())}
+                entries[cur] = {"title": m.group(2), "status": m.group(3), "dates": [], "bullets": []}
                 continue
             if ln.startswith("### "):
                 cur = None
             if cur:
-                entries[cur]["words"] += len(ln.split())
+                if ln.startswith("- "):
+                    entries[cur]["bullets"].append(len(ln.split()) - 1)
+                elif ln.startswith("  ") and entries[cur]["bullets"]:
+                    entries[cur]["bullets"][-1] += len(ln.split())
                 am = DIGEST_AMEND_RE.match(ln)
                 if am:
                     entries[cur]["dates"].append(am.group(1))
@@ -427,9 +432,10 @@ def check(root: str | None = None) -> list[str]:
             if not e:
                 findings.append(f"{ADR_DIR}/DIGEST.md: no entry '### ADR-{num} — {r['title']} ({r['status']})'")
                 continue
-            if e["words"] > DIGEST_ENTRY_WORDS:
-                findings.append(f"{ADR_DIR}/DIGEST.md: ADR-{num}'s entry is {e['words']} words, over {DIGEST_ENTRY_WORDS}: "
-                                "an entry is looked up, so it states the rules and points to the sections, no more")
+            for i, n in enumerate(e["bullets"], 1):
+                if n > DIGEST_BULLET_WORDS:
+                    findings.append(f"{ADR_DIR}/DIGEST.md: ADR-{num}'s bullet {i} is {n} words, over {DIGEST_BULLET_WORDS}: "
+                                    "an entry is looked up, so a bullet states one rule and points to its section, no more")
             if e["title"] != r["title"] or e["status"] != r["status"]:
                 findings.append(f"{ADR_DIR}/DIGEST.md: ADR-{num} reads {e['title']!r} ({e['status']}), the ADR {r['title']!r} ({r['status']})")
             hist = os.path.join(d, "history", f"ADR-{num}-amendments.md")

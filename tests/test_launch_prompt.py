@@ -120,6 +120,30 @@ def case_no_binding_is_a_failure_naming_fabric_role() -> None:
         assert r.returncode == 1 and "(fabric-role bind" in r.stderr and "bin/fabric-role" not in r.stderr, r.stderr
 
 
+def case_binding_is_read_through_the_record() -> None:
+    """The role comes from identity.binding_record, never a read_binding of main's own. <- main back on a raw read_binding"""
+    code = (
+        "import importlib.util, json, os, sys\n"
+        "path = os.path.join(os.environ['AGENT_FABRIC_ROOT'], 'tools', 'fabric', 'launch_prompt.py')\n"
+        "spec = importlib.util.spec_from_file_location('lp', path)\n"
+        "lp = importlib.util.module_from_spec(spec)\n"
+        "sys.modules['lp'] = lp\n"
+        "spec.loader.exec_module(lp)\n"
+        "raw, callers = lp.identity.read_binding, []\n"
+        "def counted(*a, **k):\n"
+        "    callers.append(sys._getframe(1).f_code.co_name)\n"
+        "    return raw(*a, **k)\n"
+        "lp.identity.read_binding = counted\n"
+        "sys.stdout = open(os.devnull, 'w')\n"
+        "status = lp.main(['--print'])\n"
+        "sys.stderr.write('CALLERS:' + json.dumps([status, callers]))\n")
+    with tempfile.TemporaryDirectory() as tmp:
+        f = Fixture(tmp)
+        r = subprocess.run([sys.executable, "-c", code], env=f.env, capture_output=True, text=True)
+        assert "CALLERS:" in r.stderr, r.stderr
+        assert json.loads(r.stderr.split("CALLERS:", 1)[1]) == [0, ["binding_record"]], r.stderr
+
+
 def case_out_writes_the_file_and_prints_its_digest() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         f = Fixture(tmp)
@@ -463,6 +487,7 @@ def main() -> int:
         case_missing_brief_is_a_placeholder_not_a_failure,
         case_missing_charter_is_a_failure,
         case_no_binding_is_a_failure_naming_fabric_role,
+        case_binding_is_read_through_the_record,
         case_out_writes_the_file_and_prints_its_digest,
         case_byte_stable_across_builds_and_cwds,
         case_nothing_about_who_can_be_passed_in,
