@@ -8,7 +8,7 @@ behind bin/fabric-jobs.
     fabric-jobs prio <id> <blocking|high|normal|low>
     fabric-jobs start <id>
     fabric-jobs pause <id> "<why>"
-    fabric-jobs block <id> "<on what>"
+    fabric-jobs block <id> "owner: <the decision awaited>"
     fabric-jobs block <id> --on-request <MESSAGE-ID> ["<on what>"]
     fabric-jobs block <id> --on <blocker> [--on <blocker>…] ["<on what>"]   blocker: pr:<owner/repo>#<n> | request:<message-id> | job:<login>/j<n> | clock:<YYYY-MM-DDTHH:MM[:SS]Z>
     fabric-jobs deliver <id> <artifact>...
@@ -66,8 +66,8 @@ through the control plane says so, until the receiving side, which reads REPOSIT
 whose evidence has landed, by the test `switch` applies to a done job: a pull request merged, a commit or a branch tip (a branch
 that is on origin now) on origin's default branch, a reply sent, and for a reflection job the fabric-reflect cursor. The artifacts are read as old jobs hold them: owner/repo#N, a pull request
 URL, "<project> #N" or "<project> PR #N" (the project's first github.com remote in projects/registry.json; a number that names
-no repository, "PR #N" or "#N" alone, is unresolved and keeps the job delivered), "branch:<name>" or a branch name holding a slash, and a commit sha in an artifact that names the
-job's own project (asked of the job's working copy). A job closes only when something landed and nothing its artifacts name is
+no repository, "PR #N" or "#N" alone, is unresolved and keeps the job delivered), "branch:<name>" or a branch name holding a slash, and any commit sha in an artifact (asked of the
+job's working copy; a word that is no commit there is not evidence). A job closes only when something landed and nothing its artifacts name is
 still open, could not be asked or could not be resolved to a repository; anything else stays delivered and the line says why.
 One line per delivered job: "would close (<evidence>)" under --dry-run, "closed (<evidence>)" without it, or "stays (<why>)". The
 transition carries the evidence as its note ("swept: …") and is applied under the list's lock, to a job still delivered with the
@@ -119,8 +119,8 @@ itself. `--stored` and `--cached` check nothing and read that cache (a clock blo
 `list --json` and the control plane's `jobs` carry, for such a job only, `blockers` ([{spec, state, detail,
 checked_at}]; state cleared, waiting or unknown, and unknown never clears) and `cleared` (true, false, or null
 while none is told). A request blocker is also kept as `waits_on`, as `--on-request` always kept it, and
-`--on-request` is now the same blocker. A free-text blocker behaves as it always did; one that names a pull
-request or a message id says once that a checkable form exists. Leaving `blocked` drops the blockers.
+`--on-request` is now the same blocker. Free text alone is refused unless it states an owner's decision ("owner: <what is awaited>",
+rule 14, R6), and the refusal names the checkable forms. Leaving `blocked` drops the blockers.
 
 The other half: a queued job whose source message is in any account's
 waits_on ranks blocking, its stored priority kept. `list` and `next` read

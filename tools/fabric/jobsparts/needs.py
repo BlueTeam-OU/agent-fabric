@@ -100,9 +100,11 @@ def _artifact_open(job: dict, fields: dict, who: str) -> list[str]:
 
 
 def _done_test(job: dict, fields: dict, who: str) -> list[str]:
+    """R8's need as the sweep asks it, with no one at the job's checkout: a bare #N names no repository. Sweep itself hands in its verdict
+    for the whole run (`done_proof`); the `done` verb asks R9's `done_test_or_no_artifact_reason`, which reads a bare #N in the job's own."""
     problems: list[str] = []
     repos, _ = st.artifacts.registry_repos()
-    evidence = st.done_test(job, problems, bare_repo=st.own_repo(job), repos=repos, named=st.artifacts.project_pattern(list(repos)))
+    evidence = st.done_test(job, problems, bare_repo=None, repos=repos, named=st.artifacts.project_pattern(list(repos)))
     if not evidence and not problems:
         problems.append(f"{job['id']} has no artifact that landed: deliver one that is merged or on the default branch")
     if problems:

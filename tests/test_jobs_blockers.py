@@ -256,7 +256,7 @@ def main() -> int:
         run("start", "j4")
         run("done", "j4")
 
-        print("a free-text blocker behaves as before, and a hint says once that a checkable form exists")
+        print("an owner's decision is stored as words; other free text is refused, naming the checkable forms")
         run("start", "j5")
         calls_before = (len(calls("gh.calls")), len(calls("ctl.calls")))
         r = run("block", "j5", "owner: the decision")

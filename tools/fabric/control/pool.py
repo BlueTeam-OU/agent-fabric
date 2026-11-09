@@ -403,6 +403,14 @@ def reconcile(*, me: str, holder: str | None, file: str, state_of, now: Callable
         return no
     closed, reopened, unknown, heard = [], [], {}, {}
     try:
+        # The stream is read before the pool's lock is taken, as pool_claim reads its claimant's role: a claim or an add that arrives
+        # meanwhile waits POOL_LOCK_WAIT_S and is refused beyond it. One read for a claimant, however many jobs it holds; a claim made
+        # while the stream was read has no answer here and is left to the next tick.
+        for job in read_pool(file)["jobs"]:
+            if claims.state_of(job) == "claimed" and isinstance(job["claimed"], dict) and isinstance(job["claimed"].get("by"), str):
+                heard.setdefault(job["claimed"]["by"], None)
+        for by in heard:
+            heard[by] = state_of(by)
         with _locked(file):
             doc = read_pool(file)
             generation = doc.get("generation")
@@ -411,11 +419,9 @@ def reconcile(*, me: str, holder: str | None, file: str, state_of, now: Callable
             for job in doc["jobs"]:
                 if claims.state_of(job) != "claimed" or not isinstance(job["claimed"], dict) or not isinstance(job["claimed"].get("by"), str):
                     continue
-                # One read of the stream for a claimant, however many jobs it holds.
-                by = job["claimed"]["by"]
-                if by not in heard:
-                    heard[by] = state_of(by)
-                said = heard[by]
+                said = heard.get(job["claimed"]["by"])
+                if said is None:
+                    continue
                 reported = said["record"].get("claims") if "record" in said else None
                 verdict = claims.judge(job, generation, reported, fresh="record" in said, now_s=now_s)
                 if verdict is None:

@@ -293,6 +293,35 @@ class Pool(unittest.TestCase):
             json.dump({"jobs": ended}, fh)
         self.assertEqual(len(sessions.claims(self.w.path)), sessions.CLAIMS_MAX, "ended claims are cut to fit; they are closed already")
 
+    def test_f9_a_claim_that_ended_since_the_last_tick_is_never_the_one_cut(self):
+        os.makedirs(os.path.dirname(self.w.path), exist_ok=True)
+        gen = "a" * 32
+        jobs = [{"id": f"j{n}", "state": "done", "updated": f"2026-11-0{1 + n % 5}T00:00:00Z",
+                 "source": {"kind": "pool", "pool_id": f"p{n}", "generation": gen}} for n in range(1, sessions.CLAIMS_MAX + 7)]
+        newest = {**jobs[2], "updated": "2026-11-09T00:00:00Z"}        # an early job, ended last
+        jobs[2] = newest
+        with open(self.w.path, "w", encoding="utf-8") as fh:
+            json.dump({"jobs": jobs}, fh)
+        told = sessions.claims(self.w.path)
+        self.assertEqual(len(told), sessions.CLAIMS_MAX)
+        self.assertIn({"generation": gen, "id": "p3", "state": "done"}, told, "the newest end is told, whatever its place in the list")
+        self.assertTrue(all("_updated" not in r for r in told))
+
+    def test_f9_the_stream_is_read_outside_the_pools_lock(self):
+        self.finish_claimed("done")
+        held = []
+
+        def state_of(address):
+            try:
+                with cp._locked(self.file):         # a claim or an add arriving meanwhile takes it
+                    held.append(False)
+            except cp.PoolError:
+                held.append(True)
+            return {"record": self.record()}
+        with mock.patch.object(cp, "POOL_LOCK_WAIT_S", 0.1):
+            said = cp.reconcile(me=HOLDER, holder=HOLDER, file=self.file, state_of=state_of, now=lambda: "2026-11-08T12:00:00Z")
+        self.assertEqual((held, said["closed"]), ([False], ["p1"]))
+
     def test_f9_a_job_of_the_claimants_own_is_no_claim(self):
         os.makedirs(os.path.dirname(self.w.path), exist_ok=True)
         with open(self.w.path, "w", encoding="utf-8") as fh:

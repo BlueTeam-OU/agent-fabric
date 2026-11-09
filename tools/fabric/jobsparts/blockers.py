@@ -107,8 +107,8 @@ def normalise(spec: str) -> str:
         return text
     if REQUEST.fullmatch(text.lower()):
         return text.lower()
-    raise Refused(f"{spec!r} is not a checkable blocker: {FORMS}; what is not checkable goes in the free text "
-                  "(fabric-jobs block <id> \"<on what>\")")
+    raise Refused(f"{spec!r} is not a checkable blocker: {FORMS}; an owner's decision goes in the text "
+                  "(fabric-jobs block <id> \"owner: <the decision awaited>\")")
 
 
 def names_a_checkable(text: str) -> bool:

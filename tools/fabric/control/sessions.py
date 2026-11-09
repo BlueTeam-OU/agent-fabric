@@ -404,12 +404,20 @@ def claims(file: str | None) -> list | None:
                 or not POOL_ID.fullmatch(src["pool_id"]) or j.get("state") not in JOB_STATES:
             continue
         gen = src.get("generation")
-        row = {**({"generation": gen} if isinstance(gen, str) and GENERATION.fullmatch(gen) else {}), "id": src["pool_id"], "state": j["state"]}
+        row = {**({"generation": gen} if isinstance(gen, str) and GENERATION.fullmatch(gen) else {}), "id": src["pool_id"], "state": j["state"],
+               "_updated": str(j.get("updated") or "")}
         (ended if j["state"] in ENDED_STATES else held).append(row)
     if len(held) > CLAIMS_MAX:
         return None
-    # An ended claim is told once and then closed at the holder; when a list holds more than fit, the first by generation and id go.
-    return sorted(held + ended[:CLAIMS_MAX - len(held)], key=lambda r: (r.get("generation", ""), int(r["id"][1:])))
+    # An ended claim is told until the holder has closed it. When a list holds more than fit, the ones that ended longest ago go (the
+    # holder closed them long ago); the newest `updated` stays, since a claim that ended since the last tick is the one to tell. A claim
+    # left out of a record the holder reads as "holds none for it", so no cut may take a claim that could still be open at the holder.
+    room = max(CLAIMS_MAX - len(held), 0)
+    ended.sort(key=lambda r: r.pop("_updated"), reverse=True)
+    rows = held + ended[:room]
+    for r in held:
+        r.pop("_updated", None)
+    return sorted(rows, key=lambda r: (r.get("generation", ""), int(r["id"][1:])))
 
 
 def state_record(address: str, said: dict, ts: str | None = None) -> dict:

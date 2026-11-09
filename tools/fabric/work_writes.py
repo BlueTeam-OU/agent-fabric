@@ -19,7 +19,7 @@ the reason, in the exceptions file; an entry that admits nothing is a finding, s
 stops writing. Tests are not judged: a fixture forces a state on purpose.
 
 Stdlib only; runnable as `python3 tools/fabric/work_writes.py [--root DIR] [--policy FILE]`: prints one finding per line, exit 1 when
-there is any, 2 when the policy or a module cannot be read."""
+there is any (a module or a policy that cannot be read is one), 2 when git cannot list the tree or the policy file cannot be opened."""
 from __future__ import annotations
 
 import argparse
