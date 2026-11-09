@@ -105,7 +105,7 @@ import subprocess
 import sys
 from typing import Any, Callable
 
-from . import bypass, gzmsg, i18n, inbox, intake, paths, placement
+from . import bypass, gzmsg, i18n, inbox, intake, paths, placement, transport
 from . import jsvalues as js
 
 import hidden_unicode  # noqa: E402 — tools/fabric, on sys.path through paths
@@ -290,18 +290,6 @@ def journal(args: list[str], stdin: str, run: Callable[[list[str], str], dict] =
 
 def _journal_off() -> bool:
     return bypass.is_off()
-
-
-def _never_delivered(e: BaseException) -> bool:
-    """A post that failed in a way that proves the relay does not hold the
-    message: refused with a 4xx (the request was judged and turned away),
-    a connection that never reached it, or a token refused before it left.
-    Anything else (no answer, a timeout, a reset, a body that is not the
-    relay's, a 5xx from the relay or a proxy in front of it) may come after
-    the relay stored it: delivered or not is unknown."""
-    status = getattr(e, "status", None)
-    return ((isinstance(status, int) and 400 <= status < 500) or getattr(e, "reached", None) is False
-            or isinstance(e, inbox.TokenRefused))
 
 
 def _bypass_outcome(text: str, outcome: str, seq: Any = None) -> None:
@@ -638,46 +626,34 @@ def main(argv: list[str]) -> int:
 
     to_one_login = bool(msg["metadata"].get("TO"))   # exactly one of TO, TO-ROLE, BROADCAST: the validator's rule
 
-    def via_carrier() -> bool:
-        """The same message to the second carrier (ADR-064 rules 6, 7), after
-        the relay's outcome is known and whatever it was: both carriers get every
-        message, and the journal row is accepted when either accepts. Nothing
-        here changes the exit status: the relay is the transport of record
-        (rule 11), and the carrier's trouble is a stderr line from the adapter.
-        With no carrier running, and with the journal off (rule 8), it is a no-op. A carrier
-        that did not accept is reported to nobody: `failed` marks only a pending row (ADR-041
-        rule 3), and the row is the relay's outcome's to set, so there is nothing to write.
-        True when the carrier accepted it: a failed relay's line must then not say "not sent"."""
-        if _journal_off():
-            return False
-        from .carrier import CARRIER_NAME, adapter
-        if adapter.Adapter().post(mid, text) != "accepted":
-            return False
-        done = journal(["gzcoord-out-final", mid, "--state", "accepted", "--carrier", CARRIER_NAME], "")
-        if done["status"] != 0:
-            sys.stderr.write(done["stderr"] or "episodic: the message was not marked accepted by the carrier\n")
-        return True
+    tp = transport.open_transport(cfg, token=tok, me=me, journal_off=_journal_off())
 
-    def post(auth: str) -> Any:
-        return inbox.api(auth, "/api/send", relay_url, method="POST",
-                         body=js.stringify({"channel": channel, "sender": me["address"], "content": text}))
+    def via_mirrors() -> bool:
+        """The same message to the mirror transports (ADR-064 rules 6, 7), after
+        the primary's outcome is known and whatever it was: both get every
+        message, and the journal row is accepted when either accepts. Nothing
+        here changes the exit status: the primary is the transport of record
+        (rule 11), and a mirror's trouble is a stderr line from its transport.
+        With no mirror running, and with the journal off (rule 8), it is a no-op. A mirror
+        that did not accept is reported to nobody: `failed` marks only a pending row (ADR-041
+        rule 3), and the row is the primary's outcome's to set, so there is nothing to write.
+        True when a mirror accepted it: a failed primary's line must then not say "not sent"."""
+        accepted = [s for s in tp.send_mirrors(mid, text) if s.state == "accepted"]
+        for s in accepted:
+            done = journal(["gzcoord-out-final", mid, "--state", "accepted", "--carrier", s.name], "")
+            if done["status"] != 0:
+                sys.stderr.write(done["stderr"] or "episodic: the message was not marked accepted by the carrier\n")
+        return bool(accepted)
 
     try:
-        try:
-            res = post(tok)
-        except inbox.RelayError as e:
-            # A shell snapshot keeps a rotated token; the synced file has the current one.
-            fresh = inbox.synced_token() if e.status in (401, 403) else None
-            if not (fresh and fresh != tok):
-                raise
-            tok = fresh
-            res = post(tok)
+        # A refused token is taken fresh from the synced file once (a shell snapshot keeps a rotated one) inside the send.
+        sent = tp.send_primary(mid, text)
     except Exception as e:  # noqa: BLE001 — any failure of the post is the relay's, said
         # The pending row becomes a failed one only when this post provably
         # did not reach the relay and no earlier attempt's outcome is unknown
         # (an earlier one may have reached it, and this failure says nothing
         # about it: review of #78); otherwise it stays pending.
-        never = _never_delivered(e)
+        never = tp.primary.never_delivered(e)
         if _journal_off():
             _bypass_outcome(text, "failed" if never else "unknown")
         else:
@@ -692,7 +668,7 @@ def main(argv: list[str]) -> int:
                 done = journal(["gzcoord-out-final", mid, "--state", "failed"], "")
                 if done["status"] != 0:
                     sys.stderr.write(done["stderr"])
-        carried = via_carrier()
+        carried = via_mirrors()
         status = getattr(e, "status", None)
         # Only a message TO one login: the carrier's "accepted" counts roster members, and a TO-ROLE or
         # a broadcast is queued for all of them, so it says nothing of the addressee (review of #505, F1).
@@ -726,7 +702,7 @@ def main(argv: list[str]) -> int:
         else:
             print(t("send.relay-unreachable", {"relay_url": relay_url, "detail": str(e)}), file=sys.stderr)
         return 3
-    seq = js.get(res, "seq") if isinstance(res, dict) else js.UNDEFINED
+    seq = sent.seq
     if _journal_off():
         _bypass_outcome(text, "accepted", seq)
     else:
@@ -735,7 +711,7 @@ def main(argv: list[str]) -> int:
                         *(["--seq", js.string(seq)] if not js.nullish(seq) else [])], "")
         if done["status"] != 0:
             sys.stderr.write(done["stderr"] or "episodic: the sent message was not marked accepted\n")
-    via_carrier()
+    via_mirrors()
     # Recorded only once the relay has it: a post that failed spent nothing.
     try:
         record_sent(ledger, {"id": mid, "sha256": sha, "seq": js.coalesce(seq, None), "at": _now_iso()})
@@ -743,7 +719,7 @@ def main(argv: list[str]) -> int:
         print(t("send.ledger-not-trimmed", {"detail": e.strerror or str(e)}), file=sys.stderr)
     except OSError as e:
         print(t("send.ledger-not-written", {"detail": e.strerror or str(e)}), file=sys.stderr)
-    deduplicated = res.get("deduplicated") if isinstance(res, dict) else None
+    deduplicated = sent.deduplicated
     print(t("send.sent", {"seq": seq, "type": msg["type"], "id": mid,
                           "deduplicated": t("send.deduplicated") if deduplicated else ""}))
     # fabric-jobs speaks for itself, on stderr: stdout stays the one sent line.
