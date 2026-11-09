@@ -15,6 +15,7 @@ from __future__ import annotations
 import json
 import os
 import shutil
+import sqlite3
 import subprocess
 import sys
 
@@ -54,8 +55,10 @@ class World:
         self.acks: list[str] = []
         self.calls = 0
         self.pages = pages
+        self.history: list[dict] = []   # what /api/messages (--replay, --history) lists
         self.env = None
         self.ledger_at_ack: list[int] = []
+        self.at_ack: list[dict] = []   # what the account held at the moment the relay was acknowledged, per call
 
         def answer(_h, method, path, body):
             if path.startswith("/api/ack"):
@@ -63,6 +66,7 @@ class World:
                     return 500, "{}"
                 self.acks.append(json.loads(body)["message_id"])
                 self.ledger_at_ack.append(len(self.ledger_lines()))
+                self.at_ack.append(self.snapshot())
                 return 200, "{}"
             if path.startswith("/api/wait"):
                 self.calls += 1
@@ -70,6 +74,8 @@ class World:
                     return 500, "{}"
                 page = self.pages[self.calls - 1] if self.calls <= len(self.pages) else []
                 return 200, json.dumps({"messages": page})
+            if path.startswith("/api/messages"):
+                return 200, json.dumps({"messages": self.history})
             return 200, "{}"
         self.stub = P.Stub(answer)
         extra = {} if journal else {"GZCOORD_JOURNAL": "off"}
@@ -81,6 +87,26 @@ class World:
             self.carrier = server.Server(server.socket_path(self.env["XDG_RUNTIME_DIR"]),
                                          lambda req: {"ok": True, "records": carrier_records} if req["op"] == "unseen"
                                          else {"ok": False, "error": "unexpected"})
+
+    def snapshot(self) -> dict:
+        """The account's journal rows, job list and ledger as they are now: read when the relay is acknowledged, they say
+        what the acknowledgement waited for."""
+        d = self.agent_dir()
+        rows: list = []
+        try:
+            db = sqlite3.connect(os.path.join(d, "episodic.db"), timeout=5)
+            try:
+                rows = db.execute("SELECT direction, message_id FROM episodes").fetchall()
+            finally:
+                db.close()
+        except sqlite3.Error:
+            pass
+        try:
+            with open(os.path.join(d, "jobs.json"), encoding="utf-8") as fh:
+                jobs = json.load(fh)
+        except (OSError, ValueError):
+            jobs = {}
+        return {"journal": rows, "jobs": jobs, "ledger": [(bool(x.get("pending")), x["mid"]) for x in self.ledger_lines()]}
 
     def agent_dir(self) -> str:
         found = [os.path.join(dp) for dp, _, fs in os.walk(self.state) if "gzcoord-shown.jsonl" in fs or "gzcoord-arrivals.jsonl" in fs]
