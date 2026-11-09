@@ -31,8 +31,10 @@
     },
     "job-lifecycle": {
       "adr": "ADR-037",
-      "status": "planned",
-      "waits_on": "python-dev-04/j101 (W2-A): one module making every ADR-037 rule 14 transition, its owner, and its checker; pending once the owner is tracked"
+      "owner": "tools/fabric/work/",
+      "status": "enforced",
+      "checker": "tools/fabric/work_writes.py",
+      "exceptions": "policies/work-writes.json"
     },
     "message-transport": {
       "adr": "ADR-064",
