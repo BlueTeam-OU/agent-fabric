@@ -45,9 +45,11 @@ def corpus_of(run: Run, path: str) -> tuple[str, str | None]:
 def verdict(run: Run, anchor: str, path: str, meta: dict[str, Any], history: Any) -> str:
     tree, own = corpus_of(run, path)
     project = anchors.split(anchor)[0]
-    given = getattr(run.args, "checkouts", None) or {}     # --working-copy PROJECT=DIR: where lint was told they are
+    # A bare anchor is the corpus's own project's (a project corpus has no other origin to look in), so only a named one
+    # can be in a checkout the caller was told of: --working-copy PROJECT=DIR, as lint is told.
+    given = getattr(run.args, "checkouts", None) or {}
     trees, missing = (memory_check.named_trees(project, meta, tree, own, given) if project
-                      else memory_check.origin_trees(meta, tree, own, given))
+                      else memory_check.origin_trees(meta, tree, own))
     return memory_check.judge_anchor(anchor, trees, missing, None, history)["status"]
 
 

@@ -359,6 +359,31 @@ def test_a_working_copy_project_dir_that_is_no_directory_is_refused_with_its_nam
     assert not os.path.exists(ta.proj(out, "alpha", "solution.md"))
 
 
+def test_the_own_project_form_and_the_malformed_working_copy_arguments(tmp: str) -> None:
+    """lint's `--working-copy PROJECT=DIR` for the run's own project is the checkout the corpus is written in, as the bare
+    flag is (it was parsed and dropped); two different checkouts for it, two bare flags and `=DIR` are refused."""
+    drain, claims_dir, out = ta.build(tmp, {"alpha": ta.claims("alpha", [anchored(["a.py"])])})
+    wc = ta.working_copy(out)
+    os.makedirs(os.path.join(wc, ".agent-fabric"), exist_ok=True)
+    base = [sys.executable, ta.ASSEMBLE, "--claims", claims_dir, "--drain", drain, "--fabric", out, "--project", ta.PROJECT,
+            "--stamp", "2026-01-01"]
+    other = os.path.join(tmp, "other")
+    os.makedirs(other)
+    for name, flags, want in (
+            ("own form alone", [f"{ta.PROJECT}={wc}"], 0),
+            ("own form beside the same bare", [wc, f"{ta.PROJECT}={wc}"], 0),
+            ("own form beside another bare", [other, f"{ta.PROJECT}={wc}"], 2),
+            ("two bare", [wc, other], 2),
+            ("no project", [f"={wc}"], 2)):
+        argv = base + [a for f in flags for a in ("--working-copy", f)]
+        proc = subprocess.run(argv, capture_output=True, text=True)
+        assert proc.returncode == want, (name, proc.returncode, proc.stderr)
+        if want == 2:
+            assert "--working-copy" in proc.stderr, (name, proc.stderr)
+    assert os.path.exists(ta.proj(out, "alpha", "solution.md")), "positive control: the own form wrote the corpus in the checkout"
+    assert not os.path.exists(os.path.join(other, ".agent-fabric")), "nothing was written to the checkout that was refused"
+
+
 def test_a_link_in_a_code_span_is_not_cited(tmp: str) -> None:
     """Drain of 2026-11-08 (j663): the harvest cites every `[[x]]` of a body, code or not, and the section carried it in
     its References line. A code span is literal text. The link written outside code is still cited (the control), and
@@ -495,6 +520,7 @@ def main() -> int:
         test_a_resolving_corpus_anchor_replaced_by_one_that_is_gone_is_reported_not_changed,
         test_a_checkout_given_by_working_copy_project_dir_is_where_the_guard_judges,
         test_a_working_copy_project_dir_that_is_no_directory_is_refused_with_its_name,
+        test_the_own_project_form_and_the_malformed_working_copy_arguments,
         test_a_link_in_a_code_span_is_not_cited,
         test_a_toml_array_header_in_a_code_span_is_not_cited,
         test_a_title_made_one_line_is_not_told_for_a_held_slice,

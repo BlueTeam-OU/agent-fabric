@@ -195,13 +195,11 @@ def known_dirs(tree: str) -> set[str]:
         raise Refused(f"cannot read the tree {tree}: {e.strerror or e}") from None
 
 
-def origin_trees(meta: dict, tree: str, own_project: str | None,
-                 checkouts: dict[str, str] | None = None) -> tuple[list[str], list[str]]:
+def origin_trees(meta: dict, tree: str, own_project: str | None) -> tuple[list[str], list[str]]:
     """(the trees this slice's paths may belong to that are here, why each other is not).
     A slice says where it came from (front matter `origin`: project and working_copy):
     the tree's own project's paths are the tree's, another project's are in the checkout
-    beside the tree that working_copy names, if there is one. No origin: the tree. `checkouts` (project -> directory,
-    given by a caller that was told where they are) is looked in before the neighbours of the tree."""
+    beside the tree that working_copy names, if there is one. No origin: the tree."""
     origins = [o for o in (meta.get("origin") or []) if isinstance(o, dict)]
     if not origins:
         return [tree], []
@@ -212,8 +210,8 @@ def origin_trees(meta: dict, tree: str, own_project: str | None,
         if own_project is None or project is None or project == own_project:
             found = tree
         else:
-            found = (checkouts or {}).get(project) if readable_dir((checkouts or {}).get(project) or "") else None
-            if found is None and isinstance(wc, str) and wc and "/" not in wc and wc not in (".", ".."):
+            found = None
+            if isinstance(wc, str) and wc and "/" not in wc and wc not in (".", ".."):
                 beside = os.path.normpath(os.path.join(tree, "..", wc))
                 found = beside if readable_dir(beside) else None
             if found is None:
