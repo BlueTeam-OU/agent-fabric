@@ -461,7 +461,7 @@ LINE_BREAK_RE = re.compile(r"\s*[\n\r\x0b\x0c\x1c-\x1e\x85\u2028\u2029]+\s*")
 def one_line(text: str) -> str:
     """`text` with each line break (and the spaces around it) made one space. A title or description is one line wherever it
     is written: a heading is a line and so is an INDEX entry, and a YAML escape in a memory's description (`\\n`) is a break
-    once decoded, which cut the entry and split the heading (InterWeave #595, drain of 2026-11-08). Only breaks are touched,
+    once decoded, which cut the entry and split the heading (drain of 2026-11-08). Only breaks are touched,
     so a heading that holds a double space keeps it and stays the heading the corpus already has."""
     return LINE_BREAK_RE.sub(" ", text)
 
