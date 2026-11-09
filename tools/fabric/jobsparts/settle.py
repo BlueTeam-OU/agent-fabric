@@ -13,17 +13,11 @@ import re
 import time
 from fabric_jobs import blockers as bl
 from fabric_jobs import vcs
-from fabric_jobs.base import FABRIC_ROOT, MESSAGE_ID, _load, identity
+from fabric_jobs.base import FABRIC_ROOT, _load, identity
 from fabric_jobs.records import working_copy_of
 
-_REPO = r"[A-Za-z0-9][A-Za-z0-9_.-]*/[A-Za-z0-9_.-]+"
-PR_FULL = re.compile(rf"(?<![\w/.-])({_REPO})#([1-9][0-9]{{0,8}})\b", re.ASCII)
-PR_URL = re.compile(rf"github\.com/({_REPO})/pull/([1-9][0-9]{{0,8}})", re.ASCII)
-PR_BARE = re.compile(r"(?:\bPR\s*#?|(?<![\w/.-])#)([1-9][0-9]{0,8})\b", re.ASCII | re.IGNORECASE)
-REPLY = re.compile(rf"\breply:({MESSAGE_ID.pattern})", re.ASCII)
-# Any 7-40 hex word: an abbreviated sha can be all digits (one in 27 at seven characters) or all letters. A word that is no commit here
-# is "not evidence" when probed, never a failure, so the loose reading costs a probe.
-SHA = re.compile(r"(?<![0-9a-zA-Z])[0-9a-f]{7,40}(?![0-9a-zA-Z])", re.ASCII)
+from fabric_jobs import artifacts
+from fabric_jobs.artifacts import BRANCH_PREFIX, MESSAGE_ID, PR_BARE, PR_FULL, PR_URL, REPLY, SHA  # noqa: F401 — the readers' patterns, named here as they always were
 # What a blocked job's free text must say to count as an owner's decision (rule 10: the one blocker no tool can check).
 OWNER_DECISION = re.compile(r"\s*(?:owner(?:'s)?\s+decision|owner:|the owner(?:'s)?\s+decision)", re.IGNORECASE)
 EVIDENCE_FORMS = "a pull request (owner/repo#N, #N or its URL), a commit sha, a branch on origin or reply:<MESSAGE-ID> (the reply's id or the id it answers)"
@@ -33,30 +27,17 @@ BRANCH = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]*(?:/[A-Za-z0-9_.-]+)+", re.ASCII
 
 
 def artifacts_of(job: dict, repo: str | None) -> dict[str, list]:
-    """What the job's artifacts name: {"prs": [(repo, n)], "shas": [...], "replies": [...]}. A bare #N is in the job's own repository."""
-    prs: list[tuple[str, str]] = []
-    shas: list[str] = []
-    replies: list[str] = []
-    for art in job.get("artifacts") or []:
-        text = str(art)
-        for m in REPLY.finditer(text):
-            replies.append(m.group(1).lower())
-        stripped = MESSAGE_ID.sub(" ", text)
-        found = [(m.group(1), m.group(2)) for m in PR_URL.finditer(stripped)]
-        found += [(m.group(1), m.group(2)) for m in PR_FULL.finditer(stripped)]
-        taken = {n for _, n in found}
-        if repo:
-            found += [(repo, m.group(1)) for m in PR_BARE.finditer(PR_URL.sub(" ", stripped)) if m.group(1) not in taken]
-        prs += found
-        shas += [m.group(0) for m in SHA.finditer(PR_URL.sub(" ", stripped))]
-    return {"prs": list(dict.fromkeys(prs)), "shas": list(dict.fromkeys(shas)), "replies": list(dict.fromkeys(replies))}
+    """What the job's artifacts name: {"prs": [(repo, n)], "shas": [...], "replies": [...]}. A bare #N is in `repo`, the job's own
+    repository; "<project> #N" is in the project's, through the registry (artifacts.py is the one reader, for sweep as well)."""
+    repos, _ = artifacts.registry_repos()
+    return artifacts.read(job, repos, artifacts.project_pattern(list(repos)), repo)[0]
 
 
 def branches_of(job: dict) -> list[str]:
     """The ref names the job's artifacts hold (origin/<ref> without the prefix): candidates until git knows them."""
     names = []
     for art in job.get("artifacts") or []:
-        bare = PR_URL.sub(" ", PR_FULL.sub(" ", MESSAGE_ID.sub(" ", str(art))))
+        bare = PR_URL.sub(" ", PR_FULL.sub(" ", BRANCH_PREFIX.sub(" ", MESSAGE_ID.sub(" ", str(art)))))
         for word in bare.split():
             m = BRANCH.fullmatch(word.strip(".,;:()[]'\""))
             if m:
@@ -345,6 +326,17 @@ def _landed(job: dict, found: dict, problems: list[str], pr_state=_pr_state, pr_
     return landed
 
 
+def done_test(job: dict, problems: list[str], *, bare_repo: str | None, repos: dict[str, str], named, pr_state=_pr_state, pr_head=_pr_head) -> list[str]:
+    """Rule 10's `done` test, the one implementation (ADR-037 rule 14, rows R8 and R9): what the job's artifacts show landed, a
+    reflection job's closed cursor, and in `problems` everything that keeps it from being done: an artifact still open, one that
+    could not be asked, one that names no repository. `bare_repo` is the repository a bare #N means (artifacts.py); sweep hands in
+    PR-state lookups that remember, so a pull request many jobs name is asked once."""
+    found, unresolved = artifacts.read(job, repos, named, bare_repo)
+    landed = _landed(job, found, problems, pr_state=pr_state, pr_head=pr_head) + _reflected(job, problems)
+    problems += [f"unresolved: {u}" for u in unresolved]
+    return landed
+
+
 def _reflected(job: dict, problems: list[str]) -> list[str]:
     """A reflection pass lands no PR, sha or branch: its artifact is the fabric-reflect cursor (ADR-058). Evidence when the
     cursor of this login was closed (`fabric-reflect done`) after the job started. Keyed on the topic, which fabric-reflect-jobs
@@ -488,6 +480,50 @@ def _blocker(job: dict, problems: list[str]) -> list[str]:
     return []
 
 
+def own_repo(job: dict) -> str | None:
+    """The repository the job's own checkout is of: what a bare #N in its artifacts means to a person standing there."""
+    if not checkout_of(job):
+        return None
+    try:
+        return vcs.gh.this_repo(checkout_of(job))
+    except vcs.gh.GhError:
+        return None
+
+
+def done_evidence(job: dict, problems: list[str]) -> list[str]:
+    """What `done` needs of `job` as it stands (rule 14, row R9; step 1 of rule 10 asks it again of the job it leaves): the artifacts
+    landed (done_test), or, for work that leaves no repository artifact, the reason the job recorded. Problems say what is missing."""
+    repos, _ = artifacts.registry_repos()
+    evidence = done_test(job, problems, bare_repo=own_repo(job), repos=repos, named=artifacts.project_pattern(list(repos)))
+    if not evidence and not problems:
+        reason = str(job.get("no_artifact") or "").strip()
+        if reason and job.get("artifacts"):
+            # A named artifact that did not land (a closed unmerged pull request, a sha off the default branch) raises no
+            # problem above; a reason must not paper over it.
+            problems.append(f"{', '.join(job['artifacts'])} did not land on the default branch: a reason does not stand in for an artifact the job names "
+                            f"(retract it with fabric-jobs retract {job['id']} <artifact> if it was a mistake)")
+        elif reason:
+            # Housekeeping leaves no PR, commit, branch or reply: the recorded reason is the evidence, and only for a job
+            # that names no artifact at all.
+            evidence = [f"no artifact: {job['no_artifact']}"]
+        else:
+            problems.append(f"done needs evidence it landed: deliver {EVIDENCE_FORMS} that is merged or on the default branch, "
+                            f"or record why there is none: fabric-jobs done {job['id']} --no-artifact \"<what was done>\"")
+    return evidence
+
+
+def delivered_evidence(job: dict, problems: list[str]) -> list[str]:
+    """What `delivered` needs of `job` as it stands (rule 14, row R7): an artifact that is open. A pull request already merged is
+    done, not delivered."""
+    repos, _ = artifacts.registry_repos()
+    # A delivery is judged by what is open: a number that names no repository is not one, and is no reason to refuse.
+    found, _ = artifacts.read(job, repos, artifacts.project_pattern(list(repos)), own_repo(job))
+    evidence = _delivered(job, found, problems)
+    if not evidence and not problems:
+        problems.append(f"delivered needs an artifact that is open: fabric-jobs deliver {job['id']} {EVIDENCE_FORMS}")
+    return evidence
+
+
 def settle(job: dict, places: list[str], session_start: float | None = None) -> tuple[list[str], list[str]]:
     """(the evidence found, the problems) for leaving `job` in the state it is in. `places` are the working copies whose
     state and memory count: the job's own and the one this command runs in."""
@@ -496,33 +532,10 @@ def settle(job: dict, places: list[str], session_start: float | None = None) -> 
     # From the job's start, or this session's, whichever is earlier: a message that arrived while it worked is owed.
     starts = [t for t in (started_at(job), session_start) if t is not None]
     duty_since = min(starts) if starts else None
-    repo = None
-    if checkout_of(job):
-        try:
-            repo = vcs.gh.this_repo(checkout_of(job))
-        except vcs.gh.GhError:
-            repo = None
-    found = artifacts_of(job, repo)
     if state == "done":
-        evidence = _landed(job, found, problems) + _reflected(job, problems)
-        if not evidence and not problems:
-            reason = str(job.get("no_artifact") or "").strip()
-            if reason and job.get("artifacts"):
-                # A named artifact that did not land (a closed unmerged pull request, a sha off the default branch) raises no
-                # problem above; a reason must not paper over it.
-                problems.append(f"{', '.join(job['artifacts'])} did not land on the default branch: a reason does not stand in for an artifact the job names "
-                                f"(retract it with fabric-jobs retract {job['id']} <artifact> if it was a mistake)")
-            elif reason:
-                # Housekeeping leaves no PR, commit, branch or reply: the recorded reason is the evidence, and only for a job
-                # that names no artifact at all.
-                evidence = [f"no artifact: {job['no_artifact']}"]
-            else:
-                problems.append(f"done needs evidence it landed: deliver {EVIDENCE_FORMS} that is merged or on the default branch, "
-                                f"or record why there is none: fabric-jobs done {job['id']} --no-artifact \"<what was done>\"")
+        evidence = done_evidence(job, problems)
     elif state == "delivered":
-        evidence = _delivered(job, found, problems)
-        if not evidence and not problems:
-            problems.append(f"delivered needs an artifact that is open: fabric-jobs deliver {job['id']} {EVIDENCE_FORMS}")
+        evidence = delivered_evidence(job, problems)
     elif state == "blocked":
         evidence = _blocker(job, problems)
     elif state == "paused":

@@ -248,7 +248,8 @@ def main() -> int:
 
         def edited_meanwhile(self, repo_name, number):
             if number == "31":
-                assert run("deliver", ids[0], "an artifact added meanwhile")[0] == 0
+                # Another writer of the list adds an artifact (a `deliver` would ask for one that is open, and this pull request merged).
+                jobs.identity.update_jobs(lambda doc: next(j for j in doc["jobs"] if j["id"] == ids[0])["artifacts"].append("an artifact added meanwhile"))
             return asked(self, repo_name, number)
         sweep_part.PrStates.__call__ = edited_meanwhile
         try:
@@ -306,7 +307,8 @@ def main() -> int:
         check("a branch ahead of origin/main stays", "stays" in line(out, ids[5]) and "not on origin/main" in line(out, ids[5]), out)
         check("a commit beside the project's name, on origin/main, closes", "closed" in line(out, ids[2]) and main_tip[:8] in line(out, ids[2]), out)
         check("a commit not on origin/main stays", "stays" in line(out, ids[3]), out)
-        check("a commit with no project beside it is no evidence", "stays" in line(out, ids[4]), out)
+        # F7 of j100: `done` took a bare sha and sweep did not; rule 14 names one test for both rows (R8, R9).
+        check("a commit with no project beside it, on origin/main, closes as `done` takes it", "closed" in line(out, ids[4]) and main_tip[:8] in line(out, ids[4]), out)
 
     print("PASS" if not fails else f"FAILED: {fails}")
     return 1 if fails else 0

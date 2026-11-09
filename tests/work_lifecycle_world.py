@@ -10,7 +10,9 @@ import os
 import shutil
 import socket
 import subprocess
+import sys
 import tempfile
+import uuid
 
 import jobs_world
 from instance_fixtures import write_operator_projects
@@ -66,7 +68,13 @@ class World:
             json.dump({"version": 1, "hosts": {host: {"operator": "user"}},
                        "placement": {self.login: host, "user": host}}, fh)
         self.state = os.path.join(self.tmp, "state")
+        # The journal (episodic.py) is the agent's own: it has no store without the agent id. A test's id, in a store of its own.
+        store = os.path.join(self.tmp, "store")
+        os.makedirs(store)
+        with open(os.path.join(store, ".agent-id"), "w", encoding="utf-8") as fh:
+            fh.write("01a0f782-7e06-7dee-811f-0a860ed93bf3\n")
         self.env = {
+            "AGENT_FABRIC_SECRET_STORE": store,
             "PATH": os.path.join(self.fake, "bin") + os.pathsep + os.environ.get("PATH", "/usr/bin:/bin"),
             "HOME": home, "LANG": "C.UTF-8", "TMPDIR": self.tmp, "PYTHONDONTWRITEBYTECODE": "1",
             "AGENT_FABRIC_STATE_DIR": self.state, "AGENT_FABRIC_ROOT": ROOT, "AGENT_FABRIC_HOSTS_REGISTRY": registry,
@@ -88,6 +96,17 @@ class World:
     def gh_says(self, states: dict[str, str]) -> None:
         with open(os.path.join(self.fake, "gh.json"), "w", encoding="utf-8") as fh:
             json.dump({"states": states}, fh)
+
+    def answer(self, request_id: str) -> None:
+        """This login's journal holds a REPLY to `request_id` that the carrier accepted: the REQUEST is answered (rule 14, row R10)."""
+        me = f"{socket.gethostname().split('.')[0]}/{self.login}"
+        reply = str(uuid.uuid4())
+        text = (f"[GZCOORD/1] REPLY\nFROM: {me}\nROLE: x\nPROJECT: p\nTO: peer/sender\nIN-REPLY-TO: {request_id}\n"
+                f"MESSAGE-ID: {reply}\nSUBJECT: re\n\nREPLY:\nok\n")
+        episodic = os.path.join(ROOT, "tools", "fabric", "episodic.py")
+        for argv, given in ((["gzcoord-out-pending"], text), (["gzcoord-out-final", reply, "--state", "accepted"], None)):
+            r = subprocess.run([sys.executable, episodic, *argv], env=self.env, input=given, capture_output=True, text=True, timeout=60)
+            assert r.returncode == 0, r.stderr
 
     def run(self, *argv: str, cwd: str | None = None, session: str | None = None, extra_env: dict[str, str] | None = None,
             stdin: str | None = None) -> subprocess.CompletedProcess:

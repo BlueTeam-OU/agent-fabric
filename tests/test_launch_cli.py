@@ -204,9 +204,10 @@ def main() -> int:
             # install-agent-files.sh is a shim for its module, which imports
             # fabric_writes (ADR-040 §5 rule 5).
             for f in ("routing.py", "workingcopy.py", "jobs.py", "layout.py", "launch_prompt.py",
-                      "install_agent_files.py", "fabric_writes.py", "launch_locale.py", "roots.py", "git.py", "gh.py", "gh_ledger.py", "registry_id.py", "hold_view.py"):   # hold_view.py: jobsparts/base.py (the fleet hold); git.py and gh.py: jobsparts/vcs.py loads them (gh.py imports gh_ledger.py); registry_id.py: jobsparts/base.py
+                      "install_agent_files.py", "fabric_writes.py", "launch_locale.py", "roots.py", "git.py", "gh.py", "gh_ledger.py", "registry_id.py", "hold_view.py", "by_path.py"):   # by_path.py and work/: jobsparts/base.py loads the lifecycle owner; hold_view.py: jobsparts/base.py (the fleet hold); git.py and gh.py: jobsparts/vcs.py loads them (gh.py imports gh_ledger.py); registry_id.py: jobsparts/base.py
                 shutil.copy2(f"{ROOT}/tools/fabric/{f}", f"{fabric}/tools/fabric/")
             shutil.copytree(f"{ROOT}/tools/fabric/jobsparts", f"{fabric}/tools/fabric/jobsparts", ignore=shutil.ignore_patterns("__pycache__"))   # jobs.py's parts
+            shutil.copytree(f"{ROOT}/tools/fabric/work", f"{fabric}/tools/fabric/work", ignore=shutil.ignore_patterns("__pycache__"))   # the owner of the lifecycle
             # The role's system prompt: the assembler, the shared sections and
             # a fixture charter for the bound role (no brief: the placeholder).
             shutil.copytree(f"{ROOT}/identities/prompt", f"{fabric}/identities/prompt")

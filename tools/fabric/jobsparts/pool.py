@@ -101,7 +101,7 @@ def pool_job(doc: dict, job: dict, holder: str, *, again: bool, generation: str 
     return new_job(doc, job["title"], topic=topic or job.get("topic"), project=job.get("project"),
                    working_copy=working_copy,
                    source={"kind": "pool", "pool_id": job["id"], "from": holder, **({"generation": generation} if generation else {})},
-                   priority=job["priority"]), True
+                   priority=job["priority"], who="pool-claim-landed"), True
 
 
 def printable(value) -> str:

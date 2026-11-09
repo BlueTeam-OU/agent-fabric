@@ -56,6 +56,11 @@ def _load(name: str, path: str):
 identity = _load("fabric_identity", os.path.join(FABRIC_ROOT, "runtime", "identity.py"))
 
 
+# The owner of the work lifecycle (ADR-037 rule 14): the table, and the only code that writes a job's state. A package loaded by
+# path like the parts themselves; jobs.py has dropped any copy of it a second tool in this process loaded before.
+work = _load("fabric_by_path", os.path.join(HERE, "by_path.py")).load_package("fabric_work", os.path.join(HERE, "work"))
+
+
 # The registry-id grammar, loaded by path like identity: the parts never import
 # a top-level name a fixture fabric on sys.path could answer.
 PROJECT_SLUG = _load("fabric_registry_id", os.path.join(HERE, "registry_id.py")).REGISTRY_ID
@@ -65,34 +70,26 @@ PROJECT_SLUG = _load("fabric_registry_id", os.path.join(HERE, "registry_id.py"))
 hold_view = _load("fabric_hold_view", os.path.join(HERE, "hold_view.py"))
 
 
-STATES = ("queued", "active", "paused", "blocked", "delivered", "done", "dropped")
+STATES = work.table.JOB_STATES
 
 
-OPEN = ("queued", "active", "paused", "blocked", "delivered")
+OPEN = work.table.OPEN
 
 
-TERMINAL = ("done", "dropped")
+TERMINAL = work.table.TERMINAL
 
 
 # A GZCoord MESSAGE-ID as gzmsg mints it; tools/fabric/control/sessions.py
 # MESSAGE_ID says only ids of this shape, so a relay seq is refused here.
-MESSAGE_ID = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}", re.ASCII)
+MESSAGE_ID = work.MESSAGE_ID
 
 
 POOL_ID = re.compile(r"p[1-9][0-9]{0,8}", re.ASCII)   # tools/fabric/control/pool.py POOL_ID
 
 
-# The title a job gets when it is added by title and not from the message (the
-# sender's jobs-add takes nothing but a title, ADR-040 §7): the id rides in it,
-# last. Only the last one is the job's: a SUBJECT is the sender's free text and
-# may mention another request's id, which must not make this one vanish.
-TITLE_NAMES_REQUEST = re.compile(r"\(REQUEST (" + MESSAGE_ID.pattern + r")\)\Z", re.ASCII)
-
-
-def request_id_of(title: str) -> str | None:
-    # Collapsed as new_job stores it: a title typed with a tab or newline names the id it will be stored with.
-    found = TITLE_NAMES_REQUEST.search(" ".join(title.split()))
-    return found.group(1) if found else None
+# The title of a REQUEST's job (work/request_title.py): the id rides in it, last.
+TITLE_NAMES_REQUEST = work.TITLE_NAMES_REQUEST
+request_id_of = work.request_id_of
 
 
 PRIORITIES = ("blocking", "high", "normal", "low")
@@ -101,8 +98,8 @@ PRIORITIES = ("blocking", "high", "normal", "low")
 DEFAULT_PRIORITY = "normal"
 
 
-class Refused(Exception):
-    """A change the list does not allow; the message is the whole answer."""
+# A change the list does not allow; the message is the whole answer. The owner raises it, so it is the owner's class.
+Refused = work.Refusal
 
 
 class NothingQueued(Refused):
