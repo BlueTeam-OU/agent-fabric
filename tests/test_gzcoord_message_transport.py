@@ -155,9 +155,8 @@ def main() -> int:
           sorted(w.acks) == ["r1", "r2"] and "subject-1" not in r.stdout and "subject-2" in r.stdout, f"{r.stdout}{r.stderr}\n{w.acks}")
     arrived = {x["mid"] for x in w.read("gzcoord-arrivals.jsonl")}
     acked = {x["mid"] for x in w.read("gzcoord-acks.jsonl")}
-    check("... and every acknowledgement line has an arrival line (FINDING 2: the HELLO is acknowledged and logged as acknowledged, "
-          "but no arrival line is written for a copy addressed here, which inbox.py and ADR-064 rule 11 promise)",
-          acked <= arrived, f"arrivals {sorted(arrived)}\nacks {sorted(acked)}", expected_failure=True)
+    check("... and every acknowledgement line has an arrival line (inbox.py and ADR-064 rule 11: one per copy addressed here, retired types included)",
+          acked <= arrived and C.mid(1) in arrived, f"arrivals {sorted(arrived)}\nacks {sorted(acked)}")
     w.close()
 
     # ── shown once, whichever arrives first ──────────────────────────────────────────────────────────────────────────
