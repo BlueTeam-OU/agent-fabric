@@ -193,8 +193,8 @@ def _refusal(answer: dict) -> str:
 
 def _spec_names(blockers: object) -> list[str]:
     """The specs of a board row's `blockers` (dicts with a spec, as fabric-jobs lists them) as text."""
-    return [b["spec"] if isinstance(b, dict) else b for b in blockers if isinstance(b, (dict, str))
-            and isinstance(b["spec"] if isinstance(b, dict) else b, str)] if isinstance(blockers, list) else []
+    named = [b.get("spec") if isinstance(b, dict) else b for b in blockers] if isinstance(blockers, list) else []
+    return [n for n in named if isinstance(n, str)]
 
 
 def _became(mid: str, login: str, body: str, decision: bool = False) -> tuple[str | None, bool, str | None, list[str]]:
@@ -230,8 +230,8 @@ def _became(mid: str, login: str, body: str, decision: bool = False) -> tuple[st
     if board is None:
         return f"job:{login}/{job_id}", False, why, []
     # A readable board without that job: closed, or not the sender's work for this request, and the wait is over.
-    listed = any(isinstance(j, dict) and j.get("id") == job_id for j in rows)
-    return (f"job:{login}/{job_id}", True, None, []) if listed else (None, False, None, [])
+    row = next((j for j in rows if isinstance(j, dict) and j.get("id") == job_id), None)
+    return (f"job:{login}/{job_id}", True, None, _spec_names(row.get("blockers"))) if row is not None else (None, False, None, [])
 
 
 def _cycle(became: str, request: str, peer_specs: list[str]) -> str | None:

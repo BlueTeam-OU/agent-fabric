@@ -36,8 +36,9 @@ and gets that job's id and state: queued, active, paused, blocked,
 delivered, done, dropped, or "absent" when the list holds no such job. It
 never carries a title, a list or another job.
 WHO MAY ASK: the sender of the REQUEST the job was taken from, the job's
-`source.from` (a job from a pool, an owner or self has none and is asked of
-by nobody); any other asker is refused, the same words for every job that
+`source.from`, and only of a job whose source kind is `request` (a job from a
+pool, an owner or self is asked of by nobody, though it may carry a `from`);
+any other asker is refused, the same words for every job that
 exists, so a refusal names nothing. "absent" is said to anyone: an id with no
 job carries nothing to protect, and a job that left the list reads as closed
 only to a waiter that saw it open (jobsparts/blockers.py).
@@ -297,7 +298,7 @@ def job_state(request: dict, home: str | None = None, root: str | None = None, r
     if found is None:
         return {"status": "ok", "id": args.get("job"), "state": "absent"}
     source = found.get("source")
-    sender = source.get("from") if isinstance(source, dict) else None
+    sender = source.get("from") if isinstance(source, dict) and source.get("kind") == "request" else None
     if not (isinstance(asker, str) and isinstance(sender, str) and sender == asker):
         return {"status": "refused", "reason": "job-state answers the sender of the request the job was taken from"}
     return {"status": "ok", "id": found.get("id"), "state": found.get("state")}

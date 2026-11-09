@@ -60,7 +60,8 @@ def main() -> int:
     board = listing(job("j1", "delivered", "the wanted one (REQUEST " + MID.upper() + ")"),
                     job("j2", "active", "somebody else's secret title", sender="h/other"),
                     job("j3", "done", "closed work (REQUEST " + OTHER_MID + ")"),
-                    job("j4", "queued", "own work", sender=None))
+                    job("j4", "queued", "own work", sender=None),
+                    {**job("j5", "queued", "from a pool"), "source": {"kind": "pool", "from": ME}})
 
     def ask(args, sender=ME, jobs=board, calls=None, code=0):
         return cj.job_state({"id": "q", "op": "job-state", "from": sender, "args": args}, home="/h", root="/r", run=runner(jobs, calls, code))
@@ -80,6 +81,7 @@ def main() -> int:
     check("the refusal names no title, no id and no state", all(w not in json.dumps(got) for w in ("secret", "j2", "active")), got)
     check("the refusal is the same for every job that exists (an own job, with no sender, is one)",
           ask({"job": "j4"}) == got and ask({"job": "j2"}, sender="h/user") == got, ask({"job": "j4"}))
+    check("a pool job whose `from` is the asker is not answered: only a request's sender is", ask({"job": "j5"})["status"] == "refused")
     check("a sender is not the sender of another job: j1 is refused to anyone else", ask({"job": "j1"}, sender="h/other")["status"] == "refused")
     check("a job the list does not hold is absent", ask({"job": "j9"}) == {"status": "ok", "id": "j9", "state": "absent"})
     check("a message id no job carries is absent", ask({"request": "01a1b000-0000-7000-8000-0000000000ff"})["state"] == "absent")
@@ -242,6 +244,9 @@ def main() -> int:
     check("no job carries the id: the wait is over, the body is not read", got is None and why is None and not was_seen, (got, why))
     (got, _, why, _), _ = became(answer(None, status="refused", reason="no"), "taken as j95")
     check("a refusal is a board that cannot be read: the one job the body names is taken, unseen", got == "job:peer/j95" and why and "refused" in why, (got, why))
+    rows2 = [{"id": "j95", "state": "active", "title": "y", "blockers": [{}, {"spec": "job:me/j306"}, "pr:o/r#1", 3]}]
+    (got, _, _, peer), _ = became({"operator": True}, "taken as j95", boards={"peer": (rows2, "")})
+    check("a body-named job found on a readable board carries its blockers, a malformed one is skipped", got == "job:peer/j95" and peer == ["job:me/j306", "pr:o/r#1"], (got, peer))
     (got, _, why, _), _ = became(answer(None, status="refused", reason="no"), "j95 and j96")
     check("a body that names two jobs of the sender stays unknown", got is None and why, (got, why))
     (got, _, why, _), _ = became(answer(None, status="refused", reason="no"), "j95", decision=True)
@@ -267,6 +272,12 @@ def main() -> int:
 
     # check_request end to end over the journal: the blocker is not re-pointed, the check says why.
     with tempfile.TemporaryDirectory() as tmp:
+        store = os.path.join(tmp, "store")
+        os.makedirs(store)
+        with open(os.path.join(store, ".agent-id"), "w") as fh:
+            fh.write("01a0f782-7e06-7dee-811f-0a860ed93bf3\n")
+        os.makedirs(os.path.join(tmp, "home"))
+        os.environ.update(AGENT_FABRIC_SECRET_STORE=store, HOME=os.path.join(tmp, "home"))
         os.environ["AGENT_FABRIC_STATE_DIR"] = os.path.join(tmp, "state")
         os.makedirs(os.environ["AGENT_FABRIC_STATE_DIR"])
         import subprocess
@@ -289,7 +300,9 @@ def main() -> int:
                     check(f"check_request: {label}", res.state == "waiting" and res.became == "job:peer/j95", res)
         finally:
             bl.identity.current_agent, bl.identity.read_jobs = orig_identity
-            os.environ.pop("AGENT_FABRIC_STATE_DIR", None)
+            for k in ("AGENT_FABRIC_STATE_DIR", "AGENT_FABRIC_SECRET_STORE"):
+                os.environ.pop(k, None)
+            os.environ["HOME"] = saved["HOME"]
 
     print(f"\n{'FAILED' if fails else 'all passed'}")
     return 1 if fails else 0
