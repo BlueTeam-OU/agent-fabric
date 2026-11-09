@@ -993,6 +993,8 @@ def main() -> int:
               "could not be read" in (addable_with({"ok": False, "line": "x cannot be read: y"}) or "") and "could not be read" in (addable_with({**base, "state": "merged"}) or "")
               and "could not be read" in (addable_with({**base, "work": None}) or ""))
         branching._addable = lambda repo, number: counted.get(number)
+        row_over: dict = {}      # --repoint reads the pull request's row itself (one read for the verdict and the armed note)
+        branching._row = lambda repo, number: row_over.get(number, {"ok": True, "state": "open", "armed": "unarmed", "work": 3})
 
         def other_clone(w: World) -> str:
             other = os.path.join(tmp, f"other{w.n}")
@@ -1378,15 +1380,106 @@ def main() -> int:
         # F2: a pull request that cannot take commits.
         w, ((ja, a), (jb, b)) = two_with_branches()
         gh_says(merged_heads=[a["branch"]], open_prs=[pr40])
-        counted[40] = "o/r#40 is armed"
+        row_over[40] = {"ok": True, "state": "open", "armed": "unarmed", "work": 16}
         try:
             rc, out, err = w.switch(ja, "--repoint", cwd=b["worktree"])
         finally:
-            counted.pop(40, None)
+            row_over.pop(40, None)
         # Kills: deleting the `why is not None` raise in _repoint.
         check("--repoint onto a pull request that cannot take commits is refused, saying why; the record is as it was",
-              rc == 1 and "is armed" in err and "landed" in err and w.job(ja)["branch"] == a["branch"] and w.job(ja)["state"] == "paused",
+              rc == 1 and "holds 16 work commits" in err and "landed" in err and w.job(ja)["branch"] == a["branch"] and w.job(ja)["state"] == "paused",
               out + err + repr(w.job(ja)))
+
+        # j104: an armed pull request that is held (in no merge queue) takes the re-point and says the push disarms it; a queued one does not.
+        for armed, taken in (("armed", True), ("queued", False), ("unarmed", True)):
+            w, ((ja, a), (jb, b)) = two_with_branches()
+            gh_says(merged_heads=[a["branch"]], open_prs=[pr40])
+            row_over[40] = {"ok": True, "state": "open", "armed": armed, "work": 3}
+            try:
+                rc, out, err = w.switch(ja, "--repoint", cwd=b["worktree"])
+            finally:
+                row_over.pop(40, None)
+            if taken:
+                # Kills: the `held_ok` allowance in _judge (armed refused); the armed note in _repoint (said only when armed).
+                check(f"--repoint onto a {armed} pull request takes the job" + (" and says the first push disarms it" if armed == "armed" else " without that note"),
+                      rc == 0 and w.job(ja)["branch"] == mine and w.job(ja)["state"] == "active"
+                      and (("first push disarms it" in out) == (armed == "armed")), out + err + repr(w.job(ja)))
+            else:
+                # Kills: letting held_ok pass any state but armed (a queued pull request races the queue).
+                check("--repoint onto a queued pull request is refused, saying it is queued; the record is as it was",
+                      rc == 1 and "is queued" in err and w.job(ja)["branch"] == a["branch"] and w.job(ja)["state"] == "paused", out + err + repr(w.job(ja)))
+
+        # F1 of the review: the scripted caller reads the armed warning in --json too.
+        w, ((ja, a), (jb, b)) = two_with_branches()
+        gh_says(merged_heads=[a["branch"]], open_prs=[pr40])
+        row_over[40] = {"ok": True, "state": "open", "armed": "armed", "work": 3}
+        try:
+            rc, out, err = w.switch(ja, "--repoint", "--json", cwd=b["worktree"])
+        finally:
+            row_over.pop(40, None)
+        # Kills: dropping "note" from the --json object.
+        check("--repoint --json onto an armed pull request carries the note that it is armed and the first push disarms it",
+              rc == 0 and "first push disarms it" in json.loads(out).get("note", ""), out + err)
+
+        # Without the flag, a job with no branch is not put on an armed pull request: through `choose`, the real _addable.
+        w, ((ja, a), (jb, b)) = two_with_branches()
+        jc = w.add("gamma")
+        row_over[40] = {"ok": True, "state": "open", "armed": "armed", "work": 3}
+        stubbed, branching._addable = branching._addable, real_addable
+        try:
+            rc, out, err = w.switch(jc, cwd=b["worktree"])
+        finally:
+            branching._addable = stubbed
+            row_over.pop(40, None)
+        # Kills: _addable (choose's judge) passing held_ok=True.
+        check("a job with no branch is not put on an armed pull request without --repoint: it gets a branch of its own",
+              rc == 0 and w.job(jc)["branch"] not in (None, mine), out + err + repr(w.job(jc)))
+
+        # F6: --json carries the sharing jobs for a plain open-pull-request switch too (two jobs with no branch, one pull request).
+        w, ((ja, a), (jb, b)) = two_with_branches()
+        jc, jd = w.add("gamma"), w.add("delta")
+        rc, out, err = w.switch(jc, cwd=b["worktree"])
+        assert rc == 0 and w.job(jc)["branch"] == mine, out + err
+        w.sw("pause", jc, "later", cwd=w.job(jc)["worktree"])
+        rc, out, err = w.switch(jd, "--json", cwd=w.job(jc)["worktree"])
+        # Kills: computing `sharing` only for a re-point.
+        check("a plain switch onto the open pull request's branch names the job that already records it in --json",
+              rc == 0 and json.loads(out).get("sharing") == [jc], out + err)
+
+
+        # F6: the sharing jobs are in --json too, as a list (empty when none).
+        w, ((ja, a), (jb, b)) = two_with_branches()
+        jc = w.add("gamma")
+        rc, out, err = w.switch(jc, cwd=b["worktree"])
+        assert rc == 0, out + err
+        w.sw("pause", jc, "later", cwd=w.job(jc)["worktree"])
+        gh_says(merged_heads=[a["branch"]], open_prs=[pr40])
+        rc, out, err = w.switch(ja, "--repoint", "--json", cwd=b["worktree"])
+        # Kills: dropping "sharing" from the JSON object.
+        check("--repoint --json names the jobs that also record the branch",
+              rc == 0 and json.loads(out).get("sharing") == [jc], out + err)
+        w, ((ja, a), (jb, b)) = two_with_branches()
+        gh_says(merged_heads=[a["branch"]], open_prs=[pr40])
+        rc, out, err = w.switch(ja, "--repoint", "--json", cwd=b["worktree"])
+        check("…and an empty list when none does (the positive control)", rc == 0 and json.loads(out).get("sharing") == [], out + err)
+
+        # F5: the job stopped being paused while the branch was prepared (after `choose`, before the lock).
+        w, ((ja, a), (jb, b)) = two_with_branches()
+        gh_says(merged_heads=[a["branch"]], open_prs=[pr40])
+        real_choose = sys.modules["fabric_jobs"].verbs.choose
+
+        def blocking(job, **kw):
+            made = real_choose(job, **kw)
+            w.sw("block", ja, "owner: a decision")
+            return made
+        sys.modules["fabric_jobs"].verbs.choose = blocking
+        try:
+            rc, out, err = w.switch(ja, "--repoint", cwd=b["worktree"])
+        finally:
+            sys.modules["fabric_jobs"].verbs.choose = real_choose
+        # Kills: deleting the `choice.repointed and job["state"] != "paused"` raise in switch_job's commit.
+        check("--repoint on a job that stopped being paused while the branch was prepared is refused under the lock; the record is as the block left it",
+              rc == 1 and "now, not paused" in err and w.job(ja)["state"] == "blocked" and w.job(ja)["branch"] == a["branch"], out + err + repr(w.job(ja)))
 
         # F2/F3: a job that is not paused.
         w, ((ja, a), (jb, b)) = two_with_branches()

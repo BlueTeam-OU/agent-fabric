@@ -194,8 +194,10 @@ check that failed and changing nothing:
      its own and no pull request from it merged (the open-pull-request refusal and --needs-merged below do not apply to it); else the job's own branch, whenever it records one: it is resumed there, its worktree made again from the branch when a sweep removed it, and a
      recorded branch that a pull request landed, or that is on neither this clone nor origin, is refused and said, never replaced by another job's
      (j201); except that `--repoint` takes a paused job whose branch a pull request landed to this login's one open pull request in the
-     repository (j641: the work continued there), when that can take more commits: the job records that branch and its worktree, in the
-     same R4 transition as any switch, and with none or several open the refusal stands and says how many; only a job with no branch is given one: this
+     repository (j641: the work continued there), when that can take more commits (fewer than 16 work commits, not queued; an armed one in
+     no merge queue too, the output and the --json `note` saying it is armed and that the first push disarms it): the job records that branch and its worktree, in the
+     same R4 transition as any switch, and with none or several open the refusal stands and says how many; every switch that has a branch names the other
+     open jobs recording it (the text, the log, and the --json `sharing` list, empty when none); only a job with no branch is given one: this
      login's open pull request in the repository when it can take more commits (not armed or queued, fewer than 16 work
      commits), with the default branch merged into it first (locally, not pushed); else, with --needs-merged, the job is blocked
      on that pull request and not started; else a new branch <host>/<login>/<type>/<job id and title words> off the freshly
