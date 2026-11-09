@@ -468,7 +468,7 @@ def _blocker(job: dict, problems: list[str]) -> list[str]:
     specs = bl.specs_of(job)
     on = str(job.get("blocked_on") or "")
     if specs:
-        cache = bl.refresh(specs, check=True, decide=True)
+        cache = bl.refresh(specs, check=True)
         if bl.cleared_flag(job, cache) is True:
             problems.append(f"every blocker of {job['id']} has cleared ({', '.join(specs)}): it is not blocked; start it, or deliver or finish it")
             return []

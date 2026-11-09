@@ -47,8 +47,8 @@ the cycle is then the other side's to find from the blocker it holds.
 A CHECK says one of three things: `cleared`, `waiting`, or `unknown` (it could not be told: gh, the journal or
 fabric-ctl failed, or the job is not on the open list and was never seen there). Unknown never clears a job.
 
-THE CACHE (<state dir>/jobs-blockers.json, 0600): a listing checks at most once per CACHE_TTL_S per blocker; `start` and
-`sweep` decide on a fresh check (refresh(decide=True)), since a refusal read from a ten-minute-old "waiting" is wrong;
+THE CACHE (<state dir>/jobs-blockers.json, 0600): a listing checks at most once per CACHE_TTL_S per blocker; `start` (and
+`switch <id>`, the same R4 need) decides on a fresh check (refresh(decide=True)), since a refusal read from a ten-minute-old "waiting" is wrong;
 a cleared blocker stays cleared, since a merge, a reply and a delivered job do not undo. `--stored` and `--cached`
 read it and check nothing. A job blocker also remembers that it was seen open: a job that is no longer on the open
 list was closed only if it was seen open before; one never seen is unknown (a typo reads the same).
@@ -482,9 +482,9 @@ def run_check(spec: str, entry: dict | None) -> dict:
 
 def refresh(specs: list[str], *, check: bool = True, decide: bool = False) -> dict[str, dict]:
     """The cache entry of each spec. With `check`, one that is not cleared and was last checked more than CACHE_TTL_S
-    ago (or never) is checked now; a cleared one is never checked again. With `decide` (start and sweep, which refuse on a
+    ago (or never) is checked now; a cleared one is never checked again. With `decide` (needs.py's start, which refuses on a
     blocker that waits) the TTL does not hold a check back: a refusal read from a `waiting` entry up to ten minutes old
-    keeps a job blocked after its peer was delivered. Without, nothing is checked, except a clock
+    keeps a job blocked after its peer was delivered. Without `check`, nothing is checked, except a clock
     spec, which is evaluated either way. The checks run
     first and the results are merged into the file under the lock, keeping a `cleared` another process wrote and the
     `seen_open` either has."""
