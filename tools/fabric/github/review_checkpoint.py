@@ -27,13 +27,11 @@ import sys
 HERE = os.path.dirname(os.path.realpath(__file__))
 sys.path.insert(0, os.path.dirname(HERE))
 import gh  # noqa: E402
-from github import review_coverage, review_posters  # noqa: E402
+from github import evidence, review_coverage, review_posters  # noqa: E402
 from github.review_status.base import Die, login_of, review_id, review_order  # noqa: E402
 from github.review_status.config import read_config  # noqa: E402
 
-# GitHub lists at most 250 commits of a pull request: a list that long may be cut, and a head not found in a cut
-# list proves nothing (post_review.COMMIT_LIST_CAP).
-COMMIT_LIST_CAP = 250
+# A head not found in a commit list GitHub may have cut proves nothing: evidence.Incomplete is a doubt, not "absent".
 
 
 def last_checkpoint(pr: int | str, current_head: str, config_for, *, repo: str | None = None, cwd: str | None = None,
@@ -96,8 +94,8 @@ def _checkpoint(pr: int, current_head: str, config_for, repo: str | None, cwd: s
     marker = v2.marker
     if newest.get("commit_id") != marker.head:
         return None
-    commits = gh.api_list(f"repos/{repo}/pulls/{pr}/commits")
-    if len(commits) >= COMMIT_LIST_CAP or not any(isinstance(c, dict) and c.get("sha") == marker.head for c in commits):
+    commits = evidence.PrEvidence(repo, pr).commits(polled=True)
+    if isinstance(commits, evidence.Incomplete) or not any(isinstance(c, dict) and c.get("sha") == marker.head for c in commits):
         return None
     if not review_coverage.is_ancestor(cwd, marker.head, current_head):
         return None

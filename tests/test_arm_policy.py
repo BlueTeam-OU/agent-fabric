@@ -1613,7 +1613,7 @@ class ArmRun(unittest.TestCase):
         self.assertIsNotNone(p)
 
     def test_a_pull_request_at_githubs_listing_cap_has_no_role_read_from_a_part_of_it(self):
-        commits = [{"parents": [{}], "commit": {"message": "c\n\nFabric-Role: web-dev"}}] * arm.PR_COMMITS_CAP
+        commits = [{"parents": [{}], "commit": {"message": "c\n\nFabric-Role: web-dev"}}] * arm.common.PR_COMMIT_LIST_CAP
         with mock.patch.object(arm.gh, "api", return_value=commits):
             self.assertIsNone(arm.author_role("O/R", "7"))
         with mock.patch.object(arm.gh, "api", return_value=commits[:-1]):
