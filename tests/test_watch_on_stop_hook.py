@@ -148,16 +148,20 @@ def main() -> int:
         with open(os.path.join(cfg, "config.py"), "w") as fh:
             fh.write("def integration_config(project):\n    return {'configured': True}\n")
 
-        def stub_identity(binding: str) -> None:
+        def stub_identity(role: str) -> None:
+            # read_binding raises: the verdict must come from the context's own record, never a second raw read of the file
             with open(os.path.join(stub, "runtime", "identity.py"), "w") as fh:
-                fh.write("def resolve_context(cwd=None, session=None):\n    return {'agent': 'a', 'project': 'p'}\n"
-                         f"def read_binding(agent=None):\n    return {binding}\n")
+                fh.write("import types\n"
+                         "class _Ctx(dict):\n"
+                         f"    binding = types.SimpleNamespace(role={role})\n"
+                         "def resolve_context(cwd=None, session=None):\n    return _Ctx(agent='a', project='p')\n"
+                         "def read_binding(agent=None):\n    raise AssertionError('a raw read of the binding')\n")
         real_root, mod.FABRIC_ROOT = mod.FABRIC_ROOT, stub
-        stub_identity("{}")
+        stub_identity("None")
         check("integrated: no fabric binding passes silently", mod.integrated(tmp, "s") is False)
-        stub_identity("{'role': None}")
+        stub_identity("''")
         check("integrated: a binding without a role passes silently", mod.integrated(tmp, "s") is False)
-        stub_identity("{'role': 'fabric-coordinator'}")
+        stub_identity("'fabric-coordinator'")
         check("integrated: a binding with a role and a configured project", mod.integrated(tmp, "s") is True)
         mod.FABRIC_ROOT = real_root
 

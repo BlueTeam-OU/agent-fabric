@@ -152,8 +152,36 @@ def other_project_cases(tmp: str, binding: str, env: dict) -> int:
     return fails + (not good)
 
 
+def binding_record_case() -> int:
+    """owning_working_copy asks identity.binding_record for the binding's working copy, never a raw read_binding.
+    <- the candidate list back on identity.read_binding. Positive control: the record's working copy is the one found."""
+    import importlib.util
+    import types
+    spec = importlib.util.spec_from_file_location("memory_write_check_hook", HOOK)
+    hook = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(hook)
+
+    def raw_read(*a, **k):
+        raise AssertionError("a raw read of the binding")
+    wc = "/work/the-bound-copy"
+    wcmod = types.SimpleNamespace(toplevel=lambda cwd: None, sibling_working_copies=lambda root: {})
+    hm = types.SimpleNamespace(
+        identity=types.SimpleNamespace(
+            _workingcopy=lambda: wcmod, read_binding=raw_read,
+            binding_record=lambda: types.SimpleNamespace(working_copy=wc),
+            resolve_context=lambda cwd: {"project": "bound-project"}),
+        layout=types.SimpleNamespace(
+            FABRIC_ROOT="/work/root", explicit_working_copies=dict, project_ids=list, working_copy_for=lambda pid: None,
+            memory_slug=lambda path: "the-slug" if path == wc else "other"))
+    found = hook.owning_working_copy(hm, "/h/.claude/projects/the-slug/memory/m.md")
+    good = found == ("bound-project", wc)
+    print(f"  {'ok  ' if good else 'FAIL'} owning_working_copy: the binding's working copy comes from binding_record"
+          + ("" if good else f": {found!r}"))
+    return not good
+
+
 def main() -> int:
-    fails = 0
+    fails = binding_record_case()
     with tempfile.TemporaryDirectory() as tmp:
         mem = os.path.join(tmp, ".claude", "projects", "slug", "memory")
         os.makedirs(mem)
