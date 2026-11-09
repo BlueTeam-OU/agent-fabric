@@ -7,7 +7,7 @@ from __future__ import annotations
 import importlib.util
 import os
 
-from .base import _is_under, _not_ours, _tracked
+from .base import _tracked
 
 _FABRIC = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
 
@@ -25,7 +25,6 @@ context_reads = _load("context_reads")
 
 def context_read_findings(root: str) -> list[str]:
     tracked = _tracked(root)
-    not_ours = _not_ours(root)
     try:
         with open(os.path.join(root, context_reads.POLICY), encoding="utf-8") as fh:
             readers = context_reads.parse_readers(fh.read())
@@ -34,7 +33,9 @@ def context_read_findings(root: str) -> list[str]:
     except (OSError, ValueError) as exc:
         return [f"{context_reads.POLICY}: cannot be read as JSON ({exc.__class__.__name__}); the binding's readers are not judged"]
     out = context_reads.policy_findings(readers, set(tracked))
-    scanned = {r for r in tracked if context_reads.judged_path(r) and not _is_under(r, not_ours)}
+    # Not narrowed by ruff's exclude (base._not_ours): the pre-commit hook judges every path judged_path names, and the two
+    # must judge one set, or a vendored module passes one and can satisfy neither once named (#516 F1).
+    scanned = {r for r in tracked if context_reads.judged_path(r)}
     for rel in sorted(scanned):
         try:
             with open(os.path.join(root, rel), encoding="utf-8") as fh:

@@ -7,7 +7,7 @@ from __future__ import annotations
 import importlib.util
 import os
 
-from .base import _is_under, _not_ours, _tracked
+from .base import _tracked
 
 _FABRIC = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
 
@@ -24,8 +24,9 @@ process_spawns = _load("process_spawns")
 
 
 def process_spawn_findings(root: str) -> list[str]:
-    not_ours = _not_ours(root)
-    tracked = [r for r in _tracked(root) if not _is_under(r, not_ours)]
+    # Not narrowed by ruff's exclude (base._not_ours): the pre-commit hook judges every path judged_path names, and the two
+    # must judge one set, or a vendored module passes one and can satisfy neither once named (#516 F1).
+    tracked = _tracked(root)
     try:
         with open(os.path.join(root, process_spawns.POLICY), encoding="utf-8") as fh:
             policy_text: str | None = fh.read()

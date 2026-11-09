@@ -10,6 +10,8 @@ Stdlib only; runnable as `python3 tests/test_lint_process_spawns.py`. **Each cas
   entry_that_admits_nothing <- an entry for a clean module, or one naming an untracked file, left silent
   unreadable_policy         <- a policy that is not JSON read as empty
   absent_policy_judges_all  <- a missing policy (instance data, ADR-045 rule 2) read as admitting everything
+  vendored_is_judged        <- lint narrowed by ruff.toml's exclude, which the pre-commit hook is not (#516 F1): a vendored
+                               spawner unjudged, or named and then called untracked
 """
 from __future__ import annotations
 
@@ -70,6 +72,21 @@ def case_unreadable_policy() -> None:
 def case_absent_policy_judges_all() -> None:
     _, out = run_lint(fabric(None))
     assert "tools/fabric/spx.py:4:" in out, out
+
+
+def case_vendored_is_judged() -> None:
+    def vendored(policy: dict) -> str:
+        root = make_base(tempfile.mkdtemp(dir=TMP))
+        write(os.path.join(root, "ruff.toml"), 'exclude = ["vendor"]\n')
+        write(os.path.join(root, "vendor", "run.py"), SPAWN)
+        write(os.path.join(root, POLICY), json.dumps(policy))
+        subprocess.run(["git", "-C", root, "init", "-q"], check=True, env=git_env())
+        subprocess.run(["git", "-C", root, "add", "-A"], check=True, env=git_env())
+        return root
+    _, out = run_lint(vendored({"spawns": {}}))
+    assert "vendor/run.py:4:" in out, out
+    _, out = run_lint(vendored({"spawns": {"vendor/run.py": "a vendored tool"}}))
+    assert "vendor/run.py" not in out, out
 
 
 def main() -> int:

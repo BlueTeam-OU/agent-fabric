@@ -8,7 +8,7 @@ from __future__ import annotations
 import importlib.util
 import os
 
-from .base import _is_under, _not_ours, _tracked
+from .base import _tracked
 
 _FABRIC = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
 
@@ -26,7 +26,6 @@ state_writes = _load("state_writes")
 
 def state_write_findings(root: str) -> list[str]:
     tracked = _tracked(root)
-    not_ours = _not_ours(root)
     out: list[str] = []
     try:
         with open(os.path.join(root, state_writes.POLICY), encoding="utf-8") as fh:
@@ -37,8 +36,10 @@ def state_write_findings(root: str) -> list[str]:
         # Said once, not as one finding per module the list would have admitted.
         return [f"{state_writes.POLICY}: cannot be read as JSON ({exc.__class__.__name__}); ADR-003 rule 1 is not judged"]
     out += state_writes.policy_findings(writers, set(tracked))
-    scanned = {r for r in tracked if state_writes.judged_path(r) and not _is_under(r, not_ours)}
-    out += [f"{state_writes.POLICY}: {m} admits nothing — rule 1 does not judge that path (a test, not Python, or not ours); "
+    # Not narrowed by ruff's exclude (base._not_ours): the pre-commit hook judges every path judged_path names, and the two
+    # must judge one set, or a vendored module passes one and can satisfy neither once named (#516 F1).
+    scanned = {r for r in tracked if state_writes.judged_path(r)}
+    out += [f"{state_writes.POLICY}: {m} admits nothing — rule 1 does not judge that path (a test, or not Python); "
             "remove the entry" for m in sorted(writers) if m in set(tracked) and m not in scanned]
     for rel in sorted(scanned):
         try:
