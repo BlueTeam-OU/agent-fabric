@@ -106,6 +106,7 @@ from fabric_lint_rules.context import context_read_findings  # noqa: E402, F401
 from fabric_lint_rules.evidence import evidence_cap_findings  # noqa: E402, F401
 from fabric_lint_rules.process import process_spawn_findings  # noqa: E402, F401
 from fabric_lint_rules.work import work_write_findings  # noqa: E402, F401
+from fabric_lint_rules.transport import transport_call_findings  # noqa: E402, F401
 from fabric_lint_rules.shape import BASH_LINE_LIMIT, BASH_SHEBANG, _is_bash, bash_shape_findings, bash_size_findings, forwarder_shape  # noqa: E402, F401
 from fabric_lint_rules.shape import agentd_unit_findings, candidate_role_findings, host_registry_findings  # noqa: E402, F401
 from fabric_lint_rules.locales import AGENT_FRONTMATTER_RE, I18N_DEFAULT_REL  # noqa: E402, F401
@@ -805,6 +806,7 @@ def main() -> int:
     findings += evidence_cap_findings(root)
     findings += process_spawn_findings(root)
     findings += work_write_findings(root)
+    findings += transport_call_findings(root)
     findings += arm_boundary_findings(root)
     findings += arm_direct_findings(root)
     findings += arm_declared_findings(root)

@@ -150,8 +150,9 @@ python-dev-01's j212 (`tools/fabric/context_reads.py`,
 python-dev-02's j125 (`tools/fabric/process.py`,
 `tools/fabric/process_spawns.py`, `policies/process-spawns.json`), and
 the job lifecycle by python-dev-04's j101 (`tools/fabric/work/`,
-`tools/fabric/work_writes.py`, `policies/work-writes.json`). Transport
-is `planned`.
+`tools/fabric/work_writes.py`, `policies/work-writes.json`). Transport is
+`enforced` by python-dev-02's j129 (`tools/fabric/gzcoord/transport/`,
+`tools/fabric/transport_calls.py`, `policies/transport-calls.json`).
 
 ## References
 

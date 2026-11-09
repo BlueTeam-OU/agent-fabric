@@ -71,6 +71,7 @@ import context_reads  # noqa: E402  who reads an agent's binding, as lint asks i
 import evidence_caps  # noqa: E402  GitHub's list caps have one owner, as lint asks it (tools/fabric/evidence_caps.py, ADR-067)
 import process_spawns  # noqa: E402  process lifetime has one owner, as lint asks it (tools/fabric/process_spawns.py, ADR-067)
 import work_writes  # noqa: E402  the work lifecycle has one owner, as lint asks it (tools/fabric/work_writes.py, ADR-037 rule 14)
+import transport_calls  # noqa: E402  message transport has one owner, as lint asks it (tools/fabric/transport_calls.py, ADR-067)
 
 ITSELF = "agent-fabric itself"
 AGENT_FABRIC_DIR = ".agent-fabric/"
@@ -604,6 +605,50 @@ def _check_work_writes(root: str) -> None:
                      "tools/fabric/work/ — not committed (agent-fabric ADR-037 rule 14, ADR-067 rule 1).")
 
 
+def _check_transport_calls(root: str) -> None:
+    """In agent-fabric itself, whoever commits: a staged module that calls the relay's api() or imports the carrier's
+    adapter outside tools/fabric/gzcoord/transport/ is refused unless the staged policy names it (ADR-067 rule 1,
+    tools/fabric/transport_calls.py); a module whose entry this commit removes, or a deleted policy's, is judged too. Lint judges
+    the whole tree in CI."""
+    if not same_repository(root):
+        return
+    r = _git("diff", "--cached", "-z", "--no-renames", "--name-only", "--diff-filter=ACMRT")
+    if r.returncode != 0:
+        raise Refuse("pre-commit: cannot list the staged files to judge transport calls — not committed")
+    staged = [p for p in r.stdout.split("\0") if p]
+    judged = [p for p in staged if transport_calls.judged_path(p)]
+    deleted = _staged_deletion(transport_calls.POLICY)
+    if not judged and transport_calls.POLICY not in staged and not deleted:
+        return
+    policy = _git("cat-file", "blob", f":{transport_calls.POLICY}")
+    try:
+        allowed = transport_calls.parse_calls(policy.stdout) if policy.returncode == 0 else {}
+    except ValueError:
+        raise Refuse(f"pre-commit: the staged {transport_calls.POLICY} is not JSON — not committed") from None
+    if transport_calls.POLICY in staged or deleted:
+        before = _git("cat-file", "blob", f"HEAD:{transport_calls.POLICY}")
+        try:
+            was = transport_calls.parse_calls(before.stdout) if before.returncode == 0 else {}
+        except ValueError:
+            was = {}   # HEAD's list unreadable admitted nothing then either
+        listed = _git("ls-files", "-z")
+        if listed.returncode != 0:
+            raise Refuse("pre-commit: cannot read the index to judge the modules whose transport-calls entries this commit "
+                         "removes — not committed")
+        tracked = set(listed.stdout.split("\0"))
+        judged += [m for m in sorted(set(was) - set(allowed)) if m in tracked and m not in judged
+                   and transport_calls.judged_path(m)]
+    lines: list[str] = []
+    for path, data in _staged_blobs(judged, "for transport calls").items():
+        try:
+            lines += transport_calls.scan(path, data.decode("utf-8"), allowed)
+        except UnicodeDecodeError:
+            lines.append(f"{path}: not UTF-8; transport calls are not judged")
+    if lines:
+        raise Refuse("\n".join(lines) + "\npre-commit: a module calls the relay's api() or imports the carrier's "
+                     "adapter outside tools/fabric/gzcoord/transport/ — not committed (agent-fabric ADR-067 rule 1).")
+
+
 def _check_review_card() -> None:
     """A commit that stages the project review card over its cap is refused, whoever commits (j475: a project's card reached 2396
     bytes over two commits, and every review of the project failed at render until it was cut). Only a commit that changes the card
@@ -647,6 +692,7 @@ def pre_commit(root: str) -> int:
     _check_evidence_caps(root)
     _check_process_spawns(root)
     _check_work_writes(root)
+    _check_transport_calls(root)
     what, staged = guarded_change(root)
     if not staged:
         return 0

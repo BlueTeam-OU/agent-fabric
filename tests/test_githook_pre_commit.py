@@ -937,5 +937,57 @@ class WorkWrites(PreCommit):
         self.assertEqual(r.returncode, 1, r.stderr)
         self.assertIn("pre-commit: the staged policies/work-writes.json is not JSON — not committed", r.stderr)
 
+
+class TransportCalls(PreCommit):
+    """In agent-fabric itself a staged module that calls the relay's api() or imports the carrier's adapter outside
+    tools/fabric/gzcoord/transport/ is refused whoever commits, unless the staged policy names it (ADR-067 rule 1,
+    tools/fabric/transport_calls.py).
+    Mutations: the call removed from pre_commit (the refusal case); the policy read from the work tree (the
+    unstaged-entry case); a deleted policy's modules left unjudged (the deletion case); not-JSON read as empty."""
+
+    WRITE = "def f(api):\n    return api(\"https://r\", \"/api/x\", {})\n"
+    POLICY = "policies/transport-calls.json"
+
+    def setUp(self):
+        self.build(owner_role="fabric-coordinator")
+
+    def test_a_staged_relay_call_is_refused_for_the_owner_too(self):
+        repo = self.fabric.itself()
+        repo.stage("tools/fabric/wx.py", self.WRITE)
+        self.fabric.bind("fabric-coordinator")
+        r = self.run_hook(repo)
+        self.assertEqual(r.returncode, 1, r.stderr)
+        self.assertIn("tools/fabric/wx.py:2:", r.stderr)
+        self.assertIn("ADR-067 rule 1", r.stderr)
+
+    def test_the_staged_policy_admits_and_an_unstaged_entry_does_not(self):
+        repo = self.fabric.itself()
+        repo.stage("tools/fabric/wx.py", self.WRITE)
+        repo.write(self.POLICY, json.dumps({"calls": {"tools/fabric/wx.py": "a test"}}))
+        self.fabric.bind("fabric-coordinator")
+        self.assertEqual(self.run_hook(repo).returncode, 1)
+        repo.git("add", self.POLICY)
+        r = self.run_hook(repo)
+        self.assertEqual((r.returncode, r.stderr), (0, ""))
+
+    def test_a_commit_that_deletes_the_policy_judges_its_modules(self):
+        repo = self.fabric.itself({"tools/fabric/wx.py": self.WRITE,
+                                   self.POLICY: json.dumps({"calls": {"tools/fabric/wx.py": "a test"}})})
+        repo.git("rm", "-q", self.POLICY)
+        self.fabric.bind("fabric-coordinator")
+        r = self.run_hook(repo)
+        self.assertEqual(r.returncode, 1, r.stderr)
+        self.assertIn("tools/fabric/wx.py:2:", r.stderr)
+
+    def test_a_list_that_is_not_json_refuses(self):
+        repo = self.fabric.itself()
+        repo.stage("tools/fabric/x.py", "x = 1\n")
+        repo.stage(self.POLICY, "{")
+        self.fabric.bind("fabric-coordinator")
+        r = self.run_hook(repo)
+        self.assertEqual(r.returncode, 1, r.stderr)
+        self.assertIn("pre-commit: the staged policies/transport-calls.json is not JSON — not committed", r.stderr)
+
+
 if __name__ == "__main__":
     unittest.main()

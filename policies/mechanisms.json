@@ -38,8 +38,10 @@
     },
     "message-transport": {
       "adr": "ADR-064",
-      "status": "planned",
-      "waits_on": "W1-A landed: a transport interface over the relay and InterWeave carriers as its owner, the relay staying primary (ADR-064)"
+      "owner": "tools/fabric/gzcoord/transport/",
+      "status": "enforced",
+      "checker": "tools/fabric/transport_calls.py",
+      "exceptions": "policies/transport-calls.json"
     }
   }
 }
