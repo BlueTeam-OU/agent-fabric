@@ -992,7 +992,9 @@ def main() -> int:
         check("…a row that could not be read, or a closed one, is unknown, never addable",
               "could not be read" in (addable_with({"ok": False, "line": "x cannot be read: y"}) or "") and "could not be read" in (addable_with({**base, "state": "merged"}) or "")
               and "could not be read" in (addable_with({**base, "work": None}) or ""))
-        branching._addable = lambda repo, number, held_ok=False: counted.get(number)
+        branching._addable = lambda repo, number: counted.get(number)
+        row_over: dict = {}      # --repoint reads the pull request's row itself (one read for the verdict and the armed note)
+        branching._row = lambda repo, number: row_over.get(number, {"ok": True, "state": "open", "armed": "unarmed", "work": 3})
 
         def other_clone(w: World) -> str:
             other = os.path.join(tmp, f"other{w.n}")
@@ -1378,40 +1380,60 @@ def main() -> int:
         # F2: a pull request that cannot take commits.
         w, ((ja, a), (jb, b)) = two_with_branches()
         gh_says(merged_heads=[a["branch"]], open_prs=[pr40])
-        counted[40] = "o/r#40 holds 16 work commits"
+        row_over[40] = {"ok": True, "state": "open", "armed": "unarmed", "work": 16}
         try:
             rc, out, err = w.switch(ja, "--repoint", cwd=b["worktree"])
         finally:
-            counted.pop(40, None)
+            row_over.pop(40, None)
         # Kills: deleting the `why is not None` raise in _repoint.
         check("--repoint onto a pull request that cannot take commits is refused, saying why; the record is as it was",
               rc == 1 and "holds 16 work commits" in err and "landed" in err and w.job(ja)["branch"] == a["branch"] and w.job(ja)["state"] == "paused",
               out + err + repr(w.job(ja)))
 
         # j104: an armed pull request that is held (in no merge queue) takes the re-point and says the push disarms it; a queued one does not.
-        # The real _addable over a fake row, so the armed/queued distinction is the code's.
-        fake_addable, fake_row = branching._addable, getattr(branching, "_row")
-        branching._addable = real_addable
-        try:
-            for armed, taken in (("armed", True), ("queued", False), ("unarmed", True)):
-                w, ((ja, a), (jb, b)) = two_with_branches()
-                gh_says(merged_heads=[a["branch"]], open_prs=[pr40])
-                branching._row = lambda repo, number, armed=armed: {"ok": True, "state": "open", "armed": armed, "work": 3}
+        for armed, taken in (("armed", True), ("queued", False), ("unarmed", True)):
+            w, ((ja, a), (jb, b)) = two_with_branches()
+            gh_says(merged_heads=[a["branch"]], open_prs=[pr40])
+            row_over[40] = {"ok": True, "state": "open", "armed": armed, "work": 3}
+            try:
                 rc, out, err = w.switch(ja, "--repoint", cwd=b["worktree"])
-                if taken:
-                    # Kills: the `held_ok` allowance in _addable (armed refused); the armed note in _repoint (said only when armed, not for unarmed).
-                    check(f"--repoint onto a {armed} pull request takes the job" + (" and says the first push disarms it" if armed == "armed" else " without that note"),
-                          rc == 0 and w.job(ja)["branch"] == mine and w.job(ja)["state"] == "active"
-                          and (("first push disarms it" in out) == (armed == "armed")), out + err + repr(w.job(ja)))
-                else:
-                    # Kills: letting held_ok pass any state but armed (a queued pull request races the queue).
-                    check("--repoint onto a queued pull request is refused, saying it is queued; the record is as it was",
-                          rc == 1 and "is queued" in err and w.job(ja)["branch"] == a["branch"] and w.job(ja)["state"] == "paused", out + err + repr(w.job(ja)))
-            # Without the flag the path that gives a job with no branch the open pull request still refuses an armed one (held_ok is only for --repoint).
-            branching._row = lambda repo, number: {"ok": True, "state": "open", "armed": "armed", "work": 3}
-            check("the plain path still does not add to an armed pull request", "is armed" in (branching._addable("o/r", 40) or ""))
+            finally:
+                row_over.pop(40, None)
+            if taken:
+                # Kills: the `held_ok` allowance in _judge (armed refused); the armed note in _repoint (said only when armed).
+                check(f"--repoint onto a {armed} pull request takes the job" + (" and says the first push disarms it" if armed == "armed" else " without that note"),
+                      rc == 0 and w.job(ja)["branch"] == mine and w.job(ja)["state"] == "active"
+                      and (("first push disarms it" in out) == (armed == "armed")), out + err + repr(w.job(ja)))
+            else:
+                # Kills: letting held_ok pass any state but armed (a queued pull request races the queue).
+                check("--repoint onto a queued pull request is refused, saying it is queued; the record is as it was",
+                      rc == 1 and "is queued" in err and w.job(ja)["branch"] == a["branch"] and w.job(ja)["state"] == "paused", out + err + repr(w.job(ja)))
+
+        # Without the flag, a job with no branch is not put on an armed pull request: through `choose`, the real _addable.
+        w, ((ja, a), (jb, b)) = two_with_branches()
+        jc = w.add("gamma")
+        row_over[40] = {"ok": True, "state": "open", "armed": "armed", "work": 3}
+        stubbed, branching._addable = branching._addable, real_addable
+        try:
+            rc, out, err = w.switch(jc, cwd=b["worktree"])
         finally:
-            branching._addable, branching._row = fake_addable, fake_row
+            branching._addable = stubbed
+            row_over.pop(40, None)
+        # Kills: _addable (choose's judge) passing held_ok=True.
+        check("a job with no branch is not put on an armed pull request without --repoint: it gets a branch of its own",
+              rc == 0 and w.job(jc)["branch"] not in (None, mine), out + err + repr(w.job(jc)))
+
+        # F6: --json carries the sharing jobs for a plain open-pull-request switch too (two jobs with no branch, one pull request).
+        w, ((ja, a), (jb, b)) = two_with_branches()
+        jc, jd = w.add("gamma"), w.add("delta")
+        rc, out, err = w.switch(jc, cwd=b["worktree"])
+        assert rc == 0 and w.job(jc)["branch"] == mine, out + err
+        w.sw("pause", jc, "later", cwd=w.job(jc)["worktree"])
+        rc, out, err = w.switch(jd, "--json", cwd=w.job(jc)["worktree"])
+        # Kills: computing `sharing` only for a re-point.
+        check("a plain switch onto the open pull request's branch names the job that already records it in --json",
+              rc == 0 and json.loads(out).get("sharing") == [jc], out + err)
+
 
         # F6: the sharing jobs are in --json too, as a list (empty when none).
         w, ((ja, a), (jb, b)) = two_with_branches()

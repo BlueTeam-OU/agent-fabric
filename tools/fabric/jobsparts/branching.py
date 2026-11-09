@@ -96,10 +96,9 @@ def _row(repo: str, number: int) -> dict:
     return rows[0] if rows else {}
 
 
-def _addable(repo: str, number: int, held_ok: bool = False) -> str | None:
-    """None when pull request `number` can take another commit, else why not. `held_ok`: an armed pull request that is in no merge queue
-    takes one (its first push disarms it); a queued one never does, a push races the queue."""
-    row = _row(repo, number)
+def _judge(row: dict, repo: str, number: int, held_ok: bool = False) -> str | None:
+    """None when the pull request `row` describes can take another commit, else why not. `held_ok`: an armed pull request that is in no
+    merge queue takes one (its first push disarms it); a queued one never does, a push races the queue."""
     if not row.get("ok") or row.get("state") != "open" or not isinstance(row.get("work"), int):
         return f"{repo}#{number} could not be read ({row.get('error') or row.get('line') or 'no row'})"
     if row.get("armed") != "unarmed" and not (held_ok and row.get("armed") == "armed"):
@@ -107,6 +106,10 @@ def _addable(repo: str, number: int, held_ok: bool = False) -> str | None:
     if row["work"] >= WORK_COMMITS_MAX:
         return f"{repo}#{number} holds {row['work']} work commits"
     return None
+
+
+def _addable(repo: str, number: int) -> str | None:
+    return _judge(_row(repo, number), repo, number)
 
 
 def _landed(wc: str, repo: str, branch: str) -> bool:
@@ -123,11 +126,11 @@ def _repoint(wc: str, repo: str, job: dict, landed: str, default: str) -> Choice
         raise Refused(f"{job['id']} records branch {landed}, which a pull request has landed, and --repoint needs exactly one open pull request "
                       f"of this login to take it to: {found}; close {job['id']} (fabric-jobs done or drop), or switch to another job by its id")
     number, head = int(mine[0]["number"]), str(mine[0]["headRefName"])
-    why = _addable(repo, number, held_ok=True)
+    row = _row(repo, number)     # one read: the verdict and the armed note must describe the same pull request
+    why = _judge(row, repo, number, held_ok=True)
     if why is not None:
         raise Refused(f"{job['id']} records branch {landed}, which a pull request has landed, and the one open pull request cannot take it: {why}")
-    # A second read, only here: `_addable` answers yes or no, and the agent must be told the push it is about to make disarms the pull request.
-    armed = ("; it is armed (held, in no merge queue): the first push disarms it" if _row(repo, number).get("armed") == "armed" else "")
+    armed = "; it is armed (held, in no merge queue): the first push disarms it" if row.get("armed") == "armed" else ""
     return Choice("open-pr", head, bring_up_to_date(wc, head, default), number, repo,
                   f"re-pointed from {landed}, which a pull request landed, to your open pull request #{number}{armed}", repointed=True)
 

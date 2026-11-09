@@ -306,7 +306,7 @@ def switch_job(args) -> int:
         was_cleared = blockers_note(job, cache) if job["state"] == "blocked" and bl.cleared_flag(job, cache) is True else ""
         resumed = job.get("reason") if job["state"] == "paused" else None
         where = f"branch {choice.branch}" if choice.branch else f"no branch ({choice.note})"
-        if choice.repointed:
+        if choice.branch:
             # The open pull request's branch is shared by design (one open pull request per agent), but never silently.
             sharing = [j["id"] for j in doc["jobs"] if j["id"] != job["id"] and j["state"] not in TERMINAL and j.get("branch") == choice.branch]
             if sharing:
