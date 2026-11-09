@@ -76,6 +76,19 @@ def engine_root(environ: Mapping[str, str] | None = None, *, empty_is_set: bool 
     return value
 
 
+def account_clone(home: str, *parts: str) -> str:
+    """<home>/projects/agent-fabric[/parts]: where provisioning clones the fabric into an ACCOUNT's home. A place in
+    a home directory, not a tree to choose among: `home` is the account's, never the session's environment."""
+    return os.path.join(home, "projects", "agent-fabric", *parts)
+
+
+def sibling_checkout(working_copy: str, environ: Mapping[str, str] | None = None) -> str:
+    """AGENT_FABRIC_ROOT when exported (non-empty), else the fabric checkout beside a working copy
+    (<working copy>/../agent-fabric): the workspace's layout, for a tool that runs inside a project and has no
+    code of the fabric's own to ask."""
+    return _env(environ).get(ENV_ENGINE) or os.path.join(working_copy, "..", "agent-fabric")
+
+
 def checkout_root(home: str, environ: Mapping[str, str] | None = None, *, empty_is_set: bool = False) -> str:
     """The fabric checkout a control-plane account runs on: AGENT_FABRIC_ROOT when exported, else the clone
     provisioning puts at <home>/projects/agent-fabric. Not engine_root(): that falls back to the checkout this
@@ -84,7 +97,7 @@ def checkout_root(home: str, environ: Mapping[str, str] | None = None, *, empty_
     the variable by `??` (`empty_is_set`): there it names a root that does not exist, and says so."""
     value = _env(environ).get(ENV_ENGINE)
     if value is None or (value == "" and not empty_is_set):
-        return os.path.join(home, "projects", "agent-fabric")
+        return account_clone(home)
     return value
 
 

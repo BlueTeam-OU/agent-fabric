@@ -40,6 +40,7 @@ HERE = os.path.dirname(os.path.realpath(__file__))
 sys.path.insert(0, os.path.dirname(HERE))
 import gh  # noqa: E402
 import git  # noqa: E402
+import roots  # noqa: E402
 from github import arm_policy, arm_rules, commit_class, common, evidence, landed, local, pr_review_status  # noqa: E402, F401  (commit_class: the unit suite reaches it here)
 from github.review_status.base import listed, obj  # noqa: E402
 # What was split out of this module stays importable from here: the unit
@@ -185,7 +186,7 @@ def session_prefix() -> str:
     session = os.environ.get("AGENT_FABRIC_PR_SESSION", "")
     if session:
         return session
-    whoami = os.path.join(os.environ.get("AGENT_FABRIC_ROOT") or FABRIC, "bin", "fabric-whoami")
+    whoami = os.path.join(roots.engine_root(), "bin", "fabric-whoami")
     if os.access(whoami, os.X_OK):
         try:
             r = subprocess.run([whoami, "--json"], capture_output=True, text=True, timeout=30,

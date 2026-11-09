@@ -46,6 +46,9 @@ import socket
 import subprocess
 import sys
 
+sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+import roots  # noqa: E402
+
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.realpath(__file__))))
 # The account-side stub: checks the account's checkout from inside its own
 # shell (its home is 700, invisible to the operator) and enters the cwd.
@@ -159,7 +162,7 @@ def main(argv: list[str]) -> int:
     home = account_home(as_login)
     if not home:
         return usage_error(f"no such login on {short_hostname()}: {as_login}")
-    fabric = f"{home}/projects/agent-fabric"
+    fabric = roots.account_clone(home)
     needs_fabric = any(a.startswith("@fabric/") for a in command)
     command = at_fabric(command, fabric)
     sudo = (os.environ.get("SUDO") or "sudo").split()

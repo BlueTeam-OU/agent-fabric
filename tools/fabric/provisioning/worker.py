@@ -367,7 +367,7 @@ def trust_github_host_keys(w: Worker) -> None:
 def fabric_checkout(w: Worker) -> None:
     """---- 4. the fabric checkout: a clone already there is brought to origin/main, never left old (bootstrap and the
     launcher run from it), or refused off main."""
-    login, repo = w.a.login, os.path.join(w.home, "projects", "agent-fabric")
+    login, repo = w.a.login, roots.account_clone(w.home)
     if not w.sudo_test("-d", os.path.join(repo, ".git")):
         url = w.env.get("AGENT_FABRIC_CLONE_URL") or "https://github.com/BlueTeam-OU/agent-fabric.git"
         w.must_as_login(["git", "clone", "-q", url, repo], f"git clone -q '{url}' ~/projects/agent-fabric")
@@ -423,7 +423,7 @@ def finish(w: Worker) -> int:
     # Step 4's https clone is the one that stays when agent-fabric is not a --project: the loop above never saw it.
     # A dry run has made no clone yet, so there is nothing to read.
     if (a.fabric_remote and "agent-fabric" not in a.projects
-            and w.sudo_test("-d", os.path.join(w.home, "projects", "agent-fabric", ".git"))):
+            and w.sudo_test("-d", roots.account_clone(w.home, ".git"))):
         point_origin_at_registry(w, "agent-fabric", a.fabric_remote)
     if not a.human:     # 7-9 never for a human (ADR-044 rule 2)
         record_launch_provider(w)
@@ -475,7 +475,7 @@ def record_launch_provider(w: Worker) -> None:
         return
     # The account's own clone (step 4 brought it to origin/main), not this worker's checkout: homes are 700, so the
     # account cannot read the coordinator's tree it is run from.
-    record = os.path.join(w.home, "projects", "agent-fabric", "tools", "fabric", "provisioning", "launch_record.py")
+    record = roots.account_clone(w.home, "tools", "fabric", "provisioning", "launch_record.py")
     if a.dry:
         w.say(f"would: as {a.login}: launch_record.py {provider}")
         return
@@ -493,7 +493,7 @@ def bootstrap_and_bind(w: Worker) -> None:
     if a.dry:
         w.say(f"would: as {login}: bootstrap.sh")
     else:
-        got = w.as_login([os.path.join(h, "projects", "agent-fabric", "runtime", "claude-code", "bootstrap.sh")])
+        got = w.as_login([roots.account_clone(h, "runtime", "claude-code", "bootstrap.sh")])
         if got.returncode != 0:
             tail(got.stdout)
             w.die(f"step failed: bootstrap.sh as {login}; nothing after it ran")
@@ -503,7 +503,7 @@ def bootstrap_and_bind(w: Worker) -> None:
     first = a.projects[0] if a.projects else ""
     where = "~/projects" + (f"/{first}" if first else "")
     cwd = os.path.join(h, "projects", first) if first else os.path.join(h, "projects")
-    fabric_role = os.path.join(h, "projects", "agent-fabric", "bin", "fabric-role")
+    fabric_role = roots.account_clone(h, "bin", "fabric-role")
     status = subprocess.run(w.as_login_argv([fabric_role, "status"]), text=True, capture_output=True, timeout=PROBE_TIMEOUT_S)
     # awk's answer, whatever status said (the shell's pipeline ended in awk): the lines `role <name>`.
     bound = "\n".join(ln.split()[1] for ln in (status.stdout or "").splitlines() if ln.startswith("role") and len(ln.split()) > 1)
@@ -551,7 +551,7 @@ def install_client(w: Worker) -> None:
     does: homes are 700. After bootstrap only by habit, not need: the program finds gzcoord-carrier when the unit
     starts, not when it is installed."""
     login = w.a.login
-    script = os.path.join(w.home, "projects", "agent-fabric", "tools", "fabric", "gzcoord", "carrier", "install_client.py")
+    script = roots.account_clone(w.home, "tools", "fabric", "gzcoord", "carrier", "install_client.py")
     if w.a.dry:
         w.say(f"would: as {login}: install_client.py")
         return

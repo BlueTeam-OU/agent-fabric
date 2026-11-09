@@ -122,7 +122,8 @@ def case_live_checks_dir_is_python_only_and_follows_the_operator_root() -> None:
 def case_checkout_root_is_the_exported_root_else_the_accounts_clone() -> None:
     home = "/home/acct"
     clone = J(home, "projects", "agent-fabric")
-    assert roots.checkout_root(home, {}) == clone
+    assert roots.checkout_root(home, {}) == clone == roots.account_clone(home)
+    assert roots.account_clone(home, "bin", "fabric-role") == J(clone, "bin", "fabric-role")
     assert roots.checkout_root(home, {"AGENT_FABRIC_ROOT": E}) == E
     assert roots.checkout_root(home, {"AGENT_FABRIC_ROOT": ""}) == clone, "empty is unset, as the `or` readers took it"
     assert roots.checkout_root(home, {"AGENT_FABRIC_ROOT": ""}, empty_is_set=True) == "", "the `??` readers: empty is set"

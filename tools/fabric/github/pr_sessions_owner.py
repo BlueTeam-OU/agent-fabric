@@ -11,6 +11,7 @@ from datetime import datetime, timedelta, timezone
 
 HERE = os.path.dirname(os.path.realpath(__file__))
 sys.path.insert(0, os.path.dirname(HERE))
+import roots  # noqa: E402
 from github import local  # noqa: E402
 from github.pr_reply import BOT_OWNER_ROLE, branch_names_a_session  # noqa: E402
 
@@ -114,7 +115,7 @@ def who_am_i() -> tuple[str, str, str]:
     root = local.toplevel()
     if not root:
         return "", "", ""
-    fabric = os.environ.get("AGENT_FABRIC_ROOT") or os.path.dirname(os.path.dirname(os.path.dirname(HERE)))
+    fabric = roots.engine_root()
     ident = os.path.join(fabric, "runtime", "identity.py")
     rc, agent = _sh([sys.executable, ident])
     if rc != 0:
