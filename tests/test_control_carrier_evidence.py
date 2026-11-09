@@ -895,7 +895,8 @@ class RelayOutage(unittest.TestCase):
         self.assertEqual((d["holds"], d["pairs"][0]["flagged_reshow"]), (True, 1), "rule 9's one re-show is the ledger's rule, counted apart")
 
     def test_the_relay_copy_not_acknowledged_fails_and_one_the_relay_refused_does_not_count(self):
-        for acks in ([], [{"mid": self.M, "addressee": self.ME, "t": iso(261), "ok": False}]):
+        kept = {"mid": mid(90, 9), "addressee": self.ME, "t": iso(150), "ok": True}   # another message's line, before the relay copy: the log was being kept
+        for acks in ([kept], [{"mid": self.M, "addressee": self.ME, "t": iso(261), "ok": False}]):
             r = self.good()
             r["acks"] = acks
             d = self.drill_of(r)
@@ -904,8 +905,57 @@ class RelayOutage(unittest.TestCase):
 
     def test_an_acknowledgement_of_another_message_or_addressee_is_not_this_ones(self):
         r = self.good()
-        r["acks"] = [{"mid": mid(111, 2), "addressee": self.ME, "t": iso(261), "ok": True}, {"mid": self.M, "addressee": "h/other", "t": iso(261), "ok": True}]
+        r["acks"] = [{"mid": mid(111, 2), "addressee": self.ME, "t": iso(250), "ok": True}, {"mid": self.M, "addressee": "h/other", "t": iso(250), "ok": True}]
         self.assertEqual(self.drill_of(r)["pairs"][0]["acked"], "no")
+
+    def test_no_acknowledgement_record_before_the_relay_copy_is_unknown_not_no(self):
+        # The log did not exist before e4424b06: an empty one, or one whose first line is later than the copy, is silence.
+        for acks in ([], [{"mid": mid(111, 2), "addressee": self.ME, "t": iso(262), "ok": True}]):
+            r = self.good()
+            r["acks"] = acks
+            d = self.drill_of(r)
+            self.assertEqual((d["pairs"][0]["acked"], d["holds"]), ("unknown", None), acks)
+            out = self.report(r)[1]
+            self.assertIn("acknowledged: unknown -- UNKNOWN", out)
+            self.assertNotIn("A PROPERTY FAILED", out)
+        r["shown"] = []
+        self.assertIn("A PROPERTY FAILED", self.report(r)[1], "positive control: a definite failure beside the unknown still fails")
+
+    def test_a_pair_both_carriers_delivered_after_the_drill_ended_is_not_exercised_and_says_why(self):
+        r = self.good()
+        r["arrivals"] = [arrival(self.M, self.ME, "interweave", 260), arrival(self.M, self.ME, "relay", 260)]
+        r["shown"] = [{"mid": self.M, "via": "relay", "t": iso(261)}]
+        d = self.drill_of(r)
+        self.assertEqual((d["exercised"], d["holds"], d["pairs"][0]["carrier_only"], d["pairs"][0]["ok"]), (0, None, False, None))
+        out = self.report(r)[1]
+        self.assertIn(f"{self.M} to {self.ME}", out, "still printed")
+        self.assertIn("NOT exercised (the InterWeave copy arrived outside the drill; it does not count)", out)
+        self.assertNotIn("A PROPERTY FAILED", out)
+        r["arrivals"] = [arrival(self.M, self.ME, "interweave", 111), arrival(self.M, self.ME, "relay", 260)]
+        self.assertEqual(self.drill_of(r)["exercised"], 1, "positive control: inside the drill it counts")
+
+    def test_the_drill_of_2026_11_07_reads_four_pairs_shown_once_ack_unknown_and_cannot_be_told(self):
+        # Per-pair facts of the live check's table; two late-sent pairs arrived in one second after the relay returned.
+        def pair(n, iw, relay):
+            m = mid(110 + n, n)
+            return m, [arrival(m, f"h/a{n}", "interweave", iw), arrival(m, f"h/a{n}", "relay", relay)]
+        arr, shown = [], []
+        for n, (iw, relay) in enumerate([(121, 293), (125, 290), (124, 291), (130, 291)], 1):
+            m, a = pair(n, iw, relay)
+            arr += a
+            shown += [{"mid": m, "via": "interweave", "t": iso(iw + 1)}]
+        for n, t in ((5, 220), (6, 220)):
+            m, a = pair(n, t, t)
+            arr += a
+            shown += [{"mid": m, "via": "relay", "t": iso(t + 1)}]
+        r = {"arrivals": arr, "shown": shown, "acks": []}
+        path = self.collect(r)
+        d = parity.relay_outage(parity.load_relay_outage(path, self.W), (T0 + 100, T0 + 200))
+        self.assertEqual((d["exercised"], d["unknown"], d["holds"]), (4, 4, None))
+        self.assertEqual({(p["shown"], p["first_via"], tuple(p["again"]), p["acked"]) for p in d["pairs"] if p["carrier_only"]}, {("once", "interweave", (), "unknown")})
+        out = self.report(r)[1]
+        self.assertIn("UNSETTLED, none failed and 4 pair(s) cannot be told yet", out)
+        self.assertNotIn("A PROPERTY FAILED", out)
 
     def test_a_relay_copy_that_has_not_come_back_leaves_the_acknowledgement_unknown_not_yes(self):
         r = self.good()
@@ -927,7 +977,7 @@ class RelayOutage(unittest.TestCase):
         self.assertEqual((d["exercised"], d["holds"]), (0, None), "no pair was held by the carrier alone: the drill is not shown")
         out = self.report(r)[1]
         self.assertIn("no message was held by the carrier alone", out)
-        self.assertIn("NOT exercised (the relay delivered it during the outage)", out)
+        self.assertIn("NOT exercised (the relay delivered it during the outage; it does not count)", out)
 
     def test_a_pair_made_outside_the_drill_is_not_in_it(self):
         r = self.good()
