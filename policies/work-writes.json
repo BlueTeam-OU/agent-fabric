@@ -1,0 +1,8 @@
+{
+  "_comment": "agent-fabric ADR-067 rule 1 for the work lifecycle: the modules tools/fabric/work_writes.py admits although they write a `state` or `claimed` key outside tools/fabric/work/, the owner of a job's state and of a pool claim (ADR-037 rule 14). Each value says why the key is not a job's or a pool job's. An entry that admits nothing is lint's finding.",
+  "writes": {
+    "tools/fabric/gzcoord/carrier/record.py": "a carrier delivery record's state (queued, posted, blocked, done, abandoned): a message's journey through a carrier, not a job's (python-dev-04, j101)",
+    "tools/fabric/jobsparts/blockers.py": "a blocker cache entry's state (cleared, waiting, unknown), sanitised on load: the state of a wait, not of a job (python-dev-04, j101)",
+    "tools/fabric/plan.py": "a plan step's status row copies the state of the job it reads, or says planned, waiting or unknown: a report, no job is written (python-dev-04, j101)"
+  }
+}

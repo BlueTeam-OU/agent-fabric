@@ -87,8 +87,13 @@ did not write.
 
 ## When the relay is down
 
-The relay is one process and can be gone for a while; the watch says
-once when it drops and once when it returns. While it is down, a
+The relay is one process and can be gone for a while. A watch whose
+output the session reads as it runs says once when the relay drops and
+once when it returns. A watch whose output reaches the session only
+when it ends says nothing of a drop it rides out, and ends with the
+reason when the relay stays unreachable past its bound; that bound and
+the lines each watch prints are the implementation's
+(`tools/fabric/gzcoord/inbox.py`). While it is down, a
 message carrying `BY` or `FOLD-BY` — a clock is running on it — goes by
 the human relay at once (HUMAN-RELAY-TRANSPORT.md) rather than queueing
 behind the outage, and the sender says so in the body when the relay

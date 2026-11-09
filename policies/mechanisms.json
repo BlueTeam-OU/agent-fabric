@@ -1,5 +1,5 @@
 {
-  "_comment": "agent-fabric ADR-067: each cross-cutting mechanism has one owning module, and every other module uses it. One entry per mechanism: the record it comes from, its owner, and its status. enforced: its checker and exceptions file are tracked, and a lint rule lint.py runs, the pre-commit hook and a tests/ case load the checker. pending: the job building the checker, as <login>/j<n>; the checker's paths enter with enforcement. planned: what it waits on; its owner is named once built. Every path named is tracked. tools/fabric/lint_rules/mechanisms.py reads this file.",
+  "_comment": "agent-fabric ADR-067: each cross-cutting mechanism has one owning module, and every other module uses it. One entry per mechanism: the record it comes from, its owner, and its status. enforced: its checker and exceptions file are tracked, and a lint rule lint.py runs, the pre-commit hook and a tests/ case load the checker. pending: the job building the checker, as <login>/j<n>; the checker's paths enter with enforcement. planned: what it waits on; its owner is named once built. Every path named is tracked; an owner that is a package is named as its directory, with the trailing slash. tools/fabric/lint_rules/mechanisms.py reads this file.",
   "mechanisms": {
     "state-persistence": {
       "adr": "ADR-003",
@@ -31,8 +31,10 @@
     },
     "job-lifecycle": {
       "adr": "ADR-037",
-      "status": "planned",
-      "waits_on": "python-dev-04/j100: today's code characterised against ADR-037 rule 14; then one module making every transition, its owner"
+      "owner": "tools/fabric/work/",
+      "status": "enforced",
+      "checker": "tools/fabric/work_writes.py",
+      "exceptions": "policies/work-writes.json"
     },
     "message-transport": {
       "adr": "ADR-064",

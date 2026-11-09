@@ -21,6 +21,7 @@ import ast
 import json
 import os
 import re
+import warnings
 
 FABRIC_DIR = "tools/fabric"
 GITHUB_DIR = FABRIC_DIR + "/github"
@@ -88,7 +89,10 @@ def scan(rel: str, text: str) -> list[str]:
     if not judged_path(rel):
         return []
     try:
-        tree = ast.parse(text)
+        with warnings.catch_warnings():
+            # A scanned file's own invalid escape is its own lint's to report; under -W error it would read as a syntax error, a clean verdict.
+            warnings.simplefilter("ignore", SyntaxWarning)
+            tree = ast.parse(text)
     except SyntaxError:
         return []
     out = []

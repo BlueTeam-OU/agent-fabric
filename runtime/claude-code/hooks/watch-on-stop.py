@@ -47,6 +47,9 @@ import json
 import os
 import sys
 import time
+import urllib.error
+import urllib.parse
+import urllib.request
 
 FABRIC_ROOT = os.environ.get("AGENT_FABRIC_ROOT") or os.path.dirname(
     os.path.dirname(os.path.dirname(os.path.dirname(os.path.realpath(__file__)))))
@@ -54,6 +57,7 @@ WINDOW_S = 300
 STATE_FILE = "watch-on-stop.json"
 KEEP_S = 86400
 RELAY_DOWN_S = 3600
+RELAY_PROBE_S = 2
 COMMAND = "gzcoord-inbox --until-delivery"
 REASON = ("No GZCoord inbox watch is running for this session, so no message can wake it. Before you finish, start it "
           "in the background: Bash(command: '" + COMMAND + "', run_in_background: true, timeout: 7200000, "
@@ -166,6 +170,21 @@ def relay_down(now: float, run_dir: str | None = None) -> bool:
     return False
 
 
+def relay_answers(url: str | None) -> bool:
+    """One request to the relay; True for any HTTP response, an error status included. The relay's own
+    address is called directly: a proxy answering for it would say nothing about the relay. DNS lookup is
+    not bounded by the timeout, which covers connect and read only."""
+    if not url or urllib.parse.urlsplit(url).scheme not in ("http", "https"):
+        return False
+    try:
+        urllib.request.build_opener(urllib.request.ProxyHandler({})).open(url, timeout=RELAY_PROBE_S).close()
+        return True
+    except urllib.error.HTTPError:
+        return True
+    except Exception:  # noqa: BLE001 - refused, timed out, DNS, TLS, a bad URL: the relay did not answer
+        return False
+
+
 _identity = None
 
 
@@ -209,37 +228,52 @@ def remember(path: str, session: str, now: float) -> None:
     identity().atomic_write(path, json.dumps(seen), 0o600)
 
 
-def integrated(cwd: str | None, session: str | None) -> bool:
-    """Whether this session is fabric-launched (a binding with a role) and its
-    project has GZCoord configured, by the inbox's own rule. Unlike session-start.py, an import
-    that fails answers False: there the line may stay, here a block must
-    be certain."""
+def project_config(cwd: str | None, session: str | None) -> dict | None:
+    """The project's GZCoord integration_config when this session is fabric-launched (a binding with a role)
+    and the project has GZCoord configured, by the inbox's own rule; None otherwise. Unlike session-start.py,
+    an import that fails answers None: there the line may stay, here a block must be certain."""
     sys.path.insert(0, os.path.join(FABRIC_ROOT, "tools", "fabric"))
     try:
         ident = load_identity()
         ctx = ident.resolve_context(cwd=cwd or os.getcwd(), session=session)
         if not ctx.get("agent") or not ctx.get("project"):
-            return False
+            return None
         # A login with no fabric binding (or one without a role) was not
         # launched by the fabric: resolve_context fills agent and project
         # for any registered working copy, so the binding is the evidence.
-        if not (ident.read_binding(ctx["agent"]) or {}).get("role"):
-            return False
+        if not ctx.binding.role:
+            return None
         from gzcoord.inbox_parts.config import integration_config
-        return bool(integration_config(ctx["project"])["configured"])
+        cfg = integration_config(ctx["project"])
+        return cfg if cfg["configured"] else None
     except (Exception, SystemExit):  # noqa: BLE001 - identity refuses with SystemExit
-        return False
+        return None
+
+
+def integrated(cwd: str | None, session: str | None) -> bool:
+    return project_config(cwd, session) is not None
+
+
+def configured_relay_url(cwd: str | None, session: str | None) -> str | None:
+    cfg = project_config(cwd, session)
+    url = cfg.get("relay_url") if cfg else None
+    return url if isinstance(url, str) else None
 
 
 def decide(payload: dict, procs: dict, now: float, path: str, is_integrated=integrated,
-           own_pid: int | None = None, run_dir: str | None = None, meminfo: str = "/proc/meminfo") -> dict | None:
+           own_pid: int | None = None, run_dir: str | None = None, meminfo: str = "/proc/meminfo",
+           relay_url: str | None = None) -> dict | None:
     if payload.get("stop_hook_active"):
         return None
     session_id = payload.get("session_id")
     if not isinstance(session_id, str) or not session_id:
         return None
     session = harness_pid(procs, own_pid or os.getpid())
-    if session is None or has_watch(procs, session, run_dir) or relay_down(now, run_dir):
+    if session is None or has_watch(procs, session, run_dir):
+        return None
+    # relay_url is passed in by tests; otherwise the project's own, looked up only when a marker stands.
+    if relay_down(now, run_dir) and not relay_answers(
+            relay_url or configured_relay_url(payload.get("cwd"), session_id)):
         return None
     if recently_blocked(path, session_id, now) or not is_integrated(payload.get("cwd"), session_id):
         return None

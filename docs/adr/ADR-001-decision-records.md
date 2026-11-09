@@ -48,9 +48,10 @@ checkable by `tools/fabric/adr.py`:
 - `index.json` and the README's index table are **generated** from the
   headers; `DIGEST.md` is written by hand, looked up (`fabric-adr
   lookup <topic>`, or the table alone with no topic) and never read
-  whole, and loses to the ADR when they disagree. An entry is at most
-  250 words, which `adr.py check` enforces, so a lookup stays a few
-  hundred tokens (A 2026-09-29).
+  whole, and loses to the ADR when they disagree. Each bullet of an
+  entry is at most 60 words, which `adr.py check` enforces, so a lookup
+  stays short; an entry is as many bullets as its rules and amendments
+  need (A 2026-11-09).
 
 ## 3. Alternatives Considered
 
@@ -175,3 +176,4 @@ The body above reads current; each change's full note is in [history/ADR-001-ame
 | 2026-09-29 | The DIGEST is looked up, never read whole, and each entry has a word budget | §2: `fabric-adr lookup`; a 250-word entry budget in `adr.py check` |
 | 2026-10-09 | An exception to a direction covers what exists | §5 rule 12 added: a carve-out keeps the past as it is; new work follows the direction unless the exception admits it in words |
 | 2026-10-18 | The amendment rule is checked at commit time too | §5 rule 4: `adr.py staged-check`, run by the `commit-msg` hook, refuses an unrecorded body edit in the commit being made, beside CI's `range-check` |
+| 2026-11-09 | A DIGEST budget per bullet, not per entry | §2: each bullet at most 60 words in `adr.py check`; the 250-word entry total is gone |

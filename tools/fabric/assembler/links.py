@@ -17,30 +17,15 @@ import re
 
 import roots
 from assembler.core import CLASS_FILES
-from assembler.slices import parse_slice
+from assembler.slices import parse_slice, without_code, cited_outside_code
 
 LINK_RE = re.compile(r"\[\[([^\]\n]+)\]\]")
 REFERENCES_RE = re.compile(r"^\*References: (.*)\*$", re.M)
-# CommonMark lets a fence, opening or closing, stand up to three spaces in.
-FENCE_RE = re.compile(r"^ {0,3}(?P<fence>`{3,}|~{3,}).*?^ {0,3}(?P=fence)[ \t]*$", re.M | re.S)
-# A span closes on a run of the same length as the one that opened it (CommonMark), so ``a ` b`` is one span.
-# A span stops at a blank line (CommonMark): a lone backtick pairs with none in a later paragraph and blanks the links between.
-SPAN_RE = re.compile(r"(?<!`)(`+)(?!`)((?:(?!\n[ \t]*\n).)+?)(?<!`)\1(?!`)", re.S)
 CLASS_PREFIX = tuple(f"{k}-" for k in CLASS_FILES)
 
 UNDRAINED = "undrained"
 OTHER_CORPUS = "other corpus"
 NO_SUCH_TOPIC = "no such topic"
-
-
-def without_code(text: str) -> str:
-    """The text with fenced blocks and inline code spans blanked: a `[[x]]` written there is an example, not a citation."""
-    text = FENCE_RE.sub(lambda m: "\n" * m.group(0).count("\n"), text)
-    # An unclosed fence quotes everything after it.
-    unclosed = re.search(r"^ {0,3}(`{3,}|~{3,})", text, re.M)
-    if unclosed:
-        text = text[:unclosed.start()]
-    return SPAN_RE.sub(lambda m: " " * len(m.group(0)), text)
 
 
 def names_in(root: str) -> set[str]:
@@ -78,11 +63,8 @@ def links_of(text: str) -> list[tuple[str, str, str]]:
                 seen.add((heading, target.strip()))
                 found.append((heading, target.strip(), "link"))
         for line in REFERENCES_RE.findall(body):
-            for topic in (t.strip() for t in line.split(",")):
-                # The harvest cites every [[x]] of a body, code or not (harvest_memory.WIKILINK_RE): a topic only written
-                # in code was never a link, and is no more a citation for being listed here.
-                in_code_only = f"[[{topic}]]" in body and f"[[{topic}]]" not in bare
-                if topic and not in_code_only and (heading, topic) not in seen:
+            for topic in cited_outside_code(body, [t.strip() for t in line.split(",")]):
+                if topic and (heading, topic) not in seen:
                     seen.add((heading, topic))
                     found.append((heading, topic, "references"))
     return found

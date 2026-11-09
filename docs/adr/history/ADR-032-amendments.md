@@ -106,3 +106,20 @@ head. The section keeps its name and its place and now says what it
 carries: the checks the supplier ran. It is a convention section, not a
 field: no grammar rule changes, and a reader accepts and rejects exactly
 what it did before.
+
+### Amendment 2026-11-09 — A watch read at its end says nothing of a drop it rides out
+
+SEMANTICS "When the relay is down" said the watch says once when the
+relay drops and once when it returns. That was written for a watch read
+as it runs (`gzcoord-inbox --follow`, under a Monitor). The watch a
+session arms is `--until-delivery`, a background command whose output
+reaches the session once, at exit; a line it printed mid-run would reach
+no one, and waking the session for a drop the relay recovers from is
+noise. Its contract (inbox.py) says it prints no relay-down or back
+lines, and it ends with the reason when the relay stays unreachable past
+its bound (exit 5). W2-B0's characterisation (#523, finding 1, j215)
+found the two texts disagreeing; the code is right and the prose moves.
+The section now states the rule for each kind of watch and leaves the
+bound and the lines to the implementation. No field, grammar rule or
+meaning of a message changes; a reader accepts and rejects exactly what
+it did before.

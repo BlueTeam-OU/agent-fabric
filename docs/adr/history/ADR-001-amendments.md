@@ -76,3 +76,18 @@ The owner, 2026-10-09: "If a direction is set a carve out means for past." ADR-0
 ### Amendment 2026-10-18 — The amendment rule is checked at commit time too
 
 Rule 4's guard had two legs, `adr.py range-check` in CI and the suite's run of it, and none at the keyboard: on 2026-10-16 two commits that edited a record's body with neither a new Amendments row nor an `ADR-Editorial:` trailer (b01a6130, 9266b09a) were found only when CI ran, and each needed a reword of a pushed branch. A guard is a hook at commit time, a check in CI and a case in the suite. `adr.py staged-check` makes the same judgment as `range-check` of the commit being made, the index against its parent (HEAD, or HEAD^ for an amend, which replaces HEAD), with the message being written as the one whose trailer may excuse it, and the `commit-msg` hook runs it whenever that change touches `docs/adr/`; with no base to compare with, it enforces nothing, as `range-check` does not. It runs the repository's own copy of `adr.py`, so only agent-fabric and its clones are judged: a project's records follow that project's rules. A merge is not judged, as `range-check` skips merges: what it brings was judged where it was made.
+
+### Amendment 2026-11-09 — A DIGEST budget per bullet, not per entry
+
+The 2026-09-29 amendment gave each DIGEST entry a 250-word total. An
+entry gains a bullet with every amendment, so a record amended often
+reaches the total and every later amendment has to trim bullets it does
+not touch: ADR-032's 2026-11-09 amendment cut two keywords and merged
+words from an older bullet to fit one line, and the trim dropped a
+lookup word on its first try. The owner's direction (2026-11-09): the
+DIGEST stays short, but the limit belongs to each row, not to the
+entry. `adr.py check` now holds each bullet, with its continuation
+lines, to 60 words, above the longest bullet when it changed (54); an
+entry is as many bullets as it needs. What a lookup costs grows with an
+entry's amendments, one short bullet each, which is the cost the old
+total hid by forcing trims.

@@ -60,6 +60,16 @@ def _run_rules(root: str) -> list[str]:
     return [f"{LINT_RULES}/{n}.py" for n in sorted(names)]
 
 
+def _names_tracked(path: object, tracked: set[str], package: bool) -> bool:
+    """A file the tree tracks; for an owner also a package, named as its directory with the trailing slash (tools/fabric/work/
+    is one owner of many modules). The slash is required, so a typo'd file name never passes as a prefix."""
+    if not isinstance(path, str):
+        return False
+    if package and path.endswith("/") and len(path) > 1:
+        return any(t.startswith(path) for t in tracked)
+    return path in tracked
+
+
 def mechanism_findings(root: str) -> list[str]:
     try:
         with open(os.path.join(root, POLICY), encoding="utf-8") as fh:
@@ -91,8 +101,9 @@ def mechanism_findings(root: str) -> list[str]:
             path = e.get(key)
             if path is None and (key == "owner" and status != "planned" or key != "owner" and status == "enforced"):
                 out.append(f"{where}: {'an' if status[0] in 'aeiou' else 'a'} {status} mechanism must name its {key} (ADR-067 rule 2)")
-            elif path is not None and (not isinstance(path, str) or path not in tracked):
-                out.append(f"{where}: {key} {path!r} is not a tracked file")
+            elif path is not None and not _names_tracked(path, tracked, package=key == "owner"):
+                out.append(f"{where}: {key} {path!r} is not a tracked file"
+                           + (" or a directory/ holding one" if key == "owner" else ""))
         checker = e.get("checker")
         if status == "enforced" and isinstance(checker, str) and checker in tracked:
             stem = os.path.splitext(os.path.basename(checker))[0]

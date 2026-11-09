@@ -148,8 +148,10 @@ python-dev-01's j212 (`tools/fabric/context_reads.py`,
 (`tools/fabric/github/evidence.py`, `tools/fabric/evidence_caps.py`,
 `policies/evidence-caps.json`). Process lifetime is `enforced` by
 python-dev-02's j125 (`tools/fabric/process.py`,
-`tools/fabric/process_spawns.py`, `policies/process-spawns.json`).
-The job lifecycle and transport are `planned`.
+`tools/fabric/process_spawns.py`, `policies/process-spawns.json`), and
+the job lifecycle by python-dev-04's j101 (`tools/fabric/work/`,
+`tools/fabric/work_writes.py`, `policies/work-writes.json`). Transport
+is `planned`.
 
 ## References
 
