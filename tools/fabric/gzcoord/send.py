@@ -488,6 +488,10 @@ def main(argv: list[str]) -> int:
         print(t("send.does-not-validate"), file=sys.stderr)
         return 2
     msg = gzmsg.parse(text)
+    # A warning, never a refusal: the wire allows any body text (SPEC §11). `fabric-pr arm --authorization` reads
+    # AUTHORIZES from the header only, and a grant written in a section refused two armings (REQUEST 01a1c1c2).
+    if any(line.startswith("AUTHORIZES:") for body in msg["sections"].values() for line in body.split("\n")):
+        print(t("send.authorizes-in-body"), file=sys.stderr)
     sender = msg["metadata"].get("FROM")
     if sender != me["address"]:
         print(t("send.from-is-not-this-login", {"from": sender if sender is not None else t("send.from-missing"),

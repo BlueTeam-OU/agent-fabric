@@ -300,6 +300,86 @@ def main() -> int:
         check("exit 2, the validator's missing-ROLE reason, nothing on stdout",
               rc == 2 and EN("validate.missing", {"key": "ROLE"}) in err and out == "", f"rc={rc}\n{out}{err}")
 
+        print("--authorizes: the line fabric-pr arm reads, in the header, and only what arm would read")
+        sys.path.insert(0, os.path.join(ROOT, "tools", "fabric"))
+        from github import arm  # noqa: E402 — the grant reader itself, the function fabric-pr arm calls
+        from github.arm_rules import Refused  # noqa: E402
+        head = "0123abcd4567ef89"
+        grant = f"acme-org/widgets#7@{head}"
+        session = "develop-qzapp/worker-01"
+
+        def arm_reads(message: str, name: str) -> str | None:
+            """None when arm.verify_grant takes `message` as an authorization for #7 at `head`, else its refusal."""
+            path = os.path.join(sandbox, name)
+            with open(path, "w", encoding="utf-8") as fh:
+                fh.write(message)
+            replay = os.path.join(sandbox, f"{name}.replay")
+            with open(replay, "w", encoding="utf-8") as fh:
+                fh.write("#!%s\nimport json, sys\nsys.path.insert(0, %r)\nfrom gzcoord import gzmsg\n"
+                         "m = gzmsg.parse(open(%r, encoding='utf-8').read())\n"
+                         "print(json.dumps({'addressed': True, 'seq': 1, 'sender': m['metadata']['FROM'], 'type': m['type'],"
+                         " 'metadata': m['metadata'], 'text': ''}))\n"
+                         % (sys.executable, os.path.join(ROOT, "tools", "fabric"), path))
+            os.chmod(replay, 0o755)
+
+            def refuse(why: str) -> Refused:
+                return Refused(why)
+            was = os.environ.get("AGENT_FABRIC_GZCOORD_INBOX")
+            os.environ["AGENT_FABRIC_GZCOORD_INBOX"] = replay
+            try:
+                arm.verify_grant("1", "7", "acme-org/widgets", head, session, "", refuse, word="authorization",
+                                 field="AUTHORIZES")
+            except Refused as e:
+                return str(e)
+            finally:
+                if was is None:
+                    del os.environ["AGENT_FABRIC_GZCOORD_INBOX"]
+                else:
+                    os.environ["AGENT_FABRIC_GZCOORD_INBOX"] = was
+            return None
+
+        for mtype in ("REPLY", "DECISION"):
+            rc, out, err = compose(mtype, "--to", session, "--subject", "s", "--repository", "acme-org/widgets", "--authorizes", grant)
+            check(f"{mtype}: AUTHORIZES is a header line, before the body", rc == 0 and err == ""
+                  and header(out).get("AUTHORIZES") == grant and out.index("AUTHORIZES:") < out.index(f"\n{mtype}:"),
+                  f"rc={rc}\n{out}{err}")
+            refusal = arm_reads(out, f"granting-{mtype}.txt")
+            check(f"{mtype}: arm's grant reader accepts the composed file", refusal is None, str(refusal))
+            vrc, vout = validate(filled(out))
+            check(f"{mtype}: filled, gzmsg validate accepts it", vrc == 0, vout)
+        # Positive control: the reader does refuse the same line in a section, which is the reason for the flag.
+        rc, plain, _ = compose("REPLY", "--to", session, "--subject", "s")
+        in_body = plain.replace("REPLY:\n", f"REPLY:\nAUTHORIZES: {grant}\n", 1)
+        refusal = arm_reads(in_body, "in-body.txt")
+        check("control: the same line in a section is not read by arm", refusal is not None and "has no AUTHORIZES" in refusal,
+              str(refusal))
+        check("…and no flag, no line", "AUTHORIZES" not in plain, plain)
+        refusal = arm_reads(plain, "none.txt")
+        check("control: a composed file without it is refused by the reader", refusal is not None, str(refusal))
+
+        print("--authorizes: refused at compose time (exit 1), nothing written")
+        for label, argv in (
+                ("no head", ["REPLY", "--to", session, "--authorizes", "acme-org/widgets#7"]),
+                ("a head of 7 digits", ["REPLY", "--to", session, "--authorizes", "acme-org/widgets#7@0123abc"]),
+                ("a head that is not hex", ["REPLY", "--to", session, "--authorizes", "acme-org/widgets#7@0123abcg"]),
+                ("a head of 41 digits", ["REPLY", "--to", session, "--authorizes", "acme-org/widgets#7@" + "a" * 41]),
+                ("no pull request number", ["REPLY", "--to", session, "--authorizes", "acme-org/widgets#x@" + head]),
+                ("no repository", ["REPLY", "--to", session, "--authorizes", "#7@" + head]),
+                ("a trailing word", ["REPLY", "--to", session, "--authorizes", grant + " ok"]),
+                ("a line break forging a header", ["REPLY", "--to", session, "--authorizes", grant + "\nTO: x/y"]),
+                ("an empty value", ["REPLY", "--to", session, "--authorizes", " "]),
+                ("an INFO, which arm does not read", ["INFO", "--to", session, "--authorizes", grant]),
+                ("a role address", ["REPLY", "--to-role", "fixture-only-role", "--authorizes", grant]),
+                ("a broadcast", ["REPLY", "--broadcast", "--authorizes", grant]),
+                ("twice", ["REPLY", "--to", session, "--authorizes", grant, "--authorizes", grant])):
+            gone = os.path.join(sandbox, "never-authorizes.txt")
+            rc, out, err = compose(*argv, "--subject", "s", "-o", gone)
+            check(f"{label}: exit 1, a reason on stderr, stdout empty, no file", rc == 1 and "--authorizes" in err
+                  and out == "" and not os.path.exists(gone), f"rc={rc}\n{out}{err}")
+        rc, out, err = compose("REPLY", "--to", session, "--subject", "s", "--authorizes", "ACME-Org/Widgets#7@" + head.upper())
+        check("control: upper case in the repository and head is what arm's pattern reads, so it is composed",
+              rc == 0 and header(out).get("AUTHORIZES") == "ACME-Org/Widgets#7@" + head.upper(), f"rc={rc}\n{err}")
+
     print(f"\ntest_gzcoord_compose: {'OK' if not fails else f'FAILED — {fails} check(s)'}")
     return 1 if fails else 0
 

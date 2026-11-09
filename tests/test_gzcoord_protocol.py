@@ -2793,6 +2793,31 @@ def _():
         relay.close()
 
 
+@case("send warns, and still sends, when a section has a line AUTHORIZES:; the same line in the header is not warned")
+def _():
+    relay = Relay()
+    try:
+        grant = "AUTHORIZES: acme-org/widgets#7@0123abcd"
+        warning = "a line AUTHORIZES: in a section grants nothing"
+        # A section line wherever it stands in the body, and the grant a quotation would carry (indented) is not one.
+        for body in (f"REPLY:\n{grant}\n", f"REPLY:\nok\n{grant}\n\nREFERENCES:\n"):
+            r = send_with(relay.url, with_body("REPLY", body))
+            eq(r.code, 0, r.err)
+            has(warning, r.err)
+            has("gzcoord-compose --authorizes", r.err)
+        r = send_with(relay.url, with_body("REPLY", f"REPLY:\nok\n  {grant}\n"))
+        eq(r.code, 0, r.err)
+        hasnt(re.escape(warning), r.err)
+        eq(len(relay.posts), 3)
+        # Positive control for the absence: the header line is read by arm and is nothing to warn of.
+        head, _, tail = with_body("REPLY", "REPLY:\nok\n").partition("\n\nREPLY:")
+        r = send_with(relay.url, f"{head}\n{grant}\n\nREPLY:{tail}", ["--dry-run"])
+        eq(r.code, 0, r.err)
+        hasnt("AUTHORIZES", r.err)
+    finally:
+        relay.close()
+
+
 @case("send carries a long line as written, with no width warning (the bridge does not re-break)")
 def _():
     relay = Relay()
