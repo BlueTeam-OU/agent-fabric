@@ -87,11 +87,12 @@ flaws were:
    the carrier alone held them.** The judge counts a pair as "carrier
    alone" whenever the relay copy came after the drill ended. It does
    not ask whether the InterWeave copy came during the drill. Four
-   pairs had both copies arrive in the same second, after the relay was
-   back: 11-05 to architect-cto-01 and rust-ui-dev-02 (16:10Z), 11-07
-   to rust-ui-dev-02 (23:20:41Z) and 11-07 22:19:48Z to devex-tooling
-   (11-08 07:26Z). Their senders sent them once the relay answered, so
-   they prove nothing about the drill. Apart from the acknowledgement
+   pairs had their InterWeave copy arrive outside the drill, within a
+   second of the relay copy: 11-05 to architect-cto-01 and
+   rust-ui-dev-02 (16:10Z), 11-07 to rust-ui-dev-02 (23:20:41Z) and
+   11-07 22:19:48Z to devex-tooling (11-08 07:26:57Z). The carrier did
+   not hold any of them during the outage, so they prove nothing about
+   the drill. When their senders sent them is not in the collection. Apart from the acknowledgement
    (flaw 1), they fail only on "first shown by the relay".
 
 What the drills do show, pair by pair, where the carrier alone held the
@@ -119,8 +120,8 @@ nothing shows a restart between a pair's showing and its relay copy.
 - **The rollback drill.** It was never run: the InterWeave carrier
   switched off mid-window, with nothing lost.
 - **A relay-outage drill whose acknowledgements are logged.** Any drill
-  after 2026-11-08T17:05Z would do. The judge needs the two fixes above
-  first, or its verdict cannot be read as written.
+  after 2026-11-08T17:05Z would do. The judge was fixed by #534
+  (6323913f).
 - Optional, not named by rule 11: the cause of the 516 InterWeave
   duplicate copies, and the relay's side of ux-designer-01's three
   pending pairs.

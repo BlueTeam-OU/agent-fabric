@@ -43,7 +43,6 @@ The rows `2026-11-09-interweave-parity.md` reads that the tool's report does not
 | rust-services-dev-02 | 2026-11-09T12:33:04Z | 2 |
 | backend-dev-01 | none | 0 |
 | backend-dev-02 | none | 0 |
-| collection.json | none | 0 |
 | db-admin | none | 0 |
 | domain-transit | none | 0 |
 | edge-hosting | none | 0 |
