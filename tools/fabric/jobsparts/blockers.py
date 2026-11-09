@@ -47,7 +47,8 @@ the cycle is then the other side's to find from the blocker it holds.
 A CHECK says one of three things: `cleared`, `waiting`, or `unknown` (it could not be told: gh, the journal or
 fabric-ctl failed, or the job is not on the open list and was never seen there). Unknown never clears a job.
 
-THE CACHE (<state dir>/jobs-blockers.json, 0600): a check is made at most once per CACHE_TTL_S per blocker;
+THE CACHE (<state dir>/jobs-blockers.json, 0600): a listing checks at most once per CACHE_TTL_S per blocker; `start` and
+`sweep` decide on a fresh check (refresh(decide=True)), since a refusal read from a ten-minute-old "waiting" is wrong;
 a cleared blocker stays cleared, since a merge, a reply and a delivered job do not undo. `--stored` and `--cached`
 read it and check nothing. A job blocker also remembers that it was seen open: a job that is no longer on the open
 list was closed only if it was seen open before; one never seen is unknown (a typo reads the same).
@@ -479,9 +480,11 @@ def run_check(spec: str, entry: dict | None) -> dict:
             **({"became": became, "became_seen": became_seen} if became else {})}
 
 
-def refresh(specs: list[str], *, check: bool = True) -> dict[str, dict]:
+def refresh(specs: list[str], *, check: bool = True, decide: bool = False) -> dict[str, dict]:
     """The cache entry of each spec. With `check`, one that is not cleared and was last checked more than CACHE_TTL_S
-    ago (or never) is checked now; a cleared one is never checked again. Without, nothing is checked, except a clock
+    ago (or never) is checked now; a cleared one is never checked again. With `decide` (start and sweep, which refuse on a
+    blocker that waits) the TTL does not hold a check back: a refusal read from a `waiting` entry up to ten minutes old
+    keeps a job blocked after its peer was delivered. Without, nothing is checked, except a clock
     spec, which is evaluated either way. The checks run
     first and the results are merged into the file under the lock, keeping a `cleared` another process wrote and the
     `seen_open` either has."""
@@ -495,7 +498,8 @@ def refresh(specs: list[str], *, check: bool = True) -> dict[str, dict]:
                 fresh[spec] = run_check(spec, entry)
             continue
         if not check or (entry and (entry.get("state") == "cleared"
-                                    or (isinstance(entry.get("checked_at"), (int, float)) and now() - entry["checked_at"] < CACHE_TTL_S))):
+                                    or (not decide and isinstance(entry.get("checked_at"), (int, float))
+                                        and now() - entry["checked_at"] < CACHE_TTL_S))):
             continue
         fresh[spec] = run_check(spec, entry)
     # A re-point that could not be written last time is made again by the next look.
