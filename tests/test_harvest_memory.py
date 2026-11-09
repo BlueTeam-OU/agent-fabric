@@ -1235,7 +1235,7 @@ def test_under_all_the_age_and_the_count_cover_only_what_the_committed_watermark
     every harvested memory, the watermark read from the wrong store key."""
     wm = 1_000_000
 
-    def run(name: str, ages: dict[str, int], *, held: str | None = None, report: bool = True) -> tuple[dict, dict]:
+    def run(name: str, ages: dict[str, int], *, held: str | None = None, report: bool | str = True) -> tuple[dict, dict]:
         mem = os.path.join(tmp, f"mem-{name}")
         os.makedirs(mem)
         for n, ms in ages.items():
@@ -1248,7 +1248,7 @@ def test_under_all_the_age_and_the_count_cover_only_what_the_committed_watermark
         os.makedirs(os.path.join(wc, ".agent-fabric", "memory"))
         if report:
             with open(os.path.join(wc, ".agent-fabric", "memory", "last-drain-report.json"), "w", encoding="utf-8") as fh:
-                json.dump({"watermarks": {f"{LOGIN}@hostA": wm}}, fh)
+                fh.write(report if isinstance(report, str) else json.dumps({"watermarks": {f"{LOGIN}@hostA": wm}}))
         target = os.path.join(tmp, f"{name}.tar")
         r = subprocess.run([sys.executable, TOOL, "--role", "architect-cto", "--memory", mem, "--bundle", target, "--working-copy", wc,
                             "--project", "demo", "--host", "hostA", "--all"], capture_output=True, text=True)
@@ -1264,6 +1264,9 @@ def test_under_all_the_age_and_the_count_cover_only_what_the_committed_watermark
     assert rep["oldest_drainable_ms"] == wm - 9000 and rep["drainable"] == 1, rep
     manifest, rep = run("noreport", {"a": wm - 5000, "b": wm}, report=False)
     assert rep["oldest_drainable_ms"] == wm - 5000 and rep["drainable"] == 2, "no committed watermark: everything waits"
+    for label, text in (("list", "[]"), ("marks list", '{"watermarks": [1]}')):
+        manifest, rep = run(f"odd-{label.replace(' ', '-')}", {"a": wm - 5000, "b": wm}, report=text)
+        assert rep["oldest_drainable_ms"] == wm - 5000 and rep["drainable"] == 2, (label, rep)
 
 
 def test_a_call_the_caller_got_wrong_is_counted_apart(tmp: str) -> None:

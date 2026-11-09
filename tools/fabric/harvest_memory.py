@@ -225,7 +225,7 @@ def previous_watermark(working_copy: str, host: str, agent: str | None = None,
         with open(report, encoding="utf-8") as fh:
             marks = json.load(fh).get("watermarks") or {}
         return int(marks.get(key or store_key(agent, host)) or 0), report
-    except (OSError, ValueError, TypeError):
+    except (OSError, ValueError, TypeError, AttributeError):   # AttributeError: valid JSON that is not an object
         return 0, None
 
 
