@@ -75,7 +75,20 @@ def test_a_role_whose_every_slice_is_held_gets_no_project_corpus(tmp: str) -> No
     assert not os.path.exists(ta.proj(out, "beta")), sorted(ta.tree(out))
     rep = report(out)
     assert rep["held_back"] == ["beta/workflow:held"] and rep["roles"] == ["alpha"], (rep["held_back"], rep["roles"])
-    assert "CROSSREF EMPTY" not in proc.stderr or "memory/beta" not in proc.stderr, proc.stderr
+    assert "memory/beta" not in proc.stdout + proc.stderr, proc.stdout + proc.stderr
+
+
+def test_an_unbound_author_of_a_shared_slice_gets_no_project_corpus(tmp: str) -> None:
+    """Re-review round 2, F1: the unbound role is the AUTHOR of a slice it shares with a bound role, so it is in the
+    drain's claims files though it has no per-role slice. The hold wrote nothing, and so does the role's index."""
+    drain, claims_dir, out = ta.build(tmp, {"beta": ta.claims("beta", [
+        {"class": "workflow", "topic": "s", "title": "T", "body": "Shared.", "evidence": ["h1"], "shared_with": ["alpha"]}])})
+    bind(out, "alpha")
+    proc = ta.run_assemble(drain, claims_dir, out)
+    assert proc.returncode == 0, proc.stderr
+    assert report(out)["held_back"] == ["shared/workflow:s"], report(out)["held_back"]
+    assert not os.path.exists(ta.proj(out, "beta")), sorted(ta.tree(out))
+    assert report(out)["roles"] == [], report(out)["roles"]
 
 
 def test_an_unbound_hold_keeps_the_stores_mark_below_its_memory(tmp: str) -> None:
@@ -260,6 +273,7 @@ def main() -> int:
     cases = [
         test_a_slice_of_a_role_the_taxonomy_does_not_bind_is_held_and_named,
         test_a_role_whose_every_slice_is_held_gets_no_project_corpus,
+        test_an_unbound_author_of_a_shared_slice_gets_no_project_corpus,
         test_an_unbound_hold_keeps_the_stores_mark_below_its_memory,
         test_the_fabrics_own_project_is_not_judged_by_its_taxonomy,
         test_a_project_with_no_taxonomy_binds_every_role,

@@ -364,7 +364,10 @@ def hold_unbound_roles(run: Run) -> None:
     for (klass, topic) in sorted(k for k in run.shared if k[0] in projectwide):
         unbound = sorted(run.shared_owners[(klass, topic)] - bound)
         if unbound:
-            hold(f"shared/{klass}:{topic}", ",".join(unbound), klass, topic, run.shared.pop((klass, topic)))
+            claims = run.shared.pop((klass, topic))
+            # The unbound role may be its author (a claim in its own file shared with a bound role), which is how it gets in all_claims.
+            run.unbound_held_roles.update(c["_role"] for c in claims if c.get("_role") in unbound)
+            hold(f"shared/{klass}:{topic}", ",".join(unbound), klass, topic, claims)
             run.shared_owners.pop((klass, topic), None)
 
 
