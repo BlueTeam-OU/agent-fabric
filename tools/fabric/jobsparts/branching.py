@@ -5,7 +5,7 @@ The order: the for/ branch a supply job's request names (job["deliver_to"]), unl
 recorded branch, always: a job that records a branch is resumed on it (its worktree recreated from the branch when gone) and is never
 given another job's, so a branch that has landed or is gone from this clone and origin is refused, said, never replaced (the one
 exception: a paused job asked to --repoint is taken from a landed branch to this agent's one open pull request, which may be armed
-if it is in no merge queue); only a job
+if it is in no merge queue and the repository disarms on push); only a job
 with no branch gets one: this agent's open pull request in the repository, when it is still addable; else, for a job that needs that
 pull request merged first, a block on it; else a new branch off the freshly fetched default branch. Whatever is chosen is never behind
 the default branch: an existing branch gets the default merged into it, locally and unpushed, in a worktree of its own."""
@@ -117,6 +117,33 @@ def _landed(wc: str, repo: str, branch: str) -> bool:
     return bool(vcs.gh.pr_list(["number"], repo=repo, state="merged", search=f"head:{branch}"))
 
 
+def _no_disarm(repo: str, default: str) -> str | None:
+    """None when `repo` is known to disarm an armed pull request on a push (the workflow disarm-on-push.yml on its default branch, or a
+    ruleset on it requiring fabric/armed, so a head pushed later waits for its own arming), else why that is not known. Fail closed: a
+    read that fails or an answer of another shape is "not known", never "does": the note "the first push disarms it" is printed only
+    where this holds, and elsewhere an armed pull request would keep its arming on a head nobody reviewed (coordinator, 2026-11-09)."""
+    reasons = []
+    try:
+        vcs.gh.api(f"repos/{repo}/contents/.github/workflows/disarm-on-push.yml?ref={default}")
+        return None
+    except vcs.gh.GhError as e:
+        reasons.append("no disarm-on-push.yml on " + default if e.status == 404 else f"the workflow could not be read ({e.reason})")
+    try:
+        rules = vcs.gh.api(f"repos/{repo}/rules/branches/{default}")
+        if not isinstance(rules, list):
+            reasons.append("the rules could not be read (not a list)")
+        elif any(isinstance(r, dict) and r.get("type") == "required_status_checks"
+                 and any(isinstance(c, dict) and c.get("context") == "fabric/armed"
+                         for c in ((r.get("parameters") or {}).get("required_status_checks") or []))
+                 for r in rules):
+            return None
+        else:
+            reasons.append(f"no rule on {default} requires fabric/armed")
+    except (vcs.gh.GhError, AttributeError, TypeError) as e:
+        reasons.append(f"the rules could not be read ({getattr(e, 'reason', e)})")
+    return "; ".join(reasons)
+
+
 def _repoint(wc: str, repo: str, job: dict, landed: str, default: str) -> Choice:
     """A paused job whose branch a pull request landed, taken to this agent's one open pull request in the repository (j641): the work
     continued there. Never a pick among several, and never a pull request that cannot take more commits: the refusal says which."""
@@ -130,6 +157,11 @@ def _repoint(wc: str, repo: str, job: dict, landed: str, default: str) -> Choice
     why = _judge(row, repo, number, held_ok=True)
     if why is not None:
         raise Refused(f"{job['id']} records branch {landed}, which a pull request has landed, and the one open pull request cannot take it: {why}")
+    if row.get("armed") == "armed":
+        unsafe = _no_disarm(repo, default)
+        if unsafe is not None:
+            raise Refused(f"{job['id']} records branch {landed}, which a pull request has landed, and the one open pull request #{number} is armed "
+                          f"and {repo} is not known to disarm it on push: {unsafe}; unarm it, or close {job['id']} (fabric-jobs done or drop)")
     armed = "; it is armed (held, in no merge queue): the first push disarms it" if row.get("armed") == "armed" else ""
     return Choice("open-pr", head, bring_up_to_date(wc, head, default), number, repo,
                   f"re-pointed from {landed}, which a pull request landed, to your open pull request #{number}{armed}", repointed=True)

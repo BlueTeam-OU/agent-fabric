@@ -996,6 +996,25 @@ def main() -> int:
         row_over: dict = {}      # --repoint reads the pull request's row itself (one read for the verdict and the armed note)
         branching._row = lambda repo, number: row_over.get(number, {"ok": True, "state": "open", "armed": "unarmed", "work": 3})
 
+        # j105: what the repository says of itself (gh api), keyed by path: the workflow file, then the rules on the default branch.
+        api_says: dict = {}
+        api_asked: list = []
+        real_api = branching.vcs.gh.api
+        gh_error = branching.vcs.gh.GhError
+
+        def fake_api(path, **kw):
+            api_asked.append(path)
+            for part, answer in api_says.items():
+                if part in path:
+                    if isinstance(answer, Exception):
+                        raise answer
+                    return answer
+            raise gh_error("gh api GET " + path, "HTTP 404", status=404)
+
+        branching.vcs.gh.api = fake_api
+        WORKFLOW = {"contents/.github/workflows/disarm-on-push.yml": {"name": "disarm-on-push.yml"}}
+        RULE = {"rules/branches/": [{"type": "required_status_checks", "parameters": {"required_status_checks": [{"context": "ci-ok"}, {"context": "fabric/armed"}]}}]}
+
         def other_clone(w: World) -> str:
             other = os.path.join(tmp, f"other{w.n}")
             subprocess.run(["git", "clone", "-q", os.path.join(origins, os.path.basename(w.repo) + ".git"), other], check=True, env=git_env())
@@ -1391,6 +1410,7 @@ def main() -> int:
               out + err + repr(w.job(ja)))
 
         # j104: an armed pull request that is held (in no merge queue) takes the re-point and says the push disarms it; a queued one does not.
+        api_says.update(WORKFLOW)
         for armed, taken in (("armed", True), ("queued", False), ("unarmed", True)):
             w, ((ja, a), (jb, b)) = two_with_branches()
             gh_says(merged_heads=[a["branch"]], open_prs=[pr40])
@@ -1409,7 +1429,49 @@ def main() -> int:
                 check("--repoint onto a queued pull request is refused, saying it is queued; the record is as it was",
                       rc == 1 and "is queued" in err and w.job(ja)["branch"] == a["branch"] and w.job(ja)["state"] == "paused", out + err + repr(w.job(ja)))
 
+        api_says.clear()
+        # j105: an armed pull request is kept only where the repository disarms on push; anywhere else, or unread, --repoint refuses as before.
+        for label, says, taken in (
+                ("the workflow on the default branch", WORKFLOW, True),
+                ("a ruleset requiring fabric/armed", RULE, True),
+                ("a ruleset requiring only ci-ok", {"rules/branches/": [{"type": "required_status_checks", "parameters": {"required_status_checks": [{"context": "ci-ok"}]}}]}, False),
+                ("neither", {"rules/branches/": []}, False),
+                ("neither readable", {"contents/": gh_error("gh api GET x", "HTTP 500", status=500), "rules/branches/": gh_error("gh api GET y", "HTTP 403", status=403)}, False),
+                ("the workflow unreadable and the rules not a list", {"contents/": gh_error("gh api GET x", "HTTP 500", status=500), "rules/branches/": {"message": "x"}}, False),
+                ("the workflow unreadable, the rule present", {"contents/": gh_error("gh api GET x", "HTTP 500", status=500), **RULE}, True)):
+            w, ((ja, a), (jb, b)) = two_with_branches()
+            gh_says(merged_heads=[a["branch"]], open_prs=[pr40])
+            row_over[40] = {"ok": True, "state": "open", "armed": "armed", "work": 3}
+            api_says.clear()
+            api_says.update(says)
+            try:
+                rc, out, err = w.switch(ja, "--repoint", cwd=b["worktree"])
+            finally:
+                row_over.pop(40, None)
+                api_says.clear()
+            if taken:
+                # Kills: the 404 for the workflow ending the search (the rule never read); an any() turned all().
+                check(f"--repoint onto an armed pull request takes the job where the repository has {label}",
+                      rc == 0 and w.job(ja)["branch"] == mine and "first push disarms it" in out, out + err + repr(w.job(ja)))
+            else:
+                # Kills: deleting the _no_disarm refusal; reading an unreadable answer as "does"; matching any required context.
+                check(f"--repoint onto an armed pull request is refused where the repository has {label}, naming why; the record is as it was",
+                      rc == 1 and "not known to disarm" in err and w.job(ja)["branch"] == a["branch"] and w.job(ja)["state"] == "paused"
+                      and "first push disarms it" not in out, out + err + repr(w.job(ja)))
+        # The check is asked of an armed pull request only: an unarmed one makes no call (a rate-limited gh must not refuse it).
+        w, ((ja, a), (jb, b)) = two_with_branches()
+        gh_says(merged_heads=[a["branch"]], open_prs=[pr40])
+        row_over[40] = {"ok": True, "state": "open", "armed": "unarmed", "work": 3}
+        del api_asked[:]
+        try:
+            rc, out, err = w.switch(ja, "--repoint", cwd=b["worktree"])
+        finally:
+            row_over.pop(40, None)
+        # Kills: calling _no_disarm for every pull request.
+        check("--repoint onto an unarmed pull request asks the repository nothing", rc == 0 and not api_asked, out + err + repr(api_asked))
+
         # F1 of the review: the scripted caller reads the armed warning in --json too.
+        api_says.update(WORKFLOW)
         w, ((ja, a), (jb, b)) = two_with_branches()
         gh_says(merged_heads=[a["branch"]], open_prs=[pr40])
         row_over[40] = {"ok": True, "state": "open", "armed": "armed", "work": 3}
@@ -1418,6 +1480,7 @@ def main() -> int:
         finally:
             row_over.pop(40, None)
         # Kills: dropping "note" from the --json object.
+        api_says.clear()
         check("--repoint --json onto an armed pull request carries the note that it is armed and the first push disarms it",
               rc == 0 and "first push disarms it" in json.loads(out).get("note", ""), out + err)
 
