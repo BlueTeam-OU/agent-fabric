@@ -19,8 +19,13 @@ alone and once with each `--relay-drill`:
 ([the hour](2026-11-07-relay-down-drill-hour.md)). The tool's output is
 filed unedited in
 [`2026-11-09-interweave-parity-computed.md`](2026-11-09-interweave-parity-computed.md):
-every missed pair with its cause, and both drill sections. What follows
-reads it.
+every missed pair with its cause, and both drill sections. The rows the
+tool reads but does not print (each drill pair's arrivals, showings and
+acknowledgements, the first acknowledgement line per account, the
+totals) are filed from the same collection in
+[`2026-11-09-interweave-parity-rows.md`](2026-11-09-interweave-parity-rows.md).
+Every time below comes from one of the two files. What follows reads
+them.
 
 ## What the window holds
 
@@ -39,8 +44,9 @@ reads it.
 
 **The 919 InterWeave misses** all have the same cause: the sender
 recorded no InterWeave delivery, so the carrier never had the message.
-906 of them were minted on 10-24 to 10-26, before the carrier ran on
-every account (10-24 124, 10-25 675, 10-26 107). The other 13 are from
+906 of them were minted on 10-24 to 10-26 (10-24 124, 10-25 675,
+10-26 107, by each MESSAGE-ID's UUIDv7 time). Why the senders had no
+delivery then was not traced to rollout dates. The other 13 are from
 10-27 to 11-07 and are listed in the computed file. The receiver did not
 lose any of them.
 
@@ -81,15 +87,15 @@ the carrier:
    back: 11-05 to architect-cto-01 and rust-ui-dev-02 (16:10Z), 11-07
    to rust-ui-dev-02 (23:20:41Z) and 11-07 22:19:48Z to devex-tooling
    (11-08 07:26Z). Their senders sent them once the relay answered, so
-   they prove nothing about the drill. They fail only on "first shown by
-   the relay".
+   they prove nothing about the drill. Apart from the acknowledgement
+   (flaw 1), they fail only on "first shown by the relay".
 
 What the drills do show, pair by pair, where the carrier alone held the
 message during the outage:
 
 | drill | pair | carried in | shown to the session | shown again when the relay copy came | relay copy acknowledged |
 |---|---|---|---|---|---|
-| 11-05 | probe → devex-tooling | 15:51:48Z | once, by InterWeave, at 16:09:28Z (the watch had ended at the 15-minute budget; defect 3 of that record) | no relay copy ever came | nothing to acknowledge |
+| 11-05 | probe → devex-tooling | 15:51:48Z | once, by InterWeave, at 16:09:28Z by its shown ledger (the 11-05 record left this unverified; the watch had ended at the 15-minute budget, defect 3 of that record) | no relay copy ever came | nothing to acknowledge |
 | 11-07 | → python-dev-03 (the probe) | 22:20:29Z | once, by InterWeave, 22:20:41Z | no (relay copy 23:23:32Z) | not measurable |
 | 11-07 | → rust-ui-dev-01 | 22:24:29Z | once, by InterWeave, 22:24:36Z | no (relay copy 23:20:48Z) | not measurable |
 | 11-07 | → ux-designer-01 | 22:23:56Z | once, by InterWeave, 22:24:10Z | no (relay copy 23:21:29Z) | not measurable |
@@ -100,8 +106,9 @@ their sessions within 14 s of arriving. None was shown again when the
 relay returned with its copy. Rule 11's third property (the relay copy
 is acknowledged) cannot be read for either drill: the record it needs
 did not exist yet. The hour-long drill's "not shown again when the watch
-restarts" is also not proven. The 22:34:57Z watch restarts came after
-these four were shown, and no pair was carried while a watch was down.
+restarts" is not exercised by these rows either. Each pair has a
+single showing, and the collection records no watch restart, so
+nothing shows a restart between a pair's showing and its relay copy.
 
 ## What it lacks, for the owner's decision
 
