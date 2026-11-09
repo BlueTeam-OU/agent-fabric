@@ -171,7 +171,17 @@ Why these choices:
    answerer a REPLY's body names, if that board lists it or cannot be
    read. Without such a job (a decline, a DECISION, a named job not on
    a readable board) the blocker clears; an unreadable board with no
-   job named is unknown, never cleared (A 2026-11-05). `clock:<YYYY-MM-DDTHH:MM[:SS]Z>` is a time of
+   job named is unknown, never cleared (A 2026-11-05).
+   A peer's board is the operator's read; every other login asks the
+   peer's control agent the public `job-state` op, which answers the
+   state of one job, by its id or by the request it was taken from, to
+   the sender of that request and to no one else, and carries no title,
+   list or other job. A state or `absent` stands where the board's row
+   did; a refusal is a board not read, so a `job:` blocker stays unknown
+   and a `request:` one reads the REPLY's body; an op that cannot be
+   asked at all falls back to the board. A re-point onto a job that waits on
+   one of this login's jobs holding the same request is refused, said
+   and never stored, where this login can see that wait (A 2026-11-09). `clock:<YYYY-MM-DDTHH:MM[:SS]Z>` is a time of
    the agent's own, UTC with the Z: it clears once now is at or after
    it, `block` refuses one already past, and since it reads only the
    clock it is evaluated on every look, `--stored` included
@@ -280,7 +290,8 @@ Why these choices:
     may make it; "needs" is what must be true when it is made, not
     later. A field edit that changes no state (a retitle by the drain,
     a rename's rewrite, `prio`, `retract`, evidence added to a closed
-    job) is no transition.
+    job, rule 8's re-point of an answered `request:` blocker) is no
+    transition (A 2026-11-09).
 
     | from | to | who | needs |
     |---|---|---|---|
@@ -373,3 +384,4 @@ The body above reads current; each change's full note is in [history/ADR-037-ame
 | 2026-11-05 | An answered request waits on the job it became | §5 rule 8: an answered `request:` blocker is re-pointed to `job:<login>/j<n>` when the answerer's board, or failing it the REPLY's body, names the job the request became; cleared only without one, unknown when the board cannot be read and the body names none; built in #491 |
 | 2026-11-08 | One transition table for a job | §5 rule 14 added: every state change of a job is a row naming the one subsystem that may make it and what must be true when it is made; `done` and `dropped` terminal; code outside the table is a finding, characterised before it changes |
 | 2026-11-09 | A pool claim ends | §5 rule 14: two rows for the pool's own end, both the holder's control agent's, read from the claimant's fresh state record: `claimed` to `closed` when it reports the claim's job done or dropped, `claimed` back to `open` when a day on it reports its claims and holds none for this one; an unknown record reopens nothing; the record's claims field and the rows are built with Wave 2's job module |
+| 2026-11-09 | A peer's job is read by its waiter | §5 rule 8: a non-operator reads a `job:` blocker and re-points a `request:` blocker through the public `job-state` op, which answers one job's state to the sender of the request it was taken from; a re-point that would make a seen cycle is refused, never stored; rule 14 lists the re-point as no transition; built in #527 |

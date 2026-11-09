@@ -136,3 +136,17 @@ A closed claim is never handed out again, which the closed row requires of the b
 Rejected: removing a closed claim from the pool, since a record that disappears cannot be told from one never made. Also rejected: reopening on the claimant's silence alone, for the reason above.
 
 Decided, not built: the claims field and both rows are implemented with the single module for job transitions of Wave 2 (ADR-067, j674's plan).
+
+### Amendment 2026-11-09 — A peer's job is read by its waiter
+
+Found live on 2026-11-09, between devex-tooling's j306 and rust-ui-dev-02's j95 on InterWeave. Rule 8 read a peer's board through `fabric-ctl <login> jobs`, which is the operator's op alone (control/jobs.py: peers see each other's presence, not each other's lists). For every other login, a `job:<login>/j<n>` blocker was therefore unknown for ever, and an answered `request:` blocker fell back to the job ids named in the REPLY's body. The fallback chose j95, rust-ui-dev-02's long-message job, which was itself blocked on j306, when the request had actually become their j103. Neither side could clear the resulting cycle, and the coordinator cleared it by hand with a clock blocker.
+
+The public `job-state` op (python-dev-03's j122, #527, REQUEST 01a1c038-f234) answers one question for one job: its state, asked by id or by the request whose `(REQUEST <id>)` title it carries. It answers only the job's `source.from`, the sender of the request the job was taken from, and it carries no title, list or other job, so the privacy of a list stays as rule 6 left it. A state or `absent` counts as the board's row did. A refusal counts as a board not read: a `job:` blocker stays unknown, and a `request:` blocker reads the body as before. The board stays the operator's read, and it is also the fallback when the op cannot be asked at all.
+
+The request also allowed a second reader: a login that names the job in its own blocker. It is not built. A blocker lives only in the waiter's own list, which the answering account never reads, so the check would be a claim the asker makes about itself.
+
+A re-point onto a job that waits on one of this login's jobs holding the same request is refused, said, and never stored. That is the cycle seen above. It is seen where this login can read the wait: its own list, or a board it reads as operator. `job-state` carries no blockers, so a cycle through a peer's list that only the peer can read is left for the peer to find from the blocker it holds.
+
+Rule 14 gains no row: a re-point edits a blocked job's blocker and leaves the job `blocked`, so it is listed among the field edits that are no transition.
+
+Rejected: making `jobs` public to the sender of any request on the list. That would show a whole list for the sake of one row, when the waiter needs one state.
