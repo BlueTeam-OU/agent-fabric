@@ -142,7 +142,8 @@ def case_citations_resolve_but_another_projects_are_not_ours(tmp: str) -> None:
     assert adr.check(root) == [], "the registry read is the fixture tree's: fixture-proj is in no live one"
 
 
-def amend(root: str, date: str = "2026-09-28", title: str = "a rule moved") -> None:
+# A date after every real amendment: the fixture copies the real records, whose DIGEST bullets must read in date order.
+def amend(root: str, date: str = "2099-09-28", title: str = "a rule moved") -> None:
     adr.cmd_amend(root, "1", title, date)
     edit(root, "docs/adr/DIGEST.md", "- Keywords: ADR, amendment,", f"- A {date} — {title}.\n- Keywords: ADR, amendment,")
     adr.write_index(root)
@@ -155,7 +156,7 @@ def case_an_amendment_is_the_triple(tmp: str) -> None:
     root = fixture(os.path.join(tmp, "b"))
     amend(root)
     s = open(os.path.join(root, ONE), encoding="utf-8").read()
-    open(os.path.join(root, ONE), "w", encoding="utf-8").write(s.replace("| 2026-09-28 | a rule moved |", "| 2026-09-29 | a rule moved |"))
+    open(os.path.join(root, ONE), "w", encoding="utf-8").write(s.replace("| 2099-09-28 | a rule moved |", "| 2099-09-29 | a rule moved |"))
     only(root, "amendment note(s) with no table row")
     only(root, "table row(s) with no history note")
 
@@ -163,7 +164,7 @@ def case_an_amendment_is_the_triple(tmp: str) -> None:
 def case_one_amendment_heading_form(tmp: str) -> None:
     root = fixture(tmp)
     amend(root)
-    edit(root, "docs/adr/history/ADR-001-amendments.md", "### Amendment 2026-09-28 — a rule moved", "### Amendment (i) — 2026-09-28 — a rule moved")
+    edit(root, "docs/adr/history/ADR-001-amendments.md", "### Amendment 2099-09-28 — a rule moved", "### Amendment (i) — 2099-09-28 — a rule moved")
     only(root, "is not '### Amendment YYYY-MM-DD — Title'")
 
 
@@ -232,6 +233,32 @@ def case_lookup_with_no_word_is_the_table_and_an_entry_has_a_budget(tmp: str) ->
     # a bullet over budget, its words on continuation lines, is refused
     edit(root, "docs/adr/DIGEST.md", "- Keywords: ADR, amendment,", "- long\n" + ("  " + "padding " * 10 + "\n") * 6 + "- Keywords: ADR, amendment,")
     only(root, f"DIGEST.md: ADR-001's bullet")
+
+
+def case_every_digest_line_counts_and_amendments_read_in_order(tmp: str) -> None:
+    """A line the per-bullet budget cannot attribute is never free text: an
+    unbulleted or tab- or one-space-indented line counts against the bullet
+    above it, and one before an entry's first bullet is a finding. An
+    entry's amendment bullets read in date order."""
+    keywords = "- Keywords: ADR, amendment,"
+    for label, inserted in (("unbulleted", "- short\n" + "padding " * 70 + "\n"),
+                            ("tab", "- long\n" + ("\t" + "padding " * 10 + "\n") * 7),
+                            ("one space", "- long\n" + (" " + "padding " * 10 + "\n") * 7)):
+        root = fixture(os.path.join(tmp, label.replace(" ", "-")))
+        edit(root, "docs/adr/DIGEST.md", keywords, inserted + keywords)
+        only(root, "DIGEST.md: ADR-001's bullet")
+    root = fixture(os.path.join(tmp, "before"))
+    edit(root, "docs/adr/DIGEST.md", "### ADR-001 — Decision records (Accepted)\n\n",
+         "### ADR-001 — Decision records (Accepted)\n\nA stray paragraph.\n")
+    only(root, "DIGEST.md: ADR-001 has a line before its first bullet")
+    root = fixture(os.path.join(tmp, "order"))
+    amend(root, "2099-09-28", "an earlier rule")
+    amend(root, "2099-09-30", "a later rule")
+    assert adr.check(root) == [], adr.check(root)
+    s = open(os.path.join(root, "docs/adr/DIGEST.md"), encoding="utf-8").read()
+    early, late = "- A 2099-09-28 — an earlier rule.\n", "- A 2099-09-30 — a later rule.\n"
+    open(os.path.join(root, "docs/adr/DIGEST.md"), "w", encoding="utf-8").write(s.replace(early + late, late + early))
+    only(root, "DIGEST.md: ADR-001's amendment bullets are out of date order")
 
 
 def case_lookup_reads_the_digest(tmp: str) -> None:
