@@ -551,12 +551,37 @@ def main() -> int:
               calls == [] and said.count("\n") == 1 and said.startswith("launch: AGENT_FABRIC_RESTART_WAIT_S is 'ten'"),
               said)
 
+        print("a fast-forward does not fetch again (j224)")
+        # The verdict's fetch is the only network step: a pull fetched a second time, and a failure there
+        # (python-dev-03's relaunch of 2026-11-09) was said as "cannot fast-forward" on a clean checkout.
+        gtmp = tempfile.mkdtemp(dir=tmp)
+        genv = git_env()
+
+        def gg(cwd, *a):
+            return subprocess.run(["git", "-C", cwd, *a], env=genv, capture_output=True, text=True, timeout=60, check=True)
+        gg(gtmp, "init", "-q", "-b", "main", "up")
+        gg(f"{gtmp}/up", "commit", "-q", "--allow-empty", "-m", "one")
+        gg(gtmp, "clone", "-q", "up", "w")
+        gg(f"{gtmp}/up", "commit", "-q", "--allow-empty", "-m", "two")
+        gg(f"{gtmp}/w", "fetch", "-q", "origin", "main")
+        gg(f"{gtmp}/w", "remote", "set-url", "origin", f"{gtmp}/gone")
+        gtip = gg(f"{gtmp}/w", "rev-parse", "origin/main").stdout
+        check("control: a pull of the same clean checkout fails once origin is unreachable again",
+              subprocess.run(["git", "-C", f"{gtmp}/w", "pull", "-q", "--ff-only", "origin", "main"], env=genv,
+                             capture_output=True, timeout=60).returncode != 0)
+        check("the launcher's fast-forward uses the fetched origin/main and needs no network",
+              launch.pull_ff(f"{gtmp}/w") == ("ok", "") and gg(f"{gtmp}/w", "rev-parse", "HEAD").stdout == gtip)
+        gg(f"{gtmp}/w", "reset", "-q", "--hard", "HEAD~1")
+        gg(f"{gtmp}/w", "commit", "-q", "--allow-empty", "-m", "local")
+        status, why = launch.pull_ff(f"{gtmp}/w")
+        check("a real refusal carries git's own words", status == "failed" and "fast-forward" in why.lower(), why)
+
         print("a pull the bound ends (review of #79)")
         GitError = launch.git.GitError
 
         def fake_git_run(repo, *args, check=True, timeout=120, **kw):
-            if args[:1] == ("pull",):
-                raise GitError("git pull", f"no answer within {timeout:g} s")
+            if args[:1] == ("merge",):
+                raise GitError("git merge", f"no answer within {timeout:g} s")
             out = "1\n" if args[:1] == ("rev-list",) else ""
             return types.SimpleNamespace(returncode=0, stdout=out, stderr="")
         saved_run, launch.git.run = launch.git.run, fake_git_run
@@ -569,7 +594,7 @@ def main() -> int:
             check("a timed-out pull is refused", False)
         except launch.Refused as exc:
             check("a timed-out pull is said as a timeout, with the lock it may leave, never as 'cannot fast-forward'",
-                  "did not answer within 120 s" in str(exc) and "index.lock" in str(exc)
+                  "fast-forward did not answer within 120 s" in str(exc) and "index.lock" in str(exc)
                   and "cannot fast-forward" not in str(exc), str(exc))
         finally:
             launch.git.run = saved_run

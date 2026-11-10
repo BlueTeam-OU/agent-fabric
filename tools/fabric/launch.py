@@ -350,8 +350,8 @@ def keep_fabric_current(fabric_root: str, orig_args: list[str]) -> None:
     elif os.environ.get("AGENT_FABRIC_PULLED") == "1":
         die(f"agent-fabric at {fabric_root} is still {behind} commit(s) behind origin/main after a pull; not relaunching again.\n"
             f"  Look at the checkout: git -C \"{fabric_root}\" status")
-    elif (pulled := pull_ff(fabric_root)) == "timeout":
-        die(f"agent-fabric at {fabric_root}: git pull did not answer within {git.TIMEOUT_S:g} s; nothing was "
+    elif (pulled := (pull := pull_ff(fabric_root))[0]) == "timeout":
+        die(f"agent-fabric at {fabric_root}: the fast-forward did not answer within {git.TIMEOUT_S:g} s; nothing was "
             "relaunched.\n"
             "  A pull ended by the bound may leave .git/index.lock behind. Look:\n"
             f"    git -C \"{fabric_root}\" status\n"
@@ -362,7 +362,7 @@ def keep_fabric_current(fabric_root: str, orig_args: list[str]) -> None:
         reexec(env_with(AGENT_FABRIC_PULLED="1"), orig_args)
     else:
         die(f"agent-fabric at {fabric_root} is {behind} commit(s) behind origin/main and cannot fast-forward\n"
-            f"  ({verdict.reason or 'local commits or changes on this checkout'}). A session runs on the launcher,\n"
+            f"  ({verdict.reason or pull[1] or 'local commits or changes on this checkout'}). A session runs on the launcher,\n"
             "  hooks, prompt and routing of this checkout, so it must be current. Look:\n"
             f"    git -C \"{fabric_root}\" status\n"
             "  and bring it to origin/main, then relaunch.")
@@ -935,11 +935,13 @@ def main(argv: list[str]) -> int:
             # A bare "fresh" is an older launcher's with no job beside it;
             # launch() has carried any job onto the flag.
             job = stopped.partition(":")[2]
-            then = (f"start a new session here and run fabric-fresh --job {job}, which brings job {job} fresh"
-                    if job else "start a new session here")
+            # fabric-fresh refuses a session the launcher did not start ("use /clear"), so the
+            # route out of a bare shell is fabric-resume, then fabric-fresh inside the session it opens.
+            then = (f"run fabric-resume, and inside the session it opens run fabric-fresh --job {job}, which brings job {job} fresh"
+                    if job else "run fabric-resume, and inside the session it opens run /clear")
             say("launch: RESTART NOT COMPLETED: the session that finished its job was not brought back fresh; the "
                 f"refusal above stopped its relaunch, and this pane is at the account's shell. Fix what it names, "
-                f"then {then}; not fabric-resume, which reopens the finished job's conversation.")
+                f"then {then}; fabric-resume alone reopens the finished job's conversation.")
         elif stopped:
             say("launch: RESTART NOT COMPLETED: the session stopped for a restart was not brought back; the refusal "
                 "above stopped its relaunch, and this pane is at the account's shell. Fix what it names, then "

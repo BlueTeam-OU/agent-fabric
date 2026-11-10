@@ -30,14 +30,22 @@ def behind_count(repo: str, rng: str) -> int:
         return 0
 
 
-def pull_ff(repo: str) -> str:
-    """"ok", "failed" (it could not fast-forward) or "timeout": a pull the
-    bound ended is a different cause, said differently."""
+def pull_ff(repo: str) -> tuple[str, str]:
+    """("ok" | "failed" | "timeout", git's last stderr line). A fast-forward to
+    the origin/main the verdict was judged on, not a `pull`: a pull fetches
+    again, so a second network failure (a blip between the two, a ref lock
+    another fetch holds) was reported as "cannot fast-forward" on a checkout
+    that was clean and could (j224, python-dev-03's relaunch of 2026-11-09,
+    mended by an upgrade that merges). The caller fetched just before; a
+    pull ended by the bound is a different cause, said differently."""
     try:
-        r = git.run(repo, "pull", "-q", "--ff-only", "origin", "main", check=False)
+        r = git.run(repo, "merge", "-q", "--ff-only", "origin/main", check=False)
     except git.GitError as exc:
-        return "timeout" if "no answer within" in exc.reason else "failed"
-    return "ok" if r.returncode == 0 else "failed"
+        return ("timeout" if "no answer within" in exc.reason else "failed"), exc.reason
+    if r.returncode == 0:
+        return "ok", ""
+    lines = [l for l in r.stderr.strip().splitlines() if l.strip() and not l.startswith("hint:")]
+    return "failed", lines[-1] if lines else f"git exit {r.returncode}"
 
 
 # ── the fabric checkout's verdict ───────────────────────────────────
