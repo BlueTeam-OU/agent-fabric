@@ -99,7 +99,7 @@ unreadable ~/.claude.json is one line before the refusal; every subprocess
 is bounded (ori auth 60 s, the harness's --version 30 s, the agent-file
 install 300 s; a fetch was already 20 s), and a bound that is hit reads as
 that call's failure, ori's as exit 124; every git call is bounded too, at
-git.py's 120 s, the fabric's `pull --ff-only` included (a pull the bound
+git.py's 120 s, the fabric's `merge --ff-only` included (a fast-forward the bound
 ends is said as a timeout, never as "cannot fast-forward"), and so are
 the helpers (identity, routing, launch_prompt, jobs) at HELPER_TIMEOUT_S; a
 closed stdout (`--print | head`) ends quietly with 141, as bash's SIGPIPE
@@ -330,7 +330,7 @@ from fabric_launcher import gateway, holder  # noqa: E402, F401
 # launcher re-executes itself so the session runs on what was pulled
 # (the code under a running launcher must not change).
 # It was a refusal naming the pull command until the CEO asked, the same
-# day, why the person had to type what the launcher already knew. A pull
+# day, why the person had to type what the launcher already knew. A fabric
 # that cannot fast-forward is refused with the reason; offline (the fetch
 # fails) it launches on what is checked out and says so.
 # AGENT_FABRIC_ALLOW_STALE=1 overrides, loudly, for the case where the
@@ -353,9 +353,9 @@ def keep_fabric_current(fabric_root: str, orig_args: list[str]) -> None:
     elif (pulled := (pull := pull_ff(fabric_root))[0]) == "timeout":
         die(f"agent-fabric at {fabric_root}: the fast-forward did not answer within {git.TIMEOUT_S:g} s; nothing was "
             "relaunched.\n"
-            "  A pull ended by the bound may leave .git/index.lock behind. Look:\n"
+            "  A fast-forward ended by the bound may leave .git/index.lock behind. Look:\n"
             f"    git -C \"{fabric_root}\" status\n"
-            "  and relaunch once origin is reachable.")
+            "  and relaunch once the lock is gone and the checkout answers.")
     elif pulled == "ok":
         head = git_text(fabric_root, "rev-parse", "--short", "HEAD") or ""
         say(f"launch: agent-fabric was {behind} commit(s) behind origin/main; pulled to {head} and relaunching on it.")

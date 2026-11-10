@@ -576,6 +576,29 @@ def main() -> int:
         status, why = launch.pull_ff(f"{gtmp}/w")
         check("a real refusal carries git's own words", status == "failed" and "fast-forward" in why.lower(), why)
 
+        print("a refused fast-forward carries git's own words (review of #547, F2)")
+
+        def merge_refused_run(repo, *args, check=True, timeout=120, **kw):
+            out = "1\n" if args[:1] == ("rev-list",) else ""
+            if args[:1] == ("merge",):
+                return types.SimpleNamespace(returncode=128, stdout="", stderr="fatal: index.lock held by pid 4242\nhint: x\n")
+            return types.SimpleNamespace(returncode=0, stdout=out, stderr="")
+        saved_run, launch.git.run = launch.git.run, merge_refused_run
+        saved_env = dict(os.environ)
+        os.environ.pop("AGENT_FABRIC_ALLOW_STALE", None)
+        os.environ.pop("AGENT_FABRIC_PULLED", None)
+        try:
+            with redirect_stderr(io.StringIO()):
+                launch.keep_fabric_current(tmp, [])
+            check("a clean checkout git refuses is refused", False)
+        except launch.Refused as exc:
+            check("…naming git's line, not the guess about local commits",
+                  "index.lock held by pid 4242" in str(exc) and "local commits or changes" not in str(exc), str(exc))
+        finally:
+            launch.git.run = saved_run
+            os.environ.clear()
+            os.environ.update(saved_env)
+
         print("a pull the bound ends (review of #79)")
         GitError = launch.git.GitError
 

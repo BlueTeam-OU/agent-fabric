@@ -45,7 +45,9 @@ def pull_ff(repo: str) -> tuple[str, str]:
     if r.returncode == 0:
         return "ok", ""
     lines = [l for l in r.stderr.strip().splitlines() if l.strip() and not l.startswith("hint:")]
-    return "failed", lines[-1] if lines else f"git exit {r.returncode}"
+    # git ends an overwrite refusal with a bare "Aborting"; the cause is the line before it.
+    cause = [l for l in lines if l.startswith(("fatal:", "error:"))]
+    return "failed", (cause or lines or [f"git exit {r.returncode}"])[0 if cause else -1]
 
 
 # ── the fabric checkout's verdict ───────────────────────────────────
@@ -57,14 +59,14 @@ def pull_ff(repo: str) -> tuple[str, str]:
 # but for the fetch.
 class Verdict:
     """kind: "skip" (not a git checkout with an origin), "offline",
-    "current", "behind" (a pull may mend it), or "blocked" (a fast-forward
+    "current", "behind" (a fast-forward may mend it), or "blocked" (a fast-forward
     cannot succeed; `reason` says why)."""
     def __init__(self, kind: str, behind: int = 0, reason: str = "") -> None:
         self.kind, self.behind, self.reason = kind, behind, reason
 
 
 def pull_blocker(repo: str) -> str | None:
-    """Why `pull --ff-only origin main` is predicted to fail, or None. A
+    """Why `merge --ff-only origin/main` is predicted to fail, or None. A
     prediction, for the message and for fabric-fresh (which ends a session
     only on None); the launcher still lets git decide, since a file staged
     with exactly the incoming content is "blocked" here and pulls fine. A pull ended by the bound is not predictable and not here."""
