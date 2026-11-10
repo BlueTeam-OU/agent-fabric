@@ -19,7 +19,7 @@ scrub_process_env()
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 VERBS = {"gate": ("pr_gate", "pr-gate"), "review-status": ("pr_review_status", "pr-review-status"),
          "post-review": ("post_review", "post-review"), "reply": ("pr_reply", "pr-reply"),
-         "arm": ("arm", "arm"), "sessions": ("pr_sessions", "pr-sessions"),
+         "arm": ("arm", "arm"), "disarm": ("disarm", "disarm"), "sessions": ("pr_sessions", "pr-sessions"),
          "trial-merge": ("trial_merge", "trial-merge"), "wait-merged": ("wait_merged", "wait-merged"),
          "owed-supply": ("owed_supply", "owed-supply"), "compliance": ("pr_compliance", "pr-compliance"),
          "counts": ("pr_counts", "pr-counts")}
@@ -70,7 +70,7 @@ def main() -> int:
 
         print("fabric-pr — the verb list")
         listing = (f"usage: fabric-pr <verb> [args…]\nverbs: {LIST}\n--repo <owner>/<name>|<project>: gate, review-status,"
-                   " post-review, arm, wait-merged act on that repository's PR, never the cwd checkout's;\n"
+                   " post-review, arm, disarm, wait-merged act on that repository's PR, never the cwd checkout's;\n"
                    "  an exported AGENT_FABRIC_ARM_CONFIG still names the arm rules, and commits are counted,\n"
                    "  and branches in flight listed, only in a clone of that repository\n")
         for argv in ([], ["help"], ["--help"]):

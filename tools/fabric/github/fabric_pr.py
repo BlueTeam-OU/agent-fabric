@@ -6,7 +6,7 @@ execs it; the table, the help and the refusal are here.
 
 THE CONTRACT (frozen from the bash, ADR-040 §5 rule 3)
   argv        fabric-pr <verb> [args…]
-              verbs: gate review-status post-review reply arm sessions
+              verbs: gate review-status post-review reply arm disarm sessions
                      trial-merge wait-merged owed-supply compliance counts
   help        no verb, `help`, `-h` or `--help` as the verb: stdout is
               "usage: fabric-pr <verb> [args…]", "verbs: gate, …, counts",
@@ -49,6 +49,7 @@ VERBS = {
     "post-review": "post_review",
     "reply": "pr_reply",
     "arm": "arm",
+    "disarm": "disarm",
     "sessions": "pr_sessions",
     "trial-merge": "trial_merge",
     "wait-merged": "wait_merged",
@@ -60,7 +61,7 @@ PR_PROJECT = "AGENT_FABRIC_PR_PROJECT"   # common.PR_PROJECT_SETTING, unimported
 HERE = os.path.dirname(os.path.abspath(__file__))
 # The verbs that act on one PR of one repository (j146): the others either
 # take a ref per PR (counts) or act on this checkout (trial-merge, reply).
-REPO_VERBS = ("gate", "review-status", "post-review", "arm", "wait-merged")
+REPO_VERBS = ("gate", "review-status", "post-review", "arm", "disarm", "wait-merged")
 
 
 def interpreter() -> str:
