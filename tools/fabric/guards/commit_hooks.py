@@ -72,6 +72,15 @@ import evidence_caps  # noqa: E402  GitHub's list caps have one owner, as lint a
 import process_spawns  # noqa: E402  process lifetime has one owner, as lint asks it (tools/fabric/process_spawns.py, ADR-067)
 import work_writes  # noqa: E402  the work lifecycle has one owner, as lint asks it (tools/fabric/work_writes.py, ADR-037 rule 14)
 import transport_calls  # noqa: E402  message transport has one owner, as lint asks it (tools/fabric/transport_calls.py, ADR-067)
+import importlib.util  # noqa: E402
+
+# tools/fabric/cli/ by path, as lint loads it: it is a package of relative imports, and a name on sys.path would let a
+# scratch fabric's own copy answer for the one this hook ships with.
+_cli = os.path.join(os.path.dirname(HERE), "cli")
+_cli_spec = importlib.util.spec_from_file_location("fabric_cli", os.path.join(_cli, "__init__.py"), submodule_search_locations=[_cli])
+sys.modules["fabric_cli"] = importlib.util.module_from_spec(_cli_spec)
+_cli_spec.loader.exec_module(sys.modules["fabric_cli"])
+from fabric_cli import checks as command_checks, table as command_table  # noqa: E402  a command is recognised through canonical(), as lint asks it (tools/fabric/cli/checks.py, ADR-068)
 
 ITSELF = "agent-fabric itself"
 AGENT_FABRIC_DIR = ".agent-fabric/"
@@ -649,6 +658,61 @@ def _check_transport_calls(root: str) -> None:
                      "adapter outside tools/fabric/gzcoord/transport/ — not committed (agent-fabric ADR-067 rule 1).")
 
 
+def _check_command_names(root: str) -> None:
+    """In agent-fabric itself, whoever commits: a staged hook or guard module that recognises a command by name instead of
+    asking tools/fabric/cli canonical() is refused unless the staged policy names it (ADR-068 rule 7, ADR-067 rule 1,
+    tools/fabric/cli/checks.py), by the staged commands.json; a module whose entry this commit removes, or a deleted policy's,
+    is judged too. Lint judges the whole tree, and the table against `commands`, in CI."""
+    if not same_repository(root):
+        return
+    r = _git("diff", "--cached", "-z", "--no-renames", "--name-only", "--diff-filter=ACMRT")
+    if r.returncode != 0:
+        raise Refuse("pre-commit: cannot list the staged files to judge command names — not committed")
+    staged = [p for p in r.stdout.split("\0") if p]
+    judged = [p for p in staged if command_checks.judged_path(p)]
+    deleted = _staged_deletion(command_checks.POLICY)
+    if not judged and command_checks.POLICY not in staged and not deleted:
+        return
+    policy = _git("cat-file", "blob", f":{command_checks.POLICY}")
+    try:
+        allowed = command_checks.parse_allowed(policy.stdout) if policy.returncode == 0 else {}
+    except ValueError:
+        raise Refuse(f"pre-commit: the staged {command_checks.POLICY} is not JSON — not committed") from None
+    if command_checks.POLICY in staged or deleted:
+        before = _git("cat-file", "blob", f"HEAD:{command_checks.POLICY}")
+        try:
+            was = command_checks.parse_allowed(before.stdout) if before.returncode == 0 else {}
+        except ValueError:
+            was = {}   # HEAD's list unreadable admitted nothing then either
+        listed = _git("ls-files", "-z")
+        if listed.returncode != 0:
+            raise Refuse("pre-commit: cannot read the index to judge the modules whose command-names entries this commit "
+                         "removes — not committed")
+        tracked = set(listed.stdout.split("\0"))
+        judged += [m for m in sorted(set(was) - set(allowed)) if m in tracked and m not in judged
+                   and command_checks.judged_path(m)]
+    # The staged table; a scratch fabric that links runtime/ whole tracks no commands.json, and its work-tree file is the table.
+    blob = _git("cat-file", "blob", f":{command_table.COMMANDS_FILE}")
+    try:
+        if blob.returncode == 0:
+            doc = json.loads(blob.stdout)
+        else:
+            with open(os.path.join(root, command_table.COMMANDS_FILE), encoding="utf-8") as fh:
+                doc = json.load(fh)
+        names = sorted(command_table.commands_of(doc))
+    except (OSError, ValueError, command_table.TableError):
+        raise Refuse(f"pre-commit: cannot read {command_table.COMMANDS_FILE} to judge command names — not committed") from None
+    lines: list[str] = []
+    for path, data in _staged_blobs(judged, "for command names").items():
+        try:
+            lines += command_checks.literal_findings(path, data.decode("utf-8"), names, allowed)
+        except UnicodeDecodeError:
+            lines.append(f"{path}: not UTF-8; command names are not judged")
+    if lines:
+        raise Refuse("\n".join(lines) + "\npre-commit: a module recognises a fabric command by name instead of asking "
+                     "tools/fabric/cli canonical() — not committed (agent-fabric ADR-068 rule 7, ADR-067 rule 1).")
+
+
 def _check_review_card() -> None:
     """A commit that stages the project review card over its cap is refused, whoever commits (j475: a project's card reached 2396
     bytes over two commits, and every review of the project failed at render until it was cut). Only a commit that changes the card
@@ -693,6 +757,7 @@ def pre_commit(root: str) -> int:
     _check_process_spawns(root)
     _check_work_writes(root)
     _check_transport_calls(root)
+    _check_command_names(root)
     what, staged = guarded_change(root)
     if not staged:
         return 0

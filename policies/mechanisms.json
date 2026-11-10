@@ -42,6 +42,13 @@
       "status": "enforced",
       "checker": "tools/fabric/transport_calls.py",
       "exceptions": "policies/transport-calls.json"
+    },
+    "command-recognition": {
+      "adr": "ADR-068",
+      "owner": "tools/fabric/cli/",
+      "status": "enforced",
+      "checker": "tools/fabric/cli/checks.py",
+      "exceptions": "policies/command-names.json"
     }
   }
 }

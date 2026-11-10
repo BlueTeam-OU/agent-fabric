@@ -1033,5 +1033,79 @@ class TransportCalls(PreCommit):
         self.assertIn("pre-commit: the staged policies/transport-calls.json is not JSON — not committed", r.stderr)
 
 
+class CommandNames(PreCommit):
+    """In agent-fabric itself a staged hook or guard module that recognises a fabric command by name instead of asking
+    tools/fabric/cli canonical() is refused whoever commits, unless the staged policy names it (ADR-068 rule 7,
+    tools/fabric/cli/checks.py), by the real runtime/claude-code/commands.json.
+    Mutations: the call removed from pre_commit (the refusal case); the policy read from the work tree (the
+    unstaged-entry case); a deleted policy's modules left unjudged (the deletion case); a removed entry's module left
+    unjudged (the drop case); not-JSON read as empty."""
+
+    RECOGNISER = "def is_pr(cmd):\n    return cmd == \"fabric-pr\"\n"
+    MODULE = "tools/fabric/guards/cnx.py"
+    POLICY = "policies/command-names.json"
+
+    def setUp(self):
+        self.build(owner_role="fabric-coordinator")
+        # tools/fabric/guards is linked whole, and a file staged under it would be written through the link into the checkout:
+        # a real directory of links, as the fixture makes tools/fabric/ itself.
+        guards = os.path.join(self.fabric.fabric, "tools", "fabric", "guards")
+        real = os.path.realpath(guards)
+        os.unlink(guards)
+        os.makedirs(guards)
+        for entry in os.listdir(real):
+            if entry != "__pycache__":
+                os.symlink(os.path.join(real, entry), os.path.join(guards, entry))
+
+    def admitted(self, *modules: str) -> str:
+        return json.dumps({"recognisers": {m: "a test" for m in modules}})
+
+    def test_a_staged_recogniser_is_refused_for_the_owner_too(self):
+        repo = self.fabric.itself()
+        repo.stage(self.MODULE, self.RECOGNISER)
+        self.fabric.bind("fabric-coordinator")
+        r = self.run_hook(repo)
+        self.assertEqual(r.returncode, 1, r.stderr)
+        self.assertIn(f"{self.MODULE}:2: comparison names the command `fabric-pr`", r.stderr)
+        self.assertIn("ADR-068 rule 7", r.stderr)
+
+    def test_the_staged_policy_admits_and_an_unstaged_entry_does_not(self):
+        repo = self.fabric.itself()
+        repo.stage(self.MODULE, self.RECOGNISER)
+        repo.write(self.POLICY, self.admitted(self.MODULE))
+        self.fabric.bind("fabric-coordinator")
+        self.assertEqual(self.run_hook(repo).returncode, 1)
+        repo.git("add", self.POLICY)
+        r = self.run_hook(repo)
+        self.assertEqual((r.returncode, r.stderr), (0, ""))
+
+    def test_a_commit_that_deletes_the_policy_judges_its_modules(self):
+        repo = self.fabric.itself({self.MODULE: self.RECOGNISER, self.POLICY: self.admitted(self.MODULE)})
+        repo.git("rm", "-q", self.POLICY)
+        self.fabric.bind("fabric-coordinator")
+        r = self.run_hook(repo)
+        self.assertEqual(r.returncode, 1, r.stderr)
+        self.assertIn(f"{self.MODULE}:2:", r.stderr)
+
+    def test_a_commit_that_only_drops_an_entry_judges_its_module(self):
+        # Mutation: the module of a removed entry not judged (a commit staging only the list returns early).
+        repo = self.fabric.itself({self.MODULE: self.RECOGNISER, self.POLICY: self.admitted(self.MODULE)})
+        repo.write(self.POLICY, self.admitted())
+        repo.git("add", self.POLICY)
+        self.fabric.bind("fabric-coordinator")
+        r = self.run_hook(repo)
+        self.assertEqual(r.returncode, 1, r.stderr)
+        self.assertIn(f"{self.MODULE}:2:", r.stderr)
+
+    def test_a_list_that_is_not_json_refuses(self):
+        repo = self.fabric.itself()
+        repo.stage("tools/fabric/x.py", "x = 1\n")
+        repo.stage(self.POLICY, "{")
+        self.fabric.bind("fabric-coordinator")
+        r = self.run_hook(repo)
+        self.assertEqual(r.returncode, 1, r.stderr)
+        self.assertIn("pre-commit: the staged policies/command-names.json is not JSON — not committed", r.stderr)
+
+
 if __name__ == "__main__":
     unittest.main()

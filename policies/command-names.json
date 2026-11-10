@@ -1,0 +1,7 @@
+{
+  "_comment": "agent-fabric ADR-068 rule 7, command-recognition: the hook and guard modules tools/fabric/cli/checks.py admits although a comparison, regex or string test in them names a `commands` command instead of asking tools/fabric/cli canonical(). Each value says why the module cannot ask: what the name is there, if not a command in a Bash line. An entry admits the whole module, a later comparison in it included; an entry that admits nothing is lint's finding, so a module's entry leaves with the name.",
+  "recognisers": {
+    "tools/fabric/guards/agent_fabric_dir_authority.py": "compares `fabric-role` as the key of a git trailer line (declared_role, over `git interpret-trailers --parse`), not as a command in a Bash line",
+    "tools/fabric/guards/commit_hooks.py": "compares `fabric-role` as a git trailer key (_typed_role), and `fabric-sign` as the basename of git's gpg.program config value (post_commit): neither is a word of a Bash line canonical() could read"
+  }
+}
