@@ -29,3 +29,7 @@ The owner made Sonnet 5.5 python-dev's session model after the pilot (2026-10-08
 ### Amendment 2026-11-09 — architect-cto-01's session is Fable 5.2
 
 The owner, 2026-11-09: Fable 5.2 had just become available, and architect-cto moves to it. The id was read back before the change (docs/live-checks/2026-11-09-fable-5-2.md): `claude-fable-5-2` is served, at low and at medium effort, while the dotted spelling and a made-up control are refused. Claude Code 2.1.311 printed `unrecognized_model` on stderr for the low-effort probe and the control, and served `claude-fable-5-2` at both levels. Only the agent layer in `routing/profiles.json` moves. The capability classes, the fable alias's export (code-plan's Opus 5.5) and the session's medium effort are unchanged.
+
+### Amendment 2026-11-10 — architect-cto-01's session is Opus 5.5 again
+
+The owner, 2026-11-10: architect-cto-01's session goes back to Opus. The pinned Claude Code, 2.1.311, does not know Fable 5.2. Its session start warned that `claude-fable-5-2` "isn't recognized" and that it assumed a 200k context. The 2026-11-09 read-back had already seen the `unrecognized_model` line. The agent entry in `routing/profiles.json` is removed, so the session takes the anthropic column's default, `claude-opus-5-5`, as every other agent's does. Fable 5.2 can come back as an agent layer once a pinned harness knows the id. The capability classes, the aliases and the session's medium effort are unchanged. The change reaches the session at its next launch.
