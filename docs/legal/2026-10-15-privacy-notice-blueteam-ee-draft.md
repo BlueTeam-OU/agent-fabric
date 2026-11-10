@@ -12,6 +12,9 @@ section 10.
 Revised 2026-11-10: the owner's facts of that day fill every
 `[FACT: …]` but the date of publication, which brand-comms fills on
 publishing; what each rests on is under "The owner's facts" below.
+The same day the owner gave F3 (no Swiss data reach OpenAI), so
+section 10 drops its sentence on a Swiss safeguard for OpenAI's copy,
+under the condition stated below.
 The reasons are in `2026-10-15-privacy-notice-blueteam-ee.md`. Placing
 it on the site is brand-comms's work in the `blueteam.ee` repository,
 and the copy review is language-culture's.
@@ -29,8 +32,6 @@ How to read this draft:
 
 - `[FACT: …]` is a fact the owner fills in before publishing; one is
   left, the date, which brand-comms fills on publishing.
-- `[SWISS: …]` is a sentence that waits on a fact only the owner can
-  get from OpenAI (F1 to F3 below); the notice is not published with it.
 - Every article number in the text is GDPR, read from the official text
   on 2026-10-15; the opinion's section 3 lists each one.
 - The Swiss law in section 10 is `legal-expert-ch`'s reading of
@@ -74,24 +75,25 @@ The owner's facts (2026-11-10), and what is still open behind them:
   (Implementing Decision (EU) 2021/914), or under an adequacy decision;
   it claims no Data Privacy Framework certification. Still to verify:
   that this is the version the company accepted, in the account.
-- Section 10's sentence on OpenAI's copy: `legal-expert-ch` answered
+- Section 10 and OpenAI's copy: `legal-expert-ch` answered
   on 2026-11-10 (`2026-11-10-fadp-eu-sccs-openai-us-copy.md`, commit
   0624d246, on `develop-qzapp/legal-expert-ch/for/user/fadp-swiss-marks-blueteam-ee`).
   On that reading of Swiss law, the Commission's clauses carry Swiss data
   only with the adaptations the FDPIC requires, the data processing
   agreement states none, and an EU adequacy decision has no effect for
-  Swiss data. The sentence depends on which of these the owner finds true:
-  - F1: the OpenAI company that keeps the US copy is certified under
-    the Swiss-U.S. Data Privacy Framework (the public list);
-  - F2: OpenAI confirms in writing that its clauses with its US
-    affiliates carry the Swiss adaptations;
-  - F3: no personal data of persons in Switzerland reach OpenAI
-    through our use; then the sentence goes.
-  If Swiss data do reach OpenAI and neither F1 nor F2 holds, no
-  sentence is both true and compliant. Getting a Swiss annex from
-  OpenAI, keeping Swiss data out of OpenAI, or going ahead with the
-  gap known is then the owner's decision. That note's section 6 gives
-  the F1 and F2 sentences.
+  Swiss data. The owner answered on 2026-11-10: no personal data of
+  persons in Switzerland reach OpenAI through our use (F3 of that
+  note). F1 does not hold: the OpenAI company that keeps the US copy is
+  not certified under the Swiss-U.S. Data Privacy Framework. F2 cannot
+  be read from OpenAI's public data processing agreement: read in full
+  on 2026-11-10, its Schedule 1 section 8 completes the clauses for UK
+  data only, with nothing Swiss. Section 10 therefore says nothing of a
+  Swiss safeguard for OpenAI's copy.
+  That holds only while no personal data of persons in Switzerland go
+  into OpenAI, including client data a Swiss client has agreed in
+  writing, under section 5, may go into an AI tool. If that is to
+  change, section 10 changes before it does, with the safeguard F1 or
+  F2 gives; that note's section 6 has those sentences.
 
 ---
 
@@ -226,11 +228,7 @@ Where the Swiss Federal Act on Data Protection applies to our use of
 your data, the following also applies:
 
 - Switzerland's Federal Council recognises Estonia, Finland, Iceland
-  and Ireland as countries with adequate data protection. For OpenAI's
-  copy in the United States, OpenAI's data processing agreement
-  [SWISS: the safeguard for Swiss data; F1, a Swiss-U.S. Data Privacy
-  Framework certification, or F2, the clauses with the FDPIC's
-  adaptations; F3, no Swiss data at OpenAI, drops this sentence].
+  and Ireland as countries with adequate data protection.
 - We answer a request for a copy of your data within 30 days, free of
   charge. If we need longer, we tell you within those 30 days and say
   when you will have it. We may ask you to share the cost, up to
