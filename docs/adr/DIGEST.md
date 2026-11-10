@@ -222,8 +222,10 @@ its record disagree, the record wins. Look it up, never read it whole:
   broker `code-low` is committed at `low` (§2).
 - A 2026-09-28 — the session's level is judged on its model like a class's;
   `providers.<p>.session` acknowledges a downgrade.
+- A 2026-11-10 — `CLAUDE_CODE_SUBAGENT_EFFORT` (2.1.316+) is refused like
+  `CLAUDE_CODE_EFFORT_LEVEL`: it moves the harness types' level (§5 rule 6).
 - Keywords: effort, reasoning, thinking, level, clamp, medium, high,
-  --effort, agent file, CLAUDE_EFFORT, Opus 5.5 default.
+  --effort, agent file, CLAUDE_EFFORT, Opus 5.5 default, CLAUDE_CODE_SUBAGENT_EFFORT.
 
 ### ADR-007 — A flagged request is contagious (Accepted)
 

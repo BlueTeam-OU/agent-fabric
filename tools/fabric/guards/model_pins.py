@@ -63,7 +63,9 @@ EFFORT_KEYS = (
     ("maxEffortLevel", "caps it — the lowest value across all scopes wins, so this one cannot be raised back by a launch"),
     ("modelSettings", "carries per-model settings, effort included"),
 )
-ENV_NAMES = ("CLAUDE_CODE_SUBAGENT_MODEL", "CLAUDE_CODE_EFFORT_LEVEL")
+# CLAUDE_CODE_SUBAGENT_EFFORT (2.1.316+) sets the level of every subagent whose definition names none: the harness
+# types, which otherwise run at the session's routed level (ADR-006 rule 6).
+ENV_NAMES = ("CLAUDE_CODE_SUBAGENT_MODEL", "CLAUDE_CODE_EFFORT_LEVEL", "CLAUDE_CODE_SUBAGENT_EFFORT")
 
 
 def settings_path(env: dict[str, str]) -> str:

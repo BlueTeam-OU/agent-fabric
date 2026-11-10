@@ -13,3 +13,7 @@ DeepSeek V4 Pro serves `high` by its own mapping — neither is a finding
 under the class rule, so the check adds none today. `xhigh` on the
 broker would be served `high` and `none` on Opus 5.5 raised to `low`;
 both are now refused until written down.
+
+### Amendment 2026-11-10 — `CLAUDE_CODE_SUBAGENT_EFFORT` is refused like `CLAUDE_CODE_EFFORT_LEVEL`
+
+The pin's move to Claude Code 2.1.322 (ADR-043, A 2026-11-10) brings a variable that 2.1.311 does not read. Read in the 2.1.322 binary, `CLAUDE_CODE_SUBAGENT_EFFORT` sets the level of a subagent whose definition names no effort, instead of the session's. It is skipped for a definition that has one. Every class file the fabric writes has one (rule 4), so the variable reaches only the harness types, `Explore`, `Plan` and `general-purpose`. A launch's environment reaches every subagent, so one value there would move all of them off the session's routed level, with nothing in routing saying so. It is refused in any value, as `CLAUDE_CODE_EFFORT_LEVEL` is, `inherit` and empty included: a value that changes nothing today is still a channel routing does not see. The live read-back is `docs/live-checks/2026-11-10-claude-code-2-1-322-readback.md`. The launcher's refusal is python-dev's code (REQUEST `01a1c63c`). The committed-settings guard's `env` names are the coordinator's, and moved in the same change.
