@@ -119,7 +119,7 @@ def test_native_path_pins_haiku_and_sonnet_5_5_low_and_opus_5_5_above(tmp: str) 
     s = routing.resolve_session(local={"session": "anthropic/claude-opus-5[1m]"}, provider="anthropic", root=root)
     assert (s["model"], s["source"]) == ("claude-opus-5[1m]", "local"), s
     # An agent layer moves that agent's session and nobody else's (the test
-    # plants its own layer; it assumes no live agent layer).
+    # replaces the live layers with its own, so it holds whatever they say).
     prof = os.path.join(root, "routing", "profiles.json")
     doc = json.load(open(prof, encoding="utf-8"))
     doc["agents"] = {"architect-cto-01": {"providers": {"anthropic": {"session": "claude-fable-5-1"}}}}

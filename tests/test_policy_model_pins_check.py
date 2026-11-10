@@ -50,6 +50,7 @@ PIN_SHAPES = [
     {"maxEffortLevel": "low"},
     {"modelSettings": {"claude-opus-5": {"effort": "low"}}},
     {"env": {"CLAUDE_CODE_EFFORT_LEVEL": "max"}},
+    {"env": {"CLAUDE_CODE_SUBAGENT_EFFORT": "low"}},
 ]
 
 
@@ -150,7 +151,8 @@ class WhatIsMatched(Guard):
 
     def test_env_keys_match_by_prefix_or_by_name_and_only_those(self):
         for env, pinned in (({"ANTHROPIC_ANYTHING": "x"}, True), ({"CLAUDE_CODE_SUBAGENT_MODEL": "x"}, True),
-                            ({"CLAUDE_CODE_EFFORT_LEVEL": "x"}, True), ({"anthropic_lower": "x"}, False), ({"ANTHROPIC": "x"}, False),
+                            ({"CLAUDE_CODE_EFFORT_LEVEL": "x"}, True), ({"CLAUDE_CODE_SUBAGENT_EFFORT": "inherit"}, True),
+                            ({"anthropic_lower": "x"}, False), ({"ANTHROPIC": "x"}, False),
                             ({"CLAUDE_CODE_OTHER": "x"}, False), ({"MY_ANTHROPIC_KEY": "x"}, False), ({}, False)):
             with self.subTest(env=env):
                 self.assertEqual(self.check_file({"env": env}).returncode, 1 if pinned else 0)
