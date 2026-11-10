@@ -29,7 +29,11 @@ THE FORMS (`block <id> --on <blocker>`, several allowed, all must clear)
                             refused). Stored as clock:YYYY-MM-DDTHH:MM:SSZ. `block` refuses a time already past (a
                             time that has gone by is no wait); an imported job may carry one, and it reads cleared.
 
-PEER READS. `fabric-ctl <login> jobs` is a host operator's op: peers see each other's presence, not each other's lists.
+PEER READS. A job: blocker on this login's own list (job:<me>/j<n>) is read from that list, as stored (done and dropped
+included), never through job-state or fabric-ctl: the public op answers only the sender of the request a job was taken
+from, so an asker whose own job came from someone else's request would be refused for ever. The absent rule is the
+peer's.
+`fabric-ctl <login> jobs` is a host operator's op: peers see each other's presence, not each other's lists.
 So a caller that is a host operator reads the peer's board through it, as before; every other placed login asks the
 peer's control agent the public op `job-state` (tools/fabric/control/jobs.py, through control/queue.py), which answers
 one job's state to the sender of the request that job was taken from, and nothing else. Its answer: delivered, done
@@ -47,7 +51,8 @@ the cycle is then the other side's to find from the blocker it holds.
 A CHECK says one of three things: `cleared`, `waiting`, or `unknown` (it could not be told: gh, the journal or
 fabric-ctl failed, or the job is not on the open list and was never seen there). Unknown never clears a job.
 
-THE CACHE (<state dir>/jobs-blockers.json, 0600): a check is made at most once per CACHE_TTL_S per blocker;
+THE CACHE (<state dir>/jobs-blockers.json, 0600): a listing checks at most once per CACHE_TTL_S per blocker; `start` (and
+`switch <id>`, the same R4 need) decides on a fresh check (refresh(decide=True)), since a refusal read from a ten-minute-old "waiting" is wrong;
 a cleared blocker stays cleared, since a merge, a reply and a delivered job do not undo. `--stored` and `--cached`
 read it and check nothing. A job blocker also remembers that it was seen open: a job that is no longer on the open
 list was closed only if it was seen open before; one never seen is unknown (a typo reads the same).
@@ -345,6 +350,8 @@ def read_board(login: str) -> tuple[list[dict] | None, str]:
 def check_job(login: str, job_id: str, seen_open: bool) -> tuple[Check, bool]:
     """(the check, whether the job has now been seen on the open list). Absent from the open list is done or
     dropped only for a job seen open before."""
+    if login == identity.current_agent():
+        return _from_own_list(job_id, seen_open)
     kind, got = ask_state(login, job_id)
     if kind == "answer":
         return _from_answer(login, job_id, got, seen_open)
@@ -357,6 +364,26 @@ def check_job(login: str, job_id: str, seen_open: bool) -> tuple[Check, bool]:
     if job.get("state") == "delivered":
         return Check("cleared", "delivered"), True
     return Check("waiting", str(job.get("state") or "open")), True
+
+
+def _from_own_list(job_id: str, seen_open: bool) -> tuple[Check, bool]:
+    """check_job for a job of this login's own list, whose stored state is the answer (see PEER READS)."""
+    me = identity.current_agent()
+    try:
+        doc = identity.read_jobs()
+    except SystemExit as e:
+        return Check("unknown", f"own job list: {e}"[:160]), seen_open
+    job = next((j for j in doc["jobs"] if isinstance(j, dict) and j.get("id") == job_id), None)
+    state = job.get("state") if job else "absent"
+    if state == "absent":
+        return _absent(me, job_id, seen_open)
+    if not isinstance(state, str) or state not in STATES:
+        return Check("unknown", f"{job_id} on {me}'s own list has no state of a job"), seen_open
+    if state == "delivered":
+        return Check("cleared", "delivered"), True
+    if state in ("done", "dropped"):
+        return Check("cleared", "closed (done or dropped)"), True
+    return Check("waiting", state), True
 
 
 def _absent(login: str, job_id: str, seen_open: bool) -> tuple[Check, bool]:
@@ -479,9 +506,11 @@ def run_check(spec: str, entry: dict | None) -> dict:
             **({"became": became, "became_seen": became_seen} if became else {})}
 
 
-def refresh(specs: list[str], *, check: bool = True) -> dict[str, dict]:
+def refresh(specs: list[str], *, check: bool = True, decide: bool = False) -> dict[str, dict]:
     """The cache entry of each spec. With `check`, one that is not cleared and was last checked more than CACHE_TTL_S
-    ago (or never) is checked now; a cleared one is never checked again. Without, nothing is checked, except a clock
+    ago (or never) is checked now; a cleared one is never checked again. With `decide` (needs.py's start, which refuses on a
+    blocker that waits) the TTL does not hold a check back: a refusal read from a `waiting` entry up to ten minutes old
+    keeps a job blocked after its peer was delivered. Without `check`, nothing is checked, except a clock
     spec, which is evaluated either way. The checks run
     first and the results are merged into the file under the lock, keeping a `cleared` another process wrote and the
     `seen_open` either has."""
@@ -495,7 +524,8 @@ def refresh(specs: list[str], *, check: bool = True) -> dict[str, dict]:
                 fresh[spec] = run_check(spec, entry)
             continue
         if not check or (entry and (entry.get("state") == "cleared"
-                                    or (isinstance(entry.get("checked_at"), (int, float)) and now() - entry["checked_at"] < CACHE_TTL_S))):
+                                    or (not decide and isinstance(entry.get("checked_at"), (int, float))
+                                        and now() - entry["checked_at"] < CACHE_TTL_S))):
             continue
         fresh[spec] = run_check(spec, entry)
     # A re-point that could not be written last time is made again by the next look.

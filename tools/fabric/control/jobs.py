@@ -93,6 +93,7 @@ if sys.path and os.path.realpath(sys.path[0] or ".") == os.path.dirname(os.path.
 else:
     sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.realpath(__file__))))
 from control import js  # noqa: E402
+import roots  # noqa: E402
 import hold_view  # noqa: E402
 from registry_id import REGISTRY_ID as PROJECT_SLUG, REGISTRY_ID_DESCRIPTION  # noqa: E402 — one grammar for jobs-add, the job list and the intake
 
@@ -122,8 +123,7 @@ def _jobs_py(root: str) -> str:
 
 def _default_root(home: str) -> str:
     # `??`: set but empty is set.
-    root = os.environ.get("AGENT_FABRIC_ROOT")
-    return root if root is not None else os.path.join(home, "projects", "agent-fabric")
+    return roots.checkout_root(home, empty_is_set=True)
 
 
 def run_python(argv: list[str], *, cwd: str | None, env: dict, timeout: float) -> subprocess.CompletedProcess:

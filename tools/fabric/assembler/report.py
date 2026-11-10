@@ -298,6 +298,7 @@ def report(run: Run) -> int:
         "telemetry": run.telemetry,
         "telemetry_sources": {source: run.telemetry},
         "hygiene_problems": run.problems,
+        "assembled_without_hygiene": run.args.without_hygiene,
         "rejected_hygiene": run.rejected_hygiene,
         "redactions": run.redactions,
         "retired_in_siblings": run.retired_in,
@@ -398,6 +399,10 @@ def report(run: Run) -> int:
         share = lambda v: "n/a" if v is None else f"{v:.0%}"  # noqa: E731 - a label for a line
         print(f"memory: {login} {row['finds']} finds, zero-hit {share(row['zero_hit_share'])}, read-through {share(row['read_through'])}, "
               f"{row['reads']} reads, {row['marks']} marks")
+    if run.args.without_hygiene:
+        print("\nNO HYGIENE LIST (--allow-missing-hygiene: these projects' banned names were not applied):", file=sys.stderr)
+        for pid in run.args.without_hygiene:
+            print(f"  {pid}", file=sys.stderr)
     if run.redactions:
         print("\nREDACTED (hygiene — the slice carries the substitute; fix the memory so the next drain needs none):", file=sys.stderr)
         for note in run.redactions:

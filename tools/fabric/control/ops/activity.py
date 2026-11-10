@@ -143,8 +143,7 @@ def _letters_of(p: str) -> int:
 def _fabric_root(home: str, root: str | None) -> str:
     if root is not None:
         return root
-    env = os.environ.get("AGENT_FABRIC_ROOT")
-    return os.path.join(home, "projects", "agent-fabric") if env is None else env
+    return roots.checkout_root(home, empty_is_set=True)
 
 
 def langid_cmd(home: str | None = None, root: str | None = None) -> list[str]:

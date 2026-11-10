@@ -51,7 +51,7 @@ def _blockers_cleared(job: dict, fields: dict, who: str) -> list[str]:
     specs = bl.specs_of(job)
     if job["state"] != "blocked" or not specs:
         return []
-    cache = bl.refresh(specs, check=True)
+    cache = bl.refresh(specs, check=True, decide=True)
     if bl.cleared_flag(job, cache) is True:
         return [f"blocker cleared: {', '.join(specs)}"]
     left = "; ".join(f"{s['spec']} {s['state']}" + (f" ({s['detail']})" if s.get("detail") else "") for s in bl.states_of(job, cache) if s["state"] != "cleared")

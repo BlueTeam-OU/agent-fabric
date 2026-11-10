@@ -13,6 +13,7 @@ import sys
 from typing import Any, Callable
 
 from . import util
+import roots  # noqa: E402 — util puts tools/fabric on sys.path
 
 # THE DRAIN, over the control plane (the CEO, 2026-09-17: the way out of
 # god mode). Until now a drain read another account's home through sudo
@@ -106,9 +107,7 @@ def memory(home: str | None = None, root: str | None = None, run: Callable[..., 
            part_bytes: int = MEMORY_PART_BYTES) -> dict:
     home = os.path.expanduser("~") if home is None else home
     if root is None:
-        root = os.environ.get("AGENT_FABRIC_ROOT")
-        if root is None:
-            root = os.path.join(home, "projects", "agent-fabric")
+        root = roots.checkout_root(home, empty_is_set=True)
     if dirs is None:
         dirs = memory_dirs(home, os.path.join(home, "projects"), root)
     tool = os.path.join(root, "tools", "fabric", "harvest_memory.py")

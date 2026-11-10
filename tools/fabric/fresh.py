@@ -75,6 +75,8 @@ import subprocess
 import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, HERE)
+import roots  # noqa: E402
 # The checkout this file is in, never AGENT_FABRIC_ROOT: the bash took its
 # identity.py and jobs.py from beside itself, and so does this.
 FABRIC = os.path.dirname(os.path.dirname(HERE))
@@ -167,7 +169,7 @@ def relaunch_refusal() -> str | None:
     AGENT_FABRIC_ALLOW_STALE is not honoured: the restart runs the launcher
     in its own environment, which this process cannot vouch for, so a
     session that needs the override relaunches with it instead."""
-    root = os.environ.get("AGENT_FABRIC_ROOT") or FABRIC
+    root = roots.engine_root()
     verdict = _launcher_currency().fabric_verdict(root)
     if verdict.kind != "blocked":
         return None

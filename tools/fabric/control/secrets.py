@@ -47,6 +47,7 @@ from typing import Any, Callable, Mapping
 from control import busy
 from control.ops import util
 from gzcoord.inbox_parts.tokens import synced_var  # noqa: E402 — control.ops.util puts tools/fabric on sys.path
+import roots  # noqa: E402 — control.ops.util puts tools/fabric on sys.path
 
 SYNC_TIMEOUT_S = 120
 _SHA12 = re.compile(r"[0-9a-f]{12}")
@@ -245,7 +246,7 @@ def secrets_sync_once(
 ) -> dict:
     from datetime import datetime, timezone
     home = os.path.expanduser("~") if home is None else home
-    root = root or os.environ.get("AGENT_FABRIC_ROOT") or os.path.join(home, "projects", "agent-fabric")
+    root = root or roots.checkout_root(home)
     now = now or (lambda: datetime.now(timezone.utc))
     args = request["args"] if "args" in request else {}   # present and null is refused, absent is nothing
     bad = check_args(args)
