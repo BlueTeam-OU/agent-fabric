@@ -1951,6 +1951,9 @@ echo "CLAUDE-ENDED:$(date +%s.%N)"
             check("the base URL prints scheme+host, no userinfo",
                   "key-secret" not in out and has(r"ANTHROPIC_BASE_URL = https://proxy\.example$", out), out)
             check("an allowlisted pin prints its value", "ANTHROPIC_DEFAULT_OPUS_MODEL = anthropic/claude-opus-5" in out, out)
+            out = audit(CLAUDE_CODE_SUBAGENT_EFFORT="inherit")
+            check("the subagent effort variable is listed, with its value, as the effort level is",
+                  "CLAUDE_CODE_SUBAGENT_EFFORT = inherit" in out, out)
             check("no stamp: says the session model is not visible", "not launched via runtime/openrouter/launch" in out, out)
             out = audit(ANTHROPIC_BASE_URL="HTTPS://key@proxy.example:8443?api_key=qs-secret#frag-secret")
             check("uppercase scheme, no path, query+fragment: scheme://host:port only",
