@@ -833,6 +833,7 @@ its record disagree, the record wins. Look it up, never read it whole:
 - A 2026-10-27 — the relay's database copied every 6 h to Proton Drive, encrypted and signed, restore read back (§1, §6, §7).
 - A 2026-10-28 — undrained memory has a daily copy (restore unread); §7 step 3 decided: a weekly timer collects every account's drain bundle, 14-day age bound, one report, one drain job; landing reviewed (§1, §2, §6, §7).
 - A 2026-11-07 — §7 step 2 done: relay down an hour (§7).
+- A 2026-11-10 — §7 step 3 built (#419, #462); first timer run: 33 stores over the 14-day bound, 53 unknown, drain job kept (§7).
 - Keywords: decentralization, resilience, single point of failure,
   degraded mode, relay, host, crash, backup, autonomy, P5,
   scheduled drain, drain timer, undrained memory, state backup.
