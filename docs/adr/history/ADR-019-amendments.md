@@ -194,3 +194,26 @@ back on every gate. `record_cases` are the floor: lint refuses one the
 pattern misses, or one `pr_paths` or the boundary matches. Declared for
 gzapi.brand (`brand/decisions/*.md`). The arm half is devex-tooling's
 (j526).
+
+### Amendment 2026-11-10 — An arming is withdrawn on the record
+
+An arming authority withdrew an arming on a managed project's PR (#600)
+by hand: auto-merge came off, and nothing on the PR said who took it off
+or why, where an arming leaves its basis as a comment (architect-cto-01,
+REPLY 01a1c1ef). `fabric-pr` had no verb for it.
+
+`fabric-pr disarm <n> --basis "<why>"` takes off whatever arms the PR —
+the head's `fabric/armed` success (set to pending, since GitHub deletes
+no status, so in a mode `auto` repository the ruleset holds the head
+until it is armed again), a merge-queue entry, auto-merge — then posts
+"Disarming basis: <text> — <role>, head <sha8>." and reads the PR back.
+Who may disarm is who may arm (rule 4): the session whose PR it is, or
+with `--any-owner` on the owner's word or the word of the role the
+arming policy names, held by the session's binding; an owner-only
+repository is refused, as it is never armed by the tool. The review,
+count and check gates are not asked: they judge whether a head may
+merge, and none stands between a merge and its withdrawal. Because a
+disarmed head keeps a pending `fabric/armed`, `fabric-pr gate` no
+longer reads that status as a check of the head; it was also reading
+arm's own success as green on a head with no CI. Supplied by
+devex-tooling (j310, REQUEST 01a1c27c). j719.

@@ -179,7 +179,12 @@ not on a pipe's exit status.
    (`.github/workflows/disarm-on-push.yml`, which says so on the PR). The
    new head is armed again only through the gate. A merge made outside
    `fabric-pr arm` in such a repository posts the status itself
-   (A 2026-11-01).
+   (A 2026-11-01). An arming is withdrawn as it is given, with a basis
+   on the PR: `fabric-pr disarm` sets the head's `fabric/armed` to
+   pending, takes the PR out of the merge queue and off auto-merge, and
+   posts "Disarming basis: …" naming the role and the head. Who may
+   disarm is who may arm, under rule 4; the gate's checks never read
+   `fabric/armed` as a check of the head (A 2026-11-10).
 6. What arming is depends on the repository. agent-fabric's `main` is
    held by a ruleset (`tools/fabric/github-ruleset-main.json`): a pull
    request, CI's aggregate check `ci-ok`, the arming status `fabric/armed`
@@ -282,3 +287,4 @@ The body above reads current; each change's full note is in [history/ADR-019-ame
 | 2026-11-01 | An arming is tied to its head by a status | §5 rule 5: `fabric-pr arm` posts `fabric/armed` on the gated sha; mode `auto` rulesets require it (`armed_status`, not `required_checks`); disarm-on-push keeps only an arming its new head carries, no longer compares times (audit F02) |
 | 2026-11-03 | The owner's word as relayed is read | §5 rule 4: an `--authorization` beside a basis giving the owner's word under the minimum is checked (addressee, sender, PR, head) and recorded as the word relayed; before, it was dropped unread |
 | 2026-11-05 | A decision record arms on the owner's ruling | §5 rule 1: a PR wholly of a direct project's `record_paths` arms on the owner's word without the review class, as the brand remit has said since 2026-09-17; lint holds its cases out of `pr_paths` and the boundary |
+| 2026-11-10 | An arming is withdrawn on the record | §5 rule 5: `fabric-pr disarm` takes off `fabric/armed`, the queue entry and auto-merge and posts its basis; who may disarm is who may arm; the gate ignores `fabric/armed` as a check |
