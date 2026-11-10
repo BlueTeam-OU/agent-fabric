@@ -900,6 +900,7 @@ its record disagree, the record wins. Look it up, never read it whole:
 - A 2026-11-08 — one transition table (r14).
 - A 2026-11-09 — pool claim closes or reopens (r14).
 - A 2026-11-09 — peer job read by its waiter: public job-state op (r8).
+- A 2026-11-10 — blocked job's landed branch: new branch; done names artifacts (r10).
 - Keywords: fresh session, intake, priority, claim, sweep, unhold, request blocker, job-state.
 
 ### ADR-038 — Each agent owns its key and its secrets (Accepted)

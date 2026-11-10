@@ -209,7 +209,11 @@ Why these choices:
        request is merged or its commit is on the default branch, or, for
        work that leaves no repository artifact (a cleanup), the reason it
        recorded with `fabric-jobs done <id> --no-artifact "<what was
-       done>"` (A 2026-10-18).
+       done>"` (A 2026-10-18). A pull request that merged before
+       `deliver` ran is named on the verb, `fabric-jobs done <id>
+       <artifact>...`, and recorded as the job's evidence; each name
+       must have landed on its own, and a name the verb would drop, on a
+       job already done, is refused (A 2026-11-10).
        `delivered`: its pull request is open. `blocked`: a request, a
        pull request, a peer's job or an owner's decision named as the
        blocker. `paused`: its branch is pushed. `dropped`: a reason.
@@ -232,6 +236,12 @@ Why these choices:
        when it is not, and the job needs something not yet merged, it
        is blocked on that pull request; otherwise it starts on a new
        branch off a freshly fetched default branch, named from the job.
+       A blocked job whose recorded branch a pull request landed counts
+       as a job with no branch: what it waited on is on the default
+       branch, so it takes this step's open pull request or a new
+       branch, and the landed name is replaced in its record
+       (A 2026-11-10). A paused or active job's landed branch is still
+       refused, since that branch is work in hand.
        No job starts on a branch behind the default branch.
     Each switch appends one line to both jobs' logs: the outcome and
     the evidence checked, and the branch chosen. `fabric-jobs switch`
@@ -308,7 +318,7 @@ Why these choices:
     | `queued`, `paused`, `blocked` | `blocked` | `fabric-jobs switch` (rule 10 step 3) | the job needs a pull request not yet merged: `pr:` added to its blockers, never substituted |
     | `active`, `blocked` | `delivered` | `fabric-jobs deliver` | an artifact that is open: a pull request, a branch on origin not on the default branch, a sent REPLY |
     | `delivered` | `done` | `fabric-jobs sweep`, run by the agent or hourly by its control agent (rule 12) | rule 10's `done` test |
-    | `active`, `delivered` | `done` | `fabric-jobs done` | rule 10's `done` test: the artifact merged or on the default branch; or a recorded `--no-artifact` reason where the job names no artifact |
+    | `active`, `delivered` | `done` | `fabric-jobs done` | rule 10's `done` test: the artifact merged or on the default branch; or a recorded `--no-artifact` reason where the job names no artifact; artifacts named on the verb each landed, and are recorded (A 2026-11-10) |
     | `queued`, `active`, `paused`, `blocked`, `delivered` | `dropped` | `fabric-jobs drop` | a reason; a REQUEST it came from answered |
 
     Both pool rows read a field the state record does not carry yet:
@@ -385,3 +395,4 @@ The body above reads current; each change's full note is in [history/ADR-037-ame
 | 2026-11-08 | One transition table for a job | §5 rule 14 added: every state change of a job is a row naming the one subsystem that may make it and what must be true when it is made; `done` and `dropped` terminal; code outside the table is a finding, characterised before it changes |
 | 2026-11-09 | A pool claim ends | §5 rule 14: two rows for the pool's own end, both the holder's control agent's, read from the claimant's fresh state record: `claimed` to `closed` when it reports the claim's job done or dropped, `claimed` back to `open` when a day on it reports its claims and holds none for this one; an unknown record reopens nothing; the record's claims field and the rows are built with Wave 2's job module |
 | 2026-11-09 | A peer's job is read by its waiter | §5 rule 8: a non-operator reads a `job:` blocker and re-points a `request:` blocker through the public `job-state` op, which answers one job's state to the sender of the request it was taken from; a re-point that would make a seen cycle is refused, never stored; rule 14 lists the re-point as no transition; built in #527 |
+| 2026-11-10 | A landed branch, and a merge before deliver | §5 rule 10 step 3: a blocked job whose recorded branch a pull request landed counts as a job with no branch and gets the open pull request or a new branch; step 1 and rule 14's `done` row: `fabric-jobs done <id> <artifact>...` records the named artifacts, each of which must have landed; built in #541 |
