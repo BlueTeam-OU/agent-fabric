@@ -29,8 +29,8 @@ How to read this draft:
 
 - `[FACT: …]` is a fact the owner fills in before publishing; one is
   left, the date, which brand-comms fills on publishing.
-- `[SWISS: …]` is wording that waits on `legal-expert-ch`'s answer
-  (asked 2026-11-10), and the notice is not published with it.
+- `[SWISS: …]` is a sentence that waits on a fact only the owner can
+  get from OpenAI (F1 to F3 below); the notice is not published with it.
 - Every article number in the text is GDPR, read from the official text
   on 2026-10-15; the opinion's section 3 lists each one.
 - The Swiss law in section 10 is `legal-expert-ch`'s reading of
@@ -74,10 +74,24 @@ The owner's facts (2026-11-10), and what is still open behind them:
   (Implementing Decision (EU) 2021/914), or under an adequacy decision;
   it claims no Data Privacy Framework certification. Still to verify:
   that this is the version the company accepted, in the account.
-- Section 10's sentence on OpenAI's copy rests on the same §4.1; whether
-  the Commission's clauses carry Swiss data under the Federal Act on
-  Data Protection, and with which adaptations, is Swiss law and asked
-  of `legal-expert-ch`.
+- Section 10's sentence on OpenAI's copy: `legal-expert-ch` answered
+  on 2026-11-10 (`2026-11-10-fadp-eu-sccs-openai-us-copy.md`, commit
+  0624d246, on `develop-qzapp/legal-expert-ch/for/user/fadp-swiss-marks-blueteam-ee`).
+  On that reading of Swiss law, the Commission's clauses carry Swiss data
+  only with the adaptations the FDPIC requires, the data processing
+  agreement states none, and an EU adequacy decision has no effect for
+  Swiss data. The sentence depends on which of these the owner finds true:
+  - F1: the OpenAI company that keeps the US copy is certified under
+    the Swiss-U.S. Data Privacy Framework (the public list);
+  - F2: OpenAI confirms in writing that its clauses with its US
+    affiliates carry the Swiss adaptations;
+  - F3: no personal data of persons in Switzerland reach OpenAI
+    through our use; then the sentence goes.
+  If Swiss data do reach OpenAI and neither F1 nor F2 holds, no
+  sentence is both true and compliant. Getting a Swiss annex from
+  OpenAI, keeping Swiss data out of OpenAI, or going ahead with the
+  gap known is then the owner's decision. That note's section 6 gives
+  the F1 and F2 sentences.
 
 ---
 
@@ -214,9 +228,9 @@ your data, the following also applies:
 - Switzerland's Federal Council recognises Estonia, Finland, Iceland
   and Ireland as countries with adequate data protection. For OpenAI's
   copy in the United States, OpenAI's data processing agreement
-  provides Standard Contractual Clauses adopted by the European
-  Commission [SWISS: whether, and with which adaptations, these carry
-  Swiss data; `legal-expert-ch`'s answer sets the wording].
+  [SWISS: the safeguard for Swiss data; F1, a Swiss-U.S. Data Privacy
+  Framework certification, or F2, the clauses with the FDPIC's
+  adaptations; F3, no Swiss data at OpenAI, drops this sentence].
 - We answer a request for a copy of your data within 30 days, free of
   charge. If we need longer, we tell you within those 30 days and say
   when you will have it. We may ask you to share the cost, up to
