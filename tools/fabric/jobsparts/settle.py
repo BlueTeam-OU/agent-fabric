@@ -403,7 +403,7 @@ def _delivered(job: dict, found: dict, problems: list[str]) -> list[str]:
             problems.append(f"could not tell whether branch {name} is on the default branch ({e})")
             continue
         if folded and not opened:
-            problems.append(f"branch {name} is on origin/{default}: the job is done, not delivered (fabric-jobs done)")
+            problems.append(f"branch {name} is on origin/{default}: the job is done, not delivered (fabric-jobs done <id> {name})")
         else:
             replies.append(f"branch {name} on origin")
     if merged and not opened:

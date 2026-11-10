@@ -547,6 +547,13 @@ def change(args) -> int:
     return 0
 
 
+def _unlanded(job_id: str, names: list[str]) -> list[str]:
+    """Why `names`, taken as the job's artifacts, are not evidence that it is done; empty when they are."""
+    problems: list[str] = []
+    landed = needs.st.done_evidence({**find(identity.read_jobs(), job_id), "artifacts": names, "topic": None, "no_artifact": None}, problems)
+    return problems if problems or landed else ["nothing landed"]
+
+
 def move(args, said: dict) -> Job:
     """The verbs that make a transition: the row is rule 14's, its needs are asked by needs.prove, the change is the owner's."""
     if args.cmd == "start":
@@ -575,8 +582,14 @@ def move(args, said: dict) -> Job:
         for name in args.artifacts:
             # Each name must land on its own: the done test passes a job when any one artifact landed, and would otherwise record
             # a closed pull request or a word that is no commit beside a merged one.
-            problems: list[str] = []
-            if not needs.st.done_evidence({**find(identity.read_jobs(), args.id), "artifacts": [name], "topic": None, "no_artifact": None}, problems) or problems:
+            problems = _unlanded(args.id, [name])
+            if problems:
+                # A squash-merged branch is excused only by the merged pull request that ended at its tip, which the job may name
+                # beside it. Only that one refusal is retried with every name: any other would be excused by an unrelated landed
+                # artifact, and a name beside it that fails is refused on its own turn.
+                if len(args.artifacts) > 1 and any("no merged pull request the job names ended at its tip" in p for p in problems):
+                    problems = _unlanded(args.id, args.artifacts)
+            if problems:
                 raise Refused(f"{name} did not land, so it is not recorded: " + ("; ".join(problems) or "it is not a merged pull request, a commit on the default branch or a sent reply"))
         # Artifacts named on the verb are recorded with the close: a pull request that merged before `deliver` was run is refused by
         # `deliver` (done, not delivered), and this is the one way to keep it as the job's evidence.
