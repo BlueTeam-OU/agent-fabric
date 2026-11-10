@@ -107,7 +107,11 @@ move: Opus 5.5 at `high` because routing asked for it.
    `AGENT_FABRIC_LAUNCH_EFFORT`; a caller's own `--effort` wins and is what
    gets stamped.
 6. The launcher refuses `CLAUDE_CODE_EFFORT_LEVEL` in any value,
-   `unset` and `auto` included. The committed-settings guard refuses
+   `unset` and `auto` included, and `CLAUDE_CODE_SUBAGENT_EFFORT` the
+   same way: it sets the level of every subagent whose definition names
+   none, so the harness types and the locale worker would leave the
+   session's level
+   (A 2026-11-10). The committed-settings guard refuses both in `env`, and
    `effortLevel`, `maxEffortLevel` and `modelSettings` (a committed
    `maxEffortLevel` cannot be raised back by a launch: the lowest across
    scopes wins).
@@ -162,3 +166,4 @@ The body above reads current; each change's full note is in [history/ADR-006-ame
 | Date | Amendment | Effect |
 |---|---|---|
 | 2026-09-28 | The session's level is judged like a class's | §5 rule 3: `check()` judges the session on its own model; `providers.<p>.session` |
+| 2026-11-10 | `CLAUDE_CODE_SUBAGENT_EFFORT` is refused like `CLAUDE_CODE_EFFORT_LEVEL` | §5 rule 6: the launcher refuses it in any value; the committed-settings guard refuses it in `env` |

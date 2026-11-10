@@ -73,6 +73,14 @@ def main() -> int:
                                                                "operator": LOGIN, "fabric": "x"}},
                                 "placement": {LOGIN: host}}) + "\n")
         os.makedirs(f"{sandbox}/home")
+        # The claude line reads ~/.local/bin/claude, else the PATH's: on a fleet
+        # account that is the installed build, which trails the pin from the
+        # moment a pin move lands until the account upgrades. The forged home
+        # holds one that answers the pin, so no case sees a DRIFT of the host.
+        with open(f"{ROOT}/runtime/claude-code/harness.json", encoding="utf-8") as fh:
+            pin = json.load(fh)["claude"]
+        put(f"{sandbox}/home/.local/bin/claude", f"#!/bin/sh\necho '{pin} (Claude Code)'\n")
+        os.chmod(f"{sandbox}/home/.local/bin/claude", 0o755)
         base = {k: v for k, v in os.environ.items()
                 if not k.startswith(("GITHUB_", "AGENT_FABRIC_", "CLAUDE_", "ANTHROPIC_")) and k not in ("GIT_DIR", "CLAUDECODE")}
         # The routing it resolves is the engine's with the fixture's operator
