@@ -1545,4 +1545,6 @@ its record disagree, the record wins. Look it up, never read it whole:
   (what it waits on) (§5 r2).
 - Lint reads the catalogue and refuses a claim the tree does not bear
   out (§5 r3); a new mechanism enters with its owner (§5 r4).
+- A 2026-11-10 — an owner may be a package, named as its directory
+  with the trailing slash and holding a tracked file (§5 rule 3).
 - Keywords: mechanism, duplicate, reimplementation, owning module, catalogue, fitness function, process lifetime, killpg, evidence cap, binding read.
