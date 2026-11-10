@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """tools/fabric/cli/fabric.py — the command `bin/fabric` forwards to: `fabric <noun> [<verb>] [args…]` runs the command
-the `fabric` table of runtime/claude-code/commands.json names, as that command's own process (agent-fabric ADR-068).
+the `fabric` table of runtime/claude-code/commands.json names, as that command's own process (ADR-068).
 
 The contract is in table.py (resolution, listings, what is refused). This module adds the process:
 

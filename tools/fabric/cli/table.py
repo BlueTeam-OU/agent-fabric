@@ -1,5 +1,5 @@
 """tools/fabric/cli/table.py — the `fabric` table of runtime/claude-code/commands.json and the resolution of a word line
-through it (agent-fabric ADR-068 §5 rules 2 and 5).
+through it (ADR-068 §5 rules 2 and 5).
 
 Contract (the dispatcher and canonical() both stand on it):
 

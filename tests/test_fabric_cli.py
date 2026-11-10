@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""tools/fabric/cli/ and bin/fabric: the `fabric <noun> <verb>` command (agent-fabric ADR-068 §5 rules 1, 2, 3, 5, 7).
+"""tools/fabric/cli/ and bin/fabric: the `fabric <noun> <verb>` command (ADR-068 §5 rules 1, 2, 3, 5, 7).
 
 Stdlib only; runnable as `python3 tests/test_fabric_cli.py`. The table is a fixture of the shape the record gives, so the
 suite does not depend on the real commands.json; the guards' two-spelling cases are tests/test_fabric_spellings.py.

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # bin/fabric — `fabric <noun> [<verb>] [args…]`: runs the fabric command the table in
 # runtime/claude-code/commands.json names for those words, as that command's own process
-# (agent-fabric ADR-068). The account is in tools/fabric/cli/.
+# (ADR-068). The account is in tools/fabric/cli/.
 set -uo pipefail
 ROOT="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/.." && pwd)"
 export AGENT_FABRIC_ROOT="${AGENT_FABRIC_ROOT:-$ROOT}"

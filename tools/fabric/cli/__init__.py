@@ -1,4 +1,4 @@
-"""tools/fabric/cli/ — the `fabric <noun> <verb>` command (agent-fabric ADR-068).
+"""tools/fabric/cli/ — the `fabric <noun> <verb>` command (ADR-068).
 
 table.py     the `fabric` section of runtime/claude-code/commands.json and how a word line resolves through it
 canonical.py a Bash segment's words to (command, args), the one reading every hook and guard shares (rule 7)
