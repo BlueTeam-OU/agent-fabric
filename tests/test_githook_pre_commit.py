@@ -1082,7 +1082,8 @@ class RootsBypass(PreCommit):
 
     def test_a_shell_shim_in_bin_is_not_judged(self):
         repo = self.fabric.itself()
-        repo.stage("bin/fabric-wx", "#!/bin/sh\nexec \"$AGENT_FABRIC_ROOT\"/x[\"AGENT_FABRIC_ROOT\"]\n")
+        # Python-parsable body behind a sh shebang: only the shebang keeps it unjudged.
+        repo.stage("bin/fabric-wx", "#!/bin/sh\n" + self.BYPASS)
         self.fabric.bind("fabric-coordinator")
         r = self.run_hook(repo)
         self.assertEqual((r.returncode, r.stderr), (0, ""))
