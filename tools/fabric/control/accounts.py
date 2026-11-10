@@ -64,6 +64,7 @@ else:
     sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.realpath(__file__))))
 from control.ops import util  # noqa: E402
 from control.ops.usage import ACCOUNT_SLUG, account_slugs, accounts, accounts_dir, claude_bin, take_read_lock  # noqa: E402
+import roots  # noqa: E402
 
 USAGE = """usage: fabric-accounts login <account> | list | read | observe [--write] | templates | assign <login…|all> <account> [--no-restart] [--no-sync] [--force]
        fabric-accounts codex-token <login…|all> [--no-sync] [--force] [--refresh] [--home DIR]
@@ -76,12 +77,11 @@ USAGE = """usage: fabric-accounts login <account> | list | read | observe [--wri
 STORE_TIMEOUT_S = 900
 # fabric-ctl waits for each account's signed action, a restart's stop included.
 CTL_TIMEOUT_S = 1800
-_CODE_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.realpath(__file__)))))
 _SCRUBBED = ("CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_BASE_URL")
 
 
 def fabric_root(env: dict[str, str] | None = None) -> str:
-    return (os.environ if env is None else env).get("AGENT_FABRIC_ROOT") or _CODE_ROOT
+    return roots.engine_root(env)
 
 
 def ctl() -> Any:

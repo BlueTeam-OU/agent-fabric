@@ -119,6 +119,27 @@ def case_live_checks_dir_is_python_only_and_follows_the_operator_root() -> None:
     assert roots.live_checks_dir(environ={}, engine="/g") == J("/g", "docs", "live-checks")
 
 
+def case_checkout_root_is_the_exported_root_else_the_accounts_clone() -> None:
+    home = "/home/acct"
+    clone = J(home, "projects", "agent-fabric")
+    assert roots.checkout_root(home, {}) == clone == roots.account_clone(home)
+    assert roots.account_clone(home, "bin", "fabric-role") == J(clone, "bin", "fabric-role")
+    assert roots.checkout_root(home, {"AGENT_FABRIC_ROOT": E}) == E
+    assert roots.checkout_root(home, {"AGENT_FABRIC_ROOT": ""}) == clone, "empty is unset, as the `or` readers took it"
+    assert roots.checkout_root(home, {"AGENT_FABRIC_ROOT": ""}, empty_is_set=True) == "", "the `??` readers: empty is set"
+    assert roots.checkout_root(home, {"AGENT_FABRIC_OPERATOR": O}) == clone, "the operator root never answers for the checkout"
+    saved = os.environ.get("AGENT_FABRIC_ROOT")
+    os.environ["AGENT_FABRIC_ROOT"] = "/process"
+    try:
+        assert roots.checkout_root(home) == "/process"
+        assert roots.checkout_root(home, {}) == clone
+    finally:
+        if saved is None:
+            del os.environ["AGENT_FABRIC_ROOT"]
+        else:
+            os.environ["AGENT_FABRIC_ROOT"] = saved
+
+
 def main() -> int:
     cases = [v for k, v in globals().items() if k.startswith("case_")]
     failures = 0

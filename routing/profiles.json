@@ -29,7 +29,7 @@
           "session": "claude-fable-5-2"
         }
       },
-      "notes": "The architect's main conversation runs on Fable 5.2, the top tier, not the coding tier's model (the owner, 2026-09-24 on Fable 5.1; 2026-11-09 to Fable 5.2, read back in docs/live-checks/2026-11-09-fable-5-2.md). Only the model moves: its effort is the session's, routing/effort.json's medium, as every class's is since 2026-09-25; its code-plan subagents run on the column's model, Opus 5.5, at the same level."
+      "notes": "The architect's main conversation runs on Fable 5.2, the top tier, not the coding tier's model (the owner, 2026-09-24 on Fable 5.1; 2026-11-09 to Fable 5.2, read back in docs/live-checks/2026-11-09-fable-5-2.md; off 2026-11-10 while the pinned harness, 2.1.311, did not know the id, and back with the pin's move to 2.1.322, which does: docs/live-checks/2026-11-10-claude-code-2-1-322-readback.md). Only the model moves: its effort is the session's, routing/effort.json's medium, as every class's is since 2026-09-25; its code-plan subagents run on the column's model, Opus 5.5, at the same level."
     },
     "python-dev-03": {
       "launch_provider": "anthropic",

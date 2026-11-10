@@ -1,6 +1,6 @@
 ---
 name: pull-requests
-description: "How a change reaches main as a pull request in the fabric's projects: one change has one owner and the roles it needs supply it (commits or a for/ branch, never their own PR), the integrator folds unrebased and opens the one PR, fold then the full suite then one blind review then arm, a PR armed by its work-commit count against the repository's minimum (fabric-pr arm --dry-run) and below it only on the owner's word or its arming authority's, and one open PR per agent and repository with the next piece of work as another commit on it. Load it before you open, supply, fold, add to or arm a pull request, or state a PR's status."
+description: "How a change reaches main as a pull request in the fabric's projects: one change has one owner and the roles it needs supply it (commits or a for/ branch, never their own PR), the integrator folds unrebased and opens the one PR, fold then the full suite then one blind review then arm, a PR armed by its work-commit count against the repository's minimum (fabric-pr arm --dry-run) and below it only on the owner's word or its arming authority's, and one open PR per agent and repository with the next piece of work as another commit on it. Load it before you open, supply, fold, add to, arm or disarm a pull request, or state a PR's status."
 ---
 
 # Pull requests
@@ -78,6 +78,14 @@ word" in the basis: "the owner's word" lifts the count, never the
 checks, and neither stands in for the other. Any PR status you state carries its counts ("PR <n> is unarmed:
 6 work, 2 fix, minimum 8").
 
+**An arming is withdrawn as it was given: on the PR, with a basis.**
+`fabric-pr disarm <n> --basis "<why>"` sets the head's `fabric/armed`
+to pending, takes the PR out of the merge queue and off auto-merge, and
+posts "Disarming basis: …" naming your role and the head. You may
+disarm your own PR; another session's only with `--any-owner` and the
+owner's word or the arming authority's, held by your binding — never
+on `--any-owner` alone, though arm at the minimum takes that. Never by hand in GitHub: that leaves no record of why.
+
 ## One open pull request
 
 **One open pull request per agent and repository**. While one is open there — unarmed, armed or queued —
@@ -89,5 +97,5 @@ addable when the next piece depends on something being *merged*, the
 branch is already queued or merged, it touches a slow or flaky surface
 that would hold the rest hostage, the urgency differs, or it holds
 sixteen work commits — then land, no second PR. Two exceptions, said in
-the new PR: a finding on the queued PR itself (better: dequeue and fix on
+the new PR: a finding on the queued PR itself (better: `fabric-pr disarm` and fix on
 its head), and a user-visible or CI-blocking fix that must land now.

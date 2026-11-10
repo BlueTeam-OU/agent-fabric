@@ -133,6 +133,28 @@ def main() -> int:
         code, msg = want("1.2.3';id;'")
         check("a target with shell characters is refused here too", code == 1 and "is not stable, latest or a version" in msg)
 
+        # ADR-043 rule 6: a new account is an install, gated as an upgrade is.
+        asked = []
+
+        def gate(answer):
+            def ask(r: str):
+                asked.append(r)
+                return answer
+            return ask
+        drifted = "the managed settings (ADR-043 rules 1-2) are drifted on this host"
+        check("a build past the floor on a host not in force: the gate's refusal",
+              hs.claude_install_refusal(root, "2.1.322", gate(drifted)) == drifted and asked == [root], asked)
+        check("…and none when they are in force", hs.claude_install_refusal(root, "2.1.322", gate(None)) is None)
+        check("the floor itself is gated", hs.claude_install_refusal(root, "2.1.287", gate(drifted)) == drifted)
+        asked.clear()
+        check("a build below the floor is not asked about",
+              hs.claude_install_refusal(root, "2.1.286", gate(drifted)) is None and asked == [], asked)
+        check("a prerelease past the floor is gated by its version",
+              hs.claude_install_refusal(root, "2.1.300-beta.1", gate(drifted)) == drifted)
+        check("stable and latest name no version: held as past the floor",
+              hs.claude_install_refusal(root, "latest", gate(drifted)) == drifted
+              and hs.claude_install_refusal(root, "stable", gate(drifted)) == drifted)
+
         print("the subordinate ids")
         etc = f"{tmp}/etc"
         os.makedirs(etc)

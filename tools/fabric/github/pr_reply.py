@@ -44,6 +44,7 @@ import sys
 HERE = os.path.dirname(os.path.realpath(__file__))
 sys.path.insert(0, os.path.dirname(HERE))
 import gh  # noqa: E402
+import roots  # noqa: E402
 from github import common, local  # noqa: E402
 
 HELP = """Reply to ONE review thread and resolve it, in a single call.
@@ -220,7 +221,7 @@ def run(argv: list[str], stdin) -> int:
     if not root:
         die("not inside a git worktree, so the session's working-copy identity is unknown — refusing to reply "
             "(run it from the working copy that owns the PR).")
-    fabric = os.environ.get("AGENT_FABRIC_ROOT") or os.path.dirname(os.path.dirname(os.path.dirname(HERE)))
+    fabric = roots.engine_root()
     ident = os.path.join(fabric, "runtime", "identity.py")
     host = local.probe(["hostname", "-s"])[1].strip()
     agent = local.probe([sys.executable, ident])[1].strip() if os.path.exists(ident) else ""

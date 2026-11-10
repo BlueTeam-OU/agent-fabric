@@ -62,6 +62,7 @@ HERE = os.path.dirname(os.path.realpath(__file__))
 sys.path.insert(0, os.path.dirname(HERE))
 import gh  # noqa: E402
 import review_brief  # noqa: E402
+import roots  # noqa: E402
 from github import common, evidence, local, review_coverage  # noqa: E402
 from github.review_checkpoint import last_checkpoint_review  # noqa: E402
 
@@ -592,7 +593,7 @@ def run(argv: list[str], stdin) -> int:
     # The session is the AGENT — the Linux login — on this host. Older
     # branches carry the working-copy name in the second segment, so that
     # is accepted as this session too while they last.
-    fabric = os.environ.get("AGENT_FABRIC_ROOT") or os.path.join(root, "..", "agent-fabric")
+    fabric = roots.sibling_checkout(root)
     host = local.probe(["hostname", "-s"])[1].strip()
     agent = identity(fabric) or local.probe(["id", "-un"])[1].strip()
     me, me_legacy = f"{host}/{agent}", f"{host}/{os.path.basename(root)}"

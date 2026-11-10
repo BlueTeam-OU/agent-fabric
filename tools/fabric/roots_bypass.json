@@ -1,0 +1,21 @@
+{
+  "_comment": "agent-fabric ADR-045 §5 rule 1 (j222): the modules tools/fabric/roots_bypass.py admits although they find a tree or an instance-data path without tools/fabric/roots.py. Each value says why. An entry admits the whole module, a later bypass in it included; an entry that admits nothing is lint's finding, so a gap's entry leaves with its fix.",
+  "modules": {
+    "runtime/claude-code/hooks/job-copy-guard.py": "a harness hook, a standalone script run by the harness before any module of the fabric is importable; runtime/claude-code/ is fabric-coordinator's (policies/authority.json), not python-dev's to move",
+    "runtime/claude-code/hooks/memory-write-check.py": "a harness hook, a standalone script run by the harness before any module of the fabric is importable; runtime/claude-code/ is fabric-coordinator's (policies/authority.json), not python-dev's to move",
+    "runtime/claude-code/hooks/model-switch-guard.py": "a harness hook, a standalone script run by the harness before any module of the fabric is importable; runtime/claude-code/ is fabric-coordinator's (policies/authority.json), not python-dev's to move",
+    "runtime/claude-code/hooks/self-kill-guard.py": "a harness hook, a standalone script run by the harness before any module of the fabric is importable; runtime/claude-code/ is fabric-coordinator's (policies/authority.json), not python-dev's to move",
+    "runtime/claude-code/hooks/session-start.py": "a harness hook, a standalone script run by the harness before any module of the fabric is importable; runtime/claude-code/ is fabric-coordinator's (policies/authority.json), not python-dev's to move",
+    "runtime/claude-code/hooks/watch-on-stop.py": "a harness hook, a standalone script run by the harness before any module of the fabric is importable; runtime/claude-code/ is fabric-coordinator's (policies/authority.json), not python-dev's to move",
+    "runtime/identity.py": "the state layer, stdlib-only and loaded by path by the launcher, jobs and fresh before roots is importable; it also sits outside python-dev's entry (policies/authority.json)",
+    "runtime/provisioning/moveto/moveto.py": "copied to hosts as share/moveto/moveto.py (tools/fabric/hosttools.py MOVETO_FILES): it runs where tools/fabric/roots.py does not exist, and ~/projects/agent-fabric is the account's own clone",
+    "tools/fabric/assembler/intake.py": "refuse_foreign_root must see the operator variable exactly as exported, to refuse a tree other than the checkout the drain is in; roots would answer the fallback it is checking against",
+    "tools/fabric/launcher/routing.py": "saves and restores AGENT_FABRIC_ROOT around loading routing.py, which reads it at import: it handles the variable, it does not resolve a tree",
+    "tools/fabric/lint_rules/mechanisms.py": "outside python-dev's entry (the lint); it names its policy file by a constant for the tree lint was handed",
+    "tools/fabric/process_spawns.py": "a checker that judges the tree its --root names and reads that tree's policy file; loaded by path by lint, the hook and the guard, which keep it stdlib-only and free of sibling imports (a sibling named roots on sys.path could be a fixture's)",
+    "tools/fabric/review_cli.py": "the pre-pin stub: runs on whatever python3 the host has, sets the variable for the pinned child and imports nothing of the fabric, so a host without the pin still says so",
+    "tools/fabric/role_cli.py": "the pre-pin stub: runs on whatever python3 the host has, sets the variable for the pinned child and imports nothing of the fabric, so a host without the pin still says so",
+    "tools/fabric/transport_calls.py": "a checker that judges the tree it is handed and reads that tree's policy file; loaded by path by lint and the hook, stdlib-only, no sibling imports",
+    "tools/fabric/work_writes.py": "a checker that judges the tree its --root names and reads that tree's policy file; loaded by path by lint and the hook, stdlib-only, no sibling imports"
+  }
+}

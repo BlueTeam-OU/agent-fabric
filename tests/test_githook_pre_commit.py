@@ -40,7 +40,8 @@ import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from githook_fixtures import HOST, LOGIN, ROOT, Fabric  # noqa: E402
-from instance_fixtures import write_registry  # noqa: E402
+from instance_fixtures import own_instance_tree, write_registry  # noqa: E402
+own_instance_tree()
 
 GENERIC_TAIL = "agent-fabric is read-only for every role but fabric-coordinator; in a managed\nproject, .agent-fabric/ is."
 LOCALE = "identities/roles/language-culture/locale"
@@ -1031,6 +1032,97 @@ class TransportCalls(PreCommit):
         r = self.run_hook(repo)
         self.assertEqual(r.returncode, 1, r.stderr)
         self.assertIn("pre-commit: the staged policies/transport-calls.json is not JSON — not committed", r.stderr)
+
+
+class RootsBypass(PreCommit):
+    """In agent-fabric itself a staged module that reads AGENT_FABRIC_ROOT, builds the account's clone by hand or joins an
+    instance-data path onto a root it found is refused whoever commits, unless the staged policy names it with a reason
+    (ADR-045 §5 rule 1, tools/fabric/roots_bypass.py).
+    Mutations: the call removed from pre_commit (the refusal case); the policy read from the work tree (the unstaged-entry
+    case); a deleted policy's modules left unjudged (the deletion case); the module of a removed entry left unjudged (the
+    drop case); a reasonless entry admitting (the reasonless case); bin/ judged without asking for Python (the shim case)."""
+
+    BYPASS = "import os\n\n\ndef f():\n    return os.environ[\"AGENT_FABRIC_ROOT\"]\n"
+    MODULE = "tools/fabric/wx.py"
+    POLICY = "tools/fabric/roots_bypass.json"
+
+    def setUp(self):
+        self.build(owner_role="fabric-coordinator")
+
+    def listed(self, reason="a test"):
+        return json.dumps({"modules": {self.MODULE: reason}})
+
+    def test_a_staged_bypass_is_refused_for_the_owner_too(self):
+        repo = self.fabric.itself()
+        repo.stage(self.MODULE, self.BYPASS)
+        self.fabric.bind("fabric-coordinator")
+        r = self.run_hook(repo)
+        self.assertEqual(r.returncode, 1, r.stderr)
+        self.assertIn("tools/fabric/wx.py:5:", r.stderr)
+        self.assertIn("ADR-045 §5 rule 1", r.stderr)
+
+    def test_the_staged_policy_admits_and_an_unstaged_entry_does_not(self):
+        repo = self.fabric.itself()
+        repo.stage(self.MODULE, self.BYPASS)
+        repo.write(self.POLICY, self.listed())
+        self.fabric.bind("fabric-coordinator")
+        self.assertEqual(self.run_hook(repo).returncode, 1)
+        repo.git("add", self.POLICY)
+        r = self.run_hook(repo)
+        self.assertEqual((r.returncode, r.stderr), (0, ""))
+
+    def test_an_entry_without_a_reason_admits_nothing(self):
+        repo = self.fabric.itself()
+        repo.stage(self.MODULE, self.BYPASS)
+        repo.write(self.POLICY, self.listed("  "))
+        repo.git("add", self.POLICY)
+        self.fabric.bind("fabric-coordinator")
+        r = self.run_hook(repo)
+        self.assertEqual(r.returncode, 1, r.stderr)
+        self.assertIn("tools/fabric/wx.py:5:", r.stderr)
+
+    def test_a_shell_shim_in_bin_is_not_judged(self):
+        repo = self.fabric.itself()
+        # Python-parsable body behind a sh shebang: only the shebang keeps it unjudged.
+        repo.stage("bin/fabric-wx", "#!/bin/sh\n" + self.BYPASS)
+        self.fabric.bind("fabric-coordinator")
+        r = self.run_hook(repo)
+        self.assertEqual((r.returncode, r.stderr), (0, ""))
+
+    def test_a_python_command_in_bin_is_judged(self):
+        repo = self.fabric.itself()
+        repo.stage("bin/fabric-wx", "#!/usr/bin/env python3\n" + self.BYPASS)
+        self.fabric.bind("fabric-coordinator")
+        r = self.run_hook(repo)
+        self.assertEqual(r.returncode, 1, r.stderr)
+        self.assertIn("bin/fabric-wx:", r.stderr)
+
+    def test_a_commit_that_deletes_the_policy_judges_its_modules(self):
+        repo = self.fabric.itself({self.MODULE: self.BYPASS, self.POLICY: self.listed()})
+        repo.git("rm", "-q", self.POLICY)
+        self.fabric.bind("fabric-coordinator")
+        r = self.run_hook(repo)
+        self.assertEqual(r.returncode, 1, r.stderr)
+        self.assertIn("tools/fabric/wx.py:5:", r.stderr)
+
+    def test_a_commit_that_only_drops_an_entry_judges_its_module(self):
+        # Mutation: the module of a removed entry not judged (a commit staging only the list returns early).
+        repo = self.fabric.itself({self.MODULE: self.BYPASS, self.POLICY: self.listed()})
+        repo.write(self.POLICY, json.dumps({"modules": {}}))
+        repo.git("add", self.POLICY)
+        self.fabric.bind("fabric-coordinator")
+        r = self.run_hook(repo)
+        self.assertEqual(r.returncode, 1, r.stderr)
+        self.assertIn("tools/fabric/wx.py:5:", r.stderr)
+
+    def test_a_list_that_is_not_json_refuses(self):
+        repo = self.fabric.itself()
+        repo.stage("tools/fabric/x.py", "x = 1\n")
+        repo.stage(self.POLICY, "{")
+        self.fabric.bind("fabric-coordinator")
+        r = self.run_hook(repo)
+        self.assertEqual(r.returncode, 1, r.stderr)
+        self.assertIn("pre-commit: the staged tools/fabric/roots_bypass.json is not JSON — not committed", r.stderr)
 
 
 if __name__ == "__main__":

@@ -525,6 +525,9 @@ def change(args) -> int:
         job = evidence_only(args, "artifacts", lambda j: list(dict.fromkeys((j.get("artifacts") or []) + args.artifacts)))
     elif args.cmd == "deliver" and find(identity.read_jobs(), args.id)["state"] == "delivered":
         job = more_artifacts(args)
+    elif args.cmd == "done" and args.artifacts and find(identity.read_jobs(), args.id)["state"] == "done":
+        # A closed job takes evidence through `deliver`, which records it; here the names would be dropped without a word.
+        raise Refused(f"{args.id} is already done: add artifacts with fabric-jobs deliver {args.id} <artifact>...")
     elif args.cmd == "done" and args.no_artifact is not None and find(identity.read_jobs(), args.id)["state"] == "done":
         why = " ".join(args.no_artifact.split())
         if not why:
@@ -542,6 +545,14 @@ def change(args) -> int:
     if said.get("hint"):
         print(f"fabric-jobs: a blocker that names a pull request or a message can clear by itself: --on {bl.FORMS}", file=sys.stderr)
     return 0
+
+
+def _unlanded(job_id: str, names: list[str]) -> list[str]:
+    """Why `names`, taken as the job's artifacts, are not evidence that it is done; empty when they are."""
+    problems: list[str] = []
+    # done_evidence adds a problem whenever it finds no evidence, so an empty `problems` is a pass.
+    needs.st.done_evidence({**find(identity.read_jobs(), job_id), "artifacts": names, "topic": None, "no_artifact": None}, problems)
+    return problems
 
 
 def move(args, said: dict) -> Job:
@@ -569,5 +580,23 @@ def move(args, said: dict) -> Job:
         why = " ".join(args.no_artifact.split()) if args.no_artifact is not None else None
         if args.no_artifact is not None and not why:
             raise Refused("--no-artifact needs a reason: fabric-jobs done <id> --no-artifact \"<what was done>\"")
-        return needs.advance(args.id, "done", "done", lambda job: {"no_artifact": why})
+        for name in args.artifacts:
+            # Each name must land on its own: the done test passes a job when any one artifact landed, and would otherwise record
+            # a closed pull request or a word that is no commit beside a merged one.
+            problems = _unlanded(args.id, [name])
+            if problems:
+                # A squash-merged branch is excused only by the merged pull request that ended at its tip, which the job may name
+                # beside it. Only that one refusal is retried with every name: any other would be excused by an unrelated landed
+                # artifact, and a name beside it that fails is refused on its own turn.
+                if len(args.artifacts) > 1 and any(needs.st.NO_PR_AT_TIP in p for p in problems):
+                    together = _unlanded(args.id, args.artifacts)
+                    if together:
+                        # Not blamed on this name alone: the leftovers may be another branch's or a pull request's.
+                        raise Refused(f"{name} with the names beside it is not recorded: " + "; ".join(together))
+                    problems = []
+            if problems:
+                raise Refused(f"{name} did not land, so it is not recorded: " + "; ".join(problems))
+        # Artifacts named on the verb are recorded with the close: a pull request that merged before `deliver` was run is refused by
+        # `deliver` (done, not delivered), and this is the one way to keep it as the job's evidence.
+        return needs.advance(args.id, "done", "done", lambda job: {"no_artifact": why, **({"artifacts": list(dict.fromkeys((job.get("artifacts") or []) + args.artifacts))} if args.artifacts else {})})
     return needs.advance(args.id, "dropped", "drop", lambda job: {"reason": " ".join(args.why.split()), "note": args.why})

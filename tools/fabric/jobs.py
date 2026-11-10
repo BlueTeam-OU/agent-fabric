@@ -13,7 +13,7 @@ behind bin/fabric-jobs.
     fabric-jobs block <id> --on <blocker> [--on <blocker>…] ["<on what>"]   blocker: pr:<owner/repo>#<n> | request:<message-id> | job:<login>/j<n> | clock:<YYYY-MM-DDTHH:MM[:SS]Z>
     fabric-jobs deliver <id> <artifact>...
     fabric-jobs retract <id> <artifact>                          remove one artifact, exactly as recorded, in any state; noted in the log
-    fabric-jobs done <id> [--no-artifact "<what was done>"]      the reason is the evidence of work that leaves no artifact
+    fabric-jobs done <id> [<artifact>...] [--no-artifact "<what was done>"]   the artifacts named are recorded and are the evidence (a pull request merged before `deliver` ran: `deliver` refuses it as done, not delivered); the reason is the evidence of work that leaves no artifact
     fabric-jobs sweep [--dry-run]                                delivered jobs whose evidence has landed become done
     fabric-jobs tidy [--dry-run]                                 build output (target, node_modules) of every checkout under ~/projects no open job holds
     fabric-jobs drop <id> "<why>"
@@ -186,6 +186,10 @@ check that failed and changing nothing:
      `done <id> --no-artifact "<what was done>"` records the reason on the job (shown by show and list) and settle takes it as the
      evidence of a done job that has none; on a job already done without evidence it adds the reason. An empty reason is refused,
      and it never outweighs a problem the artifacts raise (an open pull request, an unfolded branch).
+     `done <id> <artifact>...` records the artifacts named (a pull request, a commit) on the job as it closes it, and they are the evidence:
+     a pull request that merged before `deliver` was run is refused by `deliver` (done, not delivered), and this is how it is kept.
+     Each name must land on its own; a squash-merged branch, which is not on the default branch, lands when the merged pull request
+     that ended at its tip is named beside it.
      `deliver <id> <artifact>` on a done job appends evidence and leaves it closed (a dropped job takes none).
      `retract <id> <artifact>` removes one recorded artifact whatever the job's state, so a mistaken one cannot hold the job; it refuses,
      naming the artifacts, when the string is not there, and notes what was removed in the job's log.
@@ -193,7 +197,9 @@ check that failed and changing nothing:
   3. Its branch is chosen before any work: the for/ branch a supply job records (`deliver_to`) when the job has no other branch of
      its own and no pull request from it merged (the open-pull-request refusal and --needs-merged below do not apply to it); else the job's own branch, whenever it records one: it is resumed there, its worktree made again from the branch when a sweep removed it, and a
      recorded branch that a pull request landed, or that is on neither this clone nor origin, is refused and said, never replaced by another job's
-     (j201); except that `--repoint` takes a paused job whose branch a pull request landed to this login's one open pull request in the
+     (j201); except that a BLOCKED job (every blocker cleared, as `switch` requires) whose recorded branch a pull request landed is a job with
+     no branch (unless --repoint was asked, which applies to a paused job only and is refused for it): it is given one as below, and the landed branch is replaced in its record (the work on it is on the default branch); and
+     except that `--repoint` takes a paused job whose branch a pull request landed to this login's one open pull request in the
      repository (j641: the work continued there), when that can take more commits (fewer than 16 work commits, not queued; an armed one in
      no merge queue too, only where the repository has disarm-on-push.yml on its default branch or a ruleset on it requiring fabric/armed,
      else refused naming why, also when either lookup cannot be read; the output and the --json `note` then say it is armed and that the first push disarms it): the job records that branch and its worktree, in the
@@ -303,6 +309,7 @@ def main(argv: list[str] | None = None) -> int:
     sub.add_parser("start").add_argument("id")
     dn = sub.add_parser("done", help="close a job; --no-artifact records why its work leaves nothing to name")
     dn.add_argument("id")
+    dn.add_argument("artifacts", nargs="*", metavar="ARTIFACT", help="what landed (a merged pull request, a commit on the default branch), recorded on the job with the close")
     dn.add_argument("--no-artifact", metavar="WHAT", help="what was done, for work with no PR, commit, branch or reply to name")
     b = sub.add_parser("block")
     b.add_argument("id")

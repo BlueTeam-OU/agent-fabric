@@ -83,6 +83,18 @@ def claude_want(root: str, target: str) -> str:
     return want
 
 
+def claude_install_refusal(root: str, want: str, gate=None) -> str | None:
+    """ADR-043 rule 6: why this host may not install Claude Code `want`, or None. After the first move past 2.1.286
+    the gate is each install, and a new account's is one, as an upgrade's is (control/upgrade.py, the gate's one
+    home). stable and latest name no version, so they are held as a build past the floor. Asked only where a build
+    would be installed: an account that already has it installs nothing, as upgrade checks "current" first."""
+    from control import upgrade  # lazily: heavier than the rest of this module, and needed only here
+    m = VERSION.match(want)
+    if m is not None and tuple(int(x) for x in m.group().split(".")) < upgrade.MANAGED_FLOOR:
+        return None
+    return (gate or upgrade.managed_refusal)(root)
+
+
 def subids(login: str, etc: str) -> str:
     """A subordinate uid AND gid range, or rootless podman can unpack no
     image and every Testcontainers suite fails on the login: useradd

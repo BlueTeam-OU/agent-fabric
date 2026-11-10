@@ -271,6 +271,10 @@ def _pr_head(repo: str, number: str) -> str:
     return str(vcs.gh.pr_view(int(number), ["headRefOid"], repo=repo).get("headRefOid") or "")
 
 
+# `done` retries a branch refused for this reason with the other names it was given (verbs.move), so the text is one constant.
+NO_PR_AT_TIP = "no merged pull request the job names ended at its tip"
+
+
 def _landed(job: dict, found: dict, problems: list[str], pr_state=_pr_state, pr_head=_pr_head) -> list[str]:
     """The artifacts that show the work on the default branch, for `done`: merged PRs, commits on origin's default branch, replies.
     `pr_state(repo, number)` asks gh for a pull request's state and `pr_head` for the commit it ended at; `sweep` hands in ones that
@@ -319,7 +323,7 @@ def _landed(job: dict, found: dict, problems: list[str], pr_state=_pr_state, pr_
             if tip in heads:
                 landed.append(f"branch {name} carried by a merged pull request")
             elif asked_ok:
-                problems.append(f"branch {name} is not on origin/{default}, and no merged pull request the job names ended at its tip: it is delivered, not done (or fold it first)")
+                problems.append(f"branch {name} is not on origin/{default}, and {NO_PR_AT_TIP}: it is delivered, not done (or fold it first)")
     landed += _replies(found, problems)
     if opened:
         problems.append(f"{', '.join(opened)} is still open: the job is delivered, not done (fabric-jobs deliver)")
@@ -403,11 +407,11 @@ def _delivered(job: dict, found: dict, problems: list[str]) -> list[str]:
             problems.append(f"could not tell whether branch {name} is on the default branch ({e})")
             continue
         if folded and not opened:
-            problems.append(f"branch {name} is on origin/{default}: the job is done, not delivered (fabric-jobs done)")
+            problems.append(f"branch {name} is on origin/{default}: the job is done, not delivered (fabric-jobs done <id> {name})")
         else:
             replies.append(f"branch {name} on origin")
     if merged and not opened:
-        problems.append(f"{', '.join(merged)} is merged: the job is done, not delivered (fabric-jobs done)")
+        problems.append(f"{', '.join(merged)} is merged: the job is done, not delivered (fabric-jobs done <id> {merged[0]})")
     return [f"{p} open" for p in opened] + replies
 
 
@@ -508,7 +512,7 @@ def done_evidence(job: dict, problems: list[str]) -> list[str]:
             evidence = [f"no artifact: {job['no_artifact']}"]
         else:
             problems.append(f"done needs evidence it landed: deliver {EVIDENCE_FORMS} that is merged or on the default branch, "
-                            f"or record why there is none: fabric-jobs done {job['id']} --no-artifact \"<what was done>\"")
+                            f"name it on the verb: fabric-jobs done {job['id']} <artifact>, or record why there is none: fabric-jobs done {job['id']} --no-artifact \"<what was done>\"")
     return evidence
 
 

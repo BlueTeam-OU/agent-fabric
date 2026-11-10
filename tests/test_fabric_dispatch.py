@@ -53,10 +53,11 @@ def main() -> int:
     print("fabric_pr — the verb table")
     gh = os.path.join(ROOT, "tools", "fabric", "github")
     check("every verb names a module that exists", all(os.path.isfile(f"{gh}/{m}.py") for m in fabric_pr.VERBS.values()), fabric_pr.VERBS)
-    check("the verbs are the eleven, in the order the help lists them",
-          list(fabric_pr.VERBS) == ["gate", "review-status", "post-review", "reply", "arm", "sessions", "trial-merge", "wait-merged",
+    check("the verbs are the twelve, in the order the help lists them",
+          list(fabric_pr.VERBS) == ["gate", "review-status", "post-review", "reply", "arm", "disarm", "sessions", "trial-merge", "wait-merged",
                                     "owed-supply", "compliance", "counts"])
     expected = {"gate": "pr_gate", "review-status": "pr_review_status", "post-review": "post_review", "reply": "pr_reply", "arm": "arm",
+                "disarm": "disarm",
                 "sessions": "pr_sessions", "trial-merge": "trial_merge", "wait-merged": "wait_merged", "owed-supply": "owed_supply",
                 "compliance": "pr_compliance", "counts": "pr_counts"}
     check("the table is the bash's, verb for verb", fabric_pr.VERBS == expected, fabric_pr.VERBS)

@@ -57,9 +57,9 @@ The current mapping:
   `code-medium` is `claude-sonnet-5-5`; `code-high`, `code-plan` and the
   review class are `claude-opus-5-5`, and so is the default session
   (A 2026-09-29);
-  `architect-cto-01`'s session is `claude-fable-5-2` (an agent layer)
-  (A 2026-11-09), and the python-dev role's is `claude-sonnet-5-5` (a role
-  layer) (A 2026-10-09).
+  `architect-cto-01`'s session is `claude-fable-5-2` (an agent layer),
+  since the pinned harness knows the id (A 2026-11-10), and the python-dev
+  role's is `claude-sonnet-5-5` (a role layer) (A 2026-10-09).
   `anthropic/claude-opus-5-5` is admitted to review-grade without the
   `[1m]` marker (Opus 5.5's context is natively 1M). The aliases stay:
   they are how the harness spells a class; `haiku` binds to Haiku 5.5,
@@ -187,3 +187,5 @@ The body above reads current; each change's full note is in [history/ADR-005-ame
 | 2026-10-07 | code-low is Haiku 5.5 on plain claude | §1, §2 the current mapping: `code-low` on `claude-haiku-5-5`, `haiku` binds to it |
 | 2026-10-09 | python-dev's session is Sonnet 5.5, a role layer | §2's current mapping names `roles.python-dev`'s Sonnet 5.5 session beside architect-cto-01's agent layer |
 | 2026-11-09 | architect-cto-01's session is Fable 5.2 | §2's current mapping: the agent layer names `claude-fable-5-2` |
+| 2026-11-10 | architect-cto-01's session is Opus 5.5 again | §2's current mapping: the agent layer is gone, and the session takes the default |
+| 2026-11-10 | architect-cto-01's session is Fable 5.2 again, with the pin | §2's current mapping: the agent layer names `claude-fable-5-2` once more; the harness pin is 2.1.322, which knows it |

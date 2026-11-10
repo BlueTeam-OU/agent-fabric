@@ -58,8 +58,8 @@ from typing import Any
 sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
 import roots  # noqa: E402
 
-FABRIC_ROOT = os.environ.get("AGENT_FABRIC_ROOT") or os.path.dirname(
-    os.path.dirname(os.path.dirname(os.path.realpath(__file__))))
+FABRIC_ROOT = roots.engine_root()
+
 
 MODEL_ID = re.compile(r"^~?[a-z0-9-]+/[a-z0-9.-]+(:[a-z]+)?(\[1m\])?$")
 # A harness model reference: a tier alias (`opus`, `fable`) — the only form

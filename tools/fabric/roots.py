@@ -22,6 +22,8 @@ instance data asks it and the later move is a change here.
     code_root()      the checkout this file is in, never the environment:
                      what ships with the code (fresh.py's bash took its
                      own tree, not AGENT_FABRIC_ROOT).
+    checkout_root()  the same variable, else <home>/projects/agent-fabric: the account's clone, for the control
+                     plane's readers that answer for the account and not for the tree their code was loaded from.
     operator_root()  AGENT_FABRIC_OPERATOR when set and non-empty, else
                      engine_root().
 
@@ -71,6 +73,31 @@ def engine_root(environ: Mapping[str, str] | None = None, *, empty_is_set: bool 
     value = _env(environ).get(ENV_ENGINE)
     if value is None or (value == "" and not empty_is_set):
         return _CODE_ROOT
+    return value
+
+
+def account_clone(home: str, *parts: str) -> str:
+    """<home>/projects/agent-fabric[/parts]: where provisioning clones the fabric into an ACCOUNT's home. A place in
+    a home directory, not a tree to choose among: `home` is the account's, never the session's environment."""
+    return os.path.join(home, "projects", "agent-fabric", *parts)
+
+
+def sibling_checkout(working_copy: str, environ: Mapping[str, str] | None = None) -> str:
+    """AGENT_FABRIC_ROOT when exported (non-empty), else the fabric checkout beside a working copy
+    (<working copy>/../agent-fabric): the workspace's layout, for a tool that runs inside a project and has no
+    code of the fabric's own to ask."""
+    return _env(environ).get(ENV_ENGINE) or os.path.join(working_copy, "..", "agent-fabric")
+
+
+def checkout_root(home: str, environ: Mapping[str, str] | None = None, *, empty_is_set: bool = False) -> str:
+    """The fabric checkout a control-plane account runs on: AGENT_FABRIC_ROOT when exported, else the clone
+    provisioning puts at <home>/projects/agent-fabric. Not engine_root(): that falls back to the checkout this
+    file is in, and the control plane's readers (agentd, the control ops, fabric-ctl) answer for the ACCOUNT's
+    checkout whatever tree their own code was loaded from. Empty counts as unset, except for the readers that took
+    the variable by `??` (`empty_is_set`): there it names a root that does not exist, and says so."""
+    value = _env(environ).get(ENV_ENGINE)
+    if value is None or (value == "" and not empty_is_set):
+        return account_clone(home)
     return value
 
 

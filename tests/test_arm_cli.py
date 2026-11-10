@@ -56,6 +56,8 @@ def gh_mock(s: str, a: list[str], stdin: str) -> tuple[int, str, str]:
     has = lambda n: os.path.exists(os.path.join(s, n))
     _log(s, line + "\n")
     if line.startswith("pr comment ") and line.endswith("--body-file -"):
+        if has("commentfail"):
+            return 1, "", "gh: Bad Gateway (HTTP 502)"
         _log(s, f"pr comment {a[2]} --body {stdin}\n")
         return 0, "", ""
     pr = json.load(open(os.path.join(s, "pr.json")))
@@ -106,6 +108,14 @@ def gh_mock(s: str, a: list[str], stdin: str) -> tuple[int, str, str]:
             return 1, "", "gh: Resource not accessible by integration (HTTP 403)"
         _log(s, f"status {a[1].rsplit('/', 1)[1]} {stdin}\n")
         return 0, json.dumps({"state": "success"}), ""
+    # The head's combined status (disarm): `armed_status` the fabric/armed state on it, none without it;
+    # `status_read_fail` a failed read.
+    if line.startswith("api repos/gzapi-org/gzapp/commits/") and "/status?" in line:
+        if has("status_read_fail"):
+            return 1, "", "gh: Bad Gateway (HTTP 502)"
+        st = _state(s, "armed_status")
+        return 0, json.dumps({"statuses": [{"context": "ci", "state": "success"}]
+                             + ([{"context": "fabric/armed", "state": st}] if st else [])}), ""
     if line.startswith("api repos/gzapi-org/gzapp"):
         sys.path.insert(0, os.path.join(ROOT, "tools", "fabric"))
         from github import arm_policy
@@ -116,8 +126,22 @@ def gh_mock(s: str, a: list[str], stdin: str) -> tuple[int, str, str]:
             return 0, json.dumps(want["ruleset"]), ""
         if line.startswith("api repos/gzapi-org/gzapp --method GET"):
             return 0, json.dumps(want["repository"]), ""
+    # disarm's two mutations, logged by name; `sticky` an arming that a mutation answered and did not take off;
+    # `mutationfail` names the one that fails; `merges_on_disarm` a PR merged while it was disarmed (reads MERGED after).
+    if line == "api graphql --input -" and "mutation" in stdin:
+        for verb, n in (("disablePullRequestAutoMerge", "armed"), ("dequeuePullRequest", "queued")):
+            if verb in stdin:
+                if _state(s, "mutationfail") == verb:
+                    return 1, "", "gh: GraphQL: Something went wrong (HTTP 502)"
+                if has("merges_on_disarm"):
+                    open(os.path.join(s, "merged"), "w").close()
+                _log(s, f"mutation {verb} {json.loads(stdin)['variables']}\n")
+                if not has("sticky") and has(n):
+                    os.remove(os.path.join(s, n))
+                return 0, json.dumps({"data": {verb: {"clientMutationId": None}}}), ""
     if line == "api graphql --input -":
-        p = {"state": "OPEN", "headRefOid": pr["headRefOid"], "autoMergeRequest": None, "mergeQueueEntry": None}
+        p = {"id": "PR_node7", "state": "OPEN", "headRefName": pr["headRefName"], "title": pr["title"],
+             "headRefOid": pr["headRefOid"], "autoMergeRequest": None, "mergeQueueEntry": None}
         if has("pushed"):
             p["headRefOid"] = "0123456789abcdef0123456789abcdef01234567"
         if has("closed"):
@@ -210,7 +234,12 @@ def jobs_mock(s: str, a: list[str], stdin: str) -> tuple[int, str, str]:
     return 2, "", "mock fabric-jobs: unhandled: " + " ".join(a)
 
 
-MOCKS = {"gh": gh_mock, "pr-gate": gate_mock, "pr-review-status": review_mock,
+# fabric-whoami --json: `whoami.json` what it prints, this session holding devex-tooling without it.
+def whoami_mock(s: str, a: list[str], stdin: str) -> tuple[int, str, str]:
+    return 0, _state(s, "whoami.json", json.dumps({"address": "develop-qzapp/me", "role": "devex-tooling"})), ""
+
+
+MOCKS = {"fabric-whoami": whoami_mock, "gh": gh_mock, "pr-gate": gate_mock, "pr-review-status": review_mock,
          "gzcoord-inbox": inbox_mock, "fabric-ctl": ctl_mock, "fabric-jobs": jobs_mock}
 
 SHIM_TEXT = '''#!/usr/bin/env python3
@@ -276,7 +305,9 @@ def main() -> int:
             claude_only (gate 4b): a case about a missing review says reviewed=False."""
             for n in ("calls", "armed", "queued", "merged", "closed", "noarm", "nohead", "pushed", "viewfail", "blind", "independent", "unresolved", "no_blind_field", "unavailable",
                       "mergefail", "inbase", "unasked", "moved", "statusfail", "reviews.json", "reviews_fail", "viewer", "viewer_fail", "jobs.json", "jobs_fail", "shows.json",
-                      "waiver.out", "waiver_rc", "presence.out", "ctl_rc", "gh_repos", "modes.json", "trees_fail"):
+                      "waiver.out", "waiver_rc", "presence.out", "ctl_rc", "gh_repos", "modes.json", "trees_fail",
+                      "whoami.json", "armed_status", "status_read_fail", "sticky",
+                      "mutationfail", "commentfail", "merges_on_disarm"):
                 if os.path.exists(f"{state}/{n}"):
                     os.remove(f"{state}/{n}")
             put("review_rc", "0" if reviewed else "1")
@@ -1520,6 +1551,162 @@ def main() -> int:
               rc == 0 and "boundary gate WAIVED by architect-cto-01" in out and "ARMED #7" in out
               and f"Boundary gate waived by architect-cto-01 ({mid}): {why}." in calls()
               and f"replay --replay {mid} --json" in calls() and "ctl architect-cto-01 presence --json" in calls(), out + calls())
+
+        # ── fabric-pr disarm (REQUEST 01a1c27c): who may arm may disarm, and the basis stays on the PR ──
+        from github import disarm
+        whoami = {"AGENT_FABRIC_WHOAMI": f"{bindir}/fabric-whoami"}
+
+        def drun(*args: str, policy: dict | None = None) -> tuple[int, str]:
+            """disarm.main() in this process, gh and fabric-whoami the mocks', the policy claude_only or `policy`."""
+            buf = io.StringIO()
+            with contextlib.ExitStack() as st:
+                st.enter_context(mock.patch.dict(os.environ, environment(True, whoami), clear=True))
+                st.enter_context(mock.patch.object(disarm.common, "apply_project_env"))
+                st.enter_context(mock.patch.object(gh, "run", gh_run))
+                st.enter_context(mock.patch.object(arm, "run_reader", reader))
+                st.enter_context(mock.patch.object(arm_policy, "load", lambda repo, **kw: policy or claude_only))
+                st.enter_context(contextlib.redirect_stdout(buf))
+                st.enter_context(contextlib.redirect_stderr(buf))
+                rc = disarm.main(list(args))
+            return rc, buf.getvalue()
+
+        def written() -> list[str]:
+            """Every write disarm made: a status, a mutation, a comment."""
+            return [c for c in calls().splitlines() if c.startswith(("status ", "mutation ", "pr comment 7 --body "))]
+
+        def armed_pr(branch: str = me, auto: bool = True, queued: bool = False, status: str | None = "success") -> None:
+            reset(); set_pr(branch, "plain", ["docs/a.md"])
+            if auto:
+                put("armed", "")
+            if queued:
+                put("queued", "")
+            if status:
+                put("armed_status", status)
+
+        print("disarm: usage")
+        armed_pr()
+        rc, out = drun("7"); check("no --basis: exit 2, says so, nothing written", rc == 2 and "--basis" in out and not written(), out)
+        rc, out = drun("--basis", "x"); check("no number: exit 2", rc == 2, out)
+        rc, out = drun("--help"); check("--help says who may and what it takes off, exit 0",
+                                         rc == 0 and "Disarming basis" in out and "--any-owner" in out, out)
+
+        print("disarm: an armed head")
+        armed_pr()
+        rc, out = drun("7", "--basis", "withdrawn: the migration needs a second look")
+        check("this session's armed PR: disarmed, exit 0", rc == 0 and "DISARMED #7" in out, out)
+        check("…fabric/armed on the head set to pending, before the arming is taken off",
+              written()[:1] == [f'status {HEAD} {{"state": "pending", "context": "fabric/armed", "description": '
+                                f'"{disarm.DISARMED_DESCRIPTION}"}}'], str(written()))
+        check("…auto-merge taken off on the PR's node", "mutation disablePullRequestAutoMerge {'id': 'PR_node7'}" in written(), str(written()))
+        check("…and the basis posted, with the session's role and the head",
+              written()[-1:] == ["pr comment 7 --body Disarming basis: withdrawn: the migration needs a second look"
+                                 " — devex-tooling, head abcdef01."], str(written()))
+        armed_pr(auto=False, queued=True)
+        rc, out = drun("7", "--basis", "b")
+        check("a queued PR: taken out of the queue, auto-merge left alone",
+              rc == 0 and "mutation dequeuePullRequest {'id': 'PR_node7'}" in written()
+              and not any("disablePullRequestAutoMerge" in c for c in written()), str(written()))
+        armed_pr(auto=False)
+        rc, out = drun("7", "--basis", "b")
+        check("only fabric/armed on the head: set to pending, no mutation, the basis posted",
+              rc == 0 and [c.split()[0] for c in written()] == ["status", "pr"], str(written()))
+        armed_pr(status=None)
+        rc, out = drun("7", "--basis", "b")
+        check("auto-merge on with no fabric/armed: no status written, auto-merge taken off",
+              rc == 0 and [c.split()[0] for c in written()] == ["mutation", "pr"], str(written()))
+        armed_pr(); put("sticky", "")
+        rc, out = drun("7", "--basis", "b")
+        check("auto-merge still on at the read-back: exit 2, said", rc == 2 and "still reads armed" in out, out)
+
+        # Part-way failures (#545 round 1 F3): each exit 2 with no DISARMED line, and stderr says what is already off.
+        def partway(label: str, want: list[str], said: str, rc: int, out: str) -> None:
+            check(label, rc == 2 and "DISARMED" not in out and said in out and [c.split()[0] for c in written()] == want,
+                  out + str(written()))
+
+        armed_pr(queued=True); put("statusfail", "")
+        partway("the status POST refused: exit 2, nothing taken off, nothing posted", [],
+                "could not set fabric/armed on abcdef01 to pending", *drun("7", "--basis", "b"))
+        armed_pr(queued=True); put("mutationfail", "dequeuePullRequest")
+        partway("the dequeue refused: exit 2, the status named as already off, no comment", ["status"],
+                "already taken off: fabric/armed on abcdef01; read gh pr view 7", *drun("7", "--basis", "b"))
+        armed_pr(); put("mutationfail", "disablePullRequestAutoMerge")
+        partway("auto-merge's mutation refused: exit 2, the status named as already off, no comment", ["status"],
+                "already taken off: fabric/armed on abcdef01; read gh pr view 7", *drun("7", "--basis", "b"))
+        armed_pr(status=None); put("mutationfail", "disablePullRequestAutoMerge")
+        partway("…with nothing taken off before it: says nothing", [], "already taken off: nothing;",
+                *drun("7", "--basis", "b"))
+        armed_pr(); put("commentfail", "")
+        partway("the comment refused: exit 2, disarmed, the comment handed over to post by hand", ["status", "mutation"],
+                "the basis comment could not be posted: post it by hand — Disarming basis: b — devex-tooling, head abcdef01.",
+                *drun("7", "--basis", "b"))
+        armed_pr(); put("merges_on_disarm", "")
+        partway("the read-back MERGED: exit 2, said, the comment posted", ["status", "mutation", "pr"],
+                "#7 reads MERGED after the disarming", *drun("7", "--basis", "b"))
+        armed_pr(); put("status_read_fail", "")
+        rc, out = drun("7", "--basis", "b")
+        check("the head's status unreadable: exit 2, nothing written", rc == 2 and not written(), out + str(written()))
+        armed_pr()
+        rc, out = drun("7", "--basis", "b", "--dry-run")
+        check("--dry-run: says what it would take off and post, writes nothing",
+              rc == 0 and "would take off: fabric/armed on abcdef01, auto-merge" in out and not written(), out)
+
+        print("disarm: an unarmed PR")
+        armed_pr(auto=False, status=None)
+        rc, out = drun("7", "--basis", "b")
+        check("no auto-merge, no queue entry, no fabric/armed: says so, exit 0, nothing written",
+              rc == 0 and "#7 is not armed" in out and "nothing changed, nothing posted" in out and not written(), out)
+        armed_pr(auto=False, status="pending")
+        rc, out = drun("7", "--basis", "b")
+        check("fabric/armed already pending (a disarmed head) is not armed", rc == 0 and "is not armed" in out and not written(), out)
+        armed_pr(); set_pr(me, "plain", ["docs/a.md"], "CLOSED")
+        put("closed", "")
+        rc, out = drun("7", "--basis", "b")
+        check("a closed PR: refused, nothing written", rc == 1 and "CLOSED, not open" in out and not written(), out)
+
+        print("disarm: who may arm may disarm")
+        other = "develop-qzapp/other/feat/x"
+        cto = dict(claude_only, commits=dict(claude_only["commits"], below_min_authority="architect-cto"))
+        armed_pr(other)
+        rc, out = drun("7", "--basis", "b")
+        check("another session's PR without --any-owner: refused, nothing written",
+              rc == 1 and "never disarm another session's PR" in out and not written(), out)
+        rc, out = drun("7", "--basis", "b", "--any-owner")
+        check("…with --any-owner and neither the owner's word nor an authority's: refused, nothing written",
+              rc == 1 and "the basis gives neither" in out and not written(), out)
+        rc, out = drun("7", "--basis", "the owner's word: hold it", "--any-owner")
+        check("…on the owner's word: disarmed", rc == 0 and "DISARMED #7" in out, out)
+        armed_pr(other)
+        rc, out = drun("7", "--basis", "architect-cto's word: hold it", "--any-owner", policy=cto)
+        check("an authority this session does not hold by its binding: refused, nothing written",
+              rc == 1 and "this session holds devex-tooling by its binding, not architect-cto" in out
+              and "an authority that may not arm may not disarm" in out and not written(), out)
+        rc, out = drun("7", "--basis", "devex-tooling's word", "--any-owner", policy=cto)
+        check("a role the policy does not name to arm: refused, the policy's roles named",
+              rc == 1 and "(architect-cto)" in out and not written(), out)
+        put("whoami.json", json.dumps({"address": "develop-qzapp/me", "role": "architect-cto"}))
+        rc, out = drun("7", "--basis", "architect-cto's word: hold it", "--any-owner", policy=cto)
+        check("the policy's authority, held by this session's binding: disarmed, the role in the comment",
+              rc == 0 and "pr comment 7 --body Disarming basis: architect-cto's word: hold it — architect-cto, head abcdef01."
+              in written(), out + str(written()))
+        armed_pr()
+        rc, out = drun("7", "--basis", "b", policy=dict(claude_only, mode="owner-only"))
+        check("an owner-only repository: refused, as arm refuses it", rc == 1 and "owner-only" in out and not written(), out)
+        armed_pr(); put("whoami.json", json.dumps({"address": "develop-qzapp/someone-else", "role": "devex-tooling"}))
+        rc, out = drun("7", "--basis", "b")
+        check("fabric-whoami answering for another session: exit 2, nothing written", rc == 2 and not written(), out)
+
+        print("disarm (CLI): through bin/fabric-pr")
+        armed_pr()
+        r = subprocess.run([SHIM, "disarm", "7", "--basis", "withdrawn"], env=environment(True, whoami), stdout=subprocess.PIPE,
+                           stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL, text=True, timeout=120, cwd=sandbox)
+        check("an armed PR, the fleet policy read through gh: disarmed, exit 0, the basis posted",
+              r.returncode == 0 and "DISARMED #7" in r.stdout
+              and "pr comment 7 --body Disarming basis: withdrawn — devex-tooling, head abcdef01." in written(), r.stdout)
+        armed_pr("develop-qzapp/other/feat/x")
+        r = subprocess.run([SHIM, "disarm", "7", "--basis", "b"], env=environment(True, whoami), capture_output=True,
+                           stdin=subprocess.DEVNULL, text=True, timeout=120, cwd=sandbox)
+        check("another session's PR: exit 1, REFUSED on stderr, nothing written",
+              r.returncode == 1 and r.stderr.startswith("disarm: REFUSED #7") and not written(), r.stderr)
 
         print("arm (CLI): the rules read from disk, and found from the clone's remote")
         reset(); set_pr(me, "plain", ["docs/a.md"]); set_gate(9)

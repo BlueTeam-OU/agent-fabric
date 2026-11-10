@@ -558,6 +558,55 @@ def main() -> int:
         rc, out, err = w.switch()
         check("open: delivered is settled (the positive control)", rc == 0 and "delivered: " + jobs_world.GH_REPO + "#3 open" in out, out + err)
         w = World()
+        j1 = w.working("merged before deliver ran")
+        gh_says({f"{jobs_world.GH_REPO}#4": "MERGED"})
+        rc, out, err = w.strict("done", j1, f"{jobs_world.GH_REPO}#4")
+        # Kills: dropping `artifacts` from the fields of the done verb (the PR is not recorded, done refuses for evidence);
+        # the positive control is the line above it, deliver of the same merged PR still refused.
+        check("done names the merged pull request itself: the job is done and the pull request is its artifact",
+              rc == 0 and w.job(j1)["state"] == "done" and w.job(j1)["artifacts"] == [f"{jobs_world.GH_REPO}#4"], out + err + repr(w.job(j1)))
+        w = World()
+        j3 = w.working("one landed, one closed")
+        gh_says({f"{jobs_world.GH_REPO}#4": "MERGED", f"{jobs_world.GH_REPO}#7": "CLOSED"})
+        rc, out, err = w.strict("done", j3, f"{jobs_world.GH_REPO}#4", f"{jobs_world.GH_REPO}#7")
+        # Kills: dropping the per-artifact loop in move (the closed pull request rides in beside the merged one).
+        check("…and done naming a merged pull request beside a closed one is refused, naming the closed one; the job is unchanged",
+              rc == 1 and "#7 did not land" in err and "done needs evidence it landed" in err and w.job(j3)["state"] == "active" and not w.job(j3).get("artifacts"), out + err + repr(w.job(j3)))
+        rc, out, err = w.strict("done", j3, f"{jobs_world.GH_REPO}#4")
+        assert rc == 0, out + err
+        rc, out, err = w.strict("done", j3, f"{jobs_world.GH_REPO}#4", "--no-artifact", "x")
+        # Kills: dropping the already-done refusal in change (the names would be dropped and the exit 0).
+        check("…and done on a job already done refuses artifacts it would drop, pointing at deliver",
+              rc == 1 and "deliver" in err and w.job(j3)["artifacts"] == [f"{jobs_world.GH_REPO}#4"], out + err + repr(w.job(j3)))
+        w = World()
+        j2 = w.working("named artifact open")
+        gh_says({f"{jobs_world.GH_REPO}#6": "OPEN"})
+        rc, out, err = w.strict("done", j2, f"{jobs_world.GH_REPO}#6")
+        check("…and done naming an open pull request is refused, the job not changed",
+              rc == 1 and "still open" in err and w.job(j2)["state"] == "active" and not w.job(j2).get("artifacts"), out + err + repr(w.job(j2)))
+        # A squash-merged branch is excused by the merged pull request that ended at its tip, also when both are named on done.
+        for ended, label in (("tip", "ends at the branch's tip"), ("old", "ended at an older head")):
+            w = World()
+            j1 = w.working(f"squash-merged, named with its pull request ({label})")
+            pushed_branch(w)
+            tip = subprocess.run(["git", "-C", w.repo, "rev-parse", f"origin/{contrib}"], capture_output=True, text=True, check=True).stdout.strip()
+            gh_says({f"{jobs_world.GH_REPO}#2": "MERGED"}, heads={f"{jobs_world.GH_REPO}#2": {"headRefName": contrib, "headRefOid": tip if ended == "tip" else "0" * 40}})
+            rc, out, err = w.strict("done", j1, contrib, f"{jobs_world.GH_REPO}#2")
+            # Kills: judging each name alone (the branch is refused for want of the pull request beside it); the "old" case is
+            # the negative control that the retry does not excuse a branch the pull request did not end at.
+            check(f"done names a squash-merged branch beside the merged pull request that {label}",
+                  (rc == 0 and w.job(j1)["state"] == "done") if ended == "tip" else (rc == 1 and f"{contrib} with the names beside it is not recorded" in err and w.job(j1)["state"] == "active"),
+                  out + err + repr(w.job(j1)))
+        w = World()
+        j1 = w.working("squash-merged branch and its merged pull request, beside an open one")
+        pushed_branch(w)
+        tip = subprocess.run(["git", "-C", w.repo, "rev-parse", f"origin/{contrib}"], capture_output=True, text=True, check=True).stdout.strip()
+        gh_says({f"{jobs_world.GH_REPO}#2": "MERGED", f"{jobs_world.GH_REPO}#7": "OPEN"}, heads={f"{jobs_world.GH_REPO}#2": {"headRefName": contrib, "headRefOid": tip}})
+        rc, out, err = w.strict("done", j1, contrib, f"{jobs_world.GH_REPO}#2", f"{jobs_world.GH_REPO}#7")
+        # Kills: raising the retry's leftover problems under the branch's name (the open pull request is the one that failed).
+        check("…and when a sibling fails, the refusal does not blame the branch the merged pull request excused",
+              rc == 1 and "still open" in err and f"{contrib} did not land" not in err and "would land" not in err and w.job(j1)["state"] == "active", out + err + repr(w.job(j1)))
+        w = World()
         j1 = w.working("delivered by a reply")
         w.sw("deliver", j1, f"reply:{RID}")
         settles(w, j1, "a reply that is not in the journal is not evidence", f"reply:{RID} names no answer this login sent")
@@ -1355,6 +1404,30 @@ def main() -> int:
               out + err + repr(w.job(ja)))
         rc, out, err = w.switch(jb, cwd=b["worktree"])
         check("…and another job switches as before (the positive control)", rc == 0 and w.job(jb)["branch"] == b["branch"], out + err)
+
+        print("…a blocked job whose recorded branch landed, with no open pull request, starts on a new branch off main (rule 10 step 3, j125)")
+        w, ((ja, a), (jb, b)) = two_with_branches()
+        w.sw("start", ja)
+        gh_says({"o/r#5": "MERGED"}, open_prs=[])
+        rc, out, err = w.sw("block", ja, "--on", "pr:o/r#5")
+        assert rc == 0, out + err
+        gh_says({"o/r#5": "MERGED"}, merged_heads=[a["branch"]], open_prs=[])
+        rc, out, err = w.switch(ja, cwd=b["worktree"])
+        rec = w.job(ja)
+        # Kills: dropping the `blocked` test in choose (a landed branch is refused for it, as for a paused job); dropping the `_landed`
+        # test (a blocked job with a live branch would be given a new one); not clearing `own` (the landed branch is kept).
+        check("a blocked job whose branch landed is started on a new branch off main, recorded in place of the landed one",
+              rc == 0 and rec["state"] == "active" and rec["branch"] not in (None, a["branch"], mine) and os.path.isdir(rec["worktree"])
+              and subprocess.run(["git", "-C", rec["worktree"], "rev-parse", "--abbrev-ref", "HEAD"], capture_output=True, text=True).stdout.strip() == rec["branch"],
+              out + err + repr(rec))
+        w, ((ja, a), (jb, b)) = two_with_branches()
+        w.sw("start", ja)
+        gh_says({"o/r#5": "MERGED"}, open_prs=[])
+        rc, out, err = w.sw("block", ja, "--on", "pr:o/r#5")
+        assert rc == 0, out + err
+        rc, out, err = w.switch(ja, cwd=b["worktree"])
+        check("…while a blocked job whose branch did not land resumes on it (the positive control)",
+              rc == 0 and w.job(ja)["branch"] == a["branch"], out + err + repr(w.job(ja)))
 
         print("…--repoint: a paused job whose branch landed goes to the one open pull request (j641)")
         pr40 = {"number": 40, "headRefName": mine, "isDraft": False}

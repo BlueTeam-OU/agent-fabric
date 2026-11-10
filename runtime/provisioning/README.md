@@ -86,7 +86,10 @@ installed as the account the way their vendors say (`claude.ai/install.sh`
 at the version the fleet pins in `runtime/claude-code/harness.json`, so a
 new account starts where the others are (agent-fabric ADR-009); `--claude`
 overrides it with a version, `stable` or `latest`, and with no pin
-readable it is the vendor's latest — and `openrouter.ai/labs/ori/install.sh`; an installer that fails
+readable it is the vendor's latest; a build at or past 2.1.287, `stable` or `latest`
+is refused while the host's managed settings are not in force, as
+`fabric-ctl … upgrade claude` refuses it (agent-fabric ADR-043 rule 6), and a
+build the account already has installs nothing and is not asked about — and `openrouter.ai/labs/ori/install.sh`; an installer that fails
 fails the script, nothing is copied from another account); GitHub's host key in
 `known_hosts`; `~/projects/agent-fabric` over https (the fabric is
 public; the account has no key yet) — or, when the account already has

@@ -833,8 +833,7 @@ def main(argv=None):
     mode = argv[0] if argv else ""
     # The bash exported this before any module was loaded: identity.py reads
     # it at import for its FABRIC_ROOT.
-    if not os.environ.get("AGENT_FABRIC_ROOT"):
-        os.environ["AGENT_FABRIC_ROOT"] = ROOT
+    os.environ["AGENT_FABRIC_ROOT"] = roots.engine_root()
     report, base = build_report(ROOT)
     text = json.dumps(report, indent=2) + "\n" if mode == "--json" else "".join(line + "\n" for line in render(report, base))
     try:

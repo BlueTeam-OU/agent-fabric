@@ -35,8 +35,12 @@ import os
 import re
 import subprocess
 import time
+import sys
 import urllib.parse
 from typing import Any, Callable
+
+sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+import roots  # noqa: E402
 
 LAG_S = 86400
 PAGE = 50
@@ -63,7 +67,7 @@ def pinned_claude(root: str) -> str | None:
 
 def harness(home: str | None = None, root: str | None = None, run: Callable[..., Any] = subprocess.run) -> dict:
     home = os.path.expanduser("~") if home is None else home
-    root = root or os.environ.get("AGENT_FABRIC_ROOT") or os.path.join(home, "projects", "agent-fabric")
+    root = root or roots.checkout_root(home)
     pinned = pinned_claude(root)
     binary = claude_bin(home)
     try:
