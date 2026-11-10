@@ -32,7 +32,6 @@ import copy
 import json
 import os
 import shutil
-import stat
 import subprocess
 import sys
 import tempfile
@@ -43,7 +42,6 @@ sys.path.insert(0, HERE)
 from instance_fixtures import own_instance_tree  # noqa: E402
 own_instance_tree()
 sys.path.insert(0, os.path.join(ROOT, "tools", "fabric"))
-import cli  # noqa: E402
 from cli import canonical as canon, checks, table  # noqa: E402
 
 TMP = tempfile.mkdtemp(prefix="fabric-cli-")
