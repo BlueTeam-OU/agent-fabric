@@ -64,6 +64,7 @@
   "send.presence-forced": "send: sending anyway (--force)",
   "send.not-sent-no-account": "send: not sent — --force sends it anyway, for an account being placed right now",
   "send.not-sent-role": "send: not sent — --force does not send it",
+  "send.authorizes-in-body": "send: warning: this message was sent, but an AUTHORIZES: line in a section grants nothing — fabric-pr arm reads it from the header only; send a new message with gzcoord-compose --authorizes <owner>/<repo>#<n>@<sha>",
   "send.warning": "send: warning: {detail}",
   "send.error": "send: {detail}",
   "send.does-not-validate": "send: not sent — the message does not validate",
