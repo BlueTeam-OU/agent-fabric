@@ -43,6 +43,13 @@
       "checker": "tools/fabric/transport_calls.py",
       "exceptions": "policies/transport-calls.json"
     },
+    "instance-roots": {
+      "adr": "ADR-045",
+      "owner": "tools/fabric/roots.py",
+      "status": "enforced",
+      "checker": "tools/fabric/roots_bypass.py",
+      "exceptions": "tools/fabric/roots_bypass.json"
+    },
     "command-recognition": {
       "adr": "ADR-068",
       "owner": "tools/fabric/cli/",

@@ -183,7 +183,7 @@ def owner_role_of(top: str, env: dict[str, str], base: str) -> str:
         return role or common.DEFAULT_ROLE
     # The guard's own environment, so an exported operator's authority.json is the one read.
     for f in (roots.policy("authority.json", environ=env,
-                           engine=env.get("AGENT_FABRIC_ROOT") or os.path.join(top, "..", "agent-fabric")),):
+                           engine=roots.sibling_checkout(top, env)),):
         if not os.path.isfile(f):
             continue
         try:

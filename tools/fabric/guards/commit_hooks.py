@@ -81,6 +81,7 @@ _cli_spec = importlib.util.spec_from_file_location("fabric_cli", os.path.join(_c
 sys.modules["fabric_cli"] = importlib.util.module_from_spec(_cli_spec)
 _cli_spec.loader.exec_module(sys.modules["fabric_cli"])
 from fabric_cli import checks as command_checks, table as command_table  # noqa: E402  a command is recognised through canonical(), as lint asks it (tools/fabric/cli/checks.py, ADR-068)
+import roots_bypass  # noqa: E402  the engine finds instance data only through roots, as lint asks it (tools/fabric/roots_bypass.py, ADR-045 §5 rule 1)
 
 ITSELF = "agent-fabric itself"
 AGENT_FABRIC_DIR = ".agent-fabric/"
@@ -713,6 +714,53 @@ def _check_command_names(root: str) -> None:
                      "tools/fabric/cli canonical() — not committed (agent-fabric ADR-068 rule 7, ADR-067 rule 1).")
 
 
+def _check_roots_bypass(root: str) -> None:
+    """In agent-fabric itself, whoever commits: a staged module that reads AGENT_FABRIC_ROOT, builds the account's clone by hand
+    or joins an instance-data path onto a root it found is refused unless the staged policy names it with a reason (ADR-045 §5
+    rule 1, tools/fabric/roots_bypass.py); a module whose entry this commit removes, or a deleted policy's, is judged too. Lint
+    judges the whole tree in CI."""
+    if not same_repository(root):
+        return
+    r = _git("diff", "--cached", "-z", "--no-renames", "--name-only", "--diff-filter=ACMRT")
+    if r.returncode != 0:
+        raise Refuse("pre-commit: cannot list the staged files to judge roots bypasses — not committed")
+    staged = [p for p in r.stdout.split("\0") if p]
+    judged = [p for p in staged if roots_bypass.judged_path(p)]
+    deleted = _staged_deletion(roots_bypass.POLICY)
+    if not judged and roots_bypass.POLICY not in staged and not deleted:
+        return
+    policy = _git("cat-file", "blob", f":{roots_bypass.POLICY}")
+    try:
+        # A reasonless entry admits nothing, so only the first of the pair is read.
+        allowed = roots_bypass.parse_modules(policy.stdout)[0] if policy.returncode == 0 else {}
+    except ValueError:
+        raise Refuse(f"pre-commit: the staged {roots_bypass.POLICY} is not JSON — not committed") from None
+    if roots_bypass.POLICY in staged or deleted:
+        before = _git("cat-file", "blob", f"HEAD:{roots_bypass.POLICY}")
+        try:
+            was = roots_bypass.parse_modules(before.stdout)[0] if before.returncode == 0 else {}
+        except ValueError:
+            was = {}   # HEAD's list unreadable admitted nothing then either
+        listed = _git("ls-files", "-z")
+        if listed.returncode != 0:
+            raise Refuse("pre-commit: cannot read the index to judge the modules whose roots-bypass entries this commit "
+                         "removes — not committed")
+        tracked = set(listed.stdout.split("\0"))
+        judged += [m for m in sorted(set(was) - set(allowed)) if m in tracked and m not in judged
+                   and roots_bypass.judged_path(m)]
+    lines: list[str] = []
+    for path, data in _staged_blobs(judged, "for roots bypasses").items():
+        if not roots_bypass.is_python_command(path, data[:200]) or path in allowed:
+            continue
+        try:
+            lines += roots_bypass.scan(path, data.decode("utf-8"))
+        except UnicodeDecodeError:
+            lines.append(f"{path}: not UTF-8; roots bypasses are not judged")
+    if lines:
+        raise Refuse("\n".join(lines) + "\npre-commit: a module finds a tree or reads instance data without "
+                     "tools/fabric/roots.py — not committed (agent-fabric ADR-045 §5 rule 1).")
+
+
 def _check_review_card() -> None:
     """A commit that stages the project review card over its cap is refused, whoever commits (j475: a project's card reached 2396
     bytes over two commits, and every review of the project failed at render until it was cut). Only a commit that changes the card
@@ -758,6 +806,7 @@ def pre_commit(root: str) -> int:
     _check_work_writes(root)
     _check_transport_calls(root)
     _check_command_names(root)
+    _check_roots_bypass(root)
     what, staged = guarded_change(root)
     if not staged:
         return 0

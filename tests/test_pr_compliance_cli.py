@@ -345,6 +345,20 @@ def main() -> int:
         check("…and --json carries bot per PR",
               [(r["number"], r["bot"]) for r in doc().get("prs", [])] == [(6, True), (7, False)], out["text"])
 
+        print("pr-compliance: a fabric-pr disarm comment states no exemption (#545 round 1 F2)")
+        # Its text as disarm posts it: "arming basis" inside "Disarming basis", and on another session's PR the
+        # owner's word its basis must give — both exemption phrases of gzapp's numbers, neither an exemption.
+        withdrawn = "Disarming basis: the owner's word: hold it for a dequeue — devex-tooling, head abcdef01."
+        put("merged.json", json.dumps([
+            pr(8, "armed by hand, disarmed, merged under the floor", "pr-8", mc1, files=("src/e.cs",),
+               comments=(withdrawn,)),
+            pr(9, "disarmed, then armed again", "pr-9", mc1, files=("src/f.cs",),
+               comments=(withdrawn, "Arming basis: the owner's word — 2 work commits, head abcdef01."))]))
+        run("--days", "3")
+        check("a disarm comment alone: NONE", line("  #8 ").split()[8:9] == ["NONE"], out["text"])
+        check("…an arming basis beside it still counts: stated", line("  #9 ").split()[8:9] == ["stated"], out["text"])
+        has("…and only the disarmed PR is listed under the floor", "under 8 work commits with no exemption stated: #8\n")
+
         print("pr-compliance: a pull request with no head branch is an unknown count, never the unfiltered one")
         put("merged.json", json.dumps([dict(four[0], headRefName="")]))
         put("runs.json", json.dumps({"": 7}))

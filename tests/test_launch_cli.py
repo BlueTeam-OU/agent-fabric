@@ -1142,11 +1142,11 @@ print("a" * 40, "b" * 40)
                 'echo "RUN1:$*"; exit 143\n', 0o755)
             rm(runs, alog)
             rc, out = runa("--provider", "openrouter")
-            check("a fresh relaunch refused is said as not completed, naming the job and the fresh start, not fabric-resume",
+            check("a fresh relaunch refused is said as not completed, naming the job and the fresh start, the route through fabric-resume",
                   rc == 1 and "no long-lived Claude sign-in" in out and "CLAUDE-EXECCED" not in out
                   and has(r"^launch: RESTART NOT COMPLETED: the session that finished its job was not brought back fresh", out)
-                  and "run fabric-fresh --job j417, which brings job j417 fresh" in out
-                  and "then fabric-resume" not in out and "not fabric-resume, which reopens the finished job's conversation" in out,
+                  and "run fabric-resume, and inside the session it opens run fabric-fresh --job j417, which brings job j417 fresh" in out
+                  and "start a new session here" not in out and "fabric-resume alone reopens the finished job's conversation" in out,
                   f"rc={rc}\n{out}")
             put(sec, "export CLAUDE_CODE_OAUTH_TOKEN='sk-ant-oat01-SUITE-FIXTURE'\n")
             prof = json.loads(read(f"{fabric}/routing/profiles.json"))
@@ -1862,13 +1862,13 @@ echo "CLAUDE-ENDED:$(date +%s.%N)"
             check("a fresh relaunch the gateway refuses names the job and the fresh start, after the refusal",
                   rc == 1 and "speaks runtime contract 2" in out and "CLAUDE-EXECCED" not in out
                   and has(r"^launch: RESTART NOT COMPLETED: the session that finished its job was not brought back fresh", out)
-                  and "run fabric-fresh --job j1, which brings job j1 fresh" in out, f"rc={rc}\n{out}")
+                  and "run fabric-resume, and inside the session it opens run fabric-fresh --job j1, which brings job j1 fresh" in out, f"rc={rc}\n{out}")
             # A launcher from before the job rode the flag hands this one a bare "fresh" and the job beside it (#485 F1).
             rm(gw_log)
             rc, out = run("--provider", "gateway", plant={**relaunch, "AGENT_FABRIC_RESTARTING": "fresh", "FAKE_GW_MODE": "contract2"})
             check("…an older launcher's bare fresh flag: the refusal after the opening prompt still names the job",
                   rc == 1 and "speaks runtime contract 2" in out
-                  and "run fabric-fresh --job j1, which brings job j1 fresh" in out, f"rc={rc}\n{out}")
+                  and "run fabric-resume, and inside the session it opens run fabric-fresh --job j1, which brings job j1 fresh" in out, f"rc={rc}\n{out}")
             rm(gw_log)
             rc, out = run("--provider", "gateway", plant=relaunch)
             check("…the control: the same relaunch the gateway accepts had the job in its opening prompt",

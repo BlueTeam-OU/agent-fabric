@@ -3,7 +3,7 @@
 **Date:** 2026-11-08
 **Status:** Proposed
 **Decision Makers:** the owner; drafted by fabric-coordinator
-**Scope:** the fabric's cross-cutting mechanisms (per-agent state, process lifetime, agent context, remote evidence completeness, the job lifecycle, message transport, the recognition of a fabric command in a Bash line) and the catalogue that names each one's owning module, its checker and its declared exceptions: `policies/mechanisms.json`, read by `tools/fabric/lint_rules/mechanisms.py`. Not what each mechanism decides, which stays in its own record (ADR-003, ADR-037, ADR-045, ADR-064, ADR-068)
+**Scope:** the fabric's cross-cutting mechanisms (per-agent state, process lifetime, agent context, remote evidence completeness, the job lifecycle, message transport, instance roots, the recognition of a fabric command in a Bash line) and the catalogue that names each one's owning module, its checker and its declared exceptions: `policies/mechanisms.json`, read by `tools/fabric/lint_rules/mechanisms.py`. Not what each mechanism decides, which stays in its own record (ADR-003, ADR-037, ADR-045, ADR-064, ADR-068)
 **Pillar:** P1
 
 ## 1. Context and Problem
@@ -134,7 +134,9 @@ lets lint check that the claim is true.
   j674: process lifetime, remote evidence, agent context), and the job
   lifecycle (`tools/fabric/work/`, over ADR-037 rule 14) and transport
   (`tools/fabric/gzcoord/transport/`, under ADR-064, the relay still
-  primary) did once their owners existed. None is `planned` now.
+  primary) did once their owners existed, as did instance roots
+  (`tools/fabric/roots.py`, over ADR-045 §5 rule 1). None is `planned`
+  now.
 - Command recognition entered enforced, with its owner, in the pull
   request that added the `fabric` dispatcher (ADR-068 §5 rule 7), as
   rule 4 asks of a new mechanism.
@@ -156,6 +158,9 @@ the job lifecycle by python-dev-04's j101 (`tools/fabric/work/`,
 `tools/fabric/work_writes.py`, `policies/work-writes.json`). Transport is
 `enforced` by python-dev-02's j129 (`tools/fabric/gzcoord/transport/`,
 `tools/fabric/transport_calls.py`, `policies/transport-calls.json`).
+Instance roots are `enforced` by python-dev-01's j222
+(`tools/fabric/roots.py`, `tools/fabric/roots_bypass.py`,
+`tools/fabric/roots_bypass.json`).
 Command recognition is `enforced` from python-dev-04's j107
 (`tools/fabric/cli/`, `tools/fabric/cli/checks.py`,
 `policies/command-names.json`).

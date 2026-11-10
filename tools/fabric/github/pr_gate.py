@@ -330,7 +330,9 @@ def latest_runs(nodes: list[dict]) -> list[dict]:
 
 
 def checks_of(nodes: list[dict]) -> str:
-    nodes = latest_runs(nodes)
+    # The arming's own status is no check of the head: fabric-pr disarm leaves it pending (GitHub deletes no status),
+    # which would hold a re-arming on "pending", and fabric-pr arm's success would read a head with no CI as green.
+    nodes = [n for n in latest_runs(nodes) if n.get("context") != arm_policy.ARMED_STATUS]
     red = [jq_str(alt(n.get("name"), n.get("context"))) if alt(n.get("name"), n.get("context")) is not None else ""
            for n in nodes if RED.search(str(alt(n.get("conclusion"), n.get("state"), "")))]
     pending = sum(1 for n in nodes
