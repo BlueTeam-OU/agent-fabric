@@ -68,8 +68,6 @@ def _blockers_cleared(job: dict, fields: dict, who: str) -> list[str]:
     waived = list(fields.get("despite") or [])
     if waived:
         why = " ".join(str(fields.get("note") or "").split())
-        if not why:
-            raise Refused(f"{job['id']}: --despite needs the reason the peer's job cannot clear first")
         if peers != open_specs:
             raise Refused(f"{job['id']} is still blocked: {left}; --despite waives a job: blocker of another login only")
         if set(open_specs) - set(waived):
