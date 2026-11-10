@@ -9,6 +9,7 @@
     "runtime/claude-code/hooks/watch-on-stop.py": "a harness hook, a standalone script run by the harness before any module of the fabric is importable; runtime/claude-code/ is fabric-coordinator's (policies/authority.json), not python-dev's to move",
     "runtime/identity.py": "the state layer, stdlib-only and loaded by path by the launcher, jobs and fresh before roots is importable; it also sits outside python-dev's entry (policies/authority.json)",
     "runtime/provisioning/moveto/moveto.py": "copied to hosts as share/moveto/moveto.py (tools/fabric/hosttools.py MOVETO_FILES): it runs where tools/fabric/roots.py does not exist, and ~/projects/agent-fabric is the account's own clone",
+    "tools/fabric/assembler/intake.py": "refuse_foreign_root must see the operator variable exactly as exported, to refuse a tree other than the checkout the drain is in; roots would answer the fallback it is checking against",
     "tools/fabric/guards/agent_fabric_dir_authority.py": "outside python-dev's entry (policies/authority.json); the one-line move onto roots.sibling_checkout() was sent to fabric-coordinator as a patch (j222), and this entry leaves with it",
     "tools/fabric/launcher/routing.py": "saves and restores AGENT_FABRIC_ROOT around loading routing.py, which reads it at import: it handles the variable, it does not resolve a tree",
     "tools/fabric/layout.py": "outside python-dev's entry (policies/authority.json); the one-line move onto roots.engine_root() was sent to fabric-coordinator as a patch (j222), and this entry leaves with it",

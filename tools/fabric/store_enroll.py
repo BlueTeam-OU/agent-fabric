@@ -62,7 +62,7 @@ import roots  # noqa: E402
 STORE = os.path.join(HERE, "secret_store.py")
 # The account's own fabric checkout, relative to ITS home (the worker
 # starts there); the parent's checkout is not readable to it.
-ACCOUNT_SECRETS = "projects/agent-fabric/bin/fabric-secrets"
+ACCOUNT_SECRETS = roots.account_clone("", "bin", "fabric-secrets")
 # A store operation as the account can cross a host (ssh), sign with gpg
 # and push; none is expected near this, and a hung one must not hold every
 # other login of the run.

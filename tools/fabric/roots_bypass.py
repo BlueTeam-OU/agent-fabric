@@ -1,13 +1,15 @@
 #!/usr/bin/env python3
 """tools/fabric/roots_bypass.py — what agent-fabric ADR-045 §5 rule 1 forbids in the engine, as one predicate: the engine
 reads instance data only through tools/fabric/roots.py. Three findings in the fabric's own Python (tools/, runtime/, the
-Python commands in bin/; tests and fixtures aside), each a way of finding a tree without asking roots:
+Python commands in bin/, communication/gzcoord/scripts/; tests and fixtures aside), each a way of finding a tree without asking roots:
 
 - **env**: a read of AGENT_FABRIC_ROOT or AGENT_FABRIC_OPERATOR — `.get("…")`, `.pop("…")`, `os.getenv("…")`, `x["…"]`,
-  `"…" in x`. Writing the variable (an export into a child's environment, a key of an env dict) is not a read.
-- **fallback**: a path joined onto `projects`, `agent-fabric` by hand (`os.path.join(home, "projects", "agent-fabric")`,
-  `Path(...)`, an f-string `{home}/projects/agent-fabric`): the account's clone has roots.account_clone, and the
-  environment-or-clone choice roots.checkout_root.
+  `"…" in x`, the name given as a literal, a module constant or roots.ENV_ENGINE / ENV_OPERATOR. Writing the variable (an
+  export into a child's environment, `setdefault`, a key of an env dict) is not a read.
+- **fallback**: a path to the account's clone built by hand, however it is spelled: `os.path.join(home, "projects",
+  "agent-fabric")`, `"projects/agent-fabric/…"` (a literal, or a module constant, as an operand of a join, `+`, `/`,
+  `expanduser` or an f-string), `Path(home) / "projects" / "agent-fabric"`, an f-string `{home}/projects/agent-fabric`:
+  the clone has roots.account_clone, and the environment-or-clone choice roots.checkout_root.
 - **instance**: an instance-data path joined onto a root the module found itself: a join whose argument is a string that
   spells one (`os.path.join(root, "policies/x.json")`), or a name bound at module level to such a string and joined
   (`POLICY = "policies/x.json"` … `os.path.join(root, POLICY)`). tests/test_roots_seam.py judges the other spelling, a
@@ -41,6 +43,11 @@ INSTANCE = re.compile(
 # An f-string that BEGINS with a placeholder: `~/projects/agent-fabric/…` inside a message or a command handed to an account's
 # shell names a place for a person or that shell, not a path this process opens.
 SPELLED_FALLBACK = re.compile(r"^\{\}/projects/agent-fabric(/|$)")
+# `~/projects/agent-fabric/…` in a message or a command for an account's shell names a place for a person; only
+# expanduser makes it a path this process opens.
+CLONE = re.compile(r"(^|(?<!~)/)projects/agent-fabric(/|$)")
+HOME_CLONE = re.compile(r"^~/projects/agent-fabric(/|$)")
+ENV_CONSTANTS = frozenset({"ENV_ENGINE", "ENV_OPERATOR"})
 PYTHON_SHEBANG = re.compile(rb"^#!.*\bpython|^#!.*fabric-python")
 
 
@@ -57,13 +64,15 @@ def is_python_command(rel: str, head: bytes) -> bool:
     return rel.endswith(".py") or bool(PYTHON_SHEBANG.match(head))
 
 
-def parse_modules(text: str) -> dict[str, str]:
-    """{module path: why it is allowed}; ValueError when the text is not JSON. An entry that is not a string pair, or whose
-    reason is empty, admits nothing."""
+def parse_modules(text: str) -> tuple[dict[str, str], list[str]]:
+    """({module path: why it is allowed}, [entries without a reason]); ValueError when the text is not JSON. An entry whose
+    reason is not a non-empty string admits nothing, and is said."""
     doc = json.loads(text)
     mods = doc.get("modules") if isinstance(doc, dict) else None
-    return {k: v for k, v in mods.items() if isinstance(k, str) and isinstance(v, str) and v.strip()} \
-        if isinstance(mods, dict) else {}
+    if not isinstance(mods, dict):
+        return {}, []
+    good = {k: v for k, v in mods.items() if isinstance(v, str) and v.strip()}
+    return good, sorted(k for k in mods if k not in good)
 
 
 def _call_name(fn: ast.AST) -> str:
@@ -74,23 +83,34 @@ def _const_str(node: ast.AST) -> str | None:
     return node.value if isinstance(node, ast.Constant) and isinstance(node.value, str) else None
 
 
-def _env_name(node: ast.AST) -> str | None:
-    s = _const_str(node)
+def _env_name(node: ast.AST, consts: dict[str, str]) -> str | None:
+    if isinstance(node, ast.Attribute) and node.attr in ENV_CONSTANTS:
+        return node.attr
+    if isinstance(node, ast.Name) and node.id in ENV_CONSTANTS:
+        return node.id
+    s = _resolved(node, consts)
     return s if s in ENV_NAMES else None
 
 
+def _resolved(node: ast.AST, consts: dict[str, str]) -> str | None:
+    """A string literal, or a name bound once at module level to one."""
+    if isinstance(node, ast.Name):
+        return consts.get(node.id)
+    return _const_str(node)
+
+
 def _module_constants(tree: ast.Module) -> dict[str, str]:
-    """Names bound once at module level to a string that spells instance data."""
+    """Names bound once at module level to a string."""
     out: dict[str, str] = {}
     for node in tree.body:
         if isinstance(node, ast.Assign) and len(node.targets) == 1 and isinstance(node.targets[0], ast.Name):
-            value = _const_str(node.value)
-            if value is not None and INSTANCE.match(value):
-                out[node.targets[0].id] = value
+            value, name = _const_str(node.value), node.targets[0].id
         elif isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name) and node.value is not None:
-            value = _const_str(node.value)
-            if value is not None and INSTANCE.match(value):
-                out[node.target.id] = value
+            value, name = _const_str(node.value), node.target.id
+        else:
+            continue
+        if value is not None:
+            out[name] = value
     return out
 
 
@@ -110,27 +130,42 @@ def scan(rel: str, text: str) -> list[str]:
         return []   # ruff refuses it in CI; a commit of a half-merged module is not this rule's to stop
     consts = _module_constants(tree)
     found: list[tuple[int, str]] = []
+
+    def clone_operand(arg: ast.AST, pattern: re.Pattern = CLONE) -> bool:
+        value = _resolved(arg, consts)
+        return value is not None and bool(pattern.search(value))
+
     for node in ast.walk(tree):
         if isinstance(node, ast.Call):
             name = _call_name(node.func)
-            if name in ("get", "pop", "getenv") and node.args and (var := _env_name(node.args[0])):
+            if name in ("get", "pop", "getenv") and node.args and (var := _env_name(node.args[0], consts)):
                 found.append((node.lineno, f"a read of {var}"))
-            if name in JOINS:
-                parts = [_const_str(a) for a in node.args]
-                if any(a == "projects" and b == "agent-fabric" for a, b in zip(parts, parts[1:])):
+            if name in JOINS or name == "expanduser":
+                parts = [_resolved(a, consts) for a in node.args]
+                if any(a == "projects" and b == "agent-fabric" for a, b in zip(parts, parts[1:])) \
+                        or any(clone_operand(a, HOME_CLONE if name == "expanduser" else CLONE) for a in node.args):
                     found.append((node.lineno, "a hand-built <home>/projects/agent-fabric"))
+            if name in JOINS:
                 for arg in node.args[1:] if name != "Path" else node.args:
-                    if (s := _const_str(arg)) is not None and INSTANCE.match(s):
-                        found.append((node.lineno, f"{s} joined onto a root found here"))
-                    elif isinstance(arg, ast.Name) and arg.id in consts and arg is not node.args[0]:
-                        found.append((node.lineno, f"{consts[arg.id]} (via {arg.id}) joined onto a root found here"))
-        elif isinstance(node, ast.Subscript) and isinstance(node.ctx, ast.Load) and (var := _env_name(node.slice)):
+                    value = _resolved(arg, consts)
+                    if value is not None and INSTANCE.match(value):
+                        via = f" (via {arg.id})" if isinstance(arg, ast.Name) else ""
+                        found.append((node.lineno, f"{value}{via} joined onto a root found here"))
+        elif isinstance(node, ast.BinOp) and isinstance(node.op, (ast.Add, ast.Div)):
+            if any(clone_operand(a) for a in (node.left, node.right)) or (
+                    isinstance(node.op, ast.Div) and _const_str(node.right) == "agent-fabric"
+                    and isinstance(node.left, ast.BinOp) and _const_str(node.left.right) == "projects"):
+                found.append((node.lineno, "a hand-built <home>/projects/agent-fabric"))
+        elif isinstance(node, ast.Subscript) and isinstance(node.ctx, ast.Load) and (var := _env_name(node.slice, consts)):
             found.append((node.lineno, f"a read of {var}"))
         elif isinstance(node, ast.Compare) and any(isinstance(op, (ast.In, ast.NotIn)) for op in node.ops) \
-                and (var := _env_name(node.left)):
+                and (var := _env_name(node.left, consts)):
             found.append((node.lineno, f"a read of {var}"))
-        elif isinstance(node, ast.JoinedStr) and SPELLED_FALLBACK.search(_fstring_text(node)):
-            found.append((node.lineno, "a hand-built {…}/projects/agent-fabric path"))
+        elif isinstance(node, ast.JoinedStr):
+            if SPELLED_FALLBACK.search(_fstring_text(node)) or any(
+                    isinstance(v, ast.FormattedValue) and isinstance(v.value, ast.Name) and clone_operand(v.value)
+                    for v in node.values):
+                found.append((node.lineno, "a hand-built {…}/projects/agent-fabric path"))
     return [f"{rel}:{ln}: {what} — ask tools/fabric/roots.py, or name the module and why in {POLICY} (ADR-045 §5 rule 1)"
             for ln, what in sorted(set(found))]
 
@@ -144,14 +179,15 @@ def tree_findings(root: str, tracked: list[str]) -> list[str]:
     """Every finding over `tracked` (paths relative to `root`): the undeclared sites, and the entries that admit nothing."""
     try:
         with open(os.path.join(root, POLICY), encoding="utf-8") as fh:
-            allowed = parse_modules(fh.read())
+            allowed, reasonless = parse_modules(fh.read())
     except FileNotFoundError:
-        allowed = {}
+        allowed, reasonless = {}, []
     except (OSError, ValueError) as exc:
         # Said once, not as one finding per module the list would have admitted.
         return [f"{POLICY}: cannot be read as JSON ({exc.__class__.__name__}); ADR-045 rule 1 is not judged"]
     present = set(tracked)
-    out = policy_findings(allowed, present)
+    out = [f"{POLICY}: {m} has no reason; it admits nothing — give the reason or remove the entry" for m in reasonless]
+    out += policy_findings(allowed, present)
     for rel in sorted(r for r in tracked if judged_path(r)):
         try:
             with open(os.path.join(root, rel), "rb") as fh:

@@ -3,10 +3,13 @@
 ADR-045 §5 rule 1, j222). Stdlib only; runnable as `python3 tests/test_roots_bypass.py`. **Each case names the mutation it kills**:
 
   env_read_is_found          <- the get/pop/getenv, subscript or `in` branch dropped, or a write counted as a read
+  env_name_by_constant       <- the module-constant or roots.ENV_* resolution of the name dropped
   fallback_is_found          <- the projects/agent-fabric join pair dropped, or the f-string rule widened to messages
+  fallback_by_other_spellings <- the one-string, `+`, `/`, expanduser, module-constant or f-string-placeholder branch dropped
   instance_path_is_found     <- the literal or the module-constant branch dropped, or "memory" alone counted as instance data
   judged_set                 <- roots.py, tests or non-Python bin shims judged; a Python command in bin/ skipped
   entries_admit_or_say       <- an entry not honoured, one that admits nothing, or one for an untracked file left silent
+  reasonless_entry_is_said   <- an entry with an empty, blank or non-string reason dropped from the list unreported
   unreadable_policy          <- a policy that is not JSON read as empty
   the_tree_is_clean          <- a bypass left in the engine without an entry, or an entry the tree no longer needs
 """
@@ -59,6 +62,30 @@ class Scan(unittest.TestCase):
                  'c = os.path.join(home, "projects")\n')
         self.assertEqual(lines(clean), [])
 
+    def test_env_name_by_constant(self):
+        src = ('import os\nENV = "AGENT_FABRIC_ROOT"\n'
+               'a = os.environ.get(ENV)\n'
+               'b = os.environ.get(roots.ENV_ENGINE)\n'
+               'c = os.environ[ENV_OPERATOR]\n'
+               'd = os.environ.get(OTHER)\n')
+        self.assertEqual(lines(src), [3, 4, 5])
+
+    def test_fallback_by_other_spellings(self):
+        src = ('import os\nfrom pathlib import Path\n'
+               'CLONE = "projects/agent-fabric/tools/x.py"\n'
+               'a = os.path.join(home, "projects/agent-fabric")\n'
+               'b = os.path.expanduser("~/projects/agent-fabric")\n'
+               'c = Path(home) / "projects" / "agent-fabric"\n'
+               'd = home + "/projects/agent-fabric"\n'
+               'e = f"{home}/{CLONE}"\n'
+               'f = os.path.join(home, CLONE)\n')
+        self.assertEqual(lines(src), [4, 5, 6, 7, 8, 9])
+        clean = ('MSG = "see ~/projects/agent-fabric/bin"\n'
+                 'a = home + "/projects/gzapp"\n'
+                 'b = Path(home) / "projects" / "gzapp"\n'
+                 'c = f"{home}/{MSG}"\n')
+        self.assertEqual(lines(clean), [])
+
     def test_instance_path_is_found(self):
         src = ('import os\n'
                'POLICY = "policies/x.json"\n'
@@ -86,7 +113,7 @@ class Scan(unittest.TestCase):
         bad = 'import os\nx = os.environ.get("AGENT_FABRIC_ROOT")\n'
         for rel in ("tools/fabric/roots.py", "tests/test_x.py", "tools/fabric/tests/t.py", "docs/x.py"):
             self.assertEqual(rb.scan(rel, bad), [], rel)
-        for rel in ("tools/fabric/a.py", "runtime/a.py", "bin/fabric-x"):
+        for rel in ("tools/fabric/a.py", "runtime/a.py", "bin/fabric-x", "communication/gzcoord/scripts/a.py"):
             self.assertEqual(len(rb.scan(rel, bad)), 1, rel)
         self.assertTrue(rb.is_python_command("bin/fabric-x", b"#!/usr/bin/env python3\n"))
         self.assertTrue(rb.is_python_command("bin/fabric-x", b"#!/usr/local/bin/fabric-python\n"))
@@ -135,7 +162,14 @@ class Tree(unittest.TestCase):
         self.assertEqual(sum("roots.py admits nothing" in f for f in out), 1, out)
         self.assertEqual(sum("gone.py is listed but is not a tracked file" in f for f in out), 1, out)
         self.assertFalse(any(f.startswith("tools/fabric/x.py") for f in out), out)
-        self.assertFalse(any("blank.py" in f and "admits" in f for f in out), out)   # an empty reason admits nothing and is not an entry
+
+    def test_reasonless_entry_is_said(self):
+        files = {MOD: BYPASS, "tools/fabric/clean.py": "x = 1\n"}
+        out = judged(planted({"modules": {"tools/fabric/clean.py": "", "tools/fabric/gone.py": " ", "tools/fabric/n.py": None,
+                                          MOD: ""}}, files))
+        for name in ("fabric/clean.py", "fabric/gone.py", "fabric/n.py", "fabric/x.py"):
+            self.assertEqual(sum(f"{name} has no reason; it admits nothing" in f for f in out), 1, (name, out))
+        self.assertTrue(any(f.startswith("tools/fabric/x.py:2") for f in out), out)   # and it does not admit the bypass
 
     def test_unreadable_policy(self):
         out = judged(planted("{not json", {MOD: BYPASS}))
