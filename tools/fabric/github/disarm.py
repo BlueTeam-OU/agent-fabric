@@ -194,11 +194,12 @@ def disarm(argv: list[str]) -> int:
         say(f"#{num} is not armed: no auto-merge, no merge-queue entry"
             f"{f', and {head[:8]} carries no {context} success' if context else ''} — nothing changed, nothing posted")
         return 0
-    comment = f"Disarming basis: {basis.strip()} — {held or 'no role'}, head {head[:8]}."
+    comment = f"{common.DISARMING_BASIS} {basis.strip()} — {held or 'no role'}, head {head[:8]}."
     if dry:
         say(f"DRY RUN — would take off: {', '.join(found)}")
         say(f"DRY RUN — would post: {comment}")
         return 0
+    taken: list[str] = []
     if tied:
         try:
             gh.api(f"repos/{repo}/statuses/{head}", method="POST",
@@ -206,16 +207,20 @@ def disarm(argv: list[str]) -> int:
         except gh.GhError as e:
             raise Unanswered(f"could not set {context} on {head[:8]} to pending ({e.reason}): nothing taken off") from None
         say(f"{context} on {head[:8]} set to pending: the head waits for an arming of its own")
+        taken.append(f"{context} on {head[:8]}")
     try:
         if queued:
             gh.graphql("mutation($id:ID!){dequeuePullRequest(input:{id:$id}){clientMutationId}}", id=pr["id"])
             say(f"#{num} taken out of the merge queue")
+            taken.append("the merge-queue entry")
         if auto:
             gh.graphql("mutation($id:ID!){disablePullRequestAutoMerge(input:{pullRequestId:$id}){clientMutationId}}",
                        id=pr["id"])
             say(f"auto-merge taken off #{num}")
     except (gh.GhError, KeyError) as e:
-        raise Unanswered(f"could not take #{num}'s arming off ({getattr(e, 'reason', e)}); read gh pr view {num}") from None
+        # stderr may be all a caller keeps: it names what is already off, as the stdout lines did.
+        raise Unanswered(f"could not take #{num}'s arming off ({getattr(e, 'reason', e)}); already taken off:"
+                         f" {', '.join(taken) or 'nothing'}; read gh pr view {num}") from None
     # The body on stdin: a body is data (gh.py's invariant).
     try:
         gh.run(["pr", "comment", num, "--body-file", "-"], input=comment, what=f"gh pr comment {num}")

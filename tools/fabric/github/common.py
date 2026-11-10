@@ -63,6 +63,10 @@ PR_FILE_LIST_CAP = 3000
 # (tools/fabric/evidence_caps.py is the check): a second copy of either is how a reader once took a cut list as whole.
 PR_COMMIT_LIST_CAP = 250
 
+# How fabric-pr disarm's comment begins, and how compliance knows one: a withdrawal of an arming states no exemption,
+# though its text reads like one ("arming basis" inside it, and the owner's word its basis must give on another's PR).
+DISARMING_BASIS = "Disarming basis:"
+
 PR_PROJECT_SETTING = "AGENT_FABRIC_PR_PROJECT"
 _OWNER_NAME = re.compile(r"[A-Za-z0-9._-]+/[A-Za-z0-9._-]+")
 

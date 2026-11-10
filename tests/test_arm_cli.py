@@ -56,6 +56,8 @@ def gh_mock(s: str, a: list[str], stdin: str) -> tuple[int, str, str]:
     has = lambda n: os.path.exists(os.path.join(s, n))
     _log(s, line + "\n")
     if line.startswith("pr comment ") and line.endswith("--body-file -"):
+        if has("commentfail"):
+            return 1, "", "gh: Bad Gateway (HTTP 502)"
         _log(s, f"pr comment {a[2]} --body {stdin}\n")
         return 0, "", ""
     pr = json.load(open(os.path.join(s, "pr.json")))
@@ -124,10 +126,15 @@ def gh_mock(s: str, a: list[str], stdin: str) -> tuple[int, str, str]:
             return 0, json.dumps(want["ruleset"]), ""
         if line.startswith("api repos/gzapi-org/gzapp --method GET"):
             return 0, json.dumps(want["repository"]), ""
-    # disarm's two mutations, logged by name; `sticky` an arming that a mutation answered and did not take off.
+    # disarm's two mutations, logged by name; `sticky` an arming that a mutation answered and did not take off;
+    # `mutationfail` names the one that fails; `merges_on_disarm` a PR merged while it was disarmed (reads MERGED after).
     if line == "api graphql --input -" and "mutation" in stdin:
         for verb, n in (("disablePullRequestAutoMerge", "armed"), ("dequeuePullRequest", "queued")):
             if verb in stdin:
+                if _state(s, "mutationfail") == verb:
+                    return 1, "", "gh: GraphQL: Something went wrong (HTTP 502)"
+                if has("merges_on_disarm"):
+                    open(os.path.join(s, "merged"), "w").close()
                 _log(s, f"mutation {verb} {json.loads(stdin)['variables']}\n")
                 if not has("sticky") and has(n):
                     os.remove(os.path.join(s, n))
@@ -299,7 +306,8 @@ def main() -> int:
             for n in ("calls", "armed", "queued", "merged", "closed", "noarm", "nohead", "pushed", "viewfail", "blind", "independent", "unresolved", "no_blind_field", "unavailable",
                       "mergefail", "inbase", "unasked", "moved", "statusfail", "reviews.json", "reviews_fail", "viewer", "viewer_fail", "jobs.json", "jobs_fail", "shows.json",
                       "waiver.out", "waiver_rc", "presence.out", "ctl_rc", "gh_repos", "modes.json", "trees_fail",
-                      "whoami.json", "armed_status", "status_read_fail", "sticky"):
+                      "whoami.json", "armed_status", "status_read_fail", "sticky",
+                      "mutationfail", "commentfail", "merges_on_disarm"):
                 if os.path.exists(f"{state}/{n}"):
                     os.remove(f"{state}/{n}")
             put("review_rc", "0" if reviewed else "1")
@@ -1609,6 +1617,31 @@ def main() -> int:
         armed_pr(); put("sticky", "")
         rc, out = drun("7", "--basis", "b")
         check("auto-merge still on at the read-back: exit 2, said", rc == 2 and "still reads armed" in out, out)
+
+        # Part-way failures (#545 round 1 F3): each exit 2 with no DISARMED line, and stderr says what is already off.
+        def partway(label: str, want: list[str], said: str, rc: int, out: str) -> None:
+            check(label, rc == 2 and "DISARMED" not in out and said in out and [c.split()[0] for c in written()] == want,
+                  out + str(written()))
+
+        armed_pr(queued=True); put("statusfail", "")
+        partway("the status POST refused: exit 2, nothing taken off, nothing posted", [],
+                "could not set fabric/armed on abcdef01 to pending", *drun("7", "--basis", "b"))
+        armed_pr(queued=True); put("mutationfail", "dequeuePullRequest")
+        partway("the dequeue refused: exit 2, the status named as already off, no comment", ["status"],
+                "already taken off: fabric/armed on abcdef01; read gh pr view 7", *drun("7", "--basis", "b"))
+        armed_pr(); put("mutationfail", "disablePullRequestAutoMerge")
+        partway("auto-merge's mutation refused: exit 2, the status named as already off, no comment", ["status"],
+                "already taken off: fabric/armed on abcdef01; read gh pr view 7", *drun("7", "--basis", "b"))
+        armed_pr(status=None); put("mutationfail", "disablePullRequestAutoMerge")
+        partway("…with nothing taken off before it: says nothing", [], "already taken off: nothing;",
+                *drun("7", "--basis", "b"))
+        armed_pr(); put("commentfail", "")
+        partway("the comment refused: exit 2, disarmed, the comment handed over to post by hand", ["status", "mutation"],
+                "the basis comment could not be posted: post it by hand — Disarming basis: b — devex-tooling, head abcdef01.",
+                *drun("7", "--basis", "b"))
+        armed_pr(); put("merges_on_disarm", "")
+        partway("the read-back MERGED: exit 2, said, the comment posted", ["status", "mutation", "pr"],
+                "#7 reads MERGED after the disarming", *drun("7", "--basis", "b"))
         armed_pr(); put("status_read_fail", "")
         rc, out = drun("7", "--basis", "b")
         check("the head's status unreadable: exit 2, nothing written", rc == 2 and not written(), out + str(written()))
