@@ -598,6 +598,15 @@ def main() -> int:
                   (rc == 0 and w.job(j1)["state"] == "done") if ended == "tip" else (rc == 1 and f"{contrib} did not land" in err and w.job(j1)["state"] == "active"),
                   out + err + repr(w.job(j1)))
         w = World()
+        j1 = w.working("squash-merged branch and its merged pull request, beside an open one")
+        pushed_branch(w)
+        tip = subprocess.run(["git", "-C", w.repo, "rev-parse", f"origin/{contrib}"], capture_output=True, text=True, check=True).stdout.strip()
+        gh_says({f"{jobs_world.GH_REPO}#2": "MERGED", f"{jobs_world.GH_REPO}#7": "OPEN"}, heads={f"{jobs_world.GH_REPO}#2": {"headRefName": contrib, "headRefOid": tip}})
+        rc, out, err = w.strict("done", j1, contrib, f"{jobs_world.GH_REPO}#2", f"{jobs_world.GH_REPO}#7")
+        # Kills: raising the retry's leftover problems under the branch's name (the open pull request is the one that failed).
+        check("…and when a sibling fails, the refusal does not blame the branch the merged pull request excused",
+              rc == 1 and "still open" in err and f"{contrib} did not land" not in err and w.job(j1)["state"] == "active", out + err + repr(w.job(j1)))
+        w = World()
         j1 = w.working("delivered by a reply")
         w.sw("deliver", j1, f"reply:{RID}")
         settles(w, j1, "a reply that is not in the journal is not evidence", f"reply:{RID} names no answer this login sent")

@@ -587,8 +587,11 @@ def move(args, said: dict) -> Job:
                 # A squash-merged branch is excused only by the merged pull request that ended at its tip, which the job may name
                 # beside it. Only that one refusal is retried with every name: any other would be excused by an unrelated landed
                 # artifact, and a name beside it that fails is refused on its own turn.
-                if len(args.artifacts) > 1 and any("no merged pull request the job names ended at its tip" in p for p in problems):
+                if len(args.artifacts) > 1 and any(needs.st.NO_PR_AT_TIP in p for p in problems):
                     problems = _unlanded(args.id, args.artifacts)
+                    if problems and not any(needs.st.NO_PR_AT_TIP in p for p in problems):
+                        # The pull request beside the branch excuses it; what still fails is another name, which is the one to name.
+                        raise Refused(f"{name} would land with the names beside it, but they do not: " + "; ".join(problems))
             if problems:
                 raise Refused(f"{name} did not land, so it is not recorded: " + ("; ".join(problems) or "it is not a merged pull request, a commit on the default branch or a sent reply"))
         # Artifacts named on the verb are recorded with the close: a pull request that merged before `deliver` was run is refused by
