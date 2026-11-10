@@ -4,7 +4,8 @@ so no session hand-types a header. The command is bin/gzcoord-compose.
 CONTRACT:
   argv      <TYPE> (--to <host/login> | --to-role <slug> | --broadcast)
             --subject <line> [--in-reply-to <id>] [--reply-expected yes|no]
-            [--repository <org/repo>] [-o FILE] | -h | --help
+            [--repository <org/repo>] [--authorizes <owner>/<repo>#<n>@<sha>]
+            [-o FILE] | -h | --help
   env       what gzcoord-send reads to say who this session is
             (AGENT_FABRIC_ROOT, AGENT_FABRIC_STATE_DIR, XDG_STATE_HOME);
             nothing else
@@ -13,7 +14,8 @@ CONTRACT:
             the file written, a refusal
   exit      0 composed; 1 usage (an option given twice included), a
             value with a line break, bytes that are not UTF-8 or nothing
-            but blanks, or -o FILE that exists or cannot be written; 2 the
+            but blanks, an --authorizes that fabric-pr arm would not read
+            (see below), or -o FILE that exists or cannot be written; 2 the
             message would be invalid (an unknown or retired type, an
             assignment toward a role, an address of the wrong shape, ROLE
             or PROJECT unknown), a --to naming a role slug that no host
@@ -32,6 +34,15 @@ why -o refuses a file that exists (send keeps an id in its file, and an id
 reused for other text is refused there). REPOSITORY is the working copy's
 origin as <org>/<repo> unless given; when it cannot be read it is left out
 (it is optional, SPEC §7.3) and stderr says why — never guessed.
+
+--authorizes writes the AUTHORIZES: header line `fabric-pr arm
+--authorization` reads; it reads it nowhere else, so the same line in a
+section grants nothing (REQUEST 01a1c1c2, 2026-11-09). The value is
+checked with arm's own pattern (github.arm.WAIVES), and the message must be
+a DECISION or a REPLY with a --to login, the only shape arm accepts.
+Given once: a header key has one value (a repeated key is a duplicate the
+validator refuses, and arm reads one), so a grant for a second pull request
+is a second message.
 
 The body is the type's sections as empty headings, then REFERENCES:. The
 table is this tool's skeleton convention (fabric-coordinator, 2026-10-07),
@@ -68,7 +79,8 @@ SECTIONS: dict[str, tuple[str, ...]] = {
 HELP = """\
 usage: gzcoord-compose <TYPE> (--to <host/login> | --to-role <slug> | --broadcast)
                        --subject <line> [--in-reply-to <id>] [--reply-expected yes|no]
-                       [--repository <org/repo>] [-o FILE]
+                       [--repository <org/repo>] [--authorizes <owner>/<repo>#<n>@<sha>]
+                       [-o FILE]
 
 Write a GZCoord message with its header filled and its sections empty, to
 edit and then send with gzcoord-send. It never sends.
@@ -92,11 +104,15 @@ protocol rule (any section is allowed):
 Toward a role (--to-role) REQUEST: is left out: it would make the message
 an assignment, which goes to one login. A REQUEST toward a role is refused.
 
+  --authorizes <owner>/<repo>#<n>@<sha>
+            the AUTHORIZES: header line that `fabric-pr arm --authorization`
+            reads (a DECISION or REPLY, --to a login; sha 8 to 40 hex
+            digits); in a section it grants nothing. Once.
   -o FILE   write to FILE, created mode 0600; refused if FILE exists (a
             new message is a new file: send keeps the id in it)
 
 exit: 0 composed; 1 usage (a value with a line break, bytes that are not
-UTF-8, an option given twice), -o FILE exists or cannot be written; 2 the
+UTF-8, an option given twice, an --authorizes arm would not read), -o FILE exists or cannot be written; 2 the
 message would be invalid, or refused by gzcoord-send (the reason)
 """
 
@@ -140,11 +156,12 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     p.add_argument("--in-reply-to", action=_Once)
     p.add_argument("--reply-expected", action=_Once)
     p.add_argument("--repository", action=_Once)
+    p.add_argument("--authorizes", action=_Once)
     p.add_argument("-o", dest="output", action=_Once)
     a = p.parse_args(argv)
     # A value is carried exactly or refused: never a forged line, a byte
     # turned into "?" on the way out, or a header the parser reads as empty.
-    for flag in ("type", "to", "to_role", "subject", "in_reply_to", "reply_expected", "repository"):
+    for flag in ("type", "to", "to_role", "subject", "in_reply_to", "reply_expected", "repository", "authorizes"):
         value = getattr(a, flag)
         if value is None:
             continue
@@ -155,7 +172,23 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
             raise Usage(f"{name} holds a line break; a header value is one line")
         if not gzmsg.js_trim(value):
             raise Usage(f"{name} is empty")
+    if a.authorizes is not None:
+        check_authorizes(a)
     return a
+
+
+def check_authorizes(a: argparse.Namespace) -> None:
+    """Refuse what `fabric-pr arm --authorization` would refuse of the line, so a typo fails here and not at
+    the arming. Only the shape: whose word it is, and for which head, is arm's to judge."""
+    # arm's pattern, not a copy: a copy would drift and accept what arm refuses. Imported here because it
+    # pulls in the whole arming tool, which no other compose needs.
+    from github import arm
+    if not arm.WAIVES.fullmatch(a.authorizes):
+        raise Usage("--authorizes is not <owner>/<repo>#<number>@<head sha of 8 to 40 hex digits>")
+    if a.type not in ("DECISION", "REPLY"):
+        raise Usage(f"--authorizes: arm reads it on a DECISION or a REPLY, not a {a.type}")
+    if a.to is None:
+        raise Usage("--authorizes: arm reads it on a message sent --to the login that arms, not a role or a broadcast")
 
 
 def origin_repository(cwd: str) -> tuple[str | None, str | None]:
@@ -267,6 +300,8 @@ def main(argv: list[str]) -> int:
         header.append(("IN-REPLY-TO", a.in_reply_to))
     if a.reply_expected is not None:
         header.append(("REPLY-EXPECTED", a.reply_expected))
+    if a.authorizes is not None:
+        header.append(("AUTHORIZES", a.authorizes))
     header += [("MESSAGE-ID", gzmsg.mint_id()), ("SUBJECT", a.subject)]
 
     text = skeleton(a.type, header, a.to_role is not None)
