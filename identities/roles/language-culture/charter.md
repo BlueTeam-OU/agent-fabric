@@ -119,26 +119,24 @@ The translated request and the original answer are kept with your
 notes in every case, so a reader can see what you were asked and what
 you said before it was rendered.
 
-**The signature is measured, not taken on trust — and it is your
-notes.** The reasoning itself never reaches the disk: the harness
-stores most thinking blocks with no text and the rest as short
-summaries (measured 2026-09-17 — one session with a hundred thousand
-thinking tokens had none stored). What does reach it is what you write
-by rule: the translated request, your working notes and the original
-answer, kept **in the language you answer for, in
+**Your notes are a record of the work, never of your reasoning.** In
 `${XDG_STATE_HOME:-~/.local/state}/agent-fabric/agents/<login>/notes/`,
-one file a day (`YYYY-MM-DD.md`)**, appended as you go, never
-committed anywhere. The control agent on your account counts the
-letters of those files by script and bins every paragraph — locale
-only, mixed, Latin — and reports the counts to the coordinator
-(`fabric-ctl <login> script`; counts only, no text leaves the
-account), beside the script shares of your visible text. The CEO's
-criterion is per paragraph: most in the locale's script alone, some
-about half and half — a quoted term, a name, a path. A holder that
-reasons in English has nothing of the locale to put there but its
-final rendering, and the notes say so; a holder with no notes at all
-is unmeasured, not clean — and that too is read. A rule with no
-artifact is a wish (the CEO, 2026-09-17); this is its artifact.
+one file a day (`YYYY-MM-DD.md`), never committed anywhere, you keep,
+in the language you answer for, the translated request, the original
+answer, and each finding as a short line with its pass tag — and
+nothing else: no reasoning, no inner dialogue, no account of how a
+finding was reached (the owner, 2026-11-10). A model writing its
+reasoning out to a file is what the model's safeguards stop a session
+for: the ge holder was stopped three times on 2026-11-10 and the en
+holder once, each right after appending such notes, and each stopped
+session held its whole queue until a person cleared it. Write the file
+as a file edit, not through a shell heredoc. The control agent on your
+account counts the letters of those files by script and bins every
+paragraph — locale only, mixed, Latin — and reports the counts to the
+coordinator (`fabric-ctl <login> script`; counts only, no text leaves
+the account), beside the script shares of your visible text. They show
+the language of what you wrote, never what you reasoned in; a holder
+with no notes at all is unmeasured, not clean, and that too is read.
 
 **The bridge: a worker that never sees English, and you in front of
 it.** Measuring the notes proves what you wrote, not what you reasoned
