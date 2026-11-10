@@ -111,11 +111,17 @@ def main() -> int:
         root = f"{tmp}/fab"
         pin = f"{root}/runtime/claude-code/harness.json"
 
-        def want(target: str):
+        gate_calls = []
+
+        def in_force(r: str):
+            gate_calls.append(r)
+            return None
+
+        def want(target: str, gate=in_force):
             err = io.StringIO()
             try:
                 with redirect_stderr(err):
-                    return hs.claude_want(root, target), err.getvalue()
+                    return hs.claude_want(root, target, managed_refusal=gate), err.getvalue()
             except wa.Exit as exc:
                 return exc.code, exc.msg
         put(pin, json.dumps({"claude": "2.1.285"}))
@@ -132,6 +138,24 @@ def main() -> int:
         check("no readable pin: latest, and that is said", got == "latest" and "no readable pin" in err)
         code, msg = want("1.2.3';id;'")
         check("a target with shell characters is refused here too", code == 1 and "is not stable, latest or a version" in msg)
+
+        # ADR-043 rule 6: a new account is an install, gated as an upgrade is.
+        def drifted(r: str):
+            return "the managed settings (ADR-043 rules 1-2) are drifted on this host; nothing stopped or installed"
+        put(pin, json.dumps({"claude": "2.1.322"}))
+        code, msg = want("", gate=drifted)
+        check("a pin past the floor on a host not in force: refused, naming the managed settings and the build",
+              code == 1 and msg.startswith("new-agent: claude 2.1.322: the managed settings") and "drifted" in msg, msg)
+        gate_calls.clear()
+        check("…and installed when they are in force, the gate asked of this checkout",
+              want("") == ("2.1.322", "") and gate_calls == [root], gate_calls)
+        code, msg = want("2.1.287", gate=drifted)
+        check("the floor itself is gated", code == 1)
+        gate_calls.clear()
+        check("a build below the floor is not gated", want("2.1.286", gate=drifted) == ("2.1.286", "") and gate_calls == [])
+        check("a prerelease past the floor is gated by its version", want("2.1.300-beta.1", gate=drifted)[0] == 1)
+        check("stable and latest name no version: held as past the floor",
+              want("latest", gate=drifted)[0] == 1 and want("stable", gate=drifted)[0] == 1)
 
         print("the subordinate ids")
         etc = f"{tmp}/etc"

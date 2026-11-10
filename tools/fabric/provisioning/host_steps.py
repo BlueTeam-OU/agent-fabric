@@ -57,7 +57,7 @@ def audit(platform_id: str, persists: str, hint: str, n_tools: str, packages: li
     return text
 
 
-def claude_want(root: str, target: str) -> str:
+def claude_want(root: str, target: str, managed_refusal=None) -> str:
     """The version the installer is given. claude: the vendor's installer,
     as the account, on the version the fleet pins
     (runtime/claude-code/harness.json — what `fabric-ctl … upgrade claude`
@@ -80,6 +80,14 @@ def claude_want(root: str, target: str) -> str:
     want = target or pinned or "latest"
     if not TARGET.fullmatch(want):
         raise Exit(1, f"new-agent: claude target '{want}' is not stable, latest or a version; nothing installed")
+    # ADR-043 rule 6: after the first move past 2.1.286, the gate is each install, and a new account is one, as an
+    # upgrade is (control/upgrade.py). stable and latest name no version here, so they are held as a build past it.
+    from control import upgrade  # lazily: the gate's one home, and heavier than the rest of this module
+    m = VERSION.match(want)
+    if m is None or tuple(int(x) for x in m.group().split(".")) >= upgrade.MANAGED_FLOOR:
+        refused = (managed_refusal or upgrade.managed_refusal)(root)
+        if refused:
+            raise Exit(1, f"new-agent: claude {want}: {refused}")
     return want
 
 
