@@ -110,13 +110,13 @@ its record disagree, the record wins. Look it up, never read it whole:
   and the history's (§5 rule 10).
 - A 2026-09-27 — a record reads current: no date in §2 to §8; §1 may date an
   incident (§5 rule 11).
-- A 2026-09-29 — the DIGEST is looked up (`fabric-adr lookup`), never read whole;
-  each entry is at most 250 words (§2).
+- A 2026-09-29 — the DIGEST is looked up (`fabric-adr lookup`), never read
+  whole (§2).
 - A 2026-10-09 — an exception keeps the past; new work follows the
   direction unless the exception admits it in words (§5 rule 12).
+- A 2026-10-18 — also checked at commit time (§5 rule 4).
 - A 2026-11-09 — the budget is per bullet, at most 60 words; the
   250-word entry total is gone (§2).
-- A 2026-10-18 — also checked at commit time (§5 rule 4).
 - Keywords: ADR, amendment, supersede, ratify, index, digest, rationale.
 
 ### ADR-002 — Role, login and model are kept apart (Accepted)
@@ -765,8 +765,8 @@ its record disagree, the record wins. Look it up, never read it whole:
 ### ADR-032 — GZCOORD/1 is a normative contract: the grammar frozen until a transport exercises it, GZCOORD/2 for a breaking change, adoption by observation (Accepted)
 
 - SPEC, MESSAGE-FORMAT, SEMANTICS and CONFORMANCE are GZCOORD/1's
-  normative text; `gzmsg.py` is the reference validator and every example
-  validates (§2, §5 rule 1). Only fabric-coordinator changes them (§5
+  normative text; `gzmsg.py` (ported from gzmsg.mjs) is the reference
+  validator and every example validates (§2, §5 rule 1). Only fabric-coordinator changes them (§5
   rule 2).
 - The grammar (SPEC §6) is frozen until an automated transport exercises
   it; prose, conventions, tightened MUSTs and optional fields stay in
