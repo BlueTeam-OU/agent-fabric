@@ -82,5 +82,142 @@
     "fabric-secret-run": "runs whatever command follows `--`, with the agent's own secrets in its environment: an allow rule would allow every command, so it asks as any command does",
     "fabric-host": "`run` executes any command on a host as any account (the operator's instrument): allowing it would allow everything",
     "fabric-sign": "git's signing program (ADR-057), linked so gpg.program, gpg.ssh.program and the post-commit hook name one path: any arguments but its own it hands to gpg or ssh-keygen, so an allow rule would allow every gpg command, an export of the secret key included"
+  },
+  "fabric": {
+    "_comment": "ADR-068: `fabric <noun> [<verb>]` -> the command it execs. Rule 4's mechanical first table; covers `commands` exactly once (rule 3); a rename is an amendment that keeps the old form as an alias.",
+    "nouns": {
+      "accounts": {
+        "command": "fabric-accounts"
+      },
+      "adr": {
+        "command": "fabric-adr"
+      },
+      "branches": {
+        "command": "fabric-branches"
+      },
+      "ci-warnings": {
+        "command": "fabric-ci-warnings"
+      },
+      "ctl": {
+        "command": "fabric-ctl"
+      },
+      "drift": {
+        "command": "fabric-drift"
+      },
+      "fleet": {
+        "command": "fabric-fleet"
+      },
+      "fresh": {
+        "command": "fabric-fresh"
+      },
+      "genimage": {
+        "command": "fabric-genimage"
+      },
+      "gh-ledger": {
+        "command": "fabric-gh-ledger"
+      },
+      "gzcoord": {
+        "verbs": {
+          "inbox": "gzcoord-inbox",
+          "send": "gzcoord-send",
+          "compose": "gzcoord-compose",
+          "carrier": "gzcoord-carrier",
+          "msg": "gzmsg"
+        }
+      },
+      "history": {
+        "command": "fabric-history"
+      },
+      "host": {
+        "command": "fabric-host"
+      },
+      "jobs": {
+        "command": "fabric-jobs"
+      },
+      "lease": {
+        "command": "fabric-lease"
+      },
+      "locale": {
+        "command": "fabric-locale"
+      },
+      "memory": {
+        "verbs": {
+          "check": "fabric-memory-check",
+          "mcp": "fabric-memory-mcp"
+        }
+      },
+      "model": {
+        "command": "fabric-model"
+      },
+      "persona": {
+        "command": "fabric-persona"
+      },
+      "plan": {
+        "command": "fabric-plan"
+      },
+      "pr": {
+        "command": "fabric-pr"
+      },
+      "project": {
+        "command": "fabric-project"
+      },
+      "query": {
+        "command": "fabric-query"
+      },
+      "reflect": {
+        "command": "fabric-reflect",
+        "verbs": {
+          "jobs": "fabric-reflect-jobs"
+        }
+      },
+      "repo": {
+        "verbs": {
+          "settings": "fabric-repo-settings",
+          "policy": "fabric-repo-policy"
+        }
+      },
+      "results": {
+        "command": "fabric-results"
+      },
+      "resume": {
+        "command": "fabric-resume"
+      },
+      "review": {
+        "command": "fabric-review",
+        "verbs": {
+          "mcp": "fabric-review-mcp"
+        }
+      },
+      "role": {
+        "command": "fabric-role"
+      },
+      "secret-run": {
+        "command": "fabric-secret-run"
+      },
+      "secrets": {
+        "command": "fabric-secrets"
+      },
+      "sign": {
+        "command": "fabric-sign"
+      },
+      "ssh-hosts": {
+        "command": "fabric-ssh-hosts"
+      },
+      "status": {
+        "command": "fabric-status"
+      },
+      "tools": {
+        "command": "fabric-tools"
+      },
+      "usage": {
+        "command": "fabric-usage"
+      },
+      "watch": {
+        "command": "fabric-watch"
+      },
+      "whoami": {
+        "command": "fabric-whoami"
+      }
+    }
   }
 }
