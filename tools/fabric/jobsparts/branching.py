@@ -5,7 +5,7 @@ The order: the for/ branch a supply job's request names (job["deliver_to"]), unl
 recorded branch, always: a job that records a branch is resumed on it (its worktree recreated from the branch when gone) and is never
 given another job's, so a branch that has landed or is gone from this clone and origin is refused, said, never replaced (the one
 exception: a paused job asked to --repoint is taken from a landed branch to this agent's one open pull request, which may be armed
-if it is in no merge queue and the repository disarms on push); only a job
+if it is in no merge queue and the repository disarms on push); a blocked job whose recorded branch landed counts as one with no branch; only a job
 with no branch gets one: this agent's open pull request in the repository, when it is still addable; else, for a job that needs that
 pull request merged first, a block on it; else a new branch off the freshly fetched default branch. Whatever is chosen is never behind
 the default branch: an existing branch gets the default merged into it, locally and unpushed, in a worktree of its own."""
@@ -221,6 +221,12 @@ def choose(job: dict, *, kind: str, needs_merged: bool, repoint: bool = False) -
                 raise Refused(f"{path} exists but does not have {supply} checked out: move it away, or check the branch out there")
             vcs.run(wc, "worktree", "add", "--no-track", "-b", supply, path, f"origin/{default}")
             return Choice("new", supply, path, note=f"the for/ branch the request names, new off origin/{default}")
+        # A blocked job waited on something and its branch has since landed (the usual case: it was blocked on its own pull
+        # request): the work on that branch is on the default branch, so the job is one with no branch (rule 10 step 3). A paused
+        # or active job is not: its branch is work in hand, and a landed one is refused as before.
+        # --repoint asked of it is still refused (the flag applies to a paused job only), as it always was.
+        if own and job["state"] == "blocked" and not repoint and _landed(wc, repo, own):
+            own = None
         if own:
             return _resume(wc, repo, job, default, repoint)
         mine = _my_open_prs(repo)
