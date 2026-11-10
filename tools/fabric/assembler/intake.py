@@ -128,14 +128,17 @@ def open_layout(args: argparse.Namespace) -> str:
             layout.set_working_copy(pid, path)
     listed = sorted(set(layout.project_ids()) | set(layout.explicit_working_copies()))
     # A list that cannot be found withholds nothing, and the drain would go on as if it did: banned names reached
-    # three project corpora that way (2026-11). The fabric's own project always has one: its working copy is the root.
+    # project corpora that way. The fabric's own project always has one: its working copy is the root.
     args.without_hygiene = [pid for pid in listed if not layout.working_copy_for(pid)]
     if args.without_hygiene and not args.allow_missing_hygiene:
         looked = (f"beside {os.path.dirname(layout.FABRIC_ROOT)} (a checkout of the project with .agent-fabric/memory/), "
                   "in $AGENT_FABRIC_WORKING_COPY and in this agent's binding")
+        # PROJECT=DIR is the anchor guard's alone (args.checkouts); naming it here keeps the operator from trying it.
+        guard_only = [pid for pid in args.without_hygiene if pid in args.checkouts]
         sys.exit("assemble: no hygiene list can be found for " + ", ".join(args.without_hygiene)
-                 + f"; looked {looked}, and no working copy is known. Pass --working-copy for the run's own project, or "
-                 "--allow-missing-hygiene to assemble without those lists")
+                 + f"; looked {looked}, and no working copy is known. Put the project's checkout beside the fabric, or pass "
+                 "--allow-missing-hygiene to assemble without those lists"
+                 + (f" (--working-copy PROJECT=DIR is read by the anchor guard only: {', '.join(guard_only)})" if guard_only else ""))
     try:
         BANNED_PATTERNS[:] = layout.load_hygiene_patterns(listed)
         PROJECT_PATTERNS[:] = layout.load_hygiene_patterns(listed, for_project=project)

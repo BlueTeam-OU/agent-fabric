@@ -4208,6 +4208,20 @@ def test_a_registered_project_without_a_working_copy_refuses_the_drain(tmp: str)
     assert not os.path.exists(dom(out, "alpha")), "a slice was written past the refusal"
 
 
+def test_the_refusal_does_not_offer_a_flag_that_cannot_clear_it(tmp: str) -> None:
+    """--working-copy PROJECT=DIR serves the anchor guard only: the message says so for a project given that way
+    and never sends the operator to a remedy that leaves the refusal in place."""
+    drain, claims_dir, out = one_domain_claim(tmp)
+    registry_with(out, PROJECT, "ghost")
+    ghost = os.path.join(out, "wc-ghost")
+    os.makedirs(os.path.join(ghost, ".agent-fabric"))
+    proc = run_assemble(drain, claims_dir, out, "--working-copy", "ghost=" + ghost)
+    assert proc.returncode == 1 and "anchor guard only: ghost" in proc.stderr, proc.stderr
+    assert "for the run's own project" not in proc.stderr, proc.stderr
+    plain = run_assemble(drain, claims_dir, out)
+    assert plain.returncode == 1 and "anchor guard only" not in plain.stderr, plain.stderr
+
+
 def test_allow_missing_hygiene_assembles_and_names_the_projects_without_a_list(tmp: str) -> None:
     drain, claims_dir, out = one_domain_claim(tmp)
     registry_with(out, PROJECT, "ghost", "phantom")
@@ -4233,6 +4247,7 @@ def test_a_project_whose_list_is_found_is_assembled_as_before(tmp: str) -> None:
 
 def main() -> int:
     cases = [
+        test_the_refusal_does_not_offer_a_flag_that_cannot_clear_it,
         test_a_registered_project_without_a_working_copy_refuses_the_drain,
         test_allow_missing_hygiene_assembles_and_names_the_projects_without_a_list,
         test_a_project_whose_list_is_found_is_assembled_as_before,
