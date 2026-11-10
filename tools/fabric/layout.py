@@ -56,11 +56,11 @@ import json
 import os
 import sys
 
-FABRIC_ROOT = os.environ.get("AGENT_FABRIC_ROOT") or os.path.dirname(
-    os.path.dirname(os.path.dirname(os.path.realpath(__file__))))
 
 sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
 import roots  # noqa: E402
+
+FABRIC_ROOT = roots.engine_root()
 
 # The project-side directory, and how a project's INDEX.md reaches back
 # into this repository.
