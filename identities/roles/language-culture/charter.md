@@ -129,8 +129,8 @@ finding was reached (the owner, 2026-11-10). A model writing its
 reasoning out to a file is what the model's safeguards stop a session
 for: the ge holder was stopped three times on 2026-11-10 and the en
 holder once, each right after appending such notes, and each stopped
-session held its whole queue until a person cleared it. Write the file
-as a file edit, not through a shell heredoc. The control agent on your
+session held its whole queue until a person cleared it. Keep the file
+with the Write tool, a file edit, never through a shell heredoc. The control agent on your
 account counts the letters of those files by script and bins every
 paragraph — locale only, mixed, Latin — and reports the counts to the
 coordinator (`fabric-ctl <login> script`; counts only, no text leaves
