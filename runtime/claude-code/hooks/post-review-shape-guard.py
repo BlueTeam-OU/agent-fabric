@@ -2,9 +2,16 @@
 """runtime/claude-code/hooks/post-review-shape-guard.py: a PreToolUse hook on Bash.
 
 Refuses a command that names `fabric-pr` and `post-review` and is not the
-bare command `fabric-pr post-review [options] <n> [< <report>]`, unless
-every mention of the two words is in text the shell never runs; and names
-the bare form.
+bare command `fabric-pr post-review [options] <n> [< <report>]` (or its
+dispatcher spelling `fabric pr post-review …`), unless every mention of the
+two words is in text the shell never runs; and names the bare form.
+
+WHICH WORDS ARE `fabric-pr`. tools/fabric/cli canonical() says, never a
+pattern here (agent-fabric ADR-068 §5 rule 7): it reads `fabric-pr`, `fabric
+pr`, `bin/fabric-pr` and the `env`/`command` prefixes to the one command, so
+a spelling the dispatcher adds is guarded the day it is added. The command
+table it reads (runtime/claude-code/commands.json) is from this hook's own
+checkout; one that cannot be read refuses, as any other failure to decide.
 
 WHY. Posting the review class's report on one's own pull request is the
 author's job (ADR-020), and every account allows it: user-settings.py
@@ -20,12 +27,13 @@ entry in policies/auto-mode.json (#396) did not stop it, and a memory did
 not reach the other accounts. A deny here costs a rephrase and keeps the
 classifier from ever being asked; the classifier's refusal costs the owner.
 
-WHAT COUNTS AS BARE. The whole command, stripped, is `fabric-pr`, then
-`post-review`, then words with no shell operator in them — no `;`, `&`,
+WHAT COUNTS AS BARE. The whole command, stripped, is `fabric-pr` (or
+`fabric pr`) as its first word, then `post-review`, then words with no shell
+operator in them — no `;`, `&`,
 `|`, `$`, a backtick, a parenthesis, `>` or a newline — and at most one
 `<` redirection from a file. Quotes are allowed around a word, not around
 the command: `"fabric-pr"` and `\\fabric-pr` are not the prefix the rule
-matches.
+matches, and neither is a path, an assignment or `env` before it.
 
 WHY INERT TEXT, NOT A PARSE OF WHAT RUNS. Two rounds of review on #451
 found that deciding which words run misses both ways: a text regex let
@@ -34,7 +42,9 @@ a shlex walk of command positions let `"$(…)"`, `time -p`, `sudo -E bash
 -c` and `bash <<EOF` through, and went quadratic and recursive. A guard
 for a habit must not need a shell parser to be right (pipe-status-guard
 learned the same). So the question is turned round: the two words are
-looked for in everything except text the shell provably never runs —
+looked for in everything except text the shell provably never runs (a
+live word canonical() reads as `fabric-pr`, with `post-review` anywhere
+after it) —
   - a comment (`#` beginning a word, to the end of the line);
   - a single-quoted string, or an ANSI-C `$'…'` one (a `\\'` in it does not
     close it); a quote left open is live, so a misread cannot hide what
@@ -63,19 +73,33 @@ a sandbox.
 COST. One pass over the text, no recursion and no backtracking: each
 character is looked at a bounded number of times, so the 5 s the settings
 give the hook covers any command a session sends (review of #451, F3, F6,
-F7). Nothing is scanned unless both words occur in the text.
+F7). Nothing is scanned, and no table read, unless `post-review` occurs in the
+text: the command's name is not looked for before canonical() is asked.
 
-Output: one deny decision on stdout, or nothing. Exit 0 always: input it
-cannot read is passed, never blocked.
+Output: one deny decision on stdout, or nothing. Exit 0 always: a payload it
+cannot read is passed, never blocked (a command table it cannot read is not
+a payload: that refuses).
 """
 from __future__ import annotations
 
+import importlib
+import importlib.util
 import json
+import os
 import re
 import sys
 
+ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.realpath(__file__)))))
+# The command and verb this guard is about, compared with what canonical() reads, never with the words as spelled.
+COMMAND, VERB = "fabric-pr", "post-review"
 # Greedy over classes that exclude `<`, so a match never backtracks: linear on any input (the lazy form was not).
-BARE = re.compile(r"fabric-pr\s+post-review(?:\s[^;&|$`()<>\n]*)?(?:<[^;&|$`()<>\n]*)?")
+# The command's words come before the `<`; whether they are `fabric-pr post-review` is canonical()'s to say.
+BARE = re.compile(r"([^;&|$`()<>\n]*)(?:<[^;&|$`()<>\n]*)?")
+# What ends a word of live text for canonical(): the shell's operators and quotes (a double-quoted `"fabric-pr"`
+# still runs it) and the backslash (`\fabric-pr` does too).
+LIVE_WORD = re.compile(r"[^\s;&|()<>`\"$\\]+")
+# canonical() needs at most `fabric <noun> <verb>` to name a command; the arguments are not its question here.
+NAMING_WORDS = 3
 # A word that runs its arguments as commands, wherever it stands: over-reported in argument position, which costs a
 # rephrase. `.` is `source` only as a command word: as an argument it is a path (`grep -rn '…' .`; review of #451, F9).
 RUNNERS = {"bash", "sh", "dash", "zsh", "ksh", "eval", "source", "su", "ssh", "watch", "flock"}
@@ -283,14 +307,48 @@ def live_text(cmd: str) -> str:
     return "".join(live) + ("".join(inert) if runner else "")
 
 
+def canonical_module():
+    """tools/fabric/cli/canonical.py, its package loaded BY PATH as fabric_cli (as tools/fabric/cli/fabric.py loads
+    it), so nothing on sys.path answers for the import."""
+    if "fabric_cli" not in sys.modules:
+        here = os.path.join(ROOT, "tools", "fabric", "cli")
+        spec = importlib.util.spec_from_file_location("fabric_cli", os.path.join(here, "__init__.py"),
+                                                      submodule_search_locations=[here])
+        if spec is None or spec.loader is None:
+            raise ImportError(f"no package at {here}")
+        package = importlib.util.module_from_spec(spec)
+        sys.modules["fabric_cli"] = package
+        spec.loader.exec_module(package)
+    return importlib.import_module("fabric_cli.canonical")
+
+
+def bare(cmd: str, canonical) -> bool:
+    """The words before the one `<` are the post-review itself, its command word first: not a prefix canonical()
+    reads through (`env`, `LC_ALL=C`), not a path, not quoted — none of those is what `Bash(fabric-pr *)` (or
+    `Bash(fabric pr *)`) matches."""
+    shape = BARE.fullmatch(cmd)
+    words = shape.group(1).split() if shape else []
+    read = canonical.canonical(words) if words else None
+    return (read is not None and read[0] == COMMAND and read[1][:1] == [VERB]
+            and words[0] in (COMMAND, canonical.DISPATCHER))
+
+
 def refused(cmd: str) -> bool:
-    if "fabric-pr" not in cmd or "post-review" not in cmd:
+    if VERB not in cmd:
         return False
-    if BARE.fullmatch(cmd.strip()):
+    canonical = canonical_module()
+    if bare(cmd.strip(), canonical):
         return False
     text = live_text(cmd)
-    at = text.find("fabric-pr")            # a run names the subcommand after the script: `grep post-review bin/fabric-pr` runs none
-    return at != -1 and text.find("post-review", at) != -1
+    last = text.rfind(VERB)                 # a run names the subcommand after the script: `grep post-review bin/fabric-pr` runs none
+    if last == -1:
+        return False
+    words = LIVE_WORD.findall(text, 0, last)
+    # Every live word before the last `post-review` is asked whether it starts `fabric-pr`: a text walk, not a parse of
+    # command positions (the header says why), so `echo fabric-pr post-review` is over-reported as it always was. By
+    # its last part, so a path outside a `bin` (`./fabric-pr`, `/opt/x/fabric-pr`) stays the script it always was here.
+    return any((read := canonical.canonical([os.path.basename(words[k]), *words[k + 1:k + NAMING_WORDS]])) is not None
+               and read[0] == COMMAND for k in range(len(words)))
 
 
 def main() -> int:
