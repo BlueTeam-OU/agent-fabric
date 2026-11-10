@@ -53,7 +53,7 @@ HELP = """Take an arming off a PR, and post why — as arm posts its basis.
 
   fabric-pr disarm <pr-number> --basis "<one line>" [--any-owner] [--dry-run]
 
-Who may: whoever may arm it. This session's own PR; another session's only
+Who may: narrower than arm. This session's own PR; another session's only
 with --any-owner and a basis that gives "the owner's word", or "<role>'s word"
 for the role the arming policy names as commits.below_min_authority or
 commits.boundary_authority, held by this session's binding. A repository whose
