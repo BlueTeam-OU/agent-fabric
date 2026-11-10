@@ -92,8 +92,9 @@ flaws were:
    rust-ui-dev-02 (16:10Z), 11-07 to rust-ui-dev-02 (23:20:41Z) and
    11-07 22:19:48Z to devex-tooling (11-08 07:26:57Z). The carrier did
    not hold any of them during the outage, so they prove nothing about
-   the drill. When their senders sent them is not in the collection. Apart from the acknowledgement
-   (flaw 1), they fail only on "first shown by the relay".
+   the drill. When their senders sent them is not in the collection.
+   Apart from the acknowledgement (flaw 1), they fail only on "first
+   shown by the relay".
 
 What the drills do show, pair by pair, where the carrier alone held the
 message during the outage:
