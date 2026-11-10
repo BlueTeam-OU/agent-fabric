@@ -59,7 +59,7 @@ def pins_of(d: object) -> list[str] | None:
         bad += sorted("env." + k for k in env
                       if k.startswith("ANTHROPIC_")
                       or k in ("CLAUDE_CODE_SUBAGENT_MODEL", "CLAUDE_CODE_SUBAGENT_MODEL_FORCE",
-                               "CLAUDE_CODE_EFFORT_LEVEL"))
+                               "CLAUDE_CODE_EFFORT_LEVEL", "CLAUDE_CODE_SUBAGENT_EFFORT"))
     if "modelOverrides" in d:
         bad.append("modelOverrides")
     # Only `maxEffortLevel` here, and NOT effortLevel/modelSettings, which the
@@ -110,6 +110,16 @@ def refuse_pins(scopes: list[str], local_override: str) -> None:
         die(f"CLAUDE_CODE_EFFORT_LEVEL is set to '{os.environ['CLAUDE_CODE_EFFORT_LEVEL']}'; it outranks every "
             "per-class effort the fabric writes, in every subagent. Unset it (routing/effort.json is where a "
             "level is decided).")
+    # Read out of 2.1.322 (builds from 2.1.316): the effort a subagent runs at
+    # when its definition names none (Explore, Plan, general-purpose), instead
+    # of the session's. A class file with a routed effort names one and ignores
+    # it; the harness types, locale-worker and a class on a model that
+    # expresses no effort name none, and a process-env value moves them all off
+    # the routed level (ADR-006 rule 6). Presence, not emptiness, as above.
+    if "CLAUDE_CODE_SUBAGENT_EFFORT" in os.environ:
+        die(f"CLAUDE_CODE_SUBAGENT_EFFORT is set to '{os.environ['CLAUDE_CODE_SUBAGENT_EFFORT']}'; it moves every "
+            "subagent whose definition names no effort off the session's routed level. Unset it "
+            "(routing/effort.json is where a level is decided).")
 
 
 def cli_settings_values(args: list[str]) -> list[str]:

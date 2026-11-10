@@ -546,6 +546,18 @@ def main() -> int:
             rm(f"{home}/.claude/settings.json")
             check("exported but EMPTY is still set, and still refused",
                   run("--provider", "anthropic", "--version", CLAUDE_CODE_EFFORT_LEVEL="")[0] != 0)
+            # The subagent-effort variable (2.1.316+) is fenced the same way.
+            for val in ("max", "inherit", ""):
+                rc, out = run("--provider", "anthropic", "--version", CLAUDE_CODE_SUBAGENT_EFFORT=val)
+                check(f"CLAUDE_CODE_SUBAGENT_EFFORT={val!r}: REFUSED, naming it and routing/effort.json, never launched",
+                      rc != 0 and "EXECCED" not in out and "CLAUDE_CODE_SUBAGENT_EFFORT" in out
+                      and "routing/effort.json" in out, out)
+            mkfabric()
+            put(f"{home}/.claude/settings.json", '{"env":{"CLAUDE_CODE_SUBAGENT_EFFORT":"max"}}\n')
+            rc, out = run("--provider", "anthropic", "--version")
+            check("a settings scope carrying it in its env block: REFUSED", rc != 0 and "EXECCED" not in out
+                  and "env.CLAUDE_CODE_SUBAGENT_EFFORT" in out, out)
+            rm(f"{home}/.claude/settings.json")
             # A trailing bare --effort is the caller's; adding ours makes the
             # child read "--effort" as the level.
             mkfabric()
@@ -1939,6 +1951,9 @@ echo "CLAUDE-ENDED:$(date +%s.%N)"
             check("the base URL prints scheme+host, no userinfo",
                   "key-secret" not in out and has(r"ANTHROPIC_BASE_URL = https://proxy\.example$", out), out)
             check("an allowlisted pin prints its value", "ANTHROPIC_DEFAULT_OPUS_MODEL = anthropic/claude-opus-5" in out, out)
+            out = audit(CLAUDE_CODE_SUBAGENT_EFFORT="inherit")
+            check("the subagent effort variable is listed, with its value, as the effort level is",
+                  "CLAUDE_CODE_SUBAGENT_EFFORT = inherit" in out, out)
             check("no stamp: says the session model is not visible", "not launched via runtime/openrouter/launch" in out, out)
             out = audit(ANTHROPIC_BASE_URL="HTTPS://key@proxy.example:8443?api_key=qs-secret#frag-secret")
             check("uppercase scheme, no path, query+fragment: scheme://host:port only",
