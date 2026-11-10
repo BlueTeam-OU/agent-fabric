@@ -999,7 +999,7 @@ Per pair made inside the drill: held by the carrier alone (a relay copy before t
 
 The same collection and window, `gzcoord-carrier parity --relay-drill` for each drill, after #534 merged. The drill sections only; everything above them is unchanged.
 
-The re-run predates f436c907 (#534), which rewords one reason: where a pair below says "the InterWeave copy came after the drill ended, so the sender sent it late", the judge now says "the InterWeave copy arrived outside the drill". It knows when a copy arrived, not why.
+The re-run predates f436c907, a follow-up to #534's review that reached main with #532, which rewords one reason: where a pair below says "the InterWeave copy came after the drill ended, so the sender sent it late", the judge now says "the InterWeave copy arrived outside the drill". It knows when a copy arrived, not why.
 
 ## Relay-outage drill (2026-11-05T15:50:19Z to 2026-11-05T16:08:24Z): UNSETTLED, none failed and 1 pair(s) cannot be told yet
 
