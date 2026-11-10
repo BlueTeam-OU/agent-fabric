@@ -23,6 +23,7 @@ import sys
 from typing import Any, Callable
 
 from control.ops import util
+import roots  # noqa: E402 — control.ops.util puts tools/fabric on sys.path
 from gzcoord import gzmsg
 
 LOCAL_TIMEOUT_S = 15
@@ -33,8 +34,7 @@ def _tool(root: str) -> str:
 
 
 def _default_root(home: str) -> str:
-    env = os.environ.get("AGENT_FABRIC_ROOT")
-    return os.path.join(home, "projects", "agent-fabric") if env is None else env
+    return roots.checkout_root(home, empty_is_set=True)
 
 
 def _run(sub: str, home: str | None = None, root: str | None = None, run: Callable[..., Any] = subprocess.run) -> Any:

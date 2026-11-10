@@ -439,7 +439,7 @@ def run(argv: list[str]) -> int:
     if not top:
         raise Refused("not inside a git working copy")
     os.chdir(top)
-    fabric = os.environ.get("AGENT_FABRIC_ROOT") or os.path.dirname(os.path.dirname(os.path.dirname(HERE)))
+    fabric = roots.engine_root()
 
     if run_git(top, "fetch", "-q", "--prune", "origin", timeout=FETCH_TIMEOUT_S).returncode != 0:
         raise Refused("git fetch origin failed; nothing tried")

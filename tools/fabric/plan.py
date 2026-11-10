@@ -46,7 +46,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import roots  # noqa: E402
 
-FABRIC_ROOT = os.environ.get("AGENT_FABRIC_ROOT") or os.path.dirname(os.path.dirname(HERE))
+FABRIC_ROOT = roots.engine_root()
 ROLE = "fabric-coordinator"
 CALL_TIMEOUT_S = 60
 CTL_TIMEOUT_S = 20          # fabric-ctl's own wait for the control agents' replies, as fleet.py

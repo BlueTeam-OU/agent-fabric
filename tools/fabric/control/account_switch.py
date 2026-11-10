@@ -79,6 +79,7 @@ if sys.path and os.path.realpath(sys.path[0] or ".") == os.path.dirname(os.path.
 elif os.path.dirname(os.path.dirname(os.path.realpath(__file__))) not in sys.path:
     sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.realpath(__file__))))
 from control import switch_log, switch_policy  # noqa: E402
+import roots  # noqa: E402
 
 STATE = "account-switch-state.json"
 LOCK = "account-switch.lock"
@@ -614,11 +615,10 @@ def ctl_path(root: str, run: Callable[..., Any] = subprocess.run) -> Callable[[l
 # ── one run ─────────────────────────────────────────────────────────
 
 def _fabric_root() -> str:
-    return os.environ.get("AGENT_FABRIC_ROOT") or os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.realpath(__file__)))))
+    return roots.engine_root()
 
 
 def _policy_file(root: str) -> str:
-    import roots
     return roots.routing_policy(switch_policy.NAME, engine=root)
 
 

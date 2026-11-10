@@ -60,6 +60,8 @@ import sys
 from collections.abc import Mapping
 
 HERE = os.path.dirname(os.path.realpath(__file__))
+sys.path.insert(0, os.path.dirname(HERE))
+import roots  # noqa: E402
 CALL_TIMEOUT_S = 600            # a git status or a mv of a clone; none waits on a person
 USAGE = """# tools/fabric/provisioning/rename_working_copy.py — move an account's working
 # copy and carry its Claude Code history with it. Host tooling, run by the
@@ -148,7 +150,7 @@ class Renamer:
             print(f"no such login: {self.login}", file=sys.stderr)
             return 2
         # The account's own copy of the state layer (runtime/identity.py): the coordinator's checkout is not readable to it.
-        identity = os.path.join(self.home, "projects", "agent-fabric", "runtime", "identity.py")
+        identity = roots.account_clone(self.home, "runtime", "identity.py")
         if not os.path.isfile(identity):
             identity = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(HERE))), "runtime", "identity.py")
         history = os.path.join(os.path.dirname(identity), "..", "runtime", "provisioning", "rename_history.py")
