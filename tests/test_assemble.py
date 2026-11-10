@@ -1720,13 +1720,13 @@ def test_anchors_that_could_not_be_rendered_or_are_banned_are_refused_or_dropped
     assert ctl.returncode == 1 and "projects/registry.json could not be read" in ctl.stderr, \
         ("a named project is unknown, never accepted, while the registry cannot be read", ctl.stderr)
     write_registry(out)
-    ctl = run_assemble(drain, claims_dir, out)
+    ctl = run_assemble(drain, claims_dir, out, "--allow-missing-hygiene")   # gzapp has no checkout here: only its anchor is under test
     assert ctl.returncode == 0, ("positive control: a valid anchor, and one naming a registry project, are accepted", ctl.stderr)
     unknown = {**base, "anchors": ["nosuchproject:a.py::x"]}
     drain, claims_dir, out2 = build(os.path.join(tmp, "unknown"), {"alpha": claims("alpha", [unknown])})
     os.makedirs(os.path.join(out2, "projects"))
     write_registry(out2)
-    proc = run_assemble(drain, claims_dir, out2)
+    proc = run_assemble(drain, claims_dir, out2, "--allow-missing-hygiene")
     assert proc.returncode == 1 and "which projects/registry.json does not" in proc.stderr, ("registry readable, project not in it", proc.stderr)
     banned = {**base, "anchors": ["docs/Springfield.md::heading", "a.py"]}
     drain, claims_dir, out = build(os.path.join(tmp, "banned"), {"alpha": claims("alpha", [banned])})
@@ -4182,8 +4182,60 @@ def test_holding_a_shared_slice_keeps_the_notes_of_a_role_slice_under_the_same_k
     assert os.path.exists(dom(out, "gamma", "domain.md"))
 
 
+def registry_with(out: str, *ids: str) -> None:
+    os.makedirs(os.path.join(out, "projects"), exist_ok=True)
+    with open(os.path.join(out, "projects", "registry.json"), "w", encoding="utf-8") as fh:
+        json.dump({"projects": {pid: {} for pid in ids}}, fh)
+
+
+def one_domain_claim(tmp: str) -> tuple[str, str, str]:
+    return build(tmp, {"alpha": claims("alpha", [
+        {"class": "domain", "topic": "one", "title": "T", "body": "b", "evidence": ["h1"]},
+    ])})
+
+
+def test_a_registered_project_without_a_working_copy_refuses_the_drain(tmp: str) -> None:
+    """The assembler found no .agent-fabric/hygiene.json for a registered project (no checkout beside the
+    fabric, none named) and assembled with no list for it, silently: banned names reached project corpora.
+    The run stops before it writes, the line naming the project and where it looked."""
+    drain, claims_dir, out = one_domain_claim(tmp)
+    registry_with(out, PROJECT, "ghost")
+    proc = run_assemble(drain, claims_dir, out)
+    assert proc.returncode == 1, proc.stderr
+    lines = proc.stderr.strip().split("\n")
+    assert len(lines) == 1 and "ghost" in lines[0] and "looked beside" in lines[0] \
+        and "--allow-missing-hygiene" in lines[0] and PROJECT + "," not in lines[0], proc.stderr
+    assert not os.path.exists(dom(out, "alpha")), "a slice was written past the refusal"
+
+
+def test_allow_missing_hygiene_assembles_and_names_the_projects_without_a_list(tmp: str) -> None:
+    drain, claims_dir, out = one_domain_claim(tmp)
+    registry_with(out, PROJECT, "ghost", "phantom")
+    proc = run_assemble(drain, claims_dir, out, "--allow-missing-hygiene")
+    assert proc.returncode == 0, proc.stderr
+    assert "NO HYGIENE LIST" in proc.stderr and "  ghost\n" in proc.stderr and "  phantom\n" in proc.stderr, proc.stderr
+    assert PROJECT not in proc.stderr.split("NO HYGIENE LIST", 1)[1].split("\n\n")[0].replace("--allow-missing-hygiene", "")
+    report = json.loads(read(os.path.join(working_copy(out), ".agent-fabric", "memory", "last-drain-report.json")))
+    assert report["assembled_without_hygiene"] == ["ghost", "phantom"], report["assembled_without_hygiene"]
+
+
+def test_a_project_whose_list_is_found_is_assembled_as_before(tmp: str) -> None:
+    """Control: the registry names the project whose working copy the run has and the fabric itself, so no flag is needed, nothing
+    is said of a missing list and the report lists none."""
+    drain, claims_dir, out = one_domain_claim(tmp)
+    registry_with(out, PROJECT, "agent-fabric")   # its working copy is the fabric root: never missing
+    proc = run_assemble(drain, claims_dir, out)
+    assert proc.returncode == 0, proc.stderr
+    assert "NO HYGIENE LIST" not in proc.stderr, proc.stderr
+    report = json.loads(read(os.path.join(working_copy(out), ".agent-fabric", "memory", "last-drain-report.json")))
+    assert report["assembled_without_hygiene"] == [], report
+
+
 def main() -> int:
     cases = [
+        test_a_registered_project_without_a_working_copy_refuses_the_drain,
+        test_allow_missing_hygiene_assembles_and_names_the_projects_without_a_list,
+        test_a_project_whose_list_is_found_is_assembled_as_before,
         test_a_topic_named_like_a_budget_part_is_its_own_memory,
         test_a_merged_drain_report_keeps_every_harvest_and_only_files_that_exist,
         test_an_unresolved_merge_target_is_reported_on_every_drain,

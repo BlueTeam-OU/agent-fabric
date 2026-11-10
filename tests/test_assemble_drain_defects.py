@@ -243,13 +243,13 @@ def test_an_anchor_that_resolves_is_not_replaced_by_one_that_does_not(tmp: str) 
     ta.with_agents(drain, {"h1": "dev-01", "h2": "dev-01", "h3": "dev-01"})
     seed_file(out, "gzapp/src/b.py", "a marker\n")
     ta.write_registry(out)
-    proc = ta.run_assemble(drain, claims_dir, out)
+    proc = ta.run_assemble(drain, claims_dir, out, "--allow-missing-hygiene")
     assert proc.returncode == 0, proc.stderr
     written = ta.read(ta.proj(out, "alpha", "solution.md"))
     assert "*Anchors: `gzapp:src/b.py::marker`*" in written, written
     with open(os.path.join(claims_dir, "alpha.json"), "w", encoding="utf-8") as fh:
         json.dump(ta.claims("alpha", [anchored(["src/b.py::marker"])]), fh)
-    proc = ta.run_assemble(drain, claims_dir, out)
+    proc = ta.run_assemble(drain, claims_dir, out, "--allow-missing-hygiene")
     assert proc.returncode == 0, proc.stderr
     kept = ta.read(ta.proj(out, "alpha", "solution.md"))
     assert "*Anchors: `gzapp:src/b.py::marker`*" in kept and "`src/b.py::marker`" not in kept, kept
@@ -276,13 +276,13 @@ def test_an_incoming_anchor_that_resolves_stands_and_so_does_one_that_cannot_be_
             ta.write_registry(out)
             if has_file:
                 seed_file(ta.working_copy(out), "src/b.py", "a marker\n")
-            proc = ta.run_assemble(drain, claims_dir, out)
+            proc = ta.run_assemble(drain, claims_dir, out, "--allow-missing-hygiene")
             assert proc.returncode == 0, (corpus_anchor, proc.stderr)
             if other_checkout == "lacks":
                 seed_file(out, "gzapp/src/b.py", "nothing\n")
             with open(os.path.join(claims_dir, "alpha.json"), "w", encoding="utf-8") as fh:
                 json.dump(ta.claims("alpha", [anchored([incoming])]), fh)
-            proc = ta.run_assemble(drain, claims_dir, out)
+            proc = ta.run_assemble(drain, claims_dir, out, "--allow-missing-hygiene")
             assert proc.returncode == 0, (corpus_anchor, incoming, proc.stderr)
             text = ta.read(ta.proj(out, "alpha", "solution.md"))
             assert f"*Anchors: `{incoming}`*" in text, (corpus_anchor, incoming, text)
@@ -306,13 +306,13 @@ def test_a_resolving_corpus_anchor_replaced_by_one_that_is_gone_is_reported_not_
             ta.with_agents(drain, {"h1": "dev-01"})
             seed_file(out, "gzapp/src/b.py", "a marker\n")
             ta.write_registry(out)
-            assert ta.run_assemble(drain, claims_dir, out).returncode == 0
+            assert ta.run_assemble(drain, claims_dir, out, "--allow-missing-hygiene").returncode == 0
             seed_file(out, "gzapp/src/b.py", "a marker\n" if old_there else "nothing\n")
             if not new_is_gone:
                 seed_file(out, "gzapp/src/c.py", "a marker\n")
             with open(os.path.join(claims_dir, "alpha.json"), "w", encoding="utf-8") as fh:
                 json.dump(ta.claims("alpha", [anchored([incoming])]), fh)
-            proc = ta.run_assemble(drain, claims_dir, out)
+            proc = ta.run_assemble(drain, claims_dir, out, "--allow-missing-hygiene")
             assert proc.returncode == 0, (name, proc.stderr)
             assert f"*Anchors: `{incoming}`*" in ta.read(ta.proj(out, "alpha", "solution.md")), name
             assert report(out)["anchors_kept"] == [], name
@@ -336,10 +336,10 @@ def test_a_checkout_given_by_working_copy_project_dir_is_where_the_guard_judges(
             seed_file(elsewhere, "src/b.py", "a marker\n")
             flag = ("--working-copy", f"gzapp={elsewhere}") if mapped else ()
             # The corpus is written with the anchor in place: the first run has no standing anchor to compare with.
-            assert ta.run_assemble(drain, claims_dir, out, *flag).returncode == 0
+            assert ta.run_assemble(drain, claims_dir, out, "--allow-missing-hygiene", *flag).returncode == 0
             with open(os.path.join(claims_dir, "alpha.json"), "w", encoding="utf-8") as fh:
                 json.dump(ta.claims("alpha", [anchored(["src/b.py::marker"])]), fh)
-            proc = ta.run_assemble(drain, claims_dir, out, *flag)
+            proc = ta.run_assemble(drain, claims_dir, out, "--allow-missing-hygiene", *flag)
             assert proc.returncode == 0, (name, proc.stderr)
             text = ta.read(ta.proj(out, "alpha", "solution.md"))
             if mapped:

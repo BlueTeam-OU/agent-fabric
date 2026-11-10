@@ -52,7 +52,9 @@ What it does:
     knowledge two roles need lives once instead of in two copies that
     will disagree later.
   * Merges the citation graph into each role's crossref.json.
-  * Runs the hygiene checks that must never reach a commit.
+  * Runs the hygiene checks that must never reach a commit. A registered project whose working copy (so whose
+    .agent-fabric/hygiene.json) the run cannot find refuses the run, naming it and where it looked;
+    --allow-missing-hygiene lets it through and the report names each project assembled without its list.
 
 Merge mode is the default: existing slices are read, and a claim whose
 `merge_target` names an existing section updates it instead of appending
