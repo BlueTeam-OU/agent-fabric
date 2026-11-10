@@ -571,7 +571,7 @@ def main() -> int:
         rc, out, err = w.strict("done", j3, f"{jobs_world.GH_REPO}#4", f"{jobs_world.GH_REPO}#7")
         # Kills: dropping the per-artifact loop in move (the closed pull request rides in beside the merged one).
         check("…and done naming a merged pull request beside a closed one is refused, naming the closed one; the job is unchanged",
-              rc == 1 and "#7 did not land" in err and w.job(j3)["state"] == "active" and not w.job(j3).get("artifacts"), out + err + repr(w.job(j3)))
+              rc == 1 and "#7 did not land" in err and "done needs evidence it landed" in err and w.job(j3)["state"] == "active" and not w.job(j3).get("artifacts"), out + err + repr(w.job(j3)))
         rc, out, err = w.strict("done", j3, f"{jobs_world.GH_REPO}#4")
         assert rc == 0, out + err
         rc, out, err = w.strict("done", j3, f"{jobs_world.GH_REPO}#4", "--no-artifact", "x")
@@ -584,6 +584,28 @@ def main() -> int:
         rc, out, err = w.strict("done", j2, f"{jobs_world.GH_REPO}#6")
         check("…and done naming an open pull request is refused, the job not changed",
               rc == 1 and "still open" in err and w.job(j2)["state"] == "active" and not w.job(j2).get("artifacts"), out + err + repr(w.job(j2)))
+        # A squash-merged branch is excused by the merged pull request that ended at its tip, also when both are named on done.
+        for ended, label in (("tip", "ends at the branch's tip"), ("old", "ended at an older head")):
+            w = World()
+            j1 = w.working(f"squash-merged, named with its pull request ({label})")
+            pushed_branch(w)
+            tip = subprocess.run(["git", "-C", w.repo, "rev-parse", f"origin/{contrib}"], capture_output=True, text=True, check=True).stdout.strip()
+            gh_says({f"{jobs_world.GH_REPO}#2": "MERGED"}, heads={f"{jobs_world.GH_REPO}#2": {"headRefName": contrib, "headRefOid": tip if ended == "tip" else "0" * 40}})
+            rc, out, err = w.strict("done", j1, contrib, f"{jobs_world.GH_REPO}#2")
+            # Kills: judging each name alone (the branch is refused for want of the pull request beside it); the "old" case is
+            # the negative control that the retry does not excuse a branch the pull request did not end at.
+            check(f"done names a squash-merged branch beside the merged pull request that {label}",
+                  (rc == 0 and w.job(j1)["state"] == "done") if ended == "tip" else (rc == 1 and f"{contrib} with the names beside it is not recorded" in err and w.job(j1)["state"] == "active"),
+                  out + err + repr(w.job(j1)))
+        w = World()
+        j1 = w.working("squash-merged branch and its merged pull request, beside an open one")
+        pushed_branch(w)
+        tip = subprocess.run(["git", "-C", w.repo, "rev-parse", f"origin/{contrib}"], capture_output=True, text=True, check=True).stdout.strip()
+        gh_says({f"{jobs_world.GH_REPO}#2": "MERGED", f"{jobs_world.GH_REPO}#7": "OPEN"}, heads={f"{jobs_world.GH_REPO}#2": {"headRefName": contrib, "headRefOid": tip}})
+        rc, out, err = w.strict("done", j1, contrib, f"{jobs_world.GH_REPO}#2", f"{jobs_world.GH_REPO}#7")
+        # Kills: raising the retry's leftover problems under the branch's name (the open pull request is the one that failed).
+        check("…and when a sibling fails, the refusal does not blame the branch the merged pull request excused",
+              rc == 1 and "still open" in err and f"{contrib} did not land" not in err and "would land" not in err and w.job(j1)["state"] == "active", out + err + repr(w.job(j1)))
         w = World()
         j1 = w.working("delivered by a reply")
         w.sw("deliver", j1, f"reply:{RID}")
