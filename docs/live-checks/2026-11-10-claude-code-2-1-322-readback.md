@@ -19,6 +19,7 @@
 | R3 | a child that dispatches one `Explore` subagent | see below |
 | D1 control | under strace, a child with `AGENT_FABRIC_LAUNCH_PROVIDER=anthropic` dispatches `code-review`, `model: fable`, without `run_in_background` | allowed; one guard run, on its allow path |
 | D2 | the same with `run_in_background: true` | allowed; **one** guard run, on its allow path |
+| F1 | `claude -p --model claude-fable-5-2`, on 2.1.322 and, as the control, on the installed 2.1.311 | both served it (`init` model `claude-fable-5-2`, answer `OK`); 2.1.311 printed `[claude-code:unrecognized_model]` on stderr, 2.1.322 printed nothing |
 
 **R2, what the system prompt holds.** Each request has three system blocks, as on 2.1.311: the billing header, an opening line, and the body. With `--system-prompt-file` the body is the file's text alone (46 bytes against 9,408), and the memory section is gone. The opening line stays `You are a Claude agent, built on Anthropic's Claude Agent SDK.`, and all 12 tool schemas are sent. A CLAUDE.md in the working directory arrives in the first user turn. With `--append-system-prompt-file` the default body is kept, the file follows it, and the opening line is `You are Claude Code, Anthropic's official CLI for Claude, running within the Claude Agent SDK.`. One thing moved. The agent listing is no longer in the Agent tool's schema: the schema says agent types "are listed in `<system-reminder>` messages". The listing now arrives in a `system`-role entry of `messages`, together with the `# Environment` block, in all three cases. 2.1.322 replaces what 2.1.311 replaced. The listing is outside the replaced text before and after, so a session launched with a replacement prompt still receives it.
 
@@ -31,6 +32,7 @@
 **What it decides.**
 - Each claim holds on 2.1.322, N11a and N11b at project scope only, as on 2.1.311. Nothing the fleet does changes for the move.
 - The dispatch guard's acceptance of its own answer (j549, #458) is no longer exercised by 2.1.322. It stays, because it costs nothing, and the fleet runs mixed builds until every account has upgraded.
+- 2.1.322 knows `claude-fable-5-2` (F1), the reason the owner moved the pin, so architect-cto-01's Fable 5.2 layer can return with it.
 - The agent listing's new place changes nothing for a replacement prompt. Since the listing was never part of the replaced text, a locale's harness translation does not carry it.
 - The merge itself leaves the host drifted, as on 2026-11-03, and the host is already drifted today. The order after the merge is unchanged: the operator runs `sudo fabric-managed install --sha <main after the merge>` (ADR-043 rule 9), then `fabric-ctl all upgrade fabric`, then `fabric-ctl all upgrade claude`, which refuses at or above 2.1.287 until the managed settings are in force.
 

@@ -204,6 +204,7 @@ its record disagree, the record wins. Look it up, never read it whole:
 - A 2026-10-09 — python-dev's session is Sonnet 5.5, a role layer (§2).
 - A 2026-11-09 — architect-cto-01's session is Fable 5.2, read back first (§2).
 - A 2026-11-10 — architect-cto-01's session is Opus 5.5 again: harness 2.1.311 does not know Fable 5.2 (§2).
+- A 2026-11-10 — architect-cto-01's session is Fable 5.2 again, with the pin on 2.1.322, which knows it (§2).
 - Keywords: model, routing, capability class, alias, provider, OpenRouter,
   broker, review-grade, shim, preset, Opus 5.5, Sonnet 5.5, Fable 5.2, DeepSeek, GLM, profile.
 
