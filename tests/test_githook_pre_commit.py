@@ -40,7 +40,8 @@ import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from githook_fixtures import HOST, LOGIN, ROOT, Fabric  # noqa: E402
-from instance_fixtures import write_registry  # noqa: E402
+from instance_fixtures import own_instance_tree, write_registry  # noqa: E402
+own_instance_tree()
 
 GENERIC_TAIL = "agent-fabric is read-only for every role but fabric-coordinator; in a managed\nproject, .agent-fabric/ is."
 LOCALE = "identities/roles/language-culture/locale"
