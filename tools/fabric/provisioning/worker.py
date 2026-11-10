@@ -312,10 +312,15 @@ def install_claude_and_ori(w: Worker) -> None:
     if w.as_login(["test", "-e", claude], login_shell=False).returncode == 0:
         target = w.as_login_out(["readlink", "-f", claude], login_shell=False).strip()
         have = os.path.basename(target) if target else ""
-    if have and resolved and have == resolved:
+    present = bool(have and resolved and have == resolved)
+    refused = None if present else hs.claude_install_refusal(w.root, want)
+    if present:
         w.say(f"2. claude {have} present (= {want})")
     elif a.dry:
-        w.say(f"would: as {login}: curl -fsSL {CLAUDE_INSTALLER} | bash -s -- {want}")
+        w.say(f"would refuse: claude {want}: {refused}" if refused else
+              f"would: as {login}: curl -fsSL {CLAUDE_INSTALLER} | bash -s -- {want}")
+    elif refused:
+        w.die(f"step failed: claude {want} for {login}: {refused}")
     else:
         done, log = vendor_install(w, CLAUDE_INSTALLER, [want])
         # One run answers both: whether it starts, and what it says (stderr apart, as the version is stdout's).

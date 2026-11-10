@@ -268,6 +268,14 @@ def main() -> int:
             shutil.copy2(f"{ROOT}/tools/fabric/{f}", f"{fab}/tools/fabric/")
         shutil.copytree(f"{ROOT}/tools/fabric/provisioning", f"{fab}/tools/fabric/provisioning", ignore=shutil.ignore_patterns("__pycache__"))
         shutil.copy2(f"{ROOT}/tools/fabric/process.py", f"{fab}/tools/fabric/process.py")   # provisioning/bounded.py re-exports it
+        # control/upgrade.py is the managed gate's home (ADR-043 rule 6). The fixture's stands in for it: the host is
+        # in force unless {fab}/managed-refusal holds a refusal, which a case writes to put it out of force.
+        put(f"{fab}/tools/fabric/control/__init__.py", "")
+        put(f"{fab}/tools/fabric/control/upgrade.py",
+            "import os\nMANAGED_FLOOR = (2, 1, 287)\n\n\ndef managed_refusal(root):\n"
+            "    p = os.path.join(root, 'managed-refusal')\n"
+            "    return open(p, encoding='utf-8').read().strip() if os.path.exists(p) else None\n")
+        managed_off = f"{fab}/managed-refusal"
         put(f"{sandbox}/home/.local/bin/claude", "#!/bin/sh\necho fake\n", 0o755)
         # The host registry the orchestrator reads: this host (direct) and a
         # far one reached over a fake ssh that runs the same worker here.
@@ -663,6 +671,11 @@ def main() -> int:
                    "1. account seq-login exists" in out and f"2. claude {pin} present" in out and "OpenRouter key: 1 present" in out
                    and not has(r"^useradd", read(calls)) and not has(r"^usermod --add-subuids", read(calls))
                    and "subuid/subgid: 524288:65536" in out and "origin set to" not in out, out)
+                put(managed_off, "the managed settings (ADR-043 rules 1-2) are drifted on this host")
+                rc, out = seq_run(backend, "seq-login", "backend-dev", "--project", "demo")
+                os.remove(managed_off)
+                ok("…also on a host not in force: a claude already present installs nothing, so nothing is gated",
+                   rc == 0 and f"2. claude {pin} present" in out and "drifted" not in out, f"rc={rc}\n{out}")
                 if backend == "local":
                     # Step 4: a fabric clone already there is brought to
                     # origin/main, never left old (bootstrap and the launcher run
@@ -690,6 +703,18 @@ def main() -> int:
                        rc == 1 and "agent-fabric has 1 commit(s) not on origin/main" in out and "7. bootstrap run" not in out,
                        f"rc={rc}\n{out}")
                     sh("git", "-C", f"{h}/projects/agent-fabric", "reset", "-q", "--hard", "origin/main")
+                    # ADR-043 rule 6: a new account's install past the floor asks the managed gate, as an upgrade does.
+                    reset_seq()
+                    put(managed_off, "the managed settings (ADR-043 rules 1-2) are drifted on this host")
+                    rcd, outd = seq_run(backend, "seq-login", "backend-dev", "--project", "demo", "--dry-run")
+                    rc, out = seq_run(backend, "seq-login", "backend-dev", "--project", "demo")
+                    os.remove(managed_off)
+                    ok("a dry run on a host not in force says the install would be refused, and plans the rest",
+                       rcd == 0 and f"would refuse: claude {pin}: the managed settings" in outd and "bootstrap.sh" in outd,
+                       f"rc={rcd}\n{outd}")
+                    ok("…and the real run stops at step 2, named, nothing installed and nothing after it",
+                       rc == 1 and f"step failed: claude {pin} for seq-login: the managed settings" in out
+                       and not os.path.exists(f"{h}/.local/bin/claude") and "4. " not in out, f"rc={rc}\n{out}")
 
             # The fault points are independent of the sequence and of each other (each resets the fakes), so they run as groups
             # of their own, half of them in each: the wall time of a loaded host is the longest group's.
