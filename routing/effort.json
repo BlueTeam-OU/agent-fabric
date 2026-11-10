@@ -19,7 +19,7 @@
     "code-review": "medium"
   },
   "session": "medium",
-  "session_note": "A level, or a capability class whose level to take — as routing/profiles.json's own `session` may name a class. Every session thinks at medium (the owner, 2026-09-25), as every class does, so the level is named directly. A layer that gives one agent's session another model does not move its level: architect-cto-01's session is Fable 5.2 (routing/profiles.json) and thinks at medium too.",
+  "session_note": "A level, or a capability class whose level to take — as routing/profiles.json's own `session` may name a class. Every session thinks at medium (the owner, 2026-09-25), as every class does, so the level is named directly. A layer that gives one agent's session another model does not move its level: python-dev's session is Sonnet 5.5 (routing/profiles.json) and thinks at medium too.",
   "providers": {
     "anthropic": {
       "classes": {},
