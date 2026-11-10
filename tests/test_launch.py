@@ -578,10 +578,11 @@ def main() -> int:
 
         print("a refused fast-forward carries git's own words (review of #547, F2)")
 
-        def merge_refused_run(repo, *args, check=True, timeout=120, **kw):
+        def merge_refused_run(repo, *args, check=True, timeout=120, overwrite=False, **kw):
             out = "1\n" if args[:1] == ("rev-list",) else ""
             if args[:1] == ("merge",):
-                return types.SimpleNamespace(returncode=128, stdout="", stderr="fatal: index.lock held by pid 4242\nhint: x\n")
+                return types.SimpleNamespace(returncode=128, stdout="", stderr="fatal: index.lock held by pid 4242\nhint: x\n" if not overwrite else
+                                       "error: Your local changes would be overwritten by merge:\n\tf\nPlease commit them.\nAborting\n")
             return types.SimpleNamespace(returncode=0, stdout=out, stderr="")
         saved_run, launch.git.run = launch.git.run, merge_refused_run
         saved_env = dict(os.environ)
@@ -598,6 +599,12 @@ def main() -> int:
             launch.git.run = saved_run
             os.environ.clear()
             os.environ.update(saved_env)
+
+        merge_refused_overwrite = lambda *a, **kw: merge_refused_run(*a, overwrite=True, **kw)  # noqa: E731
+        launch.git.run = merge_refused_overwrite
+        check("the cause is git's first error: line, not the advice or the trailing Aborting",
+              launch.pull_ff(tmp) == ("failed", "error: Your local changes would be overwritten by merge:"))
+        launch.git.run = saved_run
 
         print("a pull the bound ends (review of #79)")
         GitError = launch.git.GitError

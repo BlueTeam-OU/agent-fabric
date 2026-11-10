@@ -31,7 +31,7 @@ def behind_count(repo: str, rng: str) -> int:
 
 
 def pull_ff(repo: str) -> tuple[str, str]:
-    """("ok" | "failed" | "timeout", git's last stderr line). A fast-forward to
+    """("ok" | "failed" | "timeout", git's first fatal:/error: line, else its last). A fast-forward to
     the origin/main the verdict was judged on, not a `pull`: a pull fetches
     again, so a second network failure (a blip between the two, a ref lock
     another fetch holds) was reported as "cannot fast-forward" on a checkout
@@ -45,7 +45,7 @@ def pull_ff(repo: str) -> tuple[str, str]:
     if r.returncode == 0:
         return "ok", ""
     lines = [l for l in r.stderr.strip().splitlines() if l.strip() and not l.startswith("hint:")]
-    # git ends an overwrite refusal with a bare "Aborting"; the cause is the line before it.
+    # git ends an overwrite refusal with advice and a bare "Aborting"; the cause is the first fatal:/error: line.
     cause = [l for l in lines if l.startswith(("fatal:", "error:"))]
     return "failed", (cause or lines or [f"git exit {r.returncode}"])[0 if cause else -1]
 
