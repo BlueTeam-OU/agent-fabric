@@ -571,7 +571,7 @@ def main() -> int:
         rc, out, err = w.strict("done", j3, f"{jobs_world.GH_REPO}#4", f"{jobs_world.GH_REPO}#7")
         # Kills: dropping the per-artifact loop in move (the closed pull request rides in beside the merged one).
         check("…and done naming a merged pull request beside a closed one is refused, naming the closed one; the job is unchanged",
-              rc == 1 and "#7 did not land" in err and w.job(j3)["state"] == "active" and not w.job(j3).get("artifacts"), out + err + repr(w.job(j3)))
+              rc == 1 and "#7 did not land" in err and "done needs evidence it landed" in err and w.job(j3)["state"] == "active" and not w.job(j3).get("artifacts"), out + err + repr(w.job(j3)))
         rc, out, err = w.strict("done", j3, f"{jobs_world.GH_REPO}#4")
         assert rc == 0, out + err
         rc, out, err = w.strict("done", j3, f"{jobs_world.GH_REPO}#4", "--no-artifact", "x")
@@ -595,7 +595,7 @@ def main() -> int:
             # Kills: judging each name alone (the branch is refused for want of the pull request beside it); the "old" case is
             # the negative control that the retry does not excuse a branch the pull request did not end at.
             check(f"done names a squash-merged branch beside the merged pull request that {label}",
-                  (rc == 0 and w.job(j1)["state"] == "done") if ended == "tip" else (rc == 1 and f"{contrib} did not land" in err and w.job(j1)["state"] == "active"),
+                  (rc == 0 and w.job(j1)["state"] == "done") if ended == "tip" else (rc == 1 and f"{contrib} with the names beside it is not recorded" in err and w.job(j1)["state"] == "active"),
                   out + err + repr(w.job(j1)))
         w = World()
         j1 = w.working("squash-merged branch and its merged pull request, beside an open one")
@@ -605,7 +605,7 @@ def main() -> int:
         rc, out, err = w.strict("done", j1, contrib, f"{jobs_world.GH_REPO}#2", f"{jobs_world.GH_REPO}#7")
         # Kills: raising the retry's leftover problems under the branch's name (the open pull request is the one that failed).
         check("…and when a sibling fails, the refusal does not blame the branch the merged pull request excused",
-              rc == 1 and "still open" in err and f"{contrib} did not land" not in err and w.job(j1)["state"] == "active", out + err + repr(w.job(j1)))
+              rc == 1 and "still open" in err and f"{contrib} did not land" not in err and "would land" not in err and w.job(j1)["state"] == "active", out + err + repr(w.job(j1)))
         w = World()
         j1 = w.working("delivered by a reply")
         w.sw("deliver", j1, f"reply:{RID}")

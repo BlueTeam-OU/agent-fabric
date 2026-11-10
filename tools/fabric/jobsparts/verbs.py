@@ -550,8 +550,9 @@ def change(args) -> int:
 def _unlanded(job_id: str, names: list[str]) -> list[str]:
     """Why `names`, taken as the job's artifacts, are not evidence that it is done; empty when they are."""
     problems: list[str] = []
-    landed = needs.st.done_evidence({**find(identity.read_jobs(), job_id), "artifacts": names, "topic": None, "no_artifact": None}, problems)
-    return problems if problems or landed else ["nothing landed"]
+    # done_evidence adds a problem whenever it finds no evidence, so an empty `problems` is a pass.
+    needs.st.done_evidence({**find(identity.read_jobs(), job_id), "artifacts": names, "topic": None, "no_artifact": None}, problems)
+    return problems
 
 
 def move(args, said: dict) -> Job:
@@ -588,12 +589,13 @@ def move(args, said: dict) -> Job:
                 # beside it. Only that one refusal is retried with every name: any other would be excused by an unrelated landed
                 # artifact, and a name beside it that fails is refused on its own turn.
                 if len(args.artifacts) > 1 and any(needs.st.NO_PR_AT_TIP in p for p in problems):
-                    problems = _unlanded(args.id, args.artifacts)
-                    if problems and not any(needs.st.NO_PR_AT_TIP in p for p in problems):
-                        # The pull request beside the branch excuses it; what still fails is another name, which is the one to name.
-                        raise Refused(f"{name} would land with the names beside it, but they do not: " + "; ".join(problems))
+                    together = _unlanded(args.id, args.artifacts)
+                    if together:
+                        # Not blamed on this name alone: the leftovers may be another branch's or a pull request's.
+                        raise Refused(f"{name} with the names beside it is not recorded: " + "; ".join(together))
+                    problems = []
             if problems:
-                raise Refused(f"{name} did not land, so it is not recorded: " + ("; ".join(problems) or "it is not a merged pull request, a commit on the default branch or a sent reply"))
+                raise Refused(f"{name} did not land, so it is not recorded: " + "; ".join(problems))
         # Artifacts named on the verb are recorded with the close: a pull request that merged before `deliver` was run is refused by
         # `deliver` (done, not delivered), and this is the one way to keep it as the job's evidence.
         return needs.advance(args.id, "done", "done", lambda job: {"no_artifact": why, **({"artifacts": list(dict.fromkeys((job.get("artifacts") or []) + args.artifacts))} if args.artifacts else {})})
