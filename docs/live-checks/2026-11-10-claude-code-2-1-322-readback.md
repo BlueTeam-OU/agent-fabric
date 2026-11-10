@@ -1,0 +1,41 @@
+# 2026-11-10: does Claude Code 2.1.322 keep what the fleet relies on from 2.1.311?
+
+**Why.** On 2026-11-10 the owner moved the fleet to npm's `latest` tag rather than `stable` (job j749). That day `latest` was 2.1.322 and `stable` was still 2.1.311, the pin in `runtime/claude-code/harness.json`. The owner first named 2.1.321, the first build that knows `claude-fable-5-2`, and chose 2.1.322 when asked. The claims the 2.1.311 read-back checked (`2026-11-03-claude-code-2-1-311-readback.md`) were read back on 2.1.322 before the pin moves. The cases and names are the same.
+
+**How.** This session stayed on 2.1.311. Upgrading the account would have stopped and resumed it. Instead 2.1.322 was installed into the session's scratchpad (`npm install --prefix`, `claude --version` printed `2.1.322 (Claude Code)`), and every child below ran `claude -p` on that binary. stream-json `init` reported `2.1.322` in each one. Each child ran under `env -i`, which left `HOME`, `USER`, `LANG`, a `PATH` with the trial binary first, the login's setup token, and `XDG_STATE_HOME` pointed at an empty folder. The empty state folder keeps the job-copy guard's deny for this session's own job from answering before the guard under test. The model was haiku. The managed file in force is the one installed from snapshot `599ed69f`, which `fabric-ctl all status` reports as drifted from main on all 30 accounts. Its guards are the ones that ran. Fixtures lived in the scratchpad, and no commit was made anywhere but the fixtures' own throwaway repositories.
+
+**Measured on develop-qzapp, 2026-11-10, 2.1.322:**
+
+| case | what ran | result |
+|---|---|---|
+| N9 control | Bash `git status --short \| wc -l` in an empty repository | ran, printed 0 |
+| N9 | Bash `false \| tail -1 && git commit --allow-empty -m probe`, with the managed file in force and no pipe-status hook in user or project settings | denied with the pipe-status reason; the repository still has no commit |
+| N2, N3 | `fabric-managed probe`, with the trial binary first on `PATH` | ok: `agent-dispatch-guard` denies a class dispatch with no model; `claude --plugin-dir` exits 1 under `disableSideloadFlags` |
+| N11 control | project-scope exec-form hook, a script that prints a deny | denied with the script's reason; the marker file was not made |
+| N11a | project-scope exec-form hook: `/usr/local/bin/fabric-python` on a missing script | `fabric-python` exits 2 ("can't open file") and the call is blocked: fails closed |
+| N11b | project-scope exec-form hook: a missing interpreter | the spawn fails and **the command ran** (the marker file exists): fails open |
+| R1 | the 2026-10-20 fixture, approval on: neither / main checkout / worktree / both | invariant line: absent / quoted / absent / quoted. Claude Code wrote nothing to either entry |
+| R2 | request bodies to a loopback listener (dummy API key; it answered 400): default, `--system-prompt-file`, `--append-system-prompt-file` | see below |
+| R3 | a child that dispatches one `Explore` subagent | see below |
+| D1 control | under strace, a child with `AGENT_FABRIC_LAUNCH_PROVIDER=anthropic` dispatches `code-review`, `model: fable`, without `run_in_background` | allowed; one guard run, on its allow path |
+| D2 | the same with `run_in_background: true` | allowed; **one** guard run, on its allow path |
+
+**R2, what the system prompt holds.** Each request has three system blocks, as on 2.1.311: the billing header, an opening line, and the body. With `--system-prompt-file` the body is the file's text alone (46 bytes against 9,408), and the memory section is gone. The opening line stays `You are a Claude agent, built on Anthropic's Claude Agent SDK.`, and all 12 tool schemas are sent. A CLAUDE.md in the working directory arrives in the first user turn. With `--append-system-prompt-file` the default body is kept, the file follows it, and the opening line is `You are Claude Code, Anthropic's official CLI for Claude, running within the Claude Agent SDK.`. One thing moved. The agent listing is no longer in the Agent tool's schema: the schema says agent types "are listed in `<system-reminder>` messages". The listing now arrives in a `system`-role entry of `messages`, together with the `# Environment` block, in all three cases. 2.1.322 replaces what 2.1.311 replaced. The listing is outside the replaced text before and after, so a session launched with a replacement prompt still receives it.
+
+**R3, the subagent transcript.** `subagents/agent-<id>.jsonl` sits beside `agent-<id>.meta.json`, whose `agentType` is `Explore`. The sidecar's keys are 2.1.311's plus `pickedEffortModel` (here `claude-haiku-5-5`). The transcript holds one `Read` and the hand-back as a `tool_use` named `SubagentHandback`, and one of its four user records carries a `<system-reminder>`. Its record types (`user`, `assistant`, `attachment`, `api-request-shape`, `api-request-blob`, `api-request`) are the ones a 2.1.311 transcript on this account has. Each record still has the `effort` field ADR-006 §6 reads (`medium`). `subagent-ledger.py` reads only `user` and `assistant` records and the sidecar's `description`. The transcript is shaped as on 2.1.311.
+
+**D1, D2.** The guard rewrites a review call (it drops `model`, so the reviewer runs on its agent file's pin) only under a fabric launch, so these children carried `AGENT_FABRIC_LAUNCH_PROVIDER=anthropic`. A first pair without it never reached that path. Runs were counted under `strace -f -ff`: one `execve` of `hook_entry.py agent-dispatch-guard` per guard run. Its child process opened the snapshot's `dispatch_guard.py`, then `~/.claude/agents/code-review.md` twice, the read that happens only on the allow path. D1 and D2 each show one such run. On 2.1.311 and 2.1.286, `run_in_background: true` ran the managed Agent hook a second time, on the first run's `updatedInput`. 2.1.322 does not. Both dispatches went to the background whatever the flag said, as on 2.1.286, and each reviewer answered.
+
+**Also read in the 2.1.322 binary.** `CLAUDE_CODE_SUBAGENT_EFFORT` (new since 2.1.316; 2.1.311 has no such string) sets the effort of a subagent whose definition names none. It is skipped for a definition with an `effort`. Every class file the fabric writes has one (ADR-006 rule 4), so the variable reaches only the harness types (`Explore`, `Plan`, `general-purpose`), which otherwise run at the session's routed level. The launcher's fence for it is a REQUEST to python-dev (`01a1c63c`); the committed-settings guard names it with this change.
+
+**What it decides.**
+- Each claim holds on 2.1.322, N11a and N11b at project scope only, as on 2.1.311. Nothing the fleet does changes for the move.
+- The dispatch guard's acceptance of its own answer (j549, #458) is no longer exercised by 2.1.322. It stays, because it costs nothing, and the fleet runs mixed builds until every account has upgraded.
+- The agent listing's new place changes nothing for a replacement prompt. Since the listing was never part of the replaced text, a locale's harness translation does not carry it.
+- The merge itself leaves the host drifted, as on 2026-11-03, and the host is already drifted today. The order after the merge is unchanged: the operator runs `sudo fabric-managed install --sha <main after the merge>` (ADR-043 rule 9), then `fabric-ctl all upgrade fabric`, then `fabric-ctl all upgrade claude`, which refuses at or above 2.1.287 until the managed settings are in force.
+
+**Not measured here.**
+- N11a and N11b with the hook in `/etc/claude-code/managed-settings.json` (root; as on 2026-11-03).
+- An interactive session: the approval dialog, the trust question in a worktree, and the harness's own prompt. `runtime/claude-code/harness/en.md` is captured from a session launched on 2.1.322, after this account upgrades, as on 2026-11-07.
+- The native installer's 2.1.322: these runs used the npm package's binary. Whether `claude install 2.1.322`, which `fabric-ctl <login> upgrade claude` runs, installs a build that only `latest` names is shown by the first account's upgrade after the merge.
+- Any account but user.
