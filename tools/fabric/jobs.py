@@ -188,6 +188,8 @@ check that failed and changing nothing:
      and it never outweighs a problem the artifacts raise (an open pull request, an unfolded branch).
      `done <id> <artifact>...` records the artifacts named (a pull request, a commit) on the job as it closes it, and they are the evidence:
      a pull request that merged before `deliver` was run is refused by `deliver` (done, not delivered), and this is how it is kept.
+     Each name must land on its own; a squash-merged branch, which is not on the default branch, lands when the merged pull request
+     that ended at its tip is named beside it.
      `deliver <id> <artifact>` on a done job appends evidence and leaves it closed (a dropped job takes none).
      `retract <id> <artifact>` removes one recorded artifact whatever the job's state, so a mistaken one cannot hold the job; it refuses,
      naming the artifacts, when the string is not there, and notes what was removed in the job's log.

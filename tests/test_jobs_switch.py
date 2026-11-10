@@ -584,7 +584,7 @@ def main() -> int:
         rc, out, err = w.strict("done", j2, f"{jobs_world.GH_REPO}#6")
         check("…and done naming an open pull request is refused, the job not changed",
               rc == 1 and "still open" in err and w.job(j2)["state"] == "active" and not w.job(j2).get("artifacts"), out + err + repr(w.job(j2)))
-        # F4: a squash-merged branch is excused by the merged pull request that ended at its tip, also when both are named on done.
+        # A squash-merged branch is excused by the merged pull request that ended at its tip, also when both are named on done.
         for ended, label in (("tip", "ends at the branch's tip"), ("old", "ended at an older head")):
             w = World()
             j1 = w.working(f"squash-merged, named with its pull request ({label})")
