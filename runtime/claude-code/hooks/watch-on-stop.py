@@ -26,11 +26,16 @@ lock directory is passed in as `run_dir`, so a test supplies its own.
 
 A watch that gave up on an unreachable relay (exit 5, after 15 minutes)
 leaves the time beside its lock (gzcoord-inbox-*.relay-down, watchlock.py).
-While that is younger than RELAY_DOWN_S the hook passes: asking at once
-would only spin a new watch against the same relay, and a relay an operator
-stopped on purpose would see its sessions hammer it (j626, the 2026-11-05
-relay-down drill). The next fetch the relay answers removes the marker; one
-that outlives RELAY_DOWN_S is asked again, a probe of one watch an hour.
+While that is younger than RELAY_DOWN_S the hook probes the relay once
+(relay_answers, j638): a relay that answers at all, an error status included,
+no longer justifies the silence and the hook goes on to ask; one that does not
+answer within RELAY_PROBE_S wall-clock seconds, DNS and every address
+included, leaves the hook passing, because asking at once would only spin a
+new watch against the same relay, and a relay an operator stopped on purpose
+would see its sessions hammer it (j626, the 2026-11-05 relay-down drill). The
+hook never removes the marker: the next fetch the relay answers does; one that
+outlives RELAY_DOWN_S is asked again without a probe. A session that was asked
+less than WINDOW_S ago passes before any probe is made.
 
 It passes, printing nothing, when: stop_hook_active; no harness ancestor; the
 session has no fabric binding or its project has no GZCoord integration
@@ -46,6 +51,7 @@ import importlib.util
 import json
 import os
 import sys
+import threading
 import time
 import urllib.error
 import urllib.parse
@@ -172,17 +178,27 @@ def relay_down(now: float, run_dir: str | None = None) -> bool:
 
 def relay_answers(url: str | None) -> bool:
     """One request to the relay; True for any HTTP response, an error status included. The relay's own
-    address is called directly: a proxy answering for it would say nothing about the relay. DNS lookup is
-    not bounded by the timeout, which covers connect and read only."""
+    address is called directly: a proxy answering for it would say nothing about the relay. urlopen's timeout
+    is per socket operation, so DNS, each address tried and a status line dripped byte by byte add up; the
+    wall clock is bounded here instead, by a daemon thread joined for RELAY_PROBE_S. No answer in time is
+    "did not answer", and the thread is left to die with the hook."""
     if not url or urllib.parse.urlsplit(url).scheme not in ("http", "https"):
         return False
-    try:
-        urllib.request.build_opener(urllib.request.ProxyHandler({})).open(url, timeout=RELAY_PROBE_S).close()
-        return True
-    except urllib.error.HTTPError:
-        return True
-    except Exception:  # noqa: BLE001 - refused, timed out, DNS, TLS, a bad URL: the relay did not answer
-        return False
+    answered: list[bool] = []
+
+    def probe() -> None:
+        try:
+            urllib.request.build_opener(urllib.request.ProxyHandler({})).open(url, timeout=RELAY_PROBE_S).close()
+            answered.append(True)
+        except urllib.error.HTTPError:
+            answered.append(True)
+        except Exception:  # noqa: BLE001 - refused, timed out, DNS, TLS, a bad URL: the relay did not answer
+            pass
+
+    t = threading.Thread(target=probe, daemon=True)
+    t.start()
+    t.join(RELAY_PROBE_S)
+    return bool(answered)
 
 
 _identity = None
@@ -271,11 +287,14 @@ def decide(payload: dict, procs: dict, now: float, path: str, is_integrated=inte
     session = harness_pid(procs, own_pid or os.getpid())
     if session is None or has_watch(procs, session, run_dir):
         return None
+    # Cheapest guard first: a Stop inside WINDOW_S passes without paying for the relay probe.
+    if recently_blocked(path, session_id, now):
+        return None
     # relay_url is passed in by tests; otherwise the project's own, looked up only when a marker stands.
     if relay_down(now, run_dir) and not relay_answers(
             relay_url or configured_relay_url(payload.get("cwd"), session_id)):
         return None
-    if recently_blocked(path, session_id, now) or not is_integrated(payload.get("cwd"), session_id):
+    if not is_integrated(payload.get("cwd"), session_id):
         return None
     remember(path, session_id, now)
     return {"decision": "block", "reason": REASON + ASKED + mem_line(meminfo)}
