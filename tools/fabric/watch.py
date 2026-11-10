@@ -112,6 +112,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 # and -P leave it out).
 sys.path.insert(0, HERE)
 import avatar  # noqa: E402
+import roots  # noqa: E402
 import watch_identity  # noqa: E402
 import watch_resources  # noqa: E402
 
@@ -126,7 +127,7 @@ NONE_OPEN = "pr-gate: no open pull request"
 
 
 def fabric_root() -> str:
-    return os.environ.get("AGENT_FABRIC_ROOT") or os.path.dirname(os.path.dirname(HERE))
+    return roots.engine_root()
 
 
 def printable(line: str) -> str:

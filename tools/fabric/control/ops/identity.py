@@ -10,6 +10,7 @@ from typing import Any, Callable
 from . import util
 from gzcoord import gzmsg  # noqa: E402 — util puts tools/fabric on sys.path
 from gzcoord.inbox_parts import hold, tokens  # noqa: E402
+import roots  # noqa: E402
 
 PGREP_TIMEOUT_S = 5
 FLEETDECK = "agent-fabric-fleetdeck"
@@ -49,9 +50,7 @@ def fabric(root: str | None = None, run: Callable[..., Any] = subprocess.run) ->
     origin is said, not hidden. Every git call is bounded at 10 s, so a
     hung fetch costs the section, not the daemon."""
     if root is None:
-        root = os.environ.get("AGENT_FABRIC_ROOT")
-        if root is None:
-            root = os.path.join(os.path.expanduser("~"), "projects", "agent-fabric")
+        root = roots.checkout_root(os.path.expanduser("~"), empty_is_set=True)
 
     def git(*a: str) -> str:
         r = run(["git", "-C", root, *a], capture_output=True, text=True, errors="replace", timeout=10, check=True,

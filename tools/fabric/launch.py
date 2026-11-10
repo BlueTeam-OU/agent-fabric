@@ -588,7 +588,7 @@ def launch(argv: list[str]) -> int:
     routing_provider = "anthropic" if provider == "gateway" else provider
 
     env = os.environ
-    fabric_root = env.get("AGENT_FABRIC_ROOT") or CODE_ROOT
+    fabric_root = roots.engine_root(env)
     identity = f"{fabric_root}/runtime/identity.py"
     routing_path = f"{fabric_root}/tools/fabric/routing.py"
     capabilities = f"{fabric_root}/routing/capabilities.json"

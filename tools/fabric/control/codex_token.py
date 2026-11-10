@@ -36,9 +36,11 @@ import time
 from typing import Any, Callable, Sequence
 
 HERE = os.path.dirname(os.path.realpath(__file__))
-FABRIC = os.path.dirname(os.path.dirname(os.path.dirname(HERE)))     # the checkout: control/ -> fabric/ -> tools/ -> root
 sys.path.insert(0, os.path.dirname(HERE))
 import chatgpt_signin  # noqa: E402
+import roots  # noqa: E402
+
+FABRIC = roots.code_root()     # the checkout holding bin/fabric-secrets, whatever the environment says
 
 DEFAULT_HOME = ".codex-chatgpt"
 REFRESH_BELOW_S = 72 * 3600
@@ -257,6 +259,6 @@ class Tick:
 def start(ticker: Callable[..., Any], log: Callable[[str], None], *, agents: Callable[[], list[str]],
           env: dict[str, str] | None = None, root: str | None = None) -> None:
     """agentd's timer, on the host operator's account."""
-    tick = Tick(env=dict(os.environ) if env is None else env, root=root or os.environ.get("AGENT_FABRIC_ROOT") or FABRIC,
+    tick = Tick(env=dict(os.environ) if env is None else env, root=root or roots.engine_root(),
                 agents=agents, log=log)
     ticker("codex sign-in", tick, TICK_S, first_s=FIRST_TICK_S).start()

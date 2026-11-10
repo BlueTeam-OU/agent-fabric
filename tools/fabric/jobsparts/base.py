@@ -12,9 +12,6 @@ import re
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))   # tools/fabric/, where jobs.py is
 
 
-FABRIC_ROOT = os.environ.get("AGENT_FABRIC_ROOT") or os.path.dirname(os.path.dirname(HERE))
-
-
 # A job as jobs.json keeps it (tools/fabric/control/jobs.py reads it too). The
 # keys a state change adds live in a total=False subclass: under `from
 # __future__ import annotations` TypedDict counts NotRequired[...] as
@@ -52,6 +49,9 @@ def _load(name: str, path: str):
     spec.loader.exec_module(mod)  # type: ignore[union-attr]
     return mod
 
+
+# By path, as the parts below: the one place that knows where the fabric is must not be a name a fixture could answer.
+FABRIC_ROOT = _load("fabric_roots", os.path.join(HERE, "roots.py")).engine_root()
 
 identity = _load("fabric_identity", os.path.join(FABRIC_ROOT, "runtime", "identity.py"))
 

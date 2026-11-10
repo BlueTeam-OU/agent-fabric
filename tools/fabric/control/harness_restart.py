@@ -50,13 +50,14 @@ import re
 import time
 from typing import Any, Callable
 
+import roots
 from control import harness_pane, units
 from control.units import Run, StepFailed
 
 OP = units.RESTART_OP
 PANE_STEP = "/usr/local/bin/fabric-python"
 # The account's own checkout, where the unit's ExecStartPost already runs the same file from (%h/projects/agent-fabric).
-PANE_FILE = "projects/agent-fabric/tools/fabric/control/harness_pane.py"
+PANE_FILE = roots.account_clone("", "tools", "fabric", "control", "harness_pane.py")   # relative to the home it is joined to
 # The server forks at once; the pane step waits for it (30 s), types (up to 80 s of its own budget) and fabric-resume then
 # starts claude. Generous on purpose: a read-back that gives up early fails a restart that worked.
 RESUME_WAIT_S = 240

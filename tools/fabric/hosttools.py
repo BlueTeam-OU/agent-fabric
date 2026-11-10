@@ -15,8 +15,10 @@ import hashlib
 import os
 import sys
 
-FABRIC_ROOT = os.environ.get("AGENT_FABRIC_ROOT") or os.path.dirname(
-    os.path.dirname(os.path.dirname(os.path.realpath(__file__))))
+sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+import roots  # noqa: E402
+
+FABRIC_ROOT = roots.engine_root()
 MOVETO_FILES = {"moveto": "bin/moveto", "moveto.py": "share/moveto/moveto.py", "enter": "share/moveto/enter",
                 "rc": "share/moveto/rc",
                 "completion.bash": "share/bash-completion/completions/moveto"}
