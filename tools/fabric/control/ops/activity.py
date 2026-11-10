@@ -35,10 +35,11 @@ import launch_locale  # noqa: E402
 # returns most thinking blocks with a signature and no text, and the
 # ones that carry text are 120–400-character summaries; one session
 # with 117k thinking tokens had no stored thinking text at all. So the
-# signature the charter names is the holder's NOTES: the directory
+# measure is the holder's NOTES: the directory
 # `${XDG_STATE_HOME:-~/.local/state}/agent-fabric/agents/<login>/notes/`,
-# where the role keeps the translated request, its working notes and
-# the original answer in the locale's language, one file per day. The
+# where the charter has the role keep the translated request, the
+# original answer and each finding with its pass tag, never its
+# reasoning, in the locale's language, one file per day. The
 # op counts those files (touched in the window) the same way, by
 # script, and bins their paragraphs; that is the artifact the holder
 # controls and the transcript's text share is the second number.
