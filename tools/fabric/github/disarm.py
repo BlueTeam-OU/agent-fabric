@@ -194,7 +194,7 @@ def disarm(argv: list[str]) -> int:
         say(f"#{num} is not armed: no auto-merge, no merge-queue entry"
             f"{f', and {head[:8]} carries no {context} success' if context else ''} — nothing changed, nothing posted")
         return 0
-    comment = f"Disarming basis: {basis.strip()} — {held or 'no role'}, head {head[:8]}."
+    comment = f"{common.DISARMING_BASIS} {basis.strip()} — {held or 'no role'}, head {head[:8]}."
     if dry:
         say(f"DRY RUN — would take off: {', '.join(found)}")
         say(f"DRY RUN — would post: {comment}")
