@@ -306,6 +306,13 @@ def main() -> int:
     d = g.decision("pkill -f '[g]zcoord inbox --until'", CLAUDE)
     check("a pattern selecting a `fabric gzcoord inbox` watch is refused", d is not None and d[0] == "deny"
           and "inbox watch" in d[1], d)
+    # The watch the dispatcher starts is the checkout's script under the pin; no process line holds the spoken words
+    # after the interpreter (round 2 of #546, F2). Bracketed, so only that model can match.
+    d = g.decision("pkill -f 'agent-fabric/bin/[g]zcoord-inbox --until'", CLAUDE)
+    check("a pattern selecting the dispatcher's watch by its checkout path is refused", d is not None and d[0] == "deny"
+          and "inbox watch" in d[1], d)
+    check("…and no interpreter model names the spoken form",
+          not [t for n, t in g.INBOX_MODELS if n == "fabric-python" and g.INBOX_SPOKEN in t], g.INBOX_MODELS)
     check("a harmless command: no decision", g.decision("git status", CLAUDE) is None)
     check("still split outside quotes: a real pipe after a quoted word",
           g.verdict("echo 'x y' | xargs pkill -f 'claude-fable'", CLAUDE) is not None)

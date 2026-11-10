@@ -14,7 +14,9 @@ stale-rule filter in main() or in settled(); fabric_owned() matching `Bash(fabri
 Exit codes: 0 all passed, non-zero on any failure (unittest)."""
 from __future__ import annotations
 
+import contextlib
 import importlib.util
+import io
 import json
 import os
 import sys
@@ -200,6 +202,19 @@ class SettingsFile(cli.Base):
             mod.COMMANDS = bad
             with self.assertRaises(mod.table.TableError):
                 mod.rules()
+            # ...and main() turns it into the installer's one refusal line, the file untouched (round 2 of #546, F3).
+            settings = os.path.join(tmp, "settings.json")
+            with open(settings, "w", encoding="utf-8") as fh:
+                fh.write("{}\n")
+            err = io.StringIO()
+            with contextlib.redirect_stderr(err), contextlib.redirect_stdout(io.StringIO()):
+                rc = mod.main([settings])
+            self.assertEqual(rc, 1, err.getvalue())
+            self.assertIn("— fabric user settings NOT written", err.getvalue())
+            self.assertIn("fabric.nouns.jobs", err.getvalue())
+            self.assertNotIn("Traceback", err.getvalue())
+            with open(settings, encoding="utf-8") as fh:
+                self.assertEqual(fh.read(), "{}\n")
 
 
 def cli_owned(rule: str) -> bool:

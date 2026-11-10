@@ -7,6 +7,8 @@ Stdlib only; runnable as `python3 tests/test_lint_command_names.py`. **Each case
 
   lint_is_wired             <- command_name_findings not called from lint.main, or a judged module's finding dropped
   table_is_judged           <- table_findings not asked, or its `note:` line left in the output
+  own_verbs_are_judged      <- own_verbs not supplied (the note filtered, the clause never judged: #546 round 2 F1), a
+                               two-sided noun lint has no verb source for, or a source it cannot read, left silent
   declared_module_passes    <- the policy's entry not honoured
   entry_that_admits_nothing <- an entry for a clean module, or one naming an untracked file, left silent
   unreadable_policy         <- a policy that is not JSON read as empty
@@ -68,6 +70,25 @@ def case_table_is_judged() -> None:
     _, out = run_lint(fabric({"recognisers": {GUARD: "a test"}}, doc))
     assert "fabric-orphan: in `commands` and reached by no `fabric` form" in out, out
     assert "own_verbs not supplied" not in out, out
+
+
+def case_own_verbs_are_judged() -> None:
+    doc = {"commands": {"fabric": "bin/fabric", "fabric-review": "bin/fabric-review", "fabric-x": "bin/fabric-x",
+                        "fabric-odd": "bin/fabric-odd", "fabric-y": "bin/fabric-y"},
+           "fabric": {"nouns": {"review": {"command": "fabric-review", "verbs": {"brief": "fabric-x"}}}}}
+    root = fabric({"recognisers": {GUARD: "a test"}}, doc)
+    write(os.path.join(root, "tools/fabric/review_cli.py"), 'ROUTES = {"brief": 1, "--engine": 2}\n')
+    _, out = run_lint(root)
+    assert "fabric.nouns.review.verbs.brief: fabric-review takes `brief`" in out, out
+    write(os.path.join(root, "tools/fabric/review_cli.py"), 'ROUTES = {"check": 1}\n')    # control: a verb it does not take
+    _, out = run_lint(root)
+    assert "takes `brief`" not in out and "own-verb clause" not in out, out
+    write(os.path.join(root, "tools/fabric/review_cli.py"), "OTHER = {}\n")
+    _, out = run_lint(root)
+    assert "tools/fabric/review_cli.py: fabric-review's own verbs cannot be read" in out, out
+    odd = {**doc, "fabric": {"nouns": {**doc["fabric"]["nouns"], "odd": {"command": "fabric-odd", "verbs": {"y": "fabric-y"}}}}}
+    _, out = run_lint(fabric({"recognisers": {GUARD: "a test"}}, odd))
+    assert "fabric.nouns.odd: fabric-odd takes its own verbs and lists more" in out, out
 
 
 def case_declared_module_passes() -> None:

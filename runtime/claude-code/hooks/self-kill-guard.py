@@ -699,8 +699,10 @@ INBOX_MODELS = tuple(
     [("fabric-python", f"/usr/local/bin/fabric-python -I /home/login/.local/bin/{INBOX} {mode}")
      for mode in ("--until-delivery", "--follow", "--wait")]
     + [(INBOX, f"{INBOX} --until-delivery"), ("bash", f"{SHELL_HEAD}{INBOX} --until-delivery{SHELL_TAIL}")]
-    # The dispatcher's spelling of the same watch (agent-fabric ADR-068).
-    + [("fabric-python", f"/usr/local/bin/fabric-python -I /home/login/projects/agent-fabric/bin/{INBOX_SPOKEN} --until-delivery"),
+    # The dispatcher's spelling of the same watch (agent-fabric ADR-068): the shell keeps what was typed, and the
+    # dispatcher execs the checkout's script by path, which re-execs under the pin, so the watch itself is the
+    # checkout's gzcoord-inbox (round 2 of #546, F2: a line naming the spoken words never exists).
+    + [("fabric-python", f"/usr/local/bin/fabric-python -I /home/login/projects/agent-fabric/bin/{INBOX} --until-delivery"),
        ("bash", f"{SHELL_HEAD}{INBOX_SPOKEN} --until-delivery{SHELL_TAIL}")])
 
 # (what a deny message calls it, process name, command line, is an inbox watch)
