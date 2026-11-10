@@ -241,6 +241,17 @@ def main() -> int:
         run("done", "j3")
         put("ctl.json", {"logins": {"peer-1": [{"id": "j3", "state": "active"}]}})
 
+        print("a peer job delivered inside the ten minutes: start decides on a fresh check, a listing keeps the TTL")
+        run("start", "j3")
+        run("block", "j3", "--on", "job:peer-1/j3")
+        put("ctl.json", {"logins": {"peer-1": [{"id": "j3", "state": "delivered"}]}})
+        check("a listing inside the TTL still reads the cached waiting (the positive control: the peer did change)",
+              job("j3")["cleared"] is False and job("j3")["blockers"][0]["detail"] == "active", job("j3"))
+        run("start", "j3")
+        check("start inside the TTL reads the delivered peer job: no manual re-block", job("j3")["state"] == "active", job("j3"))
+        run("done", "j3")
+        put("ctl.json", {"logins": {"peer-1": [{"id": "j3", "state": "active"}]}})
+
         print("several blockers: all must clear")
         put("gh.states", {"o/r#5": "MERGED", "o/r#6": "OPEN", "o/r#7": "MERGED", "o/r#8": "CLOSED"})
         run("start", "j4")
