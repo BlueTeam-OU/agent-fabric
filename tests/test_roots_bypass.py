@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -121,8 +122,17 @@ class Scan(unittest.TestCase):
         self.assertEqual(rb.scan(MOD, "def ("), [])
 
 
+MADE: list[str] = []
+
+
+def tearDownModule() -> None:
+    for root in MADE:
+        shutil.rmtree(root, ignore_errors=True)
+
+
 def planted(policy, files: dict[str, str]) -> str:
     root = tempfile.mkdtemp(prefix="roots-bypass-")
+    MADE.append(root)
     for rel, text in {**files, **({rb.POLICY: policy if isinstance(policy, str) else json.dumps(policy)} if policy is not None else {})}.items():
         os.makedirs(os.path.dirname(os.path.join(root, rel)), exist_ok=True)
         with open(os.path.join(root, rel), "w", encoding="utf-8") as fh:
