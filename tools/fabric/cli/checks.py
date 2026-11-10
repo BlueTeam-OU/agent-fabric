@@ -26,8 +26,6 @@ import ast
 import json
 import os
 import re
-import subprocess
-import sys
 import warnings
 
 from . import table
@@ -190,32 +188,3 @@ def tree_findings(root: str, tracked: list[str], policy_text: str | None, doc: d
             out.append(f"{POLICY}: {rel} admits nothing — the module no longer names a command; remove the entry")
     return out
 
-
-def main(argv: list[str]) -> int:
-    import argparse
-    ap = argparse.ArgumentParser(description="ADR-068 findings: the fabric table against commands, and hooks naming a command.")
-    ap.add_argument("--root", default=table.ROOT)
-    args = ap.parse_args(argv)
-    try:
-        doc = table.load(args.root)
-    except table.TableError as exc:
-        print(f"checks: {exc}", file=sys.stderr)
-        return 2
-    ls = subprocess.run(["git", "-C", args.root, "ls-files", "-z", "--", "*.py"], capture_output=True, timeout=60,
-                        stdin=subprocess.DEVNULL, check=False)
-    if ls.returncode != 0:
-        print(f"checks: git ls-files failed in {args.root}", file=sys.stderr)
-        return 2
-    tracked = [p for p in os.fsdecode(ls.stdout).split("\0") if p]
-    try:
-        with open(os.path.join(args.root, POLICY), encoding="utf-8") as fh:
-            policy_text: str | None = fh.read()
-    except FileNotFoundError:
-        policy_text = None
-    except (OSError, UnicodeDecodeError) as exc:
-        print(f"checks: {POLICY}: {exc.__class__.__name__}", file=sys.stderr)
-        return 2
-    found = [f for f in table_findings(doc) if not f.startswith("note:")] + tree_findings(args.root, tracked, policy_text, doc)
-    for line in found:
-        print(line)
-    return 1 if found else 0

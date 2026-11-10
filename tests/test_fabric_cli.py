@@ -481,29 +481,6 @@ def case_literal_unparseable_and_escapes() -> None:
     assert len(lit(src)) == 1
 
 
-def case_checker_main_is_red_then_green() -> None:
-    root = tempfile.mkdtemp(dir=TMP)
-    for rel, text in {"runtime/claude-code/hooks/b.py": 'x = 1 if w == "fabric-pr" else 2\n'}.items():
-        write(os.path.join(root, rel), text, 0o644)
-    write(os.path.join(root, table.COMMANDS_FILE), json.dumps(DOC), 0o644)
-    git_env = {"PATH": "/usr/bin:/bin", "HOME": root, "GIT_CONFIG_NOSYSTEM": "1"}
-    for cmd in (["init", "-q"], ["add", "-A"]):
-        subprocess.run(["git", "-C", root, *cmd], check=True, env=git_env, stdin=subprocess.DEVNULL, timeout=30)
-    pkg = os.path.join(ROOT, "tools", "fabric")
-    code = ("import sys, importlib.util as u\n"
-            f"s = u.spec_from_file_location('cli', {pkg + '/cli/__init__.py'!r}, submodule_search_locations=[{pkg + '/cli'!r}])\n"
-            "m = u.module_from_spec(s); sys.modules['cli'] = m; s.loader.exec_module(m)\n"
-            "from cli import checks\n"
-            "sys.exit(checks.main(['--root', sys.argv[1]]))\n")
-    r = subprocess.run([sys.executable, "-I", "-c", code, root], capture_output=True, text=True, timeout=60,
-                       stdin=subprocess.DEVNULL, env=git_env, check=False)
-    assert r.returncode == 1 and "b.py:1: comparison names the command `fabric-pr`" in r.stdout, (r.returncode, r.stdout, r.stderr)
-    write(os.path.join(root, "policies/command-names.json"), json.dumps({"recognisers": {"runtime/claude-code/hooks/b.py": "why"}}), 0o644)
-    r = subprocess.run([sys.executable, "-I", "-c", code, root], capture_output=True, text=True, timeout=60,
-                       stdin=subprocess.DEVNULL, env=git_env, check=False)
-    assert (r.returncode, r.stdout) == (0, ""), (r.returncode, r.stdout)
-
-
 def main() -> int:
     for name, fn in sorted((n, f) for n, f in globals().items() if n.startswith("case_") and callable(f)):
         fn()
