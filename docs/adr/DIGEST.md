@@ -71,6 +71,7 @@ its record disagree, the record wins. Look it up, never read it whole:
 | the reviewer's tools; the review sandbox; coverage blocks; the v2 review marker; where a re-review starts | ADR-065 |
 | the reviewer's own accuracy; calibrating the review class; owner labels; seeded defects; a review routing change's evidence | ADR-066 |
 | one owning module per mechanism; a reimplementation; policies/mechanisms.json; a checker and its exceptions | ADR-067 |
+| the fabric command; fabric <noun> <verb>; fabric help; one front door for the bin/ commands; a second spelling of a guarded command | ADR-068 |
 
 ### ADR-000 — The enduring organization (Accepted)
 
@@ -1548,3 +1549,17 @@ its record disagree, the record wins. Look it up, never read it whole:
 - A 2026-11-10 — an owner may be a package, named as its directory
   with the trailing slash and holding a tracked file (§5 rule 3).
 - Keywords: mechanism, duplicate, reimplementation, owning module, catalogue, fitness function, process lifetime, killpg, evidence cap, binding read.
+
+### ADR-068 — One `fabric <noun> <verb>` command, driven by commands.json (Proposed)
+
+- `fabric <noun> [<verb>]` resolves through a `fabric` table in
+  `commands.json` and execs today's `bin/<command>` unchanged; every
+  binary stays, with no retirement date (§5 r1, r2, r10).
+- The first table is mechanical from today's names; a rename is an
+  amendment that keeps the old form as an alias (§5 r4).
+- Allow rules are derived per noun or verb, never `Bash(fabric *)`;
+  a `not_allowed` target's form asks (§5 r6).
+- Hooks recognise a command through one owning function, landed with
+  the dispatcher; docs move only after distribution and a read-back
+  (§5 r7–r9).
+- Keywords: fabric command, dispatcher, noun, verb, fabric help, commands.json, shim, alias, front door, guard bypass, second spelling.

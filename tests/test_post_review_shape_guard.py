@@ -7,8 +7,10 @@ from __future__ import annotations
 import importlib.util
 import json
 import os
+import shutil
 import subprocess
 import sys
+import tempfile
 import time
 
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -187,6 +189,27 @@ def main() -> int:
     for label, payload in (("not JSON", "{"), ("no tool_input", "{}"), ("tool_input a string", '{"tool_input": "x"}'),
                            ("command a number", '{"tool_input": {"command": 3}}')):
         check(f"hook: nothing on {label}", run(payload) == "")
+
+    # A command table it cannot read is no answer "not fabric-pr": the guard refuses a command naming post-review,
+    # and still says nothing on one that does not (ADR-068 rule 7; canonical() raises TableError).
+    with tempfile.TemporaryDirectory() as tree:
+        hooks = os.path.join(tree, "runtime", "claude-code", "hooks")
+        os.makedirs(hooks)
+        shutil.copy(HOOK, hooks)
+        shutil.copytree(os.path.join(HERE, "tools", "fabric", "cli"), os.path.join(tree, "tools", "fabric", "cli"),
+                        ignore=shutil.ignore_patterns("__pycache__"))
+        with open(os.path.join(tree, "runtime", "claude-code", "commands.json"), "w", encoding="utf-8") as fh:
+            fh.write("{not json")
+        copy = os.path.join(hooks, os.path.basename(HOOK))
+
+        def run_copy(command: str) -> str:
+            payload = json.dumps({"tool_input": {"command": command}})
+            return subprocess.run([sys.executable, copy], input=payload, capture_output=True, text=True, check=True).stdout
+
+        out = run_copy(allowed[0][1])
+        check("unreadable commands.json: the bare form is refused, not passed",
+              '"permissionDecision":"deny"' in out, out)
+        check("unreadable commands.json: a command without post-review is passed", run_copy("ls -la") == "")
 
     # Control: the guard is registered where every session runs it, in both settings files.
     for rel in (".claude/settings.json", "runtime/claude-code/workspace/settings.json"):

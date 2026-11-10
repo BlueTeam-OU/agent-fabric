@@ -9,7 +9,8 @@ CONTRACT:
   env       CLAUDE_CODE_SESSION_ID (before the payload's session_id, as plan_hold.py reads it); AGENT_FABRIC_ROOT
             (empty or unset: the checkout three directories above this file), where tools/fabric/jobsparts/ and
             runtime/identity.py are; what identity.py reads to find the login's job list (XDG_STATE_HOME,
-            AGENT_FABRIC_STATE_DIR); HOME (`~`, a bare `cd`); PATH (git)
+            AGENT_FABRIC_STATE_DIR); HOME (`~`, a bare `cd`); PATH (git). tools/fabric/cli/ and the command table
+            are read from this file's own checkout, whatever AGENT_FABRIC_ROOT says
   stdout    nothing (allow); or one compact line, a deny or an ask
   stderr    nothing of its own
   exit      0, always; a payload it cannot read is allowed and said nothing about. A crash is a non-zero exit,
@@ -22,7 +23,9 @@ DECISIONS, in order, with their exact words:
   3. the command does not commit or publish                                             -> nothing
      It commits or publishes when it holds `git commit|push|merge|rebase|cherry-pick|am` (git's global options,
      `-C <dir>` among them, may come before the subcommand), `gh pr create|merge`, or `fabric-pr <verb>` for any
-     verb but the read-only ones in READ_ONLY_PR_VERBS (an unknown verb counts). Found anywhere in the command,
+     verb but the read-only ones in READ_ONLY_PR_VERBS (an unknown verb counts). Which words are `fabric-pr` is
+     tools/fabric/cli canonical()'s to say (agent-fabric ADR-068 §5 rule 7), asked of each word by its last path
+     part: `fabric pr <verb>` is the same command, and no name is matched here. Found anywhere in the command,
      a `bash -c`/`sh -c`/`eval`/`env -S` script and a command substitution included. Only an unquoted `<<`
      outside a comment opens a heredoc (a quote-aware scan, never a regex on the raw line: a quoted `'<<X'` and a
      later line `X` must not hide the lines between; a `$(` or backquote inside double quotes is command text
@@ -44,6 +47,13 @@ DECISIONS, in order, with their exact words:
   4. the job list or the module that reads it cannot be read                           -> ask:
        "The job copy guard could not read this login's job list (<what failed>). Approve only if this command
        does not commit or publish outside the working copy of this session's job (agent-fabric ADR-037 rule 3)."
+     Step 3 is undecided when canonical() cannot be loaded from the checkout this file is in, or the command table
+     it reads (runtime/claude-code/commands.json there) cannot be read: the job list is then read as for a command that
+     commits or publishes, and where step 5, 6 or 8 to 14 would be reached it asks instead:
+       "The job copy guard could not read the fabric command table (<what failed>), so it cannot tell whether this
+       command commits or publishes. Approve only if it does not commit or publish outside the working copy of
+       this session's job (agent-fabric ADR-037 rule 3)."
+     An unbound session (step 7) is still said nothing about: it is fenced by nothing the table could change.
   5. this session worked a job W other than the active one (records.session_worked, asked of the list without
      the active job), with a job J active                                               -> deny:
        "This session worked job W, which has left active; job J is active now, and it belongs to a fresh
@@ -109,7 +119,7 @@ THE REPOSITORIES A COMMAND PUBLISHES TO, when it names one: `gh pr create|merge 
 `--hostname` or GH_HOST as its host when given), a pull request URL among its arguments
 (`http(s)://<host>/<owner>/<repo>/pull/<n>`, a deeper path, a query or a fragment after it included, the URL's host
 without userinfo or port its host), on which gh
-acts whatever the cwd, `fabric-pr --repo <repo> <verb>` for a writing verb, and GH_REPO
+acts whatever the cwd, `fabric-pr --repo <repo> <verb>` (either spelling) for a writing verb, and GH_REPO
 set (as a word, as for GIT_DIR) in a command that runs either. The job copy's remotes are read
 (`git -C <copy> remote -v`, inside the budget), each URL normalised to owner/repo, lowercased, without .git, from
 https, ssh:// or scp-style; the named repository (owner/repo, host/owner/repo or a URL) is inside only when it is
@@ -161,7 +171,13 @@ sys.dont_write_bytecode = True   # the job module it loads leaves no __pycache__
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 FABRIC_ROOT = os.environ.get("AGENT_FABRIC_ROOT") or os.path.dirname(os.path.dirname(os.path.dirname(HERE)))
+# canonical() and its command table come from the checkout this file is in, never AGENT_FABRIC_ROOT: the reading of a
+# command must be the one this guard was written against, and a hook newer than the root it is pointed at (a worktree's
+# settings during a rollout) would otherwise ask on every commit.
+OWN_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.realpath(__file__)))))
 
+# The command whose writing verbs are publishes, compared with what canonical() reads, never with a word as spelled.
+PR_COMMAND = "fabric-pr"
 GIT_ACTS = ("commit", "push", "merge", "rebase", "cherry-pick", "am")
 GH_ACTS = ("create", "merge")
 # fabric-pr verbs that read and never write (tools/fabric/github/fabric_pr.py VERBS, each module's contract):
@@ -657,9 +673,12 @@ class Reading:
     """What a command commits or publishes (`acts`), the directory words it names, in order (`dirs`, each
     (kind, word): kind "cd" for a cd/pushd target, "git" for a git -C/--git-dir/--work-tree, a GIT_DIR-like
     variable or env -C), the repositories its publishes name (`repos`, each (spelled, host or None, value, kind):
-    kind "gh" or "fabric-pr"), and the GH_REPO/GH_HOST values it sets (`env`)."""
+    kind "gh" or PR_COMMAND), and the GH_REPO/GH_HOST values it sets (`env`). `canonical` is
+    tools/fabric/cli canonical(); it raises TableError, which `read` lets through: undecided, not "nothing here"."""
 
-    def __init__(self):
+    def __init__(self, canonical):
+        self.canonical = canonical
+        self.by_gh = False                    # a publish through gh, which GH_REPO can aim: `gh pr …` or fabric-pr
         self.acts: list[str] = []
         self.dirs: list[tuple[str, str]] = []
         self.repos: list[tuple[str, str | None, str, str]] = []
@@ -699,8 +718,8 @@ class Reading:
                 self.git(seg[i + 1:])
             elif name == "gh":
                 self.gh(seg[i + 1:])
-            elif name == "fabric-pr":
-                self.fabric_pr(seg[i + 1:])
+            elif (pr := self.pr_args([name, *seg[i + 1:]])) is not None:
+                self.fabric_pr(pr)
             elif depth < MAX_DEPTH and name in SHELLS:
                 script = next((seg[j + 1] for j in range(i + 1, len(seg) - 1)
                                if re.fullmatch(r"-[A-Za-z]*c[A-Za-z]*", seg[j])), None)
@@ -710,6 +729,15 @@ class Reading:
                 self.read(" ".join(seg[i + 1:]), depth + 1)
             elif depth < MAX_DEPTH and ("$(" in word or "`" in word):
                 self.read(word.replace("$(", " ; "), depth + 1)     # a substitution inside a quoted word runs too
+
+    def pr_args(self, words: list[str]) -> list[str] | None:
+        """fabric-pr's arguments when words[0] itself names it, in either spelling; None otherwise. A prefix word
+        (`command`) is not taken for it: the walk reaches the command's own word next, which would read it twice."""
+        alone = self.canonical.canonical(words[:1])
+        if alone is None and words[0] != self.canonical.DISPATCHER:
+            return None
+        read = self.canonical.canonical(words)
+        return read[1] if read is not None and read[0] == PR_COMMAND else None
 
     def cd(self, rest: list[str]) -> None:
         args = [w for w in rest if not CD_OPTION.fullmatch(w) and w != "--"]
@@ -788,6 +816,7 @@ class Reading:
             i += 1
         if len(words) == 2 and words[0] == "pr" and words[1] in GH_ACTS:
             self.acts.append(f"gh pr {words[1]}")
+            self.by_gh = True
             self.repos += [(spelled, host, value, "gh") for spelled, value in repos]
             self.repos += [(spelled, url_host, value, "gh") for spelled, url_host, value in urls]
 
@@ -805,11 +834,12 @@ class Reading:
             i += 1
         verb = verb if verb is not None else "help"
         if verb not in READ_ONLY_PR_VERBS:
-            self.acts.append(f"fabric-pr {verb}")
-            self.repos += [(spelled, None, value, "fabric-pr") for spelled, value in repos]
+            self.acts.append(f"{PR_COMMAND} {verb}")
+            self.repos += [(spelled, None, value, PR_COMMAND) for spelled, value in repos]
+            self.by_gh = True
 
     def publishes_by_gh(self) -> bool:
-        return any(a.startswith(("gh ", "fabric-pr ")) for a in self.acts)
+        return self.by_gh
 
 
 class Undecided(Exception):
@@ -973,6 +1003,25 @@ def records_module():
     return importlib.import_module("fabric_jobs.records")
 
 
+def canonical_module():
+    """tools/fabric/cli/canonical.py, its package loaded BY PATH as fabric_cli (as tools/fabric/cli/fabric.py loads
+    it), so nothing on sys.path answers for the import; from OWN_ROOT, with the command table there."""
+    if "fabric_cli" not in sys.modules:
+        here = os.path.join(OWN_ROOT, "tools", "fabric", "cli")
+        spec = importlib.util.spec_from_file_location("fabric_cli", os.path.join(here, "__init__.py"),
+                                                      submodule_search_locations=[here])
+        if spec is None or spec.loader is None:
+            raise ImportError(f"no package at {here}")
+        package = importlib.util.module_from_spec(spec)
+        sys.modules["fabric_cli"] = package
+        try:
+            spec.loader.exec_module(package)
+        except BaseException:
+            del sys.modules["fabric_cli"]
+            raise
+    return importlib.import_module("fabric_cli.canonical")
+
+
 def emit(kind: str, reason: str) -> None:
     out = {"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": kind,
                                   "permissionDecisionReason": reason}}
@@ -991,11 +1040,22 @@ def decide(payload: dict, clock=time.monotonic) -> tuple[str, str] | None:
     command = (payload.get("tool_input") or {}).get("command") if isinstance(payload.get("tool_input"), dict) else None
     if not isinstance(command, str) or not command.strip():
         return None
-    reading = Reading()
-    reading.read(command)
-    if not reading.acts:
+    # Undecided (step 4): canonical() not loading, or its TableError. Any other failure of the reading stays a crash,
+    # which the forwarder asks on.
+    table_fault, reading = None, None
+    try:
+        canonical = canonical_module()
+    except Exception as e:  # noqa: BLE001 — whatever stops the module loading
+        table_fault = " ".join(str(e).split())[:200] or type(e).__name__
+    else:
+        reading = Reading(canonical)
+        try:
+            reading.read(command)
+        except canonical.table.TableError as e:
+            table_fault = " ".join(str(e).split())[:200]
+    if table_fault is None and not reading.acts:
         return None                               # the job list is not touched for a command that neither commits nor publishes
-    what = ", ".join(dict.fromkeys(reading.acts))
+    what = ", ".join(dict.fromkeys(reading.acts)) if table_fault is None else ""
 
     try:
         records = records_module()
@@ -1011,6 +1071,12 @@ def decide(payload: dict, clock=time.monotonic) -> tuple[str, str] | None:
         return ("ask", f"The job copy guard could not read this login's job list ({detail}). Approve only if this command "
                        "does not commit or publish outside the working copy of this session's job (agent-fabric ADR-037 rule 3).")
 
+    if table_fault is not None:
+        if not worked and not current:
+            return None                           # an unbound session: nothing the table could say fences it
+        return ("ask", f"The job copy guard could not read the fabric command table ({table_fault}), so it cannot tell "
+                       "whether this command commits or publishes. Approve only if it does not commit or publish outside "
+                       "the working copy of this session's job (agent-fabric ADR-037 rule 3).")
     if worked:
         rule = ("Once a session has worked a job, the next one runs in a fresh session (agent-fabric ADR-037 rule 3): ")
         if current:
@@ -1063,7 +1129,7 @@ def decide(payload: dict, clock=time.monotonic) -> tuple[str, str] | None:
 
 def judge_repos(reading: Reading, current: dict, copies: list[str], git: Git, what: str, shown: str, approve: str,
                 outside: str) -> tuple[str, str] | None:
-    """The repositories the command's publishes name (`gh pr … -R`, `fabric-pr --repo`, GH_REPO for either) against
+    """The repositories the command's publishes name (`gh pr … -R`, fabric-pr's `--repo`, GH_REPO for either) against
     the remotes of the job's copies: inside only when the named one is among them (and on the host named, when one
     is). A remote list git does not give asks; a value that cannot be read as owner/repo is outside."""
     targets = list(reading.repos)
@@ -1078,7 +1144,7 @@ def judge_repos(reading: Reading, current: dict, copies: list[str], git: Git, wh
     project = str(current.get("project") or "").lower()
     known: set[tuple[str, str]] | None = None
     for spelled, host, value, kind in targets:
-        if kind == "fabric-pr" and "/" not in value and project and value.lower() == project:
+        if kind == PR_COMMAND and "/" not in value and project and value.lower() == project:
             continue                              # fabric-pr's project-id form, naming this job's project
         if known is None:
             answers = [r for r in (remotes(c, git) for c in copies) if r is not None]

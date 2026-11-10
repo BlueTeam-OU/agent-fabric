@@ -87,7 +87,7 @@ INSTALL = r'(^|[;&|(]|`)[\s]*(sudo[\s]+)?((pnpm|npm|yarn)([\s]+-[A-Za-z-]+)*[\s]
 # environ/getenv/process.env/ENVIRON near a secret-shaped name), and secret
 # material by path (secret*.env, .config/agent-fabric, the stores,
 # .password-store, .gnupg, /proc/*/environ, gpg's secret export, pass,
-# fabric-secrets store get). `env -i ... cmd` stays allowed: it RUNS a command
+# fabric-secrets store get, and its dispatcher spelling fabric secrets). `env -i ... cmd` stays allowed: it RUNS a command
 # in a clean environment. A code SEARCH (grep, rg, git grep / log / show /
 # diff / blame) may name these words as patterns and is refused only when it
 # names a home, a hidden directory in one, or /proc as a path; the exemption
@@ -97,7 +97,7 @@ INSTALL = r'(^|[;&|(]|`)[\s]*(sudo[\s]+)?((pnpm|npm|yarn)([\s]+-[A-Za-z-]+)*[\s]
 # control.
 ENV_PRINT = (r'(^|[^A-Za-z0-9_.-])\\?(env|printenv)([\s]+(-[0iv]*[uCS](?:[\s]+[^\s]+|[^\s]+)|--(?:u|ch|sp)[A-Za-z-]*(?:=[^\s]*|[\s]+[^\s]+)|-(?![0iv]*[uCS]|-(?:u|ch|sp))[A-Za-z0-9-]+(?:=[^\s]*)?|[A-Za-z_][A-Za-z0-9_]*=[^\s]*))*[\s]*($|[;&|)<>#' "'" r'"`])|(^|[^A-Za-z0-9_.-])printenv([^A-Za-z0-9_.-]|$)|(^|[;&|(]|`)[\s]*set[\s]*($|[;&|)#])|(^|[;&|(]|`)[\s]*(export|declare|typeset)[\s]*($|[;&|)#])|(export|declare|typeset)[\s]+-[a-zA-Z]*[px]|compgen[\s]+-[a-zA-Z]*[ev]|os\.environ($|[^.[A-Za-z0-9_]|\.(copy|items|keys|values|__))|process\.env($|[^.[A-Za-z0-9_])|%ENV|ENVIRON($|[^[A-Za-z0-9_])|\$ENV($|[^A-Za-z0-9_])|(^|[^A-Za-z0-9_.-])ps([\s]+-[^\s]+)*[\s]+[a-zA-Z]*e[a-zA-Z]*([\s;|&]|$)')
 SECRET_VAR = r'\$\{?[A-Za-z0-9_]*(TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIAL|_KEY)|\$\{!|(environ|getenv|process\.env|ENVIRON|%ENV|\$ENV)[^;|&]{0,60}(TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIAL|_KEY)'
-SECRET_PATH = r'secrets?[^\s/]*\.env|\.config/agent-fabric|agent-fabric/(secrets|children)|\.password-store|\.gnupg|/proc/[^\s]*/environ|--export-secret|(^|[;&|(]|`)[\s]*pass[\s]+(show|ls|find|grep|otp)|(fabric-secrets|secret_store\.py)[\s]+(store[\s]+)?(get|show|export-key|bundle|child-bundle|paper|recovery-copy)|(^|[\s"=<>(])/([^\s/]*[*?[{]|p)[^\s/]*(/|[\s]|$)|(^|[;&|(`][\s]*|[\s])(ba|z|k|da)?sh[\s]+([^;&|]*[\s])?(-[a-zA-Z]*[il][a-zA-Z]*|--login|--rcfile|--init-file)([\s=]|$)|(^|[;&|(`]|\bthen|\bdo)[\s]*(source|\.)[\s]+[^\s;&|]*(\.bashrc|\.bash_profile|\.bash_login|\.profile|\.zshrc|\.zprofile|secrets?[^\s/;&|]*\.env|[*?[])'
+SECRET_PATH = r'secrets?[^\s/]*\.env|\.config/agent-fabric|agent-fabric/(secrets|children)|\.password-store|\.gnupg|/proc/[^\s]*/environ|--export-secret|(^|[;&|(]|`)[\s]*pass[\s]+(show|ls|find|grep|otp)|(fabric-secrets|fabric[\s]+secrets|secret_store\.py)[\s]+(store[\s]+)?(get|show|export-key|bundle|child-bundle|paper|recovery-copy)|(^|[\s"=<>(])/([^\s/]*[*?[{]|p)[^\s/]*(/|[\s]|$)|(^|[;&|(`][\s]*|[\s])(ba|z|k|da)?sh[\s]+([^;&|]*[\s])?(-[a-zA-Z]*[il][a-zA-Z]*|--login|--rcfile|--init-file)([\s=]|$)|(^|[;&|(`]|\bthen|\bdo)[\s]*(source|\.)[\s]+[^\s;&|]*(\.bashrc|\.bash_profile|\.bash_login|\.profile|\.zshrc|\.zprofile|secrets?[^\s/;&|]*\.env|[*?[])'
 # A search's PATH, as opposed to its pattern: a home itself or anything under
 # one of its hidden directories (~/.config, ~/.local/share, the stores,
 # .gnupg), the same reached by climbing out of the clone (../../.config), /,

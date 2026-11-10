@@ -3,7 +3,7 @@
 **Date:** 2026-11-08
 **Status:** Proposed
 **Decision Makers:** the owner; drafted by fabric-coordinator
-**Scope:** the fabric's cross-cutting mechanisms (per-agent state, process lifetime, agent context, remote evidence completeness, the job lifecycle, message transport, instance roots) and the catalogue that names each one's owning module, its checker and its declared exceptions: `policies/mechanisms.json`, read by `tools/fabric/lint_rules/mechanisms.py`. Not what each mechanism decides, which stays in its own record (ADR-003, ADR-037, ADR-045, ADR-064)
+**Scope:** the fabric's cross-cutting mechanisms (per-agent state, process lifetime, agent context, remote evidence completeness, the job lifecycle, message transport, instance roots, the recognition of a fabric command in a Bash line) and the catalogue that names each one's owning module, its checker and its declared exceptions: `policies/mechanisms.json`, read by `tools/fabric/lint_rules/mechanisms.py`. Not what each mechanism decides, which stays in its own record (ADR-003, ADR-037, ADR-045, ADR-064, ADR-068)
 **Pillar:** P1
 
 ## 1. Context and Problem
@@ -102,7 +102,8 @@ lets lint check that the claim is true.
    that is not JSON; an entry missing a field rule 2 asks for of its
    status; any path an entry names that is not a tracked file, except
    an owner that is a package, named as its directory with the
-   trailing slash and holding a tracked file; an `enforced` entry whose checker is not loaded where rule 2 says, a
+   trailing slash and holding a tracked file; an `enforced` entry
+   whose checker is not loaded where rule 2 says, a
    load being an import or lint's `_load` call, never a mention. An
    absent catalogue is no finding: `policies/*.json` is instance data
    (ADR-045 rule 2).
@@ -138,6 +139,9 @@ lets lint check that the claim is true.
   primary) did once their owners existed, as did instance roots
   (`tools/fabric/roots.py`, over ADR-045 §5 rule 1). None is `planned`
   now.
+- Command recognition entered enforced, with its owner, in the pull
+  request that added the `fabric` dispatcher (ADR-068 §5 rule 7), as
+  rule 4 asks of a new mechanism.
 - A mechanism the catalogue lacks is added when a duplicate of it is
   found, not before.
 
@@ -159,6 +163,9 @@ the job lifecycle by python-dev-04's j101 (`tools/fabric/work/`,
 Instance roots are `enforced` by python-dev-01's j222
 (`tools/fabric/roots.py`, `tools/fabric/roots_bypass.py`,
 `tools/fabric/roots_bypass.json`).
+Command recognition is `enforced` from python-dev-04's j107
+(`tools/fabric/cli/`, `tools/fabric/cli/checks.py`,
+`policies/command-names.json`).
 
 ## References
 
@@ -167,6 +174,7 @@ Instance roots are `enforced` by python-dev-01's j222
 - ADR-037 — the job list; rule 14, the transition table the job lifecycle's owner will implement.
 - ADR-045 — roots; where instance data is read from.
 - ADR-064 — the relay and InterWeave dual run; the transport's owner sits behind it.
+- ADR-068 — the `fabric` dispatcher; rule 7, the command-recognition mechanism.
 - `policies/mechanisms.json`, `tools/fabric/lint_rules/mechanisms.py`.
 
 ## Amendments

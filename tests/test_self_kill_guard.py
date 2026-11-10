@@ -302,6 +302,17 @@ def main() -> int:
           (r.returncode, r.stderr[-300:]))
     check("…and judges it as text", g._matches("a{99999999999}", "x a{99999999999} y") is True)
     check("a matching pattern still denies through decision()", g.decision("pkill -f claude-fable", CLAUDE)[0] == "deny")
+    # Bracketed, so only the dispatcher's watch model can match it (round 1 of #546, F2).
+    d = g.decision("pkill -f '[g]zcoord inbox --until'", CLAUDE)
+    check("a pattern selecting a `fabric gzcoord inbox` watch is refused", d is not None and d[0] == "deny"
+          and "inbox watch" in d[1], d)
+    # The watch the dispatcher starts is the checkout's script under the pin; no process line holds the spoken words
+    # after the interpreter (round 2 of #546, F2). Bracketed, so only that model can match.
+    d = g.decision("pkill -f 'agent-fabric/bin/[g]zcoord-inbox --until'", CLAUDE)
+    check("a pattern selecting the dispatcher's watch by its checkout path is refused", d is not None and d[0] == "deny"
+          and "inbox watch" in d[1], d)
+    check("…and no interpreter model names the spoken form",
+          not [t for n, t in g.INBOX_MODELS if n == "fabric-python" and g.INBOX_SPOKEN in t], g.INBOX_MODELS)
     check("a harmless command: no decision", g.decision("git status", CLAUDE) is None)
     check("still split outside quotes: a real pipe after a quoted word",
           g.verdict("echo 'x y' | xargs pkill -f 'claude-fable'", CLAUDE) is not None)
@@ -608,6 +619,11 @@ def main() -> int:
         for argv, want in ((["/usr/bin/env", "python3", "-I", "/x/gzcoord-inbox"], True),
                            (["fabric-python", "-I", "-u", "-B", "-W", "ignore", "/x/gzcoord-inbox", "--wait"], True),
                            (["python3", "--check-hash-based-pycs", "default", "/x/gzcoord-inbox"], True),
+                           # The dispatcher's spelling, and the harness's shell running either (round 1 of #546, F2).
+                           (["fabric-python", "-I", "/x/bin/fabric", "gzcoord", "inbox", "--until-delivery"], True),
+                           (["/bin/bash", "-c", f"{g.SHELL_HEAD}fabric gzcoord inbox --until-delivery{g.SHELL_TAIL}"], True),
+                           (["/bin/bash", "-c", f"{g.SHELL_HEAD}gzcoord-inbox --until-delivery{g.SHELL_TAIL}"], True),
+                           (["fabric-python", "-I", "/x/bin/fabric", "gzcoord", "send", "m.txt"], False),
                            (["vim", "/x/notes.txt"], False),
                            (["sleep", "60"], False)):
             check(f"is_inbox {argv}: {want}", g.is_inbox(argv) is want)
