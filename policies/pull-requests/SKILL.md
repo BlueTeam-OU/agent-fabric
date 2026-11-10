@@ -81,10 +81,10 @@ checks, and neither stands in for the other. Any PR status you state carries its
 **An arming is withdrawn as it was given: on the PR, with a basis.**
 `fabric-pr disarm <n> --basis "<why>"` sets the head's `fabric/armed`
 to pending, takes the PR out of the merge queue and off auto-merge, and
-posts "Disarming basis: …" naming your role and the head. Who may
-disarm is who may arm: your own PR, or another session's with
-`--any-owner` on the owner's word or the arming authority's, held by
-your binding. Never by hand in GitHub: that leaves no record of why.
+posts "Disarming basis: …" naming your role and the head. You may
+disarm your own PR; another session's only with `--any-owner` and the
+owner's word or the arming authority's, held by your binding — never
+on `--any-owner` alone, though arm at the minimum takes that. Never by hand in GitHub: that leaves no record of why.
 
 ## One open pull request
 

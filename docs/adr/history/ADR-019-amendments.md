@@ -207,9 +207,10 @@ the head's `fabric/armed` success (set to pending, since GitHub deletes
 no status, so in a mode `auto` repository the ruleset holds the head
 until it is armed again), a merge-queue entry, auto-merge — then posts
 "Disarming basis: <text> — <role>, head <sha8>." and reads the PR back.
-Who may disarm is who may arm (rule 4): the session whose PR it is, or
-with `--any-owner` on the owner's word or the word of the role the
-arming policy names, held by the session's binding; an owner-only
+Who may disarm is narrower than who may arm: the session whose PR it is,
+or with `--any-owner` only on the owner's word or the word of the role the
+arming policy names, held by the session's binding, never on `--any-owner` alone as arm
+takes it at the minimum; an owner-only
 repository is refused, as it is never armed by the tool. The review,
 count and check gates are not asked: they judge whether a head may
 merge, and none stands between a merge and its withdrawal. Because a

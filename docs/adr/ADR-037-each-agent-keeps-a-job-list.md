@@ -212,8 +212,10 @@ Why these choices:
        done>"` (A 2026-10-18). A pull request that merged before
        `deliver` ran is named on the verb, `fabric-jobs done <id>
        <artifact>...`, and recorded as the job's evidence; each name
-       must have landed on its own, and a name the verb would drop, on a
-       job already done, is refused (A 2026-11-10).
+       must have landed on its own, but a squash-merged branch lands
+       when the merged pull request at its tip is named beside it, and a
+       name the verb would drop, on a job already done, is refused
+       (A 2026-11-10).
        `delivered`: its pull request is open. `blocked`: a request, a
        pull request, a peer's job or an owner's decision named as the
        blocker. `paused`: its branch is pushed. `dropped`: a reason.

@@ -182,8 +182,11 @@ not on a pipe's exit status.
    (A 2026-11-01). An arming is withdrawn as it is given, with a basis
    on the PR: `fabric-pr disarm` sets the head's `fabric/armed` to
    pending, takes the PR out of the merge queue and off auto-merge, and
-   posts "Disarming basis: …" naming the role and the head. Who may
-   disarm is who may arm, under rule 4; the gate's checks never read
+   posts "Disarming basis: …" naming the role and the head. The
+   session whose PR it is may disarm it; another session's PR only on
+   the owner's word or the word of the arming authority of rule 4, held
+   by the session's binding, never on --any-owner alone; the gate's
+   checks never read
    `fabric/armed` as a check of the head (A 2026-11-10).
 6. What arming is depends on the repository. agent-fabric's `main` is
    held by a ruleset (`tools/fabric/github-ruleset-main.json`): a pull
