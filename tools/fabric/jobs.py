@@ -6,7 +6,7 @@ behind bin/fabric-jobs.
     fabric-jobs add --request <MESSAGE-ID|seq> [--topic T] [--working-copy W] [--priority P]
     fabric-jobs list [--all] [--json] [--stored] [--cached]
     fabric-jobs prio <id> <blocking|high|normal|low>
-    fabric-jobs start <id>
+    fabric-jobs start <id> [--despite job:<login>/j<n>… "<why>"]   --despite: the peer's job waits on this very start; recorded in the log
     fabric-jobs pause <id> "<why>"
     fabric-jobs block <id> "owner: <the decision awaited>"
     fabric-jobs block <id> --on-request <MESSAGE-ID> ["<on what>"]
@@ -306,7 +306,10 @@ def main(argv: list[str] | None = None) -> int:
     pr = sub.add_parser("prio", help="set a job's priority")
     pr.add_argument("id")
     pr.add_argument("priority", choices=PRIORITIES)
-    sub.add_parser("start").add_argument("id")
+    sp = sub.add_parser("start", help="start a job; --despite waives a peer's job: blocker that waits on this very start")
+    sp.add_argument("id")
+    sp.add_argument("--despite", action="append", metavar="job:LOGIN/jN", help="a job: blocker of another login the holder starts despite, because it cannot clear before this start; repeatable, each unmet one named")
+    sp.add_argument("why", nargs="?", help="why the peer's job waits on this start, recorded in the job's log")
     dn = sub.add_parser("done", help="close a job; --no-artifact records why its work leaves nothing to name")
     dn.add_argument("id")
     dn.add_argument("artifacts", nargs="*", metavar="ARTIFACT", help="what landed (a merged pull request, a commit on the default branch), recorded on the job with the close")

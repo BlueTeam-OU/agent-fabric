@@ -558,7 +558,13 @@ def _unlanded(job_id: str, names: list[str]) -> list[str]:
 def move(args, said: dict) -> Job:
     """The verbs that make a transition: the row is rule 14's, its needs are asked by needs.prove, the change is the owner's."""
     if args.cmd == "start":
-        return needs.advance(args.id, "active", "start", lambda job: {})
+        despite = list(dict.fromkeys(args.despite or []))
+        why = " ".join((args.why or "").split())
+        if despite and not why:
+            raise Refused(f"{args.id}: --despite needs the reason: fabric-jobs start {args.id} --despite <job:login/jN> \"<why>\"")
+        if why and not despite:
+            raise Refused(f"{args.id}: a reason is given for nothing; start takes one only with --despite")
+        return needs.advance(args.id, "active", "start", lambda job: {"despite": despite, "note": why} if despite else {})
     if args.cmd == "pause":
         paused_branch = branch_here()
 

@@ -25,6 +25,10 @@ WORLD = frozenset({"blockers_cleared", "branch_pushed", "artifact_open", "done_t
 LOCAL = frozenset({"no_hold", "working_copy", "reason", "blocker_checkable_or_owner_decision", "pull_request_added_to_blockers"})
 
 
+# Fields that steer a row's needs and are not set on the job: `note` goes to the log entry, `despite` is a start's waiver.
+UNSTORED = frozenset({"note", "despite"})
+
+
 def held_refusal(record: dict, what: str) -> str:
     """The answer to a start while the fleet hold is set (ADR-037 rule 13): the hold's own words, and what is not done."""
     return f"{what}: this login is held, {hold_view.words(record)}"
@@ -47,15 +51,38 @@ def _working_copy(job: dict, fields: dict, who: str) -> list[str]:
 
 def _blockers_cleared(job: dict, fields: dict, who: str) -> list[str]:
     """Out of `blocked`, every checkable blocker the job waits on has cleared. A job that waits only on an owner's decision has none to
-    check: starting it is the agent saying the decision came, and nothing else could."""
+    check: starting it is the agent saying the decision came, and nothing else could.
+
+    A peer's job: blocker may be waived by the holder (`start --despite`), and only that kind: the peer can wait on this very
+    start (j127: the requester's push onto the branch the re-pointed job waits for), which no check can see. Anything else that
+    still waits, or cannot be told, stays a refusal; the waiver and its reason go to the log."""
     specs = bl.specs_of(job)
     if job["state"] != "blocked" or not specs:
         return []
     cache = bl.refresh(specs, check=True, decide=True)
     if bl.cleared_flag(job, cache) is True:
         return [f"blocker cleared: {', '.join(specs)}"]
+    open_specs = [s["spec"] for s in bl.states_of(job, cache) if s["state"] != "cleared"]
     left = "; ".join(f"{s['spec']} {s['state']}" + (f" ({s['detail']})" if s.get("detail") else "") for s in bl.states_of(job, cache) if s["state"] != "cleared")
-    raise Refused(f"{job['id']} is still blocked: {left}; a wait that is not over is not started (a blocker that cannot be told is not cleared)")
+    peers = [s for s in open_specs if _peer_job(s)]
+    waived = list(fields.get("despite") or [])
+    if waived:
+        why = " ".join(str(fields.get("note") or "").split())
+        if not why:
+            raise Refused(f"{job['id']}: --despite needs the reason the peer's job cannot clear first")
+        if peers != open_specs:
+            raise Refused(f"{job['id']} is still blocked: {left}; --despite waives a job: blocker of another login only")
+        if set(open_specs) - set(waived):
+            raise Refused(f"{job['id']} is still blocked: {left}; --despite must name each: {', '.join(sorted(set(open_specs) - set(waived)))}")
+        return [f"blocker waived by the holder, as read at start: {left}: {why}"]
+    hint = (f"; if {'it waits' if len(peers) == 1 else 'they wait'} on this very start, say so: fabric-jobs start {job['id']} "
+            + " ".join(f"--despite {s}" for s in peers) + ' "<why>"') if peers and peers == open_specs else ""
+    raise Refused(f"{job['id']} is still blocked: {left}; a wait that is not over is not started (a blocker that cannot be told is not cleared){hint}")
+
+
+def _peer_job(spec: str) -> bool:
+    m = bl.JOB.fullmatch(spec)
+    return bool(m) and m.group(1) != identity.current_agent()
 
 
 def _reason(job: dict, fields: dict, who: str) -> list[str]:
@@ -162,7 +189,7 @@ def prove(job: dict, who: str, to: str, fields: dict | None = None, *, asking: f
     row = work.table.row_for(who, job["state"], to)
     if row is None:
         raise work.lifecycle.refusal_for_state(job, who, to)
-    candidate = {**job, **{k: v for k, v in fields.items() if v is not None and k != "note"}}
+    candidate = {**job, **{k: v for k, v in fields.items() if v is not None and k not in UNSTORED}}
     proof = Proof(job["id"], work.seal(job))
     refused: list[str] = []
     for need in row.needs:
@@ -200,6 +227,10 @@ def advance(job_id: str, to: str, who: str, fields_of: Callable[[dict], dict]) -
     def apply(doc: dict) -> dict:
         job = find(doc, job_id)
         fields = fields_of(job)
-        transition(doc, job, to, who, combine(world, prove(job, who, to, fields, asking=LOCAL)), **fields)
+        stored = {k: v for k, v in fields.items() if k != "despite"}
+        if fields.get("despite"):
+            # The log keeps what was waived and how it read when the world was asked, not only the holder's reason.
+            stored["note"] = world.held["blockers_cleared"][0]
+        transition(doc, job, to, who, combine(world, prove(job, who, to, fields, asking=LOCAL)), **stored)
         return job
     return mutate(apply)
