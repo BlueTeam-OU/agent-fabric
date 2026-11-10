@@ -488,6 +488,11 @@ def main(argv: list[str]) -> int:
         print(t("send.does-not-validate"), file=sys.stderr)
         return 2
     msg = gzmsg.parse(text)
+    # A warning, never a refusal: the wire allows any body text (SPEC §11). `fabric-pr arm --authorization` reads
+    # AUTHORIZES from the header only, and a grant written in a section refused two armings (REQUEST 01a1c1c2).
+    # Said after the post, where the dictionary's "this message was sent" is true: a refusal or a dry run says its own.
+    grant_in_body = any(line.startswith("AUTHORIZES:") for body in msg["sections"].values()
+                        for line in body.split("\n"))
     sender = msg["metadata"].get("FROM")
     if sender != me["address"]:
         print(t("send.from-is-not-this-login", {"from": sender if sender is not None else t("send.from-missing"),
@@ -722,6 +727,8 @@ def main(argv: list[str]) -> int:
     deduplicated = sent.deduplicated
     print(t("send.sent", {"seq": seq, "type": msg["type"], "id": mid,
                           "deduplicated": t("send.deduplicated") if deduplicated else ""}))
+    if grant_in_body:
+        print(t("send.authorizes-in-body"), file=sys.stderr)
     # fabric-jobs speaks for itself, on stderr: stdout stays the one sent line.
     intake = auto_intake(msg)
     if intake:
