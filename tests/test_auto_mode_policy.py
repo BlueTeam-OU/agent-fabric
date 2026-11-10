@@ -46,6 +46,13 @@ def main() -> int:
               "An adb command outside that wrapper, a wrapper aimed at the other phone, or any other package, device or host path is not covered")
     for bound in bounds:
         check(f"the adb entry keeps its bound: {bound}", all(bound in a for a in adb_entries), adb_entries)
+    # A cache entry deletes on the agent's own judgement of "regenerable": it must stay a closed list, and
+    # ~/.cache/agent-fabric holds live markers (hold/, fallback/) that pass a "nothing holds it open" test.
+    cache_entries = [a for a in POLICY["allow"] if "regenerable caches" in a]
+    check("one entry allows removing regenerable caches", len(cache_entries) == 1, cache_entries)
+    for bound in ("only these regenerable caches of its own", "only while no running process of its own holds them open",
+                  "never the profile under ~/.config", "never ~/.cache/agent-fabric"):
+        check(f"the cache entry keeps its bound: {bound}", all(bound in a for a in cache_entries), cache_entries)
 
     print(f"\n{'FAILED' if fails else 'all passed'}")
     return 1 if fails else 0
