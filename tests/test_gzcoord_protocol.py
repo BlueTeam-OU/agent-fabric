@@ -2809,6 +2809,11 @@ def _():
         eq(r.code, 0, r.err)
         hasnt(re.escape(warning), r.err)
         eq(len(relay.posts), 3)
+        # Said only once the message has gone: a dry run and a refusal say "not sent", never also "was sent".
+        for extra, body in ((["--dry-run"], f"REPLY:\nok\n{grant}\n"), ([], f"REPLY:\n\nREFERENCES:\n{grant}\n")):
+            r = send_with(relay.url, with_body("REPLY", body), extra)
+            hasnt(re.escape(warning), r.err)
+        eq(len(relay.posts), 3)
         # Positive control for the absence: the header line is read by arm and is nothing to warn of.
         head, _, tail = with_body("REPLY", "REPLY:\nok\n").partition("\n\nREPLY:")
         r = send_with(relay.url, f"{head}\n{grant}\n\nREPLY:{tail}", ["--dry-run"])
