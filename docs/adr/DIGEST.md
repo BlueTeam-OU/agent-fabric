@@ -1045,6 +1045,8 @@ its record disagree, the record wins. Look it up, never read it whole:
 - A 2026-11-03 — the session seal (ADR-038 rule 9) is a managed
   `SessionStart` hook; its workspace copy keeps running (§5 rules 2, 9).
 - A 2026-11-03 — rule 6 met; the pin moves to 2.1.311 (§8).
+- A 2026-11-10 — the pin moves to 2.1.322, npm's `latest` rather than
+  `stable`, after the read-back on that build (§8).
 - Keywords: mods, plugin, managed settings, allowManagedModsOnly,
   disableSideloadFlags, prependPlugins, sec-default, guard, redaction,
   MCP server, sandbox, fabric-managed, hook_entry.py, session seal.
