@@ -108,6 +108,8 @@ class Fabric:
             os.symlink(os.path.join(ROOT, "runtime"), os.path.join(self.fabric, "runtime"))
             os.makedirs(os.path.join(self.fabric, "tools", "fabric"))
             for entry in os.listdir(os.path.join(ROOT, "tools", "fabric")):
+                if entry == "roots_bypass.json":
+                    continue   # the checkout's own list: a tracked link would be staged as the link's text, which is not JSON
                 os.symlink(os.path.join(ROOT, "tools", "fabric", entry), os.path.join(self.fabric, "tools", "fabric", entry))
         if authority_text is not None:
             self.write_authority_text(authority_text)

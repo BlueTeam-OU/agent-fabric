@@ -28,7 +28,8 @@ For each pull request merged in the window:
               it reverts netted ("N netted" in the row, netted_commits in
               --json)
   exemption   under the floor, does the body or a comment state why it
-              opened anyway (the project's exemption phrases)
+              opened anyway (the project's exemption phrases); a
+              fabric-pr disarm comment ("Disarming basis: …") states none
   i18n-only   every changed file under the project's i18n prefix
   bot         a bot's pull request (the project's bot branch prefix):
               shown as "bot" in the EXEMPT column and kept out of the
@@ -274,7 +275,8 @@ def row(p: dict, repo: str, cfg: dict) -> dict:
     known = split is not None
     split = split or {"work": 0, "fix": 0, "merge": 0, "netted": 0}
     comments = p.get("comments") if isinstance(p.get("comments"), list) else []
-    text = "\n".join([p.get("body") or ""] + [(c.get("body") or "") if isinstance(c, dict) else "" for c in comments])
+    bodies = [(c.get("body") or "") if isinstance(c, dict) else "" for c in comments]
+    text = "\n".join([p.get("body") or ""] + [b for b in bodies if not b.lstrip().startswith(common.DISARMING_BASIS)])
     exempt = bool(cfg["exemption"].search(text))
     bot = branch.startswith(cfg["bot_prefix"])
     files = p.get("files") if isinstance(p.get("files"), list) else []

@@ -478,7 +478,8 @@ its record disagree, the record wins. Look it up, never read it whole:
 - A 2026-11-01 — `fabric/armed` status required (rule 5).
 - A 2026-11-03 — relayed owner's word read (rule 4).
 - A 2026-11-05 — `record_paths`: the owner's ruling arms (rule 1).
-- Keywords: Answers, armed_status.
+- A 2026-11-10 — `fabric-pr disarm`: withdrawn with a basis; another's PR on a word (rule 5).
+- Keywords: Answers, armed_status, disarm.
 
 ### ADR-020 — The review class is the review (Accepted)
 
@@ -900,6 +901,7 @@ its record disagree, the record wins. Look it up, never read it whole:
 - A 2026-11-08 — one transition table (r14).
 - A 2026-11-09 — pool claim closes or reopens (r14).
 - A 2026-11-09 — peer job read by its waiter: public job-state op (r8).
+- A 2026-11-10 — blocked job's landed branch: new branch; done names artifacts (r10).
 - Keywords: fresh session, intake, priority, claim, sweep, unhold, request blocker, job-state.
 
 ### ADR-038 — Each agent owns its key and its secrets (Accepted)

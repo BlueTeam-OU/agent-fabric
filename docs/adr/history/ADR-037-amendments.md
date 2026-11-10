@@ -150,3 +150,13 @@ A re-point onto a job that waits on one of this login's jobs holding the same re
 Rule 14 gains no row: a re-point edits a blocked job's blocker and leaves the job `blocked`, so it is listed among the field edits that are no transition.
 
 Rejected: making `jobs` public to the sender of any request on the list. That would show a whole list for the sake of one row, when the waiter needs one state.
+
+### Amendment 2026-11-10 — A landed branch, and a merge before deliver
+
+Seen on the coordinator's j693 on 2026-11-09 and filed as its j710. The job was blocked on its own pull request, the pull request merged, and `switch` then refused the job for three reasons at once. Its recorded branch had landed, so `switch` would not resume on it. `--repoint` applies only to a paused job. `pause` applies only to an active job. Rule 10 step 3 already says what the job is: what it waited on is on the default branch, so it has no branch of its own and takes the agent's open pull request or a new branch. The code had read "a landed branch" as "the job is done", and had no exit for a blocked job. The same reading refused the second case of REQUEST 01a1c27b: a pull request that merged before `deliver` ran is refused by `deliver` (done, not delivered), and `done` could not name it.
+
+Both were fixed by python-dev-03's j125, #541. `switch` treats a blocked job whose recorded branch a pull request merged as a job with no branch, and replaces the landed name in the record. A paused or active job's landed branch is refused as before, because that branch is work in hand. `--repoint` on a blocked job is still refused. `fabric-jobs done <id> <artifact>...` records the named artifacts with the close and takes them as the evidence. Each name is judged on its own, with one exception: a squash-merged branch, which is not on the default branch, lands when the merged pull request at its tip is named beside it (`tools/fabric/jobs.py`). Each is judged alone because the `done` test passes a job when any one artifact landed and would otherwise record a closed pull request beside a merged one. A name on a job already done is refused, since `deliver` is what records evidence on a closed job (#541, review round 1).
+
+Rule 14 gains no row. The blocked-to-active change is the existing `switch` row, whose "a branch chosen" now includes this case, and `done` takes its existing row with the named artifacts as evidence.
+
+Rejected: making `--repoint` accept a blocked job. Repoint moves a paused job's work in hand onto an open pull request, and a blocked job whose branch landed has no work in hand to move.

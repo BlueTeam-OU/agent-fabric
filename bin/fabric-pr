@@ -3,8 +3,7 @@
 # rule 7). A forwarder: the verb table, the help and the refusal of an unknown
 # verb are tools/fabric/github/fabric_pr.py (ADR-040 Wave 9).
 #
-#   fabric-pr gate|review-status|post-review|reply|arm|sessions|
-#             trial-merge|wait-merged|owed-supply|compliance|counts  [args…]
+#   fabric-pr <verb> [args…]  # the verbs are fabric_pr.py's VERBS
 #   fabric-pr help          # the verbs; so does no verb
 set -uo pipefail
 ROOT="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/.." && pwd)"

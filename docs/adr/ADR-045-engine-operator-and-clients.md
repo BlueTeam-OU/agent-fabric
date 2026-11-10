@@ -4,7 +4,7 @@
 **Status:** Accepted
 **Ratified:** owner, 2026-10-09, in the coordinator's session ("accept adr 045"), carried by the pull request that marks it Accepted
 **Decision Makers:** the owner (the three layers and the open engine); drafted by fabric-coordinator
-**Scope:** what agent-fabric holds and what moves out of it: the engine (this repository, to be published), the operator repository of the company that runs the agents, and each client's engagement; the seam that lets one engine read either (`roots`, to be created by stage 2 as `tools/fabric/roots.py` and `tools/fabric/roots.py`); how a working copy resolves to its client; decision-record numbering across the split
+**Scope:** what agent-fabric holds and what moves out of it: the engine (this repository, to be published), the operator repository of the company that runs the agents, and each client's engagement; the seam that lets one engine read either (`roots`, to be created by stage 2 as `tools/fabric/roots.py` and `runtime/control/roots.mjs`); how a working copy resolves to its client; decision-record numbering across the split
 **Pillar:** P1
 
 ## 1. Context and Problem
@@ -85,7 +85,7 @@ When the forge the fleet is evaluating offers a merge-queue equivalent, each com
 ## 8. Decision Status
 
 Accepted; the inventory rule 2 applies is `docs/split/inventory.md`. Built so far:
-- rule 1's seam exists (`tools/fabric/roots.py`, `runtime/control/roots.mjs`) and part of the readers use it; the rest move in stage 2, then its lint;
+- rule 1's seam exists (`tools/fabric/roots.py`, `runtime/control/roots.mjs`) and the engine's readers use it; lint and the pre-commit hook enforce it (`tools/fabric/roots_bypass.py`, each exception with its reason in `tools/fabric/roots_bypass.json`);
 - rule 3: most tests read fixtures (`tests/stripped_run.py` runs a file on a copy without the instance files); `.github/workflows/stripped-nightly.yml` runs every test file that way each night, failing on a red file not in `tests/stripped_skip.txt` (each line naming the job that owns its fix) and on a listed file that passes;
 - rule 2's list is applied by the extraction stage;
 - rule 5: `projects/clients.json` and a `client` on every project, which lint holds to each other; the resolver exists (`workingcopy.resolve_client`, and the `client` and `operator` in `resolve`) and session start names the client, its channel, secrets store and engagement. Still to come: rule 6, the drain's refusal, and per-client channels and secrets reaching only their working copies; how a client's secrets reach them is decided in ADR-038 rule 10, its tooling contracted in `docs/split/company-stores.md`.
