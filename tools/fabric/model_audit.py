@@ -16,6 +16,7 @@ Contract (ADR-040 Wave 9; ported from the bash script, which the golden files
 in tests/fixtures/model-audit were taken from):
   argv    none read.
   env     ANTHROPIC_*, CLAUDE_CODE_SUBAGENT_MODEL, CLAUDE_CODE_EFFORT_LEVEL,
+          CLAUDE_CODE_SUBAGENT_EFFORT,
           AGENT_FABRIC_LAUNCH_{SESSION_MODEL,PROFILE,AGENT}: read, never changed.
   stdout  the report, four sections; stderr nothing; exit 0.
   secrets an ALLOWLIST, not a denylist: only the alias pins, the session pins,
@@ -34,14 +35,15 @@ from urllib.parse import urlsplit
 
 PRINTED = {"ANTHROPIC_DEFAULT_HAIKU_MODEL", "ANTHROPIC_DEFAULT_SONNET_MODEL", "ANTHROPIC_DEFAULT_OPUS_MODEL",
            "ANTHROPIC_DEFAULT_FABLE_MODEL", "ANTHROPIC_MODEL", "ANTHROPIC_SMALL_FAST_MODEL", "CLAUDE_CODE_SUBAGENT_MODEL",
-           "CLAUDE_CODE_EFFORT_LEVEL"}
+           "CLAUDE_CODE_EFFORT_LEVEL", "CLAUDE_CODE_SUBAGENT_EFFORT"}
 
 
 def of_interest(name: str) -> bool:
     # CLAUDE_CODE_EFFORT_LEVEL decides the OTHER routed dimension and
     # outranks every agent file, so an audit that cannot see it reports a
     # session it does not fully describe (review of 2026-09-23, F1).
-    return name.startswith("ANTHROPIC_") or name in ("CLAUDE_CODE_SUBAGENT_MODEL", "CLAUDE_CODE_EFFORT_LEVEL")
+    return name.startswith("ANTHROPIC_") or name in ("CLAUDE_CODE_SUBAGENT_MODEL", "CLAUDE_CODE_EFFORT_LEVEL",
+                                                "CLAUDE_CODE_SUBAGENT_EFFORT")
 
 
 def base_url_shown(value: str) -> str:
