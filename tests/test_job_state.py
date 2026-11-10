@@ -228,6 +228,32 @@ def main() -> int:
     (res, _), _ = job_check(bl.Unreachable("no answer within 30 s"))
     check("…and a board that refuses too is unknown with its words", res.state == "unknown" and "not an operator" in res.detail, res)
 
+    print("a job: blocker on this login's own list is read from it")
+    own = {"jobs": [{"id": "j1", "state": "done", "source": {"kind": "request", "from": "h/someone"}}, {"id": "j2", "state": "active"},
+                    {"id": "j3", "state": "dropped"}, {"id": "j4", "state": "delivered"}, {"id": "j5", "state": "bogus"}]}
+    saved_identity = (bl.identity.current_agent, bl.identity.read_jobs)
+    bl.identity.current_agent, bl.identity.read_jobs = (lambda: "me"), (lambda agent=None: own)
+    try:
+        def own_check(job, seen=False):
+            calls, restore = patched(answer(None, status="refused", reason="job-state answers the sender of the request the job was taken from"))
+            try:
+                return bl.check_job("me", job, seen), calls
+            finally:
+                restore()
+        (res, _), calls = own_check("j1")
+        check("an own done job, taken from another's request, clears though job-state would refuse", res.state == "cleared" and calls == [], (res, calls))
+        check("…while a peer's job still goes through job-state (the control)", job_check(answer(None, status="refused", reason="no"))[0][0].state == "unknown")
+        check("an own active job waits", own_check("j2")[0][0].state == "waiting")
+        check("an own dropped job clears", own_check("j3")[0][0].state == "cleared")
+        check("an own delivered job clears", own_check("j4")[0][0].state == "cleared")
+        check("an own job in no state of a job is unknown", own_check("j5")[0][0].state == "unknown")
+        check("an own job absent, never seen: unknown", own_check("j9")[0][0].state == "unknown")
+        check("…and cleared when seen open before", own_check("j9", True)[0][0].state == "cleared")
+        bl.identity.read_jobs = lambda agent=None: (_ for _ in ()).throw(SystemExit("not valid JSON"))
+        check("an unreadable own list is unknown", own_check("j1")[0][0].state == "unknown")
+    finally:
+        bl.identity.current_agent, bl.identity.read_jobs = saved_identity
+
     print("a request: re-points to the job whose title carries its id")
     def became(said, body="", boards=None, decision=False):
         calls, restore = patched(said, boards)
