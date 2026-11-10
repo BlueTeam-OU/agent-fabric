@@ -83,7 +83,7 @@ def write(path: str, text: str, mode: int = 0o755) -> None:
 
 
 TARGET = """#!/bin/sh
-echo "pid=$$ argv0=$0 n=$#"
+echo "pid=$$ argv0=$0 n=$# root=${AGENT_FABRIC_ROOT-unset}"
 for a in "$@"; do echo "arg=[$a]"; done
 echo "to-stderr" >&2
 exit 7
@@ -170,6 +170,14 @@ def case_exec_is_the_same_process() -> None:
                          text=True, env=env(), stdin=subprocess.DEVNULL)
     out, _ = p.communicate(timeout=60)
     assert out.startswith(f"pid={p.pid} "), (p.pid, out)
+
+
+def case_environment_is_the_callers() -> None:
+    root = checkout()
+    r = run(os.path.join(root, "bin", "fabric"), "jobs")
+    assert " root=unset" in r.stdout.split("\n")[0], r.stdout    # the dispatcher adds nothing the direct call lacks
+    r = run(os.path.join(root, "bin", "fabric"), "jobs", environment=env(AGENT_FABRIC_ROOT="/elsewhere"))
+    assert " root=/elsewhere" in r.stdout.split("\n")[0], r.stdout
 
 
 def case_argv_is_passed_unchanged() -> None:
@@ -433,6 +441,23 @@ def case_literal_each_way_is_found() -> None:
                 'if f"fabric-pr {verb}" == a:\n    pass\n'):
         got = lit(src)
         assert len(got) == 1 and "ask tools/fabric/cli canonical()" in got[0], (src, got)
+
+
+def case_literal_a_held_constant_is_found() -> None:
+    for src in ('SECRET = r"x|(fabric-pr|y)\\s+z"\nif re.search(SECRET, c):\n    pass\n', 'INBOX = "gzmsg"\nif a == INBOX:\n    pass\n',
+                'INBOX = "gzmsg"\nif f"eval \'{INBOX}" in s:\n    pass\n', 'NAMES = ("gh", "fabric-pr")\nif n in NAMES:\n    pass\n',
+                'INBOX = "gzmsg"\nfound(INBOX, seg)\n'):
+        got = lit(src)
+        assert len(got) == 1 and "a constant used in a comparison or call" in got[0], (src, got)
+
+
+def case_literal_a_held_constant_that_recognises_nothing() -> None:
+    for src in ('INBOX = "gzmsg"\nprint(INBOX)\nx = INBOX\n',                                     # printed, not compared
+                'MSG = "run gzmsg now"\nout = MSG.format(a=1)\n',                              # a message built from the name
+                'INBOX = "gzmsg"\nUNUSED = 1\nif a == UNUSED:\n    pass\n',                   # never used in a test
+                'from cli import canonical\nCMD = "gzmsg"\nif canonical(w)[0] == CMD:\n    pass\n',   # compared with what canonical read
+                'import cli\nCMD = "gzmsg"\nif cli.canonical.canonical(w)[0] == CMD:\n    pass\n'):
+        assert lit(src) == [], (src, lit(src))
 
 
 def case_literal_what_is_not_a_name() -> None:

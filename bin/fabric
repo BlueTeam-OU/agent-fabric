@@ -4,7 +4,6 @@
 # (ADR-068). The account is in tools/fabric/cli/.
 set -uo pipefail
 ROOT="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/.." && pwd)"
-export AGENT_FABRIC_ROOT="${AGENT_FABRIC_ROOT:-$ROOT}"
 # The fleet's pinned Python (runtime/python.json, ADR-040), one per host;
 # AGENT_FABRIC_PYTHON points elsewhere for a test or a host without it.
 py="${AGENT_FABRIC_PYTHON:-/usr/local/bin/fabric-python}"

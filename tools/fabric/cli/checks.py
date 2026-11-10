@@ -35,6 +35,7 @@ POLICY_KEY = "recognisers"
 JUDGED_DIRS = ("runtime/claude-code/hooks/", "tools/fabric/guards/")
 STR_METHODS = frozenset({"startswith", "endswith", "find", "rfind", "index", "count"})
 RE_FUNCS = frozenset({"compile", "match", "search", "fullmatch", "findall", "finditer", "sub", "subn", "split"})
+SAYING = frozenset({"format", "print", "write", "debug", "info", "warning", "error", "exit"})
 NAME_CHARS = re.compile(r"[\w.-]")
 
 
@@ -119,6 +120,32 @@ def _call_kind(call: ast.Call) -> str | None:
     return None
 
 
+def _asks_canonical(tree: ast.Module) -> bool:
+    """A module that calls canonical() compares its constants with what canonical() returned (`PR_COMMAND = "fabric-pr"` against
+    the command it read), which is the mechanism, not a second reading of the word as spelled."""
+    return any(isinstance(n, (ast.Name, ast.Attribute)) and _name(n) == "canonical" for n in ast.walk(tree))
+
+
+def _name(node: ast.AST) -> str:
+    return node.attr if isinstance(node, ast.Attribute) else node.id if isinstance(node, ast.Name) else ""
+
+
+def _held_names(tree: ast.Module, names: list[str]) -> dict[str, tuple[int, str]]:
+    """{variable: (line, command)} for each module-level `VAR = <string literal, or a tuple/list/set of them>` that spells a
+    command name: the shape that hid a recogniser from the literal-in-a-comparison reading (`SECRET_PATH = r"…(fabric-secrets|…"`,
+    `INBOX = "gzcoord-inbox"`). Judged only where the variable is then used in a comparison or call, so a constant that is
+    only printed is not one."""
+    held: dict[str, tuple[int, str]] = {}
+    for node in tree.body:
+        if not (isinstance(node, ast.Assign) and len(node.targets) == 1 and isinstance(node.targets[0], ast.Name)):
+            continue
+        for const in _literals(node.value):
+            hit = _names_in(const.value, names)
+            if hit:
+                held[node.targets[0].id] = (const.lineno, hit[0])
+    return held
+
+
 def sites(text: str, names: list[str], rel: str = "<module>") -> list[tuple[int, str, str]]:
     """[(line, name, how)] of each command name a comparison, regex or string test spells; [] for a module that does not parse
     (ruff refuses it in CI)."""
@@ -129,7 +156,14 @@ def sites(text: str, names: list[str], rel: str = "<module>") -> list[tuple[int,
     except SyntaxError:
         return []
     found: list[tuple[int, str, str]] = []
+    held = {} if _asks_canonical(tree) else _held_names(tree, names)
     for node in ast.walk(tree):
+        if isinstance(node, (ast.Compare, ast.Call)):
+            if isinstance(node, ast.Call) and _name(node.func) in SAYING:
+                continue   # a message built or said from the name (`WATCH_MISSING.format(...)`, print) recognises nothing
+            used = {n.id for part in ([node.left, *node.comparators] if isinstance(node, ast.Compare) else node.args)
+                    for n in ast.walk(part) if isinstance(n, ast.Name)}
+            found += [(line, name, "a constant used in a comparison or call") for var, (line, name) in held.items() if var in used]
         if isinstance(node, ast.Compare):
             operands, how = [node.left, *node.comparators], "comparison"
         elif isinstance(node, ast.Call) and _call_kind(node):
