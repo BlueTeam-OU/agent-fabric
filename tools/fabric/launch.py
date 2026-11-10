@@ -51,7 +51,8 @@ CONTRACT, frozen from the bash (ADR-040 §5 rule 3):
             READY wait, 30 s),
             AGENT_FABRIC_NO_OPENING, CLAUDE_CONFIG_DIR,
             CLAUDE_CODE_SUBAGENT_MODEL, CLAUDE_CODE_SUBAGENT_MODEL_FORCE,
-            CLAUDE_CODE_EFFORT_LEVEL (refused when set), ANTHROPIC_* and the
+            CLAUDE_CODE_EFFORT_LEVEL and CLAUDE_CODE_SUBAGENT_EFFORT (refused when
+            set), ANTHROPIC_* and the
             broker's tuning variables (cleared on the plain-claude path, see
             BROKER_ENV), every synced secret but the harness's own
             (dropped, settle_secrets), TMPDIR,
@@ -227,12 +228,13 @@ REFUSES, fail-closed, before spawning anything:
     launch working copy's and $PWD's .claude/settings{,.local}.json)
     carrying a model pin — env.ANTHROPIC_*, env.CLAUDE_CODE_SUBAGENT_MODEL,
     modelOverrides — or an EFFORT pin: effortLevel, maxEffortLevel,
-    modelSettings, env.CLAUDE_CODE_EFFORT_LEVEL; or
-    CLAUDE_CODE_SUBAGENT_MODEL or CLAUDE_CODE_EFFORT_LEVEL (set to
+    modelSettings, env.CLAUDE_CODE_EFFORT_LEVEL, env.CLAUDE_CODE_SUBAGENT_EFFORT; or
+    CLAUDE_CODE_SUBAGENT_MODEL, CLAUDE_CODE_EFFORT_LEVEL or CLAUDE_CODE_SUBAGENT_EFFORT (set to
     anything, the empty string included) in the caller's environment
     (a settings-scope pin outranks the profile's exports; the subagent
     variable overrides every dispatch's model, and the effort variable
-    outranks every agent file's effort: in every subagent at once)
+    outranks every agent file's effort: in every subagent at once, the subagent
+    effort variable moves every subagent whose definition names none)
   - a merged model that is not a model id (a local override of null, a
     number, "" or prose)
   - a session model, the caller's --model or the resolved one, that the

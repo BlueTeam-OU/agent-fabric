@@ -487,6 +487,21 @@ def main() -> int:
             os.environ.update(saved_env)
         check("…and a value the record reads as none is none in the report, not the file's raw one (ctx['role'] is raw)",
               (odd["role"], odd["session"], odd["binding_updated"]) == (None, None, None))
+        # Both effort variables are listed as set and their values never echoed.
+        eff = {**env, "CLAUDE_CODE_SUBAGENT_EFFORT": "zq-effort-value", "CLAUDE_CODE_EFFORT_LEVEL": "zq-level-value"}
+        os.environ.clear()
+        os.environ.update(eff)
+        try:
+            with_eff, _ = status.build_report(HERE, environ=dict(eff), cred_environ=dict(eff))
+        finally:
+            os.environ.clear()
+            os.environ.update(saved_env)
+        creds = with_eff["api"]["credentials"]
+        check("the effort variables are reported set, in the credentials line",
+              isinstance(creds, dict) and creds.get("CLAUDE_CODE_SUBAGENT_EFFORT") == "set"
+              and creds.get("CLAUDE_CODE_EFFORT_LEVEL") == "set")
+        check("…and their values are never echoed", "zq-effort-value" not in json.dumps(with_eff)
+              and "zq-level-value" not in json.dumps(with_eff))
 
     print("ok" if not fails else f"{fails} FAILED")
     return 1 if fails else 0
