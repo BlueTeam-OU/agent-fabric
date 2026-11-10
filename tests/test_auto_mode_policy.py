@@ -34,18 +34,12 @@ def main() -> int:
     check("the apply entry is bound to fabric-coordinator, registered projects, never --fleet-default",
           all("bound to fabric-coordinator" in a and "projects/registry.json" in a and "never with --fleet-default" in a
               for a in applies), applies)
-    # An uninstall or a pm clear deletes; the entry must keep it to InterWeave's packages, inside the wrapper
-    # that holds a phone's lease, aimed at that phone, for one job. A lease is held only while the command it
-    # wraps runs, so the classifier can check the wrapper, never "a session holding a lease". Any entry that
-    # names adb is selected, so a second, unbounded one cannot sit beside it unchecked.
+    # The one adb entry (#510, the owner's word of 2026-11-08 for fabric-coordinator's phone order j648)
+    # ended with that job (j664). An uninstall or a pm clear deletes a phone's state, so a new grant is
+    # the owner's word for a named job, bounded to a package, a lease wrapper and one phone, and lands
+    # with the test of those bounds; this check makes it fail here until it does.
     adb_entries = [a for a in POLICY["allow"] if "adb " in a]
-    check("one entry allows adb uninstall or pm clear", len(adb_entries) == 1, adb_entries)
-    bounds = ("Running `adb uninstall <package>` or `adb shell pm clear <package>` for a package",
-              "`org.interweave.`", "`.agent-fabric/bin/phone-run`", "`pixel-9a`", "aimed at the Pixel", "`fabric-lease samsung-a40 -- ...`",
-              "192.168.100.6", "j648", "removes this entry when j648 is delivered",
-              "An adb command outside that wrapper, a wrapper aimed at the other phone, or any other package, device or host path is not covered")
-    for bound in bounds:
-        check(f"the adb entry keeps its bound: {bound}", all(bound in a for a in adb_entries), adb_entries)
+    check("no entry allows adb (the j648 grant ended)", not adb_entries, adb_entries)
 
     print(f"\n{'FAILED' if fails else 'all passed'}")
     return 1 if fails else 0
