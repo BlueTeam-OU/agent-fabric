@@ -6,6 +6,7 @@
     "gzcoord-compose": "bin/gzcoord-compose",
     "gzcoord-carrier": "bin/gzcoord-carrier",
     "gzmsg": "bin/gzmsg",
+    "fabric": "bin/fabric",
     "fabric-accounts": "bin/fabric-accounts",
     "fabric-adr": "bin/fabric-adr",
     "fabric-ctl": "bin/fabric-ctl",
@@ -74,6 +75,7 @@
     "moli serve": "opens a CDP port with no authentication (ADR-051 rule 3): an explicit ask rule, because in auto mode a command no rule names is decided by the classifier, which could approve it unseen"
   },
   "not_allowed": {
+    "fabric": "runs any command in the table, `fabric-lease`, `fabric-secret-run` and `fabric-host` among them: an allow rule for it would allow every command, so it gets none (ADR-068 rule 6); its forms are allowed one by one, derived from the table, where the command each reaches is allowed",
     "fabric-genimage": "every run spends on the OpenAI account (the owner, 2026-10-07): a person approves each one, so no session spends unattended",
     "fabric-lease": "runs whatever command follows `--`: an allow rule for it would allow every command, so it asks as any command does",
     "gzcoord-carrier": "`run` is the carrier's long-lived process (ADR-064 rule 5), started by the account's client unit and never by a session: an allow rule would let a session hang on it; `abandon` ends a delivery for good (rule 7), the operator's act. `status` and `render-config` are reads a session may ask for",
