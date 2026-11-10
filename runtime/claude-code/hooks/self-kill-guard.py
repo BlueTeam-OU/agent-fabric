@@ -646,7 +646,12 @@ CLAUDE_LABEL = "this session's own claude process (its command line carries the 
 SHELL_LABEL = ("this session's own shell (the bash this very command runs in: the call would never return "
                "and the session would freeze)")
 WATCH_LABEL = "the harness's inbox watch (gzcoord-inbox)"
+# The command a watch runs, compared with what canonical() reads (agent-fabric ADR-068 rule 7), and the way the
+# dispatcher spells it, which the models below carry for a pattern's sake.
 INBOX = "gzcoord-inbox"
+INBOX_SPOKEN = "fabric gzcoord inbox"
+# canonical() needs at most `fabric <noun> <verb>` to name a command.
+NAMING_WORDS = 3
 # The shell the harness runs a Bash call in, as Claude Code wrote it on
 # 2026-10-13: the snapshot, then the session's env files (shell_prefix),
 # then the harness's own guards, then the command — its single quotes
@@ -693,7 +698,10 @@ def shell_prefix(session_id: str | None) -> str:
 INBOX_MODELS = tuple(
     [("fabric-python", f"/usr/local/bin/fabric-python -I /home/login/.local/bin/{INBOX} {mode}")
      for mode in ("--until-delivery", "--follow", "--wait")]
-    + [(INBOX, f"{INBOX} --until-delivery"), ("bash", f"{SHELL_HEAD}{INBOX} --until-delivery{SHELL_TAIL}")])
+    + [(INBOX, f"{INBOX} --until-delivery"), ("bash", f"{SHELL_HEAD}{INBOX} --until-delivery{SHELL_TAIL}")]
+    # The dispatcher's spelling of the same watch (agent-fabric ADR-068).
+    + [("fabric-python", f"/usr/local/bin/fabric-python -I /home/login/projects/agent-fabric/bin/{INBOX_SPOKEN} --until-delivery"),
+       ("bash", f"{SHELL_HEAD}{INBOX_SPOKEN} --until-delivery{SHELL_TAIL}")])
 
 # (what a deny message calls it, process name, command line, is an inbox watch)
 Target = tuple[str, str, str, bool]
@@ -715,8 +723,43 @@ def is_inbox(argv: list[str]) -> bool:
     the interpreter's options missed `timeout 600 <path>`, nohup, setsid,
     `sh <path>` and `--check-hash-based-pycs default` (round 2 of #242,
     N1). The walk could only ever answer yes where this does, so it is
-    gone. An editor open on the script is a false deny, a rephrase."""
-    return any(os.path.basename(a) == INBOX for a in argv) or f"eval '{INBOX}" in " ".join(argv)
+    gone. An editor open on the script is a false deny, a rephrase.
+
+    Which words are gzcoord-inbox is canonical()'s to say, so `fabric
+    gzcoord inbox` is one too (round 1 of #546, F2); a word is asked by its
+    file name, as inbox-watch.py asks, since canonical() reads a path only
+    in a `bin` directory. The harness's shell is asked about the command its
+    eval starts with."""
+    if any(_names_inbox(argv, k) for k in range(len(argv))):
+        return True
+    return any(_names_inbox(after.split(), 0) for after in " ".join(argv).split("eval '")[1:])
+
+
+def _names_inbox(words: list[str], k: int) -> bool:
+    """Whether the command starting at words[k] is gzcoord-inbox. A command
+    table canonical() cannot read leaves the name as spelled: an unreadable
+    table is not "no inbox watch"."""
+    if k >= len(words):
+        return False
+    named = [os.path.basename(words[k]), *words[k + 1:k + NAMING_WORDS]]
+    try:
+        read = _canonical().canonical(named)
+    except Exception:  # noqa: BLE001 - TableError or a module that cannot load: the spelled name, as before
+        return named[0] == INBOX
+    return read is not None and read[0] == INBOX
+
+
+_CANONICAL = []
+
+
+def _canonical():
+    """tools/fabric/cli canonical.py, through inbox-watch.py beside this hook, which loads it by path."""
+    if not _CANONICAL:
+        spec = importlib.util.spec_from_file_location("fabric_inbox_watch", os.path.join(HOOKS_DIR, "inbox-watch.py"))
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        _CANONICAL.append(mod.canonical_module())
+    return _CANONICAL[0]
 
 
 def label_of(pid: int, comm: str, argv: list[str], in_tree: bool = True) -> tuple[str, bool]:
