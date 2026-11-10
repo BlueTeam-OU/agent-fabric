@@ -135,8 +135,8 @@ was back; a message never resent is not shown either way.
 An operator's stop holds: no watch restarts the relay. The human relay
 was not needed in that hour and stays unexercised.
 
-After it: a scheduled drain, so undrained memory is bounded in age; and
-only then the second host, which reopens ADR-029 §7 and ADR-033 §7.
+After it: the scheduled drain (step 3, below), so undrained memory is
+bounded in age; and only then the second host, which reopens ADR-029 §7 and ADR-033 §7.
 
 **Step 3, the scheduled drain, is decided as follows (j434; built,
 (A 2026-11-10)).** The loss of the host is covered by the daily state copy (§1),
@@ -171,9 +171,9 @@ agent can read it:
 collection, the report and the job (`bin/fabric-drain-due`), and #462
 installs the timer on the coordinator's account. Its first scheduled
 run exited 0 and put drain job j689 on the
-coordinator's list: 833 claims in the 50 stores that answered, the
-oldest 54.5 days against the bound of 14 and 33 stores over it; 53
-stores were *unknown* (34 with no usable harvest report, 19 whose
+coordinator's list: of 107 stores, 54 answered, and the 50 with
+drainable memory held 833 claims, the oldest 54.5 days against the
+bound of 14 and 33 stores over it; 53 stores were *unknown* (34 with no usable harvest report, 19 whose
 bundle had no working copy). The bound is reported, not yet held.
 
 Not decided here: issuing the weekly reflection passes (a signed
