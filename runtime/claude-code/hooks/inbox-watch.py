@@ -60,7 +60,10 @@ def is_watch(cmd: str) -> bool:
     canonical = canonical_module()
     words = cmd.split()
     for k, word in enumerate(words):
-        read = canonical.canonical(words[k:k + NAMING_WORDS])
+        # By its file name: canonical() reads a path only in a `bin` directory, which a guard may over-report on, but
+        # a watch linked from anywhere else (a test's scratch links) unseen here would tell an armed session to arm a
+        # second consumer.
+        read = canonical.canonical([os.path.basename(word), *words[k + 1:k + NAMING_WORDS]])
         if (read is not None and read[0] == WATCH_COMMAND) or os.path.basename(word) == NODE_SHIM:
             if any(flag in w for w in words[k + 1:] for flag in WATCH_FLAGS):
                 return True

@@ -456,6 +456,7 @@ def test_inbox_watch_reads_both_spellings(tmp: str) -> None:
          "/usr/local/bin/fabric-python -I /home/u/.local/bin/fabric gzcoord inbox --until-delivery", True),
         ("gzcoord-inbox --wait", "fabric gzcoord inbox --wait", True),
         ("python3 /x/bin/gzcoord-inbox --follow", "bash /x/bin/fabric gzcoord inbox --follow", True),
+        ("python3 /tmp/links-1/gzcoord-inbox --follow", "bash /tmp/links-1/fabric gzcoord inbox --follow", True),
         ("env X=1 gzcoord-inbox --until-delivery", "env X=1 fabric gzcoord inbox --until-delivery", True),
         ("gzcoord-inbox --status", "fabric gzcoord inbox --status", False),
         ("gzcoord-inbox", "fabric gzcoord inbox", False),
