@@ -224,8 +224,8 @@ its record disagree, the record wins. Look it up, never read it whole:
   broker `code-low` is committed at `low` (§2).
 - A 2026-09-28 — the session's level is judged on its model like a class's;
   `providers.<p>.session` acknowledges a downgrade.
-- A 2026-11-10 — `CLAUDE_CODE_SUBAGENT_EFFORT` (2.1.316+) is refused like
-  `CLAUDE_CODE_EFFORT_LEVEL`: it moves the harness types' level (§5 rule 6).
+- A 2026-11-10 — `CLAUDE_CODE_SUBAGENT_EFFORT` is refused like
+  `CLAUDE_CODE_EFFORT_LEVEL`: it moves the level of every subagent whose file names none (§5 rule 6).
 - Keywords: effort, reasoning, thinking, level, clamp, medium, high,
   --effort, agent file, CLAUDE_EFFORT, Opus 5.5 default, CLAUDE_CODE_SUBAGENT_EFFORT.
 
@@ -1049,8 +1049,9 @@ its record disagree, the record wins. Look it up, never read it whole:
 - A 2026-11-03 — the session seal (ADR-038 rule 9) is a managed
   `SessionStart` hook; its workspace copy keeps running (§5 rules 2, 9).
 - A 2026-11-03 — rule 6 met; the pin moves to 2.1.311 (§8).
-- A 2026-11-10 — the pin moves to 2.1.322, npm's `latest` rather than
-  `stable`, after the read-back on that build (§8).
+- A 2026-11-10 — the pin moves to 2.1.322, `latest` that day by the owner's
+  choice, after its read-back; rule 6 gated the first move past 2.1.286, and
+  each account's upgrade is the gate after it (§5 rule 6, §8).
 - Keywords: mods, plugin, managed settings, allowManagedModsOnly,
   disableSideloadFlags, prependPlugins, sec-default, guard, redaction,
   MCP server, sandbox, fabric-managed, hook_entry.py, session seal.

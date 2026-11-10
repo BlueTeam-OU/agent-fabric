@@ -109,7 +109,8 @@ move: Opus 5.5 at `high` because routing asked for it.
 6. The launcher refuses `CLAUDE_CODE_EFFORT_LEVEL` in any value,
    `unset` and `auto` included, and `CLAUDE_CODE_SUBAGENT_EFFORT` the
    same way: it sets the level of every subagent whose definition names
-   none, so the harness types would leave the session's level
+   none, so the harness types and the locale worker would leave the
+   session's level
    (A 2026-11-10). The committed-settings guard refuses both in `env`, and
    `effortLevel`, `maxEffortLevel` and `modelSettings` (a committed
    `maxEffortLevel` cannot be raised back by a launch: the lowest across
