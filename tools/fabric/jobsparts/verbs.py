@@ -525,6 +525,9 @@ def change(args) -> int:
         job = evidence_only(args, "artifacts", lambda j: list(dict.fromkeys((j.get("artifacts") or []) + args.artifacts)))
     elif args.cmd == "deliver" and find(identity.read_jobs(), args.id)["state"] == "delivered":
         job = more_artifacts(args)
+    elif args.cmd == "done" and args.artifacts and find(identity.read_jobs(), args.id)["state"] == "done":
+        # A closed job takes evidence through `deliver`, which records it; here the names would be dropped without a word.
+        raise Refused(f"{args.id} is already done: add artifacts with fabric-jobs deliver {args.id} <artifact>...")
     elif args.cmd == "done" and args.no_artifact is not None and find(identity.read_jobs(), args.id)["state"] == "done":
         why = " ".join(args.no_artifact.split())
         if not why:
@@ -569,6 +572,12 @@ def move(args, said: dict) -> Job:
         why = " ".join(args.no_artifact.split()) if args.no_artifact is not None else None
         if args.no_artifact is not None and not why:
             raise Refused("--no-artifact needs a reason: fabric-jobs done <id> --no-artifact \"<what was done>\"")
+        for name in args.artifacts:
+            # Each name must land on its own: the done test passes a job when any one artifact landed, and would otherwise record
+            # a closed pull request or a word that is no commit beside a merged one.
+            problems: list[str] = []
+            if not needs.st.done_evidence({**find(identity.read_jobs(), args.id), "artifacts": [name], "topic": None, "no_artifact": None}, problems) or problems:
+                raise Refused(f"{name} did not land, so it is not recorded: " + ("; ".join(problems) or "it is not a merged pull request, a commit on the default branch or a sent reply"))
         # Artifacts named on the verb are recorded with the close: a pull request that merged before `deliver` was run is refused by
         # `deliver` (done, not delivered), and this is the one way to keep it as the job's evidence.
         return needs.advance(args.id, "done", "done", lambda job: {"no_artifact": why, **({"artifacts": list(dict.fromkeys((job.get("artifacts") or []) + args.artifacts))} if args.artifacts else {})})

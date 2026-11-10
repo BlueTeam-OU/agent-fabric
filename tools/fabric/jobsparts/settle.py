@@ -407,7 +407,7 @@ def _delivered(job: dict, found: dict, problems: list[str]) -> list[str]:
         else:
             replies.append(f"branch {name} on origin")
     if merged and not opened:
-        problems.append(f"{', '.join(merged)} is merged: the job is done, not delivered (fabric-jobs done)")
+        problems.append(f"{', '.join(merged)} is merged: the job is done, not delivered (fabric-jobs done <id> {merged[0]})")
     return [f"{p} open" for p in opened] + replies
 
 
@@ -508,7 +508,7 @@ def done_evidence(job: dict, problems: list[str]) -> list[str]:
             evidence = [f"no artifact: {job['no_artifact']}"]
         else:
             problems.append(f"done needs evidence it landed: deliver {EVIDENCE_FORMS} that is merged or on the default branch, "
-                            f"or record why there is none: fabric-jobs done {job['id']} --no-artifact \"<what was done>\"")
+                            f"name it on the verb: fabric-jobs done {job['id']} <artifact>, or record why there is none: fabric-jobs done {job['id']} --no-artifact \"<what was done>\"")
     return evidence
 
 

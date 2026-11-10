@@ -566,6 +566,19 @@ def main() -> int:
         check("done names the merged pull request itself: the job is done and the pull request is its artifact",
               rc == 0 and w.job(j1)["state"] == "done" and w.job(j1)["artifacts"] == [f"{jobs_world.GH_REPO}#4"], out + err + repr(w.job(j1)))
         w = World()
+        j3 = w.working("one landed, one closed")
+        gh_says({f"{jobs_world.GH_REPO}#4": "MERGED", f"{jobs_world.GH_REPO}#7": "CLOSED"})
+        rc, out, err = w.strict("done", j3, f"{jobs_world.GH_REPO}#4", f"{jobs_world.GH_REPO}#7")
+        # Kills: dropping the per-artifact loop in move (the closed pull request rides in beside the merged one).
+        check("…and done naming a merged pull request beside a closed one is refused, naming the closed one; the job is unchanged",
+              rc == 1 and "#7 did not land" in err and w.job(j3)["state"] == "active" and not w.job(j3).get("artifacts"), out + err + repr(w.job(j3)))
+        rc, out, err = w.strict("done", j3, f"{jobs_world.GH_REPO}#4")
+        assert rc == 0, out + err
+        rc, out, err = w.strict("done", j3, f"{jobs_world.GH_REPO}#4", "--no-artifact", "x")
+        # Kills: dropping the already-done refusal in change (the names would be dropped and the exit 0).
+        check("…and done on a job already done refuses artifacts it would drop, pointing at deliver",
+              rc == 1 and "deliver" in err and w.job(j3)["artifacts"] == [f"{jobs_world.GH_REPO}#4"], out + err + repr(w.job(j3)))
+        w = World()
         j2 = w.working("named artifact open")
         gh_says({f"{jobs_world.GH_REPO}#6": "OPEN"})
         rc, out, err = w.strict("done", j2, f"{jobs_world.GH_REPO}#6")
