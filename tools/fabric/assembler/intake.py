@@ -30,6 +30,10 @@ def parse_args() -> argparse.Namespace:
                          "for agent-fabric itself; <the --project's id>=DIR is the same). PROJECT=DIR, repeatable as lint takes it, tells the anchor guard "
                          "where another project's checkout is, so it judges an anchor there and not only in a "
                          "checkout beside the tree")
+    ap.add_argument("--allow-missing-hygiene", action="store_true",
+                    help="assemble although a registered project's working copy, and so its .agent-fabric/hygiene.json, "
+                         "is not found; without it such a run is refused. The report names each project assembled "
+                         "without its list")
     ap.add_argument("--stamp", required=True, help="distillation date (YYYY-MM-DD)")
     ap.add_argument("--budget", type=int, default=DEFAULT_SLICE_BUDGET_TOKENS)
     ap.add_argument("--hold", default=None, metavar="FILE",
@@ -122,8 +126,20 @@ def open_layout(args: argparse.Namespace) -> str:
     for pid, path in workingcopy.sibling_working_copies(layout.FABRIC_ROOT).items():
         if pid not in layout.explicit_working_copies():
             layout.set_working_copy(pid, path)
+    listed = sorted(set(layout.project_ids()) | set(layout.explicit_working_copies()))
+    # A list that cannot be found withholds nothing, and the drain would go on as if it did: banned names reached
+    # project corpora that way. The fabric's own project always has one: its working copy is the root.
+    args.without_hygiene = [pid for pid in listed if not layout.working_copy_for(pid)]
+    if args.without_hygiene and not args.allow_missing_hygiene:
+        looked = (f"beside {os.path.dirname(layout.FABRIC_ROOT)} (a checkout of the project with .agent-fabric/memory/), "
+                  "in $AGENT_FABRIC_WORKING_COPY and in this agent's binding")
+        # PROJECT=DIR is the anchor guard's alone (args.checkouts); naming it here keeps the operator from trying it.
+        guard_only = [pid for pid in args.without_hygiene if pid in args.checkouts]
+        sys.exit("assemble: no hygiene list can be found for " + ", ".join(args.without_hygiene)
+                 + f"; looked {looked}, and no working copy is known. Put the project's checkout beside the fabric, or pass "
+                 "--allow-missing-hygiene to assemble without those lists"
+                 + (f" (--working-copy PROJECT=DIR is read by the anchor guard only: {', '.join(guard_only)})" if guard_only else ""))
     try:
-        listed = sorted(set(layout.project_ids()) | set(layout.explicit_working_copies()))
         BANNED_PATTERNS[:] = layout.load_hygiene_patterns(listed)
         PROJECT_PATTERNS[:] = layout.load_hygiene_patterns(listed, for_project=project)
     except layout.HygieneError as exc:
