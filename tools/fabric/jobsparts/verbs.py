@@ -485,6 +485,9 @@ def block_fields(args) -> tuple[dict, list[str], bool]:
         at = bl.clock_epoch(spec)
         if at is not None and at <= bl.now():
             raise Refused(f"{spec} has already passed: a time that has gone by is no wait")
+    for spec in specs:
+        if spec.startswith("request:") and (why := bl.unreadable_request(spec.split(":", 1)[1])):
+            raise Refused(f"{spec} cannot be waited on: {why}")
     text = " ".join(args.on.split()) if (args.on or "").strip() else None
     if text is None and not specs:
         raise Refused("block needs what the job waits on: free text, --on <blocker> or --on-request <MESSAGE-ID>")

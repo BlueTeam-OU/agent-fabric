@@ -4,7 +4,8 @@ contract.
 
 THE FORMS (`block <id> --on <blocker>`, several allowed, all must clear)
   pr:<owner/repo>#<n>       cleared when the pull request is merged or closed (gh, through tools/fabric/gh.py)
-  request:<message-id>      answered when an inbound message of any type (a DECISION as well as a REPLY) whose
+  request:<message-id>      refused by `block` unless this login's journal holds that message (sent by it, or addressed to
+                            it): an id it cannot read is never answered here (j746). Answered when an inbound message of any type (a DECISION as well as a REPLY) whose
                             non-empty IN-REPLY-TO is that id is in this login's journal, as settle.py reads
                             the outbound side
                             (episodic.open_readonly, the one reader's door). When this login's own journal says it
@@ -262,6 +263,27 @@ def _cycle(became: str, request: str, peer_specs: list[str]) -> str | None:
             seen.add(at)
             todo.extend(s for s in own.get(at, []) if s.startswith("job:"))
     return None
+
+
+def unreadable_request(message_id: str) -> str | None:
+    """Why this login cannot wait on `message_id`, None when it can. The journal holds the messages this login may read,
+    its own and those addressed to it, so an id with no row of its own, and no answer received to it, is one nobody
+    here will ever see answered: a job blocked on it waits for ever (j746). A journal that cannot be read is refused as well, with its
+    own words: `block` cannot tell, and a wait that cannot be checked is the failure this guards against."""
+    episodic = _load("fabric_episodic", os.path.join(FABRIC_ROOT, "tools", "fabric", "episodic.py"))
+    path = episodic.db_path()
+    if not os.path.exists(path):
+        return "this login's journal does not exist yet, so it holds no message"
+    try:
+        conn = episodic.open_readonly(path)
+        try:
+            found = conn.execute("SELECT 1 FROM episodes WHERE lower(message_id)=? OR (direction='inbound' AND lower(in_reply_to)=?) LIMIT 1",
+                                 (message_id, message_id)).fetchone()
+        finally:
+            conn.close()
+    except (episodic.JournalError, sqlite3.Error, OSError) as e:
+        return f"its journal cannot be read: {e}"[:160]
+    return None if found else "it is neither addressed to this login nor sent by it (no such message in its journal)"
 
 
 def check_request(message_id: str) -> Check:

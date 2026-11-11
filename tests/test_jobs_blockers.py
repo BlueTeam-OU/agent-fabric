@@ -67,6 +67,10 @@ def reply(mid: str, to: str) -> str:
             f"MESSAGE-ID: {mid}\nSUBJECT: s\n\nREPLY:\ndone\n")
 
 
+def inbound_request(mid: str) -> str:
+    return (f"[GZCOORD/1] REQUEST\nFROM: develop-qzapp/peer\nROLE: x\nTO: develop-qzapp/me\nMESSAGE-ID: {mid}\nSUBJECT: s\n\nREQUEST:\nx\n")
+
+
 def main() -> int:
     fails = 0
 
@@ -137,6 +141,16 @@ def main() -> int:
             subprocess.run([sys.executable, os.path.join(ROOT, "tools", "fabric", "episodic.py"), "gzcoord-in"], env=env,
                            input=json.dumps(line) + "\n", capture_output=True, text=True, timeout=60, check=True)
 
+        def sent(mid: str, kind: str = "REQUEST") -> str:
+            """A message this login sent, journaled as the send command leaves it: `block --on request:` takes only an id the
+            journal holds (j746)."""
+            text = (f"[GZCOORD/1] {kind}\nFROM: develop-qzapp/me\nROLE: x\nTO: develop-qzapp/peer\nMESSAGE-ID: {mid}\n"
+                    f"SUBJECT: s\n\n{kind}:\nx\n")
+            ep = os.path.join(ROOT, "tools", "fabric", "episodic.py")
+            subprocess.run([sys.executable, ep, "gzcoord-out-pending"], env=env, input=text, capture_output=True, text=True, timeout=60, check=True)
+            subprocess.run([sys.executable, ep, "gzcoord-out-final", mid, "--state", "accepted"], env=env, capture_output=True, text=True, timeout=60, check=True)
+            return mid
+
         put("gh.states", {"o/r#5": "OPEN", "o/r#6": "OPEN", "o/r#7": "MERGED", "o/r#8": "CLOSED"})
         put("ctl.json", {"logins": {"peer-1": [{"id": "j3", "state": "active"}, {"id": "j4", "state": "delivered"}]}})
         for t in ("held on a pull request", "held on a reply", "held on a peer's job", "held on two", "held on nothing checkable", "ready, queued"):
@@ -194,7 +208,20 @@ def main() -> int:
         print("request: a REPLY with that IN-REPLY-TO in the journal clears it")
         run("start", "j2")
         r = run("block", "j2", "--on", f"request:{RID}")
-        check("stored, and waiting: no journal yet", job("j2")["blockers"][0]["state"] == "waiting" and "no journal" in job("j2")["blockers"][0]["detail"], job("j2"))
+        check("j746: an id the journal does not hold (no journal yet) is refused at block time, naming why",
+              r.returncode == 1 and "request:" + RID in r.stderr and "journal" in r.stderr and "blockers" not in job("j2", "--stored"), (r.stderr, job("j2")))
+        sent(RID)
+        r = run("block", "j2", "--on", f"request:{RID}")
+        check("stored, and waiting: nothing answered yet", job("j2")["blockers"][0]["state"] == "waiting" and "no reply yet" in job("j2")["blockers"][0]["detail"], (r.stderr, job("j2")))
+        STRANGER = "01a12bc0-0000-7000-8000-0000000000e1"
+        for how in (["--on", f"request:{STRANGER}"], ["--on-request", STRANGER]):
+            r = run("block", "j2", *how)
+            check(f"j746: a message in neither direction of a journal that exists is refused ({how[0]})",
+                  r.returncode == 1 and "neither addressed to this login nor sent by it" in r.stderr and job("j2")["blockers"][0]["spec"] == f"request:{RID}", (r.stderr, job("j2")))
+        episodic({"content": inbound_request("01a12bc0-0000-7000-8000-0000000000e2"), "seq": 9})
+        r = run("block", "j2", "--on", "request:01a12bc0-0000-7000-8000-0000000000e2")
+        check("j746 control: a message addressed to this login is accepted", r.returncode == 0, r.stderr)
+        run("block", "j2", "--on", f"request:{RID}")
         check("a request waited on is also kept as waits_on, for the state stream", job("j2", "--stored")["waits_on"] == RID)
         episodic({"content": reply("01a12b00-0000-7000-8000-000000000001", OTHER), "seq": 1})
         age()
@@ -323,7 +350,7 @@ def main() -> int:
               j["blockers"][0]["state"] == "unknown" and j["blockers"][0]["checked_at"] is None and j["cleared"] is None, j)
 
         print("request: any inbound message with a non-empty IN-REPLY-TO naming it clears it, as settle.py reads the outbound side")
-        RID2 = "01a12bb0-2791-7a73-abbc-a186091ebbb4"
+        RID2 = sent("01a12bb0-2791-7a73-abbc-a186091ebbb4")
         jid = re.search(r"added (j\d+)", run("add", "held on a request answered by a DECISION").stdout).group(1)
         run("start", jid)
         run("block", jid, "--on", f"request:{RID2}")
@@ -362,7 +389,7 @@ def main() -> int:
 
         print("a journal SQLite cannot open is unknown, never a dead listing")
         jid = re.search(r"added (j\d+)", run("add", "held on a request, journal broken").stdout).group(1)
-        RID3 = "01a12bb1-0000-7000-8000-0000000000a3"
+        RID3 = sent("01a12bb1-0000-7000-8000-0000000000a3")
         run("start", jid)
         run("block", jid, "--on", f"request:{RID3}")
         db = next(os.path.join(d, "episodic.db") for d, _, fs in os.walk(state) if "episodic.db" in fs)
@@ -433,7 +460,7 @@ def main() -> int:
             run("done", x)
 
         print("a reply id written in upper case clears the blocker, which is stored in lower case")
-        RID4 = "01a12bb2-0000-7000-8000-0000000000a4"
+        RID4 = sent("01a12bb2-0000-7000-8000-0000000000a4")
         jid = re.search(r"added (j\d+)", run("add", "held on a request answered in upper case").stdout).group(1)
         run("start", jid)
         run("block", jid, "--on", f"request:{RID4.upper()}")
