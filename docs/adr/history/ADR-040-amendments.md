@@ -301,3 +301,39 @@ fleet's first third-party package, which rule 1's standard-library rule
 does not allow. The installer keeps the wheel machinery the change added,
 with no wheel pinned; pinning one is a change of rule 1, not of the pin. Accepted by the owner,
 2026-10-24 ("2 as you recommend", in the coordinator's session).
+
+### Amendment 2026-11-11 — One Python on every host: a host's python3 only bootstraps the pin
+
+Rule 1 required every fabric script to be valid on 3.13 and newer, "the
+pin and the oldest system python3 of a supported platform, Debian
+13's". The second host broke the second half. `fabric-h2` runs
+AlmaLinux 10 (ADR-064 rule 1, A 2026-11-11), whose system python3 is
+3.12.13, and 25 of its installed packages require that python3.
+python-dev-02's almalinux profile (#554) found it, and
+`worker.prepare` refuses a host whose python3 is below the floor.
+
+The owner, 2026-11-11: "the fleet should work on the same python level
+on every host, so … each agent should download the fleet python
+version the fleet use". The pin already gives that: one build per host
+under `/usr/local`, shared by every account there. On `fabric-h2` it
+is installed, `fabric-python` 3.14.9, the same build as develop-qzapp's.
+So the floor is a property of the pin, not of the host's own python3.
+
+What changes in meaning:
+- A host's own `python3` runs `python_pin.py`, which installs the pin,
+  and the entries rule 4 still lists, and nothing else. `python_pin.py`
+  is checked valid on EL 10's 3.12; it compiled on `fabric-h2`.
+- `/usr/bin/python3` is never repointed: it belongs to the
+  distribution, and its packages are built against it.
+- A host whose python3 is below 3.13 takes no account until rule 4's
+  host-`python3` entries run on the pin there. Those entries are the
+  git hook `pre-push`, the Claude Code hooks the user settings render
+  as `python3 <hook>` (`runtime/claude-code/user-settings.py`), and
+  bootstrap's language-detector venv.
+- Provisioning checks the pin, not the host's python3.
+
+Debian 13's python3 still proves 3.13 for the entries that keep it on
+a host where it is 3.13 or newer. The suite runners keep CI's matrix
+(rule 4).
+
+Written by fabric-coordinator as job j762, on the j706 branch.
