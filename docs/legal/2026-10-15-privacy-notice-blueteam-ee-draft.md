@@ -15,6 +15,10 @@ publishing; what each rests on is under "The owner's facts" below.
 The same day the owner gave F3 (no Swiss data reach OpenAI), so
 section 10 drops its sentence on a Swiss safeguard for OpenAI's copy,
 under the condition stated below.
+Revised 2026-11-11: the owner closed the two facts left open, 1984's
+server-log retention and the version of OpenAI's data processing
+agreement accepted; "The owner's facts" below records both. The text
+of the notice does not change.
 The reasons are in `2026-10-15-privacy-notice-blueteam-ee.md`. Placing
 it on the site is brand-comms's work in the `blueteam.ee` repository,
 and the copy review is language-culture's.
@@ -50,7 +54,7 @@ How to read this draft:
   Switzerland, its name and address must be published, and section 10
   changes in the same step.
 
-The owner's facts (2026-11-10), and what is still open behind them:
+The owner's facts (2026-11-10, two closed on 2026-11-11), and what each rests on:
 
 - The data protection contact in section 1 is the owner's word. The
   retention periods in section 2 for enquiries (24 months) and client
@@ -61,9 +65,9 @@ The owner's facts (2026-11-10), and what is still open behind them:
   requires of source documents (raamatupidamise algdokumendid): read
   2026-11-10 from Riigi Teataja, consolidated text in force 20.07.2025 to
   31.12.2026, RT I, 10.07.2025, 3, Estonian text.
-- Server logs: "at most 90 days" is the owner's choice until the owner
-  has checked 1984's setting; if 1984 keeps them longer, section 2
-  changes before publishing, or as soon as it is known.
+- Server logs: "at most 90 days" is the owner's word of 2026-11-11
+  that 1984 keeps the site's server logs 90 days. If 1984's setting
+  changes to a longer period, section 2 changes in the same step.
 - Smart Accounts hosts its data in Estonia: the owner's word; neither
   its privacy policy nor its terms of service says so (read 2026-11-09).
 - OpenAI: the owner confirmed that the data processing agreement is
@@ -73,8 +77,12 @@ The owner's facts (2026-11-10), and what is still open behind them:
   EEA and Swiss data out of the EEA and Switzerland under agreements
   containing the Commission's Standard Contractual Clauses of 4 June 2021
   (Implementing Decision (EU) 2021/914), or under an adequacy decision;
-  it claims no Data Privacy Framework certification. Still to verify:
-  that this is the version the company accepted, in the account.
+  it claims no Data Privacy Framework certification. The owner said on
+  2026-11-11 that the agreement the company accepted is the one at
+  openai.com/policies/data-processing-addendum; read again that day, it
+  still carries "Updated: December 1, 2025" and "Effective: January 1,
+  2026", with §4.1 unchanged. If OpenAI issues a new version, section 6
+  is checked against it.
 - Section 10 and OpenAI's copy: `legal-expert-ch` answered
   on 2026-11-10 (`2026-11-10-fadp-eu-sccs-openai-us-copy.md`, commit
   0624d246, on `develop-qzapp/legal-expert-ch/for/user/fadp-swiss-marks-blueteam-ee`).
