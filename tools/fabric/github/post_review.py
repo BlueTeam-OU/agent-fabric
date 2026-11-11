@@ -477,6 +477,25 @@ def without_dispatch_headers(body: str) -> str:
     return "".join(line for n, line in enumerate(kept) if n not in drop).strip("\r\n")
 
 
+def machine_lines_refusal(body: str) -> str:
+    """Why a report's machine lines may not be posted, or "" when they parse. Read with errors.parse_machine_lines,
+    the reader arm uses (arm_findings): a posted review cannot be withdrawn, so a report that reader leaves
+    unread would refuse arm for the PR for good, and nothing supersedes it."""
+    # Here, not at the top: errors imports this module for REVIEW_MARKER, so a top-level import is a cycle.
+    import errors
+    review = errors.parse_machine_lines(body)
+    if review is None:
+        return ("it has no Finding:/Judgement: lines, which are what the gate reads a review by. End the report "
+                "with `Finding: none`, or one line per finding")
+    if not review.unparsed:
+        return ""
+    named = "".join(f"\n  {m}" for m in review.malformed)
+    return ("these Finding:/Judgement: lines do not parse, and a posted review cannot be withdrawn:" + named +
+            "\nA finding line is `Finding: F<n> | P<level> | <confidence> | <path or -> | <summary>`, "
+            "a judgement line `Judgement: F<n> | <verdict> | <reason>`; a report with no finding says "
+            "`Finding: none`")
+
+
 def identity(fabric: str, *args: str) -> str:
     ident = os.path.join(fabric, "runtime", "identity.py")
     if not os.path.exists(ident):
@@ -562,6 +581,9 @@ def run(argv: list[str], stdin) -> int:
     if not body.strip(" \t\n"):
         die("the review body is empty once its dispatch header is taken out.")
     body, coverage = v2_report(body)
+    refusal = machine_lines_refusal(body)
+    if refusal:
+        die(f"not posting this report: {refusal}.")
 
     try:
         repo = gh.this_repo()
