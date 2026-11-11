@@ -107,6 +107,14 @@ operator tree. Each one needs a design before it moves:
    policy file, and none joins a §1 path. A bypass admitted later is judged the same way
    before step B. The hooks (`runtime/claude-code/`) and `runtime/identity.py` lie outside
    every contributor's entry, so their fix is fabric-coordinator's.
+3. **The second checkout is provisioned** (ADR-045 §6). Bootstrap, the upgrade, the
+   launcher's pull, the control agent's unit, moveto and new-agent learn
+   `<home>/projects/blueteam-fabric` beside the engine, and the operator pins the engine's
+   version. Needed before step D, not step B.
+4. **The operator repository is a managed project.** It needs an entry in
+   `projects/registry.json` (client `blueteam`), a `.agent-fabric/taxonomy.json`, a
+   `policies/signing.json` row and an arming policy in `BlueTeam-OU/agent-fabric-settings`.
+   Needed before step C.
 5. **The git-object readers name the operator's path.** Each reader in that list asks
    `roots` for the relative path of what it reads (for example `operator/policies/authority.json`
    once step B lands), and the two CI steps archive it. A shim cannot do this (§1). Needed
@@ -117,14 +125,6 @@ operator tree. Each one needs a design before it moves:
    commit pass unchecked. The guards and both CI steps must read the operator's `main`
    through the deploy key (§5, Q2), and a guard that cannot read it must refuse, not
    narrow. Needed before step D.
-3. **The second checkout is provisioned** (ADR-045 §6). Bootstrap, the upgrade, the
-   launcher's pull, the control agent's unit, moveto and new-agent learn
-   `<home>/projects/blueteam-fabric` beside the engine, and the operator pins the engine's
-   version. Needed before step D, not step B.
-4. **The operator repository is a managed project.** It needs an entry in
-   `projects/registry.json` (client `blueteam`), a `.agent-fabric/taxonomy.json`, a
-   `policies/signing.json` row and an arming policy in `BlueTeam-OU/agent-fabric-settings`.
-   Needed before step C.
 
 ## 3. The steps
 
