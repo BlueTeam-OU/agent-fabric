@@ -32,6 +32,7 @@ import importlib.util
 import json
 import os
 import re
+import subprocess
 import sys
 
 FABRIC_ROOT = os.environ.get("AGENT_FABRIC_ROOT") or os.path.dirname(
@@ -74,9 +75,47 @@ def owning_working_copy(hm, path: str) -> tuple[str, str] | None:
     return next(iter(owners.items()))
 
 
+def _git(working_copy: str, *args: str) -> bytes | None:
+    """stdout of one local git read, None when git fails or hangs: the caller treats None as "not readable"."""
+    try:
+        done = subprocess.run(["git", "-C", working_copy, *args], capture_output=True, timeout=10, check=False)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return done.stdout if done.returncode == 0 else None
+
+
+def committed_headings(working_copy: str, directory: str, flat: str, parse) -> set[str]:
+    """Headings of the slices at `directory` (or the flat file `flat`) as the remote's default branch holds them,
+    read from the local `origin/HEAD` or `origin/main` ref: no fetch, a hook must not wait on the network. The
+    drain assembles against the remote's corpus, so a checkout behind it has a heading on the remote that its
+    own tree lacks (a true merge_target read as missing). Empty when no such ref or path exists."""
+    top = _git(working_copy, "rev-parse", "--show-toplevel")
+    if not top:
+        return set()
+    top = os.path.realpath(top.decode("utf-8", "replace").strip())
+    found: set[str] = set()
+    for ref in ("origin/HEAD", "origin/main"):
+        if _git(top, "rev-parse", "--verify", "--quiet", f"{ref}^{{commit}}") is None:
+            continue
+        rels = []
+        for path in (directory, flat):
+            rel = os.path.relpath(os.path.realpath(path), top)
+            if not rel.startswith(os.pardir):
+                rels.append(rel)
+        listing = _git(top, "ls-tree", "-r", "--name-only", "-z", ref, "--", *rels) if rels else None
+        for name in (listing or b"").decode("utf-8", "replace").split("\0"):
+            if not name.endswith(".md"):
+                continue
+            blob = _git(top, "show", f"{ref}:{name}")
+            if blob is not None:
+                found.update(parse(blob.decode("utf-8", "replace"))[1])
+        break
+    return found
+
+
 def unresolved_merge_target(hm, parsed: dict, path: str) -> str | None:
     """ADR-050 rule 9: the warning for a `merge_target` that names no section of the writing role's own slices
-    of the memory's class and has no `shared_with`; None when it holds, or when the slices cannot be read
+    of the memory's class, in the working copy or on the remote's default branch (the drain's corpus) and has no `shared_with`; None when it holds, or when the slices cannot be read
     (the role or project unbound, no working copy, no slice of the class): nothing is said then, never a guess.
     The directories are the layout's and the headings the assembler's own reading, as `resolve_targets` looks."""
     target = parsed["merge_target"]
@@ -93,7 +132,7 @@ def unresolved_merge_target(hm, parsed: dict, path: str) -> str | None:
         hm.layout.set_working_copy(project, working_copy)
         sys.path.insert(0, os.path.join(FABRIC_ROOT, "tools", "fabric"))
         from assembler.core import CLASS_FILES  # noqa: E402 — needs the path above
-        from assembler.slices import read_existing_slice  # noqa: E402
+        from assembler.slices import parse_slice, read_existing_slice  # noqa: E402
         klass = parsed["roles_class"]
         base = hm.layout.class_home(klass, role, project)
         directory = os.path.join(base, CLASS_FILES[klass])
@@ -101,7 +140,13 @@ def unresolved_merge_target(hm, parsed: dict, path: str) -> str | None:
             if os.path.isdir(directory) else []
         flat = os.path.join(base, f"{CLASS_FILES[klass]}.md")
         files += [flat] if os.path.isfile(flat) else []
-        if not files or any(target in read_existing_slice(f)[1] for f in files):
+        if any(target in read_existing_slice(f)[1] for f in files):
+            return None
+        # The checkout may be behind the remote the drain reads (a job worktree cut from an older main).
+        remote = committed_headings(working_copy, directory, flat, parse_slice)
+        if target in remote:
+            return None
+        if not files and not remote:
             return None
     except (Exception, SystemExit):  # noqa: BLE001 — unreadable slices say nothing; the other warnings still stand
         return None

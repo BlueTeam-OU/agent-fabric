@@ -102,6 +102,7 @@ def merge_target_cases() -> int:
         print(f"  {'ok  ' if good else 'FAIL'} merge_target: a working copy that is gone: silent" + ("" if good else f": {out!r}"))
         fails += not good
         fails += other_project_cases(tmp, binding, env)
+        fails += behind_remote_cases(tmp, binding, env)
     return fails
 
 
@@ -150,6 +151,52 @@ def other_project_cases(tmp: str, binding: str, env: dict) -> int:
     print(f"  {'ok  ' if good else 'FAIL'} merge_target: a slug matching no working copy: silent"
           + ("" if good else f": {out!r}"))
     return fails + (not good)
+
+
+def behind_remote_cases(tmp: str, binding: str, env: dict) -> int:
+    """A checkout behind the remote's default branch: the heading the drain will find on origin/main is not in the
+    checkout's tree, and warning that it names no section would be wrong. A heading on neither still warns."""
+    fails = 0
+    # other_project_cases rewrote the operator tree for its two projects; this case's own is registered afresh.
+    env = {**env, "AGENT_FABRIC_OPERATOR": write_operator_projects(
+        os.path.join(tmp, "operator-behind"), {"fixture-proj": ["git@example.org:o/fixture-proj.git"]})}
+    origin = os.path.join(tmp, "origin-src")
+    clone = os.path.join(tmp, "behind-clone")
+    slices_rel = os.path.join(".agent-fabric", "memory", "fixture-role", "solution")
+
+    def git(top: str, *args: str) -> None:
+        subprocess.run(["git", "-C", top, *args], check=True, env=git_env(), capture_output=True)
+
+    os.makedirs(os.path.join(origin, slices_rel))
+    git(origin, "init", "-q", "-b", "main")
+    with open(os.path.join(origin, ".agent-fabric-project"), "w", encoding="utf-8") as fh:
+        fh.write("fixture-proj\n")
+    topic = os.path.join(origin, slices_rel, "topic.md")
+    with open(topic, "w", encoding="utf-8") as fh:
+        fh.write("---\nrole: fixture-role\n---\n\n## Old section\n\ntext\n")
+    git(origin, "add", "-A")
+    git(origin, "commit", "-q", "-m", "one")
+    subprocess.run(["git", "clone", "-q", origin, clone], check=True, env=git_env(), capture_output=True)
+    with open(topic, "a", encoding="utf-8") as fh:
+        fh.write("\n## New on main\n\ntext\n")
+    git(origin, "commit", "-q", "-am", "two")
+    git(clone, "fetch", "-q", "origin")      # origin/main has the heading; the clone's tree stays at the first commit
+    with open(binding, "w", encoding="utf-8") as fh:
+        json.dump({"role": "fixture-role", "project": "fixture-proj", "working_copy": clone}, fh)
+    home = os.path.join(tmp, ".claude", "projects", layout.memory_slug(clone), "memory")
+    os.makedirs(home)
+    cases = [
+        ("a heading only on the remote's main, the checkout behind", "New on main", None),
+        ("a heading in the checkout's own tree", "Old section", None),
+        ("a heading on neither still warns", "Nowhere", "no shared_with"),
+    ]
+    for i, (label, heading, expect) in enumerate(cases):
+        path = memory(home, f"b{i}", "a correction", f'  roles_class: solution\n{ANCHORS}  merge_target: "{heading}"\n', "body")
+        rc, out = run(path, env={**env, "AGENT_FABRIC_WORKING_COPY": clone}, cwd=clone)
+        good = rc == 0 and ((not out) if expect is None else expect in out)
+        print(f"  {'ok  ' if good else 'FAIL'} merge_target: {label}" + ("" if good else f": {out!r}"))
+        fails += not good
+    return fails
 
 
 def binding_record_case() -> int:
