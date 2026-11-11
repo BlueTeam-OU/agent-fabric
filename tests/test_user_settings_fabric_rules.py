@@ -26,6 +26,7 @@ import unittest
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(HERE, "tests"))
 import test_user_settings_cli as cli  # noqa: E402 — tests/, the script's own directory
+from instance_fixtures import write_operator_policy  # noqa: E402
 
 SCRIPT = os.path.join(HERE, "runtime", "claude-code", "user-settings.py")
 
@@ -188,8 +189,12 @@ class SettingsFile(cli.Base):
 
     def test_malformed_table_raises_table_error_which_main_refuses(self) -> None:
         # The table is the checkout's file; a shape the parser refuses must not become a traceback.
-        mod = load_script()
         with tempfile.TemporaryDirectory() as tmp:
+            # The auto-mode policy is the operator's file, absent in a stripped copy; a fixture one, as test_user_settings_cli
+            # does. The script reads its path when loaded, so the variable is set first.
+            os.environ["AGENT_FABRIC_OPERATOR"] = write_operator_policy(tmp)
+            self.addCleanup(os.environ.pop, "AGENT_FABRIC_OPERATOR", None)
+            mod = load_script()
             bad = os.path.join(tmp, "commands.json")
             with open(cli.COMMANDS, encoding="utf-8") as fh:
                 doc = json.load(fh)
