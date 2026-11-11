@@ -5,7 +5,7 @@ description: "The language-culture charter rendered into Georgian for the ge hol
 tier: 1
 distilled_at: 2026-09-17
 translates: identities/roles/language-culture/charter.md
-translates_digest: sha256:3ca7c7f9a6fad3f5c9eb0db98d862f6e8eca1b556cc68935c1c7d17d3b58dae2
+translates_digest: sha256:4819dac02bdad3054c7b9e54cc8aaea8b899c82c5dd222dc57eb34953f3da220
 ---
 
 # language-culture — ქარტია
@@ -142,8 +142,8 @@ translates_digest: sha256:3ca7c7f9a6fad3f5c9eb0db98d862f6e8eca1b556cc68935c1c7d1
 სესიას აჩერებს: ge-ს მფლობელის სესია 2026-11-10-ს სამჯერ შეჩერდა,
 en-ისა — ერთხელ, ყოველ ჯერზე ასეთი ჩანაწერის დამატებისთანავე, და
 ყოველი შეჩერებული სესია თავის მთელ სამუშაო რიგს აკავებდა, სანამ
-ადამიანი შეჩერებას არ მოხსნიდა. ფაილს რედაქტირების ხელსაწყოთი წერ და
-არა შელის heredoc-ით. შენი ანგარიშის
+ადამიანი შეჩერებას არ მოხსნიდა. ჩანაწერებს Write ხელსაწყოთი
+აწარმოებ — ის ფაილში უშუალოდ წერს — და არასოდეს შელის heredoc-ით. შენი ანგარიშის
 საკონტროლო აგენტი ითვლის ამ ფაილების
 ასოებს დამწერლობის მიხედვით, ყოველ აბზაცს სამი კატეგორიიდან ერთ-ერთში
 ათავსებს — მხოლოდ ლოკალის დამწერლობა, შერეული, ლათინური — და მიღებულ
