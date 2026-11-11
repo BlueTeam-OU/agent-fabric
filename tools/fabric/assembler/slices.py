@@ -12,7 +12,7 @@ from assembler.core import layout, yaml_scalar
 
 
 REPORT_LISTS = ("files", "hygiene_problems", "rejected_hygiene", "redactions", "retired_in_siblings",
-                "oversized_claims", "oversized_claim_details", "clipped_descriptions", "migrated", "merge_target_unresolved", "superseded_harvests", "reharvested_replaced", "held_back", "held_unbound_role", "anchors_kept", "anchors_lost", "titles_one_lined", "assembled_without_hygiene")
+                "oversized_claims", "oversized_claim_details", "clipped_descriptions", "migrated", "merge_target_unresolved", "superseded_harvests", "reharvested_replaced", "held_back", "rehomed", "rehomed_files", "anchors_kept", "anchors_lost", "titles_one_lined", "assembled_without_hygiene")
 
 
 def drop_held(report: dict[str, Any], keys: list[str], paths: set[str]) -> None:
@@ -32,7 +32,7 @@ def drop_held(report: dict[str, Any], keys: list[str], paths: set[str]) -> None:
         return isinstance(item, str) and (any(item == p or item.startswith(p + ":") for p in paths)
                                           or any(n.match(item) for n in slice_names))
     for key in REPORT_LISTS:
-        if key not in ("held_back", "held_unbound_role"):
+        if key != "held_back":
             report[key] = [x for x in report.get(key) or [] if not names_held(x)]
     report["files_written"] = len(report["files"])
     held_shared = {k.partition("/")[2] for k in keys if k.startswith("shared/")}

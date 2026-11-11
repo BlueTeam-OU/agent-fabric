@@ -139,12 +139,19 @@ def open_layout(args: argparse.Namespace) -> str:
                  + f"; looked {looked}, and no working copy is known. Put the project's checkout beside the fabric, or pass "
                  "--allow-missing-hygiene to assemble without those lists"
                  + (f" (--working-copy PROJECT=DIR is read by the anchor guard only: {', '.join(guard_only)})" if guard_only else ""))
+    args.hygiene_listed = listed
+    load_hygiene(args, project)
+    return project
+
+
+def load_hygiene(args: argparse.Namespace, project: str) -> None:
+    """The banned lists as `project` sees them: a name a project lists as its own is allowed in its own slices and out of every
+    other's, so a claim re-homed to another project is screened by that project's view, not the one it was read under."""
     try:
-        BANNED_PATTERNS[:] = layout.load_hygiene_patterns(listed)
-        PROJECT_PATTERNS[:] = layout.load_hygiene_patterns(listed, for_project=project)
+        BANNED_PATTERNS[:] = layout.load_hygiene_patterns(args.hygiene_listed)
+        PROJECT_PATTERNS[:] = layout.load_hygiene_patterns(args.hygiene_listed, for_project=project)
     except layout.HygieneError as exc:
         sys.exit(f"assemble: {exc}")
-    return project
 
 
 def read_claims(run: Run) -> int | None:
@@ -377,50 +384,69 @@ def hold_back(run: Run) -> None:
         sys.exit(f"assemble: --hold names no slice of this drain: {', '.join(unmatched)}")
 
 
-def hold_unbound_roles(run: Run) -> None:
-    """A project-scoped slice of a role the project's taxonomy does not bind is HELD, not written (drain of 2026-11-08: a
-    bundle wrote a new fabric-coordinator corpus into a project that binds three other roles). Held, as --hold holds:
-    nothing of it is written, and the store's mark stays below its memories, so the harvest brings them again once the
-    drain re-homes them (the role is bound, or the memory moves). Refusing the run instead would drop every other
-    slice of the bundle for a role that is merely unbound here. The report names each with its role, project and source.
+# The one role whose remit is the control plane wherever it learned a lesson (the owner, 2026-11-11): its claim of a project that
+# does not bind it is the control plane's knowledge, and goes to agent-fabric's own corpus.
+REHOME_ROLE = "fabric-coordinator"
 
-    Not judged: a project with no taxonomy (nothing says which roles it binds), the fabric's own project (its taxonomy binds the
-    roles that own the control plane's paths, while its project memory is every role's), and domain slices, which
-    live in the fabric and belong to no project's roles."""
+
+def rehome_unbound(run: Run) -> list[dict[str, Any]]:
+    """A project-scoped claim whose role the project's taxonomy does not bind is not admitted to that project's corpus (drain of
+    2026-11-08: a bundle wrote fabric-coordinator claims into a project that binds three other roles). fabric-coordinator's
+    claim is taken out of this run and returned, for agent-fabric's own corpus (assemble.main writes it there); a claim of any
+    other role refuses the run, naming the claim, its role and the project, before anything is written: there is no
+    fallback, because a role's knowledge written under another role's remit is wrong in a way no later run notices.
+
+    Judged per claim, by its owners: its author and everyone it is shared with. A claim some bound role co-owns is that role's
+    knowledge too and stays (note_unbound_owners). Not judged: a project with no taxonomy (nothing says which roles it binds),
+    the fabric's own project (its taxonomy binds the roles that own the control plane's paths, while its project memory is every
+    role's), and domain claims, which live in the fabric and belong to no project's roles."""
+    bound = bound_role_ids(run.project)
+    if bound is None or run.project == layout.FABRIC_PROJECT_ID:
+        return []
+    moved: dict[str, list[dict[str, Any]]] = {}
+    refused: list[str] = []
+    for role in sorted(run.all_claims):
+        kept = []
+        for claim in run.all_claims[role]:
+            owners = {role} | set(claim.get("shared_with") or [])
+            if claim.get("class") not in layout.PROJECT_CLASSES or owners & bound:
+                kept.append(claim)
+            elif owners == {REHOME_ROLE}:
+                moved.setdefault(role, []).append(claim)
+            else:
+                refused.append(f"{claim['class']}:{claim['topic']} ({claim.get('title')!r}) of role {role}"
+                               + (f" shared with {', '.join(sorted(owners - {role}))}" if len(owners) > 1 else "")
+                               + f", project {run.project}")
+        run.all_claims[role] = kept
+    if refused:
+        sys.exit(f"assemble: not admitted: the project's taxonomy binds {', '.join(sorted(bound)) or 'no role'} and no owner of these "
+                 f"claims; only {REHOME_ROLE}'s claim is re-homed (to {layout.FABRIC_PROJECT_ID}), any other refuses the run. "
+                 "Bind the role in the project's taxonomy, or file the memory where its role's remit is:\n  " + "\n  ".join(refused))
+    for role in moved:
+        if not run.all_claims[role]:
+            # A role with no claim left owns nothing here: not a project directory, index or crossref (assemble.main owning_roles).
+            del run.all_claims[role]
+    for role, claims in moved.items():
+        for claim in claims:
+            origins = (run.origins.get(h) for h in claim.get("evidence") or [])
+            run.rehomed.append({"slice": f"{role}/{claim['class']}:{claim['topic']}", "role": role, "class": claim["class"],
+                                "topic": claim["topic"], "title": claim.get("title"), "from_project": run.project,
+                                "to_project": layout.FABRIC_PROJECT_ID,
+                                "source": sorted({f"{o.get('agent') or o.get('clone_id')}@{o.get('host')}" for o in origins if o})})
+    return [c for claims in moved.values() for c in claims]
+
+
+def note_unbound_owners(run: Run) -> None:
+    """A shared slice some bound role co-owns is written with every owner in its shared_with (a corpus fact, not a binding
+    question; drain of 2026-11-08: a slice shared by an unbound and a bound role). Only the unbound owners are left out of the
+    indexes, and an unbound author gets no project directory of its own. A slice with no bound owner never reaches here
+    (rehome_unbound judged its claims)."""
     bound = bound_role_ids(run.project)
     if bound is None or run.project == layout.FABRIC_PROJECT_ID:
         return
-    projectwide = set(layout.PROJECT_CLASSES)
-
-    def source_of(claims: list[dict[str, Any]]) -> list[str]:
-        origins = (run.origins.get(h) for c in claims for h in c.get("evidence") or [])
-        return sorted({f"{o.get('agent') or o.get('clone_id')}@{o.get('host')}" for o in origins if o})
-
-    def hold(key: str, role: str, klass: str, topic: str, claims: list[dict[str, Any]]) -> None:
-        run.held_evidence.update(h for c in claims for h in c.get("evidence") or [])
-        run.held_back.append(key)
-        run.held_unbound.append({"slice": key, "role": role, "project": run.project, "class": klass, "topic": topic,
-                                 "source": source_of(claims)})
-
-    for role in sorted(set(run.per_role) - bound):
-        for (klass, topic) in sorted(k for k in run.per_role[role] if k[0] in projectwide):
-            hold(f"{role}/{klass}:{topic}", role, klass, topic, run.per_role[role].pop((klass, topic)))
-            run.unbound_held_roles.add(role)
-    # A shared slice is listed by every bound owner's index: held when no owner is bound, else written with every owner in its
-    # shared_with and indexed for the bound ones only.
-    for (klass, topic) in sorted(k for k in run.shared if k[0] in projectwide):
-        owners = run.shared_owners[(klass, topic)]
-        unbound = sorted(owners - bound)
-        if unbound and owners <= set(unbound):
-            claims = run.shared.pop((klass, topic))
-            # The unbound role may be its author (a claim in its own file shared with a bound role), which is how it gets in all_claims.
-            run.unbound_held_roles.update(c["_role"] for c in claims if c.get("_role") in unbound)
-            hold(f"shared/{klass}:{topic}", ",".join(unbound), klass, topic, claims)
-            run.shared_owners.pop((klass, topic), None)
-        elif unbound:
-            # Some owner is bound (drain of 2026-11-08: a slice shared by an unbound and a bound role):
-            # the slice is the bound owners' knowledge and is written, its shared_with as recorded (a corpus fact, not a
-            # binding question); only the unbound owners are left out of the indexes.
+    for (klass, topic) in sorted(k for k in run.shared if k[0] in layout.PROJECT_CLASSES):
+        unbound = sorted(run.shared_owners[(klass, topic)] - bound)
+        if unbound:
             run.unbound_held_roles.update(c["_role"] for c in run.shared[(klass, topic)] if c.get("_role") in unbound)
             run.unindexed_owners.update(unbound)
 
