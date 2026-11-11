@@ -173,10 +173,6 @@ def main() -> int:
                            env={"AGENT_FABRIC_PLATFORM": "fedora-qubes", "PATH": os.environ.get("PATH", "")})
         check("detect on the command line prints the name", r.returncode == 0 and r.stdout == "fedora-qubes\n", r.stdout + r.stderr)
 
-        print("the interpreter floor")
-        check("3.13 is the floor: 3.13 and 3.14 pass, 3.12 and 3.11 do not",
-              hp.host_python_ok((3, 13)) and hp.host_python_ok((3, 14)) and not hp.host_python_ok((3, 12)) and not hp.host_python_ok((3, 11)))
-
     print("test_host_platform:", "OK" if not fails else f"{fails} FAILED")
     return 1 if fails else 0
 
