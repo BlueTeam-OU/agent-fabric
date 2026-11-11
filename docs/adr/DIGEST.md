@@ -1207,7 +1207,7 @@ its record disagree, the record wins. Look it up, never read it whole:
   buttons (untested) go to Chrome (§5 rule 7).
 - Chrome stays for logins and SSO, video, real WebGL, bot-checked sites, the
   Flutter web clients and any pixel check a person judges (§2).
-- Pinned account tool, moli 1.1.19 by archive sha256, declared for every
+- Pinned account tool, moli 1.1.23 by archive sha256, declared for every
   project in `projects/registry.json` and installed per account like doppler
   by `fabric-tools --install moli` (§5 rules 1-2).
 - `moli fetch` runs without a prompt; `moli serve` has no allow rule (rule 3).
@@ -1220,6 +1220,7 @@ its record disagree, the record wins. Look it up, never read it whole:
   moli, radio buttons untested, 2.1-2.5x slower, about 370 MB a session
   against about 990 MB.
 - A 2026-10-27 — pin moved to 1.1.19 (rule 1).
+- A 2026-11-11 — pin moved to 1.1.23 (rule 1).
 - Keywords: moli, web, browser, fetch, markdown, serve, CDP, Playwright,
   Chrome, internet, page, untrusted, hidden DOM, pin.
 ### ADR-052 — The account-switch policy for gateway sessions: sticky, with hysteresis, soonest reset first, perishable moves rate-limited, decided by the controller (Accepted)
