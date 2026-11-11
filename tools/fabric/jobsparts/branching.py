@@ -169,6 +169,19 @@ def _repoint(wc: str, repo: str, job: dict, landed: str, default: str) -> Choice
                   f"re-pointed from {landed}, which a pull request landed, to your open pull request #{number}{armed}", repointed=True)
 
 
+def _repoint_offer(job: dict, repo: str) -> str:
+    """The refusal's third way out beside done and drop (j641): `--repoint`, named when this login has the one open pull request it takes the
+    job to. With none or several there is nothing to offer, and none is made; a lookup that fails offers nothing either, since the refusal
+    stands without it."""
+    try:
+        mine = _my_open_prs(repo)
+    except vcs.gh.GhError:
+        return ""
+    if len(mine) != 1:
+        return ""
+    return f"; or take it to your open pull request #{mine[0]['number']}: fabric-jobs switch {job['id']} --repoint"
+
+
 def _resume(wc: str, repo: str, job: dict, default: str, repoint: bool) -> Choice:
     """The job's recorded branch, prepared. One that is on neither this clone nor origin, or that a pull request landed, is refused
     and said: replacing it would hand the job a branch that is another's work (j511 got j513's). A paused job asked to `repoint` is the
@@ -178,7 +191,7 @@ def _resume(wc: str, repo: str, job: dict, default: str, repoint: bool) -> Choic
     if _landed(wc, repo, own):
         if repoint and job["state"] == "paused":
             return _repoint(wc, repo, job, own, default)
-        offer = ("; --repoint takes a paused job to this login's one open pull request" if job["state"] == "paused"
+        offer = (_repoint_offer(job, repo) if job["state"] == "paused"
                  else f"; --repoint was asked and applies only to a paused job ({job['id']} is {job['state']})" if repoint else "")
         raise Refused(f"{job['id']} records branch {own}, which a pull request has landed: it is not replaced; close {job['id']} "
                       f"(fabric-jobs done or drop), or switch to another job by its id{offer}")

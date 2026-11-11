@@ -4,10 +4,13 @@ contract.
 
 THE FORMS (`block <id> --on <blocker>`, several allowed, all must clear)
   pr:<owner/repo>#<n>       cleared when the pull request is merged or closed (gh, through tools/fabric/gh.py)
-  request:<message-id>      answered when an inbound message of any type (a DECISION as well as a REPLY) whose
+  request:<message-id>      refused by `block` unless this login's journal holds that message (sent by it, or addressed to
+                            it): an id it cannot read is never answered here (j746). Answered when an inbound message of any type (a DECISION as well as a REPLY) whose
                             non-empty IN-REPLY-TO is that id is in this login's journal, as settle.py reads
                             the outbound side
-                            (episodic.open_readonly, the one reader's door). A REPLY answers the request, it does
+                            (episodic.open_readonly, the one reader's door). When this login's own journal says it
+                            sent that message as an OBSERVATION or a QUESTION, the answer clears it at once: only a
+                            REQUEST can have become a job, so no board is read (j751). A REPLY answers the request, it does
                             not deliver the work, so the answer is read first for the job the request became on the
                             answerer's board (the message's sender; through PEER READS below, as job: reads it): a row
                             whose title ends "(REQUEST <id>)" (records.request_id_of), the board being authoritative.
@@ -262,6 +265,27 @@ def _cycle(became: str, request: str, peer_specs: list[str]) -> str | None:
     return None
 
 
+def unreadable_request(message_id: str) -> str | None:
+    """Why this login cannot wait on `message_id`, None when it can. The journal holds the messages this login may read,
+    its own and those addressed to it, so an id with no row of its own, and no answer received to it, is one nobody
+    here will ever see answered: a job blocked on it waits for ever (j746). A journal that cannot be read is refused as well, with its
+    own words: `block` cannot tell, and a wait that cannot be checked is the failure this guards against."""
+    episodic = _load("fabric_episodic", os.path.join(FABRIC_ROOT, "tools", "fabric", "episodic.py"))
+    path = episodic.db_path()
+    if not os.path.exists(path):
+        return "this login's journal does not exist yet, so it holds no message"
+    try:
+        conn = episodic.open_readonly(path)
+        try:
+            found = conn.execute("SELECT 1 FROM episodes WHERE lower(message_id)=? OR (direction='inbound' AND lower(in_reply_to)=?) LIMIT 1",
+                                 (message_id, message_id)).fetchone()
+        finally:
+            conn.close()
+    except (episodic.JournalError, sqlite3.Error, OSError) as e:
+        return f"its journal cannot be read: {e}"[:160]
+    return None if found else "it is neither addressed to this login nor sent by it (no such message in its journal)"
+
+
 def check_request(message_id: str) -> Check:
     episodic = _load("fabric_episodic", os.path.join(FABRIC_ROOT, "tools", "fabric", "episodic.py"))
     path = episodic.db_path()
@@ -278,12 +302,19 @@ def check_request(message_id: str) -> Check:
         # never empty, so an empty IN-REPLY-TO matches nothing.
         rows = conn.execute("SELECT sender, content, type FROM episodes WHERE direction='inbound' AND lower(in_reply_to)=? "
                             "ORDER BY happened_at, recorded_at, id", (message_id,)).fetchall()
+        sent = conn.execute("SELECT type FROM episodes WHERE direction='outbound' AND lower(message_id)=?", (message_id,)).fetchall()
     except Exception as e:  # noqa: BLE001 — an unreadable journal is unknown, never a traceback in a listing
         return Check("unknown", f"journal: {e}"[:160])
     finally:
         conn.close()
     if not rows:
         return Check("waiting", "no reply yet")
+    # Only a REQUEST asks for work, so only its answerer can have made a job of it. A message this login sent as an
+    # OBSERVATION or a QUESTION that is answered is answered: reading the answerer's board for a job it cannot have
+    # made left such a blocker unknown for ever when the board could not be read (j751). An id this login did not
+    # send, or whose row is not in the journal, is not told apart, and keeps the reading below.
+    if sent and not any(str(t).upper() == "REQUEST" for (t,) in sent):
+        return Check("cleared", "answered")
     # A REPLY answers the request, it does not deliver the work: when the answerer made a job of it, the wait is that job.
     unreadable, decided = None, False
     for sender, content, kind in rows:

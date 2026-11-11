@@ -56,7 +56,7 @@ work is in: gzcoord-compose stamps PROJECT from the sender's directory, which sa
 REPOSITORY is absent, unregistered, registered by two projects, or the registry cannot be read; `show` then prints why. Nothing a
 REQUEST carries is a reason not to queue it.
 The working copy is this login's of that project; when there is none the job is still listed, with none, and `start` refuses
-by name until `project <id> <project> --working-copy DIR` names one (`switch` refuses a job with no working copy as before).
+by name until `project <id> <project> --working-copy DIR` names one, unless the job has no branch (`start` takes it: its work may be a REPLY, which changes no repository, j754); `switch` refuses a job with no working copy as before.
 `project` re-points a job whose headers were both wrong; it is refused while the job has a branch or a worktree, but for naming that worktree and its own project (the one-job guard
 and the sweep key on them) or is closed, and the old and new project are logged on the job. `show` prints "project from": the
 --project, REPOSITORY, PROJECT or re-pointing that decided it (a job added before it was recorded, from the pool, or in a working copy with no --project shows none; one the sending side added
@@ -107,7 +107,7 @@ contract): a pull request (`pr:<owner/repo>#<n>`, cleared when it is merged or c
 a REPLY does not deliver the work, so the job the request became on the answerer's board (a title ending "(REQUEST <id>)"; failing the board,
 the one job of the sender the body names, as job:<login>/j<n> or a bare j<n>) replaces the blocker, `request:<id> answered; now waiting on
 job:<login>/j<n>` is said once and the job stays blocked; with no such job it clears, and with the board unreadable and no body match it is unknown,
-never cleared; blockers.py has the whole) or a peer's job (`job:<login>/j<n>`, cleared
+never cleared, except for a message this login sent as anything but a REQUEST (an OBSERVATION, a QUESTION), which any answer clears without a board (j751); `block` refuses an id the journal does not hold (j746); blockers.py has the whole) or a peer's job (`job:<login>/j<n>`, cleared
 when it is delivered, or closed after it was seen open; read through fabric-ctl for a host operator, through the peer's public `job-state` op for any other login: blockers.py, PEER READS) or a
 time of your own (`clock:<YYYY-MM-DDTHH:MM[:SS]Z>`, UTC with the Z, cleared once now is at or after it; `block`
 refuses one already past; it reads only the clock, so it is evaluated on every look, `--stored` and `--cached`
@@ -150,9 +150,10 @@ THE TABLE (rule 14, A 2026-11-08): a job changes state only by a row of the tran
 and is checked against the record's own text by tests/test_work_table.py. tools/fabric/work/lifecycle.py is the only code that writes a
 job's state into a list, and tools/fabric/work_writes.py the check that says so. Each verb takes the states its row names and asks the
 row's needs at the moment it makes the change (tools/fabric/jobsparts/needs.py), refusing, naming what is missing, when one is not true:
-  start     queued, paused, blocked or delivered, no other job active, no fleet hold, a working copy; out of blocked, every checkable
+  start     queued, paused, blocked or delivered, no other job active, no fleet hold, a working copy (none for a job with no branch); out of blocked, every checkable
             blocker cleared (an owner's decision has none to check: starting the job is the agent saying it came)
-  pause     the active job, with a reason and its branch pushed (or its head already on origin's default branch); a job on no branch
+  pause     the active job, with a reason and its branch pushed (or its head already on origin's default branch; or, when the push fence
+            refuses this session's pushes, the unpushed branch and head recorded, and said by start and switch, j744); a job on no branch
             cannot be paused, since nothing would hold its work
   block     queued, active, paused or blocked, on a checkable blocker or on "owner: <the decision awaited>"; free text is refused
   deliver   the active or blocked job, with an artifact that is open (a pull request, a branch on origin not on the default branch, a

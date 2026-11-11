@@ -908,6 +908,7 @@ its record disagree, the record wins. Look it up, never read it whole:
 - A 2026-11-09 — pool claim closes or reopens (r14).
 - A 2026-11-09 — peer job read by its waiter: public job-state op (r8).
 - A 2026-11-10 — blocked job's landed branch: new branch; done names artifacts (r10).
+- A 2026-11-11 — start without a copy when no branch; fenced pause records its unpushed head; non-REQUEST answer clears; block refuses an unreadable request (r8/r14).
 - Keywords: fresh session, intake, priority, claim, sweep, unhold, request blocker, job-state.
 
 ### ADR-038 — Each agent owns its key and its secrets (Accepted)

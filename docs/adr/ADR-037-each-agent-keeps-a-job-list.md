@@ -171,7 +171,14 @@ Why these choices:
    answerer a REPLY's body names, if that board lists it or cannot be
    read. Without such a job (a decline, a DECISION, a named job not on
    a readable board) the blocker clears; an unreadable board with no
-   job named is unknown, never cleared (A 2026-11-05).
+   job named is unknown, never cleared (A 2026-11-05). Only a REQUEST
+   can have become a job: a `request:` blocker on a message this login
+   sent as anything else (an OBSERVATION, a QUESTION) clears when it is
+   answered, and no board is read. `block` refuses a `request:` id that
+   the journal holds neither as a message this login sent or received
+   nor as an answer received to it, and refuses it when the journal
+   cannot be read, since nobody here would see that request answered
+   (A 2026-11-11).
    A peer's board is the operator's read; every other login asks the
    peer's control agent the public `job-state` op, which answers the
    state of one job, by its id or by the request it was taken from, to
@@ -218,7 +225,9 @@ Why these choices:
        (A 2026-11-10).
        `delivered`: its pull request is open. `blocked`: a request, a
        pull request, a peer's job or an owner's decision named as the
-       blocker. `paused`: its branch is pushed. `dropped`: a reason.
+       blocker. `paused`: its branch is pushed, or, where the push
+       fence refuses this session's pushes, its unpushed branch and
+       head are recorded by rule 14 (A 2026-11-11). `dropped`: a reason.
        Whatever the outcome, the working copy has nothing uncommitted,
        every `REPLY-EXPECTED: yes` addressed to the agent is answered,
        and the agent's memory has been written during the job.
@@ -314,8 +323,8 @@ Why these choices:
     | `claimed` in the pool | `open` again | the pool holder's control agent (A 2026-11-09) | a day or more after the claim, the claimant's fresh state record reports its claims and holds none for this one; a missing, stale or unreadable record, or one that does not report claims, is unknown and reopens nothing |
     | — | `queued` | `fabric-jobs add`; the inbox intake (rule 11); the control agent's `jobs-add` (rule 4) | a title and project; from a REQUEST, its id, once per id |
     | — | any state, as exported | `fabric-jobs import` (rule 13) | an empty list; at most one job `active`; a list moved, not a job started |
-    | `queued`, `paused`, `blocked`, `delivered` | `active` | `fabric-jobs start` or `switch` only | no other job active; no hold (rule 13); a working copy; from `blocked` by `switch`, every blocker cleared; by `switch`, a branch chosen (rule 10 step 3) |
-    | `active` | `paused` | `fabric-jobs pause` | a reason; the branch pushed |
+    | `queued`, `paused`, `blocked`, `delivered` | `active` | `fabric-jobs start` or `switch` only | no other job active; no hold (rule 13); a working copy, except by `start` for a job with no branch (A 2026-11-11); from `blocked` by `switch`, every blocker cleared; by `switch`, a branch chosen (rule 10 step 3) |
+    | `active` | `paused` | `fabric-jobs pause` | a reason; the branch pushed, or, when the push fence (rule 3) refuses this session's pushes because it worked another job, the unpushed branch and its local head recorded on the job and in its log (A 2026-11-11) |
     | `queued`, `active`, `paused`, `blocked` | `blocked` | `fabric-jobs block` | a blocker: checkable (rule 8) or a named owner's decision; on a blocked job, it replaces the wait |
     | `queued`, `paused`, `blocked` | `blocked` | `fabric-jobs switch` (rule 10 step 3) | the job needs a pull request not yet merged: `pr:` added to its blockers, never substituted |
     | `active`, `blocked` | `delivered` | `fabric-jobs deliver` | an artifact that is open: a pull request, a branch on origin not on the default branch, a sent REPLY |
@@ -328,6 +337,14 @@ Why these choices:
     the state of the job each became. It is an optional field of the
     control wire, added with the job module of Wave 2. Until it is,
     neither row is made, and a claim stays `claimed`.
+
+    A job with no branch is started without a working copy, since its
+    work may be a REPLY, which changes no repository; `switch` chooses
+    a branch and still needs one. A job paused with its head unpushed
+    because the push fence refused it is told by `start` and `switch`
+    to push that branch and head first, from the job's checkout, and
+    `switch` leaves such a pause only while the fence still holds and
+    the branch's head is still the one recorded (A 2026-11-11).
 
     `done` and `dropped` are terminal: nothing reopens them, and new
     work is a new job. `switch` and `next` make no transition beyond
@@ -398,3 +415,4 @@ The body above reads current; each change's full note is in [history/ADR-037-ame
 | 2026-11-09 | A pool claim ends | §5 rule 14: two rows for the pool's own end, both the holder's control agent's, read from the claimant's fresh state record: `claimed` to `closed` when it reports the claim's job done or dropped, `claimed` back to `open` when a day on it reports its claims and holds none for this one; an unknown record reopens nothing; the record's claims field and the rows are built with Wave 2's job module |
 | 2026-11-09 | A peer's job is read by its waiter | §5 rule 8: a non-operator reads a `job:` blocker and re-points a `request:` blocker through the public `job-state` op, which answers one job's state to the sender of the request it was taken from; a re-point that would make a seen cycle is refused, never stored; rule 14 lists the re-point as no transition; built in #527 |
 | 2026-11-10 | A landed branch, and a merge before deliver | §5 rule 10 step 3: a blocked job whose recorded branch a pull request landed counts as a job with no branch and gets the open pull request or a new branch; step 1 and rule 14's `done` row: `fabric-jobs done <id> <artifact>...` records the named artifacts, each of which must have landed; built in #541 |
+| 2026-11-11 | No copy for a job with no branch, a pause the push fence leaves unpushed, a request this login cannot read | §5 rule 14: `start` needs no working copy for a job with no branch; `pause`, when the push fence refuses the session's pushes, records the unpushed branch and head, which `start` and `switch` say to push; rule 8: a non-REQUEST's answer clears its `request:` blocker without a board, and `block` refuses a `request:` id the journal does not hold; built in #556 |

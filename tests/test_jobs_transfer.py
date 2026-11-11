@@ -38,8 +38,14 @@ def main() -> int:
         os.makedirs(repo)
         base = {k: v for k, v in os.environ.items() if not k.startswith(("GIT_", "AGENT_FABRIC_", "GITHUB_"))}
 
+        store = os.path.join(tmp, "store")      # the journal has no owner without an agent id (j746: block reads it)
+        os.makedirs(store)
+        with open(os.path.join(store, ".agent-id"), "w") as fh:
+            fh.write("01a0f782-7e06-7dee-811f-0a860ed93bf3\n")
+
         def env(side: str) -> dict:
-            return {**base, "AGENT_FABRIC_STATE_DIR": os.path.join(tmp, side), "AGENT_FABRIC_ROOT": ROOT, "HOME": home, "LC_ALL": "C"}
+            return {**base, "AGENT_FABRIC_STATE_DIR": os.path.join(tmp, side), "AGENT_FABRIC_ROOT": ROOT, "HOME": home, "LC_ALL": "C",
+                    "AGENT_FABRIC_SECRET_STORE": store}
 
         def run(side: str, *argv: str, stdin: bytes | None = b"") -> subprocess.CompletedProcess:
             return subprocess.run([JOBS, *argv], cwd=repo, env=env(side), input=stdin, capture_output=True, timeout=120)
@@ -66,6 +72,10 @@ def main() -> int:
         ok("src", "start", "j1")
         force("j1", "delivered", artifacts=["owner/repo#1"])
         ok("src", "start", "j3")
+        sent = (f"[GZCOORD/1] REQUEST\nFROM: develop-qzapp/me\nROLE: x\nTO: develop-qzapp/peer\nMESSAGE-ID: {MSG}\nSUBJECT: s\n\nREQUEST:\nx\n")
+        for argv, given in ((["gzcoord-out-pending"], sent), (["gzcoord-out-final", MSG, "--state", "accepted"], "")):
+            r = subprocess.run([sys.executable, os.path.join(ROOT, "tools", "fabric", "episodic.py"), *argv], env=env("src"), input=given.encode(), capture_output=True, timeout=60)
+            assert r.returncode == 0, r.stderr      # `block --on-request` takes only an id the journal holds (j746)
         ok("src", "block", "j3", "--on-request", MSG)
         ok("src", "block", "j4", "--on", "pr:owner/repo#7", "--on", f"job:someone/j2")
         ok("src", "start", "j5")
