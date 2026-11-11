@@ -3,7 +3,7 @@
 Every top-level path of agent-fabric, classed by ADR-045 §5 rule 2: **engine** (code,
 schemas, templates, routing defaults, guards, the engine's records — stays here and is
 published), **instance** (the company that runs the agents — moves to the operator
-repository, `gzapi-org/blueteam-fabric`, at stage 4), or **mixed** (split by amendment
+repository, `BlueTeam-OU/blueteam-fabric`, at stage 4, in the order `move-plan.md` gives), or **mixed** (split by amendment
 at stage 4: the general part stays, the organisation's part moves). A client's
 engagement (`gzapi-org/gzapi-engagement`, stage 5) takes nothing from here but the
 project list it owns; project truth already lives in each project's own repository.
@@ -18,20 +18,21 @@ top-level path gets its row in the change that adds it.
 | `runtime/hosts/registry.json` | instance | operator: the hosts and placements |
 | `tests/` | engine | stays; reads instance fixtures only (rule 3) |
 | `communication/gzcoord/` (protocol, scripts, skills) | engine | stays |
-| `routing/capabilities.json`, `effort.json`, `policies/`, `schemas/`, `shims*` | engine | stays (the defaults) |
-| `routing/profiles.json` | instance | operator: our profile choices |
+| `routing/capabilities.json`, `effort.json`, `schemas/`, `shims*` | engine | stays (the defaults) |
+| `routing/profiles.json`, `routing/policies/` | instance | operator: our profile choices, account switching, availability, the review grade |
 | `identities/schemas/`, `identities/prompt/` | engine | stays (prompt templates) |
 | `identities/prompt/team.md` | mixed | the general working rules stay; our policy overlay moves |
 | `identities/roles/` (catalogue, charters, briefs, locales) | mixed | a generic role library stays; the roles as we adapted them move |
 | `identities/keys/`, `identities/agents/`, `identities/recovery.asc` | instance | operator: keys, lineage, agents, the recovery key |
 | `policies/*.sh`, `*.py`, `githooks/`, the skill directories | engine | stays (the guards and skills) |
-| `policies/authority.json`, `hygiene.json`, `auto-mode.json`, `bash-allowlist.json` | instance | operator (the allowlist moves with the policy it encodes) |
+| `policies/arming.json`, `authority.json`, `auto-mode.json`, `host-load.json`, `hygiene.json`, `signing.json` | instance | operator |
+| `policies/bash-allowlist.json`, `command-names.json`, `context-reads.json`, `evidence-caps.json`, `mechanisms.json`, `process-spawns.json`, `state-writers.json`, `transport-calls.json`, `work-writes.json` | engine | stays, beside its checker (`move-plan.md` step A): each lists engine modules a guard admits |
 | `policies/AUTHORITY.md`, `code-as-memory.md` | mixed | the mechanism stays; our holders move |
 | `projects/registry.json`, `projects/<id>/` | instance | operator (with `clients.json`, stage 3) |
 | `projects/schemas/` | engine | stays |
 | `memory/` (`domains/`, `shared/`, `agents/`) | instance | operator: our field knowledge |
 | `memory/README.md`, `RUBRIC.md` | engine | stays (how a corpus works) |
-| `docs/adr/` | mixed | numbers frozen (rule 4): engine records stay; organisation rules move by amendment into operator records that cite them |
+| `docs/adr/` | mixed | numbers frozen (rule 4): classified record by record (`move-plan.md` §1); an organisational record moves with its number, a mixed one stays and its organisation rules move by amendment |
 | `docs/live-checks/` | instance | operator |
 | `docs/legal/` | instance | operator: the company's legal opinions |
 | `docs/fleet-deck/`, `docs/split/` | engine | stays |

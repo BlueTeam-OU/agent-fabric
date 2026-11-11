@@ -4,7 +4,7 @@
 **Status:** Accepted
 **Ratified:** owner, 2026-10-09, in the coordinator's session ("accept adr 045"), carried by the pull request that marks it Accepted
 **Decision Makers:** the owner (the three layers and the open engine); drafted by fabric-coordinator
-**Scope:** what agent-fabric holds and what moves out of it: the engine (this repository, to be published), the operator repository of the company that runs the agents, and each client's engagement; the seam that lets one engine read either (`roots`, to be created by stage 2 as `tools/fabric/roots.py` and `runtime/control/roots.mjs`); how a working copy resolves to its client; decision-record numbering across the split
+**Scope:** what agent-fabric holds and what moves out of it: the engine (this repository, to be published), the operator repository of the company that runs the agents, and each client's engagement; the seam that lets one engine read either (`roots`, `tools/fabric/roots.py`); how a working copy resolves to its client; decision-record numbering across the split
 **Pillar:** P1
 
 ## 1. Context and Problem
@@ -57,10 +57,10 @@ Switching client is context, never identity, and needs no relaunch.
 
 ## 5. Binding Rules
 
-1. Engine code reads instance data only through `roots` (to be created as `tools/fabric/roots.py` and `runtime/control/roots.mjs`). `engine_root()` is the code's own location; until stage 4 it honours `AGENT_FABRIC_ROOT` when set, which every wrapper and fixture sets and which names that same location in production, and instance fixtures use `AGENT_FABRIC_OPERATOR`, never `AGENT_FABRIC_ROOT`. `operator_root()` is `AGENT_FABRIC_OPERATOR` when set, else the engine root. Lint refuses an engine module that joins an instance path itself.
+1. Engine code reads instance data only through `roots` (`tools/fabric/roots.py`). `engine_root()` is the code's own location; until stage 4 it honours `AGENT_FABRIC_ROOT` when set, which every wrapper and fixture sets and which names that same location in production, and instance fixtures use `AGENT_FABRIC_OPERATOR`, never `AGENT_FABRIC_ROOT`. `operator_root()` is `AGENT_FABRIC_OPERATOR` when set, else the engine root. Lint refuses an engine module that joins an instance path itself.
 2. Instance data is: the hosts and projects registries, `identities/keys/`, the role catalogue and the roles as adapted, `policies/*.json`, the routing overlays (`routing/profiles.json`), `memory/`, the organization's decision records, and `docs/live-checks/`. The engine keeps the code, the schemas, the templates, the routing defaults, the guards and the engine's records.
 3. Engine tests read instance fixtures, never the live instance files, and the suite passes with `AGENT_FABRIC_OPERATOR` unset and set.
-4. Decision-record numbers are frozen: no record is renumbered. A mixed record stays in the engine. Its organization-specific rules move out by amendment, into an operator record that cites it.
+4. Decision-record numbers are frozen: no record is renumbered. An organisation's own record moves to the operator with its number, which the engine keeps reserved (A 2026-11-11). A mixed record stays in the engine, and may be split where that serves: the engine's part keeps the number, and the organisation's part becomes an operator record that cites it. Its organization-specific rules move out by amendment, into an operator record that cites it.
 5. A working copy's client is resolved as remote → project (the operator's registry) → client → engagement, and never from the GitHub organization. Switching client changes the channel, the secrets namespace, the hygiene names and the client's rules in the session-start context, never the login or the role.
 6. A client's credentials reach only that client's working copies. A client's project knowledge stays in that client's repositories; a drain refuses to carry it into the operator's corpus.
 
@@ -85,9 +85,9 @@ When the forge the fleet is evaluating offers a merge-queue equivalent, each com
 ## 8. Decision Status
 
 Accepted; the inventory rule 2 applies is `docs/split/inventory.md`. Built so far:
-- rule 1's seam exists (`tools/fabric/roots.py`, `runtime/control/roots.mjs`) and the engine's readers use it; lint and the pre-commit hook enforce it (`tools/fabric/roots_bypass.py`, each exception with its reason in `tools/fabric/roots_bypass.json`);
+- rule 1's seam exists (`tools/fabric/roots.py`; its Node twin went with the Node control plane) and the engine's readers use it; lint and the pre-commit hook enforce it (`tools/fabric/roots_bypass.py`, each exception with its reason in `tools/fabric/roots_bypass.json`);
 - rule 3: most tests read fixtures (`tests/stripped_run.py` runs a file on a copy without the instance files); `.github/workflows/stripped-nightly.yml` runs every test file that way each night, failing on a red file not in `tests/stripped_skip.txt` (each line naming the job that owns its fix) and on a listed file that passes;
-- rule 2's list is applied by the extraction stage;
+- rule 2's list is applied by the extraction stage. The operator repository is `BlueTeam-OU/blueteam-fabric`, private, created by the owner (A 2026-11-11). What moves, the shims and the order of steps are in `docs/split/move-plan.md`. The settings repositories (`BlueTeam-OU/agent-fabric-settings` and gzapi-org's) hold one organisation's arming policy each and are not the operator repository;
 - rule 5: `projects/clients.json` and a `client` on every project, which lint holds to each other; the resolver exists (`workingcopy.resolve_client`, and the `client` and `operator` in `resolve`) and session start names the client, its channel, secrets store and engagement. Still to come: rule 6, the drain's refusal, and per-client channels and secrets reaching only their working copies; how a client's secrets reach them is decided in ADR-038 rule 10, its tooling contracted in `docs/split/company-stores.md`.
 
 Rule 4 holds today: no record has been renumbered.
@@ -105,3 +105,4 @@ The body above reads current; each change's full note is in [history/ADR-045-ame
 | Date | Amendment | Effect |
 |---|---|---|
 | 2026-10-08 | The engine root honours AGENT_FABRIC_ROOT until stage 4 | §5 rule 1: a transition while wrappers and fixtures set it; instance fixtures use AGENT_FABRIC_OPERATOR |
+| 2026-11-11 | The operator repository is named, and the move has a plan | §5 rule 4: an organisation's record moves with its number; §8: `BlueTeam-OU/blueteam-fabric`, `docs/split/move-plan.md`, the settings repositories apart, `roots.mjs` struck |
