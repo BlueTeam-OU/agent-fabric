@@ -24,8 +24,9 @@ page (relayed by brand-comms, REQUEST 01a1cae9) gave ten spans on this
 wording; the notice takes the rulings sent in REPLY 01a1caeb. Section
 2's invoice period now counts as the Accounting Act § 12(1) does, from
 the financial year in which the invoice was recorded (re-read
-2026-11-11, same redaction). Telegram in section 7 waits on the owner.
-The reasons are in `2026-10-15-privacy-notice-blueteam-ee.md`. Placing
+2026-11-11, same redaction). The owner confirmed the same day that
+Blueteam has a Telegram account, so section 7 keeps Telegram. The draft
+is final but for the date of publication. The reasons are in `2026-10-15-privacy-notice-blueteam-ee.md`. Placing
 it on the site is brand-comms's work in the `blueteam.ee` repository,
 and the copy review is language-culture's.
 
