@@ -48,10 +48,12 @@ comment or a message is not counted here.
     `charter_authority.py` (`<base>:policies/authority.json`);
   - `tools/fabric/guards/contributors.py` (`HEAD:policies/authority.json`).
 - **Seam callers that hand `roots` the engine's tree.** `operator_root()` returns its
-  `engine=` argument when no operator is exported (about 48 call sites, such as `lint.py` and
-  `routing.py` for `routing_profiles`, and `lint_rules/docs.py` for `live_checks_dir`).
-  Four modules pass `root=layout.FABRIC_ROOT`, which is the engine root, for `memory_dir`:
-  `assembler/report.py`, `assembler/anchorkeep.py`, `links.py` and `memory_flagrun.py`.
+  `engine=` argument when no operator is exported. At 6fa97620 that is 118 call lines in
+  41 modules, `lint.py` and `lint_rules/docs.py` the most
+  (`git grep -nE 'roots\.[a-z_]+\([^)]*engine=' -- 'tools/**/*.py' 'runtime/**/*.py' 'bin/*'`).
+  `assembler/report.py` and `assembler/anchorkeep.py` pass `root=layout.FABRIC_ROOT`, the
+  engine root, for `memory_dir`. `assembler/links.py` and `memory_flagrun.py` pass a
+  `fabric_root` their callers fill in with the same engine root.
 - **Shell readers of the working tree:**
   - `runtime/provisioning/moveto/completion.bash` and `tools/fabric/control/completion.bash`
     join `$AGENT_FABRIC_ROOT/runtime/hosts/registry.json` by hand;
@@ -117,8 +119,11 @@ operator tree. Each one needs a design before it moves:
    Needed before step C.
 5. **The git-object readers name the operator's path.** Each reader in that list asks
    `roots` for the relative path of what it reads (for example `operator/policies/authority.json`
-   once step B lands), and the two CI steps archive it. A shim cannot do this (§1). Needed
-   before step B.
+   once step B lands), and the two CI steps archive it. A shim cannot do this (§1). The CI
+   steps ask main's `roots`, the copy inside the `tools/fabric` they archive from
+   `origin/main`, for the paths and for the operator prefix that `AGENT_FABRIC_OPERATOR`
+   names under `$base`. The branch's `roots` would name `operator/` in step B's own pull
+   request, before main has it. Needed before step B.
 6. **The authority guards read the operator's `main`, or refuse.** After step D, agent-fabric
    has no `policies/authority.json`. `is_fabric_itself` would then answer False, and the
    authority check would narrow to `.agent-fabric/**` without a word, letting every other
@@ -136,8 +141,12 @@ one account before the fleet takes it (`fabric-ctl <login> upgrade fabric`, then
 exception lists to `tools/fabric/<checker>.json` (for example `policies/mechanisms.json` →
 `tools/fabric/mechanisms.json`), with their readers and the lint's tables. `roots` gains an
 engine ADR lookup beside `adr_dir()`, and the DIGEST readers read both. The four
-`root=layout.FABRIC_ROOT` memory readers ask for the operator's tree. The two completion
-scripts read `AGENT_FABRIC_OPERATOR` before the engine root. `roots.py`'s docstring list
+memory readers that are handed the engine root ask for the operator's tree instead. The
+three shell readers (both completions and `ssh-operator.sh`) resolve the hosts registry as
+`roots` will: `AGENT_FABRIC_HOSTS_REGISTRY`, then `AGENT_FABRIC_OPERATOR`, then the
+operator clone `<home>/projects/blueteam-fabric` when it exists, then the engine root. A
+registry that resolves to no file is said, not completed silently. So the shell readers
+are fixed here and never depend on a shim. `roots.py`'s docstring list
 is corrected to this plan (it lacks `identities/personas/`, `routing/policies/` and
 `projects/clients.json`). No file leaves the repository, and behaviour does not change.
 
@@ -147,7 +156,7 @@ forms: with no operator exported, it is `<engine>/operator`, whether the engine 
 from the environment or from an `engine=` argument. A shim is left at each old top-level
 path, as a relative symlink (`identities/roles` → `../operator/identities/roles`). It
 serves readers of the working tree only: people, the skills' prose, other checkouts and
-anything the text search missed. The git-object readers were moved in precondition 5. With `AGENT_FABRIC_OPERATOR` set, the suite reads the fixtures it
+anything the text search missed. No reader in §1's list depends on a shim. The git-object readers were moved in precondition 5. With `AGENT_FABRIC_OPERATOR` set, the suite reads the fixtures it
 always read. Unset, it reads `operator/`. Both pass, or step B is not done. Reverting the
 step is one commit. This is the change of one root that ADR-045 §4 asks to be read back
 before anything crosses a repository boundary.

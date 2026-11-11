@@ -26,8 +26,9 @@ move.
 
 The extraction's order is written in `docs/split/move-plan.md`. The list
 comes from `tools/fabric/roots.py`. The files move inside this repository
-first, behind one changed default and with shims for the readers outside
-the seam, and only then cross into the operator repository. The owner chose on 2026-11-11 to classify
+first, behind a changed fallback, with the git-object readers moved
+before them and symlink shims for readers of the working tree only. Only
+then do they cross into the operator repository. The owner chose on 2026-11-11 to classify
 `docs/adr/` record by record. An organisational record moves with its
 number, and the engine keeps that number reserved. Rule 4 forbids
 renumbering, not moving. A mixed record may also be split: the
