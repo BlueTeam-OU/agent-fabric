@@ -305,7 +305,7 @@ class Working(Case):
 class PushFence(Case):
     """j744: pause asks that the branch is pushed, and the job copy guard (ADR-037 rule 3) refuses a push in a session that has worked
     another job. A job started there by mistake could then never be paused. When the fence is the only reason, pause records the
-    branch and its unpushed head in the log and pauses; `start` tells the next session to push them."""
+    branch and its unpushed head in the log and pauses; `start` and `switch` tell the next session to push them."""
 
     def side_branch(self, commit: bool = True) -> str:
         git = lambda *a: subprocess.run(["git", "-C", self.w.alpha, *a], check=True, env=git_env(), capture_output=True, text=True).stdout.strip()
@@ -343,6 +343,38 @@ class PushFence(Case):
         p = self.w.switch(j3)
         self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
         self.assertIn("not pushed", p.stdout)
+
+    def test_switch_still_refuses_to_leave_the_pause_in_a_session_the_fence_does_not_lock(self):
+        # Review F5, the control of the case above: a shell with no session id is never locked by the fence (it can push), though switch
+        # still reads the last job that left active there; the record excuses nothing for it.
+        j2 = self.worked_then_started_by_mistake()
+        self.side_branch()
+        self.ok("pause", j2, "set aside")
+        j3 = self.w.add("the next job")
+        jobs_world.touch_memory(self.w.env["HOME"], self.w.alpha)
+        p = self.w.run("switch", j3, extra_env={"CLAUDE_CODE_SESSION_ID": ""})
+        self.assertEqual(p.returncode, 1, p.stdout + p.stderr)
+        self.assertIn("is not on origin", p.stderr)
+
+    def test_switch_still_refuses_to_leave_the_pause_when_the_branch_moved_on(self):
+        # Review F5: the record names the head that was paused; commits made after it are not the ones the fence excused.
+        j2 = self.worked_then_started_by_mistake()
+        self.side_branch()
+        self.ok("pause", j2, "set aside")
+        subprocess.run(["git", "-C", self.w.alpha, "commit", "-q", "--allow-empty", "-m", "more"], check=True, env=git_env())
+        j3 = self.w.add("the next job")
+        p = self.w.switch(j3)
+        self.assertEqual(p.returncode, 1, p.stdout + p.stderr)
+        self.assertIn("is not on origin", p.stderr)
+
+    def test_switch_json_says_to_push_on_stderr(self):
+        j2 = self.worked_then_started_by_mistake()
+        head = self.side_branch()
+        self.ok("pause", j2, "set aside")
+        p = self.w.switch(j2, "--json")
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        self.assertIn(f"push branch side/work (head {head})", p.stderr)
+        json.loads(p.stdout)
 
     def test_switch_back_to_a_fence_paused_job_says_to_push(self):
         # Review F2: the record is dropped on entering active, and only `start` said it.

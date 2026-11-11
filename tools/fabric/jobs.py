@@ -107,7 +107,7 @@ contract): a pull request (`pr:<owner/repo>#<n>`, cleared when it is merged or c
 a REPLY does not deliver the work, so the job the request became on the answerer's board (a title ending "(REQUEST <id>)"; failing the board,
 the one job of the sender the body names, as job:<login>/j<n> or a bare j<n>) replaces the blocker, `request:<id> answered; now waiting on
 job:<login>/j<n>` is said once and the job stays blocked; with no such job it clears, and with the board unreadable and no body match it is unknown,
-never cleared, except for a message this login sent as an OBSERVATION or QUESTION, which any answer clears without a board (j751); `block` refuses an id the journal does not hold (j746); blockers.py has the whole) or a peer's job (`job:<login>/j<n>`, cleared
+never cleared, except for a message this login sent as anything but a REQUEST (an OBSERVATION, a QUESTION), which any answer clears without a board (j751); `block` refuses an id the journal does not hold (j746); blockers.py has the whole) or a peer's job (`job:<login>/j<n>`, cleared
 when it is delivered, or closed after it was seen open; read through fabric-ctl for a host operator, through the peer's public `job-state` op for any other login: blockers.py, PEER READS) or a
 time of your own (`clock:<YYYY-MM-DDTHH:MM[:SS]Z>`, UTC with the Z, cleared once now is at or after it; `block`
 refuses one already past; it reads only the clock, so it is evaluated on every look, `--stored` and `--cached`

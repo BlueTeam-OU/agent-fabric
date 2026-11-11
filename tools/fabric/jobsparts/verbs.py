@@ -356,6 +356,9 @@ def switch_job(args) -> int:
     if args.json:
         for said in swept:
             print(said, file=sys.stderr)      # stdout is the one JSON object
+        held = verdict_for["unpushed"]
+        if isinstance(held, dict) and held.get("branch") and held.get("head"):
+            print(f"push branch {held['branch']} (head {held['head']}) first: it was paused with commits the push fence refused", file=sys.stderr)
         print(json.dumps({**verdict, "branch": choice.branch, "worktree": choice.worktree, "branch_kind": choice.kind, "settled": settled,
                           "note": choice.note, "sharing": verdict_for.get("sharing", [])},
                          ensure_ascii=False, indent=2))
