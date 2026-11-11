@@ -17,8 +17,12 @@ CONTRACT:
             default $HOME/.cache/agent-fabric/langid); AGENT_FABRIC_LANGID_PIP
             (a command, split on whitespace, run in place of
             `<venv>/bin/pip install -q`, the package appended last).
-            PATH finds `python3`, the interpreter that makes the venv (the
-            host's, not the fabric's pin: the venv outlives the checkout).
+            AGENT_FABRIC_LANGID_PYTHON (empty counts as unset, default the
+            interpreter running this file, the fleet's pin, ADR-040 rule 1
+            amended 2026-11-11) makes the venv; the host's python3 is never
+            asked. A venv outlives a pin move no better than the build it
+            links to: once the old build is swept it no longer runs, is not
+            "executable", and the next run makes it again.
             The children inherit the environment.
   stdout    one line per step: "  -  <model> (removed|would remove: the
             detector is CLD2 now)" for an earlier version's lid.176.ftz,
@@ -122,6 +126,7 @@ def run(argv: list[str]) -> int:
         except OSError as exc:
             say(f"  !  {target}: cannot be prepared ({type(exc).__name__}); the language section stays unavailable")
             return 1
+        maker = os.environ.get("AGENT_FABRIC_LANGID_PYTHON") or sys.executable
         executable = os.path.isfile(venv_python) and os.access(venv_python, os.X_OK)
         made = False
         if not executable:
@@ -130,12 +135,12 @@ def run(argv: list[str]) -> int:
             # pass the `executable` test on the next run and fail there for the wrong reason.
             existed = os.path.lexists(venv)
             try:
-                made = quiet(["python3", "-m", "venv", venv], VENV_TIMEOUT_S)
+                made = quiet([maker, "-m", "venv", venv], VENV_TIMEOUT_S)
             finally:
                 if not made and not existed:
                     shutil.rmtree(venv, ignore_errors=True)
         if not executable and not made:
-            say(f"  !  {venv}: python3 -m venv failed; the language section stays unavailable")
+            say(f"  !  {venv}: {maker} -m venv failed; the language section stays unavailable")
             rc = 1
         else:
             override = os.environ.get("AGENT_FABRIC_LANGID_PIP", "")

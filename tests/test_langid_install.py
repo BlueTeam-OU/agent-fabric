@@ -88,9 +88,11 @@ class Langid(unittest.TestCase):
         os.makedirs(os.path.join(self.dir, "venv", "bin"), exist_ok=True)
         self.script(os.path.join(self.dir, "venv", "bin", "python"), f'#!/bin/sh\n[ -f "{self.installed}" ]\n')
 
-    def run_install(self, *args: str, pip: str | None = None, path: str | None = None) -> subprocess.CompletedProcess:
+    def run_install(self, *args: str, pip: str | None = None, path: str | None = None, python: str | None = None) -> subprocess.CompletedProcess:
         env = {"PATH": path or self.path, "HOME": self.home, "LANG": "C.UTF-8", "TMPDIR": self.sandbox,
                "AGENT_FABRIC_LANGID_DIR": self.dir, "AGENT_FABRIC_LANGID_PIP": self.pip if pip is None else pip}
+        if python:
+            env["AGENT_FABRIC_LANGID_PYTHON"] = python
         return subprocess.run([*ARGV0, INSTALL, *args], capture_output=True, text=True, env=env, cwd=self.sandbox,
                               timeout=TIMEOUT_S, check=False)
 
@@ -163,31 +165,32 @@ class Langid(unittest.TestCase):
         self.assertIn("could not install", p.stdout + p.stderr)
 
     def test_venv_creation_failure_is_said_exit_1(self) -> None:
-        # A python3 first on PATH that fails `-m venv` and delegates the rest
-        # (the script also reads detector.json with python3).
-        fakebin = os.path.join(self.sandbox, "fakebin")
-        os.makedirs(fakebin)
-        real = shutil.which("python3")
-        self.script(os.path.join(fakebin, "python3"),
-                    f'#!/bin/sh\n[ "$1 $2" = "-m venv" ] && exit 1\nexec "{real}" "$@"\n')
-        p = self.run_install(path=f"{fakebin}{os.pathsep}{self.path}")
+        fake = self.script(os.path.join(self.sandbox, "failing-python"), '#!/bin/sh\nexit 1\n')
+        p = self.run_install(python=fake)
         out = p.stdout + p.stderr
         self.assertEqual(p.returncode, 1, out)
-        self.assertIn("python3 -m venv failed; the language section stays unavailable", out)
+        self.assertIn("-m venv failed; the language section stays unavailable", out)
         self.assertFalse(os.path.exists(self.installed))
 
-    def failing_venv(self) -> str:
-        """A python3 whose `-m venv` leaves a half-made venv (bin/python only) behind and fails."""
+    def test_the_venv_is_made_by_this_interpreter_not_the_host_python3(self) -> None:
+        # ADR-040 rule 1: a python3 first on PATH is never asked, however old or broken. Its call is logged; the venv
+        # still appears, made by the interpreter running the script.
         fakebin = os.path.join(self.sandbox, "fakebin")
         os.makedirs(fakebin)
-        real = shutil.which("python3")
-        self.script(os.path.join(fakebin, "python3"),
-                    f'#!/bin/sh\nif [ "$1 $2" = "-m venv" ]; then mkdir -p "$3/bin"; : > "$3/bin/half"; exit 1; fi\nexec "{real}" "$@"\n')
-        return f"{fakebin}{os.pathsep}{self.path}"
+        asked = os.path.join(self.sandbox, "python3-asked")
+        self.script(os.path.join(fakebin, "python3"), f'#!/bin/sh\n: > "{asked}"\nexit 1\n')
+        self.run_install(path=f"{fakebin}{os.pathsep}{self.path}")
+        self.assertFalse(os.path.exists(asked), "the host's python3 was run")
+        self.assertTrue(os.path.isfile(os.path.join(self.dir, "venv", "pyvenv.cfg")), "no venv was made")
+
+    def failing_venv(self) -> str:
+        """An interpreter whose `-m venv` leaves a half-made venv (bin/half only) behind and fails."""
+        return self.script(os.path.join(self.sandbox, "half-python"),
+                           '#!/bin/sh\nmkdir -p "$3/bin"; : > "$3/bin/half"; exit 1\n')
 
     def test_venv_failure_removes_the_half_made_venv_it_began(self) -> None:
         # The positive control of the next test: the same failure over a venv that was not there.
-        p = self.run_install(path=self.failing_venv())
+        p = self.run_install(python=self.failing_venv())
         self.assertEqual(p.returncode, 1, p.stdout + p.stderr)
         self.assertFalse(os.path.exists(os.path.join(self.dir, "venv")))
 
@@ -196,10 +199,10 @@ class Langid(unittest.TestCase):
         os.makedirs(os.path.dirname(keep))
         with open(keep, "w", encoding="utf-8") as fh:
             fh.write("kept")
-        p = self.run_install(path=self.failing_venv())
+        p = self.run_install(python=self.failing_venv())
         out = p.stdout + p.stderr
         self.assertEqual(p.returncode, 1, out)
-        self.assertIn("python3 -m venv failed; the language section stays unavailable", out)
+        self.assertIn("-m venv failed; the language section stays unavailable", out)
         with open(keep, encoding="utf-8") as fh:
             self.assertEqual(fh.read(), "kept")
 

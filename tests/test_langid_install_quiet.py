@@ -158,16 +158,17 @@ class HalfMadeVenv(unittest.TestCase):
         self.addCleanup(shutil.rmtree, sandbox, ignore_errors=True)
         fakebin = os.path.join(sandbox, "bin")
         os.makedirs(fakebin)
-        fake = os.path.join(fakebin, "python3")
+        fake = os.path.join(fakebin, "half-python")
         with open(fake, "w", encoding="utf-8") as fh:
             fh.write('#!/bin/sh\nmkdir -p "$3/bin" && : > "$3/bin/python" && chmod 755 "$3/bin/python"\nexit 1\n')
         os.chmod(fake, 0o755)
         target = os.path.join(sandbox, "langid")
-        env = {"PATH": f"{fakebin}{os.pathsep}/usr/bin:/bin", "HOME": sandbox, "AGENT_FABRIC_LANGID_DIR": target}
+        env = {"PATH": f"{fakebin}{os.pathsep}/usr/bin:/bin", "HOME": sandbox, "AGENT_FABRIC_LANGID_DIR": target,
+               "AGENT_FABRIC_LANGID_PYTHON": fake}
         p = subprocess.run([sys.executable, os.path.join(HERE, "tools", "fabric", "langid_install.py")],
                            env=env, capture_output=True, text=True, timeout=60, check=False)
         self.assertEqual(p.returncode, 1, p.stdout + p.stderr)
-        self.assertIn("python3 -m venv failed", p.stdout)
+        self.assertIn("-m venv failed", p.stdout)
         self.assertFalse(os.path.exists(os.path.join(target, "venv")), "a half-made venv was left behind")
 
 
