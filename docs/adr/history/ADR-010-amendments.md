@@ -139,3 +139,20 @@ read-back goes to `docs/live-checks/` beside the dotnet one (item 2).
 provisioning step, and their tests: python-dev, inside its entry.
 `tests/run.py`, `policies/host-load.json`, this record, the team line
 and the dotnet read-back: fabric-coordinator.
+
+### Amendment 2026-11-11 — The ssh backend read back on fabric-h2, the second host
+
+§7 said the ssh backend of hostexec had never been read back on a real
+second host, and that the first such host would get its own live check.
+That host is `fabric-h2`, a VM on the Proxmox node s13337 (ADR-064
+rule 1, A 2026-11-11). Its registry entry names `op@192.168.200.79`.
+`fabric-host fabric-h2 check` answered as `fabric-h2`, and `fabric-host
+fabric-h2 run` ran as `op` on the pinned Python, from that host's own
+checkout (`docs/live-checks/2026-11-11-fabric-h2-registered.md`). The
+control was the same call before the entry existed, which was refused
+as an unknown host. `--as <login>` is not read back. No account is
+placed there. `op`'s sudo first asked for a password, which the worker's
+`sudo -n` cannot give. The owner then installed a NOPASSWD sudoers entry
+for `op`, and `sudo -n` succeeded over the backend the same day.
+
+Written by fabric-coordinator as job j706.

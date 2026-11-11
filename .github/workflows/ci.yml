@@ -162,7 +162,22 @@ jobs:
             image: debian:stable-slim
             install: apt-get install -y --no-install-recommends
             extra: shellcheck python3-pip ca-certificates hostname
+          # AlmaLinux 10 (fabric-h2): gh and ShellCheck are in EPEL; a minimal
+          # image has coreutils-single, which coreutils replaces only with
+          # --allowerasing; its python3 is 3.12, below the floor (host_python).
+          - platform: almalinux
+            image: almalinux:10
+            install: dnf install -y --allowerasing --setopt=install_weak_deps=False
+            repos: dnf install -y epel-release
+            extra: ShellCheck python3-pip hostname
+            host_python: bootstrap-only
     container: ${{ matrix.image }}
+    # The almalinux leg reports without blocking ci-ok until two EL10 findings
+    # land (the owner's choice, 2026-11-11, #557): test_secret_store asks for
+    # paperkey, which no EL10 repository packages, and test_signing_rule5's
+    # revoked-ancestor refusal names a different cause under EL10's GnuPG.
+    # The commit that lands both makes this leg blocking again.
+    continue-on-error: ${{ matrix.platform == 'almalinux' }}
     # Measured 7-8.5 min on 2026-09-29, 20-24 min on 2026-10-11 (Fedora cancelled at 25 on #194 and #197);
     # the cap is for a hang, not a budget, so it sits well above the slowest healthy run.
     timeout-minutes: 40
@@ -175,6 +190,7 @@ jobs:
           set -e
           if command -v apt-get >/dev/null; then apt-get update; fi
           ${{ matrix.install }} bash git ca-certificates   # enough to check out and read the map
+          ${{ matrix.repos }}
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
@@ -195,13 +211,33 @@ jobs:
           set -e
           . runtime/provisioning/platform/detect.sh
           [ "$PLATFORM_ID" = "${{ matrix.platform }}" ] || { echo "detected $PLATFORM_ID, expected ${{ matrix.platform }}"; exit 1; }
-          for t in "${FABRIC_HOST_TOOLS[@]}"; do command -v "$t" >/dev/null || { echo "missing after install: $t"; exit 1; }; done
-          host_python_ok || { echo "the platform's python3 is older than $FABRIC_HOST_PYTHON_MIN"; exit 1; }
+          # A tool the platform packages nowhere (almalinux: paperkey) is installed by hand, so not here.
+          for t in "${FABRIC_HOST_TOOLS[@]}"; do
+            for skip in "${PLATFORM_NO_PACKAGE[@]}"; do [ "$t" = "$skip" ] && continue 2; done
+            command -v "$t" >/dev/null || { echo "missing after install: $t"; exit 1; }
+          done
+          if [ "${{ matrix.host_python }}" = bootstrap-only ]; then
+            # ADR-040 §5 rule 1 (A 2026-11-11): a python3 below the floor runs
+            # python_pin.py only, which the step before this one just did; the
+            # suites run on the pin (next step).
+            echo "host $(python3 -V) bootstraps the pin only"
+          else
+            host_python_ok || { echo "the platform's python3 is older than $FABRIC_HOST_PYTHON_MIN"; exit 1; }
+          fi
       - name: the suites, as an unprivileged login (a host never runs the fabric as root)
         run: |
           set -e
           useradd -m ci && chown -R ci "$GITHUB_WORKSPACE"
-          su ci -c "cd '$GITHUB_WORKSPACE' && bash tests/run.sh static && bash tests/run.sh python && bash tests/run.sh bash"
+          on_pin=""
+          if [ "${{ matrix.host_python }}" = bootstrap-only ]; then
+            # Below the floor the fabric runs on the pin, as on the host this leg
+            # stands for (fabric-h2), not on the platform's python3 (review F8).
+            # Set inside the command: su resets PATH.
+            mkdir -p /usr/local/lib/ci-pin-bin
+            ln -sf /usr/local/bin/fabric-python /usr/local/lib/ci-pin-bin/python3
+            on_pin="export PATH=/usr/local/lib/ci-pin-bin:\$PATH && python3 -V && "
+          fi
+          su ci -c "${on_pin}cd '$GITHUB_WORKSPACE' && bash tests/run.sh static && bash tests/run.sh python && bash tests/run.sh bash"
 
   ci-ok:
     # The one check the ruleset on main requires

@@ -69,8 +69,14 @@ serve as the parity oracle for each port, unchanged.
 ## 5. Binding Rules
 
 1. Every fabric script is Python, standard library only, valid on 3.13
-   and newer, the pin and the oldest system python3 of a supported
-   platform, Debian 13's (A 2026-10-09), and runs on the pinned interpreter: `runtime/python.json`,
+   and newer, the pin and Debian 13's system python3 (A 2026-10-09), and
+   runs on the pinned interpreter, one build for the whole fleet on every
+   host (A 2026-11-11). A host's own `python3` runs `python_pin.py` and
+   the entries rule 4 lists, nothing else of the fabric. `python_pin.py`
+   stays valid on the oldest system python3 of a supported platform,
+   EL 10's 3.12, and a host whose python3 is older than 3.13 takes no
+   account until rule 4's entries run on the pin there. The pin is
+   `runtime/python.json`,
    installed per host by `tools/fabric/python_pin.py` (run as root by
    the host's own `/usr/bin/python3`, the hash checked before
    extraction) and reached as `/usr/local/bin/fabric-python`; CI installs
@@ -431,3 +437,4 @@ The body above reads current; each change's full note is in [history/ADR-040-ame
 | 2026-10-19 | Wave 9 batches 4, 6 and 9: the git hooks, the fallback note and the host check run on the pin | §5 rule 4: of the git hooks only `pre-push` keeps the host's `python3`; `pre-commit`, `commit-msg`, `post-commit`, `model-fallback-note.sh` and gzapp's `host-check.sh` are forwarders to modules on the pin |
 | 2026-10-24 | fabric-ctl's bash completion joins the closed list | §5 rule 1 (the closed list) |
 | 2026-10-24 | the pin moves to 3.14; no third-party wheel | §2 (the pinned version) |
+| 2026-11-11 | One Python on every host: a host's python3 only bootstraps the pin | §5 rule 1: the owner's word; `python_pin.py` valid on EL 10's 3.12; a host whose python3 is below 3.13 takes no account until rule 4's host-`python3` entries run on the pin |
