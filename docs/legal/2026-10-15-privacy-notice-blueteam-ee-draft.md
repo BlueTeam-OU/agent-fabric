@@ -9,6 +9,12 @@ which replaces the two `[SWISS COUNSEL]` marks. The owner then dropped
 the two items that note calls optional (2026-11-09): the FDPIC sentence
 in section 9 and the bullet on a representative in Switzerland in
 section 10.
+Revised 2026-11-10: the owner's facts of that day fill every
+`[FACT: …]` but the date of publication, which brand-comms fills on
+publishing; what each rests on is under "The owner's facts" below.
+The same day the owner gave F3 (no Swiss data reach OpenAI), so
+section 10 drops its sentence on a Swiss safeguard for OpenAI's copy,
+under the condition stated below.
 The reasons are in `2026-10-15-privacy-notice-blueteam-ee.md`. Placing
 it on the site is brand-comms's work in the `blueteam.ee` repository,
 and the copy review is language-culture's.
@@ -24,7 +30,8 @@ notice in the same step.
 
 How to read this draft:
 
-- `[FACT: …]` is a fact the owner fills in before publishing.
+- `[FACT: …]` is a fact the owner fills in before publishing; one is
+  left, the date, which brand-comms fills on publishing.
 - Every article number in the text is GDPR, read from the official text
   on 2026-10-15; the opinion's section 3 lists each one.
 - The Swiss law in section 10 is `legal-expert-ch`'s reading of
@@ -43,6 +50,51 @@ How to read this draft:
   Switzerland, its name and address must be published, and section 10
   changes in the same step.
 
+The owner's facts (2026-11-10), and what is still open behind them:
+
+- The data protection contact in section 1 is the owner's word. The
+  retention periods in section 2 for enquiries (24 months) and client
+  contracts (3 years after the contract ends) are this role's proposals,
+  which the owner took.
+- Invoices: seven years from the end of the financial year, the owner's
+  word, and what the Accounting Act (raamatupidamise seadus) § 12(1)
+  requires of source documents (raamatupidamise algdokumendid): read
+  2026-11-10 from Riigi Teataja, consolidated text in force 20.07.2025 to
+  31.12.2026, RT I, 10.07.2025, 3, Estonian text.
+- Server logs: "at most 90 days" is the owner's choice until the owner
+  has checked 1984's setting; if 1984 keeps them longer, section 2
+  changes before publishing, or as soon as it is known.
+- Smart Accounts hosts its data in Estonia: the owner's word; neither
+  its privacy policy nor its terms of service says so (read 2026-11-09).
+- OpenAI: the owner confirmed that the data processing agreement is
+  accepted and training is off. The safeguard in section 6 is §4.1 of
+  OpenAI's data processing agreement "Updated December 1, 2025,
+  Effective January 1, 2026" (read 2026-11-10): OpenAI Ireland transfers
+  EEA and Swiss data out of the EEA and Switzerland under agreements
+  containing the Commission's Standard Contractual Clauses of 4 June 2021
+  (Implementing Decision (EU) 2021/914), or under an adequacy decision;
+  it claims no Data Privacy Framework certification. Still to verify:
+  that this is the version the company accepted, in the account.
+- Section 10 and OpenAI's copy: `legal-expert-ch` answered
+  on 2026-11-10 (`2026-11-10-fadp-eu-sccs-openai-us-copy.md`, commit
+  0624d246, on `develop-qzapp/legal-expert-ch/for/user/fadp-swiss-marks-blueteam-ee`).
+  On that reading of Swiss law, the Commission's clauses carry Swiss data
+  only with the adaptations the FDPIC requires, the data processing
+  agreement states none, and an EU adequacy decision has no effect for
+  Swiss data. The owner answered on 2026-11-10: no personal data of
+  persons in Switzerland reach OpenAI through our use (F3 of that
+  note). F1 does not hold: the OpenAI company that keeps the US copy is
+  not certified under the Swiss-U.S. Data Privacy Framework. F2 cannot
+  be read from OpenAI's public data processing agreement: read in full
+  on 2026-11-10, its Schedule 1 section 8 completes the clauses for UK
+  data only, with nothing Swiss. Section 10 therefore says nothing of a
+  Swiss safeguard for OpenAI's copy.
+  That holds only while no personal data of persons in Switzerland go
+  into OpenAI, including client data a Swiss client has agreed in
+  writing, under section 5, may go into an AI tool. If that is to
+  change, section 10 changes before it does, with the safeguard F1 or
+  F2 gives; that note's section 6 has those sentences.
+
 ---
 
 ## Privacy Policy
@@ -58,7 +110,7 @@ The controller of your personal data is **BlueTeam OÜ**, registry code
 14454093, Narva mnt 5, 10117 Tallinn, Estonia, `info@blueteam.ee`.
 
 Questions about your data go to our data protection contact,
-[FACT: name, as on the current page], at the same address. We have not
+Andrea Benetton, at the same address. We have not
 appointed a data protection officer, because the law does not require
 one for our activities.
 
@@ -66,10 +118,10 @@ one for our activities.
 
 | When | Personal data | Why | Legal basis | How long |
 |---|---|---|---|---|
-| You contact us | name, email, phone, company, job title, your message | to answer you, and to prepare an offer if you ask for one | our legitimate interest in answering (Art. 6(1)(f)); steps before a contract at your request (Art. 6(1)(b)) | [FACT: proposed 24 months] after our last exchange, unless it leads to a contract |
-| You or your company become our client | the above, plus business address, tax number, signature, the contract and our correspondence | to agree and perform the contract | contract (Art. 6(1)(b)); for a company client, our legitimate interest in dealing with its representatives (Art. 6(1)(f)) | the contract's life, then until claims under it are time-barred: [FACT: proposed 3 years after it ends] |
-| We invoice and get paid | invoices, payment details | accounting and tax | legal obligation (Art. 6(1)(c)), under the Estonian Accounting Act | 7 years from the end of the financial year [FACT: confirm with Wisor; Accounting Act § 12 not read from Riigi Teataja] |
-| You visit this website | IP address, time, page requested, browser, in our host's server logs | to keep the site secure and working | our legitimate interest in security (Art. 6(1)(f)) | [FACT: the log retention at 1984, in days] |
+| You contact us | name, email, phone, company, job title, your message | to answer you, and to prepare an offer if you ask for one | our legitimate interest in answering (Art. 6(1)(f)); steps before a contract at your request (Art. 6(1)(b)) | 24 months after our last exchange, unless it leads to a contract |
+| You or your company become our client | the above, plus business address, tax number, signature, the contract and our correspondence | to agree and perform the contract | contract (Art. 6(1)(b)); for a company client, our legitimate interest in dealing with its representatives (Art. 6(1)(f)) | the contract's life, then until claims under it are time-barred: 3 years after it ends |
+| We invoice and get paid | invoices, payment details | accounting and tax | legal obligation (Art. 6(1)(c)), under the Estonian Accounting Act | 7 years from the end of the financial year |
+| You visit this website | IP address, time, page requested, browser, in our host's server logs | to keep the site secure and working | our legitimate interest in security (Art. 6(1)(f)) | at most 90 days |
 
 We use no cookies and no analytics or tracking on this website.
 
@@ -113,8 +165,7 @@ We use AI tools from Anthropic and OpenAI in our work.
   and is not among the recipients in section 4.
 - **OpenAI (business plan).** OpenAI processes what we enter on our
   instructions, under a data processing agreement, and does not use it
-  to train its models [FACT: confirm in the account that the data
-  processing agreement is accepted and that training is off]. It may
+  to train its models. It may
   keep a copy for abuse monitoring in the United States (section 6).
 
 Personal data we handle for a client goes into an AI tool only where
@@ -125,15 +176,10 @@ profile you.
 
 ### 6. Transfers outside the EEA
 
-Our providers keep your data in the EEA or in Switzerland
-[FACT: confirm in writing with Smart Accounts where it hosts its data;
-neither its privacy policy (English and Estonian) nor its terms of
-service says, read 2026-11-09; if outside the EEA, sections 4, 6 and 10
-change]. Under EU law, Switzerland is covered by an adequacy decision of
+Our providers keep your data in the EEA or in Switzerland. Under EU law, Switzerland is covered by an adequacy decision of
 the European Commission. The one exception is OpenAI's copy for abuse
 monitoring in the United States (sections 4 and 5), covered by
-[FACT: the safeguard OpenAI's data processing agreement states — the
-EU-US Data Privacy Framework or Standard Contractual Clauses]. You can
+Standard Contractual Clauses adopted by the European Commission. You can
 ask us for a copy of the safeguard at `info@blueteam.ee`. We do not
 transfer your data to any other country. What Swiss law says of these
 transfers is in section 10.
@@ -182,10 +228,7 @@ Where the Swiss Federal Act on Data Protection applies to our use of
 your data, the following also applies:
 
 - Switzerland's Federal Council recognises Estonia, Finland, Iceland
-  and Ireland as countries with adequate data protection. For OpenAI's
-  copy in the United States, [FACT: either "OpenAI is certified under
-  the Swiss-U.S. Data Privacy Framework", or the safeguard OpenAI's
-  data processing agreement gives for Swiss data].
+  and Ireland as countries with adequate data protection.
 - We answer a request for a copy of your data within 30 days, free of
   charge. If we need longer, we tell you within those 30 days and say
   when you will have it. We may ask you to share the cost, up to

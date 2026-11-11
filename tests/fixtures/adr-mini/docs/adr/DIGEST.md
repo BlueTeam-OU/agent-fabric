@@ -7,8 +7,8 @@
 
 ### ADR-000 — The enduring organization (Accepted)
 
-A fixture entry.
+- A fixture entry.
 
 ### ADR-001 — Decision records (Accepted)
 
-A fixture entry.
+- A fixture entry.
