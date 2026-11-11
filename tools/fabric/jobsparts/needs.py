@@ -54,22 +54,30 @@ def _blockers_cleared(job: dict, fields: dict, who: str) -> list[str]:
     check: starting it is the agent saying the decision came, and nothing else could.
 
     A peer's job: blocker may be waived by the holder (`start --despite`), and only that kind: the peer can wait on this very
-    start (j127: the requester's push onto the branch the re-pointed job waits for), which no check can see. Anything else that
-    still waits, or cannot be told, stays a refusal; the waiver and its reason go to the log."""
+    start (j127: the requester's push onto the branch the re-pointed job waits for), which no check can see. Such a blocker may
+    also read `unknown` (the peer cannot be asked): the holder then waives it on their own word, and the log keeps "unknown" as what was
+    read. Anything else that still waits, or cannot be told, stays a refusal; the waiver and its reason go to the log. `--despite` names
+    exactly the unmet blockers: a name that is not unmet, or a start with nothing unmet, is refused."""
     specs = bl.specs_of(job)
+    waived = list(fields.get("despite") or [])
     if job["state"] != "blocked" or not specs:
+        if waived:
+            raise Refused(f"{job['id']} waits on no checkable blocker: --despite {', '.join(waived)} names nothing unmet")
         return []
     cache = bl.refresh(specs, check=True, decide=True)
     if bl.cleared_flag(job, cache) is True:
+        if waived:
+            raise Refused(f"{job['id']}: every blocker has cleared ({', '.join(specs)}), so --despite {', '.join(waived)} names nothing unmet; start it plainly")
         return [f"blocker cleared: {', '.join(specs)}"]
     open_specs = [s["spec"] for s in bl.states_of(job, cache) if s["state"] != "cleared"]
     left = "; ".join(f"{s['spec']} {s['state']}" + (f" ({s['detail']})" if s.get("detail") else "") for s in bl.states_of(job, cache) if s["state"] != "cleared")
     peers = [s for s in open_specs if _peer_job(s)]
-    waived = list(fields.get("despite") or [])
     if waived:
         why = " ".join(str(fields.get("note") or "").split())
         if peers != open_specs:
             raise Refused(f"{job['id']} is still blocked: {left}; --despite waives a job: blocker of another login only")
+        if set(waived) - set(open_specs):
+            raise Refused(f"{job['id']}: --despite names {', '.join(sorted(set(waived) - set(open_specs)))}, which {'is' if len(set(waived) - set(open_specs)) == 1 else 'are'} not unmet")
         if set(open_specs) - set(waived):
             raise Refused(f"{job['id']} is still blocked: {left}; --despite must name each: {', '.join(sorted(set(open_specs) - set(waived)))}")
         return [f"blocker waived by the holder, as read at start: {left}: {why}"]

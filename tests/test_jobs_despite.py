@@ -68,6 +68,16 @@ def main() -> int:
         def job(i: str, *extra: str) -> dict:
             return next(j for j in json.loads(run("list", "--all", "--json", *extra).stdout) if j["id"] == i)
 
+        def age(by: int = 700) -> None:
+            for d, _, fs in os.walk(state):
+                if "jobs-blockers.json" in fs:
+                    path = os.path.join(d, "jobs-blockers.json")
+                    doc = json.load(open(path))
+                    for v in doc.values():
+                        if "checked_at" in v:
+                            v["checked_at"] -= by
+                    json.dump(doc, open(path, "w"))
+
         def log_of(i: str) -> list[dict]:
             return job(i, "--stored").get("log", [])
 
@@ -103,16 +113,39 @@ def main() -> int:
         r = run("start", jid, "--despite", "job:peer/j107")
         check("no reason: refused", r.returncode != 0 and "needs the reason" in r.stderr and job(jid, "--stored")["state"] == "blocked", (r.stdout, r.stderr))
         r = run("start", jid, "--despite", "job:peer/j999", "x")
-        check("a peer job not unmet is not the one waiting: refused",
-              r.returncode != 0 and "must name each" in r.stderr and job(jid, "--stored")["state"] == "blocked", (r.stdout, r.stderr))
+        check("naming only a job that is not unmet is refused",
+              r.returncode != 0 and "not unmet" in r.stderr and job(jid, "--stored")["state"] == "blocked", (r.stdout, r.stderr))
+        two = blocked_on("two peers", "job:peer/j107", "job:peer/j109")
+        boards["peer"] = [row("j107", None, "active"), row("j109", None, "active")]
+        put_boards()
+        r = run("start", two, "--despite", "job:peer/j107", "x")
+        check("an unmet peer job left unnamed is refused",
+              r.returncode != 0 and "must name each" in r.stderr and "job:peer/j109" in r.stderr and job(two, "--stored")["state"] == "blocked", (r.stdout, r.stderr))
+        r = run("start", two, "--despite", "job:peer/j107", "--despite", "job:peer/j109", "both wait on my push")
+        check("naming both starts it", r.returncode == 0 and job(two, "--stored")["state"] == "active", (r.stdout, r.stderr))
+        run("done", two, "--no-artifact", "test")
         r = run("start", jid, "why only")
         check("a reason without --despite is refused", r.returncode != 0 and job(jid, "--stored")["state"] == "blocked", (r.stdout, r.stderr))
+        r = run("start", jid, "--despite", "job:peer/j107", "--despite", "job:peer/j999", "x")
+        check("a name that is not unmet is refused, though the unmet one is named",
+              r.returncode != 0 and "job:peer/j999" in r.stderr and "not unmet" in r.stderr and job(jid, "--stored")["state"] == "blocked", (r.stdout, r.stderr))
+        queued = re.search(r"added (j\d+)", run("add", "never blocked").stdout).group(1)
+        r = run("start", queued, "--despite", "job:peer/j107", "x")
+        check("a job with no blocker refuses --despite, no traceback",
+              r.returncode != 0 and "Traceback" not in r.stderr and "nothing unmet" in r.stderr and job(queued, "--stored")["state"] == "queued", (r.stdout, r.stderr))
         mixed = blocked_on("mixed", "job:peer/j107", "clock:2099-01-01T00:00:00Z")
         r = run("start", mixed, "--despite", "job:peer/j107", "x")
         check("another unmet kind of blocker is not waived", r.returncode != 0 and "another login only" in r.stderr and job(mixed, "--stored")["state"] == "blocked", (r.stdout, r.stderr))
         r = run("start", mixed)
         check("…and plain start gives no way out for it", r.returncode != 0 and "--despite" not in r.stderr, r.stderr)
         anchor = re.search(r"added (j\d+)", run("add", "an open job of this login").stdout).group(1)
+        gone = blocked_on("peer delivered", "job:peer/j108")
+        boards["peer"] = [row("j107", None, "active"), row("j108", None, "delivered")]
+        put_boards()
+        age()
+        r = run("start", gone, "--despite", "job:peer/j108", "x")
+        check("every blocker cleared: --despite is refused, the reason is not lost to a plain start",
+              r.returncode != 0 and "nothing unmet" in r.stderr and job(gone, "--stored")["state"] == "blocked", (r.stdout, r.stderr))
         own = blocked_on("own job", f"job:{AGENT_LOGIN}/{anchor}")
         r = run("start", own, "--despite", f"job:{AGENT_LOGIN}/{anchor}", "x")
         check("a job of this login is not a peer's", r.returncode != 0 and job(own, "--stored")["state"] == "blocked", (r.stdout, r.stderr))
