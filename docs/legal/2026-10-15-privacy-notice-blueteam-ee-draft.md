@@ -26,7 +26,14 @@ wording; the notice takes the rulings sent in REPLY 01a1caeb. Section
 the financial year in which the invoice was recorded (re-read
 2026-11-11, same redaction). The owner confirmed the same day that
 Blueteam has a Telegram account, so section 7 keeps Telegram. The draft
-is final but for the date of publication. The reasons are in `2026-10-15-privacy-notice-blueteam-ee.md`. Placing
+is final but for the date of publication.
+Published 2026-11-11: brand-comms placed the notice on blueteam.ee
+dated "Last updated: 11 November 2026" (`blueteam.ee` main 40a655a,
+`src/pages/privacy.astro`; brand-comms REPLY 01a1cb8d; read from that
+commit 2026-11-11), so the last `[FACT: …]` below now carries that date.
+That the page's wording matches this draft was not compared here. The
+reasons are in
+`2026-10-15-privacy-notice-blueteam-ee.md`. Placing
 it on the site is brand-comms's work in the `blueteam.ee` repository,
 and the copy review is language-culture's.
 
@@ -41,8 +48,8 @@ notice in the same step.
 
 How to read this draft:
 
-- `[FACT: …]` is a fact the owner fills in before publishing; one is
-  left, the date, which brand-comms fills on publishing.
+- `[FACT: …]` was a fact the owner filled in before publishing; none
+  is left since the date of publication, 11 November 2026, was filled.
 - Every article number in the text is GDPR, read from the official text
   on 2026-10-15; the opinion's section 3 lists each one.
 - The Swiss law in section 10 is `legal-expert-ch`'s reading of
@@ -114,7 +121,7 @@ The owner's facts (2026-11-10, two closed on 2026-11-11), and what each rests on
 
 ## Privacy Policy
 
-*Last updated: [FACT: date of publication]*
+*Last updated: 11 November 2026*
 
 This policy explains how BlueTeam OÜ uses personal data when you contact
 us, become our client, or visit this website.
