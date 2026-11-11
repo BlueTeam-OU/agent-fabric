@@ -32,7 +32,7 @@ top-level path gets its row in the change that adds it.
 | `projects/schemas/` | engine | stays |
 | `memory/` (`domains/`, `shared/`, `agents/`) | instance | operator: our field knowledge |
 | `memory/README.md`, `RUBRIC.md` | engine | stays (how a corpus works) |
-| `docs/adr/` | mixed | numbers frozen (rule 4): classified record by record (`move-plan.md` §1); an organisational record moves with its number, a mixed one stays and its organisation rules move by amendment |
+| `docs/adr/` | mixed | numbers frozen (rule 4): classified record by record (`move-plan.md` §1); an organisational record moves with its number, a mixed one stays and its organisation rules move by amendment, or by splitting the record (rule 4) |
 | `docs/live-checks/` | instance | operator |
 | `docs/legal/` | instance | operator: the company's legal opinions |
 | `docs/fleet-deck/`, `docs/split/` | engine | stays |

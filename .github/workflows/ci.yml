@@ -218,7 +218,8 @@ jobs:
           done
           if [ "${{ matrix.host_python }}" = bootstrap-only ]; then
             # ADR-040 §5 rule 1 (A 2026-11-11): a python3 below the floor runs
-            # python_pin.py only, which the step before this one just did.
+            # python_pin.py only, which the step before this one just did; the
+            # suites run on the pin (next step).
             echo "host $(python3 -V) bootstraps the pin only"
           else
             host_python_ok || { echo "the platform's python3 is older than $FABRIC_HOST_PYTHON_MIN"; exit 1; }
@@ -227,7 +228,16 @@ jobs:
         run: |
           set -e
           useradd -m ci && chown -R ci "$GITHUB_WORKSPACE"
-          su ci -c "cd '$GITHUB_WORKSPACE' && bash tests/run.sh static && bash tests/run.sh python && bash tests/run.sh bash"
+          on_pin=""
+          if [ "${{ matrix.host_python }}" = bootstrap-only ]; then
+            # Below the floor the fabric runs on the pin, as on the host this leg
+            # stands for (fabric-h2), not on the platform's python3 (review F8).
+            # Set inside the command: su resets PATH.
+            mkdir -p /usr/local/lib/ci-pin-bin
+            ln -sf /usr/local/bin/fabric-python /usr/local/lib/ci-pin-bin/python3
+            on_pin="export PATH=/usr/local/lib/ci-pin-bin:\$PATH && python3 -V && "
+          fi
+          su ci -c "${on_pin}cd '$GITHUB_WORKSPACE' && bash tests/run.sh static && bash tests/run.sh python && bash tests/run.sh bash"
 
   ci-ok:
     # The one check the ruleset on main requires
