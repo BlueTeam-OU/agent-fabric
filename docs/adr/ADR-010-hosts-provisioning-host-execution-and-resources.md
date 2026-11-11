@@ -155,8 +155,8 @@ that killed the host without privilege and without anything going stale.
 ## 7. Future Evolution
 
 - The ssh backend is read back on a real second host, `fabric-h2`
-  (A 2026-11-11); a command as a placed account there (`--as`) waits for its first
-  account and for an operator whose sudo asks no password.
+  (A 2026-11-11); a command as a placed account there (`--as`) waits
+  for its first account.
 - The account quota layer is the next piece worth doing. The later crash
   (`docs/live-checks/2026-09-25-develop-qzapp-crash.md`) leaves two
   shapes to the project: a lighter stack profile, or the stack brought

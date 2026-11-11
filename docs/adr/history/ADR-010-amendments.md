@@ -151,7 +151,8 @@ fabric-h2 run` ran as `op` on the pinned Python, from that host's own
 checkout (`docs/live-checks/2026-11-11-fabric-h2-registered.md`). The
 control was the same call before the entry existed, which was refused
 as an unknown host. `--as <login>` is not read back. No account is
-placed there, and `op`'s sudo asks for a password, which the worker's
-`sudo -n` cannot give.
+placed there. `op`'s sudo first asked for a password, which the worker's
+`sudo -n` cannot give. The owner then installed a NOPASSWD sudoers entry
+for `op`, and `sudo -n` succeeded over the backend the same day.
 
 Written by fabric-coordinator as job j706.

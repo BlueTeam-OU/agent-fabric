@@ -15,7 +15,7 @@
 | reachability | `ssh-keyscan 192.168.200.79` | OpenSSH 9.9; three host keys |
 | host-key pin | the scan, devex-tooling's own scan (j320), and `/etc/ssh/ssh_host_*_key.pub` read as `op` over the session that key authenticated | all three agree; ED25519 `SHA256:xtZRtO2afGSaZqid5t1gqNjktOr914j9OHcgdx3aZ64`, ECDSA `SHA256:s+IAqOTIwkTlz4cIxpe2olbsAaoQCDzsnflCDYRc5Xc`, RSA `SHA256:yMmap7y07ARgNAtfeHjLxJDzPVorekEq3h6inTb7kYU` |
 | the pin, on the host | `fabric-ssh-hosts check fabric-h2`, run on fabric-h2 against this branch's registry | `match` |
-| the operator | `id` as `op` | uid 1000, groups `op`, `wheel`; sudo asks for a password |
+| the operator | `id` as `op` | uid 1000, groups `op`, `wheel`. sudo first asked for a password. On the owner's word `/etc/sudoers.d/agent-fabric-op` (`op ALL=(ALL) NOPASSWD: ALL`, `root:root 0440`, `visudo -c` passed) was installed by the owner, and `sudo -n true` over `fabric-host fabric-h2 run` then succeeded |
 | the address | `ip -4 addr` | `192.168.200.79/24` on ens18, DHCP; the owner reserved it in OPNsense for MAC `BC:24:11:BA:13:FA` (2026-11-11, not read back from OPNsense) |
 | the source H2 sees | `$SSH_CONNECTION` | `10.10.10.3`, develop-qzapp's VPN address as the LAN sees it |
 | the way back | a TCP connect from fabric-h2 to `10.10.10.3:22` and `10.137.0.30:22` | both closed: H2 cannot open a connection to develop-qzapp |
@@ -33,5 +33,4 @@ The control for the check is the same call before the entry existed: `hostexec: 
 - The way back is closed. Anything that needs H2 to open a connection to develop-qzapp is not possible as the network stands; an InterWeave dial from H2 is the case in point.
 - No account is placed on fabric-h2.
 - sshd there is AlmaLinux's own, with no agent-fabric drop-in, and it still accepts passwords.
-- `op`'s sudo needs a password, and the fabric's host operations (`persist`, `run --as`) need it without one.
-- The provisioning profile for almalinux is python-dev-02's job j135.
+- The provisioning profile for almalinux is python-dev-02's #554. AlmaLinux's python3 is 3.12, below the 3.13 floor, so no account goes there until the hooks that still run on the host's python3 run on the pin (ADR-040 rule 1, A 2026-11-11).
