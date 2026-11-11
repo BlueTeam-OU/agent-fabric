@@ -1086,7 +1086,8 @@ its record disagree, the record wins. Look it up, never read it whole:
 - A working copy's client comes from remote, project and client list,
   never the GitHub org; switching client is context (rules 5–6).
 - A 2026-10-08 — until stage 4 the engine root honours AGENT_FABRIC_ROOT; instance fixtures use AGENT_FABRIC_OPERATOR (§5 rule 1).
-- A 2026-11-11 — the operator repository is BlueTeam-OU/blueteam-fabric; the move list and order are docs/split/move-plan.md; settings repositories stay apart (§8); an organisation's record moves with its number, kept reserved; a mixed one may be split (rule 4).
+- A 2026-11-11 — the operator repository is BlueTeam-OU/blueteam-fabric; the move list and order are docs/split/move-plan.md; settings repositories stay apart (§8); an organisation's record moves with its number, a mixed one is amended or split (rule 4).
+- A 2026-11-11 — rule 2: personas, the clients registry and routing/policies are instance; the guards' exception lists are engine (§5 rule 2).
 - Keywords: split, engine, operator, client, engagement, roots, open
   source, publish, instance data, Blueteam, Gzapi,
   operator repository, blueteam-fabric, move plan, extraction.
