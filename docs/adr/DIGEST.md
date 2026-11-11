@@ -1132,6 +1132,7 @@ its record disagree, the record wins. Look it up, never read it whole:
 - A 2026-10-13 — loopback exempt from per-source penalties; MaxStartups 100 (§5 rule 1).
 - A 2026-10-31 — `attach`: the deck attaches to the harness pane (§5 rule 4).
 - A 2026-11-04 — harness pane `--resume` once after an idle `harness-restart`, else `--wait` (§5 rule 4).
+- A 2026-11-11 — a host reached over ssh (fabric-h2) listens beyond loopback; the coordinator's key on its operator, no forced command (rules 1, 8).
 - Keywords: ssh, sshd, operator, Fleet Deck, moveto, enter-ssh, forced
   command, authorized_keys, host key, known_hosts, Qubes, rc.local, attach,
   harness, agent-fabric-harness.service, harness-restart.
