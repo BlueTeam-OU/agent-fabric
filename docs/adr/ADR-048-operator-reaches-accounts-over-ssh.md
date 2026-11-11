@@ -105,6 +105,17 @@ then the forced command.
    (A 2026-10-13). The settings live in one drop-in,
    `/etc/ssh/sshd_config.d/50-agent-fabric.conf`, and `sshd -t` passes
    before sshd is enabled or restarted.
+   A host reached over `ssh`, `fabric-h2` the first, is the exception to
+   loopback (A 2026-11-11). Its sshd listens on the address its
+   registry entry's `sshd` names, and it also carries the coordinator's
+   way to the operator account (the entry's `ssh`). The drop-in there
+   adds the operator login to `AllowUsers`. Its keys file holds the
+   coordinator's key with `restrict` and a `from=` naming
+   develop-qzapp's address as that host sees it, and with no forced
+   command, because hostexec runs a command line. No per-source penalty
+   exemption goes beyond loopback. Until the drop-in is applied there,
+   the entry's `sshd` pins the host keys of the distribution's own sshd,
+   and nothing enters an account through it: no account is placed there.
 2. `AuthorizedKeysFile` is `/etc/ssh/authorized_keys/%u`: a directory
    `root:root 0755`, one file per placed login, `root:root 0644`. No
    account's own `~/.ssh/authorized_keys` is read.
@@ -176,7 +187,9 @@ then the forced command.
    and a pane that cannot reach sshd is entered through it.
 8. Agents' own ssh keys stay future (ADR-038): no agent login holds an
    ssh key that reaches another account, and no key but the operator's
-   is placed under `/etc/ssh/authorized_keys/`.
+   is placed under `/etc/ssh/authorized_keys/`, except, on a host reached
+   over `ssh`, the coordinator's key for the operator login, as rule 1
+   says (A 2026-11-11).
 
 ## 6. Consequences
 
@@ -196,8 +209,9 @@ then the forced command.
 - moveto's `install.sh` installing `enter-ssh` and its conf beside
   `enter`, under its manifest, so `fabric-status` reports a stale copy;
   until then ssh-operator.sh and its restore install them.
-- More than one host: sshd beyond loopback, and per-host addresses in the
-  registry; agents' own keys (ADR-038).
+- More than one host: the second host's sshd is rule 1's exception
+  (A 2026-11-11), with its drop-in for a platform off Qubes still to be
+  built. Agents' own keys stay with ADR-038.
 
 ## 8. Decision Status
 
@@ -219,3 +233,4 @@ The body above reads current; each change's full note is in [history/ADR-048-ame
 | 2026-10-13 | loopback exempt from per-source penalties; MaxStartups above the deck's burst | §5 rule 1 |
 | 2026-10-31 | `attach`, the fifth word: the deck attaches to the account's harness pane | §5 rule 4 |
 | 2026-11-04 | the harness pane's one `--resume`: after an idle account's `harness-restart` | §5 rule 4 |
+| 2026-11-11 | A host reached over ssh listens beyond loopback; the coordinator's key on its operator | §5 rules 1 and 8; §7 |

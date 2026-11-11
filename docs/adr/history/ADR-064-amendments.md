@@ -262,3 +262,52 @@ watch acknowledges each record by its id.
 
 Written by fabric-coordinator as job j652, beside the ADR-029 amendment
 python-dev-03 asked for (OBSERVATION 01a1ba62).
+
+### Amendment 2026-11-11 — The second host is fabric-h2, reached from develop-qzapp only
+
+Rule 1's next milestone opened in the 2026-10-27 amendment on three
+conditions: a named host, routable addresses for its accounts, and
+InterWeave ADR-0034 §7 and SPIKE-004 consumed or accepted. This
+amendment names the host and says how the other two are met.
+
+The host is `fabric-h2`, VM 101 on the Proxmox node s13337, which
+also runs gzapp in production. The node is not a fabric host. devex-tooling
+created the VM through the PVE API (j320), the owner installed
+AlmaLinux 10.2 on its console, and it is registered with its sshd host
+keys pinned. `fabric-host fabric-h2 check` answers
+(`docs/live-checks/2026-11-11-fabric-h2-registered.md`).
+
+The network is not the plan's. `docs/proposals/j422-control-plane-on-interweave-cli.md`
+§3.1 decided a WireGuard overlay run by each host's operator, and the
+owner had left the mesh question to the day the host existed. On
+2026-11-11 the owner chose neither. develop-qzapp reaches fabric-h2
+over the LAN and the VPN it already has, and fabric-h2's address is
+reserved in the LAN's DHCP. The live check found that the way back is
+closed: from fabric-h2, a connection to develop-qzapp's address as
+fabric-h2 sees it fails. So every connection between the two hosts
+is opened by develop-qzapp, and the render's static bootstrap on
+fabric-h2 to a develop-qzapp row dials nothing. Whether InterWeave
+keeps a connection usable both ways when only one side can dial is
+what P2's two-host check measures. ADR-0055 decision 5b's
+two-namespace case had both sides dialable.
+
+The gates. InterWeave's ADR-0055 decision 5b (A 2026-10-27) states the
+limits of a two-host deployment: static operator-supplied addresses,
+no discovery, connectivity roles off. The owner accepted them for the
+first remote host that day. ADR-034's order put the relay drill
+(§7 step 2, done 2026-11-07) and the scheduled drain (step 3, built,
+with its 14-day bound reported but not held) before a second host. On
+2026-11-11 the owner waived the held bound and P1's control parity
+report for P2 only: the registry entry, and a throwaway login's ping,
+identity and one GZCoord message each way.
+
+What stays as planned. An agent moves to fabric-h2, edge-hosting
+first (plan §3.5), only on the owner's word on the control parity
+report. Its keyring and ADR-038 subkey are carried over and not
+rotated, on the owner's word of 2026-10-30 ("move means move"), which
+reverses the plan's §3.4. Whether the agents run in the VM itself or
+in a container inside it stays the owner's to decide. ADR-048 is
+amended the same day for sshd beyond loopback.
+
+Written by fabric-coordinator as job j706, from architect-cto-01's
+REQUEST 01a1c063.

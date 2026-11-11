@@ -38,7 +38,8 @@
               "fedora-qubes",
               "fedora",
               "debian",
-              "debian-qubes"
+              "debian-qubes",
+              "almalinux"
             ]
           },
           "ssh": {
