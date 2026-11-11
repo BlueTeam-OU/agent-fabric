@@ -291,7 +291,8 @@ def named(line: str, whole: bool = False) -> str:
 
 def named_all(bad: list[tuple[str, str]], whole: bool = False) -> list[str]:
     """The malformed lines as they are named: each cut at NAMED_LINE_CHARS before its reason is added (a cut
-    after it would lose the reason), the report's first MAX_NAMED and a count of the rest."""
+    after it would lose the reason), the report's first MAX_NAMED and a count of the rest; whole: all of them, uncut,
+    for post-review, whose refusal is the one place a person fixes the lines before the review cannot be withdrawn."""
     if whole:
         return [named(line, True) + reason for line, reason in bad]
     out = [named(line) + reason for line, reason in bad[:MAX_NAMED]]

@@ -164,8 +164,8 @@ marker says "partial coverage: N path(s) not read" (with a "not read" default: "
 named not read"); the gate does not count a partial review as coverage of its head.
 A report that with its block is over the 65000 characters a review may hold is posted as a PR comment FIRST, and the
 review, which keeps the marker, the partial line, the report's Finding:/Judgement: lines and the block, points at it
-(`posted review:` is then the only URL on stdout; the comment's is in the review). A report one
-over the cap on its own is refused instead. A comment GitHub rejects posts no review; a review that fails after the
+(`posted review:` is then the only URL on stdout; the comment's is in the review). A report that is over the
+cap on its own is refused instead. A comment GitHub rejects posts no review; a review that fails after the
 comment says the comment is already there.
 A report with no header, or a header from before those fields, is refused: a new review is posted as v2 only.
 The range's base must be the PR's merge-base with its base branch or the head of its last checkpoint review (an
