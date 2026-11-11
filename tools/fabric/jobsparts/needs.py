@@ -39,6 +39,11 @@ def _no_hold(job: dict, fields: dict, who: str) -> list[str]:
 
 def _working_copy(job: dict, fields: dict, who: str) -> list[str]:
     # A job with no project at all (added in a directory that is no checkout) never had one to find: it starts as it always did.
+    # `start` of a job with no branch needs no copy either (j754): its work may be a REPLY, which changes no repository, and an account
+    # that has none of the project's checkouts could otherwise never start, nor so finish, such a job. `switch` chooses a branch, so
+    # it still needs one, and so does a job that already has its branch.
+    if who == "start" and not job.get("branch"):
+        return ["no branch: no working copy needed"]
     if job.get("project") and not job.get("working_copy"):
         raise Refused(f"{job['id']} has no working copy ({job['project']} has none here or beside this one): "
                       f"name one with fabric-jobs project {job['id']} {job['project']} --working-copy DIR")

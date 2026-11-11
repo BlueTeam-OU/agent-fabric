@@ -582,9 +582,14 @@ def main() -> int:
             check("a request for a project with no working copy here is filed with none", p.returncode == 0
                   and len(jobs()) == 1 and jobs()[0]["project"] == "fixture" and jobs()[0]["working_copy"] is None, p.stderr + repr(jobs()))
             p = run("start", "j1")
+            check("j754: a job with no branch is started without a working copy (its work may be a REPLY)", p.returncode == 0
+                  and jobs()[0]["state"] == "active", p.stderr)
+            force("j1", "queued", branch="side/work")      # with a branch the work is in a checkout, and the start still names none
+            p = run("start", "j1")
             check("start refuses it by name, and says how to name a working copy", p.returncode == 1
                   and "j1 has no working copy" in p.stderr and "project j1 fixture --working-copy DIR" in p.stderr
                   and jobs()[0]["state"] == "queued", p.stderr)
+            force("j1", "queued", branch=None)      # back to the job as it was filed, for the re-point below
             p = run("project", "j1", "fixture", "--working-copy", repo_a)
             got = jobs()
             check("--request fills the job from the message", p.returncode == 0 and len(got) == 1
@@ -625,6 +630,7 @@ def main() -> int:
             nowhere = jobs()[-1]
             check("REPOSITORY registered here with no checkout: filed with none, not PROJECT's, matched case-folded", p.returncode == 0
                   and nowhere["project"] == "fixture-nowhere" and nowhere["working_copy"] is None, p.stderr + repr(nowhere))
+            force(nowhere["id"], "queued", branch="side/work")
             p = run("start", nowhere["id"])
             check("start refuses it by name", p.returncode == 1 and f"{nowhere['id']} has no working copy" in p.stderr
                   and "fixture-nowhere" in p.stderr, p.stderr)

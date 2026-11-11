@@ -261,11 +261,29 @@ class Working(Case):
         os.unlink(hold)
         self.ok("start", "j1")
 
-    def test_start_refuses_a_job_of_a_project_that_has_no_working_copy_here(self):
+    def test_start_refuses_a_job_with_a_branch_of_a_project_that_has_no_working_copy_here(self):
         self.w.add("a", project="fixture-proj")
-        self.w.put(lambda doc: doc["jobs"][0].update(working_copy=None))
+        self.w.put(lambda doc: doc["jobs"][0].update(working_copy=None, branch="side/work"))
         self.refused("start", "j1", said="has no working copy")
         self.assertEqual(self.state(), "queued")
+
+    def test_start_takes_a_job_with_no_branch_of_a_project_that_has_no_working_copy_here_j754(self):
+        # Its work may be a REPLY, which changes no repository (an account that holds none of the project's checkouts).
+        self.w.add("answer it", project="fixture-proj")
+        self.w.put(lambda doc: doc["jobs"][0].update(working_copy=None))
+        self.ok("start", "j1")
+        self.assertEqual(self.state(), "active")
+        self.w.answer(RID)
+        self.ok("deliver", "j1", f"reply:{RID}")
+        self.ok("done", "j1", f"reply:{RID}")
+        self.assertEqual(self.state(), "done")
+
+    def test_switch_still_needs_a_working_copy_of_the_project_j754(self):
+        # The positive control of the case above: only `start` is excused, since `switch` chooses the branch in a checkout.
+        self.w.add("answer it", project="fixture-proj")
+        self.w.put(lambda doc: doc["jobs"][0].update(working_copy=None))
+        p = self.w.switch()
+        self.assertEqual(self.state(), "queued", p.stdout + p.stderr)
 
 
     def test_pause_sets_the_active_job_aside_with_its_reason(self):
