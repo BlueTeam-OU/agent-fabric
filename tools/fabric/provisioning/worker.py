@@ -50,6 +50,7 @@ HERE = os.path.dirname(os.path.realpath(__file__))
 TOOLS = os.path.dirname(HERE)
 sys.path.insert(0, TOOLS)
 import project_clone as pc  # noqa: E402
+import python_pin  # noqa: E402
 import roots  # noqa: E402
 from provisioning import host_platform, host_steps as hs, launch_record as lr, verify as vf, worker_args as wa  # noqa: E402
 
@@ -203,16 +204,19 @@ class Worker:
 
 # ── the pieces of a step ───────────────────────────────────────────────
 
-PYTHON_FLOOR_CHECK = ("import sys; m = tuple(int(x) for x in sys.argv[1].split(\".\")); "
-                      "sys.exit(sys.version_info[:2] < m)")
 CLAUDE_INSTALLER = "https://claude.ai/install.sh"
 ORI_INSTALLER = "https://openrouter.ai/labs/ori/install.sh"
 
 
-def host_python_ok() -> bool:
-    got = subprocess.run(["python3", "-c", PYTHON_FLOOR_CHECK, ".".join(str(n) for n in host_platform.FABRIC_HOST_PYTHON_MIN)],
-                         capture_output=True, timeout=PROBE_TIMEOUT_S)
-    return got.returncode == 0
+def pin_problem(root: str) -> str | None:
+    """None when fabric-python is installed and is the build runtime/python.json pins; otherwise what is wrong.
+    Unreadable pin is a problem too, never "fine": an unknown pin cannot be matched."""
+    try:
+        return python_pin.check(python_pin.pin(os.path.join(root, "runtime", "python.json")))
+    except python_pin.PinError as exc:
+        return str(exc)
+    except (TypeError, AttributeError) as exc:    # valid JSON of the wrong shape: python_pin.pin() indexes it unchecked
+        return f"runtime/python.json unreadable: not the pin's shape ({type(exc).__name__})"
 
 
 def tail(text: str, n: int = 5) -> None:
@@ -244,12 +248,12 @@ def prepare(w: Worker) -> int:
     prof = host_platform.profile(host_platform.detect(w.env))
     absent = [t for t in host_platform.FABRIC_HOST_TOOLS if shutil.which(t) is None]
     missing, unpackaged = host_platform.split_missing(prof, absent)
-    if shutil.which("python3") and not host_python_ok():
-        said = subprocess.run(["python3", "-V"], capture_output=True, text=True, timeout=PROBE_TIMEOUT_S)
-        version = ((said.stdout or "") + (said.stderr or "")).strip()
-        floor = ".".join(str(n) for n in host_platform.FABRIC_HOST_PYTHON_MIN)
-        w.die(f"this host's python3 ({version}) is older than {floor}, the fabric's floor (ADR-040 rule 1); "
-              "install a newer python3, then rerun")
+    # One Python on every host, the pin (the owner's word, 2026-11-11): the host's own python3 is never asked its
+    # version here; only python_pin.py and the entries ADR-040 rule 4 still lists run on it.
+    problem = pin_problem(w.root)
+    if problem:
+        w.die(f"the fleet's pinned Python is not in place: {problem}; as root: "
+              f"/usr/bin/python3 {os.path.join(w.root, 'tools', 'fabric', 'python_pin.py')} install, then rerun")
     # The operator's own tools are asked about for the operator's login (--human) only: no role account calls them.
     operator_missing = sorted({prof.pkg_for(t) for t in host_platform.FABRIC_OPERATOR_TOOLS if shutil.which(t) is None}) if a.human else []
     _log(hs.audit(prof.id, "1" if prof.persists_across_reboot else "0", prof.pkg_install_hint,

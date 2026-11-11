@@ -9,6 +9,7 @@ own. Plain script: prints ok/FAIL, exit 1 on any failure."""
 from __future__ import annotations
 
 import io
+import json
 import os
 import subprocess
 import sys
@@ -88,7 +89,9 @@ def main() -> int:
 
         def absent(argv):
             return 2 if argv[0] == "getent" else 0
-        with mock.patch.object(subprocess, "run", recorder(calls, absent, stop_at="persist_accounts.py")), redirect_stderr(io.StringIO()):
+        # The host's own fabric-python is machine state; the pin check has its cases below.
+        with mock.patch.object(subprocess, "run", recorder(calls, absent, stop_at="persist_accounts.py")), \
+                mock.patch.object(worker, "pin_problem", lambda root: None), redirect_stderr(io.StringIO()):
             w = make_worker(env={"AGENT_FABRIC_ETC": etc, "PATH": os.environ.get("PATH", "")})
             try:
                 worker.prepare(w)
@@ -104,6 +107,53 @@ def main() -> int:
         check("persist: the Python entry, on the pinned interpreter, isolated, as root, for the login",
               persist[:5] == ["sudo", "-n", worker.PY, "-I", os.path.join(HERE, "tools", "fabric", "provisioning", "persist_accounts.py")]
               and persist[-1] == LOGIN, str(persist))
+
+    print("prepare: the pin, not the host's python3 (ADR-040 rule 1)")
+    import python_pin
+    with tempfile.TemporaryDirectory() as etc, tempfile.TemporaryDirectory() as root:
+        os.makedirs(f"{root}/runtime")
+        with open(f"{root}/runtime/python.json", "w") as fh:
+            fh.write(open(f"{HERE}/runtime/python.json").read())
+
+        def prepared(problem, *, rt=root):
+            calls = []
+            err = io.StringIO()
+            seen = []
+
+            def fake_check(p, *a, **k):
+                seen.append(p["python"])
+                return problem
+            with mock.patch.object(subprocess, "run", recorder(calls, lambda argv: 2 if argv[0] == "getent" else 0, stop_at="persist_accounts.py")), \
+                    mock.patch.object(python_pin, "check", fake_check), redirect_stderr(err):
+                w = make_worker(root=rt, env={"AGENT_FABRIC_ETC": etc, "PATH": os.environ.get("PATH", "")})
+                try:
+                    worker.prepare(w)
+                    stopped = "ran"
+                except worker.Stop as exc:
+                    stopped = f"stop {exc.code}"
+                except Reached:
+                    stopped = "reached"
+            return stopped, err.getvalue(), calls, seen
+        stopped, text, calls, seen = prepared(None)
+        check("the pinned build in place: prepare goes on to the account", stopped == "reached" and calls[0][0][:3] == ["getent", "passwd", LOGIN], f"{stopped}\n{text}")
+        check("…and the build asked about is the one runtime/python.json under the root pins",
+              seen == [json.load(open(f"{root}/runtime/python.json"))["python"]], str(seen))
+        check("…and no call asks the host's python3 anything",
+              not any(c[0][:1] == ["python3"] for c in calls), str([c[0] for c in calls]))
+        stopped, text, calls, seen = prepared("/usr/local/bin/fabric-python is absent")
+        check("fabric-python absent or another build: exit 1 before any account, naming the fact and python_pin.py install",
+              stopped == "stop 1" and "is absent" in text and "python_pin.py install" in text and not any("sudo" in c[0] for c in calls), f"{stopped}\n{text}\n{calls}")
+        for shape in ("[]", "null"):
+            with tempfile.TemporaryDirectory() as odd:
+                os.makedirs(f"{odd}/runtime")
+                with open(f"{odd}/runtime/python.json", "w") as fh:
+                    fh.write(shape)
+                got = worker.pin_problem(odd)
+                check(f"a pin file of {shape} is a one-line problem, not a traceback", bool(got) and "unreadable" in got, str(got))
+        with tempfile.TemporaryDirectory() as bad:
+            stopped, text, calls, seen = prepared(None, rt=bad)
+            check("an unreadable pin is a stop, never a pass: the check is not asked at all",
+                  stopped == "stop 1" and "runtime/python.json unreadable" in text and not any("sudo" in c[0] for c in calls) and seen == [], f"{stopped}\n{text}")
 
     print("the published host keys")
     with tempfile.TemporaryDirectory() as root:
