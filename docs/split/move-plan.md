@@ -161,8 +161,10 @@ git mv policies/{arming,authority,auto-mode,host-load,hygiene,signing}.json oper
 git mv routing/profiles.json routing/policies operator/routing/
 git mv memory/domains memory/shared memory/agents operator/memory/
 git mv docs/live-checks docs/legal operator/docs/
-git mv docs/adr/ADR-NNN-*.md operator/docs/adr/   # each record the classification moves
-git mv docs/adr/history/ADR-NNN-amendments.md operator/docs/adr/history/   # with its notes, where it has any
+for r in $MOVED_RECORDS; do   # the classification's list, e.g. ADR-031
+  git mv docs/adr/"$r"-*.md operator/docs/adr/
+  if [ -e docs/adr/history/"$r"-amendments.md ]; then git mv docs/adr/history/"$r"-amendments.md operator/docs/adr/history/; fi
+done
 ```
 
 **Step C: the operator repository takes its history.** In a fresh clone of agent-fabric
