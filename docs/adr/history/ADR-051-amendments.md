@@ -35,3 +35,23 @@ coordinator against GitHub's published digest, the binary's sha256 the
 coordinator's, of the member in that archive. The spike of 2026-10-10
 (§1) measured 1.1.15 and stays its evidence; the checkbox and
 drag-and-drop limits of rule 7 are unchanged by those releases' notes.
+
+### Amendment 2026-11-11 — The pin moves to moli 1.1.23
+
+The owner asked devex-tooling to prepare the move to the current
+upstream release, 1.1.23 (2026-11-09), four releases past the pin
+(REQUEST 01a1c620, 2026-11-10). Releases 1.1.20-1.1.23 move IndexedDB,
+cookies and localStorage onto SQLite, fix request-header validation,
+CORP before redirect and SameSite enforcement, and export markdown from
+the live DOM and Shadow DOM. Rule 1's pin moves with
+`projects/registry.json`: the archive's sha256 checked by devex-tooling
+and by the coordinator against GitHub's published digest, the binary's
+sha256 by both, of the member in that archive. devex-tooling's smoke,
+1.1.19 against 1.1.23 with `fetch --dump markdown`, exited 0 on
+example.com, a GitHub releases page and Fedlex with `--wait-selector`;
+on Fedlex 1.1.23 returned text 1.1.19 dropped. One behaviour changed:
+Fedlex without `--wait-selector` gave 1.1.19 a 1.2 KB splash and gives
+1.1.23 an empty dump, still exit 0. The moli-web skill now says an empty dump
+usually means the page had not rendered yet, and to add
+`--wait-selector`. Rule 7's limits were not
+re-measured.
