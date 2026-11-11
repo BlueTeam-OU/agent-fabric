@@ -14,10 +14,12 @@ platform_detect() {
     if [[ -d /usr/share/qubes || -n "${QUBES_ENV_SOURCED:-}" || -r /etc/qubes-release ]]; then qubes="-qubes"; fi
     case "$id $like" in
         fedora*) echo "fedora$qubes" ;;
+        almalinux*) [[ -n "$qubes" ]] && echo "" || echo almalinux ;;
         debian*|*debian*|ubuntu*) echo "debian$qubes" ;;
         *) echo "" ;;
     esac
 }
+PLATFORM_NO_PACKAGE=()
 PLATFORM="$(platform_detect)"
 if [[ -n "$PLATFORM" && -r "$_platform_dir/$PLATFORM.sh" ]]; then
     # shellcheck source=/dev/null

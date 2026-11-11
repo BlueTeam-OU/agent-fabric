@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """tools/fabric/provisioning/host_platform.py: the detection and the package
 lists the platform/*.sh scripts held (their differential check against the
-shell, 0 differences over all four platforms and the unknown one, is the
+shell, 0 differences over the first four platforms and the unknown one, is the
 source of the literal lists below; while the shell stays for CI's bare
 container and ssh-operator.sh, the last case here keeps the two together). Plain script: prints ok/FAIL, exit 1
 on any failure."""
@@ -20,6 +20,8 @@ from provisioning import host_platform as hp  # noqa: E402
 TOOL = os.path.join(HERE, "tools", "fabric", "provisioning", "host_platform.py")
 FEDORA = ("bash coreutils curl diffutils gh git-core gnupg2 jq nodejs nodejs-npm openssh-clients openssl paperkey procps-ng "
           "python3 shadow-utils sudo util-linux").split()
+# gh is EPEL's, paperkey has no package on EL10 (measured on almalinux:10.2): left out, not guessed.
+ALMALINUX = [p for p in FEDORA if p != "paperkey"]
 DEBIAN = ("bash coreutils curl diffutils gh git gnupg jq libc-bin nodejs npm openssh-client openssl paperkey passwd procps "
           "python3 sudo util-linux").split()
 
@@ -52,6 +54,13 @@ def main() -> int:
         check("debian, ubuntu, and a derivative that says it is like debian",
               det('ID=debian\n') == "debian" and det('ID=ubuntu\nID_LIKE=debian\n') == "debian"
               and det('ID=mint\nID_LIKE="ubuntu debian"\n') == "debian")
+        check("almalinux, from the os-release of AlmaLinux 10.2 as H2 reads it",
+              det('ID="almalinux"\nID_LIKE="rhel centos fedora"\n') == "almalinux" and det('ID=almalinux\n') == "almalinux")
+        check("Rocky, RHEL and CentOS (ID_LIKE=rhel) stay unknown: one platform at a time",
+              det('ID="rocky"\nID_LIKE="rhel centos fedora"\n') == "" and det('ID="rhel"\nID_LIKE="fedora"\n') == ""
+              and det('ID="centos"\nID_LIKE="rhel fedora"\n') == "")
+        check("AlmaLinux under a Qubes marker is unknown, not a plain almalinux that persists",
+              det('ID=almalinux\n', qubes=True) == "" and det('ID=almalinux\n', {"QUBES_ENV_SOURCED": "1"}) == "")
         check("a distribution the fabric has no profile for is blank, and so is no file", det('ID=arch\n') == "" and det(None) == "")
         check("a Qubes marker adds -qubes (the directory)", det('ID=fedora\n', qubes=True) == "fedora-qubes"
               and det('ID=debian\n', qubes=True) == "debian-qubes")
@@ -59,13 +68,17 @@ def main() -> int:
               det('ID=fedora\n', {"QUBES_ENV_SOURCED": "1"}) == "fedora-qubes" and det('ID=fedora\n', {"QUBES_ENV_SOURCED": ""}) == "fedora")
         check("AGENT_FABRIC_PLATFORM wins, whatever it says", det('ID=fedora\n', {"AGENT_FABRIC_PLATFORM": "debian"}) == "debian"
               and det('ID=fedora\n', {"AGENT_FABRIC_PLATFORM": "x"}) == "x")
+        al = hp.profile("almalinux")
+        check("the almalinux profile: dnf, /etc/bashrc, wheel, persists, two-step EPEL install",
+              al.id == "almalinux" and al.persists_across_reboot and al.global_bashrc == "/etc/bashrc" and "wheel" in al.sudo_group_note
+              and al.install_cmd == "sudo dnf install -y epel-release && sudo dnf install -y")
         check("a name with no profile is the unknown profile", hp.profile("x").id == "unknown")
 
         print("packages")
-        for name, want in (("fedora", FEDORA), ("fedora-qubes", FEDORA), ("debian", DEBIAN), ("debian-qubes", DEBIAN)):
+        for name, want in (("fedora", FEDORA), ("fedora-qubes", FEDORA), ("almalinux", ALMALINUX), ("debian", DEBIAN), ("debian-qubes", DEBIAN)):
             r = subprocess.run([sys.executable, "-I", TOOL, "packages", name], capture_output=True, text=True, timeout=60)
             check(f"{name}: the sorted list, one per line", r.returncode == 0 and r.stdout.split("\n")[:-1] == want, r.stdout + r.stderr)
-        for name in ("fedora", "fedora-qubes", "debian", "debian-qubes"):
+        for name in ("fedora", "fedora-qubes", "almalinux", "debian", "debian-qubes"):
             sh = subprocess.run(["bash", os.path.join(HERE, "runtime", "provisioning", "platform", "packages.sh"), name],
                                 capture_output=True, text=True, timeout=60, env={"PATH": os.environ.get("PATH", "")})
             py = subprocess.run([sys.executable, "-I", TOOL, "packages", name], capture_output=True, text=True, timeout=60)
@@ -92,7 +105,8 @@ def main() -> int:
             return (subprocess.run(["bash", sh_tool, "--operator", *args], capture_output=True, text=True, timeout=60, env=env),
                     subprocess.run([sys.executable, "-I", TOOL, "packages", "--operator", *args], capture_output=True, text=True,
                                    timeout=60, env=env))
-        for name, want, cmd in (("fedora", FEDORA, "sudo dnf install -y"), ("debian", DEBIAN, "sudo apt-get install -y")):
+        for name, want, cmd in (("fedora", FEDORA, "sudo dnf install -y"),
+                                  ("almalinux", ALMALINUX, "sudo dnf install -y epel-release && sudo dnf install -y"), ("debian", DEBIAN, "sudo apt-get install -y")):
             sh, py = both([name], empty)
             line = f"{cmd} {' '.join(want)} kitty\n"
             check(f"{name}: one line, the install command, the host list, then the operator's (shell and Python agree)",
@@ -122,7 +136,7 @@ def main() -> int:
               and hp.operator_packages(hp.profile("fedora")) == ["kitty"] and hp.operator_packages(hp.profile("debian-qubes")) == ["kitty"])
         r = subprocess.run([sys.executable, "-I", TOOL, "packages", "nope"], capture_output=True, text=True, timeout=60)
         check("an unknown platform: exit 2, nothing on stdout, the choices on stderr",
-              r.returncode == 2 and r.stdout == "" and "unknown platform" in r.stderr and "debian-qubes" in r.stderr, r.stderr)
+              r.returncode == 2 and r.stdout == "" and "unknown platform" in r.stderr and "almalinux" in r.stderr, r.stderr)
         r = subprocess.run([sys.executable, "-I", TOOL, "frob"], capture_output=True, text=True, timeout=60)
         check("an unknown command: usage, exit 2", r.returncode == 2 and "usage:" in r.stderr, r.stderr)
         r = subprocess.run([sys.executable, "-I", TOOL, "detect"], capture_output=True, text=True, timeout=60,

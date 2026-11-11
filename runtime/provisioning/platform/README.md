@@ -8,12 +8,20 @@ the worker names one:
 
 | function / variable | what it says |
 |---|---|
-| `PLATFORM_ID` | the id the host registry uses (`fedora-qubes`, `fedora`, `debian`, `debian-qubes`) |
+| `PLATFORM_ID` | the id the host registry uses (`fedora-qubes`, `fedora`, `almalinux`, `debian`, `debian-qubes`) |
 | `PKG_INSTALL_HINT` | the command a person runs to install packages, where they persist (a Qubes AppVM: in the TemplateVM) |
 | `pkg_for <tool>` | the package that provides a tool of the fabric's contract |
 | `PERSISTS_ACROSS_REBOOT` | whether a package installed on this machine is still there after a reboot (no, on a Qubes AppVM) |
 | `GLOBAL_BASHRC` | the system bashrc a login shell sources (`/etc/bashrc` on Fedora, `/etc/bash.bashrc` on Debian) |
 | `SUDO_GROUP_NOTE` | how sudo is granted to the operator here (the `qubes` group on Qubes; `sudo` on Debian) |
+
+`almalinux` (AlmaLinux 10, a plain install; Rocky, RHEL and other
+`ID_LIKE=rhel` stay unknown, and AlmaLinux under a Qubes marker is unknown
+too): the Fedora names, with `gh` (and the operator's `kitty`) in EPEL, so
+its install command enables EPEL first; `paperkey` is in no repository of
+the release, so the package list leaves it out and the host audit names it
+missing; its `python3` is 3.12, below `FABRIC_HOST_PYTHON_MIN`
+(measured on almalinux:10.2, 2026-11-11).
 
 **The fabric's host contract** — the commands its hooks, scripts and
 provisioning call, whatever the platform:

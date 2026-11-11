@@ -8,10 +8,14 @@ test, or a host the detection misreads).
 CONTRACT, frozen from the shell
   detect(environ, os_release, qubes_markers) -> a profile name, or ""
       AGENT_FABRIC_PLATFORM wins, whatever it says; else ID and ID_LIKE of
-      /etc/os-release: fedora* is fedora, debian*, *debian* and ubuntu* are
-      debian, anything else (or no file) is none; a Qubes marker (a
+      /etc/os-release: fedora* is fedora, almalinux* is almalinux, debian*,
+      *debian* and ubuntu* are debian, anything else (or no file) is none
+      (Rocky, RHEL and the rest of ID_LIKE=rhel included: one platform at a
+      time, the owner's word of 2026-11-11); a Qubes marker (a
       /usr/share/qubes directory, QUBES_ENV_SOURCED set non-empty, a
-      readable /etc/qubes-release) adds "-qubes". A name with no profile
+      readable /etc/qubes-release) adds "-qubes" to fedora and debian; there
+      is no almalinux-qubes profile, so AlmaLinux under a marker is none, not
+      a plain almalinux that claims a root which persists. A name with no profile
       (AGENT_FABRIC_PLATFORM=x) is the unknown profile.
   profile(name) -> Profile(id, persists_across_reboot, pkg_install_hint,
       global_bashrc, sudo_group_note, packages)
@@ -19,7 +23,9 @@ CONTRACT, frozen from the shell
       host contract; a tool with no entry is its own name, and so is every
       tool on an unknown platform
   packages(profile) -> the sorted, de-duplicated package list the contract
-      needs: what `packages.sh [platform]` printed, one per line (CI installs
+      needs, less the tools the platform has no package for (no_package:
+      almalinux has none for paperkey, measured on almalinux:10.2 against
+      BaseOS, AppStream, CRB and EPEL 10; the host audit names it missing): what `packages.sh [platform]` printed, one per line (CI installs
       it before any Python runs it, so CI keeps asking a shell for it; see
       `python3 host_platform.py packages [platform]`)
   operator_packages(profile) -> the sorted packages of FABRIC_OPERATOR_TOOLS
@@ -74,6 +80,7 @@ class Profile:
     sudo_group_note: str
     install_cmd: str = ""
     packages: Mapping[str, str] = field(default_factory=dict)
+    no_package: tuple[str, ...] = ()
 
     def pkg_for(self, tool: str) -> str:
         return self.packages.get(tool, tool)
@@ -87,6 +94,18 @@ FEDORA = Profile("fedora", True, "sudo dnf install", "/etc/bashrc", "sudo is the
     "getent": "shadow-utils", "useradd": "shadow-utils", "usermod": "shadow-utils", "pgrep": "procps-ng",
     "timeout": "coreutils", "stat": "coreutils", "sha256sum": "coreutils", "shred": "coreutils", "install": "coreutils",
     "flock": "util-linux", "cmp": "diffutils"})
+
+# AlmaLinux 10, a plain install (measured on almalinux:10.2, 2026-11-11). dnf
+# and the Fedora names hold, but gh is in EPEL, not in BaseOS or AppStream, and
+# so is kitty (the operator's): EPEL has to be enabled first, which is why the
+# install command is two. paperkey is in no repository of the release: the
+# contract lists it, the platform cannot install it, and the map says so
+# rather than name a package dnf would refuse. python3 is 3.12 there, below
+# FABRIC_HOST_PYTHON_MIN; python3.13 and python3.14 exist but provide no
+# `python3` — left to the owner, not settled here.
+ALMALINUX = Profile("almalinux", True, "sudo dnf install (gh, kitty: after sudo dnf install epel-release)", "/etc/bashrc",
+                    "sudo is the wheel group's", "sudo dnf install -y epel-release && sudo dnf install -y",
+                    FEDORA.packages, ("paperkey",))
 
 # Debian, and a derivative that says so in ID_LIKE.
 DEBIAN = Profile("debian", True, "sudo apt-get install --no-install-recommends", "/etc/bash.bashrc",
@@ -106,6 +125,7 @@ DEBIAN = Profile("debian", True, "sudo apt-get install --no-install-recommends",
 _QUBES_NOTE = "sudo is the qubes group's; role accounts are not in it (runtime/provisioning/moveto/README.md)"
 PROFILES: dict[str, Profile] = {
     "fedora": FEDORA,
+    "almalinux": ALMALINUX,
     "debian": DEBIAN,
     "fedora-qubes": Profile("fedora-qubes", False, "in the TemplateVM: sudo dnf install", FEDORA.global_bashrc,
                             _QUBES_NOTE, FEDORA.install_cmd, FEDORA.packages),
@@ -138,6 +158,8 @@ def detect(environ: Mapping[str, str] | None = None, *, os_release: str = "/etc/
     text = f"{ident} {like}"
     if text.startswith("fedora"):
         return "fedora" + qubes
+    if text.startswith("almalinux"):
+        return "" if qubes else "almalinux"
     if text.startswith(("debian", "ubuntu")) or "debian" in text:
         return "debian" + qubes
     return ""
@@ -148,7 +170,7 @@ def profile(name: str) -> Profile:
 
 
 def packages(prof: Profile) -> list[str]:
-    return sorted({prof.pkg_for(t) for t in FABRIC_HOST_TOOLS})
+    return sorted({prof.pkg_for(t) for t in FABRIC_HOST_TOOLS if t not in prof.no_package})
 
 
 def operator_packages(prof: Profile) -> list[str]:
@@ -198,7 +220,7 @@ def main(argv: list[str] | None = None, environ: Mapping[str, str] | None = None
             env["AGENT_FABRIC_PLATFORM"] = rest[0]
         prof = profile(detect(env))
         if prof.id == "unknown":
-            print("packages.sh: unknown platform (AGENT_FABRIC_PLATFORM=fedora|fedora-qubes|debian|debian-qubes)", file=sys.stderr)
+            print("packages.sh: unknown platform (AGENT_FABRIC_PLATFORM=fedora|fedora-qubes|almalinux|debian|debian-qubes)", file=sys.stderr)
             return 2
         if operator:
             template = template_name(prof)
