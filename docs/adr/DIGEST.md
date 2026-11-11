@@ -983,6 +983,7 @@ its record disagree, the record wins. Look it up, never read it whole:
 - A 2026-10-19 — batches 4, 6, 9 on the pin (§5 r4).
 - A 2026-10-24 — completion listed (§5 r1).
 - A 2026-10-24 — pin 3.14, no wheel (§2).
+- A 2026-11-11 — one Python on every host; host python3 only bootstraps the pin (§5 r1).
 - Keywords: Python, bash, Node, mjs, port, allowlist, bare command,
   forwarder.
 
