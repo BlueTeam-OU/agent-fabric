@@ -88,8 +88,8 @@ is handled the same way, by never leaving one open.
 
 ## 5. Binding Rules
 
-1. **moli is a pinned account tool.** The pin is moli 1.1.23, release
-   asset `moli-x86_64-unknown-linux-gnu.tar.gz`, sha256
+1. **moli is a pinned account tool.** The pin is moli 1.1.23 (A 2026-11-11),
+   release asset `moli-x86_64-unknown-linux-gnu.tar.gz`, sha256
    `df360c04e567ce2e56a8391a03dc677d794465848b5821f944d2de10f3f1f430`;
    the binary inside it has sha256
    `109bf352cd1ec2683cbe5a35995d571f111f9578956c853d784e69557e0d7726`;

@@ -17,8 +17,9 @@ moli fetch --dump markdown --wait-until done <url>
   takes seconds and tens of megabytes.
 - `--wait-selector '<css>'` when the content you need arrives late: the
   fetch returns once the selector exists. `--timeout <ms>` bounds the whole
-  wait (25000 by default). An empty dump with exit 0 means the page was
-  not ready, not that it is empty: add `--wait-selector`.
+  wait (25000 by default). An empty dump with exit 0 usually means the page
+  had not rendered yet (Fedlex on moli 1.1.23), not that it is empty: add
+  `--wait-selector` for the element you need.
 - Redirect to a file in your scratchpad and read the part you need when the
   page is long; do not print a whole page into the conversation to find one
   paragraph. `grep` it.

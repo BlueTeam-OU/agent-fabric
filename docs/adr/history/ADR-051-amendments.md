@@ -51,6 +51,7 @@ sha256 by both, of the member in that archive. devex-tooling's smoke,
 example.com, a GitHub releases page and Fedlex with `--wait-selector`;
 on Fedlex 1.1.23 returned text 1.1.19 dropped. One behaviour changed:
 Fedlex without `--wait-selector` gave 1.1.19 a 1.2 KB splash and gives
-1.1.23 an empty dump, still exit 0. The moli-web skill now says an
-empty dump means the page was not ready. Rule 7's limits were not
+1.1.23 an empty dump, still exit 0. The moli-web skill now says an empty dump
+usually means the page had not rendered yet, and to add
+`--wait-selector`. Rule 7's limits were not
 re-measured.
