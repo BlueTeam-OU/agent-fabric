@@ -242,7 +242,10 @@ def prepare(w: Worker) -> int:
     w.settle_home()
     # ---- 0. the host: the fabric's contract (host_platform), each missing tool's package
     prof = host_platform.profile(host_platform.detect(w.env))
-    missing = sorted({prof.pkg_for(t) for t in host_platform.FABRIC_HOST_TOOLS if shutil.which(t) is None})
+    absent = [t for t in host_platform.FABRIC_HOST_TOOLS if shutil.which(t) is None]
+    # A tool the platform has no package for is said apart: asking dnf for it would only fail.
+    missing = sorted({prof.pkg_for(t) for t in absent if t not in prof.no_package})
+    unpackaged = [t for t in absent if t in prof.no_package]
     if shutil.which("python3") and not host_python_ok():
         said = subprocess.run(["python3", "-V"], capture_output=True, text=True, timeout=PROBE_TIMEOUT_S)
         version = ((said.stdout or "") + (said.stderr or "")).strip()
@@ -254,6 +257,8 @@ def prepare(w: Worker) -> int:
     _log(hs.audit(prof.id, "1" if prof.persists_across_reboot else "0", prof.pkg_install_hint,
                   str(len(host_platform.FABRIC_HOST_TOOLS)), missing, operator_missing=operator_missing,
                   template=host_platform.template_name(prof) if (missing or operator_missing) else ""))
+    if unpackaged:
+        _log(f"new-agent: 0. {prof.id}: no package provides {' '.join(unpackaged)} here; install it by hand\n")
     # ---- 1. the account, its subordinate ids, home 700, the shared cache, linger
     if w.account_exists():
         w.say(f"1. account {login} exists")

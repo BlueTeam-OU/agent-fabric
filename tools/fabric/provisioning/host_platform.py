@@ -103,7 +103,7 @@ FEDORA = Profile("fedora", True, "sudo dnf install", "/etc/bashrc", "sudo is the
 # rather than name a package dnf would refuse. python3 is 3.12 there, below
 # FABRIC_HOST_PYTHON_MIN; python3.13 and python3.14 exist but provide no
 # `python3` — left to the owner, not settled here.
-ALMALINUX = Profile("almalinux", True, "sudo dnf install (gh, kitty: after sudo dnf install epel-release)", "/etc/bashrc",
+ALMALINUX = Profile("almalinux", True, "sudo dnf install -y epel-release && sudo dnf install", "/etc/bashrc",
                     "sudo is the wheel group's", "sudo dnf install -y epel-release && sudo dnf install -y",
                     FEDORA.packages, ("paperkey",))
 

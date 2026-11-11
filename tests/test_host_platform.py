@@ -72,7 +72,23 @@ def main() -> int:
         check("the almalinux profile: dnf, /etc/bashrc, wheel, persists, two-step EPEL install",
               al.id == "almalinux" and al.persists_across_reboot and al.global_bashrc == "/etc/bashrc" and "wheel" in al.sudo_group_note
               and al.install_cmd == "sudo dnf install -y epel-release && sudo dnf install -y")
+        check("every profile's install hint is a command prefix the audit can print before the packages (no prose)",
+              all("(" not in pr.pkg_install_hint for pr in hp.PROFILES.values()) and al.pkg_install_hint.endswith("&& sudo dnf install"))
         check("a name with no profile is the unknown profile", hp.profile("x").id == "unknown")
+
+        def sh_det(release: str, env: dict) -> str:
+            path = os.path.join(t, "sh-os-release")
+            with open(path, "w") as fh:
+                fh.write(release)
+            r = subprocess.run(["bash", "-c", '. "$1"; echo "$PLATFORM"', "_", os.path.join(HERE, "runtime", "provisioning", "platform", "detect.sh")],
+                               capture_output=True, text=True, timeout=60, env={"PATH": os.environ.get("PATH", ""), "AGENT_FABRIC_OS_RELEASE": path, **env})
+            return r.stdout.strip()
+        alma = 'ID="almalinux"\nID_LIKE="rhel centos fedora"\n'
+        check("the shell detection agrees: almalinux under a marker and Rocky are unknown, fedora is fedora (QUBES_ENV_SOURCED, the same mark)",
+              sh_det(alma, {"QUBES_ENV_SOURCED": "1"}) == "" and sh_det('ID=rocky\nID_LIKE="rhel fedora"\n', {}) == ""
+              and sh_det('ID=fedora\n', {"QUBES_ENV_SOURCED": "1"}) == "fedora-qubes")
+        if not os.path.isdir("/usr/share/qubes") and not os.access("/etc/qubes-release", os.R_OK):
+            check("…and without a marker almalinux is almalinux", sh_det(alma, {}) == "almalinux")
 
         print("packages")
         for name, want in (("fedora", FEDORA), ("fedora-qubes", FEDORA), ("almalinux", ALMALINUX), ("debian", DEBIAN), ("debian-qubes", DEBIAN)):

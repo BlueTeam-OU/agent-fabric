@@ -6,7 +6,7 @@
 # has no package for it. python3 is 3.12 here, below FABRIC_HOST_PYTHON_MIN.
 PLATFORM_ID=almalinux
 PERSISTS_ACROSS_REBOOT=1
-PKG_INSTALL_HINT="sudo dnf install (gh, kitty: after sudo dnf install epel-release)"
+PKG_INSTALL_HINT="sudo dnf install -y epel-release && sudo dnf install"
 GLOBAL_BASHRC=/etc/bashrc
 SUDO_GROUP_NOTE="sudo is the wheel group's"
 PLATFORM_NO_PACKAGE=(paperkey)
