@@ -7,17 +7,20 @@ _platform_dir="$(dirname "${BASH_SOURCE[0]}")"
 platform_detect() {
     if [[ -n "${AGENT_FABRIC_PLATFORM:-}" ]]; then echo "$AGENT_FABRIC_PLATFORM"; return; fi
     local id="" like=""
-    if [[ -r /etc/os-release ]]; then
-        id="$(. /etc/os-release; echo "${ID:-}")"; like="$(. /etc/os-release; echo "${ID_LIKE:-}")"
+    local osr="${AGENT_FABRIC_OS_RELEASE:-/etc/os-release}"
+    if [[ -r "$osr" ]]; then
+        id="$(. "$osr"; echo "${ID:-}")"; like="$(. "$osr"; echo "${ID_LIKE:-}")"
     fi
     local qubes=""
     if [[ -d /usr/share/qubes || -n "${QUBES_ENV_SOURCED:-}" || -r /etc/qubes-release ]]; then qubes="-qubes"; fi
     case "$id $like" in
         fedora*) echo "fedora$qubes" ;;
+        almalinux*) [[ -n "$qubes" ]] && echo "" || echo almalinux ;;
         debian*|*debian*|ubuntu*) echo "debian$qubes" ;;
         *) echo "" ;;
     esac
 }
+PLATFORM_NO_PACKAGE=()
 PLATFORM="$(platform_detect)"
 if [[ -n "$PLATFORM" && -r "$_platform_dir/$PLATFORM.sh" ]]; then
     # shellcheck source=/dev/null

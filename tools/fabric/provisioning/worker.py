@@ -242,7 +242,8 @@ def prepare(w: Worker) -> int:
     w.settle_home()
     # ---- 0. the host: the fabric's contract (host_platform), each missing tool's package
     prof = host_platform.profile(host_platform.detect(w.env))
-    missing = sorted({prof.pkg_for(t) for t in host_platform.FABRIC_HOST_TOOLS if shutil.which(t) is None})
+    absent = [t for t in host_platform.FABRIC_HOST_TOOLS if shutil.which(t) is None]
+    missing, unpackaged = host_platform.split_missing(prof, absent)
     if shutil.which("python3") and not host_python_ok():
         said = subprocess.run(["python3", "-V"], capture_output=True, text=True, timeout=PROBE_TIMEOUT_S)
         version = ((said.stdout or "") + (said.stderr or "")).strip()
@@ -252,7 +253,7 @@ def prepare(w: Worker) -> int:
     # The operator's own tools are asked about for the operator's login (--human) only: no role account calls them.
     operator_missing = sorted({prof.pkg_for(t) for t in host_platform.FABRIC_OPERATOR_TOOLS if shutil.which(t) is None}) if a.human else []
     _log(hs.audit(prof.id, "1" if prof.persists_across_reboot else "0", prof.pkg_install_hint,
-                  str(len(host_platform.FABRIC_HOST_TOOLS)), missing, operator_missing=operator_missing,
+                  str(len(host_platform.FABRIC_HOST_TOOLS)), missing, operator_missing=operator_missing, unpackaged=unpackaged,
                   template=host_platform.template_name(prof) if (missing or operator_missing) else ""))
     # ---- 1. the account, its subordinate ids, home 700, the shared cache, linger
     if w.account_exists():

@@ -15,10 +15,18 @@ if [[ "${1:-}" == --operator ]]; then operator=1; shift; fi
 [[ -n "${1:-}" ]] && export AGENT_FABRIC_PLATFORM="$1"
 # shellcheck source=runtime/provisioning/platform/detect.sh
 . "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/detect.sh"
-[[ "$PLATFORM_ID" != unknown ]] || { echo "packages.sh: unknown platform (AGENT_FABRIC_PLATFORM=fedora|fedora-qubes|debian|debian-qubes)" >&2; exit 2; }
-host_list() { for tool in "${FABRIC_HOST_TOOLS[@]}"; do pkg_for "$tool"; done | sort -u; }
+[[ "$PLATFORM_ID" != unknown ]] || { echo "packages.sh: unknown platform (AGENT_FABRIC_PLATFORM=fedora|fedora-qubes|almalinux|debian|debian-qubes)" >&2; exit 2; }
+# A tool the platform has no package for (almalinux: paperkey) is not listed.
+host_list() {
+    local tool skip
+    for tool in "${FABRIC_HOST_TOOLS[@]}"; do
+        for skip in "${PLATFORM_NO_PACKAGE[@]}"; do [[ "$tool" == "$skip" ]] && continue 2; done
+        pkg_for "$tool"
+    done | sort -u
+}
 if ((! operator)); then host_list; exit; fi
 case "$PLATFORM_ID" in
+    almalinux) install_cmd="$PLATFORM_INSTALL_CMD" ;;
     fedora*) install_cmd="sudo dnf install -y" ;;
     *) install_cmd="sudo apt-get install -y" ;;
 esac

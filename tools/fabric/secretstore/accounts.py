@@ -163,7 +163,7 @@ def _sheet_text() -> str:
     certificate and how to restore it: the recovery copy, whichever way
     it leaves the account."""
     if not shutil.which("paperkey"):
-        raise StoreError("paperkey is not installed (runtime/provisioning/platform installs it)")
+        raise StoreError("paperkey is not installed (runtime/provisioning/platform installs it, except on almalinux, which has no package: build it by hand)")
     fpr = key_of_store()
     secret = gpg("--export-secret-keys", fpr).stdout
     sheet = _run(["paperkey", "--output-type", "base16"], stdin=secret).stdout.decode()
