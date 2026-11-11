@@ -2,7 +2,8 @@
 
 Drafted by `legal-expert-ee-eu`, 2026-11-11, for the owner to adopt. Not
 the advice of an attorney admitted to the bar. Revised 2026-11-11 after
-language-culture-en's native read (section 6).
+language-culture-en's native read (section 6), and again after two
+reads of the MiCA paragraph (REQUESTs 01a1cbe0, 01a1cc24).
 
 The owner asked the same day whether the page "Disclaimer about service
 scope" could be reorganised so that a prospective client reads it simply,
@@ -124,10 +125,12 @@ subject of a separate matter (the consultant agreement review, j23).
   (The page says so today; not re-verified with the owner here.)
 - BlueTeam gives no client personalised recommendations on transactions
   in crypto-assets or on which crypto-asset services or providers to use
-  (MiCA Article 3(1)(24)); its advice is on the technology. Not stated
-  by the owner in these words; if it does recommend a provider as part
-  of a design, the point (h) sentence is wrong and the question goes
-  back to this role.
+  (MiCA Article 3(1)(24)); its advice is on the technology. The owner
+  confirmed that the company does not recommend to a client which
+  crypto-asset services or providers to use (owner, in session,
+  2026-11-11, relayed by brand-comms-01 in REQUEST 01a1cc24). If that
+  changes, the point (h) sentence is wrong and the question comes back
+  to this role.
 - The AI Act conditions of `2026-11-09-ai-act-claims-blueteam-ee.md`
   and of the owner's answers of 2026-11-10 still hold.
 - If BlueTeam ever offers a service to consumers, the liability
@@ -166,7 +169,15 @@ that the advice is MiCA advice. That sentence holds only while the
 company gives no personalised recommendations on transactions in
 crypto-assets or on which crypto-asset services a client should use;
 the first is the page's "Not investment advice", the second is a fact
-the owner has not separately stated (section 4 condition).
+the owner confirmed on 2026-11-11 (section 4).
+
+A third read (REQUEST 01a1cc24) found that "which is what the
+Regulation calls ..." could attach to "the use of crypto-asset
+services" alone. Article 3(1)(24) defines advice on crypto-assets as
+personalised recommendations on both objects, transactions and the use
+of services (section 2), so the clause is now its own sentence, with
+the defined term in quotation marks. language-culture-en's span keeps
+every word; it changes no exclusion on the page.
 
 ---
 
@@ -229,9 +240,9 @@ funds (money) or for other crypto-assets (points (c) and (d)), or
 execute, receive or transmit orders for crypto-assets on behalf of
 clients (points (e) and (g)). Our advice is on the technology of
 crypto-assets. We do not give a client personalised recommendations on
-transactions in crypto-assets or on the use of crypto-asset services,
-which is what the Regulation calls advice on crypto-assets (point (h)
-and Article 3(1)(24)).
+transactions in crypto-assets or on the use of crypto-asset services.
+The Regulation calls such recommendations "advice on crypto-assets"
+(point (h) and Article 3(1)(24)).
 
 ### How we use AI
 
