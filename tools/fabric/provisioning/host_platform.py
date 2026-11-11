@@ -39,8 +39,6 @@ CONTRACT, frozen from the shell
       a Qubes AppVM, by the TemplateVM to paste it in (qubesdb-read
       /qubes-base-template when /type is AppVM); a template that cannot be
       read leaves the line alone, and says so on stderr
-  host_python_ok(version) -> the host's python3 is no older than
-      FABRIC_HOST_PYTHON_MIN
 
 CLI  python3 host_platform.py detect                  print the profile name ("" is a blank line)
      python3 host_platform.py packages [platform]     one package per line; exit 2, with the
@@ -65,10 +63,6 @@ FABRIC_HOST_TOOLS = ("bash", "sudo", "ssh", "getent", "pgrep", "timeout", "flock
 # that whole list in its containers.
 FABRIC_OPERATOR_TOOLS = ("kitty",)
 QUBESDB_TIMEOUT_S = 10
-# The host's own python3 runs what comes before the pin (the installer, the
-# git and Claude Code hooks, bootstrap): no older than CI proves (ADR-040
-# rule 1). Ubuntu 24.04's 3.12 and Debian 12's 3.11 are below it.
-FABRIC_HOST_PYTHON_MIN = (3, 13)
 
 
 @dataclass(frozen=True)
@@ -100,9 +94,8 @@ FEDORA = Profile("fedora", True, "sudo dnf install", "/etc/bashrc", "sudo is the
 # so is kitty (the operator's): EPEL has to be enabled first, which is why the
 # install command is two. paperkey is in no repository of the release: the
 # contract lists it, the platform cannot install it, and the map says so
-# rather than name a package dnf would refuse. python3 is 3.12 there, below
-# FABRIC_HOST_PYTHON_MIN; python3.13 and python3.14 exist but provide no
-# `python3` — left to the owner, not settled here.
+# rather than name a package dnf would refuse. python3 is 3.12 there; that
+# is no floor, since every host runs the pin (ADR-040 rule 1) and its own python3 only python_pin.py.
 ALMALINUX = Profile("almalinux", True, "sudo dnf install -y epel-release && sudo dnf install", "/etc/bashrc",
                     "sudo is the wheel group's", "sudo dnf install -y epel-release && sudo dnf install -y",
                     FEDORA.packages, ("paperkey",))
@@ -208,10 +201,6 @@ def operator_line(prof: Profile, template: str = "") -> str:
         return line + "\n"
     return (f"In the TemplateVM {template} (Qubes menu: {template} > Terminal), paste once, then shut it down and restart this qube:\n"
             f"  {line}\n")
-
-
-def host_python_ok(version: tuple[int, ...] | None = None) -> bool:
-    return (tuple(version) if version is not None else tuple(sys.version_info[:2])) >= FABRIC_HOST_PYTHON_MIN
 
 
 def main(argv: list[str] | None = None, environ: Mapping[str, str] | None = None) -> int:

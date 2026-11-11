@@ -264,8 +264,10 @@ def main() -> int:
         # hostexec and the worker are shims for their modules (ADR-040 §5 rule 5).
         # launch_record.py (j125) records the first launch's provider with the launcher's own writer
         # (launch_provider_record.py) in the account's state directory (fabric_writes).
-        for f in ("new_agent.py", "project_clone.py", "pin_entry.py", "roots.py", "hostexec.py", "hostworker.py", "fabric_writes.py", "launch_provider_record.py", "gh.py", "gh_ledger.py"):
+        for f in ("new_agent.py", "project_clone.py", "pin_entry.py", "roots.py", "hostexec.py", "hostworker.py", "fabric_writes.py", "launch_provider_record.py", "gh.py", "gh_ledger.py", "python_pin.py"):
             shutil.copy2(f"{ROOT}/tools/fabric/{f}", f"{fab}/tools/fabric/")
+        # prepare asks the host's fabric-python for this pin's build, as CI installs it (ci.yml).
+        shutil.copy2(f"{ROOT}/runtime/python.json", f"{fab}/runtime/python.json")
         shutil.copytree(f"{ROOT}/tools/fabric/provisioning", f"{fab}/tools/fabric/provisioning", ignore=shutil.ignore_patterns("__pycache__"))
         shutil.copy2(f"{ROOT}/tools/fabric/process.py", f"{fab}/tools/fabric/process.py")   # provisioning/bounded.py re-exports it
         # control/upgrade.py is the managed gate's home (ADR-043 rule 6). The fixture's stands in for it: the host is
@@ -377,8 +379,8 @@ def main() -> int:
             rc, out_deb = run("zz-fixture-login", "backend-dev", "--dry-run", AGENT_FABRIC_PLATFORM="debian", PATH=nogh)
             ok("the Debian profile names the missing tool's package and apt-get",
                has(r"^new-agent: 0\. debian: this host lacks .*gh.*: sudo apt-get install", out_deb), out_deb)
-            # The same PATH with gh, and a python3 that answers the floor check
-            # as 3.11 does: the run stops at the host audit, before any account.
+            # The same PATH with gh and a python3 of 3.11: the host's own python3 is no longer asked its version
+            # (ADR-040 rule 1, 2026-11-11), so the run goes on to the account.
             oldpy = f"{sandbox}/oldpy"
             os.makedirs(oldpy)
             for entry in os.listdir(nogh):
@@ -391,14 +393,18 @@ def main() -> int:
             real_py = shutil.which("python3", path=base.get("PATH"))
             with open(f"{oldpy}/python3", "w") as fh:
                 fh.write("#!/bin/bash\n"
-                         'if [[ "$1" == -c && "$2" == *version_info* ]]; then exit 1; fi\n'
                          'if [[ "$1" == -V ]]; then echo "Python 3.11.2"; exit 0; fi\n'
                          f'exec {real_py} "$@"\n')
             os.chmod(f"{oldpy}/python3", 0o755)
             rc, out_old = run("zz-fixture-login", "backend-dev", "--dry-run", AGENT_FABRIC_PLATFORM="debian", PATH=oldpy)
-            ok("a host python3 below the floor stops the run at the audit, naming the floor",
-               rc != 0 and "older than 3.13" in out_old and "Python 3.11.2" in out_old
-               and not has(r"^new-agent: 1\. ", out_old), out_old)
+            ok("a host python3 of 3.11 is no floor: the run goes on to the account",
+               rc == 0 and "older than" not in out_old and has(r"^new-agent: 1\. ", out_old), out_old)
+            # …while the pin missing there stops it, before any account, with the install command (the positive control is above).
+            rc, out_nopin = run("zz-fixture-login", "backend-dev", "--dry-run", AGENT_FABRIC_PLATFORM="debian", PATH=oldpy,
+                                AGENT_FABRIC_PYTHON_LINK=f"{sandbox}/no-fabric-python")
+            ok("fabric-python absent stops the run at the audit, with the install command",
+               rc != 0 and "pinned Python is not in place" in out_nopin and "no-fabric-python is absent" in out_nopin
+               and "python_pin.py install" in out_nopin and not has(r"^new-agent: 1\. ", out_nopin), out_nopin)
             ok("the host is named, and a missing placement is asked for",
                has(rf"^new-agent: host {re.escape(local)} \(this host\)", out) and 'placement: add "zz-fixture-login"' in out
                and "(fabric-status on the" in out and "bin/fabric-status" not in out,
@@ -455,9 +461,7 @@ def main() -> int:
                 head, rest = text.split("\n", 1)
                 text = head + "\n" + HAS_LINE + rest
             return text
-        # A fleet host's python3 meets the floor (detect.sh FABRIC_HOST_PYTHON_MIN);
-        # /usr/bin/python3 of a CI runner may not, so the fake host offers the
-        # interpreter running this test, which CI's matrix sets (3.13, 3.14).
+        # The fake host offers the interpreter running this test as python3: /usr/bin/python3 of a CI runner may be any version.
         if not os.path.exists(f"{bin_}/python3"):
             os.symlink(sys.executable, f"{bin_}/python3")
         seq_env = {**base, "PATH": f"{bin_}:/usr/bin:/bin"}

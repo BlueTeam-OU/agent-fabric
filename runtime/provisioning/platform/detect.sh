@@ -37,8 +37,8 @@ FABRIC_HOST_TOOLS=(bash sudo ssh getent pgrep timeout flock stat sha256sum cmp u
 # in FABRIC_HOST_TOOLS on purpose: no account calls it, and CI installs that
 # whole list in its containers (packages.sh --operator adds it).
 FABRIC_OPERATOR_TOOLS=(kitty)
-# The host's own python3 runs what comes before the pin (the installer, the
-# git and Claude Code hooks, bootstrap): no older than CI proves (ADR-040
-# rule 1). Ubuntu 24.04's 3.12 and Debian 12's 3.11 are below it.
+# CI's container check of the platform's python3 (ci.yml). Provisioning no
+# longer reads it: a host runs the pin, and its own python3 only python_pin.py
+# (ADR-040 rule 1 amended, 2026-11-11).
 FABRIC_HOST_PYTHON_MIN=3.13
 host_python_ok() { python3 -c 'import sys; m = tuple(int(x) for x in sys.argv[1].split(".")); sys.exit(sys.version_info[:2] < m)' "$FABRIC_HOST_PYTHON_MIN" 2>/dev/null; }
