@@ -1403,6 +1403,15 @@ def main() -> int:
         check("a recorded branch that a pull request landed is refused and said, not replaced by the open pull request's",
               rc == 1 and "landed" in err and a["branch"] in err and w.job(ja)["branch"] == a["branch"] and w.job(ja)["state"] == "paused",
               out + err + repr(w.job(ja)))
+        # Kills: the offer made without the lookup (the two cases below), or the lookup's answer not named (#40).
+        check("j641: with one open pull request of this login the refusal offers --repoint, naming it",
+              f"your open pull request #40: fabric-jobs switch {ja} --repoint" in err, err)
+        for label, prs in (("no open pull request", []), ("two open pull requests", [{"number": 40, "headRefName": mine, "isDraft": False},
+                                                                                       {"number": 41, "headRefName": f"{me}/feat/other", "isDraft": False}])):
+            w, ((ja, a), (jb, b)) = two_with_branches()
+            gh_says(merged_heads=[a["branch"]], open_prs=prs)
+            rc, out, err = w.switch(ja, cwd=b["worktree"])
+            check(f"j641 control: with {label} the refusal stands and offers no re-point", rc == 1 and "landed" in err and "--repoint" not in err, err)
         rc, out, err = w.switch(jb, cwd=b["worktree"])
         check("…and another job switches as before (the positive control)", rc == 0 and w.job(jb)["branch"] == b["branch"], out + err)
 
