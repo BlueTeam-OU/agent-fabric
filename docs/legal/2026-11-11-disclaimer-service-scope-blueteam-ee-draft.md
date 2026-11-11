@@ -1,7 +1,8 @@
 # Draft: the service-scope page at blueteam.ee (disclaimer)
 
 Drafted by `legal-expert-ee-eu`, 2026-11-11, for the owner to adopt. Not
-the advice of an attorney admitted to the bar.
+the advice of an attorney admitted to the bar. Revised 2026-11-11 after
+language-culture-en's native read (section 6).
 
 The owner asked the same day whether the page "Disclaimer about service
 scope" could be reorganised so that a prospective client reads it simply,
@@ -60,6 +61,12 @@ Read in this session, 2026-11-11:
   crypto-assets on behalf of clients" and point (b) "operation of a
   trading platform for crypto-assets". The page's existing references
   are right; the redraft keeps them and adds point (10) beside "issue".
+  Points (c) "exchange of crypto-assets for funds", (d) "exchange of
+  crypto-assets for other crypto-assets", (e) "execution of orders for
+  crypto-assets on behalf of clients" and (g) "reception and
+  transmission of orders for crypto-assets on behalf of clients" are
+  cited beside the page's "exchange or a broker" since the native read
+  (section 6).
   Later amendments of MiCA were not checked; none is needed for these
   definitions to be read as the page uses them.
 - **Law of Obligations Act** (võlaõigusseadus, VÕS), Riigi Teataja,
@@ -116,6 +123,23 @@ subject of a separate matter (the consultant agreement review, j23).
 None. The page carries no date today; whether it shows "Last updated"
 is brand-comms's choice.
 
+## 6. After the native read (2026-11-11)
+
+language-culture-en read the page as placed (blueteam.ee ab968c4), and
+brand-comms put seven spans to this role (REQUEST 01a1cbdc). Accepted:
+"In the terms used by", spelled-out ICO and STO, the Bitcoin
+parenthesis, "we" and "inability" in the liability sentence, the three
+exceptions in one form, and "where the contract and this page differ"
+(the owner's sentence, same meaning). Replaced by this role's own
+wording: the endorsement sentence, because "if it is made public"
+would drop the case where the work only becomes known. Asked
+separately: the MiCA line now cites points (c), (d), (e) and (g) for
+"exchange or a broker", and states the provider claim on its own, so
+that it no longer reads as covering only custody and trading platforms.
+"tort" stays: it is the term of art, and "whatever the legal basis"
+and "or otherwise" carry the meaning. None of this changes what the
+page excludes or limits.
+
 ---
 
 ## Scope of our services
@@ -153,23 +177,27 @@ tax professional.
 We can advise you on the technology of tokens and other crypto-assets,
 and help you implement them. We do not:
 
-- issue tokens or other crypto-assets, or run ICOs, STOs or any other
-  token-based fundraising;
-- hold or manage crypto-assets for anyone else. We accept Bitcoin as
-  payment, but the only crypto-assets we hold are our own;
+- issue tokens or other crypto-assets, or run initial coin offerings
+  (ICOs), security token offerings (STOs) or any other token-based
+  fundraising;
+- hold or manage crypto-assets for anyone else (we accept Bitcoin as
+  payment, but the only crypto-assets we hold are our own);
 - run a platform for buying and selling crypto-assets, or act as an
   exchange or a broker.
 
-We do not guarantee that any token or crypto-asset will succeed. If it
-becomes known that we worked with a client, that is not an endorsement
-of the client's token, its technology or its token economics.
+We do not guarantee that any token or crypto-asset will succeed. Our work
+for a client, whether or not it is public, does not mean we endorse the
+client's token, its technology or its token economics.
 
-In the terms of the EU Markets in Crypto-Assets Regulation
-([Regulation (EU) 2023/1114, MiCA](https://eur-lex.europa.eu/eli/reg/2023/1114/oj)):
-we are not an issuer of crypto-assets (Article 3(1)(5) and (10)), and we
-are not a crypto-asset service provider (Article 3(1)(15)) offering
-custody and administration of crypto-assets (Article 3(1)(16)(a)) or a
-trading platform for them (Article 3(1)(16)(b)).
+In the terms used by the EU Markets in Crypto-Assets Regulation
+([Regulation (EU) 2023/1114, MiCA](https://eur-lex.europa.eu/eli/reg/2023/1114/oj)),
+we are not an issuer of crypto-assets (Article 3(1)(5) and (10)). Nor
+are we a crypto-asset service provider (Article 3(1)(15)): we do not
+provide custody and administration of crypto-assets on behalf of
+clients (Article 3(1)(16)(a)), operate a trading platform for
+crypto-assets (point (b)), exchange crypto-assets for funds or for other
+crypto-assets (points (c) and (d)), or execute, receive or transmit
+orders for crypto-assets on behalf of clients (points (e) and (g)).
 
 ### How we use AI
 
@@ -206,15 +234,15 @@ above).
 
 ### Limits of our liability
 
-As far as Estonian and European Union law allow, BlueTeam is not liable
-for loss or damage arising from our services or advice, or from our
-being unable to provide them. That includes loss of data, loss of
+As far as Estonian and European Union law allow, we are not liable for
+loss or damage that arises from our services or advice, or from our
+inability to provide them. That includes loss of data, loss of
 profits, business interruption, and indirect or consequential loss.
 
 This applies whatever the legal basis of a claim: contract, tort
-(including negligence) or otherwise. It does not apply to gross
-negligence, wilful misconduct, or where the law does not allow liability
-to be limited.
+(including negligence) or otherwise. It does not apply in cases of
+gross negligence or wilful misconduct, or where the law does not allow
+liability to be limited.
 
 Where you have a contract with us, that contract sets out our liability;
-where it differs from this page, the contract applies.
+where the contract and this page differ, the contract applies.
