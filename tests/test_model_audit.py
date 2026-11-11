@@ -50,6 +50,12 @@ def main() -> int:
     r = subprocess.run([TOOL], env={**base, "PATH": "/usr/bin:/bin", "ANTHROPIC_BASE_URL": "https://o.example"}, stdout=subprocess.PIPE,
                        stderr=subprocess.PIPE, timeout=60, stdin=subprocess.DEVNULL, bufsize=0)
     check("the report is one piece of stdout, exit 0", r.returncode == 0 and r.stdout.endswith(b"do not parse it.)\n"))
+    # The goldens predate CLAUDE_CODE_SUBAGENT_EFFORT, so they cannot see it; the sibling is the positive control.
+    r = subprocess.run([TOOL], env={**base, "CLAUDE_CODE_EFFORT_LEVEL": "low", "CLAUDE_CODE_SUBAGENT_EFFORT": "high"},
+                       capture_output=True, timeout=60, stdin=subprocess.DEVNULL)
+    check("CLAUDE_CODE_SUBAGENT_EFFORT is named with its value, as its sibling is",
+          r.returncode == 0 and b"  CLAUDE_CODE_EFFORT_LEVEL = low\n" in r.stdout
+          and b"  CLAUDE_CODE_SUBAGENT_EFFORT = high\n" in r.stdout, r.stdout[:300])
     print(f"\ntest_model_audit: {'OK' if not fails else f'FAILED — {fails} check(s)'}")
     return 1 if fails else 0
 

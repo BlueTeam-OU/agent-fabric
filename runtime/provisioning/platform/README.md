@@ -20,8 +20,8 @@ the worker names one:
 too): the Fedora names, with `gh` (and the operator's `kitty`) in EPEL, so
 its install command enables EPEL first; `paperkey` is in no repository of
 the release, so the package list leaves it out and the host audit names it
-missing; its `python3` is 3.12, below `FABRIC_HOST_PYTHON_MIN`
-(measured on almalinux:10.2, 2026-11-11).
+missing; its `python3` is 3.12, and
+provisioning does not ask: the pin is the Python (measured on almalinux:10.2, 2026-11-11).
 
 **The fabric's host contract** — the commands its hooks, scripts and
 provisioning call, whatever the platform:
