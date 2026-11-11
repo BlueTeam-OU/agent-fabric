@@ -71,6 +71,7 @@ its record disagree, the record wins. Look it up, never read it whole:
 | the reviewer's tools; the review sandbox; coverage blocks; the v2 review marker; where a re-review starts | ADR-065 |
 | the reviewer's own accuracy; calibrating the review class; owner labels; seeded defects; a review routing change's evidence | ADR-066 |
 | one owning module per mechanism; a reimplementation; policies/mechanisms.json; a checker and its exceptions | ADR-067 |
+| the fabric command; fabric <noun> <verb>; fabric help; one front door for the bin/ commands; a second spelling of a guarded command | ADR-068 |
 
 ### ADR-000 — The enduring organization (Accepted)
 
@@ -203,6 +204,8 @@ its record disagree, the record wins. Look it up, never read it whole:
 - A 2026-10-07 — code-low is Haiku 5.5 on plain claude (§2).
 - A 2026-10-09 — python-dev's session is Sonnet 5.5, a role layer (§2).
 - A 2026-11-09 — architect-cto-01's session is Fable 5.2, read back first (§2).
+- A 2026-11-10 — architect-cto-01's session is Opus 5.5 again: harness 2.1.311 does not know Fable 5.2 (§2).
+- A 2026-11-10 — architect-cto-01's session is Fable 5.2 again, with the pin on 2.1.322, which knows it (§2).
 - Keywords: model, routing, capability class, alias, provider, OpenRouter,
   broker, review-grade, shim, preset, Opus 5.5, Sonnet 5.5, Fable 5.2, DeepSeek, GLM, profile.
 
@@ -222,8 +225,10 @@ its record disagree, the record wins. Look it up, never read it whole:
   broker `code-low` is committed at `low` (§2).
 - A 2026-09-28 — the session's level is judged on its model like a class's;
   `providers.<p>.session` acknowledges a downgrade.
+- A 2026-11-10 — `CLAUDE_CODE_SUBAGENT_EFFORT` is refused like
+  `CLAUDE_CODE_EFFORT_LEVEL`: it moves the level of every subagent whose file names none (§5 rule 6).
 - Keywords: effort, reasoning, thinking, level, clamp, medium, high,
-  --effort, agent file, CLAUDE_EFFORT, Opus 5.5 default.
+  --effort, agent file, CLAUDE_EFFORT, Opus 5.5 default, CLAUDE_CODE_SUBAGENT_EFFORT.
 
 ### ADR-007 — A flagged request is contagious (Accepted)
 
@@ -478,7 +483,8 @@ its record disagree, the record wins. Look it up, never read it whole:
 - A 2026-11-01 — `fabric/armed` status required (rule 5).
 - A 2026-11-03 — relayed owner's word read (rule 4).
 - A 2026-11-05 — `record_paths`: the owner's ruling arms (rule 1).
-- Keywords: Answers, armed_status.
+- A 2026-11-10 — `fabric-pr disarm`: withdrawn with a basis; another's PR on a word (rule 5).
+- Keywords: Answers, armed_status, disarm.
 
 ### ADR-020 — The review class is the review (Accepted)
 
@@ -900,6 +906,7 @@ its record disagree, the record wins. Look it up, never read it whole:
 - A 2026-11-08 — one transition table (r14).
 - A 2026-11-09 — pool claim closes or reopens (r14).
 - A 2026-11-09 — peer job read by its waiter: public job-state op (r8).
+- A 2026-11-10 — blocked job's landed branch: new branch; done names artifacts (r10).
 - Keywords: fresh session, intake, priority, claim, sweep, unhold, request blocker, job-state.
 
 ### ADR-038 — Each agent owns its key and its secrets (Accepted)
@@ -1043,6 +1050,9 @@ its record disagree, the record wins. Look it up, never read it whole:
 - A 2026-11-03 — the session seal (ADR-038 rule 9) is a managed
   `SessionStart` hook; its workspace copy keeps running (§5 rules 2, 9).
 - A 2026-11-03 — rule 6 met; the pin moves to 2.1.311 (§8).
+- A 2026-11-10 — the pin moves to 2.1.322, `latest` that day by the owner's
+  choice, after its read-back; rule 6 gated the first move past 2.1.286, and
+  each install (upgrade, new-agent) is the gate after it (§5 rule 6, §8).
 - Keywords: mods, plugin, managed settings, allowManagedModsOnly,
   disableSideloadFlags, prependPlugins, sec-default, guard, redaction,
   MCP server, sandbox, fabric-managed, hook_entry.py, session seal.
@@ -1536,3 +1546,17 @@ its record disagree, the record wins. Look it up, never read it whole:
 - Lint reads the catalogue and refuses a claim the tree does not bear
   out (§5 r3); a new mechanism enters with its owner (§5 r4).
 - Keywords: mechanism, duplicate, reimplementation, owning module, catalogue, fitness function, process lifetime, killpg, evidence cap, binding read.
+
+### ADR-068 — One `fabric <noun> <verb>` command, driven by commands.json (Proposed)
+
+- `fabric <noun> [<verb>]` resolves through a `fabric` table in
+  `commands.json` and execs today's `bin/<command>` unchanged; every
+  binary stays, with no retirement date (§5 r1, r2, r10).
+- The first table is mechanical from today's names; a rename is an
+  amendment that keeps the old form as an alias (§5 r4).
+- Allow rules are derived per noun or verb, never `Bash(fabric *)`;
+  a `not_allowed` target's form asks (§5 r6).
+- Hooks recognise a command through one owning function, landed with
+  the dispatcher; docs move only after distribution and a read-back
+  (§5 r7–r9).
+- Keywords: fabric command, dispatcher, noun, verb, fabric help, commands.json, shim, alias, front door, guard bypass, second spelling.

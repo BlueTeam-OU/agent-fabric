@@ -51,7 +51,8 @@ CONTRACT, frozen from the bash (ADR-040 §5 rule 3):
             READY wait, 30 s),
             AGENT_FABRIC_NO_OPENING, CLAUDE_CONFIG_DIR,
             CLAUDE_CODE_SUBAGENT_MODEL, CLAUDE_CODE_SUBAGENT_MODEL_FORCE,
-            CLAUDE_CODE_EFFORT_LEVEL (refused when set), ANTHROPIC_* and the
+            CLAUDE_CODE_EFFORT_LEVEL and CLAUDE_CODE_SUBAGENT_EFFORT (refused when
+            set), ANTHROPIC_* and the
             broker's tuning variables (cleared on the plain-claude path, see
             BROKER_ENV), every synced secret but the harness's own
             (dropped, settle_secrets), TMPDIR,
@@ -99,7 +100,7 @@ unreadable ~/.claude.json is one line before the refusal; every subprocess
 is bounded (ori auth 60 s, the harness's --version 30 s, the agent-file
 install 300 s; a fetch was already 20 s), and a bound that is hit reads as
 that call's failure, ori's as exit 124; every git call is bounded too, at
-git.py's 120 s, the fabric's `pull --ff-only` included (a pull the bound
+git.py's 120 s, the fabric's `merge --ff-only` included (a fast-forward the bound
 ends is said as a timeout, never as "cannot fast-forward"), and so are
 the helpers (identity, routing, launch_prompt, jobs) at HELPER_TIMEOUT_S; a
 closed stdout (`--print | head`) ends quietly with 141, as bash's SIGPIPE
@@ -227,12 +228,13 @@ REFUSES, fail-closed, before spawning anything:
     launch working copy's and $PWD's .claude/settings{,.local}.json)
     carrying a model pin — env.ANTHROPIC_*, env.CLAUDE_CODE_SUBAGENT_MODEL,
     modelOverrides — or an EFFORT pin: effortLevel, maxEffortLevel,
-    modelSettings, env.CLAUDE_CODE_EFFORT_LEVEL; or
-    CLAUDE_CODE_SUBAGENT_MODEL or CLAUDE_CODE_EFFORT_LEVEL (set to
+    modelSettings, env.CLAUDE_CODE_EFFORT_LEVEL, env.CLAUDE_CODE_SUBAGENT_EFFORT; or
+    CLAUDE_CODE_SUBAGENT_MODEL, CLAUDE_CODE_EFFORT_LEVEL or CLAUDE_CODE_SUBAGENT_EFFORT (set to
     anything, the empty string included) in the caller's environment
     (a settings-scope pin outranks the profile's exports; the subagent
     variable overrides every dispatch's model, and the effort variable
-    outranks every agent file's effort: in every subagent at once)
+    outranks every agent file's effort: in every subagent at once, the subagent
+    effort variable moves every subagent whose definition names none)
   - a merged model that is not a model id (a local override of null, a
     number, "" or prose)
   - a session model, the caller's --model or the resolved one, that the
@@ -330,7 +332,7 @@ from fabric_launcher import gateway, holder  # noqa: E402, F401
 # launcher re-executes itself so the session runs on what was pulled
 # (the code under a running launcher must not change).
 # It was a refusal naming the pull command until the CEO asked, the same
-# day, why the person had to type what the launcher already knew. A pull
+# day, why the person had to type what the launcher already knew. A fabric
 # that cannot fast-forward is refused with the reason; offline (the fetch
 # fails) it launches on what is checked out and says so.
 # AGENT_FABRIC_ALLOW_STALE=1 overrides, loudly, for the case where the
@@ -350,19 +352,19 @@ def keep_fabric_current(fabric_root: str, orig_args: list[str]) -> None:
     elif os.environ.get("AGENT_FABRIC_PULLED") == "1":
         die(f"agent-fabric at {fabric_root} is still {behind} commit(s) behind origin/main after a pull; not relaunching again.\n"
             f"  Look at the checkout: git -C \"{fabric_root}\" status")
-    elif (pulled := pull_ff(fabric_root)) == "timeout":
-        die(f"agent-fabric at {fabric_root}: git pull did not answer within {git.TIMEOUT_S:g} s; nothing was "
+    elif (pulled := (pull := pull_ff(fabric_root))[0]) == "timeout":
+        die(f"agent-fabric at {fabric_root}: the fast-forward did not answer within {git.TIMEOUT_S:g} s; nothing was "
             "relaunched.\n"
-            "  A pull ended by the bound may leave .git/index.lock behind. Look:\n"
+            "  A fast-forward ended by the bound may leave .git/index.lock behind. Look:\n"
             f"    git -C \"{fabric_root}\" status\n"
-            "  and relaunch once origin is reachable.")
+            "  and relaunch once the lock is gone and the checkout answers.")
     elif pulled == "ok":
         head = git_text(fabric_root, "rev-parse", "--short", "HEAD") or ""
         say(f"launch: agent-fabric was {behind} commit(s) behind origin/main; pulled to {head} and relaunching on it.")
         reexec(env_with(AGENT_FABRIC_PULLED="1"), orig_args)
     else:
         die(f"agent-fabric at {fabric_root} is {behind} commit(s) behind origin/main and cannot fast-forward\n"
-            f"  ({verdict.reason or 'local commits or changes on this checkout'}). A session runs on the launcher,\n"
+            f"  ({verdict.reason or pull[1] or 'local commits or changes on this checkout'}). A session runs on the launcher,\n"
             "  hooks, prompt and routing of this checkout, so it must be current. Look:\n"
             f"    git -C \"{fabric_root}\" status\n"
             "  and bring it to origin/main, then relaunch.")
@@ -935,11 +937,13 @@ def main(argv: list[str]) -> int:
             # A bare "fresh" is an older launcher's with no job beside it;
             # launch() has carried any job onto the flag.
             job = stopped.partition(":")[2]
-            then = (f"start a new session here and run fabric-fresh --job {job}, which brings job {job} fresh"
-                    if job else "start a new session here")
+            # fabric-fresh refuses a session the launcher did not start ("use /clear"), so the
+            # route out of a bare shell is fabric-resume, then fabric-fresh inside the session it opens.
+            then = (f"run fabric-resume, and inside the session it opens run fabric-fresh --job {job}, which brings job {job} fresh"
+                    if job else "run fabric-resume, and inside the session it opens run /clear")
             say("launch: RESTART NOT COMPLETED: the session that finished its job was not brought back fresh; the "
                 f"refusal above stopped its relaunch, and this pane is at the account's shell. Fix what it names, "
-                f"then {then}; not fabric-resume, which reopens the finished job's conversation.")
+                f"then {then}; fabric-resume alone reopens the finished job's conversation.")
         elif stopped:
             say("launch: RESTART NOT COMPLETED: the session stopped for a restart was not brought back; the refusal "
                 "above stopped its relaunch, and this pane is at the account's shell. Fix what it names, then "

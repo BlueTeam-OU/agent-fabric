@@ -88,6 +88,10 @@ def main() -> int:
     check("checks_of: a status context reads by its state",
           pr_gate.checks_of([{"context": "legacy", "state": "FAILURE"}]) == "red:legacy"
           and pr_gate.checks_of([{"context": "legacy", "state": "PENDING"}]) == "pending:1")
+    armed = lambda state: {"context": "fabric/armed", "state": state}
+    check("checks_of: the arming's own status is no check — a disarmed (pending) one holds nothing, a success greens nothing",
+          [pr_gate.checks_of(n) for n in (nodes_green + [armed("PENDING")], [armed("SUCCESS")], [armed("PENDING")])]
+          == ["green", "none-yet", "none-yet"])
 
     print("the latest run of each check (FleetDeck #31: a cancelled run beside its re-run)")
 

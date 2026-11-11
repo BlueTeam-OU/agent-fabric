@@ -25,8 +25,8 @@ from typing import Any
 sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
 import roots  # noqa: E402
 
-FABRIC_ROOT = os.environ.get("AGENT_FABRIC_ROOT") or os.path.dirname(
-    os.path.dirname(os.path.dirname(os.path.realpath(__file__))))
+FABRIC_ROOT = roots.engine_root()
+
 MARKER = ".agent-fabric-project"
 
 

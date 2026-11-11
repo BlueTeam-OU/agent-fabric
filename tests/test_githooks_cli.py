@@ -215,8 +215,9 @@ def run() -> None:
     shutil.copy2(f"{FABRIC}/tools/fabric/guards/commit_hooks.py", f"{REPO}/tools/fabric/guards/")
     shutil.copy2(f"{FABRIC}/tools/fabric/guards/secret_values.py", f"{REPO}/tools/fabric/guards/")   # the value check it runs first
     shutil.copy2(f"{FABRIC}/tools/fabric/roots.py", f"{REPO}/tools/fabric/")   # which commit_hooks.py spells its policy path with
-    for m in ("agent_text.py", "hidden_unicode.py", "review_card.py", "state_writes.py", "context_reads.py", "evidence_caps.py", "process_spawns.py", "work_writes.py", "transport_calls.py"):   # the hidden-text, card, state-write, binding-read, list-cap, process-group, work-write and transport-call checks commit_hooks.py runs for every committer
+    for m in ("agent_text.py", "hidden_unicode.py", "review_card.py", "state_writes.py", "context_reads.py", "evidence_caps.py", "process_spawns.py", "work_writes.py", "transport_calls.py", "roots_bypass.py"):   # the hidden-text, card, state-write, binding-read, list-cap, process-group, work-write, transport-call and roots-bypass checks commit_hooks.py runs for every committer
         shutil.copy2(f"{FABRIC}/tools/fabric/{m}", f"{REPO}/tools/fabric/")
+    shutil.copytree(f"{FABRIC}/tools/fabric/cli", f"{REPO}/tools/fabric/cli", ignore=shutil.ignore_patterns("__pycache__"))   # the command-name check's package, which commit_hooks.py loads by path (ADR-068)
     git("config", "core.hooksPath", f"{REPO}/policies/githooks")
     git("add", "-A"); git("-c", "core.hooksPath=/dev/null", "commit", "-qm", "hooks in place")
     check("backend-dev bound: a code change in the fabric is refused",

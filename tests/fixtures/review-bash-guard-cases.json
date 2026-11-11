@@ -329,6 +329,14 @@
     },
     {
      "want": "deny",
+     "command": "fabric secrets store get GH_TOKEN"
+    },
+    {
+     "want": "deny",
+     "command": "fabric secrets export-key"
+    },
+    {
+     "want": "deny",
      "command": "python3 -c \"import os; print(os.environ)\""
     },
     {
@@ -1255,6 +1263,10 @@
     },
     {
      "want": "allow",
+     "command": "fabric secrets status"
+    },
+    {
+     "want": "allow",
      "command": "git log -p -- tools/fabric/secret_store.py"
     },
     {
@@ -1478,6 +1490,14 @@
     {
      "want": "deny",
      "command": "fabric-secrets store paper --out sheet.txt"
+    },
+    {
+     "want": "deny",
+     "command": "fabric secrets paper --out sheet.txt"
+    },
+    {
+     "want": "deny",
+     "command": "fabric-secrets export-key"
     },
     {
      "want": "deny",

@@ -83,6 +83,14 @@ for the memory lookup it is told to make.
 `permissions.ask`: `Bash(<prefix> *)` for every `also_asked` prefix in
 commands.json (moli serve), added beside the account's own ask rules.
 
+The `fabric` dispatcher (ADR-068 rule 6): never `Bash(fabric *)`, which would carry an approval for
+fabric-lease and fabric-secret-run. Each form is derived from the table's `fabric` section and `not_allowed`:
+`Bash(fabric <noun> *)` for a noun whose own command is allowed, with an ask rule `Bash(fabric <noun> <verb> *)`
+over it for a verb whose command is not; `Bash(fabric <noun> <verb> *)` per allowed verb otherwise; the exact
+rules `Bash(fabric)` and `Bash(fabric help)`. Granted only where ~/.local/bin/fabric is this checkout's
+bin/fabric, like every command. Every allow or ask rule that starts `Bash(fabric ` is the writer's: one the table
+no longer yields is dropped on the next run.
+
 `permissions.defaultMode` "auto" (the owner, 2026-09-26): every agent's
 session starts in auto mode. Eight accounts provisioned by hand had no
 mode and started in the default one, asking for what the classifier
@@ -106,6 +114,7 @@ are "$defaults" plus the policy's. `skillOverrides.auto-mode-setup`
 """
 from __future__ import annotations
 
+import importlib.util
 import json
 import os
 import re
@@ -127,6 +136,16 @@ SLOT = re.compile(r"^\*\*(.+?)\*\*:")
 FABRIC_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, os.path.join(FABRIC_ROOT, "tools", "fabric"))
 import roots  # noqa: E402
+
+# The `fabric` table is parsed by the package that dispatches it (ADR-068 rule 6: one owner of the table). The package
+# is loaded by path, as tools/fabric/cli/fabric.py and the hooks do: it promises nothing on sys.path answers for it.
+_CLI = os.path.join(FABRIC_ROOT, "tools", "fabric", "cli")
+if "fabric_cli" not in sys.modules:
+    _spec = importlib.util.spec_from_file_location("fabric_cli", os.path.join(_CLI, "__init__.py"),
+                                                   submodule_search_locations=[_CLI])
+    sys.modules["fabric_cli"] = importlib.util.module_from_spec(_spec)
+    _spec.loader.exec_module(sys.modules["fabric_cli"])
+from fabric_cli import table  # noqa: E402
 
 STATUS_LINE = {"type": "command",
                "command": f'bash "{os.path.join(FABRIC_ROOT, "runtime", "claude-code", "hooks", "statusline.sh")}"'}
@@ -412,6 +431,41 @@ def local_bin() -> str:
     return os.environ.get("AGENT_FABRIC_LOCAL_BIN") or os.path.join(os.path.expanduser("~"), ".local", "bin")
 
 
+def is_ours(name: str, rel: str) -> bool:
+    return os.path.realpath(os.path.join(local_bin(), name)) == os.path.realpath(os.path.join(FABRIC_ROOT, rel))
+
+
+FABRIC = "fabric"
+
+
+def fabric_owned(rule: str) -> bool:
+    """A rule of the dispatcher's namespace. `fabric-lease` and the other commands are a different word, so only
+    `fabric` followed by a space or the closing parenthesis is ours."""
+    return rule == f"Bash({FABRIC})" or rule.startswith(f"Bash({FABRIC} ")
+
+
+def fabric_forms(doc: dict) -> tuple[list[str], list[str]]:
+    """(allow, ask) for `fabric <noun> [<verb>]`, derived from the table and `not_allowed` (ADR-068 rule 6), never the
+    broad `Bash(fabric *)`: the dispatcher would carry an approval for fabric-lease and fabric-secret-run. A form is
+    never broader than the rule of the command it reaches. Both lists are empty unless ~/.local/bin/fabric is this
+    checkout's, the link check every command's rule is under."""
+    rel = doc["commands"].get(FABRIC)
+    if rel is None or not is_ours(FABRIC, rel):
+        return [], []
+    blocked = doc.get("not_allowed", {})
+    allow, ask = [f"Bash({FABRIC})", f"Bash({FABRIC} help)"], []
+    for noun, entry in table.nouns_of(doc).items():
+        verbs = entry.get("verbs", {})
+        if entry.get("command", "") and entry["command"] not in blocked:
+            allow.append(f"Bash({FABRIC} {noun} *)")
+            # A narrower ask over the noun's allow: the harness decides ask rules before allow rules.
+            ask += [f"Bash({FABRIC} {noun} {verb} *)" for verb, cmd in verbs.items() if cmd in blocked]
+        else:
+            # No own command, or one that is not_allowed: only the verbs whose own commands are allowed, each by name.
+            allow += [f"Bash({FABRIC} {noun} {verb} *)" for verb, cmd in verbs.items() if cmd not in blocked]
+    return allow, ask
+
+
 def rules() -> tuple[list[str], list[str]]:
     """(granted, withheld). A rule is granted only for a name whose
     ~/.local/bin entry IS the fabric's script: a foreign file bootstrap
@@ -423,8 +477,8 @@ def rules() -> tuple[list[str], list[str]]:
     for name, rel in doc["commands"].items():
         if name in doc.get("not_allowed", {}):
             continue
-        ours = os.path.realpath(os.path.join(local_bin(), name)) == os.path.realpath(os.path.join(FABRIC_ROOT, rel))
-        (granted if ours else withheld).append(f"Bash({name} *)")
+        (granted if is_ours(name, rel) else withheld).append(f"Bash({name} *)")
+    granted += fabric_forms(doc)[0]
     # Not the fabric's scripts, so no link to check: an installed tool whose
     # one safe subcommand is allowed (moli fetch reads a page; moli serve
     # opens an unauthenticated CDP port and gets no rule, ADR-051).
@@ -441,10 +495,11 @@ def allow_rules() -> list[str]:
 
 def ask_rules() -> list[str]:
     """`Bash(<prefix> *)` for every also_asked prefix: an installed tool's subcommand that must ask
-    even in auto mode, where an unnamed command goes to the classifier (moli serve, ADR-051)."""
+    even in auto mode, where an unnamed command goes to the classifier (moli serve, ADR-051); and the `fabric`
+    forms of a not_allowed verb under an allowed noun."""
     with open(COMMANDS, encoding="utf-8") as fh:
         doc = json.load(fh)
-    return [f"Bash({prefix} *)" for prefix in doc.get("also_asked", {}) if prefix != "_comment"]
+    return [f"Bash({prefix} *)" for prefix in doc.get("also_asked", {}) if prefix != "_comment"] + fabric_forms(doc)[1]
 
 
 def asked(doc: dict) -> list:
@@ -493,6 +548,8 @@ def settled(doc: dict, auto: dict | None) -> bool:
             and all(r in allowed(doc) for r in allow_rules())
             and all(r in asked(doc) for r in ask_rules())
             and not any(r in allowed(doc) for r in rules()[1])
+            and not any(fabric_owned(r) and r not in allow_rules() for r in allowed(doc))
+            and not any(fabric_owned(r) and r not in ask_rules() for r in asked(doc))
             and "includeCoAuthoredBy" not in doc
             and all(doc.get(k) == v for k, v in TOP_LEVEL.items())
             and doc.get("statusLine") == STATUS_LINE
@@ -537,6 +594,11 @@ def main(argv: list[str]) -> int:
     except BadPolicy as exc:
         print(f"  !  {exc} — fabric user settings NOT written", file=sys.stderr)
         return 1
+    try:
+        rules(), ask_rules()
+    except table.TableError as exc:
+        print(f"  !  {exc} — fabric user settings NOT written", file=sys.stderr)
+        return 1
     if auto is None:
         # The rest is still written; autoMode stays as it was, and says so.
         print(f"  !  {path}: Claude Code's auto-mode defaults could not be read (claude auto-mode defaults) — "
@@ -556,8 +618,13 @@ def main(argv: list[str]) -> int:
     doc["env"] = {**env, **ENV}
     perms = doc.get("permissions") if isinstance(doc.get("permissions"), dict) else {}
     granted, withheld = rules()
-    perms["allow"] = [r for r in allowed(doc) if r not in withheld] + [r for r in granted if r not in allowed(doc)]
-    perms["ask"] = asked(doc) + [r for r in ask_rules() if r not in asked(doc)]
+    # The `fabric` namespace is owned whole: a rule in it that the table no longer yields (a verb gone, the link check
+    # failing, an older writer's broad rule) is dropped, in allow and in ask alike.
+    ours_ask = ask_rules()
+    perms["allow"] = ([r for r in allowed(doc) if r not in withheld and not (fabric_owned(r) and r not in granted)]
+                      + [r for r in granted if r not in allowed(doc)])
+    perms["ask"] = ([r for r in asked(doc) if not (fabric_owned(r) and r not in ours_ask)]
+                    + [r for r in ours_ask if r not in asked(doc)])
     perms["defaultMode"] = "auto"
     doc["permissions"] = perms
     doc["hooks"] = with_fabric_hooks(doc.get("hooks"))

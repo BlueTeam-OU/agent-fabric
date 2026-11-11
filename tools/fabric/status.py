@@ -20,7 +20,7 @@ CONTRACT, frozen from the bash (ADR-040 §5 rule 3):
             PROFILE,EFFORT,STORE_SHA,ADDENDA_COMMIT}, ANTHROPIC_BASE_URL, ANTHROPIC_DEFAULT_{HAIKU,
             SONNET,OPUS,FABLE}_MODEL (the pins), every other ANTHROPIC_*,
             OPENROUTER_API_KEY, CLAUDE_CODE_SUBAGENT_MODEL,
-            CLAUDE_CODE_EFFORT_LEVEL (reported set, never echoed),
+            CLAUDE_CODE_EFFORT_LEVEL, CLAUDE_CODE_SUBAGENT_EFFORT (reported set, never echoed),
             CLAUDE_CODE_OAUTH_TOKEN, CLAUDE_CONFIG_DIR, CLAUDE_EFFORT,
             CLAUDE_PID, MOVETO_PREFIX (hosttools.py), XDG_CONFIG_HOME (the
             control agent's unit), HOME.
@@ -422,7 +422,8 @@ def build_report(root, environ=None, cred_environ=None):
     fallback_drift = fallback_drift_line(fallback_marker(environ))
     pins = {k: environ.get(k) for k in PIN_VARS}
     present = sorted(set(k for k in environ if k.startswith("ANTHROPIC_")
-                         or k in ("CLAUDE_CODE_SUBAGENT_MODEL", "CLAUDE_CODE_EFFORT_LEVEL"))
+                         or k in ("CLAUDE_CODE_SUBAGENT_MODEL", "CLAUDE_CODE_EFFORT_LEVEL",
+                                         "CLAUDE_CODE_SUBAGENT_EFFORT"))
                      | set(k for k in cred_environ if k in ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN",
                                                               "OPENROUTER_API_KEY")))
     credentials = {k: "set" for k in present if k not in pins and k != "ANTHROPIC_BASE_URL"}

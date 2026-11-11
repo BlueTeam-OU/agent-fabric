@@ -597,6 +597,40 @@ class Guard(unittest.TestCase):
         self.assertEqual(verdict[0], "ask")
         self.assertIn("6 s budget", verdict[1])
 
+    def test_an_unreadable_command_table_asks_a_job_session_and_leaves_an_unbound_one(self):
+        """canonical() raising TableError is no "this names no fabric-pr" (ADR-068 rule 7): with a job, every command
+        asks, a read included, since the guard cannot tell which commands publish; without one, nothing is fenced."""
+        from unittest import mock
+        guard = self.load_guard()
+        tree = tempfile.mkdtemp(prefix="cli-", dir=self.tmp)
+        self.addCleanup(shutil.rmtree, tree, True)
+        shutil.copytree(os.path.join(hook_harness.ROOT, "tools", "fabric", "cli"), os.path.join(tree, "tools", "fabric", "cli"),
+                        ignore=shutil.ignore_patterns("__pycache__"))
+        os.makedirs(os.path.join(tree, "runtime", "claude-code"))
+        with open(os.path.join(tree, "runtime", "claude-code", "commands.json"), "w", encoding="utf-8") as fh:
+            fh.write("{not json")
+        def take_cli() -> dict:
+            """The loaded fabric_cli package, out of sys.modules: the guard loads it once per process."""
+            return {k: sys.modules.pop(k) for k in [k for k in sys.modules if k.split(".")[0] == "fabric_cli"]}
+
+        saved = take_cli()
+        self.addCleanup(lambda: (take_cli(), sys.modules.update(saved)))
+        env = {"HOME": self.home, "XDG_STATE_HOME": os.path.join(self.home, ".state"), "CLAUDE_CODE_SESSION_ID": SESSION}
+
+        def decide(command: str):
+            payload = {"tool_name": "Bash", "cwd": self.proj, "tool_input": {"command": command}}
+            with mock.patch.dict(os.environ, env), mock.patch.object(guard, "OWN_ROOT", tree):
+                os.environ.pop("AGENT_FABRIC_STATE_DIR", None)
+                return guard.decide(payload)
+
+        self.assertIsNone(decide("fabric pr arm 12"), "no job list: an unbound session")
+        self.active_j7()
+        for command in ("fabric pr arm 12", "fabric-pr gate", "ls"):
+            with self.subTest(command=command):
+                verdict = decide(command)
+                self.assertEqual(verdict and verdict[0], "ask", verdict)
+                self.assertIn("could not read the fabric command table", verdict[1])
+
     def test_it_stays_fast(self):
         self.active_j7()
         for cmd in ("git commit -m x", "ls -la"):

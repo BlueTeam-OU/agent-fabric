@@ -438,6 +438,62 @@ def test_hook_starts_without_the_seal_file(tmp: str) -> None:
     assert "SessionStart" in proc.stdout, "the context was lost"
 
 
+def load_inbox_watch(path: str):
+    spec = importlib.util.spec_from_file_location("inbox_watch_under_test", path)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def test_inbox_watch_reads_both_spellings(tmp: str) -> None:
+    """inbox-watch.py's is_watch decides alike for `gzcoord-inbox …` and `fabric gzcoord inbox …` (ADR-068 rule 7:
+    canonical() reads the word, no pattern for the name), each pair's verdict pinned and both verdicts present; and a
+    command table it cannot read raises, never answering "no watch"."""
+    hook = os.path.join(ROOT, "runtime", "claude-code", "hooks", "inbox-watch.py")
+    mod = load_inbox_watch(hook)
+    pairs = [
+        ("/usr/local/bin/fabric-python -I /home/u/.local/bin/gzcoord-inbox --until-delivery",
+         "/usr/local/bin/fabric-python -I /home/u/.local/bin/fabric gzcoord inbox --until-delivery", True),
+        ("gzcoord-inbox --wait", "fabric gzcoord inbox --wait", True),
+        ("python3 /x/bin/gzcoord-inbox --follow", "bash /x/bin/fabric gzcoord inbox --follow", True),
+        ("python3 /tmp/links-1/gzcoord-inbox --follow", "bash /tmp/links-1/fabric gzcoord inbox --follow", True),
+        ("env X=1 gzcoord-inbox --until-delivery", "env X=1 fabric gzcoord inbox --until-delivery", True),
+        ("gzcoord-inbox --status", "fabric gzcoord inbox --status", False),
+        ("gzcoord-inbox", "fabric gzcoord inbox", False),
+        ("gzcoord-send --wait", "fabric gzcoord send --wait", False),
+        ("tail --wait gzcoord-inbox-log", "tail --wait fabric gzcoord-inbox-log", False),
+    ]
+    for direct, dispatched, want in pairs:
+        assert mod.is_watch(direct) is want, f"{direct!r}: want {want}"
+        assert mod.is_watch(dispatched) is want, f"{dispatched!r}: want {want}, as {direct!r}"
+    assert {w for _, _, w in pairs} == {True, False}
+    # The Node shim is no fabric command: known by its file name, still a watch only with a watch flag after it.
+    assert mod.is_watch("node inbox.mjs --follow") and mod.is_watch("node /h/scripts/inbox.mjs --until-delivery")
+    assert not mod.is_watch("node inbox.mjs") and not mod.is_watch("node inbox.mjs --status")
+
+    tree = os.path.join(tmp, "tree")
+    os.makedirs(os.path.join(tree, "runtime", "claude-code", "hooks"))
+    shutil.copy(hook, os.path.join(tree, "runtime", "claude-code", "hooks"))
+    shutil.copytree(os.path.join(ROOT, "tools", "fabric", "cli"), os.path.join(tree, "tools", "fabric", "cli"),
+                    ignore=shutil.ignore_patterns("__pycache__"))
+    with open(os.path.join(tree, "runtime", "claude-code", "commands.json"), "w", encoding="utf-8") as fh:
+        fh.write("{not json")
+    saved = {k: sys.modules.pop(k) for k in [k for k in sys.modules if k.split(".")[0] == "fabric_cli"]}
+    try:
+        broken = load_inbox_watch(os.path.join(tree, "runtime", "claude-code", "hooks", "inbox-watch.py"))
+        try:
+            said = broken.is_watch("gzcoord-inbox --until-delivery")
+        except Exception as exc:  # noqa: BLE001 — the class is the fixture copy's own, compared by name
+            assert type(exc).__name__ == "TableError", repr(exc)
+        else:
+            raise AssertionError(f"an unreadable commands.json answered {said!r}")
+        assert broken.is_watch("sleep 20") is False, "no watch flag: the table is not asked"
+    finally:
+        for k in [k for k in sys.modules if k.split(".")[0] == "fabric_cli"]:
+            sys.modules.pop(k)
+        sys.modules.update(saved)
+
+
 def test_hook_says_when_the_session_has_no_inbox_watch(tmp: str) -> None:
     """Under a process named claude with no `gzcoord-inbox --until-delivery` (or `--follow`) beneath it,
     the context says to arm the watch; with one beneath it, it does not."""
@@ -911,6 +967,7 @@ def main() -> int:
              test_hook_seals_the_session_shell,
              test_hook_starts_without_the_seal_file,
              test_hook_says_when_the_session_has_no_inbox_watch,
+             test_inbox_watch_reads_both_spellings,
              test_hook_says_when_the_branch_sweep_is_due,
              test_hook_says_the_job_list,
              test_hook_says_the_fleet_hold,
