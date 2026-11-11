@@ -17,7 +17,7 @@ from collections.abc import Callable
 from fabric_jobs import blockers as bl
 from fabric_jobs import settle as st
 from fabric_jobs.base import Refused, hold_view, identity, mutate, request_id_of, work
-from fabric_jobs.records import find, transition
+from fabric_jobs.records import find, session_id, session_worked, transition
 
 Proof = work.Proof
 
@@ -65,10 +65,34 @@ def _reason(job: dict, fields: dict, who: str) -> list[str]:
     return [why]
 
 
+def push_fenced(doc: dict) -> str | None:
+    """The job this session worked, when the job copy guard (runtime/claude-code/hooks/job-copy-guard.py, ADR-037 rule 3) denies its
+    pushes: a session that has worked a job other than the active one. The guard's own reading, including its answer for a session
+    with no id (it worked nothing: the fence never locks an unlaunched shell out)."""
+    session = session_id()
+    current = next((j for j in doc["jobs"] if j.get("state") == "active"), None)
+    return session_worked({**doc, "jobs": [j for j in doc["jobs"] if j is not current]}, session) if session else None
+
+
+def fenced_unpushed(candidate: dict) -> dict:
+    """{"unpushed": {"branch", "head"}} when pausing `candidate` is refused only because its commits are not on origin AND the push
+    fence is what keeps this session from pushing them (j744: a job started by mistake could then never be paused); else {}. A
+    branch that cannot be read, a missing checkout or any other refusal is not this one and stays a refusal."""
+    if push_fenced(identity.read_jobs()) is None:
+        return {}
+    found: dict = {}
+    st._pushed(candidate, [], found)
+    return {"unpushed": found} if found else {}
+
+
 def _branch_pushed(job: dict, fields: dict, who: str) -> list[str]:
     problems: list[str] = []
-    evidence = st._pushed(job, problems)
+    found: dict = {}
+    evidence = st._pushed(job, problems, found)
     if problems:
+        # The pause carries what the fence left behind, and is taken only while it is still true of the branch as it stands now.
+        if who == "pause" and found and fields.get("unpushed") == found:
+            return [f"branch {found['branch']} not pushed: the push fence refuses it here, head {found['head'][:12]} recorded for the next session"]
         raise Refused("; ".join(problems))
     return evidence
 

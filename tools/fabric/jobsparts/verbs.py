@@ -561,7 +561,13 @@ def _unlanded(job_id: str, names: list[str]) -> list[str]:
 def move(args, said: dict) -> Job:
     """The verbs that make a transition: the row is rule 14's, its needs are asked by needs.prove, the change is the owner's."""
     if args.cmd == "start":
-        return needs.advance(args.id, "active", "start", lambda job: {})
+        held = find(identity.read_jobs(), args.id).get("unpushed")
+        job = needs.advance(args.id, "active", "start", lambda job: {})
+        if isinstance(held, dict) and held.get("branch") and held.get("head"):
+            # The pausing session could not push (j744): the commits are in this checkout's branch and nowhere else.
+            print(f"fabric-jobs: {args.id} was paused with commits not pushed (the push fence refused them): push branch "
+                  f"{held['branch']} (head {held['head']}) first, from the job's checkout", file=sys.stderr)
+        return job
     if args.cmd == "pause":
         paused_branch = branch_here()
 
@@ -570,7 +576,16 @@ def move(args, said: dict) -> Job:
             # The branch the paused work is on, read from where this command runs: pause asks that it is pushed.
             # The branch `switch` recorded stays unless this runs in its checkout: another directory's branch is not the job's.
             keep = bool(job.get("branch")) and paused_branch.get("worktree") != job.get("worktree")
-            return {"reason": why, "note": why, **({} if keep else paused_branch)}
+            fields = {"reason": why, "note": why, **({} if keep else paused_branch)}
+            if left:
+                note = f"{why} (not pushed, the push fence refuses it: branch {left['unpushed']['branch']} at {left['unpushed']['head']})"
+                fields.update(left, note=note)
+            return fields
+        # Read once, outside the list's lock (it runs git): what a pause leaves unpushed when the push fence is the only reason.
+        left: dict = {}
+        first = find(identity.read_jobs(), args.id)
+        if first["state"] == "active":
+            left = needs.fenced_unpushed({**first, **{k: v for k, v in paused(first).items() if v is not None and k != "note"}})
         return needs.advance(args.id, "paused", "pause", paused)
     if args.cmd == "block":
         fields, specs, hint = block_fields(args)

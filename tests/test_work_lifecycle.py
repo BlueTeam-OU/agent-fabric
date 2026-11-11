@@ -282,6 +282,55 @@ class Working(Case):
         self.assertEqual(self.state(), "active")
 
 
+class PushFence(Case):
+    """j744: pause asks that the branch is pushed, and the job copy guard (ADR-037 rule 3) refuses a push in a session that has worked
+    another job. A job started there by mistake could then never be paused. When the fence is the only reason, pause records the
+    branch and its unpushed head in the log and pauses; `start` tells the next session to push them."""
+
+    def side_branch(self, commit: bool = True) -> str:
+        git = lambda *a: subprocess.run(["git", "-C", self.w.alpha, *a], check=True, env=git_env(), capture_output=True, text=True).stdout.strip()
+        git("checkout", "-q", "-b", "side/work")
+        if commit:
+            git("commit", "-q", "--allow-empty", "-m", "work")
+        return git("rev-parse", "HEAD")
+
+    def worked_then_started_by_mistake(self) -> str:
+        j1 = self.w.add("worked first")
+        self.ok("start", j1)
+        self.ok("drop", j1, "done with it")          # j1 left active in this session: the fence now applies to it
+        j2 = self.w.add("started by mistake")
+        self.ok("start", j2)
+        return j2
+
+    def test_a_fenced_session_pauses_a_job_whose_commits_it_may_not_push(self):
+        j2 = self.worked_then_started_by_mistake()
+        head = self.side_branch()
+        p = self.ok("pause", j2, "set aside")
+        job = self.w.job(j2)
+        self.assertEqual((job["state"], job["unpushed"]), ("paused", {"branch": "side/work", "head": head}))
+        self.assertIn(head, job["log"][-1]["note"])
+        self.assertIn("set aside", job["log"][-1]["note"])
+        p = self.ok("start", j2)
+        self.assertIn(f"push branch side/work (head {head})", p.stderr)
+        self.assertNotIn("unpushed", self.w.job(j2))
+
+    def test_a_session_that_worked_no_other_job_is_still_refused(self):
+        # The positive control of the case above: without the fence the same pause is the refusal it always was.
+        j1 = self.w.add("the only job")
+        self.ok("start", j1)
+        self.side_branch()
+        self.refused("pause", j1, "set aside", said="is not on origin")
+        self.assertEqual(self.state(j1), "active")
+
+    def test_a_fenced_session_pushing_nothing_records_nothing(self):
+        j2 = self.worked_then_started_by_mistake()
+        self.side_branch()
+        subprocess.run(["git", "-C", self.w.alpha, "push", "-q", "origin", "side/work"], check=True, env=git_env())
+        self.ok("pause", j2, "set aside")
+        self.assertNotIn("unpushed", self.w.job(j2))
+        self.assertNotIn("not pushed", self.w.job(j2)["log"][-1].get("note", ""))
+
+
 class Blocked(Case):
     """active -> blocked, by block and by switch; the checkable forms; leaving blocked drops what it waited on."""
 

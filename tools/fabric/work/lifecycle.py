@@ -91,6 +91,7 @@ def transition(doc: dict, job: dict, to: str, who: str, proof: Proof | None, *, 
         job.pop("blockers", None)
     if to == "active":
         job.pop("reason", None)         # a paused job's why belongs to the pause; an active job has none
+        job.pop("unpushed", None)       # a pause's record of commits the push fence kept back: `start` has said it, the job now works on them
     # Entering or leaving `active`, not only entering: a session launched with its job already active never activates it, and is
     # known by finishing it. A drop or block of a job that was never active here is no work done.
     touches_active = to == "active" or job["state"] == "active"

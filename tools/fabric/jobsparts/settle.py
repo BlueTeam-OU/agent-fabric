@@ -430,7 +430,9 @@ def _peeled(where: str, ref: str) -> str | None:
     return vcs.text(where, "rev-parse", f"{ref}^{{commit}}")
 
 
-def _pushed(job: dict, problems: list[str]) -> list[str]:
+def _pushed(job: dict, problems: list[str], unpushed: dict | None = None) -> list[str]:
+    """The evidence that the job's branch is pushed, else `problems`. When the one problem is commits origin lacks, and `unpushed`
+    is a dict, it is filled with {"branch", "head"}: the local head that is not on origin (pause records it, j744)."""
     branch = job.get("branch")
     # A worktree swept after its branch landed is gone, not an error: the repository is asked from the recorded worktree while it
     # exists, else from checkout_of (the working copy, or the project's checkout when that went with the worktree), never from a directory
@@ -456,11 +458,15 @@ def _pushed(job: dict, problems: list[str]) -> list[str]:
         tip = vcs.remote_tip(where, branch)
         if tip is None:
             problems.append(f"branch {branch} is not on origin: push it, so the paused work survives this checkout")
+            if unpushed is not None and (head := _peeled(where, f"refs/heads/{branch}")):
+                unpushed.update(branch=branch, head=head)
             return []
         local = _peeled(where, f"refs/heads/{branch}")
         # Without a local branch, origin holds all of it.
         if local and not vcs.question(where, "merge-base", "--is-ancestor", local, f"refs/remotes/origin/{branch}"):
             problems.append(f"branch {branch} has commits origin does not: push it")
+            if unpushed is not None:
+                unpushed.update(branch=branch, head=local)
             return []
     except vcs.VcsError as e:
         problems.append(f"could not tell whether branch {branch} is pushed ({e})")
