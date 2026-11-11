@@ -54,3 +54,39 @@ marker lapses ten minutes after it was written, and a boot inside those
 ten minutes resumes. The word set of `enter-ssh` is unchanged: `--resume`
 was already one of its five. The read-back on three accounts is
 docs/live-checks/2026-11-04-harness-restart.md.
+
+### Amendment 2026-11-11 — A host reached over ssh listens beyond loopback; the coordinator's key on its operator
+
+§7 left "more than one host: sshd beyond loopback" to the future. The
+future arrived with `fabric-h2`, the second host (ADR-064 rule 1, A
+2026-11-11), a VM on the Proxmox node s13337 that develop-qzapp
+reaches over the LAN and its VPN.
+
+One sshd there carries two things. The first is the coordinator's
+hostexec to the operator account `op`, the registry's `ssh`, which
+`fabric-host fabric-h2 check` read back live
+(`docs/live-checks/2026-11-11-fabric-h2-registered.md`). The second,
+later, is the deck's panes into each placed account. Rule 2 lets the
+drop-in read only `/etc/ssh/authorized_keys/%u`. So once the drop-in
+is applied there, the operator's own `~/.ssh/authorized_keys`, which
+holds the coordinator's key today (put there by the owner with
+`ssh-copy-id`), stops counting. The amendment puts that key in the
+operator's file under `/etc/ssh/authorized_keys/`. It carries
+`restrict` and a `from=` naming develop-qzapp's address as the host
+sees it (10.10.10.3 in the live check). It has no forced command:
+hostexec runs a command line, and a forced command would turn it into
+`enter-ssh`'s five words. Rule 8 gains this key as its one exception.
+
+The penalty exemption of 2026-10-13 is for loopback. Every client
+there is local, and that does not carry over to a LAN address. The
+deck's burst would come from one source, and whether it needs an
+exemption is measured when an account is placed there, not assumed.
+
+Until the drop-in is applied, `fabric-h2`'s entry pins the host keys
+of AlmaLinux's own sshd. They were read on the host and match the
+network scans. That sshd still accepts passwords, and no account is
+placed there. The drop-in for a platform off Qubes (`ssh-operator.sh`
+is the Qubes path) is still to be built, with the almalinux
+provisioning profile (python-dev-02's j135).
+
+Written by fabric-coordinator as job j706.
