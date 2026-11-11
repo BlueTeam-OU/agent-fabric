@@ -215,6 +215,8 @@ def pin_problem(root: str) -> str | None:
         return python_pin.check(python_pin.pin(os.path.join(root, "runtime", "python.json")))
     except python_pin.PinError as exc:
         return str(exc)
+    except (TypeError, AttributeError) as exc:    # valid JSON of the wrong shape: python_pin.pin() indexes it unchecked
+        return f"runtime/python.json unreadable: not the pin's shape ({type(exc).__name__})"
 
 
 def tail(text: str, n: int = 5) -> None:
@@ -246,9 +248,8 @@ def prepare(w: Worker) -> int:
     prof = host_platform.profile(host_platform.detect(w.env))
     absent = [t for t in host_platform.FABRIC_HOST_TOOLS if shutil.which(t) is None]
     missing, unpackaged = host_platform.split_missing(prof, absent)
-    # One Python on every host, the pin (ADR-040 rule 1, owner 2026-11-11): the host's own python3 is never asked its
-    # version here, since only python_pin.py and rule 4's remaining entries run on it. An account is made only
-    # once those entries run on the pin.
+    # One Python on every host, the pin (the owner's word, 2026-11-11): the host's own python3 is never asked its
+    # version here; only python_pin.py and the entries ADR-040 rule 4 still lists run on it.
     problem = pin_problem(w.root)
     if problem:
         w.die(f"the fleet's pinned Python is not in place: {problem}; as root: "

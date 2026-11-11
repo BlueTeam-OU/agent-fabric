@@ -38,7 +38,7 @@ FABRIC_HOST_TOOLS=(bash sudo ssh getent pgrep timeout flock stat sha256sum cmp u
 # whole list in its containers (packages.sh --operator adds it).
 FABRIC_OPERATOR_TOOLS=(kitty)
 # CI's container check of the platform's python3 (ci.yml). Provisioning no
-# longer reads it: a host runs the pin, and its own python3 only python_pin.py
-# (ADR-040 rule 1 amended, 2026-11-11).
+# longer reads it: it checks the pin, not the host's python3 (the owner's word,
+# 2026-11-11).
 FABRIC_HOST_PYTHON_MIN=3.13
 host_python_ok() { python3 -c 'import sys; m = tuple(int(x) for x in sys.argv[1].split(".")); sys.exit(sys.version_info[:2] < m)' "$FABRIC_HOST_PYTHON_MIN" 2>/dev/null; }

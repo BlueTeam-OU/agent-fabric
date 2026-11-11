@@ -393,6 +393,7 @@ def main() -> int:
             real_py = shutil.which("python3", path=base.get("PATH"))
             with open(f"{oldpy}/python3", "w") as fh:
                 fh.write("#!/bin/bash\n"
+                         'if [[ "$1" == -c && "$2" == *version_info* ]]; then exit 1; fi\n'
                          'if [[ "$1" == -V ]]; then echo "Python 3.11.2"; exit 0; fi\n'
                          f'exec {real_py} "$@"\n')
             os.chmod(f"{oldpy}/python3", 0o755)

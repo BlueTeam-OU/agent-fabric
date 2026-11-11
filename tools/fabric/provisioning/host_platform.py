@@ -95,7 +95,7 @@ FEDORA = Profile("fedora", True, "sudo dnf install", "/etc/bashrc", "sudo is the
 # install command is two. paperkey is in no repository of the release: the
 # contract lists it, the platform cannot install it, and the map says so
 # rather than name a package dnf would refuse. python3 is 3.12 there; that
-# is no floor, since every host runs the pin (ADR-040 rule 1) and its own python3 only python_pin.py.
+# is no floor: provisioning checks the pin, not the host's python3 (the owner's word, 2026-11-11).
 ALMALINUX = Profile("almalinux", True, "sudo dnf install -y epel-release && sudo dnf install", "/etc/bashrc",
                     "sudo is the wheel group's", "sudo dnf install -y epel-release && sudo dnf install -y",
                     FEDORA.packages, ("paperkey",))

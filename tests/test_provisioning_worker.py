@@ -143,6 +143,13 @@ def main() -> int:
         stopped, text, calls, seen = prepared("/usr/local/bin/fabric-python is absent")
         check("fabric-python absent or another build: exit 1 before any account, naming the fact and python_pin.py install",
               stopped == "stop 1" and "is absent" in text and "python_pin.py install" in text and not any("sudo" in c[0] for c in calls), f"{stopped}\n{text}\n{calls}")
+        for shape in ("[]", "null"):
+            with tempfile.TemporaryDirectory() as odd:
+                os.makedirs(f"{odd}/runtime")
+                with open(f"{odd}/runtime/python.json", "w") as fh:
+                    fh.write(shape)
+                got = worker.pin_problem(odd)
+                check(f"a pin file of {shape} is a one-line problem, not a traceback", bool(got) and "unreadable" in got, str(got))
         with tempfile.TemporaryDirectory() as bad:
             stopped, text, calls, seen = prepared(None, rt=bad)
             check("an unreadable pin is a stop, never a pass: the check is not asked at all",
