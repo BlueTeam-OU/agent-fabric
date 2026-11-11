@@ -41,6 +41,7 @@ from github.review_status.verdicts import head_covered  # noqa: E402 — the gat
 from github import review_coverage as rcov  # noqa: E402
 from github import post_review as post_review_mod  # noqa: E402
 import errors as errs  # noqa: E402
+import review_lines as rlines  # noqa: E402
 # The card and config every header below names; a case that needs the config the tool itself computes asks for it.
 CARD, CONFIG = "5" * 40, "6" * 64
 
@@ -752,7 +753,13 @@ def main() -> int:
         ):
             rc, out = v2_post(report + text + cover("a.py", "sub/c.py"), machine=False)
             check(f"{label} is refused, nothing posted, the line named",
-                  rc == 2 and not posted() and why in out and ("Finding: F<n>" in out or "`Finding: none`" in out), f"rc={rc}\n{out[:400]}{calls()}")
+                  rc == 2 and not posted() and why in out and rlines.FINDING_SHAPE in out and rlines.JUDGEMENT_SHAPE in out
+                  and rlines.NO_FINDINGS in out, f"rc={rc}\n{out[:400]}{calls()}")
+        many = "".join(f"Finding: C{n} | P2 | certain | a.py:3 | {'long ' * 40}{n}\n" for n in range(8))
+        rc, out = v2_post(report + many + cover("a.py", "sub/c.py"), machine=False)
+        check("every malformed line is named, in full, not the first five cut short",
+              rc == 2 and not posted() and all(f"Finding: C{n} | P2" in out and f"long {n}" in out for n in range(8))
+              and "more malformed" not in out, f"rc={rc}\n{out[:300]}")
         for label, text in (("Finding: none", "Finding: none\n"),
                             ("a finding and its judgement", good + "Judgement: F1 | real | it is\n")):
             v2_pr()

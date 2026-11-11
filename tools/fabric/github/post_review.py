@@ -40,6 +40,11 @@ review is tied to the PR on this side too: it is the PR's merge-base with its ba
 checkpoint review (review_checkpoint), so a narrow range posted as a full review does not count and chain. The
 assembled body is read back with the readers' own parser before it is sent, and must give the coverage just validated.
 
+A REPORT'S MACHINE LINES MUST PARSE, read with errors.parse_machine_lines, the reader `fabric-pr arm` uses: a posted
+review cannot be withdrawn, so one arm leaves unread (no Finding:/Judgement: line, a malformed one, a Judgement: with
+no Finding:) would refuse the PR for good. Such a report is refused before anything is read of the PR, naming every
+malformed line and the shapes of review_lines.
+
 REVIEW_MARKER is the contract with every reader (pr-review-status, the
 gate, results.py): the first line of the body, versioned because a later
 field must not silently reclassify older reviews. test_post_review_cli.py
@@ -61,6 +66,7 @@ from urllib.parse import quote
 HERE = os.path.dirname(os.path.realpath(__file__))
 sys.path.insert(0, os.path.dirname(HERE))
 import gh  # noqa: E402
+import review_lines  # noqa: E402
 import review_brief  # noqa: E402
 import roots  # noqa: E402
 from github import common, evidence, local, review_coverage  # noqa: E402
@@ -91,6 +97,8 @@ Usage:
   fabric-pr post-review <pr> [options]   # body on stdin
   fabric-pr post-review --repo <owner/name|project> <pr> …   # another repository's PR
 
+  # Every report must end with Finding:/Judgement: lines that errors.parse_machine_lines reads (a malformed or missing
+  # one is refused, naming the line: a posted review cannot be withdrawn, and arm refuses a PR whose review it cannot read).
   # The review class's report, as it arrives: it opens with the brief's
   # agent-fabric-dispatch v1 block, which names the head it read.
   fabric-pr post-review 552 <<'EOF'
@@ -99,6 +107,7 @@ Usage:
   ```
   Found a P1 in the ownership guard: a four-segment branch typed
   `Fix/` was classified unowned, so fabric-pr reply would post to it.
+  Finding: F1 | P1 | certain | tools/fabric/github/pr_reply.py:40 | a four-segment `Fix/` branch is classified unowned
   EOF
 
 Options:
@@ -155,8 +164,8 @@ marker says "partial coverage: N path(s) not read" (with a "not read" default: "
 named not read"); the gate does not count a partial review as coverage of its head.
 A report that with its block is over the 65000 characters a review may hold is posted as a PR comment FIRST, and the
 review, which keeps the marker, the partial line, the report's Finding:/Judgement: lines and the block, points at it
-(`posted review:` is then the only URL on stdout; the comment's is in the review). A report with no such lines, or one
-over the cap on its own, is refused instead. A comment GitHub rejects posts no review; a review that fails after the
+(`posted review:` is then the only URL on stdout; the comment's is in the review). A report one
+over the cap on its own is refused instead. A comment GitHub rejects posts no review; a review that fails after the
 comment says the comment is already there.
 A report with no header, or a header from before those fields, is refused: a new review is posted as v2 only.
 The range's base must be the PR's merge-base with its base branch or the head of its last checkpoint review (an
@@ -189,8 +198,8 @@ DISPATCH_FENCE = re.compile(r"^[ \t]*(`{3,}|~{3,})[ \t]*" + re.escape(review_bri
 DISPATCH_NAME = review_brief.DISPATCH_VERSION.split()[0]
 # A list marker needs whitespace after it, as in CommonMark: a quoted diff's "+```" or "-```" opens no list item
 # (re-review, finding 1).
-# The lines fabric-errors reads a review by (errors.FINDING_LINE and JUDGEMENT_LINE, which this module cannot import:
-# errors imports it); test_post_review_cli compares the two patterns.
+# The lines fabric-errors reads a review by (errors.FINDING_LINE and JUDGEMENT_LINE, which this module imports only
+# inside a function: errors imports it); test_post_review_cli compares the two patterns.
 MACHINE_LINE = re.compile(r"^(?:Finding|Judgement):")
 STRAY_FENCE = re.compile(r"^[ \t]*(?:>[ \t]*|(?:[*+-]|\d{1,9}[.)])[ \t]+)*(`{3,}|~{3,})[ \t]*" + re.escape(DISPATCH_NAME))
 
@@ -483,17 +492,16 @@ def machine_lines_refusal(body: str) -> str:
     unread would refuse arm for the PR for good, and nothing supersedes it."""
     # Here, not at the top: errors imports this module for REVIEW_MARKER, so a top-level import is a cycle.
     import errors
-    review = errors.parse_machine_lines(body)
+    review = errors.parse_machine_lines(body, whole=True)
+    shapes = f"`{review_lines.FINDING_SHAPE}`, `{review_lines.JUDGEMENT_SHAPE}`; with no finding, `{review_lines.NO_FINDINGS}`"
     if review is None:
         return ("it has no Finding:/Judgement: lines, which are what the gate reads a review by. End the report "
-                "with `Finding: none`, or one line per finding")
+                f"with them: {shapes}")
     if not review.unparsed:
         return ""
     named = "".join(f"\n  {m}" for m in review.malformed)
-    return ("these Finding:/Judgement: lines do not parse, and a posted review cannot be withdrawn:" + named +
-            "\nA finding line is `Finding: F<n> | P<level> | <confidence> | <path or -> | <summary>`, "
-            "a judgement line `Judgement: F<n> | <verdict> | <reason>`; a report with no finding says "
-            "`Finding: none`")
+    return (f"these Finding:/Judgement: lines do not parse, and a posted review cannot be withdrawn:{named}\n"
+            f"The shapes are {shapes}")
 
 
 def identity(fabric: str, *args: str) -> str:
@@ -695,17 +703,12 @@ are judged before they are answered; the judgement follows in the PR."""
         # The machine lines stay in the review: fabric-errors counts a review by them (a review without any reads
         # as zero findings, not as unknown), and the next round's brief quotes this body as the previous findings,
         # which a reviewer with no network cannot fetch from the comment.
+        # Never empty: machine_lines_refusal passed, so the report holds a Finding: line.
         machine = "\n".join(l for l in body.split("\n") if MACHINE_LINE.match(l))
-        if not machine:
-            die(f"not posting this report: with its coverage block it is {len(full_body)} characters, over the "
-                f"{review_coverage.MAX_REVIEW_CHARS} one review holds, and it has no Finding:/Judgement: lines to keep in "
-                "the review when it goes to a comment (fabric-errors would read that review as no findings). End the "
-                "report with them, or shorten it.")
 
         def stub(url: str) -> str:
-            lines = f"\n\n{machine}" if machine else ""
             return (f"{header}\n{intro}\n\nThe report is {len(body)} characters, more than one review holds: {url}"
-                    f"{lines}\n\n{block}\n")
+                    f"\n\n{machine}\n\n{block}\n")
         # A comment URL is at most 255 characters (a 39-character owner, a 100-character repository, the numbers).
         if len(stub("https://github.com/" + "x" * 236)) > review_coverage.MAX_REVIEW_CHARS:
             die(f"not posting this report: its coverage block and machine lines alone make the review "
