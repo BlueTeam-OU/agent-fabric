@@ -305,6 +305,7 @@ def switch_job(args) -> int:
         who = waiters(job, waits)
         was_cleared = blockers_note(job, cache) if job["state"] == "blocked" and bl.cleared_flag(job, cache) is True else ""
         resumed = job.get("reason") if job["state"] == "paused" else None
+        unpushed = job.get("unpushed") if job["state"] == "paused" else None      # the transition drops it; the reminder is said below
         where = f"branch {choice.branch}" if choice.branch else f"no branch ({choice.note})"
         if choice.branch:
             # The open pull request's branch is shared by design (one open pull request per agent), but never silently.
@@ -333,7 +334,7 @@ def switch_job(args) -> int:
                 {"at": identity.now_iso(), "kind": "switch", "note": f"switch to {job['id']}: {settled}; {where}"})   # no `state`: fleet.log_times reads the state of an entry as a transition
         if not verdict["fresh"] and choice.kind != "blocked":
             verdict.update(outside_copy(job, stands) or {})
-        verdict_for.update(verdict=verdict, who=who, was_cleared=was_cleared, resumed=resumed, job=dict(job))
+        verdict_for.update(verdict=verdict, who=who, was_cleared=was_cleared, resumed=resumed, unpushed=unpushed, job=dict(job))
     try:
         # What the row asks of the world (a blocked job's blockers cleared) is asked without the list's lock; the owner refuses the
         # proof if the job changed meanwhile. A refusal here discards the prepared branch like any other.
@@ -367,6 +368,9 @@ def switch_job(args) -> int:
         return 0
     if verdict_for["resumed"]:
         print(f"  resumes paused work: {verdict_for['resumed']}")
+    held = verdict_for["unpushed"]
+    if isinstance(held, dict) and held.get("branch") and held.get("head"):
+        print(f"  paused with commits not pushed (the push fence refused them): push branch {held['branch']} (head {held['head']}) first, from the job's checkout")
     if settled:
         print(f"  left {old['id']}: {settled}")
         for said in swept:

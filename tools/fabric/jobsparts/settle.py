@@ -14,7 +14,7 @@ import time
 from fabric_jobs import blockers as bl
 from fabric_jobs import vcs
 from fabric_jobs.base import FABRIC_ROOT, _load, identity
-from fabric_jobs.records import working_copy_of
+from fabric_jobs.records import push_fenced, working_copy_of
 
 from fabric_jobs import artifacts
 from fabric_jobs.artifacts import BRANCH_PREFIX, MESSAGE_ID, PR_BARE, PR_FULL, PR_URL, REPLY, SHA  # noqa: F401 — the readers' patterns, named here as they always were
@@ -549,7 +549,12 @@ def settle(job: dict, places: list[str], session_start: float | None = None) -> 
     elif state == "blocked":
         evidence = _blocker(job, problems)
     elif state == "paused":
-        evidence = _pushed(job, problems)
+        found: dict = {}
+        evidence = _pushed(job, problems, found)
+        # A pause the push fence excused (j744) is left the same way: the record must still be true of the branch, and the fence still hold.
+        if problems and found and job.get("unpushed") == found and push_fenced(identity.read_jobs()) is not None:
+            problems.clear()
+            evidence = [f"paused: branch {found['branch']} not pushed, the push fence refuses it here (head {found['head'][:12]} recorded)"]
     elif state == "dropped":
         evidence = [f"dropped: {job['reason']}"] if str(job.get("reason") or "").strip() else []
         if not evidence:

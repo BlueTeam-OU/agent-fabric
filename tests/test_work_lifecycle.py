@@ -278,12 +278,14 @@ class Working(Case):
         self.ok("done", "j1", f"reply:{RID}")
         self.assertEqual(self.state(), "done")
 
-    def test_switch_still_needs_a_working_copy_of_the_project_j754(self):
-        # The positive control of the case above: only `start` is excused, since `switch` chooses the branch in a checkout.
+    def test_switch_still_refuses_a_job_with_no_working_copy_j754(self):
+        # `switch` chooses the branch in a checkout, so choose() refuses it before any row's needs are asked: the `start` exemption
+        # does not reach it, and this pins that the refusal is still said.
         self.w.add("answer it", project="fixture-proj")
         self.w.put(lambda doc: doc["jobs"][0].update(working_copy=None))
         p = self.w.switch()
         self.assertEqual(self.state(), "queued", p.stdout + p.stderr)
+        self.assertIn("working copy", p.stderr)
 
 
     def test_pause_sets_the_active_job_aside_with_its_reason(self):
@@ -330,6 +332,26 @@ class PushFence(Case):
         self.assertIn("set aside", job["log"][-1]["note"])
         p = self.ok("start", j2)
         self.assertIn(f"push branch side/work (head {head})", p.stderr)
+        self.assertNotIn("unpushed", self.w.job(j2))
+
+    def test_switch_leaves_a_fence_paused_job_for_another(self):
+        # Review F1: pause passed, then rule 10's switch asked the same question again and refused for the push the fence forbids.
+        j2 = self.worked_then_started_by_mistake()
+        self.side_branch()
+        self.ok("pause", j2, "set aside")
+        j3 = self.w.add("the next job")
+        p = self.w.switch(j3)
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        self.assertIn("not pushed", p.stdout)
+
+    def test_switch_back_to_a_fence_paused_job_says_to_push(self):
+        # Review F2: the record is dropped on entering active, and only `start` said it.
+        j2 = self.worked_then_started_by_mistake()
+        head = self.side_branch()
+        self.ok("pause", j2, "set aside")
+        p = self.w.switch(j2)
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        self.assertIn(f"push branch side/work (head {head})", p.stdout)
         self.assertNotIn("unpushed", self.w.job(j2))
 
     def test_a_session_that_worked_no_other_job_is_still_refused(self):

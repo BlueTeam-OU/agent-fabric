@@ -17,7 +17,7 @@ from collections.abc import Callable
 from fabric_jobs import blockers as bl
 from fabric_jobs import settle as st
 from fabric_jobs.base import Refused, hold_view, identity, mutate, request_id_of, work
-from fabric_jobs.records import find, session_id, session_worked, transition
+from fabric_jobs.records import find, push_fenced, transition
 
 Proof = work.Proof
 
@@ -68,15 +68,6 @@ def _reason(job: dict, fields: dict, who: str) -> list[str]:
     if not why:
         raise Refused(f"{who} needs a reason: fabric-jobs {who} {job['id']} \"<why>\"")
     return [why]
-
-
-def push_fenced(doc: dict) -> str | None:
-    """The job this session worked, when the job copy guard (runtime/claude-code/hooks/job-copy-guard.py, ADR-037 rule 3) denies its
-    pushes: a session that has worked a job other than the active one. The guard's own reading, including its answer for a session
-    with no id (it worked nothing: the fence never locks an unlaunched shell out)."""
-    session = session_id()
-    current = next((j for j in doc["jobs"] if j.get("state") == "active"), None)
-    return session_worked({**doc, "jobs": [j for j in doc["jobs"] if j is not current]}, session) if session else None
 
 
 def fenced_unpushed(candidate: dict) -> dict:
