@@ -123,7 +123,9 @@ class Pool(unittest.TestCase):
         said = self.claim("p1")
         job = self.on_the_claimants_list(said)[0]
         self.assertEqual((job["state"], job["priority"], job["project"], job["working_copy"]), ("queued", "high", "fixture-proj", None))
-        # R4 needs a working copy: a pool job of a project this login has no copy of cannot be started until one is named.
+        # R4 needs a working copy where the job has a branch to work on: a pool job of a project this login has no copy of
+        # cannot be started until one is named (j754: a job with no branch needs none, so this one is given a branch).
+        self.w.put(lambda doc: doc["jobs"][0].update(branch="side/work"))
         self.assertEqual(self.w.run("start", job["id"]).returncode, 1)
         self.w.put(lambda doc: doc["jobs"][0].update(working_copy=self.w.alpha))
         self.assertEqual(job["source"], {"kind": "pool", "pool_id": "p1", "from": HOLDER, "generation": said["generation"]})
