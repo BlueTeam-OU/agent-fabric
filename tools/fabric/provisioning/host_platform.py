@@ -173,6 +173,13 @@ def packages(prof: Profile) -> list[str]:
     return sorted({prof.pkg_for(t) for t in FABRIC_HOST_TOOLS if t not in prof.no_package})
 
 
+def split_missing(prof: Profile, absent: list[str]) -> tuple[list[str], list[str]]:
+    """The absent tools as (the sorted packages to install, the tools the
+    platform has no package for): dnf is never asked for what it lacks."""
+    return (sorted({prof.pkg_for(t) for t in absent if t not in prof.no_package}),
+            [t for t in absent if t in prof.no_package])
+
+
 def operator_packages(prof: Profile) -> list[str]:
     return sorted({prof.pkg_for(t) for t in FABRIC_OPERATOR_TOOLS})
 

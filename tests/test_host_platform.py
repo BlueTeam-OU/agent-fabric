@@ -74,6 +74,18 @@ def main() -> int:
               and al.install_cmd == "sudo dnf install -y epel-release && sudo dnf install -y")
         check("every profile's install hint is a command prefix the audit can print before the packages (no prose)",
               all("(" not in pr.pkg_install_hint for pr in hp.PROFILES.values()) and al.pkg_install_hint.endswith("&& sudo dnf install"))
+        miss = hp.split_missing(al, ["gh", "paperkey", "git"])
+        check("a tool with no package is split from the packages to install; other profiles split nothing",
+              miss == (["gh", "git-core"], ["paperkey"])
+              and hp.split_missing(hp.profile("fedora"), ["paperkey"]) == (["paperkey"], []))
+        import importlib
+        hs = importlib.import_module("provisioning.host_steps")
+        one = hs.audit("almalinux", "1", al.pkg_install_hint, "24", [], unpackaged=["paperkey"])
+        both = hs.audit("almalinux", "1", al.pkg_install_hint, "24", ["gh"], unpackaged=["paperkey"])
+        check("the audit never says 'present' while a tool is missing, and asks dnf only for packages",
+              "present" not in one and "lacks paperkey" in one and "dnf" not in one
+              and "lacks gh: sudo dnf install -y epel-release && sudo dnf install gh\n" in both and "no package provides paperkey" in both
+              and "present" in hs.audit("fedora", "1", "x", "24", []))
         check("a name with no profile is the unknown profile", hp.profile("x").id == "unknown")
 
         def sh_det(release: str, env: dict) -> str:
@@ -89,6 +101,8 @@ def main() -> int:
               and sh_det('ID=fedora\n', {"QUBES_ENV_SOURCED": "1"}) == "fedora-qubes")
         if not os.path.isdir("/usr/share/qubes") and not os.access("/etc/qubes-release", os.R_OK):
             check("…and without a marker almalinux is almalinux", sh_det(alma, {}) == "almalinux")
+        else:
+            print("  skip …and without a marker almalinux is almalinux (this machine carries a Qubes marker; CI runs it)")
 
         print("packages")
         for name, want in (("fedora", FEDORA), ("fedora-qubes", FEDORA), ("almalinux", ALMALINUX), ("debian", DEBIAN), ("debian-qubes", DEBIAN)):

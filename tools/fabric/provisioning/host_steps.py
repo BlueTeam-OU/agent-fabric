@@ -25,7 +25,7 @@ def host_check(login: str) -> str:
 
 
 def audit(platform_id: str, persists: str, hint: str, n_tools: str, packages: list[str], *,
-          operator_missing: list[str] = (), template: str = "") -> str:
+          operator_missing: list[str] = (), unpackaged: list[str] = (), template: str = "") -> str:
     """Step 0, the host: what the fabric's host contract (platform/detect.sh:
     FABRIC_HOST_TOOLS) finds missing, as the packages that hold it — what
     its hooks, scripts and provisioning call; the package each comes from,
@@ -43,10 +43,16 @@ def audit(platform_id: str, persists: str, hint: str, n_tools: str, packages: li
     except ValueError:
         persists_on = False
     where = hint.replace("in the TemplateVM:", f"in the TemplateVM {template}:") if template else hint
-    if not packages:
+    if not packages and unpackaged:
+        # Missing, yet nothing to install: "present" would be false.
+        text = (f"new-agent: 0. {platform_id}: this host lacks {' '.join(unpackaged)}: no package provides "
+                f"{'it' if len(unpackaged) == 1 else 'them'} here; install by hand\n")
+    elif not packages:
         text = f"new-agent: 0. {platform_id}: host tools present ({n_tools}, the fabric's contract)\n"
     elif persists_on:
         text = f"new-agent: 0. {platform_id}: this host lacks {pkgs}: {hint} {pkgs}\n"
+        if unpackaged:
+            text += f"new-agent: 0. {platform_id}: no package provides {' '.join(unpackaged)} here; install by hand\n"
     else:
         text = (f"new-agent: 0. {platform_id}: this AppVM lacks {pkgs} — a package does not survive a reboot here;\n"
                 f"new-agent:    {where} {pkgs}   (then restart this AppVM)\n")
