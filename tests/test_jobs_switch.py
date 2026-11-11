@@ -1303,6 +1303,7 @@ def main() -> int:
         counted[40] = f"{jobs_world.GH_REPO}#40 is armed"
         j1 = w.working("blocked twice over")
         gh_says({"o/r#5": "OPEN"}, open_prs=[{"number": 40, "headRefName": mine, "isDraft": False}])
+        w.journal(("in", request(RID)))      # an id the journal holds: `block --on-request` takes no other (j746)
         w.sw("block", j1, "--on-request", RID, "--on", "pr:o/r#5")
         j2 = w.add("another")
         rc, out, err = w.switch(j1, "--needs-merged")

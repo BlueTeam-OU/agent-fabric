@@ -97,6 +97,16 @@ class World:
         with open(os.path.join(self.fake, "gh.json"), "w", encoding="utf-8") as fh:
             json.dump({"states": states}, fh)
 
+    def sent(self, message_id: str, kind: str = "REQUEST") -> None:
+        """This login's journal holds a `kind` message it sent with `message_id`: `block --on-request` takes only an id the journal holds (j746)."""
+        me = f"{socket.gethostname().split('.')[0]}/{self.login}"
+        text = (f"[GZCOORD/1] {kind}\nFROM: {me}\nROLE: x\nPROJECT: p\nTO: peer/sender\nMESSAGE-ID: {message_id}\n"
+                f"SUBJECT: s\n\n{kind}:\nx\n")
+        episodic = os.path.join(ROOT, "tools", "fabric", "episodic.py")
+        for argv, given in ((["gzcoord-out-pending"], text), (["gzcoord-out-final", message_id, "--state", "accepted"], None)):
+            r = subprocess.run([sys.executable, episodic, *argv], env=self.env, input=given, capture_output=True, text=True, timeout=60)
+            assert r.returncode == 0, r.stderr
+
     def answer(self, request_id: str) -> None:
         """This login's journal holds a REPLY to `request_id` that the carrier accepted: the REQUEST is answered (rule 14, row R10)."""
         me = f"{socket.gethostname().split('.')[0]}/{self.login}"

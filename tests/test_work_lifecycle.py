@@ -191,6 +191,7 @@ class Working(Case):
 
     def test_start_takes_a_blocked_job_and_drops_what_it_waited_on(self):
         self.w.add("a")
+        self.w.sent("01a11a18-4728-7d8b-afd9-0edb2d30a59c")
         self.ok("block", "j1", "--on-request", "01a11a18-4728-7d8b-afd9-0edb2d30a59c")
         self.assertIn("waits_on", self.w.job("j1"))
         # R4 from blocked: every blocker cleared (F4). The wait is over when the cache says so; the same start refuses before.
@@ -302,6 +303,7 @@ class Blocked(Case):
     def test_block_on_request_keeps_the_message_id_as_waits_on_and_a_checkable_blocker(self):
         mid = "01a11a18-4728-7d8b-afd9-0edb2d30a59c"
         self.w.add("a")
+        self.w.sent(mid)
         self.ok("block", "j1", "--on-request", mid.upper())
         job = self.w.job("j1")
         self.assertEqual((job["waits_on"], job["blockers"], job["blocked_on"]), (mid, [f"request:{mid}"], f"request {mid}"))

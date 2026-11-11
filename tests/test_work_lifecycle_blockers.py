@@ -137,6 +137,7 @@ class Blockers(unittest.TestCase):
 
     def test_r6_a_blocked_job_waiting_on_a_request_is_published_in_the_state_record(self):
         self.w.add("a")
+        self.w.sent(RID)
         self.ok("block", "j1", "--on-request", RID)
         self.assertEqual(sessions.waits_on(self.w.path), [RID])
         self.ok("drop", "j1", "no longer needed")
@@ -145,6 +146,7 @@ class Blockers(unittest.TestCase):
 
     def waiting_on_an_answered_request(self) -> None:
         self.w.add("a")
+        self.w.sent(RID)
         self.ok("block", "j1", "--on-request", RID)
         self.seed_cache(f"request:{RID}", "cleared", "answered")
 
@@ -158,6 +160,7 @@ class Blockers(unittest.TestCase):
 
     def test_f10_a_wait_the_cache_does_not_know_over_is_published(self):
         self.w.add("a")
+        self.w.sent(RID)
         self.ok("block", "j1", "--on-request", RID)
         self.assertEqual(sessions.waits_on(self.w.path), [RID], "the cache says waiting")
         self.seed_cache(f"request:{RID}", "unknown", "journal unreadable")
