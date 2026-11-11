@@ -89,6 +89,20 @@ def test_a_rehomed_claim_is_screened_by_the_control_planes_hygiene_view(tmp: str
     assert "acme" not in ta.read(fabric_proj(out, COORD, "workflow.md")), "the control plane's view bans it"
 
 
+def test_a_refusal_of_the_control_planes_pass_stops_the_run_with_the_projects_corpus_untouched(tmp: str) -> None:
+    """Two re-homed claims under one heading are a collision the owner decides (the control plane's pass refuses): the run
+    exits 1 and, the control plane's pass going first, nothing of the project's is written. Control: one claim writes."""
+    two = [{**WF, "topic": "moved", "body": "One.", "evidence": ["h2"]}, {**WF, "topic": "moved", "body": "Two.", "evidence": ["h2"]}]
+    drain, claims_dir, out = ta.build(tmp, {"alpha": ta.claims("alpha", [WF]), COORD: ta.claims(COORD, two)})
+    bind(out, "alpha")
+    proc = ta.run_assemble(drain, claims_dir, out)
+    assert proc.returncode == 1, (proc.returncode, proc.stderr)
+    assert not os.path.exists(ta.proj(out, "alpha", "workflow.md")), sorted(ta.tree(out))
+    drain, claims_dir, out = ta.build(os.path.join(tmp, "one"), {"alpha": ta.claims("alpha", [WF]), COORD: ta.claims(COORD, two[:1])})
+    bind(out, "alpha")
+    assert ta.run_assemble(drain, claims_dir, out).returncode == 0
+
+
 def test_a_claim_of_another_unbound_role_refuses_the_run_before_anything_is_written(tmp: str) -> None:
     """Any role but fabric-coordinator: refused, exit 1, naming the claim, the role and the project, with the bound role's
     claim not written either (nothing is written before the refusal). Control: bound, the same bundle writes."""
@@ -536,6 +550,7 @@ def main() -> int:
     cases = [
         test_a_coordinator_claim_of_a_project_that_does_not_bind_it_lands_in_the_control_plane,
         test_a_rehomed_claim_is_screened_by_the_control_planes_hygiene_view,
+        test_a_refusal_of_the_control_planes_pass_stops_the_run_with_the_projects_corpus_untouched,
         test_a_claim_of_another_unbound_role_refuses_the_run_before_anything_is_written,
         test_a_coordinator_claim_shared_with_another_unbound_role_is_refused,
         test_a_rehomed_role_with_nothing_left_gets_no_project_corpus_and_its_evidence_is_not_held,
