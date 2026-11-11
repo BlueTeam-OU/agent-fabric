@@ -76,19 +76,23 @@ def owning_working_copy(hm, path: str) -> tuple[str, str] | None:
 
 
 def _git(working_copy: str, *args: str) -> bytes | None:
-    """stdout of one local git read, None when git fails or hangs: the caller treats None as "not readable"."""
+    """stdout of one local git read, None when git fails or hangs: the caller treats None as "not readable".
+    Never the network: in a partial clone git fetches a missing object on its own and would hold the hook for the
+    timeout on every read (the review_mcp scope.git_env switches; the rest of the session's environment stays, git needs it)."""
+    env = {**os.environ, "GIT_NO_LAZY_FETCH": "1", "GIT_TERMINAL_PROMPT": "0"}
     try:
-        done = subprocess.run(["git", "-C", working_copy, *args], capture_output=True, timeout=10, check=False)
+        done = subprocess.run(["git", "-C", working_copy, *args], capture_output=True, timeout=10, check=False, env=env)
     except (OSError, subprocess.SubprocessError):
         return None
     return done.stdout if done.returncode == 0 else None
 
 
-def committed_headings(working_copy: str, directory: str, flat: str, parse) -> set[str]:
+def committed_headings(working_copy: str, directory: str, flat: str, parse) -> set[str] | None:
     """Headings of the slices at `directory` (or the flat file `flat`) as the remote's default branch holds them,
     read from the local `origin/HEAD` or `origin/main` ref: no fetch, a hook must not wait on the network. The
     drain assembles against the remote's corpus, so a checkout behind it has a heading on the remote that its
-    own tree lacks (a true merge_target read as missing). Empty when no such ref or path exists."""
+    own tree lacks (a true merge_target read as missing). Empty when no such ref or path exists; None when the ref
+    exists but a tree or blob of it cannot be read (a partial clone without the object): unknown, never "absent"."""
     top = _git(working_copy, "rev-parse", "--show-toplevel")
     if not top:
         return set()
@@ -103,12 +107,15 @@ def committed_headings(working_copy: str, directory: str, flat: str, parse) -> s
             if not rel.startswith(os.pardir):
                 rels.append(rel)
         listing = _git(top, "ls-tree", "-r", "--name-only", "-z", ref, "--", *rels) if rels else None
+        if rels and listing is None:
+            return None
         for name in (listing or b"").decode("utf-8", "replace").split("\0"):
             if not name.endswith(".md"):
                 continue
             blob = _git(top, "show", f"{ref}:{name}")
-            if blob is not None:
-                found.update(parse(blob.decode("utf-8", "replace"))[1])
+            if blob is None:
+                return None
+            found.update(parse(blob.decode("utf-8", "replace"))[1])
         break
     return found
 
@@ -144,7 +151,7 @@ def unresolved_merge_target(hm, parsed: dict, path: str) -> str | None:
             return None
         # The checkout may be behind the remote the drain reads (a job worktree cut from an older main).
         remote = committed_headings(working_copy, directory, flat, parse_slice)
-        if target in remote:
+        if remote is None or target in remote:
             return None
         if not files and not remote:
             return None
