@@ -67,6 +67,16 @@ Read in this session, 2026-11-11:
   transmission of orders for crypto-assets on behalf of clients" are
   cited beside the page's "exchange or a broker" since the native read
   (section 6).
+  Point (h) "providing advice on crypto-assets" and its definition in
+  Article 3(1)(24) ("offering, giving or agreeing to give personalised
+  recommendations to a client [...] in respect of one or more
+  transactions relating to crypto-assets, or the use of crypto-asset
+  services"), and Article 3(1)(14) "funds", which refers to Directive
+  (EU) 2015/2366 Article 4 point (25) ("banknotes and coins, scriptural
+  money or electronic money"; CELLAR 32015L2366, OJ text, read
+  2026-11-11). The Estonian version of MiCA renders "funds" as "raha"
+  (money) and point (h) as "krüptovara kohta nõu andmine" (CELLAR
+  32023R1114, Accept-Language est, read 2026-11-11).
   Later amendments of MiCA were not checked; none is needed for these
   definitions to be read as the page uses them.
 - **Law of Obligations Act** (võlaõigusseadus, VÕS), Riigi Teataja,
@@ -112,6 +122,12 @@ subject of a separate matter (the consultant agreement review, j23).
 - BlueTeam issues no crypto-assets, holds no crypto-assets of others,
   and runs no trading platform; it accepts Bitcoin as payment only.
   (The page says so today; not re-verified with the owner here.)
+- BlueTeam gives no client personalised recommendations on transactions
+  in crypto-assets or on which crypto-asset services or providers to use
+  (MiCA Article 3(1)(24)); its advice is on the technology. Not stated
+  by the owner in these words; if it does recommend a provider as part
+  of a design, the point (h) sentence is wrong and the question goes
+  back to this role.
 - The AI Act conditions of `2026-11-09-ai-act-claims-blueteam-ee.md`
   and of the owner's answers of 2026-11-10 still hold.
 - If BlueTeam ever offers a service to consumers, the liability
@@ -139,6 +155,18 @@ that it no longer reads as covering only custody and trading platforms.
 "tort" stays: it is the term of art, and "whatever the legal basis"
 and "or otherwise" carry the meaning. None of this changes what the
 page excludes or limits.
+
+A second read (REQUEST 01a1cbe0) asked three more things of the MiCA
+paragraph. "We are also not" replaces the inverted "Nor are we".
+"funds (money)" glosses MiCA's term, as its Estonian version does. And
+the list of services is now marked as examples of a whole claim (none
+of the services in Article 3(1)(16)), with a sentence on point (h),
+because the page does give advice and a closed list invited the reading
+that the advice is MiCA advice. That sentence holds only while the
+company gives no personalised recommendations on transactions in
+crypto-assets or on which crypto-asset services a client should use;
+the first is the page's "Not investment advice", the second is a fact
+the owner has not separately stated (section 4 condition).
 
 ---
 
@@ -191,13 +219,19 @@ client's token, its technology or its token economics.
 
 In the terms used by the EU Markets in Crypto-Assets Regulation
 ([Regulation (EU) 2023/1114, MiCA](https://eur-lex.europa.eu/eli/reg/2023/1114/oj)),
-we are not an issuer of crypto-assets (Article 3(1)(5) and (10)). Nor
-are we a crypto-asset service provider (Article 3(1)(15)): we do not
-provide custody and administration of crypto-assets on behalf of
-clients (Article 3(1)(16)(a)), operate a trading platform for
-crypto-assets (point (b)), exchange crypto-assets for funds or for other
-crypto-assets (points (c) and (d)), or execute, receive or transmit
-orders for crypto-assets on behalf of clients (points (e) and (g)).
+we are not an issuer of crypto-assets (Article 3(1)(5) and (10)). We
+are also not a crypto-asset service provider (Article 3(1)(15)): we
+provide none of the crypto-asset services listed in Article 3(1)(16).
+For example, we do not provide custody and administration of
+crypto-assets on behalf of clients (point (a)), operate a trading
+platform for crypto-assets (point (b)), exchange crypto-assets for
+funds (money) or for other crypto-assets (points (c) and (d)), or
+execute, receive or transmit orders for crypto-assets on behalf of
+clients (points (e) and (g)). Our advice is on the technology of
+crypto-assets. We do not give a client personalised recommendations on
+transactions in crypto-assets or on the use of crypto-asset services,
+which is what the Regulation calls advice on crypto-assets (point (h)
+and Article 3(1)(24)).
 
 ### How we use AI
 
