@@ -30,6 +30,7 @@ sys.path.insert(0, os.path.dirname(TOOL))
 import secret_store  # noqa: E402 — the id helpers, beside the CLI under test
 from git_env import scrub_process_env  # noqa: E402 — tests/, the script's own directory
 from instance_fixtures import write_secrets_instance  # noqa: E402
+from provisioning import host_platform  # noqa: E402 — which tools this platform has no package for
 scrub_process_env()
 SECRET = "s3cr3t-value-never-printed"
 
@@ -1234,6 +1235,13 @@ else:
                 check("…a copy missing from keys/ is a finding", p.returncode == 1
                       and f"keys/{PID}.key.gpg: could not be downloaded" in p.stdout, p.stdout + p.stderr)
                 p = run(penv, "backup")   # the copy put back whole for what follows
+            elif "paperkey" in host_platform.profile(host_platform.detect({})).no_package:
+                # Only what the platform profile says has no package skips: on
+                # fedora and debian a missing paperkey still fails below. The
+                # environment is empty so AGENT_FABRIC_PLATFORM cannot choose
+                # the verdict.
+                print("  skip recovery-copy and backup cases: this platform has no paperkey package "
+                      "(runtime/provisioning/platform, PLATFORM_NO_PACKAGE)")
             else:
                 check("paperkey is installed where this suite runs", False, "paperkey missing")
             p = run({**penv, "CLAUDECODE": "1"}, "recovery-key", "init")
