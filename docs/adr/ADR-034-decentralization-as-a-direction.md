@@ -135,11 +135,11 @@ was back; a message never resent is not shown either way.
 An operator's stop holds: no watch restarts the relay. The human relay
 was not needed in that hour and stays unexercised.
 
-After it: a scheduled drain, so undrained memory is bounded in age; and
-only then the second host, which reopens ADR-029 §7 and ADR-033 §7.
+After it: the scheduled drain (step 3, below), so undrained memory is
+bounded in age; and only then the second host, which reopens ADR-029 §7 and ADR-033 §7.
 
-**Step 3, the scheduled drain, is decided as follows (j434; to be
-built).** The loss of the host is covered by the daily state copy (§1),
+**Step 3, the scheduled drain, is decided as follows (j434; built,
+(A 2026-11-10)).** The loss of the host is covered by the daily state copy (§1),
 so the age this step bounds is how long knowledge waits before every
 agent can read it:
 
@@ -166,6 +166,15 @@ agent can read it:
 - **Off-role, it does nothing.** The service runs only under a
   `fabric-coordinator` binding and says so otherwise: authority is the
   role's, not the account's.
+
+**Built, and run by its timer (A 2026-11-10).** #419 built the
+collection, the report and the job (`bin/fabric-drain-due`), and #462
+installs the timer on the coordinator's account. Its first scheduled
+run exited 0 and put drain job j689 on the
+coordinator's list: of 107 stores, 54 answered, and the 50 with
+drainable memory held 833 claims, the oldest 54.5 days against the
+bound of 14 and 33 stores over it; 53 stores were *unknown* (34 with no usable harvest report, 19 whose
+bundle had no working copy). The bound is reported, not yet held.
 
 Not decided here: issuing the weekly reflection passes (a signed
 action, ADR-058) stays by hand; a dry assembly that names collisions
@@ -198,3 +207,4 @@ The body above reads current; each change's full note is in [history/ADR-034-ame
 | 2026-10-27 | The relay's database is copied off the host: step 1 of §7 done | §1 relay row, §6, §7 first step |
 | 2026-10-28 | Undrained memory has a daily copy; §7 step 3, the scheduled drain, decided | §1 memory row, §2, §3, §6, §7 step 3 |
 | 2026-11-07 | The relay down for a working hour: step 2 of §7 done | §7 first and second steps |
+| 2026-11-10 | Step 3 of §7 built; its first scheduled run read back | §7 step 3 |

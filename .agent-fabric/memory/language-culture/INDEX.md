@@ -22,7 +22,7 @@ control plane checked out beside it.
 
 ## brief
 
-- [`identities/roles/language-culture/brief.md`](identities/roles/language-culture/brief.md) — How language-culture works day to day, in any locale: reads the target before the source, treats a dictionary as a contract, knows whose input its files are, and proves the language it thinks in with notes.
+- [`identities/roles/language-culture/brief.md`](identities/roles/language-culture/brief.md) — How language-culture works day to day, in any locale: reads the target before the source, treats a dictionary as a contract, knows whose input its files are, and keeps its notes to the work, never its reasoning.
 
 ## domain
 
