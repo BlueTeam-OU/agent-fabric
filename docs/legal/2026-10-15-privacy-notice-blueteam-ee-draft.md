@@ -68,7 +68,7 @@ How to read this draft:
   Switzerland, its name and address must be published, and section 10
   changes in the same step.
 
-The owner's facts (2026-11-10, two closed on 2026-11-11), and what each rests on:
+The owner's facts (2026-11-10, three closed on 2026-11-11), and what each rests on:
 
 - The data protection contact in section 1 is the owner's word. The
   retention periods in section 2 for enquiries (24 months) and client
@@ -97,6 +97,9 @@ The owner's facts (2026-11-10, two closed on 2026-11-11), and what each rests on
   still carries "Updated: December 1, 2025" and "Effective: January 1,
   2026", with §4.1 unchanged. If OpenAI issues a new version, section 6
   is checked against it.
+- Telegram in section 7: the owner's word of 2026-11-11 that BlueTeam
+  has a Telegram account. If the account is closed, section 7 drops
+  Telegram in the same step.
 - Section 10 and OpenAI's copy: `legal-expert-ch` answered
   on 2026-11-10 (`2026-11-10-fadp-eu-sccs-openai-us-copy.md`, commit
   0624d246, on `develop-qzapp/legal-expert-ch/for/user/fadp-swiss-marks-blueteam-ee`).
