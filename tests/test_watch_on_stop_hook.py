@@ -51,6 +51,32 @@ def closed_port() -> int:
         return s.getsockname()[1]
 
 
+def drip_server(stop: threading.Event) -> tuple[socket.socket, int]:
+    """Accepts, then sends a status line one byte at a time and never ends it: every recv succeeds inside a
+    per-operation timeout, so only a wall-clock bound ends the probe."""
+    lsock = socket.socket()
+    lsock.bind(("127.0.0.1", 0))
+    lsock.listen(8)
+
+    def serve() -> None:
+        lsock.settimeout(0.2)
+        while not stop.is_set():
+            try:
+                conn, _ = lsock.accept()
+            except OSError:
+                continue
+            with conn:
+                try:
+                    while not stop.is_set():
+                        conn.sendall(b"H")
+                        stop.wait(0.3)
+                except OSError:
+                    pass
+
+    threading.Thread(target=serve, daemon=True).start()
+    return lsock, lsock.getsockname()[1]
+
+
 def main() -> int:
     fails = 0
 
@@ -154,6 +180,29 @@ def main() -> int:
         out = go({}, table(), relay_url=dead)
         check("a fresh marker and a closed port: passes", out is None, out)
         check("…inside the probe bound", time.monotonic() - t0 < mod.RELAY_PROBE_S + 1, time.monotonic() - t0)
+        # urlopen's timeout is per socket operation: a relay dripping its status line never trips it, so the
+        # hook's own wall-clock bound is what returns here (F4 of the review of #520).
+        stop = threading.Event()
+        lsock, dport = drip_server(stop)
+        with open(down, "w", encoding="utf-8") as fh:
+            fh.write("900\n")
+        fresh()
+        t0 = time.monotonic()
+        out = go({}, table(), relay_url=f"http://127.0.0.1:{dport}/")
+        took = time.monotonic() - t0
+        stop.set()
+        lsock.close()
+        check("a relay dripping its status line: passes", out is None, out)
+        check("…within RELAY_PROBE_S wall-clock plus a small margin", took < mod.RELAY_PROBE_S + 0.75, took)
+        check("…and not sooner than the bound (the drip, not a refusal, was measured)", took >= mod.RELAY_PROBE_S - 0.1, took)
+        # A Stop inside WINDOW_S passes before any probe is made.
+        srv.status = 200
+        fresh()
+        go({}, table(), relay_url=live)
+        Relay.seen.clear()
+        out = go({}, table(), now=1100.0, relay_url=live)
+        check("a Stop inside WINDOW_S: passes, probing nothing", out is None and Relay.seen == [], (out, Relay.seen))
+        fresh()
         check("an unusable relay url (none, file:) passes", go({}, table(), relay_url="file:///etc/hostname") is None
               and mod.relay_answers(None) is False)
         Relay.seen.clear()

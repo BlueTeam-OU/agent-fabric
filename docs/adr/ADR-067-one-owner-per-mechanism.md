@@ -100,8 +100,10 @@ lets lint check that the claim is true.
      what it waits on and names the owner once it exists.
 3. Lint reads the catalogue on every run. A finding is: a catalogue
    that is not JSON; an entry missing a field rule 2 asks for of its
-   status; any path an entry names that is not a tracked file; an
-   `enforced` entry whose checker is not loaded where rule 2 says, a
+   status; any path an entry names that is not a tracked file, except
+   an owner that is a package, named as its directory with the
+   trailing slash and holding a tracked file; an `enforced` entry
+   whose checker is not loaded where rule 2 says, a
    load being an import or lint's `_load` call, never a mention. An
    absent catalogue is no finding: `policies/*.json` is instance data
    (ADR-045 rule 2).
@@ -174,3 +176,11 @@ Command recognition is `enforced` from python-dev-04's j107
 - ADR-064 — the relay and InterWeave dual run; the transport's owner sits behind it.
 - ADR-068 — the `fabric` dispatcher; rule 7, the command-recognition mechanism.
 - `policies/mechanisms.json`, `tools/fabric/lint_rules/mechanisms.py`.
+
+## Amendments
+
+The body above reads current; each change's full note is in [history/ADR-067-amendments.md](history/ADR-067-amendments.md).
+
+| Date | Amendment | Effect |
+|---|---|---|
+| 2026-11-10 | An owner may be a package | §5 rule 3: an owner named as a directory with the trailing slash, holding a tracked file, is no finding |

@@ -419,10 +419,17 @@ def check(root: str | None = None) -> list[str]:
             if ln.startswith("### "):
                 cur = None
             if cur:
+                # Every non-blank line is counted against some bullet, whatever
+                # its indent: a line the budget cannot attribute is a finding,
+                # never free text (the per-bullet count once skipped unbulleted
+                # and tab-indented lines, and a 300-word paragraph passed).
                 if ln.startswith("- "):
                     entries[cur]["bullets"].append(len(ln.split()) - 1)
-                elif ln.startswith("  ") and entries[cur]["bullets"]:
+                elif ln.strip() and entries[cur]["bullets"]:
                     entries[cur]["bullets"][-1] += len(ln.split())
+                elif ln.strip():
+                    findings.append(f"{ADR_DIR}/DIGEST.md: ADR-{cur} has a line before its first bullet, {ln.strip()[:40]!r}: "
+                                    "every line of an entry belongs to a '- ' bullet")
                 am = DIGEST_AMEND_RE.match(ln)
                 if am:
                     entries[cur]["dates"].append(am.group(1))
@@ -440,6 +447,9 @@ def check(root: str | None = None) -> list[str]:
                 findings.append(f"{ADR_DIR}/DIGEST.md: ADR-{num} reads {e['title']!r} ({e['status']}), the ADR {r['title']!r} ({r['status']})")
             hist = os.path.join(d, "history", f"ADR-{num}-amendments.md")
             hd = sorted(n[0] for n in history_notes(hist)) if os.path.exists(hist) else []
+            if e["dates"] != sorted(e["dates"]):
+                findings.append(f"{ADR_DIR}/DIGEST.md: ADR-{num}'s amendment bullets are out of date order {e['dates']}: "
+                                "a new amendment's bullet goes after the latest")
             if sorted(e["dates"]) != hd:
                 findings.append(f"{ADR_DIR}/DIGEST.md: ADR-{num}'s amendment bullets {sorted(e['dates'])} are not its history {hd}")
         for num in entries:
