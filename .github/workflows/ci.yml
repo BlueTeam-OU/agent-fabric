@@ -162,6 +162,15 @@ jobs:
             image: debian:stable-slim
             install: apt-get install -y --no-install-recommends
             extra: shellcheck python3-pip ca-certificates hostname
+          # AlmaLinux 10 (fabric-h2): gh and ShellCheck are in EPEL; a minimal
+          # image has coreutils-single, which coreutils replaces only with
+          # --allowerasing; its python3 is 3.12, below the floor (host_python).
+          - platform: almalinux
+            image: almalinux:10
+            install: dnf install -y --allowerasing --setopt=install_weak_deps=False
+            repos: dnf install -y epel-release
+            extra: ShellCheck python3-pip hostname
+            host_python: bootstrap-only
     container: ${{ matrix.image }}
     # Measured 7-8.5 min on 2026-09-29, 20-24 min on 2026-10-11 (Fedora cancelled at 25 on #194 and #197);
     # the cap is for a hang, not a budget, so it sits well above the slowest healthy run.
@@ -175,6 +184,7 @@ jobs:
           set -e
           if command -v apt-get >/dev/null; then apt-get update; fi
           ${{ matrix.install }} bash git ca-certificates   # enough to check out and read the map
+          ${{ matrix.repos }}
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
@@ -195,8 +205,18 @@ jobs:
           set -e
           . runtime/provisioning/platform/detect.sh
           [ "$PLATFORM_ID" = "${{ matrix.platform }}" ] || { echo "detected $PLATFORM_ID, expected ${{ matrix.platform }}"; exit 1; }
-          for t in "${FABRIC_HOST_TOOLS[@]}"; do command -v "$t" >/dev/null || { echo "missing after install: $t"; exit 1; }; done
-          host_python_ok || { echo "the platform's python3 is older than $FABRIC_HOST_PYTHON_MIN"; exit 1; }
+          # A tool the platform packages nowhere (almalinux: paperkey) is installed by hand, so not here.
+          for t in "${FABRIC_HOST_TOOLS[@]}"; do
+            for skip in "${PLATFORM_NO_PACKAGE[@]}"; do [ "$t" = "$skip" ] && continue 2; done
+            command -v "$t" >/dev/null || { echo "missing after install: $t"; exit 1; }
+          done
+          if [ "${{ matrix.host_python }}" = bootstrap-only ]; then
+            # ADR-040 §5 rule 1 (A 2026-11-11): a python3 below the floor runs
+            # python_pin.py only, which the step before this one just did.
+            echo "host $(python3 -V) bootstraps the pin only"
+          else
+            host_python_ok || { echo "the platform's python3 is older than $FABRIC_HOST_PYTHON_MIN"; exit 1; }
+          fi
       - name: the suites, as an unprivileged login (a host never runs the fabric as root)
         run: |
           set -e
