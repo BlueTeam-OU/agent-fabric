@@ -6,7 +6,7 @@
 **Decision Makers:** fabric-coordinator (host execution, 2026-09-16; the host lease, 2026-09-19); the owner (the shared Android toolchain deferred, 2026-09-26)
 **Scope:** runtime/hosts/registry.json, runtime/hostexec/, bin/fabric-host, runtime/provisioning/ (new-agent.sh and its worker, platform/, persist-accounts.sh, moveto/, github-host-keys), bin/fabric-lease and /run/lock/agent-fabric
 **Pillar:** P1
-**Evidence:** docs/live-checks/2026-09-16-github-host-keys.md, docs/live-checks/2026-09-16-hostexec-local-backend.md, docs/live-checks/2026-09-19-develop-qzapp-crash.md, docs/live-checks/2026-09-25-develop-qzapp-crash.md
+**Evidence:** docs/live-checks/2026-09-16-github-host-keys.md, docs/live-checks/2026-09-16-hostexec-local-backend.md, docs/live-checks/2026-09-19-develop-qzapp-crash.md, docs/live-checks/2026-09-25-develop-qzapp-crash.md, docs/live-checks/2026-11-11-fabric-h2-registered.md
 
 ## 1. Context and Problem
 
@@ -154,8 +154,9 @@ that killed the host without privilege and without anything going stale.
 
 ## 7. Future Evolution
 
-- The ssh backend on a real second host is not read back; the first real
-  host gets its own live check.
+- The ssh backend is read back on a real second host, `fabric-h2`
+  (A 2026-11-11); a command as a placed account there (`--as`) waits for its first
+  account and for an operator whose sudo asks no password.
 - The account quota layer is the next piece worth doing. The later crash
   (`docs/live-checks/2026-09-25-develop-qzapp-crash.md`) leaves two
   shapes to the project: a lighter stack profile, or the stack brought
@@ -191,3 +192,4 @@ The body above reads current; each change's full note is in [history/ADR-010-ame
 | 2026-09-30 | Doppler is retired: the coordinator keeps its own store, a parent's | §2, §5 rule 1 |
 | 2026-10-19 | full-suite: one full local test run per host | §5 rule 9: a second named resource, the host's CPU and timing headroom, which a full local test run waits for |
 | 2026-10-28 | cpu: N heavy builds and suites at a time per host | §5 rules 9-11: N slots with a thread budget each, taken by shims ahead of cargo and dotnet and by tests/run.py |
+| 2026-11-11 | The ssh backend read back on fabric-h2, the second host | §7 |
