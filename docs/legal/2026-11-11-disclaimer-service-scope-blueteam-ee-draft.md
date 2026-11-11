@@ -130,8 +130,9 @@ together.
 - We do not give investment, legal, accounting or tax advice.
 - We do not issue crypto-assets, hold them for others, or run a
   platform for trading them.
-- We use AI tools in our work. A BlueTeam consultant reviews every
-  result and is responsible for it.
+- We use AI tools in our work. Every deliverable produced with AI is
+  reviewed independently, and a BlueTeam consultant is responsible for
+  it.
 
 ### Not investment advice
 
