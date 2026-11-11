@@ -45,6 +45,15 @@ def session_worked(doc: dict, session: str | None) -> str | None:
     return None
 
 
+def push_fenced(doc: dict) -> str | None:
+    """The job this session worked, when the job copy guard (runtime/claude-code/hooks/job-copy-guard.py, ADR-037 rule 3) denies its
+    pushes: a session that has worked a job other than the active one. The guard's own reading, including its answer for a session
+    with no id (it worked nothing: the fence never locks an unlaunched shell out)."""
+    session = session_id()
+    current = next((j for j in doc["jobs"] if j.get("state") == "active"), None)
+    return session_worked({**doc, "jobs": [j for j in doc["jobs"] if j is not current]}, session) if session else None
+
+
 def transition(doc: dict, job: dict, to: str, who: str, proof=None, **fields) -> None:
     """Move `job` to `to` as `who` (rule 14): the owner's transition, with this login's clock and session. The row's needs are
     asked first (needs.py) and handed over as `proof`."""

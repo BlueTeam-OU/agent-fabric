@@ -232,6 +232,33 @@ def main() -> int:
         run("start", jid)
         run("done", jid, "--no-artifact", "test")
 
+        print("j751: a message this login sent as an OBSERVATION or QUESTION is answered by any reply naming it")
+
+        def sent(kind: str, n: int) -> str:
+            """A message of this login, journaled as sent, as the send command leaves it."""
+            text = (f"[GZCOORD/1] {kind}\nFROM: develop-qzapp/me\nROLE: x\nTO: develop-qzapp/nobody\nMESSAGE-ID: {mid(n)}\n"
+                    f"SUBJECT: s\n\n{kind}:\nbody\n")
+            subprocess.run([sys.executable, os.path.join(ROOT, "tools", "fabric", "episodic.py"), "gzcoord-out-pending"], env=env,
+                           input=text, capture_output=True, text=True, timeout=60, check=True)
+            subprocess.run([sys.executable, os.path.join(ROOT, "tools", "fabric", "episodic.py"), "gzcoord-out-final", mid(n),
+                            "--state", "accepted"], env=env, capture_output=True, text=True, timeout=60, check=True)
+            return mid(n)
+
+        for kind, k in (("OBSERVATION", 20), ("QUESTION", 21)):
+            sent(kind, k)
+            case("nobody", "ok, noted", mid(k))      # the board of nobody is unreadable and the body names no job
+            jid, r = blocked_on_request(f"held on an answered {kind}", mid(k))
+            j = job(jid, "--stored")
+            check(f"an answered {kind} clears", j["cleared"] is True and j["blockers"][0]["spec"] == f"request:{mid(k)}", j)
+            run("start", jid)
+            run("done", jid, "--no-artifact", "test")
+        sent("REQUEST", 22)
+        case("nobody", "ok, noted", mid(22))
+        jid, r = blocked_on_request("held on an answered REQUEST (the control)", mid(22))
+        check("positive control: an answered REQUEST on an unreadable board stays unknown", job(jid, "--stored")["cleared"] is None, job(jid, "--stored"))
+        run("start", jid)
+        run("done", jid, "--no-artifact", "test")
+
         print("a second job on the same request is re-pointed with the first")
         boards["boardy"] = [row("j30", mid(10))]
         put_boards()

@@ -305,6 +305,7 @@ def switch_job(args) -> int:
         who = waiters(job, waits)
         was_cleared = blockers_note(job, cache) if job["state"] == "blocked" and bl.cleared_flag(job, cache) is True else ""
         resumed = job.get("reason") if job["state"] == "paused" else None
+        unpushed = job.get("unpushed") if job["state"] == "paused" else None      # the transition drops it; the reminder is said below
         where = f"branch {choice.branch}" if choice.branch else f"no branch ({choice.note})"
         if choice.branch:
             # The open pull request's branch is shared by design (one open pull request per agent), but never silently.
@@ -333,7 +334,7 @@ def switch_job(args) -> int:
                 {"at": identity.now_iso(), "kind": "switch", "note": f"switch to {job['id']}: {settled}; {where}"})   # no `state`: fleet.log_times reads the state of an entry as a transition
         if not verdict["fresh"] and choice.kind != "blocked":
             verdict.update(outside_copy(job, stands) or {})
-        verdict_for.update(verdict=verdict, who=who, was_cleared=was_cleared, resumed=resumed, job=dict(job))
+        verdict_for.update(verdict=verdict, who=who, was_cleared=was_cleared, resumed=resumed, unpushed=unpushed, job=dict(job))
     try:
         # What the row asks of the world (a blocked job's blockers cleared) is asked without the list's lock; the owner refuses the
         # proof if the job changed meanwhile. A refusal here discards the prepared branch like any other.
@@ -355,6 +356,9 @@ def switch_job(args) -> int:
     if args.json:
         for said in swept:
             print(said, file=sys.stderr)      # stdout is the one JSON object
+        held = verdict_for["unpushed"]
+        if isinstance(held, dict) and held.get("branch") and held.get("head"):
+            print(f"push branch {held['branch']} (head {held['head']}) first: it was paused with commits the push fence refused", file=sys.stderr)
         print(json.dumps({**verdict, "branch": choice.branch, "worktree": choice.worktree, "branch_kind": choice.kind, "settled": settled,
                           "note": choice.note, "sharing": verdict_for.get("sharing", [])},
                          ensure_ascii=False, indent=2))
@@ -367,6 +371,9 @@ def switch_job(args) -> int:
         return 0
     if verdict_for["resumed"]:
         print(f"  resumes paused work: {verdict_for['resumed']}")
+    held = verdict_for["unpushed"]
+    if isinstance(held, dict) and held.get("branch") and held.get("head"):
+        print(f"  paused with commits not pushed (the push fence refused them): push branch {held['branch']} (head {held['head']}) first, from the job's checkout")
     if settled:
         print(f"  left {old['id']}: {settled}")
         for said in swept:
@@ -485,6 +492,9 @@ def block_fields(args) -> tuple[dict, list[str], bool]:
         at = bl.clock_epoch(spec)
         if at is not None and at <= bl.now():
             raise Refused(f"{spec} has already passed: a time that has gone by is no wait")
+    for spec in specs:
+        if spec.startswith("request:") and (why := bl.unreadable_request(spec.split(":", 1)[1])):
+            raise Refused(f"{spec} cannot be waited on: {why}")
     text = " ".join(args.on.split()) if (args.on or "").strip() else None
     if text is None and not specs:
         raise Refused("block needs what the job waits on: free text, --on <blocker> or --on-request <MESSAGE-ID>")
@@ -558,13 +568,19 @@ def _unlanded(job_id: str, names: list[str]) -> list[str]:
 def move(args, said: dict) -> Job:
     """The verbs that make a transition: the row is rule 14's, its needs are asked by needs.prove, the change is the owner's."""
     if args.cmd == "start":
+        held = find(identity.read_jobs(), args.id).get("unpushed")
         despite = list(dict.fromkeys(args.despite or []))
         why = " ".join((args.why or "").split())
         if despite and not why:
             raise Refused(f"{args.id}: --despite needs the reason: fabric-jobs start {args.id} --despite <job:login/jN> \"<why>\"")
         if why and not despite:
             raise Refused(f"{args.id}: a reason is given for nothing; start takes one only with --despite")
-        return needs.advance(args.id, "active", "start", lambda job: {"despite": despite, "note": why} if despite else {})
+        job = needs.advance(args.id, "active", "start", lambda job: {"despite": despite, "note": why} if despite else {})
+        if isinstance(held, dict) and held.get("branch") and held.get("head"):
+            # The pausing session could not push (j744): the commits are in this checkout's branch and nowhere else.
+            print(f"fabric-jobs: {args.id} was paused with commits not pushed (the push fence refused them): push branch "
+                  f"{held['branch']} (head {held['head']}) first, from the job's checkout", file=sys.stderr)
+        return job
     if args.cmd == "pause":
         paused_branch = branch_here()
 
@@ -573,7 +589,16 @@ def move(args, said: dict) -> Job:
             # The branch the paused work is on, read from where this command runs: pause asks that it is pushed.
             # The branch `switch` recorded stays unless this runs in its checkout: another directory's branch is not the job's.
             keep = bool(job.get("branch")) and paused_branch.get("worktree") != job.get("worktree")
-            return {"reason": why, "note": why, **({} if keep else paused_branch)}
+            fields = {"reason": why, "note": why, **({} if keep else paused_branch)}
+            if left:
+                note = f"{why} (not pushed, the push fence refuses it: branch {left['unpushed']['branch']} at {left['unpushed']['head']})"
+                fields.update(left, note=note)
+            return fields
+        # Read once, outside the list's lock (it runs git): what a pause leaves unpushed when the push fence is the only reason.
+        left: dict = {}
+        first = find(identity.read_jobs(), args.id)
+        if first["state"] == "active":
+            left = needs.fenced_unpushed({**first, **{k: v for k, v in paused(first).items() if v is not None and k != "note"}})
         return needs.advance(args.id, "paused", "pause", paused)
     if args.cmd == "block":
         fields, specs, hint = block_fields(args)

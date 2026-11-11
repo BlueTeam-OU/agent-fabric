@@ -201,8 +201,20 @@ def _():
     with open(os.path.join(stub, "gh"), "w", encoding="utf-8") as fh:
         fh.write('#!/bin/sh\nif [ "$1 $2" = "pr view" ]; then echo \'{"state": "OPEN"}\'; exit 0; fi\nexit 1\n')
     os.chmod(os.path.join(stub, "gh"), 0o755)
-    env = {**os.environ, "AGENT_FABRIC_STATE_DIR": state, "PATH": stub + os.pathsep + os.environ.get("PATH", "")}
+    # `block --on-request` takes only a message the journal holds (j746), and a journal has an owner only with an agent id.
+    store = scratch()
+    with open(os.path.join(store, ".agent-id"), "w", encoding="utf-8") as fh:
+        fh.write("01a0f782-7e06-7dee-811f-0a860ed93bf3\n")
+    env = {**os.environ, "AGENT_FABRIC_STATE_DIR": state, "AGENT_FABRIC_SECRET_STORE": store,
+           "PATH": stub + os.pathsep + os.environ.get("PATH", "")}
     jobs = os.path.join(HERE, "tools", "fabric", "jobs.py")
+    asked = "01a111d3-7e46-744b-8159-5131b5598f4d"
+    sent = f"[GZCOORD/1] REQUEST\nFROM: h/me\nROLE: x\nTO: h/peer\nMESSAGE-ID: {asked}\nSUBJECT: s\n\nREQUEST:\nx\n"
+    episodic = os.path.join(HERE, "tools", "fabric", "episodic.py")
+    for argv, given in ((["gzcoord-out-pending"], sent), (["gzcoord-out-final", asked, "--state", "accepted"], "")):
+        r = subprocess.run([sys.executable, episodic, *argv], env=env, input=given, capture_output=True, text=True, timeout=60)
+        if r.returncode != 0:
+            raise Failed(f"episodic {argv[0]}: {r.stderr}")
 
     def run(*args: str) -> None:
         r = subprocess.run([sys.executable, jobs, *args], env=env, cwd=HERE, capture_output=True, text=True, timeout=60)

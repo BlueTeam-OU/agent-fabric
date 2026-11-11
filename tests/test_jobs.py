@@ -135,8 +135,12 @@ def main() -> int:
         with open(registry, "w", encoding="utf-8") as fh:
             json.dump({"version": 1, "hosts": {host: {"operator": "user"}},
                        "placement": {login: host, "waiter": host, "user": host}}, fh)
+        store = os.path.join(tmp, "store")      # the journal has no owner without an agent id (j746: block reads it)
+        os.makedirs(store)
+        with open(os.path.join(store, ".agent-id"), "w") as fh:
+            fh.write("01a0f782-7e06-7dee-811f-0a860ed93bf3\n")
         env = {**os.environ, "AGENT_FABRIC_STATE_DIR": os.path.join(tmp, "state"), "AGENT_FABRIC_ROOT": ROOT,
-               "HOME": home, "CLAUDE_BRIDGE_URL": dead_url, "CLAUDE_BRIDGE_AUTH_TOKEN": "tok",
+               "AGENT_FABRIC_SECRET_STORE": store, "HOME": home, "CLAUDE_BRIDGE_URL": dead_url, "CLAUDE_BRIDGE_AUTH_TOKEN": "tok",
                "AGENT_FABRIC_HOSTS_REGISTRY": registry, "FABRIC_STATE_CHANNEL": "t:state:control",
                "FABRIC_CONTROL_CHANNEL": "t:control", "CLAUDE_CODE_SESSION_ID": "sess-A",
                # The inbox replay takes ~0.5 s on a quiet host and as long as the load makes it on a starved one: a
@@ -213,6 +217,10 @@ def main() -> int:
         check("block records what it waits on", p.returncode == 0 and jobs()[0]["blocked_on"] == "owner: a review of the PR",
               p.stdout + p.stderr)
         mid = "01a11a18-4728-7d8b-afd9-0edb2d30a59c"
+        sent = f"[GZCOORD/1] REQUEST\nFROM: develop-qzapp/me\nROLE: x\nTO: develop-qzapp/peer\nMESSAGE-ID: {mid}\nSUBJECT: s\n\nREQUEST:\nx\n"
+        for argv, given in ((["gzcoord-out-pending"], sent), (["gzcoord-out-final", mid, "--state", "accepted"], "")):
+            r = subprocess.run([sys.executable, os.path.join(ROOT, "tools", "fabric", "episodic.py"), *argv], env=env, input=given, capture_output=True, text=True, timeout=60)
+            assert r.returncode == 0, r.stderr      # `block --on-request` takes only an id the journal holds (j746)
         p = run("block", "j1", "--on-request", mid.upper())
         check("block --on-request keeps the message id as waits_on", p.returncode == 0
               and jobs()[0].get("waits_on") == mid and jobs()[0]["blocked_on"] == f"request {mid}", p.stderr + repr(jobs()[0]))
@@ -574,9 +582,14 @@ def main() -> int:
             check("a request for a project with no working copy here is filed with none", p.returncode == 0
                   and len(jobs()) == 1 and jobs()[0]["project"] == "fixture" and jobs()[0]["working_copy"] is None, p.stderr + repr(jobs()))
             p = run("start", "j1")
+            check("j754: a job with no branch is started without a working copy (its work may be a REPLY)", p.returncode == 0
+                  and jobs()[0]["state"] == "active", p.stderr)
+            force("j1", "queued", branch="side/work")      # with a branch the work is in a checkout, and the start still names none
+            p = run("start", "j1")
             check("start refuses it by name, and says how to name a working copy", p.returncode == 1
                   and "j1 has no working copy" in p.stderr and "project j1 fixture --working-copy DIR" in p.stderr
                   and jobs()[0]["state"] == "queued", p.stderr)
+            force("j1", "queued", branch=None)      # back to the job as it was filed, for the re-point below
             p = run("project", "j1", "fixture", "--working-copy", repo_a)
             got = jobs()
             check("--request fills the job from the message", p.returncode == 0 and len(got) == 1
@@ -617,6 +630,7 @@ def main() -> int:
             nowhere = jobs()[-1]
             check("REPOSITORY registered here with no checkout: filed with none, not PROJECT's, matched case-folded", p.returncode == 0
                   and nowhere["project"] == "fixture-nowhere" and nowhere["working_copy"] is None, p.stderr + repr(nowhere))
+            force(nowhere["id"], "queued", branch="side/work")
             p = run("start", nowhere["id"])
             check("start refuses it by name", p.returncode == 1 and f"{nowhere['id']} has no working copy" in p.stderr
                   and "fixture-nowhere" in p.stderr, p.stderr)

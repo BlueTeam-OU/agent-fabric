@@ -191,6 +191,7 @@ class Working(Case):
 
     def test_start_takes_a_blocked_job_and_drops_what_it_waited_on(self):
         self.w.add("a")
+        self.w.sent("01a11a18-4728-7d8b-afd9-0edb2d30a59c")
         self.ok("block", "j1", "--on-request", "01a11a18-4728-7d8b-afd9-0edb2d30a59c")
         self.assertIn("waits_on", self.w.job("j1"))
         # R4 from blocked: every blocker cleared (F4). The wait is over when the cache says so; the same start refuses before.
@@ -260,11 +261,31 @@ class Working(Case):
         os.unlink(hold)
         self.ok("start", "j1")
 
-    def test_start_refuses_a_job_of_a_project_that_has_no_working_copy_here(self):
+    def test_start_refuses_a_job_with_a_branch_of_a_project_that_has_no_working_copy_here(self):
         self.w.add("a", project="fixture-proj")
-        self.w.put(lambda doc: doc["jobs"][0].update(working_copy=None))
+        self.w.put(lambda doc: doc["jobs"][0].update(working_copy=None, branch="side/work"))
         self.refused("start", "j1", said="has no working copy")
         self.assertEqual(self.state(), "queued")
+
+    def test_start_takes_a_job_with_no_branch_of_a_project_that_has_no_working_copy_here_j754(self):
+        # Its work may be a REPLY, which changes no repository (an account that holds none of the project's checkouts).
+        self.w.add("answer it", project="fixture-proj")
+        self.w.put(lambda doc: doc["jobs"][0].update(working_copy=None))
+        self.ok("start", "j1")
+        self.assertEqual(self.state(), "active")
+        self.w.answer(RID)
+        self.ok("deliver", "j1", f"reply:{RID}")
+        self.ok("done", "j1", f"reply:{RID}")
+        self.assertEqual(self.state(), "done")
+
+    def test_switch_still_refuses_a_job_with_no_working_copy_j754(self):
+        # `switch` chooses the branch in a checkout, so choose() refuses it before any row's needs are asked: the `start` exemption
+        # does not reach it, and this pins that the refusal is still said.
+        self.w.add("answer it", project="fixture-proj")
+        self.w.put(lambda doc: doc["jobs"][0].update(working_copy=None))
+        p = self.w.switch()
+        self.assertEqual(self.state(), "queued", p.stdout + p.stderr)
+        self.assertIn("working copy", p.stderr)
 
 
     def test_pause_sets_the_active_job_aside_with_its_reason(self):
@@ -279,6 +300,107 @@ class Working(Case):
         self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
         self.refused("pause", "j1", "  ", said="pause needs a reason", cwd=self.w.job("j1")["worktree"])
         self.assertEqual(self.state(), "active")
+
+
+class PushFence(Case):
+    """j744: pause asks that the branch is pushed, and the job copy guard (ADR-037 rule 3) refuses a push in a session that has worked
+    another job. A job started there by mistake could then never be paused. When the fence is the only reason, pause records the
+    branch and its unpushed head in the log and pauses; `start` and `switch` tell the next session to push them."""
+
+    def side_branch(self, commit: bool = True) -> str:
+        git = lambda *a: subprocess.run(["git", "-C", self.w.alpha, *a], check=True, env=git_env(), capture_output=True, text=True).stdout.strip()
+        git("checkout", "-q", "-b", "side/work")
+        if commit:
+            git("commit", "-q", "--allow-empty", "-m", "work")
+        return git("rev-parse", "HEAD")
+
+    def worked_then_started_by_mistake(self) -> str:
+        j1 = self.w.add("worked first")
+        self.ok("start", j1)
+        self.ok("drop", j1, "done with it")          # j1 left active in this session: the fence now applies to it
+        j2 = self.w.add("started by mistake")
+        self.ok("start", j2)
+        return j2
+
+    def test_a_fenced_session_pauses_a_job_whose_commits_it_may_not_push(self):
+        j2 = self.worked_then_started_by_mistake()
+        head = self.side_branch()
+        p = self.ok("pause", j2, "set aside")
+        job = self.w.job(j2)
+        self.assertEqual((job["state"], job["unpushed"]), ("paused", {"branch": "side/work", "head": head}))
+        self.assertIn(head, job["log"][-1]["note"])
+        self.assertIn("set aside", job["log"][-1]["note"])
+        p = self.ok("start", j2)
+        self.assertIn(f"push branch side/work (head {head})", p.stderr)
+        self.assertNotIn("unpushed", self.w.job(j2))
+
+    def test_switch_leaves_a_fence_paused_job_for_another(self):
+        # Review F1: pause passed, then rule 10's switch asked the same question again and refused for the push the fence forbids.
+        j2 = self.worked_then_started_by_mistake()
+        self.side_branch()
+        self.ok("pause", j2, "set aside")
+        j3 = self.w.add("the next job")
+        p = self.w.switch(j3)
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        self.assertIn("not pushed", p.stdout)
+
+    def test_switch_still_refuses_to_leave_the_pause_in_a_session_the_fence_does_not_lock(self):
+        # Review F5, the control of the case above: a shell with no session id is never locked by the fence (it can push), though switch
+        # still reads the last job that left active there; the record excuses nothing for it.
+        j2 = self.worked_then_started_by_mistake()
+        self.side_branch()
+        self.ok("pause", j2, "set aside")
+        j3 = self.w.add("the next job")
+        jobs_world.touch_memory(self.w.env["HOME"], self.w.alpha)
+        p = self.w.run("switch", j3, extra_env={"CLAUDE_CODE_SESSION_ID": ""})
+        self.assertEqual(p.returncode, 1, p.stdout + p.stderr)
+        self.assertIn("is not on origin", p.stderr)
+
+    def test_switch_still_refuses_to_leave_the_pause_when_the_branch_moved_on(self):
+        # Review F5: the record names the head that was paused; commits made after it are not the ones the fence excused.
+        j2 = self.worked_then_started_by_mistake()
+        self.side_branch()
+        self.ok("pause", j2, "set aside")
+        subprocess.run(["git", "-C", self.w.alpha, "commit", "-q", "--allow-empty", "-m", "more"], check=True, env=git_env())
+        j3 = self.w.add("the next job")
+        p = self.w.switch(j3)
+        self.assertEqual(p.returncode, 1, p.stdout + p.stderr)
+        self.assertIn("is not on origin", p.stderr)
+
+    def test_switch_json_says_to_push_on_stderr(self):
+        j2 = self.worked_then_started_by_mistake()
+        head = self.side_branch()
+        self.ok("pause", j2, "set aside")
+        p = self.w.switch(j2, "--json")
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        self.assertIn(f"push branch side/work (head {head})", p.stderr)
+        json.loads(p.stdout)
+
+    def test_switch_back_to_a_fence_paused_job_says_to_push(self):
+        # Review F2: the record is dropped on entering active, and only `start` said it.
+        j2 = self.worked_then_started_by_mistake()
+        head = self.side_branch()
+        self.ok("pause", j2, "set aside")
+        p = self.w.switch(j2)
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        self.assertIn(f"push branch side/work (head {head})", p.stdout)
+        self.assertNotIn("unpushed", self.w.job(j2))
+
+    def test_a_session_that_worked_no_other_job_is_still_refused(self):
+        # The positive control of the case above: without the fence the same pause is the refusal it always was.
+        j1 = self.w.add("the only job")
+        self.ok("start", j1)
+        self.side_branch()
+        self.refused("pause", j1, "set aside", said="is not on origin")
+        self.assertEqual(self.state(j1), "active")
+
+    def test_a_fenced_session_pushing_nothing_records_nothing(self):
+        j2 = self.worked_then_started_by_mistake()
+        self.side_branch()
+        subprocess.run(["git", "-C", self.w.alpha, "push", "-q", "origin", "side/work"], check=True, env=git_env())
+        self.ok("pause", j2, "set aside")
+        self.assertNotIn("unpushed", self.w.job(j2))
+        self.assertNotIn("not pushed", self.w.job(j2)["log"][-1].get("note", ""))
 
 
 class Blocked(Case):
@@ -302,6 +424,7 @@ class Blocked(Case):
     def test_block_on_request_keeps_the_message_id_as_waits_on_and_a_checkable_blocker(self):
         mid = "01a11a18-4728-7d8b-afd9-0edb2d30a59c"
         self.w.add("a")
+        self.w.sent(mid)
         self.ok("block", "j1", "--on-request", mid.upper())
         job = self.w.job("j1")
         self.assertEqual((job["waits_on"], job["blockers"], job["blocked_on"]), (mid, [f"request:{mid}"], f"request {mid}"))

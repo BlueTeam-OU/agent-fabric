@@ -14,7 +14,7 @@ import time
 from fabric_jobs import blockers as bl
 from fabric_jobs import vcs
 from fabric_jobs.base import FABRIC_ROOT, _load, identity
-from fabric_jobs.records import working_copy_of
+from fabric_jobs.records import push_fenced, working_copy_of
 
 from fabric_jobs import artifacts
 from fabric_jobs.artifacts import BRANCH_PREFIX, MESSAGE_ID, PR_BARE, PR_FULL, PR_URL, REPLY, SHA  # noqa: F401 — the readers' patterns, named here as they always were
@@ -430,7 +430,9 @@ def _peeled(where: str, ref: str) -> str | None:
     return vcs.text(where, "rev-parse", f"{ref}^{{commit}}")
 
 
-def _pushed(job: dict, problems: list[str]) -> list[str]:
+def _pushed(job: dict, problems: list[str], unpushed: dict | None = None) -> list[str]:
+    """The evidence that the job's branch is pushed, else `problems`. When the one problem is commits origin lacks, and `unpushed`
+    is a dict, it is filled with {"branch", "head"}: the local head that is not on origin (pause records it, j744)."""
     branch = job.get("branch")
     # A worktree swept after its branch landed is gone, not an error: the repository is asked from the recorded worktree while it
     # exists, else from checkout_of (the working copy, or the project's checkout when that went with the worktree), never from a directory
@@ -456,11 +458,15 @@ def _pushed(job: dict, problems: list[str]) -> list[str]:
         tip = vcs.remote_tip(where, branch)
         if tip is None:
             problems.append(f"branch {branch} is not on origin: push it, so the paused work survives this checkout")
+            if unpushed is not None and (head := _peeled(where, f"refs/heads/{branch}")):
+                unpushed.update(branch=branch, head=head)
             return []
         local = _peeled(where, f"refs/heads/{branch}")
         # Without a local branch, origin holds all of it.
         if local and not vcs.question(where, "merge-base", "--is-ancestor", local, f"refs/remotes/origin/{branch}"):
             problems.append(f"branch {branch} has commits origin does not: push it")
+            if unpushed is not None:
+                unpushed.update(branch=branch, head=local)
             return []
     except vcs.VcsError as e:
         problems.append(f"could not tell whether branch {branch} is pushed ({e})")
@@ -543,7 +549,12 @@ def settle(job: dict, places: list[str], session_start: float | None = None) -> 
     elif state == "blocked":
         evidence = _blocker(job, problems)
     elif state == "paused":
-        evidence = _pushed(job, problems)
+        found: dict = {}
+        evidence = _pushed(job, problems, found)
+        # A pause the push fence excused (j744) is left the same way: the record must still be true of the branch, and the fence still hold.
+        if problems and found and job.get("unpushed") == found and push_fenced(identity.read_jobs()) is not None:
+            problems.clear()
+            evidence = [f"paused: branch {found['branch']} not pushed, the push fence refuses it here (head {found['head'][:12]} recorded)"]
     elif state == "dropped":
         evidence = [f"dropped: {job['reason']}"] if str(job.get("reason") or "").strip() else []
         if not evidence:

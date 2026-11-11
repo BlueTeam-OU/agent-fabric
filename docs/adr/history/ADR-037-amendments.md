@@ -160,3 +160,15 @@ Both were fixed by python-dev-03's j125, #541. `switch` treats a blocked job who
 Rule 14 gains no row. The blocked-to-active change is the existing `switch` row, whose "a branch chosen" now includes this case, and `done` takes its existing row with the named artifacts as evidence.
 
 Rejected: making `--repoint` accept a blocked job. Repoint moves a paused job's work in hand onto an open pull request, and a blocked job whose branch landed has no work in hand to move.
+
+### Amendment 2026-11-11 — No copy for a job with no branch, a pause the push fence leaves unpushed, a request this login cannot read
+
+Five defects of `fabric-jobs`, sent to python-dev-04 as one request (REQUEST 01a1c9d2) and fixed by its j108 in #556. Three of them changed what a row of rule 14 or rule 8 needs, and the blind review of #556 (its F3) refused arming until the record said so.
+
+`start` refused a job with no working copy. A job queued from a REQUEST in a project of which the account holds no checkout could therefore never be started, nor so finished, even when its work was only a REPLY, which changes no repository (j754). `start` now takes a job with no branch without a copy. `switch` chooses a branch (rule 10 step 3), so it still needs one, and so does a job that already has its branch.
+
+`pause` needs the branch pushed, and the job copy guard (rule 3) refuses every push of a session once it has worked another job. A job started by mistake in such a session could neither be pushed nor paused (j744). When the fence is the only reason, `pause` records the unpushed branch and its local head on the job and in its log. `start` and `switch` say to push that branch and head first, from the job's checkout, which the next session can do. `switch` leaves such a pause only while it is still true: the fence holds, and the branch's head is the one recorded. A head that moved, or a fence that no longer holds, is an unpushed branch like any other and is refused.
+
+A `request:` blocker on a message this login had sent as an OBSERVATION or a QUESTION read the answerer's board for the job the request had become, and stayed unknown whenever the board could not be read, although only a REQUEST can become a job (j751). It now clears on the answer, from this login's own journal, without a board. And `block` took any id, so a job could wait for ever on a message this login would never see answered (j746): an id the journal holds neither as a message this login sent or received nor as an answer received to it is refused, and so is any id while the journal cannot be read.
+
+Rejected: letting `pause` skip the pushed check whenever the fence holds. The record is what lets the next session find and push the work, and the check against the recorded head is what keeps a later commit from being left behind unsaid.

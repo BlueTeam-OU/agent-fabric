@@ -17,7 +17,7 @@ from collections.abc import Callable
 from fabric_jobs import blockers as bl
 from fabric_jobs import settle as st
 from fabric_jobs.base import Refused, hold_view, identity, mutate, request_id_of, work
-from fabric_jobs.records import find, transition
+from fabric_jobs.records import find, push_fenced, transition
 
 Proof = work.Proof
 
@@ -43,6 +43,11 @@ def _no_hold(job: dict, fields: dict, who: str) -> list[str]:
 
 def _working_copy(job: dict, fields: dict, who: str) -> list[str]:
     # A job with no project at all (added in a directory that is no checkout) never had one to find: it starts as it always did.
+    # `start` of a job with no branch needs no copy either (j754): its work may be a REPLY, which changes no repository, and an account
+    # that has none of the project's checkouts could otherwise never start, nor so finish, such a job. `switch` chooses a branch, so
+    # it still needs one, and so does a job that already has its branch.
+    if who == "start" and not job.get("branch"):
+        return ["no branch: no working copy needed"]
     if job.get("project") and not job.get("working_copy"):
         raise Refused(f"{job['id']} has no working copy ({job['project']} has none here or beside this one): "
                       f"name one with fabric-jobs project {job['id']} {job['project']} --working-copy DIR")
@@ -98,10 +103,25 @@ def _reason(job: dict, fields: dict, who: str) -> list[str]:
     return [why]
 
 
+def fenced_unpushed(candidate: dict) -> dict:
+    """{"unpushed": {"branch", "head"}} when pausing `candidate` is refused only because its commits are not on origin AND the push
+    fence is what keeps this session from pushing them (j744: a job started by mistake could then never be paused); else {}. A
+    branch that cannot be read, a missing checkout or any other refusal is not this one and stays a refusal."""
+    if push_fenced(identity.read_jobs()) is None:
+        return {}
+    found: dict = {}
+    st._pushed(candidate, [], found)
+    return {"unpushed": found} if found else {}
+
+
 def _branch_pushed(job: dict, fields: dict, who: str) -> list[str]:
     problems: list[str] = []
-    evidence = st._pushed(job, problems)
+    found: dict = {}
+    evidence = st._pushed(job, problems, found)
     if problems:
+        # The pause carries what the fence left behind, and is taken only while it is still true of the branch as it stands now.
+        if who == "pause" and found and fields.get("unpushed") == found:
+            return [f"branch {found['branch']} not pushed: the push fence refuses it here, head {found['head'][:12]} recorded for the next session"]
         raise Refused("; ".join(problems))
     return evidence
 
