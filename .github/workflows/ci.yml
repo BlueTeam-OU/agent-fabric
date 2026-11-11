@@ -172,6 +172,12 @@ jobs:
             extra: ShellCheck python3-pip hostname
             host_python: bootstrap-only
     container: ${{ matrix.image }}
+    # The almalinux leg reports without blocking ci-ok until two EL10 findings
+    # land (the owner's choice, 2026-11-11, #557): test_secret_store asks for
+    # paperkey, which no EL10 repository packages, and test_signing_rule5's
+    # revoked-ancestor refusal names a different cause under EL10's GnuPG.
+    # The commit that lands both makes this leg blocking again.
+    continue-on-error: ${{ matrix.platform == 'almalinux' }}
     # Measured 7-8.5 min on 2026-09-29, 20-24 min on 2026-10-11 (Fedora cancelled at 25 on #194 and #197);
     # the cap is for a hang, not a budget, so it sits well above the slowest healthy run.
     timeout-minutes: 40
