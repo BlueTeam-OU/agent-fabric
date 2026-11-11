@@ -569,7 +569,13 @@ def move(args, said: dict) -> Job:
     """The verbs that make a transition: the row is rule 14's, its needs are asked by needs.prove, the change is the owner's."""
     if args.cmd == "start":
         held = find(identity.read_jobs(), args.id).get("unpushed")
-        job = needs.advance(args.id, "active", "start", lambda job: {})
+        despite = list(dict.fromkeys(args.despite or []))
+        why = " ".join((args.why or "").split())
+        if despite and not why:
+            raise Refused(f"{args.id}: --despite needs the reason: fabric-jobs start {args.id} --despite <job:login/jN> \"<why>\"")
+        if why and not despite:
+            raise Refused(f"{args.id}: a reason is given for nothing; start takes one only with --despite")
+        job = needs.advance(args.id, "active", "start", lambda job: {"despite": despite, "note": why} if despite else {})
         if isinstance(held, dict) and held.get("branch") and held.get("head"):
             # The pausing session could not push (j744): the commits are in this checkout's branch and nowhere else.
             print(f"fabric-jobs: {args.id} was paused with commits not pushed (the push fence refused them): push branch "
