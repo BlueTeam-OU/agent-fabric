@@ -109,6 +109,28 @@ def case_adr_reads_records_and_the_registry_from_the_operator() -> None:
             assert adr.adr_dir(op) == os.path.join(op, "docs", "adr")      # --root still names the tree
 
 
+def case_adr_lookup_reads_the_operators_digest_and_the_engines() -> None:
+    """move-plan §3 step A: the engine's own records stay when the organisational ones move, so a lookup with no root
+    reads both DIGESTs; one tree is read once, a root names only itself, and a tree without a DIGEST is skipped."""
+    import adr
+    entry = lambda n, word: f"| Topic | Record |\n|---|---|\n| {word} | ADR-{n} |\n\n### ADR-{n} — x (Accepted)\n- {word} marker\n"  # noqa: E731
+    with tempfile.TemporaryDirectory() as tmp:
+        op, eng = os.path.join(tmp, "op"), os.path.join(tmp, "engine")
+        write(os.path.join(op, "docs", "adr", "DIGEST.md"), entry("901", "opword"))
+        write(os.path.join(eng, "docs", "adr", "DIGEST.md"), entry("902", "engword"))
+        with code_tree(eng, adr), operator(op):
+            hits = adr.cmd_lookup(None, ["marker"])
+            assert [h.split(" ")[1] for h in hits] == ["ADR-901", "ADR-902"], hits     # the operator's first
+            tables = adr.cmd_lookup(None, [])
+            assert len(tables) == 2 and "opword" in tables[0] and "engword" in tables[1], tables
+            assert [h.split(" ")[1] for h in adr.cmd_lookup(op, ["marker"])] == ["ADR-901"]   # --root: that tree alone
+        with code_tree(eng, adr), unset_operator():
+            assert [h.split(" ")[1] for h in adr.cmd_lookup(None, ["marker"])] == ["ADR-902"]   # one tree, once
+        os.remove(os.path.join(eng, "docs", "adr", "DIGEST.md"))
+        with code_tree(eng, adr), operator(op):
+            assert [h.split(" ")[1] for h in adr.cmd_lookup(None, ["marker"])] == ["ADR-901"]   # no engine DIGEST: skipped
+
+
 def case_workingcopy_reads_the_operators_registry_and_arm_follows() -> None:
     import subprocess
     import workingcopy
