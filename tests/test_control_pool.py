@@ -84,6 +84,21 @@ def main() -> int:
             with open(conf, "w") as fh:
                 json.dump({"pool_holder": empty}, fh)
             check(f"a pool_holder of {empty!r} is not carried", "pool_holder" not in agentd.control_config(env={}, file=conf))
+        with open(conf, "w") as fh:
+            json.dump({"pool_holder": "k/coord"}, fh)
+        check("FABRIC_CONTROL_CONFIG names the file read",
+              agentd.control_config(env={"FABRIC_CONTROL_CONFIG": conf}).get("pool_holder") == "k/coord")
+        for bad, write in (("missing", None), ("not JSON", "{")):
+            target = os.path.join(d, f"bad-{bad.replace(' ', '-')}.json")
+            if write is not None:
+                with open(target, "w") as fh:
+                    fh.write(write)
+            try:
+                agentd.control_config(env={"FABRIC_CONTROL_CONFIG": target})
+                said = ""
+            except RuntimeError as e:
+                said = str(e)
+            check(f"a FABRIC_CONTROL_CONFIG {bad}: refused, naming the file", target in said, said)
 
     with tempfile.TemporaryDirectory() as d:
         print("pool.test.mjs: pool-add")
