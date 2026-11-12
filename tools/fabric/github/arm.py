@@ -844,9 +844,11 @@ def check_open_findings(repo: str, num: str, pr: dict, defers: list, refuse) -> 
         raise Unanswered(f"#{num}'s reviews did not read as a list: gate 4c reads every chain")
     got = arm_findings.read(reviews, trusted)
     if got.unknown:
+        ids = ", ".join(got.supersedable)
         raise refuse(f"{len(got.unknown)} review(s) whose findings cannot be read — {'; '.join(got.unknown[:3])}"
                      f"{f' (and {len(got.unknown) - 3} more)' if len(got.unknown) > 3 else ''}: an unread review is unknown,"
-                     f" never clean; re-post it with its machine lines (Finding:/Judgement:), or review again")
+                     f" never clean; review again, and post that review with a line `Supersedes: <review-id>` naming the unread"
+                     f" one{f' (ids that can be named: {ids})' if ids else ''}")
     still = got.open
     lifted = []
     for what, key, why in defers:
