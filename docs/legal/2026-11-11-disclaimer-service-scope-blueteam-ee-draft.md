@@ -3,7 +3,9 @@
 Drafted by `legal-expert-ee-eu`, 2026-11-11, for the owner to adopt. Not
 the advice of an attorney admitted to the bar. Revised 2026-11-11 after
 language-culture-en's native read (section 6), and again after two
-reads of the MiCA paragraph (REQUESTs 01a1cbe0, 01a1cc24).
+reads of the MiCA paragraph (REQUESTs 01a1cbe0, 01a1cc24). Revised
+2026-11-12 after the AI section took the crypto section's shape
+(section 7).
 
 The owner asked the same day whether the page "Disclaimer about service
 scope" could be reorganised so that a prospective client reads it simply,
@@ -133,14 +135,21 @@ subject of a separate matter (the consultant agreement review, j23).
   to this role.
 - The AI Act conditions of `2026-11-09-ai-act-claims-blueteam-ee.md`
   and of the owner's answers of 2026-11-10 still hold.
+- BlueTeam does not put its name on a client's high-risk AI system,
+  substantially modify one, or change the intended purpose of a
+  client's AI system (AI Act Article 25(1)(a) to (c)); otherwise it
+  becomes the provider, and the AI section is wrong. The owner has
+  not been asked to state this; brand-comms-01 put the offer of a
+  clause on the page to the owner on 2026-11-12, advising that the
+  client contract carry it instead.
 - If BlueTeam ever offers a service to consumers, the liability
   paragraph is read again against VÕS § 42(3) before that service
   starts.
 
 ## 5. Placeholders
 
-None. The page carries no date today; whether it shows "Last updated"
-is brand-comms's choice.
+None. The page shows "Last updated: 12 November 2026" (blueteam.ee
+ccf2266); the date is brand-comms's.
 
 ## 6. After the native read (2026-11-11)
 
@@ -178,6 +187,28 @@ personalised recommendations on both objects, transactions and the use
 of services (section 2), so the clause is now its own sentence, with
 the defined term in quotation marks. language-culture-en's span keeps
 every word; it changes no exclusion on the page.
+
+## 7. The AI section in two layers (2026-11-12)
+
+The owner ruled on 2026-11-12, relayed by brand-comms-01, that "How we
+use AI" takes the crypto section's shape: plain bullets for the
+reader, then the Act's terms in one small legal paragraph
+(blueteam.ee 6ba3fb7). This role ruled the bullets (REQUESTs 01a1cfc2,
+01a1cfce; REPLYs 01a1cfc4, 01a1cfd0). Two bullets were reworded. The
+models bullet names general-purpose AI models only, the one fact the
+owner gave, and it now covers putting a system into use and building
+one. The client's-system bullet keeps the condition that makes a
+client the provider: the system is offered or put into use under the
+client's own name (Article 3(3)). Without it, the bullet told every
+client its legal role. The legal paragraph keeps the earlier
+sentences, with "third-party providers", "if" for "where" in the
+provider sentence, and the Article 50 sentence in Article 50(4)'s own
+words ("disclose that the content has been artificially generated or
+manipulated"). The section placed on blueteam.ee main at ccf2266 is
+the text below. Sources: Regulation (EU) 2024/1689 Articles 3(3),
+3(4), 3(9), 3(11), 25(1) and 50(4), consolidated text
+02024R1689-20260727 from the Publications Office (CELLAR), English,
+read 2026-11-12; the Official Journal text governs where they differ.
 
 ---
 
@@ -246,36 +277,41 @@ The Regulation calls such recommendations "advice on crypto-assets"
 
 ### How we use AI
 
-We use AI tools built on other companies' models. Here is what that
-means for you.
+We use AI tools built on AI models from other companies. Here is what
+that means for you:
 
-BlueTeam OÜ delivers its services using AI systems built on
-general-purpose AI models from other providers, and is a **deployer** of
-those systems within the meaning of
-[Regulation (EU) 2024/1689 (Artificial Intelligence Act)](https://eur-lex.europa.eu/eli/reg/2024/1689/oj).
-We do not place a general-purpose AI model on the market, and we do not
-place on the market or put into service a high-risk AI system of our
-own.
-
-**Review and responsibility.** Every deliverable produced with AI goes
-through an independent review. A BlueTeam OÜ consultant is responsible
-for each such deliverable.
-
-**Scope.** We do not develop or use AI systems for any practice
-prohibited by Article 5 of the Act, and we do not develop high-risk AI
-systems listed in its Annex III, for ourselves or for clients. Where we
-integrate or advise on a client's system that is high-risk, the client
-is its provider where the system is placed on the market or put into
-service under the client's name, and we give the client the information
-and assistance agreed in writing for the client to meet its obligations.
-
-**Transparency.** We tell our clients when AI is used in their
-engagement. Where Article 50 of the Act requires AI-generated or
-AI-manipulated content to be disclosed, we disclose it.
+- every deliverable produced with AI goes through an independent
+  review, and a BlueTeam OÜ consultant is responsible for that
+  deliverable;
+- we tell you when we use AI in your engagement, and if the law
+  requires us to disclose that content was made or changed by AI, we
+  do so;
+- we do not offer general-purpose AI models, we do not offer or put
+  into use high-risk AI systems under our own name, and we do not
+  build or use AI for any purpose the law prohibits;
+- if we work on a high-risk AI system that you offer or put into use
+  under your own name, you are responsible for it as its provider, and
+  we help you as agreed in writing.
 
 This section describes how we work. It is not advice on your own
-obligations under the Act (see "Not legal, accounting or tax advice"
-above).
+obligations under the AI Act (see "Not legal, accounting or tax
+advice" above).
+
+In the terms used by the EU Artificial Intelligence Act
+([Regulation (EU) 2024/1689, the AI Act](https://eur-lex.europa.eu/eli/reg/2024/1689/oj)),
+BlueTeam OÜ is a deployer of AI systems built on general-purpose AI
+models from third-party providers. We do not place a general-purpose
+AI model on the market, and we do not place on the market or put into
+service a high-risk AI system of our own. We do not develop or use AI
+systems for any practice prohibited by Article 5 of the Act, and we do
+not develop high-risk AI systems listed in its Annex III, for
+ourselves or for clients. Where we integrate or advise on a client's
+system that is high-risk, the client is its provider if the system is
+placed on the market or put into service under the client's name, and
+we give the client the information and assistance agreed in writing
+for the client to meet its obligations. Where Article 50 of the Act
+requires us to disclose that content has been artificially generated
+or manipulated, we do so.
 
 ### Limits of our liability
 
