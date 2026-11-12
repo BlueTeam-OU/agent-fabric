@@ -330,6 +330,30 @@ def case_lint_reads_role_files_only_the_operator_holds() -> None:
         assert "identities/prompt/header.md: missing" in out, out[-1500:]   # the control: the engine's own gap
 
 
+def case_the_memory_readers_handed_the_engine_root_ask_for_the_operators_tree() -> None:
+    """links.py and memory_flagrun.py are handed a fabric_root, assembler/report.py and anchorkeep.py take
+    layout.FABRIC_ROOT: all four ask roots.memory_dir(engine=<that root>), so an exported operator outranks it and
+    nothing changes without one."""
+    import dataclasses
+    import memory_flagrun
+    from assembler import links
+    with tempfile.TemporaryDirectory() as tmp:
+        eng, op = os.path.join(tmp, "engine"), os.path.join(tmp, "op")
+        write(os.path.join(op, "memory", "domains", "x", "domain", "a.md"), "---\nname: a\n---\n\n## S\n\nsee [[b-of-the-operator]]\n")
+        write(os.path.join(op, "memory", "domains", "x", "domain", "b-of-the-operator.md"), "---\nname: b-of-the-operator\n---\n")
+        os.makedirs(os.path.join(eng, "memory"))
+        rel = "memory/domains/x/domain/a.md"
+        with operator(op):
+            assert dataclasses.astuple(memory_flagrun.corpora_of("p", eng, None)[0])[2] == os.path.join(op, "memory")
+            assert links.names_in(os.path.join(op, "memory")) >= {"b-of-the-operator"}
+            rows = links.unresolved_links([rel], [op], eng, os.path.join(tmp, "no-project"), [], set())
+            assert rows == [], rows
+        with unset_operator():
+            assert dataclasses.astuple(memory_flagrun.corpora_of("p", eng, None)[0])[2] == os.path.join(eng, "memory")
+            rows = links.unresolved_links([rel], [op], eng, os.path.join(tmp, "no-project"), [], set())
+            assert [r["target"] for r in rows] == ["b-of-the-operator"], rows
+
+
 def main() -> int:
     cases = [v for k, v in globals().items() if k.startswith("case_")]
     failures = 0

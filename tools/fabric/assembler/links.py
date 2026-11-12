@@ -75,7 +75,7 @@ def unresolved_links(files: list[str], bases: list[str], fabric_root: str, proje
     """One row per link or References topic of `files` (slices, named as the report names them) that no corpus its reader
     has answers: {slice, heading, target, why, in}. `bases` are what a file's name is relative to. `project_root` is the project's `.agent-fabric/memory`; a file under
     `fabric_root/memory` is a field slice."""
-    fabric = names_in(roots.memory_dir(root=fabric_root))
+    fabric = names_in(roots.memory_dir(engine=fabric_root))
     project = names_in(project_root) if os.path.isdir(project_root) else set()
     elsewhere: set[str] = set()
     for root in other_roots:
@@ -93,7 +93,7 @@ def unresolved_links(files: list[str], bases: list[str], fabric_root: str, proje
                 text = fh.read()
         except (OSError, UnicodeDecodeError):
             continue
-        is_field = os.path.abspath(path).startswith(os.path.abspath(roots.memory_dir(root=fabric_root)) + os.sep)
+        is_field = os.path.abspath(path).startswith(os.path.abspath(roots.memory_dir(engine=fabric_root)) + os.sep)
         reads = fabric if is_field else fabric | project
         unreachable = (project | elsewhere) if is_field else elsewhere
         for heading, target, source in links_of(text):
