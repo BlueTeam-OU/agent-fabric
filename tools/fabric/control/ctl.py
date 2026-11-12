@@ -127,9 +127,9 @@ from control.carrier_install import (CARRIER_INSTALL_BUDGET_S, CARRIER_READ_BUDG
                                      INSTALL_OP, START_OP, STOP_OP)
 from control.carrier_evidence import EVIDENCE_BUDGET_S, EVIDENCE_OP, ISO_RE as EVIDENCE_TIME, ALL_SECTIONS as EVIDENCE_SECTIONS
 from control import evidence_collect
-from gzcoord.carrier import CARRIER_LABEL, CARRIER_NAME, parity as _parity
+from gzcoord.carrier import CARRIER_LABEL, CARRIER_NAME, control_link as link, parity as _parity
 from control.tools import TOOL_NAME, TOOLS_INSTALL_BUDGET_S
-from control.upgrade import FABRIC_UPGRADE_BUDGET_S, PIECES, UPGRADE_BUDGET_S, VERSION_RE, pinned_version
+from control.upgrade import FABRIC_UPGRADE_BUDGET_S, PIECES, UPGRADE_BUDGET_S, VERSION_RE, pinned_version, state_dir
 import roots
 from registry_id import REGISTRY_ID
 
@@ -2292,12 +2292,29 @@ def main(argv: list[str] | None = None, *, registry: str | None = None, call: Ca
             return 3
     if args.get("via"):
         return _via_hostexec(args, request, expected[0], registry=registry, out=out, err=err)
+    # The second carrier (ADR-029 rule 18), only when control_carrier says "dual" and the op may go by it: the
+    # sends are handed to the operator's own agentd, which holds the lease, and its replies come back here.
+    dual = cfg["control_carrier"] == agentd.CARRIER_DUAL and args["op"] not in link.RELAY_ONLY_OPS
+    merge = link.Merge() if dual else None
+    arrivals = link.ArrivalLog(os.path.join(state_dir(), "control-arrivals.jsonl"), "ctl", log=err) if dual else None
+    # The relay is the record, so its post comes first and is never held behind the second carrier: a hand-off that
+    # waits on a silent child for ttl_s would put the relay copy on the wire already expired.
+    relay_up = True
+    sent = None
+    relay_error = None
     try:
         sent = api_call("/api/send", method="POST", body=js.stringify({"channel": cfg["channel"], "sender": me["address"], "content": js.stringify(request)}))
     except Exception as e:  # noqa: BLE001 — any failure of the call is said in relay_failure's words, as the Node said it
-        err(f"fabric-ctl: {relay_failure(e, cfg['relay_url'])}")
-        return 3
-    t0 = now()
+        relay_error = e
+    session, early, attempted = (_second_carrier(request, expected, me["address"], args, err) if dual else (None, [], set()))
+    t0 = now()   # after both hand-offs, as it was after the one: --timeout is the wait for answers
+    if relay_error is not None:
+        if session is None:
+            err(f"fabric-ctl: {relay_failure(relay_error, cfg['relay_url'])}")
+            return 3
+        # The relay is down but the request went by the other carrier: the answer can still come.
+        err(f"fabric-ctl: {relay_failure(relay_error, cfg['relay_url'])}; {CARRIER_LABEL} carries alone")
+        relay_up = False
     replies: list[dict] = []
     parts: dict[str, dict] = {}
     want = {e["address"] for e in expected}   # no reply yet
@@ -2307,45 +2324,102 @@ def main(argv: list[str] | None = None, *, registry: str | None = None, call: Ca
         if args["op"] != "memory":
             return 0
         return sum(1 for r in replies if len(parts.get(r["from"], {})) < _int(dig(r, "data", "parts")))
-    deadline = t0 + args["timeout"]
-    since = sent["id"]
-    while now() < deadline and (want or short()):
+
+    def take(carrier: str, r: dict) -> None:
+        frm = dig(r, "from")
+        if arrivals is not None:
+            arrivals.add(carrier, r, "ok" if carrier == link.VIA else "unauthenticated")
+        if T(dig(r, "data", "part")):
+            # Distinct parts, keyed by slug and number, the first record for a key winning:
+            # a replayed or duplicated part neither completes a reply early nor breaks its reassembly.
+            part = r["data"]["part"]
+            m = parts.setdefault(S(frm), {})
+            k = part_key(frm, part)
+            if merge is not None:
+                m[k] = merge.add_part(carrier, S(frm), k, part)
+            elif k not in m:
+                m[k] = part
+            return
+        if merge is not None:
+            if isinstance(frm, str) and frm in expected_addresses:
+                first = not merge.has_reply(frm)
+                kept = merge.add_reply(carrier, frm, r)
+                kept["latency_ms"] = int((now() - t0) * 1000) if kept is r else kept.get("latency_ms", int((now() - t0) * 1000))
+                if first:
+                    replies.append(kept)
+                    want.discard(frm)
+                else:
+                    replies[next(i for i, x in enumerate(replies) if x.get("from") == frm)] = kept
+            return
+        if isinstance(frm, str) and frm in want:
+            r["latency_ms"] = int((now() - t0) * 1000)
+            replies.append(r)
+            want.discard(frm)
+
+    expected_addresses = {e["address"] for e in expected}
+    grace = [None]
+
+    def lingering() -> bool:
+        """Every account has answered, but an answered account's other copy may still be on its way: wait for it a
+        moment, so the row can say which carrier counts and whether the relay's copy agreed."""
+        if merge is None or want or short():
+            return False
+        if grace[0] is None:
+            grace[0] = now() + DUAL_GRACE_S
+        return now() < grace[0] and merge.waiting_for_other([a for a in expected_addresses if merge.has_reply(a)], attempted)
+
+    def second() -> list[dict]:
+        nonlocal session
+        if session is None:
+            return []
         try:
-            page = api_call("/api/messages?" + js.search_params([("channel", cfg["channel"]), ("since_id", since), ("limit", "500"), ("full", "1")]))
-        except Exception as e:  # noqa: BLE001 — the loop ends and the silent accounts are rows; the line says why
-            err(f"fabric-ctl: relay read failed ({e})")
-            break
-        if dig(page, "warning") == "since_id_not_found":
-            err("fabric-ctl: the relay no longer holds the request (history cleared); the replies cannot be read")
-            break
-        messages = dig(page, "messages")
-        for rec in messages if isinstance(messages, list) else []:
-            if not isinstance(rec, dict):
-                continue
-            if "id" in rec:
-                since = rec["id"]
+            return session.poll(0.5)   # the wait of the loop's turn: a reply is read the moment it comes
+        except RuntimeError as e:
+            err(f"fabric-ctl: {CARRIER_LABEL}: {e}; the relay carries alone")
+            session.close()
+            session = None
+            return []
+    for ev in early:
+        take(link.VIA, ev["record"])
+    deadline = t0 + args["timeout"]
+    since = sent["id"] if sent else None
+    while now() < deadline and (want or short() or lingering()):
+        if relay_up:
             try:
-                r = js.json_parse(rec["content"])
-            except (ValueError, KeyError, TypeError):
-                continue
-            if dig(r, "kind") != "reply" or dig(r, "in_reply_to") != rid:
-                continue
-            frm = dig(r, "from")
-            if T(dig(r, "data", "part")):
-                # Distinct parts, keyed by slug and number, the first record for a key winning:
-                # a replayed or duplicated part neither completes a reply early nor breaks its reassembly.
-                part = r["data"]["part"]
-                m = parts.setdefault(S(frm), {})
-                k = part_key(frm, part)
-                if k not in m:
-                    m[k] = part
-                continue
-            if isinstance(frm, str) and frm in want:
-                r["latency_ms"] = int((now() - t0) * 1000)
-                replies.append(r)
-                want.discard(frm)
-        if want or short():
+                page = api_call("/api/messages?" + js.search_params([("channel", cfg["channel"]), ("since_id", since), ("limit", "500"), ("full", "1")]))
+            except Exception as e:  # noqa: BLE001 — the loop ends and the silent accounts are rows; the line says why
+                err(f"fabric-ctl: relay read failed ({e})")
+                if session is None:
+                    break
+                relay_up = False
+                page = None
+            if relay_up and dig(page, "warning") == "since_id_not_found":
+                err("fabric-ctl: the relay no longer holds the request (history cleared); the replies cannot be read")
+                if session is None:
+                    break
+                relay_up = False
+            messages = dig(page, "messages") if relay_up else None
+            for rec in messages if isinstance(messages, list) else []:
+                if not isinstance(rec, dict):
+                    continue
+                if "id" in rec:
+                    since = rec["id"]
+                try:
+                    r = js.json_parse(rec["content"])
+                except (ValueError, KeyError, TypeError):
+                    continue
+                if dig(r, "kind") != "reply" or dig(r, "in_reply_to") != rid:
+                    continue
+                take("relay", r)
+        got = second()
+        for ev in got:
+            take(link.VIA, ev["record"])
+        if not relay_up and session is None:
+            break   # both carriers are gone: nothing more can arrive
+        if session is None and (want or short() or lingering()):
             sleep(0.5)
+    if session is not None:
+        session.close()
     refused = 0
     if args["op"] == "memory":
         write_bundles(args["out"], expected, replies, parts)
@@ -2361,15 +2435,56 @@ def main(argv: list[str] | None = None, *, registry: str | None = None, call: Ca
                 # throws on anything else: either way the drain is not a success.
                 refused += len(bundles) if isinstance(bundles, str) else 1
     rs = rows(expected, replies)
+    if merge is not None:
+        for e, row in zip(expected, rs):
+            if row["status"] == "ok":
+                row.update(merge.verdict(e["address"]))
     if args["json"]:
         for r in rs:
             out(js.stringify(r))
     else:
         out(table(args["op"], rs))
+        if merge is not None:
+            for key, words in (("relay only", "relay only"), ("differs", f"the relay's copy differs from the {CARRIER_LABEL} copy")):
+                names = [r["account"] for r in rs if (r.get("carrier") == key if key == "relay only" else r.get("relay_differs"))]
+                if names:
+                    out(f"{words}: {', '.join(names)}")
     # An action that failed on an account is a failed run, whatever else
     # answered: the first fleet upgrade printed nine failed rows and exited 0.
     action_failed = args["op"] in ACTION_OPS and any(dig(r, "data", args["op"], "status") not in ACTION_OK.get(args["op"], []) for r in replies)
     return 1 if want or short() or refused or action_failed else 0
+
+
+# How long, once every account has answered, fabric-ctl waits for the other carrier's copy of an answer on a dual
+# run: long enough for a copy sent beside the first, short enough that a carrier that is down costs a command
+# seconds, not its whole timeout.
+DUAL_GRACE_S = 3.0
+
+
+def _second_carrier(request: dict, expected: list[dict], me: str, args: dict, err: Callable[[str], None]) -> tuple:
+    """Hand the request to the operator's own agentd for one direct send per target (ADR-029 rule 18): (session,
+    replies that came with the sends, the addresses a send went out to). Any failure to reach agentd is one line
+    and `(None, [], set())`: the relay has the request too, so the run goes on as a relay run and its rows say so."""
+    path = link.socket_path()
+    if path is None:
+        err(f"fabric-ctl: {CARRIER_LABEL}: XDG_RUNTIME_DIR is not set, so there is no socket to the operator's agentd; the relay carries alone")
+        return None, [], set()
+    targets = [e["address"] for e in expected if e["address"] != me]
+    ttl = request.get("ttl_s")
+    budget = min(args["timeout"], ttl) if isinstance(ttl, (int, float)) and not isinstance(ttl, bool) and ttl > 0 else args["timeout"]
+    session = None
+    try:
+        session = link.Session(path, request, targets, args["timeout"])
+        early = session.wait_sent(budget + 5)
+    except RuntimeError as e:
+        err(f"fabric-ctl: {CARRIER_LABEL}: {e}; the relay carries alone")
+        if session is not None:
+            session.close()
+        return None, [], set()
+    lost = sorted(a for a, (ok, _why) in session.sent.items() if not ok)
+    if lost:
+        err(f"fabric-ctl: {CARRIER_LABEL}: not sent to {', '.join(f'{a} ({session.sent[a][1]})' for a in lost)}; the relay carries those")
+    return session, early, {a for a, (ok, _why) in session.sent.items() if ok}
 
 
 def _collect_evidence(args: dict, expected: list[dict], *, out: Callable, err: Callable, **inject: Any) -> int:

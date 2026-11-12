@@ -70,6 +70,10 @@ PROFILE_RE = re.compile(r"[A-Za-z0-9_-]{1,64}")
 AGENT_ID_RE = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
 LOGIN_RE = re.compile(r"[a-z_][a-z0-9_-]{0,31}")
 LOOPBACK = "127.0.0.1"
+# The control plane's endpoint on the same profile (ADR-029 rule 18, ADR-064 rule 12): the profile's only human
+# endpoint, held by agentd's interweave-human. The profile's default endpoint stays `gzcoord`, so a peer-only send
+# never lands a record on it, and `gzcoord` stays automated-only.
+CONTROL_ENDPOINT = "fabric-control"
 _B58 = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"
 GPG_TIMEOUT = 60
 
@@ -375,6 +379,8 @@ def render_config(roster: Roster, good: list[dict], agent_id: str) -> str:
         "  entries:\n"
         f"    - {{ id: {roster.endpoint}, enabled: true, advertise: false, "
         "allowed_client_kinds: [automated-client] }\n"
+        f"    - {{ id: {CONTROL_ENDPOINT}, enabled: true, advertise: false, "
+        "allowed_client_kinds: [human-client] }\n"
         "channels: { desired: [] }\n"
         "discovery:\n"
         "  providers:\n"
