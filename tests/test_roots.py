@@ -178,11 +178,16 @@ def case_git_path_refuses_what_it_cannot_name() -> None:
     for outside in (O, "/", E + "/..", "/ee"):  # /ee shares E's text prefix and is not under it
         refused("policies", "authority.json", env={"AGENT_FABRIC_OPERATOR": outside})
     refused("tools", "fabric", "roots.py")                  # engine paths never move
+    refused("projects", "schemas", "project.schema.json")   # engine shapes sit beside the project directories
+    refused("projects", "schemas")
+    refused("projects")
     refused("policies", "schema.json")                      # policies/ is the engine's but for the six
     refused()
     refused("identities", "keys/lineage.json")             # parts, not a joined path
     refused("identities", "..", "x")
     refused("")
+    # positive control for the projects/ refusals: a project directory is answered.
+    assert roots.git_path("projects", "gzapp", "integration", base=E, environ={}) == "projects/gzapp/integration"
     # positive control for the refusals above: the same call is answered inside the base.
     assert roots.git_path("policies", "authority.json", base=E, environ={"AGENT_FABRIC_OPERATOR": E + "/o"}) == "o/policies/authority.json"
 

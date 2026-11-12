@@ -215,7 +215,7 @@ _POLICY_FILES = ("arming", "authority", "auto-mode", "host-load", "hygiene", "si
 _MOVING = (
     ("identities", "roles"), ("identities", "personas"), ("identities", "keys"),
     ("identities", "agents", "README.md"), ("identities", "recovery.asc"),
-    ("projects",), ("runtime", "hosts", "registry.json"),
+    ("projects", "registry.json"), ("projects", "clients.json"), ("runtime", "hosts", "registry.json"),
     *(("policies", f"{name}.json") for name in _POLICY_FILES),
     ("routing", "profiles.json"), ("routing", "policies"),
     ("memory", "domains"), ("memory", "shared"), ("memory", "agents"),
@@ -231,9 +231,9 @@ def operator_prefix(base: str, environ: Mapping[str, str] | None = None) -> str:
     value = _env(environ).get(ENV_OPERATOR)
     if not value:
         return ""
-    # Lexical, not realpath: the answer names a path inside a git tree, which
-    # has no symlinks to resolve.
-    rel = os.path.relpath(os.path.abspath(value), os.path.abspath(base))
+    # realpath on both: the repository's toplevel is what git reports, and
+    # the operator may be exported through a differently spelled link to it.
+    rel = os.path.relpath(os.path.realpath(value), os.path.realpath(base))
     if rel == os.curdir:
         return ""
     if rel == os.pardir or rel.startswith(os.pardir + os.sep) or os.path.isabs(rel):
@@ -247,6 +247,8 @@ def git_path(*parts: str, base: str, environ: Mapping[str, str] | None = None) -
     ValueError for a path that is not an item of the move list."""
     if not parts or any(not p or p in (os.curdir, os.pardir) or "/" in p for p in parts):
         raise ValueError(f"not a path of the move list: {parts!r}")
-    if not any(parts[:len(item)] == item for item in _MOVING):
+    # projects/<id>/ moves; projects/schemas/ is the engine's shape of a project.
+    project_dir = parts[0] == "projects" and len(parts) > 1 and parts[1] not in ("schemas", "registry.json", "clients.json")
+    if not project_dir and not any(parts[:len(item)] == item for item in _MOVING):
         raise ValueError(f"{'/'.join(parts)} is not on the move list: it stays in the engine")
     return operator_prefix(base, environ) + "/".join(parts)

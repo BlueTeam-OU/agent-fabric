@@ -52,16 +52,18 @@ def main() -> int:
             check("today: the key is read at identities/keys/", trust.writers(ID, flat) == {FPR: KEY})
 
             nested = repo(tmp, "nested", "operator/identities/keys", env)
+            link = os.path.join(tmp, "nested-link")
+            os.symlink(nested, link)
             os.environ["AGENT_FABRIC_OPERATOR"] = os.path.join(nested, "operator")
             try:
                 check("with the operator a directory of the repository, operator/identities/keys/ is read",
                       trust.writers(ID, nested) == {FPR: KEY})
-                try:
-                    trust.writers(ID, flat)
-                    check("…and a repository with the keys at the old path is not read through the prefix", False)
-                except StoreError as e:
-                    check("…and a repository with the keys at the old path is not read through the prefix",
-                          "not yet on the fabric's main" in str(e) or "outside" in str(e) or "not under" in str(e), e)
+                check("…and by default (no fabric handed in), with the operator exported as that directory",
+                      trust.writers(ID) == {FPR: KEY})
+                os.environ["AGENT_FABRIC_OPERATOR"] = os.path.join(link, "operator")
+                check("…and with the operator exported through a link to the repository",
+                      trust.writers(ID) == {FPR: KEY})
+                os.environ["AGENT_FABRIC_OPERATOR"] = os.path.join(nested, "operator")
             finally:
                 del os.environ["AGENT_FABRIC_OPERATOR"]
 

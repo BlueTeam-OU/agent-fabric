@@ -233,13 +233,19 @@ def _main_show(rel: str, fabric: str | None = None) -> bytes | None:
     """A file as the fabric's origin/main has it; None when main has no such
     file. A checkout with no origin/main is an error, never a fallback."""
     root = fabric or roots.operator_root()
-    try:
-        # A symlink shim would not serve `git show`: the path is the one main stores.
-        rel = roots.git_path(*rel.split("/"), base=root)
-    except ValueError as e:
-        raise StoreError(f"cannot name {rel} on origin/main of {root}: {e}") from None
     if _run(["git", "-C", root, "rev-parse", "-q", "--verify", "refs/remotes/origin/main"], check=False).returncode:
         raise StoreError(f"{root} has no origin/main to read the store's writers from: fetch the fabric")
+    # `git show <rev>:<path>` spells the path from the repository's top whatever -C names, so the
+    # operator prefix is the operator's place under that top, not under `root` (which is the
+    # operator itself when no fabric was handed in).
+    top = _run(["git", "-C", root, "rev-parse", "-q", "--show-toplevel"], check=False)
+    if top.returncode or not top.stdout.strip():
+        raise StoreError(f"{root} is not a git working tree: fetch the fabric")
+    try:
+        # A symlink shim would not serve `git show`: the path is the one main stores.
+        rel = roots.git_path(*rel.split("/"), base=os.fsdecode(top.stdout).strip())
+    except ValueError as e:
+        raise StoreError(f"cannot name {rel} on origin/main of {root}: {e}") from None
     r = _run(["git", "-C", root, "show", f"refs/remotes/origin/main:{rel}"], check=False)
     return r.stdout if r.returncode == 0 else None
 
