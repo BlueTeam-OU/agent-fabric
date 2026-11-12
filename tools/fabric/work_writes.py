@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """tools/fabric/work_writes.py — the work lifecycle has one owner, tools/fabric/work/ (agent-fabric ADR-037 rule 14, ADR-067 rule 2,
 j101); this is the predicate for everything else. Wiring it into lint and the pre-commit hook, the exceptions file it reads
-(policies/work-writes.json) and the catalogue entry are the control plane's.
+(tools/fabric/work-writes.json) and the catalogue entry are the control plane's.
 
 A job's state is moved by a row of rule 14's table and a pool claim by one of its pool rows, and the owner is the only code that
 writes either: the rows' needs are checked there, when the transition is made. Anywhere else, a write of
@@ -30,7 +30,7 @@ import subprocess
 import sys
 import warnings
 
-POLICY = "policies/work-writes.json"
+POLICY = "tools/fabric/work-writes.json"
 OWNER_DIR = "tools/fabric/work/"
 KEYS = frozenset({"state", "claimed"})
 # What a literal must be to be a job's or a pool job's state; the table's own lists (work/table.py), repeated so that this file

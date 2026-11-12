@@ -28,7 +28,7 @@ GITHUB_DIR = FABRIC_DIR + "/github"
 OWNERS = frozenset({f"{GITHUB_DIR}/common.py", f"{GITHUB_DIR}/evidence.py"})
 CAPS = frozenset({250, 3000})
 PR_LIST_PATH = re.compile(r"/pulls/[^/]*/(?:files|commits)(?:[?/]|$)")
-POLICY = "policies/evidence-caps.json"   # the modules admitted with their reason (ADR-067 rule 1); lint and the hook read it
+POLICY = "tools/fabric/evidence-caps.json"   # the modules admitted with their reason (ADR-067 rule 1); lint and the hook read it
 
 
 def parse_modules(text: str) -> dict[str, str]:

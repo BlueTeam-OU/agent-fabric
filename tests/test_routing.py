@@ -80,34 +80,36 @@ def test_current_broker_policy(tmp: str) -> None:
 
 def test_native_path_pins_haiku_and_sonnet_5_5_low_and_opus_5_5_above(tmp: str) -> None:
     """On plain claude code-low is Haiku 5.5 (the owner, 2026-10-07),
-    code-medium Sonnet 5.5 (the owner, 2026-09-29), and the upper classes, the review class included, Opus 5.5
+    code-medium Sonnet 5.5 (the owner, 2026-09-29), code-high and the review class Opus 5.5
     (the owner, 2026-09-25; the top model of each class's own tier from
-    2026-09-15 until then); a coding class's pin is the export of the
+    2026-09-15 until then) and code-plan Fable 5.2 (the owner, 2026-11-12); a coding class's pin is the export of the
     alias it rides, the review class's reaches its agent file. No shim.
     A class the column leaves null is the harness's own tier."""
     root = scratch_root(tmp, distinct=False)
     got = {k: routing.resolve(k, "anthropic", root=root) for k in routing.load_capabilities(root)["classes"]}
     assert {k: v["composite"] for k, v in got.items()} == {
         "code-low": "claude-haiku-5-5", "code-medium": "claude-sonnet-5-5", "code-high": "claude-opus-5-5",
-        "code-plan": "claude-opus-5-5", "code-review": "claude-opus-5-5"}, got
+        "code-plan": "claude-fable-5-2", "code-review": "claude-opus-5-5"}, got
     assert {k: v["via"] for k, v in got.items()} == {
         "code-low": "export", "code-medium": "export", "code-high": "export", "code-plan": "export", "code-review": "file"}, got
     assert {k: v["alias"] for k, v in got.items()} == {
         "code-low": "haiku", "code-medium": "sonnet", "code-high": "opus", "code-plan": "fable", "code-review": "fable"}
     assert all(v["shim"] is None for v in got.values()), "no shim on the native path"
-    # …and every class and the session ask medium (the owner, 2026-09-25):
+    # …and every class and the session ask medium (the owner, 2026-09-25), but plain
+    # claude's code-plan and code-review, chosen at high (the owner, 2026-11-12):
     # check() judges a level only where it is lost, so nothing else pins them.
     effort = routing.load_effort(root)
     assert effort["classes"] == dict.fromkeys(routing.load_capabilities(root)["classes"], "medium"), effort["classes"]
     assert effort["session"] == "medium", effort["session"]
-    assert {k: v["effort"]["level"] for k, v in got.items()} == dict.fromkeys(got, "medium"), got
+    assert {k: v["effort"]["level"] for k, v in got.items()} == {
+        **dict.fromkeys(got, "medium"), "code-plan": "high", "code-review": "high"}, got
     assert routing.review_grade_ok("claude-opus-5-5", root), "the native spelling is graded under anthropic/"
     assert routing.review_grade_ok("claude-opus-5[1m]", root), "the reviewer of 2026-09-15 stays admitted"
     assert not routing.review_grade_ok("claude-haiku-4-5", root)
     ex = routing.exports("anthropic", root=root)
     assert {k: v["model"] for k, v in ex.items()} == {
         "ANTHROPIC_DEFAULT_HAIKU_MODEL": "claude-haiku-5-5", "ANTHROPIC_DEFAULT_SONNET_MODEL": "claude-sonnet-5-5",
-        "ANTHROPIC_DEFAULT_OPUS_MODEL": "claude-opus-5-5", "ANTHROPIC_DEFAULT_FABLE_MODEL": "claude-opus-5-5"}, ex
+        "ANTHROPIC_DEFAULT_OPUS_MODEL": "claude-opus-5-5", "ANTHROPIC_DEFAULT_FABLE_MODEL": "claude-fable-5-2"}, ex
     assert "code-review" not in {v["class"] for v in ex.values()}, "the review class is never an export"
     s = routing.resolve_session(provider="anthropic", root=root)
     assert (s["model"], s["composite"], s["openrouter_id"], s["source"], s["skipped"]) == \

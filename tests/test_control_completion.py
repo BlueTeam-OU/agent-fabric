@@ -6,8 +6,8 @@ reach nothing else.
 
 Each case fails when its guard is removed: a login placed on any host is proposed; `all`, `keygen` and `help` are;
 the second word is the verbs; the third is that verb's own words plus --json/--timeout/--help; keygen and help take no
-verb; a registry that is absent, unreadable or not JSON still completes `all` and the verbs and prints nothing on
-stderr; a tab calls the tool for `--verbs` only."""
+verb; a registry that is absent, unreadable or not JSON still completes `all` and the verbs, and prints nothing on
+stderr unless it is absent, which is said in one line; a tab calls the tool for `--verbs` only."""
 from __future__ import annotations
 
 import os
@@ -46,6 +46,10 @@ class Completion(unittest.TestCase):
         with open(os.path.join(bindir, "fabric-ctl"), "w", encoding="utf-8") as fh:
             fh.write(STUB)
         os.chmod(os.path.join(bindir, "fabric-ctl"), 0o755)
+        # The completion takes the login's home from the passwd database; the real one must not decide whether a clone exists.
+        with open(os.path.join(bindir, "getent"), "w", encoding="utf-8") as fh:
+            fh.write(f'#!/bin/sh\necho "fixture:x:1000:1000::{self.tmp}:/bin/sh"\n')
+        os.chmod(os.path.join(bindir, "getent"), 0o755)
         self.env = {"PATH": f"{bindir}:/usr/bin:/bin", "HOME": self.tmp, "AGENT_FABRIC_ROOT": self.root,
                     "STUB_LOG": self.log, "LC_ALL": "C"}
         self.registry('{"placement": {"alpha-01": "host-a", "beta-01": "host-a", "gamma-01": "host-b"}}')
@@ -120,7 +124,12 @@ class Completion(unittest.TestCase):
                     shutil.rmtree(self.root)
                 words, err = self.complete("fabric-ctl", "")
                 self.assertEqual(sorted(words), ["all", "help", "keygen"])
-                self.assertEqual(err, "")
+                # A registry that resolves to no file is said (move-plan §3 step A); one that is there and
+                # unreadable or malformed is not.
+                if text is None:
+                    self.assertIn("no hosts registry at " + os.path.join(self.root, "runtime", "hosts", "registry.json"), err)
+                else:
+                    self.assertEqual(err, "")
                 self.assertEqual(self.complete("fabric-ctl", "all", "")[0], ["status", "keys", "upgrade"])
 
     def test_a_registry_without_read_permission_does_not_print_an_error(self):

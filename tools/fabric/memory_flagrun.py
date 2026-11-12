@@ -87,7 +87,7 @@ class Fleet:
 
 
 def corpora_of(project: str, fabric_root: str, working_copy: str | None) -> list[Corpus]:
-    out = [Corpus("f", layout.FABRIC_PROJECT_ID, roots.memory_dir(root=fabric_root), fabric_root, layout.FABRIC_PROJECT_ID)]
+    out = [Corpus("f", layout.FABRIC_PROJECT_ID, roots.memory_dir(engine=fabric_root), fabric_root, layout.FABRIC_PROJECT_ID)]
     if working_copy:
         # The fabric's own project has both corpora in one checkout: one label each, or the hints' sources and the
         # flags' keys of the two would be one.

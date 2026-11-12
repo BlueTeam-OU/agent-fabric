@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """tools/fabric/process_spawns.py — process lifetime has one owner, tools/fabric/process.py (the owner's 2026-11-08 ask,
 j125); this is the predicate for everything else. Wiring it into lint and
-the pre-commit hook, and the allowlist it reads (policies/process-spawns.json), are the control plane's.
+the pre-commit hook, and the allowlist it reads (tools/fabric/process-spawns.json), are the control plane's.
 
 A module that starts a command in a session or group of its own, or signals a group, owns a lifetime it does not
 test the same way twice: 14 modules did, each with its own answer to "the interrupt landed between Popen and the try",
@@ -14,7 +14,7 @@ test the same way twice: 14 modules did, each with its own answer to "the interr
 It is a static reader: `kill = os.killpg` called as `kill(...)` is not seen, which is the usual under-report.
 
 A listed module is admitted whole, every finding in it, with a reason that says why it cannot call process.py
-(`policies/process-spawns.json`). An entry that admits nothing is a finding, so an exception leaves the list when its
+(`tools/fabric/process-spawns.json`). An entry that admits nothing is a finding, so an exception leaves the list when its
 module moves. process.py is the owner and is not judged. Tests are not judged: a fixture starts a process group on
 purpose.
 
@@ -30,7 +30,7 @@ import subprocess
 import sys
 import warnings
 
-POLICY = "policies/process-spawns.json"
+POLICY = "tools/fabric/process-spawns.json"
 OWNER = "tools/fabric/process.py"
 SIGNALS = frozenset({"killpg", "setsid", "setpgid", "setpgrp"})
 SPAWN_KEYWORDS = frozenset({"start_new_session", "process_group"})

@@ -324,7 +324,10 @@ class Account:
     def env(self, **more: str) -> dict[str, str]:
         e = {"HOME": self.home, "PATH": f"{T}/fakebin:{T}/sysbin", "LC_ALL": "C.UTF-8", "TMPDIR": self.tmp,
              "CLAUDE_CONFIG_DIR": self.cfg, "XDG_STATE_HOME": self.state, "XDG_CONFIG_HOME": self.xdgcfg,
-             "XDG_RUNTIME_DIR": self.run, "FAKE_LOG": self.log}
+             "XDG_RUNTIME_DIR": self.run, "FAKE_LOG": self.log,
+             # The operator checkout's clone has nowhere to go but here: a path that is not a repository, so the
+             # run never reaches the network and says the same "!" line every time.
+             "AGENT_FABRIC_OPERATOR_CLONE_URL": f"file://{T}/no-operator.git"}
         for k, v in more.items():
             if v is None:
                 e.pop(k, None)
@@ -376,7 +379,7 @@ def bootstrap(acct: Account, *args: str, env: dict[str, str] | None = None, cwd:
         sys.exit("test: refusing to run: HOME is not the scratch home")
     for k in e:
         if k.startswith(("AGENT_FABRIC_", "GITHUB_", "GZCOORD_", "GIT_")) or (k.startswith("CLAUDE") and k != "CLAUDE_CONFIG_DIR"):
-            if k not in ("AGENT_FABRIC_DEFER_AGENTD_RESTART", "AGENT_FABRIC_LOCAL_BIN"):
+            if k not in ("AGENT_FABRIC_DEFER_AGENTD_RESTART", "AGENT_FABRIC_LOCAL_BIN", "AGENT_FABRIC_OPERATOR_CLONE_URL"):
                 sys.exit(f"test: refusing to run: {k} reaches the script")
     script = f"{acct.fr}/runtime/claude-code/bootstrap.sh"
     p = subprocess.run([script, *args], env=e, capture_output=True, timeout=300, cwd=cwd or acct.root, stdin=subprocess.DEVNULL)
@@ -712,9 +715,14 @@ def first_run() -> None:
     # The summary counts the script's own puts, links, the user settings and
     # step 5's lines; the agent files, steps 4, 5b and 7 are not in it.
     n_written = 2 + 2 + len(cmds) + 1 + 1 + len(SKILLS) + 4 + 1 + 2 + 1
+    # The operator's checkout (ADR-045 §6) is the last step before the summary: its clone has nowhere to go in
+    # this account, so it says one uncounted "!" line, and the counts are the same as without it.
+    check("the operator checkout's unreachable remote: one uncounted line before the summary",
+          len(L) > k + 11 and L[k + 11].startswith(f"  !  operator checkout {P}/blueteam-fabric not cloned from file://") and
+          "no-operator.git" in L[k + 11], "\n".join(L[k + 11:]))
     check("the summary counts what was written",
-          L[k + 11:] == [f"bootstrap: {n_written} written, 2 already current.",
-                         f"Launch from {P}: cd \"{P}\" && claude   — the session starts as {LOGIN}."], "\n".join(L[k + 11:]))
+          L[k + 12:] == [f"bootstrap: {n_written} written, 2 already current.",
+                         f"Launch from {P}: cd \"{P}\" && claude   — the session starts as {LOGIN}."], "\n".join(L[k + 12:]))
     check("curl, ss, pgrep, uv and sudo never called",
           not [c for c in a.calls() if c[0] in ("curl", "ss", "pgrep", "uv", "sudo", "pip3")], a.calls())
     check("the script's own temporary directory is gone", os.listdir(a.tmp) == [], os.listdir(a.tmp))

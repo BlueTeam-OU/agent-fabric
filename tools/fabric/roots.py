@@ -38,14 +38,19 @@ does not exist, not a fallback to another tree.
 
 The instance data (the lists are the owner's, 2026-10-07):
     identities/roles/catalog.json, identities/roles/<role>/
-    projects/registry.json, projects/<id>/integration/
+    identities/personas/
+    identities/keys/, identities/recovery.asc
+    projects/registry.json, projects/clients.json, projects/<id>/integration/
     runtime/hosts/registry.json   (AGENT_FABRIC_HOSTS_REGISTRY overrides)
-    policies/*.json
+    policies/{arming,authority,auto-mode,host-load,hygiene,signing}.json
+                                  (the nine engine exception lists are not
+                                  instance data: docs/split/move-plan.md §1)
     routing/profiles.json         (the overlays; capabilities stay engine)
-    memory/
-    docs/adr/
+    routing/policies/
+    memory/{domains,shared,agents}/
+    docs/adr/                     (the organisational records; the engine's
+                                  stay: engine_adr_dir)
     docs/live-checks/
-    identities/keys/
 """
 from __future__ import annotations
 
@@ -199,6 +204,12 @@ def memory_dir(*parts: str, root: str | None = None, environ: Mapping[str, str] 
 
 def adr_dir(root: str | None = None, environ: Mapping[str, str] | None = None, engine: str | None = None) -> str:
     return _under(root, environ, engine, "docs", "adr")
+
+
+def engine_adr_dir(environ: Mapping[str, str] | None = None, engine: str | None = None) -> str:
+    """The engine's own decision records, which stay when the organisational ones move (move-plan §1). Never the
+    operator's: `fabric-adr lookup` reads this and adr_dir() both. `engine` stands in for the environment's engine root."""
+    return os.path.join(engine_root(environ) if engine is None else engine, "docs", "adr")
 
 
 def live_checks_dir(root: str | None = None, environ: Mapping[str, str] | None = None, engine: str | None = None) -> str:

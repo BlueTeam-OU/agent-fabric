@@ -23,8 +23,8 @@ Stdlib only; runnable as `python3 tests/test_state_writes.py`. **Each case names
                                 dropped; an unreadable list read as empty
   vendored_is_judged         <- lint narrowed by ruff.toml's exclude, which the pre-commit hook is not (#516 F1)
 
-The tree itself is judged by the suite's corpus lint (tests/run.py), not here: a case reading the live
-policies/state-writers.json is red on a stripped copy, which removes it as instance data (ADR-045 rule 3).
+The tree itself is judged by the suite's corpus lint (tests/run.py), not here: the list is engine
+data beside its checker since ADR-045 step A, and a case here builds its own.
 """
 from __future__ import annotations
 
@@ -196,7 +196,7 @@ def case_lint_is_wired() -> None:
     write(os.path.join(fabric, sw.POLICY), "{")
     subprocess.run(["git", "-C", fabric, "add", "-A"], check=True, env=git_env())
     rc, out = run_lint(fabric)
-    assert "policies/state-writers.json: cannot be read as JSON" in out and "tools/fabric/w.py:3" not in out, out
+    assert "tools/fabric/state-writers.json: cannot be read as JSON" in out and "tools/fabric/w.py:3" not in out, out
 
 
 def case_vendored_is_judged() -> None:
@@ -207,7 +207,7 @@ def case_vendored_is_judged() -> None:
         root = make_base(tempfile.mkdtemp(dir=TMP))
         write(os.path.join(root, "ruff.toml"), 'exclude = ["vendor"]\n')
         write(os.path.join(root, "vendor/w.py"), RESOLVE + "open(D, 'w')\n")
-        write(os.path.join(root, "policies/state-writers.json"), json.dumps(policy))
+        write(os.path.join(root, "tools/fabric/state-writers.json"), json.dumps(policy))
         subprocess.run(["git", "-C", root, "init", "-q"], check=True, env=git_env())
         subprocess.run(["git", "-C", root, "add", "-A"], check=True, env=git_env())
         return root

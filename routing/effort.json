@@ -19,12 +19,21 @@
     "code-review": "medium"
   },
   "session": "medium",
-  "session_note": "A level, or a capability class whose level to take — as routing/profiles.json's own `session` may name a class. Every session thinks at medium (the owner, 2026-09-25), as every class does, so the level is named directly. A role or agent layer that gives a session another model does not move its level: the python-dev role's session is Sonnet 5.5 (routing/profiles.json) and thinks at medium too.",
+  "session_note": "A level, or a capability class whose level to take — as routing/profiles.json's own `session` may name a class. Every session thinks at medium (the owner, 2026-09-25; the Anthropic classes code-plan and code-review moved to high on 2026-11-12, providers.anthropic.classes, and the session did not), so the level is named directly. A role or agent layer that gives a session another model does not move its level: the python-dev role's session is Sonnet 5.5 (routing/profiles.json) and thinks at medium too.",
   "providers": {
     "anthropic": {
-      "classes": {},
+      "classes": {
+        "code-plan": "high",
+        "code-review": "high"
+      },
+      "chosen": [
+        "code-plan",
+        "code-review"
+      ],
       "notes": {
-        "all": "No override: every class asks medium. code-high, code-plan and code-review are Opus 5.5, whose own default medium is; code-low is Haiku 5.5 (the owner, 2026-10-07) and code-medium Sonnet 5.5 (the owner, 2026-09-29), both of which admit medium and served it when read back (docs/live-checks/2026-10-07-haiku-5-5.md, docs/live-checks/2026-09-29-sonnet-5-5.md). Before, code-low rode Haiku 4.5, which takes no effort, and code-medium asked Sonnet 5 for less than its default high."
+        "code-plan": "high, chosen for this provider (the owner, 2026-11-12), not fitted: the class asks medium in `classes`, and claude-fable-5-2 takes medium as it is. Anthropic's effort guidance starts Fable 5.2 at high, where most of its gain is, for complex reasoning, difficult coding problems and agentic tasks, and plan work is that. Listed in `chosen`, so routing.py check judges it as a decision the model must take exactly. Read-back pending: docs/live-checks/2026-11-12-fable-5-2-code-plan.md.",
+        "code-review": "high, chosen for this provider (the owner, 2026-11-12), not fitted: the class asks medium in `classes`, and claude-opus-5-5 takes medium as it is, its own default. A review reads a whole change adversarially, which is difficult reasoning, so the owner moved the reviewer to high while it stays on Opus 5.5 (Fable 5.2 costs twice as much). Set here and not in `classes`: the broker already serves this class at high, and Codex's review is chosen high in its own entry below. Read-back pending: docs/live-checks/2026-11-12-fable-5-2-code-plan.md.",
+        "all": "Every other class asks medium: code-high is Opus 5.5, whose own default medium is. code-plan and code-review ask high through `classes` and `chosen` above (the owner, 2026-11-12). code-low is Haiku 5.5 (the owner, 2026-10-07) and code-medium Sonnet 5.5 (the owner, 2026-09-29), both of which admit medium and served it when read back (docs/live-checks/2026-10-07-haiku-5-5.md, docs/live-checks/2026-09-29-sonnet-5-5.md). Before, code-low rode Haiku 4.5, which takes no effort, and code-medium asked Sonnet 5 for less than its default high."
       }
     },
     "openrouter": {

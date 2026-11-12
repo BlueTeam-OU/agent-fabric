@@ -10,13 +10,43 @@
 # host's, read from the fabric checkout: one file, no network, no sudo, so a
 # tab answers at once. The verbs and a verb's words are `fabric-ctl --verbs`
 # and `fabric-ctl --verbs <verb>` (one per line), which read no relay either.
-# A registry that cannot be read leaves `all` and the verbs: a tab never
-# prints an error on the terminal, and a login that is not proposed is still
+# A registry that cannot be read leaves `all` and the verbs, and a tab prints
+# no error for it; one that resolves to no file is said in a line (the plan
+# would rather a tab speak than complete from the wrong tree). A login that is not proposed is still
 # accepted by fabric-ctl itself.
+# The hosts registry, resolved as tools/fabric/roots.py hosts_registry() will once the operator's data leaves this
+# checkout (agent-fabric docs/split/move-plan.md §3, step A): AGENT_FABRIC_HOSTS_REGISTRY, then the tree named by
+# AGENT_FABRIC_OPERATOR, then the operator's clone when the account has one and it holds the file, then the engine checkout. Empty counts as
+# unset. A clone without the file is skipped (until step B the operator's repository is empty). Otherwise the first that
+# applies is the answer: a registry missing from the operator's tree is said below, never read from the engine's instead. The home is the login's, from the passwd database, never the session's $HOME (move-plan §3
+# step D); a login with no home there has no clone to look for and no default engine checkout either.
+_fabric_ctl_hosts_registry() {
+    local op home
+    if [[ -n "${AGENT_FABRIC_HOSTS_REGISTRY:-}" ]]; then
+        printf '%s\n' "$AGENT_FABRIC_HOSTS_REGISTRY"
+        return
+    fi
+    if [[ -n "${AGENT_FABRIC_OPERATOR:-}" ]]; then
+        op="$AGENT_FABRIC_OPERATOR"
+    else
+        home="$(getent passwd "$(id -un)" 2>/dev/null | cut -d: -f6)"
+        if [[ -n "$home" && -f "$home/projects/blueteam-fabric/runtime/hosts/registry.json" ]]; then
+            op="$home/projects/blueteam-fabric"
+        elif [[ -n "${AGENT_FABRIC_ROOT:-}" ]]; then
+            op="$AGENT_FABRIC_ROOT"
+        elif [[ -n "$home" ]]; then
+            op="$home/projects/agent-fabric"
+        else
+            echo "fabric-ctl completion: no home for $(id -un) in the passwd database" >&2
+            return 1
+        fi
+    fi
+    printf '%s\n' "$op/runtime/hosts/registry.json"
+}
 _fabric_ctl_logins() {
-    local root reg
-    root="${AGENT_FABRIC_ROOT:-$HOME/projects/agent-fabric}"
-    reg="$root/runtime/hosts/registry.json"
+    local reg
+    reg="$(_fabric_ctl_hosts_registry)" || return 0
+    [[ -f "$reg" ]] || { echo "fabric-ctl completion: no hosts registry at $reg" >&2; return 0; }
     [[ -r "$reg" ]] || return 0
     python3 -c '
 import json, sys

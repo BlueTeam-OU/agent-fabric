@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """tools/fabric/lint_rules/work.py: agent-fabric ADR-067 rule 1 for the work lifecycle (ADR-037 rule 14) over the tracked tree, with
-policies/work-writes.json's declared modules. The predicate is tests/test_work_writes.py's; the pre-commit leg is
+tools/fabric/work-writes.json's declared modules. The predicate is tests/test_work_writes.py's; the pre-commit leg is
 tests/test_githook_pre_commit.py's WorkWrites.
 
 Stdlib only; runnable as `python3 tests/test_lint_work_writes.py`. **Each case names the mutation it kills**:
@@ -32,7 +32,7 @@ from test_lint import make_base, run_lint, write  # noqa: E402
 
 TMP = tempfile.mkdtemp(prefix="lint-work-")
 atexit.register(shutil.rmtree, TMP, ignore_errors=True)
-POLICY = "policies/work-writes.json"
+POLICY = "tools/fabric/work-writes.json"
 WRITE = "def finish(job):\n    job[\"state\"] = \"done\"\n"
 
 

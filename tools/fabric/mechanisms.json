@@ -6,42 +6,42 @@
       "owner": "runtime/identity.py",
       "status": "enforced",
       "checker": "tools/fabric/state_writes.py",
-      "exceptions": "policies/state-writers.json"
+      "exceptions": "tools/fabric/state-writers.json"
     },
     "process-lifetime": {
       "adr": "ADR-067",
       "owner": "tools/fabric/process.py",
       "status": "enforced",
       "checker": "tools/fabric/process_spawns.py",
-      "exceptions": "policies/process-spawns.json"
+      "exceptions": "tools/fabric/process-spawns.json"
     },
     "remote-evidence": {
       "adr": "ADR-067",
       "owner": "tools/fabric/github/evidence.py",
       "status": "enforced",
       "checker": "tools/fabric/evidence_caps.py",
-      "exceptions": "policies/evidence-caps.json"
+      "exceptions": "tools/fabric/evidence-caps.json"
     },
     "agent-context": {
       "adr": "ADR-003",
       "owner": "runtime/identity.py",
       "status": "enforced",
       "checker": "tools/fabric/context_reads.py",
-      "exceptions": "policies/context-reads.json"
+      "exceptions": "tools/fabric/context-reads.json"
     },
     "job-lifecycle": {
       "adr": "ADR-037",
       "owner": "tools/fabric/work/",
       "status": "enforced",
       "checker": "tools/fabric/work_writes.py",
-      "exceptions": "policies/work-writes.json"
+      "exceptions": "tools/fabric/work-writes.json"
     },
     "message-transport": {
       "adr": "ADR-064",
       "owner": "tools/fabric/gzcoord/transport/",
       "status": "enforced",
       "checker": "tools/fabric/transport_calls.py",
-      "exceptions": "policies/transport-calls.json"
+      "exceptions": "tools/fabric/transport-calls.json"
     },
     "instance-roots": {
       "adr": "ADR-045",
@@ -55,7 +55,7 @@
       "owner": "tools/fabric/cli/",
       "status": "enforced",
       "checker": "tools/fabric/cli/checks.py",
-      "exceptions": "policies/command-names.json"
+      "exceptions": "tools/fabric/command-names.json"
     }
   }
 }

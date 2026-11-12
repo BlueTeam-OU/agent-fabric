@@ -1,6 +1,6 @@
 """tools/fabric/lint_rules/command_names.py — a fabric command has one reading (agent-fabric ADR-068 rules 3 and 7, ADR-067
 command-recognition): the `fabric` table of runtime/claude-code/commands.json reaches every command in `commands` by one form,
-and a hook or guard recognises a command only through tools/fabric/cli canonical(), unless policies/command-names.json admits
+and a hook or guard recognises a command only through tools/fabric/cli canonical(), unless tools/fabric/command-names.json admits
 the module with why it cannot. tools/fabric/cli/checks.py is the definition; the pre-commit hook asks it about the staged
 modules. A part of tools/fabric/lint.py, the entry point."""
 from __future__ import annotations
@@ -99,7 +99,7 @@ def command_name_findings(root: str) -> list[str]:
         with open(os.path.join(root, checks.POLICY), encoding="utf-8") as fh:
             policy_text: str | None = fh.read()
     except FileNotFoundError:
-        policy_text = None   # instance data (ADR-045 rule 2): a stripped engine copy admits nothing and judges all
+        policy_text = None   # a tree without the engine's list (a fixture): admits nothing and judges all
     except (OSError, UnicodeDecodeError) as exc:
         return [f"{checks.POLICY}: cannot be read ({exc.__class__.__name__}); command names are not judged"]
     # Not narrowed by ruff's exclude (base._not_ours): the pre-commit hook judges every path judged_path names, and the two

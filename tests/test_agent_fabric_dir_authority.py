@@ -17,6 +17,7 @@ HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(HERE, "tools", "fabric"))
 from guards import agent_fabric_dir_authority as da  # noqa: E402
 from guards import common  # noqa: E402
+from guards.contributors import authority_git_path as authority_path  # noqa: E402
 from instance_fixtures import own_instance_tree  # noqa: E402 — tests/, the script's own directory
 own_instance_tree()
 
@@ -136,6 +137,25 @@ def main() -> int:
         scope, commits = da.commits_to_examine(fab, "main")
         check("every commit is examined", scope == "agent-fabric itself" and len(commits) == 2)
         check("a base and a tree without the file: a managed project", not da.is_fabric_itself(fab, "before"))
+
+        print("an operator nested in the repository is read at its prefix (move-plan §2 precondition 5)")
+        nest = os.path.join(tmp, "nest")
+        os.makedirs(os.path.join(nest, "operator", "policies"))
+        sh(nest, "init", "-q", "-b", "main")
+        with open(os.path.join(nest, "operator", "policies", "authority.json"), "w") as f:
+            json.dump({"role_definitions": {"role": "nested-owner"}}, f)
+        sh(nest, "add", "-A")
+        sh(nest, "commit", "-q", "-m", "base, the operator under operator/")
+        sh(nest, "rm", "-q", "operator/policies/authority.json")
+        sh(nest, "commit", "-qm", "the branch deletes it")
+        nested = {"AGENT_FABRIC_OPERATOR": os.path.join(nest, "operator")}
+        check("the path main stores", authority_path(nest, nested) == "operator/policies/authority.json")
+        check("agent-fabric itself, from the base's nested file", da.is_fabric_itself(nest, "main~1", nested))
+        check("the owner is the nested file's", da.owner_role_of(nest, nested, "main~1") == "nested-owner")
+        check("the base's authority is the nested file", "nested-owner" in da.base_authority(nest, "main~1", nested))
+        check("unexported, the toplevel path: not the fabric", not da.is_fabric_itself(nest, "main~1", {}))
+        check("an operator outside the repository: the repository's own path",
+              authority_path(nest, {"AGENT_FABRIC_OPERATOR": tmp}) == "policies/authority.json")
 
         print("the run, end to end in a scratch managed project")
         rr = os.path.join(tmp, "p")

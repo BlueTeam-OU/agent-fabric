@@ -6,7 +6,7 @@ Rule 1: no caller writes a file under `agents/<login>/` itself; it goes
 through runtime/identity.py, or it is a writer class the record names. A
 static reader cannot see where a path points, so this over-reports, by
 design: a module that resolves the per-agent state directory AND writes a
-file is judged, whatever it writes, until `policies/state-writers.json`
+file is judged, whatever it writes, until `tools/fabric/state-writers.json`
 names it with the record's clause that admits it. Three findings:
 
 - **copy**: the module reads AGENT_FABRIC_STATE_DIR itself — a copy of
@@ -37,7 +37,7 @@ import ast
 import json
 import warnings
 
-POLICY = "policies/state-writers.json"
+POLICY = "tools/fabric/state-writers.json"
 IDENTITY = "runtime/identity.py"
 ENV = "AGENT_FABRIC_STATE_DIR"
 RESOLVERS = frozenset({"agent_state_dir", "state_root", "agent_lock"})

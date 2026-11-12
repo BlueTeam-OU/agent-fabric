@@ -99,11 +99,11 @@ operator tree. Each one needs a design before it moves:
 
 ## 2. Preconditions (each its own job, before step B)
 
-1. **The stripped suite is clean.** `tests/stripped_skip.txt` names 4 files that still read
-   the live instance tree: `test_gateway_plan.py` (j62), `test_repo_settings_cli.py`
-   (j63), `test_session_start.py` and `test_subagent_ledger.py` (j64), all python-dev-03.
-   Rule 3 requires it to be empty, because step B is where a live-tree read stops finding
-   its file.
+1. **The stripped suite is clean.** Rule 3 requires `tests/stripped_skip.txt` to be empty,
+   because step B is where a live-tree read stops finding its file. Done: #568 fixed the
+   four files that still read the live instance tree (`test_gateway_plan.py`,
+   `test_repo_settings_cli.py`, `test_session_start.py`, `test_subagent_ledger.py`;
+   python-dev-03's j62 to j64), and the list names none since.
 2. **Every admitted bypass is judged against the move.** `tools/fabric/roots_bypass.json`
    admits 16 modules. Read at 6fa97620, each one finds a tree, a variable or its own
    policy file, and none joins a §1 path. A bypass admitted later is judged the same way
@@ -116,14 +116,20 @@ operator tree. Each one needs a design before it moves:
 4. **The operator repository is a managed project.** It needs an entry in
    `projects/registry.json` (client `blueteam`), a `.agent-fabric/taxonomy.json`, a
    `policies/signing.json` row and an arming policy in `BlueTeam-OU/agent-fabric-settings`.
-   Needed before step C.
+   Needed before step C. Registered 2026-11-12 (j766): the entry, its integration and its
+   visibility. The signing row waits for the signing rollout, which lists agent-fabric first
+   once the fleet readiness check passes (the owner, 2026-10-13); until then no repository is
+   listed. The taxonomy and the remits are the operator's own first commit.
 5. **The git-object readers name the operator's path.** Each reader in that list asks
    `roots` for the relative path of what it reads (for example `operator/policies/authority.json`
    once step B lands), and the two CI steps archive it. A shim cannot do this (§1). The CI
    steps ask main's `roots`, the copy inside the `tools/fabric` they archive from
    `origin/main`, for the paths and for the operator prefix that `AGENT_FABRIC_OPERATOR`
    names under `$base`. The branch's `roots` would name `operator/` in step B's own pull
-   request, before main has it. Needed before step B.
+   request, before main has it. Needed before step B. Open after the readers moved:
+   `policies/forge-keys/` is not on the move list, yet `ban_unsigned_commits.py` reads it
+   through `roots.policy`, the operator's tree. Either the keys move or the reader asks the
+   engine, before step B.
 6. **The authority guards read the operator's `main`, or refuse.** After step D, agent-fabric
    has no `policies/authority.json`. `is_fabric_itself` would then answer False, and the
    authority check would narrow to `.agent-fabric/**` without a word, letting every other
