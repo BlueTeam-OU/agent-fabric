@@ -379,7 +379,7 @@ def bootstrap(acct: Account, *args: str, env: dict[str, str] | None = None, cwd:
         sys.exit("test: refusing to run: HOME is not the scratch home")
     for k in e:
         if k.startswith(("AGENT_FABRIC_", "GITHUB_", "GZCOORD_", "GIT_")) or (k.startswith("CLAUDE") and k != "CLAUDE_CONFIG_DIR"):
-            if k not in ("AGENT_FABRIC_DEFER_AGENTD_RESTART", "AGENT_FABRIC_LOCAL_BIN"):
+            if k not in ("AGENT_FABRIC_DEFER_AGENTD_RESTART", "AGENT_FABRIC_LOCAL_BIN", "AGENT_FABRIC_OPERATOR_CLONE_URL"):
                 sys.exit(f"test: refusing to run: {k} reaches the script")
     script = f"{acct.fr}/runtime/claude-code/bootstrap.sh"
     p = subprocess.run([script, *args], env=e, capture_output=True, timeout=300, cwd=cwd or acct.root, stdin=subprocess.DEVNULL)
