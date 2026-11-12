@@ -36,6 +36,10 @@ HEADER_MAX = 512
 # send fill a peer's reassembly table.
 MAX_CHUNKS = 16
 MAX_TEXT = 4 * 1024 * 1024
+# The control plane's record prefix (ADR-029 rule 18). The control plane rides the same profile on its own
+# `fabric-control` endpoint, so a body that begins so is never a GZCoord message: this carrier neither sends nor
+# admits one, whatever its parser would make of it (ADR-064 rule 12).
+CONTROL_PREFIX = "fabric-control/1 "
 
 
 class FramingError(Exception):

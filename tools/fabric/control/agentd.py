@@ -53,6 +53,13 @@ Every reply arrives: a section that cannot be read says so inline.
 Relay down: one line on stderr, retry every 30 s; a refused token is
 re-read once from the synced file (a rotation), then reported.
 
+THE SECOND CARRIER (ADR-029 rule 18), only when runtime/control/config.json `control_carrier` is "dual" (or
+FABRIC_CONTROL_CARRIER says so): gzcoord/carrier/control_link.py holds the supervised child, the roster check of who
+sent what and fabric-ctl's socket. This file adds the one decision path, handle(): a request from either carrier
+goes through the same accept(), the same seen-set and the same action ledger, so one on both is answered once; and
+deliver(): the reply goes by the relay (the record) and, at once, by the other carrier to the sender's PeerId. With
+the key absent or "relay" none of it starts, and every line this daemon writes is what it was.
+
 CONTRACT, frozen from agentd.mjs. Kept byte for byte: every
 record posted (key order, ids, timestamps' shape), every refusal's reason
 text, every stderr line, the exit codes (0; 1 the relay failed in --once or
@@ -117,6 +124,7 @@ else:
     sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.realpath(__file__))))
 from control import clone as clone_mod, gateway as gateway_mod, carrier_install as carrier_mod, carrier_evidence as evidence_mod, gzcoord, js, ops, pressure, sessions, tools as tools_mod  # noqa: E402
 from control.gzcoord import FABRIC_ROOT  # noqa: E402
+from gzcoord.carrier import CARRIER_LABEL, control_link  # noqa: E402
 from control.carrier_install import CARRIER_NAME, INSTALL_OP, START_OP, STOP_OP  # noqa: E402
 from control.jobs import job_state, jobs_add  # noqa: E402
 from control import hold as hold_mod  # noqa: E402
@@ -132,6 +140,8 @@ from gzcoord import gzmsg  # noqa: E402
 import roots  # noqa: E402
 
 CONFIG = os.path.join(roots.code_root(), "runtime", "control", "config.json")
+CARRIER_RELAY, CARRIER_DUAL = "relay", "dual"
+CARRIERS = (CARRIER_RELAY, CARRIER_DUAL)
 
 
 def number_of(v: Any) -> float:
@@ -181,7 +191,14 @@ def control_config(env: dict[str, str] | None = None, file: str | None = None) -
     # pool op refusing (agent-fabric#564 F1). Absent unless a non-empty string.
     holder = own.get("pool_holder")
     extra = {"pool_holder": holder} if isinstance(holder, str) and holder else {}
+    # The second carrier (ADR-029 rule 18) is off until named. A value that is neither word is refused, not read as
+    # "relay": an operator who typed "duel" believes both carriers run, and the account would answer one.
+    carrier = pick("FABRIC_CONTROL_CARRIER", "control_carrier", CARRIER_RELAY)
+    if carrier not in CARRIERS:
+        raise RuntimeError(f"control_carrier {carrier!r} is not one of {', '.join(map(repr, CARRIERS))} "
+                           "(FABRIC_CONTROL_CARRIER or runtime/control/config.json)")
     return extra | {
+        "control_carrier": carrier,
         "relay_url": pick("CLAUDE_BRIDGE_URL", "relay_url", "http://127.0.0.1:8765"),
         "channel": pick("FABRIC_CONTROL_CHANNEL", "channel", "fabric:control"),
         # Session state rides its own channel (ADR-029 rule 16), named to end
@@ -667,6 +684,19 @@ def watch_source(on_change: Callable[[], None], files: Callable[[], Iterable[str
     return SourceWatcher(on_change, files, **kw).start()
 
 
+# Run before every os._exit: the second carrier's child holds the profile's lease and store lock, and a daemon that
+# exits without ending it leaves the next one's child refused (exit 4) until systemd's cgroup kill reaches it.
+EXIT_HOOKS: list[Callable[[], None]] = []
+
+
+def run_exit_hooks() -> None:
+    for hook in list(EXIT_HOOKS):
+        try:
+            hook()
+        except Exception as e:  # noqa: BLE001 — leaving is not stopped by a hook
+            _stderr(f"agentd: exit hook failed: {e}")
+
+
 class Leaver:
     """Leaving for new code waits for every running action: the source watch
     fired the moment an `upgrade fabric` pulled this daemon's own code, and
@@ -685,6 +715,7 @@ class Leaver:
 
     @staticmethod
     def _leave(code: int) -> None:
+        run_exit_hooks()
         sys.stderr.flush()
         os._exit(code)
 
@@ -924,7 +955,8 @@ def _status_of(first: dict, op: str) -> str:
     return "?" if status is None else js.string(status)
 
 
-def main(argv: list[str] | None = None) -> int:
+def main(argv: list[str] | None = None, *, stop: threading.Event | None = None) -> int:
+    """`stop` ends the read loop at its next turn: the daemon never sets it; a test that runs this in a thread does."""
     argv = sys.argv[1:] if argv is None else argv
     once = "--once" in argv
     self_only = "--self" in argv
@@ -1071,7 +1103,40 @@ def main(argv: list[str] | None = None) -> int:
                                                        file=lambda: os.path.join(state_dir(), POOL_FILE), state_of=state_of),
                POOL_CLAIMS_EVERY_S, first_s=tools_mod.first_run_delay_s(me["address"])).start()
 
-    def beside(rec: dict, ledgered: bool) -> None:
+    # The second carrier beside the relay (ADR-029 rule 18), only when named. The relay copy is the record and is
+    # always posted; the other copy is the same reply to the sender's own PeerId.
+    carrier_box: list[Any] = [None]
+    inline_lock = threading.Lock()   # the ops answered inline run one at a time, as the one read loop made them
+
+    def deliver(reply: dict, request: dict, via: str) -> None:
+        """Both carriers at once: a relay that is down or slow must not hold the other copy back, and a
+        second channel that is off must not stop the relay's. A relay failure is the read loop's (raised, as
+        before) for a request that came by the relay; for one that came by the second carrier there is no relay loop to
+        take it, so it is said."""
+        iw = carrier_box[0]
+        if iw is not None:
+            # Not joined: the relay loop must never wait on the other carrier (a silent child costs seconds a reply).
+            # But it is in flight for the leaver, like an action: a restart after an upgrade waits for this copy,
+            # which may be the only one the operator gets.
+            def second() -> None:
+                try:
+                    iw.reply(request, reply)
+                finally:
+                    with leave.lock:
+                        inflight.discard(thread)
+                        leave.settle()
+            thread = threading.Thread(target=second, name="control-carrier-reply", daemon=True)
+            with leave.lock:
+                inflight.add(thread)
+            thread.start()
+        try:
+            post(reply)
+        except Exception as e:  # noqa: BLE001
+            if via == "relay":
+                raise
+            _stderr(f"agentd: relay copy of {request['op']} reply for {request['from']} not posted: {e}")
+
+    def beside(rec: dict, ledgered: bool, via: str = "relay") -> None:
         """An action can take minutes (a session to stop, an install): run
         it beside the loop, so the daemon keeps answering — a request that
         waited behind it would expire unanswered. Its reply is posted when it
@@ -1087,7 +1152,7 @@ def main(argv: list[str] | None = None) -> int:
                 reply = answer(request, ctx)
                 reply.pop("_followups", None)
                 moved[0] = ledgered and ((reply.get("data") or {}).get("upgrade") or {}).get("restart_daemon") is True
-                post(reply)
+                deliver(reply, request, via)
                 _stderr(f"agentd: answered {op} for {sender} ({rid[:8]})" + (f": {_status_of(reply, op)}" if ledgered else ""))
             except Exception as e:  # noqa: BLE001 — the Node's .catch: said, the loop goes on
                 _stderr(f"agentd: {op} for {sender} failed to answer: {e}")
@@ -1108,7 +1173,63 @@ def main(argv: list[str] | None = None) -> int:
         for t in list(inflight):
             t.join()
 
-    while True:
+    decide_lock = threading.Lock()   # accept + remember: one decision for a request, whichever carrier brought it first
+
+    def handle(rec: dict, via: str) -> None:
+        """One record off a carrier: judged by accept(), the same rules on both, and answered. Raises what the relay
+        loop has always taken for the relay failing; the second carrier's inbox says what it is handed."""
+        tag = "" if via == "relay" else f" (via {via})"
+        with decide_lock:
+            try:
+                a = accept(rec, me=me, operators=operator_addresses(), accounts=account_addresses(), keys=operator_keys,
+                           ttl_s=cfg["ttl_s"], seen=seen, action_floor=ledger.floor)
+            except Exception as e:  # noqa: BLE001 — a record the decision cannot read is that record's fault; the outer handler is for the relay and would back off 30 s
+                _stderr(f"agentd: ignored a record {_shown(rec.get('id'), 40)} that could not be decided on "
+                        f"({type(e).__name__}: {js.slice(str(e), 200)}){tag}")
+                return
+            if not a["ok"]:
+                if a["why"] not in QUIET:
+                    _stderr(f"agentd: ignored a record {js.stringify(a['why'])}{tag}")
+                return
+            request = a["request"]
+            remember(seen, request["id"])
+        if request["op"] in ACTION_OPS:
+            # Recorded before it runs, so a replay posted while it runs is refused
+            # too; a ledger that cannot be written refuses the action BY NAME —
+            # raised here it read as "relay unreachable" and the action vanished.
+            # Under the leaver's lock from the ledger to the running set: a
+            # restart asked for meanwhile comes before the record or waits
+            # for the action, never between (a recorded action that never
+            # ran is refused as a replay when posted again).
+            with leave.lock:
+                if not claimed(ledger, request, a["ts"]):
+                    return
+                _stderr(f"agentd: started {request['op']} for {request['from']} ({request['id'][:8]}){tag}")
+                beside(a, True, via)
+            return
+        if request["op"] in BESIDE_LOOP_OPS:
+            beside(a, False, via)
+            return
+        with inline_lock:
+            reply = answer(request, ctx)
+        followups = reply.pop("_followups", None) or []
+        deliver(reply, request, via)
+        for f in followups:
+            deliver(f, request, via)
+        _stderr(f"agentd: answered {request['op']} for {request['from']} ({request['id'][:8]}){tag}")
+
+    if cfg["control_carrier"] == CARRIER_DUAL and not once:
+        # An account on both splits once, at the bound the second carrier carries (rule 18): the same parts go by both.
+        ctx["part_bytes"] = control_link.PART_BYTES
+        ctx["carrier_evidence_opts"] = {**(ctx.get("carrier_evidence_opts") or {}), "page_bytes": control_link.PART_BYTES}
+        running = control_link.start_for_agentd(
+            me=me["address"], placed=lambda: operator_addresses() | account_addresses(),
+            on_request=lambda request, sender: handle({"id": request.get("id"), "content": js.stringify(request)}, control_link.VIA))
+        carrier_box[0] = running
+        EXIT_HOOKS.append(running.stop)
+        _stderr(f"agentd: also on {CARRIER_LABEL} ({control_link.ENDPOINT}); the relay stays the record")
+
+    while stop is None or not stop.is_set():
         try:
             if not state["last"]:
                 prime()
@@ -1131,42 +1252,7 @@ def main(argv: list[str] | None = None) -> int:
                 raise TypeError("the relay's messages are not an array")
             for rec in rows:
                 state["last"] = rec.get("id")
-                try:
-                    a = accept(rec, me=me, operators=operator_addresses(), accounts=account_addresses(), keys=operator_keys,
-                               ttl_s=cfg["ttl_s"], seen=seen, action_floor=ledger.floor)
-                except Exception as e:  # noqa: BLE001 — a record the decision cannot read is that record's fault; the outer handler is for the relay and would back off 30 s
-                    _stderr(f"agentd: ignored a record {_shown(state['last'], 40)} that could not be decided on "
-                            f"({type(e).__name__}: {js.slice(str(e), 200)})")
-                    continue
-                if not a["ok"]:
-                    if a["why"] not in QUIET:
-                        _stderr(f"agentd: ignored a record {js.stringify(a['why'])}")
-                    continue
-                request = a["request"]
-                remember(seen, request["id"])
-                if request["op"] in ACTION_OPS:
-                    # Recorded before it runs, so a replay posted while it runs is refused
-                    # too; a ledger that cannot be written refuses the action BY NAME —
-                    # raised here it read as "relay unreachable" and the action vanished.
-                    # Under the leaver's lock from the ledger to the running set: a
-                    # restart asked for meanwhile comes before the record or waits
-                    # for the action, never between (a recorded action that never
-                    # ran is refused as a replay when posted again).
-                    with leave.lock:
-                        if not claimed(ledger, request, a["ts"]):
-                            continue
-                        _stderr(f"agentd: started {request['op']} for {request['from']} ({request['id'][:8]})")
-                        beside(a, True)
-                    continue
-                if request["op"] in BESIDE_LOOP_OPS:
-                    beside(a, False)
-                    continue
-                reply = answer(request, ctx)
-                followups = reply.pop("_followups", None) or []
-                post(reply)
-                for f in followups:
-                    post(f)
-                _stderr(f"agentd: answered {request['op']} for {request['from']} ({request['id'][:8]})")
+                handle(rec, "relay")
             # An action already started has stopped a session and written a
             # marker: exiting under it would leave the launcher waiting on a
             # pending upgrade and no reply posted (review of #34).
@@ -1187,6 +1273,7 @@ def main(argv: list[str] | None = None) -> int:
             if once:
                 return 1
             time.sleep(RETRY_S)
+    return 0
 
 
 def _entry() -> int:
@@ -1201,6 +1288,7 @@ def _entry() -> int:
 
 if __name__ == "__main__":
     code = _entry()
+    run_exit_hooks()
     sys.stdout.flush()
     sys.stderr.flush()
     os._exit(code)   # a timer or a beside-the-loop thread must not hold the exit
