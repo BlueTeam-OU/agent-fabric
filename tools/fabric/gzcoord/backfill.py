@@ -1,6 +1,6 @@
 """tools/fabric/gzcoord/backfill.py — put on the relay's record what the second carrier alone delivered.
 
-A message sent while the relay was down reached its addressee through the InterWeave carrier, and gzcoord-send exited 3.
+A message sent while the relay was down reached its addressee through the second carrier, and gzcoord-send exited 3.
 Nothing put it on the relay later, so the readers of the relay's record (`fabric-pr arm`'s AUTHORIZES, `gzcoord-inbox
 --replay`, fabric-history) never saw it (relay-outage drill, 2026-11-12). This module is the return path: once the relay
 answers, each account posts its own such messages, as journaled, under their own MESSAGE-ID.
