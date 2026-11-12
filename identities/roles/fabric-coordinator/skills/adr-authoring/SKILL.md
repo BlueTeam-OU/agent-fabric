@@ -31,8 +31,11 @@ and the suite. Capture the exit status before committing — never
 
 ## The rules a draft must meet
 
+- **Number:** the next free one; `adr.py new` skips every number in
+  `docs/adr/reserved.json`, a record moved to another tree.
 - **Header:** Date, Status, Decision Makers, Scope, Pillar (from ADR-000
-  §5), Evidence only for live checks that exist. `Accepted` needs
+  §5), Class (`engine`, or `organisational` for a record the operator
+  keeps; ADR-045 §5 rule 4), Evidence only for live checks that exist. `Accepted` needs
   `**Ratified:** owner, YYYY-MM-DD, <source>` naming where the owner's
   word is. A practised decision is ratified by the merge of the pull
   request that records it; a new direction stays `Proposed` until the

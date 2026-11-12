@@ -121,7 +121,9 @@ its record disagree, the record wins. Look it up, never read it whole:
 - A 2026-10-18 — also checked at commit time (§5 rule 4).
 - A 2026-11-09 — the budget is per bullet, at most 60 words; the
   250-word entry total is gone (§2).
-- Keywords: ADR, amendment, supersede, ratify, index, digest, rationale.
+- A 2026-11-12 — a Class header, engine or organisational; a number in
+  `docs/adr/reserved.json` counts as present and is never reused (§2).
+- Keywords: ADR, amendment, supersede, ratify, index, digest, rationale, class, reserved.
 
 ### ADR-002 — Role, login and model are kept apart (Accepted)
 
