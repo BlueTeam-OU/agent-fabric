@@ -50,10 +50,20 @@ def adr_findings(root: str | None = None) -> list[str]:
     import roots  # noqa: E402
     # The records are instance data (ADR-045 rule 2): the operator's tree
     # when one is exported, else the fabric this lint was handed.
-    tree = roots.operator_root(engine=root or layout.FABRIC_ROOT)
+    engine = root or layout.FABRIC_ROOT
+    tree = roots.operator_root(engine=engine)
     if not os.path.isdir(roots.adr_dir(root=tree)):
         return []
-    return [f"adr: {f}" for f in adr.check(tree)]
+    if not os.path.isdir(roots.adr_dir(root=engine)) or (
+            os.path.realpath(roots.adr_dir(root=tree)) == os.path.realpath(roots.adr_dir(root=engine))):
+        return [f"adr: {f}" for f in adr.check(tree)]
+    # Two trees hold one numbering (ADR-045 rule 4): each is checked with the
+    # other named, since an explicit root alone is "only that tree" and would
+    # call every number the other holds missing. A finding both report (a
+    # number recorded in both) is said once.
+    ours = adr.check(tree, other=engine)
+    theirs = [f for f in adr.check(engine, other=tree) if f not in ours]
+    return [f"adr: {f}" for f in ours] + [f"adr (engine tree): {f}" for f in theirs]
 
 
 # A path to one of the fabric's own documents, cited from any tracked text

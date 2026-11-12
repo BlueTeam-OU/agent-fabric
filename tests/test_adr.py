@@ -740,6 +740,37 @@ def move_one_out(root: str) -> str:
     return op
 
 
+def split_trees(root: str) -> str:
+    """The move done properly: ADR-001 in an operator tree with its own
+    README, DIGEST entry, index and registry, the engine's copies without it,
+    so each tree is clean by itself and only the pair is the numbering."""
+    op = move_one_out(root)
+    eng_digest = os.path.join(root, "docs/adr/DIGEST.md")
+    head, entries = open(eng_digest, encoding="utf-8").read().split("\n### ADR-000", 1)
+    parts = ("### ADR-000" + entries).split("\n### ")
+    first = [p for p in parts if p.startswith("ADR-001 ")][0]
+    rest = [p for p in parts if not p.startswith("ADR-001 ")]
+    def entry(p: str) -> str:
+        return p if p.startswith("### ") else "### " + p
+    with open(eng_digest, "w", encoding="utf-8") as fh:
+        fh.write(head.rstrip("\n") + "\n\n" + "\n".join(entry(p) for p in rest))
+    with open(os.path.join(op, "docs/adr/DIGEST.md"), "w", encoding="utf-8") as fh:
+        fh.write(head.rstrip("\n") + "\n\n" + entry(first))
+    shutil.copy(os.path.join(root, "docs/adr/README.md"), os.path.join(op, "docs/adr/README.md"))
+    write_registry(os.path.join(op, "projects"))
+    adr.write_index(op)
+    adr.write_index(root)
+    return op
+
+
+def case_a_two_tree_check_is_clean_and_a_lone_root_is_only_itself(tmp: str) -> None:
+    root = fixture(tmp)
+    op = split_trees(root)
+    assert adr.check(op, other=root) == [], adr.check(op, other=root)
+    assert adr.check(root, other=op) == [], adr.check(root, other=op)
+    assert adr.check(op), "a root handed alone is that tree only: the engine's numbers are missing"
+
+
 def case_a_reserved_number_keeps_the_numbering_contiguous(tmp: str) -> None:
     root = fixture(tmp)
     move_one_out(root)

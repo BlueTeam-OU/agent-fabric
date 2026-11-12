@@ -218,6 +218,29 @@ def case_clean_base_passes() -> None:
         assert code == 0, f"a minimal well-formed root tripped the linter:\n{out}"
 
 
+def case_adr_lint_checks_both_trees_of_a_split() -> None:
+    """ADR-001 moved to an operator tree: lint counts the two as one numbering,
+    and the engine's own records are still checked (a lone root is one tree)."""
+    import test_adr
+    from fabric_lint_rules import docs
+    with tempfile.TemporaryDirectory() as tmp:
+        engine = test_adr.fixture(tmp)
+        operator = test_adr.split_trees(engine)
+        saved = os.environ.get("AGENT_FABRIC_OPERATOR")
+        os.environ["AGENT_FABRIC_OPERATOR"] = operator
+        try:
+            assert docs.adr_findings(engine) == [], docs.adr_findings(engine)
+            test_adr.edit(engine, "docs/adr/ADR-002-role-login-and-model-are-kept-apart.md", "**Status:**", "**Stat:**")
+            got = docs.adr_findings(engine)
+            assert any("engine tree" in f and "ADR-002" in f for f in got), got
+            assert not any("contiguous" in f or "does not exist" in f for f in got), got
+        finally:
+            if saved is None:
+                os.environ.pop("AGENT_FABRIC_OPERATOR", None)
+            else:
+                os.environ["AGENT_FABRIC_OPERATOR"] = saved
+
+
 def case_the_callers_operator_is_not_part_of_a_fixture() -> None:
     """An exported AGENT_FABRIC_OPERATOR is the caller's, never the fixture's."""
     with tempfile.TemporaryDirectory() as root:

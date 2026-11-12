@@ -214,11 +214,16 @@ def status_word(status: str) -> str:
     return status.split()[0] if status else ""
 
 
-def other_tree(root: str | None) -> str | None:
-    """The engine's records while an operator's are the ones checked, or none.
-    A root a tool was handed is the one tree it means; none given and an
-    operator exported, the two trees together hold one numbering (ADR-045
-    rule 4), so each answers for the numbers the other does not hold."""
+def other_tree(root: str | None, other: str | None = None) -> str | None:
+    """The records dir of the other half of the numbering, or none.
+    A root a tool was handed is the one tree it means, unless the caller names
+    its counterpart in `other` (lint does, for the two trees it holds): a
+    guess here would make `--root X check` mean something else to a person
+    who hands a root. None given and an operator exported, the two trees
+    together hold one numbering (ADR-045 rule 4), so each answers for the
+    numbers the other does not hold."""
+    if other is not None:
+        return adr_dir(other)
     if root is not None:
         return None
     engine = roots.engine_adr_dir(engine=ROOT)
@@ -252,17 +257,17 @@ def record_numbers(d: str) -> set[str]:
     return {m.group(1) for f in os.listdir(d) if (m := FILE_RE.fullmatch(f))}
 
 
-def other_numbers(root: str | None) -> set[str]:
+def other_numbers(root: str | None, other: str | None = None) -> set[str]:
     """What the other tree holds or reserves: present for contiguity and for
     a citation, never a record this tree checks."""
-    d = other_tree(root)
+    d = other_tree(root, other)
     return set() if d is None else record_numbers(d) | set(reserved(d)[0])
 
 
-def pillars(root: str | None) -> list[str]:
+def pillars(root: str | None, other: str | None = None) -> list[str]:
     """ADR-000 §5's table is the only list of pillars (agent-fabric ADR-001).
     An operator's tree holds none of the engine's records, so it reads the engine's."""
-    for d in (adr_dir(root), other_tree(root)):
+    for d in (adr_dir(root), other_tree(root, other)):
         zero = [f for f in os.listdir(d) if f.startswith("ADR-000-")] if d and os.path.isdir(d) else []
         if not zero:
             continue
@@ -346,7 +351,9 @@ def replace_table(readme: str, table: str) -> str | None:
     return head + table + tail
 
 
-def check(root: str | None = None) -> list[str]:
+def check(root: str | None = None, other: str | None = None) -> list[str]:
+    """`other` is the root of the counterpart tree whose numbers and pillar
+    table count as present (see other_tree); alone, a root is only itself."""
     d = adr_dir(root)
     adrs, findings = load(root)
     if not adrs:
@@ -361,13 +368,13 @@ def check(root: str | None = None) -> list[str]:
     findings += reserved_findings
     for num in sorted(held & set(reserved_map)):
         findings.append(f"{ADR_DIR}/{RESERVED_FILE}: ADR-{num} is reserved and has a record in this tree — a number is one or the other")
-    elsewhere = other_numbers(root)
+    elsewhere = other_numbers(root, other)
     present = {int(n) for n in held | set(reserved_map) | elsewhere}
     if present != set(range(max(present) + 1)):
         missing = sorted(set(range(max(present) + 1)) - present)
         findings.append(f"{ADR_DIR}: numbers are not contiguous from ADR-000 — missing {', '.join(f'ADR-{n:03d}' for n in missing)}")
     known = held | set(reserved_map) | elsewhere
-    pill = pillars(root)
+    pill = pillars(root, other)
     foreign = foreign_projects(root)
     if not pill:
         findings.append(f"{ADR_DIR}: ADR-000 §5 has no pillar table (| P1 | … |) — the pillars have one source")
