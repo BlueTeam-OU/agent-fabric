@@ -196,6 +196,14 @@ class Module(unittest.TestCase):
         self.assertEqual(oc.read_pin(f.op).kind, "absent")
         self.assertFalse(os.path.lexists(f.op))
 
+    def test_git_is_never_allowed_to_ask_a_person(self):
+        with mock.patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("GIT_SSH_COMMAND", None)
+            e = oc._noninteractive()
+        self.assertEqual((e["GIT_TERMINAL_PROMPT"], e["GIT_SSH_COMMAND"]), ("0", "ssh -o BatchMode=yes"))
+        with mock.patch.dict(os.environ, {"GIT_SSH_COMMAND": "ssh -i k"}):
+            self.assertEqual(oc._noninteractive()["GIT_SSH_COMMAND"], "ssh -i k", "an account's own ssh command stands")
+
     def test_the_clone_url_comes_from_the_environment_else_ssh(self):
         self.assertEqual(oc.clone_url({}), "git@github.com:BlueTeam-OU/blueteam-fabric.git")
         self.assertEqual(oc.clone_url({oc.CLONE_URL_ENV: "x"}), "x")
@@ -534,6 +542,50 @@ class LauncherPin(unittest.TestCase):
         v = self.verdict(f)
         self.assertEqual(v.kind, "current")
         self.assertIn("ahead of the operator's pin", v.notes[-1])
+
+
+class LauncherKeepsFabricCurrent(unittest.TestCase):
+    """launch.keep_fabric_current acts on the verdict: the pull goes to the pin, a malformed pin ends the launch."""
+
+    class Reexec(Exception):
+        pass
+
+    def run_it(self, f: Fx) -> tuple[str, BaseException | None]:
+        err, raised = io.StringIO(), None
+        with env(), redirect_stderr(err), redirect_stdout(err), mock.patch.object(launch, "reexec", side_effect=self.Reexec):
+            try:
+                launch.keep_fabric_current(f.engine, [])
+            except (self.Reexec, launch.Refused) as e:
+                raised = e
+        return err.getvalue(), raised
+
+    def test_the_pull_goes_to_the_pin_and_the_launcher_relaunches_on_it(self):
+        f = Fx(self)
+        pin = f.engine_advance("two")
+        f.engine_advance("three")
+        f.pin(pin)
+        said, raised = self.run_it(f)
+        self.assertIsInstance(raised, self.Reexec)
+        self.assertEqual(f.head(), pin)
+        self.assertIn("the operator's pin", said)
+
+    def test_a_malformed_pin_ends_the_launch_and_moves_nothing(self):
+        f = Fx(self)
+        before = f.head()
+        f.engine_advance("two")
+        f.pin("", raw="junk\n")
+        said, raised = self.run_it(f)
+        self.assertIsInstance(raised, launch.Refused)
+        self.assertEqual(f.head(), before)
+        self.assertIn("40-hex", str(raised))
+
+    def test_with_no_operator_it_pulls_main_and_says_no_pin_is_in_force(self):
+        f = Fx(self, operator=False)
+        top = f.engine_advance("two")
+        said, raised = self.run_it(f)
+        self.assertIsInstance(raised, self.Reexec)
+        self.assertEqual(f.head(), top)
+        self.assertIn("no engine pin is in force", said)
 
 
 class MovetoEntry(unittest.TestCase):
