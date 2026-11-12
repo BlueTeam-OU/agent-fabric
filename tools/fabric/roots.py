@@ -214,3 +214,52 @@ def engine_adr_dir(environ: Mapping[str, str] | None = None, engine: str | None 
 
 def live_checks_dir(root: str | None = None, environ: Mapping[str, str] | None = None, engine: str | None = None) -> str:
     return _under(root, environ, engine, "docs", "live-checks")
+
+
+# What leaves for the operator repository (docs/split/move-plan.md §1), as the
+# leading path parts of each item. A reader of git objects (`git show
+# <rev>:<path>`, cat-file, archive) cannot follow a symlink shim, so it asks
+# for the path as the repository stores it. Engine paths are refused rather
+# than answered: a reader that asked for one would be told the operator's
+# prefix for a file that never moves.
+_POLICY_FILES = ("arming", "authority", "auto-mode", "host-load", "hygiene", "signing")
+_MOVING = (
+    ("identities", "roles"), ("identities", "personas"), ("identities", "keys"),
+    ("identities", "agents", "README.md"), ("identities", "recovery.asc"),
+    ("projects", "registry.json"), ("projects", "clients.json"), ("runtime", "hosts", "registry.json"),
+    *(("policies", f"{name}.json") for name in _POLICY_FILES),
+    ("routing", "profiles.json"), ("routing", "policies"),
+    ("memory", "domains"), ("memory", "shared"), ("memory", "agents"),
+    ("docs", "live-checks"),
+)
+
+
+def operator_prefix(base: str, environ: Mapping[str, str] | None = None) -> str:
+    """The operator's tree relative to `base`, with a trailing "/", or "" when
+    it is `base` itself (AGENT_FABRIC_OPERATOR unset, empty or equal to it:
+    today's layout). An operator outside `base` has no repository-relative
+    path there: ValueError, never a guess."""
+    value = _env(environ).get(ENV_OPERATOR)
+    if not value:
+        return ""
+    # realpath on both: the repository's toplevel is what git reports, and
+    # the operator may be exported through a differently spelled link to it.
+    rel = os.path.relpath(os.path.realpath(value), os.path.realpath(base))
+    if rel == os.curdir:
+        return ""
+    if rel == os.pardir or rel.startswith(os.pardir + os.sep) or os.path.isabs(rel):
+        raise ValueError(f"{ENV_OPERATOR} {value!r} is not under {base!r}: no repository-relative path")
+    return rel.replace(os.sep, "/") + "/"
+
+
+def git_path(*parts: str, base: str, environ: Mapping[str, str] | None = None) -> str:
+    """The path of a move-list item as `git show <rev>:<path>` in the
+    repository at `base` spells it: the operator prefix, then `parts`.
+    ValueError for a path that is not an item of the move list."""
+    if not parts or any(not p or p in (os.curdir, os.pardir) or "/" in p for p in parts):
+        raise ValueError(f"not a path of the move list: {parts!r}")
+    # projects/<id>/ moves; projects/schemas/ is the engine's shape of a project.
+    project_dir = parts[0] == "projects" and len(parts) > 1 and parts[1] not in ("schemas", "registry.json", "clients.json")
+    if not project_dir and not any(parts[:len(item)] == item for item in _MOVING):
+        raise ValueError(f"{'/'.join(parts)} is not on the move list: it stays in the engine")
+    return operator_prefix(base, environ) + "/".join(parts)

@@ -149,6 +149,58 @@ def case_checkout_root_is_the_exported_root_else_the_accounts_clone() -> None:
             os.environ["AGENT_FABRIC_ROOT"] = saved
 
 
+# The §1 items of docs/split/move-plan.md, spelled as a reader of the working tree reaches them.
+MOVE_LIST = (
+    ("identities", "roles", "catalog.json"), ("identities", "roles", "python-dev", "charter.md"),
+    ("identities", "personas", "surnames.json"), ("identities", "keys", "lineage.json"),
+    ("identities", "agents", "README.md"), ("identities", "recovery.asc"),
+    ("projects", "registry.json"), ("projects", "clients.json"), ("projects", "gzapp", "integration", "x"),
+    ("runtime", "hosts", "registry.json"),
+    *(("policies", f"{n}.json") for n in ("arming", "authority", "auto-mode", "host-load", "hygiene", "signing")),
+    ("routing", "profiles.json"), ("routing", "policies", "review-grade.json"),
+    ("memory", "domains", "x"), ("memory", "shared", "x"), ("memory", "agents", "x"),
+    ("docs", "live-checks", "x"),
+)
+
+
+def case_git_path_is_the_working_tree_path_with_no_operator_prefix() -> None:
+    for env in ({}, {"AGENT_FABRIC_OPERATOR": ""}, {"AGENT_FABRIC_OPERATOR": E}, {"AGENT_FABRIC_OPERATOR": E + "/."}):
+        for parts in MOVE_LIST:
+            assert roots.git_path(*parts, base=E, environ=env) == "/".join(parts), (env, parts)
+
+
+def case_git_path_names_the_operator_directory_under_the_base() -> None:
+    for parts in MOVE_LIST:
+        assert roots.git_path(*parts, base=E, environ={"AGENT_FABRIC_OPERATOR": E + "/operator"}) == "operator/" + "/".join(parts), parts
+    assert roots.operator_prefix(E, {"AGENT_FABRIC_OPERATOR": E + "/a/b/"}) == "a/b/"
+    assert roots.operator_prefix(E, {"AGENT_FABRIC_OPERATOR": E + "/a/../c"}) == "c/"
+
+
+def case_git_path_refuses_what_it_cannot_name() -> None:
+    def refused(*parts: str, env: dict | None = None) -> None:
+        try:
+            roots.git_path(*parts, base=E, environ=env or {})
+        except ValueError:
+            return
+        raise AssertionError(f"answered for {parts} under {env}")
+
+    for outside in (O, "/", E + "/..", "/ee"):  # /ee shares E's text prefix and is not under it
+        refused("policies", "authority.json", env={"AGENT_FABRIC_OPERATOR": outside})
+    refused("tools", "fabric", "roots.py")                  # engine paths never move
+    refused("projects", "schemas", "project.schema.json")   # engine shapes sit beside the project directories
+    refused("projects", "schemas")
+    refused("projects")
+    refused("policies", "schema.json")                      # policies/ is the engine's but for the six
+    refused()
+    refused("identities", "keys/lineage.json")             # parts, not a joined path
+    refused("identities", "..", "x")
+    refused("")
+    # positive control for the projects/ refusals: a project directory is answered.
+    assert roots.git_path("projects", "gzapp", "integration", base=E, environ={}) == "projects/gzapp/integration"
+    # positive control for the refusals above: the same call is answered inside the base.
+    assert roots.git_path("policies", "authority.json", base=E, environ={"AGENT_FABRIC_OPERATOR": E + "/o"}) == "o/policies/authority.json"
+
+
 def main() -> int:
     cases = [v for k, v in globals().items() if k.startswith("case_")]
     failures = 0
