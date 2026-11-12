@@ -715,9 +715,14 @@ def first_run() -> None:
     # The summary counts the script's own puts, links, the user settings and
     # step 5's lines; the agent files, steps 4, 5b and 7 are not in it.
     n_written = 2 + 2 + len(cmds) + 1 + 1 + len(SKILLS) + 4 + 1 + 2 + 1
+    # The operator's checkout (ADR-045 §6) is the last step before the summary: its clone has nowhere to go in
+    # this account, so it says one uncounted "!" line, and the counts are the same as without it.
+    check("the operator checkout's unreachable remote: one uncounted line before the summary",
+          len(L) > k + 11 and L[k + 11].startswith(f"  !  operator checkout {P}/blueteam-fabric not cloned from file://") and
+          "no-operator.git" in L[k + 11], "\n".join(L[k + 11:]))
     check("the summary counts what was written",
-          L[k + 11:] == [f"bootstrap: {n_written} written, 2 already current.",
-                         f"Launch from {P}: cd \"{P}\" && claude   — the session starts as {LOGIN}."], "\n".join(L[k + 11:]))
+          L[k + 12:] == [f"bootstrap: {n_written} written, 2 already current.",
+                         f"Launch from {P}: cd \"{P}\" && claude   — the session starts as {LOGIN}."], "\n".join(L[k + 12:]))
     check("curl, ss, pgrep, uv and sudo never called",
           not [c for c in a.calls() if c[0] in ("curl", "ss", "pgrep", "uv", "sudo", "pip3")], a.calls())
     check("the script's own temporary directory is gone", os.listdir(a.tmp) == [], os.listdir(a.tmp))

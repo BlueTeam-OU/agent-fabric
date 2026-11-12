@@ -86,6 +86,13 @@ def _noninteractive() -> dict[str, str]:
     return env
 
 
+def cause(stderr: str, code: int) -> str:
+    """git ends a refusal with advice ("and the repository exists."); the cause is its first fatal:/error:/ssh: line."""
+    lines = [l for l in stderr.strip().splitlines() if l.strip() and not l.startswith("hint:")]
+    named = [l for l in lines if l.startswith(("fatal:", "error:", "ssh:"))]
+    return (named or lines or [f"git exit {code}"])[0 if named else -1]
+
+
 def is_checkout(op: str) -> bool:
     if not os.path.isdir(op):
         return False
@@ -122,8 +129,7 @@ def sync(op: str, fetch_timeout: float = FETCH_TIMEOUT_S) -> Sync:
     if r.returncode != 0:
         if _NO_REMOTE_MAIN in r.stderr:
             return Sync("empty", f"operator repository at {op} has no main branch yet")
-        why = [l for l in r.stderr.strip().splitlines() if l.strip()][-1:] or [f"git exit {r.returncode}"]
-        return Sync("offline", f"operator checkout {op}: remote unreachable ({why[0]}); not refreshed")
+        return Sync("offline", f"operator checkout {op}: remote unreachable ({cause(r.stderr, r.returncode)}); not refreshed")
     try:
         branch = git.out(op, "symbolic-ref", "-q", "--short", "HEAD", check=False)
         behind = int(git.out(op, "rev-list", "--count", "HEAD..origin/main"))
@@ -152,8 +158,7 @@ def clone(projects: str, url: str, *, dry_run: bool = False) -> Sync:
     except git.GitError as e:
         return Sync("offline", f"operator checkout {op} not cloned from {url}: {e.reason}")
     if r.returncode != 0:
-        lines = [l for l in r.stderr.strip().splitlines() if l.strip() and not l.startswith("hint:")]
-        return Sync("offline", f"operator checkout {op} not cloned from {url}: {(lines or [f'git exit {r.returncode}'])[-1]}")
+        return Sync("offline", f"operator checkout {op} not cloned from {url}: {cause(r.stderr, r.returncode)}")
     return Sync("cloned", f"operator checkout {op} cloned from {url}")
 
 
