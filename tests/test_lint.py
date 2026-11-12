@@ -221,7 +221,10 @@ def case_clean_base_passes() -> None:
 def case_adr_lint_checks_both_trees_of_a_split() -> None:
     """ADR-001 moved to an operator tree: lint counts the two as one numbering,
     and the engine's own records are still checked (a lone root is one tree)."""
+    import importlib.util
     import test_adr
+    spec = importlib.util.spec_from_file_location("fabric_lint_under_test", LINT)
+    spec.loader.exec_module(importlib.util.module_from_spec(spec))   # registers fabric_lint_rules
     from fabric_lint_rules import docs
     with tempfile.TemporaryDirectory() as tmp:
         engine = test_adr.fixture(tmp)
