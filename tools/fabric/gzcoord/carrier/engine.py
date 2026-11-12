@@ -127,6 +127,8 @@ class Carrier:
         return others
 
     def send(self, mid: str, text: str) -> dict:
+        if text.startswith(framing.CONTROL_PREFIX):
+            raise framing.FramingError("a fabric-control/1 body is a control record: it rides fabric-control, never gzcoord")
         _, meta = self.parse(text)
         if meta.get("MESSAGE-ID") != mid:
             raise ValueError("MESSAGE-ID is not the message's own")
@@ -294,6 +296,11 @@ class Carrier:
 
     def finish(self, session: ipc.Session, row: dict, text: str) -> None:
         me = self.me_fn()
+        if text.startswith(framing.CONTROL_PREFIX):
+            # No receipt, no journal row, no arrival line: it is not a pair of the parity report.
+            self.counters.unreadable += 1
+            log(f"a copy from {row['login']} on {self.roster.endpoint} is a control record: refused")
+            return
         try:
             mtype, meta = self.parse(text)
         except ValueError as e:

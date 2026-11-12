@@ -188,6 +188,10 @@ def main() -> int:
                   and "0.0.0.0" not in cfg_a)
             check("it admits only the automated client kind on the gzcoord endpoint and joins no channel",
                   "allowed_client_kinds: [automated-client]" in cfg_a and "channels: { desired: [] }" in cfg_a)
+            check("fabric-control is the profile's only human endpoint, gzcoord stays its default and automated-only",
+                  cfg_a.count("human-client") == 1 and cfg_a.count("automated-client") == 1
+                  and "{ id: fabric-control, enabled: true, advertise: false, allowed_client_kinds: [human-client] }" in cfg_a
+                  and "default_direct_endpoint: gzcoord\n" in cfg_a)
             try:
                 R.render_config(doc([ra, rb]), good, c.agent_id)
                 refusing = False
@@ -208,6 +212,7 @@ def main() -> int:
                 "schema_version: 2\nprofile: { name: gzcoord }\ntrust:\n  policy: static-allowlist\n"
                 f"  allowed_peers: [\"{peer_id('b')}\"]\nendpoints:\n  default_direct_endpoint: gzcoord\n  entries:\n"
                 "    - { id: gzcoord, enabled: true, advertise: false, allowed_client_kinds: [automated-client] }\n"
+                "    - { id: fabric-control, enabled: true, advertise: false, allowed_client_kinds: [human-client] }\n"
                 "channels: { desired: [] }\ndiscovery:\n  providers:\n    - type: static-bootstrap\n      enabled: true\n"
                 f"      priority: 5\n      config:\n        peers: [\"/ip4/127.0.0.1/tcp/47102/p2p/{peer_id('b')}\"]\n"
                 "transport: { listen: { addresses: [\"/ip4/127.0.0.1/tcp/47101\"] } }\nobservability: { log_level: info }\n")
