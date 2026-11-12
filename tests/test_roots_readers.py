@@ -376,6 +376,53 @@ def case_the_memory_readers_handed_the_engine_root_ask_for_the_operators_tree() 
             assert [r["target"] for r in rows] == ["b-of-the-operator"], rows
 
 
+class _Stop(Exception):
+    pass
+
+
+def case_the_drain_report_and_anchor_keeper_read_the_operators_corpus() -> None:
+    """assembler/report.py review_horizons and anchorkeep.corpus_of take layout.FABRIC_ROOT, the engine root; with an operator
+    exported the field corpus they judge is the operator's memory/, with none it is the engine's. What they hand on is captured
+    at the first call that receives the corpus, so nothing past it runs."""
+    import types
+    import memory_check
+    import memory_horizons
+    from assembler import anchorkeep, report
+    from assembler.core import layout
+    saved = (layout.project_memory_root, report.reads_state_path, memory_horizons.load_state,
+             memory_horizons.rows_of, memory_check.tree_of)
+    seen: dict[str, str] = {}
+
+    def rows_of(corpora, key_of):
+        seen["report"] = corpora["f"]
+        raise _Stop
+
+    def tree_of(corpus):
+        seen["anchorkeep"] = corpus
+        raise _Stop
+    layout.project_memory_root = lambda project: "/nowhere/" + project
+    report.reads_state_path = lambda run: "/nowhere/state.json"
+    memory_horizons.load_state = lambda path: ({}, "ok")
+    memory_horizons.rows_of = rows_of
+    memory_check.tree_of = tree_of
+    run = types.SimpleNamespace(project="p", args=types.SimpleNamespace(stamp="2026-11-12T00:00:00Z"))
+    try:
+        with tempfile.TemporaryDirectory() as tmp:
+            op = os.path.join(tmp, "op")
+            for want, env in ((os.path.join(op, "memory"), operator(op)), (os.path.join(layout.FABRIC_ROOT, "memory"), unset_operator())):
+                with env:
+                    for name, call in (("report", lambda: report.review_horizons(run, {})),
+                                       ("anchorkeep", lambda: anchorkeep.corpus_of(run, os.path.join(tmp, "elsewhere.md")))):
+                        try:
+                            call()
+                        except _Stop:
+                            pass
+                        assert os.path.abspath(seen[name]) == want, (name, seen[name], want)
+    finally:
+        (layout.project_memory_root, report.reads_state_path, memory_horizons.load_state,
+         memory_horizons.rows_of, memory_check.tree_of) = saved
+
+
 def main() -> int:
     cases = [v for k, v in globals().items() if k.startswith("case_")]
     failures = 0
