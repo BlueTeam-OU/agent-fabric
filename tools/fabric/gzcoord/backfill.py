@@ -280,7 +280,6 @@ def tick(say: Callable[[str], None] = lambda m: print(m, file=sys.stderr),
          token: Callable[[], str | None] = synced_token) -> Report | None:
     """The daemon's timer body. A journal that does not exist yet, or that cannot be read, is a line and nothing else.
     `token` is the daemon's own, so the backfill reaches the relay with the credential the daemon does."""
-    global _said
     import episodic
     try:
         conn = episodic.open_readonly()

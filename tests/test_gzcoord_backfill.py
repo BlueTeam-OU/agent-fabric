@@ -85,6 +85,11 @@ def log_of(tmp: str) -> list[dict]:
         return []
 
 
+def _ro(tmp: str):
+    import sqlite3
+    return sqlite3.connect(f"file:{os.path.join(tmp, 'episodic.db')}?mode=ro", uri=True)
+
+
 def scratch():
     tmp = tempfile.mkdtemp(prefix="backfill-")
     os.environ["AGENT_FABRIC_STATE_DIR"] = tmp
@@ -281,6 +286,27 @@ def main() -> int:
         r = FakeRelay()
         run(tmp, c, r)
         check("rows of two projects on one channel keep one order", [m for m, _ in r.posts] == ["p1", "p2", "p3"], r.posts)
+    finally:
+        shutil.rmtree(tmp)
+
+    # tick: the daemon's token is the one used, and a standing condition is said once across ticks
+    tmp = scratch()
+    try:
+        c = journal(tmp, [("m1", "accepted", 30, CAR)])
+        asked: list[int] = []
+        said: list[str] = []
+        real = (episodic.open_readonly, episodic.state_dir, episodic.own_address)
+        episodic.open_readonly = lambda *a, **k: _ro(tmp)
+        episodic.state_dir, episodic.own_address = (lambda: tmp), (lambda: ME)
+        backfill._said = set()
+        try:
+            for _ in range(2):
+                backfill.tick(said.append, lambda: asked.append(1))   # None: the daemon has no token
+        finally:
+            episodic.open_readonly, episodic.state_dir, episodic.own_address = real
+        check("tick uses the token it is given", len(asked) == 2, asked)
+        check("a standing note is said once across two ticks", len([m for m in said if "no relay token" in m]) == 1, said)
+        check("the row stays pending", log_of(tmp) == [])
     finally:
         shutil.rmtree(tmp)
     print(f"{fails} FAIL")
