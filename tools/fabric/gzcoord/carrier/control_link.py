@@ -86,6 +86,7 @@ SEND_WAIT_S = 10.0         # a reply's send; a request's is its ttl_s
 WRITE_WAIT_S = 5.0         # a line the child's pipe cannot take in this long: the child is not reading
 WEDGED_AFTER = 3           # consecutive sends that got no outbound at all: the child is not draining
 SOCKET_NAME = "control.sock"
+SOCKET_SEND_S = 5.0        # a reply written to fabric-ctl's socket
 MAX_WAIT_S = 86400        # fabric-ctl's own --timeout is any number of seconds; a day is a bound, not an expectation
 MAX_SOCKET_LINE = 1 << 20  # a request line from fabric-ctl; the largest record is far under it
 EXIT_WORDS = {3: "no daemon answered for the profile", 4: "another client holds the profile's message store",
@@ -451,9 +452,10 @@ class Child:
         WRITE_WAIT_S leaves half a line in its pipe, so the child is ended as wedged (the supervisor restarts it)
         and the send fails; it is never left blocking the callers behind it."""
         with self._write_lock:
-            fd, end = proc.stdin.fileno(), time.monotonic() + WRITE_WAIT_S
+            end = time.monotonic() + WRITE_WAIT_S
             view = memoryview(data)
             try:
+                fd = proc.stdin.fileno()   # inside the try: the supervisor closes it when the child has ended
                 while view:
                     try:
                         view = view[os.write(fd, view):]
@@ -461,6 +463,7 @@ class Child:
                         left = end - time.monotonic()
                         if left <= 0 or not select.select([], [fd], [], left)[1]:
                             self._log(f"the child did not drain its input in {WRITE_WAIT_S:g} s: ended as wedged")
+                            self.state = "restarting"   # later sends fail at once, before the supervisor has seen the exit
                             self._terminate(proc)
                             return "the child does not drain its input"
             except (OSError, ValueError) as e:
@@ -482,6 +485,7 @@ class Child:
         if wedged and proc is not None:
             self._log(f"the child answered nothing for {WEDGED_AFTER} sends: ended as wedged")
             self._timeouts = 0
+            self.state = "restarting"
             self._terminate(proc)
         return False, why
 
@@ -695,9 +699,16 @@ class Server:
         rec, rid, lock = req["record"], req["record"]["id"], threading.Lock()
 
         def put(obj: dict) -> None:
+            # Called on the inbox thread: a fabric-ctl that stopped reading must not stop every other message, so a
+            # write that cannot finish in SOCKET_SEND_S drops this connection and its waiter instead.
             with lock:
-                with contextlib.suppress(OSError):
+                try:
                     conn.sendall((js.stringify(obj) + "\n").encode("utf-8"))
+                except OSError as e:
+                    self._log(f"fabric-ctl's connection for {rid[:8]} is not reading ({e}): dropped")
+                    self.carrier.unwatch(rid)
+                    with contextlib.suppress(OSError):
+                        conn.shutdown(socket.SHUT_RDWR)
 
         if rec.get("from") != self.me:
             put({"event": "refused", "why": f"the record is from {js.string(rec.get('from'))}, this agentd is {self.me}'s"})
@@ -713,11 +724,14 @@ class Server:
                 put({"event": "sent", "to": address, "ok": ok, "why": why})
             put({"event": "sent-all"})
             end = time.monotonic() + wait_s
-            conn.settimeout(None)
+            conn.settimeout(SOCKET_SEND_S)   # bounds put(); the loop below reads only what select says is there
             while not self._stop.is_set() and (left := end - time.monotonic()) > 0:
-                readable, _, _ = select.select([conn], [], [], min(left, 0.5))
-                if readable and not conn.recv(4096):
-                    break   # fabric-ctl is done
+                try:
+                    readable, _, _ = select.select([conn], [], [], min(left, 0.5))
+                    if readable and not conn.recv(4096):
+                        break   # fabric-ctl is done
+                except (OSError, ValueError):
+                    break       # the connection was reset or dropped by put()
         finally:
             self.carrier.unwatch(rid)
 

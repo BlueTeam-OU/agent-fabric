@@ -2297,19 +2297,24 @@ def main(argv: list[str] | None = None, *, registry: str | None = None, call: Ca
     dual = cfg["control_carrier"] == agentd.CARRIER_DUAL and args["op"] not in link.RELAY_ONLY_OPS
     merge = link.Merge() if dual else None
     arrivals = link.ArrivalLog(os.path.join(state_dir(), "control-arrivals.jsonl"), "ctl", log=err) if dual else None
-    session, early, attempted = (_second_carrier(request, expected, me["address"], args, err) if dual else (None, [], set()))
+    # The relay is the record, so its post comes first and is never held behind the second carrier: a hand-off that
+    # waits on a silent child for ttl_s would put the relay copy on the wire already expired.
     relay_up = True
     sent = None
+    relay_error = None
     try:
         sent = api_call("/api/send", method="POST", body=js.stringify({"channel": cfg["channel"], "sender": me["address"], "content": js.stringify(request)}))
     except Exception as e:  # noqa: BLE001 — any failure of the call is said in relay_failure's words, as the Node said it
+        relay_error = e
+    session, early, attempted = (_second_carrier(request, expected, me["address"], args, err) if dual else (None, [], set()))
+    t0 = now()   # after both hand-offs, as it was after the one: --timeout is the wait for answers
+    if relay_error is not None:
         if session is None:
-            err(f"fabric-ctl: {relay_failure(e, cfg['relay_url'])}")
+            err(f"fabric-ctl: {relay_failure(relay_error, cfg['relay_url'])}")
             return 3
         # The relay is down but the request went by the other carrier: the answer can still come.
-        err(f"fabric-ctl: {relay_failure(e, cfg['relay_url'])}; {CARRIER_LABEL} carries alone")
+        err(f"fabric-ctl: {relay_failure(relay_error, cfg['relay_url'])}; {CARRIER_LABEL} carries alone")
         relay_up = False
-    t0 = now()
     replies: list[dict] = []
     parts: dict[str, dict] = {}
     want = {e["address"] for e in expected}   # no reply yet
@@ -2409,6 +2414,8 @@ def main(argv: list[str] | None = None, *, registry: str | None = None, call: Ca
         got = second()
         for ev in got:
             take(link.VIA, ev["record"])
+        if not relay_up and session is None:
+            break   # both carriers are gone: nothing more can arrive
         if session is None and (want or short() or lingering()):
             sleep(0.5)
     if session is not None:

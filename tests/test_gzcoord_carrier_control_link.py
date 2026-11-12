@@ -18,6 +18,7 @@ import tempfile
 import threading
 import time
 import unittest
+from unittest import mock
 
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(HERE, "tools", "fabric"))
@@ -212,11 +213,24 @@ class ChildCases(Net):
         self.assertFalse(ok)
         self.assertIn("too-large", why)
 
-    def test_a_line_the_child_refuses_fails_that_send(self):
+    def test_a_line_the_child_refuses_fails_that_send_and_the_child_goes_on(self):
         n = self.node("alice")
-        n.child._proc.stdin.write(b"not json\n")
+        pending = cc.Send("r-x")
+        n.child._pending["r-x"] = pending
+        n.child._proc.stdin.write(b'{"ref":"r-x","nope":1}\n')   # parseable, not a send: the child answers input-refused with this ref
         n.child._proc.stdin.flush()
-        self.assertTrue(until(lambda: n.child.state == "ok"), "and goes on running")
+        ok, why = pending.wait(5)
+        self.assertEqual(ok, False)
+        self.assertIn("refused the line", why)
+        self.assertEqual(n.child.state, "ok", "and goes on running")
+
+    def test_a_send_after_the_childs_input_closed_fails_and_never_raises(self):
+        n = self.node("alice")
+        n.child._proc.stdin.close()   # what the supervisor does once the child has ended, while state still says ok
+        s = n.child.send("p/fabric-control", "t")
+        self.assertEqual(s.wait(0)[0], False)
+        self.assertIn("closed", s.wait(0)[1])
+        self.assertEqual(n.carrier.send_to(["h/bob"], request(), 1)["h/bob"][0], False)
 
     def test_a_child_that_answers_nothing_three_sends_running_is_ended_and_restarted(self):
         n = self.node("alice", extra_env={"FAKE_SILENT": "1"})
@@ -473,6 +487,25 @@ class SocketCases(Net):
             first = c.recv(4096)
             self.assertEqual(b'"event":"refused"' not in first, accepted, (wait, first))
             c.close()
+
+    def test_a_ctl_that_stops_reading_loses_its_waiter_and_never_stalls_the_inbox_thread(self):
+        patch = mock.patch.object(cc, "SOCKET_SEND_S", 0.3)
+        patch.start()
+        self.addCleanup(patch.stop)
+        s = cc.Session(self.path, request(rid="stuck", to=["h/alice"]), ["h/alice"], 60)
+        self.addCleanup(s.close)
+        s.wait_sent(5)   # ctl now reads nothing more
+        op = self.nodes["op"]
+        big = {"kind": "reply", "id": "x", "in_reply_to": "stuck", "from": "h/alice", "data": {"pad": "x" * 200000}}
+        t0 = time.monotonic()
+        for _ in range(40):
+            waiter = op.carrier._waiters.get("stuck")
+            if waiter is None:
+                break
+            waiter(big, "h/alice")
+        self.assertIsNone(op.carrier._waiters.get("stuck"), "the connection was dropped with its waiter")
+        self.assertLess(time.monotonic() - t0, 40, "bounded, not for the rest of wait_s")
+        self.assertTrue(any("not reading" in l for l in op.logs), op.logs)
 
     def test_a_peer_of_another_user_is_closed_unread(self):
         from unittest import mock

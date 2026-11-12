@@ -84,7 +84,7 @@ def main() -> int:
         except ValueError:
             line = None
         if not isinstance(line, dict) or not isinstance(line.get("send"), dict):
-            out({"event": "input-refused", "reason": "not a JSON object" if not isinstance(line, dict) else "not a send: {\"send\": {...}}", "ref": None})
+            out({"event": "input-refused", "reason": "not a JSON object" if not isinstance(line, dict) else "not a send: {\"send\": {...}}", "ref": line.get("ref") if isinstance(line, dict) else None})
             continue
         s = line["send"]
         if env.get("FAKE_SENDS"):

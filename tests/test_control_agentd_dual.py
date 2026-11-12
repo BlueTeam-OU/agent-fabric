@@ -151,7 +151,6 @@ class AgentdDual(Base):
         bob = Node(self, self.net, "bob")
         got = self.watch("forged")
         self.send_iw(body("forged"), via=bob)   # bob writes the operator's address
-        self.assertTrue(until(lambda: any("says it is from" in l for l in self.logs + bob.logs + self.op.logs) or True))
         time.sleep(1.0)
         self.assertEqual((got, self.relay_replies("forged")), ([], []))
 

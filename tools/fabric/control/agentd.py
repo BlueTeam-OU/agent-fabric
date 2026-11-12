@@ -1102,19 +1102,15 @@ def main(argv: list[str] | None = None, *, stop: threading.Event | None = None) 
         before) for a request that came by the relay; for one that came by the second carrier there is no relay loop to
         take it, so it is said."""
         iw = carrier_box[0]
-        side = None
         if iw is not None:
-            side = threading.Thread(target=iw.reply, args=(request, reply), name="control-carrier-reply", daemon=True)
-            side.start()
+            # Not joined: the relay loop must never wait on the other carrier (a silent child costs seconds a reply).
+            threading.Thread(target=iw.reply, args=(request, reply), name="control-carrier-reply", daemon=True).start()
         try:
             post(reply)
         except Exception as e:  # noqa: BLE001
             if via == "relay":
                 raise
             _stderr(f"agentd: relay copy of {request['op']} reply for {request['from']} not posted: {e}")
-        finally:
-            if side is not None:
-                side.join(timeout=control_link.SEND_WAIT_S + 5)
 
     def beside(rec: dict, ledgered: bool, via: str = "relay") -> None:
         """An action can take minutes (a session to stop, an install): run

@@ -187,8 +187,18 @@ class Dual(Scratch):
         row = self.rows()[0]
         self.assertEqual((row["status"], row["carrier"], row["relay_copy"]), ("ok", "interweave", "missing"))
         self.assertTrue(any("unreachable" in e and "InterWeave carries alone" in e for e in self.err), self.err)
-        # positive control: the same run with the second carrier refused for lack of a roster row exits 3, as ever
         self.assertEqual(self.relay.sent, [], "nothing reached the relay")
+
+    def test_a_second_carrier_that_is_up_but_silent_never_delays_the_relay_post(self):
+        self.boot("alice")
+        self.nodes["op"].child.send = lambda conversation, text: link.Send("never")   # ok, and answers nothing
+        t0 = time.monotonic()
+        box = self.run_ctl("alice", "ping", "--json", "--timeout", "4")
+        self.assertTrue(until(lambda: self.relay.sent, 2.0), "the relay copy was posted at once, not after the hand-off gave up")
+        self.assertLess(time.monotonic() - t0, 2.0)
+        self.answer("alice", self.relay.sent[0], interweave=False)
+        self.assertEqual(self.finish(box), 0, self.err)
+        self.assertEqual(self.rows()[0]["carrier"], "relay only")
 
     def test_with_the_relay_down_and_no_second_carrier_the_run_fails_as_it_always_did(self):
         self.relay.down = True
