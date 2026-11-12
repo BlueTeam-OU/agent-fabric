@@ -382,4 +382,4 @@ The body above reads current; each change's full note is in [history/ADR-064-ame
 | 2026-11-08 | The parity soak includes a relay-outage drill | §5 rule 11 |
 | 2026-11-08 | The parity report reads the relay-outage drill | §5 rule 11 (#509) |
 | 2026-11-11 | The second host is fabric-h2, reached from develop-qzapp only | §5 rule 1 |
-| 2026-11-12 | the second host is any host in the registry, not a named one | §5 rule 1: the named second host, its node, the coordinator's host's address and the waivers read "a second host in `runtime/hosts/registry.json`"; the milestone rule is unchanged |
+| 2026-11-12 | the second host is any host in the registry, not a named one | §5 rule 1: the named second host, its node, the coordinator's host's address and the waivers read "a second host in `runtime/hosts/registry.json`"; the second-host milestone opens on its registration and the operator's inventory (ADR-069), not by an amendment; the host and waivers are ADR-069 rule 2 |

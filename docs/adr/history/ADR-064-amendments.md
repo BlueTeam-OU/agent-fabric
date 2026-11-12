@@ -322,11 +322,13 @@ with no overlay, connections opening only from the coordinator's host, its
 firewall admitting the roster's range only from that host's address, the
 InterWeave limits accepted on the owner's word, a third host a further
 amendment, and an agent moving there only on the owner's word on the
-control parity report. The first-milestone sentence and the rule that the
-next milestone opens by an amendment naming the host are unchanged.
+control parity report. The first-milestone sentence is unchanged; the
+next milestone, which opened by an amendment naming the host, now opens
+once the host is registered in `runtime/hosts/registry.json` and named in
+the operator's inventory, ADR-069 here.
 
 Why: ADR-045 §5 rule 4. Rules 2-14 and rule 1's milestone are the carrier;
-the named second host and its waivers are this deployment's, read from
-`runtime/hosts/registry.json`
-(docs/split/adr-classification.md, ADR-064 row). The waivers of the
-2026-11-11 amendment stay in its history note.
+the named second host and its waivers are this deployment's
+(docs/split/adr-classification.md, ADR-064 row): ADR-069 rule 2 holds
+fabric-h2 and the owner's two waivers, and the host is registered in
+`runtime/hosts/registry.json`.
