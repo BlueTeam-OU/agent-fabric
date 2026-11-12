@@ -284,14 +284,17 @@ class Review:
     malformed: list[str] = field(default_factory=list)
 
 
-def named(line: str) -> str:
+def named(line: str, whole: bool = False) -> str:
     line = line.strip()
-    return line if len(line) <= NAMED_LINE_CHARS else line[:NAMED_LINE_CHARS] + "..."
+    return line if whole or len(line) <= NAMED_LINE_CHARS else line[:NAMED_LINE_CHARS] + "..."
 
 
-def named_all(bad: list[tuple[str, str]]) -> list[str]:
+def named_all(bad: list[tuple[str, str]], whole: bool = False) -> list[str]:
     """The malformed lines as they are named: each cut at NAMED_LINE_CHARS before its reason is added (a cut
-    after it would lose the reason), the report's first MAX_NAMED and a count of the rest."""
+    after it would lose the reason), the report's first MAX_NAMED and a count of the rest; whole: all of them, uncut,
+    for post-review, whose refusal is the one place a person fixes the lines before the review cannot be withdrawn."""
+    if whole:
+        return [named(line, True) + reason for line, reason in bad]
     out = [named(line) + reason for line, reason in bad[:MAX_NAMED]]
     return out + [f"(+{len(bad) - MAX_NAMED} more malformed lines)"] if len(bad) > MAX_NAMED else out
 
@@ -315,9 +318,10 @@ def parse_judgement_line(rest: str) -> tuple[str, str, str] | None:
     return fields[0], fields[1], fields[2]
 
 
-def parse_machine_lines(body: str) -> Review | None:
+def parse_machine_lines(body: str, whole: bool = False) -> Review | None:
     """The review by its `Finding:`/`Judgement:` lines; None when it has none (an older report). Any malformed
-    line leaves the whole report unparsed with nothing counted from it: a report is read by its lines or not at all."""
+    line leaves the whole report unparsed with nothing counted from it: a report is read by its lines or not at all.
+    whole: every malformed line named in full, for the one who must fix them (post-review); a status line keeps the cuts."""
     finding_lines = FINDING_LINE.findall(body)
     judgement_lines = JUDGEMENT_LINE.findall(body)
     if not finding_lines and not judgement_lines:
@@ -350,7 +354,7 @@ def parse_machine_lines(body: str) -> Review | None:
         else:
             judged[got[0]] = got[1:]
     if bad:
-        return Review(unparsed=True, malformed=named_all(bad))
+        return Review(unparsed=True, malformed=named_all(bad, whole))
     return Review(findings=list(findings.items()), judgements=[(k, v, r) for k, (v, r) in judged.items()])
 
 

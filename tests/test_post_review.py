@@ -213,7 +213,7 @@ def main() -> int:
         # A v2 report, since a report without a range is refused before the PR is read; its range is checked later.
         header = json.dumps({"evidence_mode": "pinned", "base_sha": "b" * 40, "head_sha": "a" * 40, "card_base": "c" * 40,
                              "config": "d" * 64})
-        post_review.run(["552"], f"```{review_brief.DISPATCH_VERSION}\n{header}\n```\nfindings\n\n"
+        post_review.run(["552"], f"```{review_brief.DISPATCH_VERSION}\n{header}\n```\nfindings\n\nFinding: none\n\n"
                                  f"```{review_coverage.BLOCK_INFO}\n{{\"paths\": {{}}, \"lenses\": {{}}}}\n```\n")
         check("refused", False)
     except post_review.Refused as e:

@@ -41,6 +41,7 @@ from github.review_status.verdicts import head_covered  # noqa: E402 — the gat
 from github import review_coverage as rcov  # noqa: E402
 from github import post_review as post_review_mod  # noqa: E402
 import errors as errs  # noqa: E402
+import review_lines as rlines  # noqa: E402
 # The card and config every header below names; a case that needs the config the tool itself computes asks for it.
 CARD, CONFIG = "5" * 40, "6" * 64
 
@@ -237,7 +238,11 @@ def main() -> int:
 
         # A new review is v2 only: a body without a header gets the one naming `head`'s range, and a header without a
         # block the block of its range; v2=False posts what it is given.
-        def invoke(body: str, *args: str, head: str | None = HEAD, v2: bool = True) -> tuple[int, str]:
+        # A report with no Finding:/Judgement: line is refused (the cases of that refusal pass machine=False), so every
+        # other case's body gets the line a report without findings carries.
+        def invoke(body: str, *args: str, head: str | None = HEAD, v2: bool = True, machine: bool = True) -> tuple[int, str]:
+            if machine and not re.search(r"^(?:Finding|Judgement):", body, re.M):
+                body += "\nFinding: none\n"
             if v2 and head and "agent-fabric-dispatch" not in body:
                 body, head = range_header(head) + body, None
             if v2 and "agent-fabric-dispatch" in body and rcov.BLOCK_INFO not in body:
@@ -440,9 +445,9 @@ def main() -> int:
         rc, out = invoke(dispatch("working-tree") + "F1 (P2) …", "552", "--dry-run")
         check("--dry-run refuses it too", rc == 2 and "would post" not in out, f"rc={rc}\n{out}")
         set_pr(f"{me}/feat/thing")
-        rc, out = invoke(dispatch("pinned") + "F1 (P2) …", "552")
+        rc, out = invoke(dispatch("pinned") + "F1 (P2) …\n\nFinding: none", "552")
         check("a pinned report posts, its findings whole", rc == 0 and posted()
-              and "\n\nF1 (P2) …\n\n```agent-fabric-coverage v1\n" in body_of(), f"rc={rc}\n{out}{calls()}")
+              and "\n\nF1 (P2) …\n\nFinding: none\n\n```agent-fabric-coverage v1\n" in body_of(), f"rc={rc}\n{out}{calls()}")
         check("…and no dispatch header, no session id, job or clone path in what GitHub gets (#259, risk 1)",
               not any(w in body_of() for w in ("agent-fabric-dispatch", "s-0123-session", "j9", "/home/someone",
                                                "evidence_mode")), body_of())
@@ -454,7 +459,7 @@ def main() -> int:
         check("a spaced-fence working-tree header is refused, nothing sent (#259, F5)",
               rc == 2 and "'working-tree'" in out and not posted(), f"rc={rc}\n{out}{calls()}")
         set_pr(f"{me}/feat/thing")
-        rc, out = invoke(dispatch("pinned"), "552")
+        rc, out = invoke(dispatch("pinned"), "552", machine=False)
         check("a report that is only a header is refused as empty, nothing sent",
               rc == 2 and "empty" in out and not posted(), f"rc={rc}\n{out}{calls()}")
 
@@ -583,9 +588,10 @@ def main() -> int:
             for n in range(1, 4):
                 drop(f"payload.{n}.json")
 
-        def v2_post(report: str, *args: str, header: str | None = None, raw: bool = False) -> tuple[int, str]:
+        def v2_post(report: str, *args: str, header: str | None = None, raw: bool = False, machine: bool = True) -> tuple[int, str]:
             """raw: the report as given, with no coverage block added to a header that has none."""
-            return invoke((fence_header() if header is None else header) + report, "552", *args, head=None, v2=not raw)
+            return invoke((fence_header() if header is None else header) + report, "552", *args, head=None, v2=not raw,
+                          machine=machine)
 
         report = "Found a P2 in sub/c.py.\n\n"
         v2_pr()
@@ -730,9 +736,39 @@ def main() -> int:
                   for l in lines) and sum(bool(post_review_mod.MACHINE_LINE.match(l)) for l in lines) == 3)
 
         v2_pr(cr, listed=(c0, cb, cr))
-        rc, out = v2_post("**F1 (P2)** a finding in the old shape. " + bare + compact, header=big)
+        rc, out = v2_post("**F1 (P2)** a finding in the old shape. " + bare + compact, header=big, machine=False)
         check("a split report with no machine lines is refused, nothing posted",
               rc == 2 and not posted() and "no Finding:/Judgement: lines" in out, f"rc={rc}\n{out[:300]}")
+
+        print("post-review: a report whose Finding:/Judgement: lines arm cannot read is refused, nothing posted")
+        v2_pr()
+        good = "Finding: F1 | P2 | certain | a.py:3 | a thing\n"
+        for label, text, why in (
+            ("a Finding: line with label C1", "Finding: C1 | P2 | certain | a.py:3 | a thing\n", "Finding: C1 | P2"),
+            ("a Finding: line short of a field", "Finding: F1 | P2 | certain | a.py:3\n", "Finding: F1 | P2 | certain | a.py:3"),
+            ("a malformed line beside a good one", good + "Finding: C2 | P3 | likely | - | other\n", "Finding: C2 | P3"),
+            ("a Judgement: line with an unknown verdict", good + "Judgement: F1 | maybe | why\n", "Judgement: F1 | maybe"),
+            ("Judgement: lines with no Finding: line", "Judgement: F1 | real | why\n", "no Finding: line"),
+            ("a report with no machine lines", "**F1 (P2)** a finding in the old shape.\n", "no Finding:/Judgement: lines"),
+        ):
+            rc, out = v2_post(report + text + cover("a.py", "sub/c.py"), machine=False)
+            check(f"{label} is refused, nothing posted, the line named",
+                  rc == 2 and not posted() and why in out and rlines.FINDING_SHAPE in out and rlines.JUDGEMENT_SHAPE in out
+                  and rlines.NO_FINDINGS in out, f"rc={rc}\n{out[:400]}{calls()}")
+        many = "".join(f"Finding: C{n} | P2 | certain | a.py:3 | {'long ' * 40}{n}\n" for n in range(8))
+        rc, out = v2_post(report + many + cover("a.py", "sub/c.py"), machine=False)
+        check("every malformed line is named, in full, not the first five cut short",
+              rc == 2 and not posted() and all(f"Finding: C{n} | P2" in out and f"long {n}" in out for n in range(8))
+              and "more malformed" not in out, f"rc={rc}\n{out[:300]}")
+        for label, text in (("Finding: none", "Finding: none\n"),
+                            ("a finding and its judgement", good + "Judgement: F1 | real | it is\n")):
+            v2_pr()
+            rc, out = v2_post(report + text + cover("a.py", "sub/c.py"), machine=False)
+            check(f"a well-formed report with {label} posts", rc == 0 and posted(), f"rc={rc}\n{out[:300]}")
+        v2_pr()
+        rc, out = v2_post(report + "Finding: C1 | P2 | certain | a.py:3 | a thing\n" + cover("a.py", "sub/c.py"),
+                          "--dry-run", machine=False)
+        check("--dry-run refuses a malformed line too", rc == 2 and "Finding: C1 | P2" in out, out)
 
         git("checkout", "-q", "-b", "wide", c0)
         wide = [f"w/{'é' * 100}{i:03d}.md" for i in range(150)]
