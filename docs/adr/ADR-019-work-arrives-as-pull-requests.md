@@ -6,6 +6,7 @@
 **Decision Makers:** the owner; drafted by fabric-coordinator
 **Scope:** identities/prompt/team.md and policies/pull-requests/SKILL.md (the PR rules every session reads); fabric-pr gate, tools/fabric/github/commit_class.py, fabric-pr review-status; tools/fabric/guards/ban_generated_by_attribution.py and policies/githooks/commit-msg; .github/workflows/ci.yml; `fabric-repo-settings` and the GitHub-side settings of gzapi-org/agent-fabric
 **Pillar:** P3
+**Class:** engine
 
 ## 1. Context and Problem
 

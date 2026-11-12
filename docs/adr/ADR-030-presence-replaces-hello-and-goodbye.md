@@ -6,6 +6,7 @@
 **Decision Makers:** the owner; drafted by fabric-coordinator
 **Scope:** the control agent's `presence` op (tools/fabric/control/ops/, tools/fabric/control/presence.py); `fabric-ctl <login|all> presence`; the sender's check in tools/fabric/gzcoord/send.py; the inbox's handling of HELLO and GOODBYE (tools/fabric/gzcoord/inbox.py) and their retirement in the validator (tools/fabric/gzcoord/gzmsg.py); what runtime/openrouter/launch and bin/fabric-role no longer send; communication/gzcoord/skills/gzcoord-send and gzcoord-receive
 **Pillar:** P5
+**Class:** engine
 **Evidence:** docs/live-checks/2026-09-16-goodbye-from-the-launcher.md
 
 ## 1. Context and Problem

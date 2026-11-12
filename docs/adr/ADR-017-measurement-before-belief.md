@@ -6,6 +6,7 @@
 **Decision Makers:** the owner; drafted by fabric-coordinator
 **Scope:** docs/live-checks/; tools/fabric/adr.py (the Evidence field); tools/fabric/lint.py (`harness_source_findings`, `doc_path_findings`); runtime/openrouter/launch (`--print`); tools/fabric/launch_prompt.py (`MAX_CHARS`); tests/test_launch_prompt.py; identities/roles/fabric-coordinator/brief.md; identities/prompt/team.md and identities/prompt/memory.md (verifying before asserting)
 **Pillar:** P2
+**Class:** engine
 **Evidence:** docs/live-checks/2026-09-15-append-system-prompt.md, docs/live-checks/2026-09-23-opus-5-5.md
 
 ## 1. Context and Problem

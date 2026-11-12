@@ -6,6 +6,7 @@
 **Decision Makers:** the owner (asked for this record after reading the mods announcement); drafted by fabric-coordinator
 **Scope:** each host's `/etc/claude-code/managed-settings.json`, the fleet's guards (the `PreToolUse` and `PreModelSwitch` hooks now registered in the workspace's `.claude/settings.json`), the fleet's own mods, and the Claude Code pin in `runtime/claude-code/harness.json`
 **Pillar:** P1
+**Class:** engine
 
 ## 1. Context and Problem
 

@@ -6,6 +6,7 @@
 **Decision Makers:** the owner (the routing moves of 2026-09-13, 2026-09-19, 2026-09-24, 2026-09-25 and 2026-09-29); architect-cto (the review model, 2026-09-13 and 2026-09-15); landed by fabric-coordinator
 **Scope:** routing/capabilities.json, routing/profiles.json, routing/shims.json and routing/shims/, routing/policies/review-grade.json, runtime/claude-code/aliases.json, runtime/openrouter/launch, runtime/claude-code/install-agent-files.sh, runtime/claude-code/hooks/agent-dispatch-guard.sh and model-switch-guard.sh, bin/fabric-model, tools/fabric/routing.py, tools/fabric/shim.py
 **Pillar:** P1
+**Class:** engine
 **Evidence:** docs/live-checks/2026-09-13-openrouter-routing.md, docs/live-checks/2026-09-14-deepseek.md, docs/live-checks/2026-09-16-openrouter-presets.md, docs/live-checks/2026-09-19-deepseek-top-tier.md, docs/live-checks/2026-09-23-opus-5-5.md, docs/live-checks/2026-09-29-sonnet-5-5.md
 
 ## 1. Context and Problem

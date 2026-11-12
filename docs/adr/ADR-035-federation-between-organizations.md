@@ -6,6 +6,7 @@
 **Decision Makers:** the owner; drafted by fabric-coordinator
 **Scope:** how agent-fabric lets one organization work with another: what may cross the boundary, what never does, and the trust that must exist first; the boundary any federation is built within
 **Pillar:** P6
+**Class:** engine
 
 ## 1. Context and Problem
 

@@ -6,6 +6,7 @@
 **Decision Makers:** fabric-coordinator, on the review of 2026-09-16 (items 1, 2, 5, 6)
 **Scope:** everything under `${XDG_STATE_HOME:-~/.local/state}/agent-fabric/agents/<login>/`; runtime/identity.py; tools/fabric/role.py, tools/fabric/state_writes.py and tools/fabric/state-writers.json, runtime/claude-code/hooks/session-start.py, runtime/provisioning/rename_history.py and rename-working-copy.sh; the session hooks' state (runtime/claude-code/hooks/session-state.py, context-sample.py); the control code's state writers (tools/fabric/control/: upgrade.py's restart.json, agentd.py's ActionLedger, pool.py, breakglass.py's and switch_log.py's logs)
 **Pillar:** P1
+**Class:** engine
 
 ## 1. Context and Problem
 

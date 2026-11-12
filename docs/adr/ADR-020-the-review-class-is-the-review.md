@@ -6,6 +6,7 @@
 **Decision Makers:** the owner; drafted by fabric-coordinator
 **Scope:** runtime/claude-code/agents/code-review.md; runtime/claude-code/hooks/agent-dispatch-guard.sh and review-bash-guard.sh; runtime/claude-code/aliases.json; routing/capabilities.json and routing/policies/review-grade.json (the class's model); bin/fabric-review, tools/fabric/review_brief.py and tools/fabric/review_card.py (the card's cap, which tools/fabric/guards/commit_hooks.py and tools/fabric/lint_rules/card.py judge by too); fabric-pr post-review, fabric-pr review-status, fabric-pr gate; policies/subagent-dispatch/SKILL.md
 **Pillar:** P3
+**Class:** engine
 **Evidence:** docs/live-checks/2026-09-16-review-context-boundary.md
 
 ## 1. Context and Problem

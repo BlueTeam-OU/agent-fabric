@@ -5,6 +5,7 @@
 **Decision Makers:** the owner; drafted by fabric-coordinator
 **Scope:** `fabric-ctl assist "<question>"`, the module that implements it, the login pattern of `runtime/hosts/schema/hosts.schema.json` and `tools/fabric/new_agent.py`, the `CLAUDE_APIKEY_CLAUDE_PZHUY_8ALIAS_COM` entry in the host operator's store, and every other path by which that key could be spent
 **Pillar:** P5
+**Class:** engine
 
 ## 1. Context and Problem
 

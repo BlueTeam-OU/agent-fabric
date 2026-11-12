@@ -6,6 +6,7 @@
 **Decision Makers:** the owner; drafted by fabric-coordinator
 **Scope:** the `language-culture` role (identities/roles/language-culture/charter.md, brief.md, and each locale under identities/roles/language-culture/locale/); the locale worker (locale/<suffix>/worker.md, runtime/claude-code/install-agent-files.sh, runtime/claude-code/hooks/agent-dispatch-guard.sh); the prompt in the locale (tools/fabric/launch_prompt.py, runtime/openrouter/launch, runtime/claude-code/harness/); the locale search (tools/fabric/websearch_locale.py, runtime/mcp/websearch-locale/install.py); the measurement (tools/fabric/control/ops/activity.py `script`); the memory rendering (tools/fabric/harvest_memory.py); the translation checks in tools/fabric/lint.py and bin/fabric-locale
 **Pillar:** P4
+**Class:** engine
 **Evidence:** docs/live-checks/2026-09-17-language-culture-bridge.md, docs/live-checks/2026-09-18-language-culture-prompt-replacement.md
 
 ## 1. Context and Problem

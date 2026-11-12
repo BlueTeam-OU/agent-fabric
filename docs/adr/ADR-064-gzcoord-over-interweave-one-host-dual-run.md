@@ -6,6 +6,7 @@
 **Decision Makers:** the owner; drafted by fabric-coordinator
 **Scope:** the InterWeave carrier of GZCOORD/1 on the host the fleet shares: its roster (`runtime/interweave/roster.json`), each account's InterWeave profile and units, the carrier process, the send and inbox adapters in `tools/fabric/gzcoord/`, and the parity report that decides a switch; ADR-033's relay stays as it is
 **Pillar:** P5
+**Class:** engine
 
 ## 1. Context and Problem
 

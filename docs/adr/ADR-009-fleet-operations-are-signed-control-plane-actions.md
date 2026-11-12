@@ -6,6 +6,7 @@
 **Decision Makers:** the owner (the control plane over sudo, 2026-09-24; account operations by signed message, 2026-09-25; distribution in the control plane and fabric commands by name, 2026-09-26); fabric-coordinator
 **Scope:** bin/fabric-ctl and its `upgrade` pieces (tools/fabric/control/agentd.py, tools/fabric/control/upgrade.py), bin/fabric-accounts, runtime/claude-code/harness.json, the operator's signing key, distribution after a merge, runtime/claude-code/commands.json and the fabric commands' links and allow rules
 **Pillar:** P1
+**Class:** engine
 **Evidence:** docs/live-checks/2026-09-25-first-fleet-upgrade.md, docs/live-checks/2026-09-26-first-upgrade-fabric.md
 
 ## 1. Context and Problem

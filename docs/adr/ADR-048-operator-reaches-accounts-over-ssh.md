@@ -6,6 +6,7 @@
 **Decision Makers:** the owner (ssh for the deck's panes, the forced command, the Qubes split); drafted by fabric-coordinator
 **Scope:** `runtime/provisioning/moveto/enter-ssh`, `runtime/provisioning/platform/qubes/ssh-template.sh`, `runtime/provisioning/platform/qubes/ssh-operator.sh`, `runtime/provisioning/platform/qubes/ssh-restore.sh`, `tools/fabric/ssh_hosts.py`, `bin/fabric-ssh-hosts`, the harness pane's `--wait` and its one `--resume` exception (`tools/fabric/control/harness_pane.py`, `tools/fabric/control/harness_restart.py`), the `sshd` property of a host in `runtime/hosts/registry.json`; how the operator's panes enter an account
 **Pillar:** P3
+**Class:** engine
 **Evidence:** docs/live-checks/2026-10-09-ssh-operator.md, docs/live-checks/2026-11-04-harness-restart.md
 
 ## 1. Context and Problem

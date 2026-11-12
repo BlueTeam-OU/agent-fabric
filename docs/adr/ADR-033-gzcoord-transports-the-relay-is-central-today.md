@@ -6,6 +6,7 @@
 **Decision Makers:** the owner; drafted by fabric-coordinator
 **Scope:** communication/gzcoord/docs/TRANSPORT-ADAPTER-CONTRACT.md and HUMAN-RELAY-TRANSPORT.md (the manuals); communication/gzcoord/history/ (telegram-transport, claude-bridge-selection); the relay's deployment — communication/gzcoord/runtime/gzcoord-relay.service, its installation in runtime/claude-code/bootstrap.sh, the session-start activation in tools/fabric/gzcoord/inbox.py, the projects' integration configs (projects/gzapp/integration/gzcoord/config.json and its siblings), and projects/gzapp/integration/gzcoord/BRIDGE-RELAY-SETUP.md
 **Pillar:** P5
+**Class:** engine
 
 ## 1. Context and Problem
 

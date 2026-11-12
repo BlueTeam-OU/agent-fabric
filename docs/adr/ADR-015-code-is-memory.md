@@ -6,6 +6,7 @@
 **Decision Makers:** the owner; drafted by fabric-coordinator
 **Scope:** every repository the fabric coordinates, every role and every coding class; `AGENTS.md` §"Working here" and runtime/claude-code/workspace/CLAUDE.md, through which it reaches a session; runtime/claude-code/agents/code-review.md §"Comments are engineering memory"; tests/test_review_brief.py (the reviewer's size cap)
 **Pillar:** P2
+**Class:** engine
 
 ## 1. Context and Problem
 

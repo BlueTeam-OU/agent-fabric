@@ -5,6 +5,7 @@
 **Decision Makers:** the owner; drafted by fabric-coordinator
 **Scope:** `routing/policies/availability.json` and its schema; how an engine run learns a model is unavailable and what it does (`tools/fabric/review_codex.py`, the review engines to come); each provider's strategy, its review models in order (`routing/policies/availability.json`, its first model the one `routing/capabilities.json` routes, all inside `routing/policies/review-grade.json`); the control plane's report of what runs observed, for people (`fabric-ctl`, the Board); the review divert
 **Pillar:** P1
+**Class:** engine
 
 ## 1. Context and Problem
 

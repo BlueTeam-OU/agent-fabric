@@ -6,6 +6,7 @@
 **Decision Makers:** the owner; drafted by fabric-coordinator
 **Scope:** communication/gzcoord/i18n/ (README.md — the manual, en-US.json, i18n.schema.json); tools/fabric/gzcoord/i18n.py and its callers gzmsg.py, send.py and inbox.py; tests/test_gzcoord_i18n.py; an active locale's dictionary under identities/roles/<role>/locale/<suffix>/; the dictionary checks in tools/fabric/lint.py; `GZCOORD_DEFAULT_LOCALE_ONLY` in tests/run.sh; any dictionary the fabric adds later
 **Pillar:** P4
+**Class:** engine
 
 ## 1. Context and Problem
 

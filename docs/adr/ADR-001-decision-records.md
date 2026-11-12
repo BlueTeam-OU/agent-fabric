@@ -6,6 +6,7 @@
 **Decision Makers:** the owner; drafted by fabric-coordinator
 **Scope:** docs/adr/ — how agent-fabric records, amends and supersedes its decisions; tools/fabric/adr.py; who writes and who accepts
 **Pillar:** P2
+**Class:** engine
 
 ## 1. Context and Problem
 

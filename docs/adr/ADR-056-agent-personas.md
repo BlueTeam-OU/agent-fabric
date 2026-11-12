@@ -6,6 +6,7 @@
 **Decision Makers:** the owner; drafted by fabric-coordinator
 **Scope:** each agent's persona — its name, its sex for the image, its avatar — kept in `settings/profile.json` of its repository `fabric-agent-<id>` (ADR-038, ADR-039); the surname list `identities/personas/surnames.json` and the claims `identities/personas/claims.json`; how a persona is displayed (the Fleet Deck, the Board, GZCoord, pull requests); the avatar style, owned by brand-comms; ADR-033 §5 rule 3
 **Pillar:** P2
+**Class:** engine
 
 ## 1. Context and Problem
 

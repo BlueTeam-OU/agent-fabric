@@ -6,6 +6,7 @@
 **Decision Makers:** the owner (new fabric tooling in Python; a shell script ported when it next needs a substantial change; the wave plan); drafted by fabric-coordinator
 **Scope:** every executable the fabric tracks — `bin/`, `runtime/`, `policies/`, `tools/`, `tests/`: the language a script is written in, the two kinds of bash that remain, and how an existing script moves; `tools/fabric/bash-allowlist.json` and the lint rule that reads it; `tools/fabric/gh.py` and `tools/fabric/git.py`
 **Pillar:** P1
+**Class:** engine
 
 ## 1. Context and Problem
 

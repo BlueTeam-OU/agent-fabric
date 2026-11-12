@@ -6,6 +6,7 @@
 **Decision Makers:** the owner; drafted by fabric-coordinator
 **Scope:** tools/fabric/assemble.py (the collision pre-pass, `--collision-decisions`, `merge_target` resolution, the write phase, the drain report's `collision_decisions` and `merge_target_unresolved`); tools/fabric/harvest_memory.py (`observed_at`, `merge_target`); tests/test_assemble.py; memory/README.md §"The drain cycle"
 **Pillar:** P2
+**Class:** engine
 
 ## 1. Context and Problem
 

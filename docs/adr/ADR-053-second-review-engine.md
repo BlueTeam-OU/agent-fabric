@@ -6,6 +6,7 @@
 **Decision Makers:** the owner; drafted by fabric-coordinator
 **Scope:** the review class's engines (ADR-005, ADR-020); `fabric-review --engine codex` (`tools/fabric/review_codex.py`); the arming policy's `reviews` rule (`identities/schemas/arming.schema.json`, `policies/arming.json`); the Codex pin in `projects/registry.json`; the launcher's Codex profile; the review-brief skill
 **Pillar:** P1
+**Class:** engine
 
 ## 1. Context and Problem
 

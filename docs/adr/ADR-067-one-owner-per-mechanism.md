@@ -5,6 +5,7 @@
 **Decision Makers:** the owner; drafted by fabric-coordinator
 **Scope:** the fabric's cross-cutting mechanisms (per-agent state, process lifetime, agent context, remote evidence completeness, the job lifecycle, message transport, instance roots, the recognition of a fabric command in a Bash line) and the catalogue that names each one's owning module, its checker and its declared exceptions: `tools/fabric/mechanisms.json`, read by `tools/fabric/lint_rules/mechanisms.py`. Not what each mechanism decides, which stays in its own record (ADR-003, ADR-037, ADR-045, ADR-064, ADR-068)
 **Pillar:** P1
+**Class:** engine
 
 ## 1. Context and Problem
 

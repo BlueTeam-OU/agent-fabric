@@ -6,6 +6,7 @@
 **Decision Makers:** the owner (the move off Doppler, a repository per agent, a key per agent, paper recovery, the parent's role, no assumed co-location); drafted by fabric-coordinator
 **Scope:** every agent's credentials and the key that guards them: `tools/fabric/secret_store.py` behind `bin/fabric-secrets`; each agent's repository `BlueTeam-OU/fabric-agent-<id>` (ADR-039); `identities/keys/`; `~/.config/agent-fabric/secrets.env`, `env.sh` and their consumers; what a session's shell holds; filling a child's store (`fabric-secrets provision`); the migration from Doppler (ADR-012), complete; the Claude-account templates (ADR-031); each company's store, the `secrets_store` of a client in `projects/clients.json` (ADR-045), and what reaches an agent from it; provisioning (`runtime/provisioning/new-agent.sh`)
 **Pillar:** P1
+**Class:** engine
 
 ## 1. Context and Problem
 

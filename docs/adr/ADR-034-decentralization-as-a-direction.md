@@ -6,6 +6,7 @@
 **Decision Makers:** the owner; drafted by fabric-coordinator
 **Scope:** the criterion by which the fabric decides what to decentralize, and the inventory of what depends on one host, one relay, one key or one service today; a direction the fabric's changes are argued against
 **Pillar:** P5
+**Class:** engine
 
 ## 1. Context and Problem
 

@@ -6,6 +6,7 @@
 **Decision Makers:** fabric-coordinator (host execution, 2026-09-16; the host lease, 2026-09-19); the owner (the shared Android toolchain deferred, 2026-09-26)
 **Scope:** runtime/hosts/registry.json, runtime/hostexec/, bin/fabric-host, runtime/provisioning/ (new-agent.sh and its worker, platform/, persist-accounts.sh, moveto/, github-host-keys), bin/fabric-lease and /run/lock/agent-fabric
 **Pillar:** P1
+**Class:** engine
 **Evidence:** docs/live-checks/2026-09-16-github-host-keys.md, docs/live-checks/2026-09-16-hostexec-local-backend.md, docs/live-checks/2026-09-19-develop-qzapp-crash.md, docs/live-checks/2026-09-25-develop-qzapp-crash.md, docs/live-checks/2026-11-11-fabric-h2-registered.md
 
 ## 1. Context and Problem

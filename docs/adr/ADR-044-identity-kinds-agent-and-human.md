@@ -6,6 +6,7 @@
 **Decision Makers:** the owner (a human login as an identity of the fleet); drafted by fabric-coordinator
 **Scope:** what a placed login is (`runtime/hosts/registry.json` `kinds`); what each kind holds and runs; `fabric-ctl`'s fleet-wide reads; provisioning a human login (`runtime/provisioning/new-agent.sh`); Fleet Deck's operator login (herdr)
 **Pillar:** P1
+**Class:** engine
 
 ## 1. Context and Problem
 

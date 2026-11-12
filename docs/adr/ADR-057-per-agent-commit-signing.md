@@ -6,6 +6,7 @@
 **Decision Makers:** the owner; drafted by fabric-coordinator
 **Scope:** how every account signs, timestamps and verifies git commits: the signing command git calls for both OpenPGP and SSH, `policies/signing.json` (which format each forge or repository takes), where timestamp proofs live, the checker run by the hooks and CI (`tools/fabric/guards/ban_unsigned_commits.py` and its successor); the signing subkey of each agent key (ADR-038); ADR-038 §6 "Commits"
 **Pillar:** P1
+**Class:** engine
 **Evidence:** docs/live-checks/2026-10-13-agent-signing-keys-as-ssh.md
 
 ## 1. Context and Problem

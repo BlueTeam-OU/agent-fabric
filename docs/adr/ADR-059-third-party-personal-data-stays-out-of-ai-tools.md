@@ -6,6 +6,7 @@
 **Decision Makers:** the owner; drafted by fabric-coordinator
 **Scope:** what personal data of anyone other than Blueteam's own people may reach the Claude Max plan the fleet runs on; what the blueteam.ee privacy notice says of it. Not the OpenAI business account, for which OpenAI offers a processing agreement (unverified in the opinion; for the owner to confirm in the account, the redraft's section 5)
 **Pillar:** P3
+**Class:** organisational
 
 ## 1. Context and Problem
 

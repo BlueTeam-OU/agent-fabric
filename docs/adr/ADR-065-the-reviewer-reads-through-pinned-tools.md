@@ -6,6 +6,7 @@
 **Decision Makers:** the owner; drafted by fabric-coordinator
 **Scope:** the review class's tools (`runtime/claude-code/agents/code-review.md`), a read-only review tool server beside `tools/fabric/memory_mcp/`, the sandbox the reviewer's checks run in, the posted review object (`tools/fabric/github/post_review.py` and its readers), the re-review range (`tools/fabric/review_brief.py` `card_base`), and the arm's reading of a review; the Codex engine (ADR-053) only where it posts through the same object
 **Pillar:** P3
+**Class:** engine
 
 ## 1. Context and Problem
 

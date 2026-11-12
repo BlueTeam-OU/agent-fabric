@@ -6,6 +6,7 @@
 **Decision Makers:** the owner; drafted by fabric-coordinator
 **Scope:** communication/gzcoord/protocol/ (SPEC.md, MESSAGE-FORMAT.md, SEMANTICS.md, CONFORMANCE.md, examples/); the reference validator tools/fabric/gzcoord/gzmsg.py and tests/test_gzcoord_protocol.py; fabric-coordinator's authority over the protocol (identities/roles/fabric-coordinator/charter.md, "The GZCoord protocol"); how a protocol change is proposed, judged and recorded
 **Pillar:** P5
+**Class:** engine
 
 ## 1. Context and Problem
 

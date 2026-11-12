@@ -6,6 +6,7 @@
 **Decision Makers:** the owner; drafted by fabric-coordinator
 **Scope:** the repository's instruction file (`AGENTS.md`, `CLAUDE.md`) and the workspace template (`runtime/claude-code/workspace/CLAUDE.md`); a harness adapter beside `runtime/claude-code/` (`runtime/codex/`, to be built); the launcher's harness choice and the binding that records it (`identities/schemas/binding.schema.json`); the guards' Codex wiring; the `openai` provider's coding classes (`routing/capabilities.json`, `routing/effort.json`); the ChatGPT credential path through the gateway
 **Pillar:** P1
+**Class:** engine
 
 ## 1. Context and Problem
 

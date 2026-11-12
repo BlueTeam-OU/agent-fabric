@@ -6,6 +6,7 @@
 **Decision Makers:** the CEO (named the problem, 2026-09-16); implemented by fabric-coordinator
 **Scope:** runtime/claude-code/hooks/model-fallback-note.sh and its wiring (the workspace template, each project's .claude/settings.json); tools/fabric/gzcoord/send.py; bin/fabric-status; the gzcoord-send and gzcoord-receive skills
 **Pillar:** P1
+**Class:** engine
 
 ## 1. Context and Problem
 

@@ -5,6 +5,7 @@
 **Decision Makers:** the owner; drafted by fabric-coordinator
 **Scope:** the `fabric` command (`bin/fabric` and the module it forwards to), the table in `runtime/claude-code/commands.json` it reads, the permission rules `runtime/claude-code/user-settings.py` writes for it, how a hook or guard recognises a fabric command in a Bash line, and the order in which skills and docs move to the new form. Not what any command does, which stays in its own record; not the existing binaries, which stay
 **Pillar:** P1
+**Class:** engine
 
 ## 1. Context and Problem
 
