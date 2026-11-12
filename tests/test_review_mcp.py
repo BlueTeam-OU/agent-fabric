@@ -58,6 +58,23 @@ def alive(pid: int) -> bool:
         return False
 
 
+def read_pid(path: str, wait: float = 10.0) -> int:
+    """The shell creates its pidfile empty and fills it a moment later (`>` truncates before `echo` writes),
+    so a reader that gets there first sees "" (ValueError) or no file; wait, bounded, for a whole line."""
+    deadline = time.monotonic() + wait
+    while True:
+        try:
+            with open(path, encoding="utf-8") as fh:
+                text = fh.read()
+        except FileNotFoundError:
+            text = ""
+        if text.endswith("\n"):
+            return int(text)
+        if time.monotonic() >= deadline:
+            raise AssertionError(f"no whole pid in {path} after {wait}s: {text!r}")
+        time.sleep(0.01)
+
+
 def processes_with(needle: str) -> list[int]:
     found = []
     for name in os.listdir("/proc"):
@@ -403,14 +420,26 @@ def main() -> int:
     ran = runner.run_bounded(["/usr/bin/printf", "abc"], {"PATH": "/usr/bin"}, scratch, 20, 1000)
     check("control: output under the cap is whole and unmarked", not ran.cut and ran.out == b"abc" and ran.returncode == 0)
     pidfile = os.path.join(scratch, "child.pid")
+    # The race forced: the file is empty at the read (made here, so nothing is polled for), then holds half a
+    # number, then the line.
+    open(pidfile, "w", encoding="utf-8").close()
+    lag = subprocess.Popen(["/bin/sh", "-c", f'sleep 0.3; printf 42 > "{pidfile}"; sleep 0.3; echo 4242 > "{pidfile}"'])
+    try:
+        raced = read_pid(pidfile)
+    finally:
+        lag.wait()
+    check("a pidfile read before its writer has written waits for it", raced == 4242, str(raced))
+    # A pid left here would be read as the next case's own if its shell never got to write.
+    os.unlink(pidfile)
     t0 = time.monotonic()
-    ran = runner.run_bounded(["/bin/sh", "-c", f'sleep 4711.{TAG} & echo $! > "{pidfile}"; wait'], {"PATH": "/usr/bin:/bin"}, scratch, 1, 1000)
-    child = int(open(pidfile, encoding="utf-8").read())
+    # The budget must outlast the shell's write of its pidfile, or the case reads nothing to check.
+    ran = runner.run_bounded(["/bin/sh", "-c", f'sleep 4711.{TAG} & echo $! > "{pidfile}"; wait'], {"PATH": "/usr/bin:/bin"}, scratch, 3, 1000)
+    child = read_pid(pidfile)
     time.sleep(0.2)
     check("a program that outlives its budget is ended at it", ran.timed_out and time.monotonic() - t0 < 10)
     check("its whole process group is ended, the forked child too", not alive(child) and not processes_with(f"4711.{TAG}"), str(child))
     ran = runner.run_bounded(["/bin/sh", "-c", f'sleep 4712.{TAG} & echo $! > "{pidfile}"; exit 0'], {"PATH": "/usr/bin:/bin"}, scratch, 20, 1000)
-    child = int(open(pidfile, encoding="utf-8").read())
+    child = read_pid(pidfile)
     time.sleep(0.2)
     check("a child left behind by a program that exited is ended with the group, and the exit is kept",
           ran.returncode == 0 and not ran.timed_out and not alive(child), str(child))
@@ -423,9 +452,11 @@ def main() -> int:
         # with nothing to read back, so wait (bounded) for the child's pid to be there.
         deadline = time.monotonic() + 10
         while time.monotonic() < deadline:
-            if os.path.exists(pidfile) and open(pidfile, encoding="utf-8").read().endswith("\n"):
+            try:
+                read_pid(pidfile, 0)
                 break
-            time.sleep(0.01)
+            except (AssertionError, ValueError):
+                time.sleep(0.01)
         raise KeyboardInterrupt
 
     runner.select.select = interrupted
@@ -436,7 +467,7 @@ def main() -> int:
         raised = True
     finally:
         runner.select.select = real_select
-    child = int(open(pidfile, encoding="utf-8").read())
+    child = read_pid(pidfile)
     time.sleep(0.2)
     check("an interrupt in the read ends the whole process group and is not swallowed",
           raised and not alive(child) and not processes_with(f"4713.{TAG}"), str(child))
