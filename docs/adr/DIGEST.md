@@ -1322,7 +1322,7 @@ its record disagree, the record wins. Look it up, never read it whole:
 - A 2026-11-12 — rules 7, 8 point at the policy data; the principle stays.
   absent: the arm proceeds on the required reviews and says so, and the gate reads the same.
 
-### ADR-056 — Agent personas: "AI <Name> <Surname>", a scientist's surname each, an avatar the agent accepts, always marked as AI (Accepted)
+### ADR-056 — Agent personas: "AI <Name> <Surname>", a surname from the operator's list each, an avatar the agent accepts, always marked as AI (Accepted)
 
 - A persona — first name, surname, sex (F/M) for the image, avatar — is the
   agent id's, in `settings/profile.json` of `fabric-agent-<id>` (§5 rule 1).
@@ -1332,7 +1332,7 @@ its record disagree, the record wins. Look it up, never read it whole:
   claim wins (§5 rules 3-4); which names qualify and the avatar house style
   are the operator's, ADR-071 here.
 - No gender or pronoun; "it" on request (§5 rule 6). The agent may reject
-  any avatar (§5 rule 1). Identity and authorship unchanged (§5 rule 8).
+  any avatar (§5 rule 7). Identity and authorship unchanged (§5 rule 8).
 - A 2026-10-13 — candidates wait in /usr/local/share/agent-fabric/avatars/<id>/ (§5 rule 7).
 - A 2026-10-13 — named "AI <Name> <Surname>, <role>", never the login where people read; first names in claims.json (§5 rules 2, 4).
 - A 2026-10-15 — provisioning claims the surname (`new-agent --surname`), first_name null until chosen; the agent chooses its sex first, then a first name of that sex (§5 rules 4-6).

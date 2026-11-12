@@ -1,4 +1,4 @@
-# ADR-056 — Agent personas: "AI <Name> <Surname>", a scientist's surname each, an avatar the agent accepts, always marked as AI
+# ADR-056 — Agent personas: "AI <Name> <Surname>", a surname from the operator's list each, an avatar the agent accepts, always marked as AI
 
 **Date:** 2026-10-13
 **Status:** Accepted
@@ -95,7 +95,8 @@ its own rather than imposed.
    claim wins, first name and surname alike.
 5. The agent chooses its sex first (rule 6), then its first name: a
    name of that sex, from the culture its surname comes from (the
-   entry's `from`), whatever the scientist's own sex, so a name, a sex
+   entry's `from`), whatever the sex of the person the surname comes
+   from, so a name, a sex
    and a surname belong together (A 2026-10-15). What else the operator
    asks of a name is its theme's (ADR-071 here) (A 2026-11-12).
 6. The sex is chosen before the first name, and only for the avatar's
