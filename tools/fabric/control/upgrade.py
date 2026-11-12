@@ -90,6 +90,7 @@ from control.ops import util
 from control.ops.usage import claude_bin
 from provisioning import bounded
 import roots  # noqa: E402 — control.ops puts tools/fabric on sys.path
+import operator_checkout  # noqa: E402
 
 PIECES = ["claude", "fabric"]
 VERSION_RE = re.compile(r"\d{1,4}\.\d{1,4}\.\d{1,6}")
@@ -714,6 +715,21 @@ def upgrade_fabric(request: dict, *, home: str | None = None, root: str | None =
         git("fetch", "-q", "origin", "main")
     except (subprocess.SubprocessError, OSError) as e:
         return {"status": "failed", "piece": "fabric", "from": from_, "reason": f"git fetch: {said(e)}; not moved"}
+    # The operator's checkout is the second half of "pull both" (ADR-045 §6): fast-forwarded first, so the pin read
+    # is the operator's latest. Its failures are said in the reply and are never fatal to the engine half; only a
+    # pin that is present and unreadable stops the move, because unknown is not absent.
+    projects = os.path.dirname(os.path.realpath(root))
+    op = operator_checkout.path(projects)
+    synced = operator_checkout.sync(op, fetch_timeout=FABRIC_GIT_TIMEOUT_MS / 1000)
+    operator_notes = [synced.line] if synced.line and synced.state not in ("absent", "not-a-checkout") else []
+    pin = operator_checkout.read_pin(op)
+    plan = operator_checkout.engine_plan(root, pin)
+    if plan.refusal:
+        return {"status": "refused", "piece": "fabric", "from": from_, "reason": f"{plan.refusal}; not moved"}
+    # An absent pin is today's behaviour and the reply keeps today's shape; bootstrap, which this upgrade runs,
+    # the launcher and moveto are where "no pin is in force" is said.
+    if pin.kind != "absent":
+        operator_notes += plan.notes or []
     # After the fetch, a commit this checkout does not have is not on its
     # origin/main either: that is a "no", as is merge-base's exit 1.
     not_on_main = {"status": "refused", "piece": "fabric", "from": from_, "reason": f"{target[:8]} is not on this account's origin/main; not moved"}
@@ -731,10 +747,27 @@ def upgrade_fabric(request: dict, *, home: str | None = None, root: str | None =
         return {"status": "failed", "piece": "fabric", "from": from_, "reason": f"git merge-base: {said(e)}; not moved"}
     except (subprocess.SubprocessError, OSError) as e:
         return {"status": "failed", "piece": "fabric", "from": from_, "reason": f"git merge-base: {said(e)}; not moved"}
+    # The coordinator's commit is how far the fleet is sent; the operator's pin is how far this engine may go. With
+    # a pin the move is to the pin, or to the coordinator's commit when that is behind it ("never past" either);
+    # a pin the engine is ahead of, has diverged from or lacks holds the engine where it is, said in the reply.
+    move_to = target
+    if pin.kind == "pinned":
+        move_to = ""
+        if plan.target:
+            try:
+                git("merge-base", "--is-ancestor", plan.target, target)
+                move_to = plan.target
+            except subprocess.CalledProcessError as e:
+                if e.returncode != 1:
+                    return {"status": "failed", "piece": "fabric", "from": from_, "reason": f"git merge-base: {said(e)}; not moved"}
+                move_to = target
+            except (subprocess.SubprocessError, OSError) as e:
+                return {"status": "failed", "piece": "fabric", "from": from_, "reason": f"git merge-base: {said(e)}; not moved"}
     try:
-        git("merge", "--ff-only", "-q", target)
+        if move_to:
+            git("merge", "--ff-only", "-q", move_to)
     except (subprocess.SubprocessError, OSError) as e:
-        return {"status": "failed", "piece": "fabric", "from": from_, "reason": f"cannot fast-forward to {target[:8]}: {_failure_line(e, ['git'])[:160]}; not forced"}
+        return {"status": "failed", "piece": "fabric", "from": from_, "reason": f"cannot fast-forward to {move_to[:8]}: {_failure_line(e, ['git'])[:160]}; not forced"}
     try:
         to = git("rev-parse", "--short", "HEAD")
     except (subprocess.SubprocessError, OSError) as e:
@@ -767,6 +800,7 @@ def upgrade_fabric(request: dict, *, home: str | None = None, root: str | None =
     return {
         "status": "failed" if reason else "current" if not moved else "upgraded", "piece": "fabric", "from": from_, "to": to,
         **({"provider": provider} if provider else {}), **({"reason": reason} if reason else {}),
+        **({"operator": "; ".join(operator_notes)} if operator_notes else {}),
         "session": "unknown" if pids is None else "running: next launch uses it" if pids else "none",
         "restart_daemon": moved or unit_deferred,
         **({"note": f"the control agent restarts on the new {'unit' if unit_deferred else 'code'} after this reply"} if (moved or unit_deferred) and not reason else {}),

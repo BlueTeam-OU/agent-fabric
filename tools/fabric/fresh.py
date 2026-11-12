@@ -171,6 +171,8 @@ def relaunch_refusal() -> str | None:
     session that needs the override relaunches with it instead."""
     root = roots.engine_root()
     verdict = _launcher_currency().fabric_verdict(root)
+    if verdict.kind == "pin-refused":
+        return f"the launcher would refuse the relaunch: {verdict.reason}; the engine at {root} would not move"
     if verdict.kind != "blocked":
         return None
     return (f"the launcher would refuse the relaunch: agent-fabric at {root} is {verdict.behind} commit(s) behind "

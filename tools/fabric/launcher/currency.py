@@ -2,8 +2,23 @@
 A part of tools/fabric/launch.py, whose docstring is the contract."""
 from __future__ import annotations
 
+import importlib.util
 import os
-from fabric_launcher.base import git, FETCH_TIMEOUT_S, say
+import sys
+from fabric_launcher.base import git, FETCH_TIMEOUT_S, HERE, say
+
+# By path like the rest of the launcher's imports (base.py says why); the operator's checkout and the pin it
+# carries are one reader's, shared with `upgrade fabric` and moveto (operator_checkout.py).
+def _load_operator():
+    spec = importlib.util.spec_from_file_location("fabric_operator_checkout", os.path.join(HERE, "operator_checkout.py"))
+    m = importlib.util.module_from_spec(spec)
+    # Registered before it runs: a dataclass in a module loaded by path looks its own module up by name.
+    sys.modules[spec.name] = m
+    spec.loader.exec_module(m)
+    return m
+
+
+operator = _load_operator()
 
 
 # git's answers for the currency checks; why the fabric must be current
@@ -30,7 +45,7 @@ def behind_count(repo: str, rng: str) -> int:
         return 0
 
 
-def pull_ff(repo: str) -> tuple[str, str]:
+def pull_ff(repo: str, target: str = "origin/main") -> tuple[str, str]:
     """("ok" | "failed" | "timeout", git's first fatal:/error: line, else its last). A fast-forward to
     the origin/main the verdict was judged on, not a `pull`: a pull fetches
     again, so a second network failure (a blip between the two, a ref lock
@@ -39,7 +54,7 @@ def pull_ff(repo: str) -> tuple[str, str]:
     mended by an upgrade that merges). The caller fetched just before; a
     pull ended by the bound is a different cause, said differently."""
     try:
-        r = git.run(repo, "merge", "-q", "--ff-only", "origin/main", check=False)
+        r = git.run(repo, "merge", "-q", "--ff-only", target, check=False)
     except git.GitError as exc:
         return ("timeout" if "no answer within" in exc.reason else "failed"), exc.reason
     if r.returncode == 0:
@@ -59,25 +74,31 @@ def pull_ff(repo: str) -> tuple[str, str]:
 # but for the fetch.
 class Verdict:
     """kind: "skip" (not a git checkout with an origin), "offline",
-    "current", "behind" (a fast-forward may mend it), or "blocked" (a fast-forward
-    cannot succeed; `reason` says why)."""
-    def __init__(self, kind: str, behind: int = 0, reason: str = "") -> None:
+    "current", "behind" (a fast-forward may mend it), "blocked" (a fast-forward
+    cannot succeed; `reason` says why), or "pin-refused" (the operator's pin is
+    malformed: nothing moves, `reason` says why). `target` is the ref the
+    fast-forward goes to: origin/main, or the operator's pin; `notes` are the
+    report lines the pin's reader had (no pin in force, a pin the engine
+    stays short of)."""
+    def __init__(self, kind: str, behind: int = 0, reason: str = "", target: str = "origin/main",
+                 notes: list[str] | None = None) -> None:
         self.kind, self.behind, self.reason = kind, behind, reason
+        self.target, self.notes = target, notes or []
 
 
-def pull_blocker(repo: str) -> str | None:
-    """Why `merge --ff-only origin/main` is predicted to fail, or None. A
+def pull_blocker(repo: str, target: str = "origin/main") -> str | None:
+    """Why `merge --ff-only <target>` is predicted to fail, or None. A
     prediction, for the message and for fabric-fresh (which ends a session
     only on None); the launcher still lets git decide, since a file staged
     with exactly the incoming content is "blocked" here and pulls fine. A pull ended by the bound is not predictable and not here."""
-    anc = git_status_ok(repo, "merge-base", "--is-ancestor", "HEAD", "origin/main")
+    anc = git_status_ok(repo, "merge-base", "--is-ancestor", "HEAD", target)
     if not anc:
-        return "it has local commits that origin/main does not contain"
+        return f"it has local commits that {target} does not contain"
     try:
         # --no-renames: a rename's old path is a change the pull makes too.
         # --untracked-files=all: the default folds a new directory into one
         # `?? dir/` entry, which names none of the files a pull would write.
-        incoming = git.run(repo, "diff", "--name-only", "--no-renames", "-z", "HEAD", "origin/main", check=False)
+        incoming = git.run(repo, "diff", "--name-only", "--no-renames", "-z", "HEAD", target, check=False)
         status = git.run(repo, "status", "--porcelain", "-z", "--untracked-files=all", check=False)
     except git.GitError:
         return None
@@ -103,11 +124,25 @@ def fabric_verdict(fabric_root: str) -> Verdict:
         return Verdict("skip")
     if not git_status_ok(fabric_root, "fetch", "-q", "origin", "main", timeout=FETCH_TIMEOUT_S):
         return Verdict("offline")
-    behind = behind_count(fabric_root, "HEAD..origin/main")
+    # The operator's checkout sits beside the engine's; its pin (ADR-045 §6) is where the engine may go.
+    # An unreachable operator remote is said by the reader and keeps the pin the checkout last held.
+    op = operator.path(os.path.dirname(os.path.realpath(fabric_root)))
+    notes = []
+    synced = operator.sync(op, fetch_timeout=FETCH_TIMEOUT_S)
+    if synced.line and synced.state not in ("absent", "not-a-checkout"):
+        notes.append(synced.line)
+    plan = operator.engine_plan(fabric_root, operator.read_pin(op))
+    if plan.refusal:
+        return Verdict("pin-refused", reason=plan.refusal, notes=notes)
+    notes += plan.notes or []
+    if not plan.target:
+        return Verdict("current", target="HEAD", notes=notes)
+    behind = behind_count(fabric_root, f"HEAD..{plan.target}")
     if behind <= 0:
-        return Verdict("current")
-    why = pull_blocker(fabric_root)
-    return Verdict("blocked", behind, why) if why else Verdict("behind", behind)
+        return Verdict("current", target=plan.target, notes=notes)
+    why = pull_blocker(fabric_root, plan.target)
+    return (Verdict("blocked", behind, why, plan.target, notes) if why
+            else Verdict("behind", behind, target=plan.target, notes=notes))
 
 
 # ── the working copy the session starts in ──────────────────────────
