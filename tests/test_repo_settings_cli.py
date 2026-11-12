@@ -19,6 +19,9 @@ import subprocess
 import sys
 import tempfile
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from instance_fixtures import FIXTURE_CLIENT, write_json  # noqa: E402 — tests/, the script's own directory
+
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 TOOL = os.path.join(ROOT, "bin", "fabric-repo-settings")
 
@@ -69,7 +72,15 @@ def main() -> int:
         os.chmod(os.path.join(bin_, "gh"), 0o755)
         base = {k: v for k, v in os.environ.items()
                 if not k.startswith(("GITHUB_", "AGENT_FABRIC_", "CLAUDE_", "ANTHROPIC_", "GH_")) and k != "GIT_DIR"}
-        base.update(PATH=bin_ + os.pathsep + os.environ.get("PATH", ""), GH_LOG=log)
+        # The default repository is found through the operator's registry and clients (ADR-045 §5 rule 3): the
+        # tool reads this tree's, never the checkout's.
+        operator = os.path.join(t, "operator")
+        write_json(os.path.join(operator, "projects", "registry.json"),
+                   {"version": 1, "projects": {"agent-fabric": {"client": FIXTURE_CLIENT,
+                                                               "remotes": ["git@github.com:BlueTeam-OU/agent-fabric.git"]}}})
+        write_json(os.path.join(operator, "projects", "clients.json"),
+                   {"version": 1, "clients": {FIXTURE_CLIENT: {"settings_repo": "BlueTeam-OU/agent-fabric-settings"}}})
+        base.update(PATH=bin_ + os.pathsep + os.environ.get("PATH", ""), GH_LOG=log, AGENT_FABRIC_OPERATOR=operator)
 
         def settings(*args: str, tool: str = TOOL, **env: str) -> tuple[int, str, str, list[dict]]:
             if os.path.exists(log):
