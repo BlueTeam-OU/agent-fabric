@@ -7,6 +7,7 @@ from __future__ import annotations
 import json
 import os
 import pwd
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -196,7 +197,47 @@ def behind_remote_cases(tmp: str, binding: str, env: dict) -> int:
         good = rc == 0 and ((not out) if expect is None else expect in out)
         print(f"  {'ok  ' if good else 'FAIL'} merge_target: {label}" + ("" if good else f": {out!r}"))
         fails += not good
-    return fails
+    return fails + blobless_cases(tmp, binding, env, origin, git)
+
+
+def blobless_cases(tmp: str, binding: str, env: dict, origin: str, git) -> int:
+    """#562 F1: a partial clone's missing blob is fetched by git unasked, holding the hook on the network. The hook's
+    git reads start no fetch, and an object it cannot read is unknown, so it says nothing (never "names no section")."""
+    git(origin, "config", "uploadpack.allowFilter", "true")
+    clone = os.path.join(tmp, "blobless-clone")
+    subprocess.run(["git", "clone", "-q", "--filter=blob:none", "--no-checkout", "file://" + origin, clone],
+                   check=True, env=git_env(), capture_output=True)
+    git(clone, "config", "gc.auto", "0")
+    trace = os.path.join(tmp, "blobless.trace")
+    topic = os.path.join(".agent-fabric", "memory", "fixture-role", "solution", "topic.md")
+
+    def fetch_children() -> int:
+        with open(trace, encoding="utf-8", errors="replace") as fh:
+            return sum(1 for ln in fh if "run_command" in ln and " fetch" in ln)
+
+    # Positive control: plain git in this clone does start a fetch for the blob, with a live trace.
+    subprocess.run(["git", "-C", clone, "show", f"origin/main:{topic}"], env={**git_env(), "GIT_TRACE": trace},
+                   capture_output=True, check=False, timeout=60)
+    live = fetch_children()
+    print(f"  {'ok  ' if live else 'FAIL'} merge_target: control: plain git show in the blobless clone starts a fetch ({live})")
+    fails = not live
+    shutil.rmtree(clone)
+    subprocess.run(["git", "clone", "-q", "--filter=blob:none", "--no-checkout", "file://" + origin, clone],
+                   check=True, env=git_env(), capture_output=True)
+    # Behind the remote, with the old slice checked out: a skipped unreadable blob would read as "names no section".
+    git(clone, "checkout", "-q", "--detach", "origin/main~1")
+    open(trace, "w").close()
+    with open(binding, "w", encoding="utf-8") as fh:
+        json.dump({"role": "fixture-role", "project": "fixture-proj", "working_copy": clone}, fh)
+    home = os.path.join(tmp, ".claude", "projects", layout.memory_slug(clone), "memory")
+    os.makedirs(home)
+    path = memory(home, "bl0", "a correction", f'  roles_class: solution\n{ANCHORS}  merge_target: "New on main"\n', "body")
+    rc, out = run(path, env={**env, "AGENT_FABRIC_WORKING_COPY": clone, "GIT_TRACE": trace}, cwd=clone)
+    started = fetch_children()
+    good = rc == 0 and not out and started == 0
+    print(f"  {'ok  ' if good else 'FAIL'} merge_target: a blobless clone: unreadable blob is silent, hook starts no fetch"
+          + ("" if good else f": rc={rc} out={out!r} fetches={started}"))
+    return fails + (not good)
 
 
 def binding_record_case() -> int:
