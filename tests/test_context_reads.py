@@ -126,7 +126,7 @@ def case_lint_is_wired() -> None:
     write(os.path.join(fabric, cr.POLICY), "{")
     subprocess.run(["git", "-C", fabric, "add", "-A"], check=True, env=git_env())
     rc, out = run_lint(fabric)
-    assert "policies/context-reads.json: cannot be read as JSON" in out and "tools/fabric/r.py:2" not in out, out
+    assert "tools/fabric/context-reads.json: cannot be read as JSON" in out and "tools/fabric/r.py:2" not in out, out
 
 
 def case_vendored_is_judged() -> None:
@@ -137,7 +137,7 @@ def case_vendored_is_judged() -> None:
         root = make_base(tempfile.mkdtemp(dir=TMP))
         write(os.path.join(root, "ruff.toml"), 'exclude = ["vendor"]\n')
         write(os.path.join(root, "vendor/r.py"), "P = 'binding.json'\n")
-        write(os.path.join(root, "policies/context-reads.json"), json.dumps(policy))
+        write(os.path.join(root, "tools/fabric/context-reads.json"), json.dumps(policy))
         subprocess.run(["git", "-C", root, "init", "-q"], check=True, env=git_env())
         subprocess.run(["git", "-C", root, "add", "-A"], check=True, env=git_env())
         return root

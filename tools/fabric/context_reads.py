@@ -17,7 +17,7 @@ refused), the one `resolve_context` is built on. Its callers get a raw dictionar
 them onto the typed record is the next step, not this rule's. `update_binding` and `write_binding` are the state
 layer's writers (ADR-003 rule 1, tools/fabric/state_writes.py), which read under the agent lock to write.
 
-A finding is cleared by moving the caller onto the context, or by an entry in `policies/context-reads.json` that
+A finding is cleared by moving the caller onto the context, or by an entry in `tools/fabric/context-reads.json` that
 says why this module reads the file itself. An entry admits the whole module, so it names a reason, not a promise.
 Like state_writes.py this is syntax, not data flow: a path handed to a function as a parameter (`whoami()["binding"]`)
 is not seen, only the module that built it.
@@ -30,7 +30,7 @@ import json
 import re
 import warnings
 
-POLICY = "policies/context-reads.json"
+POLICY = "tools/fabric/context-reads.json"
 HOMES = frozenset({"runtime/identity.py", "tools/fabric/workingcopy.py"})
 ACCESSORS = frozenset({"binding_path"})
 _FILE = re.compile(r"(?:^|/)binding\.json$")
@@ -88,7 +88,7 @@ def raw_findings(rel: str, text: str) -> list[str]:
 
 def scan(rel: str, text: str, readers: dict[str, str]) -> list[str]:
     """Findings for one module that the policy does not admit, each `<rel>:<line>: <what> — read the binding through
-    identity.resolve_context(), or name the module and why in policies/context-reads.json`."""
+    identity.resolve_context(), or name the module and why in tools/fabric/context-reads.json`."""
     if rel in readers:
         return []
     return [f"{f} — read the binding through identity.resolve_context().binding, or name the module and why in "

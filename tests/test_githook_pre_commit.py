@@ -647,7 +647,7 @@ class StateWrites(PreCommit):
     a removed entry's module left unjudged (the drop case); the not-JSON refusal turned into an empty list (the not-JSON case)."""
 
     WRITER = "import identity\n\ndef save(doc):\n    with open(identity.agent_state_dir() + '/x.json', 'w') as f:\n        f.write(doc)\n"
-    POLICY = "policies/state-writers.json"
+    POLICY = "tools/fabric/state-writers.json"
 
     def setUp(self):
         self.build(owner_role="fabric-coordinator")
@@ -706,7 +706,7 @@ class StateWrites(PreCommit):
         self.fabric.bind("fabric-coordinator")
         r = self.run_hook(repo)
         self.assertEqual(r.returncode, 1, r.stderr)
-        self.assertIn("pre-commit: the staged policies/state-writers.json is not JSON — not committed", r.stderr)
+        self.assertIn("pre-commit: the staged tools/fabric/state-writers.json is not JSON — not committed", r.stderr)
 
     def test_a_module_that_is_not_utf8_is_said(self):
         repo = self.fabric.itself()
@@ -735,7 +735,7 @@ class ContextReads(PreCommit):
     case); a removed entry's module left unjudged (the drop case); the not-JSON refusal turned into an empty list."""
 
     READER = "import identity\n\ndef bound():\n    return open(identity.binding_path()).read()\n"
-    POLICY = "policies/context-reads.json"
+    POLICY = "tools/fabric/context-reads.json"
 
     def setUp(self):
         self.build(owner_role="fabric-coordinator")
@@ -785,7 +785,7 @@ class ContextReads(PreCommit):
         self.fabric.bind("fabric-coordinator")
         r = self.run_hook(repo)
         self.assertEqual(r.returncode, 1, r.stderr)
-        self.assertIn("pre-commit: the staged policies/context-reads.json is not JSON — not committed", r.stderr)
+        self.assertIn("pre-commit: the staged tools/fabric/context-reads.json is not JSON — not committed", r.stderr)
 
 
 class EvidenceCaps(PreCommit):
@@ -795,7 +795,7 @@ class EvidenceCaps(PreCommit):
     read from the work tree (the unstaged-entry case); a deleted policy's modules left unjudged (the deletion case)."""
 
     COPY = "import gh\n\nCAP = 250\n"
-    POLICY = "policies/evidence-caps.json"
+    POLICY = "tools/fabric/evidence-caps.json"
 
     def setUp(self):
         self.build(owner_role="fabric-coordinator")
@@ -846,7 +846,7 @@ class EvidenceCaps(PreCommit):
         self.fabric.bind("fabric-coordinator")
         r = self.run_hook(repo)
         self.assertEqual(r.returncode, 1, r.stderr)
-        self.assertIn("pre-commit: the staged policies/evidence-caps.json is not JSON — not committed", r.stderr)
+        self.assertIn("pre-commit: the staged tools/fabric/evidence-caps.json is not JSON — not committed", r.stderr)
 
 
 class ProcessSpawns(PreCommit):
@@ -856,7 +856,7 @@ class ProcessSpawns(PreCommit):
     unstaged-entry case); a deleted policy's modules left unjudged (the deletion case); not-JSON read as empty."""
 
     SPAWN = "import os\n\ndef stop(p):\n    os.killpg(p, 9)\n"
-    POLICY = "policies/process-spawns.json"
+    POLICY = "tools/fabric/process-spawns.json"
 
     def setUp(self):
         self.build(owner_role="fabric-coordinator")
@@ -907,7 +907,7 @@ class ProcessSpawns(PreCommit):
         self.fabric.bind("fabric-coordinator")
         r = self.run_hook(repo)
         self.assertEqual(r.returncode, 1, r.stderr)
-        self.assertIn("pre-commit: the staged policies/process-spawns.json is not JSON — not committed", r.stderr)
+        self.assertIn("pre-commit: the staged tools/fabric/process-spawns.json is not JSON — not committed", r.stderr)
 
 
 
@@ -918,7 +918,7 @@ class WorkWrites(PreCommit):
     unstaged-entry case); a deleted policy's modules left unjudged (the deletion case); not-JSON read as empty."""
 
     WRITE = "def finish(job):\n    job[\"state\"] = \"done\"\n"
-    POLICY = "policies/work-writes.json"
+    POLICY = "tools/fabric/work-writes.json"
 
     def setUp(self):
         self.build(owner_role="fabric-coordinator")
@@ -969,7 +969,7 @@ class WorkWrites(PreCommit):
         self.fabric.bind("fabric-coordinator")
         r = self.run_hook(repo)
         self.assertEqual(r.returncode, 1, r.stderr)
-        self.assertIn("pre-commit: the staged policies/work-writes.json is not JSON — not committed", r.stderr)
+        self.assertIn("pre-commit: the staged tools/fabric/work-writes.json is not JSON — not committed", r.stderr)
 
 
 class TransportCalls(PreCommit):
@@ -980,7 +980,7 @@ class TransportCalls(PreCommit):
     unstaged-entry case); a deleted policy's modules left unjudged (the deletion case); not-JSON read as empty."""
 
     WRITE = "def f(api):\n    return api(\"https://r\", \"/api/x\", {})\n"
-    POLICY = "policies/transport-calls.json"
+    POLICY = "tools/fabric/transport-calls.json"
 
     def setUp(self):
         self.build(owner_role="fabric-coordinator")
@@ -1031,7 +1031,7 @@ class TransportCalls(PreCommit):
         self.fabric.bind("fabric-coordinator")
         r = self.run_hook(repo)
         self.assertEqual(r.returncode, 1, r.stderr)
-        self.assertIn("pre-commit: the staged policies/transport-calls.json is not JSON — not committed", r.stderr)
+        self.assertIn("pre-commit: the staged tools/fabric/transport-calls.json is not JSON — not committed", r.stderr)
 
 
 class CommandNames(PreCommit):
@@ -1044,7 +1044,7 @@ class CommandNames(PreCommit):
 
     RECOGNISER = "def is_pr(cmd):\n    return cmd == \"fabric-pr\"\n"
     MODULE = "tools/fabric/guards/cnx.py"
-    POLICY = "policies/command-names.json"
+    POLICY = "tools/fabric/command-names.json"
 
     def setUp(self):
         self.build(owner_role="fabric-coordinator")
@@ -1105,7 +1105,7 @@ class CommandNames(PreCommit):
         self.fabric.bind("fabric-coordinator")
         r = self.run_hook(repo)
         self.assertEqual(r.returncode, 1, r.stderr)
-        self.assertIn("pre-commit: the staged policies/command-names.json is not JSON — not committed", r.stderr)
+        self.assertIn("pre-commit: the staged tools/fabric/command-names.json is not JSON — not committed", r.stderr)
 
 
 class RootsBypass(PreCommit):
