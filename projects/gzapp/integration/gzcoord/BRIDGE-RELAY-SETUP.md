@@ -91,8 +91,9 @@ account**, `gzcoord-relay.service` (`communication/gzcoord/runtime/`),
 installed by `bootstrap.sh` only where `.gzcoord/venv` exists and
 gated a second time by the unit's own `ConditionPathExists`. It comes
 up with the account's user manager at boot (the account lingers),
-restarts on failure, logs to the same `bridge.log`, and is found by
-name: `systemctl --user status gzcoord-relay`, `… restart gzcoord-relay`.
+restarts on failure, logs to the journal (`journalctl --user -u
+gzcoord-relay`; until 2026-11-12 to `bridge.log`, which nothing
+rotated), and is found by name: `systemctl --user status gzcoord-relay`, `… restart gzcoord-relay`.
 The session-start activation (`ensureRelay`) starts that unit when it is
 installed and a user manager is up, and only otherwise falls back to the
 detached spawn above. The hand-started process this replaced ignored
