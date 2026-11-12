@@ -21,7 +21,7 @@ from unittest import mock
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(HERE, "tools", "fabric"))
 sys.path.insert(0, os.path.join(HERE, "tests"))
-from control import agentd, ctl, js  # noqa: E402
+from control import ctl, js  # noqa: E402
 from control.sign import generate_operator_key  # noqa: E402
 from gzcoord.carrier import control_link as link  # noqa: E402
 from test_gzcoord_carrier_control_link import PEERS, ROWS, Node, Scratch, until  # noqa: E402
