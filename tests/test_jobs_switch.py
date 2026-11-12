@@ -848,12 +848,14 @@ def main() -> int:
                "log": [{"state": "active", "at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(start))}]}
         mem = os.path.join(home, ".claude", "projects", jobs_world.re.sub(r"[^A-Za-z0-9]", "-", w.repo), "memory", "fact.md")
         for label, mtime, expect_changed in (("the second before the start", start - 0.1, False),
+                                             ("the start's exact second boundary", start, False),
                                              ("the start's own second, after it", start + 0.1, True),
                                              ("the next second", start + 1.2, True)):
             os.utime(mem, (mtime, mtime))
             why = sys.modules["fabric_jobs.settle"].memory_changed(job, [w.repo])
             check(f"a memory written in {label} reads as {'changed' if expect_changed else 'unchanged'}",
                   (why is None) == expect_changed, str(why))
+        os.utime(mem, (1, 1))     # a later reflection case globs every memory directory: no 2027 mtime left to count as its write
 
         print("memory of a session launched above the working copy")
         workspace = os.path.join(home, "projects")
