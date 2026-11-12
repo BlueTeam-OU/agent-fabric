@@ -915,6 +915,10 @@ def launch(argv: list[str]) -> int:
     # Every refusal is behind us: the session starts, and it, and a restart of
     # it, are no longer the relaunch that restart() asked for.
     env.pop(RESTARTING, None)
+    # AGENT_FABRIC_PULLED guards the one relaunch after a pull (keep_fabric_current). Past that check it has
+    # done its work; left in the session's environment it makes every later launch from the session, and every
+    # test run in it, refuse a checkout that is behind instead of pulling.
+    env.pop("AGENT_FABRIC_PULLED", None)
     try:
         status = run_session(cmd)
     finally:
