@@ -551,7 +551,10 @@ def cmd_new(root: str | None, slug: str, title: str) -> str:
     # Past every reserved number too: one that moved away is not free again.
     taken = {a["number"] for a in adrs} | set(reserved(adr_dir(root))[0]) | other_numbers(root)
     n = max(map(int, taken), default=-1) + 1
-    tpl = read(os.path.join(adr_dir(root), "ADR-TEMPLATE.md"))
+    # The template is the engine's (ADR-045 rule 2): an operator tree keeps
+    # none of its own, and a tree that does keep one is the one it means.
+    own = os.path.join(adr_dir(root), "ADR-TEMPLATE.md")
+    tpl = read(own if os.path.isfile(own) else os.path.join(roots.engine_adr_dir(engine=ROOT), "ADR-TEMPLATE.md"))
     body = tpl.replace("ADR-NNN", f"ADR-{n:03d}").replace("<Title>", title)
     path = os.path.join(adr_dir(root), f"ADR-{n:03d}-{slug}.md")
     with open(path, "x", encoding="utf-8") as fh:

@@ -715,7 +715,9 @@ def case_list_prints_the_numbers_of_a_class(tmp: str) -> None:
     edit(root, ONE, "**Class:** engine", "**Class:** organisational")
     r = subprocess.run([sys.executable, os.path.join(ROOT, "tools", "fabric", "adr.py"), "--root", root, "list", "--class", "organisational"],
                        capture_output=True, text=True, env=git_env())
-    assert r.returncode == 0 and r.stdout == "ADR-001\n", (r.returncode, r.stdout, r.stderr)
+    # The fixture copies the real records, whose own organisational ones list too.
+    want = sorted(f"ADR-{a['number']}" for a in adr.load(root)[0] if a["fields"].get("Class") == "organisational")
+    assert "ADR-001" in want and r.returncode == 0 and r.stdout.split() == want, (r.returncode, r.stdout, r.stderr)
     r = subprocess.run([sys.executable, os.path.join(ROOT, "tools", "fabric", "adr.py"), "--root", root, "list", "--class", "other"],
                        capture_output=True, text=True, env=git_env())
     assert r.returncode != 0
