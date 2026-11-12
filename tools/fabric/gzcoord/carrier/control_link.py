@@ -83,6 +83,7 @@ RELAY_ONLY_OPS = frozenset({CARRIER_NAME, INSTALL_OP, START_OP, STOP_OP})
 INBOUND_MAX = 256          # the daemon's per-client queue (InterWeave ADR-0055 decision 2)
 BACKOFF_S = (1, 2, 4, 8, 16, 32, 60)
 SEND_WAIT_S = 10.0         # a reply's send; a request's is its ttl_s
+WRITE_WAIT_S = 5.0         # a line the child's pipe cannot take in this long: the child is not reading
 WEDGED_AFTER = 3           # consecutive sends that got no outbound at all: the child is not draining
 SOCKET_NAME = "control.sock"
 MAX_SOCKET_LINE = 1 << 20  # a request line from fabric-ctl; the largest record is far under it
@@ -299,6 +300,7 @@ class Child:
         self.state = "restarting"
         self.restarts = 0
         self._lock = threading.Lock()
+        self._write_lock = threading.Lock()
         self._proc: Any = None
         self._pending: dict[str, Send] = {}
         self._n = 0
@@ -338,6 +340,7 @@ class Child:
                 self._log(f"cannot start {self.argv[0]} ({e}); channel off")
                 rc = None
             else:
+                os.set_blocking(proc.stdin.fileno(), False)   # a write that cannot finish is bounded, see _write
                 with self._lock:
                     self._proc = proc
                 threading.Thread(target=self._read_stderr, args=(proc,), name="control-carrier-stderr", daemon=True).start()
@@ -433,14 +436,35 @@ class Child:
             ref = f"{os.getpid()}-{self._n}"
             send = Send(ref)
             self._pending[ref] = send
-            line = js.stringify({"send": {"conversation": conversation, "text": text, "ref": ref, "pending": False}}) + "\n"
-            try:
-                proc.stdin.write(line.encode("utf-8"))
-                proc.stdin.flush()
-            except (OSError, ValueError) as e:
+        line = js.stringify({"send": {"conversation": conversation, "text": text, "ref": ref, "pending": False}}) + "\n"
+        # Outside `_lock`: the reader resolves outbound events under it, and a write that blocks must not stop it.
+        problem = self._write(proc, line.encode("utf-8"))
+        if problem:
+            with self._lock:
                 self._pending.pop(ref, None)
-                return failed(f"the child's input is closed ({e})")
+            return failed(problem)
         return send
+
+    def _write(self, proc: Any, data: bytes) -> str | None:
+        """The whole line or none of it is a line the child can read: a write the child does not drain within
+        WRITE_WAIT_S leaves half a line in its pipe, so the child is ended as wedged (the supervisor restarts it)
+        and the send fails; it is never left blocking the callers behind it."""
+        with self._write_lock:
+            fd, end = proc.stdin.fileno(), time.monotonic() + WRITE_WAIT_S
+            view = memoryview(data)
+            try:
+                while view:
+                    try:
+                        view = view[os.write(fd, view):]
+                    except BlockingIOError:
+                        left = end - time.monotonic()
+                        if left <= 0 or not select.select([], [fd], [], left)[1]:
+                            self._log(f"the child did not drain its input in {WRITE_WAIT_S:g} s: ended as wedged")
+                            self._terminate(proc)
+                            return "the child does not drain its input"
+            except (OSError, ValueError) as e:
+                return f"the child's input is closed ({e})"
+        return None
 
     def settle(self, send: Send, wait_s: float) -> tuple[bool, str]:
         """Wait for a send's outcome; a child that answers nothing three sends running is wedged and ended (the

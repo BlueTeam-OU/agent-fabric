@@ -227,6 +227,17 @@ class ChildCases(Net):
         self.assertTrue(until(lambda: n.child._proc is not None and n.child._proc.pid != pid and n.child.state == "ok"), n.logs)
         self.assertTrue(any("wedged" in l for l in n.logs))
 
+    def test_a_child_that_stops_reading_is_ended_and_does_not_hold_the_callers_or_its_own_reader(self):
+        n = self.node("alice", extra_env={"FAKE_DEAF": "1"})
+        pid = n.child._proc.pid
+        big = "x" * 40000
+        started = time.monotonic()
+        results = [n.child.send("p/fabric-control", big) for _ in range(6)]   # 240 KB: past a pipe's 64 KiB
+        self.assertLess(time.monotonic() - started, cc.WRITE_WAIT_S + 5, "the writes were bounded")
+        self.assertTrue(any(r.ref == "-" and "drain" in r.why for r in results), [r.why for r in results])
+        self.assertTrue(until(lambda: n.child._proc is not None and n.child._proc.pid != pid), n.logs)
+        self.assertTrue(any("wedged" in l for l in n.logs))
+
     def test_a_child_that_exits_is_restarted_and_each_exit_is_named(self):
         for code, word in ((3, "no daemon"), (4, "another client holds"), (5, "cannot be used")):
             with self.subTest(code=code):

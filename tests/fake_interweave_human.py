@@ -18,6 +18,7 @@ this process's own PeerId. Knobs (environment), each for one failure the tests n
   FAKE_SILENT=1        read sends and never answer them (a wedged child)
   FAKE_PROBLEM=<token> answer every send with that problem token
   FAKE_ARGV=<file>     write the argv it was started with, one JSON line (append)
+  FAKE_DEAF=1          print ready, then never read stdin again (a child that does not drain)
   FAKE_SENDS=<file>    append each send object it is given, one JSON line
   FAKE_DOUBLE_START=1  print `session ready` only after FAKE_READY_FILE exists (a child that comes up late)
 """
@@ -74,6 +75,9 @@ def main() -> int:
                      "sent_at_ms": msg["at"], "status": "unread", "text": msg["text"]})
             time.sleep(0.02)
     threading.Thread(target=deliver, daemon=True).start()
+    if env.get("FAKE_DEAF"):
+        while True:
+            time.sleep(1)
     for raw in sys.stdin.buffer:
         try:
             line = json.loads(raw.decode("utf-8"))
