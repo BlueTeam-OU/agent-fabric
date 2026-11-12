@@ -86,6 +86,7 @@ SEND_WAIT_S = 10.0         # a reply's send; a request's is its ttl_s
 WRITE_WAIT_S = 5.0         # a line the child's pipe cannot take in this long: the child is not reading
 WEDGED_AFTER = 3           # consecutive sends that got no outbound at all: the child is not draining
 SOCKET_NAME = "control.sock"
+MAX_WAIT_S = 86400        # fabric-ctl's own --timeout is any number of seconds; a day is a bound, not an expectation
 MAX_SOCKET_LINE = 1 << 20  # a request line from fabric-ctl; the largest record is far under it
 EXIT_WORDS = {3: "no daemon answered for the profile", 4: "another client holds the profile's message store",
               5: "the message store cannot be used"}
@@ -681,7 +682,7 @@ class Server:
         if not isinstance(to, list) or not all(isinstance(a, str) for a in to):
             raise Refused("`to` is a list of addresses")
         wait = req.get("wait_s")
-        if isinstance(wait, bool) or not isinstance(wait, (int, float)) or not 0 < wait <= 3600:
+        if isinstance(wait, bool) or not isinstance(wait, (int, float)) or not 0 < wait <= MAX_WAIT_S:
             raise Refused("`wait_s` is a number of seconds")
         rec = req["record"]
         if rec.get("kind") != "request" or not isinstance(rec.get("id"), str) or not rec["id"]:

@@ -53,6 +53,13 @@ Every reply arrives: a section that cannot be read says so inline.
 Relay down: one line on stderr, retry every 30 s; a refused token is
 re-read once from the synced file (a rotation), then reported.
 
+THE SECOND CARRIER (ADR-029 rule 18), only when runtime/control/config.json `control_carrier` is "dual" (or
+FABRIC_CONTROL_CARRIER says so): gzcoord/carrier/control_link.py holds the supervised child, the roster check of who
+sent what and fabric-ctl's socket. This file adds the one decision path, handle(): a request from either carrier
+goes through the same accept(), the same seen-set and the same action ledger, so one on both is answered once; and
+deliver(): the reply goes by the relay (the record) and, at once, by the other carrier to the sender's PeerId. With
+the key absent or "relay" none of it starts, and every line this daemon writes is what it was.
+
 CONTRACT, frozen from agentd.mjs. Kept byte for byte: every
 record posted (key order, ids, timestamps' shape), every refusal's reason
 text, every stderr line, the exit codes (0; 1 the relay failed in --once or

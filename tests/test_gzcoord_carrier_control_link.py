@@ -464,6 +464,16 @@ class SocketCases(Net):
                 self.assertIn(b'"event":"refused"', c.recv(4096))
                 c.close()
 
+    def test_wait_s_is_any_positive_number_up_to_a_day_and_nothing_else(self):
+        for wait, accepted in ((5, True), (7200, True), (86400, True), (86401, False), (0, False), (-1, False), (True, False), ("5", False)):
+            c = socket.socket(socket.AF_UNIX)
+            c.settimeout(5)
+            c.connect(self.path)
+            c.sendall(json.dumps({"op": "send", "record": request(rid=f"w{wait}"), "to": [], "wait_s": wait}).encode() + b"\n")
+            first = c.recv(4096)
+            self.assertEqual(b'"event":"refused"' not in first, accepted, (wait, first))
+            c.close()
+
     def test_a_peer_of_another_user_is_closed_unread(self):
         from unittest import mock
         with mock.patch.object(cc, "_peer_uid", return_value=os.getuid() + 1):
