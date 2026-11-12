@@ -119,6 +119,15 @@ def case_live_checks_dir_is_python_only_and_follows_the_operator_root() -> None:
     assert roots.live_checks_dir(environ={}, engine="/g") == J("/g", "docs", "live-checks")
 
 
+def case_the_engine_adr_dir_is_the_engines_whatever_the_operator_is() -> None:
+    assert roots.engine_adr_dir(environ={"AGENT_FABRIC_OPERATOR": O, "AGENT_FABRIC_ROOT": E}) == J(E, "docs", "adr")
+    assert roots.engine_adr_dir(environ={"AGENT_FABRIC_OPERATOR": O}) == J(ROOT, "docs", "adr")
+    assert roots.engine_adr_dir(environ={}) == J(ROOT, "docs", "adr")
+    assert roots.engine_adr_dir(environ={"AGENT_FABRIC_OPERATOR": O, "AGENT_FABRIC_ROOT": E}, engine="/g") == J("/g", "docs", "adr")
+    # the operator's records are still adr_dir()'s, so the two lookups name two trees when an operator is exported
+    assert roots.adr_dir(environ={"AGENT_FABRIC_OPERATOR": O}) != roots.engine_adr_dir(environ={"AGENT_FABRIC_OPERATOR": O})
+
+
 def case_checkout_root_is_the_exported_root_else_the_accounts_clone() -> None:
     home = "/home/acct"
     clone = J(home, "projects", "agent-fabric")
