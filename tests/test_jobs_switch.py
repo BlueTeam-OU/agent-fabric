@@ -841,6 +841,20 @@ def main() -> int:
         rc, out, err = w.switch()
         check("…and written, it switches (the positive control)", rc == 0, err)
 
+        # The clock pinned, not raced: `started_at` is whole seconds, memory mtimes are fractions. A write after the start but in
+        # the same second must count; one from the second before must not (that is the held-next flake's setup, made certain).
+        start = 1_800_000_005
+        job = {"id": "jX", "created": "2000-01-01T00:00:00Z",
+               "log": [{"state": "active", "at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(start))}]}
+        mem = os.path.join(home, ".claude", "projects", jobs_world.re.sub(r"[^A-Za-z0-9]", "-", w.repo), "memory", "fact.md")
+        for label, mtime, expect_changed in (("the second before the start", start - 0.1, False),
+                                             ("the start's own second, after it", start + 0.1, True),
+                                             ("the next second", start + 1.2, True)):
+            os.utime(mem, (mtime, mtime))
+            why = sys.modules["fabric_jobs.settle"].memory_changed(job, [w.repo])
+            check(f"a memory written in {label} reads as {'changed' if expect_changed else 'unchanged'}",
+                  (why is None) == expect_changed, str(why))
+
         print("memory of a session launched above the working copy")
         workspace = os.path.join(home, "projects")
         os.makedirs(workspace)
@@ -2386,6 +2400,9 @@ def main() -> int:
         check("held: the control, the same list with the hold lifted starts the next job", rc == 0 and w.job(j2)["state"] == "active", out + err)
 
         w, j1, j2 = ready()
+        # Like every other case that calls sw("next") directly: `since` is the job's start truncated to a second, so memory
+        # written at World creation reads as older than a start that fell in the next second.
+        w.memory()
         rc, out, err = w.sw("next")
         check("held: next is switch", rc == 1 and "release freeze" in err and w.job(j2)["state"] == "queued", out + err)
         w = World()
