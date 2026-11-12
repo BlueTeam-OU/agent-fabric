@@ -60,10 +60,12 @@ def adr_findings(root: str | None = None) -> list[str]:
         return [f"adr: {f}" for f in adr.check(tree)]
     # Two trees hold one numbering (ADR-045 rule 4): each is checked with the
     # other named, since an explicit root alone is "only that tree" and would
-    # call every number the other holds missing. A finding both report (a
-    # number recorded in both) is said once.
+    # call every number the other holds missing. Only the one finding about
+    # the pair itself, a number recorded in both, is worded alike from either
+    # side and said once; every other finding names a tree's own defect, and
+    # the same text from both (a stale index in each) is two defects.
     ours = adr.check(tree, other=engine)
-    theirs = [f for f in adr.check(engine, other=tree) if f not in ours]
+    theirs = [f for f in adr.check(engine, other=tree) if not (f in ours and "record in both trees" in f)]
     return [f"adr: {f}" for f in ours] + [f"adr (engine tree): {f}" for f in theirs]
 
 

@@ -237,6 +237,11 @@ def case_adr_lint_checks_both_trees_of_a_split() -> None:
             got = docs.adr_findings(engine)
             assert any("engine tree" in f and "ADR-002" in f for f in got), got
             assert not any("contiguous" in f or "does not exist" in f for f in got), got
+            # The same defect in each tree is two defects, each said with its tree.
+            for t in (engine, operator):
+                os.remove(os.path.join(t, "docs/adr/index.json"))
+            stale = [f for f in docs.adr_findings(engine) if "index.json" in f]
+            assert len(stale) == 2 and sum("engine tree" in f for f in stale) == 1, stale
         finally:
             if saved is None:
                 os.environ.pop("AGENT_FABRIC_OPERATOR", None)
@@ -2984,6 +2989,7 @@ def main() -> int:
         case_project_tools_are_declared_and_never_retired,
         case_the_source_locale_translates_nothing,
         case_decision_records_are_lint_findings,
+        case_adr_lint_checks_both_trees_of_a_split,
         case_bash_is_a_forwarder_or_on_the_allowlist,
         case_a_base_before_step_a_holds_the_allowlist_at_policies,
         case_arm_boundary_cases_only_leave_retired,
