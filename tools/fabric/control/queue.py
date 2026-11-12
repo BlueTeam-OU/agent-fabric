@@ -9,7 +9,8 @@ own interpreter.
 CONTRACT, carried over from queue.mjs's header (the CLI of
 tools/fabric/jobs.py; `python3 tools/fabric/control/queue.py` answers the
 same argv, stdout and exits). Env read: CLAUDE_BRIDGE_URL,
-FABRIC_CONTROL_CHANNEL, FABRIC_STATE_CHANNEL (agentd's control_config),
+FABRIC_CONTROL_CHANNEL, FABRIC_STATE_CHANNEL, FABRIC_CONTROL_CONFIG (another
+control config file, so another pool_holder; agentd's control_config),
 AGENT_FABRIC_HOSTS_REGISTRY (who is placed, who holds the pool),
 FABRIC_QUEUE_WAIT_MS (how long the holder may take to answer, 10 s):
   waits                 {"waits": {<message id>: [<address>, …]}, "accounts": n,

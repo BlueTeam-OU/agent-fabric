@@ -3,7 +3,7 @@ role: "domain-transit"
 class: index
 description: "What domain-transit knows and where it lives."
 tier: 1
-distilled_at: "2026-11-08"
+distilled_at: "2026-11-12"
 ---
 
 # domain-transit — knowledge index
@@ -39,10 +39,6 @@ control plane checked out beside it.
 - [`memory/domains/domain-transit/domain/the-timetable-does-not-bound-operations.md`](memory/domains/domain-transit/domain/the-timetable-does-not-bound-operations.md) — the schedule answers what the service PLANS, never what a vehicle or a shift actually does — those are bounded by driver behaviour, not by a published window
 - [`memory/shared/domain-claude-code-attribution-reminder.md`](memory/shared/domain-claude-code-attribution-reminder.md) — The attribution key is written by runtime/claude-code/user-settings.py, run from tools/fabric/bootstrap.py (shared)
 
-## solution
-
-- [`.agent-fabric/memory/domain-transit/solution.md`](.agent-fabric/memory/domain-transit/solution.md) — In gzapp, tools/gtfs_kutaisi's default stop policy file must follow the newest global stop_policies revision, not the v0 seed row
-
 ## workflow
 
 - [`.agent-fabric/memory/domain-transit/workflow/arm-owner-word-ignores-authorization.md`](.agent-fabric/memory/domain-transit/workflow/arm-owner-word-ignores-authorization.md) — arming below the minimum on a coordinator DECISION carrying the owner's word — --basis is what counts; --authorization is not read
@@ -51,7 +47,6 @@ control plane checked out beside it.
 - [`.agent-fabric/memory/domain-transit/workflow/inbox-watch-only-as-tracked-task.md`](.agent-fabric/memory/domain-transit/workflow/inbox-watch-only-as-tracked-task.md) — Start gzcoord-inbox --until-delivery only as a harness background task, never with & / disown inside a compound command
 - [`.agent-fabric/memory/domain-transit/workflow/job-intake-homes-project-requests-in-agent-fabric.md`](.agent-fabric/memory/domain-transit/workflow/job-intake-homes-project-requests-in-agent-fabric.md) — a REQUEST sent with PROJECT agent-fabric becomes a job homed in agent-fabric even when the work is in another repo; the commit guard then blocks it
 - [`.agent-fabric/memory/domain-transit/workflow/memory-is-filed-by-session-directory.md`](.agent-fabric/memory/domain-transit/workflow/memory-is-filed-by-session-directory.md) — a memory lands in the corpus of the repository the session stood in, not the one it is about; write a fact about another repo from that repo's session, and no home-directory paths
-- [`.agent-fabric/memory/domain-transit/workflow/pin-to-what-the-consumer-resolves.md`](.agent-fabric/memory/domain-transit/workflow/pin-to-what-the-consumer-resolves.md) — A test pinning a parameter file to a named seed revision stays green when a newer revision arrives; pin to the revision the consumer actually resolves
 
 ## recall
 
