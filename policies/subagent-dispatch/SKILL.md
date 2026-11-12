@@ -5,8 +5,8 @@ description: "How to delegate work to subagents here: delegation is the default 
 
 # Why dispatch looks like this
 
-The root `CLAUDE.md` §Subagent dispatch and §Concurrent contributors
-carry the rules. This file carries the incidents — each rule was written
+The rules are agent-fabric ADR-005 §5 and the **Subagents** item of the
+root `CLAUDE.md`'s Claude Code section. This file carries the incidents — each rule was written
 after one, and the rule reads as ceremony until you know which.
 
 ## Delegation is the default, and that is deliberate
@@ -32,7 +32,7 @@ worse: a chain of steps where each depends on the last (measured, the
 orchestrating model alone at a lower effort beat delegating it every
 time), work that needs back-and-forth, and a quick targeted change. A
 subagent gives parallelism and a context of its own, not a smarter
-answer. It also owns what lands: it reads what an agent
+answer. The session also owns what lands: it reads what an agent
 produced, applies it in its own clone and commits there; an agent never
 pushes or merges (see "Collection is a copy, not a merge" below).
 Review stays the review class on `fable` with no isolation: the blind

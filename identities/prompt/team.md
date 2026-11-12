@@ -87,7 +87,8 @@ rule 9).
 **Delegation to subagents is the default for every role.** Work over a
 few lines with a contract goes to a worktree-isolated class agent in the
 background, wide searches to Explore; the session keeps decisions,
-messages and reviews and commits what lands. The `subagent-dispatch`
+messages, reviews, short edits, a chain of dependent steps and work that
+needs back-and-forth, and commits what lands. The `subagent-dispatch`
 skill has the procedure (agent-fabric ADR-005 rule 11).
 
 **The control plane is read-only.** `agent-fabric/` and every project's
