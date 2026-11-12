@@ -115,8 +115,9 @@ if sys.path and os.path.realpath(sys.path[0] or ".") == os.path.dirname(os.path.
     sys.path[0] = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
 else:
     sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.realpath(__file__))))
-from control import clone as clone_mod, gateway as gateway_mod, carrier_cli, carrier_install as carrier_mod, carrier_evidence as evidence_mod, gzcoord, js, ops, pressure, sessions, tools as tools_mod  # noqa: E402
+from control import clone as clone_mod, gateway as gateway_mod, carrier_install as carrier_mod, carrier_evidence as evidence_mod, gzcoord, js, ops, pressure, sessions, tools as tools_mod  # noqa: E402
 from control.gzcoord import FABRIC_ROOT  # noqa: E402
+from gzcoord.carrier import CARRIER_LABEL, control_link  # noqa: E402
 from control.carrier_install import CARRIER_NAME, INSTALL_OP, START_OP, STOP_OP  # noqa: E402
 from control.jobs import job_state, jobs_add  # noqa: E402
 from control import hold as hold_mod  # noqa: E402
@@ -676,7 +677,7 @@ def watch_source(on_change: Callable[[], None], files: Callable[[], Iterable[str
     return SourceWatcher(on_change, files, **kw).start()
 
 
-# Run before every os._exit: the InterWeave child holds the profile's lease and store lock, and a daemon that
+# Run before every os._exit: the second carrier's child holds the profile's lease and store lock, and a daemon that
 # exits without ending it leaves the next one's child refused (exit 4) until systemd's cgroup kill reaches it.
 EXIT_HOOKS: list[Callable[[], None]] = []
 
@@ -939,7 +940,8 @@ def _status_of(first: dict, op: str) -> str:
     return "?" if status is None else js.string(status)
 
 
-def main(argv: list[str] | None = None) -> int:
+def main(argv: list[str] | None = None, *, stop: threading.Event | None = None) -> int:
+    """`stop` ends the read loop at its next turn: the daemon never sets it; a test that runs this in a thread does."""
     argv = sys.argv[1:] if argv is None else argv
     once = "--once" in argv
     self_only = "--self" in argv
@@ -1082,15 +1084,15 @@ def main(argv: list[str] | None = None) -> int:
                                                        file=lambda: os.path.join(state_dir(), POOL_FILE), state_of=state_of),
                POOL_CLAIMS_EVERY_S, first_s=tools_mod.first_run_delay_s(me["address"])).start()
 
-    # InterWeave beside the relay (ADR-029 rule 18), only when named. The relay copy is the record and is
-    # always posted; the InterWeave copy is the same reply to the sender's own PeerId.
+    # The second carrier beside the relay (ADR-029 rule 18), only when named. The relay copy is the record and is
+    # always posted; the other copy is the same reply to the sender's own PeerId.
     carrier_box: list[Any] = [None]
     inline_lock = threading.Lock()   # the ops answered inline run one at a time, as the one read loop made them
 
     def deliver(reply: dict, request: dict, via: str) -> None:
-        """Both carriers at once: a relay that is down or slow must not hold the InterWeave copy back, and an
-        InterWeave channel that is off must not stop the relay's. A relay failure is the read loop's (raised, as
-        before) for a request that came by the relay; for one that came by InterWeave there is no relay loop to
+        """Both carriers at once: a relay that is down or slow must not hold the other copy back, and a
+        second channel that is off must not stop the relay's. A relay failure is the read loop's (raised, as
+        before) for a request that came by the relay; for one that came by the second carrier there is no relay loop to
         take it, so it is said."""
         iw = carrier_box[0]
         side = None
@@ -1105,7 +1107,7 @@ def main(argv: list[str] | None = None) -> int:
             _stderr(f"agentd: relay copy of {request['op']} reply for {request['from']} not posted: {e}")
         finally:
             if side is not None:
-                side.join(timeout=carrier_cli.SEND_WAIT_S + 5)
+                side.join(timeout=control_link.SEND_WAIT_S + 5)
 
     def beside(rec: dict, ledgered: bool, via: str = "relay") -> None:
         """An action can take minutes (a session to stop, an install): run
@@ -1148,7 +1150,7 @@ def main(argv: list[str] | None = None) -> int:
 
     def handle(rec: dict, via: str) -> None:
         """One record off a carrier: judged by accept(), the same rules on both, and answered. Raises what the relay
-        loop has always taken for the relay failing; the InterWeave inbox says what it is handed."""
+        loop has always taken for the relay failing; the second carrier's inbox says what it is handed."""
         tag = "" if via == "relay" else f" (via {via})"
         with decide_lock:
             try:
@@ -1190,17 +1192,17 @@ def main(argv: list[str] | None = None) -> int:
         _stderr(f"agentd: answered {request['op']} for {request['from']} ({request['id'][:8]}){tag}")
 
     if cfg["control_carrier"] == CARRIER_DUAL and not once:
-        # An account on both splits once, at the bound InterWeave carries (rule 18): the same parts go by both.
-        ctx["part_bytes"] = carrier_cli.PART_BYTES
-        ctx["carrier_evidence_opts"] = {**(ctx.get("carrier_evidence_opts") or {}), "page_bytes": carrier_cli.PART_BYTES}
-        running = carrier_cli.start_for_agentd(
+        # An account on both splits once, at the bound the second carrier carries (rule 18): the same parts go by both.
+        ctx["part_bytes"] = control_link.PART_BYTES
+        ctx["carrier_evidence_opts"] = {**(ctx.get("carrier_evidence_opts") or {}), "page_bytes": control_link.PART_BYTES}
+        running = control_link.start_for_agentd(
             me=me["address"], placed=lambda: operator_addresses() | account_addresses(),
-            on_request=lambda request, sender: handle({"id": request.get("id"), "content": js.stringify(request)}, "interweave"))
+            on_request=lambda request, sender: handle({"id": request.get("id"), "content": js.stringify(request)}, control_link.VIA))
         carrier_box[0] = running
         EXIT_HOOKS.append(running.stop)
-        _stderr(f"agentd: also on InterWeave ({carrier_cli.ENDPOINT}); the relay stays the record")
+        _stderr(f"agentd: also on {CARRIER_LABEL} ({control_link.ENDPOINT}); the relay stays the record")
 
-    while True:
+    while stop is None or not stop.is_set():
         try:
             if not state["last"]:
                 prime()
@@ -1244,6 +1246,7 @@ def main(argv: list[str] | None = None) -> int:
             if once:
                 return 1
             time.sleep(RETRY_S)
+    return 0
 
 
 def _entry() -> int:

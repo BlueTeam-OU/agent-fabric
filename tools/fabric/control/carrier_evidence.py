@@ -186,7 +186,7 @@ def _ack_row(o: dict):
 
 
 def _page(rows: list[dict], key: str, page_bytes: int = PAGE_BYTES) -> tuple[list[dict], str | None] | str:
-    """The rows that fit page_bytes (PAGE_BYTES unless the account splits for InterWeave too), whole seconds only, and the time the next page starts at; or why
+    """The rows that fit page_bytes (PAGE_BYTES unless the account splits for the second carrier too), whole seconds only, and the time the next page starts at; or why
     the first second alone does not fit."""
     size = 0
     for i, r in enumerate(rows):
