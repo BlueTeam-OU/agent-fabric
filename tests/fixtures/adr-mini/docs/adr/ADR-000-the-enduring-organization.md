@@ -6,6 +6,7 @@
 **Decision Makers:** the owner
 **Scope:** the fixture corpus of tests/test_githooks_cli.py
 **Pillar:** all
+**Class:** engine
 
 ## 1. Context and Problem
 
