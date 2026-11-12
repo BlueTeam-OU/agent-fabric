@@ -160,20 +160,19 @@ address, where the relay's `sender` is a claim (ADR-033 §6).
    one of its ports as a source port (A 2026-10-26). Provisioning makes
    the reservation and keeps it across a reboot, from the roster's range:
    `fabric-host <host> persist`, which a start refused for it names; the
-   read reports whether it is covered (A 2026-11-01). The second host
-   is `fabric-h2` (A 2026-11-11), a VM on the Proxmox node s13337
-   registered in `runtime/hosts/registry.json`. develop-qzapp reaches it
-   directly over the LAN and its VPN, with no overlay, and a connection
-   opens only from develop-qzapp: fabric-h2 cannot open one back. Its
-   profiles listen on the wildcard at their roster ports, and its
-   firewall admits the roster's range only from develop-qzapp's address
-   as fabric-h2 sees it. InterWeave ADR-0055 decision 5b's limits are
-   accepted for it on the owner's word; nothing relies on NAT traversal,
-   a relay circuit or discovery, and a third host is a further
-   amendment. Its first account is a throwaway login for the two-host
-   check, for which the owner waived ADR-034 §7 step 3's held bound and
-   the control parity report. An agent moves there only on the owner's
-   word on that report, its keyring carried over, not rotated.
+   read reports whether it is covered (A 2026-11-01). A second host
+   (A 2026-11-11) is one registered in `runtime/hosts/registry.json`. The
+   coordinator's host reaches it directly, with no overlay, and a
+   connection opens only from the coordinator's host: the second host
+   cannot open one back. Its profiles listen on the wildcard at their
+   roster ports, and its firewall admits the roster's range only from
+   the coordinator's host's address as the second host sees it. InterWeave
+   ADR-0055 decision 5b's limits are accepted for it on the owner's
+   word; nothing relies on NAT traversal, a relay circuit or discovery,
+   and a third host is a further amendment. Its first account is a
+   throwaway login for the two-host check. An agent moves there only on
+   the owner's word on the control parity report, its keyring carried
+   over, not rotated.
 2. The roster (`runtime/interweave/roster.json`) is the only source of a
    login's PeerId, endpoint and port. A row is keyed by agent id
    (ADR-039) and carries its login, PeerId, endpoint and port; it counts
@@ -380,3 +379,4 @@ The body above reads current; each change's full note is in [history/ADR-064-ame
 | 2026-11-08 | The parity soak includes a relay-outage drill | §5 rule 11 |
 | 2026-11-08 | The parity report reads the relay-outage drill | §5 rule 11 (#509) |
 | 2026-11-11 | The second host is fabric-h2, reached from develop-qzapp only | §5 rule 1 |
+| 2026-11-12 | the second host is any host in the registry, not a named one | §5 rule 1: the named second host, its node, the coordinator's host's address and the waivers read "a second host in `runtime/hosts/registry.json`"; the milestone rule is unchanged |

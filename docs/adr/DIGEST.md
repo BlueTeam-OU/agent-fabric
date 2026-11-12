@@ -1501,6 +1501,7 @@ its record disagree, the record wins. Look it up, never read it whole:
 - Parity from arrival logs: missed, duplicate, offline counts,
   rollback drill (rule 11).
 - A 2026-11-11 — second host `fabric-h2`, no overlay, dialled from develop-qzapp only; P2's gates waived (rule 1).
+- A 2026-11-12 — rule 1's second host is any host in the registry; the waivers are not the record's.
 - Keywords: InterWeave, carrier, relay, P5, second host, fabric-h2.
 
 ### ADR-065 — The reviewer reads through pinned tools, says what it covered, and the next round starts where the last one stopped (Accepted)

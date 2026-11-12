@@ -311,3 +311,22 @@ amended the same day for sshd beyond loopback.
 
 Written by fabric-coordinator as job j706, from architect-cto-01's
 REQUEST 01a1c063.
+
+### Amendment 2026-11-12 — the second host is any host in the registry, not a named one
+
+What changed: rule 1's paragraph on the second host no longer names the
+host, its Proxmox node, the coordinator's host by name or the owner's two
+waivers for the throwaway login. It says a second host is one registered in
+`runtime/hosts/registry.json`, reached directly by the coordinator's host,
+with no overlay, connections opening only from the coordinator's host, its
+firewall admitting the roster's range only from that host's address, the
+InterWeave limits accepted on the owner's word, a third host a further
+amendment, and an agent moving there only on the owner's word on the
+control parity report. The first-milestone sentence and the rule that the
+next milestone opens by an amendment naming the host are unchanged.
+
+Why: ADR-045 §5 rule 4. Rules 2-14 and rule 1's milestone are the carrier;
+the named second host and its waivers are this deployment's, read from
+`runtime/hosts/registry.json`
+(docs/split/adr-classification.md, ADR-064 row). The waivers of the
+2026-11-11 amendment stay in its history note.
