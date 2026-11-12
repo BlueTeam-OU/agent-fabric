@@ -771,6 +771,30 @@ def case_a_two_tree_check_is_clean_and_a_lone_root_is_only_itself(tmp: str) -> N
     assert adr.check(op), "a root handed alone is that tree only: the engine's numbers are missing"
 
 
+def case_a_number_recorded_in_both_trees_is_a_finding(tmp: str) -> None:
+    root = fixture(tmp)
+    op = split_trees(root)
+    shutil.copy(os.path.join(op, ONE), os.path.join(root, ONE))
+    for tree_, other in ((op, root), (root, op)):
+        got = [x for x in adr.check(tree_, other=other) if "record in both trees" in x]
+        assert len(got) == 1 and "ADR-001" in got[0], got
+        assert os.path.realpath(op) in got[0] and os.path.realpath(root) in got[0], got
+
+
+def case_new_in_an_operator_tree_is_organisational(tmp: str) -> None:
+    root = fixture(tmp)
+    op = split_trees(root)
+    saved = adr.ROOT
+    adr.ROOT = root          # the engine, as new sees it: the fixture's, not the live checkout
+    try:
+        mine = open(adr.cmd_new(op, "op-thing", "Op thing"), encoding="utf-8").read()
+        assert "**Class:** organisational" in mine and "**Class:** engine" not in mine
+        theirs = open(adr.cmd_new(root, "eng-thing", "Eng thing"), encoding="utf-8").read()
+        assert "**Class:** engine" in theirs
+    finally:
+        adr.ROOT = saved
+
+
 def case_a_reserved_number_keeps_the_numbering_contiguous(tmp: str) -> None:
     root = fixture(tmp)
     move_one_out(root)

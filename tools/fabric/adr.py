@@ -369,6 +369,15 @@ def check(root: str | None = None, other: str | None = None) -> list[str]:
     for num in sorted(held & set(reserved_map)):
         findings.append(f"{ADR_DIR}/{RESERVED_FILE}: ADR-{num} is reserved and has a record in this tree — a number is one or the other")
     elsewhere = other_numbers(root, other)
+    od = other_tree(root, other)
+    # One number, one record across the pair: a copy left behind by a move is
+    # a second record the numbering cannot tell apart. Worded the same from
+    # either tree so a caller checking both reports it once.
+    if od is not None:
+        both = sorted(set(held) & record_numbers(od))
+        for num in both:
+            pair = sorted([os.path.realpath(d), os.path.realpath(od)])
+            findings.append(f"ADR-{num} has a record in both trees ({pair[0]} and {pair[1]}) — a number is held by one")
     present = {int(n) for n in held | set(reserved_map) | elsewhere}
     if present != set(range(max(present) + 1)):
         missing = sorted(set(range(max(present) + 1)) - present)
@@ -563,6 +572,10 @@ def cmd_new(root: str | None, slug: str, title: str) -> str:
     own = os.path.join(adr_dir(root), "ADR-TEMPLATE.md")
     tpl = read(own if os.path.isfile(own) else os.path.join(roots.engine_adr_dir(engine=ROOT), "ADR-TEMPLATE.md"))
     body = tpl.replace("ADR-NNN", f"ADR-{n:03d}").replace("<Title>", title)
+    # The engine's template says `engine`; a record written anywhere else is
+    # the operator's, and a new one must not start life classed as the engine's.
+    if os.path.realpath(adr_dir(root)) != os.path.realpath(roots.engine_adr_dir(engine=ROOT)):
+        body = body.replace("**Class:** engine", "**Class:** organisational", 1)
     path = os.path.join(adr_dir(root), f"ADR-{n:03d}-{slug}.md")
     with open(path, "x", encoding="utf-8") as fh:
         fh.write(body)
