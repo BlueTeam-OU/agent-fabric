@@ -562,7 +562,6 @@ class Bootstrap:
         self.checkout_hooks()
         trusted = self.working_copy_hooks()
         self.trust(trusted)
-        self.operator_checkout()
         self.control_agent()
         self.state_backup()
         self.tidy()
@@ -574,6 +573,9 @@ class Bootstrap:
         self.retire_doppler()
         self.journal_import()
         self.store_trust_base()
+        # Last, so a missing or unreachable operator is the final thing said before the summary and never a line
+        # between the steps above.
+        self.operator_checkout()
         if self.failed:
             say(f"bootstrap: {self.changed} written, {self.same} already current, {self.failed} NOT written (above).")
         else:

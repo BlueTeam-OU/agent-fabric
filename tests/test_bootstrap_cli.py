@@ -324,7 +324,10 @@ class Account:
     def env(self, **more: str) -> dict[str, str]:
         e = {"HOME": self.home, "PATH": f"{T}/fakebin:{T}/sysbin", "LC_ALL": "C.UTF-8", "TMPDIR": self.tmp,
              "CLAUDE_CONFIG_DIR": self.cfg, "XDG_STATE_HOME": self.state, "XDG_CONFIG_HOME": self.xdgcfg,
-             "XDG_RUNTIME_DIR": self.run, "FAKE_LOG": self.log}
+             "XDG_RUNTIME_DIR": self.run, "FAKE_LOG": self.log,
+             # The operator checkout's clone has nowhere to go but here: a path that is not a repository, so the
+             # run never reaches the network and says the same "!" line every time.
+             "AGENT_FABRIC_OPERATOR_CLONE_URL": f"file://{T}/no-operator.git"}
         for k, v in more.items():
             if v is None:
                 e.pop(k, None)
