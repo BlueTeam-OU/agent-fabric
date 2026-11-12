@@ -66,7 +66,7 @@ its record disagree, the record wins. Look it up, never read it whole:
 | a holder's own specialization of a role; charter or brief addendum; holder.json; jurisdiction of a legal holder; locale chosen per holder | ADR-060 |
 | errors per actor; review findings and red CI counted the same for people and agents | ADR-061 |
 | hidden Unicode; bidi, zero-width, tag characters in skills, slices and charters | ADR-062 |
-| fabric-ctl assist; asking about the fabric with the fleet down; the claude-pzhuy API key; who may spend an API key | ADR-063 |
+| fabric-ctl assist; asking about the fabric with the fleet down; the operator's assist API key; who may spend an API key | ADR-063 |
 | GZCoord over InterWeave; the InterWeave carrier; dual run beside the relay; the agents' PeerIds and roster; switching transport | ADR-064 |
 | the reviewer's tools; the review sandbox; coverage blocks; the v2 review marker; where a re-review starts | ADR-065 |
 | the reviewer's own accuracy; calibrating the review class; owner labels; seeded defects; a review routing change's evidence | ADR-066 |
@@ -1469,7 +1469,7 @@ its record disagree, the record wins. Look it up, never read it whole:
   `assist.jsonl` without the question (§5 rules 4-7).
 - #355 has merged; waits on the owner's acceptance (§7, §8).
 - A 2026-11-12 — retitled; the assist key is the operator's configured key (Scope, §2, rule 1).
-- Keywords: assist, fabric-ctl, API key, claude-pzhuy, credit, owner,
+- Keywords: assist, fabric-ctl, API key, credit, owner,
   fleet down, spend, reserve, P5.
 
 ### ADR-064 — GZCoord carried over InterWeave: one host, beside the relay (Accepted)

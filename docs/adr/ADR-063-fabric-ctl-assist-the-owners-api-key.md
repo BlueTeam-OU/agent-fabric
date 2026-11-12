@@ -81,11 +81,12 @@ guessing it.
 
 ## 5. Binding Rules
 
-1. **One key, one path.** The operator's configured assist key (named in
-   configuration, not in this record) is spent
-   only by `fabric-ctl assist`. The key's name is a single constant in
-   the assist module, citing this record; a second spender, or another key
-   for assist, is an amendment of this record. No launcher, `fabric-accounts`
+1. **One key, one path.** The operator's configured assist key is spent
+   only by `fabric-ctl assist`. Its name is read from the operator's
+   configuration, never from this record or the code; the assist module
+   holds only the name of that configuration entry, citing this record. A
+   second spender, or another key for assist, is an amendment of this
+   record. No launcher, `fabric-accounts`
    path, profile or agent file reads a `CLAUDE_APIKEY_*` entry.
 2. **The owner's terminal only.** Assist refuses, before reading the store
    and with a reason on stderr and exit status 2: a process with any of
