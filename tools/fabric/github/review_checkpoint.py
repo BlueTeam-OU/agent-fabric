@@ -15,7 +15,9 @@ not an ancestor of `current_head` (a force-push), its base is not an ancestor of
 NEWEST means last posted among the trusted v2 reviews, by GitHub's review id (review_status.base.review_order: its
 submitted_at has been served in the future, out of posting order), and the newest one decides: when it fails a check
 there is no fallback to an older one (a review without an id, or two with the same one, is a doubt too, and so is a
-newest one never submitted). v1 reviews are never a checkpoint, and a v2 marker from any other account is not read at all.
+newest one never submitted). An adjudication (review_coverage.is_adjudication) is set aside before the newest decides:
+it judges an earlier round's findings from that round's head and is no step of the sequence the next review starts
+from; taken as the checkpoint, it would move the next review's base back to the head it adjudicated. v1 reviews are never a checkpoint, and a v2 marker from any other account is not read at all.
 
 `config_for` is the caller's: an exception it raises is not caught here (it is a bug of the caller's, not a doubt about the PR).
 """
@@ -79,7 +81,8 @@ def _checkpoint(pr: int, current_head: str, config_for, repo: str | None, cwd: s
     posters = review_posters.for_pr(meta.get("author"), cfg.review_posters)
     posted = [r for r in reviews if isinstance(r, dict) and (r.get("body") or "").startswith(review_coverage.V2_PREFIX)
               and (login_of(r) == author or login_of(r) in posters)
-              and not (exclude_head and _marker_head(r) == exclude_head)]
+              and not (exclude_head and _marker_head(r) == exclude_head)
+              and not review_coverage.is_adjudication(r.get("body") or "")]
     if not posted:
         return None
     if any(review_id(r) is None for r in posted):

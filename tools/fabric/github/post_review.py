@@ -37,7 +37,9 @@ parsed data re-written, not the model's text. A header with none of those fields
 and a report with no header are REFUSED, naming what is missing: v1 stays readable for the reviews already posted
 (agent-fabric ADR-065 §5 rule 4), never writable, because a v1 review counts and names no range. The base of a v2
 review is tied to the PR on this side too: it is the PR's merge-base with its base branch or the head of the PR's last
-checkpoint review (review_checkpoint), so a narrow range posted as a full review does not count and chain. The
+checkpoint review (review_checkpoint), so a narrow range posted as a full review does not count and chain. The one other
+base is an adjudication's (adjudication_refusal, REQUEST 01a1cf77): the head of an earlier review that raised findings,
+for a report that only judges them, posted with review_coverage.ADJUDICATION_LINE as its second line. The
 assembled body is read back with the readers' own parser before it is sent, and must give the coverage just validated.
 
 A REPORT'S MACHINE LINES MUST PARSE, read with errors.parse_machine_lines, the reader `fabric-pr arm` uses: a posted
@@ -170,7 +172,10 @@ comment says the comment is already there.
 A report with no header, or a header from before those fields, is refused: a new review is posted as v2 only.
 The range's base must be the PR's merge-base with its base branch or the head of its last checkpoint review (an
 earlier v2 review the next one may start from, review_checkpoint.py); otherwise the report is refused, as it is
-when GitHub cannot say.
+when GitHub cannot say. One exception, the ADJUDICATION of an earlier round: a report whose machine lines are only
+Judgement:s and `Finding: none`, based on the head of any earlier review of the PR that raised findings, judging only
+labels raised there, and read at a later commit. It posts with a second line that marks it, and `fabric-pr arm`
+applies its judgements to the findings raised on its base and nowhere else; it is never a checkpoint.
 
 Exit codes:
   0  posted
@@ -374,7 +379,8 @@ def range_refusal(root: str, marker: review_coverage.Marker, coverage: review_co
         return str(e)
 
 
-def readback_refusal(full_body: str, marker: review_coverage.Marker, coverage: review_coverage.Coverage) -> str:
+def readback_refusal(full_body: str, marker: review_coverage.Marker, coverage: review_coverage.Coverage,
+                     adjudication: bool = False) -> str:
     """Why the readers would not read the assembled body as the marker and coverage validated, or "". Compares what
     the shared parser finds, not what this tool meant to write."""
     read = review_coverage.read_review(full_body)
@@ -384,6 +390,8 @@ def readback_refusal(full_body: str, marker: review_coverage.Marker, coverage: r
     if read.marker != marker or read.coverage != coverage:
         return ("the assembled review reads back as another range or another coverage than the one validated; "
                 "an unclosed code fence in the report is the usual cause")
+    if review_coverage.is_adjudication(full_body) != adjudication:
+        return "the assembled review reads back as " + ("no adjudication" if adjudication else "an adjudication")
     return ""
 
 
@@ -415,6 +423,43 @@ def base_refusal(root: str, repo: str, pr: str, base_branch: str, marker: review
             "review) nor the head of the PR's last checkpoint review "
             + (f"({found[1][:12]})" if found else "(the PR has none a re-review may start from)")
             + ": a narrower range is not the review of the PR, and would count as one")
+
+
+def adjudication_refusal(repo: str, pr: str, marker: review_coverage.Marker, body: str) -> str:
+    """Why a report on a base base_refusal refused may not be posted as an ADJUDICATION, or "" when it may
+    (REQUEST 01a1cf77; review_coverage's ADJUDICATION_LINE): its machine lines are Judgement:s and `Finding: none`, its
+    base is the head of an earlier review of this PR that raised findings, and every label it judges is one raised
+    on that head, as arm_findings reads them. A report that raises a finding is never one: on an arbitrary base it
+    would be a narrow review counted as the PR's (base_refusal), and its findings would join no chain that a later
+    review judges. FAILS CLOSED: a lookup that fails refuses."""
+    import errors  # here for the reason machine_lines_refusal gives: errors imports this module
+    from github import arm_findings, review_posters
+    from github.review_status.config import read_config
+    lines = errors.parse_machine_lines(body)
+    if lines is None or lines.unparsed or lines.findings or not lines.judgements:
+        return ("nor is it an adjudication of an earlier round, which carries only Judgement: lines and "
+                f"`{review_lines.NO_FINDINGS}`")
+    if marker.base == marker.head:
+        return ("nor is it an adjudication of an earlier round: an adjudication's head is the commit it judged the "
+                "findings at, after the head they were raised on, never that head itself")
+    try:
+        author = (gh.pr_view(int(pr), ["author"], repo=repo) or {}).get("author")
+        login = (author or {}).get("login") if isinstance(author, dict) else None
+        if not isinstance(login, str) or not login:
+            return f"the author of PR #{pr} could not be read, so whose reviews an adjudication judges is unknown"
+        trusted = set(review_posters.for_pr(author, read_config(os.environ).review_posters)) | {login}
+        reviews = gh.api_list(f"repos/{repo}/pulls/{pr}/reviews")
+    except (gh.GhError, ValueError, TypeError) as e:
+        return f"the reviews of PR #{pr} could not be read ({getattr(e, 'reason', e)}), so its earlier rounds are unknown"
+    raised = arm_findings.raised_on(reviews, trusted, marker.base)
+    if not raised:
+        return (f"nor is it an adjudication of an earlier round: no review of PR #{pr} that arm reads raised a finding on "
+                f"its base {marker.base[:12]}")
+    stray = [label for label, _, _ in lines.judgements if label not in raised]
+    if stray:
+        return (f"it judges {', '.join(stray)}, which no review raised on its base {marker.base[:12]} (raised there: "
+                f"{', '.join(sorted(raised))}): an adjudication judges only the findings raised on its base")
+    return ""
 
 
 def pr_commit_refusal(repo: str, pr: str, sha: str) -> str:
@@ -664,8 +709,13 @@ def run(argv: list[str], stdin) -> int:
     if refusal:
         die(f"not posting this report: {refusal}.")
     refusal = base_refusal(root, repo, pr, base_branch, marker)
+    adjudication = False
     if refusal:
-        die(f"not posting this report: {refusal}.")
+        why = adjudication_refusal(repo, pr, marker, body)
+        if why:
+            die(f"not posting this report: {refusal}; {why}.")
+        adjudication = True
+        say(f"post-review: an adjudication of the findings raised on {marker.base[:12]}, judged at {marker.head[:12]}.")
     # Said on stdout with the URL, not as a warning: which commit the review is recorded on is the result.
     recorded = (f"recorded on {commit}, the head of PR #{pr}." if commit == head else
                 f"recorded on {commit}; the head {head} of PR #{pr} is not covered by it.")
@@ -674,6 +724,9 @@ def run(argv: list[str], stdin) -> int:
     # The marker goes FIRST so it survives any truncation a reader
     # applies, and so the first line identifies the review.
     header = marker.line()
+    if adjudication:
+        # The second line, where review_coverage.is_adjudication reads it: arm_findings and review_checkpoint key on it.
+        header += "\n" + review_coverage.ADJUDICATION_LINE
     if not coverage.complete:
         header += "\n" + review_coverage.partial_line(coverage)
     if model:
@@ -687,6 +740,9 @@ def run(argv: list[str], stdin) -> int:
     intro = f"""**Blind review** — {who} with a
 brief of facts and none of the author's session context. Its findings
 are judged before they are answered; the judgement follows in the PR."""
+    if adjudication:
+        intro = (f"**Adjudication** — {who}: judgements, at {marker.head[:12]}, of the findings raised on "
+                 f"{marker.base[:12]}; it raises none and is no step of a review chain.")
     block = review_coverage.render_block(coverage)
     full_body = f"{header}\n{intro}\n\n{body}\n\n{block}\n"
     comment = ""
@@ -718,7 +774,7 @@ are judged before they are answered; the judgement follows in the PR."""
     # The body the readers will be given, read with their parser: the report around the block is model text, and an
     # unclosed fence in it swallows the block written after it (the block validated above is then not the one a
     # reader finds).
-    refusal = readback_refusal(full_body, marker, coverage)
+    refusal = readback_refusal(full_body, marker, coverage, adjudication)
     if refusal:
         die(f"not posting this report: {refusal}.")
 
@@ -762,7 +818,7 @@ are judged before they are answered; the judgement follows in the PR."""
         if len(full_body) > review_coverage.MAX_REVIEW_CHARS:
             die(f"not posting the review: with the comment's URL it is {len(full_body)} characters, over the "
                 f"{review_coverage.MAX_REVIEW_CHARS} one review holds; the report's comment {comment_url} is already there.")
-        refusal = readback_refusal(full_body, marker, coverage)
+        refusal = readback_refusal(full_body, marker, coverage, adjudication)
         if refusal:
             die(f"not posting the review: {refusal}; the report's comment {comment_url} is already there.")
     there = f"; the report's comment {comment_url} is already there" if comment_url else ""
