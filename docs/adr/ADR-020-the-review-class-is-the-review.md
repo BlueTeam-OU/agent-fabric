@@ -158,7 +158,7 @@ outage procedure.
    unconditionally: what a reviewer needs of a project is the card, the
    brief, the lenses and the tree. Where a project has no card yet, its
    reviewer gets no project text but the brief, the lenses and the tree;
-   the gzapp and InterWeave cards are to follow. The cap is
+   cards for such projects are to follow. The cap is
    `tools/fabric/review_card.py`'s `CARD_CAP` (2048 bytes), and three
    judge it by that one definition: the renderer, which refuses a card
    over it and never cuts one; the pre-commit hook, which refuses any

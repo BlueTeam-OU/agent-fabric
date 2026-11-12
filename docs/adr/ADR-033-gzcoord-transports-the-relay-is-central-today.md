@@ -47,7 +47,7 @@ the terminal that started it.
   one process, on the operator's account, on the one host, bound to
   `127.0.0.1:8765`, with one database that is the channel's only record
   of its past. Every session on the host is a client of it; every
-  managed project's integration joins the same channel, `gzapp:gzcoord`;
+  managed project's integration joins the same channel, the client's channel (`projects/clients.json`);
   the control plane rides it on `fabric:control` (ADR-029). Hosting it is
   fabric-coordinator's duty.
 - **The human relay is the fallback.** When the relay is down, a person
@@ -133,7 +133,7 @@ lets the decentralisation direction (ADR-000, P5) be measured against it.
   repository (ADR-024), and control-plane actions carry their own
   signature (ADR-029).
 - **Everything shares one channel.** Every project's sessions read the
-  same `gzapp:gzcoord`; the inbox filters by addressee before it prints a
+  same channel (`projects/clients.json`); the inbox filters by addressee before it prints a
   body (`gzcoord-inbox` `forMe`) — the relay itself delivers everything.
 - **Delivery is pull.** A session reads only while its watch runs
   (ADR-022).

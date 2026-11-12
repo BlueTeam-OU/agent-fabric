@@ -71,7 +71,7 @@ without anyone having to judge content they cannot see.
 5. The workspace template carries the hook; a session started inside a
    clone takes its hooks from the clone's settings, so each project's
    `.claude/settings.json` adds the `PostModelSwitch` group
-   (`projects/gzapp/integration/gzcoord/INSTALL.md`).
+   (a project's integration file, such as its GZCoord `INSTALL.md`).
 
 ## 6. Consequences
 

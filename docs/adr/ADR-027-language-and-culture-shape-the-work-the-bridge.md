@@ -198,9 +198,10 @@ re-captured, and a holder who writes every answer twice.
     the English sources, the machinery and the tests, authors no
     translation, and merges the holder's pull request. A role's charter
     is translated only for a holder whose work is in that language
-    (`language-culture-ge`, `legal-expert-ge`, whose sources are Georgian);
-    a holder whose corpus is English, as EU law is for
-    `legal-expert-ee-eu`, keeps the English. The role's own locale holder
+    (a language-culture holder and a legal-expert holder, whose sources are in
+    that language);
+    a holder whose corpus is English, as EU law is for a
+    legal-expert holder of that jurisdiction, keeps the English. The role's own locale holder
     writes it, and `language-culture-<suffix>` reviews it in the two
     passes of rule 3 before the pull request is opened. The holder may
     start from a draft `language-culture-<suffix>` hands it, and is still
