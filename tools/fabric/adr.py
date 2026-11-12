@@ -513,9 +513,16 @@ def digests(root: str | None) -> list[str]:
     means; none given, the operator's records and the engine's own, which stay
     behind when the organisational ones move (move-plan §1), each read once
     while both are still one tree. A tree without a DIGEST is skipped, unless
-    neither has one: then the first, so the missing file is said."""
+    neither has one: then the first, so the missing file is said. An operator
+    exported without one is refused, never answered from the engine alone: the
+    lookup would look complete and miss every organisational record."""
     if root is not None:
         return [os.path.join(adr_dir(root), "DIGEST.md")]
+    operator = os.path.join(adr_dir(None), "DIGEST.md")
+    engine = os.path.join(roots.engine_adr_dir(engine=ROOT), "DIGEST.md")
+    # Two trees means an operator is exported (roots answers the engine's otherwise).
+    if os.path.realpath(operator) != os.path.realpath(engine) and not os.path.isfile(operator):
+        raise SystemExit(f"adr: the operator's {operator} is missing: no lookup without its records")
     paths, seen = [], set()
     for d in (adr_dir(None), roots.engine_adr_dir(engine=ROOT)):
         p = os.path.join(d, "DIGEST.md")
