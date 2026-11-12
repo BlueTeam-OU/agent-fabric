@@ -46,6 +46,8 @@ SENT_LEDGER_NAME = "gzcoord-sent.jsonl"
 # Twelve hours: an outage the owner's drill sized at half an hour, ten times over, and well inside the 500-record page the
 # relay lists (about 34 hours of this fleet's traffic on 2026-11-12).
 MAX_AGE_S = 12 * 3600
+# The relay's cap on a listing, measured 2026-11-12 on the fleet's relay: limit=500, 2000 and 10000 each answered 500 records
+# (docs/live-checks/2026-10-01-episodic-journal.md paged by 500 too). A smaller real cap would read a page as the whole channel.
 PAGE = 500
 
 
@@ -148,7 +150,11 @@ class Relay:
     def newest(self) -> list[dict]:
         page = self._refreshing(lambda: self.tp.newest(PAGE))
         msgs = page.get("messages") if isinstance(page, dict) else page
-        return msgs if isinstance(msgs, list) else []
+        # An answer that is no list of records is an unreadable relay, not an empty channel: read as empty it would make
+        # every id absent and post a second copy of whatever the relay holds (as drift.py reads the same endpoint).
+        if not isinstance(msgs, list) or not all(isinstance(m, dict) for m in msgs):
+            raise ValueError("the relay's answer carries no list of messages")
+        return msgs
 
     def post(self, mid: str, text: str) -> None:
         self.tp.send(mid, text)
@@ -160,33 +166,40 @@ def _held(records: list[dict], sender: str) -> tuple[set[str], datetime.datetime
     ids: set[str] = set()
     oldest = None
     for r in records:
-        try:
-            t = _parse_time(r["ts_full"])
-        except (KeyError, TypeError, ValueError):
-            continue
-        oldest = t if oldest is None or t < oldest else oldest
+        # /api/messages and /api/wait name their time differently (drift.py); the first one that parses is the record's.
+        for key in ("ts_full", "timestamp", "ts"):
+            try:
+                t = _parse_time(r[key])
+            except (KeyError, TypeError, ValueError, AttributeError):
+                continue
+            oldest = t if oldest is None or t < oldest else oldest
+            break
         try:
             meta = gzmsg.parse(r["content"])["metadata"]
         except (gzmsg.NotGzcoord, AttributeError, TypeError, KeyError):
             continue
         if meta.get("FROM") == sender and meta.get("MESSAGE-ID"):
             ids.add(meta["MESSAGE-ID"])
-    return ids, (oldest if len(records) >= PAGE else None)
+    if len(records) < PAGE:
+        return ids, None
+    # A full page with no readable time reaches back nowhere we can tell: every row is older than it.
+    return ids, (oldest if oldest is not None else datetime.datetime.max.replace(tzinfo=datetime.timezone.utc))
+
+
+def _finish(log: str, row: Row, outcome: str, channel: str | None, at: datetime.datetime) -> None:
+    _append(log, {"mid": row.mid, "outcome": outcome, "at": at.strftime("%Y-%m-%dT%H:%M:%SZ"),
+                  "delay_s": int((at - row.happened_at).total_seconds()), "channel": channel})
 
 
 def backfill_channel(rows: list[Row], relay: Relay, *, log: str, on_relay: set[str], channel: str,
                      now: Callable[[], datetime.datetime], report: Report) -> None:
+    """`rows` are one channel's, oldest first, none over the age bound."""
     def done(row: Row, outcome: str) -> None:
-        at = now()
-        _append(log, {"mid": row.mid, "outcome": outcome, "at": at.strftime("%Y-%m-%dT%H:%M:%SZ"),
-                      "delay_s": int((at - row.happened_at).total_seconds()), "channel": channel})
+        _finish(log, row, outcome, channel, now())
 
     live = []
     for row in rows:
-        if (now() - row.happened_at).total_seconds() > MAX_AGE_S:
-            done(row, "over-age")
-            report.over_age.append(row.mid)
-        elif row.mid in on_relay:
+        if row.mid in on_relay:
             done(row, "present")
             report.present.append(row.mid)
         else:
@@ -232,45 +245,65 @@ def run(*, state_dir: str, address: str, conn: Any,
     if not rows:
         return report
     on_relay = on_sent_ledger(os.path.join(state_dir, SENT_LEDGER_NAME))
-    by_project: dict[str | None, list[Row]] = {}
+    # The age bound is first and needs no relay: a row that can never be posted is reported whatever else is missing.
+    t_now = now()
+    live = []
     for r in rows:
-        by_project.setdefault(r.project, []).append(r)
-    for project, group in by_project.items():
-        cfg = config(project)
+        if (t_now - r.happened_at).total_seconds() > MAX_AGE_S:
+            _finish(log, r, "over-age", None, t_now)
+            report.over_age.append(r.mid)
+        else:
+            live.append(r)
+    # One order per relay channel, whatever project a row came from.
+    by_channel: dict[tuple[str, str], tuple[dict, list[Row]]] = {}
+    for r in live:
+        cfg = config(r.project)
         if not cfg.get("configured"):
-            report.notes.append(f"project {project}: no relay configured; {len(group)} row(s) stay pending")
-            report.waiting += [r.mid for r in group]
+            report.notes.append(f"project {r.project}: no relay configured; its rows stay pending")
+            report.waiting.append(r.mid)
             continue
+        by_channel.setdefault((cfg["relay_url"], cfg["channel"]), (cfg, []))[1].append(r)
+    for cfg, group in by_channel.values():
         relay = make_relay(cfg, address)
         if relay is None:
-            report.notes.append("no relay token; rows stay pending")
+            report.notes.append("no relay token; its rows stay pending")
             report.waiting += [r.mid for r in group]
             continue
         backfill_channel(group, relay, log=log, on_relay=on_relay, channel=cfg["channel"], now=now, report=report)
     return report
 
 
-def tick(say: Callable[[str], None] = lambda m: print(m, file=sys.stderr)) -> Report | None:
-    """The daemon's timer body. A journal that does not exist yet, or that cannot be read, is a line and nothing else."""
+_said: set[str] = set()   # the standing notes of the last tick: a condition that lasts is said when it begins, not every minute
+
+
+def tick(say: Callable[[str], None] = lambda m: print(m, file=sys.stderr),
+         token: Callable[[], str | None] = synced_token) -> Report | None:
+    """The daemon's timer body. A journal that does not exist yet, or that cannot be read, is a line and nothing else.
+    `token` is the daemon's own, so the backfill reaches the relay with the credential the daemon does."""
+    global _said
     import episodic
     try:
         conn = episodic.open_readonly()
     except episodic.JournalError as e:
         if "no journal yet" not in str(e):
-            say(f"agentd: gzcoord backfill: {e}")
+            _say_new({f"gzcoord backfill: {e}"}, say)
         return None
     try:
         def make(cfg: dict, address: str) -> Relay | None:
-            tok = synced_token()
+            tok = token()
             return Relay(cfg, address, tok) if tok else None
         report = run(state_dir=episodic.state_dir(), address=episodic.own_address(), conn=conn, make_relay=make)
     finally:
         conn.close()
+    _say_new(set(report.notes), say)
     for line in report.lines():
-        say(f"agentd: {line}")
+        if line.removeprefix("gzcoord backfill: ") not in report.notes:
+            say(f"agentd: {line}")
     return report
 
 
-if __name__ == "__main__":
-    tick()
-    sys.exit(0)
+def _say_new(notes: set[str], say: Callable[[str], None]) -> None:
+    global _said
+    for n in sorted(notes - _said):
+        say(f"agentd: {n if n.startswith('gzcoord backfill') else 'gzcoord backfill: ' + n}")
+    _said = notes

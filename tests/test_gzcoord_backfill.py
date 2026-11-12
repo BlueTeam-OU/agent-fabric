@@ -224,6 +224,65 @@ def main() -> int:
         check("the log passes over a line that does not parse", backfill.finished(os.path.join(tmp, backfill.LOG_NAME)) == {"m9"})
     finally:
         shutil.rmtree(tmp)
+
+    # F1: an unreadable listing is an error, never an empty channel; a full page with no times reaches nowhere
+    class Tp:
+        def __init__(self, page): self.page = page
+        def newest(self, limit): return self.page
+        def refresh(self, e): return False
+    for label, page in (("an error object", {"error": "x"}), ("messages null", {"messages": None}),
+                        ("a string", "oops"), ("a list of non-records", [1, 2])):
+        rl = backfill.Relay.__new__(backfill.Relay)
+        rl.tp = Tp(page)
+        try:
+            rl.newest()
+            check(f"an unreadable listing ({label}) raises", False)
+        except ValueError:
+            check(f"an unreadable listing ({label}) raises", True)
+    tmp = scratch()
+    try:
+        c = journal(tmp, [("m1", "accepted", 30, CAR)])
+        rl = backfill.Relay.__new__(backfill.Relay)
+        rl.tp, rl.address = Tp({"items": []}), ME
+        rl.up, rl.post = (lambda: True), (lambda mid, body: posted.append(mid))
+        posted: list = []
+        rep = run(tmp, c, rl)
+        check("a malformed listing posts nothing and leaves the row pending", posted == [] and rep.waiting == ["m1"] and rep.notes, rep)
+    finally:
+        shutil.rmtree(tmp)
+    held, reach = backfill._held([{"timestamp": "2026-11-12T09:00:00Z", "content": text("x")}] * backfill.PAGE, ME)
+    check("the time may be named timestamp", reach == T0 - datetime.timedelta(hours=1) and held == {"x"}, (held, reach))
+    held, reach = backfill._held([{"content": text("x")}] * backfill.PAGE, ME)
+    check("a full page with no readable time reaches back nowhere", reach is not None and reach > T0, reach)
+    held, reach = backfill._held([{"ts_full": "2026-11-12T09:00:00Z", "content": text("x")}], ME)
+    check("a short page is the whole channel", reach is None)
+
+    # F2: the age bound needs no relay; a standing note is said once
+    tmp = scratch()
+    try:
+        c = journal(tmp, [("old", "accepted", 13 * 60, CAR), ("new", "accepted", 30, CAR)])
+        rep = run(tmp, c, None, configured=False)
+        check("an over-age row is reported with no relay configured", rep.over_age == ["old"] and rep.waiting == ["new"], rep)
+        said: list[str] = []
+        backfill._said = set()
+        backfill._say_new({"a"}, said.append)
+        backfill._say_new({"a"}, said.append)
+        backfill._say_new(set(), said.append)
+        backfill._say_new({"a"}, said.append)
+        check("a standing note is said when it begins and again after it ended", len(said) == 2, said)
+    finally:
+        shutil.rmtree(tmp)
+
+    # one order per channel across projects
+    tmp = scratch()
+    try:
+        c = journal(tmp, [("p1", "accepted", 40, CAR), ("p2", "accepted", 30, CAR), ("p3", "accepted", 20, CAR)])
+        c.execute("UPDATE episodes SET project='other' WHERE message_id='p2'")
+        r = FakeRelay()
+        run(tmp, c, r)
+        check("rows of two projects on one channel keep one order", [m for m, _ in r.posts] == ["p1", "p2", "p3"], r.posts)
+    finally:
+        shutil.rmtree(tmp)
     print(f"{fails} FAIL")
     return 1 if fails else 0
 

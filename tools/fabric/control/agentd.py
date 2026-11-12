@@ -907,9 +907,9 @@ JOBS_SWEEP_TIMEOUT_S = 600
 BACKFILL_EVERY_S = 60
 
 
-def backfill_tick() -> None:
+def backfill_tick(token: Callable[[], str | None]) -> None:
     from gzcoord import backfill
-    backfill.tick(_stderr)
+    backfill.tick(_stderr, token)
 
 
 def jobs_sweep(run: Callable[..., Any] = subprocess.run, log: Callable[[str], None] = _stderr) -> None:
@@ -1070,7 +1070,7 @@ def main(argv: list[str] | None = None, *, stop: threading.Event | None = None) 
         # Messages the second carrier alone delivered while the relay was down are put on the relay's record once it answers
         # (gzcoord/backfill.py). A minute: the question costs one journal read when nothing is owed, and the relay's return is
         # what the owner's bound measures from.
-        Ticker("gzcoord backfill", backfill_tick, BACKFILL_EVERY_S, first_s=tools_mod.first_run_delay_s(me["address"])).start()
+        Ticker("gzcoord backfill", lambda: backfill_tick(lambda: token_box[0]), BACKFILL_EVERY_S, first_s=tools_mod.first_run_delay_s(me["address"])).start()
         # Only the resident daemon samples: a --once run would add a lone
         # sample with no minute behind it.
         pressure_sampler = pressure.sampler()
