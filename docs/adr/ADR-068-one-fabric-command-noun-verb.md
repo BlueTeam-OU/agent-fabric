@@ -150,7 +150,7 @@ does not know.
    so through one function in `tools/fabric/cli/`, which reads both
    spellings to the canonical `<command> <args…>`; no hook keeps its own
    pattern for a command's name. This is a mechanism in ADR-067's sense:
-   it enters `policies/mechanisms.json` with its owner and a checker in
+   it enters `tools/fabric/mechanisms.json` with its owner and a checker in
    the pull request that adds the dispatcher, and every such hook has a
    test that its decision is the same for both spellings.
 8. The dispatcher, the table, the rules of rule 6 and the hooks'
