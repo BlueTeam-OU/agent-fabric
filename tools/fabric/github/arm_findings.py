@@ -20,12 +20,16 @@ The rule, as the request states it:
     Two findings that share a label are told apart by nothing but that order: a judgement may close the wrong one and leave the right one open, which over-blocks —
     the accepted cost; under-blocking is the defect this gate exists for;
   - a review read as nothing — no body or no id from the API, a body with no machine lines, a malformed line — is unknown,
-    never "no findings": the gate refuses naming it.
+    never "no findings": the gate refuses naming it. One way out for the last two: a LATER review from a trusted
+    account whose body has a line `Supersedes: <review-id>` naming that review (an id on this PR) is skipped as
+    unknown — an unparsed report cannot be edited or re-posted in place, and post-review only creates. It lifts
+    nothing else: a review that parses keeps its findings, and a body the API did not return stays unknown.
 Pure: the caller (arm.py) reads the reviews and decides what to do with the answer.
 """
 from __future__ import annotations
 
 import os
+import re
 import sys
 from dataclasses import dataclass, field
 
@@ -36,6 +40,7 @@ from github import review_coverage  # noqa: E402
 from github.review_status.base import review_id, review_order  # noqa: E402
 
 CLEARS = ("fixed", "not-real")
+SUPERSEDES = re.compile(r"^Supersedes: ([0-9]+)[ \t]*$", re.M)
 
 
 @dataclass
@@ -56,6 +61,7 @@ class Reading:
     reviews: int = 0
     chains: list[str] = field(default_factory=list)       # each chain's latest head, by chain number
     findings: list[Finding] = field(default_factory=list)
+    supersedable: list[str] = field(default_factory=list)  # ids of the unknown reviews a `Supersedes:` line can lift
     unknown: list[str] = field(default_factory=list)      # "review <id> (<why>)"
 
     @property
@@ -74,10 +80,25 @@ def _where(body: str, label: str) -> tuple[str, str]:
     return "-", ""
 
 
+def _superseded(reviews: list, trusted: set[str]) -> set[int]:
+    """Ids named by a `Supersedes:` line of a LATER review (GitHub's id order) from a trusted account whose body is a
+    v2 review: one without the marker is no review gate 4c reads, so it must not lift one that is. An id no review on
+    the PR carries is never looked up, so a typo skips nothing."""
+    out: set[int] = set()
+    for r in reviews:
+        if not isinstance(r, dict) or review_id(r) is None or not isinstance(r.get("body"), str):
+            continue
+        if str((r.get("user") or {}).get("login") or "") not in trusted or review_coverage.parse_marker(r["body"]) is None:
+            continue
+        out.update(t for t in map(int, SUPERSEDES.findall(r["body"])) if review_id(r) > t)
+    return out
+
+
 def read(reviews: list, trusted: set[str]) -> Reading:
     """The open findings of every chain, from the REST review objects of one PR (any order)."""
     out = Reading()
     rows = []
+    superseded = _superseded(reviews, trusted) if isinstance(reviews, list) else {}
     for r in reviews if isinstance(reviews, list) else []:
         if not isinstance(r, dict):
             continue
@@ -117,10 +138,15 @@ def read(reviews: list, trusted: set[str]) -> Reading:
             out.chains[chain] = marker.head
         chain_of_head[marker.head] = chain
         parsed = errors.parse_machine_lines(body)
+        # Only a report read as nothing can be superseded: its chain position above still counts (its head is a head).
+        if (parsed is None or parsed.unparsed) and int(rid) in superseded:
+            continue
         if parsed is None:
+            out.supersedable.append(rid)
             out.unknown.append(f"review {rid} (no Finding:/Judgement: lines: an older report is unread, not clean)")
             continue
         if parsed.unparsed:
+            out.supersedable.append(rid)
             out.unknown.append(f"review {rid} (machine lines do not parse: {'; '.join(parsed.malformed) or 'malformed'})")
             continue
         # Judged before this review's own findings are added: a review never judges what it raises itself.

@@ -1044,6 +1044,44 @@ def main() -> int:
             rc, out = run("7", "--basis", "b")
             check(f"{what}: refused as unknown, the review named", rc == 1 and "cannot be read" in out
                   and "review 5710450122" in out and "pr merge" not in calls(), out)
+        # Gate 4c supersede: an unparsed report cannot be edited and post-review only creates, so a later trusted review
+        # carrying `Supersedes: <id>` lifts it. Positive control first: the very same chain without the line is refused.
+        judged5 = review(5709892043, h2, HEAD, "Judgement: F5 | fixed | done\nFinding: none")
+        for what, bad in (("no machine lines", "looks fine"), ("a malformed line", "Finding: F1 | P9 | sure | a.py | x")):
+            unread = review(5710450122, b2, HEAD, bad)
+            plain(); reviews(first, judged5, unread)
+            rc, out = run("7", "--basis", "b")
+            check(f"supersede ({what}): refused, the text names Supersedes and the id to put in it", rc == 1
+                  and "Supersedes: <review-id>" in out and "ids that can be named: 5710450122" in out, out)
+            plain(); reviews(first, judged5, unread, review(5710450130, HEAD, HEAD, "Supersedes: 5710450122\nJudgement: F5 | fixed | done\nFinding: none"))
+            rc, out = run("7", "--basis", "b")
+            check(f"supersede ({what}): a later trusted review naming it arms", rc == 0 and "ARMED #7" in out, out)
+            for why, sup in (("an untrusted author's", review(5710450130, HEAD, HEAD, "Supersedes: 5710450122\nFinding: none", login="drive-by")),
+                             ("naming an id not on the PR", review(5710450130, HEAD, HEAD, "Supersedes: 5710450111\nFinding: none")),
+                             ("a non-v2 trusted review's", dict(review(5710450130, HEAD, HEAD, "x"), body="Supersedes: 5710450122")),
+                             ("an EARLIER review's", review(5710450100, HEAD, HEAD, "Supersedes: 5710450122\nFinding: none")),
+                             ("not alone on its line", review(5710450130, HEAD, HEAD, "see Supersedes: 5710450122 above\nFinding: none")),
+                             ("its own", None)):
+                if sup is None:
+                    sup = review(5710450122, b2, HEAD, bad + "\nSupersedes: 5710450122")
+                    plain(); reviews(first, judged5, sup)
+                else:
+                    plain(); reviews(first, judged5, unread, sup)
+                rc, out = run("7", "--basis", "b")
+                check(f"supersede ({what}): {why} Supersedes line skips nothing: refused", rc == 1 and "cannot be read" in out
+                      and "pr merge" not in calls(), out)
+        plain(); reviews(first, judged5, review(5710450110, b2, HEAD, "looks fine"), review(5710450122, b2, HEAD, "looks fine"),
+                         review(5710450130, HEAD, HEAD, "Supersedes: 5710450122\nFinding: none"))
+        rc, out = run("7", "--basis", "b")
+        check("supersede: only the named unparsed review is lifted, the other is still refused",
+              rc == 1 and "review 5710450110" in out and "review 5710450122 (" not in out, out)
+        plain(); reviews(first, judged5, review(5710450122, b2, HEAD, "Finding: F7 | P2 | certain | a.py:1 | real"),
+                         review(5710450130, HEAD, HEAD, "Supersedes: 5710450122\nFinding: none"))
+        rc, out = run("7", "--basis", "b")
+        check("supersede: a review that parses keeps its findings, naming it lifts nothing", rc == 1 and "F7 | P2" in out, out)
+        plain(); reviews(first, judged5, review(5710450122, b2, HEAD, None), review(5710450130, HEAD, HEAD, "Supersedes: 5710450122\nFinding: none"))
+        rc, out = run("7", "--basis", "b")
+        check("supersede: a body the API did not return stays unknown", rc == 1 and "cannot be read" in out, out)
         plain(); reviews(first, review(5709892043, h2, HEAD, "Judgement: F5 | fixed | done\nFinding: none"), fresh)
         rc, out = run("7", "--basis", "b")
         check("control: the same chains, every body read: armed", rc == 0 and "ARMED #7" in out, out)
