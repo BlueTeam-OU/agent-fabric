@@ -2,7 +2,7 @@
 """The three shell readers of the hosts registry (both completions and ssh-operator.sh) resolve it as
 tools/fabric/roots.py hosts_registry() will after the operator's data leaves the engine (agent-fabric
 docs/split/move-plan.md §3, step A): AGENT_FABRIC_HOSTS_REGISTRY, then AGENT_FABRIC_OPERATOR, then the operator's clone
-<home>/projects/blueteam-fabric when it exists, then the engine root. Each tree here places a login of its own on
+<home>/projects/blueteam-fabric when it holds the file, then the engine root. Each tree here places a login of its own on
 the host, so the login that comes back names the tree that was read, and the first tree that applies wins even
 when a later one has a registry too. A registry that resolves to no file is said and never read from a later tree
 (the positive control for that is the same shell with the file present)."""
@@ -167,12 +167,19 @@ class Resolution(unittest.TestCase):
                     logins, err = read(self.env(**extra))
                     self.assertEqual(logins, [])
                     self.assertIn("no hosts registry at " + where, err)
-        os.makedirs(self.trees["clone"])      # a clone with no registry in it
+
+    def test_a_clone_without_the_file_is_skipped_for_the_engine_root(self):
+        # Until step B the operator's repository is empty: bootstrap clones it and the engine's registry still answers.
+        self.have("engine")
+        os.makedirs(self.trees["clone"])
         for name, read in self.each():
-            with self.subTest(reader=name, where="clone"):
-                logins, err = read(self.env())
-                self.assertEqual(logins, [])
-                self.assertIn("no hosts registry at " + os.path.join(self.trees["clone"], "runtime", "hosts", "registry.json"), err)
+            with self.subTest(reader=name):
+                self.assertEqual(read(self.env()), ([login("engine")], ""))
+        # Positive control: the same clone with the file in it is taken.
+        self.have("clone")
+        for name, read in self.each():
+            with self.subTest(reader=name, control="clone with the file"):
+                self.assertEqual(read(self.env()), ([login("clone")], ""))
 
     def test_a_missing_engine_registry_is_said(self):
         for name, read in self.each():
