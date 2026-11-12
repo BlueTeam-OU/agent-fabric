@@ -18,25 +18,34 @@
 # checkout (agent-fabric docs/split/move-plan.md §3, step A): AGENT_FABRIC_HOSTS_REGISTRY, then the tree named by
 # AGENT_FABRIC_OPERATOR, then the operator's clone when the account has one, then the engine checkout. Empty counts as
 # unset. The first that applies is the answer: a registry missing from the operator's tree is said below, never read
-# from the engine's instead.
+# from the engine's instead. The home is the login's, from the passwd database, never the session's $HOME (move-plan §3
+# step D); a login with no home there has no clone to look for and no default engine checkout either.
 _fabric_ctl_hosts_registry() {
-    local op
+    local op home
     if [[ -n "${AGENT_FABRIC_HOSTS_REGISTRY:-}" ]]; then
         printf '%s\n' "$AGENT_FABRIC_HOSTS_REGISTRY"
         return
     fi
     if [[ -n "${AGENT_FABRIC_OPERATOR:-}" ]]; then
         op="$AGENT_FABRIC_OPERATOR"
-    elif [[ -d "$HOME/projects/blueteam-fabric" ]]; then
-        op="$HOME/projects/blueteam-fabric"
     else
-        op="${AGENT_FABRIC_ROOT:-$HOME/projects/agent-fabric}"
+        home="$(getent passwd "$(id -un)" 2>/dev/null | cut -d: -f6)"
+        if [[ -n "$home" && -d "$home/projects/blueteam-fabric" ]]; then
+            op="$home/projects/blueteam-fabric"
+        elif [[ -n "${AGENT_FABRIC_ROOT:-}" ]]; then
+            op="$AGENT_FABRIC_ROOT"
+        elif [[ -n "$home" ]]; then
+            op="$home/projects/agent-fabric"
+        else
+            echo "fabric-ctl completion: no home for $(id -un) in the passwd database" >&2
+            return 1
+        fi
     fi
     printf '%s\n' "$op/runtime/hosts/registry.json"
 }
 _fabric_ctl_logins() {
     local reg
-    reg="$(_fabric_ctl_hosts_registry)"
+    reg="$(_fabric_ctl_hosts_registry)" || return 0
     [[ -f "$reg" ]] || { echo "fabric-ctl completion: no hosts registry at $reg" >&2; return 0; }
     [[ -r "$reg" ]] || return 0
     python3 -c '

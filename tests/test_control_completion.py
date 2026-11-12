@@ -46,6 +46,10 @@ class Completion(unittest.TestCase):
         with open(os.path.join(bindir, "fabric-ctl"), "w", encoding="utf-8") as fh:
             fh.write(STUB)
         os.chmod(os.path.join(bindir, "fabric-ctl"), 0o755)
+        # The completion takes the login's home from the passwd database; the real one must not decide whether a clone exists.
+        with open(os.path.join(bindir, "getent"), "w", encoding="utf-8") as fh:
+            fh.write(f'#!/bin/sh\necho "fixture:x:1000:1000::{self.tmp}:/bin/sh"\n')
+        os.chmod(os.path.join(bindir, "getent"), 0o755)
         self.env = {"PATH": f"{bindir}:/usr/bin:/bin", "HOME": self.tmp, "AGENT_FABRIC_ROOT": self.root,
                     "STUB_LOG": self.log, "LC_ALL": "C"}
         self.registry('{"placement": {"alpha-01": "host-a", "beta-01": "host-a", "gamma-01": "host-b"}}')

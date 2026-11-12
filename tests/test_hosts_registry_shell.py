@@ -35,7 +35,8 @@ class Resolution(unittest.TestCase):
         self.trees = {
             "operator": os.path.join(self.tmp, "op"),
             "clone": os.path.join(self.home, "projects", "blueteam-fabric"),
-            "engine": os.path.join(self.tmp, "engine"),
+            # Beside the clone: ssh-operator.sh looks for the clone next to its own checkout, the completions in the login's home.
+            "engine": os.path.join(self.home, "projects", "agent-fabric"),
         }
         self.override = os.path.join(self.tmp, "reg-override.json")
         bindir = os.path.join(self.tmp, "bin")
@@ -44,7 +45,14 @@ class Resolution(unittest.TestCase):
         # the registry gives nothing, which must not find the tool of whoever runs the suite.
         self.stub("hostname", f"echo {HOST}")
         self.stub("moveto", "exit 0")
-        self.base = {"PATH": f"{bindir}:/usr/bin:/bin", "HOME": self.home, "LC_ALL": "C"}
+        # The login's home comes from the passwd database, not from $HOME: the stub is the database, and $HOME is
+        # somewhere else on purpose, with a clone in it that must never be taken.
+        self.stub("getent", f'echo "fixture:x:1000:1000::{self.home}:/bin/bash"')
+        self.session_home = os.path.join(self.tmp, "session-home")
+        os.makedirs(os.path.join(self.session_home, "projects", "blueteam-fabric", "runtime", "hosts"))
+        with open(os.path.join(self.session_home, "projects", "blueteam-fabric", "runtime", "hosts", "registry.json"), "w", encoding="utf-8") as fh:
+            json.dump({"version": 1, "hosts": {}, "placement": {"from-session-home": HOST}}, fh)
+        self.base = {"PATH": f"{bindir}:/usr/bin:/bin", "HOME": self.session_home, "LC_ALL": "C"}
 
     def stub(self, name: str, body: str) -> None:
         path = os.path.join(self.tmp, "bin", name)
@@ -130,6 +138,14 @@ class Resolution(unittest.TestCase):
             with self.subTest(reader=name):
                 got = read(self.env(AGENT_FABRIC_HOSTS_REGISTRY="", AGENT_FABRIC_OPERATOR=""))
                 self.assertEqual(got, ([login("clone")], ""))
+
+    def test_the_sessions_home_is_never_read_for_the_clone(self):
+        # self.session_home holds a clone with its own registry; neither it nor $HOME's engine default may answer.
+        self.have("engine")
+        for name, read in self.each():
+            with self.subTest(reader=name):
+                logins, _ = read(self.env())
+                self.assertEqual(logins, [login("engine")])
 
     def test_an_operator_clone_that_is_not_a_directory_is_not_taken(self):
         self.have("engine")
