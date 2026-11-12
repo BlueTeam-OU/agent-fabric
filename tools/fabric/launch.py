@@ -344,15 +344,23 @@ def keep_fabric_current(fabric_root: str, orig_args: list[str]) -> None:
     if verdict.kind == "offline":
         say(f"launch: could not fetch origin/main for {fabric_root} (offline?); launching on what is checked out.")
         return
+    for note in verdict.notes:
+        say(f"launch: {note}.")
+    if verdict.kind == "pin-refused":
+        # A pin somebody wrote and nobody can read is not an absent one (ADR-045 §6): the engine does not move
+        # and the launch does not go on as if it knew the operator's mind.
+        die(f"{verdict.reason}; the engine at {fabric_root} was not moved and nothing was launched.\n"
+            "  The operator's .agent-fabric/fabric-ref is one line, the full 40-hex engine commit.")
     behind = verdict.behind
     if behind <= 0:
         return
+    goal = "origin/main" if verdict.target == "origin/main" else f"the operator's pin {verdict.target[:12]}"
     if os.environ.get("AGENT_FABRIC_ALLOW_STALE") == "1":
-        say(f"launch: WARNING — agent-fabric is {behind} commit(s) behind origin/main; launching anyway (AGENT_FABRIC_ALLOW_STALE=1).")
+        say(f"launch: WARNING — agent-fabric is {behind} commit(s) behind {goal}; launching anyway (AGENT_FABRIC_ALLOW_STALE=1).")
     elif os.environ.get("AGENT_FABRIC_PULLED") == "1":
-        die(f"agent-fabric at {fabric_root} is still {behind} commit(s) behind origin/main after a pull; not relaunching again.\n"
+        die(f"agent-fabric at {fabric_root} is still {behind} commit(s) behind {goal} after a pull; not relaunching again.\n"
             f"  Look at the checkout: git -C \"{fabric_root}\" status")
-    elif (pulled := (pull := pull_ff(fabric_root))[0]) == "timeout":
+    elif (pulled := (pull := pull_ff(fabric_root, verdict.target))[0]) == "timeout":
         die(f"agent-fabric at {fabric_root}: the fast-forward did not answer within {git.TIMEOUT_S:g} s; nothing was "
             "relaunched.\n"
             "  A fast-forward ended by the bound may leave .git/index.lock behind. Look:\n"
@@ -360,14 +368,14 @@ def keep_fabric_current(fabric_root: str, orig_args: list[str]) -> None:
             "  and relaunch once the lock is gone and the checkout answers.")
     elif pulled == "ok":
         head = git_text(fabric_root, "rev-parse", "--short", "HEAD") or ""
-        say(f"launch: agent-fabric was {behind} commit(s) behind origin/main; pulled to {head} and relaunching on it.")
+        say(f"launch: agent-fabric was {behind} commit(s) behind {goal}; pulled to {head} and relaunching on it.")
         reexec(env_with(AGENT_FABRIC_PULLED="1"), orig_args)
     else:
-        die(f"agent-fabric at {fabric_root} is {behind} commit(s) behind origin/main and cannot fast-forward\n"
+        die(f"agent-fabric at {fabric_root} is {behind} commit(s) behind {goal} and cannot fast-forward\n"
             f"  ({verdict.reason or pull[1] or 'local commits or changes on this checkout'}). A session runs on the launcher,\n"
             "  hooks, prompt and routing of this checkout, so it must be current. Look:\n"
             f"    git -C \"{fabric_root}\" status\n"
-            "  and bring it to origin/main, then relaunch.")
+            f"  and bring it to {goal}, then relaunch.")
 
 
 def reexec(env: dict, args: list[str]) -> "NoReturn":  # noqa: F821
@@ -907,6 +915,10 @@ def launch(argv: list[str]) -> int:
     # Every refusal is behind us: the session starts, and it, and a restart of
     # it, are no longer the relaunch that restart() asked for.
     env.pop(RESTARTING, None)
+    # AGENT_FABRIC_PULLED guards the one relaunch after a pull (keep_fabric_current). Past that check it has
+    # done its work; left in the session's environment it makes every later launch from the session, and every
+    # test run in it, refuse a checkout that is behind instead of pulling.
+    env.pop("AGENT_FABRIC_PULLED", None)
     try:
         status = run_session(cmd)
     finally:

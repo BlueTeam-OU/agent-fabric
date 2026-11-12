@@ -109,6 +109,28 @@ def case_adr_reads_records_and_the_registry_from_the_operator() -> None:
             assert adr.adr_dir(op) == os.path.join(op, "docs", "adr")      # --root still names the tree
 
 
+def case_adr_lookup_reads_the_operators_digest_and_the_engines() -> None:
+    """move-plan §3 step A: the engine's own records stay when the organisational ones move, so a lookup with no root
+    reads both DIGESTs; one tree is read once, a root names only itself, and a tree without a DIGEST is skipped."""
+    import adr
+    entry = lambda n, word: f"| Topic | Record |\n|---|---|\n| {word} | ADR-{n} |\n\n### ADR-{n} — x (Accepted)\n- {word} marker\n"  # noqa: E731
+    with tempfile.TemporaryDirectory() as tmp:
+        op, eng = os.path.join(tmp, "op"), os.path.join(tmp, "engine")
+        write(os.path.join(op, "docs", "adr", "DIGEST.md"), entry("901", "opword"))
+        write(os.path.join(eng, "docs", "adr", "DIGEST.md"), entry("902", "engword"))
+        with code_tree(eng, adr), operator(op):
+            hits = adr.cmd_lookup(None, ["marker"])
+            assert [h.split(" ")[1] for h in hits] == ["ADR-901", "ADR-902"], hits     # the operator's first
+            tables = adr.cmd_lookup(None, [])
+            assert len(tables) == 2 and "opword" in tables[0] and "engword" in tables[1], tables
+            assert [h.split(" ")[1] for h in adr.cmd_lookup(op, ["marker"])] == ["ADR-901"]   # --root: that tree alone
+        with code_tree(eng, adr), unset_operator():
+            assert [h.split(" ")[1] for h in adr.cmd_lookup(None, ["marker"])] == ["ADR-902"]   # one tree, once
+        os.remove(os.path.join(eng, "docs", "adr", "DIGEST.md"))
+        with code_tree(eng, adr), operator(op):
+            assert [h.split(" ")[1] for h in adr.cmd_lookup(None, ["marker"])] == ["ADR-901"]   # no engine DIGEST: skipped
+
+
 def case_workingcopy_reads_the_operators_registry_and_arm_follows() -> None:
     import subprocess
     import workingcopy
@@ -328,6 +350,77 @@ def case_lint_reads_role_files_only_the_operator_holds() -> None:
         assert "identities/roles/" not in "".join(l for l in out.splitlines(keepends=True) if "does not exist" in l
                                                   and "its source identities/roles/" in l), out[-1500:]
         assert "identities/prompt/header.md: missing" in out, out[-1500:]   # the control: the engine's own gap
+
+
+def case_the_memory_readers_handed_the_engine_root_ask_for_the_operators_tree() -> None:
+    """links.py and memory_flagrun.py are handed a fabric_root, assembler/report.py and anchorkeep.py take
+    layout.FABRIC_ROOT: all four ask roots.memory_dir(engine=<that root>), so an exported operator outranks it and
+    nothing changes without one."""
+    import dataclasses
+    import memory_flagrun
+    from assembler import links
+    with tempfile.TemporaryDirectory() as tmp:
+        eng, op = os.path.join(tmp, "engine"), os.path.join(tmp, "op")
+        write(os.path.join(op, "memory", "domains", "x", "domain", "a.md"), "---\nname: a\n---\n\n## S\n\nsee [[b-of-the-operator]]\n")
+        write(os.path.join(op, "memory", "domains", "x", "domain", "b-of-the-operator.md"), "---\nname: b-of-the-operator\n---\n")
+        os.makedirs(os.path.join(eng, "memory"))
+        rel = "memory/domains/x/domain/a.md"
+        with operator(op):
+            assert dataclasses.astuple(memory_flagrun.corpora_of("p", eng, None)[0])[2] == os.path.join(op, "memory")
+            assert links.names_in(os.path.join(op, "memory")) >= {"b-of-the-operator"}
+            rows = links.unresolved_links([rel], [op], eng, os.path.join(tmp, "no-project"), [], set())
+            assert rows == [], rows
+        with unset_operator():
+            assert dataclasses.astuple(memory_flagrun.corpora_of("p", eng, None)[0])[2] == os.path.join(eng, "memory")
+            rows = links.unresolved_links([rel], [op], eng, os.path.join(tmp, "no-project"), [], set())
+            assert [r["target"] for r in rows] == ["b-of-the-operator"], rows
+
+
+class _Stop(Exception):
+    pass
+
+
+def case_the_drain_report_and_anchor_keeper_read_the_operators_corpus() -> None:
+    """assembler/report.py review_horizons and anchorkeep.corpus_of take layout.FABRIC_ROOT, the engine root; with an operator
+    exported the field corpus they judge is the operator's memory/, with none it is the engine's. What they hand on is captured
+    at the first call that receives the corpus, so nothing past it runs."""
+    import types
+    import memory_check
+    import memory_horizons
+    from assembler import anchorkeep, report
+    from assembler.core import layout
+    saved = (layout.project_memory_root, report.reads_state_path, memory_horizons.load_state,
+             memory_horizons.rows_of, memory_check.tree_of)
+    seen: dict[str, str] = {}
+
+    def rows_of(corpora, key_of):
+        seen["report"] = corpora["f"]
+        raise _Stop
+
+    def tree_of(corpus):
+        seen["anchorkeep"] = corpus
+        raise _Stop
+    layout.project_memory_root = lambda project: "/nowhere/" + project
+    report.reads_state_path = lambda run: "/nowhere/state.json"
+    memory_horizons.load_state = lambda path: ({}, "ok")
+    memory_horizons.rows_of = rows_of
+    memory_check.tree_of = tree_of
+    run = types.SimpleNamespace(project="p", args=types.SimpleNamespace(stamp="2026-11-12T00:00:00Z"))
+    try:
+        with tempfile.TemporaryDirectory() as tmp:
+            op = os.path.join(tmp, "op")
+            for want, env in ((os.path.join(op, "memory"), operator(op)), (os.path.join(layout.FABRIC_ROOT, "memory"), unset_operator())):
+                with env:
+                    for name, call in (("report", lambda: report.review_horizons(run, {})),
+                                       ("anchorkeep", lambda: anchorkeep.corpus_of(run, os.path.join(tmp, "elsewhere.md")))):
+                        try:
+                            call()
+                        except _Stop:
+                            pass
+                        assert os.path.abspath(seen[name]) == want, (name, seen[name], want)
+    finally:
+        (layout.project_memory_root, report.reads_state_path, memory_horizons.load_state,
+         memory_horizons.rows_of, memory_check.tree_of) = saved
 
 
 def main() -> int:

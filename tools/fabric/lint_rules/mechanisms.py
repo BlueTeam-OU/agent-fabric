@@ -1,4 +1,4 @@
-"""tools/fabric/lint_rules/mechanisms.py — agent-fabric ADR-067 rule 3 over the tracked tree: policies/mechanisms.json
+"""tools/fabric/lint_rules/mechanisms.py — agent-fabric ADR-067 rule 3 over the tracked tree: tools/fabric/mechanisms.json
 names each cross-cutting mechanism's owning module and status, and a claim it makes that the tree does not bear out is a
 finding. An `enforced` entry is held to what a guard is (rule 2): its checker loaded by a lint rule that lint.py runs,
 by the pre-commit hook, and by a case under tests/. A part of tools/fabric/lint.py, the entry point."""
@@ -12,7 +12,7 @@ import warnings
 
 from .base import _tracked
 
-POLICY = "policies/mechanisms.json"
+POLICY = "tools/fabric/mechanisms.json"
 STATUSES = ("enforced", "pending", "planned")
 JOB = re.compile(r"[a-z][a-z0-9-]*/j[0-9]+")
 ADR = re.compile(r"ADR-[0-9]{3}")
@@ -75,7 +75,7 @@ def mechanism_findings(root: str) -> list[str]:
         with open(os.path.join(root, POLICY), encoding="utf-8") as fh:
             doc = json.load(fh)
     except FileNotFoundError:
-        return []           # instance data (ADR-045 rule 2): a stripped engine copy has no catalogue to judge
+        return []           # a fixture tree without the catalogue has nothing to judge
     except (OSError, ValueError) as exc:
         return [f"{POLICY}: cannot be read as JSON ({exc.__class__.__name__}); ADR-067 is not judged"]
     entries = doc.get("mechanisms") if isinstance(doc, dict) else None

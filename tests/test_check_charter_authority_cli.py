@@ -78,7 +78,9 @@ def new_repo() -> None:
     # so the copy above needs the module copied too; the original bash ignores
     # these files. Kept out of the repository under test by info/exclude, below.
     os.makedirs(f"{SANDBOX}/tools/fabric/guards")
-    shutil.copy(f"{TOOLS}/git.py", f"{SANDBOX}/tools/fabric/")
+    # roots.py too: the guards ask it where main keeps the operator's authority (move-plan §2 precondition 5).
+    for name in ("git.py", "roots.py"):
+        shutil.copy(f"{TOOLS}/{name}", f"{SANDBOX}/tools/fabric/")
     for name in os.listdir(f"{TOOLS}/guards"):
         if name.endswith(".py"):
             shutil.copy(f"{TOOLS}/guards/{name}", f"{SANDBOX}/tools/fabric/guards/")

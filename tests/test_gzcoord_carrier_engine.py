@@ -370,6 +370,30 @@ def main() -> int:
             check("a copy that breaks the handler is logged and counted, earns no receipt, and the carrier goes on",
                   b.carrier.counters.unreadable == before + 1 and receipts_for(b, "M-BOOM") == 0)
 
+            # -- a control record never rides gzcoord (ADR-064 rule 12), whatever the parser would make of it
+            lenient = lambda text: ("INFO", {"MESSAGE-ID": "M-CTL", "FROM": "h/alpha", "TO": "h/beta"})  # noqa: E731 — accepts any body
+            real_parse = b.carrier.parse
+            b.carrier.parse = lenient
+            before = b.carrier.counters.unreadable
+            ctl_text = framing.CONTROL_PREFIX + json.dumps({"v": 1, "kind": "request", "id": "x", "op": "ping"})
+            ev = {"event_type": "message.direct", "data": {
+                "message_id": "d" * 32, "mode": "direct", "source_peer": pid(0), "source_endpoint": "gzcoord",
+                "destination_endpoint": "gzcoord", "received_at": 0,
+                "payload": {"media_type": framing.MEDIA_MESSAGE, "bytes": ipc.b64u(ctl_text.encode())}}}
+            b.carrier._handle_guarded(b.carrier.session, ev)
+            check("a fabric-control/1 body arriving on gzcoord is refused: counted, no receipt, no journal row, no arrival line",
+                  b.carrier.counters.unreadable == before + 1 and receipts_for(b, "M-CTL") == 0
+                  and not [r for r in b.journal_rows if r[0] == "M-CTL"] and not [r for r in b.arrivals() if r["mid"] == "M-CTL"])
+            ev["data"]["payload"]["bytes"] = ipc.b64u(msg("M-CTL", "h/alpha", to="h/beta").encode())
+            ev["data"]["message_id"] = "e" * 32
+            b.carrier._handle_guarded(b.carrier.session, ev)
+            check("  positive control: the same lenient parser admits a GZCoord body, so the refusal above is the prefix rule's",
+                  receipts_for(b, "M-CTL") == 1 and [r for r in b.journal_rows if r[0] == "M-CTL"])
+            b.carrier.parse = real_parse
+            refused = b.carrier.handle_request({"op": "send", "message_id": "M-CTL2", "text": ctl_text})
+            check("the carrier will not send a control record either: ok:false, nothing queued",
+                  refused["ok"] is False and "fabric-control" in refused["error"] and ("M-CTL2", "alpha") not in b.box.deliveries)
+
             # -- a call that records only some recipients is not ok:true (the records written stay)
             real_queue = a.box.queue
             n_calls = [0]

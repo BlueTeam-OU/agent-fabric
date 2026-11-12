@@ -12,6 +12,8 @@ Each case names the mutation it kills:
   refused_binding_still_raises  <- resolve_context catching what read_binding refuses
   loaded_by_path_without_registering <- the _frozen stand-in dropped: tools load identity.py with spec_from_file_location
   json_matches_the_context      <- `identity.py --json` printing something other than as_dict()
+  concurrent_loads_share_one_standin <- _frozen without the process-wide lock: two threads loading identity.py by one
+                                   module name, the second reading the stand-in the first has already deleted (j230)
   binding_record_skips_the_copy <- binding_record resolving cwd's working copy (a bad marker or registry there costs the
                                    binding, #511 F15), or reading fields resolve_context's .binding does not
 """
@@ -23,6 +25,8 @@ import os
 import subprocess
 import sys
 import tempfile
+import threading
+import time
 import unittest
 from unittest import mock
 
@@ -168,6 +172,64 @@ class Context(unittest.TestCase):
         self.addCleanup(os.chdir, old)
         rec = self.identity.binding_record()
         self.assertEqual((rec.role, rec.project, rec.working_copy, rec.present), ("python-dev", "p", "/w", True))
+
+
+class ConcurrentLoad(unittest.TestCase):
+    """The daemon's identity and tokens sections each load identity.py by path, under one module name, in two pool
+    threads. The interleaving is forced here, with bounded waits, since a free-running loop of threads in one process
+    never repeats a first-load race (it showed in 8 of 400 fresh processes)."""
+
+    WAIT_S = 1.0
+
+    def test_concurrent_loads_share_one_standin(self) -> None:
+        import dataclasses
+        import importlib.util
+        name = "fabric_runtime_identity_race"
+        real = dataclasses.dataclass
+        guard = threading.Lock()
+        entered: list[int] = []
+        first_in, second_in = threading.Event(), threading.Event()
+        seen = threading.local()
+
+        def wrapper(*a, **k):
+            if getattr(seen, "done", False):
+                return real(*a, **k)
+            seen.done = True
+            with guard:
+                entered.append(threading.get_ident())
+                is_first = len(entered) == 1
+            if is_first:
+                # Hold the stand-in installed until the other thread has seen it present.
+                first_in.set()
+                second_in.wait(self.WAIT_S)
+            else:
+                first_in.wait(self.WAIT_S)
+                second_in.set()
+                # Run only after the first thread has deleted the stand-in it installed.
+                deadline = time.monotonic() + self.WAIT_S
+                while name in sys.modules and time.monotonic() < deadline:
+                    time.sleep(0.001)
+            return real(*a, **k)
+
+        errors: list[BaseException] = []
+
+        def load() -> None:
+            try:
+                spec = importlib.util.spec_from_file_location(name, IDENTITY)
+                module = importlib.util.module_from_spec(spec)
+                spec.loader.exec_module(module)
+            except BaseException as e:  # noqa: BLE001 — the test reports what a loader thread raised
+                errors.append(e)
+
+        threads = [threading.Thread(target=load) for _ in range(2)]
+        with mock.patch.object(dataclasses, "dataclass", wrapper):
+            for t in threads:
+                t.start()
+            for t in threads:
+                t.join(30)
+        self.assertEqual(errors, [], "a load must not see a stand-in another load deleted")
+        self.assertEqual(len(entered), 2, "positive control: both threads reached the forced point")
+        self.assertNotIn(name, sys.modules)
 
 
 if __name__ == "__main__":

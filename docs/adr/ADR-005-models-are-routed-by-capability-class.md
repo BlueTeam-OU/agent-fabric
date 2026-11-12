@@ -51,19 +51,26 @@ model through its agent file; that model is gated by
 is a separate dimension, and the composite `model@preset/slug` exists only
 in the child's environment.
 
+**Delegation is the default for every role.** A session hands work over
+a few lines with a clear contract to a worktree-isolated class agent in
+the background and keeps its own turn for decisions, messages, reviews and
+short edits; a search across many files goes to `Explore`. The class
+decides which agent, as above; the session commits what lands (rule 11).
+
 The current mapping:
 
 - **Plain claude.** `code-low` is `claude-haiku-5-5` (A 2026-10-07),
-  `code-medium` is `claude-sonnet-5-5`; `code-high`, `code-plan` and the
-  review class are `claude-opus-5-5`, and so is the default session
-  (A 2026-09-29);
+  `code-medium` is `claude-sonnet-5-5`; `code-high` and the review class
+  are `claude-opus-5-5`, and so is the default session (A 2026-09-29);
+  `code-plan` is `claude-fable-5-2` (A 2026-11-12);
   `architect-cto-01`'s session is `claude-fable-5-2` (an agent layer),
   since the pinned harness knows the id (A 2026-11-10), and the python-dev
   role's is `claude-sonnet-5-5` (a role layer) (A 2026-10-09).
   `anthropic/claude-opus-5-5` is admitted to review-grade without the
   `[1m]` marker (Opus 5.5's context is natively 1M). The aliases stay:
   they are how the harness spells a class; `haiku` binds to Haiku 5.5,
-  `sonnet` to Sonnet 5.5, `opus` and `fable` to Opus 5.5.
+  `sonnet` to Sonnet 5.5, `opus` to Opus 5.5, `fable` to Fable 5.2
+  (the review class rides `fable` too, yet stays Opus 5.5 through its agent file).
 - **The broker.** The session, `code-high`, `code-plan` and the review
   class are `deepseek/deepseek-v4-pro-0813`; `code-low` and `code-medium`
   are GLM. The reason for the review class is the tier, not the family:
@@ -73,7 +80,10 @@ The current mapping:
 - **Review-grade** admits `z-ai/glm-5.3`, Opus 5, V4 Pro and Opus 5.5;
   V4 Flash stays refused.
 - `code-plan` rides `fable`, the top reasoning tier, beside the review
-  class; the review model reaches the reviewer by the agent-file route.
+  class; the review model reaches the reviewer by the agent-file route,
+  so the `fable` export moves with `code-plan` and the reviewer stays on
+  Opus 5.5 (A 2026-11-12). On plain claude both ask effort `high`
+  (`providers.anthropic.classes`, ADR-006).
 
 ## 3. Alternatives Considered
 
@@ -139,6 +149,15 @@ profile layer or a local override.
 10. A model moves into routing only after it is read back served through
     the launcher, with a control showing the pass is not a fallback
     (`2026-09-23-opus-5-5.md`).
+11. Delegation to subagents is the default for every role, whatever the
+    harness's own caution about spawning: work over a few lines with a
+    clear contract goes to a worktree-isolated class agent dispatched in
+    the background, wide searches to `Explore`, independent pieces in
+    parallel. The session keeps decisions, messages, reviews, short
+    edits, a chain of dependent steps and work that needs back-and-forth
+    (Anthropic's measurements: the orchestrator alone wins a dependent
+    chain), reads what an agent produced and commits it in its own clone;
+    an agent never pushes or merges. Rules 1–3 bind every such dispatch.
 
 ## 6. Consequences
 
@@ -150,6 +169,9 @@ profile layer or a local override.
   otherwise the classes differ by alias, isolation and whether a
   dispatch asks (ADR-006). The review shares code-high's model there, so
   its independence is its brief and context.
+- A session's own context is spent on decisions and review, not on work
+  an agent can do from a contract; the cost is the dispatch's class and
+  the session's read of what comes back (rule 11).
 - Nothing validates a model id against a catalogue: a typo is caught by
   the adapter's shape check and the launch read-back, not by routing.
 
@@ -189,3 +211,5 @@ The body above reads current; each change's full note is in [history/ADR-005-ame
 | 2026-11-09 | architect-cto-01's session is Fable 5.2 | §2's current mapping: the agent layer names `claude-fable-5-2` |
 | 2026-11-10 | architect-cto-01's session is Opus 5.5 again | §2's current mapping: the agent layer is gone, and the session takes the default |
 | 2026-11-10 | architect-cto-01's session is Fable 5.2 again, with the pin | §2's current mapping: the agent layer names `claude-fable-5-2` once more; the harness pin is 2.1.322, which knows it |
+| 2026-11-12 | Delegation to subagents is the default for every role | §2, §5 rule 11, §6: work with a contract goes to a worktree-isolated class agent, wide searches to Explore; the session commits what lands |
+| 2026-11-12 | code-plan on Fable 5.2, plan and review at high effort | §2's current mapping: `code-plan` is `claude-fable-5-2`, the `fable` alias binds to it, the review class stays `claude-opus-5-5`; plan and review ask `high`; the read-back of both dispatches is pending (rule 10) |

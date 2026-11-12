@@ -52,13 +52,14 @@ written by `install-agent-files.sh`, and the session through `--effort`,
 stamped as `AGENT_FABRIC_LAUNCH_EFFORT`.
 
 **Today** every class and every session asks
-`medium`. On plain claude the upper classes are Opus 5.5 at medium, its
-own default, and the lower two are Sonnet 5.5 at medium, which it
+`medium`, except plain claude's `code-plan` and `code-review`, which ask
+`high` (A 2026-11-12). On plain claude `code-high` is Opus 5.5 at medium, its
+own default, `code-plan` is Fable 5.2 at high, where its guidance starts it, `code-review` is Opus 5.5 at high, and the lower two are Sonnet 5.5 at medium, which it
 admits; on the broker `code-low` is committed at `low` (GLM-5.3-Flash has
 no medium), and the other classes are served `high` by their models'
 documented mapping — one level above what they ask, so no override. On
-plain claude a class therefore no longer picks a level; it picks the
-model only between the lower two and the upper three, and still picks
+plain claude a class therefore picks a level only for plan and review,
+which ask `high`; the others pick the model, and every class still picks
 the alias, the worktree rule and whether a dispatch asks. The
 machinery stays whole, so a later split is one edit per file.
 
@@ -146,7 +147,7 @@ move: Opus 5.5 at `high` because routing asked for it.
 
 ## 8. Decision Status
 
-Accepted and in force, with every class at `medium` (§2).
+Accepted and in force, with every class at `medium` but plain claude's plan and review at `high` (§2).
 
 ## References
 
@@ -167,3 +168,4 @@ The body above reads current; each change's full note is in [history/ADR-006-ame
 |---|---|---|
 | 2026-09-28 | The session's level is judged like a class's | §5 rule 3: `check()` judges the session on its own model; `providers.<p>.session` |
 | 2026-11-10 | `CLAUDE_CODE_SUBAGENT_EFFORT` is refused like `CLAUDE_CODE_EFFORT_LEVEL` | §5 rule 6: the launcher refuses it in any value; the committed-settings guard refuses it in `env` |
+| 2026-11-12 | plan and review ask high on plain claude | §2 and §8: on plain claude `code-plan` (Fable 5.2) and `code-review` (Opus 5.5) ask `high` through `providers.anthropic.classes`; the other classes and providers stay as they were |

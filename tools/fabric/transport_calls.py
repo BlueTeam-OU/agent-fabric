@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """tools/fabric/transport_calls.py — what agent-fabric ADR-067 forbids outside tools/fabric/gzcoord/transport/, as one
-predicate (message-transport in policies/mechanisms.json). Delivery has one owner: the inbox and the sender take a transport
+predicate (message-transport in tools/fabric/mechanisms.json). Delivery has one owner: the inbox and the sender take a transport
 from its factory and name neither the relay nor the second carrier. Two findings, anywhere else in the fabric's Python:
 
 - **relay**: a call to `api` (bare, or `x.api`, but not `gh.api`) that is a call of the relay's HTTP client: an argument holds
@@ -10,7 +10,7 @@ from its factory and name neither the relay nor the second carrier. Two findings
   `import gzcoord.carrier.adapter`).
 
 A static reader cannot see where a function came from, so this over-reports, by design: a module that does either is judged
-until `policies/transport-calls.json` names it with the reason it is allowed. A listed module is admitted whole. The relay
+until `tools/fabric/transport-calls.json` names it with the reason it is allowed. A listed module is admitted whole. The relay
 client's own module and the carrier's adapter define the calls and are not judged for what they define. An entry that admits
 nothing, or names a file that is not tracked, is a finding, so a gap's entry leaves the policy with its fix.
 
@@ -23,7 +23,7 @@ import os
 import subprocess
 import sys
 
-POLICY = "policies/transport-calls.json"
+POLICY = "tools/fabric/transport-calls.json"
 OWNER = "tools/fabric/gzcoord/transport/"
 # The modules that define the calls: judged for nothing, so the policy need not name them.
 DEFINING = frozenset({"tools/fabric/gzcoord/inbox_parts/relay.py", "tools/fabric/gzcoord/carrier/adapter.py"})

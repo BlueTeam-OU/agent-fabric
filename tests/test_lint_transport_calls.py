@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """tools/fabric/lint_rules/transport.py: agent-fabric ADR-067 rule 1 for message transport over the tracked tree, with
-policies/transport-calls.json's declared modules. The predicate is tests/test_transport_calls.py's; the pre-commit leg is
+tools/fabric/transport-calls.json's declared modules. The predicate is tests/test_transport_calls.py's; the pre-commit leg is
 tests/test_githook_pre_commit.py's TransportCalls.
 
 Stdlib only; runnable as `python3 tests/test_lint_transport_calls.py`. **Each case names the mutation it kills**:
@@ -32,7 +32,7 @@ from test_lint import make_base, run_lint, write  # noqa: E402
 
 TMP = tempfile.mkdtemp(prefix="lint-transport-")
 atexit.register(shutil.rmtree, TMP, ignore_errors=True)
-POLICY = "policies/transport-calls.json"
+POLICY = "tools/fabric/transport-calls.json"
 WRITE = "def f(api):\n    return api(\"https://r\", \"/api/x\", {})\n"
 
 

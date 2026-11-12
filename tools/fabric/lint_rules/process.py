@@ -1,5 +1,5 @@
 """tools/fabric/lint_rules/process.py — process lifetime has one owner (agent-fabric ADR-067, j125): a module that starts
-or signals a process group outside tools/fabric/process.py is named in policies/process-spawns.json with its reason, or is
+or signals a process group outside tools/fabric/process.py is named in tools/fabric/process-spawns.json with its reason, or is
 a finding; an entry that admits nothing is a finding. tools/fabric/process_spawns.py is the definition, and the
 pre-commit hook asks it about the staged modules. A part of tools/fabric/lint.py, the entry point."""
 from __future__ import annotations
@@ -31,7 +31,7 @@ def process_spawn_findings(root: str) -> list[str]:
         with open(os.path.join(root, process_spawns.POLICY), encoding="utf-8") as fh:
             policy_text: str | None = fh.read()
     except FileNotFoundError:
-        policy_text = None   # instance data (ADR-045 rule 2): a stripped engine copy admits nothing and judges all
+        policy_text = None   # a tree without the engine's list (a fixture): admits nothing and judges all
     except (OSError, UnicodeDecodeError) as exc:
         return [f"{process_spawns.POLICY}: cannot be read ({exc.__class__.__name__}); process spawns are not judged"]
     return process_spawns.tree_findings(root, tracked, policy_text)

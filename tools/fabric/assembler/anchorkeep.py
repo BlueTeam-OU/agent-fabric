@@ -38,7 +38,7 @@ def corpus_of(run: Run, path: str) -> tuple[str, str | None]:
     if os.path.abspath(path).startswith(project_root + os.sep):
         corpus = project_root
     else:
-        corpus = os.path.abspath(roots.memory_dir(root=layout.FABRIC_ROOT))
+        corpus = os.path.abspath(roots.memory_dir(engine=layout.FABRIC_ROOT))
     return memory_check.tree_of(corpus) or layout.FABRIC_ROOT, memory_check.own_project_of(corpus, None)
 
 

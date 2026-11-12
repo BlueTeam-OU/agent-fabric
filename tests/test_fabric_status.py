@@ -271,7 +271,7 @@ def main() -> int:
               and 'py="${AGENT_FABRIC_PYTHON:-/usr/local/bin/fabric-python}"' in text
               and not any(w in text.split("exec", 1)[1] for w in ("readlink", "$(", "`", "\ncd ")))
         check("the shim has no logic of its own to drift from the module", len(text.splitlines()) < 30)
-        with open(os.path.join(HERE, "policies", "bash-allowlist.json"), encoding="utf-8") as fh:
+        with open(os.path.join(HERE, "tools", "fabric", "bash-allowlist.json"), encoding="utf-8") as fh:
             allow = json.load(fh)
             check("bin/fabric-status is off the bash allowlist",
                   all("bin/fabric-status" not in (allow.get(s) or {}) for s in ("stays", "ports")))

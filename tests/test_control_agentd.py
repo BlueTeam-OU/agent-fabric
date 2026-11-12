@@ -385,6 +385,30 @@ class Pieces(Scratch):
         self.assertEqual((c["channel"], c["ttl_s"]), ("fabric:control", 30))
         self.assertEqual(agentd.control_config({"FABRIC_CONTROL_CHANNEL": "x:control", "CLAUDE_BRIDGE_URL": "http://h:1"})["relay_url"], "http://h:1")
 
+    def test_control_carrier_is_relay_unless_named_dual_and_a_third_word_is_refused(self):
+        d = self.scratch()
+
+        def conf(**kw):
+            path = os.path.join(d, f"c{len(os.listdir(d))}.json")
+            with open(path, "w", encoding="utf-8") as fh:
+                json.dump(kw, fh)
+            return path
+        self.assertEqual(agentd.control_config({}, conf())["control_carrier"], "relay", "absent: the relay alone")
+        self.assertEqual(agentd.control_config({}, conf(control_carrier=None))["control_carrier"], "relay", "null is absent")
+        self.assertEqual(agentd.control_config({}, conf(control_carrier="dual"))["control_carrier"], "dual")
+        self.assertEqual(agentd.control_config({"FABRIC_CONTROL_CARRIER": "dual"}, conf())["control_carrier"], "dual", "the environment names it")
+        self.assertEqual(agentd.control_config({"FABRIC_CONTROL_CARRIER": "relay"}, conf(control_carrier="dual"))["control_carrier"], "relay",
+                         "and the environment wins over the file, as for the channel")
+        for bad in ("duel", "", "Dual", "both", 1, ["dual"], True):
+            with self.assertRaises(RuntimeError, msg=repr(bad)) as cm:
+                agentd.control_config({}, conf(control_carrier=bad))
+            self.assertIn("control_carrier", str(cm.exception))
+        with self.assertRaises(RuntimeError):
+            agentd.control_config({"FABRIC_CONTROL_CARRIER": ""}, conf())
+        # the committed file names it in so many words, so the switch is one edit and never a new key
+        with open(agentd.CONFIG, encoding="utf-8") as fh:
+            self.assertIn(json.load(fh).get("control_carrier"), agentd.CARRIERS)
+
     def test_port_the_registry_gives_operators_in_its_order_and_keys_only_to_a_wellformed_host(self):
         key = sign.generate_operator_key()
         reg = os.path.join(self.scratch(), "registry.json")
@@ -669,7 +693,9 @@ class Answer(Scratch):
         mem = os.path.join(h, ".claude", "projects", memory_slug(wc), "memory")
         os.makedirs(mem)
         open(os.path.join(mem, "a.md"), "w").write("x")
-        ctx = {"me": {"address": "h/db-admin"}, "started": now_iso(), "home": h, "run_bounded": run}
+        # A scratch state: without one the tokens op reads the running account's own dispatch ledger.
+        ctx = {"me": {"address": "h/db-admin"}, "started": now_iso(), "home": h, "run_bounded": run,
+               "state": self.scratch("agentd-state-")}
         r = agentd.answer({"id": "q1", "op": "memory"}, ctx)
         self.assertEqual((r["op"], r["in_reply_to"], r["data"]["parts"]), ("memory", "q1", 1))
         b = r["data"]["memory"]["bundles"][0]

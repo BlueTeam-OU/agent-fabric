@@ -513,6 +513,10 @@ CONTRIBUTOR_NEVER = (
     "identities/", "routing/", "policies/", "communication/gzcoord/protocol/", "docs/adr/", "memory/",
     ".agent-fabric/", ".github/", "AGENTS.md", "CLAUDE.md",
     "tools/fabric/guards/", "tools/fabric/git.py", "tools/fabric/lint.py", "tools/fabric/lint_rules/",
+    # The checkers' exception lists, engine data beside them since ADR-045 step A (move-plan §3), fenced as they were
+    # under policies/. Not bash-allowlist.json: the port shrinks it, and lint holds it to shrinking (ADR-040 §5 rule 2).
+    *(f"tools/fabric/{n}.json" for n in ("command-names", "context-reads", "evidence-caps", "mechanisms", "process-spawns",
+                                         "state-writers", "transport-calls", "work-writes")),
     # Loaded by lint by path: a contributor who made one answer clean would
     # weaken lint without touching it (review of #106).
     "tools/fabric/layout.py", "tools/fabric/workingcopy.py", "tools/fabric/adr.py", "tests/run.sh", "tests/static.sh",
@@ -562,9 +566,6 @@ CONTRIBUTOR_SUPPLY = (
         "plan-hold.sh", "pr-counts.py", "session-start.py", "session-start.sh", "session-state.py", "statusline.sh",
         "subagent-ledger.py", "tab-title.sh", "watch-on-stop.py", "testdata/")),
 )
-# The one path under a never-prefix an entry may name: the list the port
-# shrinks, which lint itself holds to shrinking (ADR-040 §5 rule 2).
-CONTRIBUTOR_MAY = ("policies/bash-allowlist.json",)
 
 
 def _rule_covers(rule: str, path: str) -> bool:
@@ -579,8 +580,6 @@ def contributor_rule_findings(paths: list[str], excluding: list[str], supplies: 
     which carves nothing hard out (the suite holds the tier to that)."""
     out = []
     for r in paths:
-        if r in CONTRIBUTOR_MAY:
-            continue
         for n in (*CONTRIBUTOR_NEVER, *CONTRIBUTOR_SUPPLY):
             inside = _rule_covers(n, r)
             above = r.endswith("/") and n.startswith(r) and not any(_rule_covers(e, n) for e in excluding)

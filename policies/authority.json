@@ -11,7 +11,7 @@
     {
       "role": "python-dev",
       "merges": true,
-      "note": "agent-fabric ADR-018 §5 rule 8: the code of the port of the fabric's bash to Python (ADR-040) and its Python tooling, on python-dev's own branch: since 2026-10-07 (`merges`) it opens, blind-reviews and merges its own pull request; fabric-coordinator distributes the merge. Definitions and the fence stay out: identities/, routing/, policies/ (but the allowlist the port shrinks), communication/ (but GZCoord's scripts and their tests, ADR-040's Wave 7), docs/adr/, memory/, .agent-fabric/, .github/; the guards and git.py, which they import; the lint and the suite runners (tests/run.sh and static.sh, and the run.py, static.py and run_python_suites.py they forward to, which decide every CI gate); runtime/claude-code/ (the reviewer's agent file, the guard hooks and the settings that register them, the workspace prompt, bootstrap.sh) but the supply tier's workspace hooks; the review brief and its tooling; the role and routing code; the harness pins; the managed settings' installer (ADR-043), which runs as root on every host. Lint holds every entry to that list (CONTRIBUTOR_NEVER). Since 2026-11-07 the supply tier (`supplies`: the prompt code, bootstrap and what it installs, the Python pin, the episodic history and relay readers, the workspace hooks that refuse nothing a commit or review depends on) is its to commit on a for/<holder> branch only; fabric-coordinator folds, reviews and merges it.",
+      "note": "agent-fabric ADR-018 §5 rule 8: the code of the port of the fabric's bash to Python (ADR-040) and its Python tooling, on python-dev's own branch: since 2026-10-07 (`merges`) it opens, blind-reviews and merges its own pull request; fabric-coordinator distributes the merge. Definitions and the fence stay out: identities/, routing/, policies/; the exception lists the lint reads beside their checkers in tools/fabric/ (but tools/fabric/bash-allowlist.json, the list the port shrinks), communication/ (but GZCoord's scripts and their tests, ADR-040's Wave 7), docs/adr/, memory/, .agent-fabric/, .github/; the guards and git.py, which they import; the lint and the suite runners (tests/run.sh and static.sh, and the run.py, static.py and run_python_suites.py they forward to, which decide every CI gate); runtime/claude-code/ (the reviewer's agent file, the guard hooks and the settings that register them, the workspace prompt, bootstrap.sh) but the supply tier's workspace hooks; the review brief and its tooling; the role and routing code; the harness pins; the managed settings' installer (ADR-043), which runs as root on every host. Lint holds every entry to that list (CONTRIBUTOR_NEVER). Since 2026-11-07 the supply tier (`supplies`: the prompt code, bootstrap and what it installs, the Python pin, the episodic history and relay readers, the workspace hooks that refuse nothing a commit or review depends on) is its to commit on a for/<holder> branch only; fabric-coordinator folds, reviews and merges it.",
       "paths": [
         "tools/",
         "tests/",
@@ -22,13 +22,20 @@
         "runtime/hostexec/",
         "runtime/interweave/",
         "projects/gzapp/integration/gh/",
-        "communication/gzcoord/tests/",
-        "policies/bash-allowlist.json"
+        "communication/gzcoord/tests/"
       ],
       "excluding": [
         "tools/fabric/guards/",
         "tools/fabric/lint.py",
         "tools/fabric/lint_rules/",
+        "tools/fabric/command-names.json",
+        "tools/fabric/context-reads.json",
+        "tools/fabric/evidence-caps.json",
+        "tools/fabric/mechanisms.json",
+        "tools/fabric/process-spawns.json",
+        "tools/fabric/state-writers.json",
+        "tools/fabric/transport-calls.json",
+        "tools/fabric/work-writes.json",
         "tools/fabric/layout.py",
         "tools/fabric/workingcopy.py",
         "tools/fabric/adr.py",

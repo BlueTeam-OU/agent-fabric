@@ -1,5 +1,5 @@
 """tools/fabric/gzcoord/transport/base.py — what a transport is, for the callers that must not know which one they hold
-(agent-fabric ADR-067, message-transport in policies/mechanisms.json).
+(agent-fabric ADR-067, message-transport in tools/fabric/mechanisms.json).
 
 A transport carries GZCOORD/1 text from one login to another. Four verbs: `send` one message, `receive` what is waiting
 for this login, `ack` a record received, `health` of the carrier. The grammar and the wire are not here; each transport

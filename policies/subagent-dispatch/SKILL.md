@@ -1,27 +1,46 @@
 ---
 name: subagent-dispatch
-description: "How to dispatch a subagent here: a writing class pins `model` and `isolation: \"worktree\"`, the review class (code-review) runs on fable with no isolation, and what worktree isolation does and does not keep. Load it before dispatching agents or writing a Workflow script, when an agent reports files that \"do not exist\", when a worktree or worktree-agent branch is left behind, or when tempted to merge an agent's branch."
+description: "How to delegate work to subagents here: delegation is the default for every role, a writing class pins `model` and `isolation: \"worktree\"`, the review class (code-review) runs on fable with no isolation, and what worktree isolation does and does not keep. Load it before any piece of work that could go to a subagent, before dispatching agents or writing a Workflow script, when an agent reports files that \"do not exist\", when a worktree or worktree-agent branch is left behind, or when tempted to merge an agent's branch."
 ---
 
 # Why dispatch looks like this
 
-The root `CLAUDE.md` §Subagent dispatch and §Concurrent contributors
-carry the rules. This file carries the incidents — each rule was written
+The rules are agent-fabric ADR-005 §5 and the **Subagents** item of the
+root `CLAUDE.md`'s Claude Code section. This file carries the incidents — each rule was written
 after one, and the rule reads as ceremony until you know which.
 
-## Dispatch is opt-in, and that is deliberate
+## Delegation is the default, and that is deliberate
 
-The isolation machinery below makes fan-out *safe*; it does not make it
-*wanted*. The user opts in per task when they judge the parallelism
-worth its cost. A task that looks parallelisable is not an invitation,
-and this was re-opened as a "gap" more than once — it is not one.
+The harness's own Agent tool description ends "When in doubt, don't
+spawn". That is the harness's caution for a general user; in this fleet
+the default is the opposite, and a session that reads the caution as the
+fleet's rule does every piece of work serially in its own context, which
+is the failure this section exists to prevent.
 
-One standing exception exists, named in the root file, and it is
-review: the review class — the blind review of a PR's head, the
-judgement of a finding before it is answered (step 26 of the canonical
-lifecycle, added after two findings were dismissed by hand in a row and
-both dismissals were wrong), and the re-review of a fix range. It is
-the review `fabric-pr review-status` counts. Nothing else.
+Work over a few lines that has a clear contract goes to a class agent
+with worktree isolation, dispatched in the background: `code-low` or
+`code-medium` by the work (the table below), `code-high` and `code-plan`
+only as the guard already asks. A search across many files ("find
+everything that does X", an audit, a sweep) goes to `Explore`.
+Independent pieces run in parallel, each on its own file set. The
+isolation machinery below is what makes that safe; the default is what
+makes it used.
+
+The session keeps its own turn for decisions, messages, reviews, judging
+findings and short edits, and for three kinds of work a subagent does
+worse: a chain of steps where each depends on the last (measured, the
+orchestrating model alone at a lower effort beat delegating it every
+time), work that needs back-and-forth, and a quick targeted change. A
+subagent gives parallelism and a context of its own, not a smarter
+answer. The session also owns what lands: it reads what an agent
+produced, applies it in its own clone and commits there; an agent never
+pushes or merges (see "Collection is a copy, not a merge" below).
+Review stays the review class on `fable` with no isolation: the blind
+review of a PR's head, the judgement of a finding before it is answered
+(step 26 of the canonical lifecycle, added after two findings were
+dismissed by hand in a row and both dismissals were wrong), and the
+re-review of a fix range, the one `fabric-pr review-status` counts.
+Workflow scripts remain opt-in: only on the user's explicit word.
 
 ## The `model` field — the ~40-agent bill
 

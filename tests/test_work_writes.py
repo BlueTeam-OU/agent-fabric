@@ -47,7 +47,7 @@ import work_writes as ww  # noqa: E402
 TMP = tempfile.mkdtemp(prefix="work-writes-")
 atexit.register(shutil.rmtree, TMP, ignore_errors=True)
 CLEAN = "import work\n\ndef move(doc, job):\n    work.transition(doc, job, 'done', 'done', None)\n    return job['state'] == 'done'\n"
-# policies/work-writes.json is the control plane's, delivered beside this suite: the writes of the tree that are not a job's.
+# tools/fabric/work-writes.json is the control plane's, delivered beside this suite: the writes of the tree that are not a job's.
 EXCEPTIONS = {
     "tools/fabric/gzcoord/carrier/record.py": "a carrier record's delivery state, not a job's",
     "tools/fabric/jobsparts/blockers.py": "a blocker cache entry's state (cleared, waiting, unknown), not a job's",
