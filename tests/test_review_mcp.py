@@ -420,16 +420,19 @@ def main() -> int:
     ran = runner.run_bounded(["/usr/bin/printf", "abc"], {"PATH": "/usr/bin"}, scratch, 20, 1000)
     check("control: output under the cap is whole and unmarked", not ran.cut and ran.out == b"abc" and ran.returncode == 0)
     pidfile = os.path.join(scratch, "child.pid")
-    # The race forced: the file exists and is empty at the read, its writer fills it 0.5 s later.
-    lag = subprocess.Popen(["/bin/sh", "-c", f': > "{pidfile}"; sleep 0.5; echo 4242 > "{pidfile}"'])
-    while os.path.getsize(pidfile) if os.path.exists(pidfile) else True:
-        time.sleep(0.005)
+    # The race forced: the file is empty at the read (made here, so nothing is polled for), then holds half a
+    # number, then the line.
+    open(pidfile, "w", encoding="utf-8").close()
+    lag = subprocess.Popen(["/bin/sh", "-c", f'sleep 0.3; printf 42 > "{pidfile}"; sleep 0.3; echo 4242 > "{pidfile}"'])
     try:
         raced = read_pid(pidfile)
     finally:
         lag.wait()
     check("a pidfile read before its writer has written waits for it", raced == 4242, str(raced))
+    # A pid left here would be read as the next case's own if its shell never got to write.
+    os.unlink(pidfile)
     t0 = time.monotonic()
+    # The budget must outlast the shell's write of its pidfile, or the case reads nothing to check.
     ran = runner.run_bounded(["/bin/sh", "-c", f'sleep 4711.{TAG} & echo $! > "{pidfile}"; wait'], {"PATH": "/usr/bin:/bin"}, scratch, 3, 1000)
     child = read_pid(pidfile)
     time.sleep(0.2)
