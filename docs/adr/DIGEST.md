@@ -464,13 +464,13 @@ its record disagree, the record wins. Look it up, never read it whole:
 - Keywords: pre-commit, commit-msg, locale carve-out,
   never-list.
 
-### ADR-019 — Work arrives as pull requests: one open PR per agent and repository, 8 or more work commits to arm, the gate read before arming, no machine attribution, repository settings (Accepted)
+### ADR-019 — Work arrives as pull requests: one open PR per agent and repository, the minimum of work commits to arm, the gate read before arming, no machine attribution, repository settings (Accepted)
 
 - Every change reaches `main` by PR (§5 rule 1).
 - One open PR per agent and repository (§5 rule 2).
-- Work commits exclude review fixes (`Kind:`, §5 rule 3); 8 or more
-  arm at the gate, under 8 on the owner's or an authority's word
-  (§5 rule 4).
+- Work commits exclude review fixes (`Kind:`, §5 rule 3); the
+  minimum or more arm at the gate, fewer on the owner's or an
+  authority's word (§5 rule 4).
 - Arm only on `pr-gate.sh`'s `MERGEABLE`, no open P1/P2 (rules 5–6).
 - No machine attribution (rule 7); GitHub settings §6.
 - A 2026-10-04 — `main`'s ruleset (rule 6).
@@ -488,6 +488,7 @@ its record disagree, the record wins. Look it up, never read it whole:
 - A 2026-11-03 — relayed owner's word read (rule 4).
 - A 2026-11-05 — `record_paths`: the owner's ruling arms (rule 1).
 - A 2026-11-10 — `fabric-pr disarm`: withdrawn with a basis; another's PR on a word (rule 5).
+- A 2026-11-12 — organisation's names and counts out: direct projects, counts, account, access are policy data (rules 1, 4, 6, §6).
 - Keywords: Answers, armed_status, disarm.
 
 ### ADR-020 — The review class is the review (Accepted)

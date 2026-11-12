@@ -218,3 +218,24 @@ disarmed head keeps a pending `fabric/armed`, `fabric-pr gate` no
 longer reads that status as a check of the head; it was also reading
 arm's own success as green on a head with no CI. Supplied by
 devex-tooling (j310, REQUEST 01a1c27c). j719.
+
+### Amendment 2026-11-12 — the record names no organisation's projects, counts or accounts
+
+What changed: §5 rule 1 declares `direct` for "the projects
+`policies/arming.json` declares direct" in place of four named projects.
+Rule 4 keeps its mechanism (arm at the minimum without the owner's word, a
+boundary change too, over the batch size too, ask the owner or the arming
+authority below it) and names the counts as `policies/arming.json`'s
+`commits.min`, `commits.boundary_min` and `commits.advice_over`; rule 2,
+§2 and §4 say the batch size and the minimum the same way, and the title
+drops "8 or more". Rule 6 says a merge is made from the operator's GitHub
+account, not "the one GitHub account every session uses". §6's access row
+reads the repository's administrators. Rule 8 is unchanged.
+
+Why: ADR-045 §5 rule 4 sorts every record into engine or operator, and
+this one mixed the PR mechanism every operator runs with this
+organisation's direct projects, its minimum and batch size, its account and
+its collaborator. `policies/arming.json` already says the counts are the
+policy's, so the record points at the data (docs/split/adr-classification.md,
+the table row and "Decided"). The numbers were not changed, only where the
+record states them: the values stay in `policies/arming.json`.
