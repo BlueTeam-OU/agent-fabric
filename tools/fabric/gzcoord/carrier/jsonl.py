@@ -6,7 +6,15 @@ newline. Without repair, the next append lands on the torn bytes and the two
 merge into one damaged line, which the next restart drops as "torn": an event
 that was fsync'd and acted on vanishes (found in review of the first head).
 `repair` cuts a torn tail before anything is appended; `append` writes all of a
-line or raises, and syncs it."""
+line or raises, and syncs it.
+
+What the cut costs, per file (tests/test_gzcoord_carrier_torn_line.py tears each at every byte): in the
+shown ledger a torn pending line was never acknowledged or shown, so the message is new; a torn final line
+follows a showing that happened, so the cut leaves pending-without-final and the message is shown once
+more flagged "may repeat" (ledger.py), then settled; never lost, never twice unflagged. A torn spool line was
+never receipted, so the sender's resend keeps it; the acknowledgement and arrival logs are evidence, and a cut
+row is a missing row. A tail that is whole JSON without its newline is cut too, so a reader of an unrepaired
+file (ledger.final_lines) must ignore it as well."""
 from __future__ import annotations
 
 import json
