@@ -182,8 +182,13 @@ state the classification found, not one a record keeps.
 - **ADR-063:** amended, title included. The mechanism is general and the record is
   Proposed, so the account's key becomes the operator's configured assist key; a new
   record would only renumber the same decision.
-- **ADR-056, ADR-034:** split, as the table proposes. ADR-034 rule 1 then points at the
-  operator's inventory, ADR-069.
+- **ADR-034:** split, as the table proposes; rule 1 then points at the operator's
+  inventory, ADR-069.
+- **ADR-056:** split, but no rule leaves the engine whole. Rules 3, 5 and 7 are cited by
+  engine code for what it runs (the list file, sex then a first name from the entry's
+  `from`, the candidates' folder and rejections), so they keep that under their numbers;
+  ADR-071 takes the taste beside it: the scientist theme and its weapons test, a
+  language-culture agent's own culture and the famous-name bar, the house style.
 - **ADR-040 rule 9:** engine, with rules 1-8; rule 10 and the Wave 10 rows go to ADR-070.
 - **ADR-066 rule 3:** engine. The labels ledger is instance data: `inventory.md` gains
   its row, and step B reads it through `roots`.
