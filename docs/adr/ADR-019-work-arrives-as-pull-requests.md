@@ -105,7 +105,7 @@ not on a pipe's exit status.
    refuses a direct push that breaks this; in a project without
    `direct` it applies no direct-push rule, and still refuses a push
    that adds an unsigned commit, as in every project. Declared for the projects
-   `policies/arming.json` declares direct, where one agent
+   whose `arm.json` declares `direct`, where one agent
    writes copy a commit at a time and the band, the gate and the
    branch cost more than they catch. A PR whose every file matches the
    `direct.record_paths` of such a project (a decision record put to

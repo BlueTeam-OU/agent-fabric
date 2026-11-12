@@ -174,8 +174,8 @@ state the classification found, not one a record keeps.
   `organisational` (`adr.py list --class organisational`). Step B's commit moves them and
   adds their numbers to the engine's `docs/adr/reserved.json`, so no new engine record
   takes one.
-- **ADR-019:** amended. Rule 1's named projects become "the projects `policies/arming.json`
-  declares direct"; rule 4 keeps its mechanism and points at `arming.json` for the
+- **ADR-019:** amended. Rule 1's named projects become "the projects whose `arm.json`
+  declares `direct`"; rule 4 keeps its mechanism and points at `arming.json` for the
   numbers; rule 6's "the one GitHub account" and §6's access row name the operator's
   account and the repository's administrators. Rule 8 stays: it is the engine
   repository's own settings, and whoever publishes it administers them.

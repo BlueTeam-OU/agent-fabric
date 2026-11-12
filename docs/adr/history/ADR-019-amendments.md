@@ -222,7 +222,7 @@ devex-tooling (j310, REQUEST 01a1c27c). j719.
 ### Amendment 2026-11-12 — the record names no organisation's projects, counts or accounts
 
 What changed: §5 rule 1 declares `direct` for "the projects
-`policies/arming.json` declares direct" in place of four named projects.
+whose `arm.json` declares `direct`" in place of four named projects.
 Rule 4 keeps its mechanism (arm at the minimum without the owner's word, a
 boundary change too, over the batch size too, ask the owner or the arming
 authority below it) and names the counts as `policies/arming.json`'s
