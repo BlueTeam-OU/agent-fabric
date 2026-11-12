@@ -14,7 +14,9 @@ follows a showing that happened, so the cut leaves pending-without-final and the
 more flagged "may repeat" (ledger.py), then settled; never lost, never twice unflagged. A torn spool line was
 never receipted, so the sender's resend keeps it; the acknowledgement and arrival logs are evidence, and a cut
 row is a missing row. A tail that is whole JSON without its newline is cut too, so a reader of an unrepaired
-file (ledger.final_lines) must ignore it as well."""
+file (ledger.final_lines) must ignore it as well. The evidence readers of control/carrier_evidence.py
+do not: a report taken between a crash and the next append may count a row the repair then cuts, and no
+delivery depends on it."""
 from __future__ import annotations
 
 import json

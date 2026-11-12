@@ -100,7 +100,9 @@ def main() -> int:
     try:
         return run(d)
     finally:
-        shutil.rmtree(d, ignore_errors=True)
+        # Importing the inbox suite makes the protocol suite's scratch operator tree; each importer removes it.
+        for scratch in [d, *C.P.SCRATCH]:
+            shutil.rmtree(scratch, ignore_errors=True)
 
 
 def run(d: str) -> int:
