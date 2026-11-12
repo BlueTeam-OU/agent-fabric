@@ -939,6 +939,7 @@ its record disagree, the record wins. Look it up, never read it whole:
 - A 2026-10-15 — only agent and parent write (§5 r3).
 - A 2026-10-17 — `settings/roles/`: parent only (§5 r3).
 - A 2026-11-03 — the seal is a managed hook (§5 r9).
+- A 2026-11-12 — stores' owner: the operator's configured GitHub organisation (Scope, §2, §8).
 - Keywords: secrets, settings, GPG, pass, env.sh, lineage, custody,
   Doppler, provision, company store.
 ### ADR-039 — The agent id is a UUIDv7 minted at birth (Accepted)
