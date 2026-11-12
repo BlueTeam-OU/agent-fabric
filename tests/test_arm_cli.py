@@ -1057,7 +1057,8 @@ def main() -> int:
             rc, out = run("7", "--basis", "b")
             check(f"supersede ({what}): a later trusted review naming it arms", rc == 0 and "ARMED #7" in out, out)
             for why, sup in (("an untrusted author's", review(5710450130, HEAD, HEAD, "Supersedes: 5710450122\nFinding: none", login="drive-by")),
-                             ("naming an id not on the PR", review(5710450130, HEAD, HEAD, "Supersedes: 5710450999\nFinding: none")),
+                             ("naming an id not on the PR", review(5710450130, HEAD, HEAD, "Supersedes: 5710450111\nFinding: none")),
+                             ("a non-v2 trusted review's", dict(review(5710450130, HEAD, HEAD, "x"), body="Supersedes: 5710450122")),
                              ("an EARLIER review's", review(5710450100, HEAD, HEAD, "Supersedes: 5710450122\nFinding: none")),
                              ("not alone on its line", review(5710450130, HEAD, HEAD, "see Supersedes: 5710450122 above\nFinding: none")),
                              ("its own", None)):
@@ -1069,6 +1070,11 @@ def main() -> int:
                 rc, out = run("7", "--basis", "b")
                 check(f"supersede ({what}): {why} Supersedes line skips nothing: refused", rc == 1 and "cannot be read" in out
                       and "pr merge" not in calls(), out)
+        plain(); reviews(first, judged5, review(5710450110, b2, HEAD, "looks fine"), review(5710450122, b2, HEAD, "looks fine"),
+                         review(5710450130, HEAD, HEAD, "Supersedes: 5710450122\nFinding: none"))
+        rc, out = run("7", "--basis", "b")
+        check("supersede: only the named unparsed review is lifted, the other is still refused",
+              rc == 1 and "review 5710450110" in out and "review 5710450122 (" not in out, out)
         plain(); reviews(first, judged5, review(5710450122, b2, HEAD, "Finding: F7 | P2 | certain | a.py:1 | real"),
                          review(5710450130, HEAD, HEAD, "Supersedes: 5710450122\nFinding: none"))
         rc, out = run("7", "--basis", "b")

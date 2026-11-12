@@ -296,7 +296,9 @@ What it refuses, in order, and why:
      label in its own chain, then in earlier chains). Every open finding
      refuses, at any P-level, named by review id, head, label, level, path
      and summary; a review with no body, no machine lines or a malformed one
-     is unknown and refuses too. The remedy: a re-review on that chain, or
+     is unknown and refuses too. The remedy: a re-review on that chain, whose
+     body carries a line `Supersedes: <id of the unparsed review>` (a later
+     v2 review of a trusted account lifts an unparsed one only), or
      --defer "<review-head8>:F<n>" "<why>", which lifts that one finding and
      goes into the comment; a --defer naming no open finding is refused.
      Then this login's jobs (fabric-jobs list --all --json, show for a job
@@ -847,8 +849,9 @@ def check_open_findings(repo: str, num: str, pr: dict, defers: list, refuse) -> 
         ids = ", ".join(got.supersedable)
         raise refuse(f"{len(got.unknown)} review(s) whose findings cannot be read — {'; '.join(got.unknown[:3])}"
                      f"{f' (and {len(got.unknown) - 3} more)' if len(got.unknown) > 3 else ''}: an unread review is unknown,"
-                     f" never clean; review again, and post that review with a line `Supersedes: <review-id>` naming the unread"
-                     f" one{f' (ids that can be named: {ids})' if ids else ''}")
+                     f" never clean; " + (f"review again, and post that review with a line `Supersedes: <review-id>` naming the"
+                                          f" unread one (ids that can be named: {ids})" if ids else
+                                          "a body or id the API did not return is its answer to ask again"))
     still = got.open
     lifted = []
     for what, key, why in defers:

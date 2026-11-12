@@ -80,20 +80,17 @@ def _where(body: str, label: str) -> tuple[str, str]:
     return "-", ""
 
 
-def _superseded(reviews: list, trusted: set[str]) -> dict[int, int]:
-    """review id -> the order key of the earliest later trusted review that names it in a `Supersedes:` line. A review
-    never supersedes itself or an earlier one (order is GitHub's id), and an id no review on the PR carries is
-    simply never looked up, so a typo skips nothing."""
-    out: dict[int, tuple] = {}
+def _superseded(reviews: list, trusted: set[str]) -> set[int]:
+    """Ids named by a `Supersedes:` line of a LATER review (GitHub's id order) from a trusted account whose body is a
+    v2 review: one without the marker is no review gate 4c reads, so it must not lift one that is. An id no review on
+    the PR carries is never looked up, so a typo skips nothing."""
+    out: set[int] = set()
     for r in reviews:
         if not isinstance(r, dict) or review_id(r) is None or not isinstance(r.get("body"), str):
             continue
-        if str((r.get("user") or {}).get("login") or "") not in trusted:
+        if str((r.get("user") or {}).get("login") or "") not in trusted or review_coverage.parse_marker(r["body"]) is None:
             continue
-        for named in SUPERSEDES.findall(r["body"]):
-            target = int(named)
-            if review_id(r) > target and (target not in out or review_order(r) < out[target]):
-                out[target] = review_order(r)
+        out.update(t for t in map(int, SUPERSEDES.findall(r["body"])) if review_id(r) > t)
     return out
 
 
