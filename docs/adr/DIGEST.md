@@ -195,8 +195,8 @@ its record disagree, the record wins. Look it up, never read it whole:
   is gated by `routing/policies/review-grade.json` (rules 5–6).
 - No settings scope pins a model; shims are live-tested per family; a
   model enters routing only after a read-back (§5 rules 7–10).
-- Today: on plain claude, Sonnet 5.5 for low and medium and Opus 5.5
-  for the rest;
+- Today: on plain claude, Sonnet 5.5 for low and medium, Fable 5.2 for
+  plan and Opus 5.5 for high and review;
   on the broker, DeepSeek V4 Pro for session, high, plan and review, GLM
   for low and medium (§2).
 - A 2026-09-29 — `code-low` and `code-medium` on plain claude are
@@ -207,6 +207,7 @@ its record disagree, the record wins. Look it up, never read it whole:
 - A 2026-11-10 — architect-cto-01's session is Opus 5.5 again: harness 2.1.311 does not know Fable 5.2 (§2).
 - A 2026-11-10 — architect-cto-01's session is Fable 5.2 again, with the pin on 2.1.322, which knows it (§2).
 - A 2026-11-12 — delegation to subagents is the default for every role: contract work to a worktree class agent, searches to Explore, the session commits (§5 rule 11).
+- A 2026-11-12 — `code-plan` is Fable 5.2 and the review class stays Opus 5.5, both at high effort; read-back pending (§2).
 - Keywords: model, routing, capability class, alias, provider, OpenRouter,
   broker, review-grade, shim, preset, Opus 5.5, Sonnet 5.5, Fable 5.2, DeepSeek, GLM, profile.
 
@@ -222,12 +223,13 @@ its record disagree, the record wins. Look it up, never read it whole:
   line; the session's via `--effort`, stamped (§5 rules 4–5).
 - `CLAUDE_CODE_EFFORT_LEVEL` is refused in any value; committed settings
   carry no effort keys; never set per dispatch (§5 rules 6–7).
-- Today every class and session asks `medium`;
-  broker `code-low` is committed at `low` (§2).
+- Today every class and session asks `medium` but plain claude's plan
+  and review, which ask `high`; broker `code-low` is committed at `low` (§2).
 - A 2026-09-28 — the session's level is judged on its model like a class's;
   `providers.<p>.session` acknowledges a downgrade.
 - A 2026-11-10 — `CLAUDE_CODE_SUBAGENT_EFFORT` is refused like
   `CLAUDE_CODE_EFFORT_LEVEL`: it moves the level of every subagent whose file names none (§5 rule 6).
+- A 2026-11-12 — plain claude's `code-plan` and `code-review` ask `high`, the rest `medium` (§2).
 - Keywords: effort, reasoning, thinking, level, clamp, medium, high,
   --effort, agent file, CLAUDE_EFFORT, Opus 5.5 default, CLAUDE_CODE_SUBAGENT_EFFORT.
 
