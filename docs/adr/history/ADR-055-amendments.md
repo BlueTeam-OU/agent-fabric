@@ -22,3 +22,18 @@ refused, so codex blocked after all. The owner's rule stands as written on
 with neither is absent, the arm proceeds on the required reviews and says so,
 and the gate reads the same, so it never shows blocked what the arm arms. A
 codex review that is present still counts, its open P1 or P2 with it.
+
+### Amendment 2026-11-12 — rule 7 and rule 8 point at the policy data, not today's seats and lists
+
+What changed: rule 7 no longer ends with the fleet's seats ("OpenAI
+today, against Anthropic's two seats and three review models"); it keeps the
+principle that a provider with one seat and one model is less
+fault-tolerant by construction, and the file says so. Rule 8 no longer
+states which engines `policies/arming.json` lists today; it says the policy
+names the engines whose review is required and those that are additional,
+and keeps the principle that an additional engine is optional and never
+blocks, with the absent-engine summary naming `<engine>`.
+
+Why: ADR-045 §5 rule 4. Rules 1-6 and rule 8's principle are engine; the
+fleet's seats and its policy's current lists are data
+(docs/split/adr-classification.md, ADR-055 row).

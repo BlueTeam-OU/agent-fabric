@@ -1315,6 +1315,7 @@ its record disagree, the record wins. Look it up, never read it whole:
   linted; OpenAI is the less tolerant (§5 rule 7).
 - A 2026-10-13 — codex additional: an unavailable marker on the head lets claude alone arm; the fleet lists codex under additional_reviews, the marker tool having landed (#245), and codex is optional (§5 rule 8).
 - A 2026-10-14 — an additional engine with neither a review nor a marker on the head is
+- A 2026-11-12 — rules 7, 8 point at the policy data; the principle stays.
   absent: the arm proceeds on the required reviews and says so, and the gate reads the same.
 
 ### ADR-056 — Agent personas: "AI <Name> <Surname>", a scientist's surname each, an avatar the agent accepts, always marked as AI (Accepted)
