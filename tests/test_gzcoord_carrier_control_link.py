@@ -215,11 +215,8 @@ class ChildCases(Net):
 
     def test_a_line_the_child_refuses_fails_that_send_and_the_child_goes_on(self):
         n = self.node("alice")
-        pending = cc.Send("r-x")
-        n.child._pending["r-x"] = pending
-        n.child._proc.stdin.write(b'{"ref":"r-x","nope":1}\n')   # parseable, not a send: the child answers input-refused with this ref
-        n.child._proc.stdin.flush()
-        ok, why = pending.wait(5)
+        s = n.child.send("x", "t")   # a conversation that is no PeerId: the real child refuses the line, naming the send's ref
+        ok, why = s.wait(5)
         self.assertEqual(ok, False)
         self.assertIn("refused the line", why)
         self.assertEqual(n.child.state, "ok", "and goes on running")

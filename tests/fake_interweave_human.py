@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import signal
 import sys
 import threading
@@ -84,13 +85,17 @@ def main() -> int:
         except ValueError:
             line = None
         if not isinstance(line, dict) or not isinstance(line.get("send"), dict):
-            out({"event": "input-refused", "reason": "not a JSON object" if not isinstance(line, dict) else "not a send: {\"send\": {...}}", "ref": line.get("ref") if isinstance(line, dict) else None})
+            out({"event": "input-refused", "reason": "not a JSON object" if not isinstance(line, dict) else "not a send: {\"send\": {...}}", "ref": None})
             continue
         s = line["send"]
         if env.get("FAKE_SENDS"):
             with open(env["FAKE_SENDS"], "a", encoding="utf-8") as fh:
                 fh.write(json.dumps(s) + "\n")
         if env.get("FAKE_SILENT"):
+            continue
+        if not re.fullmatch(r"12D3KooW\w{40,}/[\w-]+", str(s.get("conversation", ""))) and "/" not in str(s.get("conversation", "")):
+            # measured on the real child: a conversation that is not a PeerId refuses the line, naming the send's own ref
+            out({"event": "input-refused", "reason": "the peer: not a canonical PeerId", "ref": s.get("ref")})
             continue
         peer, _, dest_endpoint = str(s.get("conversation", "")).partition("/")
         n["p"] += 1

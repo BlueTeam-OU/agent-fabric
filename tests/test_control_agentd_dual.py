@@ -78,6 +78,12 @@ class Base(Scratch):
         for q in self.patches:
             q.start()
             self.addCleanup(q.stop)
+        self.leaver: list = []
+        self.left: list = []   # every exit the daemon asks for: recorded, never made (os._exit would end the suite)
+        real_leaver = agentd.leaver
+        lv = mock.patch.object(agentd, "leaver", lambda *a, **k: (self.leaver.append(real_leaver(*a, exit=self.left.append, **k)), self.leaver[-1])[1])
+        lv.start()
+        self.addCleanup(lv.stop)
         self.stop = threading.Event()
         self.ctx_seen: list[dict] = []
         real_answer = agentd.answer
@@ -197,6 +203,29 @@ class AgentdDual(Base):
         self.send_iw(body("nore"))
         self.assertTrue(until(lambda: got), self.logs)
         self.assertTrue(until(lambda: any("relay copy of ping reply" in l and "not posted" in l for l in self.logs)), self.logs)
+
+    def test_a_restart_asked_for_while_the_second_carriers_reply_is_going_waits_for_it(self):
+        from gzcoord.carrier import control_link as cl
+        gate, sent = threading.Event(), []
+        left = self.left
+        real = cl.Carrier.reply
+
+        def slow(carrier, request, reply):
+            gate.wait(10)
+            sent.append(reply["id"])
+            return real(carrier, request, reply)
+        with mock.patch.object(cl.Carrier, "reply", slow):
+            got = self.watch("lv")
+            self.send_iw(body("lv"))
+            self.assertTrue(until(lambda: self.relay_replies("lv")), self.logs)   # the relay copy is posted; the other is held
+            leave = self.leaver[0]
+            leave.request("the fabric moved")
+            time.sleep(0.5)
+            self.assertEqual(left, [], "the daemon did not leave with the second copy unsent")
+            gate.set()
+            self.assertTrue(until(lambda: left == [0]), self.logs)
+            self.assertEqual(len(sent), 1)
+            self.assertTrue(until(lambda: got), "and the copy reached the operator")
 
     def test_an_account_on_both_splits_at_the_bound_the_second_carrier_carries(self):
         got = self.watch("ctx")

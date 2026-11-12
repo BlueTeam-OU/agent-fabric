@@ -1104,7 +1104,19 @@ def main(argv: list[str] | None = None, *, stop: threading.Event | None = None) 
         iw = carrier_box[0]
         if iw is not None:
             # Not joined: the relay loop must never wait on the other carrier (a silent child costs seconds a reply).
-            threading.Thread(target=iw.reply, args=(request, reply), name="control-carrier-reply", daemon=True).start()
+            # But it is in flight for the leaver, like an action: a restart after an upgrade waits for this copy,
+            # which may be the only one the operator gets.
+            def second() -> None:
+                try:
+                    iw.reply(request, reply)
+                finally:
+                    with leave.lock:
+                        inflight.discard(thread)
+                        leave.settle()
+            thread = threading.Thread(target=second, name="control-carrier-reply", daemon=True)
+            with leave.lock:
+                inflight.add(thread)
+            thread.start()
         try:
             post(reply)
         except Exception as e:  # noqa: BLE001
