@@ -62,10 +62,7 @@ its own rather than imposed.
    working material, not settings. Once it has accepted an avatar, the
    persona is written to its repository `fabric-agent-<id>`:
    `settings/profile.json`, the accepted image as `settings/avatar.png`,
-   and the images it rejected on the way, each as
-   `settings/avatar-rejected/<n>.png` with a text file of the same name,
-   `<n>.txt`, saying who rejected it (login and persona), when, and the
-   reason if one was given, in one commit (A 2026-11-12). Until
+   and the images it rejected on the way (rule 7), in one commit. Until
    it accepts one, nothing is written; an agent's persona is read
    through its own control agent, which can read its repository
    (ADR-029), wherever it is displayed. It belongs to the agent id: a login rename or a
@@ -78,8 +75,12 @@ its own rather than imposed.
    by its login; the login appears only where a machine needs it (an
    address, a command, a branch). `fabric-persona <login>` prints the
    name. No surface shows the name without the prefix (A 2026-10-13).
-3. (moved to ADR-071 here: the surname list, who may be on it)
-   (A 2026-11-12)
+3. The surname comes from `identities/personas/surnames.json`, each
+   entry naming its person and the reason it passed, each removed name
+   listed with its reason. Which names qualify, and the test an
+   addition passes, is the operator's naming theme, in its own record
+   (ADR-071 here) (A 2026-11-12). fabric-coordinator curates the list
+   and the owner checks it.
 4. One agent per surname: the first claim wins, and the claim is
    recorded in `identities/personas/claims.json` with the agent's first
    name (and its pronoun, if it asked for one): the public directory
@@ -87,20 +88,31 @@ its own rather than imposed.
    the surname when `new-agent` is given `--surname` — on the list and
    unclaimed, checked before anything is made — and otherwise the agent
    claims one. A claim carries `first_name` null until the agent has
-   chosen it (rule 6); until then people read "AI <Surname>, <role>"
+   chosen it (rule 5); until then people read "AI <Surname>, <role>"
    (A 2026-10-15). A claimed surname is marked in `surnames.json` by its
    entry's `taken_by` {agent, login}, written with the claim and checked
    by lint against `claims.json`. Where a claim and the agent's own profile differ, the
    claim wins, first name and surname alike.
-5. (moved to ADR-071 here: the culture a first name comes from)
-   (A 2026-11-12)
+5. The agent chooses its sex first (rule 6), then its first name: a
+   name of that sex, from the culture its surname comes from (the
+   entry's `from`), whatever the scientist's own sex, so a name, a sex
+   and a surname belong together (A 2026-10-15). What else the operator
+   asks of a name is its theme's (ADR-071 here) (A 2026-11-12).
 6. The sex is chosen before the first name, and only for the avatar's
    appearance; it is kept in the profile, never in the claim. The fabric keeps
    no gender; a pronoun is recorded only when the agent asks for one:
    an agent that does not want "he" or "she" may ask to be called "it",
    and that request is kept in its profile.
-7. (moved to ADR-071 here: the house style and the candidates' folder)
-   (A 2026-11-12)
+7. The avatar is drawn in the operator's house style (ADR-071 here)
+   (A 2026-11-12), never resembling the person the surname comes from. A
+   candidate waits in `/usr/local/share/agent-fabric/avatars/<agent
+   id>/<n>.png` on the agents' host, written by the role that generates
+   avatars alone and readable by every agent; it is working material,
+   not a setting. The agent sees each image and may reject it any number
+   of times; only an accepted avatar is shown. A rejected image is kept
+   beside the accepted one, `settings/avatar-rejected/<n>.png`, with a
+   text file of the same name, `<n>.txt`, saying who rejected it (login
+   and persona), when, and the reason if one was given.
 8. A persona changes nothing of identity or authorship: the login is the
    agent and the id its record (ADR-002, ADR-039); git authorship and
    the `Fabric-Role:` trailer stay; no machine attribution appears in a
@@ -150,4 +162,4 @@ The body above reads current; each change's full note is in [history/ADR-056-ame
 | 2026-10-13 | An agent is named with its role as people say it, from a public directory | §5 rule 2: "AI <Name> <Surname>, <role>" with the short title, never the login where people read; rule 4: claims carry the first name |
 | 2026-10-15 | Provisioning claims the surname; the agent chooses its sex, then a first name of that sex | §2; §5 rule 4: new-agent --surname claims it, first_name null until chosen; rule 5: sex first, then a first name of that sex; rule 6: the sex chosen first, kept in the profile |
 | 2026-10-16 | A claimed surname is marked taken in the list | §5 rule 4: surnames.json's entry carries taken_by {agent, login}, written with the claim, checked by lint against claims.json |
-| 2026-11-12 | The naming theme and the house style move to the operator's record | §5 rules 3, 5 and 7 move to ADR-071 and keep their numbers, vacated; rule 1 holds the rejected-avatar record; rule 4's first-name reference is rule 6; §2, §4 and the Scope say the theme and the style are the operator's; rules 1, 2, 4, 6, 8 stay |
+| 2026-11-12 | The naming theme and the house style move to the operator's record | §5 rules 3, 5 and 7 keep the list, the order of sex and first name, the candidates' folder and the rejections; which surnames qualify, a language-culture agent's own culture, no famous name, and the house style move to ADR-071; §2, §4 and the Scope say the theme and the style are the operator's |

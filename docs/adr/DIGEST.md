@@ -1329,15 +1329,15 @@ its record disagree, the record wins. Look it up, never read it whole:
 - Shown only behind "AI": "AI Ada Maxwell", "AI Ada · Python Dev"; with the
   login where people and agents both read (§5 rule 2).
 - Surnames from `identities/personas/surnames.json`, one per agent, first
-  claim wins (§5 rule 4); which names qualify, the culture of a first name
-  and the avatar style are the operator's, ADR-071 here (rules 3, 5, 7 moved).
+  claim wins (§5 rules 3-4); which names qualify and the avatar house style
+  are the operator's, ADR-071 here.
 - No gender or pronoun; "it" on request (§5 rule 6). The agent may reject
   any avatar (§5 rule 1). Identity and authorship unchanged (§5 rule 8).
 - A 2026-10-13 — candidates wait in /usr/local/share/agent-fabric/avatars/<id>/ (§5 rule 7).
 - A 2026-10-13 — named "AI <Name> <Surname>, <role>", never the login where people read; first names in claims.json (§5 rules 2, 4).
 - A 2026-10-15 — provisioning claims the surname (`new-agent --surname`), first_name null until chosen; the agent chooses its sex first, then a first name of that sex (§5 rules 4-6).
 - A 2026-10-16 — a claimed surname is marked `taken_by` {agent, login} in surnames.json, checked by lint (§5 rule 4).
-- A 2026-11-12 — rules 3, 5 and 7, the naming theme and house style, moved to the operator's ADR-071; their numbers stay vacated; rules 1, 2, 4, 6, 8 stay (§2, §4, §5).
+- A 2026-11-12 — rules 3, 5 and 7 keep the list, sex then first name from `from`, the candidates' folder and rejections; the naming theme and house style moved to the operator's ADR-071 (§2, §4, §5).
 
 ### ADR-057 — Each agent signs its own commits, in the format a forge asks for; one key, one timestamp, one checker (Accepted)
 
@@ -1610,9 +1610,9 @@ its record disagree, the record wins. Look it up, never read it whole:
 
 - Surnames are deceased scientists from all over the world, none who
   worked toward a weapon; where the record is mixed the owner judges (§5 rule 1).
-- A first name comes from the surname's culture, whatever the scientist's
-  sex; no persona is a famous real person's name (§5 rule 2).
-- Avatars in one house style written by brand-comms, never a named studio's;
-  candidates wait in a shared folder (§5 rule 3).
-- Split from ADR-056, which keeps the persona mechanism, rules 1, 2, 4, 6, 8.
+- A language-culture agent takes a surname of its own culture; no persona
+  is a famous real person's name (§5 rule 2).
+- Avatars in one house style written by brand-comms: warm, hand-painted
+  anime, never a named studio's (§5 rule 3).
+- Split from ADR-056, which keeps the persona mechanism under rules 3, 5, 7.
 - Keywords: persona, surnames, scientists, weapons test, avatar, house style, anime, first name, culture.
