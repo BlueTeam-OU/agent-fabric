@@ -106,13 +106,13 @@ then the forced command.
    (A 2026-10-13). The settings live in one drop-in,
    `/etc/ssh/sshd_config.d/50-agent-fabric.conf`, and `sshd -t` passes
    before sshd is enabled or restarted.
-   A host reached over `ssh`, `fabric-h2` the first, is the exception to
+   A host reached over `ssh` is the exception to
    loopback (A 2026-11-11). Its sshd listens on the address its
    registry entry's `sshd` names, and it also carries the coordinator's
    way to the operator account (the entry's `ssh`). The drop-in there
    adds the operator login to `AllowUsers`. Its keys file holds the
    coordinator's key with `restrict` and a `from=` naming
-   develop-qzapp's address as that host sees it, and with no forced
+   the coordinator's host's address as that host sees it, and with no forced
    command, because hostexec runs a command line. No per-source penalty
    exemption goes beyond loopback. Until the drop-in is applied there,
    the entry's `sshd` pins the host keys of the distribution's own sshd,
@@ -235,3 +235,4 @@ The body above reads current; each change's full note is in [history/ADR-048-ame
 | 2026-10-31 | `attach`, the fifth word: the deck attaches to the account's harness pane | §5 rule 4 |
 | 2026-11-04 | the harness pane's one `--resume`: after an idle account's `harness-restart` | §5 rule 4 |
 | 2026-11-11 | A host reached over ssh listens beyond loopback; the coordinator's key on its operator | §5 rules 1 and 8; §7 |
+| 2026-11-12 | rule 1's ssh exception names no host | §5 rule 1: "`fabric-h2` the first" and "develop-qzapp's address" read "a host reached over ssh" and "the coordinator's host" |

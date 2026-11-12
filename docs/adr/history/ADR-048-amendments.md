@@ -90,3 +90,15 @@ is the Qubes path) is still to be built, with the almalinux
 provisioning profile (python-dev-02's j135).
 
 Written by fabric-coordinator as job j706.
+
+### Amendment 2026-11-12 — rule 1's ssh exception names no host
+
+What changed: rule 1's exception for a host reached over `ssh` no longer
+says "`fabric-h2` the first"; and the `from=` restriction names "the
+coordinator's host's address as that host sees it" in place of a login's
+host name.
+
+Why: ADR-045 §5 rule 4. The ssh mechanism and the Qubes adapter (rules
+2-8) are engine; which host is reached over ssh is
+`runtime/hosts/registry.json`'s, and which host runs the coordinator is
+the deployment's (docs/split/adr-classification.md, ADR-048 row).
