@@ -2180,6 +2180,26 @@ def case_read_tree_listing_and_its_two_edges() -> None:
             os.environ["AGENT_FABRIC_OPERATOR"] = saved
 
 
+def case_a_base_before_step_a_holds_the_allowlist_at_policies() -> None:
+    """ADR-045 step A moved the allowlist to tools/fabric/: a branch forked before it still has its additions judged
+    against the list at the old path, not read as a base without one."""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("fabric_lint_under_test", LINT)
+    lint = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(lint)
+    with tempfile.TemporaryDirectory() as root:
+        g = lambda *a: subprocess.run(["git", "-C", root, *a], check=True, capture_output=True, env=git_env())  # noqa: E731
+        write(os.path.join(root, "bin", "long-tool"), "#!/usr/bin/env bash\n" + "echo x\n" * 13)
+        write(os.path.join(root, "policies", "bash-allowlist.json"), json.dumps({"stays": {}}))
+        g("init", "-q", "-b", "main")
+        g("add", "-A")
+        g("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "base")
+        os.remove(os.path.join(root, "policies", "bash-allowlist.json"))
+        write(os.path.join(root, "tools", "fabric", "bash-allowlist.json"), json.dumps({"stays": {"bin/long-tool": "x"}}))
+        got = lint.bash_shape_findings(root, base_ref="main")
+        assert any("stays entry bin/long-tool is added; the pre-Python list is closed" in f for f in got), got
+
+
 def case_bash_is_a_forwarder_or_on_the_allowlist() -> None:
     """ADR-040 §5 rule 2 (A 2026-10-11): a tracked bash file (.sh, .bash, or
     a bash/sh shebang) is a forwarder by rule 1's shape (at most 12 lines of
@@ -2192,7 +2212,7 @@ def case_bash_is_a_forwarder_or_on_the_allowlist() -> None:
     spec = importlib.util.spec_from_file_location("fabric_lint_under_test", LINT)
     lint = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(lint)
-    allow = lambda d: write(os.path.join(root, "policies", "bash-allowlist.json"), json.dumps(d))
+    allow = lambda d: write(os.path.join(root, "tools", "fabric", "bash-allowlist.json"), json.dumps(d))
     with tempfile.TemporaryDirectory() as root:
         g = lambda *a: subprocess.run(["git", "-C", root, *a], check=True, capture_output=True, env=git_env())
         fwd = "#!/usr/bin/env bash\n# a comment\npy=/usr/local/bin/fabric-python\nexec \"$py\" -I m.py \"$@\"\n"
