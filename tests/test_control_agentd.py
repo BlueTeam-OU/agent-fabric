@@ -17,6 +17,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import http.server
+import io
 import json
 import os
 import re
@@ -36,7 +37,7 @@ from unittest import mock
 
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(HERE, "tools", "fabric"))
-from control import agentd, gzcoord, sign  # noqa: E402
+from control import agentd, gzcoord, js, sign  # noqa: E402
 from control.ops import memory_slug  # noqa: E402
 
 AGENTD = os.path.join(HERE, "tools", "fabric", "control", "agentd.py")
@@ -954,7 +955,21 @@ class Wire(Daemon):
         self.assertEqual((j["in_reply_to"], j["op"], j["from"]), ("self", "status", SELF))
         self.assertEqual(list(j["data"])[:5], ["identity", "usage", "keys", "fabric", "session"])
         self.assertNotIn("sk-or-secret-value", p.stdout)
-        self.assertEqual(p.stdout, json.dumps(j, indent=2) + "\n")
+        # agentd writes with js.stringify, which keeps non-ASCII raw as JSON.stringify does; json.dumps escapes it
+        self.assertEqual(p.stdout, js.stringify(j, 2) + "\n")
+
+    def test_port_self_writes_non_ascii_text_raw(self):
+        # The text is injected: a host's status carries "… and N more" only when it has that many entries.
+        status = {"id": "self", "op": "status", "data": {"keys": ["… and 1388 more", "naïve \u4e2d"]}, "_followups": []}
+        out = io.StringIO()
+        with mock.patch.object(agentd, "answer", return_value=status), mock.patch.object(agentd.gzcoord, "whoami", return_value={}), \
+                mock.patch.object(agentd.gzcoord, "identity", return_value={}), mock.patch.object(agentd, "control_config", return_value={}), \
+                mock.patch("sys.stdout", out):
+            self.assertEqual(agentd.main(["--self"]), 0)
+        shown = out.getvalue()
+        self.assertIn("… and 1388 more", shown)
+        self.assertNotIn("\\u", shown)
+        self.assertEqual(shown, js.stringify({k: v for k, v in status.items() if k != "_followups"}, 2) + "\n")
 
 
 def tempfile_port() -> int:
