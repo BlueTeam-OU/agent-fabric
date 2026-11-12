@@ -132,6 +132,8 @@ from gzcoord import gzmsg  # noqa: E402
 import roots  # noqa: E402
 
 CONFIG = os.path.join(roots.code_root(), "runtime", "control", "config.json")
+CARRIER_RELAY, CARRIER_DUAL = "relay", "dual"
+CARRIERS = (CARRIER_RELAY, CARRIER_DUAL)
 
 
 def number_of(v: Any) -> float:
@@ -181,7 +183,14 @@ def control_config(env: dict[str, str] | None = None, file: str | None = None) -
     # pool op refusing (agent-fabric#564 F1). Absent unless a non-empty string.
     holder = own.get("pool_holder")
     extra = {"pool_holder": holder} if isinstance(holder, str) and holder else {}
+    # The second carrier (ADR-029 rule 18) is off until named. A value that is neither word is refused, not read as
+    # "relay": an operator who typed "duel" believes both carriers run, and the account would answer one.
+    carrier = pick("FABRIC_CONTROL_CARRIER", "control_carrier", CARRIER_RELAY)
+    if carrier not in CARRIERS:
+        raise RuntimeError(f"control_carrier {carrier!r} is not one of {', '.join(map(repr, CARRIERS))} "
+                           "(FABRIC_CONTROL_CARRIER or runtime/control/config.json)")
     return extra | {
+        "control_carrier": carrier,
         "relay_url": pick("CLAUDE_BRIDGE_URL", "relay_url", "http://127.0.0.1:8765"),
         "channel": pick("FABRIC_CONTROL_CHANNEL", "channel", "fabric:control"),
         # Session state rides its own channel (ADR-029 rule 16), named to end
