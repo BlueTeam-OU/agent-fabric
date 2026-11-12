@@ -10,7 +10,10 @@
 # fence, so a copied unit on a client does nothing. Static: the workspace
 # is %h/projects, the only variable. Restart=on-failure and no start
 # limit: a crash comes back, a clean stop stays stopped. The log is the
-# same bridge.log the hand-started relay wrote.
+# journal (`journalctl --user -u gzcoord-relay`), which rotates: until
+# 2026-11-12 it was appended to bridge.log, which nothing bounded and
+# which reached 1.6 GB (j686). The detached spawn without a manager still
+# writes bridge.log; it is the fallback, not the hosted relay.
 #
 # THE STOP (j624: defect 1 of the 2026-11-05 relay-down drill, whose
 # live-check record is j622's).
@@ -49,8 +52,8 @@ ExecStop=/bin/sh -c '[ -n "$MAINPID" ] || exit 0; kill -INT "$MAINPID"; i=0; whi
 SuccessExitStatus=SIGKILL
 RestartForceExitStatus=SIGKILL
 TimeoutStopSec=10
-StandardOutput=append:%h/projects/.gzcoord/bridge.log
-StandardError=append:%h/projects/.gzcoord/bridge.log
+StandardOutput=journal
+StandardError=journal
 NoNewPrivileges=yes
 
 [Install]
