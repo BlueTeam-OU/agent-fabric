@@ -9,16 +9,36 @@
 #
 # The accounts come from the host registry (runtime/hosts/registry.json:
 # every login whose placement is this host), read from the fabric checkout
-# in the operator's own workspace — a read of one file, no sudo, so a tab
+# in the operator's own workspace (or the operator's, once it has its own) — a read of one file, no sudo, so a tab
 # answers at once. Only when the registry cannot be read does the
-# completion fall back to `moveto --list`, which walks every home through
+# completion (after saying so on stderr, when there is no file) fall back to `moveto --list`, which walks every home through
 # sudo (about two seconds). Clones are `moveto <account> --list`: one sudo,
 # one home. An account that is not in the registry is still accepted by
 # moveto itself; completion only proposes.
+# The hosts registry, resolved as tools/fabric/roots.py hosts_registry() will once the operator's data leaves this
+# checkout (agent-fabric docs/split/move-plan.md §3, step A): AGENT_FABRIC_HOSTS_REGISTRY, then the tree named by
+# AGENT_FABRIC_OPERATOR, then the operator's clone when the account has one, then the engine checkout. Empty counts as
+# unset. The first that applies is the answer: a registry missing from the operator's tree is said below, never read
+# from the engine's instead.
+_moveto_hosts_registry() {
+    local op
+    if [[ -n "${AGENT_FABRIC_HOSTS_REGISTRY:-}" ]]; then
+        printf '%s\n' "$AGENT_FABRIC_HOSTS_REGISTRY"
+        return
+    fi
+    if [[ -n "${AGENT_FABRIC_OPERATOR:-}" ]]; then
+        op="$AGENT_FABRIC_OPERATOR"
+    elif [[ -d "$HOME/projects/blueteam-fabric" ]]; then
+        op="$HOME/projects/blueteam-fabric"
+    else
+        op="${AGENT_FABRIC_ROOT:-$HOME/projects/agent-fabric}"
+    fi
+    printf '%s\n' "$op/runtime/hosts/registry.json"
+}
 _moveto_accounts() {
-    local root reg host
-    root="${AGENT_FABRIC_ROOT:-$HOME/projects/agent-fabric}"
-    reg="$root/runtime/hosts/registry.json"
+    local reg host
+    reg="$(_moveto_hosts_registry)"
+    [[ -f "$reg" ]] || echo "moveto completion: no hosts registry at $reg" >&2
     host="$(hostname -s 2>/dev/null)"
     if [[ -r "$reg" && -n "$host" ]] && command -v jq >/dev/null 2>&1; then
         jq -r --arg h "$host" '.placement | to_entries[] | select(.value == $h) | .key' "$reg" 2>/dev/null
