@@ -149,7 +149,11 @@ def control_config(env: dict[str, str] | None = None, file: str | None = None) -
     env = os.environ if env is None else env
     own: Any = {}
     try:
-        with open(CONFIG if file is None else file, encoding="utf-8", errors="replace") as fh:
+        # FABRIC_CONTROL_CONFIG names another file, as AGENT_FABRIC_HOSTS_REGISTRY
+        # does the registry: a suite with a fixture registry must not take the
+        # live file's pool_holder, which wins over that registry's operator.
+        with open(file if file is not None else (env.get("FABRIC_CONTROL_CONFIG") or CONFIG),
+                  encoding="utf-8", errors="replace") as fh:
             own = js.json_parse(fh.read())
     except (OSError, ValueError):
         pass   # defaults below
