@@ -115,21 +115,43 @@ says the allowance is spent (Codex's "You've hit your usage limit…", "Quota
 exceeded", a workspace out of credits or at its spend cap: ours, until the
 window resets) is NOT retried, because a wait of a minute cannot end it: it is
 reported at once, with the reset time when the message gives one. Both end in
-exit 3 and say which kind; any other failed turn stays a failed review, exit 1,
-never retried. The messages are the strings of the pinned Codex 0.162.1
+exit 3 and say which kind; any other failed turn is not retried and ends as
+THE PROBE's reasons below say (crash, failed). The messages are the strings of the pinned Codex 0.162.1
 binary (tests/test_review_codex.py pins them); a message that matches none of
-them is not guessed at. No review is posted on any of these. --timeout is each
-run's budget, so a capacity spell can take up to four of them plus the 90 s of
-waits.
+them is not guessed at. --timeout is each run's budget, so a capacity spell can
+take up to four of them plus the 90 s of waits.
 
-Codex is an additional review, never a blocking one (the owner, 2026-10-13):
-when the model is unavailable the claude review alone arms, and the arm needs
-a fact on the PR to read. So an unavailable model (exit 3, either kind) posts,
-once per head, a COMMENT review of that commit whose first line is UNAVAILABLE_MARKER's
-(format_marker; verdicts.unavailable_of, the arm's reader, is the one parser) and one
-human line. It is not posted when a Codex review of that head already stands
-on the PR or an unavailable statement for it does, and never on any other
-failure: a crash is no statement about availability. When the PR cannot be
+THE PROBE. Before anything is extracted or started, one cheap call goes through the gateway
+the run would use, with the credentials it would use (probe; --gateway chatgpt included): a
+one-word streamed request to /responses, passed only when the stream completes, bounded as a
+whole by PROBE_TIMEOUT_S (20 s: a healthy gateway answers in a second or two, and a down API must
+cost seconds, not the 20-minute budget of a run that cannot start; #575 lost two). It is made
+in this process, the key in a header on the socket and never in an argv or a log, no proxy and no
+redirect, nothing of the session's environment read. codex exec starts only when it passed.
+The probe's request shape and its allowance wording are not verified against the live ChatGPT
+backend (see ALLOWANCE_PROBE_MESSAGES).
+
+Codex never blocks an arm (the owner, 2026-10-13 for the model, 2026-11-12 for everything
+else): when the review cannot be had the claude review alone arms, where codex is in the
+repository's additional_reviews, and the arm needs a fact on the PR to read. So every failure
+to launch or to finish ends in exit 3, "not run, not a failure", and posts, once per head, a
+COMMENT review of that commit whose first line is UNAVAILABLE_MARKER's (format_marker;
+verdicts.unavailable_of, the arm's reader, is the one parser) and one human line of fixed text.
+The marker's reason names which one (REASONS):
+  capacity, allowance   the model's, as above (the probe also reads them)
+  unreachable           the probe could not connect or read (refused, reset, DNS, TLS)
+  probe-failed          the probe was answered with an error or an incomplete stream
+  probe-timeout         the probe got no answer within PROBE_TIMEOUT_S
+  timeout               codex exec did not finish within --timeout
+  crash                 codex exec exited non-zero with no unavailability message
+  failed                the run is no review: the sandbox proof, the event stream or the answer
+                        was refused (the reason on stderr)
+  gateway               --gateway chatgpt started its gateway process and it did not come up
+  binary-missing        no codex binary, at the start or when the run started it
+What stays a refusal, exit 1 and nothing posted, is what is the caller's to fix: a setting,
+routing, the request, a sign-in or gateway installation --gateway refuses before it starts
+anything, a head that is not the PR's, and a PR that moved while Codex read. It is not posted when a Codex review of that head already stands
+on the PR or an unavailable statement for it does. When the PR cannot be
 read to check that, nothing is posted and a warning says so (unknown stays
 unknown); two runs racing on one head can both post, and the arm reads the
 first. With --no-post the comment is printed to stdout instead, unchecked.
@@ -148,20 +170,22 @@ is `failed`, status_source codex:capacity. A refusal before Codex started writes
 holds the brief, the answer or any message text. A ledger that cannot be written warns on stderr and
 changes neither the review nor the exit status: a measurement never stands in a review's way.
 
-exit 0 posted (or printed); 1 refused or a failed review, nothing posted;
-2 usage; 3 the model is unavailable (at capacity after the retries, or over
-the allowance), no review posted, the unavailable review above.
+exit 0 posted (or printed); 1 refused, nothing posted; 2 usage; 3 the review was not
+run or not finished (the probe, the model, the binary, a timeout, a crash, a run that
+is no review): no review posted, the unavailable statement above.
 """
 from __future__ import annotations
 
 import contextlib
 import hashlib
+import http.client
 import json
 import os
 import re
 import secrets
 import shutil
 import signal
+import socket
 import subprocess
 import sys
 import tempfile
@@ -218,6 +242,15 @@ EGRESS_FEATURES = ("plugins", "remote_plugin", "plugin_sharing", "apps", "in_app
 SANDBOX_PROOF_TIMEOUT_S = 60
 EXIT_UNAVAILABLE = 3
 CAPACITY, ALLOWANCE = "capacity", "allowance"
+# The other ways a review fails to launch or to finish, each a reason the unavailable marker names (the owner,
+# 2026-11-12: the Codex review never blocks an arm). One word each: the arm prints it as written (verdicts.UNAVAILABLE).
+UNREACHABLE, PROBE_FAILED, PROBE_TIMEOUT = "unreachable", "probe-failed", "probe-timeout"
+TIMEOUT, CRASH, FAILED, GATEWAY, BINARY_MISSING = "timeout", "crash", "failed", "gateway", "binary-missing"
+REASONS = (CAPACITY, ALLOWANCE, UNREACHABLE, PROBE_FAILED, PROBE_TIMEOUT, TIMEOUT, CRASH, FAILED, GATEWAY, BINARY_MISSING)
+# The probe's bound. A healthy gateway answers a one-word request in a second or two, a cold TLS handshake to the
+# backend included; a down API must cost seconds, not the 20-minute budget of a run that cannot start (#575 lost two).
+PROBE_TIMEOUT_S = 20.0
+PROBE_MAX_BYTES = 64 * 1024
 # The fact the arm reads (the owner's policy of 2026-10-13: Codex never blocks). One line, fixed fields, no free text:
 # the backend's words stay in the human line below it.
 UNAVAILABLE_MARKER = "<!-- agent-fabric-engine-unavailable v1 engine={engine} head={head} reason={reason} at={at} -->"
@@ -233,6 +266,10 @@ CAPACITY_MESSAGES = ("Selected model is at capacity",)
 COMPACTION_ADVISORY = "Long threads and multiple compactions"
 ALLOWANCE_MESSAGES = ("You\u2019ve hit your usage limit", "Quota exceeded", "Your workspace is out of credits",
                       "You hit your spend cap")
+# What the backend itself says to the probe, before Codex rewords it into the messages above: error codes of the
+# ChatGPT and OpenAI APIs, NOT captured from a live backend by the login that wrote this. A spent allowance worded
+# otherwise is still caught as PROBE_FAILED with its HTTP status: same marker, same exit, only the reason's word differs.
+ALLOWANCE_PROBE_MESSAGES = ALLOWANCE_MESSAGES + ("usage_limit_reached", "insufficient_quota")
 RESET_TIME = re.compile(r"[Tt]ry again at ([^.\n]{1,60})")
 # The answer-shape section is the only text the engine adds to the brief
 # (ADR-053 rule 1): where it stands and what to answer, never anything
@@ -290,9 +327,32 @@ class RunTimeout(FailedReview):
     """Codex did not answer within the run's budget (the ledger's status `timeout`)."""
 
 
+class CodexCrash(FailedReview):
+    """Codex exited non-zero without saying the model is unavailable."""
+
+
+class GatewayDown(FailedReview):
+    """--gateway chatgpt could not start its gateway process."""
+
+
+class BinaryMissing(FailedReview):
+    """The codex binary could not be started at the moment of the run (gone or not executable since it was found)."""
+
+
+class NoBinary(Refused):
+    """No codex binary at the start. `model` is the model the settings had resolved, so the caller can go on to name the
+    head: the unavailable marker is pinned to it."""
+
+    def __init__(self, message: str, model: str) -> None:
+        super().__init__(message)
+        self.model = model
+
+
 class ModelUnavailable(FailedReview):
-    """The turn failed because the chosen model cannot be had: kind CAPACITY (the provider's, transient) or
-    ALLOWANCE (ours, until its window resets). A caller tells it from a defect by its own exit status."""
+    """The review cannot be had: kind CAPACITY (the provider's, transient), ALLOWANCE (ours, until its window resets)
+    or another of REASONS (the probe failed, the run timed out or crashed, the binary is missing). The owner's rule is that
+    Codex never blocks an arm, so every one of them is a statement on the PR and exit 3, "not run", never a defect: a
+    caller tells it from a failed review by its exit status."""
 
     def __init__(self, kind: str, backend: str, reset: str | None = None) -> None:
         super().__init__(backend)
@@ -301,6 +361,8 @@ class ModelUnavailable(FailedReview):
 
     def report(self) -> str:
         runs = self.runs
+        if self.kind not in (CAPACITY, ALLOWANCE):
+            return f"the Codex review could not be had ({self.kind}): {self.backend}"
         if self.kind == CAPACITY:
             return (f"the Codex model is unavailable: at capacity, the provider's and transient (after {runs} run(s), "
                     f"retried after {', '.join(f'{d:g}' for d in CAPACITY_RETRY_DELAYS_S)} s) — Codex said: {self.backend}")
@@ -405,7 +467,7 @@ def codex_settings(environ: dict[str, str], model_flag: str | None, route: Route
         raise Refused(f"model {model!r} is not a model name")
     binary = environ.get(ENV_BIN) or shutil.which("codex", path=environ.get("PATH")) or ""
     if not binary or not os.access(binary, os.X_OK):
-        raise Refused(f"no codex binary ({ENV_BIN}, or `codex` on PATH); nothing was run or posted")
+        raise NoBinary(f"no codex binary ({ENV_BIN}, or `codex` on PATH)", model)
     return model, binary
 
 
@@ -718,10 +780,77 @@ def child_env(environ: dict[str, str], scratch: str, home: str, key: str) -> dic
     return env
 
 
+# --- the probe ---------------------------------------------------------------
+
+def _probe_failure(kind: str, text: str, key: str) -> ModelUnavailable:
+    """The backend's words, untrusted: one line, bounded, the key never in them."""
+    return ModelUnavailable(kind, _one_line(text.replace(key, "[key]"))[:300])
+
+
+def probe(base_url: str, key: str, account: str | None, model: str) -> None:
+    """One cheap call through the gateway the run would use, with the credentials it would use: is the API reachable
+    and the allowance not spent. Returns when the model answered a one-word request; raises ModelUnavailable with the
+    kind that says why not, and codex exec starts only after it returned (the owner, 2026-11-12).
+
+    Made in this process with http.client, not by a subprocess and not through urllib: the key travels in a header
+    on the socket, never in an argv or a log line; no proxy variable of the session is honoured (the gateway is the
+    run's own, on loopback for --gateway chatgpt) and no redirect is followed. Nothing of the session's environment
+    is read here. The whole call is bounded by PROBE_TIMEOUT_S, a deadline over every read and not a per-read timeout.
+
+    The request is the Responses API's smallest form with the streaming the ChatGPT backend requires; it is passed
+    only when the stream ends in response.completed. NOT verified against the live ChatGPT backend by the login that
+    wrote it (no sign-in here): the stand-in in tests/test_review_codex.py serves the shapes it expects."""
+    parts = urlsplit(base_url)
+    deadline = time.monotonic() + PROBE_TIMEOUT_S
+    headers = {"Authorization": f"Bearer {key}", "Content-Type": "application/json", "Accept": "text/event-stream"}
+    if account:
+        headers["ChatGPT-Account-ID"] = account
+    body = json.dumps({"model": model, "instructions": "Answer with the single word ok.", "store": False, "stream": True,
+                       "input": [{"type": "message", "role": "user", "content": [{"type": "input_text", "text": "ok?"}]}]})
+    connect = http.client.HTTPSConnection if parts.scheme == "https" else http.client.HTTPConnection
+    conn = connect(parts.hostname, parts.port, timeout=PROBE_TIMEOUT_S)
+    text = b""
+    try:
+        conn.request("POST", "/responses", body.encode("utf-8"), headers)
+        sock = conn.sock
+        resp = conn.getresponse()
+        status = resp.status
+        while len(text) < PROBE_MAX_BYTES and b"response.completed" not in text and not resp.isclosed():
+            left = deadline - time.monotonic()
+            if left <= 0:
+                raise TimeoutError
+            sock.settimeout(left)   # the deadline over the whole call, not a per-read timeout that a trickle resets
+            chunk = resp.read1(4096)
+            if not chunk:
+                break
+            text += chunk
+    except (TimeoutError, socket.timeout):
+        raise ModelUnavailable(PROBE_TIMEOUT, f"no answer within {PROBE_TIMEOUT_S:g} s") from None
+    except (OSError, http.client.HTTPException) as e:
+        raise _probe_failure(UNREACHABLE, f"{type(e).__name__}: {e}", key) from None
+    finally:
+        conn.close()
+    said = text.decode("utf-8", "replace")
+    if unavailable_kind := unavailable(said, ALLOWANCE_PROBE_MESSAGES):
+        raise unavailable_kind
+    if status != 200:
+        raise _probe_failure(PROBE_FAILED, f"HTTP {status}: {said}", key)
+    if "response.completed" not in said:
+        raise _probe_failure(PROBE_FAILED, f"the stream ended without completing: {said}", key)
+
+
 # --- running Codex once ------------------------------------------------------
 
 START_PROBE_EXIT, REFUSED_PROBE_EXIT, WRITTEN_PROBE_EXIT = 42, 43, 7
 READ_PROBE_EXIT, CONTROL_PROBE_EXIT = 9, 44   # the canary was read; the workspace's own file could not be
+
+
+def _spawn_failure(binary: str, e: OSError) -> OSError | BinaryMissing:
+    """The OSError of starting `binary` itself (it went away or lost its execute bit since codex_settings found it) is a
+    missing binary; any other OSError (a pipe, a full disk) is not about the binary and stays what it is."""
+    if isinstance(e, (FileNotFoundError, PermissionError)) and e.filename == binary:
+        return BinaryMissing(f"the codex binary cannot be started: {e.strerror}")
+    return e
 
 
 def prove_sandbox(binary: str, workdir: str, env: dict[str, str]) -> None:
@@ -760,6 +889,8 @@ def prove_sandbox(binary: str, workdir: str, env: dict[str, str]) -> None:
                 with process.group(argv, label="fabric-review", sweep=True, env=env, cwd=workdir, stdin=subprocess.DEVNULL,
                                    stdout=subprocess.PIPE, stderr=subprocess.PIPE) as p:
                     _, err = p.communicate(timeout=SANDBOX_PROOF_TIMEOUT_S)
+            except OSError as e:
+                raise _spawn_failure(binary, e) from None
             except subprocess.TimeoutExpired:
                 raise FailedReview(f"the read-only sandbox did not {label} within {SANDBOX_PROOF_TIMEOUT_S} s; no wider one is used") from None
             if p.returncode != wanted:
@@ -826,6 +957,8 @@ def _run_codex(binary: str, model: str, workdir: str, scratch: str, env: dict[st
             with process.group(argv, label="fabric-review", sweep=True, cwd=workdir, env=env, stdin=subprocess.PIPE, stdout=evf,
                                stderr=logf) as p:
                 p.communicate(prompt.encode("utf-8"), timeout=timeout_s)
+        except OSError as e:
+            raise _spawn_failure(binary, e) from None
         except subprocess.TimeoutExpired:
             raise RunTimeout(f"codex did not answer within {timeout_s / 60:g} minutes") from None
     run = read_events(events)
@@ -833,7 +966,7 @@ def _run_codex(binary: str, model: str, workdir: str, scratch: str, env: dict[st
         raise gone
     if p.returncode != 0:
         # Codex's turn message is the backend's text, untrusted: one line, bounded, as judge_run says it.
-        raise FailedReview(f"codex exited {p.returncode}: "
+        raise CodexCrash(f"codex exited {p.returncode}: "
                            + (_one_line(run.failed)[:500] if run.failed else _tail(log)))
     judge_run(run)
     if os.path.isfile(answer):
@@ -918,12 +1051,12 @@ def read_events(path: str) -> CodexRun:
     return run
 
 
-def unavailable(message: str) -> ModelUnavailable | None:
+def unavailable(message: str, allowance: tuple[str, ...] = ALLOWANCE_MESSAGES) -> ModelUnavailable | None:
     """The kind of unavailability a failed turn's message states, or None. The message is the backend's text,
     untrusted: only the fixed phrases above decide, and the reset time is quoted from it, bounded."""
     if any(m in message for m in CAPACITY_MESSAGES):
         return ModelUnavailable(CAPACITY, _one_line(message)[:300])
-    if any(m in message for m in ALLOWANCE_MESSAGES):
+    if any(m in message for m in allowance):
         reset = RESET_TIME.search(message)
         return ModelUnavailable(ALLOWANCE, _one_line(message)[:300], _one_line(reset.group(1)).strip() if reset else None)
     return None
@@ -1035,8 +1168,9 @@ def _one_line(s: str) -> str:
 
 def format_marker(head: str, reason: str, at: str, engine: str = ENGINE) -> str:
     """The writer is stricter than the reader (verdicts.unavailable_of, the one parser, the arm's): a marker this
-    engine emits always has a full head and one of its two reasons."""
-    if not re.fullmatch(r"[0-9a-f]{40}", head) or reason not in (CAPACITY, ALLOWANCE):
+    engine emits always has a full head and one of REASONS. The reader accepts any one-word reason, so a new
+    reason here needs no change there (tests pin that for each)."""
+    if not re.fullmatch(r"[0-9a-f]{40}", head) or reason not in REASONS:
         raise ValueError(f"not an unavailable marker's head or reason: {head!r}, {reason!r}")
     return UNAVAILABLE_MARKER.format(engine=engine, head=head, reason=reason, at=at)
 
@@ -1047,14 +1181,36 @@ def _utc_now() -> str:
 
 def unavailable_comment(e: "ModelUnavailable", head: str, at: str) -> str:
     """The body: the marker, then one human line that carries the backend's words only as a bounded one-liner."""
+    # Fixed text per reason: the backend's own words stay on stderr, never in a statement the arm shows.
     if e.kind == ALLOWANCE:
         when = e.reset or "the backend gave no reset time"
         why = f"over the ChatGPT allowance ({when})"
-    else:
+    elif e.kind == CAPACITY:
         why = f"the model stayed at capacity after {e.runs} run(s)"
+    else:
+        why = {UNREACHABLE: "the gateway or the API could not be reached", PROBE_FAILED: "the probe call to the API was refused",
+               PROBE_TIMEOUT: "the probe call to the API got no answer in time", TIMEOUT: "the review did not finish in its time budget",
+               CRASH: "Codex exited with an error", FAILED: "the review run failed", GATEWAY: "the gateway could not be started",
+               BINARY_MISSING: "the codex binary is missing"}[e.kind]
     why = why.replace("`", "'")
     return (f"{format_marker(head, e.kind, at)}\n"
             f"Codex could not review `{head[:12]}`: {why}; the claude review alone arms, per the owner's policy.\n")
+
+
+def unavailable_from(err: BaseException) -> ModelUnavailable:
+    """The statement a failure to launch or to finish becomes. The backend's or the tool's words are kept for stderr
+    (bounded, one line); the marker carries only the reason."""
+    if isinstance(err, RunTimeout):
+        kind = TIMEOUT
+    elif isinstance(err, CodexCrash):
+        kind = CRASH
+    elif isinstance(err, BinaryMissing):
+        kind = BINARY_MISSING
+    elif isinstance(err, GatewayDown):
+        kind = GATEWAY
+    else:
+        kind = FAILED
+    return ModelUnavailable(kind, _one_line(str(err))[:600])
 
 
 def announce_unavailable(repo: str, pr: str, head: str, e: "ModelUnavailable") -> str:
@@ -1164,7 +1320,7 @@ USAGE_UNVERIFIED = ":usage-unverified"
 def run_status(e: BaseException) -> tuple[str, str]:
     """The ledger's (status, status_source) for the run an exception ended."""
     if isinstance(e, ModelUnavailable):
-        return ("allowance-exhausted", "codex:usage-limit") if e.kind == ALLOWANCE else ("failed", "codex:capacity")
+        return ("allowance-exhausted", "codex:usage-limit") if e.kind == ALLOWANCE else ("failed", f"codex:{e.kind}")
     if isinstance(e, RunTimeout):
         return "timeout", "codex:timeout"
     if isinstance(e, _Signalled):
@@ -1250,7 +1406,12 @@ def _review(pr: str, request: str, *, model_flag: str | None, timeout_min: float
     explicit_effort = bool(effort_flag or environ.get(ENV_EFFORT))
     # Routing is read only for what the overrides leave unnamed, and before anything starts: its refusal is one.
     route = Route() if not explicit_model or (gateway and not explicit_effort) else None
-    model, binary = codex_settings(environ, model_flag, route)
+    # A missing binary is not refused here: the statement that it is missing names the head, which is read below.
+    missing: NoBinary | None = None
+    try:
+        model, binary = codex_settings(environ, model_flag, route)
+    except NoBinary as e:
+        model, binary, missing = e.model, "", e
     level = effort(environ, effort_flag, route.effort(model) if gateway and route else None)
     req, brief = load_request(request, allow_rationale, pr)
     repo = req["repository"]
@@ -1264,13 +1425,19 @@ def _review(pr: str, request: str, *, model_flag: str | None, timeout_min: float
     def attempt() -> tuple[list[dict], review_coverage.Coverage | None]:
         # Everything a run needs is made here and gone when it ends, so a retry is as fresh as the first run.
         # Every refusal of the gateway's (the sign-in, its token's lifetime, the installed gateway) comes before it starts.
-        provider = (review_gateway.serve(review_gateway.prepare(gateway, environ, signin_home, timeout_min * 60), model, environ)
-                    if gateway else contextlib.nullcontext({}))
-        with provider as provided:
+        prepared = review_gateway.prepare(gateway, environ, signin_home, timeout_min * 60) if gateway else None
+        with contextlib.ExitStack() as stack:
+            try:
+                provided = stack.enter_context(review_gateway.serve(prepared, model, environ)) if gateway else {}
+            except review_gateway.Refused as e:
+                # Past the checks of prepare(), which are the caller's to fix, the gateway is infrastructure: one that
+                # cannot be started is a review that cannot be had.
+                raise GatewayDown(str(e)) from None
             # What the gateway provides lives in this dict and Codex's environment only, never os.environ: the
             # post's child (fabric-pr) and anything else this process starts never inherit the local key.
             env_run = {**environ, **provided}
             base_url, key = gateway_settings(env_run)
+            probe(base_url, key, account_id(env_run), model)
             scratch = tempfile.mkdtemp(prefix="fabric-review-codex.", dir=root)
             try:
                 workdir = os.path.join(scratch, "head")
@@ -1283,11 +1450,26 @@ def _review(pr: str, request: str, *, model_flag: str | None, timeout_min: float
             finally:
                 shutil.rmtree(scratch, ignore_errors=True)
 
+    def guarded() -> tuple[list[dict], review_coverage.Coverage | None]:
+        """attempt(), with every way it can fail to launch or to finish turned into ModelUnavailable: Codex never
+        blocks an arm (the owner, 2026-11-12), so the arm gets its statement for all of them. What is refused before
+        the head is known (settings, routing, the request, a moved head) is the caller's to fix and stays a refusal."""
+        if missing is not None:
+            raise ModelUnavailable(BINARY_MISSING, str(missing))
+        try:
+            return attempt()
+        except ModelUnavailable:
+            raise
+        except FailedReview as err:
+            # The ledger row says what happened, not the statement's reason: its status is the run's own.
+            observed.status = observed.status or run_status(err)
+            raise unavailable_from(err) from err
+
     runs = 0
     while True:
         runs += 1
         try:
-            findings, coverage = attempt()
+            findings, coverage = guarded()
             break
         except ModelUnavailable as e:
             # An allowance is spent for hours: a wait of a minute cannot help, so only the provider's capacity is retried.
