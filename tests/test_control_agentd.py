@@ -693,7 +693,9 @@ class Answer(Scratch):
         mem = os.path.join(h, ".claude", "projects", memory_slug(wc), "memory")
         os.makedirs(mem)
         open(os.path.join(mem, "a.md"), "w").write("x")
-        ctx = {"me": {"address": "h/db-admin"}, "started": now_iso(), "home": h, "run_bounded": run}
+        # A scratch state: without one the tokens op reads the running account's own dispatch ledger.
+        ctx = {"me": {"address": "h/db-admin"}, "started": now_iso(), "home": h, "run_bounded": run,
+               "state": self.scratch("agentd-state-")}
         r = agentd.answer({"id": "q1", "op": "memory"}, ctx)
         self.assertEqual((r["op"], r["in_reply_to"], r["data"]["parts"]), ("memory", "q1", 1))
         b = r["data"]["memory"]["bundles"][0]
