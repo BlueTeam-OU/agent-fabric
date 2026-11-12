@@ -2180,6 +2180,26 @@ def case_read_tree_listing_and_its_two_edges() -> None:
             os.environ["AGENT_FABRIC_OPERATOR"] = saved
 
 
+def case_a_base_before_step_a_holds_the_allowlist_at_policies() -> None:
+    """ADR-045 step A moved the allowlist to tools/fabric/: a branch forked before it still has its additions judged
+    against the list at the old path, not read as a base without one."""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("fabric_lint_under_test", LINT)
+    lint = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(lint)
+    with tempfile.TemporaryDirectory() as root:
+        g = lambda *a: subprocess.run(["git", "-C", root, *a], check=True, capture_output=True, env=git_env())  # noqa: E731
+        write(os.path.join(root, "bin", "long-tool"), "#!/usr/bin/env bash\n" + "echo x\n" * 13)
+        write(os.path.join(root, "policies", "bash-allowlist.json"), json.dumps({"stays": {}}))
+        g("init", "-q", "-b", "main")
+        g("add", "-A")
+        g("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "base")
+        os.remove(os.path.join(root, "policies", "bash-allowlist.json"))
+        write(os.path.join(root, "tools", "fabric", "bash-allowlist.json"), json.dumps({"stays": {"bin/long-tool": "x"}}))
+        got = lint.bash_shape_findings(root, base_ref="main")
+        assert any("stays entry bin/long-tool is added; the pre-Python list is closed" in f for f in got), got
+
+
 def case_bash_is_a_forwarder_or_on_the_allowlist() -> None:
     """ADR-040 §5 rule 2 (A 2026-10-11): a tracked bash file (.sh, .bash, or
     a bash/sh shebang) is a forwarder by rule 1's shape (at most 12 lines of
@@ -2192,7 +2212,7 @@ def case_bash_is_a_forwarder_or_on_the_allowlist() -> None:
     spec = importlib.util.spec_from_file_location("fabric_lint_under_test", LINT)
     lint = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(lint)
-    allow = lambda d: write(os.path.join(root, "policies", "bash-allowlist.json"), json.dumps(d))
+    allow = lambda d: write(os.path.join(root, "tools", "fabric", "bash-allowlist.json"), json.dumps(d))
     with tempfile.TemporaryDirectory() as root:
         g = lambda *a: subprocess.run(["git", "-C", root, *a], check=True, capture_output=True, env=git_env())
         fwd = "#!/usr/bin/env bash\n# a comment\npy=/usr/local/bin/fabric-python\nexec \"$py\" -I m.py \"$@\"\n"
@@ -2552,6 +2572,39 @@ def case_a_generic_file_names_no_managed_project_but_the_fence() -> None:
         assert len(got) == 1 and got[0].startswith("tools/fabric/fence.py:1: names a managed project"), got
 
 
+def case_the_operator_is_the_fabrics_own_name() -> None:
+    """The fabric's operator (ADR-045 §8) is named by the engine as agent-fabric
+    is; another registered project in the same file is still a finding."""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("fabric_lint_under_test", LINT)
+    lint = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(lint)
+    from fabric_lint_rules import docs
+    with tempfile.TemporaryDirectory() as root:
+        write(os.path.join(root, "projects", "registry.json"),
+              json.dumps({"projects": {"agent-fabric": {}, docs.OPERATOR_PROJECT_ID: {}, "other.proj": {}}}))
+        src = os.path.join(root, "tools", "fabric", "clone.py")
+        write(src, f"DIR = '{docs.OPERATOR_PROJECT_ID}'\n")
+        assert lint.project_name_findings(root) == [], lint.project_name_findings(root)
+        write(src, f"DIR = '{docs.OPERATOR_PROJECT_ID}'\nOTHER = 'other.proj'\n")
+        got = lint.project_name_findings(root)
+        assert len(got) == 1 and got[0].startswith("tools/fabric/clone.py:2: names a managed project ('other.proj')"), got
+
+
+def case_the_engine_lists_stay_fenced() -> None:
+    """Step A moved eight checkers' lists to tools/fabric/; each stays in
+    CONTRIBUTOR_NEVER as it was under policies/. bash-allowlist.json does not:
+    the port shrinks it (review of #572, F4)."""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("fabric_lint_under_test", LINT)
+    lint = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(lint)
+    for n in ("command-names", "context-reads", "evidence-caps", "mechanisms", "process-spawns",
+              "state-writers", "transport-calls", "work-writes"):
+        assert f"tools/fabric/{n}.json" in lint.CONTRIBUTOR_NEVER, n
+    assert "tools/fabric/bash-allowlist.json" not in lint.CONTRIBUTOR_NEVER
+
+
 def case_a_contributor_entry_never_reaches_a_definition() -> None:
     """ADR-018 §5 rule 8: a contributor's entry names a catalogued role, is
     whole, and admits nothing that defines a role — however broad its
@@ -2570,10 +2623,9 @@ def case_a_contributor_entry_never_reaches_a_definition() -> None:
             return lint.contributor_findings(root)
 
         excl = [n for n in (*lint.CONTRIBUTOR_NEVER, *lint.CONTRIBUTOR_SUPPLY) if n.startswith(("tools/", "tests/"))]
-        good = {"role": "python-dev", "paths": ["tools/", "tests/", "policies/bash-allowlist.json"], "excluding": excl}
+        good = {"role": "python-dev", "paths": ["tools/", "tests/"], "excluding": excl}
         for d in ("tools", "tests"):
             os.makedirs(os.path.join(root, d))
-        write(os.path.join(root, "policies", "bash-allowlist.json"), "{}")
         assert findings(good) == [], findings(good)
         got = findings({**good, "paths": good["paths"] + ["runtime/github/"]})
         assert got == ["policies/authority.json: contributors[0] (python-dev): path 'runtime/github/' is not in "
@@ -2907,6 +2959,7 @@ def main() -> int:
         case_the_source_locale_translates_nothing,
         case_decision_records_are_lint_findings,
         case_bash_is_a_forwarder_or_on_the_allowlist,
+        case_a_base_before_step_a_holds_the_allowlist_at_policies,
         case_arm_boundary_cases_only_leave_retired,
         case_arm_direct_block,
         case_every_registered_project_declares_an_arm_json,
@@ -2965,6 +3018,8 @@ def main() -> int:
         case_every_client_with_a_project_names_a_settings_repository,
         case_every_project_names_a_defined_client,
         case_a_generic_file_names_no_managed_project_but_the_fence,
+        case_the_operator_is_the_fabrics_own_name,
+        case_the_engine_lists_stay_fenced,
         case_a_registry_with_projects_and_no_clients_is_a_finding,
         case_the_class_list_a_reader_sees_is_the_real_one,
         case_a_skill_carries_rules_not_occasions,

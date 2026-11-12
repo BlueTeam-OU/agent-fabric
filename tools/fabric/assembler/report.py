@@ -89,7 +89,7 @@ def review_horizons(run: Run, memory_use: dict[str, Any]) -> dict[str, Any]:
     """The drain report's `review_horizons` (ADR-050 rule 8): sections older than their class's horizon and sections no
     memory_read returned in 8 weeks, listed and never expired. The reads this drain carried are recorded first, the state
     is written on every drain; a state that cannot be read or written leaves the unread list empty and says so."""
-    corpora = {"f": roots.memory_dir(root=layout.FABRIC_ROOT), "p": layout.project_memory_root(run.project)}
+    corpora = {"f": roots.memory_dir(engine=layout.FABRIC_ROOT), "p": layout.project_memory_root(run.project)}
     key_of = {p: (lambda rel, root=root: in_report(run, os.path.join(root, rel))) for p, root in corpora.items()}
     path = reads_state_path(run)
     state, status = memory_horizons.load_state(path)

@@ -97,7 +97,7 @@ import sys
 HERE = os.path.dirname(os.path.realpath(__file__))
 sys.path.insert(0, os.path.dirname(HERE))
 import git  # noqa: E402
-from guards import common  # noqa: E402
+from guards import common, contributors  # noqa: E402
 from guards.common import Refused, err, say  # noqa: E402
 
 NAME = "check_charter_authority"
@@ -229,12 +229,15 @@ def run(argv: list[str], env: dict[str, str]) -> int:
     # by name; the name convention is for roles it does not list). Read from
     # the BASE side of the diff, so a branch cannot add itself to the list in
     # the same change it uses the list to justify.
-    shown = git.run(root, "show", f"{base}:policies/authority.json", check=False)
+    # The path as the base stores it, from the toplevel: `root` may name a
+    # subdirectory, and an operator nested in the repository is read there.
+    rel = contributors.authority_git_path(git.toplevel(root) or root, env)
+    shown = git.run(root, "show", f"{base}:{rel}", check=False)
     if shown.returncode != 0:
-        raise Refused(f"cannot read policies/authority.json at {base} -- no holder can be named")
+        raise Refused(f"cannot read {rel} at {base} -- no holder can be named")
     text = shown.stdout
     if not isinstance(_role_definitions(text), dict):
-        raise Refused(f"policies/authority.json at {base} has no role_definitions -- no holder can be named")
+        raise Refused(f"{rel} at {base} has no role_definitions -- no holder can be named")
     owner_role = common.role_of(text) or common.DEFAULT_ROLE
     if is_holder(agent, holders_of(text)):
         say(f"check_charter_authority: OK — {len(changed)} role definition(s) "

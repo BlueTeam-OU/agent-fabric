@@ -3,7 +3,7 @@
 **Date:** 2026-11-08
 **Status:** Proposed
 **Decision Makers:** the owner; drafted by fabric-coordinator
-**Scope:** the fabric's cross-cutting mechanisms (per-agent state, process lifetime, agent context, remote evidence completeness, the job lifecycle, message transport, instance roots, the recognition of a fabric command in a Bash line) and the catalogue that names each one's owning module, its checker and its declared exceptions: `policies/mechanisms.json`, read by `tools/fabric/lint_rules/mechanisms.py`. Not what each mechanism decides, which stays in its own record (ADR-003, ADR-037, ADR-045, ADR-064, ADR-068)
+**Scope:** the fabric's cross-cutting mechanisms (per-agent state, process lifetime, agent context, remote evidence completeness, the job lifecycle, message transport, instance roots, the recognition of a fabric command in a Bash line) and the catalogue that names each one's owning module, its checker and its declared exceptions: `tools/fabric/mechanisms.json`, read by `tools/fabric/lint_rules/mechanisms.py`. Not what each mechanism decides, which stays in its own record (ADR-003, ADR-037, ADR-045, ADR-064, ADR-068)
 **Pillar:** P1
 
 ## 1. Context and Problem
@@ -34,7 +34,7 @@ shape. Read against `origin/main` at 27af8227 the same day:
 - **Per-agent state.** The review counted fifteen writers outside
   `runtime/identity.py`. That count is out of date: j576 (#497) and
   j577 (#506) closed all but one, and `tools/fabric/state_writes.py` with
-  `policies/state-writers.json` already enforces ADR-003 rule 1 in
+  `tools/fabric/state-writers.json` already enforces ADR-003 rule 1 in
   lint, the pre-commit hook and the suite. It is the pattern the other
   mechanisms lack.
 
@@ -49,7 +49,7 @@ it and never reimplements it. Each mechanism has a checker that finds a
 reimplementation in the tree, and an exceptions file in which every
 exception carries its reason, on the model of `state_writes.py`.
 
-`policies/mechanisms.json` is the catalogue: for each mechanism, the
+`tools/fabric/mechanisms.json` is the catalogue: for each mechanism, the
 record it comes from, its owning module, its checker and exceptions
 file, and whether it is enforced yet or which job will enforce it. Lint
 reads the catalogue and refuses one that names a missing module or
@@ -83,7 +83,7 @@ lets lint check that the claim is true.
 
 ## 5. Binding Rules
 
-1. A mechanism in `policies/mechanisms.json` is implemented only in its
+1. A mechanism in `tools/fabric/mechanisms.json` is implemented only in its
    owning module. Another module uses that module's interface; a
    reimplementation is a finding unless the mechanism's exceptions file
    names the module with the reason that admits it.
@@ -151,21 +151,21 @@ Proposed. Rules 2 and 3 are built with this record (the catalogue,
 its lint rule and `tests/test_mechanisms.py`). Per-agent state, agent
 context and remote evidence are `enforced`: the second by
 python-dev-01's j212 (`tools/fabric/context_reads.py`,
-`policies/context-reads.json`), the third by python-dev-03's j119
+`tools/fabric/context-reads.json`), the third by python-dev-03's j119
 (`tools/fabric/github/evidence.py`, `tools/fabric/evidence_caps.py`,
-`policies/evidence-caps.json`). Process lifetime is `enforced` by
+`tools/fabric/evidence-caps.json`). Process lifetime is `enforced` by
 python-dev-02's j125 (`tools/fabric/process.py`,
-`tools/fabric/process_spawns.py`, `policies/process-spawns.json`), and
+`tools/fabric/process_spawns.py`, `tools/fabric/process-spawns.json`), and
 the job lifecycle by python-dev-04's j101 (`tools/fabric/work/`,
-`tools/fabric/work_writes.py`, `policies/work-writes.json`). Transport is
+`tools/fabric/work_writes.py`, `tools/fabric/work-writes.json`). Transport is
 `enforced` by python-dev-02's j129 (`tools/fabric/gzcoord/transport/`,
-`tools/fabric/transport_calls.py`, `policies/transport-calls.json`).
+`tools/fabric/transport_calls.py`, `tools/fabric/transport-calls.json`).
 Instance roots are `enforced` by python-dev-01's j222
 (`tools/fabric/roots.py`, `tools/fabric/roots_bypass.py`,
 `tools/fabric/roots_bypass.json`).
 Command recognition is `enforced` from python-dev-04's j107
 (`tools/fabric/cli/`, `tools/fabric/cli/checks.py`,
-`policies/command-names.json`).
+`tools/fabric/command-names.json`).
 
 ## References
 
@@ -175,7 +175,7 @@ Command recognition is `enforced` from python-dev-04's j107
 - ADR-045 — roots; where instance data is read from.
 - ADR-064 — the relay and InterWeave dual run; the transport's owner sits behind it.
 - ADR-068 — the `fabric` dispatcher; rule 7, the command-recognition mechanism.
-- `policies/mechanisms.json`, `tools/fabric/lint_rules/mechanisms.py`.
+- `tools/fabric/mechanisms.json`, `tools/fabric/lint_rules/mechanisms.py`.
 
 ## Amendments
 

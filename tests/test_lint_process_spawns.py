@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """tools/fabric/lint_rules/process.py: agent-fabric ADR-067 rule 1 for process lifetime over the tracked tree, with
-policies/process-spawns.json's declared modules. The predicate is tests/test_process_spawns.py's; the pre-commit leg is
+tools/fabric/process-spawns.json's declared modules. The predicate is tests/test_process_spawns.py's; the pre-commit leg is
 tests/test_githook_pre_commit.py's ProcessSpawns.
 
 Stdlib only; runnable as `python3 tests/test_lint_process_spawns.py`. **Each case names the mutation it kills**:
@@ -32,7 +32,7 @@ from test_lint import make_base, run_lint, write  # noqa: E402
 
 TMP = tempfile.mkdtemp(prefix="lint-process-")
 atexit.register(shutil.rmtree, TMP, ignore_errors=True)
-POLICY = "policies/process-spawns.json"
+POLICY = "tools/fabric/process-spawns.json"
 SPAWN = "import os\n\ndef stop(p):\n    os.killpg(p, 9)\n"
 
 

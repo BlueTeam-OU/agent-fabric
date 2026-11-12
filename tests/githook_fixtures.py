@@ -12,6 +12,10 @@ import subprocess
 import tempfile
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+# The nine engine exception lists (docs/split/move-plan.md §1), which sat in the fixture's real policies/ directory, absent until
+# a test wrote one; they are as absent in tools/fabric/ now.
+ENGINE_LISTS = frozenset(f"{n}.json" for n in ("bash-allowlist", "command-names", "context-reads", "evidence-caps", "mechanisms",
+                                               "process-spawns", "state-writers", "transport-calls", "work-writes"))
 GITHOOKS_DIR = os.path.abspath(os.environ.get("GITHOOKS_DIR") or os.path.join(ROOT, "policies", "githooks"))
 # PYTHONDONTWRITEBYTECODE: a hook runs the real tools/fabric modules through links, and Python would write __pycache__ beside them in the checkout
 GIT_ENV = {"PATH": "/usr/bin:/bin", "LANG": "C.UTF-8", "PYTHONDONTWRITEBYTECODE": "1", "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_SYSTEM": os.devnull,
@@ -108,8 +112,8 @@ class Fabric:
             os.symlink(os.path.join(ROOT, "runtime"), os.path.join(self.fabric, "runtime"))
             os.makedirs(os.path.join(self.fabric, "tools", "fabric"))
             for entry in os.listdir(os.path.join(ROOT, "tools", "fabric")):
-                if entry == "roots_bypass.json":
-                    continue   # the checkout's own list: a tracked link would be staged as the link's text, which is not JSON
+                if entry == "roots_bypass.json" or entry in ENGINE_LISTS:
+                    continue   # the checkout's own lists: a tracked link would be staged as the link's text, which is not JSON
                 os.symlink(os.path.join(ROOT, "tools", "fabric", entry), os.path.join(self.fabric, "tools", "fabric", entry))
         if authority_text is not None:
             self.write_authority_text(authority_text)

@@ -1,6 +1,6 @@
 """tools/fabric/lint_rules/evidence.py — GitHub's list caps have one owner (agent-fabric ADR-067, j119): a module under
 tools/fabric/ that holds a cap literal or reads a pull request's files or commits outside github/evidence.py and
-common.py is a finding unless policies/evidence-caps.json names it with its reason; an entry that admits nothing is a
+common.py is a finding unless tools/fabric/evidence-caps.json names it with its reason; an entry that admits nothing is a
 finding. tools/fabric/evidence_caps.py is the definition, and the pre-commit hook asks it about the staged modules. A part
 of tools/fabric/lint.py, the entry point."""
 from __future__ import annotations
@@ -30,7 +30,7 @@ def evidence_cap_findings(root: str) -> list[str]:
         with open(os.path.join(root, POLICY), encoding="utf-8") as fh:
             admitted = evidence_caps.parse_modules(fh.read())
     except FileNotFoundError:
-        admitted = {}       # instance data (ADR-045 rule 2): a stripped engine copy still judges every module
+        admitted = {}       # a tree without the engine's list (a fixture): still judges every module
     except (OSError, ValueError) as exc:
         return [f"{POLICY}: cannot be read as JSON ({exc.__class__.__name__}); GitHub's list caps are not judged"]
     tracked = set(_tracked(root))

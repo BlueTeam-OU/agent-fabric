@@ -84,6 +84,13 @@ and `tests/run.sh` wait for one of the host's few cpu slots, up to 25
 minutes, longer than a foreground call lives (agent-fabric ADR-010
 rule 9).
 
+**Delegation to subagents is the default for every role.** Work over a
+few lines with a contract goes to a worktree-isolated class agent in the
+background, wide searches to Explore; the session keeps decisions,
+messages, reviews, short edits, a chain of dependent steps and work that
+needs back-and-forth, and commits what lands. The `subagent-dispatch`
+skill has the procedure (agent-fabric ADR-005 rule 11).
+
 **The control plane is read-only.** `agent-fabric/` and every project's
 `.agent-fabric/` are fabric-coordinator's to write; a charter, a brief
 or a routing entry you believe wrong is raised in a message to

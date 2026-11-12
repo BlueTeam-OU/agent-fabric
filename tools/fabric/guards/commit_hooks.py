@@ -441,7 +441,7 @@ def _check_state_writes(root: str) -> None:
 
 def _check_context_reads(root: str) -> None:
     """In agent-fabric itself, whoever commits: a staged module of the fabric's own Python that reads an agent's binding
-    outside identity is refused unless the staged policies/context-reads.json names it (ADR-067 rule 1); a module whose
+    outside identity is refused unless the staged tools/fabric/context-reads.json names it (ADR-067 rule 1); a module whose
     entry this commit removes is judged too. Lint judges the whole tree in CI; this stops the reader before it is recorded."""
     if not same_repository(root):
         return

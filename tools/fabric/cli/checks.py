@@ -1,5 +1,5 @@
 """tools/fabric/cli/checks.py — the two checks ADR-068 puts in lint (rules 3 and 7). Wiring them into lint and the
-pre-commit hook, the catalogue entry and the exceptions file (policies/command-names.json) are the control plane's.
+pre-commit hook, the catalogue entry and the exceptions file (tools/fabric/command-names.json) are the control plane's.
 
 table_findings(doc, own_verbs) — the `fabric` table against `commands` (rule 3), one finding per fault:
 - the table is missing or malformed;
@@ -30,7 +30,7 @@ import warnings
 
 from . import table
 
-POLICY = "policies/command-names.json"
+POLICY = "tools/fabric/command-names.json"
 POLICY_KEY = "recognisers"
 JUDGED_DIRS = ("runtime/claude-code/hooks/", "tools/fabric/guards/")
 STR_METHODS = frozenset({"startswith", "endswith", "find", "rfind", "index", "count"})

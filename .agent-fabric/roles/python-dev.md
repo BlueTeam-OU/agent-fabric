@@ -19,7 +19,7 @@ its remit changed proposes it.
 `policies/authority.json` lists — `tools/`, `tests/`, `bin/`, the
 `runtime/` directories the port reaches, gzapp's `gh` forwarders under
 `projects/gzapp/integration/gh/`, GZCoord's command-line tools (`tools/fabric/gzcoord/`) and their tests
-(`communication/gzcoord/tests/`) for Wave 7, and `policies/bash-allowlist.json`, which only shrinks.
+(`communication/gzcoord/tests/`) for Wave 7, and `tools/fabric/bash-allowlist.json`, which only shrinks.
 
 **Your own pull request** (the owner, 2026-10-07; your entry's
 `"merges": true`, ADR-018 §5 rule 8). You commit on a branch

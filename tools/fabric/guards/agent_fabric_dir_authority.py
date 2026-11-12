@@ -160,25 +160,26 @@ def declared_role(message: str, interpreted: str) -> str:
     return declared
 
 
-def is_fabric_itself(top: str, base: str) -> bool:
+def is_fabric_itself(top: str, base: str, env: dict[str, str] | None = None) -> bool:
     """Whether this is agent-fabric itself, where every commit is guarded.
     Either side's policies/authority.json says so: read from the working
     tree alone, as the bash did, a branch that deleted the file narrowed the
     check to .agent-fabric/** and its other commits passed with no trailer
     (review of #72). A git that cannot say reads as the stricter scope."""
-    if os.path.isfile(roots.policy("authority.json", root=top)):
+    rel = contributors.authority_git_path(top, env)
+    if os.path.isfile(os.path.join(top, rel)):
         return True
     try:
-        r = git.run(top, "cat-file", "-e", f"{base}:policies/authority.json", check=False)
+        r = git.run(top, "cat-file", "-e", f"{base}:{rel}", check=False)
     except git.GitError:
         return True
     return r.returncode == 0
 
 
 def owner_role_of(top: str, env: dict[str, str], base: str) -> str:
-    if is_fabric_itself(top, base):
+    if is_fabric_itself(top, base, env):
         # agent-fabric itself: the base's file, never the branch's.
-        shown = git.run(top, "show", f"{base}:policies/authority.json", check=False)
+        shown = git.run(top, "show", f"{base}:{contributors.authority_git_path(top, env)}", check=False)
         role = common.role_of(shown.stdout) if shown.returncode == 0 else None
         return role or common.DEFAULT_ROLE
     # The guard's own environment, so an exported operator's authority.json is the one read.
@@ -196,15 +197,15 @@ def owner_role_of(top: str, env: dict[str, str], base: str) -> str:
     return common.DEFAULT_ROLE
 
 
-def base_authority(top: str, base: str) -> str:
+def base_authority(top: str, base: str, env: dict[str, str] | None = None) -> str:
     """The base's policies/authority.json, "" when it has none: what a
     branch may do is what main says, never what the branch wrote."""
-    shown = git.run(top, "show", f"{base}:policies/authority.json", check=False)
+    shown = git.run(top, "show", f"{base}:{contributors.authority_git_path(top, env)}", check=False)
     return shown.stdout if shown.returncode == 0 else ""
 
 
-def commits_to_examine(top: str, base: str) -> tuple[str, list[str]]:
-    if is_fabric_itself(top, base):
+def commits_to_examine(top: str, base: str, env: dict[str, str] | None = None) -> tuple[str, list[str]]:
+    if is_fabric_itself(top, base, env):
         scope, args = "agent-fabric itself", ["rev-list", "--no-merges", f"{base}..HEAD"]
     else:
         scope, args = ".agent-fabric/", ["rev-list", "--no-merges", f"{base}..HEAD", "--", ".agent-fabric/**"]
@@ -275,12 +276,12 @@ def run(env: dict[str, str]) -> int:
         return 0
 
     owner_role = owner_role_of(top, env, base)
-    scope, commits = commits_to_examine(top, base)
+    scope, commits = commits_to_examine(top, base, env)
     # A merge is judged on what it changes itself (merge_own_change); one
     # that only folds its parents' guarded changes is not a change at all.
     # Until 2026-10-04 merges were skipped whole, so a hand edit carried in
     # a merge (a conflict resolution, a --no-verify commit) passed unseen.
-    prefix = "" if is_fabric_itself(top, base) else ".agent-fabric/"
+    prefix = "" if is_fabric_itself(top, base, env) else ".agent-fabric/"
     own: dict[str, list[str]] = {}
     for m in merges_to_examine(top, base):
         changed = merge_own_change(top, m, prefix)
@@ -297,7 +298,7 @@ def run(env: dict[str, str]) -> int:
     # its translations. The login is not visible here; the pre-commit hook
     # held it to the suffix at the keyboard.
     fabric_itself = scope == "agent-fabric itself"
-    authority = base_authority(top, base) if fabric_itself else ""
+    authority = base_authority(top, base, env) if fabric_itself else ""
     bad: list[str] = []
     roles: list[str] = []
     supply = False

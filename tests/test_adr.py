@@ -266,6 +266,15 @@ def case_lookup_reads_the_digest(tmp: str) -> None:
     assert hits and hits[0].startswith("### ADR-001"), hits
 
 
+def case_lookup_refuses_an_exported_operator_without_a_digest(tmp: str) -> None:
+    """Review of #572, F2: the engine's DIGEST alone answered, exit 0."""
+    env = {k: v for k, v in os.environ.items() if not k.startswith("AGENT_FABRIC_")}
+    env["AGENT_FABRIC_OPERATOR"] = os.path.join(tmp, "nonexistent")
+    r = subprocess.run([sys.executable, os.path.join(ROOT, "tools", "fabric", "adr.py"), "lookup", "mechanism"],
+                       capture_output=True, text=True, env=env, timeout=60)
+    assert r.returncode != 0 and "nonexistent" in r.stderr and "### ADR-" not in r.stdout, (r.returncode, r.stderr)
+
+
 def git(cwd: str, *a: str, msg: str | None = None) -> None:
     env = git_env()
     subprocess.run(["git", "-C", cwd, *a] + (["-m", msg] if msg else []), check=True, capture_output=True, env=env)

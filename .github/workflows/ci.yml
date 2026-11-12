@@ -93,10 +93,18 @@ jobs:
       # can rewrite them (re-review of #75). -I: no script directory, no
       # user site, no PYTHON* variables; the guards then find their own
       # modules beside main's copy, and judge this checkout.
+      #
+      # Where main keeps the operator's files is asked of main's own roots
+      # (docs/split/move-plan.md §2 precondition 5): `git archive` stores a
+      # symlink shim and not its target, and the branch's roots would name
+      # a layout main has not got yet. The prefix is the one
+      # AGENT_FABRIC_OPERATOR names under the checkout, "" while unset.
       - name: the branch's authority, judged by main's own guards
         run: |
           base="$(mktemp -d)"
-          git archive origin/main tools/fabric policies | tar -x -C "$base"
+          git archive origin/main tools/fabric | tar -x -C "$base"
+          moved="$(/usr/bin/python3 -I -c 'import sys; sys.path.insert(0, sys.argv[1]); import roots; print("\n".join(roots.git_path(*p.split("/"), base=sys.argv[2]) for p in sys.argv[3:]))' "$base/tools/fabric" "$PWD" policies/authority.json)"
+          git archive origin/main policies $moved | tar -x -C "$base"
           AGENT_FABRIC_CHARTER_BASE=origin/main /usr/bin/python3 -I "$base/tools/fabric/guards/agent_fabric_dir_authority.py"
           AGENT_FABRIC_CHARTER_BASE=origin/main /usr/bin/python3 -I "$base/tools/fabric/guards/charter_authority.py" "$PWD"
       # The fleet's pinned Python (runtime/python.json), installed as a host
@@ -138,8 +146,11 @@ jobs:
       - name: every commit the branch adds is signed, by its own agent once cut over (main's checker and data)
         run: |
           base="$(mktemp -d)"
-          git archive origin/main tools/fabric policies identities/keys identities/roles projects/registry.json | tar -x -C "$base"
-          AGENT_FABRIC_OPERATOR="$base" /usr/bin/python3 -I "$base/tools/fabric/guards/ban_unsigned_commits.py"
+          git archive origin/main tools/fabric | tar -x -C "$base"
+          moved="$(/usr/bin/python3 -I -c 'import sys; sys.path.insert(0, sys.argv[1]); import roots; print("\n".join(roots.git_path(*p.split("/"), base=sys.argv[2]) for p in sys.argv[3:]))' "$base/tools/fabric" "$PWD" policies/signing.json policies/authority.json identities/keys identities/roles projects/registry.json)"
+          prefix="$(/usr/bin/python3 -I -c 'import sys; sys.path.insert(0, sys.argv[1]); import roots; print(roots.operator_prefix(sys.argv[2]))' "$base/tools/fabric" "$PWD")"
+          git archive origin/main policies $moved | tar -x -C "$base"
+          AGENT_FABRIC_OPERATOR="$base/$prefix" /usr/bin/python3 -I "$base/tools/fabric/guards/ban_unsigned_commits.py"
       - name: the bash suites
         run: bash tests/run.sh bash
 

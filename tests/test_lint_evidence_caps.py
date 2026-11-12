@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """tools/fabric/lint_rules/evidence.py: agent-fabric ADR-067 rule 1 for GitHub's list caps over the tracked tree, with
-policies/evidence-caps.json's declared modules. The predicate is tests/test_evidence_caps.py's; the pre-commit leg is
+tools/fabric/evidence-caps.json's declared modules. The predicate is tests/test_evidence_caps.py's; the pre-commit leg is
 tests/test_githook_pre_commit.py's EvidenceCaps.
 
 Stdlib only; runnable as `python3 tests/test_lint_evidence_caps.py`. **Each case names the mutation it kills**:
@@ -31,7 +31,7 @@ from test_lint import make_base, run_lint, write  # noqa: E402
 
 TMP = tempfile.mkdtemp(prefix="lint-evidence-")
 atexit.register(shutil.rmtree, TMP, ignore_errors=True)
-POLICY = "policies/evidence-caps.json"
+POLICY = "tools/fabric/evidence-caps.json"
 COPY = "import gh\n\nCAP = 250\n"
 
 
@@ -82,7 +82,7 @@ def case_vendored_is_judged() -> None:
         root = make_base(tempfile.mkdtemp(dir=TMP))
         write(os.path.join(root, "ruff.toml"), 'exclude = ["tools/fabric/vendor"]\n')
         write(os.path.join(root, "tools/fabric/vendor/evx.py"), "import gh\n\nCAP = 250\n")
-        write(os.path.join(root, "policies/evidence-caps.json"), json.dumps(policy))
+        write(os.path.join(root, "tools/fabric/evidence-caps.json"), json.dumps(policy))
         subprocess.run(["git", "-C", root, "init", "-q"], check=True, env=git_env())
         subprocess.run(["git", "-C", root, "add", "-A"], check=True, env=git_env())
         return root

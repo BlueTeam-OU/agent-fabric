@@ -435,6 +435,7 @@ def finish(w: Worker) -> int:
     if (a.fabric_remote and "agent-fabric" not in a.projects
             and w.sudo_test("-d", roots.account_clone(w.home, ".git"))):
         point_origin_at_registry(w, "agent-fabric", a.fabric_remote)
+    operator_checkout_step(w)
     if not a.human:     # 7-9 never for a human (ADR-044 rule 2)
         record_launch_provider(w)
         bootstrap_and_bind(w)
@@ -447,6 +448,23 @@ def finish(w: Worker) -> int:
         return 0
     w.say("10. verification")
     return verify(w)
+
+
+def operator_checkout_step(w: Worker) -> None:
+    """---- 6c. the operator's checkout beside the engine (ADR-045 §6), cloned over SSH like a project's, by the
+    account's own copy of the module that bootstrap also runs. Never fatal: the account works without it (nothing
+    resolves through it yet), the module's line says what is missing, and bootstrap tries again at step 7."""
+    module = roots.account_clone(w.home, "tools", "fabric", "operator_checkout.py")
+    if not w.sudo_test("-f", module):
+        w.say("6c. the operator checkout is not provisioned: this fabric clone has no operator_checkout.py yet")
+        return
+    argv = [PY, "-I", module, "ensure", "--projects", os.path.join(w.home, "projects")]
+    if w.a.dry:
+        argv.append("--dry-run")
+    got = w.as_login(argv)
+    said = (got.stdout or "").strip()
+    w.say(f"6c. {said}" if said else "6c. the operator checkout is current" if got.returncode == 0
+          else f"6c. the operator checkout step exited {got.returncode}; carrying on")
 
 
 def point_origin_at_registry(w: Worker, pid: str, remote: str) -> None:

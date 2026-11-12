@@ -47,10 +47,30 @@ supply commit needs an owner-role commit beside it.
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
+from collections.abc import Mapping
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.realpath(__file__))))
+import roots  # noqa: E402
 
 BRANCH_SEGMENT = "for"
+
+
+def authority_git_path(top: str, environ: Mapping[str, str] | None = None) -> str:
+    """policies/authority.json as `git show <rev>:<path>` in the repository
+    at `top` (its toplevel) spells it: the operator's prefix when the
+    operator is exported inside that repository (docs/split/move-plan.md
+    §2 precondition 5). A symlink shim cannot serve a git-object read.
+    An operator outside `top` keeps no tree in this repository, so the
+    path is the repository's own: what a guard does when the fabric's
+    authority lives in another repository is precondition 6, never a
+    guess made here."""
+    try:
+        return roots.git_path("policies", "authority.json", base=top, environ=environ)
+    except ValueError:
+        return "policies/authority.json"
 
 
 def contributors_of(text: str) -> dict[str, dict]:
@@ -236,7 +256,10 @@ def committed_authority() -> str:
     admit the very commit it rides along with (review of #75). HEAD's copy
     can still differ from main's — a fold-only merge of a wider ref is not
     judged here — so this is the keyboard's fence; CI reads the base's."""
-    r = _git("show", "HEAD:policies/authority.json")
+    top = _git("rev-parse", "--show-toplevel").stdout.strip()
+    if not top:
+        return ""
+    r = _git("show", f"HEAD:{authority_git_path(top)}")
     return r.stdout if r.returncode == 0 else ""
 
 

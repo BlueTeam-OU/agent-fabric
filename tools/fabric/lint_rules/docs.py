@@ -613,6 +613,14 @@ GENERIC_FILES = ("policies/*/SKILL.md",)
 FABRIC_SELF = ("gzapi-org/agent-fabric", "BlueTeam-OU/agent-fabric")
 
 
+# The fabric's own operator (agent-fabric ADR-045 §8): the engine clones it
+# beside itself and resolves the hosts registry through it, so its name is
+# the fabric's own, as agent-fabric's is, until a later step of the move
+# makes the operator a setting. Spelled here, in a file lint fences, not
+# read from operator_checkout.OPERATOR_DIR, which a contributor's entry holds.
+OPERATOR_PROJECT_ID = "blueteam-fabric"
+
+
 # The carrier's pin and roster, fenced in lint.py's CONTRIBUTOR_NEVER: every
 # account installs what they name. Spelled out here, in a file lint fences,
 # rather than built from the carrier package's CARRIER_NAME, which sits in a
@@ -690,7 +698,7 @@ def project_name_findings(root: str) -> list[str]:
         ids = sorted((json.load(open(roots.projects_registry(engine=root), encoding="utf-8")).get("projects") or {}).keys())
     except (OSError, ValueError):
         return findings
-    ids = [i for i in ids if i != layout.FABRIC_PROJECT_ID]
+    ids = [i for i in ids if i not in (layout.FABRIC_PROJECT_ID, OPERATOR_PROJECT_ID)]
     if not ids:
         return findings
     pats = []
