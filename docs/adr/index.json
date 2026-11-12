@@ -569,7 +569,7 @@
       "date": "2026-10-13",
       "pillar": "P2",
       "class": "engine",
-      "amendments": 4
+      "amendments": 5
     },
     {
       "number": "057",
@@ -708,6 +708,16 @@
       "status": "Accepted",
       "date": "2026-11-12",
       "pillar": "P1",
+      "class": "organisational",
+      "amendments": 0
+    },
+    {
+      "number": "071",
+      "file": "ADR-071-this-organisations-persona-naming-theme-and-house-style.md",
+      "title": "This organisation's persona naming theme and house style",
+      "status": "Accepted",
+      "date": "2026-11-12",
+      "pillar": "P2",
       "class": "organisational",
       "amendments": 0
     }

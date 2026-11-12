@@ -50,3 +50,7 @@ A claimed entry in `identities/personas/surnames.json` carries
 the claim and checked by lint against `claims.json` and `lineage.json`.
 The claim stays the record of who holds a surname; the mark is its
 reflection in the list, so a reader of the list sees what is free.
+
+### Amendment 2026-11-12 — The naming theme and the house style move to the operator's record
+
+Rules 3 (surnames are deceased scientists, no weapons work, the owner judges a mixed record), 5 (a first name from the surname's culture) and 7 (the house style, brand-comms, the candidates' folder) are one organisation's brand; rules 1, 2, 4, 6 and 8 are the persona mechanism and the "AI" marking ADR-033 §5 rule 3 needs. ADR-045 §5 rule 4 has a mixed record split: ADR-056 keeps its number and those five rules, and the three moved, text verbatim, into the operator's ADR-071 (there numbered 1 to 3). Their numbers stay in ADR-056 as "moved" slots, so every citation of a rule number holds. The rejected-avatar record, which sat in rule 7 and which rule 1 already pointed at, is now written out in rule 1, since the persona mechanism writes it; rule 4's "(rule 5)" for the chosen first name is "(rule 6)", which orders sex before first name. §2, §4 and the Scope say the naming theme and the style are the operator's. The owner's word is the 2026-11-11 answer on the classification (docs/split/move-plan.md §5, ADR-045's Amendments row of that date), decided in docs/split/adr-classification.md.

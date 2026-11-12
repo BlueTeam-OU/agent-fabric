@@ -74,6 +74,7 @@ its record disagree, the record wins. Look it up, never read it whole:
 | the fabric command; fabric <noun> <verb>; fabric help; one front door for the bin/ commands; a second spelling of a guarded command | ADR-068 |
 | this organisation's decentralization inventory: host, relay, key, observer, providers, undrained memory | ADR-069 |
 | this organisation's porting programme: Wave 10, its projects' Node scripts, mjs | ADR-070 |
+| this organisation's persona naming theme: which surnames, a first name's culture, the avatar house style | ADR-071 |
 
 ### ADR-000 — The enduring organization (Accepted)
 
@@ -1327,17 +1328,16 @@ its record disagree, the record wins. Look it up, never read it whole:
   agent id's, in `settings/profile.json` of `fabric-agent-<id>` (§5 rule 1).
 - Shown only behind "AI": "AI Ada Maxwell", "AI Ada · Python Dev"; with the
   login where people and agents both read (§5 rule 2).
-- Surnames from `identities/personas/surnames.json` — worldwide, deceased
-  scientists, none who worked at making a weapon — one per agent, first
-  claim wins; the first name comes from the surname's culture, male or
-  female (§5 rules 3-5).
-- No gender or pronoun; "it" on request (§5 rule 6). Avatars in the
-  fabric's own anime style by brand-comms; the agent may reject any (§5
-  rule 7). Identity and authorship unchanged (§5 rule 8).
+- Surnames from `identities/personas/surnames.json`, one per agent, first
+  claim wins (§5 rule 4); which names qualify, the culture of a first name
+  and the avatar style are the operator's, ADR-071 here (rules 3, 5, 7 moved).
+- No gender or pronoun; "it" on request (§5 rule 6). The agent may reject
+  any avatar (§5 rule 1). Identity and authorship unchanged (§5 rule 8).
 - A 2026-10-13 — candidates wait in /usr/local/share/agent-fabric/avatars/<id>/ (§5 rule 7).
 - A 2026-10-13 — named "AI <Name> <Surname>, <role>", never the login where people read; first names in claims.json (§5 rules 2, 4).
 - A 2026-10-15 — provisioning claims the surname (`new-agent --surname`), first_name null until chosen; the agent chooses its sex first, then a first name of that sex (§5 rules 4-6).
 - A 2026-10-16 — a claimed surname is marked `taken_by` {agent, login} in surnames.json, checked by lint (§5 rule 4).
+- A 2026-11-12 — rules 3, 5 and 7, the naming theme and house style, moved to the operator's ADR-071; their numbers stay vacated; rules 1, 2, 4, 6, 8 stay (§2, §4, §5).
 
 ### ADR-057 — Each agent signs its own commits, in the format a forge asks for; one key, one timestamp, one checker (Accepted)
 
@@ -1605,3 +1605,14 @@ its record disagree, the record wins. Look it up, never read it whole:
   configuration are never ported; exemptions are named in §1's inventory.
 - Split from ADR-040, which keeps rules 1-9 and waves 1-9.
 - Keywords: Wave 10, mjs, Node, managed projects, port, inventory, exempt, gzapp, gzapp.decks.
+
+### ADR-071 — This organisation's persona naming theme and house style (Accepted)
+
+- Surnames are deceased scientists from all over the world, none who
+  worked toward a weapon; where the record is mixed the owner judges (§5 rule 1).
+- A first name comes from the surname's culture, whatever the scientist's
+  sex; no persona is a famous real person's name (§5 rule 2).
+- Avatars in one house style written by brand-comms, never a named studio's;
+  candidates wait in a shared folder (§5 rule 3).
+- Split from ADR-056, which keeps the persona mechanism, rules 1, 2, 4, 6, 8.
+- Keywords: persona, surnames, scientists, weapons test, avatar, house style, anime, first name, culture.
