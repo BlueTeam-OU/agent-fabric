@@ -151,8 +151,10 @@ address, where the relay's `sender` is a claim (ADR-033 §6).
    between accounts on that host; a profile listens on `127.0.0.1` only,
    on the port the roster fixes for it, one profile per account
    (InterWeave ADR-0055 decision 5). The next milestone is a second host
-   (A 2026-10-27): it opens by an amendment that names the host, gives its
-   accounts' roster rows routable addresses, and says how InterWeave
+   (A 2026-10-27): it opens once the host is registered in
+   `runtime/hosts/registry.json` and named in the operator's inventory
+   (ADR-069 here) (A 2026-11-12), its accounts' roster rows have routable
+   addresses, and the operator's record says how InterWeave
    ADR-0034 §7's release gate and SPIKE-004's deferred limits are consumed
    or, on the owner's word, accepted as known limits for that host; this
    rule does not stand in its way. The roster's port range is reserved on the host
@@ -170,7 +172,8 @@ address, where the relay's `sender` is a claim (ADR-033 §6).
    ADR-0055 decision 5b's limits are accepted for it on the owner's
    word; nothing relies on NAT traversal, a relay circuit or discovery,
    and a third host is a further amendment. Its first account is a
-   throwaway login for the two-host check. An agent moves there only on
+   throwaway login for the two-host check, under the limits and waivers
+   the operator's record gives for it (ADR-069 here). An agent moves there only on
    the owner's word on the control parity report, its keyring carried
    over, not rotated.
 2. The roster (`runtime/interweave/roster.json`) is the only source of a

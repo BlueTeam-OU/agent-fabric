@@ -45,6 +45,12 @@ The criterion makes the direction testable for any deployment; the inventory is 
 ## 5. Binding Rules
 
 1. The §1 inventory is kept current: a change that adds, removes or moves a dependency an operation relies on amends this record's table in the same pull request.
+2. This organisation's second host for GZCoord over InterWeave (ADR-064
+   §5 rule 1) is `fabric-h2`, a VM on the Proxmox node s13337, reached
+   from develop-qzapp directly over the LAN and its VPN. For its first
+   account, a throwaway login for the two-host check, the owner waived
+   ADR-034 §7 step 3's held bound and the control parity report; an agent
+   moves there only on the owner's word on that report.
 
 ## 6. Consequences
 

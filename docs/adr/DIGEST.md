@@ -1594,6 +1594,9 @@ its record disagree, the record wins. Look it up, never read it whole:
   failure's cost and degraded mode or "none" (§1).
 - Kept current: a change that adds, removes or moves a dependency amends
   this record's table in the same pull request (§5 rule 1).
+- The second host for GZCoord over InterWeave is fabric-h2 (Proxmox node
+  s13337); the owner waived its two-host check's held bound and control
+  parity report (§5 rule 2).
 - Split from ADR-034, which keeps the criterion and rules 2-5 these rows are measured against.
 - Keywords: inventory, single point of failure, host, relay, degraded mode, undrained memory, decentralization table.
 
