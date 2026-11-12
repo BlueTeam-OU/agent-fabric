@@ -51,6 +51,12 @@ model through its agent file; that model is gated by
 is a separate dimension, and the composite `model@preset/slug` exists only
 in the child's environment.
 
+**Delegation is the default for every role.** A session hands work over
+a few lines with a clear contract to a worktree-isolated class agent in
+the background and keeps its own turn for decisions, messages, reviews and
+short edits; a search across many files goes to `Explore`. The class
+decides which agent, as above; the session commits what lands (rule 11).
+
 The current mapping:
 
 - **Plain claude.** `code-low` is `claude-haiku-5-5` (A 2026-10-07),
@@ -139,6 +145,15 @@ profile layer or a local override.
 10. A model moves into routing only after it is read back served through
     the launcher, with a control showing the pass is not a fallback
     (`2026-09-23-opus-5-5.md`).
+11. Delegation to subagents is the default for every role, whatever the
+    harness's own caution about spawning: work over a few lines with a
+    clear contract goes to a worktree-isolated class agent dispatched in
+    the background, wide searches to `Explore`, independent pieces in
+    parallel. The session keeps decisions, messages, reviews, short
+    edits, a chain of dependent steps and work that needs back-and-forth
+    (Anthropic's measurements: the orchestrator alone wins a dependent
+    chain), reads what an agent produced and commits it in its own clone;
+    an agent never pushes or merges. Rules 1–3 bind every such dispatch.
 
 ## 6. Consequences
 
@@ -150,6 +165,9 @@ profile layer or a local override.
   otherwise the classes differ by alias, isolation and whether a
   dispatch asks (ADR-006). The review shares code-high's model there, so
   its independence is its brief and context.
+- A session's own context is spent on decisions and review, not on work
+  an agent can do from a contract; the cost is the dispatch's class and
+  the session's read of what comes back (rule 11).
 - Nothing validates a model id against a catalogue: a typo is caught by
   the adapter's shape check and the launch read-back, not by routing.
 
@@ -189,3 +207,4 @@ The body above reads current; each change's full note is in [history/ADR-005-ame
 | 2026-11-09 | architect-cto-01's session is Fable 5.2 | §2's current mapping: the agent layer names `claude-fable-5-2` |
 | 2026-11-10 | architect-cto-01's session is Opus 5.5 again | §2's current mapping: the agent layer is gone, and the session takes the default |
 | 2026-11-10 | architect-cto-01's session is Fable 5.2 again, with the pin | §2's current mapping: the agent layer names `claude-fable-5-2` once more; the harness pin is 2.1.322, which knows it |
+| 2026-11-12 | Delegation to subagents is the default for every role | §2, §5 rule 11, §6: work with a contract goes to a worktree-isolated class agent, wide searches to Explore; the session commits what lands |
