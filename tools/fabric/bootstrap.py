@@ -266,6 +266,7 @@ import workingcopy  # noqa: E402
 import workspace_trust  # noqa: E402
 import fabric_writes  # noqa: E402
 import agentd_unit  # noqa: E402
+import operator_checkout  # noqa: E402
 from guards import signing_policy  # noqa: E402
 
 MARKER = b"agent-fabric"
@@ -561,6 +562,7 @@ class Bootstrap:
         self.checkout_hooks()
         trusted = self.working_copy_hooks()
         self.trust(trusted)
+        self.operator_checkout()
         self.control_agent()
         self.state_backup()
         self.tidy()
@@ -1062,6 +1064,26 @@ class Bootstrap:
             is_socket = False
         return (is_socket and shutil.which("systemctl") is not None
                 and run_quiet(["systemctl", "--user", "daemon-reload"]) == 0)
+
+    def operator_checkout(self) -> None:
+        """The operator's checkout beside the engine (ADR-045 §6): cloned when absent, fast-forwarded when present.
+        Its absence or an unreachable remote is one "!" line and never ends the run: the engine half stands on
+        its own, and nothing resolves through this checkout yet. Said on stdout beside the other uncounted "!" lines."""
+        op = operator_checkout.path(self.projects)
+        was_there = os.path.lexists(op)
+        s = operator_checkout.clone(self.projects, operator_checkout.clone_url(), dry_run=self.dry_run)
+        if s.state in ("cloned", "would-clone"):
+            say(f"  +  {op}" + (" (would clone)" if self.dry_run else ""))
+            if s.state == "cloned":
+                self.changed += 1
+        elif s.state in ("current", "updated"):
+            say(f"  =  {op}" if s.state == "current" else f"  +  {op} (fast-forwarded)")
+            if s.state == "updated":
+                self.changed += 1
+        elif s.line:
+            say(f"  !  {s.line}")
+        elif not was_there:
+            say(f"  !  {operator_checkout.absent_line(op)}")
 
     def control_agent(self) -> None:
         # 6. The control agent: a systemd user unit that answers the coordinator's
