@@ -159,8 +159,8 @@ not on a pipe's exit status.
    alike (A 2026-10-19). An `AUTHORIZES` message named beside the owner's
    word is that word as relayed: read and checked as any authorization,
    but for the role, it can only refuse, and the arming comment records
-   who relayed it (A 2026-11-03). Sixteen is the size a batch is opened at; a PR over
-   it is armed on the gate all the same, and the count is advice for the
+   who relayed it (A 2026-11-03). `commits.advice_over` is the size a batch is opened at; a PR
+   over that size is armed on the gate all the same, and the count is advice for the
    next batch.
 5. The gate is `fabric-pr gate`'s verdict for the PR, read
    before arming: `MERGEABLE` needs checks green, a review on the current
