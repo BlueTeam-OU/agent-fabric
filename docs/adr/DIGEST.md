@@ -995,7 +995,7 @@ its record disagree, the record wins. Look it up, never read it whole:
 - A 2026-10-24 — completion listed (§5 r1).
 - A 2026-10-24 — pin 3.14, no wheel (§2).
 - A 2026-11-11 — one Python on every host; host python3 only bootstraps the pin (§5 r1).
-- A 2026-11-12 — rule 10 and §7's Wave 10 rows, the managed projects' Node scripts, moved to the operator's ADR-070; rules 1-9 and waves 1-9 stay (§5 r10, §7, §8).
+- A 2026-11-12 — rule 10 and §7's Wave 10 rows, the managed projects' Node scripts, moved to the operator's ADR-070; rules 1-9 and waves 0-9 stay (§5 r10, §7, §8).
 - Keywords: Python, bash, Node, mjs, port, allowlist, bare command,
   forwarder.
 
@@ -1316,11 +1316,11 @@ its record disagree, the record wins. Look it up, never read it whole:
   total outage (§5 rules 4, 6).
 - Each provider's strategy (retry waits, seats, allowance action, ordered
   models) is data in one syntax, `routing/policies/availability.json`,
-  linted; OpenAI is the less tolerant (§5 rule 7).
+  linted (§5 rule 7).
 - A 2026-10-13 — codex additional: an unavailable marker on the head lets claude alone arm; the fleet lists codex under additional_reviews, the marker tool having landed (#245), and codex is optional (§5 rule 8).
 - A 2026-10-14 — an additional engine with neither a review nor a marker on the head is
-- A 2026-11-12 — rules 7, 8 point at the policy data; the principle stays.
   absent: the arm proceeds on the required reviews and says so, and the gate reads the same.
+- A 2026-11-12 — rules 7, 8 point at the policy data; the principle stays.
 
 ### ADR-056 — Agent personas: "AI <Name> <Surname>", a surname from the operator's list each, an avatar the agent accepts, always marked as AI (Accepted)
 
@@ -1603,7 +1603,7 @@ its record disagree, the record wins. Look it up, never read it whole:
   the holder of the path; ported with the old script as the oracle (§1, §5 rule 1).
 - A fork's upstream code, application code and a framework's own
   configuration are never ported; exemptions are named in §1's inventory.
-- Split from ADR-040, which keeps rules 1-9 and waves 1-9.
+- Split from ADR-040, which keeps rules 1-9 and waves 0-9.
 - Keywords: Wave 10, mjs, Node, managed projects, port, inventory, exempt, gzapp, gzapp.decks.
 
 ### ADR-071 — This organisation's persona naming theme and house style (Accepted)
