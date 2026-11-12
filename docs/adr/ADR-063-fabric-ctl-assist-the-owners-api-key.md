@@ -1,9 +1,9 @@
-# ADR-063 — fabric-ctl assist: the owner's questions on the claude-pzhuy API key
+# ADR-063 — fabric-ctl assist: the owner's questions on the operator's assist key
 
 **Date:** 2026-10-22
 **Status:** Proposed
 **Decision Makers:** the owner; drafted by fabric-coordinator
-**Scope:** `fabric-ctl assist "<question>"`, the module that implements it, the login pattern of `runtime/hosts/schema/hosts.schema.json` and `tools/fabric/new_agent.py`, the `CLAUDE_APIKEY_CLAUDE_PZHUY_8ALIAS_COM` entry in the host operator's store, and every other path by which that key could be spent
+**Scope:** `fabric-ctl assist "<question>"`, the module that implements it, the login pattern of `runtime/hosts/schema/hosts.schema.json` and `tools/fabric/new_agent.py`, the operator's configured assist key (a `CLAUDE_APIKEY_*` entry in the host operator's store), and every other path by which that key could be spent
 **Pillar:** P5
 **Class:** engine
 
@@ -36,7 +36,7 @@ of questions.
 
 `fabric-ctl assist "<question>"` answers the owner's question about the
 fabric from the fabric's own committed text, in one request to the
-Anthropic Messages API on the claude-pzhuy account's API key. It is that
+Anthropic Messages API on the operator's configured assist key. It is that
 key's only spend path. It runs only from an interactive terminal of the
 host operator's login outside any agent session, and it needs nothing of
 the running fleet: no relay, no control agent, no subscription token,
@@ -57,7 +57,7 @@ to the API. It answers; it never runs anything.
   in words, with the command it needs.
 - **Agents may ask too**: they read the tree themselves, which costs no
   key, and a key every session can spend is the reserve gone in a day.
-- **The other account's key** (`CLAUDE_APIKEY_ANDREA_BENETTON_BLUETEAM_GE`)
+- **A second configured key**
   as a fallback: two keys double what a mistake can spend, and its credit
   is the owner's to allocate separately. One key, named in one place.
 - **A model chosen per call** (`--model`): the class is routing's
@@ -81,8 +81,9 @@ guessing it.
 
 ## 5. Binding Rules
 
-1. **One key, one path.** `CLAUDE_APIKEY_CLAUDE_PZHUY_8ALIAS_COM` is spent
-   only by `fabric-ctl assist`. The account slug is a single constant in
+1. **One key, one path.** The operator's configured assist key (named in
+   configuration, not in this record) is spent
+   only by `fabric-ctl assist`. The key's name is a single constant in
    the assist module, citing this record; a second spender, or another key
    for assist, is an amendment of this record. No launcher, `fabric-accounts`
    path, profile or agent file reads a `CLAUDE_APIKEY_*` entry.
@@ -175,3 +176,11 @@ implementation waits on this record alone, #355 having merged.
   `CLAUDE_ACCOUNT_*`), `runtime/hosts/registry.json` (`operator`),
   `routing/capabilities.json`, `bin/fabric-ctl`.
 - BlueTeam-OU/agent-fabric#355 (per-verb help and the verb table).
+
+## Amendments
+
+The body above reads current; each change's full note is in [history/ADR-063-amendments.md](history/ADR-063-amendments.md).
+
+| Date | Amendment | Effect |
+|---|---|---|
+| 2026-11-12 | the assist key is the operator's configured key, and the title says so | title, Scope, §2, §3, §5 rule 1: the specific account's key reads "the operator's configured assist key" |

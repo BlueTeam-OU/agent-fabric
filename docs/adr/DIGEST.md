@@ -1450,10 +1450,10 @@ its record disagree, the record wins. Look it up, never read it whole:
 - Keywords: hidden unicode, bidi, zero-width, tag characters, control
   characters, prompt injection, lint, pre-commit, skills, slices, apm.
 
-### ADR-063 — fabric-ctl assist: the owner's questions on the claude-pzhuy API key (Proposed)
+### ADR-063 — fabric-ctl assist: the owner's questions on the operator's assist key (Proposed)
 
 - `fabric-ctl assist "<question>"` answers from committed fabric text in
-  one Messages API request on `CLAUDE_APIKEY_CLAUDE_PZHUY_8ALIAS_COM`, that
+  one Messages API request on the operator's configured assist key, that
   key's only spend path; no other launcher or account path reads a
   `CLAUDE_APIKEY_*` (§2, §5 rule 1).
 - Refused, before the store is read, in an agent session, without a
@@ -1465,6 +1465,7 @@ its record disagree, the record wins. Look it up, never read it whole:
   tokens, no tools; advice printed, never run; every spend logged to
   `assist.jsonl` without the question (§5 rules 4-7).
 - #355 has merged; waits on the owner's acceptance (§7, §8).
+- A 2026-11-12 — retitled; the assist key is the operator's configured key (Scope, §2, rule 1).
 - Keywords: assist, fabric-ctl, API key, claude-pzhuy, credit, owner,
   fleet down, spend, reserve, P5.
 
