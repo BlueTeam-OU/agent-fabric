@@ -1875,6 +1875,17 @@ def _():
     ok(cmd.startswith('/bin/sh -c \'[ -n "$MAINPID" ] || exit 0;'), "no kill of an empty pid after the relay died")
 
 
+@case("the relay unit logs to the journal, which rotates, never to an appended file nothing bounds (j686)")
+def _():
+    import re
+    with open(os.path.join(HERE, "communication", "gzcoord", "runtime", "gzcoord-relay.service")) as fh:
+        unit = fh.read()
+    for key in ("StandardOutput", "StandardError"):
+        got = re.findall(rf"^{key}=(.*)$", unit, re.M)
+        eq(got, ["journal"], f"{key} must be the journal (an append: file grew to 1.6 GB): {got}")
+    ok(re.search(r"^[^#\n]*bridge\.log", unit, re.M) is None, "no directive names bridge.log")
+
+
 @case("ensureRelay: a client hosts nothing; with the unit installed the relay is started by name, not spawned")
 def _():
     import time
