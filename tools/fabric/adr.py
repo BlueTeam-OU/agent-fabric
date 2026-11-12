@@ -223,11 +223,25 @@ def other_tree(root: str | None, other: str | None = None) -> str | None:
     together hold one numbering (ADR-045 rule 4), so each answers for the
     numbers the other does not hold."""
     if other is not None:
-        return adr_dir(other)
-    if root is not None:
+        od = adr_dir(other)
+    elif root is not None:
         return None
-    engine = roots.engine_adr_dir(engine=ROOT)
-    return None if os.path.realpath(engine) == os.path.realpath(adr_dir(None)) else engine
+    else:
+        od = roots.engine_adr_dir(engine=ROOT)
+        if os.path.realpath(od) == os.path.realpath(adr_dir(None)):
+            return None
+    return od if divided(adr_dir(root), od) else None
+
+
+def divided(a: str, b: str) -> bool:
+    """Whether two records dirs are the halves of one numbering. Until move-plan
+    step B an exported operator is a whole copy of the fabric, every record in
+    both; that is one tree twice, not a split, and checking it as a pair would
+    call each record a duplicate. ADR-000 never leaves the engine (it is the
+    pillar table every record names), so an operator tree that holds it is
+    still undivided; a half-done move, which holds some records twice but not
+    ADR-000, is still caught as a pair."""
+    return not ("000" in record_numbers(a) and "000" in record_numbers(b))
 
 
 def reserved(d: str) -> tuple[dict[str, str], list[str]]:

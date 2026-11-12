@@ -781,6 +781,18 @@ def case_a_number_recorded_in_both_trees_is_a_finding(tmp: str) -> None:
         assert os.path.realpath(op) in got[0] and os.path.realpath(root) in got[0], got
 
 
+def case_an_undivided_operator_copy_is_one_tree_not_a_pair(tmp: str) -> None:
+    # Before step B an exported operator is the whole fabric copied: every
+    # record in both trees. That is no duplicate; only a split tree (one
+    # without ADR-000) is checked as a half of the numbering.
+    root = fixture(tmp)
+    op = os.path.join(os.path.dirname(root), "operator")
+    shutil.copytree(root, op)
+    for tree_, other in ((op, root), (root, op)):
+        assert adr.check(tree_, other=other) == [], adr.check(tree_, other=other)
+    assert not adr.divided(adr.adr_dir(op), adr.adr_dir(root))
+
+
 def case_new_in_an_operator_tree_is_organisational(tmp: str) -> None:
     root = fixture(tmp)
     op = split_trees(root)

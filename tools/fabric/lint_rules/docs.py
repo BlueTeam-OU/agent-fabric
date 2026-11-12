@@ -55,7 +55,8 @@ def adr_findings(root: str | None = None) -> list[str]:
     if not os.path.isdir(roots.adr_dir(root=tree)):
         return []
     if not os.path.isdir(roots.adr_dir(root=engine)) or (
-            os.path.realpath(roots.adr_dir(root=tree)) == os.path.realpath(roots.adr_dir(root=engine))):
+            os.path.realpath(roots.adr_dir(root=tree)) == os.path.realpath(roots.adr_dir(root=engine))) or (
+            not adr.divided(roots.adr_dir(root=tree), roots.adr_dir(root=engine))):
         return [f"adr: {f}" for f in adr.check(tree)]
     # Two trees hold one numbering (ADR-045 rule 4): each is checked with the
     # other named, since an explicit root alone is "only that tree" and would
