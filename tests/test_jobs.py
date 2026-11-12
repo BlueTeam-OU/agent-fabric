@@ -135,13 +135,19 @@ def main() -> int:
         with open(registry, "w", encoding="utf-8") as fh:
             json.dump({"version": 1, "hosts": {host: {"operator": "user"}},
                        "placement": {login: host, "waiter": host, "user": host}}, fh)
+        # The control config is a fixture too: the live one names a pool_holder,
+        # which would win over this registry's one-host operator.
+        control_config = os.path.join(tmp, "control-config.json")
+        with open(control_config, "w", encoding="utf-8") as fh:
+            json.dump({"channel": "t:control"}, fh)
         store = os.path.join(tmp, "store")      # the journal has no owner without an agent id (j746: block reads it)
         os.makedirs(store)
         with open(os.path.join(store, ".agent-id"), "w") as fh:
             fh.write("01a0f782-7e06-7dee-811f-0a860ed93bf3\n")
         env = {**os.environ, "AGENT_FABRIC_STATE_DIR": os.path.join(tmp, "state"), "AGENT_FABRIC_ROOT": ROOT,
                "AGENT_FABRIC_SECRET_STORE": store, "HOME": home, "CLAUDE_BRIDGE_URL": dead_url, "CLAUDE_BRIDGE_AUTH_TOKEN": "tok",
-               "AGENT_FABRIC_HOSTS_REGISTRY": registry, "FABRIC_STATE_CHANNEL": "t:state:control",
+               "AGENT_FABRIC_HOSTS_REGISTRY": registry, "FABRIC_CONTROL_CONFIG": control_config,
+               "FABRIC_STATE_CHANNEL": "t:state:control",
                "FABRIC_CONTROL_CHANNEL": "t:control", "CLAUDE_CODE_SESSION_ID": "sess-A",
                # The inbox replay takes ~0.5 s on a quiet host and as long as the load makes it on a starved one: a
                # case that reads a message sets the bound to a hang guard; the bound itself is tested below.
