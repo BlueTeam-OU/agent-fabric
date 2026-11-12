@@ -55,10 +55,11 @@ def proved(j: dict, who: str, to: str) -> Proof:
 
 class Table(unittest.TestCase):
     def adr_rows(self) -> list[tuple[str, str, str, str]]:
-        # A stripped copy has no docs/adr/; the comparison runs wherever the record exists.
+        # Only a stripped copy lacks docs/adr/; skipping on the directory, not the file, keeps a renamed or deleted
+        # ADR-037 in a full tree a failure instead of a silent skip.
+        if not os.path.isdir(os.path.join(ROOT, "docs", "adr")):
+            self.skipTest("docs/adr/ is absent (a stripped copy)")
         adr_path = os.path.join(ROOT, "docs", "adr", "ADR-037-each-agent-keeps-a-job-list.md")
-        if not os.path.exists(adr_path):
-            self.skipTest("docs/adr/ADR-037 is absent (a stripped copy)")
         with open(adr_path, encoding="utf-8") as fh:
             text = fh.read()
         start = text.index("    | from | to | who | needs |")
