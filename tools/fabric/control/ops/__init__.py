@@ -210,7 +210,8 @@ SECTIONS: dict[str, Callable[[Mapping[str, Any]], Any]] = {
     "script": lambda c: script(c.get("home"), source=source_locale(c.get("who"), root=c.get("root"))),
     "recall": lambda c: recall(c.get("home")),
     "tokens": lambda c: tokens(c.get("home"), state=c.get("state") or util.state_dir(), **({"days": c["days"]} if c.get("days") else {})),
-    "memory": lambda c: memory(c.get("home"), all=True, **({"run": c["run_bounded"]} if c.get("run_bounded") else {})),
+    "memory": lambda c: memory(c.get("home"), all=True, **({"run": c["run_bounded"]} if c.get("run_bounded") else {}),
+                               **({"part_bytes": c["part_bytes"]} if c.get("part_bytes") else {})),
     "host": _host,
     # One scan per daemon however many ask at once (the daemon's disk keeper).
     "disk": lambda c: c["disk_cached"]() if c.get("disk_cached") else disk(c.get("home"), **(c.get("disk_opts") or {})),

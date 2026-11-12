@@ -185,18 +185,19 @@ def _ack_row(o: dict):
     return {**r, "ok": o["ok"]}
 
 
-def _page(rows: list[dict], key: str) -> tuple[list[dict], str | None] | str:
-    """The rows that fit PAGE_BYTES, whole seconds only, and the time the next page starts at; or why
+def _page(rows: list[dict], key: str, page_bytes: int | None = None) -> tuple[list[dict], str | None] | str:
+    """The rows that fit page_bytes (PAGE_BYTES unless the account splits for the second carrier too), whole seconds only, and the time the next page starts at; or why
     the first second alone does not fit."""
+    page_bytes = PAGE_BYTES if page_bytes is None else page_bytes   # read now: a test sets the module's constant
     size = 0
     for i, r in enumerate(rows):
         size += len(json.dumps(r, separators=(",", ":"))) + 1
-        if size > PAGE_BYTES:
+        if size > page_bytes:
             cut = i
             while cut > 0 and rows[cut - 1][key] == rows[i][key]:
                 cut -= 1
             if cut == 0:
-                return f"more than {PAGE_BYTES} bytes of rows share the second {rows[i][key]}"
+                return f"more than {page_bytes} bytes of rows share the second {rows[i][key]}"
             return rows[:cut], rows[cut][key]
     return rows, None
 
@@ -224,7 +225,7 @@ def kinds_for(db_path: str, mids: list[str]) -> tuple[dict[str, str], str]:
     return out, "ok"
 
 
-def carrier_evidence(request: Any, *, state: str | None = None, db_path: str | None = None) -> dict:
+def carrier_evidence(request: Any, *, state: str | None = None, db_path: str | None = None, page_bytes: int | None = None) -> dict:
     """One page of one section. Every refusal is one line of a reply."""
     args = request.get("args") if isinstance(request, dict) else None
     bad = check_args(args)
@@ -253,7 +254,7 @@ def carrier_evidence(request: Any, *, state: str | None = None, db_path: str | N
             got.append(r)
         inside = sorted((r for r in got if start <= _time(r["queued"]) < end), key=lambda r: (r["queued"], r["mid"], r["to"]))
         key, extra = "queued", {"undated": undated}
-    page = _page(inside, key)
+    page = _page(inside, key, page_bytes)
     if isinstance(page, str):
         return {"status": "refused", "reason": page}
     rows, nxt = page
