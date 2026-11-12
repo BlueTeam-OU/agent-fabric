@@ -11,7 +11,6 @@
     "runtime/provisioning/moveto/moveto.py": "copied to hosts as share/moveto/moveto.py (tools/fabric/hosttools.py MOVETO_FILES): it runs where tools/fabric/roots.py does not exist, and ~/projects/agent-fabric is the account's own clone",
     "tools/fabric/assembler/intake.py": "refuse_foreign_root must see the operator variable exactly as exported, to refuse a tree other than the checkout the drain is in; roots would answer the fallback it is checking against",
     "tools/fabric/launcher/routing.py": "saves and restores AGENT_FABRIC_ROOT around loading routing.py, which reads it at import: it handles the variable, it does not resolve a tree",
-    "tools/fabric/lint_rules/mechanisms.py": "outside python-dev's entry (the lint); it names its policy file by a constant for the tree lint was handed",
     "tools/fabric/review_cli.py": "the pre-pin stub: runs on whatever python3 the host has, sets the variable for the pinned child and imports nothing of the fabric, so a host without the pin still says so",
     "tools/fabric/role_cli.py": "the pre-pin stub: runs on whatever python3 the host has, sets the variable for the pinned child and imports nothing of the fabric, so a host without the pin still says so"
   }

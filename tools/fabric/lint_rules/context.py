@@ -1,5 +1,5 @@
 """tools/fabric/lint_rules/context.py — who may read an agent's binding (j212): a module outside runtime/identity.py and
-tools/fabric/workingcopy.py that builds the binding's path or names binding.json is named in policies/context-reads.json
+tools/fabric/workingcopy.py that builds the binding's path or names binding.json is named in tools/fabric/context-reads.json
 with its reason, or is a finding; an entry that admits nothing is a finding, so it leaves when its reader moves onto
 identity.resolve_context. tools/fabric/context_reads.py is the definition. A part of tools/fabric/lint.py, the entry point."""
 from __future__ import annotations

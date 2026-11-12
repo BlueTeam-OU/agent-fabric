@@ -2570,10 +2570,9 @@ def case_a_contributor_entry_never_reaches_a_definition() -> None:
             return lint.contributor_findings(root)
 
         excl = [n for n in (*lint.CONTRIBUTOR_NEVER, *lint.CONTRIBUTOR_SUPPLY) if n.startswith(("tools/", "tests/"))]
-        good = {"role": "python-dev", "paths": ["tools/", "tests/", "policies/bash-allowlist.json"], "excluding": excl}
+        good = {"role": "python-dev", "paths": ["tools/", "tests/"], "excluding": excl}
         for d in ("tools", "tests"):
             os.makedirs(os.path.join(root, d))
-        write(os.path.join(root, "policies", "bash-allowlist.json"), "{}")
         assert findings(good) == [], findings(good)
         got = findings({**good, "paths": good["paths"] + ["runtime/github/"]})
         assert got == ["policies/authority.json: contributors[0] (python-dev): path 'runtime/github/' is not in "

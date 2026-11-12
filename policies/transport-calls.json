@@ -1,9 +1,0 @@
-{
-  "_comment": "agent-fabric ADR-067, message-transport: the modules tools/fabric/transport_calls.py admits although they call the relay's api() or import the carrier's adapter outside tools/fabric/gzcoord/transport/. Each value says why. An entry admits the whole module, a later call in it included; an entry that admits nothing is lint's finding, so a gap's entry leaves with its fix.",
-  "calls": {
-    "tools/fabric/control/agentd.py": "the control plane's own relay client (control/gzcoord.py), for the :control channel and presence; out of W2-B's scope (the control plane is not a session's inbox or sender)",
-    "tools/fabric/control/ctl.py": "the control plane's own relay client (control/gzcoord.py): the states read of a request; out of W2-B's scope",
-    "tools/fabric/control/presence.py": "the control plane's own relay client (control/gzcoord.py): the presence request; out of W2-B's scope",
-    "tools/fabric/drift.py": "reads the account's cursor position through the api callable its caller (the control agent) passes in, not a client of its own; out of W2-B's scope"
-  }
-}

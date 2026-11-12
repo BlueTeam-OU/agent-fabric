@@ -1,5 +1,5 @@
 """tools/fabric/lint_rules/work.py — the work lifecycle has one owner (agent-fabric ADR-037 rule 14, ADR-067, j101): a module
-that writes a job's state or a pool claim outside tools/fabric/work/ is named in policies/work-writes.json with its reason, or
+that writes a job's state or a pool claim outside tools/fabric/work/ is named in tools/fabric/work-writes.json with its reason, or
 is a finding; an entry that admits nothing is a finding. tools/fabric/work_writes.py is the definition, and the pre-commit hook
 asks it about the staged modules. A part of tools/fabric/lint.py, the entry point."""
 from __future__ import annotations

@@ -1,5 +1,5 @@
 """tools/fabric/lint_rules/process.py — process lifetime has one owner (agent-fabric ADR-067, j125): a module that starts
-or signals a process group outside tools/fabric/process.py is named in policies/process-spawns.json with its reason, or is
+or signals a process group outside tools/fabric/process.py is named in tools/fabric/process-spawns.json with its reason, or is
 a finding; an entry that admits nothing is a finding. tools/fabric/process_spawns.py is the definition, and the
 pre-commit hook asks it about the staged modules. A part of tools/fabric/lint.py, the entry point."""
 from __future__ import annotations

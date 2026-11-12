@@ -1,6 +1,6 @@
 """tools/fabric/lint_rules/command_names.py — a fabric command has one reading (agent-fabric ADR-068 rules 3 and 7, ADR-067
 command-recognition): the `fabric` table of runtime/claude-code/commands.json reaches every command in `commands` by one form,
-and a hook or guard recognises a command only through tools/fabric/cli canonical(), unless policies/command-names.json admits
+and a hook or guard recognises a command only through tools/fabric/cli canonical(), unless tools/fabric/command-names.json admits
 the module with why it cannot. tools/fabric/cli/checks.py is the definition; the pre-commit hook asks it about the staged
 modules. A part of tools/fabric/lint.py, the entry point."""
 from __future__ import annotations

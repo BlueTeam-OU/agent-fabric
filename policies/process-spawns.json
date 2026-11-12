@@ -1,6 +1,0 @@
-{
-  "_comment": "agent-fabric ADR-067 rule 1 for process lifetime: the modules tools/fabric/process_spawns.py admits although they start a process group (start_new_session, process_group) or signal one (killpg, setsid, setpgid, setpgrp) outside tools/fabric/process.py. Each value says why the module cannot go through process.py. An entry that admits nothing is lint's finding.",
-  "spawns": {
-    "runtime/provisioning/moveto/moveto.py": "installed alone on hosts without the tree (hosttools.py MOVETO_FILES): going through process.py would ship process.py with it (python-dev-02, j125, #514)"
-  }
-}

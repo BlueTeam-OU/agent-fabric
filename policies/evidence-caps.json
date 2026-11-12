@@ -1,4 +1,0 @@
-{
-  "_comment": "agent-fabric ADR-067 rule 1 for remote evidence: the modules tools/fabric/evidence_caps.py admits although they hold a GitHub list cap or read a pull request's files or commits outside tools/fabric/github/evidence.py and common.py. Each value says why. None is admitted today: a match is rewritten onto evidence.PrEvidence, or the number named, before an entry is considered. An entry that admits nothing is lint's finding.",
-  "modules": {}
-}

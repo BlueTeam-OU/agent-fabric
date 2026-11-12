@@ -104,7 +104,8 @@ A role `policies/authority.json` names under `contributors` commits, in
 agent-fabric itself, the paths its entry lists and none it excludes. A
 rule ending in `/` is a directory and everything under it; any other
 rule is one file; there are no globs. Each entry keeps out what a role
-*is* and what enforces the fence: identities, routing, policies (but the
+*is* and what enforces the fence: identities, routing, policies, the
+lint's exception lists beside their checkers in `tools/fabric/` (but the
 bash allowlist the port shrinks), the protocol, the decision records,
 the guards and the `git.py` they import, the lint, the suite runners and
 the helper they source, `runtime/claude-code/` (the reviewer's agent
