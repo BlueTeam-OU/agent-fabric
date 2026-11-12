@@ -24,7 +24,18 @@ here="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
 fabric="$(cd "$here/../../../.." && pwd)"
 S="${AGENT_FABRIC_SSH_STAGE:-/rw/config/agent-fabric-ssh}"
 RC_LOCAL="${AGENT_FABRIC_RC_LOCAL:-/rw/config/rc.local}"
-REGISTRY="${AGENT_FABRIC_HOSTS_REGISTRY:-$fabric/runtime/hosts/registry.json}"
+# The hosts registry, resolved as tools/fabric/roots.py hosts_registry() will once the operator's data leaves the
+# engine (docs/split/move-plan.md §3, step A): the override, then AGENT_FABRIC_OPERATOR, then the operator's clone
+# when it sits beside this checkout (run under sudo, this has no home of its own to look in), then the engine
+# checkout. Empty counts as unset. The first that applies is the answer; it is never replaced by the engine's when it holds no file (checked below).
+if [[ -n "${AGENT_FABRIC_HOSTS_REGISTRY:-}" ]]; then
+    REGISTRY="$AGENT_FABRIC_HOSTS_REGISTRY"
+else
+    if [[ -n "${AGENT_FABRIC_OPERATOR:-}" ]]; then operator="$AGENT_FABRIC_OPERATOR"
+    elif [[ -d "$fabric/../blueteam-fabric" ]]; then operator="$(cd "$fabric/../blueteam-fabric" && pwd)"
+    else operator="$fabric"; fi
+    REGISTRY="$operator/runtime/hosts/registry.json"
+fi
 host="${AGENT_FABRIC_SSH_HOST:-$(hostname -s)}"
 LIBEXEC="${AGENT_FABRIC_SSH_LIBEXEC:-/usr/local/libexec/agent-fabric}"
 ENTER="${AGENT_FABRIC_MOVETO_ENTER:-/usr/local/share/moveto/enter}"
@@ -47,6 +58,7 @@ read -r -a key < "$pub" || true
     || { echo "ssh-operator.sh: $pub is not one ed25519 or ecdsa public key line" >&2; exit 1; }
 opkey="${key[0]} ${key[1]}"
 
+[[ -f "$REGISTRY" ]] || { echo "ssh-operator.sh: no hosts registry at $REGISTRY" >&2; exit 1; }
 # The placed logins of this host, from the registry: AllowUsers names them
 # and nobody else, and each gets its keys file.
 mapfile -t logins < <(python3 -I -c 'import json,sys

@@ -1,6 +1,6 @@
 """tools/fabric/lint_rules/transport.py — message delivery has one owner (agent-fabric ADR-067, message-transport): a module
 that calls the relay's api() or imports the carrier's adapter outside tools/fabric/gzcoord/transport/ is named in
-policies/transport-calls.json with its reason, or is a finding; an entry that admits nothing is a finding.
+tools/fabric/transport-calls.json with its reason, or is a finding; an entry that admits nothing is a finding.
 tools/fabric/transport_calls.py is the definition and reads the policy itself; the pre-commit hook asks it about the staged
 modules. A part of tools/fabric/lint.py, the entry point."""
 from __future__ import annotations

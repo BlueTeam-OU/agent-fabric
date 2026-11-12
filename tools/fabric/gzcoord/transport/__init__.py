@@ -1,6 +1,6 @@
 """tools/fabric/gzcoord/transport/ — the one owner of message delivery (agent-fabric ADR-067, message-transport in
-policies/mechanisms.json). A relay call or a carrier adapter import anywhere else needs a reason in
-policies/transport-calls.json (tools/fabric/transport_calls.py).
+tools/fabric/mechanisms.json). A relay call or a carrier adapter import anywhere else needs a reason in
+tools/fabric/transport-calls.json (tools/fabric/transport_calls.py).
 
 `open_transport` is the one factory: the inbox and the sender take a TransportMux from it and name no transport. Which
 transports there are is decided here and nowhere else: the relay of the project's integration config is the primary

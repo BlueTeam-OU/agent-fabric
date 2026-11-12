@@ -14,6 +14,9 @@ from .schema import load_schema, validate_json
 # Retired by ADR-040 A 2026-10-11 ("the 150-line threshold is gone"); kept for the
 # importers that still name it.
 BASH_LINE_LIMIT = 160
+# An engine list beside its checker, not instance data: it stays when policies/ moves (ADR-045, move-plan §1).
+ALLOWLIST = "tools/fabric/bash-allowlist.json"
+ALLOWLIST_BEFORE_STEP_A = "policies/bash-allowlist.json"
 
 
 BASH_SHEBANG = re.compile(r"^#!.*\b(bash|sh)\b")
@@ -62,7 +65,7 @@ def _sections(doc: dict) -> dict[str, dict]:
 def bash_shape_findings(root: str, base_ref: str = "origin/main") -> list[str]:
     """ADR-040 §5 rule 2 (A 2026-10-11): a tracked bash file (.sh, .bash, or
     a first line naming bash or sh) is either a forwarder by rule 1's shape
-    or on policies/bash-allowlist.json: `stays`, the closed pre-Python list,
+    or on tools/fabric/bash-allowlist.json: `stays`, the closed pre-Python list,
     each entry with its reason, whose every addition is a finding; or
     `ports`, the files not yet ported, each naming its batch, which only
     shrinks. An entry whose file is gone or no longer bash is stale; a
@@ -70,22 +73,22 @@ def bash_shape_findings(root: str, base_ref: str = "origin/main") -> list[str]:
     Additions are judged against the list as the branch forked from it; a
     base without the list, or without that section, judges none (the
     commit that introduces it)."""
-    listed_path = roots.policy("bash-allowlist.json", engine=root)
+    listed_path = os.path.join(root, ALLOWLIST)
     try:
         doc = json.load(open(listed_path, encoding="utf-8"))
     except FileNotFoundError:
         doc = {}
     except ValueError as e:
-        return [f"policies/bash-allowlist.json: not JSON ({e})"]
+        return [f"{ALLOWLIST}: not JSON ({e})"]
     findings = []
     if "scripts" in doc:
-        findings.append("policies/bash-allowlist.json: `scripts` is the retired 160-line list; the sections are "
+        findings.append(f"{ALLOWLIST}: `scripts` is the retired 160-line list; the sections are "
                         "`stays` and `ports` (ADR-040 §5 rule 2)")
     sec = _sections(doc)
     for name, entries in sec.items():
         for rel, why in sorted(entries.items()):
             if not (isinstance(why, str) and why.strip()):
-                findings.append(f"policies/bash-allowlist.json: {name} entry {rel} gives no "
+                findings.append(f"{ALLOWLIST}: {name} entry {rel} gives no "
                                 f"{'reason' if name == 'stays' else 'batch'}")
     bash = {}
     for rel in _tracked(root):
@@ -95,15 +98,15 @@ def bash_shape_findings(root: str, base_ref: str = "origin/main") -> list[str]:
     for rel, (ok, why) in sorted(bash.items()):
         if ok or rel in sec["stays"] or rel in sec["ports"]:
             continue
-        findings.append(f"{rel}: bash that is not a forwarder ({why}) and not on policies/bash-allowlist.json — "
+        findings.append(f"{rel}: bash that is not a forwarder ({why}) and not on {ALLOWLIST} — "
                         f"write it in Python, or as a forwarder of at most {FORWARDER_CODE_LINES} lines of code with "
                         "no loop and no case (ADR-040 §5 rules 1, 2)")
     for name in SECTIONS:
         for rel in sorted(sec[name]):
             if rel not in bash:
-                findings.append(f"policies/bash-allowlist.json: {name} entry {rel} is gone or not bash — remove it")
+                findings.append(f"{ALLOWLIST}: {name} entry {rel} is gone or not bash — remove it")
             elif name == "ports" and bash[rel][0]:
-                findings.append(f"policies/bash-allowlist.json: {rel} has the forwarder's shape now — it is "
+                findings.append(f"{ALLOWLIST}: {rel} has the forwarder's shape now — it is "
                                 "ported; remove its ports entry")
     # The list as the branch forked from it, not as the base stands now: a
     # branch behind main still lists what main has since ported away, and
@@ -111,7 +114,11 @@ def bash_shape_findings(root: str, base_ref: str = "origin/main") -> list[str]:
     # a merge base (a ref with no common history) the ref itself.
     mb = _git().run(root, "merge-base", "HEAD", base_ref, check=False, timeout=60)
     since = mb.stdout.strip() if mb.returncode == 0 and mb.stdout.strip() else base_ref
-    base = _git().run(root, "show", f"{since}:policies/bash-allowlist.json", check=False, timeout=60)
+    # A base from before ADR-045 step A holds the list at its old path.
+    for at in (ALLOWLIST, ALLOWLIST_BEFORE_STEP_A):
+        base = _git().run(root, "show", f"{since}:{at}", check=False, timeout=60)
+        if base.returncode == 0:
+            break
     if base.returncode == 0:
         try:
             before_doc = json.loads(base.stdout)
@@ -124,7 +131,7 @@ def bash_shape_findings(root: str, base_ref: str = "origin/main") -> list[str]:
                 before = set(_sections(before_doc)[name])
                 for rel in sorted(set(sec[name]) - before):
                     rule = ("the pre-Python list is closed" if name == "stays" else "the ports list only shrinks")
-                    findings.append(f"policies/bash-allowlist.json: {name} entry {rel} is added; {rule} "
+                    findings.append(f"{ALLOWLIST}: {name} entry {rel} is added; {rule} "
                                     "(ADR-040 §5 rule 2)")
     return findings
 

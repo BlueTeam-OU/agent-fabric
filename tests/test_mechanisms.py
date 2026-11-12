@@ -14,11 +14,10 @@ Stdlib only; runnable as `python3 tests/test_mechanisms.py`. **Each case names t
                                or a checker allowed to be a directory
   pending_and_planned       <- the JOB pattern or the waits_on test dropped
   entry_fields              <- the ADR, owner-required, owner-tracked or status test dropped
-  unreadable_and_absent     <- an unreadable catalogue read as empty, or an absent one (instance data) made a finding
+  unreadable_and_absent     <- an unreadable catalogue read as empty, or an absent one (a fixture without it) made a finding
   lint_is_wired             <- mechanism_findings not called from lint.main
 
-The tree itself is judged by the suite's corpus lint, not here: policies/*.json is instance data (ADR-045 rule 2), which a
-case may not read live (rule 3).
+The tree itself is judged by the suite's corpus lint, not here: a case builds the trees it judges.
 """
 from __future__ import annotations
 
@@ -49,11 +48,11 @@ TMP = tempfile.mkdtemp(prefix="mechanisms-")
 atexit.register(shutil.rmtree, TMP, ignore_errors=True)
 
 ENFORCED = {"adr": "ADR-003", "owner": "runtime/identity.py", "status": "enforced",
-            "checker": "tools/fabric/state_writes.py", "exceptions": "policies/state-writers.json"}
+            "checker": "tools/fabric/state_writes.py", "exceptions": "tools/fabric/state-writers.json"}
 FILES = {
     "runtime/identity.py": "x = 1\n",
     "tools/fabric/state_writes.py": "x = 1\n",
-    "policies/state-writers.json": "{}\n",
+    "tools/fabric/state-writers.json": "{}\n",
     "tools/fabric/lint_rules/state.py": 'state_writes = _load("state_writes")\n',
     "tools/fabric/guards/commit_hooks.py": "import state_writes  # noqa: E402\n",
     "tools/fabric/lint.py": "from fabric_lint_rules.state import state_write_findings\n",
@@ -70,7 +69,7 @@ def tree(catalogue, files: dict[str, str] | None = None) -> str:
         with open(os.path.join(root, rel), "w", encoding="utf-8") as fh:
             fh.write(text)
     if catalogue is not None:
-        os.makedirs(os.path.join(root, "policies"), exist_ok=True)
+        os.makedirs(os.path.dirname(os.path.join(root, m.POLICY)), exist_ok=True)
         with open(os.path.join(root, m.POLICY), "w", encoding="utf-8") as fh:
             fh.write(catalogue if isinstance(catalogue, str) else json.dumps({"mechanisms": catalogue}))
     subprocess.run(["git", "-C", root, "init", "-q"], check=True, env=git_env())
@@ -181,7 +180,7 @@ def case_lint_is_wired() -> None:
     subprocess.run(["git", "-C", fabric, "init", "-q"], check=True, env=git_env())
     subprocess.run(["git", "-C", fabric, "add", "-A"], check=True, env=git_env())
     rc, out = run_lint(fabric)
-    assert rc != 0 and "policies/mechanisms.json: x: owner 'nowhere.py' is not a tracked file" in out, out
+    assert rc != 0 and f"{m.POLICY}: x: owner 'nowhere.py' is not a tracked file" in out, out
 
 
 def main() -> int:

@@ -70,7 +70,7 @@ its record disagree, the record wins. Look it up, never read it whole:
 | GZCoord over InterWeave; the InterWeave carrier; dual run beside the relay; the agents' PeerIds and roster; switching transport | ADR-064 |
 | the reviewer's tools; the review sandbox; coverage blocks; the v2 review marker; where a re-review starts | ADR-065 |
 | the reviewer's own accuracy; calibrating the review class; owner labels; seeded defects; a review routing change's evidence | ADR-066 |
-| one owning module per mechanism; a reimplementation; policies/mechanisms.json; a checker and its exceptions | ADR-067 |
+| one owning module per mechanism; a reimplementation; tools/fabric/mechanisms.json; a checker and its exceptions | ADR-067 |
 | the fabric command; fabric <noun> <verb>; fabric help; one front door for the bin/ commands; a second spelling of a guarded command | ADR-068 |
 
 ### ADR-000 — The enduring organization (Accepted)
@@ -166,7 +166,7 @@ its record disagree, the record wins. Look it up, never read it whole:
 - A 2026-11-01 — the session hooks write by `atomic_write`, under own
   lock files (§2/r2).
 - A 2026-11-03 — `state_writes.py` guards rule 1 (lint, pre-commit);
-  `policies/state-writers.json` lists exceptions, gaps (r1).
+  `tools/fabric/state-writers.json` lists exceptions, gaps (r1).
 - A 2026-11-08 — send ledger trim locked (r1).
 - Keywords: atomic write, flock, XDG_STATE_HOME, actions-seen.json, action ledger, fabric-op.jsonl, session-state.json.
 
@@ -1549,7 +1549,7 @@ its record disagree, the record wins. Look it up, never read it whole:
 - A cross-cutting mechanism is implemented only in its owning module;
   elsewhere a reimplementation is a finding unless its exceptions file
   names the module with a reason (§5 r1).
-- `policies/mechanisms.json` names each mechanism's record, owner and
+- `tools/fabric/mechanisms.json` names each mechanism's record, owner and
   status: `enforced` (checker loaded by lint, the pre-commit hook and
   a test), `pending` (the `<login>/j<n>` building it) or `planned`
   (what it waits on) (§5 r2).

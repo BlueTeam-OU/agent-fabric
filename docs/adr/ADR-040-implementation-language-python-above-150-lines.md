@@ -4,7 +4,7 @@
 **Status:** Accepted
 **Ratified:** owner, 2026-09-30, by the merge of agent-fabric #70 (f15baa2), which carried it, as §8 provided
 **Decision Makers:** the owner (new fabric tooling in Python; a shell script ported when it next needs a substantial change; the wave plan); drafted by fabric-coordinator
-**Scope:** every executable the fabric tracks — `bin/`, `runtime/`, `policies/`, `tools/`, `tests/`: the language a script is written in, the two kinds of bash that remain, and how an existing script moves; `policies/bash-allowlist.json` and the lint rule that reads it; `tools/fabric/gh.py` and `tools/fabric/git.py`
+**Scope:** every executable the fabric tracks — `bin/`, `runtime/`, `policies/`, `tools/`, `tests/`: the language a script is written in, the two kinds of bash that remain, and how an existing script moves; `tools/fabric/bash-allowlist.json` and the lint rule that reads it; `tools/fabric/gh.py` and `tools/fabric/git.py`
 **Pillar:** P1
 
 ## 1. Context and Problem
@@ -87,7 +87,7 @@ serve as the parity oracle for each port, unchanged.
      `python_pin.py install` has made `fabric-python`, or where it
      cannot be (a TemplateVM, an account before its interpreter, the
      boot of an AppVM), so that no interpreter is the reason and the
-     only one. The list is closed, and `policies/bash-allowlist.json`
+     only one. The list is closed, and `tools/fabric/bash-allowlist.json`
      holds it with each file's reason: the platform profiles and
      `packages.sh` under `runtime/provisioning/platform/` (sourced where
      only the host's shell exists; the CI smoke job installs the host
@@ -123,7 +123,7 @@ serve as the parity oracle for each port, unchanged.
    module keeps rule 7's bare commands consistent: the command people
    and agents run is its name on `PATH`, never the path of the module.
 2. `tools/fabric/lint.py` refuses a tracked bash file that is neither
-   on the pre-Python list in `policies/bash-allowlist.json` nor a
+   on the pre-Python list in `tools/fabric/bash-allowlist.json` nor a
    forwarder by the shape of rule 1 (A 2026-10-11). A file is bash when
    it ends in `.sh` or `.bash` or its first line names `bash` or `sh`.
    The list has two sections: `stays`, the closed pre-Python list, whose
@@ -406,7 +406,7 @@ Node scripts, is dispatched (A 2026-10-19).
 
 ## References
 
-- `policies/bash-allowlist.json`, `tools/fabric/lint.py`,
+- `tools/fabric/bash-allowlist.json`, `tools/fabric/lint.py`,
   `tools/fabric/gh.py`, `tools/fabric/git.py`.
 - `docs/wave-9/inventory.md`: every tracked bash file, classified.
 - `tools/fabric/secrets_sync.py`: the first port, its contract frozen in

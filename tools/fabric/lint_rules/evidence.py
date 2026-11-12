@@ -1,6 +1,6 @@
 """tools/fabric/lint_rules/evidence.py — GitHub's list caps have one owner (agent-fabric ADR-067, j119): a module under
 tools/fabric/ that holds a cap literal or reads a pull request's files or commits outside github/evidence.py and
-common.py is a finding unless policies/evidence-caps.json names it with its reason; an entry that admits nothing is a
+common.py is a finding unless tools/fabric/evidence-caps.json names it with its reason; an entry that admits nothing is a
 finding. tools/fabric/evidence_caps.py is the definition, and the pre-commit hook asks it about the staged modules. A part
 of tools/fabric/lint.py, the entry point."""
 from __future__ import annotations

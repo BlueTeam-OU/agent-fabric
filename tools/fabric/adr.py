@@ -508,18 +508,37 @@ def cmd_amend(root: str | None, num: str, title: str, date: str) -> None:
     print(f"adr: amended ADR-{num} — edit §1–§8 in place, fill the note and the Effect cell, add '- A {date} — …' to its DIGEST entry, then adr.py index --write")
 
 
+def digests(root: str | None) -> list[str]:
+    """The DIGESTs a lookup reads. A root a tool was handed is the one tree it
+    means; none given, the operator's records and the engine's own, which stay
+    behind when the organisational ones move (move-plan §1), each read once
+    while both are still one tree. A tree without a DIGEST is skipped, unless
+    neither has one: then the first, so the missing file is said."""
+    if root is not None:
+        return [os.path.join(adr_dir(root), "DIGEST.md")]
+    paths, seen = [], set()
+    for d in (adr_dir(None), roots.engine_adr_dir(engine=ROOT)):
+        p = os.path.join(d, "DIGEST.md")
+        if os.path.realpath(p) not in seen:
+            seen.add(os.path.realpath(p))
+            paths.append(p)
+    return [p for p in paths if os.path.isfile(p)] or paths[:1]
+
+
 def cmd_lookup(root: str | None, words: list[str]) -> list[str]:
-    text = read(os.path.join(adr_dir(root), "DIGEST.md"))
-    if not words:
-        # The table of which record answers what: the part of the DIGEST a
-        # session reads to find a record, without every entry below it.
-        head = re.split(r"\n(?=### ADR-)", text)[0]
-        table = [ln for ln in head.split("\n") if ln.startswith("|")]
-        return ["\n".join(table)] if table else []
     out = []
-    for block in re.split(r"\n(?=### ADR-)", text):
-        if block.startswith("### ADR-") and all(w.lower() in block.lower() for w in words):
-            out.append(block.strip())
+    for path in digests(root):
+        text = read(path)
+        if not words:
+            # The table of which record answers what: the part of the DIGEST a
+            # session reads to find a record, without every entry below it.
+            head = re.split(r"\n(?=### ADR-)", text)[0]
+            table = [ln for ln in head.split("\n") if ln.startswith("|")]
+            out += ["\n".join(table)] if table else []
+            continue
+        for block in re.split(r"\n(?=### ADR-)", text):
+            if block.startswith("### ADR-") and all(w.lower() in block.lower() for w in words):
+                out.append(block.strip())
     return out
 
 

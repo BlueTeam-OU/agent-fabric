@@ -63,8 +63,8 @@ agent-fabric itself, the paths its entry lists and none it excludes, on
 a contributor branch of its own; `fabric-coordinator` folds that branch
 into its own pull request and merges it (A 2026-10-01), unless the entry
 `merges`, when the role carries its own pull request (A 2026-10-07). What a role *is*
-and what enforces the fence — identities, routing, policies but the bash
-allowlist, the protocol, the records, the guards and what they import or
+and what enforces the fence — identities, routing, policies and the
+lint's exception lists but the bash allowlist, the protocol, the records, the guards and what they import or
 run — is never in an entry, and lint holds every entry to that.
 
 **A guard is three things or it is not a guard** (the coordinator's

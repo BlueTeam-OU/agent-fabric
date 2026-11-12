@@ -116,7 +116,7 @@ is the capability class below (ADR-002, ADR-005).
   you could not run. Never a command your own safety check refused:
   that is a finding, not a task for the owner. Report the command and
   the refusal text, propose the change to fabric-coordinator
-  (`policies/bash-allowlist.json`, `policies/auto-mode.json`), and go
+  (`tools/fabric/bash-allowlist.json`, `policies/auto-mode.json`), and go
   on with what you can run.
 - **Compute, then read.** When an answer needs many files or a long
   output (counting, comparing, searching a log), write a short script

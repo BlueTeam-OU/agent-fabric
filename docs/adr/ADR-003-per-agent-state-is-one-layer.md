@@ -4,7 +4,7 @@
 **Status:** Accepted
 **Ratified:** owner, 2026-09-27, by arming agent-fabric #51 (ratification by merge, the owner's rule of 2026-09-27)
 **Decision Makers:** fabric-coordinator, on the review of 2026-09-16 (items 1, 2, 5, 6)
-**Scope:** everything under `${XDG_STATE_HOME:-~/.local/state}/agent-fabric/agents/<login>/`; runtime/identity.py; tools/fabric/role.py, tools/fabric/state_writes.py and policies/state-writers.json, runtime/claude-code/hooks/session-start.py, runtime/provisioning/rename_history.py and rename-working-copy.sh; the session hooks' state (runtime/claude-code/hooks/session-state.py, context-sample.py); the control code's state writers (tools/fabric/control/: upgrade.py's restart.json, agentd.py's ActionLedger, pool.py, breakglass.py's and switch_log.py's logs)
+**Scope:** everything under `${XDG_STATE_HOME:-~/.local/state}/agent-fabric/agents/<login>/`; runtime/identity.py; tools/fabric/role.py, tools/fabric/state_writes.py and tools/fabric/state-writers.json, runtime/claude-code/hooks/session-start.py, runtime/provisioning/rename_history.py and rename-working-copy.sh; the session hooks' state (runtime/claude-code/hooks/session-state.py, context-sample.py); the control code's state writers (tools/fabric/control/: upgrade.py's restart.json, agentd.py's ActionLedger, pool.py, breakglass.py's and switch_log.py's logs)
 **Pillar:** P1
 
 ## 1. Context and Problem
@@ -162,7 +162,7 @@ state file an obvious place to get its writer.
    a copy of the resolution) and writes a file, and a `.lock` opened off
    a lock file's terms;
    lint judges the tree and the pre-commit hook the staged modules.
-   Such a module is named in `policies/state-writers.json` with why: the
+   Such a module is named in `tools/fabric/state-writers.json` with why: the
    clause above that admits it, `not state:` and what it writes, or
    `gap (jNNN):` and the job that closes it. An entry that admits
    nothing is itself a finding, so a gap's entry leaves with its fix
@@ -223,7 +223,7 @@ Accepted and in force.
 - `tests/test_identity.py`, `tests/test_rename_history.py`,
   `tests/test_session_state.py`, `tests/test_context_sample.py`.
 - `tools/fabric/state_writes.py`, `tools/fabric/lint_rules/state.py`,
-  `policies/state-writers.json`, `tests/test_state_writes.py`.
+  `tools/fabric/state-writers.json`, `tests/test_state_writes.py`.
 - ADR-002 (the dimensions this state belongs to).
 
 ## Amendments
@@ -240,5 +240,5 @@ The body above reads current; each change's full note is in [history/ADR-003-ame
 | 2026-10-30 | The role pool is rewritten under its own lock | §2, §5 rule 2: `pool.json`'s read-modify-write holds a flock on `pool.json.lock` (#423); the gap is closed |
 | 2026-10-31 | A lock file is not state | §2, §5 rule 1: a file opened `O_CREAT` only to hold a `flock` (`.lock`, `pool.json.lock`, `busy-*`), never written, read, truncated or removed, mode 0600, is outside rule 1 |
 | 2026-11-01 | The session hooks write through `identity.py`, under their own lock files | §2, §5 rule 2: `session-state.json` and `session-context.json` replaced by `atomic_write`, read-modify-write under a `flock` on their `.lock` beside them, never `agent_lock`; both lock files 0600 |
-| 2026-11-03 | Rule 1 has a guard, and its exceptions a list | §5 rule 1: `state_writes.py` in lint and at pre-commit; `policies/state-writers.json` names each admitted module and why, gaps with their jobs; `fabric_writes.py` writes through `identity` |
+| 2026-11-03 | Rule 1 has a guard, and its exceptions a list | §5 rule 1: `state_writes.py` in lint and at pre-commit; `tools/fabric/state-writers.json` names each admitted module and why, gaps with their jobs; `fabric_writes.py` writes through `identity` |
 | 2026-11-08 | The send ledger's gap is closed | §5 rule 1: `gzcoord-sent.jsonl` is appended and trimmed under `agent_lock`, the trim by `atomic_write`; the known gap the rule named is gone; no rule changes |

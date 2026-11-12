@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """tools/fabric/lint_rules/command_names.py: agent-fabric ADR-068 rules 3 and 7 over the tracked tree, with
-runtime/claude-code/commands.json's table and policies/command-names.json's declared modules. The predicates are
+runtime/claude-code/commands.json's table and tools/fabric/command-names.json's declared modules. The predicates are
 tests/test_fabric_cli.py's; the pre-commit leg is tests/test_githook_pre_commit.py's CommandNames.
 
 Stdlib only; runnable as `python3 tests/test_lint_command_names.py`. **Each case names the mutation it kills**:
@@ -35,7 +35,7 @@ from test_lint import make_base, run_lint, write  # noqa: E402
 
 TMP = tempfile.mkdtemp(prefix="lint-command-names-")
 atexit.register(shutil.rmtree, TMP, ignore_errors=True)
-POLICY = "policies/command-names.json"
+POLICY = "tools/fabric/command-names.json"
 TABLE = "runtime/claude-code/commands.json"
 GUARD = "tools/fabric/guards/wx.py"
 DOC = {"commands": {"fabric": "bin/fabric", "fabric-pr": "bin/fabric-pr"},

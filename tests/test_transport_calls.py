@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """tools/fabric/transport_calls.py (agent-fabric ADR-067): a relay api() call or a carrier adapter import outside
-tools/fabric/gzcoord/transport/ is a finding unless policies/transport-calls.json names the module with its reason. Each
+tools/fabric/gzcoord/transport/ is a finding unless tools/fabric/transport-calls.json names the module with its reason. Each
 finding kind has a positive control (the planted site is found) beside the negatives that must stay quiet; the checker is
 also run as the command on a scratch repository, and the inbox's and the sender's own modules are judged as they are in this
 tree, with no policy to excuse them. Plain script: ok/FAIL, exit 1."""

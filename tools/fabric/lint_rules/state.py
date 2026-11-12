@@ -1,5 +1,5 @@
 """tools/fabric/lint_rules/state.py — agent-fabric ADR-003 rule 1 over the tracked tree (j535): a module that resolves
-the per-agent state directory and writes a file, or copies the resolution, is named in policies/state-writers.json or is
+the per-agent state directory and writes a file, or copies the resolution, is named in tools/fabric/state-writers.json or is
 a finding; a lock file opened off its terms is a finding in any module the list does not name; an entry that admits nothing is a finding, so a
 gap's entry leaves with its fix. tools/fabric/state_writes.py is the definition,
 and the pre-commit hook asks it about the staged modules. A part of tools/fabric/lint.py, the entry point."""
