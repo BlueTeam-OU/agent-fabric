@@ -583,7 +583,11 @@ def cmd_new(root: str | None, slug: str, title: str) -> str:
 
 
 def cmd_list(root: str | None, cls: str) -> list[str]:
-    adrs, _ = load(root)
+    adrs, findings = load(root)
+    # Silence with exit 0 reads as "nothing to move" to a script that loops over
+    # the answer (move-plan step B); a missing or empty tree is an error instead.
+    if not adrs:
+        raise SystemExit(f"adr: list: {(findings or [f'{adr_dir(root)}: no ADR'])[0]} — no records to list")
     return [f"ADR-{a['number']}" for a in adrs if a["fields"].get("Class") == cls]
 
 

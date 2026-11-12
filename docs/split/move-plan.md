@@ -178,7 +178,11 @@ git mv policies/{arming,authority,auto-mode,host-load,hygiene,signing}.json oper
 git mv routing/profiles.json routing/policies operator/routing/
 git mv memory/domains memory/shared memory/agents operator/memory/
 git mv docs/live-checks docs/legal operator/docs/
-for r in $(python3 tools/fabric/adr.py list --class organisational); do   # ADR-059, ADR-069 to ADR-071 (adr-classification.md)
+# --root . is the engine's own tree: unnamed, list reads the operator's, which an exported
+# AGENT_FABRIC_OPERATOR or the mkdir above makes empty, and an empty answer would move nothing.
+moved=$(python3 tools/fabric/adr.py --root . list --class organisational) || exit 1
+[ -n "$moved" ] || { echo "no organisational records listed: step B would move none" >&2; exit 1; }
+for r in $moved; do   # ADR-059, ADR-069 to ADR-071 (adr-classification.md)
   git mv docs/adr/"$r"-*.md operator/docs/adr/
   if [ -e docs/adr/history/"$r"-amendments.md ]; then git mv docs/adr/history/"$r"-amendments.md operator/docs/adr/history/; fi
 done

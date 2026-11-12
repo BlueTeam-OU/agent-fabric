@@ -795,6 +795,15 @@ def case_new_in_an_operator_tree_is_organisational(tmp: str) -> None:
         adr.ROOT = saved
 
 
+def case_list_refuses_a_missing_or_empty_tree(tmp: str) -> None:
+    for sub in (None, "docs/adr"):
+        root = os.path.join(tmp, "bare" if sub is None else "empty")
+        os.makedirs(os.path.join(root, sub or ""), exist_ok=True)
+        r = subprocess.run([sys.executable, os.path.join(ROOT, "tools", "fabric", "adr.py"), "--root", root, "list", "--class", "organisational"],
+                           capture_output=True, text=True, env=git_env())
+        assert r.returncode != 0 and "no records to list" in r.stderr and r.stdout == "", (sub, r.returncode, r.stdout, r.stderr)
+
+
 def case_a_reserved_number_keeps_the_numbering_contiguous(tmp: str) -> None:
     root = fixture(tmp)
     move_one_out(root)
