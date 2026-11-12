@@ -571,9 +571,15 @@ class LauncherKeepsFabricCurrent(unittest.TestCase):
     class Reexec(Exception):
         pass
 
-    def run_it(self, f: Fx) -> tuple[str, BaseException | None]:
+    def run_it(self, f: Fx, **extra: str) -> tuple[str, BaseException | None]:
         err, raised = io.StringIO(), None
-        with env(), redirect_stderr(err), redirect_stdout(err), mock.patch.object(launch, "reexec", side_effect=self.Reexec):
+        # A session launched after a pull carries AGENT_FABRIC_PULLED=1 (launch.py re-execs with it) and
+        # AGENT_FABRIC_ALLOW_STALE is the owner's; both change the verdict's action, so the case owns them.
+        # patch.dict restores whatever the runner had.
+        with env(), mock.patch.dict(os.environ, extra), redirect_stderr(err), redirect_stdout(err), mock.patch.object(launch, "reexec", side_effect=self.Reexec):
+            for k in ("AGENT_FABRIC_PULLED", "AGENT_FABRIC_ALLOW_STALE"):
+                if k not in extra:
+                    os.environ.pop(k, None)
             try:
                 launch.keep_fabric_current(f.engine, [])
             except (self.Reexec, launch.Refused) as e:
@@ -589,6 +595,26 @@ class LauncherKeepsFabricCurrent(unittest.TestCase):
         self.assertIsInstance(raised, self.Reexec)
         self.assertEqual(f.head(), pin)
         self.assertIn("the operator's pin", said)
+
+    def test_the_pull_ignores_the_pulled_marker_of_the_session_running_the_tests(self):
+        f = Fx(self)
+        pin = f.engine_advance("two")
+        f.engine_advance("three")
+        f.pin(pin)
+        with mock.patch.dict(os.environ, {"AGENT_FABRIC_PULLED": "1"}):
+            said, raised = self.run_it(f)
+            self.assertEqual(os.environ["AGENT_FABRIC_PULLED"], "1")
+        self.assertIsInstance(raised, self.Reexec)
+        self.assertEqual(f.head(), pin)
+
+    def test_positive_control_a_pulled_marker_given_to_the_launcher_refuses_a_second_pull(self):
+        f = Fx(self)
+        before = f.head()
+        f.engine_advance("two")
+        said, raised = self.run_it(f, AGENT_FABRIC_PULLED="1")
+        self.assertIsInstance(raised, launch.Refused)
+        self.assertEqual(f.head(), before)
+        self.assertIn("not relaunching again", str(raised))
 
     def test_a_malformed_pin_ends_the_launch_and_moves_nothing(self):
         f = Fx(self)
