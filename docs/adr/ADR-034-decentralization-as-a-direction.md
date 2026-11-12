@@ -4,7 +4,7 @@
 **Status:** Accepted
 **Ratified:** owner, 2026-09-29, "Accept", answering fabric-coordinator's question closing the Proposed records; carried by the pull request that marks them Accepted
 **Decision Makers:** the owner; drafted by fabric-coordinator
-**Scope:** the criterion by which the fabric decides what to decentralize, and the inventory of what depends on one host, one relay, one key or one service today; a direction the fabric's changes are argued against
+**Scope:** the criterion by which the fabric decides what to decentralize, and the duty to keep an inventory of what depends on one host, one relay, one key or one service, which the operator holds in its own record (ADR-069 here); a direction the fabric's changes are argued against
 **Pillar:** P5
 **Class:** engine
 
@@ -26,20 +26,11 @@ died under load (`docs/live-checks/2026-09-19-develop-qzapp-crash.md`,
 both, because `/home` persists and identity is the login; what stopped
 was everything that runs on that host.
 
-What depends on one thing today, read from the tree:
-
-| what | depends on | if it fails | degraded mode today |
-|---|---|---|---|
-| every account | one host: `runtime/hosts/registry.json` names one host, `develop-qzapp`, and places all sixteen logins on it | every session and control agent stops; `/home` persists, so identity, bindings and unpushed work survive a reboot of that host, not its loss | none documented beyond the reboot (the Qubes account snapshot, ADR-029 §5 rule 11) |
-| messages between sessions | one relay process on the operator's account, loopback only, one SQLite database (ADR-033) | no session receives anything; the channel's past is copied to Proton Drive, encrypted and signed, on a timer scheduled every 6 h, and a restore was read back (`docs/live-checks/2026-10-27-relay-backup-restore.md`); while the timer's runs succeed, a loss takes the messages since the last good copy (6 h, up to 15 min of delay and the run's time; a failed run is only in the journal) | the human relay (ADR-033 §5 rule 7) |
-| the control plane | the same relay, channel `fabric:control` (ADR-029) | no account answers; with the relay up and the control agents down, presence reads as unknown and `gzcoord-send` refuses without `--force` (ADR-030) | sudo fallbacks: `bin/fabric-usage`, `bin/fabric-host <host> drain` (ADR-029) |
-| signed actions | one key, in the operator's own store (`FABRIC_CONTROL_SIGNING_KEY`) (A 2026-09-30) | no upgrade, distribution or account move can be ordered | `fabric-ctl keygen --force` makes a new key; the registry commit carries the public half |
-| secrets | each login's own store, a private GitHub repository (ADR-038) (A 2026-09-30) | no sync, no rotation, no account move; the tools read the file the last sync wrote, which a failed read does not change | none needed while nothing must change |
-| the usage windows | one observer login's sign-ins (ADR-031) | the windows are unread | none |
-| model inference | two providers, `anthropic` and `openrouter` (`routing/capabilities.json`); on the plain path, the Claude accounts the templates name (ADR-031) | one path lost reduces capacity; a login is moved to another account by `fabric-accounts assign` or launched on the other provider | routing by capability class (ADR-005) |
-| knowledge | git: the fabric's corpus and each project's `.agent-fabric/` on GitHub and in every clone (ADR-013) | an unreachable GitHub stops pushes and merges, not reading | every clone is a full copy |
-| an agent's undrained memory | its own home on the host until a drain (ADR-013); copied daily into the login's own store (`agent-fabric-state-backup.timer`, j179), which its parent's backup carries to Proton Drive | a loss of the host takes what was written since the last good daily copy, if a restore works, and no restore has been read back; until a drain no other agent reads it | none documented: the restore is unread, and a drain is collected and landed by hand (§7 step 3 decides its timer) |
-| direction and acceptance | the owner (ADR-001 §5 rule 2, ADR-019) | no record is accepted, no PR below the band is armed | none, and this is the point of P3's mandate, not of this record |
+What depends on one thing in a deployment, and what each failure takes,
+is that deployment's inventory, which its operator keeps in its own
+record (ADR-069 here): one host, one relay and its database, one signing
+key, one observer, two providers, undrained memory, the owner, each with
+its degraded mode or "none".
 
 ## 2. Decision
 
@@ -52,8 +43,8 @@ failure loses what cannot be rebuilt (the relay's database, before it had a
 copy, an agent's undrained memory before it had a daily copy) gets a
 second copy or a documented recovery before it gets a second instance.
 
-- Every operation the fleet depends on has a row in this record's §1
-  inventory: what it depends on, what its failure costs, and its degraded
+- Every operation the fleet depends on has a row in the operator's
+  inventory (ADR-069 here): what it depends on, what its failure costs, and its degraded
   mode — or "none", said plainly.
 - A degraded mode counts only when it has been read back: a live check
   shows the operation continuing, reduced, with the dependency removed.
@@ -69,7 +60,7 @@ second copy or a documented recovery before it gets a second instance.
   reconcile, and several rows above lose nothing when they fail.
 - **Accept centralization and plan only for reboots.** Rejected: the host
   has already failed twice, and two rows lost data on a loss of the host rather than a reboot when this was written (the relay's now has a copy, §7; undrained
-  memory has a daily copy whose restore is unread, §1).
+  memory has a daily copy whose restore is unread, ADR-069 §1).
 - **A second host first.** Deferred, not rejected: it is the largest
   step, it needs a relay the second host can reach (ADR-029 §7), and it
   helps only once the rows that lose data have a copy.
@@ -85,9 +76,10 @@ record would make the channel less durable, not more.
 
 ## 5. Binding Rules
 
-1. The §1 inventory is kept current: a change that adds, removes or moves
-   a dependency an operation relies on amends this record's table in the
-   same pull request.
+1. The operator keeps its inventory of dependencies in its own record
+   (ADR-069 here), and keeps it current: a change that adds, removes or
+   moves a dependency an operation relies on amends that record's table in
+   the same pull request (A 2026-11-12).
 2. A dependency whose failure loses data that exists nowhere else gets a
    second copy or a documented, read-back recovery before any other work
    on its row.
@@ -96,17 +88,17 @@ record would make the channel less durable, not more.
 4. Identity stays derivable without any central service: the login and
    the host (ADR-002). No design makes an agent's identity depend on the
    relay or GitHub being reachable (A 2026-09-30).
-5. A proposal to decentralize a component states which row it changes and
+5. A proposal to decentralize a component states which row of the inventory it changes and
    what failure it stops from taking identity, knowledge or continuity;
    one that changes only capacity says so and competes with other
    capacity work.
 
 ## 6. Consequences
 
-- The inventory is a maintenance cost on every change that touches
+- The operator's inventory is a maintenance cost on every change that touches
   hosts, the relay, keys or services.
 - Every agent's undrained memory is copied daily with the login's
-  working state (§1), but no restore of that copy has been read back,
+  working state (ADR-069 §1), but no restore of that copy has been read back,
   and it reaches no other agent until a drain, which until §7 step 3
   is built runs only by hand. The relay's database is scheduled to be
   copied every 6 h (§7).
@@ -140,7 +132,7 @@ After it: the scheduled drain (step 3, below), so undrained memory is
 bounded in age; and only then the second host, which reopens ADR-029 §7 and ADR-033 §7.
 
 **Step 3, the scheduled drain, is decided as follows (j434; built,
-(A 2026-11-10)).** The loss of the host is covered by the daily state copy (§1),
+(A 2026-11-10)).** The loss of the host is covered by the daily state copy (ADR-069 §1),
 so the age this step bounds is how long knowledge waits before every
 agent can read it:
 
@@ -187,6 +179,7 @@ Accepted and in force.
 
 ## References
 
+- ADR-069 — this organisation's inventory, moved out of §1 by the split.
 - ADR-000 §5, P5 (Today, Direction) and rule 3.
 - ADR-002 (identity), ADR-005 (routing by class), ADR-010 (hosts),
   ADR-012 (credentials), ADR-013 (memory and the drain), ADR-029 (the
@@ -209,3 +202,4 @@ The body above reads current; each change's full note is in [history/ADR-034-ame
 | 2026-10-28 | Undrained memory has a daily copy; §7 step 3, the scheduled drain, decided | §1 memory row, §2, §3, §6, §7 step 3 |
 | 2026-11-07 | The relay down for a working hour: step 2 of §7 done | §7 first and second steps |
 | 2026-11-10 | Step 3 of §7 built; its first scheduled run read back | §7 step 3 |
+| 2026-11-12 | The inventory moves to the operator's record | §1: the inventory table leaves; §2, §3, §5 rules 1 and 5, §6, §7 cite ADR-069; the criterion, rules 2-4 and §7 stay |

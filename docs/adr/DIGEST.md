@@ -72,6 +72,7 @@ its record disagree, the record wins. Look it up, never read it whole:
 | the reviewer's own accuracy; calibrating the review class; owner labels; seeded defects; a review routing change's evidence | ADR-066 |
 | one owning module per mechanism; a reimplementation; tools/fabric/mechanisms.json; a checker and its exceptions | ADR-067 |
 | the fabric command; fabric <noun> <verb>; fabric help; one front door for the bin/ commands; a second spelling of a guarded command | ADR-068 |
+| this organisation's decentralization inventory: host, relay, key, observer, providers, undrained memory | ADR-069 |
 
 ### ADR-000 — The enduring organization (Accepted)
 
@@ -826,10 +827,9 @@ its record disagree, the record wins. Look it up, never read it whole:
 - Decentralize only where a failure would take
   identity, knowledge or the ability to go on working; reduced capacity
   is acceptable (§2).
-- §1 inventories what depends on one thing today — one host, one relay
-  and its database, one signing key, one observer, two
-  providers, undrained memory, the owner — with each degraded mode or
-  "none" (§1, §5 rule 1).
+- The operator keeps an inventory of what depends on one thing — host,
+  relay, signing key, observer, providers, undrained memory, the owner —
+  with each degraded mode or "none", in its own record (ADR-069 here) (§1, §5 rule 1).
 - Data that exists nowhere else gets a copy first; a degraded mode counts
   only with a live check; identity never depends on a central service
   (§5 rules 2–4).
@@ -840,6 +840,7 @@ its record disagree, the record wins. Look it up, never read it whole:
 - A 2026-10-28 — undrained memory has a daily copy (restore unread); §7 step 3 decided: a weekly timer collects every account's drain bundle, 14-day age bound, one report, one drain job; landing reviewed (§1, §2, §6, §7).
 - A 2026-11-07 — §7 step 2 done: relay down an hour (§7).
 - A 2026-11-10 — §7 step 3 built (#419, #462); first timer run: 33 stores over the 14-day bound, 53 unknown, drain job kept (§7).
+- A 2026-11-12 — the §1 inventory table and rule 1's duty moved to the operator's ADR-069; rule 1 now says the operator keeps its inventory in its own record; criterion, rules 2-5, §7 stay (§1, §5 rule 1).
 - Keywords: decentralization, resilience, single point of failure,
   degraded mode, relay, host, crash, backup, autonomy, P5,
   scheduled drain, drain timer, undrained memory, state backup.
@@ -1582,3 +1583,14 @@ its record disagree, the record wins. Look it up, never read it whole:
   the dispatcher; docs move only after distribution and a read-back
   (§5 r7–r9).
 - Keywords: fabric command, dispatcher, noun, verb, fabric help, commands.json, shim, alias, front door, guard bypass, second spelling.
+
+### ADR-069 — This organisation's decentralization inventory (Accepted)
+
+- The inventory of what this organisation's fabric depends on — one host and
+  its logins, the relay and its copy, the signing key, secrets, the
+  observer, providers, knowledge, undrained memory, the owner — with each
+  failure's cost and degraded mode or "none" (§1).
+- Kept current: a change that adds, removes or moves a dependency amends
+  this record's table in the same pull request (§5 rule 1).
+- Split from ADR-034, which keeps the criterion and rules 2-5 these rows are measured against.
+- Keywords: inventory, single point of failure, host, relay, degraded mode, undrained memory, decentralization table.
