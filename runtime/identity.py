@@ -624,15 +624,19 @@ def _frozen(cls):
     """dataclass(frozen=True) for a module that tools load by path, which nothing registers in sys.modules: with
     `from __future__ import annotations` dataclasses reads each string annotation through sys.modules[cls.__module__]
     and fails on the missing entry (3.14). The stand-in lives for this one call."""
-    name = cls.__module__
-    standin = name not in sys.modules
-    if standin:
-        sys.modules[name] = types.ModuleType(name)
-    try:
-        return dataclasses.dataclass(frozen=True)(cls)
-    finally:
+    # One lock per process, kept in dataclasses' own namespace: tools load this file by path, each load has its own
+    # globals, and two loads in two threads (agentd's identity and tokens sections) would otherwise see each other's
+    # stand-in present, install none, and lose it under the dataclass call when the first deletes it.
+    with vars(dataclasses).setdefault("_fabric_identity_standin_lock", threading.RLock()):
+        name = cls.__module__
+        standin = name not in sys.modules
         if standin:
-            del sys.modules[name]
+            sys.modules[name] = types.ModuleType(name)
+        try:
+            return dataclasses.dataclass(frozen=True)(cls)
+        finally:
+            if standin:
+                del sys.modules[name]
 
 
 @_frozen
