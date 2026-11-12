@@ -18,3 +18,13 @@ Rule 8 is added with ADR-056: the persona is the agent id's, like its
 key and its repository, so neither a login rename nor a rebind changes
 it. The owner's words, in the coordinator's session: "change previous
 adr accordingly".
+
+### Amendment 2026-11-12 — rule 4's store owner is the operator's configured GitHub organisation
+
+What changed: rule 4 names the agent's repository
+`<organisation>/fabric-agent-<id>` in the operator's configured GitHub
+organisation instead of a named organisation.
+
+Why: ADR-045 §5 rule 4. Rules 1-3 and 5-8 are the id and lineage; rule 4
+fixed the store's owner organisation, which is the operator's to configure
+(docs/split/adr-classification.md, ADR-039 row).

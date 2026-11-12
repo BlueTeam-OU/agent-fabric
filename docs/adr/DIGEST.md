@@ -961,6 +961,7 @@ its record disagree, the record wins. Look it up, never read it whole:
 - A reused login is a new agent with a new id (§5 rule 7).
 - A 2026-10-13 — the repository is `fabric-agent-<id>`; its description names host, login, role (§5 rule 4).
 - A 2026-10-13 — the persona belongs to the agent id (§5 rule 8).
+- A 2026-11-12 — store owner: the operator's configured GitHub organisation (rule 4).
 - Keywords: agent id, UUIDv7, birth, rename, identity, lineage, key,
   secrets repository, P1.
 

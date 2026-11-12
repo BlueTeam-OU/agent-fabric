@@ -100,7 +100,8 @@ whole when the parent is renamed.
    `<id>@agents.agent-fabric`. The parent's certification is on that user
    id. `verify` and lint refuse a key without either.
 4. An agent's repository, its secrets and its settings (ADR-038), is
-   `BlueTeam-OU/fabric-agent-<id>`; its GitHub description names the
+   `<organisation>/fabric-agent-<id>` in the operator's configured GitHub
+   organisation; its GitHub description names the
    agent's host, login and role, never the id, which the name already
    carries, and a rename updates the description, never the name
    (A 2026-10-13). Every existing store has been moved and renamed; a
@@ -169,3 +170,4 @@ The body above reads current; each change's full note is in [history/ADR-039-ame
 |---|---|---|
 | 2026-10-13 | the agent's repository is fabric-agent-<id>; its description names the login, never the id | §2, §5 rule 4 |
 | 2026-10-13 | the persona belongs to the agent id | §5 rule 8 |
+| 2026-11-12 | rule 4's store owner is the operator's configured GitHub organisation | §5 rule 4: `BlueTeam-OU/fabric-agent-<id>` reads `<organisation>/fabric-agent-<id>` |
