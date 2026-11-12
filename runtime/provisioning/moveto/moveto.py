@@ -671,7 +671,7 @@ def run_bounded(argv: list[str], timeout: int, *, capture: bool = False, quiet: 
         return 124, ""
 
 
-def pull_reason(output: str, rc: int) -> str:
+def pull_reason(output: str, rc: int, step: str = "git pull") -> str:
     """git's first error line names the cause ("ssh: Could not resolve
     hostname", "fatal: Not possible to fast-forward"); its last is often
     boilerplate. A hung network writes nothing before the timeout: then the
@@ -682,7 +682,7 @@ def pull_reason(output: str, rc: int) -> str:
     last = output.rstrip("\n").rsplit("\n", 1)[-1]
     if last:
         return last
-    return "git pull timed out after 30 s" if rc == 124 else f"git pull exit {rc}"
+    return f"{step} timed out after {PULL_TIMEOUT_S} s" if rc == 124 else f"{step} exit {rc}"
 
 
 def refresh_fabric(fabric: str) -> None:
@@ -701,11 +701,12 @@ def refresh_fabric(fabric: str) -> None:
         # from the next entry on.
         refresher = os.path.join(fabric, "tools", "fabric", "operator_checkout.py")
         if os.path.isfile(refresher):
-            rc, pulled = run_bounded([sys.executable, refresher, "refresh", "--engine", fabric, "--projects", os.path.dirname(os.path.realpath(fabric))],
+            rc, pulled = run_bounded([sys.executable, refresher, "refresh", "--engine", fabric, "--projects", os.path.dirname(os.path.realpath(fabric)),
+                                      "--budget", str(PULL_TIMEOUT_S)],
                                      PULL_TIMEOUT_S, capture=True)
             said = [l for l in pulled.splitlines() if l.strip()]
             if rc != 0:
-                print(f"moveto: agent-fabric not fast-forwarded ({pull_reason(pulled, rc)}); using it as is", file=sys.stderr)
+                print(f"moveto: agent-fabric not fast-forwarded ({pull_reason(pulled, rc, "operator_checkout refresh")}); using it as is", file=sys.stderr)
             else:
                 for l in said:
                     print(f"moveto: {l}", file=sys.stderr)

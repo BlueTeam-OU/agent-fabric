@@ -357,6 +357,27 @@ class Refresh(unittest.TestCase):
         self.assertEqual((rc, f.head()), (0, top))
         self.assertTrue(any("not refreshed" in l for l in lines), lines)
 
+    def hang_operator_fetch(self, f: Fx, seconds: int) -> None:
+        """The operator's remote answers the fetch with a server that never does (a stalled ssh, a dead route)."""
+        hang = os.path.join(f.base, "hang-upload-pack")
+        with open(hang, "w") as fh:
+            fh.write(f"#!/bin/sh\nexec sleep {seconds}\n")
+        os.chmod(hang, 0o755)
+        git(f.op, "config", "remote.origin.uploadpack", hang)
+
+    def test_a_hanging_operator_fetch_is_bounded_by_the_budget_and_the_engine_half_still_runs(self):
+        f = Fx(self)
+        top = f.engine_advance("two")
+        self.hang_operator_fetch(f, 12)
+        with env():
+            rc, lines = oc.refresh(f.engine, f.projects, budget=10)
+        self.assertEqual((rc, f.head()), (0, top))
+        self.assertTrue(any(l.startswith("operator checkout") and "no answer within 3 s" in l for l in lines), lines)
+
+    def test_a_budget_leaves_the_engine_its_own_larger_share(self):
+        self.assertGreater(oc.ENGINE_SHARE, oc.OPERATOR_SHARE)
+        self.assertLess(oc.ENGINE_SHARE + oc.OPERATOR_SHARE, 1)
+
     def test_an_unreachable_operator_keeps_the_pin_the_checkout_last_held(self):
         f = Fx(self)
         pin = f.engine_advance("two")
@@ -620,6 +641,18 @@ class MovetoEntry(unittest.TestCase):
         self.assertEqual(f.head(), before)
         self.assertIn("agent-fabric not fast-forwarded", err)
         self.assertIn("40-hex", err)
+
+    def test_a_hanging_operator_fetch_does_not_cost_the_engine_its_refresh_and_the_note_names_the_operator(self):
+        f = Fx(self)
+        top = f.engine_advance("two")
+        Refresh.hang_operator_fetch(self, f, 45)
+        err = self.refresh(f)
+        self.assertEqual(f.head(), top)
+        self.assertIn("moveto: operator checkout", err)
+        self.assertNotIn("timed out", err)
+
+    def test_a_refresh_that_runs_out_names_the_refresher_not_git_pull(self):
+        self.assertEqual(moveto.pull_reason("", 124, "operator_checkout refresh"), "operator_checkout refresh timed out after 30 s")
 
     def test_an_engine_that_predates_the_module_is_still_pulled_to_main(self):
         f = Fx(self, operator=False)

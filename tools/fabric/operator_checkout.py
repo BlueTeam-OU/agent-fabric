@@ -236,18 +236,27 @@ def engine_plan(engine: str, pin: Pin) -> EnginePlan:
     return EnginePlan(notes=[f"the engine has diverged from the operator's pin {pin.sha[:12]}; the engine stays where it is"])
 
 
-def refresh(engine: str, projects: str) -> tuple[int, list[str]]:
-    """moveto's entry: sync the operator, fetch the engine, fast-forward it to the plan's target. (status, lines)."""
+# With a caller's budget the operator fetch gets this share and the engine fetch the next one; the rest is
+# local git and process start. The engine half is the one the caller needs, so the operator, whose
+# unreachability is never fatal, is the one bounded small.
+OPERATOR_SHARE, ENGINE_SHARE = 0.3, 0.5
+
+
+def refresh(engine: str, projects: str, budget: float | None = None) -> tuple[int, list[str]]:
+    """moveto's entry: sync the operator, fetch the engine, fast-forward it to the plan's target. (status, lines).
+    `budget` is the seconds the caller will wait for the whole refresh; without it each fetch has its own bound."""
     lines: list[str] = []
     op = path(projects)
-    s = sync(op)
+    op_timeout = FETCH_TIMEOUT_S if budget is None else min(FETCH_TIMEOUT_S, budget * OPERATOR_SHARE)
+    engine_timeout = FETCH_TIMEOUT_S if budget is None else min(FETCH_TIMEOUT_S, budget * ENGINE_SHARE)
+    s = sync(op, op_timeout)
     # absent and not-a-checkout are said once, by the pin's own note below.
     if s.line and s.state not in ("absent", "not-a-checkout"):
         lines.append(s.line)
     try:
-        git.run(engine, "fetch", "-q", "origin", "main", env=_noninteractive(), timeout=FETCH_TIMEOUT_S)
+        git.run(engine, "fetch", "-q", "origin", "main", env=_noninteractive(), timeout=engine_timeout)
     except git.GitError as e:
-        return 1, lines + [f"git fetch: {e.reason}"]
+        return 1, lines + [f"engine git fetch: {e.reason}"]
     plan = engine_plan(engine, read_pin(op))
     if plan.refusal:
         return 1, lines + [plan.refusal]
@@ -266,14 +275,14 @@ def main(argv: list[str]) -> int:
         print(f"operator_checkout: {msg}", file=sys.stderr)
         return 2
     if not argv or argv[0] not in ("ensure", "refresh"):
-        return usage("usage: ensure --projects DIR [--dry-run] | refresh --engine DIR --projects DIR")
+        return usage("usage: ensure --projects DIR [--dry-run] | refresh --engine DIR --projects DIR [--budget SECONDS]")
     opts: dict[str, str] = {}
     dry = False
     rest = iter(argv[1:])
     for a in rest:
         if a == "--dry-run" and argv[0] == "ensure":
             dry = True
-        elif a in ("--projects", "--engine") and (argv[0] == "refresh" or a == "--projects"):
+        elif a in ("--projects", "--engine", "--budget") and (argv[0] == "refresh" or a == "--projects"):
             v = next(rest, None)
             if not v:
                 return usage(f"{a} needs a value")
@@ -288,7 +297,15 @@ def main(argv: list[str]) -> int:
         if s.line:
             print(s.line, file=sys.stderr)
         return 0
-    rc, lines = refresh(opts["--engine"], projects)
+    budget: float | None = None
+    if "--budget" in opts:
+        try:
+            budget = float(opts["--budget"])
+        except ValueError:
+            budget = 0.0
+        if not (budget > 0 and budget < float("inf")):
+            return usage("--budget needs a positive number of seconds")
+    rc, lines = refresh(opts["--engine"], projects, budget)
     for l in lines:
         print(l, file=sys.stderr)
     return rc
