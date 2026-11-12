@@ -358,20 +358,25 @@ class Judge:
         # A chain is as good as its weakest link: a finding on, or the
         # revocation of, the agent or any ancestor refuses its signatures.
         for aid in self.lineage:
-            seen, at = set(), aid
-            while isinstance(at, str) and at not in seen:
-                seen.add(at)
-                # Revocation first: a revoked key's user id is no longer valid,
-                # so verify() names it too, in words that do not say why.
-                if at in revoked:
-                    self.excluded[aid] = (f"the key of {aid} is revoked" if at == aid
-                                          else f"the key of {aid}'s ancestor {at} is revoked")
-                    break
-                if at in named:
-                    self.excluded[aid] = f"the lineage does not certify {aid}: {named[at]}"
-                    break
+            chain, at = [], aid
+            while isinstance(at, str) and at not in chain:
+                chain.append(at)
                 rec = self.lineage.get(at)
                 at = rec.get("parent") if isinstance(rec, dict) else None
+            # Revocation anywhere in the chain before any finding: a revoked
+            # key's user id is no longer valid, so verify() names it too, in
+            # words that do not say why -- and whether a child certified by a
+            # since-revoked parent still reads as valid depends on the GnuPG
+            # build (2.4.5 on EL10 names the child, 2.4.9 on Fedora does not),
+            # so a walk that stopped at the first of either gave the reason by
+            # build, not by cause.
+            gone = next((a for a in chain if a in revoked), None)
+            found = next((a for a in chain if a in named), None)
+            if gone is not None:
+                self.excluded[aid] = (f"the key of {aid} is revoked" if gone == aid
+                                      else f"the key of {aid}'s ancestor {gone} is revoked")
+            elif found is not None:
+                self.excluded[aid] = f"the lineage does not certify {aid}: {named[found]}"
         with open(self.allowed, "w", encoding="utf-8") as f:
             f.write("".join(l + "\n" for l in ssh_lines))
         try:
