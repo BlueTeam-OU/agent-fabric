@@ -70,6 +70,20 @@ def main() -> int:
         with open(reg, "w") as fh:
             json.dump({"hosts": {"h": {}}}, fh)
         check("an operator not named is user", cp.pool_holder({}, reg) == "h/user")
+        # The callers pass agentd.control_config(), not the file: the holder
+        # must survive that reader or a configured fleet of two hosts has none.
+        from control import agentd
+        with open(reg, "w") as fh:
+            json.dump({"hosts": {"h": {"operator": "user"}, "k": {"operator": "op"}}}, fh)
+        conf = os.path.join(d, "config.json")
+        with open(conf, "w") as fh:
+            json.dump({"channel": "fabric:control", "pool_holder": "k/coord"}, fh)
+        check("two hosts, configured: control_config carries the holder",
+              cp.pool_holder(agentd.control_config(env={}, file=conf), reg) == "k/coord")
+        for empty in ("", None, 7):
+            with open(conf, "w") as fh:
+                json.dump({"pool_holder": empty}, fh)
+            check(f"a pool_holder of {empty!r} is not carried", "pool_holder" not in agentd.control_config(env={}, file=conf))
 
     with tempfile.TemporaryDirectory() as d:
         print("pool.test.mjs: pool-add")

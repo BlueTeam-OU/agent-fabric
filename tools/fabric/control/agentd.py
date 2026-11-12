@@ -165,7 +165,13 @@ def control_config(env: dict[str, str] | None = None, file: str | None = None) -
             return env[name]
         return own[key] if own.get(key) is not None else default
     ttl = number_of(own.get("ttl_s"))
-    return {
+    # pool_holder rides through because pool.pool_holder() reads it from this
+    # dict, never from the file: with several hosts it is the only way the
+    # pool has a holder, and a picked-keys dict that dropped it left every
+    # pool op refusing (agent-fabric#564 F1). Absent unless a non-empty string.
+    holder = own.get("pool_holder")
+    extra = {"pool_holder": holder} if isinstance(holder, str) and holder else {}
+    return extra | {
         "relay_url": pick("CLAUDE_BRIDGE_URL", "relay_url", "http://127.0.0.1:8765"),
         "channel": pick("FABRIC_CONTROL_CHANNEL", "channel", "fabric:control"),
         # Session state rides its own channel (ADR-029 rule 16), named to end
