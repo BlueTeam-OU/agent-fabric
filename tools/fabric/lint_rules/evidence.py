@@ -30,7 +30,7 @@ def evidence_cap_findings(root: str) -> list[str]:
         with open(os.path.join(root, POLICY), encoding="utf-8") as fh:
             admitted = evidence_caps.parse_modules(fh.read())
     except FileNotFoundError:
-        admitted = {}       # instance data (ADR-045 rule 2): a stripped engine copy still judges every module
+        admitted = {}       # a tree without the engine's list (a fixture): still judges every module
     except (OSError, ValueError) as exc:
         return [f"{POLICY}: cannot be read as JSON ({exc.__class__.__name__}); GitHub's list caps are not judged"]
     tracked = set(_tracked(root))

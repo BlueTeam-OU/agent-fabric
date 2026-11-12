@@ -99,7 +99,7 @@ def command_name_findings(root: str) -> list[str]:
         with open(os.path.join(root, checks.POLICY), encoding="utf-8") as fh:
             policy_text: str | None = fh.read()
     except FileNotFoundError:
-        policy_text = None   # instance data (ADR-045 rule 2): a stripped engine copy admits nothing and judges all
+        policy_text = None   # a tree without the engine's list (a fixture): admits nothing and judges all
     except (OSError, UnicodeDecodeError) as exc:
         return [f"{checks.POLICY}: cannot be read ({exc.__class__.__name__}); command names are not judged"]
     # Not narrowed by ruff's exclude (base._not_ours): the pre-commit hook judges every path judged_path names, and the two

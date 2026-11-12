@@ -31,7 +31,7 @@ def work_write_findings(root: str) -> list[str]:
         with open(os.path.join(root, work_writes.POLICY), encoding="utf-8") as fh:
             policy_text: str | None = fh.read()
     except FileNotFoundError:
-        policy_text = None   # instance data (ADR-045 rule 2): a stripped engine copy admits nothing and judges all
+        policy_text = None   # a tree without the engine's list (a fixture): admits nothing and judges all
     except (OSError, UnicodeDecodeError) as exc:
         return [f"{work_writes.POLICY}: cannot be read ({exc.__class__.__name__}); work writes are not judged"]
     return work_writes.tree_findings(root, tracked, policy_text)

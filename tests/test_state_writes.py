@@ -23,8 +23,8 @@ Stdlib only; runnable as `python3 tests/test_state_writes.py`. **Each case names
                                 dropped; an unreadable list read as empty
   vendored_is_judged         <- lint narrowed by ruff.toml's exclude, which the pre-commit hook is not (#516 F1)
 
-The tree itself is judged by the suite's corpus lint (tests/run.py), not here: a case reading the live
-tools/fabric/state-writers.json is red on a stripped copy, which removes it as instance data (ADR-045 rule 3).
+The tree itself is judged by the suite's corpus lint (tests/run.py), not here: the list is engine
+data beside its checker since ADR-045 step A, and a case here builds its own.
 """
 from __future__ import annotations
 
