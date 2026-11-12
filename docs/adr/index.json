@@ -409,7 +409,7 @@
       "date": "2026-09-30",
       "pillar": "P1",
       "class": "engine",
-      "amendments": 19
+      "amendments": 20
     },
     {
       "number": "041",
@@ -698,6 +698,16 @@
       "status": "Accepted",
       "date": "2026-11-12",
       "pillar": "P5",
+      "class": "organisational",
+      "amendments": 0
+    },
+    {
+      "number": "070",
+      "file": "ADR-070-this-organisations-porting-programme-for-its-projects.md",
+      "title": "This organisation's porting programme: its projects' Node scripts move to Python",
+      "status": "Accepted",
+      "date": "2026-11-12",
+      "pillar": "P1",
       "class": "organisational",
       "amendments": 0
     }

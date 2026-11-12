@@ -73,6 +73,7 @@ its record disagree, the record wins. Look it up, never read it whole:
 | one owning module per mechanism; a reimplementation; tools/fabric/mechanisms.json; a checker and its exceptions | ADR-067 |
 | the fabric command; fabric <noun> <verb>; fabric help; one front door for the bin/ commands; a second spelling of a guarded command | ADR-068 |
 | this organisation's decentralization inventory: host, relay, key, observer, providers, undrained memory | ADR-069 |
+| this organisation's porting programme: Wave 10, its projects' Node scripts, mjs | ADR-070 |
 
 ### ADR-000 — The enduring organization (Accepted)
 
@@ -993,6 +994,7 @@ its record disagree, the record wins. Look it up, never read it whole:
 - A 2026-10-24 — completion listed (§5 r1).
 - A 2026-10-24 — pin 3.14, no wheel (§2).
 - A 2026-11-11 — one Python on every host; host python3 only bootstraps the pin (§5 r1).
+- A 2026-11-12 — rule 10 and §7's Wave 10 rows, the managed projects' Node scripts, moved to the operator's ADR-070; rules 1-9 and waves 1-9 stay (§5 r10, §7, §8).
 - Keywords: Python, bash, Node, mjs, port, allowlist, bare command,
   forwarder.
 
@@ -1594,3 +1596,12 @@ its record disagree, the record wins. Look it up, never read it whole:
   this record's table in the same pull request (§5 rule 1).
 - Split from ADR-034, which keeps the criterion and rules 2-5 these rows are measured against.
 - Keywords: inventory, single point of failure, host, relay, degraded mode, undrained memory, decentralization table.
+
+### ADR-070 — This organisation's porting programme: its projects' Node scripts move to Python (Accepted)
+
+- Wave 10: a managed project's own Node scripts move to Python, once, by
+  the holder of the path; ported with the old script as the oracle (§1, §5 rule 1).
+- A fork's upstream code, application code and a framework's own
+  configuration are never ported; exemptions are named in §1's inventory.
+- Split from ADR-040, which keeps rules 1-9 and waves 1-9.
+- Keywords: Wave 10, mjs, Node, managed projects, port, inventory, exempt, gzapp, gzapp.decks.
