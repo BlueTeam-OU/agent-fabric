@@ -101,7 +101,10 @@ def ensure_relay(runtime_dir: str, relay_url: str | None = None, t: i18n.Printer
                 if _relay_up(relay_url, 1):
                     return {"hosted": True, "started": True, "unit": unit}
                 time.sleep(0.5)
-            return {"hosted": True, "started": False, "note": t("start.relay-unit-silent", {"unit": unit, "log": log})}
+            # The unit logs to the journal (gzcoord-relay.service), never to bridge.log, which
+            # only the spawn below writes: the note names where this relay's output is.
+            return {"hosted": True, "started": False,
+                    "note": t("start.relay-unit-silent", {"unit": unit, "log": f"journalctl --user -u {unit}"})}
     with open(log, "a") as out:
         child = process.spawn_service([binary, "--host", "127.0.0.1", "--port", "8765", "--db", db,
                                        "--auth-token-file", token_file],

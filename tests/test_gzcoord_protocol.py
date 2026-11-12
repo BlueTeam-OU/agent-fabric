@@ -1989,12 +1989,12 @@ def _unit_fixture():
     return runtime, home, binp, xdg
 
 
-def _unit_case(show: str, want_started: bool) -> dict:
+def _unit_case(show: str, want_started: bool, curl: str | None = None) -> dict:
     runtime, home, binp, xdg = _unit_fixture()
     log = os.path.join(runtime, "systemctl.log")
     for name, body in (("systemctl", f'if [[ "$2" == show ]]; then printf %b {json.dumps(show)}; exit 0; fi\n'
                                      f'echo "$*" >> {json.dumps(log)}\n'),
-                       ("curl", f"[[ -f {json.dumps(log)} ]]\n")):
+                       ("curl", curl if curl is not None else f"[[ -f {json.dumps(log)} ]]\n")):
         with open(os.path.join(binp, name), "w") as fh:
             fh.write("#!/usr/bin/env bash\n" + body)
         os.chmod(os.path.join(binp, name), 0o755)
@@ -2032,6 +2032,14 @@ def _():
     eq(r, {"hosted": True, "started": True, "unit": "gzcoord-relay"})
     r = _unit_case(_show("inactive", "signal", 1000, 5000), True)   # inactive but not a clean stop
     eq(r["started"], True)
+
+
+@case("ensureRelay: a unit started but silent points at the journal, never at bridge.log (#569 F1)")
+def _():
+    r = _unit_case(_show("inactive", "success", 0, 0), True, curl="exit 7\n")   # the probe never answers
+    eq((r["hosted"], r["started"]), (True, False), json.dumps(r))
+    ok("journalctl --user -u gzcoord-relay" in r.get("note", ""), f"the note names the unit's journal: {r}")
+    ok("bridge.log" not in r.get("note", ""), f"the note does not send the operator to bridge.log: {r}")
 
 
 @case("ensureRelay: a unit never started this boot is started")
