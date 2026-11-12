@@ -63,7 +63,7 @@ done
 for v in OPENROUTER_API_KEY GH_TOKEN CLAUDE_BRIDGE_AUTH_TOKEN OPENAI_API_KEY CLAUDE_CODE_OAUTH_TOKEN DEMO_PORT_OFFSET; do
     echo "CLAUDE-HAS:$v=${!v+yes}"
 done
-for v in ANTHROPIC_DEFAULT_HAIKU_MODEL ANTHROPIC_DEFAULT_SONNET_MODEL ANTHROPIC_DEFAULT_OPUS_MODEL ANTHROPIC_DEFAULT_FABLE_MODEL ANTHROPIC_BASE_URL AGENT_FABRIC_LAUNCH_SESSION_MODEL AGENT_FABRIC_LAUNCH_EFFORT AGENT_FABRIC_LAUNCH_PROVIDER AGENT_FABRIC_LAUNCH_PROFILE AGENT_FABRIC_LAUNCH_ROLE AGENT_FABRIC_LAUNCH_PROMPT_DIGEST AGENT_FABRIC_LAUNCH_CLAUDE_VERSION TZ AGENT_FABRIC_LAUNCH_TZ AGENT_FABRIC_OPERATOR_TZ AGENT_FABRIC_SEARCH_COUNTRY CLAUDE_CODE_DISABLE_TERMINAL_TITLE TMPDIR AGENT_FABRIC_RESTARTING; do
+for v in ANTHROPIC_DEFAULT_HAIKU_MODEL ANTHROPIC_DEFAULT_SONNET_MODEL ANTHROPIC_DEFAULT_OPUS_MODEL ANTHROPIC_DEFAULT_FABLE_MODEL ANTHROPIC_BASE_URL AGENT_FABRIC_LAUNCH_SESSION_MODEL AGENT_FABRIC_LAUNCH_EFFORT AGENT_FABRIC_LAUNCH_PROVIDER AGENT_FABRIC_LAUNCH_PROFILE AGENT_FABRIC_LAUNCH_ROLE AGENT_FABRIC_LAUNCH_PROMPT_DIGEST AGENT_FABRIC_LAUNCH_CLAUDE_VERSION TZ AGENT_FABRIC_LAUNCH_TZ AGENT_FABRIC_OPERATOR_TZ AGENT_FABRIC_SEARCH_COUNTRY CLAUDE_CODE_DISABLE_TERMINAL_TITLE TMPDIR AGENT_FABRIC_RESTARTING AGENT_FABRIC_PULLED; do
     echo "CLAUDE-ENV:$v=${!v:-}"
 done
 '''
@@ -523,6 +523,13 @@ def main() -> int:
             # The stamp says what the CHILD applies, never what the fabric wanted.
             out = out_of("--provider", "anthropic", "--effort", "low", "--version")
             check("a caller's --effort is what gets stamped", "CLAUDE-ENV:AGENT_FABRIC_LAUNCH_EFFORT=low" in out, out)
+            # The marker is the loop guard of the one relaunch after a pull; a session that carries it refuses
+            # every later launch that finds the checkout behind, instead of pulling.
+            out = out_of("--provider", "anthropic", "--version", AGENT_FABRIC_PULLED="1")
+            check("the pulled marker ends at the launch that read it: the child does not carry it",
+                  has(r"^CLAUDE-ENV:AGENT_FABRIC_PULLED=$", out) and "CLAUDE-EXECCED" in out, grep("PULLED", out))
+            check("…and without it planted the child's value is the same empty one (positive control: the probe reads the child)",
+                  has(r"^CLAUDE-ENV:AGENT_FABRIC_LAUNCH_EFFORT=high$", out), grep("LAUNCH_EFFORT", out))
             check("…and only one --effort reaches the child", grep("CLAUDE-EXECCED", out).count("--effort") == 1, out)
             rc, out = run("--provider", "anthropic", "--version", CLAUDE_CODE_EFFORT_LEVEL="max")
             check("CLAUDE_CODE_EFFORT_LEVEL in the environment: REFUSED, never launched", rc != 0 and "EXECCED" not in out, out)
