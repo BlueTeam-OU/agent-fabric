@@ -26,7 +26,6 @@ from __future__ import annotations
 
 import json
 import os
-import re
 import signal
 import sys
 import threading
@@ -93,8 +92,9 @@ def main() -> int:
                 fh.write(json.dumps(s) + "\n")
         if env.get("FAKE_SILENT"):
             continue
-        if not re.fullmatch(r"12D3KooW\w{40,}/[\w-]+", str(s.get("conversation", ""))) and "/" not in str(s.get("conversation", "")):
-            # measured on the real child: a conversation that is not a PeerId refuses the line, naming the send's own ref
+        if "/" not in str(s.get("conversation", "")):
+            # The fake's peers are named directories, not PeerIds, so it cannot judge a PeerId; the real child
+            # refuses a conversation that is not <peer>/<endpoint>, naming the send's own ref (measured).
             out({"event": "input-refused", "reason": "the peer: not a canonical PeerId", "ref": s.get("ref")})
             continue
         peer, _, dest_endpoint = str(s.get("conversation", "")).partition("/")

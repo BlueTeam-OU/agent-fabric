@@ -185,9 +185,10 @@ def _ack_row(o: dict):
     return {**r, "ok": o["ok"]}
 
 
-def _page(rows: list[dict], key: str, page_bytes: int = PAGE_BYTES) -> tuple[list[dict], str | None] | str:
+def _page(rows: list[dict], key: str, page_bytes: int | None = None) -> tuple[list[dict], str | None] | str:
     """The rows that fit page_bytes (PAGE_BYTES unless the account splits for the second carrier too), whole seconds only, and the time the next page starts at; or why
     the first second alone does not fit."""
+    page_bytes = PAGE_BYTES if page_bytes is None else page_bytes   # read now: a test sets the module's constant
     size = 0
     for i, r in enumerate(rows):
         size += len(json.dumps(r, separators=(",", ":"))) + 1
@@ -224,7 +225,7 @@ def kinds_for(db_path: str, mids: list[str]) -> tuple[dict[str, str], str]:
     return out, "ok"
 
 
-def carrier_evidence(request: Any, *, state: str | None = None, db_path: str | None = None, page_bytes: int = PAGE_BYTES) -> dict:
+def carrier_evidence(request: Any, *, state: str | None = None, db_path: str | None = None, page_bytes: int | None = None) -> dict:
     """One page of one section. Every refusal is one line of a reply."""
     args = request.get("args") if isinstance(request, dict) else None
     bad = check_args(args)
