@@ -1,8 +1,8 @@
 {
-  "description": "blueteam-fabric's rules for fabric-pr arm. The repository is the operator of agent-fabric (ADR-045 §8, docs/split/move-plan.md): BlueTeam OÜ's agents, keys, role definitions, policies, routing and distilled knowledge, read by the engine through roots. It has no build. boundary.paths: what decides who may do what (policies/authority.json, signing.json, arming.json, auto-mode.json), the agent keys and the recovery key (identities/keys/, identities/recovery.asc), the harness wiring (.claude/, .mcp.json), CI (.github/), an environment file at any depth (.env*), a certificate or key file (*.pem), and the words secret, credential and token anywhere. boundary.exempt is dropped first, but never under .claude/, .github/, policies/ or identities/keys/: Markdown, which is the charters, briefs, records and slices, and .agent-fabric/. No classes. waiver_role is null: only the owner waives the boundary. No direct-to-main rule: every change is a pull request. Written 2026-11-12, at registration (j766).",
+  "description": "blueteam-fabric's rules for fabric-pr arm. The repository is the operator of agent-fabric (ADR-045 §8, docs/split/move-plan.md): BlueTeam OÜ's agents, keys, role definitions, policies, routing and distilled knowledge, read by the engine through roots. It has no build. boundary.paths: every policy under policies/ and the routing that picks and gates the review model (routing/policies/), every project's arm rules (projects/<id>/integration/gh/arm.json), as agent-fabric's own boundary has them, the agent keys and the recovery key (identities/keys/, identities/recovery.asc), the harness wiring (.claude/, .mcp.json), CI (.github/), an environment file at any depth (.env*), a certificate or key file (*.pem), and the words secret, credential and token anywhere. boundary.exempt is dropped first, but never under .claude/, .github/, policies/, routing/policies/ or identities/keys/: Markdown, which is the charters, briefs, records and slices, and .agent-fabric/. No classes. waiver_role is null: only the owner waives the boundary. No direct-to-main rule: every change is a pull request. Written 2026-11-12, at registration (j766).",
   "boundary": {
-    "paths": "^\\.claude/|^\\.mcp\\.json$|^\\.github/|^policies/(authority|signing|arming|auto-mode)\\.json$|^identities/keys/|^identities/recovery\\.asc$|(^|/)\\.env|\\.pem$|secret|credential|token",
-    "exempt": "^(?!\\.claude/|\\.github/|policies/|identities/keys/)(.*\\.md$|\\.agent-fabric/)",
+    "paths": "^\\.claude/|^\\.mcp\\.json$|^\\.github/|^policies/|^routing/policies/|^projects/[^/]+/integration/gh/arm\\.json$|^identities/keys/|^identities/recovery\\.asc$|(^|/)\\.env|\\.pem$|secret|credential|token",
+    "exempt": "^(?!\\.claude/|\\.github/|policies/|routing/policies/|identities/keys/)(.*\\.md$|\\.agent-fabric/)",
     "cases": [
       ".claude/settings.json",
       ".github/workflows/ci.yml",
@@ -13,7 +13,11 @@
       "identities/recovery.asc",
       ".env",
       "certs/server.pem",
-      "access_token.txt"
+      "access_token.txt",
+      "routing/policies/review-grade.json",
+      "projects/agent-fabric/integration/gh/arm.json",
+      "policies/forge-keys/x.asc",
+      "policies/host-load.json"
     ]
   },
   "waiver_role": null
