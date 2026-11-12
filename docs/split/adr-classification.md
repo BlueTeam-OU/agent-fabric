@@ -1,8 +1,10 @@
 # The records, classified for the split (ADR-045 §5 rule 4)
 
-Drafted 2026-11-12, for the classification pull request `move-plan.md` §1 puts before
-step B (the owner's Q1 answer, `move-plan.md` §5). A draft for fabric-coordinator: no
-record, `index.json` or DIGEST is changed by it.
+Drafted 2026-11-12 and decided by fabric-coordinator the same day, for the classification
+pull request `move-plan.md` §1 puts before step B (the owner's Q1 answer, `move-plan.md`
+§5). The pull request that carries this file also carries what it decides: each record's
+`**Class:**` header, the amendments, the splits and `docs/adr/reserved.json`. What is
+decided is under "Decided" at the end; the table is the evidence it rests on.
 
 **Method.** Each record `docs/adr/ADR-NNN-*.md` was read for its §2 Decision and its §5
 Binding Rules. The class rests on what binds, never on the record's history:
@@ -120,7 +122,7 @@ persona mechanism. ADR-019 rule 4 is cited by `policies/arming.json` (instance d
 by `policies/fabric-decisions/SKILL.md`; after the amendment the skill's citation still
 holds, since rule 4's mechanism stays.
 
-## Uncertain, and why
+## Uncertain at the draft, and why
 
 - **ADR-019 §6 and rules 6, 8.** The table describes agent-fabric's own GitHub settings.
   Agent-fabric stays as the engine, so the settings could be the engine repository's;
@@ -157,3 +159,34 @@ holds, since rule 4's mechanism stays.
   043, 044, 045, 060 and 065 name this organisation's hosts, projects or PRs in §1, §6,
   §7, §8 or References. They are classed by their rules here; ADR-045 §2 says the public
   engine names no private content, so the publication stage owes them a reword.
+
+## Decided (fabric-coordinator, 2026-11-12)
+
+Every record leaves this pull request either `engine` or `organisational`: "mixed" is the
+state the classification found, not one a record keeps.
+
+- **The split's operator parts take the next numbers.** One number space serves both
+  trees, so a number names one record wherever it lives: ADR-034's inventory becomes
+  ADR-069, ADR-040's porting programme ADR-070, ADR-056's naming theme and house style
+  ADR-071. Each is `organisational` and cites the engine record it came from. The engine
+  record keeps its number and every rule the engine cites.
+- **Moved at step B:** ADR-059, ADR-069, ADR-070, ADR-071, the records whose `Class` is
+  `organisational` (`adr.py list --class organisational`). Step B's commit moves them and
+  adds their numbers to the engine's `docs/adr/reserved.json`, so no new engine record
+  takes one.
+- **ADR-019:** amended. Rule 1's named projects become "the projects `policies/arming.json`
+  declares direct"; rule 4 keeps its mechanism and points at `arming.json` for the
+  numbers; rule 6's "the one GitHub account" and §6's access row name the operator's
+  account and the repository's administrators. Rule 8 stays: it is the engine
+  repository's own settings, and whoever publishes it administers them.
+- **ADR-063:** amended, title included. The mechanism is general and the record is
+  Proposed, so the account's key becomes the operator's configured assist key; a new
+  record would only renumber the same decision.
+- **ADR-056, ADR-034:** split, as the table proposes. ADR-034 rule 1 then points at the
+  operator's inventory, ADR-069.
+- **ADR-040 rule 9:** engine, with rules 1-8; rule 10 and the Wave 10 rows go to ADR-070.
+- **ADR-066 rule 3:** engine. The labels ledger is instance data: `inventory.md` gains
+  its row, and step B reads it through `roots`.
+- **ADR-000, the tool pins, the context-only names:** engine, unchanged here. The *Today*
+  paragraphs and the narrative names are reworded at publication (ADR-045 §7); the pins
+  are step B's inventory rows.
