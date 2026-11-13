@@ -416,10 +416,9 @@ only it, as for the drill's other two. `evidence_collect.py` files it as
 `<login>/backfills.jsonl` and records in `meta.json` whether it was
 collected whole.
 
-§2's row now names five sections and states which values are not
-strings: the drill's booleans (the row said "each value a short string"
-though `ok`, `pending` and `flagged` were booleans already) and the
-backfill row's number and nullable channel. Rules 3, 5, 6 and 12 are
+§2's row now names five sections and the backfill row's values that
+are not strings, its number and nullable channel; the drill's booleans
+were stated on main before this, by 979fcf43. Rules 3, 5, 6 and 12 are
 unchanged: the op still takes `section`, `since` and `until` and no
 other, is signed, carries no body, and pages at 60 s.
 
