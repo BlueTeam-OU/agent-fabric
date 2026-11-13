@@ -364,12 +364,9 @@ class FleetRuns(Fleet):
         self.assertRegex(err, r"read over the relay: --via hostexec cannot carry it")
         self.assertEqual(self.sent, [])
 
-    def test_the_fleet_read_is_given_the_reads_budget_not_the_actions(self):
-        for l in self.LOGINS:
-            self.put(l, "carrier-record")
-        self.run_ctl(["all", OP, "--mode", "carrier-only"])
-        read = next(r for r in self.sent if r["op"] == CARRIER_NAME)
-        self.assertGreaterEqual(read["ttl_s"], ctl.CARRIER_READ_BUDGET_S)
+    def test_the_mode_move_waits_as_long_as_the_read_it_makes_first_unless_told_otherwise(self):
+        self.assertEqual(ctl.parse_args(["all", OP, "--mode", "carrier-only"])["timeout"], ctl.CARRIER_READ_BUDGET_S)
+        self.assertEqual(ctl.parse_args(["all", OP, "--mode", "carrier-only", "--timeout", "7"])["timeout"], 7)
 
     def test_the_refusal_looks_at_the_whole_fleet_not_only_the_accounts_addressed(self):
         self.put("a", "carrier-record")

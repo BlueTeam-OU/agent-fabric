@@ -679,7 +679,7 @@ def parse_args(argv: list[str]) -> dict:
                           else CARRIER_INSTALL_BUDGET_S if op == INSTALL_OP
                           else CARRIER_START_BUDGET_S if op == START_OP
                           else CARRIER_STOP_BUDGET_S if op == STOP_OP
-                          else CARRIER_READ_BUDGET_S if op == CARRIER_NAME
+                          else CARRIER_READ_BUDGET_S if op in (CARRIER_NAME, MODE_OP)   # the mode move reads the whole fleet first, with the read's budget
                           else EVIDENCE_BUDGET_S if op == EVIDENCE_OP
                           else BRANCHES_SWEEP_BUDGET_S if op == "branches-sweep" else 180 if op == "branches"
                           else 90 if op == "drift"
@@ -2545,8 +2545,7 @@ def _carrier_only_blockers(args: dict, **inject: Any) -> str:
     """Who stands in the way of carrier-only: every placed account (not only the addressed ones) that reports relay-record,
     and every one that reports nothing, since an account whose mode is unknown is not known to be past it. "" when none."""
     lines: list[str] = []
-    # A read takes its own budget, not the action's: an account answering after the action's 20 s is not silent.
-    argv = ["--json", "--timeout", str(max(args["timeout"], CARRIER_READ_BUDGET_S)), "all", CARRIER_NAME]
+    argv = ["--json", "--timeout", str(args["timeout"]), "all", CARRIER_NAME]
     rc = main(argv, **{**inject, "out": lines.append})
     modes: dict[str, str | None] = {}
     for line in lines:
