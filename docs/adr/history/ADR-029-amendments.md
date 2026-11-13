@@ -397,3 +397,29 @@ owner's word on a control parity report (§2). Not read back: a second
 host, which has no fleet account yet; and, on the one host, anything
 but `ping`: no signed action, no reply split into parts, no public op
 from a non-operator account.
+
+### Amendment 2026-11-13 — The parity evidence carries the senders' relay backfill logs
+
+ADR-064 rule 11's relay-outage drill gains a fourth property (ADR-064
+amendment of the same date): every message the InterWeave carrier alone
+held reached the relay's record afterwards. The evidence is the log
+python-dev-03's BlueTeam-OU/agent-fabric#573 (j134) writes as the relay
+returns, `gzcoord-backfill.jsonl` beside the sender's journal.
+python-dev-02's BlueTeam-OU/agent-fabric#590 (j145) adds it to
+`interweave-evidence` as a fifth section, `backfills`, built like
+`shown` and `acks`: rows key by key from a closed list ({mid, outcome,
+at, delay_s, channel}), `outcome` one of `posted`, `present` or
+`over-age`, `delay_s` a finite number, `channel` a short string or null;
+any other line is skipped and counted, and a MESSAGE-ID that is not a
+UUIDv7 left out. Its window is on `at`. A failure of the section ends
+only it, as for the drill's other two. `evidence_collect.py` files it as
+`<login>/backfills.jsonl` and records in `meta.json` whether it was
+collected whole.
+
+§2's row now names five sections and states which values are not
+strings: the drill's booleans (the row said "each value a short string"
+though `ok`, `pending` and `flagged` were booleans already) and the
+backfill row's number and nullable channel. Rules 3, 5, 6 and 12 are
+unchanged: the op still takes `section`, `since` and `until` and no
+other, is signed, carries no body, and pages at 60 s.
+
