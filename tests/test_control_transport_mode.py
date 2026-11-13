@@ -19,6 +19,9 @@ sys.path.insert(0, os.path.join(HERE, "tests"))
 from instance_fixtures import own_instance_tree  # noqa: E402
 
 own_instance_tree()
+# A suite run alone, outside tests/run.py's pin, must not drive fabric-ctl against the account's carrier: it sets the
+# carrier it means, the relay; test_run_control_carrier checks every in-process ctl suite does.
+os.environ["FABRIC_CONTROL_CARRIER"] = "relay"
 from control import agentd, ctl, ops, sign  # noqa: E402
 from control import transport_mode as tm  # noqa: E402
 from gzcoord import transport  # noqa: E402
