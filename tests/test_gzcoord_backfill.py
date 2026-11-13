@@ -293,6 +293,9 @@ def main() -> int:
     tmp = scratch()
     try:
         c = journal(tmp, [("m1", "accepted", 30, CAR)])
+        # tick reads the real clock, and the fixed T0 of the other cases is past the 12 h bound by now
+        c.execute("UPDATE episodes SET happened_at=? WHERE message_id='m1'",
+                  ((datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(minutes=30)).strftime("%Y-%m-%dT%H:%M:%SZ"),))
         asked: list[int] = []
         said: list[str] = []
         real = (episodic.open_readonly, episodic.state_dir, episodic.own_address)
