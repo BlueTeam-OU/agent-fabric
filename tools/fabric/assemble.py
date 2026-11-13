@@ -59,9 +59,10 @@ What it does:
 A project-scoped claim (solution, intersection, rationale, workflow, threads) whose role the project's taxonomy does not bind is
 not admitted to that project's corpus (the owner, 2026-11-11; drain of 2026-11-08). fabric-coordinator's goes to agent-fabric's
 own .agent-fabric/memory/fabric-coordinator/ instead, that role's remit covering the control plane wherever it learned the
-lesson, and the report's `rehomed` names each (its stderr section and the commit body count them). That pass also updates
-agent-fabric's own last-drain-report.json in place, in its record keys only (section_writers, applied_corrections,
-replaced_sections, collision_decisions, retitles): its stamp, harvest, memory, horizon and telemetry fields stay. Any other role refuses the
+lesson, and the report's `rehomed` names each (its stderr section and the commit body count them). That pass records
+its decisions in agent-fabric's own last-drain-report.json, in the keys section_writers, applied_corrections,
+replaced_sections, collision_decisions and retitles only; any other key of that report stays as it is, and a report that
+cannot be read is not replaced: the run refuses (exit 1) before the pass writes anything. Any other role refuses the
 run before anything is written (exit 1), naming the claim, its role and the project: no fallback. A claim some bound role
 co-owns (shared_with) stays; a project with no taxonomy, the fabric's own project and domain claims are not judged.
 
@@ -105,7 +106,7 @@ from assembler.collisions import check_collisions  # noqa: E402
 from assembler.shapes import check_correction_shapes, drop_replayed, verify_replacements  # noqa: E402
 from assembler.writer import write_shared, write_role  # noqa: E402
 from assembler.index import bound_roles_with_domain_slices, index_role, read_crossref_index, roles_with_project_directory  # noqa: E402
-from assembler.report import report, record_rehomed  # noqa: E402
+from assembler.report import report, record_rehomed, read_rehome_report  # noqa: E402
 
 
 def main() -> int:
@@ -137,6 +138,10 @@ def rehome(run: Run, claims: list) -> int:
     would: its taxonomy, hygiene view and working copy. Its report is agent-fabric's own last-drain-report.json (record_rehomed),
     and what the project's report says of it is the re-homed rows, the files, and the notes the pass made; a rejection, redaction
     or problem it found is carried into the project's report so the run exits as it would."""
+    _, why = read_rehome_report()
+    if why:
+        print(f"agent-fabric's own drain report is not replaced: {why}. Nothing is written.", file=sys.stderr)
+        return 1
     other = Run(args=copy.copy(run.args), project=layout.FABRIC_PROJECT_ID)
     other.args.working_copy = None
     # Only --hold names the project's own slices (read here it would be refused as naming no slice). --collision-decisions is
@@ -160,7 +165,7 @@ def rehome(run: Run, claims: list) -> int:
         getattr(run, name).extend(getattr(other, name))
     if not rc:
         # A pass that stopped wrote no report, as the project's does not: its rerun is the replay.
-        record_rehomed(other)
+        rc = record_rehomed(other)
     return rc or 0
 
 

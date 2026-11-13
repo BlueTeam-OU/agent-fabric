@@ -662,7 +662,8 @@ def test_f6_the_rehome_pass_updates_the_control_planes_report_in_its_record_keys
             "memory_use": {"x": 1}, "review_horizons": {"r": "2026-01-01"}, "held_back": [{"slice": "k"}],
             "title_collisions": [{"t": "u"}], "unresolved_links": [{"slice": "k", "target": "t"}], "memory_flags": [{"f": 1}],
             "telemetry": {"fabric-coordinator": {"n": 5}}, "telemetry_sources": {"a@h": {"fabric-coordinator": {"n": 5}}},
-            "watermarks": {"h": 7}}
+            "watermarks": {"h": 7},
+            "collision_decisions": [{"key": "k#T", "decision": "keep-both"}], "retitles": [{"key": "k#U", "to": "V"}]}
     claim = {**WF, "topic": "moved", "title": "Moved", "evidence": ["h2"]}
     drain, claims_dir, out = ta.build(tmp, {"alpha": ta.claims("alpha", [WF]), COORD: ta.claims(COORD, [claim])})
     ta.with_agents(drain, {"h1": "dev-01", "h2": "dev-02"})
@@ -677,6 +678,42 @@ def test_f6_the_rehome_pass_updates_the_control_planes_report_in_its_record_keys
     assert {k: v for k, v in rep.items() if k in kept} == kept, {k: v for k, v in rep.items() if k in kept}
     assert any(COORD in k for k in rep["section_writers"]), "control: the pass's record is there: " + str(rep["section_writers"])
     assert rep["stamp"] == "2025-12-01" and set(rep["telemetry"]) == {"fabric-coordinator"}, (rep["stamp"], rep["telemetry"])
+
+
+def rehome_fixture(tmp: str) -> tuple[str, str, str, str]:
+    claim = {**WF, "topic": "moved", "title": "Moved", "evidence": ["h2"]}
+    drain, claims_dir, out = ta.build(tmp, {"alpha": ta.claims("alpha", [WF]), COORD: ta.claims(COORD, [claim])})
+    ta.with_agents(drain, {"h1": "dev-01", "h2": "dev-02"})
+    bind(out, "alpha")
+    path = os.path.join(out, ".agent-fabric", "memory", "last-drain-report.json")
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    return drain, claims_dir, out, path
+
+
+def test_f6_with_no_report_of_its_own_the_rehome_pass_writes_only_its_record_keys(tmp: str) -> None:
+    """F6 path 2: the drained project's stamp and its roles' telemetry were written as agent-fabric's own. Control: the pass's
+    record is written."""
+    drain, claims_dir, out, _path = rehome_fixture(tmp)
+    proc = ta.run_assemble(drain, claims_dir, out)
+    assert proc.returncode == 0, proc.stderr
+    rep = fabric_report(out)
+    assert any(COORD in k for k in rep["section_writers"]), "control: " + str(rep)
+    assert set(rep) == {"project", "section_writers", "applied_corrections", "replaced_sections", "collision_decisions", "retitles"}, sorted(rep)
+    assert rep["project"] == "agent-fabric", rep["project"]
+
+
+def test_f6_an_unreadable_control_plane_report_is_refused_and_left_as_it_is(tmp: str) -> None:
+    """F6 path 2: a report that is no JSON, or no object, took the 'none' path and was overwritten. Control: absent, the same
+    run writes."""
+    for text in ("{not json", "[1, 2]"):
+        drain, claims_dir, out, path = rehome_fixture(os.path.join(tmp, str(len(text))))
+        with open(path, "w", encoding="utf-8") as fh:
+            fh.write(text)
+        proc = ta.run_assemble(drain, claims_dir, out)
+        assert proc.returncode == 1 and "not replaced" in proc.stderr and "Traceback" not in proc.stderr, (proc.returncode, proc.stderr)
+        assert ta.read(path) == text, "left as it is"
+        assert not os.path.exists(fabric_proj(out, COORD, "workflow.md")), "refused before the pass writes"
+        assert not os.path.exists(ta.proj(out, "alpha", "workflow.md")), "nor the project's own"
 
 
 def test_the_commit_body_counts_what_was_rehomed(tmp: str) -> None:
@@ -735,6 +772,8 @@ def main() -> int:
         test_f1_a_banned_topic_or_title_reaches_neither_the_report_nor_the_commit_body_nor_stderr,
         test_f2_a_collision_in_the_rehome_pass_is_decided_by_the_owner_and_the_rerun_carries_it,
         test_f6_the_rehome_pass_updates_the_control_planes_report_in_its_record_keys_only,
+        test_f6_with_no_report_of_its_own_the_rehome_pass_writes_only_its_record_keys,
+        test_f6_an_unreadable_control_plane_report_is_refused_and_left_as_it_is,
         test_f3_what_the_rehome_pass_replaced_is_recorded_in_the_control_planes_report_and_a_replay_keeps_it,
         test_f4_the_notes_of_the_rehome_pass_reach_the_projects_report_and_its_files_are_checked_for_links,
         test_the_commit_body_counts_what_was_rehomed,

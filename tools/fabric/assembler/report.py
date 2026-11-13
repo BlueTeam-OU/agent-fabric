@@ -238,18 +238,38 @@ def correction_holds(project: str, entry: dict[str, Any]) -> bool:
 REHOME_RECORD_KEYS = ("section_writers", "applied_corrections", "replaced_sections", "collision_decisions", "retitles")
 
 
-def record_rehomed(other: Run) -> None:
-    """What the control plane's pass of a re-home wrote and decided, into agent-fabric's own last-drain-report.json, merged as
-    any run of a stamp is. It has no report of its own otherwise, and its replacements, applied corrections and section writers
-    lived nowhere: a replay of the bundle then wrote the replaced text back into the corpus (ADR-050 rules 3 and 10; j82), and
-    a collision decision the owner gave was forgotten by the next run. The pass is no harvest: watermarks, memory use and
-    the harvest record are the project's report's, never this one's.
+def read_rehome_report() -> tuple[dict[str, Any] | None, str | None]:
+    """agent-fabric's own report: (report, None); (None, None) when there is none; (None, why) when there is a file that is no
+    JSON object or cannot be read, which the pass must neither take for absent nor overwrite."""
+    path = layout.project_report_path(layout.FABRIC_PROJECT_ID)
+    try:
+        with open(path, encoding="utf-8") as fh:
+            previous = json.load(fh)
+    except FileNotFoundError:
+        return None, None
+    except (OSError, ValueError) as exc:
+        return None, f"{path} cannot be read ({type(exc).__name__}: {exc})"
+    if not isinstance(previous, dict):
+        return None, f"{path} is not a JSON object"
+    return previous, None
 
-    A report already there (agent-fabric's own drain, at its own stamp: the ordinary case) is updated in place, only in the
-    keys the pass is the writer of (REHOME_RECORD_KEYS). Taking merge_reports' whole result replaced it: an other-stamp merge
-    keeps only the watermarks and the record, so harvest, memory marks, review horizons, held-back claims and flags were
-    dropped, the report took the project's stamp and the project's roles entered agent-fabric's telemetry (j227 review round 2,
-    F6)."""
+
+def record_rehomed(other: Run) -> int:
+    """What the control plane's pass of a re-home decided, into agent-fabric's own last-drain-report.json, in REHOME_RECORD_KEYS
+    only: its replacements, applied corrections, section writers, collision decisions and retitles lived nowhere, so a replay of
+    the bundle wrote the replaced text back into the corpus (ADR-050 rules 3 and 10; j82) and a collision decision the owner gave
+    was forgotten by the next run. The pass is no harvest and no drain of agent-fabric's: every other key of the report is left
+    as it is, the stamp and telemetry included (an other-stamp merge_reports would replace them with the drained project's;
+    j227 review rounds 2 and 3).
+
+    The three ledgers are merge_reports' (writers per section, corrections and replacements kept while their slice exists);
+    decisions are kept by key and retitles appended, as a same-stamp merge does, because a pass that decided nothing must not
+    wipe the earlier ones. No report yet: one holding the record keys and `project` is written. A report that cannot be read, or
+    is no object, is refused (1, said on stderr) and left as it is; the caller has asked before the pass wrote anything."""
+    previous, why = read_rehome_report()
+    if why:
+        print(f"agent-fabric's own drain report is not replaced: {why}. Its record of this re-home pass is not written.", file=sys.stderr)
+        return 1
     files = [in_report(other, p) for p in other.written]
     current = {
         "stamp": other.args.stamp, "project": other.project, "roles": other.owning_roles, "files": files, "files_written": len(files),
@@ -260,24 +280,24 @@ def record_rehomed(other: Run) -> None:
         "replaced_sections": other.replaced_sections, "collision_decisions": other.applied_decisions, "retitles": other.retitles,
         "anchors_kept": other.anchors_kept, "anchors_lost": other.anchors_lost, "titles_one_lined": other.titles_one_lined,
     }
+    merged = merge_reports(previous or {}, current, lambda rel: any(os.path.exists(os.path.join(root, rel))
+                                                                    for root in (layout.working_copy_for(other.project), layout.FABRIC_ROOT) if root))
+    decisions = {d.get("key"): d for d in (previous or {}).get("collision_decisions") or [] if isinstance(d, dict)}
+    for d in current["collision_decisions"]:
+        decisions[d["key"]] = d
+    record = {k: merged[k] for k in ("section_writers", "applied_corrections", "replaced_sections")}
+    record["collision_decisions"] = list(decisions.values())
+    record["retitles"] = [*((previous or {}).get("retitles") or []), *current["retitles"]]
+    assert set(record) == set(REHOME_RECORD_KEYS)
+    written = {**(previous or {"project": other.project}), **record}
+    written["applied_corrections"] = [e for e in written["applied_corrections"] if correction_holds(other.project, e)]
+    written["replaced_sections"] = still_replaced(other, written["replaced_sections"])
     path = layout.project_report_path(other.project)
-    try:
-        with open(path, encoding="utf-8") as fh:
-            previous = json.load(fh)
-        if not isinstance(previous, dict):
-            previous = {}
-    except (OSError, ValueError):
-        previous = {}
-    merged = merge_reports(previous, current, lambda rel: any(os.path.exists(os.path.join(root, rel))
-                                                              for root in (layout.working_copy_for(other.project), layout.FABRIC_ROOT) if root))
-    if previous:
-        merged = {**previous, **{k: merged[k] for k in REHOME_RECORD_KEYS if k in merged}}
-    merged["applied_corrections"] = [e for e in merged.get("applied_corrections") or [] if correction_holds(other.project, e)]
-    merged["replaced_sections"] = still_replaced(other, merged.get("replaced_sections") or [])
     os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path, "w", encoding="utf-8") as fh:
-        json.dump(merged, fh, ensure_ascii=False, indent=2, sort_keys=True)
+        json.dump(written, fh, ensure_ascii=False, indent=2, sort_keys=True)
         fh.write("\n")
+    return 0
 
 
 def report(run: Run) -> int:
