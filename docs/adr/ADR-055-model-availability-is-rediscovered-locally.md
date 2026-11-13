@@ -120,9 +120,20 @@ fleet reports (ADR-029), so it carries that view.
    `additional_reviews`, which are optional, never blocking.
    The arm accepts, for an additional engine, its review of the head (whose
    open P1 or P2 still blocks) or its unavailable marker for that exact
-   head, posted by `fabric-review --engine codex` when the engine cannot
-   run (over the allowance, or at capacity after rule 2's waits) as a
-   review object from an account whose reviews count; with neither, the
+   head, posted by `fabric-review --engine codex` as a review object
+   from an account whose reviews count whenever the engine cannot launch
+   or finish (A 2026-11-13): codex starts only after one cheap call
+   through the run's own gateway and credentials shows the gateway
+   reachable and the allowance not spent, and each of these posts the
+   marker with its reason and ends "not run": the gateway a run starts
+   not coming up; the probe unreachable, refused or timed out; over the
+   allowance; at capacity after rule 2's waits; the binary missing; a
+   timeout; a crash; a run that is no review (its sandbox proof, events
+   or answer refused, or the head or the scratch not written). What is
+   the caller's to fix posts nothing: a setting, routing, the request, a
+   sign-in or gateway installation refused before anything starts, a
+   head that is not the PR's or a PR that moved, and, after a finished
+   run, labels that cannot be read or a post that fails. With neither, the
    engine is absent: the arm proceeds on the required reviews and says
    "<engine>: absent" in its summary and posted basis, and the gate reads it
    the same way. Never paid API spend in its place: the engine rides the
@@ -161,8 +172,9 @@ availability rediscovered locally, tracked centrally only to let people
 know; a divert only when the engine is the pull request's only required
 reviewer, so under the fleet's two-engine policy a pull request waits
 out an outage; and a divert never onto the other engine's provider.
-The engine's retries and report (rule 2) are built (#235); the report
-to the control plane and the divert follow acceptance.
+The engine's retries and report (rule 2) are built (#235), and so are
+the probe and the marker on every failure to launch or finish (rule 8,
+#577); the report to the control plane and the divert follow acceptance.
 
 ## References
 
@@ -181,3 +193,4 @@ The body above reads current; each change's full note is in [history/ADR-055-ame
 | 2026-10-13 | Codex is an additional review: unavailable, the claude review alone arms | §5 rule 8: arming.json reviews claude, additional_reviews codex; review or unavailable marker per head; no API spend |
 | 2026-10-14 | An absent additional review does not stop an arm | §5 rule 8: neither review nor marker on the head is "absent"; the arm proceeds and says so; the gate reads the same |
 | 2026-11-12 | rule 7 and rule 8 point at the policy data, not today's seats and lists | §5 rule 7: the closing example of one seat against two is gone; rule 8: the policy names the required and additional engines |
+| 2026-11-13 | Codex never blocks: probe first, every failure to launch or finish posts the marker | §5 rule 8: one cheap gateway call before codex starts; the gateway, the probe, allowance, capacity, the binary, a timeout, a crash and a run that is no review each post the unavailable marker with its reason; what is the caller's to fix posts nothing (#577) |
