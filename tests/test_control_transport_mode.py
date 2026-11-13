@@ -90,7 +90,7 @@ class State(Scratch):
                 if os.path.lexists(f):
                     os.unlink(f)
             make()
-            with self.assertRaises(mode.ModeError, msg=name):
+            with self.assertRaisesRegex(mode.ModeError, {"larger than a record": "larger than", "a fifo": "not a regular file", "a symlink to a good file": "not a regular file"}.get(name, "transport-mode.json"), msg=name):
                 mode.read(self.dir)
             a = tm.set_mode({"op": OP, "from": OPERATOR, "args": {"mode": "relay-record"}}, state_dir=self.dir)
             self.assertEqual((a["status"], a["previous"]), ("set", None), f"{name}: the action repairs it")
