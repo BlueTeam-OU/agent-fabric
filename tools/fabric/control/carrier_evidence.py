@@ -38,6 +38,11 @@ CONTRACT
             `outcome` is posted | present | over-age, `delay_s` a finite number, `channel` a short
             string or null; any other line is skipped and counted. Read by the parity report's relay-outage drill
             (its fourth property) and nothing else. A failure of this section ends only this section.
+            Beside the log's lines the page carries one derived row {mid, outcome: "relay-took-send", at, channel: null} per
+            outbound message the sender's journal holds as accepted by the relay (carrier `relay`) with `at` (the send's time)
+            in the window: the relay's record had it from the send, so the log has no line for it. It has no delay_s. The
+            reply says `send_rows`: ok | absent | unreadable, the state of the journal it was derived from; a reply without
+            the key is from a daemon that did not derive them, and "no row" cannot then be read as "never reached the relay".
   never     a body. Rows are built key by key from a closed list, each value a
             short string (but a backfill row's `delay_s`, a number, and its `channel`, a string or null): a line of the log with a text, a path or a key in it
             that a later version adds does not leave. The journal is opened
@@ -72,6 +77,10 @@ SHOWN_KEYS = ("mid", "via", "t")
 ACK_KEYS = ("mid", "addressee", "t")
 BACKFILL_KEYS = ("mid", "outcome", "at")
 BACKFILL_OUTCOMES = ("posted", "present", "over-age")
+# Not a line of the log: derived from the sender's journal for a message the relay took when it was sent, which backfill.py
+# never writes a row for. A log line that says it is refused, so a reader can tell the two by the outcome alone.
+RELAY_TOOK_SEND = "relay-took-send"
+RELAY_CARRIER = "relay"      # gzcoord/transport/relay.py NAME, the carrier name send.py writes into a row the relay accepted
 ARRIVAL_KEYS = ("mid", "addressee", "carrier", "t", "verdict")
 DELIVERY_KEYS = ("mid", "to", "enc", "queued", "state", "code", "by")
 # The relay's message limit is 128 KiB and a record is posted as a JSON string inside a JSON record, which
@@ -255,6 +264,28 @@ def kinds_for(db_path: str, mids: list[str]) -> tuple[dict[str, str], str]:
     return out, "ok"
 
 
+def relay_took_send(db_path: str) -> tuple[list[dict], str]:
+    """The derived rows (see `backfills` above) and the journal's state: ok | absent | unreadable. The journal is opened
+    read-only; only message_id and happened_at are read. An unreadable one yields no rows and says so, never an empty "ok"."""
+    if not os.path.isfile(db_path):
+        return [], "absent"
+    try:
+        con = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True, timeout=5)
+    except sqlite3.Error:
+        return [], "unreadable"
+    rows: list[dict] = []
+    try:
+        for mid, at in con.execute("SELECT message_id, happened_at FROM episodes WHERE source='gzcoord' AND direction='outbound' "
+                                   "AND state='accepted' AND carrier=? ORDER BY happened_at, rowid", (RELAY_CARRIER,)):
+            if isinstance(mid, str) and parity.UUID7.fullmatch(mid) and _time(at) is not None:
+                rows.append({"mid": mid, "outcome": RELAY_TOOK_SEND, "at": at, "channel": None})
+    except sqlite3.Error:
+        return [], "unreadable"
+    finally:
+        con.close()
+    return rows, "ok"
+
+
 def carrier_evidence(request: Any, *, state: str | None = None, db_path: str | None = None, page_bytes: int | None = None) -> dict:
     """One page of one section. Every refusal is one line of a reply."""
     args = request.get("args") if isinstance(request, dict) else None
@@ -266,8 +297,10 @@ def carrier_evidence(request: Any, *, state: str | None = None, db_path: str | N
     start, end = _time(since), _time(until)
     if section == BACKFILL_SECTION:
         every, skipped = _read_lines(os.path.join(state, "gzcoord-backfill.jsonl"), _backfill_row)
-        inside = sorted((r for r in every if start <= _time(r["at"]) < end), key=lambda r: r["at"])
-        key, extra = "at", {"skipped": skipped}
+        derived, journal = relay_took_send(db_path or _db_path(state))
+        inside = sorted([r for r in every if start <= _time(r["at"]) < end] + [r for r in derived if start <= _time(r["at"]) < end],
+                        key=lambda r: r["at"])
+        key, extra = "at", {"skipped": skipped, "send_rows": journal}
     elif section in DRILL_SECTIONS:
         name, convert = ("gzcoord-shown.jsonl", _shown_row) if section == "shown" else ("gzcoord-acks.jsonl", _ack_row)
         every, skipped = _read_lines(os.path.join(state, name), convert)
