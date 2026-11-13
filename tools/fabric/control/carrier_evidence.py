@@ -12,7 +12,7 @@ CONTRACT
               since, until  YYYY-MM-DDTHH:MM:SSZ, since < until
             No other key, no other value: an argument never names a path.
   reply     data["<carrier>-evidence"] = {status: "ok", section, since, until,
-            rows: [...], next: <ISO time> | null, journal?, skipped?} or
+            rows: [...], next: <ISO time> | null, journal?, skipped?, send_rows?} or
             {status: "refused", reason}. A page is at most PAGE_BYTES of rows; a
             `next` says the window holds more and is the `since` of the next
             page: this request again, from there.
@@ -39,7 +39,7 @@ CONTRACT
             string or null; any other line is skipped and counted. Read by the parity report's relay-outage drill
             (its fourth property) and nothing else. A failure of this section ends only this section.
             Beside the log's lines the page carries one derived row {mid, outcome: "relay-took-send", at, channel: null} per
-            outbound message the sender's journal holds as accepted by the relay (carrier `relay`) with `at` (the send's time)
+            outbound message the sender's journal holds as accepted by the relay (carrier episodic.DEFAULT_CARRIER) with `at` (the send's time)
             in the window: the relay's record had it from the send, so the log has no line for it. It has no delay_s. The
             reply says `send_rows`: ok | absent | unreadable, the state of the journal it was derived from; a reply without
             the key is from a daemon that did not derive them, and "no row" cannot then be read as "never reached the relay".
@@ -47,7 +47,8 @@ CONTRACT
             short string (but a backfill row's `delay_s`, a number, and its `channel`, a string or null): a line of the log with a text, a path or a key in it
             that a later version adds does not leave. The journal is opened
             read-only and only message_id and the header fields that make a
-            kind are read from it.
+            kind are read from it (and, for backfills, message_id and happened_at of
+            outbound accepted rows).
 
 A page is cut on a second boundary, because `next` is a time: rows that share
 the second the page ends on go to the next page whole, never half (a cursor
@@ -63,6 +64,7 @@ import re
 import sqlite3
 from typing import Any
 
+import episodic
 from control.ops import util
 from gzcoord.carrier import CARRIER_NAME, parity, record
 
@@ -80,7 +82,9 @@ BACKFILL_OUTCOMES = ("posted", "present", "over-age")
 # Not a line of the log: derived from the sender's journal for a message the relay took when it was sent, which backfill.py
 # never writes a row for. A log line that says it is refused, so a reader can tell the two by the outcome alone.
 RELAY_TOOK_SEND = "relay-took-send"
-RELAY_CARRIER = "relay"      # gzcoord/transport/relay.py NAME, the carrier name send.py writes into a row the relay accepted
+# The relay is the primary transport and send.py marks its accept without --carrier, so the journal holds the default's name
+# (not transport/relay.py's NAME, which no journal row carries); the interweave mirror's accept leaves that provenance alone.
+RELAY_CARRIER = episodic.DEFAULT_CARRIER
 ARRIVAL_KEYS = ("mid", "addressee", "carrier", "t", "verdict")
 DELIVERY_KEYS = ("mid", "to", "enc", "queued", "state", "code", "by")
 # The relay's message limit is 128 KiB and a record is posted as a JSON string inside a JSON record, which

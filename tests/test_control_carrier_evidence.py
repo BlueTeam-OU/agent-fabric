@@ -1108,22 +1108,28 @@ class BackfillAccount(RelayOutageAccount):
         self.assertGreater(len(seen), len(r["rows"]), "positive control: it took more than one page")
 
     def sends(self, rows: list[tuple]) -> None:
-        """The sender's journal as episodic.py keeps it, only the columns the derived rows read: (message_id, direction, state, carrier, happened_at)."""
-        con = sqlite3.connect(os.path.join(self.state, "episodic.db"))
-        con.execute("CREATE TABLE episodes (message_id TEXT, source TEXT, direction TEXT, state TEXT, carrier TEXT, happened_at TEXT, content TEXT)")
-        con.executemany("INSERT INTO episodes VALUES (?, 'gzcoord', ?, ?, ?, ?, ?)", [(*r, BODY_TEXT) for r in rows])
-        con.commit()
-        con.close()
+        """The sender's journal written through the journal's own verbs, as send.py does: (message_id, direction, state, carrier or None for
+        the relay's accept, which passes none, happened_at). A fixture that names the carrier itself drifted from the writer once (review of #592)."""
+        import episodic
+        conn = episodic.connect(os.path.join(self.state, "episodic.db"), "00000000-0000-7000-8000-000000000000")
+        for i, (m, direction, state, carrier, at) in enumerate(rows):
+            tag = f"{i:04d}"
+            episodic.out_pending(conn, f"[GZCOORD/1] INFO\nFROM: h/a\nROLE: x\nTO: h/beta\nMESSAGE-ID: 0192{tag}-0000-7000-8000-000000000000\nSUBJECT: s\n\nINFO:\n{BODY_TEXT}\n")
+            if state != "pending":
+                episodic.out_final(conn, f"0192{tag}-0000-7000-8000-000000000000", state, None, *([carrier] if carrier else []))
+            conn.execute("UPDATE episodes SET message_id=?, direction=?, happened_at=? WHERE message_id=?", (m, direction, at, f"0192{tag}-0000-7000-8000-000000000000"))
+        conn.commit()
+        conn.close()
 
     def test_a_send_the_relay_accepted_is_a_derived_row_beside_the_logs_lines_and_leaves_no_body(self):
         took, other = mid(40, 1), mid(41, 2)
-        self.sends([(took, "outbound", "accepted", "relay", iso(40)),
+        self.sends([(took, "outbound", "accepted", None, iso(40)),
                     (other, "outbound", "accepted", "interweave", iso(41)),      # the carrier took it alone: the log's, not a derived row
                     (mid(42, 3), "outbound", "pending", None, iso(42)),
-                    (mid(43, 4), "outbound", "failed", "relay", iso(43)),
-                    (mid(44, 5), "inbound", "accepted", "relay", iso(44)),
-                    ("sha256:" + "ab" * 32, "outbound", "accepted", "relay", iso(45)),
-                    (mid(46, 6), "outbound", "accepted", "relay", "yesterday")])
+                    (mid(43, 4), "outbound", "failed", None, iso(43)),
+                    (mid(44, 5), "inbound", "accepted", None, iso(44)),
+                    ("sha256:" + "ab" * 32, "outbound", "accepted", None, iso(45)),
+                    (mid(46, 6), "outbound", "accepted", None, "yesterday")])
         self.log([backfill(other, "posted", 60)])
         r = ev.carrier_evidence(request("backfills", 0, 100), state=self.state)
         self.assertEqual((r["status"], r["send_rows"], r["skipped"]), ("ok", "ok", 0))
@@ -1139,7 +1145,7 @@ class BackfillAccount(RelayOutageAccount):
         self.assertEqual((r["status"], r["send_rows"], r["rows"]), ("ok", "unreadable", []))
 
     def test_the_derived_rows_page_with_the_log_with_no_row_twice_or_lost(self):
-        self.sends([(mid(s, s), "outbound", "accepted", "relay", iso(s)) for s in range(0, 40, 2)])
+        self.sends([(mid(s, s), "outbound", "accepted", None, iso(s)) for s in range(0, 40, 2)])
         self.log([backfill(mid(s, s), "posted", s) for s in range(1, 40, 2)])
         seen, since = [], 0
         with unittest.mock.patch.object(ev, "PAGE_BYTES", 900):

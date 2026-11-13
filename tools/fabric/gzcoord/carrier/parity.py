@@ -507,9 +507,9 @@ def render_markdown(rep: dict, title: str = "InterWeave carrier parity report") 
         if not d["pairs"]:
             L.append("- no pair was made inside the drill")
         if d["exercised"]:
-            fourth = {True: "holds: every such message reached the relay's record by backfill",
+            fourth = {True: "holds: every such message is on the relay's record (by backfill, or taken by the relay at send)",
                       False: "FAILED: a message held by the carrier alone did not reach the relay's record by backfill (over-age, or no row by the report's end)",
-                      None: "not judged: " + ("; ".join(d["backfill_not_collected"]) + " (a collection made before the log, with a line that could not be read, or of fewer accounts than sent)"
+                      None: "not judged: " + ("; ".join(d["backfill_not_collected"]) + " (a collection made before the log or before the rows of sends the relay took, with a line that could not be read, or of fewer accounts than sent)"
                                             if d["backfill_not_collected"] else "no pair to judge")}[d["backfill"]]
             L += ["", f"Fourth property, relay record by backfill: {fourth}."]
     return "\n".join(L) + "\n"
