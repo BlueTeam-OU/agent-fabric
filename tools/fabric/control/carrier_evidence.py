@@ -271,7 +271,7 @@ def relay_took_send(db_path: str) -> tuple[list[dict], str]:
     # for an op only this function serves (review of #592).
     import episodic
     # The relay is the primary transport and send.py marks its accept without --carrier, so the journal holds the default's name
-    # (not transport/relay.py's NAME, which no journal row carries); the interweave mirror's accept leaves that provenance alone.
+    # (not transport/relay.py's NAME, which no journal row carries); the second carrier's accept leaves that provenance alone.
     relay_carrier = episodic.DEFAULT_CARRIER
     if not os.path.isfile(db_path):
         return [], "absent"
