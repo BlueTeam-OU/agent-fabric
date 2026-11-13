@@ -51,7 +51,8 @@ nothing wrote a false record.
 
 THE WAIVER:
 the security-boundary gate is waived only on a message from the holder
-of the project's waiver role, read from the relay and checked here, never
+of the project's waiver role, read from this login's journal or the
+relay (gzcoord-inbox --replay) and checked here, never
 on the caller's say-so. Read only when a boundary matched: on a PR that
 matched none the waiver is said, not read, and not recorded. It is
 refused (exit 1) unless ALL of —
@@ -59,8 +60,10 @@ refused (exit 1) unless ALL of —
     session's own <host>/<login>: a BROADCAST or a TO-ROLE is not a
     waiver given to this session;
   - its type is DECISION or REPLY;
-  - the relay's sender is a <host>/<login>, its FROM says the same, and
-    it is not this session's own login (no self-waiver);
+  - its sender is a <host>/<login>, its FROM says the same, and it is
+    not this session's own login (no self-waiver); a row a carrier other
+    than the relay brought counts only with the sender that carrier
+    verified (sender_verified), never with a claimed one;
   - it carries the metadata line the approver writes on purpose,
         WAIVES: <owner>/<repo>#<n>@<head sha, 8 or more hex>
     naming this repository (case-insensitive), this PR, and a prefix of
@@ -70,7 +73,8 @@ refused (exit 1) unless ALL of —
     role arm.json's `waiver_role` names — the fabric's record of the
     login's binding, never the message's ROLE line.
 Unanswerable (exit 2, nothing posted): the replay not giving its JSON
-(relay down, no such message, a refused token), a waiver with no
+(not in the journal and the relay down, no such message, a refused
+token), a waiver with no
 MESSAGE-ID, fabric-ctl not answering for the login, and an arm.json
 whose waiver_role is missing while a waiver is asked, or is not a role
 of identities/roles/catalog.json. The arming comment records "Boundary
@@ -120,8 +124,10 @@ where authority_own_prs is false. The review gate, the open threads and the gree
 commits.below_min "refuse" is not lifted by either. A refusal names the role, the holders running now and the basis.
 
 WHAT THIS DOES NOT PROVE: the relay does not authenticate a sender
-(BRIDGE-RELAY-SETUP.md) — FROM and the relay's sender are both the
-poster's claim. The check stops a mistake (the wrong message, the wrong
+(BRIDGE-RELAY-SETUP.md) — on a row it brought, FROM and its sender are
+both the poster's claim. A row the carrier brought counts only with a
+sender it verified, equal to FROM (the owner's D4, 2026-11-13). On a
+relay row the check stops a mistake (the wrong message, the wrong
 PR, a decline, a stale head, a role not held), not a forger: a session
 able to forge a waiver can run gh pr merge itself. A signed waiver is a
 protocol question, not this tool's.
@@ -249,15 +255,16 @@ What it refuses, in order, and why:
      agent-fabric). --boundary forces the gate on. --no-boundary
      <reason> --waiver <message-id|seq> waives it, on a message from the
      holder of the project's waiver role (arm.json "waiver_role") that
-     the relay holds: a DECISION or REPLY sent TO this login (not a
+     this login's journal or the relay holds (a carrier's row only with
+     the sender it verified): a DECISION or REPLY sent TO this login (not a
      broadcast, not a role), from another login, carrying the line
          WAIVES: <owner>/<repo>#<n>@<head sha, 8+ hex>
      for this repository, this PR and its CURRENT head, from a sender
      fabric-ctl presence reports holding the role — never the message's
-     ROLE line. Any of those not so is refused; a relay or fabric-ctl
+     ROLE line. Any of those not so is refused; a replay or fabric-ctl
      that cannot answer, or a message with no MESSAGE-ID, is exit 2.
-     The relay does not authenticate senders: this stops mistakes, not
-     a forger. The comment records who waived it, the message
+     The relay does not authenticate senders: on its rows this stops
+     mistakes, not a forger. The comment records who waived it, the message
      and the reason. A PR that matches no boundary ignores a waiver.
      On a direct repository every PR needs that review, except a RECORD
      PR (every file a record under arm.json's direct.record_paths, a
@@ -474,6 +481,9 @@ def run_reader(head: list[str], args: list[str], timeout: int = 600) -> tuple[in
 
 
 ADDRESS = re.compile(r"[a-z0-9._-]+/[a-z0-9._-]+")
+# What gzcoord-inbox --replay --json names as `carrier` for a row the relay brought (its RELAY_CARRIER, the journal's
+# episodic.DEFAULT_CARRIER). Not imported: arm reads the replay as a program's answer, and test_arm_cli pins the two.
+RELAY_CARRIER = "claude-bridge"
 # The line an approver writes on purpose: a message that only mentions the
 # PR — "I do NOT waive #7" included — waives nothing (review of 0c2498a,
 # F1), and the head it names ties the approval to the code it was given
@@ -620,7 +630,8 @@ def verify_grant(ref: str, num: str, repo: str, head: str, session: str, role: s
     carrying AUTHORIZES) for this repository, PR and head, from another login whose presence reports `role`, or
     Refused / Unanswered. Every refusal is a fact of the message or of the fabric's record; a question neither
     could answer is never read as a refusal or a pass. The relay does not authenticate a sender
-    (BRIDGE-RELAY-SETUP.md): this stops a mistake, not a forger (review of 0c2498a, F4). A refusal of the message
+    (BRIDGE-RELAY-SETUP.md): on its rows this stops a mistake, not a forger (review of 0c2498a, F4). A row a carrier
+    other than the relay brought counts only with the sender that carrier verified (the owner's D4, 2026-11-13). A refusal of the message
     says whom to ask for another. `author` is the login of the pull request's own branch, when the grant may not
     be the author's (an authorization; a waiver has always been allowed to be)."""
     option = "--waiver" if field == "WAIVES" else "--authorization"
@@ -644,7 +655,8 @@ def verify_grant(ref: str, num: str, repo: str, head: str, session: str, role: s
     # not answer, a refused token) prints no JSON object. A status and an
     # object that disagree are an answer of a shape it never gave.
     if not isinstance(msg, dict) or (rc, msg.get("addressed")) not in ((0, True), (2, False)):
-        raise Unanswered(f"the {word} {ref} could not be read from the relay (gzcoord-inbox --replay exit {rc})")
+        raise Unanswered(f"the {word} {ref} could not be read from the journal or the relay"
+                         f" (gzcoord-inbox --replay exit {rc})")
     if not msg["addressed"]:
         raise deny(f"the {word} {ref} is not addressed to this session")
     meta = msg.get("metadata") if isinstance(msg.get("metadata"), dict) else {}
@@ -661,7 +673,17 @@ def verify_grant(ref: str, num: str, repo: str, head: str, session: str, role: s
     if msg.get("type") not in ("DECISION", "REPLY"):
         raise deny(f"the {word} {ref} is a {msg.get('type')}, not a DECISION or REPLY")
     sender = str(msg.get("sender") or "")
-    if not ADDRESS.fullmatch(sender) or meta.get("FROM") != sender:
+    # A replay older than W3 names no carrier: it read the relay alone. `carrier` is the carrier that FIRST brought the
+    # row, and a relay row a carrier later verified stays the relay's: judged as before, its sender equal to FROM.
+    carrier = msg.get("carrier", RELAY_CARRIER)
+    if carrier != RELAY_CARRIER:
+        if msg.get("sender_verified") is not True:
+            raise deny(f"the {word} {ref} was carried by {carrier or 'no carrier'} from {sender or 'nobody'},"
+                       f" a sender it did not verify — a carrier's row counts only with a verified sender")
+        if not ADDRESS.fullmatch(sender) or meta.get("FROM") != sender:
+            raise deny(f"the {word} {ref} was carried by {carrier} from the verified sender {sender or 'nobody'}"
+                       f" but says FROM {meta.get('FROM')}")
+    elif not ADDRESS.fullmatch(sender) or meta.get("FROM") != sender:
         raise deny(f"the {word} {ref} was relayed from {sender or 'nobody'} but says FROM {meta.get('FROM')}")
     # The login, not the address: the same login on another host is the
     # same agent, and the message is another agent's (re-review of b1a8e41).
