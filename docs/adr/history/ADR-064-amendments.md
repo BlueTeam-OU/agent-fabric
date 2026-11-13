@@ -325,7 +325,8 @@ amendment, and an agent moving there only on the owner's word on the
 control parity report. The first-milestone sentence is unchanged; the
 next milestone, which opened by an amendment naming the host, now opens
 once the host is registered in `runtime/hosts/registry.json` and named in
-the operator's inventory, ADR-069 here.
+the operator's inventory, ADR-069 here; §2's one-host bullet and §7 say
+the same.
 
 Why: ADR-045 §5 rule 4. Rules 2-14 and rule 1's milestone are the carrier;
 the named second host and its waivers are this deployment's

@@ -67,7 +67,7 @@ relay, one host first:
   with the agents whose accounts are on the host the relay runs on, over
   loopback. A second host is the next milestone: the fleet is to move agents
   to remote hosts, the first likely edge-hosting, and InterWeave is how
-  they stay reached. Until that milestone's amendment lands, no profile
+  they stay reached. Until a second host opens under §5 rule 1, no profile
   listens beyond `127.0.0.1`.
 - **Dual run.** Every message goes by both carriers. The relay stays the
   transport of record and ADR-033 rule 7's fallback order is unchanged;
@@ -336,8 +336,8 @@ and the two adapters behind a switch that is off by default, dispatched
 to the contributor holders `policies/authority.json` names for that code
 at the time; rule 13's two-instance check; the dual run; the parity
 report; the owner's word. A second host is rule 1's next milestone, opened
-by its own amendment, InterWeave's gate consumed or accepted on the owner's
-word. The carrier's observations of ordering, loss and concurrency
+by its registration and the operator's inventory, InterWeave's gate consumed
+or accepted on the owner's word. The carrier's observations of ordering, loss and concurrency
 are ADR-032 §7's evidence. The mapping in §5 rules 6 to 10 belongs to
 GZCoord's own repository, which the owner asked for (§1;
 `docs/split/agent-fabric-coord.md`). Until that repository exists, it
@@ -382,4 +382,4 @@ The body above reads current; each change's full note is in [history/ADR-064-ame
 | 2026-11-08 | The parity soak includes a relay-outage drill | §5 rule 11 |
 | 2026-11-08 | The parity report reads the relay-outage drill | §5 rule 11 (#509) |
 | 2026-11-11 | The second host is fabric-h2, reached from develop-qzapp only | §5 rule 1 |
-| 2026-11-12 | the second host is any host in the registry, not a named one | §5 rule 1: the named second host, its node, the coordinator's host's address and the waivers read "a second host in `runtime/hosts/registry.json`"; the second-host milestone opens on its registration and the operator's inventory (ADR-069), not by an amendment; the host and waivers are ADR-069 rule 2 |
+| 2026-11-12 | the second host is any host in the registry, not a named one | §5 rule 1: the named second host, its node, the coordinator's host's address and the waivers read "a second host in `runtime/hosts/registry.json`"; the second-host milestone opens on its registration and the operator's inventory (ADR-069), not by an amendment (§2, §7 follow); the host and waivers are ADR-069 rule 2 |
