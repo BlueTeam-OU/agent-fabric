@@ -32,7 +32,7 @@ import gateway_plan  # noqa: E402
 import review_gateway  # noqa: E402
 
 FAKE_GATEWAY = r'''#!%(python)s
-import hashlib, json, os, signal, stat, sys, time
+import hashlib, http.server, json, os, signal, stat, sys, threading, time
 S = %(state)r
 def note(**rec):
     with open(os.path.join(S, "gw.log"), "a") as fh:
@@ -56,8 +56,27 @@ note(event="serve", argv=sys.argv[1:], pid=os.getpid(), key_sha=hashlib.sha256(k
 if mode == "exit4":
     print("credential_unavailable: the token file was refused (fake)", file=sys.stderr)
     sys.exit(4)
+class Probed(http.server.BaseHTTPRequestHandler):
+    """The listener the engine's probe calls before it starts Codex: it answers a completed stream and records what it saw."""
+    def log_message(self, *a):
+        pass
+    def do_POST(self):
+        body = self.rfile.read(int(self.headers.get("Content-Length") or 0)).decode()
+        note(event="probe", path=self.path, auth_ok=self.headers.get("Authorization") == "Bearer " + key,
+             account=self.headers.get("ChatGPT-Account-ID"),
+             session_credential=any(w in body + json.dumps(dict(self.headers)) for w in ("ANTHROPIC", "CLAUDE", "OPENAI", "sk-ant")))
+        out = b'event: response.completed\ndata: {"type":"response.completed"}\n\n'
+        self.send_response(200)
+        self.send_header("Content-Length", str(len(out)))
+        self.end_headers()
+        self.wfile.write(out)
+listening = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Probed)
+listening.daemon_threads = True
+threading.Thread(target=listening.serve_forever, daemon=True).start()
+listener = "http://127.0.0.1:%%d" %% listening.server_address[1]
+note(event="listening", listener=listener)
 ready = {"event": "ready", "gateway_version": "0.3.0-fake", "runtime_contract": 1, "plan_schema": plan["schema_version"],
-         "listener": "http://127.0.0.1:47011", "plan_digest": "sha256:" + hashlib.sha256(plan_bytes).hexdigest()}
+         "listener": listener, "plan_digest": "sha256:" + hashlib.sha256(plan_bytes).hexdigest()}
 def on_term(*a):
     note(event="term")
     if mode == "drain":   # a slow drain: the reviewer's stop() is still waiting when the next signal comes
@@ -127,12 +146,19 @@ case "$1" in
     case "$2" in */compare/*) cat "$S/mergebase"; exit 0 ;; esac
     # gh.api_list, the PR's reviews for the labels a full review numbers past: the status line, a blank line, an empty page
     case " $* " in *" -i "*) printf 'HTTP/2.0 200 OK\r\n\r\n[]'; exit 0 ;; esac
+    # a read of the PR, which the unavailable statement's check makes before it posts
+    case " $* " in *" --input "*) ;; *) case "$2" in *"/reviews"*) echo '[[]]' ;; *) echo '{"user": {"login": "fixture-account"}}' ;; esac; exit 0 ;; esac
     env > "$S/gh-env.txt"
     for a in "$@"; do
-      [ "$prev" = "--input" ] && cp "$a" "$S/payload.json"
+      if [ "$prev" = "--input" ]; then
+        if [ "$a" = "-" ]; then cat > "$S/payload.json"; else cp "$a" "$S/payload.json"; fi
+      fi
       prev="$a"
     done
-    echo "POST $2" >> "$S/calls"
+    kind=review
+    grep -q '"body": "<!-- agent-fabric-engine-unavailable v1' "$S/payload.json" 2>/dev/null && kind=unavailable
+    echo "POST $2 $kind" >> "$S/calls"
+    [ "$kind" = unavailable ] && { echo '{"html_url": "https://github.com/fixture-org/fixture/pull/7#pullrequestreview-2"}'; exit 0; }
     echo "https://github.com/fixture-org/fixture/pull/7#pullrequestreview-1"
     exit 0 ;;
 esac
@@ -272,8 +298,18 @@ def main() -> int:
         def codex_ran() -> bool:
             return os.path.exists(os.path.join(state, "codex-run.json"))
 
+        def call_kinds() -> list[str]:
+            try:
+                with open(os.path.join(state, "calls")) as f:
+                    return [ln.split()[-1] for ln in f.read().splitlines()]
+            except OSError:
+                return []
+
         def posted() -> bool:
-            return os.path.exists(os.path.join(state, "calls"))
+            return "review" in call_kinds()
+
+        def statements() -> int:
+            return call_kinds().count("unavailable")
 
         def runtime_clean() -> bool:
             top = os.path.join(run_dir, "agent-fabric")
@@ -318,7 +354,12 @@ def main() -> int:
         cenv, cfg = rec.get("env", {}), rec.get("config") or ""
         key = cenv.get("AGENT_FABRIC_CODEX_KEY", "")
         check("Codex was given the gateway's key by environment", hashlib.sha256(key.encode()).hexdigest() == sv.get("key_sha"), cenv)
-        check("…and its root as the provider's base URL", 'base_url = "http://127.0.0.1:47011"' in cfg, cfg)
+        listener = (events("listening") or [{}])[0].get("listener", "")
+        check("…and its root as the provider's base URL", listener and f'base_url = "{listener}"' in cfg, cfg)
+        probes = events("probe")
+        check("the engine probed that gateway once before Codex, with the gateway's key and the account id, and no session credential",
+              len(probes) == 1 and probes[0].get("path") == "/responses" and probes[0].get("auth_ok") is True
+              and probes[0].get("account") == ACCOUNT and probes[0].get("session_credential") is False, probes)
         check("the token file existed while Codex ran", rec.get("token_file_there") is True, rec.get("token_file_there"))
         check("the account id reaches config.toml as the ChatGPT-Account-ID header, and Codex's environment does not carry it",
               f'http_headers = {{ "ChatGPT-Account-ID" = "{ACCOUNT}" }}' in cfg and ACCOUNT not in json.dumps(cenv), cfg)
@@ -339,22 +380,24 @@ def main() -> int:
         write_signin(); reset(codex_mode="prose")
         r = run()
         sv = (events("serve") or [{}])[0]
-        check("exit 1, nothing posted", r.returncode == 1 and not posted() and "nothing posted" in r.stderr, r.stderr)
+        check("exit 3 (not run), no review posted, one statement", r.returncode == 3 and not posted() and "no review posted" in r.stderr
+              and statements() == 1, r.stderr)
         check("the gateway is gone and the token removed", gone(sv.get("pid", 0)) and runtime_clean())
 
         print("a run that read nothing: refused, not posted as a clean review")
         write_signin(); reset(codex_mode="nocommand")
         r = run()
         sv = (events("serve") or [{}])[0]
-        check("exit 1, nothing posted, the reason said", r.returncode == 1 and not posted()
-              and "ran no command" in r.stderr and "nothing posted" in r.stderr, r.stderr)
+        check("exit 3 (not run), no review posted, the reason said", r.returncode == 3 and not posted()
+              and "ran no command" in r.stderr and "no review posted" in r.stderr and statements() == 1, r.stderr)
         check("the gateway is gone and the token removed", gone(sv.get("pid", 0)) and runtime_clean())
 
         print("the time budget: the same")
         write_signin(); reset(codex_mode="sleep")
         r = run("--timeout", "0.05")
         sv = (events("serve") or [{}])[0]
-        check("exit 1 at the budget, nothing posted", r.returncode == 1 and "did not answer within" in r.stderr and not posted(), r.stderr)
+        check("exit 3 at the budget, no review posted, one statement", r.returncode == 3 and "did not answer within" in r.stderr
+              and not posted() and statements() == 1, r.stderr)
         check("the gateway is gone and the token removed", gone(sv.get("pid", 0)) and runtime_clean())
 
         print("SIGTERM mid-review: the same")
@@ -393,9 +436,11 @@ def main() -> int:
         print("the gateway fails to start: nothing posted, Codex never ran")
         write_signin(); reset(gw_mode="exit4")
         r = run()
-        check("refused, the gateway's own words said", r.returncode == 1 and "refused" in r.stderr
+        check("not run (exit 3), the gateway's own words said", r.returncode == 3 and "(gateway)" in r.stderr
               and "credential source" in r.stderr and "token file was refused (fake)" in r.stderr, r.stderr)
-        check("Codex never ran, nothing posted, the token removed", not codex_ran() and not posted() and runtime_clean())
+        check("Codex never ran, no review posted, one statement for the head with reason gateway, the token removed",
+              not codex_ran() and not posted() and statements() == 1 and runtime_clean()
+              and f"head={head} reason=gateway " in read("payload.json"), read("payload.json")[:300])
 
         print("refusals before anything starts")
         for label, version, want in (
@@ -507,7 +552,8 @@ def main() -> int:
               and read("gw.log") == "", r.stderr)
         write_signin(); reset()
         r = run(env={**env0, "XDG_RUNTIME_DIR": os.path.join(tmp, "no-such-dir")})
-        check("no runtime directory: refused, nothing served or posted", r.returncode == 1 and "runtime directory" in r.stderr
+        check("no runtime directory: the gateway cannot start, exit 3 and one statement, nothing served, no review",
+              r.returncode == 3 and "runtime directory" in r.stderr and statements() == 1
               and not events("serve") and not codex_ran() and not posted(), r.stderr)
         write_signin(); reset()
         r = run("--no-post", env={k: v for k, v in env0.items() if k != "AGENT_FABRIC_CODEX_MODEL"})

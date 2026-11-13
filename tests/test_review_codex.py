@@ -43,6 +43,83 @@ from github.review_status.verdicts import unavailable_of  # noqa: E402 — the o
 def parsed(text):
     return unavailable_of({"body": text})
 
+
+def socket_closed_port() -> str:
+    """A loopback URL nothing listens on: bound to learn a free port, then closed."""
+    import socket
+    with socket.socket() as sock:
+        sock.bind(("127.0.0.1", 0))
+        return f"http://127.0.0.1:{sock.getsockname()[1]}"
+
+
+STREAM_OK = (b'event: response.created\ndata: {"type":"response.created"}\n\n'
+             b'event: response.completed\ndata: {"type":"response.completed"}\n\n')
+
+
+def probe_standin(state: str):
+    """The gateway's /responses as the probe sees it, answering as the file `probe-mode` in `state` says (ok when
+    absent) and recording each request (headers, body) in `probe-calls`. Returns (server, base_url); the caller shuts it
+    down. A mode is one of: ok, 503, allowance, capacity, hang, incomplete, errorstream."""
+
+    class Handler(http.server.BaseHTTPRequestHandler):
+        def log_message(self, *a):
+            pass
+
+        def do_POST(self):
+            body = self.rfile.read(int(self.headers.get("Content-Length") or 0)).decode("utf-8", "replace")
+            with open(os.path.join(state, "probe-calls"), "a") as f:
+                f.write(json.dumps({"path": self.path, "headers": dict(self.headers), "body": body}) + "\n")
+            try:
+                with open(os.path.join(state, "probe-mode")) as f:
+                    mode = f.read().strip()
+            except OSError:
+                mode = "ok"
+            status, payload = 200, STREAM_OK
+            if mode == "503":
+                status, payload = 503, b"upstream connect error"
+            elif mode == "allowance":
+                status, payload = 429, b'{"error": {"type": "usage_limit_reached", "message": "The usage limit has been reached"}}'
+            elif mode == "capacity":
+                status, payload = 200, b'event: response.failed\ndata: {"error": {"message": "Selected model is at capacity"}}\n\n'
+            elif mode == "incomplete":
+                payload = b'event: response.created\ndata: {"type":"response.created"}\n\n'
+            elif mode == "errorstream":
+                payload = b'event: error\ndata: {"type":"error","message":"boom"}\n\n'
+            elif mode == "echokey":
+                status, payload = 500, ("bad credential " + (self.headers.get("Authorization") or "")).encode()
+            elif mode == "echoallow":
+                status, payload = 429, ('{"error": {"type": "usage_limit_reached", "message": "refused ' + (self.headers.get("Authorization") or "") + '"}}').encode()
+            elif mode == "hang":
+                time.sleep(4)
+                return
+            elif mode == "stall":
+                # the headers and one event line, then silence: the body read ends however the deadline ends it
+                self.wfile.write(b"HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nContent-Length: 999\r\n\r\n"
+                                 b"event: response.created\ndata: {}\n\n")
+                self.wfile.flush()
+                time.sleep(4)
+                return
+            elif mode == "trickle":
+                # a status line and headers one byte at a time, each inside any per-read timeout: only a deadline over the whole call ends it
+                try:
+                    for b in b"HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nContent-Length: 999\r\n\r\n" * 4:
+                        self.wfile.write(bytes([b]))
+                        self.wfile.flush()
+                        time.sleep(0.3)
+                except OSError:
+                    pass
+                return
+            self.send_response(status)
+            self.send_header("Content-Type", "text/event-stream")
+            self.send_header("Content-Length", str(len(payload)))
+            self.end_headers()
+            self.wfile.write(payload)
+
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    server.daemon_threads = True
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    return server, f"http://127.0.0.1:{server.server_address[1]}"
+
 # The fake codex sees only the environment the engine gives it, so its
 # behaviour and its records go through files at paths written into it.
 FAKE_CODEX = r'''#!%(python)s
@@ -562,6 +639,7 @@ def main() -> int:
         for n in ("codex", "gh"):
             os.chmod(os.path.join(fakebin, n), 0o755)
 
+        gateway, gateway_url = probe_standin(state)
         repo = os.path.join(tmp, "work", "fixture")
         os.makedirs(repo)
 
@@ -598,7 +676,7 @@ def main() -> int:
             with open(os.path.join(state, "mergebase"), "w") as f:
                 f.write(base)
             for n in ("calls", "payload.json", "codex-run.json", "codex-calls", "grandchild", "sandbox-calls", "sandbox-mode",
-                      "reviews.json", "read-fails", "post-fails", "reads"):
+                      "reviews.json", "read-fails", "post-fails", "reads", "probe-mode", "probe-calls"):
                 if os.path.exists(os.path.join(state, n)):
                     os.remove(os.path.join(state, n))
 
@@ -621,7 +699,7 @@ def main() -> int:
         env0.update(PATH=f"{fakebin}:{env0.get('PATH', '')}", GH_STATE=state, GH_REPO="fixture-org/fixture",
                     HOME=home, TMPDIR=scratch, AGENT_FABRIC_ROOT=ROOT, AGENT_FABRIC_OPERATOR=operator,
                     AGENT_FABRIC_STATE_DIR=fabric_state,
-                    AGENT_FABRIC_CODEX_BASE_URL="http://127.0.0.1:18080",
+                    AGENT_FABRIC_CODEX_BASE_URL=gateway_url,
                     AGENT_FABRIC_CODEX_KEY="gw-local-key-123", AGENT_FABRIC_CODEX_MODEL="gpt-test",
                     # What a session carries and Codex must never see.
                     ANTHROPIC_BASE_URL="http://127.0.0.1:9999", ANTHROPIC_API_KEY="sk-ant-session",
@@ -670,6 +748,11 @@ def main() -> int:
         def posted() -> bool:
             return posts() > 0
 
+        def statement_reason() -> str | None:
+            """The reason of the one unavailable statement posted, or None when there was not exactly one."""
+            m = parsed(payload_body()) if unavailables() == 1 else None
+            return m["reason"] if m else None
+
         print("success: Codex runs once, read-only, on the extract, and the review is posted")
         set_pr(); mode("ok")
         r = run("7", req)
@@ -717,7 +800,7 @@ def main() -> int:
         cfg = rec["config"] or ""
         check("config.toml names the gateway's root as a Responses provider",
               'model_provider = "fabric-gateway"' in cfg and "[model_providers.fabric-gateway]" in cfg
-              and 'base_url = "http://127.0.0.1:18080"' in cfg and 'wire_api = "responses"' in cfg
+              and f'base_url = "{gateway_url}"' in cfg and 'wire_api = "responses"' in cfg
               and 'env_key = "AGENT_FABRIC_CODEX_KEY"' in cfg, cfg)
         check("…and never the key itself", "gw-local-key-123" not in cfg, cfg)
         check("no account id set: no http_headers in config.toml", "http_headers" not in cfg and "ChatGPT-Account-ID" not in cfg, cfg)
@@ -798,9 +881,10 @@ def main() -> int:
             with open(os.path.join(state, "sandbox-mode"), "w") as f:
                 f.write(smode)
             r = run("7", req)
-            check(f"{label}: exit 1, said in one line, codex exec never started, nothing posted, the scratch removed",
-                  r.returncode == 1 and text in r.stderr and not codex_ran() and not posted() and scratch_empty(),
-                  (r.returncode, r.stderr[-400:], codex_ran(), posted(), os.listdir(scratch)))
+            check(f"{label}: exit 3, said in one line, codex exec never started, no review posted, the statement says failed, the scratch removed",
+                  r.returncode == 3 and text in r.stderr and not codex_ran() and not posted() and statement_reason() == "failed"
+                  and scratch_empty(),
+                  (r.returncode, r.stderr[-400:], codex_ran(), posted(), statement_reason(), os.listdir(scratch)))
             check(f"{label}: the key is not in the message", "gw-local-key-123" not in r.stderr, r.stderr)
         set_pr(); mode("ok")
         with open(os.path.join(state, "sandbox-mode"), "w") as f:
@@ -1014,7 +1098,8 @@ def main() -> int:
                        ("compaction-nocommand", "ran no command that succeeded (0 failed)")):
             set_pr(); mode(m)
             r = run("7", req)
-            check(f"{m}: exit 1, nothing posted, the reason said", r.returncode == 1 and not posted() and why in r.stderr, r.stderr)
+            check(f"{m}: exit 3, no review posted, the statement says failed, the reason said",
+                  r.returncode == 3 and not posted() and why in r.stderr and statement_reason() == "failed", r.stderr)
 
         for m in ("retried", "eventonly"):
             print(f"a run that read the code ({m}) is posted")
@@ -1036,22 +1121,23 @@ def main() -> int:
             print(f"a failed review ({m}): nothing posted, the reason said")
             set_pr(); mode(m)
             r = run("7", req)
-            check("exit 1", r.returncode == 1, r.stderr)
-            check("the reason is said", "nothing posted" in r.stderr and why in r.stderr, r.stderr)
-            check("nothing posted", not posted())
+            check("exit 3: not run, not a failure", r.returncode == 3, r.stderr)
+            check("the reason is said", "no review posted" in r.stderr and why in r.stderr, r.stderr)
+            check("no review posted, one statement whose reason is crash for an exit and failed for a run that is no review",
+                  not posted() and statement_reason() == ("crash" if m in ("turnfailed", "exit1") else "failed"), (m, statement_reason()))
             check("the scratch is removed", scratch_empty(), os.listdir(scratch))
 
         print("a failed turn's message is the backend's text: said on one line, bounded (review of #229, F3)")
         set_pr(); mode("turnfailed-long")
         r = run("7", req)
         said = next((ln for ln in r.stderr.splitlines() if "codex exited 1" in ln), "")
-        check("exit 1, nothing posted, the message on the reason's line and cut",
-              r.returncode == 1 and not posted() and "first line second line" in said and "x" * 600 not in r.stderr
+        check("exit 3, no review posted, the message on the reason's line and cut, and not in the statement",
+              r.returncode == 3 and not posted() and "second line" not in payload_body() and "first line second line" in said and "x" * 600 not in r.stderr
               and "second line" not in r.stderr.replace(said, ""), r.stderr[:800])
 
         print("the model is unavailable: at capacity is retried after 10, 20, 60 s; the allowance is reported, not retried")
 
-        def inproc(*args: str) -> tuple[int, str, str, list[float]]:
+        def inproc(*args: str, env_over: dict | None = None) -> tuple[int, str, str, list[float]]:
             """main() in this process, so the waits can be replaced: the environment, directory and handlers are
             the run()'s own, and put back."""
             sleeps: list[float] = []
@@ -1062,7 +1148,7 @@ def main() -> int:
             out, err = io.StringIO(), io.StringIO()
             try:
                 os.environ.clear()
-                os.environ.update(env0)
+                os.environ.update({**env0, **(env_over or {})})
                 os.chdir(repo)
                 with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
                     rc = review_codex.main(["codex", *args])
@@ -1122,8 +1208,8 @@ def main() -> int:
                        ("exit1", "a non-zero exit with no failed turn")):
             set_pr(); mode(m)
             rc, out, err, sleeps = inproc("7", req)
-            check(f"{why}: a failed review, exit 1, never retried",
-                  rc == 1 and sleeps == [] and runs_made() == 1 and posts() == 0 and "unavailable" not in err,
+            check(f"{why}: not run, exit 3, never retried, one statement, no review",
+                  rc == 3 and sleeps == [] and runs_made() == 1 and posts() == 0 and unavailables() == 1,
                   (rc, sleeps, runs_made(), err))
         set_pr(); mode("allowance")
         r = run("7", req)
@@ -1226,8 +1312,9 @@ def main() -> int:
                         ("exit1", "a non-zero exit"), ("sleep", "a time budget spent")):
             set_pr(); mode(m_)
             rc, out, err, sleeps = inproc("7", req, *(["--timeout", "0.05"] if m_ == "sleep" else []))
-            check(f"{why}: a failed review, exit 1, no statement (a crash says nothing of availability)",
-                  rc == 1 and not post_lines(), (rc, post_lines(), err))
+            want = {"turnfailed": "crash", "exit1": "crash", "capacity-lookalike": "crash", "sleep": "timeout"}.get(m_, "failed")
+            check(f"{why}: exit 3 and one statement whose reason is {want} (Codex never blocks an arm, 2026-11-12)",
+                  rc == 3 and statement_reason() == want and posts() == 0, (rc, post_lines(), err))
         set_pr(); mode("allowance")
         rc, out, err, sleeps = inproc("7", req, "--no-post")
         m = parsed(out)
@@ -1247,6 +1334,174 @@ def main() -> int:
         check("through the installed entry point: exit 3 and one statement", r.returncode == 3 and unavailables() == 1
               and r.stdout == "", (r.returncode, r.stderr, post_lines()))
 
+        print("the probe: one cheap call through the run's gateway first; any failure to launch or finish is a statement and exit 3")
+
+        def probe_calls() -> list[dict]:
+            try:
+                with open(os.path.join(state, "probe-calls")) as f:
+                    return [json.loads(ln) for ln in f.read().splitlines()]
+            except OSError:
+                return []
+
+        def probe_mode(m: str) -> None:
+            with open(os.path.join(state, "probe-mode"), "w") as f:
+                f.write(m)
+
+        def not_run(label: str, rc: int, err: str, reason: str, *, codex: bool = False) -> None:
+            """The shape every failure kind shares: exit 3, one statement pinned to the head with this reason, no review,
+            codex exec started or not as the kind says, the key nowhere, the scratch gone."""
+            m = parsed(payload_body()) if unavailables() == 1 else None
+            check(f"{label}: exit 3, one statement for the head with reason {reason}, no review",
+                  rc == 3 and m is not None and (m["engine"], m["head"], m["reason"]) == ("codex", head, reason)
+                  and posts() == 0 and runs_made() == (1 if codex else 0) and not codex_ran() == (not codex),
+                  (rc, post_lines(), payload_body()[:200], runs_made(), err))
+            check(f"{label}: the key is in no output and no statement", "gw-local-key-123" not in err and "gw-local-key-123" not in payload_body(), err)
+            check(f"{label}: the scratch is removed", scratch_empty(), os.listdir(scratch))
+
+        set_pr(); mode("ok")
+        rc, out, err, sleeps = inproc("7", req)
+        calls = probe_calls()
+        check("positive control: the probe passes and codex runs as before, once, the review posted, no statement",
+              rc == 0 and posts() == 1 and unavailables() == 0 and runs_made() == 1 and len(calls) == 1, (rc, err, len(calls)))
+        sent = calls[0] if calls else {"headers": {}, "body": "", "path": ""}
+        check("the probe asks /responses of the gateway for the model the run uses, streamed",
+              sent["path"] == "/responses" and json.loads(sent["body"]).get("model") == "gpt-test"
+              and json.loads(sent["body"]).get("stream") is True, sent)
+        check("the key is in the Authorization header alone, never in the body or a URL",
+              sent["headers"].get("Authorization") == "Bearer gw-local-key-123" and "gw-local-key-123" not in sent["body"]
+              and "gw-local-key-123" not in sent["path"], sent)
+        wire = json.dumps(sent)
+        check("no ANTHROPIC_*/CLAUDE_*/OPENAI_* value or name is on the wire, though the session carries them",
+              not any(w in wire for w in ("sk-ant", "oauth-session", "sk-openai", "ANTHROPIC", "CLAUDE", "OPENAI", "s3cret")), wire)
+        check("the probe came before codex: the one probe call precedes the run's records",
+              os.path.getmtime(os.path.join(state, "probe-calls")) <= os.path.getmtime(os.path.join(state, "codex-calls")))
+
+        set_pr(); mode("ok"); probe_mode("503")
+        rc, out, err, sleeps = inproc("7", req)
+        not_run("probe refused (HTTP 503)", rc, err, "probe-failed")
+        check("…it says the probe, not a model", "probe-failed" in err and "HTTP 503" in err, err)
+        set_pr(); mode("ok"); probe_mode("echokey")
+        rc, out, err, sleeps = inproc("7", req)
+        not_run("a probe answer that echoes the credential", rc, err, "probe-failed")
+        check("…the echo is redacted on stderr", "[key]" in err, err)
+        set_pr(); mode("ok"); probe_mode("echoallow")
+        rc, out, err, sleeps = inproc("7", req)
+        not_run("an allowance answer that echoes the credential", rc, err, "allowance")
+        check("…the echo is redacted on stderr too", "[key]" in err, err)
+        set_pr(); mode("ok"); probe_mode("incomplete")
+        rc, out, err, sleeps = inproc("7", req)
+        not_run("a stream that ends without completing", rc, err, "probe-failed")
+        set_pr(); mode("ok"); probe_mode("allowance")
+        rc, out, err, sleeps = inproc("7", req)
+        not_run("allowance spent, seen by the probe", rc, err, "allowance")
+        check("…once, with no wait: an allowance is not retried", sleeps == [] and len(probe_calls()) == 1, (sleeps, len(probe_calls())))
+        set_pr(); mode("ok"); probe_mode("capacity")
+        rc, out, err, sleeps = inproc("7", req)
+        not_run("capacity, seen by the probe", rc, err, "capacity")
+        check("…retried as capacity is: the three waits, four probes", sleeps == [10, 20, 60] and len(probe_calls()) == 4, (sleeps, len(probe_calls())))
+        set_pr(); mode("ok"); probe_mode("hang")
+        saved_bound = review_codex.PROBE_TIMEOUT_S
+        review_codex.PROBE_TIMEOUT_S = 0.5
+        try:
+            t0 = time.monotonic()
+            rc, out, err, sleeps = inproc("7", req)
+            took = time.monotonic() - t0
+        finally:
+            review_codex.PROBE_TIMEOUT_S = saved_bound
+        not_run("probe timeout", rc, err, "probe-timeout")
+        check("…within its bound, not the stand-in's 4 s", took < 3, took)
+        set_pr(); mode("ok"); probe_mode("trickle")
+        review_codex.PROBE_TIMEOUT_S = 1.0
+        try:
+            t0 = time.monotonic()
+            rc, out, err, sleeps = inproc("7", req)
+            took = time.monotonic() - t0
+        finally:
+            review_codex.PROBE_TIMEOUT_S = saved_bound
+        not_run("probe timeout, a gateway trickling its headers", rc, err, "probe-timeout")
+        check("…the deadline is over the whole call: a byte every 0.3 s does not extend it", took < 3, took)
+        review_codex.PROBE_TIMEOUT_S = 0.5
+        try:
+            # the watchdog and the body's own per-read timeout race; which wins must not change the reason
+            for n in range(6):
+                set_pr(); mode("ok"); probe_mode("stall")
+                rc, out, err, sleeps = inproc("7", req)
+                not_run(f"probe timeout, a gateway that stalls after its headers (run {n + 1})", rc, err, "probe-timeout")
+        finally:
+            review_codex.PROBE_TIMEOUT_S = saved_bound
+        check("the bound is seconds, stated", 0 < review_codex.PROBE_TIMEOUT_S <= 30, review_codex.PROBE_TIMEOUT_S)
+
+        set_pr(); mode("ok")
+        dead = socket_closed_port()
+        rc, out, err, sleeps = inproc("7", req, env_over={"AGENT_FABRIC_CODEX_BASE_URL": dead})
+        not_run("gateway unreachable (connection refused)", rc, err, "unreachable")
+
+        set_pr(); mode("allowance")
+        rc, out, err, sleeps = inproc("7", req)
+        not_run("allowance spent, seen by codex", rc, err, "allowance", codex=True)
+        set_pr(); mode("sleep")
+        rc, out, err, sleeps = inproc("7", req, "--timeout", "0.05")
+        not_run("codex timeout", rc, err, "timeout", codex=True)
+        set_pr(); mode("exit1")
+        rc, out, err, sleeps = inproc("7", req)
+        not_run("codex crash", rc, err, "crash", codex=True)
+        set_pr(); mode("ok")
+        rc, out, err, sleeps = inproc("7", req, env_over={"AGENT_FABRIC_CODEX_BIN": os.path.join(tmp, "no-codex")})
+        not_run("binary missing at the start", rc, err, "binary-missing")
+        check("…named on stderr", "no codex binary" in err, err)
+        bad_interp = os.path.join(tmp, "codex-bad-interp")
+        with open(bad_interp, "w") as f:
+            f.write("#!/nonexistent/interpreter\n")
+        os.chmod(bad_interp, 0o755)
+        set_pr(); mode("ok")
+        rc, out, err, sleeps = inproc("7", req, env_over={"AGENT_FABRIC_CODEX_BIN": bad_interp})
+        not_run("binary that cannot be started when the run starts it", rc, err, "binary-missing")
+        set_pr(); mode("ok")
+        rc, out, err, sleeps = inproc("7", req, "--no-post", env_over={"AGENT_FABRIC_CODEX_BIN": os.path.join(tmp, "no-codex")})
+        m = parsed(out)
+        check("--no-post: the missing binary's statement is printed, nothing posted", rc == 3 and m is not None and m["reason"] == "binary-missing"
+              and not post_lines(), (rc, out))
+        set_pr(); mode("ok")
+        r = run("7", req, env={**env0, "AGENT_FABRIC_CODEX_BASE_URL": socket_closed_port()})
+        check("through the installed entry point: an unreachable gateway is exit 3 and one statement",
+              r.returncode == 3 and statement_reason() == "unreachable", (r.returncode, r.stderr))
+
+        set_pr(); mode("ok")
+        rc, out, err, sleeps = inproc("7", req, env_over={"AGENT_FABRIC_CODEX_KEY": "gw-local-key-123\n"})
+        check("a key http cannot carry is refused, exit 1, nothing posted, and the key is not shown",
+              rc == 1 and "gw-local-key-123" not in err and "refused" in err and unavailables() == 0 and posts() == 0 and not codex_ran(),
+              (rc, err))
+
+        print("failures after the probe passed, from the head's own content or local I/O, are statements too")
+        real_extract, real_mkdtemp = review_codex.extract, review_codex.tempfile.mkdtemp
+
+        def bad_extract(*a, **k):
+            raise review_codex.Refused("'tool' is a link out of the head")
+
+        def full_disk(*a, **k):
+            raise OSError(28, "No space left on device")
+        try:
+            review_codex.extract = bad_extract
+            set_pr(); mode("ok")
+            rc, out, err, sleeps = inproc("7", req)
+            not_run("a link out of the head", rc, err, "failed")
+            review_codex.extract = real_extract
+            review_codex.tempfile.mkdtemp = full_disk
+            set_pr(); mode("ok")
+            rc, out, err, sleeps = inproc("7", req)
+            not_run("a full scratch disk", rc, err, "failed")
+        finally:
+            review_codex.extract, review_codex.tempfile.mkdtemp = real_extract, real_mkdtemp
+
+        print("every reason the engine emits is one the arm's reader parses back, with its own words")
+        for reason in review_codex.REASONS:
+            line = review_codex.format_marker(head, reason, "2026-11-12T10:00:00Z")
+            m = parsed(line + "\nhuman\n")
+            check(f"reason {reason}: written, then read by verdicts.unavailable_of", m is not None and m["reason"] == reason and m["head"] == head, line)
+            human = review_codex.unavailable_comment(review_codex.ModelUnavailable(reason, "BACKEND-WORDS-ZZZ", None), head, "2026-11-12T10:00:00Z")
+            check(f"reason {reason}: a human line of fixed text after the marker, no backend words", human.count("\n") == 2
+                  and "BACKEND-WORDS-ZZZ" not in human, human)
+
         print("the marker: formatted and parsed back, strictly")
         good_line = review_codex.format_marker(head, "capacity", "2026-10-13T19:52:10Z")
         check("the line is the spelled contract", good_line == f"<!-- agent-fabric-engine-unavailable v1 engine=codex head={head} "
@@ -1261,7 +1516,7 @@ def main() -> int:
                             ("empty", ""), ("None", None)):
             check(f"not a marker: {label}", parsed(text) is None, text)
         for label, args in (("a short head", (head[:12], "capacity", "2026-10-13T19:52:10Z")),
-                            ("a reason this engine never emits", (head, "crash", "2026-10-13T19:52:10Z"))):
+                            ("a reason this engine never emits", (head, "tantrum", "2026-10-13T19:52:10Z"))):
             try:
                 review_codex.format_marker(*args)
                 refused = False
@@ -1273,9 +1528,9 @@ def main() -> int:
         set_pr(); mode("sleep")
         t0 = time.monotonic()
         r = run("7", req, "--timeout", "0.05")
-        check("exit 1 within the budget", r.returncode == 1 and time.monotonic() - t0 < 30, r.stderr)
+        check("exit 3 within the budget", r.returncode == 3 and time.monotonic() - t0 < 30, r.stderr)
         check("the reason names the budget", "did not answer within" in r.stderr, r.stderr)
-        check("nothing posted", not posted())
+        check("no review posted, the statement says timeout", not posted() and statement_reason() == "timeout", statement_reason())
         check("the scratch is removed", scratch_empty(), os.listdir(scratch))
         gc = int(open(os.path.join(state, "grandchild")).read())
         time.sleep(0.2)
@@ -1507,13 +1762,13 @@ def main() -> int:
             fresh_ledger(); set_pr(); mode(m)
             r = run("7", req)
             rows = ledger_rows()
-            check(f"{why}: exit 1, one row, failed", r.returncode == 1 and len(rows) == 1
+            check(f"{why}: exit 3, one row, failed", r.returncode == 3 and len(rows) == 1
                   and (rows[0]["status"], rows[0]["status_source"]) == ("failed", source), (r.returncode, rows))
         fresh_ledger(); set_pr(); mode("sleep")
         r = run("7", req, "--timeout", "0.05")
         rows = ledger_rows()
         check("the time budget: one row, timeout, a wall time near the budget not the sleep",
-              r.returncode == 1 and len(rows) == 1 and rows[0]["status"] == "timeout" and rows[0]["status_source"] == "codex:timeout"
+              r.returncode == 3 and len(rows) == 1 and rows[0]["status"] == "timeout" and rows[0]["status_source"] == "codex:timeout"
               and 0 < rows[0]["wall_time"] < 30, (r.returncode, rows))
         fresh_ledger(); set_pr(); mode("sleep")
         p = subprocess.Popen([REVIEW, "--engine", "codex", "7", req], env=env0, cwd=repo,
@@ -1536,7 +1791,7 @@ def main() -> int:
             f.write("fail")
         r = run("7", req)
         check("a sandbox that cannot start (the facts known, Codex never run): no row either",
-              r.returncode == 1 and not codex_ran() and ledger_rows() == [], (r.stderr, ledger_rows()))
+              r.returncode == 3 and not codex_ran() and ledger_rows() == [], (r.stderr, ledger_rows()))
         fresh_ledger(); set_pr(); mode("ok")
         os.makedirs(ledger_file)   # a ledger that cannot be written: the path is a directory
         r = run("7", req)
@@ -1579,9 +1834,10 @@ def main() -> int:
             with open(os.path.join(state, "sandbox-mode"), "w") as f:
                 f.write(smode)
             r = run("7", req)
-            check(f"{label}: exit 1, said in one line, codex exec never started, nothing posted, the scratch removed",
-                  r.returncode == 1 and text in r.stderr and not codex_ran() and not posted() and scratch_empty(),
-                  (r.returncode, r.stderr[-400:], codex_ran(), posted(), os.listdir(scratch)))
+            check(f"{label}: exit 3, said in one line, codex exec never started, no review posted, the statement says failed, the scratch removed",
+                  r.returncode == 3 and text in r.stderr and not codex_ran() and not posted() and statement_reason() == "failed"
+                  and scratch_empty(),
+                  (r.returncode, r.stderr[-400:], codex_ran(), posted(), statement_reason(), os.listdir(scratch)))
         work = tempfile.mkdtemp(prefix="extract.", dir=tmp)
         verdict = prove("readable", work)
         check("prove_sandbox called directly refuses a readable canary and leaves neither probe file behind",
@@ -1886,7 +2142,6 @@ def main() -> int:
                 ("the session's Anthropic base URL", {"AGENT_FABRIC_CODEX_BASE_URL": "http://127.0.0.1:9999/"},
                  "ANTHROPIC_BASE_URL"),
                 ("the session's Anthropic key", {"AGENT_FABRIC_CODEX_KEY": "sk-ant-session"}, "Anthropic credential"),
-                ("no codex binary", {"AGENT_FABRIC_CODEX_BIN": os.path.join(tmp, "no-codex")}, "no codex binary"),
                 ("an account id that is not a UUID", {"AGENT_FABRIC_CODEX_ACCOUNT_ID": 'x" }\nmodel = "evil'},
                  "AGENT_FABRIC_CODEX_ACCOUNT_ID"),
                 ("an unknown effort level", {"AGENT_FABRIC_CODEX_EFFORT": "max"}, "reasoning effort")):
@@ -1909,6 +2164,9 @@ def main() -> int:
         check("the scratch is empty after every case", scratch_empty(), os.listdir(scratch))
         check("the working copy is untouched after every case", git("status", "--porcelain") == status_before)
     finally:
+        with contextlib.suppress(NameError):
+            gateway.shutdown()
+            gateway.server_close()
         subprocess.run(["chmod", "-R", "u+w", tmp], check=False)
         shutil.rmtree(tmp, ignore_errors=True)
     print(f"\ntest_review_codex: {'OK' if not fails else f'{fails} FAILED'}")
