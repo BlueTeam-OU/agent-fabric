@@ -2,7 +2,9 @@
 A part of tools/fabric/gzcoord/inbox.py, whose docstring is the contract."""
 from __future__ import annotations
 
+import os
 import re
+import sqlite3
 import sys
 import threading
 from typing import Any, Callable
@@ -70,8 +72,12 @@ def replay(page: Any, channel: str, which: str, me: dict, t: i18n.Printer | None
         msg = None
     if as_json:
         addressed = bool(msg and for_me(msg, me))
+        # carrier / sender_verified say whose the sender is: the relay's record is a claim (ADR-064 rule 9), a journal row
+        # says what its carrier verified.
         print(js.stringify({"addressed": addressed, "seq": rec.get("seq"), "sender": rec.get("sender"), "when": when,
-                            "type": msg["type"], "metadata": msg["metadata"], "text": text}
+                            "type": msg["type"], "metadata": msg["metadata"], "text": text,
+                            "carrier": rec.get("carrier", RELAY_CARRIER),
+                            "sender_verified": bool(rec.get("sender_verified", False))}
                            if addressed else {"addressed": addressed, "seq": rec.get("seq")}))
         return 0 if addressed else 2
     if not msg or not for_me(msg, me):
@@ -84,6 +90,109 @@ def replay(page: Any, channel: str, which: str, me: dict, t: i18n.Printer | None
     print("```text")
     print(text[:-1] if text.endswith("\n") else text)
     print("```")
+    return 0
+
+
+# What replay says of a record the relay (not a journal row) supplied. episodic.DEFAULT_CARRIER is the journal's
+# name for it; kept in step by tests/test_gzcoord_journal_replay.py.
+RELAY_CARRIER = "claude-bridge"
+
+# gzcoord-send's MESSAGE-ID: a UUIDv7. Anything else given to --replay is a relay seq (or a relay's own id), which only the
+# relay can answer.
+MESSAGE_ID = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}", re.ASCII)
+
+
+class JournalUnreadable(Exception):
+    """The journal exists and could not be read (a foreign owner, a newer schema, a locked or damaged file). Never an
+    absent row: an unreadable journal is not "the message is not there"."""
+
+
+def journal_record(ep: Any, which: str) -> dict | None:
+    """The journal's row for a MESSAGE-ID as the relay's record shape plus what the journal knows of its carrier, or None
+    when the journal holds none (or no journal file exists yet). Read through episodic.open_readonly: no write lock, no
+    migration, no row written. An inbound row wins over an outbound one (a message to oneself has both); an outbound row
+    that never left (state failed) is not a message anyone holds."""
+    if not os.path.exists(ep.db_path()):
+        return None
+    try:
+        conn = ep.open_readonly()
+        try:
+            conn.row_factory = sqlite3.Row
+            cols = {r[1] for r in conn.execute("PRAGMA table_info(episodes)")}
+            verified = "sender_verified" if "sender_verified" in cols else "NULL AS sender_verified"
+            row = conn.execute(
+                f"SELECT content, sender, happened_at, carrier, carrier_seq, {verified} FROM episodes "
+                "WHERE message_id=? AND NOT (direction='outbound' AND state='failed') "
+                "ORDER BY direction='inbound' DESC, recorded_at DESC LIMIT 1", (which,)).fetchone()
+        finally:
+            conn.close()
+    except (ep.JournalError, sqlite3.Error) as e:
+        raise JournalUnreadable(str(e)) from None
+    if row is None:
+        return None
+    return {"seq": row["carrier_seq"], "sender": row["sender"], "timestamp": row["happened_at"], "content": row["content"],
+            "carrier": row["carrier"] or "-", "sender_verified": bool(row["sender_verified"]), "journal": True}
+
+
+def replay_journal_row(rec: dict, me: dict, t: i18n.Printer | None = None, as_json: bool = False) -> int:
+    """replay() for a journal row. The lines around the message are the journal's own, untranslated, as the held-page
+    lines are: the dictionaries' replay.* keys say "relay seq", which a carrier row is not."""
+    text = gzmsg.normalize(rec["content"])
+    when = _when(rec)
+    try:
+        msg = gzmsg.parse(text)
+    except gzmsg.NotGzcoord:
+        msg = None
+    addressed = bool(msg and for_me(msg, me))
+    if as_json:
+        print(js.stringify({"addressed": addressed, "seq": rec["seq"], "sender": rec["sender"], "when": when,
+                            "type": msg["type"], "metadata": msg["metadata"], "text": text,
+                            "carrier": rec["carrier"], "sender_verified": rec["sender_verified"]}
+                           if addressed else {"addressed": addressed, "seq": rec["seq"]}))
+        return 0 if addressed else 2
+    who = f"{rec['sender']} ({'verified by' if rec['sender_verified'] else 'claimed to'} {rec['carrier']})"
+    if not addressed:
+        print(f"journal row, from {who}, {when} — not addressed to {me['address']}; body not shown (SPEC §17)")
+        if msg:
+            print(f"  {one_line(msg, t)}")
+        return 2
+    print(f"--- journal row, from {who}, {when} (replay; cursor unchanged)")
+    print("```text")
+    print(text[:-1] if text.endswith("\n") else text)
+    print("```")
+    return 0
+
+
+def history_journal(ep: Any, from_seq: float | None, me: dict, t: i18n.Printer | None = None) -> int:
+    """history() over the journal: what this account kept as received, newest HISTORY_WINDOW, the ones addressed here. Used
+    where there is no relay to ask (none configured, no token, one that does not answer); `from_seq` filters on the carrier's
+    seq, so a row a carrier alone journaled (no seq) is listed only without it."""
+    if not os.path.exists(ep.db_path()):
+        rows: list = []
+    else:
+        try:
+            conn = ep.open_readonly()
+            try:
+                rows = conn.execute("SELECT carrier_seq, happened_at, sender, content FROM episodes WHERE direction='inbound' "
+                                    "ORDER BY happened_at DESC, recorded_at DESC LIMIT ?", (HISTORY_WINDOW,)).fetchall()
+            finally:
+                conn.close()
+        except (ep.JournalError, sqlite3.Error) as e:
+            raise JournalUnreadable(str(e)) from None
+    lines = []
+    for seq, when, sender, content in reversed(rows):
+        if from_seq is not None and (seq is None or seq < from_seq):
+            continue
+        msg = _parse_quiet(content)
+        if msg is None or not for_me(msg, me):
+            continue
+        lines.append(f"  {'-' if seq is None else seq}  {when}  {sender}  {one_line(msg, t)}")
+    print(f"gzcoord history for {me['address']}: {len(lines)} addressed to you in your journal's last {len(rows)} received"
+          " (no relay answered; the cursor does not move)")
+    for line in lines:
+        print(line)
+    if lines:
+        print("the whole message: gzcoord-inbox --replay <message-id>")
     return 0
 
 

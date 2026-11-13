@@ -214,6 +214,7 @@ from .inbox_parts.relay import _relay_up, ensure_relay, RelayError, API_TIMEOUT 
 from .inbox_parts.relay import _OPENER, api, explain_relay_error  # noqa: F401
 from .inbox_parts.records import _records, _when, one_line, _parse_quiet, replay, HISTORY_WINDOW  # noqa: F401
 from .inbox_parts.records import history, RETRANSMISSION_LOOKUP_MS, mark_retransmissions  # noqa: F401
+from .inbox_parts.records import MESSAGE_ID, JournalUnreadable, history_journal, journal_record, replay_journal_row  # noqa: F401
 from .inbox_parts.records import KEYWORD_MIN, KEYWORD_MAX, KeywordError, check_keywords  # noqa: F401
 from .inbox_parts.records import _TOKEN_SPLIT, keyword_hit, REPLAY_CMD  # noqa: F401
 from .inbox_parts.hold import hold_dir, pid_start, pid_alive, hold_status, HOLD_POLL_MS  # noqa: F401
@@ -427,6 +428,37 @@ def main(argv: list[str]) -> int:
         return 0 if h["held"] else 1
     root = inbox_root(who)
     cfg = integration_config(who.get("project"), os.environ, t)
+
+    def own_identity() -> dict:
+        tax_path = gzmsg.find_taxonomy(root)
+        return identity(who, gzmsg.load_taxonomy(tax_path) if tax_path else None)
+
+    def journal_unreadable(e: JournalUnreadable) -> int:
+        print(f"gzcoord-inbox: your journal could not be read: {e}", file=sys.stderr)
+        return 1
+
+    # A MESSAGE-ID is answered from this account's journal first, in every configuration: relay configured or not, up or not,
+    # journal writing on or off (it is read here, never written). Only a relay seq, or a MESSAGE-ID the journal does not hold,
+    # goes on to the relay.
+    if replay_which and MESSAGE_ID.fullmatch(replay_which):
+        try:
+            row = journal_record(_episodic(), replay_which)
+        except JournalUnreadable as e:
+            return journal_unreadable(e)
+        if row is not None:
+            return replay_journal_row(row, own_identity(), t, "--json" in argv)
+        if not cfg["configured"]:
+            print(f"gzcoord inbox: no message {replay_which} in your journal, and no relay is configured to ask", file=sys.stderr)
+            return 1
+
+    def history_from_journal() -> int:
+        try:
+            return history_journal(_episodic(), history_from, own_identity(), t)
+        except JournalUnreadable as e:
+            return journal_unreadable(e)
+
+    if history_given and not cfg["configured"]:
+        return history_from_journal()
     # Not configured is not an error at a session start, and not a guess.
     # Under --until-delivery the session reads stdout only, and "run it again"
     # on an immediate exit 0 would loop it one turn per run: so a refusal
@@ -450,6 +482,8 @@ def main(argv: list[str]) -> int:
     elif up.get("note"):
         print(t("start.error", {"detail": up["note"]}), file=sys.stderr)
     tok = token(root, cfg)
+    if not tok and history_given:
+        return history_from_journal()
     if not tok:
         print(t("start.no-token", {"token_file": cfg["token_env_file"] if cfg.get("token_env_file") is not None
                                    else t("config.no-token-file")}), file=refusal_out)
@@ -480,6 +514,9 @@ def main(argv: list[str]) -> int:
         except Exception as e:  # noqa: BLE001 — any failure of the read is the primary's line
             x = primary.explain(e, t)
             print(x["line"], file=sys.stderr)
+            if history_given:
+                # The relay said why it did not answer; the journal is the record this account holds.
+                return history_from_journal()
             return x["code"] or 1
 
     # Drain mode spends 1 s on the cursor page and lists everything; wait
