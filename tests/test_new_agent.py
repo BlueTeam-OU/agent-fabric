@@ -956,9 +956,9 @@ esac
             check("…its store: identity and the relay credential only — no template, no other name, no issued key",
                   sc == ["provision identity person --host far", "provision share person --name CLAUDE_BRIDGE_AUTH_TOKEN"],
                   sc)
-            check("…handed over and synced as itself, its inbox caught up on the fleet's channel",
+            check("…handed over and synced as itself, no inbox catch-up (nothing of the relay)",
                   open(f"{fk}/taken").read().startswith("-----BEGIN")
-                  and "relay_catchup.py agent-fabric" in calls, calls)
+                  and "relay_catchup" not in calls, calls)
             check("…and never the signing key, terminal or not (ADR-044 rule 3)", signed == [] and "signing" not in calls,
                   calls)
             rc, msg, err, calls = orchestrate("person", "--human", "--dry-run", hosts_path=humans, terminal=True)

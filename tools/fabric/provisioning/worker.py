@@ -32,7 +32,8 @@ CONTRACT, frozen from the shell
           command is found there (a test fakes them)
   stderr  every line, `new-agent: <what>` (the steps numbered as the
           orchestrator's closing numbers them)
-  exit    0 done; 1 a must failed or a refusal; 2 usage (worker_args)
+  exit    0 done; 1 a must failed or a refusal; 2 usage (worker_args); 3 every step ran but something is left open
+          (the account's roster row for the coordinator, its key not yet on origin/main, or no user manager to start the units in: carrier_step.py)
 """
 from __future__ import annotations
 
@@ -52,7 +53,7 @@ sys.path.insert(0, TOOLS)
 import project_clone as pc  # noqa: E402
 import python_pin  # noqa: E402
 import roots  # noqa: E402
-from provisioning import host_platform, host_steps as hs, launch_record as lr, verify as vf, worker_args as wa  # noqa: E402
+from provisioning import carrier_step, host_platform, host_steps as hs, launch_record as lr, verify as vf, worker_args as wa  # noqa: E402
 
 ROOT = os.path.dirname(os.path.dirname(TOOLS))
 PY = "/usr/local/bin/fabric-python"
@@ -78,6 +79,7 @@ class Worker:
     env: Mapping[str, str] = field(default_factory=lambda: os.environ)
     home: str = ""
     group: str = ""
+    py: str = PY
 
     # ── the vocabulary: say, die, run, must, probe, best_effort ──────
 
@@ -123,7 +125,8 @@ class Worker:
 
     # ── as the account, in a login shell ──────────────────────────────
 
-    def as_login_argv(self, argv: list[str], cwd: str | None = None, *, login_shell: bool = True) -> list[str]:
+    def as_login_argv(self, argv: list[str], cwd: str | None = None, *, login_shell: bool = True,
+                      env: list[str] | None = None) -> list[str]:
         """The command as the account, in a LOGIN shell (its profile: what its installers put on PATH). The PATH is
         re-asserted INSIDE the shell: Debian's /etc/profile assigns PATH outright for a non-root login, so what env
         -i set would be gone by the time the command runs (found by the Debian smoke container, which then downloaded
@@ -135,18 +138,18 @@ class Worker:
         and the write beside it see one environment; each login shell costs about 25 execs of /etc/profile.d."""
         p = f"/usr/local/bin:/usr/bin:/bin:{self.home}/.local/bin"
         script = 'export PATH="$AGENT_FABRIC_PATH:$PATH"; cd "${AGENT_FABRIC_CWD:-$HOME}" && exec "$@"'
-        env = [f"HOME={self.home}", f"PATH={p}", f"AGENT_FABRIC_PATH={p}"]
+        pairs = [f"HOME={self.home}", f"PATH={p}", f"AGENT_FABRIC_PATH={p}", *(env or [])]
         if cwd:
-            env.append(f"AGENT_FABRIC_CWD={cwd}")
-        return [*self.sudo, "-n", "-u", self.a.login, "-H", "env", "-i", *env, "bash", "-lc" if login_shell else "-c", script, "_", *argv]
+            pairs.append(f"AGENT_FABRIC_CWD={cwd}")
+        return [*self.sudo, "-n", "-u", self.a.login, "-H", "env", "-i", *pairs, "bash", "-lc" if login_shell else "-c", script, "_", *argv]
 
     def as_login(self, argv: list[str], *, cwd: str | None = None, stdin: str | None = None,
                  timeout: float = CALL_TIMEOUT_S, stderr: int = subprocess.STDOUT,
-                 login_shell: bool = True) -> subprocess.CompletedProcess:
+                 login_shell: bool = True, env: list[str] | None = None) -> subprocess.CompletedProcess:
         """Run it as the account, output captured (stdout and stderr together unless `stderr` says otherwise)."""
         _log("")
         try:
-            return subprocess.run(self.as_login_argv(argv, cwd, login_shell=login_shell), input=stdin, text=True, timeout=timeout,
+            return subprocess.run(self.as_login_argv(argv, cwd, login_shell=login_shell, env=env), input=stdin, text=True, timeout=timeout,
                                   stdout=subprocess.PIPE, stderr=stderr)
         except (OSError, subprocess.TimeoutExpired) as e:
             return subprocess.CompletedProcess(argv, 127, f"{e}\n", None)
@@ -436,10 +439,12 @@ def finish(w: Worker) -> int:
             and w.sudo_test("-d", roots.account_clone(w.home, ".git"))):
         point_origin_at_registry(w, "agent-fabric", a.fabric_remote)
     operator_checkout_step(w)
+    open_: list[str] = []
     if not a.human:     # 7-9 never for a human (ADR-044 rule 2)
         record_launch_provider(w)
         bootstrap_and_bind(w)
         install_client(w)
+        open_ = carrier_step.carrier_steps(w)
         toolchains(w)
         operator_ssh(w)
     # ---- 10. verify, and what is left for a person
@@ -447,7 +452,12 @@ def finish(w: Worker) -> int:
         w.say("dry run: nothing verified")
         return 0
     w.say("10. verification")
-    return verify(w)
+    rc = verify(w)
+    if rc == 0 and open_:
+        for line in open_:
+            w.say(f"open: {line}")
+        return carrier_step.OPEN_EXIT
+    return rc
 
 
 def operator_checkout_step(w: Worker) -> None:
