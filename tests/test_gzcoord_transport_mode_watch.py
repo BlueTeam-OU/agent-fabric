@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import os
 import queue
+import shutil
 import subprocess
 import sys
 import threading
@@ -159,6 +160,13 @@ class Send(unittest.TestCase):
         for text in (None, '{"mode": "relay-record"}', '{"mode": "carrier-only"}'):
             r, relay, agent = self.run_send(text)
             self.assertEqual((r.code, len(relay.posts)), (0, 1), (text, r.err))
+
+
+def tearDownModule():
+    # The protocol suite removes its scratch only at the end of its own main(); imported here, nothing else would, and the
+    # run's "scratch left behind" check (tests/run.py) fails the suite that leaves any.
+    for d in P.SCRATCH:
+        shutil.rmtree(d, ignore_errors=True)
 
 
 if __name__ == "__main__":
