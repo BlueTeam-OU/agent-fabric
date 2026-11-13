@@ -204,7 +204,7 @@ def ask_holder(*, call, cfg: dict, from_: str, holder: str, op: str, args: dict,
     for a list, an id for a claim — never the claimant's role.
 
     With cfg["control_carrier"] "dual" (ADR-029 rule 18) the request also goes
-    to this account's own agentd, which sends it to the holder over InterWeave,
+    to this account's own agentd, which sends it to the holder over the second carrier,
     and the holder's reply on either carrier answers it: a relay that is down
     no longer leaves the holder unreachable. Under any other control_carrier
     nothing differs."""
@@ -229,16 +229,16 @@ def ask_holder(*, call, cfg: dict, from_: str, holder: str, op: str, args: dict,
         relay_error = e
     leg = None
     if dual:
-        # An account has no InterWeave path to itself: a holder that is this account is reached by the relay.
+        # An account has no second-carrier path to itself: a holder that is this account is reached by the relay.
         if holder != from_:
             try:
                 leg = open_leg(request, [holder], min(wait, left()) / 1000)
             except RuntimeError as e:
                 if relay_error is not None:
                     from gzcoord.carrier import control_link
-                    raise control_link.Down(f"{gzcoord.relay_failure(relay_error, cfg.get('relay_url'))}; InterWeave: {e}", relay_error,
+                    raise control_link.Down(f"{gzcoord.relay_failure(relay_error, cfg.get('relay_url'))}; the second carrier: {e}", relay_error,
                                             handed=bool(getattr(e, "handed", False))) from None
-                say(f"InterWeave: {e}; the relay carries alone")
+                say(f"the second carrier: {e}; the relay carries alone")
         if relay_error is not None and leg is None:
             raise relay_error
     relay_up = relay_error is None
@@ -262,7 +262,7 @@ def ask_holder(*, call, cfg: dict, from_: str, holder: str, op: str, args: dict,
                     if leg is None or leg.lost:
                         e.sent = True
                         raise
-                    say("the relay stopped answering; InterWeave carries alone")
+                    say("the relay stopped answering; the second carrier carries alone")
                     relay_up, page = False, None
                 messages = page.get("messages") if isinstance(page, dict) else None
                 for rec in messages if isinstance(messages, list) else []:

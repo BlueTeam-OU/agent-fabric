@@ -166,6 +166,39 @@ class SocketAbsent(unittest.TestCase):
         self.assertIn("XDG_RUNTIME_DIR is not set", json.loads(out.getvalue())["error"])
 
 
+class LegDefences(unittest.TestCase):
+    """What the Server already guarantees, held again at this end: a reply is the request's own, from the sender it claims."""
+
+    def test_a_reply_to_another_request_is_not_this_ones(self):
+        session = mock.Mock(poll=lambda t: [{"event": "reply", "from": BOB, "record": {"in_reply_to": "other"}},
+                                            {"event": "reply", "from": BOB, "record": {"in_reply_to": "mine"}}])
+        self.assertEqual(cc.Leg(session, "mine").replies(0), [(BOB, {"in_reply_to": "mine"})])
+
+    def test_a_record_claiming_another_sender_than_the_authenticated_one_is_not_taken_by_presence(self):
+        record = {"kind": "reply", "in_reply_to": "p1", "from": "h/alice", "data": {"presence": ONLINE}}
+        leg = mock.Mock(lost=False, replies=lambda t: [(BOB, record)])
+        got = presence.ask_presence(from_="h/op", to=[BOB], expect=[BOB], wait_ms=300, cfg=CFG_DUAL, new_id=lambda: "p1",
+                                    call=down(), open_leg=lambda *a: leg)
+        self.assertEqual(got, {BOB: None})
+
+    def test_the_holder_ask_ignores_a_record_claiming_another_sender(self):
+        record = {"kind": "reply", "in_reply_to": "q1", "from": "h/alice", "data": {"pool-list": {"status": "ok"}}}
+        leg = mock.Mock(lost=False, replies=lambda t: [(BOB, record)])
+        got = queue.ask_holder(call=down(), cfg=CFG_DUAL, from_="h/op", holder=BOB, op="pool-list", args={}, new_id=lambda: "q1",
+                               wait_ms=300, open_leg=lambda *a: leg)
+        self.assertIsNone(got)
+        # control: the same record from the holder it claims is the answer
+        ok = dict(record, **{"from": BOB})
+        leg2 = mock.Mock(lost=False, replies=lambda t: [(BOB, ok)])
+        self.assertEqual(queue.ask_holder(call=down(), cfg=CFG_DUAL, from_="h/op", holder=BOB, op="pool-list", args={},
+                                          new_id=lambda: "q1", wait_ms=300, open_leg=lambda *a: leg2), {"status": "ok"})
+
+    def test_a_handed_request_clears_the_relays_status(self):
+        e = gzcoord.ApiError("x", status=502)
+        self.assertIsNone(cc.Down("m", e, handed=True).status)
+        self.assertEqual(cc.Down("m", e).status, 502)
+
+
 class RelayCarrierIsToday(unittest.TestCase):
     """control_carrier relay: the post, the page reads and the sleep, and nothing of the second carrier."""
 

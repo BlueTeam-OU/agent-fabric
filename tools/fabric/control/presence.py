@@ -89,7 +89,7 @@ def ask_presence(*, from_: str, to, expect: list, token: str | None = None, wait
 
     With cfg["control_carrier"] "dual" (ADR-029 rule 18) the request also goes
     to this account's own agentd, which sends it to each other account over
-    InterWeave, and a reply on either carrier answers it: a relay that is down
+    the second carrier, and a reply on either carrier answers it: a relay that is down
     no longer leaves every addressee unknown. The relay post still goes first,
     and under any other control_carrier nothing below the post differs."""
     def default_call(path, method="GET", body=None):
@@ -111,7 +111,7 @@ def ask_presence(*, from_: str, to, expect: list, token: str | None = None, wait
     if dual:
         # Unbounded waits (wait_ms inf) are the suite's; a socket's wait_s is finite.
         wait_s = wait_ms / 1000 if math.isfinite(wait_ms) else 86400.0
-        # An account has no InterWeave path to itself: its own presence is the relay's.
+        # An account has no second-carrier path to itself: its own presence is the relay's.
         targets = [a for a in (list(dict.fromkeys(expect))) if a != from_]
         if targets:
             try:
@@ -119,9 +119,9 @@ def ask_presence(*, from_: str, to, expect: list, token: str | None = None, wait
             except RuntimeError as e:
                 if relay_error is not None:
                     from gzcoord.carrier import control_link
-                    raise control_link.Down(f"{str(relay_error).split(chr(10))[0]}; InterWeave: {e}", relay_error,
+                    raise control_link.Down(f"{str(relay_error).split(chr(10))[0]}; the second carrier: {e}", relay_error,
                                             handed=bool(getattr(e, "handed", False))) from None
-                say(f"InterWeave: {e}; the relay carries alone")
+                say(f"the second carrier: {e}; the relay carries alone")
         if relay_error is not None and leg is None:
             raise relay_error
     out = {a: None for a in expect}
@@ -147,7 +147,7 @@ def ask_presence(*, from_: str, to, expect: list, token: str | None = None, wait
                 except Exception as e:  # noqa: BLE001
                     if leg is None or leg.lost:
                         raise
-                    say(f"the relay stopped answering ({str(e).split(chr(10))[0]}); InterWeave carries alone")
+                    say(f"the relay stopped answering ({str(e).split(chr(10))[0]}); the second carrier carries alone")
                     relay_up, page = False, None
                 messages = prop(page, "messages") if page is not None else []
                 for rec in messages if isinstance(messages, list) else []:
