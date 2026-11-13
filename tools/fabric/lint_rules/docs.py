@@ -42,6 +42,11 @@ HARNESS_SOURCE = os.path.join("runtime", "claude-code", "harness", "en.md")
 HARNESS_PLACEHOLDER = "{memory_dir}"
 
 
+# The one adr finding about the pair rather than a tree (adr.check), worded
+# alike from either side; matched at its start so no other text can pass for it.
+BOTH_TREES = re.compile(r"ADR-\d{3} has a record in both trees ")
+
+
 def adr_findings(root: str | None = None) -> list[str]:
     """docs/adr/: tools/fabric/adr.py's check, as lint findings (agent-fabric
     ADR-001). Absent in a fixture fabric that has no records, which is fine."""
@@ -65,7 +70,7 @@ def adr_findings(root: str | None = None) -> list[str]:
     # side and said once; every other finding names a tree's own defect, and
     # the same text from both (a stale index in each) is two defects.
     ours = adr.check(tree, other=engine)
-    theirs = [f for f in adr.check(engine, other=tree) if not (f in ours and "record in both trees" in f)]
+    theirs = [f for f in adr.check(engine, other=tree) if not (f in ours and BOTH_TREES.match(f))]
     return [f"adr: {f}" for f in ours] + [f"adr (engine tree): {f}" for f in theirs]
 
 

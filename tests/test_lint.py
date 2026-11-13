@@ -242,6 +242,10 @@ def case_adr_lint_checks_both_trees_of_a_split() -> None:
                 os.remove(os.path.join(t, "docs/adr/index.json"))
             stale = [f for f in docs.adr_findings(engine) if "index.json" in f]
             assert len(stale) == 2 and sum("engine tree" in f for f in stale) == 1, stale
+            # The one finding about the pair, a record in both trees, is said once.
+            shutil.copy(os.path.join(operator, test_adr.ONE), os.path.join(engine, test_adr.ONE))
+            both = [f for f in docs.adr_findings(engine) if "record in both trees" in f]
+            assert len(both) == 1 and "ADR-001" in both[0], both
         finally:
             if saved is None:
                 os.environ.pop("AGENT_FABRIC_OPERATOR", None)
