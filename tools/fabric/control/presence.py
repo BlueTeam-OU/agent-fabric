@@ -130,6 +130,9 @@ def ask_presence(*, from_: str, to, expect: list, token: str | None = None, wait
     # A sent record with no id pages from "undefined", as URLSearchParams wrote it.
     since = sent["id"] if isinstance(sent, dict) and "id" in sent else "undefined"
     relay_up = relay_error is None
+    if not relay_up:
+        say(f"the relay post failed ({str(relay_error).splitlines()[0] if str(relay_error) else type(relay_error).__name__}); the second carrier carries alone")
+    lost_said = False
 
     def take(r, sender) -> None:
         presence = prop(prop(r, "data"), "presence")
@@ -162,6 +165,9 @@ def ask_presence(*, from_: str, to, expect: list, token: str | None = None, wait
                     # The roster's address for the PeerId, which the record must also claim.
                     if record.get("from") == sender:
                         take(record, sender)
+            if leg is not None and leg.lost and not lost_said:
+                lost_said = True
+                say("the second carrier's connection to this account's agentd closed before the answers were in")
             if want and (relay_up or (leg is not None and not leg.lost)):
                 if relay_up:
                     sleep(POLL_S)

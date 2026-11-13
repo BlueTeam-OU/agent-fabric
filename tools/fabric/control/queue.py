@@ -242,6 +242,9 @@ def ask_holder(*, call, cfg: dict, from_: str, holder: str, op: str, args: dict,
         if relay_error is not None and leg is None:
             raise relay_error
     relay_up = relay_error is None
+    if not relay_up:
+        say(f"the relay post failed ({gzcoord.relay_failure(relay_error, cfg.get('relay_url'))}); the second carrier carries alone")
+    lost_said = False
     deadline = clock() + min(wait, left())
     since = sent["id"] if isinstance(sent, dict) and "id" in sent else "undefined"
 
@@ -282,6 +285,9 @@ def ask_holder(*, call, cfg: dict, from_: str, holder: str, op: str, args: dict,
                     answer = taken(record, sender) if record.get("from") == sender else None
                     if answer is not None:
                         return answer
+            if leg is not None and leg.lost and not lost_said:
+                lost_said = True
+                say("the second carrier's connection to this account's agentd closed before the holder answered")
             if relay_up:
                 sleep(POLL_S)
             elif leg is None or leg.lost:

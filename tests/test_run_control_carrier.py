@@ -60,5 +60,17 @@ class EverySuiteThatRunsCtlPinsItself(unittest.TestCase):
         self.assertEqual(missing, [], "these suites drive fabric-ctl in-process and do not pin the carrier")
 
 
+class EverySuiteThatRunsPresenceOrQueuePinsItself(unittest.TestCase):
+    """presence.py and queue.py read control_carrier too (W12): a suite that runs them as a subprocess with the
+    environment it inherited would dial the live agentd socket under the committed "dual" (j235 review F1)."""
+
+    def test_each_suite_that_spawns_them_pins_the_carrier(self) -> None:
+        # The list is the contract: a new suite that spawns presence.py or queue.py is added to it.
+        pin = re.compile(r"""os\.environ\[["']FABRIC_CONTROL_CARRIER["']\]\s*=""")
+        pinned = [n for n in ("test_presence_cli.py", "test_gzcoord_protocol.py", "test_jobs.py", "test_job_state.py")
+                  if pin.search(open(os.path.join(HERE, "tests", n), encoding="utf-8").read())]
+        self.assertEqual(pinned, ["test_presence_cli.py", "test_gzcoord_protocol.py", "test_jobs.py", "test_job_state.py"])
+
+
 if __name__ == "__main__":
     unittest.main()

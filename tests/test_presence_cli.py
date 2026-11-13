@@ -22,6 +22,9 @@ import threading
 import urllib.parse
 
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+# Under the committed control_carrier "dual" the presence and queue subprocesses of this suite would dial the
+# running account's live agentd socket when it runs alone, outside tests/run.py's pin (j235 review F1); test_run_control_carrier checks.
+os.environ["FABRIC_CONTROL_CARRIER"] = "relay"
 PRESENCE = os.path.join(HERE, "tools", "fabric", "control", "presence.py")
 TOKEN = "tok-presence-fixture-SECRET"
 

@@ -735,6 +735,10 @@ class Server:
             self.carrier.unwatch(rid)
 
 
+class SessionRefused(RuntimeError):
+    """The agentd read the request and refused it: it sent nothing."""
+
+
 class Session:
     """fabric-ctl's end: connect, hand over the request, read the sends' outcomes, then take replies as they
     come. Any failure to reach the operator's agentd is a RuntimeError the caller says in one line; the relay
@@ -786,7 +790,7 @@ class Session:
                 elif ev.get("event") == "sent-all":
                     return replies
                 elif ev.get("event") == "refused":
-                    raise RuntimeError(f"the operator's agentd refused the sends: {js.string(ev.get('why'))}")
+                    raise SessionRefused(f"the operator's agentd refused the sends: {js.string(ev.get('why'))}")
                 elif ev.get("event") == "reply":
                     replies.append(ev)
         raise RuntimeError("the operator's agentd did not finish the sends in time")
@@ -797,6 +801,9 @@ class Session:
     def close(self) -> None:
         with contextlib.suppress(OSError):
             self._conn.close()
+
+
+_NEVER_SENT = ("this account", "no roster row", "the InterWeave channel is", "the child's input is closed", "the child does not drain")
 
 
 class Down(Exception):
@@ -849,11 +856,16 @@ class Leg:
             # made (the socket absent, refused) sent nothing.
             if session is not None:
                 session.close()
-            raise LegFailed(str(e), handed=session is not None) from e
+            # Session's words are fabric-ctl's, run by the operator; here it is this account's own agentd.
+            raise LegFailed(str(e).replace("the operator's agentd", "this account's agentd"),
+                            handed=session is not None and not isinstance(e, SessionRefused)) from e
         lost = sorted(a for a, (ok, _why) in session.sent.items() if not ok)
         if len(lost) == len(session.sent):
             session.close()
-            raise LegFailed(f"not sent to {', '.join(f'{a} ({session.sent[a][1]})' for a in lost)}")
+            # Only a send that never reached the child is certainly unsent; a settle that timed out wrote its line,
+            # and the child may still deliver it.
+            certain = all(session.sent[a][1].startswith(_NEVER_SENT) for a in lost)
+            raise LegFailed(f"not sent to {', '.join(f'{a} ({session.sent[a][1]})' for a in lost)}", handed=not certain)
         return cls(session, record["id"], early)
 
     def replies(self, timeout_s: float) -> list[tuple[str, dict]]:

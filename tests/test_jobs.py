@@ -14,6 +14,9 @@ import subprocess
 import sys
 import tempfile
 import threading
+# Under the committed control_carrier "dual" the presence and queue subprocesses of this suite would dial the
+# running account's live agentd socket when it runs alone, outside tests/run.py's pin (j235 review F1); test_run_control_carrier checks.
+os.environ["FABRIC_CONTROL_CARRIER"] = "relay"
 from instance_fixtures import write_operator_projects  # noqa: E402 — tests/, the script's own directory
 import hook_harness  # noqa: E402 — tests/, the script's own directory
 import jobs_world  # noqa: E402 — tests/, the script's own directory

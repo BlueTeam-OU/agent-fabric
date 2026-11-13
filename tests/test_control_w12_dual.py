@@ -199,6 +199,71 @@ class LegDefences(unittest.TestCase):
         self.assertEqual(cc.Down("m", e).status, 502)
 
 
+class ReviewRound1(unittest.TestCase):
+    def setUp(self) -> None:
+        patch = mock.patch.dict(os.environ)
+        patch.start()
+        self.addCleanup(patch.stop)
+
+    def leg_with(self, events, sent):
+        """Leg.open over a stand-in Session whose wait_sent plays `events`."""
+        class S:
+            def __init__(s, *a):
+                s.sent = {}
+            def wait_sent(s, t):
+                for k, v in sent.items():
+                    s.sent[k] = v
+                if isinstance(events, Exception):
+                    raise events
+                return []
+            def close(s):
+                pass
+        os.environ["XDG_RUNTIME_DIR"] = "/run/user/1"
+        return mock.patch.object(cc, "Session", S)
+
+    def test_an_agentd_refusal_sent_nothing_so_the_relays_own_status_stays(self):    # F2
+        with self.leg_with(cc.SessionRefused("the operator's agentd refused the sends: x"), {}):
+            with self.assertRaises(cc.LegFailed) as cm:
+                cc.Leg.open({"id": "r"}, [BOB], 1)
+        self.assertFalse(cm.exception.handed)
+        e = gzcoord.ApiError("x", status=401)
+        self.assertEqual(cc.Down("m", e, handed=cm.exception.handed).status, 401)
+
+    def test_a_send_that_timed_out_at_the_child_is_unknown_and_one_that_never_reached_it_is_not(self):   # F3
+        for why, handed in (("no answer from the child in 5 s", True), ("no roster row", False), ("the child does not drain its input", False)):
+            with self.leg_with([], {BOB: (False, why)}):
+                with self.assertRaises(cc.LegFailed) as cm:
+                    cc.Leg.open({"id": "r"}, [BOB], 1)
+            self.assertEqual(cm.exception.handed, handed, why)
+
+    def test_this_accounts_agentd_is_not_called_the_operators(self):   # F5
+        with self.leg_with(RuntimeError("the operator's agentd did not finish the sends in time"), {}):
+            with self.assertRaises(cc.LegFailed) as cm:
+                cc.Leg.open({"id": "r"}, [BOB], 1)
+        self.assertIn("this account's agentd", str(cm.exception))
+        self.assertNotIn("operator", str(cm.exception))
+
+    def test_a_relay_that_failed_and_a_leg_lost_midway_are_both_said(self):   # F4
+        class Dies:
+            lost = False
+            def replies(s, t):
+                s.lost = True
+                return []
+            def close(s):
+                pass
+        said = []
+        got = presence.ask_presence(from_="h/op", to=[BOB], expect=[BOB], wait_ms=300, cfg=CFG_DUAL, new_id=lambda: "p", call=down(),
+                                    open_leg=lambda *a: Dies(), say=said.append)
+        self.assertEqual(got, {BOB: None})
+        self.assertTrue(any("relay post failed" in m for m in said), said)
+        self.assertTrue(any("closed before the answers" in m for m in said), said)
+        said.clear()
+        self.assertIsNone(queue.ask_holder(call=down(), cfg=CFG_DUAL, from_="h/op", holder=BOB, op="pool-list", args={}, new_id=lambda: "q",
+                                           wait_ms=300, open_leg=lambda *a: Dies(), say=said.append))
+        self.assertTrue(any("relay post failed" in m for m in said), said)
+        self.assertTrue(any("closed before the holder" in m for m in said), said)
+
+
 class RelayCarrierIsToday(unittest.TestCase):
     """control_carrier relay: the post, the page reads and the sleep, and nothing of the second carrier."""
 
