@@ -5,11 +5,14 @@
 **Decision Makers:** the owner; drafted by fabric-coordinator
 **Scope:** <what this governs: files, tools, roles, practices>
 **Pillar:** P1
+**Class:** engine
 **Evidence:** docs/live-checks/YYYY-MM-DD-slug.md
 
 <!-- Status: Proposed | Accepted | Superseded (→ ADR-NNN) | Deprecated.
      Accepted needs, on its own line:
      **Ratified:** owner, YYYY-MM-DD, <commit | relay seq | PR — where the owner's word is>
+     Class is engine (holds for anyone who runs the fabric) or organisational
+     (this organisation's own choice; it moves to the operator with its number).
      Evidence is optional; every path in it must exist. The body states the
      decision: no "(the owner, date)" attributions (ADR-001 §5 rule 10).
      Delete this comment. -->

@@ -8,6 +8,7 @@
       "status": "Accepted",
       "date": "2026-09-27",
       "pillar": "all",
+      "class": "engine",
       "amendments": 0
     },
     {
@@ -17,6 +18,7 @@
       "status": "Accepted",
       "date": "2026-09-27",
       "pillar": "P2",
+      "class": "engine",
       "amendments": 0
     }
   ]

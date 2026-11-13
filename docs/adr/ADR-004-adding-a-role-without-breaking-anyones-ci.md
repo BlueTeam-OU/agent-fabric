@@ -6,6 +6,7 @@
 **Decision Makers:** fabric-coordinator, after the merge-queue failure of 2026-09-17 (relay seq 1076)
 **Scope:** adding a role to the fabric and binding it in a managed project: identities/roles/, identities/roles/catalog.json, runtime/hosts/registry.json, projects/registry.json, a project's .agent-fabric/, the first drain, runtime/provisioning/new-agent.sh
 **Pillar:** P1
+**Class:** engine
 
 ## 1. Context and Problem
 

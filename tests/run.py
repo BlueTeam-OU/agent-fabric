@@ -128,6 +128,10 @@ def run_environment(environ: dict[str, str], scratch: str) -> dict[str, str]:
     # Likewise the account's routing/profiles.json agent layer: a case that forgot its fixture read the running
     # login's launch_provider (j438, j523). Set on every run, slot or none, so resume.SUITE_MARKER reads no profile.
     env["AGENT_FABRIC_SUITE_RUN"] = "1"
+    # Likewise the committed control_carrier (ADR-029 rule 18): with the fleet on "dual", an in-process fabric-ctl
+    # case appended its fixture replies to the running account's real control-arrivals.jsonl, the parity report's
+    # source, and dialled its live agentd socket (#583 F1). The run pins the relay; the dual cases set it themselves.
+    env["FABRIC_CONTROL_CARRIER"] = "relay"
     # Likewise the account's commit signing: a gpg key with a timestamp that needs the network made five suites'
     # fixture commits fail offline, green in CI and red on the account that signs. Git's environment config outranks
     # every file, so the run's sandboxes never sign.

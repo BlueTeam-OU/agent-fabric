@@ -29,6 +29,13 @@ GIT = shutil.which("git") or "/usr/bin/git"
 HTTPS = "https://example.invalid/o/gzapp"
 
 
+# The committed control_carrier may be "dual" (ADR-029 rule 18): an in-process fabric-ctl run would then append
+# its fixture replies to the account's real control-arrivals.jsonl and dial its live agentd when this suite runs
+# alone, outside tests/run.py's own pin (#583 F1). Each in-process ctl suite sets the carrier it means, this one the
+# relay; test_run_control_carrier checks.
+os.environ["FABRIC_CONTROL_CARRIER"] = "relay"
+
+
 def git(*argv: str, cwd: str | None = None) -> str:
     env = {"PATH": os.environ["PATH"], "HOME": "/nonexistent", "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_SYSTEM": os.devnull,
            "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t", "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@t"}

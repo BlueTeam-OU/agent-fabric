@@ -184,7 +184,7 @@ def main() -> int:
           "subject-6-other" in r.stdout and w.acks[-1] == "r6b", f"{r.stdout}{r.stderr}")
     w.close()
 
-    # ── --replay and --history read the relay's record and nothing else ───────────────────────────────────────────────
+    # ── --replay and --history read the relay's record and the journal, and write nothing ───────────────────────────────────────────────
     w = C.World([[C.relay_rec(1)]], carrier_records=[C.urec(2)])
     w.drain()
     w.history = [C.relay_rec(1)]
@@ -198,7 +198,7 @@ def main() -> int:
           and before == (w.ledger_lines(), w.read("gzcoord-arrivals.jsonl"), w.read("gzcoord-acks.jsonl"), list(w.acks)),
           f"{rp.stdout}{rp.stderr}\n{rj.stdout}\n{hi.stdout}{hi.stderr}\n{before}")
     rc = inbox("--replay", C.mid(2))
-    check("a message only the carrier brought is not in the relay's record: --replay of its MESSAGE-ID is exit 1, and --history does not list it",
+    check("a message in neither the relay's record nor the journal (this fake carrier journals nothing): --replay of its MESSAGE-ID is exit 1, and --history does not list it",
           rc.returncode == 1 and "no message" in rc.stderr and C.mid(2) not in hi.stdout, f"{rc.returncode}\n{rc.stdout}{rc.stderr}\n{hi.stdout}")
     w.close()
     big = C.urec(3)

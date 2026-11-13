@@ -6,6 +6,7 @@
 **Decision Makers:** the owner; drafted by fabric-coordinator
 **Scope:** fabric-pr gate (`--in-flight`, `--overlap`, `--path`) and fabric-pr trial-merge, shims of tools/fabric/github/pr_gate.py and trial_merge.py (ADR-040); projects/gzapp/integration/gh/trial.json (a project's declared check); tests/test_pr_gate_cli.py, tests/test_trial_merge_cli.py
 **Pillar:** P3
+**Class:** engine
 **Evidence:** docs/live-checks/2026-09-26-in-flight-and-trial-merge.md
 
 ## 1. Context and Problem

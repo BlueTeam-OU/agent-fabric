@@ -197,8 +197,10 @@ def replay_wait() -> float:
 
 
 def fetch_message(which: str) -> dict:
-    """The message, read the way `gzcoord-inbox --replay` reads it: the
-    relay's recent history, the body only when addressed to this login."""
+    """The message, read the way `gzcoord-inbox --replay` reads it: a MESSAGE-ID from this account's own journal first (the
+    relay down, or none configured, makes no difference to a message the account already holds), else the relay's recent
+    history; the body only when addressed to this login. The inbox's process is the one reader, so this and --replay cannot
+    answer differently."""
     wait = replay_wait()
     try:
         p = subprocess.run([INBOX, "--replay", which, "--json"], capture_output=True, text=True, timeout=wait)

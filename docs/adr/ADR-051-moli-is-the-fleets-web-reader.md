@@ -6,6 +6,7 @@
 **Decision Makers:** the owner (agents may go on the internet through moli; reading now, scripted browsing once a live test passed, which it did on 2026-10-11); drafted by fabric-coordinator
 **Scope:** `projects/registry.json` (the `moli` account tool of every project), `tools/fabric/tools_install.py` (unchanged; installs it), `policies/moli-web/SKILL.md`, `tools/fabric/bootstrap.py` (`SKILLS`), `runtime/claude-code/commands.json` (`also_allowed`, `also_asked`), `policies/auto-mode.json` and `runtime/claude-code/user-settings.py`; how an agent reads a web page and which browser serves which task
 **Pillar:** P1
+**Class:** engine
 **Evidence:** docs/live-checks/2026-10-10-moli-spike.md
 
 ## 1. Context and Problem

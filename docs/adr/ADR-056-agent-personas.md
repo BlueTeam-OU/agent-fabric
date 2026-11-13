@@ -1,11 +1,12 @@
-# ADR-056 — Agent personas: "AI <Name> <Surname>", a scientist's surname each, an avatar the agent accepts, always marked as AI
+# ADR-056 — Agent personas: "AI <Name> <Surname>", a surname from the operator's list each, an avatar the agent accepts, always marked as AI
 
 **Date:** 2026-10-13
 **Status:** Accepted
 **Ratified:** owner, 2026-10-13, in the session ("ADR-056 accepted")
 **Decision Makers:** the owner; drafted by fabric-coordinator
-**Scope:** each agent's persona — its name, its sex for the image, its avatar — kept in `settings/profile.json` of its repository `fabric-agent-<id>` (ADR-038, ADR-039); the surname list `identities/personas/surnames.json` and the claims `identities/personas/claims.json`; how a persona is displayed (the Fleet Deck, the Board, GZCoord, pull requests); the avatar style, owned by brand-comms; ADR-033 §5 rule 3
+**Scope:** each agent's persona — its name, its sex for the image, its avatar — kept in `settings/profile.json` of its repository `fabric-agent-<id>` (ADR-038, ADR-039); the surname list `identities/personas/surnames.json` (its theme is the operator's, ADR-071 here) and the claims `identities/personas/claims.json`; how a persona is displayed (the Fleet Deck, the Board, GZCoord, pull requests); the avatar style, which is the operator's (ADR-071 here); ADR-033 §5 rule 3
 **Pillar:** P2
+**Class:** engine
 
 ## 1. Context and Problem
 
@@ -20,12 +21,12 @@ A persona must improve the encounter without ever passing for a person.
 
 ## 2. Decision
 
-Each agent has a persona: a surname claimed from a curated list of
-scientists from all over the world (by provisioning, when the owner chose
+Each agent has a persona: a surname claimed from the operator's curated list (its theme is
+the operator's, ADR-071 here) (by provisioning, when the owner chose
 it, else by the agent), a sex (F or M) the agent chooses only so its
 avatar keeps a consistent appearance, then a first name of that sex it
 chooses, and an avatar in
-the fabric's own anime style that it may reject until it accepts one. The
+the operator's house style (ADR-071 here) that it may reject until it accepts one. The
 persona is shown only behind the prefix "AI": "AI Ada Maxwell", or "AI
 Ada · Python Dev" beside the role. It belongs to the agent id, so a login
 rename or a rebind changes nothing of it.
@@ -49,9 +50,8 @@ sex chosen is for the image's appearance only.
 
 The prefix "AI" carries the disclosure in the name itself, so no surface
 can show the persona without it; an illustrated avatar cannot be taken
-for a photograph. Surnames from scientists give a shared, respectable
-theme across cultures; excluding weapons work keeps the theme from
-honouring what the owner will not. One agent per surname makes a surname
+for a photograph. The naming theme and the house style are the
+operator's choices (ADR-071 here). One agent per surname makes a surname
 alone unambiguous. Letting the agent reject its avatar makes the image
 its own rather than imposed.
 
@@ -75,16 +75,12 @@ its own rather than imposed.
    by its login; the login appears only where a machine needs it (an
    address, a command, a branch). `fabric-persona <login>` prints the
    name. No surface shows the name without the prefix (A 2026-10-13).
-3. The surname comes from `identities/personas/surnames.json`:
-   scientists from all over the world, deceased, none who knowingly
-   worked toward a weapon — what matters is the intention: designing,
-   building, testing, directing or producing for one, or research done
-   for a weapon's end use; theory published without a weapon in view,
-   which others later used, does not exclude; where the record is mixed
-   the owner judges, and the entry says so — each entry naming
-   its person and the reason it passed, each removed name listed with
-   its reason. fabric-coordinator curates it and the owner checks it;
-   an addition passes the same test.
+3. The surname comes from `identities/personas/surnames.json`, each
+   entry naming its person and the reason it passed, each removed name
+   listed with its reason. Which names qualify, and the test an
+   addition passes, is the operator's naming theme, in its own record
+   (ADR-071 here) (A 2026-11-12). fabric-coordinator curates the list
+   and the owner checks it.
 4. One agent per surname: the first claim wins, and the claim is
    recorded in `identities/personas/claims.json` with the agent's first
    name (and its pronoun, if it asked for one): the public directory
@@ -99,27 +95,25 @@ its own rather than imposed.
    claim wins, first name and surname alike.
 5. The agent chooses its sex first (rule 6), then its first name: a
    name of that sex, from the culture its surname comes from (the
-   entry's `from`), whatever the scientist's own sex, so a name, a sex
-   and a surname belong together (A 2026-10-15); a language-culture
-   agent claims a surname of its own culture. No persona is the name of
-   a famous real person.
+   entry's `from`), whatever the sex of the person the surname comes
+   from, so a name, a sex
+   and a surname belong together (A 2026-10-15). What else the operator
+   asks of a name is its theme's (ADR-071 here) (A 2026-11-12).
 6. The sex is chosen before the first name, and only for the avatar's
    appearance; it is kept in the profile, never in the claim. The fabric keeps
    no gender; a pronoun is recorded only when the agent asks for one:
    an agent that does not want "he" or "she" may ask to be called "it",
    and that request is kept in its profile.
-7. The avatar is drawn in the fabric's own style — warm, hand-painted
-   anime, soft watercolour backgrounds — written down once by
-   brand-comms, who generate the avatars; never in a named studio's
-   style, never resembling the scientist the surname comes from. A
+7. The avatar is drawn in the operator's house style (ADR-071 here)
+   (A 2026-11-12), never resembling the person the surname comes from. A
    candidate waits in `/usr/local/share/agent-fabric/avatars/<agent
-   id>/<n>.png` on the agents' host, written by brand-comms alone and
-   readable by every agent; it is working material, not a setting. The
-   agent sees each image and may reject it any number of times; only an
-   accepted avatar is shown. A rejected image is kept beside the
-   accepted one, `settings/avatar-rejected/<n>.png`, with a text file of
-   the same name, `<n>.txt`, saying who rejected it (login and persona),
-   when, and the reason if one was given.
+   id>/<n>.png` on the agents' host, written by the role that generates
+   avatars alone and readable by every agent; it is working material,
+   not a setting. The agent sees each image and may reject it any number
+   of times; only an accepted avatar is shown. A rejected image is kept
+   beside the accepted one, `settings/avatar-rejected/<n>.png`, with a
+   text file of the same name, `<n>.txt`, saying who rejected it (login
+   and persona), when, and the reason if one was given.
 8. A persona changes nothing of identity or authorship: the login is the
    agent and the id its record (ADR-002, ADR-039); git authorship and
    the `Fabric-Role:` trailer stay; no machine attribution appears in a
@@ -156,6 +150,7 @@ rather than a named studio's. ADR-033 §5 rule 3 is clarified with it.
 
 - ADR-002 (identity), ADR-033 §5 rule 3 (no human-style identity),
   ADR-038 and ADR-039 (the agent's repository and id).
+- ADR-071 — this organisation's naming theme and house style, moved out of rules 3, 5 and 7 by the split.
 - `identities/personas/surnames.json`.
 
 ## Amendments
@@ -168,3 +163,4 @@ The body above reads current; each change's full note is in [history/ADR-056-ame
 | 2026-10-13 | An agent is named with its role as people say it, from a public directory | §5 rule 2: "AI <Name> <Surname>, <role>" with the short title, never the login where people read; rule 4: claims carry the first name |
 | 2026-10-15 | Provisioning claims the surname; the agent chooses its sex, then a first name of that sex | §2; §5 rule 4: new-agent --surname claims it, first_name null until chosen; rule 5: sex first, then a first name of that sex; rule 6: the sex chosen first, kept in the profile |
 | 2026-10-16 | A claimed surname is marked taken in the list | §5 rule 4: surnames.json's entry carries taken_by {agent, login}, written with the claim, checked by lint against claims.json |
+| 2026-11-12 | The naming theme and the house style move to the operator's record | §5 rules 3, 5 and 7 keep the list, the order of sex and first name, the candidates' folder and the rejections; which surnames qualify, a language-culture agent's own culture, no famous name, and the house style move to ADR-071; §2, §4 and the Scope say the theme and the style are the operator's |

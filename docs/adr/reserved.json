@@ -1,0 +1,4 @@
+{
+  "$comment": "Hand-written: a number whose record moved to the operator, kept here so it is never reused (ADR-045 §5 rule 4). Map of three-digit number to a one-line reason; adr.py check counts each as present, adr.py new skips it.",
+  "reserved": {}
+}

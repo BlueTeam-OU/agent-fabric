@@ -115,16 +115,21 @@ class Carrier:
             self.by_login = {row["login"]: row for row in good}
 
     # -- the adapters' calls ---------------------------------------------
+    def row_host(self, row: dict) -> str:
+        """The host an agent lives on: the roster row's, and this carrier's own for a row that
+        names none (rows signed before `host` existed are all on the one host; ADR-064 rule 2)."""
+        return row.get(roster.HOST_KEY, self.host)
+
     def recipients(self, meta: dict) -> list[str]:
         """Logins of the roster members a message goes to (rule 6)."""
         me = self.me_fn()
         with self.lock:
-            others = [row["login"] for row in sorted(self.rows, key=lambda r: r["port"])
+            others = [row for row in sorted(self.rows, key=lambda r: r["port"])
                       if row["agent_id"] != me.agent_id]
-        if "TO" in meta and meta.get("BROADCAST") != "true":
-            host, _, login = meta["TO"].partition("/")
-            return [login] if host == self.host and login in others else []
-        return others
+            if "TO" in meta and meta.get("BROADCAST") != "true":
+                host, _, login = meta["TO"].partition("/")
+                return [row["login"] for row in others if row["login"] == login and self.row_host(row) == host]
+            return [row["login"] for row in others]
 
     def send(self, mid: str, text: str) -> dict:
         if text.startswith(framing.CONTROL_PREFIX):
@@ -315,7 +320,8 @@ class Carrier:
                 self.send_receipt(session, row, mid_r)
             return
         mid = meta.get("MESSAGE-ID") or "sha256:" + hashlib.sha256(text.encode("utf-8")).hexdigest()
-        verdict = "ok" if meta.get("FROM") == f"{self.host}/{row['login']}" else "mismatch"
+        sender = f"{self.row_host(row)}/{row['login']}"
+        verdict = "ok" if meta.get("FROM") == sender else "mismatch"
         self.counters.received += 1
         if self.for_me({"metadata": meta}, {"address": me.address, "slug": me.slug}):
             # A line per copy ADDRESSED here, as the relay's inbox writes, and before
@@ -324,7 +330,6 @@ class Carrier:
             self.arrival_log.append(mid, me.address, CARRIER_NAME, verdict)
             # The row is journaled under the roster's address, never the copy's FROM, a claim
             # the verdict above may have found false (ADR-064 rule 9).
-            sender = f"{self.host}/{row['login']}"
             try:
                 ts = self.iso_now()
                 self.journal(text, ts, sender)

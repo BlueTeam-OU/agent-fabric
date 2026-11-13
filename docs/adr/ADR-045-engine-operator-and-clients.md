@@ -6,6 +6,7 @@
 **Decision Makers:** the owner (the three layers and the open engine); drafted by fabric-coordinator
 **Scope:** what agent-fabric holds and what moves out of it: the engine (this repository, to be published), the operator repository of the company that runs the agents, and each client's engagement; the seam that lets one engine read either (`roots`, `tools/fabric/roots.py`); how a working copy resolves to its client; decision-record numbering across the split
 **Pillar:** P1
+**Class:** engine
 
 ## 1. Context and Problem
 

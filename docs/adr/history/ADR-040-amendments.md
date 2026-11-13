@@ -337,3 +337,7 @@ a host where it is 3.13 or newer. The suite runners keep CI's matrix
 (rule 4).
 
 Written by fabric-coordinator as job j762, on the j706 branch.
+
+### Amendment 2026-11-12 — Wave 10 moves to the operator's record
+
+Rule 10 (Wave 10: the managed projects' own Node scripts move to Python) and §7's Wave 10 paragraph and inventory rows (gzapp, gzapp.decks, blueteam.ee, gzapi.ge, herdr) are this organisation's porting programme for its own projects, not a rule the engine's code or shims rest on: rules 1 to 8 bind the fabric's code, rule 9 advises any managed project, and the waves the engine's files cite (`ADR-040 §7`) are 0 to 9. ADR-045 §5 rule 4 has a mixed record split, so the engine's part keeps the number and the programme moved, text and rows verbatim, into the operator's ADR-070. Rule 10's slot stays, marked moved, so no citation of a later number shifts (there is none after it); §7 points at ADR-070 for Wave 10 and §8 no longer says it is dispatched; References cite ADR-070. The owner's word is the 2026-11-11 answer on the classification (docs/split/move-plan.md §5, ADR-045's Amendments row of that date), decided in docs/split/adr-classification.md.

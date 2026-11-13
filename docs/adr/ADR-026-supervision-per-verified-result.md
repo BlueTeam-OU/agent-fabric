@@ -6,6 +6,7 @@
 **Decision Makers:** the owner; drafted by fabric-coordinator
 **Scope:** how the fabric measures its progress under pillar P3: the definitions of a verified result and of a supervision event, the artifacts they are read from, and how the number may and may not be used; `tools/fabric/results.py` (`fabric-results`) measures it
 **Pillar:** P3
+**Class:** engine
 
 ## 1. Context and Problem
 

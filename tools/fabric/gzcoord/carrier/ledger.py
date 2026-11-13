@@ -192,7 +192,11 @@ def final_lines(path: str) -> dict[str, list[dict]]:
     finally:
         os.close(fd)
     out: dict[str, list[dict]] = {}
-    for raw in data.split(b"\n"):
+    # Only a line with its newline counts. Under LOCK_SH no writer is mid-line, so an unterminated tail is a
+    # crash's, and `jsonl.repair` cuts it before the next showing; a tail that happens to be whole JSON (the
+    # crash fell just before the "\n") must not settle a record here and then vanish there, or the carrier's
+    # copy would leave `unseen` while the ledger, once repaired, still owes its re-show.
+    for raw in data.split(b"\n")[:-1]:
         try:
             o = json.loads(raw)
         except ValueError:

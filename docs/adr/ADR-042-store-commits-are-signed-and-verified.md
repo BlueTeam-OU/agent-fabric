@@ -6,6 +6,7 @@
 **Decision Makers:** the owner (signed and verified, over trusting repository access); drafted by fabric-coordinator
 **Scope:** `tools/fabric/secret_store.py` (every commit to an agent's store, `pull`, `take-bundle`, `seed-child`, `sync`), `identities/keys/lineage.json` as the record of who may write a store, and the per-agent store repositories `fabric-agent-<id>`
 **Pillar:** P1
+**Class:** engine
 
 ## 1. Context and Problem
 

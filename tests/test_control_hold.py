@@ -30,6 +30,13 @@ DECISION = "01a18d02-edd3-7bef-8fe9-965718c256b5"
 OPERATOR = "h1/op"
 
 
+# The committed control_carrier may be "dual" (ADR-029 rule 18): an in-process fabric-ctl run would then append
+# its fixture replies to the account's real control-arrivals.jsonl and dial its live agentd when this suite runs
+# alone, outside tests/run.py's own pin (#583 F1). Each in-process ctl suite sets the carrier it means, this one the
+# relay; test_run_control_carrier checks.
+os.environ["FABRIC_CONTROL_CARRIER"] = "relay"
+
+
 class Scratch(unittest.TestCase):
     def setUp(self):
         self.state = tempfile.mkdtemp(prefix="control-hold-")

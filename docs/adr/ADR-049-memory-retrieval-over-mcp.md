@@ -6,6 +6,7 @@
 **Decision Makers:** the owner (curated slices stay; retrieval by an MCP server); drafted by fabric-coordinator
 **Scope:** a `fabric-memory` MCP server over the corpus (`memory/`, a working copy's `.agent-fabric/memory/`); its registration in each login's `~/.claude.json`; the session-start hook's INDEX line, the launch prompt's memory section (`identities/prompt/memory.md`) and agent-fabric's `AGENTS.md` "Knowledge you retrieve"; how retrieval is measured
 **Pillar:** P2
+**Class:** engine
 
 ## 1. Context and Problem
 

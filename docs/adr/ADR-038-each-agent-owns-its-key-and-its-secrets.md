@@ -4,8 +4,9 @@
 **Status:** Accepted
 **Ratified:** owner, 2026-09-29, by the merge of agent-fabric #63 (e00f750)
 **Decision Makers:** the owner (the move off Doppler, a repository per agent, a key per agent, paper recovery, the parent's role, no assumed co-location); drafted by fabric-coordinator
-**Scope:** every agent's credentials and the key that guards them: `tools/fabric/secret_store.py` behind `bin/fabric-secrets`; each agent's repository `BlueTeam-OU/fabric-agent-<id>` (ADR-039); `identities/keys/`; `~/.config/agent-fabric/secrets.env`, `env.sh` and their consumers; what a session's shell holds; filling a child's store (`fabric-secrets provision`); the migration from Doppler (ADR-012), complete; the Claude-account templates (ADR-031); each company's store, the `secrets_store` of a client in `projects/clients.json` (ADR-045), and what reaches an agent from it; provisioning (`runtime/provisioning/new-agent.sh`)
+**Scope:** every agent's credentials and the key that guards them: `tools/fabric/secret_store.py` behind `bin/fabric-secrets`; each agent's repository `<organisation>/fabric-agent-<id>` in the operator's configured GitHub organisation (ADR-039); `identities/keys/`; `~/.config/agent-fabric/secrets.env`, `env.sh` and their consumers; what a session's shell holds; filling a child's store (`fabric-secrets provision`); the migration from Doppler (ADR-012), complete; the Claude-account templates (ADR-031); each company's store, the `secrets_store` of a client in `projects/clients.json` (ADR-045), and what reaches an agent from it; provisioning (`runtime/provisioning/new-agent.sh`)
 **Pillar:** P1
+**Class:** engine
 
 ## 1. Context and Problem
 
@@ -45,8 +46,8 @@ of identity is extended to keys.
   on different hosts, and nothing here depends on their sharing one.
 - **Authority stays apart from identity.**
 
-The store is the agent's own private repository, `BlueTeam-OU/fabric-agent-<id>`
-(the agent id, ADR-039), which holds its secrets and its settings
+The store is the agent's own private repository, `<organisation>/fabric-agent-<id>`
+(the operator's configured GitHub organisation; the agent id, ADR-039), which holds its secrets and its settings
 (A 2026-10-13). The secrets keep the layout pass(1) uses:
 - a `.gpg-id` naming the key;
 - one `env/<NAME>.gpg` per secret, the value on the first line.
@@ -321,7 +322,8 @@ Accepted and in force. Every account reads its own store; a new account
 is keyed by `store-enroll.sh` and filled by `fabric-secrets provision`.
 
 Rule 10 is decided, not built: the company stores
-(`BlueTeam-OU/agent-fabric-secrets`, `gzapi-org/agent-fabric-secrets`)
+(each client's `secrets_store` in `projects/clients.json`, a private
+`agent-fabric-secrets` repository)
 exist, private and empty; the tooling is `docs/split/company-stores.md`'s
 contract, and which names move into which store is the owner's review of
 `docs/split/company-store-names.md`. Until both land, the coordinator's
@@ -356,3 +358,4 @@ The body above reads current; each change's full note is in [history/ADR-038-ame
 | 2026-10-15 | Only the agent and its parent write an entry | §5 rule 3: `put` is the parent's, and a store takes in commits only from the agent and its parent, as ADR-042 rule 2 says; holding the public key admits no one |
 | 2026-10-17 | Holder addenda (ADR-060) | §5 rule 3: under settings/roles/ only the parent writes; settings-put refuses it |
 | 2026-11-03 | The session seal is a managed hook | §5 rule 9: the SessionStart unset of the session's secrets runs as a managed hook (ADR-043 rule 2), its workspace copy kept beside it |
+| 2026-11-12 | the stores' owner is the operator's configured GitHub organisation | Scope, §2 and §8: `BlueTeam-OU/fabric-agent-<id>` reads `<organisation>/fabric-agent-<id>`; the company stores are each client's `secrets_store` |

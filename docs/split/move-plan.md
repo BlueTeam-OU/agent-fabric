@@ -79,7 +79,9 @@ comment or a message is not counted here.
   The engine's `index.json` keeps every moved number as reserved ("moved to the operator"),
   so no new record reuses one, and the public engine names no private content.
   `fabric-adr lookup` reads both trees: `adr_dir()` for the operator's records, and an
-  engine lookup for the engine's. The classification is its own pull request, before step B.
+  engine lookup for the engine's. The classification is its own pull request, before step B
+  (`adr-classification.md`): each record carries `**Class:**`, and step B's commit adds every
+  number it moves to the engine's `docs/adr/reserved.json`.
 
 ### Instance data outside this move, each with its own later step
 
@@ -176,7 +178,11 @@ git mv policies/{arming,authority,auto-mode,host-load,hygiene,signing}.json oper
 git mv routing/profiles.json routing/policies operator/routing/
 git mv memory/domains memory/shared memory/agents operator/memory/
 git mv docs/live-checks docs/legal operator/docs/
-for r in $MOVED_RECORDS; do   # the classification's list, e.g. ADR-031
+# --root . is the engine's own tree: unnamed, list reads the operator's, which an exported
+# AGENT_FABRIC_OPERATOR or the mkdir above makes empty, and an empty answer would move nothing.
+moved=$(python3 tools/fabric/adr.py --root . list --class organisational) || exit 1
+[ -n "$moved" ] || { echo "no organisational records listed: step B would move none" >&2; exit 1; }
+for r in $moved; do   # ADR-059, ADR-069 to ADR-071 (adr-classification.md)
   git mv docs/adr/"$r"-*.md operator/docs/adr/
   if [ -e docs/adr/history/"$r"-amendments.md ]; then git mv docs/adr/history/"$r"-amendments.md operator/docs/adr/history/; fi
 done

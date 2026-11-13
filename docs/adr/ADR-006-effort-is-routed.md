@@ -6,6 +6,7 @@
 **Decision Makers:** fabric-coordinator, on the Opus 5.5 measurement of 2026-09-23; the owner (every class and session at medium, 2026-09-25)
 **Scope:** routing/effort.json; the provider adapters' per-model effort tables in tools/fabric/routing.py; runtime/claude-code/install-agent-files.sh (the `effort:` line); runtime/openrouter/launch (`--effort`, AGENT_FABRIC_LAUNCH_EFFORT, the environment refusals); the committed-settings guard; bin/fabric-status and bin/fabric-model
 **Pillar:** P1
+**Class:** engine
 **Evidence:** docs/live-checks/2026-09-23-opus-5-5.md, docs/live-checks/2026-09-23-effort-registry.md
 
 ## 1. Context and Problem
