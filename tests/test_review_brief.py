@@ -990,15 +990,98 @@ def test_a_prs_full_review_carries_the_findings_earlier_reviews_left_open(tmp: s
 
 
 def test_the_report_lines_ask_for_the_coverage_block(tmp: str) -> None:
-    """ADR-065 §5 rule 4: post-review refuses a review without the block, so the
-    brief asks for it on a review and a re-review, never on an adjudication."""
+    """ADR-065 §5 rule 4: post-review refuses any v2 post without the block (v2_report reads it before it tells an
+    adjudication from a review), so the brief asks for it on every mode, an adjudication's included."""
     repo = mkrepo(tmp, "covered")
     out = rb.render(base_request(repo))
     section = out.split("## Coverage\n", 1)[1].split("\n## ", 1)[0]
     assert "`agent-fabric-coverage v1`" in section and out.index("## Coverage") < out.index("## Report lines"), out[-800:]
     report = os.path.join(tmp, "judged.md"); open(report, "w").write("1. a finding\n")
     adj = rb.render({**adjudication_request(repo), "previous_findings": report})
-    assert "## Coverage" not in adj and "agent-fabric-coverage" not in adj.split("## Findings to judge", 1)[0], adj[-400:]
+    assert "`agent-fabric-coverage v1`" in adj.split("## Coverage\n", 1)[1].split("\n## ", 1)[0] \
+        and adj.index("## Coverage") < adj.index("## Report lines"), adj[-400:]
+
+
+def test_a_prs_adjudication_of_an_earlier_round(tmp: str) -> None:
+    """gate 4c (0f6a2e43): post_review posts, as an adjudication, a judgements-only report based on the head of an
+    earlier review of the PR that raised findings, read at a later commit. The brief renders that range for a PR,
+    lists the findings raised on its base from the posted reviews (never a typed file), and fails closed."""
+    repo = mkrepo(tmp, "adjudicating")
+    main, h1 = g(repo, "rev-parse", "main"), g(repo, "rev-parse", "HEAD")
+    h2 = commit(repo, "fix", {"a.txt": "b\n"})
+    h3 = commit(repo, "fix again", {"a.txt": "c\n"})
+    def posted(rid: int, base: str, at: str, lines: list[str]) -> dict:
+        body = review_coverage.format_marker(base, at, main, "e" * 64) + "\nreport\n" + "\n".join(lines) + "\n"
+        return {"id": rid, "user": {"login": "me"}, "submitted_at": f"2026-11-1{rid}T00:00:00Z", "body": body}
+    reviews = [posted(1, main, h1, ["Finding: F1 | P2 | certain | a.txt:1 | the first", "Finding: F2 | P3 | likely | - | the second"]),
+               posted(2, h1, h2, ["Judgement: F1 | fixed | gone", "Finding: none"])]
+    asked = []
+    saved, saved_checkpoint = rb.earlier_reviews, rb.checkpoint
+    def answer(pr, r):
+        asked.append(pr); return arm_findings.read(reviews, {"me"})
+    try:
+        rb.earlier_reviews = answer
+        rb.checkpoint = lambda pr, h, r, exclude_head=None: None
+        req = {**base_request(repo), "mode": "finding-adjudication", "range": f"{h1}..HEAD", "card_base": main, "pr": 31}
+        assert refusals(req) == [], refusals(req)
+        info, refused = rb.resolve_range(req)
+        assert not refused and info["base_sha"] == h1 and info["head_sha"] == h3 and info["card_base"] == main, refused
+        out = rb.render(req)
+        section = out.split("## Findings to judge\n", 1)[1].split("\n## ", 1)[0]
+        assert "adjudication of an earlier round of #31" in section and h1[:12] in section, section
+        assert "- F1 | P2 | a.txt:1 | the first (closed by a later judgement at gate 4c; review 1)" in section, section
+        assert "- F2 | P3 | - | the second (open at gate 4c; review 1)" in section, section
+        assert "Judge no other label and raise no finding" in section and "Judgement: F<n>" in section, section
+        assert "## Previous findings" not in out and "## Re-review diff" not in out, out
+        assert "## Coverage" in out and "Finding: none" in out.split("## Report lines", 1)[1], out[-600:]
+        assert _header(out)["base_sha"] == h1 and _header(out)["purpose"] == "finding-adjudication"
+        assert asked and set(asked) == {31}, asked
+        # the last checkpoint's head: post_review would post it as the next round, barred from raising findings
+        rb.checkpoint = lambda pr, h, r, exclude_head=None: (main, h1, main, "X")
+        problems = refusals(req)
+        assert any("last checkpoint review" in p and "fabric-review next REQUEST --pr" in p for p in problems), problems
+        # the checkpoint's own range: post_review would take it as that round's second engine
+        rb.checkpoint = lambda pr, h, r, exclude_head=None: (h1, h3, main, "X")
+        problems = refusals(req)
+        assert any("last checkpoint review's own range" in p for p in problems), problems
+        # control: the checkpoint's base, a later head than its own: an adjudication, renders
+        rb.checkpoint = lambda pr, h, r, exclude_head=None: (h1, h2, main, "X")
+        assert refusals(req) == [], refusals(req)
+        rb.checkpoint = lambda pr, h, r, exclude_head=None: None
+        # a base that raised nothing: refused, naming the heads that did
+        problems = refusals({**req, "range": f"{h2}..HEAD"})
+        assert any("raised a finding on" in p and f"{h1[:12]} raised findings" in p for p in problems), problems
+        kept = list(reviews); reviews[:] = []
+        problems = refusals(req)
+        assert any("no review of #31 has raised one" in p for p in problems), problems
+        reviews[:] = kept
+        # a base that is not an ancestor of the head
+        g(repo, "checkout", "-q", "-b", "side", h1)
+        side = commit(repo, "side", {"s.txt": "s\n"})
+        g(repo, "checkout", "-q", "feature")
+        problems = refusals({**req, "range": f"{side}..HEAD"})
+        assert any("is not an ancestor of the head" in p for p in problems), problems
+        # the reviews cannot be listed, or one cannot be read: refused, never rendered as no findings
+        rb.earlier_reviews = lambda pr, r: None
+        assert any(p.startswith("pr: #31's reviews cannot be listed") for p in refusals(req)), refusals(req)
+        reviews.append({"id": 3, "user": {"login": "me"}, "submitted_at": "2026-11-13T00:00:00Z", "body": None})
+        rb.earlier_reviews = answer
+        assert any(p.startswith("pr: #31 has 1 review(s) whose findings cannot be read") for p in refusals(req)), refusals(req)
+        reviews.pop()
+        # a typed previous_findings beside the PR: refused, the posted reviews are the list
+        typed = os.path.join(tmp, "adj-typed.md"); open(typed, "w").write("1. TYPED\n")
+        assert any("leave previous_findings out" in p for p in refusals({**req, "previous_findings": typed})), \
+            refusals({**req, "previous_findings": typed})
+        # without a PR there is no posted review to tie the base to: still head..head, the refusal names pr
+        no_pr = {k: v for k, v in req.items() if k != "pr"}
+        assert any("without a pr" in p and "name the pr" in p for p in refusals(no_pr)), refusals(no_pr)
+        # the legacy H..H with a PR: renders, says it posts as the next round, asks GitHub nothing
+        asked.clear()
+        legacy = rb.render({**req, "range": "HEAD..HEAD", "previous_findings": typed})
+        assert "## Adjudication kind" in legacy and "next round from its last checkpoint" in legacy, legacy
+        assert "TYPED" in legacy and "adjudication of an earlier round of" not in legacy and not asked, asked
+    finally:
+        rb.earlier_reviews, rb.checkpoint = saved, saved_checkpoint
 
 
 def main() -> int:
@@ -1013,7 +1096,7 @@ def main() -> int:
              test_the_readme_example_renders_as_documented, test_the_config_fingerprint_follows_the_card_and_the_agent_file,
              test_a_prs_re_review_starts_at_its_last_checkpoint, test_a_prs_full_review_carries_the_findings_earlier_reviews_left_open,
              test_earlier_reviews_reads_the_accounts_gate_4c_reads,
-             test_the_report_lines_ask_for_the_coverage_block]
+             test_the_report_lines_ask_for_the_coverage_block, test_a_prs_adjudication_of_an_earlier_round]
     failures = 0
     # Removed when the run ends, however it ends: tests/run.sh names every
     # entry a run leaves under the temporary directory as a failure.

@@ -295,7 +295,9 @@ What it refuses, in order, and why:
      latest judgement wins; it goes to the newest earlier finding of that
      label in its own chain, then in earlier chains). Every open finding
      refuses, at any P-level, named by review id, head, label, level, path
-     and summary; a review with no body, no machine lines or a malformed one
+     and summary. An adjudication (fabric-pr post-review's, based on the head
+     a finding was raised on, judgements only) closes the findings raised on
+     that head, in whichever round. A review with no body, no machine lines or a malformed one
      is unknown and refuses too. The remedy: a re-review on that chain, whose
      body carries a line `Supersedes: <id of the unparsed review>` (a later
      v2 review of a trusted account lifts an unparsed one only), or
@@ -866,7 +868,8 @@ def check_open_findings(repo: str, num: str, pr: dict, defers: list, refuse) -> 
                           f" {f.head[:8]}, its chain now at {got.chains[f.chain][:8]})" for f in still[:5])
         more = f" (and {len(still) - 5} more)" if len(still) > 5 else ""
         raise refuse(f"{len(still)} finding(s) open in a review chain — {named}{more}: a re-review on that chain"
-                     f" (base = the chain's head) judging each fixed or not-real, or --defer \"<head8>:F<n>\" \"<why>\"")
+                     f" (base = the chain's head) or an adjudication (base = the head it was raised on, judgements only)"
+                     f" judging each fixed or not-real, or --defer \"<head8>:F<n>\" \"<why>\"")
     for f, why in lifted:
         say(f"finding {f.head[:8]}:{f.label} ({f.level}, review {f.review_id}) DEFERRED: {why}")
     say(f"no finding open across {got.reviews} review(s) in {len(got.chains)} chain(s)"

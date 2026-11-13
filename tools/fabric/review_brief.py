@@ -383,20 +383,32 @@ def resolve_range(req: dict) -> tuple[dict | None, list[str]]:
     problems = [f"range: {end!r} is not a commit in {repo}" for end, sha in ((base, base_sha), (head, head_sha)) if not sha]
     if problems:
         return None, problems
+    pr = _count(req.get("pr"))
+    adjudicated = None
     if req.get("mode") == "finding-adjudication" and base_sha != head_sha:
-        # Gate 4c of fabric-pr arm (github/arm_findings.py) lets a review judge
-        # the findings raised on its own head only when its base is that head,
-        # so an adjudication of base..H rendered, was posted and closed nothing
-        # (a client project's PR, 2026-11-02; j558). Refused, not derived: the brief prints the
-        # range as typed, and the marker the post writes carries it.
-        return None, [f"range: a finding-adjudication judges the findings raised on its head, and fabric-pr arm counts "
-                      f"its judgements only from a review of head..head; the range is {head}..{head}, with card_base "
-                      f"{base_sha} (this range's base) for the project review card"]
+        if not pr:
+            # Gate 4c of fabric-pr arm (github/arm_findings.py) counts an adjudication's judgements only when its base
+            # is the head of an earlier posted review of the PR that raised findings (post_review's adjudication_refusal);
+            # an adjudication of base..H against any other base rendered, was posted and closed nothing (a client
+            # project's PR, 2026-11-02; j558). Without a PR there are no posted reviews to tie the base to, so the
+            # brief cannot tell such a base from one that closes nothing: the no-PR adjudication stays head..head.
+            # Refused, not derived: the brief prints the range as typed, and the marker the post writes carries it.
+            return None, [f"range: a finding-adjudication without a pr judges the findings raised on its head, so the "
+                          f"range is {head}..{head}, with card_base {base_sha} (this range's base) for the project review "
+                          f"card; to adjudicate an earlier round's findings at a later head, name the pr, and the range's "
+                          f"base is that round's head"]
+        adjudicated, problems = _earlier_round(pr, base, base_sha, head_sha, repo)
+        if problems:
+            return None, problems
     wanted = req.get("card_base")
     card_base = _commit_of(repo, wanted) if isinstance(wanted, str) and wanted else base_sha
     if not card_base:
         return None, [f"card_base: {wanted!r} is not a commit in {repo}"]
-    pr = _count(req.get("pr"))
+    if adjudicated is not None:
+        info, problems = _on_default_branch(repo, base, base_sha, head_sha, card_base, wanted, None)
+        if info:
+            info["adjudicated"] = adjudicated
+        return info, problems
     if req.get("mode") == "re-review" and pr:
         # A PR's re-review starts where its last posted review stopped, read
         # from that review's v2 marker, never from what the dispatcher typed
@@ -421,6 +433,60 @@ def resolve_range(req: dict) -> tuple[dict | None, list[str]]:
         card_base = cp_card
         return _on_default_branch(repo, base, base_sha, head_sha, card_base, wanted, cp_body)
     return _on_default_branch(repo, base, base_sha, head_sha, card_base, wanted, None)
+
+
+def _earlier_round(pr: int, base: str, base_sha: str, head_sha: str, repo: str) -> tuple[list | None, list[str]]:
+    """(the findings raised on base_sha, as gate 4c reads them, oldest first; refusals) for a PR's adjudication of an
+    earlier round at a later head. The checks are post_review's adjudication_refusal's, read through earlier_reviews
+    (arm_findings.read, the reader raised_on is made from), so a brief that renders is one whose report can be posted
+    as an adjudication. FAILS CLOSED, as carried_findings: an unlisted or unread review may be the one that raised a
+    finding on base, or the one whose findings the reviewer would be told are open when they are closed."""
+    if _git(repo, "merge-base", "--is-ancestor", base_sha, head_sha).returncode != 0:
+        return None, [f"range: base {base!r} ({base_sha[:12]}) is not an ancestor of the head {head_sha[:12]}: an "
+                      "adjudication judges an earlier round's findings at a later commit of the same PR"]
+    # post_review accepts a report as a round (base_refusal) before it asks whether it is an adjudication, and it
+    # cannot tell one from a clean re-review by its lines: a judgements-only brief on a range it takes as a round would
+    # post as a counted round and checkpoint whose reviewer was barred from raising a finding. Two such ranges besides
+    # the merge-base: one from the last checkpoint's head (the next round, which is the re-review) and the
+    # checkpoint's own range (the second engine of that round, which is a review of it).
+    found = checkpoint(pr, head_sha, repo)
+    if found and found[1] == base_sha:
+        return None, [f"range: {base!r} ({base_sha[:12]}) is the head of #{pr}'s last checkpoint review, where the next "
+                      "round starts: a re-review from it (fabric-review next REQUEST --pr) judges its findings and may "
+                      "raise new ones; an adjudication there would post as that round, barred from raising any"]
+    if found and found[0] == base_sha and found[1] == head_sha:
+        return None, [f"range: {base_sha[:12]}..{head_sha[:12]} is #{pr}'s last checkpoint review's own range, which "
+                      "post-review takes as that round's review by another engine: judge its base's findings at a later "
+                      "head, or review the range, which may raise findings; an adjudication there would post as that "
+                      "round, barred from raising any"]
+    got = earlier_reviews(pr, repo)
+    if got is None:
+        return None, [f"pr: #{pr}'s reviews cannot be listed, so which findings were raised on {base_sha[:12]} is "
+                      "unknown; render again when GitHub answers"]
+    if got.unknown:
+        return None, [f"pr: #{pr} has {len(got.unknown)} review(s) whose findings cannot be read — "
+                      f"{'; '.join(got.unknown[:3])}{' …' if len(got.unknown) > 3 else ''}: which findings were raised "
+                      f"on {base_sha[:12]}, and which are open, is unknown; re-post them with their machine lines "
+                      "(Finding:/Judgement:)"]
+    raised = sorted((f for f in got.findings if f.head == base_sha), key=lambda f: f.order)
+    if not raised:
+        heads = list(dict.fromkeys(f.head for f in sorted(got.findings, key=lambda f: f.order)))
+        return None, [f"range: no review of #{pr} that gate 4c reads raised a finding on {base!r} ({base_sha[:12]}), so "
+                      "an adjudication based there judges nothing; its base is the head of the round whose findings it "
+                      "judges: " + (", ".join(h[:12] for h in heads) + " raised findings" if heads
+                                    else f"no review of #{pr} has raised one")]
+    return raised, []
+
+
+def adjudicates_earlier_round(req: dict) -> bool:
+    """A finding-adjudication of a PR whose range's ends are two commits: the adjudication of an earlier round at a
+    later head (resolve_range checks the rest). base == head is the legacy H..H, which posts as the next round."""
+    rng, repo = req.get("range"), req.get("repository")
+    if req.get("mode") != "finding-adjudication" or not _count(req.get("pr")) or not isinstance(repo, str) \
+            or not (isinstance(rng, str) and RANGE_RE.fullmatch(rng)):
+        return False
+    base_sha, head_sha = (_commit_of(repo, end) for end in rng.split("..", 1))
+    return bool(base_sha and head_sha and base_sha != head_sha)
 
 
 def _on_default_branch(repo: str, base: str, base_sha: str, head_sha: str, card_base: str, wanted: object,
@@ -542,6 +608,11 @@ def validate(req: dict, lenses_dir: str | None = None, engine: str = "claude") -
             # report it was given in its own lines.
             problems.append("previous_findings: a PR's re-review reads the previous report from its last posted "
                             "review; leave previous_findings out")
+    elif mode == "finding-adjudication" and "previous_findings" in req and adjudicates_earlier_round(req):
+        # The findings an earlier round raised are read from its posted reviews, with whether gate 4c reads each as
+        # open; a typed file beside them would be a second list the post's judgements are never checked against.
+        problems.append("previous_findings: a PR's adjudication of an earlier round reads the findings raised on its "
+                        "base from the PR's posted reviews; leave previous_findings out")
     elif mode == "re-review" or "previous_findings" in req:
         pf = req.get("previous_findings")
         if mode not in ("re-review", "finding-adjudication"):
@@ -939,7 +1010,28 @@ def render(req: dict, lenses_dir: str | None = None, allow_rationale: bool = Fal
             out += [f"- {f.label} | {f.level} | {f.path} | {f.summary} (raised on {f.head[:12]})" for f in handed["findings"]]
         out.append(f"Earlier reviews of #{pr} used the labels up to F{handed['next'] - 1}: number your own findings "
                    f"from F{handed['next']}.")
-    if mode == "re-review" or (mode == "finding-adjudication" and req.get("previous_findings")):
+    adjudicated, pr = (info or {}).get("adjudicated"), _count(req.get("pr"))
+    if adjudicated is not None:
+        out += ["## Findings to judge",
+                f"This is an adjudication of an earlier round of #{pr}: these are the findings its reviews raised on "
+                f"the range's base {info['base_sha'][:12]}, each with whether gate 4c of fabric-pr arm now reads it as "
+                "open. Judge each at the range's head, by its label, in a "
+                f"`{review_lines.JUDGEMENT_SHAPE}` line: fixed or not-real where the head no longer has it, real, "
+                "partly or not-fixed where it does. Judge no other label and raise no finding: the post refuses an "
+                "adjudication that does either. Unless the base is the PR's last checkpoint head (then it posts as "
+                "that chain's next round), it posts as an adjudication, which is no step of a review chain."]
+        out += [f"- {f.label} | {f.level} | {f.path} | {f.summary} ("
+                + ("open" if f.open else "closed by a later judgement") + f" at gate 4c; review {f.review_id})"
+                for f in adjudicated]
+    elif mode == "finding-adjudication" and pr and info:
+        # The legacy H..H: post_review's adjudication path refuses base == head, so this posts only where base_refusal
+        # takes it, as the next round from the PR's last checkpoint head; said, so a reviewer and the poster do not
+        # take it for the adjudication of an earlier round.
+        out += ["## Adjudication kind",
+                f"The range is one head to itself: the report posts as #{pr}'s next round from its last checkpoint "
+                "review, whose head this must be, not as the adjudication of an earlier round (that range is the "
+                "round's head..a later head)."]
+    if mode == "re-review" or (mode == "finding-adjudication" and adjudicated is None and req.get("previous_findings")):
         # Fenced: the previous report carries headings at the brief's own
         # level, and verbatim inside a fence is still verbatim. The fence
         # is longer than any backtick run in the report (every conforming
@@ -976,12 +1068,10 @@ def render(req: dict, lenses_dir: str | None = None, allow_rationale: bool = Fal
     if engine == "claude":
         # Codex's body is rendered by our code from its structured answer (review_codex.render_review), and the
         # brief it gets adds only its answer shape (ADR-053 rule 1).
-        if mode in ("review", "re-review"):
-            # post-review refuses a review or re-review without it (ADR-065 §5
-            # rule 4), so the brief says it even to a reviewer whose agent file
-            # predates the rule. Its own section: the brief ends with the
-            # machine lines' rules (test_review_lines).
-            out += ["## Coverage", COVERAGE_RULE]
+        # post-review refuses any v2 post without it (ADR-065 §5 rule 4; v2_report reads the block before it tells an
+        # adjudication from a review), so the brief says it even to a reviewer whose agent file predates the rule. Its
+        # own section: the brief ends with the machine lines' rules (test_review_lines).
+        out += ["## Coverage", COVERAGE_RULE]
         out += ["## Report lines"] + review_lines.report_rules(mode)
     return "\n".join(out) + "\n"
 

@@ -6,6 +6,8 @@ request by hand (bin/fabric-review save | next).
     review_rounds.py save PR ROUND [--repo NAME]  < report   (also removes the round's head worktree)
     review_rounds.py next REQUEST (--report FILE | --pr PR [--repo NAME])
                           [--head REV] [--keep-lenses] [--allow-rationale]
+    review_rounds.py next REQUEST --pr PR --adjudicate REV
+                          [--head REV] [--keep-lenses] [--allow-rationale]
 
 `save` keeps a round's report as <state>/agents/<login>/reviews/<repo>/
 pr-<PR>/round-<ROUND>.md, written atomically, 0600 under directories
@@ -37,6 +39,20 @@ region at the new (a line map read from the diff), and each hunk's
 enclosing symbol where the hunk header names one. They are computed at
 render time and are not in REQUEST-rr<N>.json. It refuses when the head has
 not moved: there is nothing to re-review.
+
+`next --adjudicate REV` writes, the same way, the ADJUDICATION of an earlier
+round instead: the findings the PR's posted reviews raised on REV (that
+round's head), judged at the new head, which gate 4c of fabric-pr arm applies
+to those findings alone (github/post_review.py's adjudication_refusal):
+  mode               finding-adjudication
+  range              REV, as a commit id, .. HEAD (or --head)
+  previous_findings  none: the brief reads the findings raised on REV from
+                     the PR's posted reviews
+  lenses             [] (the brief carries general on this mode), unless
+                     --keep-lenses
+  card_base, review_id, review_round, pr   as for a re-review
+No saved round is read, so --repo does not apply; the brief refuses a REV
+that raised no finding, naming the heads that did.
 
 WHY. A round by hand was: copy the report to a file, edit mode, range,
 lenses and previous_findings in the request, render. architect-cto-01
@@ -417,6 +433,55 @@ def next_request(request_path: str, report: str, head: str | None, keep_lenses: 
     return path, nxt, brief
 
 
+def adjudication_request(request_path: str, rev: str, head: str | None, keep_lenses: bool,
+                         allow_rationale: bool, pr: str) -> tuple[str, dict, str]:
+    """REQUEST-rr<N>.json for the adjudication, at the new head, of the findings raised on `rev`; next_request's
+    sibling, not a flag of it: no previous report is read, no delta is embedded (the brief lists the findings from
+    the posted reviews), and the range starts at an earlier round's head rather than the last one."""
+    with open(request_path, encoding="utf-8") as f:
+        req = review_brief.parse_request(f.read())
+    if not isinstance(req.get("range"), str) or ".." not in req["range"]:
+        raise Refused(f"{request_path} is not a ranged request: an adjudication follows a ranged review")
+    named = review_brief._count(req.get("pr"))
+    if named and str(named) != pr:
+        raise Refused(f"{request_path} names PR #{named}, not #{pr}")
+    repo_dir = req.get("repository")
+    if not isinstance(repo_dir, str) or not repo_dir:
+        raise Refused(f"{request_path} names no repository")
+    old_head = _commit(repo_dir, rev)
+    new_head = _commit(repo_dir, head or "HEAD")
+    if new_head == old_head:
+        # post_review refuses an adjudication whose head is its base: H..H posts only as the next round.
+        raise Refused(f"the head has not moved since {old_head[:12]}: an adjudication judges {rev}'s findings at a later "
+                      "commit")
+    nxt = {k: v for k, v in req.items() if k != "previous_findings"}
+    nxt.update(mode="finding-adjudication", range=f"{old_head[:12]}..{new_head[:12]}", pr=pr)
+    if not keep_lenses:
+        nxt["lenses"] = []
+    # The card is the first round's, as next carries it: REV is a PR commit the default branch does not contain.
+    first_base = req["range"].split("..", 1)[0]
+    if not req.get("card_base") and not re.fullmatch(r"[0-9a-f]{7,40}", first_base):
+        raise Refused(f"the range's base {first_base!r} is not a commit id, so the first round's card cannot be "
+                      "recovered: set card_base in the request to the commit round 1 used (the base_sha in round 1's dispatch header)")
+    nxt["card_base"] = req.get("card_base") or _commit(repo_dir, first_base)
+    if (rid := review_brief.default_review_id(nxt)):
+        nxt["review_id"] = rid
+    nxt["review_round"] = (review_brief._count(req.get("review_round")) or 1) + 1
+    # Rendered before it is written, as next does: a render that refuses leaves no orphan request to number past.
+    if (problems := review_brief.refusals(nxt, allow_rationale)):
+        raise review_brief.RequestError(problems)
+    try:
+        with review_brief.pinned_evidence(nxt, allow_rationale) as evidence:
+            brief = review_brief.render(nxt, allow_rationale=allow_rationale, evidence_path=evidence)
+    except review_brief.EvidenceRefused as e:
+        raise Refused(str(e))
+    path = _next_path(request_path)
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(nxt, f, indent=2)
+        f.write("\n")
+    return path, nxt, brief
+
+
 def _flag(args: list[str], name: str) -> str | None:
     if name in args:
         i = args.index(name)
@@ -448,13 +513,21 @@ def main(argv: list[str] | None = None) -> int:
                 print(f"fabric-review: removed the head worktree {gone}", file=sys.stderr)
             return 0
         if cmd == "next":
-            report, pr, repo, head = (_flag(args, f) for f in ("--report", "--pr", "--repo", "--head"))
+            report, pr, repo, head, adjudicate = (_flag(args, f) for f in ("--report", "--pr", "--repo", "--head",
+                                                                            "--adjudicate"))
             keep, allow = "--keep-lenses" in args, "--allow-rationale" in args
             args = [a for a in args if a not in ("--keep-lenses", "--allow-rationale")]
-            if len(args) != 1 or bool(report) == bool(pr) or (repo and not pr):
+            if len(args) != 1 or bool(report) == bool(pr) or (repo and not pr) or (adjudicate and (not pr or repo)):
                 print("usage: fabric-review next REQUEST (--report FILE | --pr PR [--repo NAME]) [--head REV] "
-                      "[--keep-lenses] [--allow-rationale]", file=sys.stderr)
+                      "[--keep-lenses] [--allow-rationale]\n"
+                      "       fabric-review next REQUEST --pr PR --adjudicate REV [--head REV] [--keep-lenses] "
+                      "[--allow-rationale]", file=sys.stderr)
                 return 2
+            if adjudicate:
+                path, _, brief = adjudication_request(args[0], adjudicate, head, keep, allow, _pr(pr))
+                print(f"fabric-review: wrote {path}", file=sys.stderr)
+                sys.stdout.write(brief)
+                return 0
             if pr:
                 # The request's own repository, not the cwd's: PR numbers
                 # repeat across repositories (review of #89).

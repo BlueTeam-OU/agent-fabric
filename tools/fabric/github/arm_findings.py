@@ -19,6 +19,13 @@ The rule, as the request states it:
     findings are not what this one judged; a review whose base is that head (H..H, the next round) has read them.
     Two findings that share a label are told apart by nothing but that order: a judgement may close the wrong one and leave the right one open, which over-blocks —
     the accepted cost; under-blocking is the defect this gate exists for;
+  - an ADJUDICATION (review_coverage.is_adjudication: a review post_review accepted on the head of any earlier review
+    that raised findings, judgements only, REQUEST 01a1cf77) judges only the findings raised on its base head, by any
+    review of that head, whichever chain raised them: so a finding from round 1 of 3 is closed by a review based on
+    round 1's head, and two rounds that both number an F1 are told apart by the head. It is no link of any chain: it
+    neither continues nor starts one, so a later review based on its head continues the chain that head was in. One
+    that raises a Finding is unknown, never read: post_review posts none, and its findings would be judged by nothing
+    that reads its head as a chain's;
   - a review read as nothing — no body or no id from the API, a body with no machine lines, a malformed line — is unknown,
     never "no findings": the gate refuses naming it. One way out for the last two: a LATER review from a trusted
     account whose body has a line `Supersedes: <review-id>` naming that review (an id on this PR) is skipped as
@@ -129,6 +136,9 @@ def read(reviews: list, trusted: set[str]) -> Reading:
     chain_first: list[int] = []
     for order, (_, rid, marker, body) in enumerate(rows):
         out.reviews += 1
+        if review_coverage.is_adjudication(body):
+            _adjudicate(out, rid, marker, body, int(rid) in superseded)
+            continue
         chain = chain_of_head.get(marker.base)
         if chain is None:
             chain = len(out.chains)
@@ -154,7 +164,7 @@ def read(reviews: list, trusted: set[str]) -> Reading:
             # Never a Finding raised on this review's own head, unless its base is that head: a second engine's
             # review of the same range raises its own F1, which this judgement never saw, whether the two bases start
             # two chains (#437 round 3 F5) or continue one (both on a chain's head h0, #437 round 4 F8); closing it
-            # would arm with that F1 unjudged. A review of H..H (an adjudication, the next round) read the findings
+            # would arm with that F1 unjudged. A review of H..H (the next round from H) read the findings
             # raised on H, and judges them. The filter is on both pools, so a chain that raised the label only on
             # this head counts as never having raised it.
             same = [f for f in out.findings if f.label == label and (f.head != marker.head or marker.base == marker.head)]
@@ -173,6 +183,37 @@ def read(reviews: list, trusted: set[str]) -> Reading:
             path, summary = _where(body, label)
             out.findings.append(Finding(rid, marker.head, chain, order, label, level, path, summary))
     return out
+
+
+def _adjudicate(out: Reading, rid: str, marker, body: str, superseded: bool) -> None:
+    """One adjudication's judgements, applied to the findings raised on its base head and to no other: the newest
+    first, a clearing verdict preferring one still open (as in a chain). Its own head is never its base (post_review
+    refuses an empty range), so no finding raised on the commit it read is reachable from it."""
+    parsed = errors.parse_machine_lines(body)
+    if parsed is None or parsed.unparsed or parsed.findings:
+        if not superseded:
+            out.supersedable.append(rid)
+            if parsed is None:
+                why = "no Finding:/Judgement: lines"
+            elif parsed.unparsed:
+                why = f"machine lines do not parse: {'; '.join(parsed.malformed) or 'malformed'}"
+            else:
+                why = "it raises findings, which no later review would judge: an adjudication judges only"
+            out.unknown.append(f"review {rid} (an adjudication: {why})")
+        return
+    for label, verdict, _ in parsed.judgements:
+        pool = sorted((f for f in out.findings if f.label == label and f.head == marker.base and f.head != marker.head),
+                      key=lambda f: -f.order)
+        if verdict in CLEARS:
+            pool = [f for f in pool if f.open] + [f for f in pool if not f.open]
+        if pool:
+            pool[0].open = verdict not in CLEARS
+
+
+def raised_on(reviews: list, trusted: set[str], head: str) -> set[str]:
+    """The labels `read` counts as raised on `head`: what an adjudication based on it can judge (post_review asks it
+    before posting one). From `read` itself, so the two never disagree on which review is read."""
+    return {f.label for f in read(reviews, trusted).findings if f.head == head}
 
 
 def defer_key(text: str) -> tuple[str, str] | None:

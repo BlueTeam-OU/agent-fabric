@@ -75,6 +75,11 @@ def uncounted_v2(review: dict) -> str:
         return ""
     if not v2.counts:
         return v2.why_not[:200]
+    # Its reviewer was told to raise no finding and post-review refuses one that does, so it read nothing of base..head
+    # for defects: counted here it would stand as the engine's review of a head whose new commits nobody may have
+    # reviewed (gates 4 and 4b). Gate 4c reads its judgements through arm_findings, not through this.
+    if review_coverage.is_adjudication(review.get("body") or ""):
+        return "an adjudication: judgements of an earlier round's findings, never a review of its head"
     if v2.marker.head != review.get("commit_id"):
         return f"the marker names head {v2.marker.head[:8]}, the review is on {str(review.get('commit_id'))[:8]}"
     return ""

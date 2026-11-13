@@ -956,6 +956,68 @@ def main() -> int:
         put("reviews.json", json.dumps([checkpoint_review(), checkpoint_review(base=c1, head=c2, at="2026-10-20T11:00:00Z")]))
         rc, out = v2_post(report + cover("sub/c.py"), header=fence_header(base_sha=c2, head_sha=c3))
         check("…and the chain from the checkpoint's head still posts (the control)", rc == 0 and posted(), f"rc={rc}\n{out}")
+        check("…as no adjudication: its second line is not the adjudication line", not rcov.is_adjudication(body_of()),
+              body_of()[:300])
+
+        # REQUEST 01a1cf77 (gzapp#1246): a finding raised in round 1 of 3 had no review that could close it. An
+        # adjudication is based on the head it was raised on, carries only judgements, and judges only labels raised there.
+        print("post-review: an adjudication of an earlier round, based on the head its findings were raised on")
+
+        def with_lines(review: dict, lines: str) -> dict:
+            body = review["body"]
+            cut = body.index("\n```" + rcov.BLOCK_INFO)
+            return {**review, "body": body[:cut] + "\n" + lines + "\n" + body[cut:]}
+
+        r1 = with_lines(checkpoint_review(), "Finding: F1 | P3 | likely | a.py:1 | round 1's F1\n"
+                                             "Finding: F2 | P3 | likely | sub/c.py:1 | round 1's F2")
+        r2 = with_lines(checkpoint_review(base=c1, head=c2, at="2026-10-20T11:00:00Z"), "Finding: none")
+        r3 = with_lines(checkpoint_review(base=c2, head=c3, at="2026-10-20T12:00:00Z"), "Finding: none")
+        rounds = json.dumps([r1, r2, r3])
+        judged = "Judgement: F1 | fixed | the line is gone at the head\nJudgement: F2 | not-fixed | still there\nFinding: none\n"
+        adjudicate = fence_header(base_sha=c1, head_sha=c3)
+        v2_pr(c3, listed=(c0, c1, c2, c3))
+        put("reviews.json", rounds)
+        rc, out = v2_post(judged, header=adjudicate)
+        adjudication = body_of()
+        check("judgements only, based on round 1's head of 3, read at the head: posted as an adjudication",
+              rc == 0 and posted() and payload().get("commit_id") == c3 and rcov.is_adjudication(adjudication)
+              and adjudication.split("\n")[1] == rcov.ADJUDICATION_LINE and "an adjudication of the findings raised on" in out,
+              f"rc={rc}\n{out}\n{adjudication[:400]}")
+        v2_pr(c3, listed=(c0, c1, c2, c3))
+        put("reviews.json", rounds)
+        rc, out = v2_post("Finding: F3 | P2 | likely | sub/c.py:1 | a new one\n" + judged.replace("Finding: none\n", ""),
+                          header=adjudicate)
+        check("…the same base with a Finding: refused, nothing sent (a full review on an arbitrary base still is)",
+              rc == 2 and not posted() and "neither the merge-base" in out and "nor is it an adjudication" in out, f"rc={rc}\n{out}")
+        v2_pr(c3, listed=(c0, c1, c2, c3))
+        put("reviews.json", rounds)
+        rc, out = v2_post("Judgement: F3 | fixed | gone\n" + judged, header=adjudicate)
+        check("…a judgement of a label not raised on its base: refused, naming it and what was raised",
+              rc == 2 and not posted() and "it judges F3" in out and "raised there: F1, F2" in out, f"rc={rc}\n{out}")
+        v2_pr(c3, listed=(c0, c1, c2, c3))
+        # The checkpoint a full review of c3, so c2..c3 is no second engine's range of the last round.
+        put("reviews.json", json.dumps([r1, r2, with_lines(checkpoint_review(base=c0, head=c3, at="2026-10-20T12:00:00Z"),
+                                                           "Finding: none")]))
+        rc, out = v2_post(judged, header=fence_header(base_sha=c2, head_sha=c3))
+        check("…based on a head no review raised a finding on: refused",
+              rc == 2 and not posted() and "raised a finding on its base" in out, f"rc={rc}\n{out}")
+        v2_pr(c3, listed=(c0, c1, c2, c3))
+        put("reviews.json", json.dumps([{**r1, "user": {"login": "stranger"}}, r2, r3]))
+        rc, out = v2_post(judged, header=adjudicate)
+        check("…findings raised on its base by an account arm does not read: refused",
+              rc == 2 and not posted() and "raised a finding on its base" in out, f"rc={rc}\n{out}")
+        v2_pr(c3, listed=(c0, c1, c2, c3))
+        put("reviews.json", rounds)
+        rc, out = v2_post(rcov.ADJUDICATION_LINE + "\n" + judged, header=fence_header(base_sha=c2, head_sha=c3))
+        check("a report line that is the adjudication line is refused as marker-like, even on the checkpoint's head",
+              rc == 2 and not posted() and "marker" in out, f"rc={rc}\n{out}")
+        posted_adj = {"id": 20261020130000, "user": {"login": "me"}, "commit_id": c3,
+                      "submitted_at": "2026-10-20T13:00:00Z", "body": adjudication.replace(CONFIG, real_config(CARD))}
+        v2_pr(c3, listed=(c0, c1, c2, c3))
+        put("reviews.json", json.dumps([r1, r2, r3, posted_adj]))
+        rc, out = v2_post(report + cover("sub/c.py"), header=fence_header(base_sha=c2, head_sha=c3))
+        check("an adjudication posted last is no checkpoint: the round's second engine (c2..c3) still posts",
+              rc == 0 and posted() and not rcov.is_adjudication(body_of()), f"rc={rc}\n{out}")
 
         print("post-review: the marker matches the READER's, byte for byte")
         # THE CROSS-FILE CONTRACT. Two constants in two modules; a one-sided
