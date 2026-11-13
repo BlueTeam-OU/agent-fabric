@@ -1476,8 +1476,8 @@ its record disagree, the record wins. Look it up, never read it whole:
 
 ### ADR-064 — GZCoord carried over InterWeave: one host, beside the relay (Accepted)
 
-- One host, loopback only, first; second host next, by
-  amendment; control on a `fabric-control` endpoint
+- One host, loopback only, first; second host next, once
+  registered and in the operator's inventory (ADR-069); control on a `fabric-control` endpoint
   via `interweave-human` (rules 1, 12).
 - Dual run: both carriers, relay of record (ADR-033 r7
   unchanged); journal collapses by MESSAGE-ID; switching: ADR-033
@@ -1506,7 +1506,7 @@ its record disagree, the record wins. Look it up, never read it whole:
 - Parity from arrival logs: missed, duplicate, offline counts,
   rollback drill (rule 11).
 - A 2026-11-11 — second host `fabric-h2`, no overlay, dialled from develop-qzapp only; P2's gates waived (rule 1).
-- A 2026-11-12 — rule 1's second host is any host in the registry; the waivers are not the record's.
+- A 2026-11-12 — rule 1's second host is any registered host, opened by its registration and the operator's inventory, not an amendment; fabric-h2 and its waivers are ADR-069's.
 - Keywords: InterWeave, carrier, relay, P5, second host, fabric-h2.
 
 ### ADR-065 — The reviewer reads through pinned tools, says what it covered, and the next round starts where the last one stopped (Accepted)
