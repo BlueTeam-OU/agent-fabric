@@ -665,6 +665,21 @@ def test_the_commit_body_counts_what_was_rehomed(tmp: str) -> None:
     assert "Re-homed" not in ta.read(msg), "control: bound, nothing re-homed, no line"
 
 
+def test_a_rehomed_claim_the_control_planes_pass_rejects_is_no_rehomed_row(tmp: str) -> None:
+    """F1's other half: the rows are of what the control plane's pass kept. A claim it rejected (non-English prose) was not
+    re-homed, and the report, the commit body and stderr must not say it was. Control: the English claim beside it is."""
+    bad = {**WF, "topic": "bad", "body": "Perche questo quindi anche quello, e questa quella cosa.", "evidence": ["h2"]}
+    good = {**WF, "topic": "good", "evidence": ["h2"]}
+    drain, claims_dir, out = ta.build(tmp, {"alpha": ta.claims("alpha", [WF]), COORD: ta.claims(COORD, [bad, good])})
+    bind(out, "alpha")
+    msg = os.path.join(tmp, "msg.txt")
+    proc = ta.run_assemble(drain, claims_dir, out, "--commit-message", msg)
+    assert proc.returncode == 1 and "REJECTED" in proc.stderr, (proc.returncode, proc.stderr)
+    assert not os.path.exists(msg), "a failed drain writes no commit message"
+    assert "RE-HOMED (1" in proc.stderr, proc.stderr
+    assert [r["slice"] for r in report(out)["rehomed"]] == [f"{COORD}/workflow:good"], report(out)["rehomed"]
+
+
 def main() -> int:
     cases = [
         test_a_coordinator_claim_of_a_project_that_does_not_bind_it_lands_in_the_control_plane,
@@ -696,6 +711,7 @@ def main() -> int:
         test_f3_what_the_rehome_pass_replaced_is_recorded_in_the_control_planes_report_and_a_replay_keeps_it,
         test_f4_the_notes_of_the_rehome_pass_reach_the_projects_report_and_its_files_are_checked_for_links,
         test_the_commit_body_counts_what_was_rehomed,
+        test_a_rehomed_claim_the_control_planes_pass_rejects_is_no_rehomed_row,
     ]
     failures = 0
     for case in cases:
