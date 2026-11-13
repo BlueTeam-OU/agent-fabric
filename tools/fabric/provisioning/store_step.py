@@ -107,7 +107,7 @@ def secrets_step(s: Steps, login: str, host: str, slug: str, fp: str, *,
         die(f"step failed: fabric-secrets sync as {login} (exit {rc}); nothing after it ran")
     # No inbox cursor to move: the carrier delivers what arrives after the account's units start (step 7e), so
     # there is no backlog of someone else's history to mark read, and nothing here reaches a relay that may be
-    # stopped (the cutover's W14; relay_catchup.py did this and is gone).
+    # stopped (the cutover's W14; relay_catchup.py did this and is no longer called here).
     say("5. its key made and certified, its store filled and synced; commit identities/keys/, then write its recovery "
         "copy and back up:")
     say(f"     fabric-host {host} run --as {login} -- projects/agent-fabric/bin/fabric-secrets store recovery-copy")

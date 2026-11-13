@@ -486,7 +486,8 @@ def main() -> int:
 echo "gzcoord-carrier $1" >> "{SEQ}/account-calls"
 case "$1" in
   render-config) [[ -e "{SEQ}/row-valid" ]] || exit 2;;
-  roster-row) echo '{"agent_id": "01a-fixture", "login": "seq-login", "peer_id": "12D3KooWfixture"}';;
+  roster-row) [[ -e "{SEQ}/key-unmerged" ]] && { echo "refused: the lineage holds no key for seq-login on origin/main" >&2; exit 2; }
+              echo '{"agent_id": "01a-fixture", "login": "seq-login", "peer_id": "12D3KooWfixture"}';;
 esac
 '''), 0o755)
         # systemctl --user, as the account's manager would answer it; the manager's socket is a file under the test's own run dir.
@@ -605,6 +606,15 @@ echo "systemctl $*" >> "{SEQ}/account-calls"
                 ok("…the carrier and agentd are not started, the steps after still ran and the verification passed",
                    not any(ln.startswith("systemctl") or ln == "account_carrier start" for ln in acc)
                    and "10. verification" in out3 and "7e." not in out3, "\n".join(acc) + out3)
+                # A new login's first run: its key is not on origin/main yet, so roster-row refuses. The run is open (3),
+                # not failed (1), and the steps after 7d, 12 and 11 still ran.
+                os.remove(row)
+                put(f"{seq}/key-unmerged", "")
+                rc5, out5 = seq_run(backend, "seq-login", "backend-dev", "--project", "demo")
+                ok("7d: roster-row refusing (key not on origin/main): exit 3 with its reason, no row file, verification still ran",
+                   rc5 == 3 and "roster-row refused for seq-login: refused: the lineage holds no key" in out5
+                   and not os.path.exists(row) and "10. verification" in out5 and "7e." not in out5, f"rc={rc5}\n{out5}")
+                os.remove(f"{seq}/key-unmerged")
                 put(f"{seq}/row-valid", "")
                 rc4, out4 = seq_run(backend, "seq-login", "backend-dev", "--project", "demo")
                 ok("…and the re-run after the countersignature starts them and exits 0", rc4 == 0 and "7e." in out4, f"rc={rc4}\n{out4}")

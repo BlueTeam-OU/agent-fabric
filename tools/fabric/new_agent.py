@@ -40,10 +40,10 @@ CONTRACT, frozen from the bash (ADR-040 §5 rule 3):
   stderr    `new-agent: …` lines: the host, each step's result, a refusal;
             what store-enroll, the hand-over and the sync print, each line indented three spaces.
   exit      0 when every step ran (or a dry run planned them); 3 when every
-            step ran but the account's carrier roster row, which only
-            fabric-coordinator countersigns: the run says the command, left
-            the carrier unstarted, and its re-run, once the roster on
-            origin/main holds the row, starts it; 1 for a
+            step ran but the carrier is left unstarted: the account's roster
+            row, which only fabric-coordinator countersigns (the run says the
+            command), or no user manager yet to start it in; its re-run,
+            once that is settled, starts it; 1 for a
             refusal or a failed step (`step failed: …`, nothing after it
             ran; step 11, the last, fails alone: 0-10 stay done); 2 for
             usage; hostexec's own refusal of the host is 1.
@@ -307,8 +307,7 @@ def run_steps(o: dict, login: str, role: str, host: str, dry: bool, remote: dict
             f"fabric-secrets sync --no-pull as {login}")
     elif dry:
         say(f"would: store_enroll.py {login} --host {host} --role {role} --born-now; provision identity, share, issue-key openrouter "
-            f"and openai (each once); its store to {login} as a bundle; fabric-secrets sync --no-pull as {login}; its "
-            "inbox cursor to the newest message")
+            f"and openai (each once); its store to {login} as a bundle; fabric-secrets sync --no-pull as {login}")
         say(f"would: fabric-secrets store assign {slug} {login} (token {fp}), before the bundle" if slug else
             "would: assign no Claude account (--no-claude-account: the broker path only)")
     else:

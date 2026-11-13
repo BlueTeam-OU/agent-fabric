@@ -10,6 +10,7 @@ import io
 import json
 import os
 import stat
+import socket
 import subprocess
 import sys
 import tempfile
@@ -57,7 +58,7 @@ class Stub:
         self.ran.append((argv, env))
         for key, (rc, out) in self.answers.items():
             if all(w in " ".join(argv) for w in key.split()):
-                return subprocess.CompletedProcess(argv, rc, out, None)
+                return subprocess.CompletedProcess(argv, rc, out, out if stderr == subprocess.PIPE else None)
         return subprocess.CompletedProcess(argv, 0, "", None)
 
 
@@ -93,12 +94,21 @@ def main() -> int:
         w = stub({"render-config": (2, ""), "roster-row": (0, "not json")})
         _, died = run(carrier_step.roster_row, w)
         ok("…and so does an answer that is not a row", died is not None)
+        w = stub({"render-config": (2, ""), "roster-row": (2, "refused: no key on origin/main for agent 01a\n")})
+        open_, died = run(carrier_step.roster_row, w)
+        ok("a roster-row refusal (the key not on origin/main yet) leaves the run open with the carrier's own words, not failed",
+           died is None and open_ and "refused" in open_[0] and "no key on origin/main for agent 01a" in open_[0]
+           and "re-run" in open_[0], f"{open_} {died}")
+        w = stub({"render-config": (2, ""), "roster-row": (1, "Traceback: boom\n")})
+        _, died = run(carrier_step.roster_row, w)
+        ok("…while any other failure of roster-row (a crash) stays a failed step, with its last line said",
+           died and "exit 1" in died and any("boom" in s for s in w.said), str(w.said))
         row = {"agent_id": "01a-x", "login": me, "peer_id": "12D3KooWx"}
         w = stub({"render-config": (2, ""), "roster-row": (0, json.dumps(row))})
         open_, died = run(carrier_step.roster_row, w)
         path = carrier_step.row_file(w)
         ok("a row the coordinator has not countersigned is written 0644 and left open, with the command to sign",
-           died is None and open_ and f"roster-admit {path} --port" in open_[0] and json.load(open(path, encoding="utf-8")) == row
+           died is None and open_ and f"roster-admit {path} --port" in open_[0] and f"{path} on {socket.gethostname().split('.')[0]}" in open_[0] and json.load(open(path, encoding="utf-8")) == row
            and stat.S_IMODE(os.stat(path).st_mode) == 0o644, f"{open_} {died}")
         ok("…and never signed by this module: the account's calls are render-config and roster-row only",
            [a[0][-1] for a in w.ran] == ["render-config", "roster-row"], str(w.ran))
@@ -123,6 +133,11 @@ def main() -> int:
            open_ == [] and "systemctl" in w.ran[0][0] and "account_carrier.py" in w.ran[1][0][2]
            and all(e and e[0].startswith("XDG_RUNTIME_DIR=") and e[1].startswith("DBUS_SESSION_BUS_ADDRESS=unix:path=") for _, e in w.ran),
            str(w.ran))
+        w = stub({"render-config": (0, "")})
+        run(carrier_step.carrier_steps, w)
+        inst = [e for a, e in w.ran if "account_carrier.py" in " ".join(a) and "install" in a]
+        ok("the install runs in the account's user manager (XDG_RUNTIME_DIR and the bus), as agentd's own does",
+           len(inst) == 1 and inst[0] and inst[0][0].startswith("XDG_RUNTIME_DIR=") and inst[0][1].startswith("DBUS_SESSION_BUS_ADDRESS="), str(w.ran))
         w = stub({}, dry=True)
         ok("a dry run says what it would do and runs nothing", run(carrier_step.carrier_steps, w)[0] == []
            and w.ran == [], str(w.ran))
