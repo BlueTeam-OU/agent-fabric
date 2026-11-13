@@ -87,8 +87,20 @@ def probe_standin(state: str):
                 payload = b'event: error\ndata: {"type":"error","message":"boom"}\n\n'
             elif mode == "echokey":
                 status, payload = 500, ("bad credential " + (self.headers.get("Authorization") or "")).encode()
+            elif mode == "echoallow":
+                status, payload = 429, ('{"error": {"type": "usage_limit_reached", "message": "refused ' + (self.headers.get("Authorization") or "") + '"}}').encode()
             elif mode == "hang":
                 time.sleep(4)
+                return
+            elif mode == "trickle":
+                # a status line and headers one byte at a time, each inside any per-read timeout: only a deadline over the whole call ends it
+                try:
+                    for b in b"HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nContent-Length: 999\r\n\r\n" * 4:
+                        self.wfile.write(bytes([b]))
+                        self.wfile.flush()
+                        time.sleep(0.3)
+                except OSError:
+                    pass
                 return
             self.send_response(status)
             self.send_header("Content-Type", "text/event-stream")
@@ -1365,6 +1377,10 @@ def main() -> int:
         rc, out, err, sleeps = inproc("7", req)
         not_run("a probe answer that echoes the credential", rc, err, "probe-failed")
         check("…the echo is redacted on stderr", "[key]" in err, err)
+        set_pr(); mode("ok"); probe_mode("echoallow")
+        rc, out, err, sleeps = inproc("7", req)
+        not_run("an allowance answer that echoes the credential", rc, err, "allowance")
+        check("…the echo is redacted on stderr too", "[key]" in err, err)
         set_pr(); mode("ok"); probe_mode("incomplete")
         rc, out, err, sleeps = inproc("7", req)
         not_run("a stream that ends without completing", rc, err, "probe-failed")
@@ -1387,6 +1403,16 @@ def main() -> int:
             review_codex.PROBE_TIMEOUT_S = saved_bound
         not_run("probe timeout", rc, err, "probe-timeout")
         check("…within its bound, not the stand-in's 4 s", took < 3, took)
+        set_pr(); mode("ok"); probe_mode("trickle")
+        review_codex.PROBE_TIMEOUT_S = 1.0
+        try:
+            t0 = time.monotonic()
+            rc, out, err, sleeps = inproc("7", req)
+            took = time.monotonic() - t0
+        finally:
+            review_codex.PROBE_TIMEOUT_S = saved_bound
+        not_run("probe timeout, a gateway trickling its headers", rc, err, "probe-timeout")
+        check("…the deadline is over the whole call: a byte every 0.3 s does not extend it", took < 3, took)
         check("the bound is seconds, stated", 0 < review_codex.PROBE_TIMEOUT_S <= 30, review_codex.PROBE_TIMEOUT_S)
 
         set_pr(); mode("ok")
@@ -1423,6 +1449,33 @@ def main() -> int:
         r = run("7", req, env={**env0, "AGENT_FABRIC_CODEX_BASE_URL": socket_closed_port()})
         check("through the installed entry point: an unreachable gateway is exit 3 and one statement",
               r.returncode == 3 and statement_reason() == "unreachable", (r.returncode, r.stderr))
+
+        set_pr(); mode("ok")
+        rc, out, err, sleeps = inproc("7", req, env_over={"AGENT_FABRIC_CODEX_KEY": "gw-local-key-123\n"})
+        check("a key http cannot carry is refused, exit 1, nothing posted, and the key is not shown",
+              rc == 1 and "gw-local-key-123" not in err and "refused" in err and unavailables() == 0 and posts() == 0 and not codex_ran(),
+              (rc, err))
+
+        print("failures after the probe passed, from the head's own content or local I/O, are statements too")
+        real_extract, real_mkdtemp = review_codex.extract, review_codex.tempfile.mkdtemp
+
+        def bad_extract(*a, **k):
+            raise review_codex.Refused("'tool' is a link out of the head")
+
+        def full_disk(*a, **k):
+            raise OSError(28, "No space left on device")
+        try:
+            review_codex.extract = bad_extract
+            set_pr(); mode("ok")
+            rc, out, err, sleeps = inproc("7", req)
+            not_run("a link out of the head", rc, err, "failed")
+            review_codex.extract = real_extract
+            review_codex.tempfile.mkdtemp = full_disk
+            set_pr(); mode("ok")
+            rc, out, err, sleeps = inproc("7", req)
+            not_run("a full scratch disk", rc, err, "failed")
+        finally:
+            review_codex.extract, review_codex.tempfile.mkdtemp = real_extract, real_mkdtemp
 
         print("every reason the engine emits is one the arm's reader parses back, with its own words")
         for reason in review_codex.REASONS:

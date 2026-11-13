@@ -101,8 +101,8 @@ have read the early files less exactly. Every other `error` item still refuses.
 WHAT IS POSTED. Codex's last message must be ONE JSON object valid against
 runtime/claude-code/review/codex-answer.schema.json (also handed to
 --output-schema). Anything else — no message, prose, a fence, two objects, a
-finding without a fix — is a failed review: nothing is posted and the reason
-is said (rule 4). A valid answer is rendered with the engine, the model and the level sent on
+finding without a fix — is a failed review: no review is posted, the unavailable
+statement is (reason `failed`, exit 3) and the reason is said (rule 4). A valid answer is rendered with the engine, the model and the level sent on
 its first line and posted by `fabric-pr post-review PR --model codex --head HEAD` from the
 request's repository; --no-post prints it instead. Rule 5 is the reader's:
 each finding is judged by the review class before it is answered.
@@ -320,7 +320,8 @@ class Refused(Exception):
 
 
 class FailedReview(Exception):
-    """Codex ran and the review failed; nothing is posted."""
+    """The review could not be had, whether Codex never started or its run ended as no review. Raised inside the run,
+    where guarded() turns it into the unavailable statement; it never reaches main."""
 
 
 class RunTimeout(FailedReview):
@@ -390,6 +391,10 @@ def gateway_settings(environ: dict[str, str]) -> tuple[str, str]:
     if missing:
         raise Refused(f"not set: {', '.join(missing)} — the Codex engine runs only through a gateway serving "
                       "openai-responses, with its local key (agent-fabric ADR-053 rule 3); nothing was run or posted")
+    # A key HTTP cannot carry as a header value (a trailing newline from an unstripped key file) would make
+    # http.client quote the whole header, key included, in its ValueError: refused here, never echoed.
+    if not (key.isascii() and key.isprintable()):
+        raise Refused(f"{ENV_KEY} holds a character that is not printable ASCII (a trailing newline?); the key is not shown")
     parts = urlsplit(base)
     if (parts.scheme not in ("http", "https") or not parts.hostname or parts.username or parts.password
             or parts.path not in ("", "/") or parts.query or parts.fragment):
@@ -787,6 +792,12 @@ def _probe_failure(kind: str, text: str, key: str) -> ModelUnavailable:
     return ModelUnavailable(kind, _one_line(text.replace(key, "[key]"))[:300])
 
 
+def _expire(sock: socket.socket) -> None:
+    """The probe's deadline: a shut socket ends whatever read the probe is blocked in."""
+    with contextlib.suppress(OSError):
+        sock.shutdown(socket.SHUT_RDWR)
+
+
 def probe(base_url: str, key: str, account: str | None, model: str) -> None:
     """One cheap call through the gateway the run would use, with the credentials it would use: is the API reachable
     and the allowance not spent. Returns when the model answered a one-word request; raises ModelUnavailable with the
@@ -795,7 +806,9 @@ def probe(base_url: str, key: str, account: str | None, model: str) -> None:
     Made in this process with http.client, not by a subprocess and not through urllib: the key travels in a header
     on the socket, never in an argv or a log line; no proxy variable of the session is honoured (the gateway is the
     run's own, on loopback for --gateway chatgpt) and no redirect is followed. Nothing of the session's environment
-    is read here. The whole call is bounded by PROBE_TIMEOUT_S, a deadline over every read and not a per-read timeout.
+    is read here. The whole call after the name is resolved is bounded by PROBE_TIMEOUT_S: a watchdog shuts the socket at the
+    deadline, because a per-read timeout is reset by every byte a trickling gateway sends. The name lookup is the system
+    resolver's (the gateway is a loopback or an address the settings name); it is not bounded here.
 
     The request is the Responses API's smallest form with the streaming the ChatGPT backend requires; it is passed
     only when the stream ends in response.completed. NOT verified against the live ChatGPT backend by the login that
@@ -810,9 +823,14 @@ def probe(base_url: str, key: str, account: str | None, model: str) -> None:
     connect = http.client.HTTPSConnection if parts.scheme == "https" else http.client.HTTPConnection
     conn = connect(parts.hostname, parts.port, timeout=PROBE_TIMEOUT_S)
     text = b""
+    watchdog: threading.Timer | None = None
     try:
-        conn.request("POST", "/responses", body.encode("utf-8"), headers)
+        conn.connect()
         sock = conn.sock
+        watchdog = threading.Timer(max(deadline - time.monotonic(), 0.0), _expire, (sock,))
+        watchdog.daemon = True
+        watchdog.start()
+        conn.request("POST", "/responses", body.encode("utf-8"), headers)
         resp = conn.getresponse()
         status = resp.status
         while len(text) < PROBE_MAX_BYTES and b"response.completed" not in text and not resp.isclosed():
@@ -827,10 +845,17 @@ def probe(base_url: str, key: str, account: str | None, model: str) -> None:
     except (TimeoutError, socket.timeout):
         raise ModelUnavailable(PROBE_TIMEOUT, f"no answer within {PROBE_TIMEOUT_S:g} s") from None
     except (OSError, http.client.HTTPException) as e:
+        if time.monotonic() >= deadline:   # the watchdog's shutdown surfaces as a closed socket, not a timeout
+            raise ModelUnavailable(PROBE_TIMEOUT, f"no answer within {PROBE_TIMEOUT_S:g} s") from None
         raise _probe_failure(UNREACHABLE, f"{type(e).__name__}: {e}", key) from None
+    except ValueError:
+        # http.client's own text quotes the offending header, which is the key's: say it without the value.
+        raise Refused("the probe's request cannot be formed (a header value http.client refuses); the key is not shown") from None
     finally:
+        if watchdog is not None:
+            watchdog.cancel()
         conn.close()
-    said = text.decode("utf-8", "replace")
+    said = text.decode("utf-8", "replace").replace(key, "[key]")   # untrusted, and a gateway may echo its headers
     if unavailable_kind := unavailable(said, ALLOWANCE_PROBE_MESSAGES):
         raise unavailable_kind
     if status != 200:
@@ -1438,8 +1463,9 @@ def _review(pr: str, request: str, *, model_flag: str | None, timeout_min: float
             env_run = {**environ, **provided}
             base_url, key = gateway_settings(env_run)
             probe(base_url, key, account_id(env_run), model)
-            scratch = tempfile.mkdtemp(prefix="fabric-review-codex.", dir=root)
+            scratch = None
             try:
+                scratch = tempfile.mkdtemp(prefix="fabric-review-codex.", dir=root)
                 workdir = os.path.join(scratch, "head")
                 extract(repo, head, workdir)
                 home = codex_home(scratch, base_url, account_id(env_run), readable_paths(binary, workdir, repo))
@@ -1447,13 +1473,20 @@ def _review(pr: str, request: str, *, model_flag: str | None, timeout_min: float
                 prompt = brief.rstrip("\n") + "\n" + answer_shape()
                 prove_sandbox(binary, workdir, env)
                 return parse_answer_full(run_codex(binary, model, workdir, scratch, env, prompt, timeout_min * 60, level, observed))
+            except (Refused, OSError, subprocess.SubprocessError) as err:
+                # The key was accepted and the head is known: what fails from here (a link out of the head, a full
+                # scratch disk, a pipe) is a review that could not be had, not a setting the caller can fix.
+                raise FailedReview(f"{type(err).__name__}: {err}") from err
             finally:
-                shutil.rmtree(scratch, ignore_errors=True)
+                if scratch is not None:
+                    shutil.rmtree(scratch, ignore_errors=True)
 
     def guarded() -> tuple[list[dict], review_coverage.Coverage | None]:
         """attempt(), with every way it can fail to launch or to finish turned into ModelUnavailable: Codex never
         blocks an arm (the owner, 2026-11-12), so the arm gets its statement for all of them. What is refused before
-        the head is known (settings, routing, the request, a moved head) is the caller's to fix and stays a refusal."""
+        the head is known, or before the gateway has answered (settings, routing, the request, the sign-in, a moved head),
+        is the caller's to fix and stays a refusal; what fails after the probe passed, local I/O and the head's own
+        content included, is the statement's `failed`."""
         if missing is not None:
             raise ModelUnavailable(BINARY_MISSING, str(missing))
         try:
@@ -1568,9 +1601,6 @@ def main(argv: list[str] | None = None) -> int:
     except ModelUnavailable as e:
         print(f"fabric-review: {e.report()}; no review posted", file=sys.stderr)
         return EXIT_UNAVAILABLE
-    except FailedReview as e:
-        print(f"fabric-review: the Codex review failed, nothing posted: {e}", file=sys.stderr)
-        return 1
     except review_brief.RequestError as e:
         print("fabric-review: the request does not render:\n  " + "\n  ".join(e.problems), file=sys.stderr)
         return 1
