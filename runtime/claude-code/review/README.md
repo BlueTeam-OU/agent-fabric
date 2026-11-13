@@ -172,8 +172,10 @@ commit id (`origin/main`) is refused unless the request pins `card_base`
 findings an earlier round raised: its range is that round's head `H_k`
 to the later head, and the brief lists the findings the PR's posted
 reviews raised on `H_k` (with whether gate 4c reads each as open),
-refusing a base that raised none, a typed `previous_findings`, and
-reviews GitHub cannot list or read. `fabric-pr post-review` posts its
+refusing a base that raised none, a typed `previous_findings`,
+reviews GitHub cannot list or read, and the two ranges `post-review`
+takes as a round (from the last checkpoint's head, and the checkpoint's
+own range), where a judgements-only report would count as one. `fabric-pr post-review` posts its
 report as an adjudication, which gate 4c of `fabric-pr arm` applies to
 those findings alone; `fabric-review next REQUEST --pr PR --adjudicate
 H_k` derives the request. `card_base` names the commit the card is read

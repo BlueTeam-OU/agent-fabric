@@ -227,9 +227,10 @@ means a full review.
    base and `Finding: none`. `post-review` marks it on the line after the
    marker; gate 4c applies its judgements to the findings raised on its
    base and nowhere else; it is never a checkpoint, no link of a chain
-   and no review of its head at gates 4 and 4b, its base is never the
-   last checkpoint's head (that is the next round's), and its brief lists
-   the findings raised on its base from the posted reviews (A 2026-11-13).
+   and no review of its head at gates 4 and 4b, its range is neither one
+   from the last checkpoint's head nor that checkpoint's own (`post-review`
+   takes both as a round), and its brief lists the findings raised on its
+   base from the posted reviews (A 2026-11-13).
 6. The reviewer does not post. The session posts its report with
    `fabric-pr post-review`.
 7. `review-bash-guard` stays as the fence `subagent-clone-guard` applies to

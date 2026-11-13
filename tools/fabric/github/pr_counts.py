@@ -286,7 +286,8 @@ def engines_on_head(pr: dict, markers: list[str]) -> set[str]:
         body = r.get("body") or ""
         v2 = review_coverage.read_review(body)
         if v2 is not None:
-            return v2.counts and v2.marker.head == head
+            # An adjudication is never the head's review at gates 4 and 4b (review_status.verdicts.uncounted_v2).
+            return v2.counts and v2.marker.head == head and not review_coverage.is_adjudication(body)
         return any(m in body for m in markers)
 
     return {engine_of(r) for r in (pr.get("reviews") or {}).get("nodes") or []

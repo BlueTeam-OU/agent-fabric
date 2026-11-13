@@ -1040,6 +1040,13 @@ def test_a_prs_adjudication_of_an_earlier_round(tmp: str) -> None:
         rb.checkpoint = lambda pr, h, r, exclude_head=None: (main, h1, main, "X")
         problems = refusals(req)
         assert any("last checkpoint review" in p and "fabric-review next REQUEST --pr" in p for p in problems), problems
+        # the checkpoint's own range: post_review would take it as that round's second engine
+        rb.checkpoint = lambda pr, h, r, exclude_head=None: (h1, h3, main, "X")
+        problems = refusals(req)
+        assert any("last checkpoint review's own range" in p for p in problems), problems
+        # control: the checkpoint's base, a later head than its own: an adjudication, renders
+        rb.checkpoint = lambda pr, h, r, exclude_head=None: (h1, h2, main, "X")
+        assert refusals(req) == [], refusals(req)
         rb.checkpoint = lambda pr, h, r, exclude_head=None: None
         # a base that raised nothing: refused, naming the heads that did
         problems = refusals({**req, "range": f"{h2}..HEAD"})

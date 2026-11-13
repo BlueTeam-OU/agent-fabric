@@ -17,7 +17,7 @@ import tempfile
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(HERE, "tools", "fabric"))
 import gh  # noqa: E402
-from github import pr_counts, pr_split, review_posters  # noqa: E402
+from github import pr_counts, pr_split, review_coverage, review_posters  # noqa: E402
 
 REGISTRY = {
     "gzapp": {"remotes": ["git@github.com:gzapi-org/gzapp.git", "https://github.com/gzapi-org/gzapp"]},
@@ -348,9 +348,11 @@ def main() -> int:
     print("v2 reviews: the gate's reader (review_coverage) decides, as for the gate")
     h2 = "a" * 40
 
-    def v2_review(*statuses: str, head: str = h2, engine: str = "") -> dict:
+    def v2_review(*statuses: str, head: str = h2, engine: str = "", adjudication: bool = False) -> dict:
         paths = {f"p{i}": ({"status": st} if st == "read" else {"status": st, "reason": "r"}) for i, st in enumerate(statuses)}
         marker = f"<!-- agent-fabric-review v2 base={'b' * 40} head={head} card={'c' * 40} config={'d' * 64} -->"
+        if adjudication:
+            marker += "\n" + review_coverage.ADJUDICATION_LINE
         model = f"\n<!-- model: {engine} -->" if engine else ""
         return {"body": f"{marker}{model}\n**Blind review**\n\n```agent-fabric-coverage v1\n{json.dumps({'paths': paths, 'lenses': {}})}\n```\n",
                 "commit": {"oid": h2}}
@@ -358,7 +360,9 @@ def main() -> int:
     for what, rev, want in (("a complete v2 review of the head counts", v2_review("read", "read"), "review claude ✓"),
                             ("a v2 review with a path not read does not", v2_review("read", "not read"), "review claude ✗"),
                             ("a v2 review whose marker names another head does not", v2_review("read", head="c" * 40), "review claude ✗"),
-                            ("a v2 review of codex counts as codex's", v2_review("read", engine="codex"), "review claude ✗")):
+                            ("a v2 review of codex counts as codex's", v2_review("read", engine="codex"), "review claude ✗"),
+                            ("a complete adjudication on the head does not, as at the gate",
+                             v2_review("read", "read", adjudication=True), "review claude ✗")):
         rows = run_counts(["4"], Hub({"o/this": {4: pr_doc(4, [commit("a" * 40, "x")], head=h2, reviews=[rev])}}))
         check(what, want in rows[0]["line"], rows[0]["line"])
 
