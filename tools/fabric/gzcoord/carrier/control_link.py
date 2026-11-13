@@ -724,6 +724,8 @@ class Server:
             return
         self.carrier.watch(rid, lambda record, sender: put({"event": "reply", "carrier": VIA, "from": sender, "record": record}))
         release = self._hold() if self._hold is not None else (lambda: None)
+        # Counted from the hold, not from the sends' end: a silent child makes the sends take their whole budget.
+        held_until = time.monotonic() + HOLD_MAX_S
         try:
             wait_s = float(req["wait_s"])
             # A request's send never outlives its own ttl_s (rule 18): the budget of the sends is the smaller.
@@ -734,10 +736,10 @@ class Server:
                 put({"event": "sent", "to": address, "ok": ok, "why": why})
             put({"event": "sent-all"})
             end = time.monotonic() + wait_s
-            held_until = time.monotonic() + HOLD_MAX_S
             conn.settimeout(SOCKET_SEND_S)   # bounds put(); the loop below reads only what select says is there
             while not self._stop.is_set() and (left := end - time.monotonic()) > 0:
                 if time.monotonic() >= held_until:
+                    self._log(f"fabric-ctl's session for {rid[:8]} has held the restart for {HOLD_MAX_S:.0f}s: released")
                     release()   # idempotent: the session goes on, the restart no longer waits for it
                 try:
                     readable, _, _ = select.select([conn], [], [], min(left, 0.5))

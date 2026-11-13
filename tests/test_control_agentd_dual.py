@@ -260,6 +260,15 @@ class AgentdDual(Base):
             self.leaver[0].request("source changed")
             self.assertTrue(until(lambda: self.left == [0]), "a fabric-ctl left waiting does not keep the daemon on old code")
 
+    def test_a_session_opened_after_a_restart_was_asked_for_holds_nothing_new(self):
+        first = self.ctl_session("one")
+        self.leaver[0].request("source changed")
+        late = link.Session(link.socket_path(), body("two", **{"from": "h/alice", "to": ["h/op"]}), ["h/op"], 30)
+        self.addCleanup(late.close)
+        late.wait_sent(10)
+        first.close()
+        self.assertTrue(until(lambda: self.left == [0]), "only the session open at the request held it; a later one did not")
+
     def test_a_request_the_daemon_refused_holds_nothing(self):
         session = link.Session(link.socket_path(), body("nope", **{"from": "h/mallory"}), ["h/op"], 30)
         self.addCleanup(session.close)

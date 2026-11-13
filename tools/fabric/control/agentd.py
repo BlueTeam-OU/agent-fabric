@@ -1224,9 +1224,14 @@ def main(argv: list[str] | None = None, *, stop: threading.Event | None = None) 
     def hold_for_ctl() -> Callable[[], None]:
         """A fabric-ctl session on the socket is in flight for the leaver, as an action is: the operator's own
         `upgrade fabric` moves this daemon's code while its command still waits for the others' replies, and
-        leaving then closes the only carrier-alone path they come by. release() leaves, if asked to, once none is left."""
+        leaving then closes the only carrier-alone path they come by. release() leaves, if asked to, once none is left.
+        Not a thread, unlike the other members: finish_inflight() joins them, and only runs under --once, where no
+        socket is served. A session that opens once a leave is pending holds nothing, so sessions that follow one
+        another (presence checks, the queue's holder asks) cannot keep the daemon on old code past one session's cap."""
         token = object()
         with leave.lock:
+            if leave.pending is not None:
+                return lambda: None
             inflight.add(token)
 
         def release() -> None:
