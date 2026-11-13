@@ -50,7 +50,8 @@ def read(state_dir: str | None = None) -> dict:
     try:
         with open(file, encoding="utf-8") as fh:
             doc = json.load(fh)
-    except FileNotFoundError:
+    except (FileNotFoundError, NotADirectoryError):
+        # A state directory that is not one holds no mode file; the journal reports that failure in its own words, as before.
         return {"mode": DEFAULT, "set_by": None, "set_at": None}
     except (OSError, ValueError) as e:
         raise ModeError(f"{file} cannot be read as a transport mode ({e.__class__.__name__}); "

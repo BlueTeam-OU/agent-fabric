@@ -70,6 +70,11 @@ class State(Scratch):
         self.write('{"mode": "relay-record"}')      # the positive control: the same reader accepts a good one
         self.assertEqual(mode.read(self.dir)["mode"], "relay-record")
 
+    def test_a_state_directory_that_is_not_a_directory_holds_no_mode_file(self):
+        # The journal says that failure in its own words (exit 6 in the watch); the mode must not pre-empt it with another.
+        open(self.file, "w").close()
+        self.assertEqual(mode.read(self.file)["mode"], "relay-record")
+
     def test_a_directory_in_the_files_place_is_an_error(self):
         os.mkdir(self.file)
         with self.assertRaises(mode.ModeError):
