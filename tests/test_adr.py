@@ -879,6 +879,41 @@ def case_an_exported_operator_and_the_engine_count_each_others_numbers(tmp: str)
             os.environ["AGENT_FABRIC_OPERATOR"] = saved_env
 
 
+def case_adr_lint_checks_both_trees_of_a_split(tmp: str) -> None:
+    """ADR-001 moved to an operator tree: lint counts the two as one numbering,
+    and the engine's own records are still checked (a lone root is one tree).
+    Here, not in test_lint: its fixture is the real records, instance data a
+    stripped tree does not carry (STRIPPED_RED holds this file for it)."""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("fabric_lint_under_test", os.path.join(ROOT, "tools", "fabric", "lint.py"))
+    spec.loader.exec_module(importlib.util.module_from_spec(spec))   # registers fabric_lint_rules
+    from fabric_lint_rules import docs
+    engine = fixture(tmp)
+    operator = split_trees(engine)
+    saved = os.environ.get("AGENT_FABRIC_OPERATOR")
+    os.environ["AGENT_FABRIC_OPERATOR"] = operator
+    try:
+        assert docs.adr_findings(engine) == [], docs.adr_findings(engine)
+        edit(engine, "docs/adr/ADR-002-role-login-and-model-are-kept-apart.md", "**Status:**", "**Stat:**")
+        got = docs.adr_findings(engine)
+        assert any("engine tree" in f and "ADR-002" in f for f in got), got
+        assert not any("contiguous" in f or "does not exist" in f for f in got), got
+        # The same defect in each tree is two defects, each said with its tree.
+        for t in (engine, operator):
+            os.remove(os.path.join(t, "docs/adr/index.json"))
+        stale = [f for f in docs.adr_findings(engine) if "index.json" in f]
+        assert len(stale) == 2 and sum("engine tree" in f for f in stale) == 1, stale
+        # The one finding about the pair, a record in both trees, is said once.
+        shutil.copy(os.path.join(operator, ONE), os.path.join(engine, ONE))
+        both = [f for f in docs.adr_findings(engine) if "record in both trees" in f]
+        assert len(both) == 1 and "ADR-001" in both[0], both
+    finally:
+        if saved is None:
+            os.environ.pop("AGENT_FABRIC_OPERATOR", None)
+        else:
+            os.environ["AGENT_FABRIC_OPERATOR"] = saved
+
+
 def main() -> int:
     cases = [v for k, v in globals().items() if k.startswith("case_")]
     failures = 0

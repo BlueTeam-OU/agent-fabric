@@ -218,41 +218,6 @@ def case_clean_base_passes() -> None:
         assert code == 0, f"a minimal well-formed root tripped the linter:\n{out}"
 
 
-def case_adr_lint_checks_both_trees_of_a_split() -> None:
-    """ADR-001 moved to an operator tree: lint counts the two as one numbering,
-    and the engine's own records are still checked (a lone root is one tree)."""
-    import importlib.util
-    import test_adr
-    spec = importlib.util.spec_from_file_location("fabric_lint_under_test", LINT)
-    spec.loader.exec_module(importlib.util.module_from_spec(spec))   # registers fabric_lint_rules
-    from fabric_lint_rules import docs
-    with tempfile.TemporaryDirectory() as tmp:
-        engine = test_adr.fixture(tmp)
-        operator = test_adr.split_trees(engine)
-        saved = os.environ.get("AGENT_FABRIC_OPERATOR")
-        os.environ["AGENT_FABRIC_OPERATOR"] = operator
-        try:
-            assert docs.adr_findings(engine) == [], docs.adr_findings(engine)
-            test_adr.edit(engine, "docs/adr/ADR-002-role-login-and-model-are-kept-apart.md", "**Status:**", "**Stat:**")
-            got = docs.adr_findings(engine)
-            assert any("engine tree" in f and "ADR-002" in f for f in got), got
-            assert not any("contiguous" in f or "does not exist" in f for f in got), got
-            # The same defect in each tree is two defects, each said with its tree.
-            for t in (engine, operator):
-                os.remove(os.path.join(t, "docs/adr/index.json"))
-            stale = [f for f in docs.adr_findings(engine) if "index.json" in f]
-            assert len(stale) == 2 and sum("engine tree" in f for f in stale) == 1, stale
-            # The one finding about the pair, a record in both trees, is said once.
-            shutil.copy(os.path.join(operator, test_adr.ONE), os.path.join(engine, test_adr.ONE))
-            both = [f for f in docs.adr_findings(engine) if "record in both trees" in f]
-            assert len(both) == 1 and "ADR-001" in both[0], both
-        finally:
-            if saved is None:
-                os.environ.pop("AGENT_FABRIC_OPERATOR", None)
-            else:
-                os.environ["AGENT_FABRIC_OPERATOR"] = saved
-
-
 def case_the_callers_operator_is_not_part_of_a_fixture() -> None:
     """An exported AGENT_FABRIC_OPERATOR is the caller's, never the fixture's."""
     with tempfile.TemporaryDirectory() as root:
@@ -2993,7 +2958,6 @@ def main() -> int:
         case_project_tools_are_declared_and_never_retired,
         case_the_source_locale_translates_nothing,
         case_decision_records_are_lint_findings,
-        case_adr_lint_checks_both_trees_of_a_split,
         case_bash_is_a_forwarder_or_on_the_allowlist,
         case_a_base_before_step_a_holds_the_allowlist_at_policies,
         case_arm_boundary_cases_only_leave_retired,

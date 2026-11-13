@@ -38,9 +38,13 @@ CONTRACT, frozen from the bash (ADR-040 §5 rule 3):
             store tools as found.
   stdout    HELP; nothing else of its own.
   stderr    `new-agent: …` lines: the host, each step's result, a refusal;
-            what store-enroll, the hand-over, the sync and the inbox
-            catch-up print, each line indented three spaces.
-  exit      0 when every step ran (or a dry run planned them); 1 for a
+            what store-enroll, the hand-over and the sync print, each line indented three spaces.
+  exit      0 when every step ran (or a dry run planned them); 3 when every
+            step ran but the carrier is left unstarted: the account's roster
+            row, which only fabric-coordinator countersigns (the run says the
+            command); or its key not yet on origin/main (roster-row refuses:
+            commit and merge identities/keys/); or no user manager yet to
+            start it in; its re-run, once that is settled, starts it; 1 for a
             refusal or a failed step (`step failed: …`, nothing after it
             ran; step 11, the last, fails alone: 0-10 stay done); 2 for
             usage; hostexec's own refusal of the host is 1.
@@ -143,6 +147,7 @@ sys.path.insert(0, HERE)
 import project_clone as pc  # noqa: E402
 import roots  # noqa: E402
 from provisioning import config as cfg  # noqa: E402
+from provisioning.carrier_step import OPEN_EXIT  # noqa: E402
 from provisioning.new_agent_args import HELP, Exit, die, parse, parse_signing_key_only, say  # noqa: E402
 from provisioning.github_signing_key import scope_notice  # noqa: E402
 from provisioning.signing import signing_key  # noqa: E402
@@ -300,15 +305,14 @@ def run_steps(o: dict, login: str, role: str, host: str, dry: bool, remote: dict
     if dry and human:
         say(f"would: store_enroll.py {login} --host {host} --born-now; provision identity, and share "
             f"{HUMAN_SHARED} only (a human: no other name, no issued key); its store to {login} as a bundle; "
-            f"fabric-secrets sync --no-pull as {login}; its inbox cursor to the newest message")
+            f"fabric-secrets sync --no-pull as {login}")
     elif dry:
         say(f"would: store_enroll.py {login} --host {host} --role {role} --born-now; provision identity, share, issue-key openrouter "
-            f"and openai (each once); its store to {login} as a bundle; fabric-secrets sync --no-pull as {login}; its "
-            "inbox cursor to the newest message")
+            f"and openai (each once); its store to {login} as a bundle; fabric-secrets sync --no-pull as {login}")
         say(f"would: fabric-secrets store assign {slug} {login} (token {fp}), before the bundle" if slug else
             "would: assign no Claude account (--no-claude-account: the broker path only)")
     else:
-        secrets_step(s, login, host, o["projects"], slug, fp, human=human, role=role)
+        secrets_step(s, login, host, slug, fp, human=human, role=role)
     claim_surname(login, o["surname"], dry)
 
     # ---- 6-10 on the host ---------------------------------------------------
@@ -322,8 +326,12 @@ def run_steps(o: dict, login: str, role: str, host: str, dry: bool, remote: dict
     # and when it is not a --project the worker switches it from this remote. Not for a human (ADR-044: no key).
     fabric = project_remote("agent-fabric") if not human and "agent-fabric" not in o["projects"] else None
     fabric_arg = ["--fabric-remote", fabric] if fabric else []
-    if s.through([cfg.HX, host, "--", cfg.WORKER, "finish", login, *who, *clones, *account, *nxt, *via, *fabric_arg, *dry_arg]) != 0:
+    finished = s.through([cfg.HX, host, "--", cfg.WORKER, "finish", login, *who, *clones, *account, *nxt, *via, *fabric_arg, *dry_arg])
+    if finished not in (0, OPEN_EXIT):
         die("the host half stopped (above); nothing after it ran")
+    # Every step ran but one that is another role's (the roster row's countersignature, its key's merge, a user manager): steps 12 and 11 still run and the
+    # status says it is open, never that it is done.
+    left_open = finished == OPEN_EXIT
 
     # ---- 12. its signing subkey on GitHub (ADR-057 rule 6) -------------------
     # Best effort: the push token of this login may lack the admin:ssh_signing_key
@@ -337,8 +345,9 @@ def run_steps(o: dict, login: str, role: str, host: str, dry: bool, remote: dict
         say(f"would: 11. export this login's signing key and import it as {login} (gpg's pinentry asks its "
             "passphrase), set its ownertrust, sign once as it")
     elif signing_next:
-        return signing_key(login, host, via=host if host != local_host else "")
-    return 0
+        rc = signing_key(login, host, via=host if host != local_host else "")
+        return rc or (OPEN_EXIT if left_open else 0)
+    return OPEN_EXIT if left_open else 0
 
 
 def claim_surname(login: str, surname: str | None, dry: bool) -> None:

@@ -54,12 +54,7 @@ def login_kind(reg: dict, login: str, path: str) -> str:
 HUMAN_SHARED = "CLAUDE_BRIDGE_AUTH_TOKEN"
 
 
-# A human has no projects to name its channel; the fleet's channel is the
-# control plane's (projects/agent-fabric/integration/gzcoord).
-HUMAN_CHANNEL_PROJECT = "agent-fabric"
-
-
-def secrets_step(s: Steps, login: str, host: str, projects: list[str], slug: str, fp: str, *,
+def secrets_step(s: Steps, login: str, host: str, slug: str, fp: str, *,
                  human: bool = False, role: str = "") -> None:
     if s.capture([sys.executable, cfg.STORE, "export-key"])[0] != 0:
         die("this login has no store of its own, so it cannot be a parent: store_enroll.py --self first; nothing after "
@@ -91,7 +86,6 @@ def secrets_step(s: Steps, login: str, host: str, projects: list[str], slug: str
         if not any(isinstance(r, dict) and r.get("name") == HUMAN_SHARED and r.get("status") in ("written", "present")
                    for r in rows):
             die(f"step failed: {HUMAN_SHARED} did not reach {login}'s store (above); nothing after it ran")
-        projects = [HUMAN_CHANNEL_PROJECT]
     else:
         provision("shared names", "share", login)
         provision("OpenRouter key", "issue-key", "openrouter", login)
@@ -111,13 +105,9 @@ def secrets_step(s: Steps, login: str, host: str, projects: list[str], slug: str
     rc = s.indented([*as_account, "projects/agent-fabric/bin/fabric-secrets", "sync", "--quiet", "--no-pull"])[0]
     if rc not in (0, 2):
         die(f"step failed: fabric-secrets sync as {login} (exit {rc}); nothing after it ran")
-    # Its GZCoord cursor at the channel's newest message: a consumer the
-    # relay has never seen reads from the first message it holds, and
-    # everything before the account existed is someone else's history.
-    # Not fatal: an account whose cursor stayed behind still works, it only
-    # reads old traffic once.
-    if s.indented([*as_account, "python3", "projects/agent-fabric/tools/fabric/relay_catchup.py", *projects])[0] != 0:
-        say("   its inbox cursor was not moved (above); its first session reads the channel's backlog")
+    # No inbox cursor to move: the carrier delivers what arrives after the account's units start (step 7e), so
+    # there is no backlog of someone else's history to mark read, and nothing here reaches a relay that may be
+    # stopped (the cutover's W14; relay_catchup.py did this and is no longer called here).
     say("5. its key made and certified, its store filled and synced; commit identities/keys/, then write its recovery "
         "copy and back up:")
     say(f"     fabric-host {host} run --as {login} -- projects/agent-fabric/bin/fabric-secrets store recovery-copy")
