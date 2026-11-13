@@ -333,7 +333,7 @@ class Collect(unittest.TestCase):
         got = ec.collect(["a"], iso(0), iso(100), self.sender())
         out = os.path.join(self.root, "out")
         d = ec.write_dir(out, "a", got["a"], iso(0), iso(100))
-        self.assertEqual(sorted(os.listdir(d)), ["acks.jsonl", "arrivals.jsonl", "deliveries.jsonl", "kinds.json", "meta.json", "shown.jsonl"])
+        self.assertEqual(sorted(os.listdir(d)), ["acks.jsonl", "arrivals.jsonl", "backfills.jsonl", "deliveries.jsonl", "kinds.json", "meta.json", "shown.jsonl"])
         self.assertEqual(stat.S_IMODE(os.stat(d).st_mode), 0o700)
         self.assertEqual(stat.S_IMODE(os.stat(out).st_mode), 0o700)
         for f in os.listdir(d):
@@ -343,7 +343,7 @@ class Collect(unittest.TestCase):
                 self.assertNotIn(BODY_TEXT, fh.read(), f)
         with open(os.path.join(d, "meta.json"), encoding="utf-8") as fh:
             meta = json.load(fh)
-        self.assertEqual((meta["complete"], meta["counts"], meta["login"]), (True, {"arrivals": 1, "deliveries": 1, "kinds": 0, "shown": 0, "acks": 0}, "a"))
+        self.assertEqual((meta["complete"], meta["counts"], meta["login"]), (True, {"arrivals": 1, "deliveries": 1, "kinds": 0, "shown": 0, "acks": 0, "backfills": 0}, "a"))
         # An interrupted rewrite leaves no meta.json: a reader refuses the directory instead of reading old rows under new counts.
         with unittest.mock.patch.object(ec, "_atomic", side_effect=[None, OSError("disk full")]):
             with self.assertRaises(OSError):
@@ -574,7 +574,7 @@ class Operator(unittest.TestCase):
         row = json.loads(lines[0])
         body = row["interweaveEvidence"]
         self.assertEqual((row["account"], body["complete"], body["arrivals"], body["kinds"], body["counts"]),
-                         ("a", True, [a1], {mid(1, 1): "direct"}, {"arrivals": 1, "deliveries": 0, "kinds": 1, "shown": 0, "acks": 0}))
+                         ("a", True, [a1], {mid(1, 1): "direct"}, {"arrivals": 1, "deliveries": 0, "kinds": 1, "shown": 0, "acks": 0, "backfills": 0}))
         self.assertEqual(seen[0][seen[0].index("--timeout") + 1], str(ev.EVIDENCE_BUDGET_S))
 
     def test_one_page_with_a_section_is_sent_as_one_signed_request_and_not_collected(self):
@@ -599,11 +599,11 @@ class Parity(unittest.TestCase):
 
     def acct(self, login, **over):
         a = {"arrivals": self.arr[login], "deliveries": self.dels[login], "kinds": self.kinds[login], "complete": True, "reason": None, "journal": "ok",
-             "shown": [], "acks": [], "relay_outage": {"complete": True, "reason": None},
-             "since": iso(-100), "until": iso(2000), "margin_s": parity.MARGIN_S, "pages": {"arrivals": 1, "deliveries": 1}, "skipped": 0, "undated": 0}
+             "shown": [], "acks": [], "backfills": [], "relay_outage": {"complete": True, "reason": None},
+             "backfill_log": {"complete": True, "reason": None, "skipped": 0}, "since": iso(-100), "until": iso(2000), "margin_s": parity.MARGIN_S, "pages": {"arrivals": 1, "deliveries": 1}, "skipped": 0, "undated": 0}
         a.update(over)
         a["counts"] = over.get("counts", {"arrivals": len(a["arrivals"]), "deliveries": len(a["deliveries"]), "kinds": len(a["kinds"]),
-                                                       "shown": len(a["shown"]), "acks": len(a["acks"])})
+                                                       "shown": len(a["shown"]), "acks": len(a["acks"]), "backfills": len(a["backfills"])})
         return a
 
     def filed(self, **over) -> str:
@@ -847,10 +847,12 @@ class RelayOutage(unittest.TestCase):
 
     def collect(self, rows: dict) -> str:
         out = os.path.join(self.root, "dir")
-        acct = {"arrivals": rows["arrivals"], "deliveries": [], "kinds": {}, "shown": rows["shown"], "acks": rows["acks"], "complete": True,
+        acct = {"arrivals": rows["arrivals"], "deliveries": [], "kinds": {}, "shown": rows["shown"], "acks": rows["acks"], "backfills": rows.get("backfills", []),
+                "backfill_log": rows.get("backfill_log", {"complete": False, "reason": "backfills: section is one of arrivals, deliveries, shown, acks"}), "complete": True,
                 "reason": None, "journal": "ok", "relay_outage": rows.get("relay_outage", {"complete": True, "reason": None}),
                 "pages": {}, "skipped": 0, "undated": 0}
-        acct["counts"] = {"arrivals": len(acct["arrivals"]), "deliveries": 0, "kinds": 0, "shown": len(acct["shown"]), "acks": len(acct["acks"])}
+        acct["counts"] = {"arrivals": len(acct["arrivals"]), "deliveries": 0, "kinds": 0, "shown": len(acct["shown"]), "acks": len(acct["acks"]),
+                          "backfills": len(acct["backfills"])}
         ec.write_dir(out, "beta", acct, iso(-100), iso(2000))
         ec.write_manifest(out, ["beta"])
         return out
@@ -1035,6 +1037,386 @@ class RelayOutage(unittest.TestCase):
         with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
             rc = carrier_main.main(["parity", "--window", iso(0), iso(1000), "--collected", path, "--host", "h", *extra])
         return rc, out.getvalue(), err.getvalue()
+
+def backfill(m: str, outcome: str, at: int, delay: float = 40, channel: str | None = "ch") -> dict:
+    return {"mid": m, "outcome": outcome, "at": iso(at), "delay_s": delay, "channel": channel}
+
+
+class BackfillAccount(RelayOutageAccount):
+    """gzcoord-backfill.jsonl, the sender's record of what reached the relay afterwards (gzcoord/backfill.py), as an account sends it."""
+
+    def log(self, rows: list, torn: str = "") -> None:
+        with open(os.path.join(self.state, "gzcoord-backfill.jsonl"), "w", encoding="utf-8") as fh:
+            fh.write("".join(json.dumps(r) + "\n" for r in rows) + torn)
+
+    def test_rows_leave_key_by_key_from_the_closed_list_and_no_other_key_rides_along(self):
+        m = mid(5, 1)
+        self.log([{**backfill(m, "posted", 30, 12.5), "text": BODY_TEXT, "path": "/home/x/.secret"}])
+        r = ev.carrier_evidence(request("backfills", 0, 100), state=self.state)
+        self.assertEqual((r["status"], r["next"], r["skipped"]), ("ok", None, 0))
+        self.assertEqual(r["rows"], [backfill(m, "posted", 30, 12.5)])
+        self.assertNotIn(BODY_TEXT, json.dumps(r))
+        self.assertNotIn(".secret", json.dumps(r))
+
+    def test_every_outcome_and_a_null_channel_are_sent(self):
+        self.log([backfill(mid(1, 1), "posted", 10), backfill(mid(2, 2), "present", 11, 0, None), backfill(mid(3, 3), "over-age", 12, 99999)])
+        r = ev.carrier_evidence(request("backfills", 0, 100), state=self.state)
+        self.assertEqual([(x["outcome"], x["channel"]) for x in r["rows"]], [("posted", "ch"), ("present", None), ("over-age", "ch")])
+
+    def test_a_torn_line_and_a_line_of_the_wrong_shape_are_counted_and_not_sent(self):
+        m = mid(5, 1)
+        bad = [{**backfill(m, "posted", 30), "outcome": "pending"}, {**backfill(m, "posted", 30), "delay_s": "40"},
+               {**backfill(m, "posted", 30), "delay_s": True}, {**backfill(m, "posted", 30), "delay_s": None},
+               {**backfill(m, "posted", 30), "at": "yesterday"}, {**backfill(m, "posted", 30), "channel": 7}, {"mid": m}, [1]]
+        self.log([backfill(m, "posted", 31)] + bad)
+        with open(os.path.join(self.state, "gzcoord-backfill.jsonl"), "a", encoding="utf-8") as fh:
+            fh.write('{"mid": "%s", "outcome": "posted", "at": "%s", "delay_s": NaN, "channel": "c"}\n{"mid": ' % (m, iso(32)))
+        r = ev.carrier_evidence(request("backfills", 0, 100), state=self.state)
+        self.assertEqual(len(r["rows"]), 1, "positive control: the well-formed line is sent")
+        self.assertEqual(r["skipped"], len(bad) + 2)
+
+    def test_an_integer_beyond_the_float_range_is_an_ill_shaped_line_not_a_crash(self):
+        self.log([backfill(mid(1, 1), "posted", 31)])
+        with open(os.path.join(self.state, "gzcoord-backfill.jsonl"), "a", encoding="utf-8") as fh:
+            fh.write('{"mid": "%s", "outcome": "posted", "at": "%s", "delay_s": %s, "channel": "c"}\n' % (mid(2, 2), iso(32), "9" * 400))
+        r = ev.carrier_evidence(request("backfills", 0, 100), state=self.state)
+        self.assertEqual((r["status"], len(r["rows"]), r["skipped"]), ("ok", 1, 1))
+
+    def test_a_mid_that_is_not_a_uuid7_does_not_leave_and_is_not_an_unreadable_line(self):
+        self.log([backfill("sha256:" + "ab" * 32, "posted", 10), backfill(mid(1, 1), "posted", 11)])
+        r = ev.carrier_evidence(request("backfills", 0, 100), state=self.state)
+        self.assertEqual((len(r["rows"]), r["skipped"]), (1, 0))
+        self.assertNotIn("sha256:", json.dumps(r))
+
+    def test_the_window_is_half_open_on_at_and_a_missing_log_is_an_empty_page(self):
+        r = ev.carrier_evidence(request("backfills", 0, 100), state=self.state)
+        self.assertEqual((r["status"], r["rows"], r["skipped"]), ("ok", [], 0))
+        self.log([backfill(mid(1), "posted", -1), backfill(mid(2), "posted", 0), backfill(mid(3), "posted", 99), backfill(mid(4), "posted", 100)])
+        self.assertEqual([x["mid"] for x in ev.carrier_evidence(request("backfills", 0, 100), state=self.state)["rows"]], [mid(2), mid(3)])
+
+    def test_it_pages_like_the_other_sections_with_no_row_twice_or_lost(self):
+        self.log([backfill(mid(s, s), "posted", s) for s in range(40)])
+        seen, since = [], 0
+        with unittest.mock.patch.object(ev, "PAGE_BYTES", 900):
+            for _ in range(50):
+                r = ev.carrier_evidence(request("backfills", since, 100), state=self.state)
+                seen += [x["mid"] for x in r["rows"]]
+                if r["next"] is None:
+                    break
+                since = parity.parse_t(r["next"]) - T0
+        self.assertEqual(seen, [mid(s, s) for s in range(40)])
+        self.assertGreater(len(seen), len(r["rows"]), "positive control: it took more than one page")
+
+    def test_a_second_with_more_rows_than_a_page_is_refused_by_name(self):
+        self.log([backfill(mid(5, n), "posted", 5) for n in range(30)])
+        with unittest.mock.patch.object(ev, "PAGE_BYTES", 900):
+            r = ev.carrier_evidence(request("backfills", 0, 100), state=self.state)
+        self.assertEqual(r["status"], "refused")
+        self.assertIn("share the second", r["reason"])
+
+    def test_the_section_is_in_the_closed_set_and_reaches_beyond_the_window_like_the_arrivals(self):
+        self.assertIsNone(ev.check_args({"section": "backfills", "since": iso(0), "until": iso(1)}))
+        self.assertEqual(ev.window_for("backfills", iso(0), iso(100)), ev.window_for("arrivals", iso(0), iso(100)))
+
+
+class BackfillCollect(Collect):
+    def log_account(self, login: str, rows: list, torn: str = "") -> None:
+        self.account(login, [])
+        with open(os.path.join(self.states[login], "gzcoord-backfill.jsonl"), "w") as fh:
+            fh.writelines(json.dumps(x) + "\n" for x in rows)
+            fh.write(torn)
+
+    def test_the_log_is_collected_filed_and_counted(self):
+        self.log_account("a", [backfill(mid(1, 1), "posted", 50), backfill(mid(2, 2), "over-age", 51, 99999)])
+        got = ec.collect(["a"], iso(0), iso(100), self.sender())
+        self.assertEqual((len(got["a"]["backfills"]), got["a"]["backfill_log"]), (2, {"complete": True, "reason": None, "skipped": 0}))
+        d = ec.write_dir(os.path.join(self.root, "out"), "a", got["a"], iso(0), iso(100))
+        with open(os.path.join(d, "backfills.jsonl")) as fh:
+            filed = [json.loads(x) for x in fh]
+        with open(os.path.join(d, "meta.json")) as fh:
+            meta = json.load(fh)
+        self.assertEqual((filed, meta["counts"]["backfills"], meta["backfill_log"]["complete"]), (got["a"]["backfills"], 2, True))
+        self.assertEqual(stat.S_IMODE(os.stat(os.path.join(d, "backfills.jsonl")).st_mode), 0o600)
+
+    def test_an_unreadable_line_is_carried_to_meta_once_however_many_pages(self):
+        self.log_account("a", [backfill(mid(s, s), "posted", s) for s in range(30)], torn='{"mid": ')
+        with unittest.mock.patch.object(ev, "PAGE_BYTES", 900):
+            got = ec.collect(["a"], iso(0), iso(100), self.sender())
+        self.assertGreater(got["a"]["pages"]["backfills"], 2)
+        self.assertEqual((got["a"]["backfill_log"]["skipped"], len(got["a"]["backfills"])), (1, 30))
+
+    def test_a_line_torn_on_one_page_is_not_forgotten_by_the_last_page(self):
+        self.log_account("a", [backfill(mid(s, s), "posted", s) for s in range(30)])
+        old, pages = self.sender(), []
+
+        def send(logins, section, since, until):
+            out = old(logins, section, since, until)
+            if section == "backfills":      # the log was being written when the first page was read, and whole by the last
+                pages.append(1)
+                for r in out.values():
+                    r["skipped"] = 1 if len(pages) == 1 else 0
+            return out
+        with unittest.mock.patch.object(ev, "PAGE_BYTES", 900):
+            got = ec.collect(["a"], iso(0), iso(100), send)
+        self.assertGreater(len(pages), 2, "positive control: several pages")
+        self.assertEqual(got["a"]["backfill_log"]["skipped"], 1)
+
+    def test_an_account_that_cannot_send_the_section_stays_complete_and_keeps_its_drill_sections(self):
+        self.account("a", [arrival(mid(1, 1), "h/a", "relay", 1)])
+        old = self.sender()
+
+        def send(logins, section, since, until):
+            if section == "backfills":      # a daemon from before the section: the closed set refuses it
+                return {x: {"status": "refused", "reason": f"section is one of {', '.join(ev.SECTIONS + ev.DRILL_SECTIONS)}"} for x in logins}
+            return old(logins, section, since, until)
+        got = ec.collect(["a"], iso(0), iso(100), send)
+        self.assertTrue(got["a"]["complete"], "the report it already had stands")
+        self.assertEqual(got["a"]["relay_outage"], {"complete": True, "reason": None, "skipped": 0}, "and so do the drill's other sections")
+        self.assertFalse(got["a"]["backfill_log"]["complete"])
+        self.assertIn("backfills: section is one of", got["a"]["backfill_log"]["reason"])
+        self.assertEqual(got["a"]["backfills"], [], "no rows are claimed for it")
+
+    def test_a_failure_of_the_drill_sections_does_not_stop_the_log_and_the_reverse(self):
+        self.log_account("a", [backfill(mid(1, 1), "posted", 50)])
+        old = self.sender()
+
+        def send(logins, section, since, until):
+            if section == "shown":
+                return {x: {"status": "refused", "reason": "no"} for x in logins}
+            return old(logins, section, since, until)
+        got = ec.collect(["a"], iso(0), iso(100), send)
+        self.assertEqual((got["a"]["relay_outage"]["complete"], got["a"]["backfill_log"]["complete"], len(got["a"]["backfills"])), (False, True, 1))
+
+    def test_an_account_stopped_in_a_report_section_files_no_log_and_no_drill_sections_as_complete(self):
+        self.log_account("a", [backfill(mid(1, 1), "posted", 50)])
+        old = self.sender()
+
+        def send(logins, section, since, until):
+            if section == "arrivals":
+                return {x: {"status": "no answer"} for x in logins}
+            return old(logins, section, since, until)
+        got = ec.collect(["a"], iso(0), iso(100), send)
+        self.assertFalse(got["a"]["complete"])
+        self.assertEqual((got["a"]["backfill_log"]["complete"], got["a"]["relay_outage"]["complete"]), (False, False))
+        d = ec.write_dir(os.path.join(self.root, "out"), "a", got["a"], iso(0), iso(100))
+        self.assertFalse(os.path.exists(os.path.join(d, "backfills.jsonl")))
+        self.assertNotIn("backfills", ec.row_of("a", "h", got["a"], iso(0), iso(100), full=True)["interweaveEvidence"])
+
+    def test_an_uncollected_log_is_not_filed_and_an_earlier_runs_file_does_not_outlive_it(self):
+        self.account("a", [])
+        got = ec.collect(["a"], iso(0), iso(100), self.sender())
+        out = os.path.join(self.root, "out")
+        d = ec.write_dir(out, "a", got["a"], iso(0), iso(100))
+        self.assertTrue(os.path.exists(os.path.join(d, "backfills.jsonl")), "positive control: a collected one is filed")
+        got["a"]["backfill_log"] = {"complete": False, "reason": "backfills: no answer", "skipped": 0}
+        ec.write_dir(out, "a", got["a"], iso(0), iso(100))
+        self.assertFalse(os.path.exists(os.path.join(d, "backfills.jsonl")))
+
+    def test_the_table_says_when_only_the_log_is_missing(self):
+        row = {"account": "a", "host": "h", "status": "ok", "interweaveEvidence": {
+            "complete": True, "reason": None, "counts": {"arrivals": 1}, "journal": "ok", "relay_outage": {"complete": True},
+            "backfill_log": {"complete": False, "reason": "backfills: section is one of arrivals"}}}
+        self.assertIn("backfill log: backfills: section is one of", "\n".join(ctl._table_carrier_evidence([row])))
+
+    def test_the_verb_text_names_the_section_and_the_file(self):
+        verb = next(v for v in ctl.VERBS if v.name == OP)
+        text = json.dumps([verb.summary if hasattr(verb, "summary") else str(verb), [list(o) for o in verb.options]])
+        self.assertIn("backfills.jsonl", text)
+        self.assertIn("backfill", text)
+
+
+class RelayRecord(unittest.TestCase):
+    """The drill's fourth property (ADR-064 rule 11): each pair the carrier alone held has a relay record, read from the senders' backfill logs."""
+
+    W = (T0, T0 + 1000)
+    DRILL = (T0 + 100, T0 + 200)
+    UNTIL = T0 + 1000
+    M, M2 = mid(110, 1), mid(120, 2)
+
+    def setUp(self):
+        self.root = tempfile.mkdtemp(prefix="evbf-", dir=os.environ.get("TMPDIR"))
+        self.addCleanup(shutil.rmtree, self.root, ignore_errors=True)
+
+    def acct(self, login: str, mids: tuple, backfills: list | None, skipped: int = 0, sent: tuple | None = None) -> dict:
+        """`login` received each of `mids` by the carrier alone during the outage and sent `sent` (alpha: the two messages of the class,
+        to beta); `backfills` None is a collection made before the log."""
+        sent = (self.M, self.M2) if sent is None and login == "alpha" else sent or ()
+        dels = [{"mid": m, "to": "beta", "enc": "plain", "queued": iso(110), "state": "done"} for m in sent]
+        arr = [arrival(m, f"h/{login}", "interweave", 111) for m in mids]
+        log = ({"complete": True, "reason": None, "skipped": skipped} if backfills is not None else {"complete": False, "reason": "backfills: not offered"})
+        return {"arrivals": arr, "deliveries": dels, "kinds": {}, "shown": [], "acks": [], "backfills": backfills or [], "backfill_log": log,
+                "complete": True, "reason": None, "journal": "ok", "relay_outage": {"complete": True, "reason": None, "skipped": 0},
+                "pages": {}, "skipped": 0, "undated": 0,
+                "counts": {"arrivals": len(arr), "deliveries": len(dels), "kinds": 0, "shown": 0, "acks": 0, "backfills": len(backfills or [])}}
+
+    def collect(self, accounts: dict, old: tuple = ()) -> str:
+        self.n = getattr(self, "n", 0) + 1
+        out = os.path.join(self.root, f"dir{self.n}")      # one directory per collection: a leftover account is a refusal
+        for login, acct in accounts.items():
+            d = ec.write_dir(out, login, acct, iso(-100), iso(2000))
+            if login in old:      # a daemon from before the section: no file and no mention in the meta
+                os.unlink(os.path.join(d, "backfills.jsonl")) if os.path.exists(os.path.join(d, "backfills.jsonl")) else None
+                with open(os.path.join(d, "meta.json")) as fh:
+                    meta = json.load(fh)
+                del meta["backfill_log"], meta["counts"]["backfills"]
+                with open(os.path.join(d, "meta.json"), "w") as fh:
+                    json.dump(meta, fh)
+        ec.write_manifest(out, list(accounts))
+        return out
+
+    def drill(self, path: str) -> dict:
+        return parity.relay_outage(parity.load_relay_outage(path, self.W), self.DRILL, self.UNTIL)
+
+    def record(self, path: str, m: str) -> dict:
+        return next(p for p in self.drill(path)["pairs"] if p["mid"] == m)["relay_record"]
+
+    def report(self, path: str) -> tuple[int, str, str]:
+        out, err = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            rc = carrier_main.main(["parity", "--window", iso(0), iso(1000), "--collected", path, "--host", "h", "--relay-drill", iso(100), iso(200)])
+        return rc, out.getvalue(), err.getvalue()
+
+    def test_posted_and_present_say_the_delay_and_the_property_holds(self):
+        path = self.collect({"alpha": self.acct("alpha", (), [backfill(self.M, "posted", 300, 190), backfill(self.M2, "present", 301, 181)]),
+                             "beta": self.acct("beta", (self.M, self.M2), [])})
+        self.assertEqual(self.record(path, self.M), {"state": "posted", "delay_s": 190, "channel": "ch"})
+        self.assertEqual(self.record(path, self.M2)["state"], "present")
+        self.assertIs(self.drill(path)["backfill"], True)
+        rc, out, err = self.report(path)
+        self.assertEqual((rc, err), (0, ""))
+        self.assertIn("relay record: posted (delay 190 s)", out)
+        self.assertIn("relay record: present (delay 181 s)", out)
+        self.assertIn("Fourth property, relay record by backfill: holds", out)
+
+    def test_an_over_age_row_fails_the_property_even_beside_a_posted_one(self):
+        path = self.collect({"alpha": self.acct("alpha", (), [backfill(self.M, "posted", 300), backfill(self.M2, "over-age", 301, 99999)]),
+                             "beta": self.acct("beta", (self.M, self.M2), [])})
+        self.assertEqual(self.record(path, self.M2)["state"], "over-age")
+        self.assertIs(self.drill(path)["backfill"], False)
+        self.assertIn("Fourth property, relay record by backfill: FAILED", self.report(path)[1])
+
+    def test_a_collection_that_lacks_the_sender_cannot_say_none(self):
+        # The addressee alone: its own log was collected whole, but the log that would hold the row is the sender's.
+        path = self.collect({"beta": self.acct("beta", (self.M,), [])})
+        self.assertEqual(self.record(path, self.M), {"state": "not collected", "why": "the sender's account is not in the collection"})
+        self.assertIsNone(self.drill(path)["backfill"])
+        rc, out, err = self.report(path)
+        self.assertEqual((rc, err), (0, ""))
+        self.assertIn("not judged: the sender's account is not in the collection", out)
+        self.assertNotIn("Fourth property, relay record by backfill: FAILED", out)
+        full = self.collect({"alpha": self.acct("alpha", (), []), "beta": self.acct("beta", (self.M,), [])})
+        self.assertEqual(self.record(full, self.M), {"state": "none"}, "positive control: with the sender collected whole the same files say none")
+
+    def test_the_report_command_passes_its_own_end_as_the_bound(self):
+        path = self.collect({"alpha": self.acct("alpha", (), [backfill(self.M, "posted", 1000)]), "beta": self.acct("beta", (self.M,), [])})
+        rc, out, err = self.report(path)
+        self.assertEqual((rc, err), (0, ""))
+        self.assertIn("relay record: none", out)
+        self.assertIn("Fourth property, relay record by backfill: FAILED", out)
+
+    def test_a_row_that_landed_wins_over_an_earlier_over_age_one_of_the_same_message(self):
+        path = self.collect({"alpha": self.acct("alpha", (), [backfill(self.M, "over-age", 290, 99999), backfill(self.M, "posted", 300, 190)]),
+                             "beta": self.acct("beta", (self.M,), [])})
+        self.assertEqual(self.record(path, self.M)["state"], "posted")
+        self.assertIs(self.drill(path)["backfill"], True)
+
+    def test_a_log_whose_meta_says_it_was_not_collected_is_not_read_even_if_a_file_is_there(self):
+        path = self.collect({"alpha": self.acct("alpha", (), [backfill(self.M, "posted", 300)]), "beta": self.acct("beta", (self.M,), [])})
+        mp = os.path.join(path, "alpha", "meta.json")
+        with open(mp) as fh:
+            meta = json.load(fh)
+        meta["backfill_log"] = {"complete": False, "reason": "backfills: no answer", "skipped": 0}
+        with open(mp, "w") as fh:
+            json.dump(meta, fh)
+        self.assertEqual(self.record(path, self.M), {"state": "not collected", "why": "the sender's backfill log was not collected"})
+
+    def test_no_row_by_the_reports_end_is_none_and_fails_and_a_later_row_does_not_count(self):
+        path = self.collect({"alpha": self.acct("alpha", (), [backfill(self.M, "posted", 1000)]), "beta": self.acct("beta", (self.M,), [])})
+        self.assertEqual(self.record(path, self.M), {"state": "none"})
+        self.assertIs(self.drill(path)["backfill"], False)
+        late = self.collect({"alpha": self.acct("alpha", (), [backfill(self.M, "posted", 999)]), "beta": self.acct("beta", (self.M,), [])})
+        self.assertEqual(self.record(late, self.M)["state"], "posted", "positive control: a row a second before the end counts")
+
+    def test_a_row_in_one_account_for_a_pair_addressed_to_another_is_joined_by_mid(self):
+        # The sender is alpha, the addressee beta: beta's own log holds nothing and alpha holds a row for another message too.
+        other = mid(130, 3)
+        path = self.collect({"alpha": self.acct("alpha", (), [backfill(other, "posted", 300), backfill(self.M, "present", 301)]),
+                             "beta": self.acct("beta", (self.M,), []), "gamma": self.acct("gamma", (), [])})
+        self.assertEqual(self.record(path, self.M)["state"], "present")
+        self.assertEqual([p["mid"] for p in self.drill(path)["pairs"]], [self.M], "a row of a message nobody received by the carrier makes no pair")
+        stray = self.collect({"alpha": self.acct("alpha", (), [backfill(other, "posted", 300)]), "beta": self.acct("beta", (self.M,), [])})
+        self.assertEqual(self.record(stray, self.M)["state"], "none", "a row for another message is no answer for this one")
+
+    def test_a_collection_made_before_the_log_reads_not_collected_and_not_judged_and_still_computes(self):
+        path = self.collect({"alpha": self.acct("alpha", (), None), "beta": self.acct("beta", (self.M,), None)}, old=("alpha", "beta"))
+        self.assertEqual(self.record(path, self.M), {"state": "not collected", "why": "the sender's backfill log was not collected"})
+        d = self.drill(path)
+        self.assertIsNone(d["backfill"])
+        rc, out, err = self.report(path)
+        self.assertEqual((rc, err), (0, ""))
+        self.assertIn("relay record: not collected", out)
+        self.assertIn("Fourth property, relay record by backfill: not judged", out)
+        self.assertIn("the sender's backfill log was not collected", out)
+        self.assertNotIn("holds: every such message", out)
+
+    def test_one_account_without_the_log_leaves_a_pair_with_no_row_not_judged_but_a_row_found_still_counts(self):
+        path = self.collect({"alpha": self.acct("alpha", (), [backfill(self.M, "posted", 300)]), "beta": self.acct("beta", (self.M, self.M2), []),
+                             "old": self.acct("old", (), None, sent=(self.M2,))}, old=("old",))
+        self.assertEqual(self.record(path, self.M)["state"], "posted")
+        self.assertEqual(self.record(path, self.M2), {"state": "not collected", "why": "the sender's backfill log was not collected"}, "the sender's log is the one that was not collected")
+        self.assertIsNone(self.drill(path)["backfill"])
+
+    def test_a_failure_is_a_fact_even_where_another_pair_is_not_judged(self):
+        path = self.collect({"alpha": self.acct("alpha", (), [backfill(self.M, "over-age", 300, 99999)]), "beta": self.acct("beta", (self.M, self.M2), []),
+                             "old": self.acct("old", (), None, sent=(self.M2,))}, old=("old",))
+        self.assertIs(self.drill(path)["backfill"], False)
+
+    def test_a_log_with_a_line_that_could_not_be_read_cannot_say_none(self):
+        path = self.collect({"alpha": self.acct("alpha", (), [], skipped=1), "beta": self.acct("beta", (self.M,), [])})
+        self.assertEqual(self.record(path, self.M), {"state": "not collected", "why": "the sender's backfill log was not collected"})
+        self.assertIsNone(self.drill(path)["backfill"])
+        clean = self.collect({"alpha": self.acct("alpha", (), []), "beta": self.acct("beta", (self.M,), [])})
+        self.assertEqual(self.record(clean, self.M), {"state": "none"}, "positive control: the same files with no torn line say none")
+
+    def test_the_json_form_is_read_like_the_filed_one(self):
+        accts = {"alpha": self.acct("alpha", (), [backfill(self.M, "posted", 300)]), "beta": self.acct("beta", (self.M,), [])}
+        path = os.path.join(self.root, "all.jsonl")
+        with open(path, "w") as fh:
+            for login, a in accts.items():
+                a = {**a, "since": iso(-100), "until": iso(2000), "margin_s": parity.MARGIN_S}
+                fh.write(json.dumps({"account": login, "host": "h", "status": "ok", "interweaveEvidence": a}) + "\n")
+        self.assertEqual(self.record(path, self.M)["state"], "posted")
+
+    def test_files_cut_short_or_a_row_that_is_not_what_the_op_sends_are_refused(self):
+        path = self.collect({"alpha": self.acct("alpha", (), [backfill(self.M, "posted", 300)]), "beta": self.acct("beta", (self.M,), [])})
+        open(os.path.join(path, "alpha", "backfills.jsonl"), "w").close()
+        with self.assertRaises(parity.CollectedError) as c:
+            self.drill(path)
+        self.assertIn("backfill log", str(c.exception))
+        for bad in ({**backfill(self.M, "posted", 300), "text": "x"}, {**backfill(self.M, "late", 300)}, {**backfill(self.M, "posted", 300), "delay_s": "1"}):
+            with open(os.path.join(path, "alpha", "backfills.jsonl"), "w") as fh:
+                fh.write(json.dumps(bad) + "\n")
+            with self.assertRaises(parity.CollectedError, msg=bad) as c:
+                self.drill(path)
+            self.assertIn("backfill row", str(c.exception))
+
+    def test_the_rollback_report_does_not_read_the_log(self):
+        path = self.collect({"alpha": self.acct("alpha", (), [backfill(self.M, "posted", 300)]), "beta": self.acct("beta", (self.M,), [])})
+        with open(os.path.join(path, "alpha", "backfills.jsonl"), "w") as fh:
+            fh.write("not json\n")
+        out, err = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            rc = carrier_main.main(["parity", "--window", iso(0), iso(1000), "--collected", path, "--host", "h"])
+        self.assertEqual((rc, err.getvalue()), (0, ""))
+
+    def test_a_pair_the_carrier_did_not_hold_alone_has_no_relay_record_and_does_not_count(self):
+        both = self.acct("beta", (self.M,), [])
+        both["arrivals"].append(arrival(self.M, "h/beta", "relay", 150))      # the relay delivered it during the outage
+        path = self.collect({"alpha": self.acct("alpha", (), []), "beta": both})
+        pair = self.drill(path)["pairs"][0]
+        self.assertEqual((pair["carrier_only"], pair["relay_record"]), (False, None))
+        self.assertIsNone(self.drill(path)["backfill"])
+        self.assertNotIn("relay record", self.report(path)[1].split("## Relay-outage")[1].split("Fourth")[0])
 
 
 if __name__ == "__main__":

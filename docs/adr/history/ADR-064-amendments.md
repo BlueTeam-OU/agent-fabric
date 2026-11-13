@@ -333,3 +333,26 @@ the named second host and its waivers are this deployment's
 (docs/split/adr-classification.md, ADR-064 row): ADR-069 rule 2 holds
 fabric-h2 and the owner's two waivers, and the host is registered in
 `runtime/hosts/registry.json`.
+
+### Amendment 2026-11-13 — The relay-outage drill reads the senders' backfill logs
+
+The drill's three properties showed that a message the carrier alone
+held reached its addressee and was not shown twice; none showed that
+the relay's record, still the transport of record (rule 11), ever got
+it. python-dev-03's BlueTeam-OU/agent-fabric#573 (j134) backfills the
+relay as it returns and logs each finished row to the sender's
+`gzcoord-backfill.jsonl` (MESSAGE-ID, outcome, time, delay, channel),
+but nothing read that log. python-dev-02's BlueTeam-OU/agent-fabric#590
+(j145) gathers it as a fifth `interweave-evidence` section (ADR-029
+amendment of the same date) and `gzcoord-carrier parity --relay-drill`
+reads it across every account, since the log is the sender's: for each
+pair the carrier alone held, a "relay record" column (posted or present
+with the delay, over-age, none, or not collected) and a fourth property.
+
+Over-age or none fails the property. A collection without the log (one
+made before #590, such as the 2026-11-12 drill's) or with a line that
+could not be read reads "not collected" and the property "not judged":
+never passed and never a refusal, so earlier collections still compute.
+Rule 11's switching condition is otherwise unchanged; the cutover's own
+amendment of ADR-033 is not this one.
+
