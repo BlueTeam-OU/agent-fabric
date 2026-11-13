@@ -86,6 +86,9 @@ WRITE_WAIT_S = 5.0         # a line the child's pipe cannot take in this long: t
 WEDGED_AFTER = 3           # consecutive sends that got no outbound at all: the child is not draining
 SOCKET_NAME = "control.sock"
 SOCKET_SEND_S = 5.0        # a reply written to fabric-ctl's socket
+# How long an open fabric-ctl session may hold agentd's restart back (see Server.hold): long enough for a fleet
+# command's replies to come in, short enough that a fabric-ctl left waiting cannot keep the daemon on old code.
+HOLD_MAX_S = 600.0
 MAX_WAIT_S = 86400        # fabric-ctl's own --timeout is any number of seconds; a day is a bound, not an expectation
 MAX_SOCKET_LINE = 1 << 20  # a request line from fabric-ctl; the largest record is far under it
 EXIT_WORDS = {3: "no daemon answered for the profile", 4: "another client holds the profile's message store",
@@ -598,10 +601,17 @@ class Server:
     "to":a,"ok":b,"why":s} per target, {"event":"sent-all"}, then {"event":"reply","carrier":"interweave",
     "from":sender,"record":{...}} for each verified reply to that request until `wait_s` or until the client
     closes. The socket is the account's own, mode 0600, in a 0700 directory, and a peer of another uid is
-    closed unread; nothing here signs or decides: the record is the operator's, signed as fabric-ctl built it."""
+    closed unread; nothing here signs or decides: the record is the operator's, signed as fabric-ctl built it.
 
-    def __init__(self, path: str, carrier: Carrier, me: str, log: Callable[[str], None] = say) -> None:
+    `hold` is agentd's way to keep its restart back while a session is open: called when a request is accepted,
+    it returns the release. A fleet `upgrade fabric` moves the operator's own agentd's code while the same command
+    is still collecting the other accounts' replies; the restart closes this socket, and every reply after it
+    would be lost on InterWeave alone (j146). The hold ends when the session does, or after HOLD_MAX_S."""
+
+    def __init__(self, path: str, carrier: Carrier, me: str, log: Callable[[str], None] = say,
+                 hold: Callable[[], Callable[[], None]] | None = None) -> None:
         self.path, self.carrier, self.me, self._log = path, carrier, me, log
+        self._hold = hold
         self._sock: socket.socket | None = None
         self._stop = threading.Event()
 
@@ -713,6 +723,7 @@ class Server:
             put({"event": "refused", "why": f"the record is from {js.string(rec.get('from'))}, this agentd is {self.me}'s"})
             return
         self.carrier.watch(rid, lambda record, sender: put({"event": "reply", "carrier": VIA, "from": sender, "record": record}))
+        release = self._hold() if self._hold is not None else (lambda: None)
         try:
             wait_s = float(req["wait_s"])
             # A request's send never outlives its own ttl_s (rule 18): the budget of the sends is the smaller.
@@ -723,8 +734,11 @@ class Server:
                 put({"event": "sent", "to": address, "ok": ok, "why": why})
             put({"event": "sent-all"})
             end = time.monotonic() + wait_s
+            held_until = time.monotonic() + HOLD_MAX_S
             conn.settimeout(SOCKET_SEND_S)   # bounds put(); the loop below reads only what select says is there
             while not self._stop.is_set() and (left := end - time.monotonic()) > 0:
+                if time.monotonic() >= held_until:
+                    release()   # idempotent: the session goes on, the restart no longer waits for it
                 try:
                     readable, _, _ = select.select([conn], [], [], min(left, 0.5))
                     if readable and not conn.recv(4096):
@@ -733,6 +747,7 @@ class Server:
                     break       # the connection was reset or dropped by put()
         finally:
             self.carrier.unwatch(rid)
+            release()
 
 
 class SessionRefused(RuntimeError):
@@ -933,7 +948,8 @@ def default_directory(host: str, placed: Callable[[], set[str]], log: Callable[[
 
 def start_for_agentd(*, me: str, on_request: Callable[[dict, str], None], placed: Callable[[], set[str]],
                      env: dict[str, str] | None = None, log: Callable[[str], None] = say,
-                     directory: Directory | None = None, argv: list[str] | None = None) -> Running:
+                     directory: Directory | None = None, argv: list[str] | None = None,
+                     hold: Callable[[], Callable[[], None]] | None = None) -> Running:
     """Start the child, the router and fabric-ctl's socket. Nothing here can stop agentd answering on the relay:
     a program that is not installed, a roster that does not verify and a socket that cannot be bound are each
     said and the account is on the relay alone until they are mended."""
@@ -948,7 +964,7 @@ def start_for_agentd(*, me: str, on_request: Callable[[dict, str], None], placed
     if path is None:
         log("XDG_RUNTIME_DIR is not set: fabric-ctl has no socket to hand its sends to, and sends by the relay alone")
     else:
-        server = Server(path, carrier, me, log)
+        server = Server(path, carrier, me, log, hold)
         try:
             server.start()
         except OSError as e:

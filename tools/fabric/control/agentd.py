@@ -1221,13 +1221,29 @@ def main(argv: list[str] | None = None, *, stop: threading.Event | None = None) 
             deliver(f, request, via)
         _stderr(f"agentd: answered {request['op']} for {request['from']} ({request['id'][:8]}){tag}")
 
+    def hold_for_ctl() -> Callable[[], None]:
+        """A fabric-ctl session on the socket is in flight for the leaver, as an action is: the operator's own
+        `upgrade fabric` moves this daemon's code while its command still waits for the others' replies, and
+        leaving then closes the only carrier-alone path they come by. release() leaves, if asked to, once none is left."""
+        token = object()
+        with leave.lock:
+            inflight.add(token)
+
+        def release() -> None:
+            with leave.lock:
+                if token in inflight:
+                    inflight.discard(token)
+                    leave.settle()
+        return release
+
     if cfg["control_carrier"] == CARRIER_DUAL and not once:
         # An account on both splits once, at the bound the second carrier carries (rule 18): the same parts go by both.
         ctx["part_bytes"] = control_link.PART_BYTES
         ctx["carrier_evidence_opts"] = {**(ctx.get("carrier_evidence_opts") or {}), "page_bytes": control_link.PART_BYTES}
         running = control_link.start_for_agentd(
             me=me["address"], placed=lambda: operator_addresses() | account_addresses(),
-            on_request=lambda request, sender: handle({"id": request.get("id"), "content": js.stringify(request)}, control_link.VIA))
+            on_request=lambda request, sender: handle({"id": request.get("id"), "content": js.stringify(request)}, control_link.VIA),
+            hold=hold_for_ctl)
         carrier_box[0] = running
         EXIT_HOOKS.append(running.stop)
         _stderr(f"agentd: also on {CARRIER_LABEL} ({control_link.ENDPOINT}); the relay stays the record")
