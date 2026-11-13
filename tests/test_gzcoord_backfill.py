@@ -268,6 +268,15 @@ def main() -> int:
         c = journal(tmp, [("old", "accepted", 13 * 60, CAR), ("new", "accepted", 30, CAR)])
         rep = run(tmp, c, None, configured=False)
         check("an over-age row is reported with no relay configured", rep.over_age == ["old"] and rep.waiting == ["new"], rep)
+        # F4: a hand-resent row over the bound is on the relay, not missing
+        tmp4 = scratch()
+        c4 = journal(tmp4, [("old", "accepted", 13 * 60, CAR)])
+        with open(os.path.join(tmp4, backfill.SENT_LEDGER_NAME), "w") as f:
+            f.write(json.dumps({"id": "old", "sha256": "x"}) + "\n")
+        rep = run(tmp4, c4, None, configured=False)
+        check("an over-age row the sent ledger holds is present, not over-age", rep.present == ["old"] and rep.over_age == [], rep)
+        check("...and logged as present", [x["outcome"] for x in log_of(tmp4)] == ["present"], log_of(tmp4))
+        shutil.rmtree(tmp4)
         said: list[str] = []
         backfill._said = set()
         backfill._say_new({"a"}, said.append)

@@ -250,8 +250,14 @@ def run(*, state_dir: str, address: str, conn: Any,
     live = []
     for r in rows:
         if (t_now - r.happened_at).total_seconds() > MAX_AGE_S:
-            _finish(log, r, "over-age", None, t_now)
-            report.over_age.append(r.mid)
+            # The ledger needs no relay either: a row the sender's own resend put on the relay is present, however old,
+            # not "never posted" (the first deployment meets every row a hand resend already took).
+            if r.mid in on_relay:
+                _finish(log, r, "present", None, t_now)
+                report.present.append(r.mid)
+            else:
+                _finish(log, r, "over-age", None, t_now)
+                report.over_age.append(r.mid)
         else:
             live.append(r)
     # One order per relay channel, whatever project a row came from.
