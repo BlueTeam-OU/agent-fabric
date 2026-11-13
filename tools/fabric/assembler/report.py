@@ -234,12 +234,22 @@ def correction_holds(project: str, entry: dict[str, Any]) -> bool:
     return False
 
 
+# What a re-home pass writes into agent-fabric's report: the ledger of its own decisions, nothing of a drain's reading.
+REHOME_RECORD_KEYS = ("section_writers", "applied_corrections", "replaced_sections", "collision_decisions", "retitles")
+
+
 def record_rehomed(other: Run) -> None:
     """What the control plane's pass of a re-home wrote and decided, into agent-fabric's own last-drain-report.json, merged as
     any run of a stamp is. It has no report of its own otherwise, and its replacements, applied corrections and section writers
     lived nowhere: a replay of the bundle then wrote the replaced text back into the corpus (ADR-050 rules 3 and 10; j82), and
     a collision decision the owner gave was forgotten by the next run. The pass is no harvest: watermarks, memory use and
-    the harvest record are the project's report's, never this one's."""
+    the harvest record are the project's report's, never this one's.
+
+    A report already there (agent-fabric's own drain, at its own stamp: the ordinary case) is updated in place, only in the
+    keys the pass is the writer of (REHOME_RECORD_KEYS). Taking merge_reports' whole result replaced it: an other-stamp merge
+    keeps only the watermarks and the record, so harvest, memory marks, review horizons, held-back claims and flags were
+    dropped, the report took the project's stamp and the project's roles entered agent-fabric's telemetry (j227 review round 2,
+    F6)."""
     files = [in_report(other, p) for p in other.written]
     current = {
         "stamp": other.args.stamp, "project": other.project, "roles": other.owning_roles, "files": files, "files_written": len(files),
@@ -260,6 +270,8 @@ def record_rehomed(other: Run) -> None:
         previous = {}
     merged = merge_reports(previous, current, lambda rel: any(os.path.exists(os.path.join(root, rel))
                                                               for root in (layout.working_copy_for(other.project), layout.FABRIC_ROOT) if root))
+    if previous:
+        merged = {**previous, **{k: merged[k] for k in REHOME_RECORD_KEYS if k in merged}}
     merged["applied_corrections"] = [e for e in merged.get("applied_corrections") or [] if correction_holds(other.project, e)]
     merged["replaced_sections"] = still_replaced(other, merged.get("replaced_sections") or [])
     os.makedirs(os.path.dirname(path), exist_ok=True)
