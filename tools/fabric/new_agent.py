@@ -312,7 +312,7 @@ def run_steps(o: dict, login: str, role: str, host: str, dry: bool, remote: dict
         say(f"would: fabric-secrets store assign {slug} {login} (token {fp}), before the bundle" if slug else
             "would: assign no Claude account (--no-claude-account: the broker path only)")
     else:
-        secrets_step(s, login, host, o["projects"], slug, fp, human=human, role=role)
+        secrets_step(s, login, host, slug, fp, human=human, role=role)
     claim_surname(login, o["surname"], dry)
 
     # ---- 6-10 on the host ---------------------------------------------------

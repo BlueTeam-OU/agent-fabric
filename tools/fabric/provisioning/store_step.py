@@ -54,12 +54,7 @@ def login_kind(reg: dict, login: str, path: str) -> str:
 HUMAN_SHARED = "CLAUDE_BRIDGE_AUTH_TOKEN"
 
 
-# A human has no projects to name its channel; the fleet's channel is the
-# control plane's (projects/agent-fabric/integration/gzcoord).
-HUMAN_CHANNEL_PROJECT = "agent-fabric"
-
-
-def secrets_step(s: Steps, login: str, host: str, projects: list[str], slug: str, fp: str, *,
+def secrets_step(s: Steps, login: str, host: str, slug: str, fp: str, *,
                  human: bool = False, role: str = "") -> None:
     if s.capture([sys.executable, cfg.STORE, "export-key"])[0] != 0:
         die("this login has no store of its own, so it cannot be a parent: store_enroll.py --self first; nothing after "
@@ -91,7 +86,6 @@ def secrets_step(s: Steps, login: str, host: str, projects: list[str], slug: str
         if not any(isinstance(r, dict) and r.get("name") == HUMAN_SHARED and r.get("status") in ("written", "present")
                    for r in rows):
             die(f"step failed: {HUMAN_SHARED} did not reach {login}'s store (above); nothing after it ran")
-        projects = [HUMAN_CHANNEL_PROJECT]
     else:
         provision("shared names", "share", login)
         provision("OpenRouter key", "issue-key", "openrouter", login)

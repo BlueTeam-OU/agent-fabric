@@ -119,7 +119,6 @@ def main() -> int:
         ok("a carrier start the action refuses stops the run", died and "account_carrier.py start" in died, str(w.said))
         w = stub({})
         open_, died = run(carrier_step.start, w)
-        env = w.ran[0][1]
         ok("started: agentd first, both commands in the account's manager (XDG_RUNTIME_DIR and the bus), nothing open",
            open_ == [] and "systemctl" in w.ran[0][0] and "account_carrier.py" in w.ran[1][0][2]
            and all(e and e[0].startswith("XDG_RUNTIME_DIR=") and e[1].startswith("DBUS_SESSION_BUS_ADDRESS=unix:path=") for _, e in w.ran),
