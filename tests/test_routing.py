@@ -733,9 +733,40 @@ def test_committed_files_are_clean(tmp: str) -> None:
     assert proc.returncode == 0, proc.stdout + proc.stderr
 
 
+def test_an_exported_operator_outranks_the_handed_tree_for_its_data(tmp: str) -> None:
+    """A caller hands routing its engine tree (status.py, a launcher); the
+    profiles and the review grade are the operator's, and an exported
+    operator holds them (roots.operator_root). Kills: reading them under the
+    handed tree, which left fabric-status's model drift unsaid on a split
+    install (stripped nightly 2026-11-13)."""
+    engine = scratch_root(tmp)
+    operator = os.path.join(tmp, "operator")
+    os.makedirs(os.path.join(operator, "routing"))
+    instance_fixtures.write_routing_overlay(os.path.join(operator, "routing"))
+    path = os.path.join(operator, "routing", "profiles.json")
+    with open(path, encoding="utf-8") as fh:
+        doc = json.load(fh)
+    doc["defaults"]["providers"]["anthropic"]["session"] = "claude-haiku-5-5"
+    with open(path, "w", encoding="utf-8") as fh:
+        json.dump(doc, fh)
+    shutil.rmtree(os.path.join(engine, "routing", "policies"))
+    assert routing.resolve_session(root=engine, provider="anthropic")["model"] != "claude-haiku-5-5"
+    saved = os.environ.get("AGENT_FABRIC_OPERATOR")
+    os.environ["AGENT_FABRIC_OPERATOR"] = operator
+    try:
+        assert routing.resolve_session(root=engine, provider="anthropic")["model"] == "claude-haiku-5-5"
+        assert routing.load_review_grade(engine).get("models"), "the review grade is the operator's"
+    finally:
+        if saved is None:
+            os.environ.pop("AGENT_FABRIC_OPERATOR", None)
+        else:
+            os.environ["AGENT_FABRIC_OPERATOR"] = saved
+
+
 def main() -> int:
     cases = [
         test_current_broker_policy,
+        test_an_exported_operator_outranks_the_handed_tree_for_its_data,
         test_native_path_pins_haiku_and_sonnet_5_5_low_and_opus_5_5_above,
         test_a_null_in_the_harness_column_is_the_harness_tier,
         test_effort_is_one_vocabulary_resolved_per_class,

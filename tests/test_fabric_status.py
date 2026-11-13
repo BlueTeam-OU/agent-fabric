@@ -21,6 +21,7 @@ HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(HERE, "tools", "fabric"))
 import status  # noqa: E402
 from instance_fixtures import own_instance_tree  # noqa: E402 — tests/, the script's own directory
+from instance_fixtures import write_routing_overlay  # noqa: E402
 own_instance_tree()
 
 LOGIN = pwd.getpwuid(os.getuid()).pw_name
@@ -406,7 +407,12 @@ def main() -> int:
               and ".mjs" not in real_unit.replace("\n#", "\n").split("[Unit]")[1])
         human = status.render({**json.loads(b.stdout), "host_tools": {"moveto": {"installed": False}, "agentd": python}}, None)
         check("…and its line in the human report", f"agentd       {python['detail']}" in human)
-        drifted = subprocess.run(["bash", SHIM], env={**env, "AGENT_FABRIC_LAUNCH_ROLE": "backend-dev", "AGENT_FABRIC_LAUNCH_PROMPT_DIGEST": "sha256:0",
+        # The session the launch is compared with is the operator's profiles.json,
+        # instance data a stripped tree does not carry: the fixture's stands in.
+        drift_operator = os.path.join(sb, "operator")
+        os.makedirs(os.path.join(drift_operator, "routing"))
+        write_routing_overlay(os.path.join(drift_operator, "routing"))
+        drifted = subprocess.run(["bash", SHIM], env={**env, "AGENT_FABRIC_OPERATOR": drift_operator, "AGENT_FABRIC_LAUNCH_ROLE": "backend-dev", "AGENT_FABRIC_LAUNCH_PROMPT_DIGEST": "sha256:0",
                                       "AGENT_FABRIC_LAUNCH_PROVIDER": "anthropic", "AGENT_FABRIC_LAUNCH_SESSION_MODEL": "claude-sonnet-5"},
                                  capture_output=True, text=True, timeout=120, stdin=subprocess.DEVNULL, cwd=sb).stdout
         check("DRIFT lines come in the contract's order: role, model, prompt",
