@@ -14,6 +14,7 @@ import os
 import shutil
 import sqlite3
 import stat
+import subprocess
 import sys
 import tempfile
 import time
@@ -1120,6 +1121,17 @@ class BackfillAccount(RelayOutageAccount):
             conn.execute("UPDATE episodes SET message_id=?, direction=?, happened_at=? WHERE message_id=?", (m, direction, at, f"0192{tag}-0000-7000-8000-000000000000"))
         conn.commit()
         conn.close()
+
+    def test_importing_the_module_does_not_load_the_secret_store(self):
+        # agentd and fabric-ctl import carrier_evidence at startup; only this op's derived rows need episodic, which loads the store.
+        code = ("import sys; sys.path.insert(0, %r); import control.carrier_evidence; "
+                "bad = sorted(m for m in ('episodic', 'secret_store') if m in sys.modules); print(bad); sys.exit(1 if bad else 0)"
+                % os.path.join(HERE, "tools", "fabric"))
+        r = subprocess.run([sys.executable, "-I", "-c", code], capture_output=True, text=True, timeout=60, env={"PATH": os.environ.get("PATH", "")})
+        self.assertEqual((r.returncode, r.stdout.strip()), (0, "[]"), r.stderr[-300:])
+        derived = subprocess.run([sys.executable, "-I", "-c", code.replace("import control.carrier_evidence;", "import control.carrier_evidence, episodic;")],
+                                 capture_output=True, text=True, timeout=60, env={"PATH": os.environ.get("PATH", "")})
+        self.assertEqual(derived.returncode, 1, "positive control: the probe sees episodic when something loads it")
 
     def test_a_send_the_relay_accepted_is_a_derived_row_beside_the_logs_lines_and_leaves_no_body(self):
         took, other = mid(40, 1), mid(41, 2)

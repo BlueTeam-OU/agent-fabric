@@ -64,7 +64,6 @@ import re
 import sqlite3
 from typing import Any
 
-import episodic
 from control.ops import util
 from gzcoord.carrier import CARRIER_NAME, parity, record
 
@@ -82,9 +81,6 @@ BACKFILL_OUTCOMES = ("posted", "present", "over-age")
 # Not a line of the log: derived from the sender's journal for a message the relay took when it was sent, which backfill.py
 # never writes a row for. A log line that says it is refused, so a reader can tell the two by the outcome alone.
 RELAY_TOOK_SEND = "relay-took-send"
-# The relay is the primary transport and send.py marks its accept without --carrier, so the journal holds the default's name
-# (not transport/relay.py's NAME, which no journal row carries); the interweave mirror's accept leaves that provenance alone.
-RELAY_CARRIER = episodic.DEFAULT_CARRIER
 ARRIVAL_KEYS = ("mid", "addressee", "carrier", "t", "verdict")
 DELIVERY_KEYS = ("mid", "to", "enc", "queued", "state", "code", "by")
 # The relay's message limit is 128 KiB and a record is posted as a JSON string inside a JSON record, which
@@ -271,6 +267,12 @@ def kinds_for(db_path: str, mids: list[str]) -> tuple[dict[str, str], str]:
 def relay_took_send(db_path: str) -> tuple[list[dict], str]:
     """The derived rows (see `backfills` above) and the journal's state: ok | absent | unreadable. The journal is opened
     read-only; only message_id and happened_at are read. An unreadable one yields no rows and says so, never an empty "ok"."""
+    # Loaded here, not at module load: episodic pulls in the secret store, and agentd and fabric-ctl import this module at startup
+    # for an op only this function serves (review of #592).
+    import episodic
+    # The relay is the primary transport and send.py marks its accept without --carrier, so the journal holds the default's name
+    # (not transport/relay.py's NAME, which no journal row carries); the interweave mirror's accept leaves that provenance alone.
+    relay_carrier = episodic.DEFAULT_CARRIER
     if not os.path.isfile(db_path):
         return [], "absent"
     try:
@@ -280,7 +282,7 @@ def relay_took_send(db_path: str) -> tuple[list[dict], str]:
     rows: list[dict] = []
     try:
         for mid, at in con.execute("SELECT message_id, happened_at FROM episodes WHERE source='gzcoord' AND direction='outbound' "
-                                   "AND state='accepted' AND carrier=? ORDER BY happened_at, rowid", (RELAY_CARRIER,)):
+                                   "AND state='accepted' AND carrier=? ORDER BY happened_at, rowid", (relay_carrier,)):
             if isinstance(mid, str) and parity.UUID7.fullmatch(mid) and _time(at) is not None:
                 rows.append({"mid": mid, "outcome": RELAY_TOOK_SEND, "at": at, "channel": None})
     except sqlite3.Error:
