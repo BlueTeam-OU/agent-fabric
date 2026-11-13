@@ -6,6 +6,7 @@
 **Decision Makers:** the owner; drafted by fabric-coordinator
 **Scope:** memory/ (README.md, RUBRIC.md, domains/, shared/, agents/); every managed project's .agent-fabric/memory/; tools/fabric/layout.py, tools/fabric/harvest_memory.py, tools/fabric/assemble.py, runtime/claude-code/hooks/memory-write-check.py, tools/fabric/lint.py, fabric-query; identities/schemas/claims.schema.json; identities/prompt/memory.md; policies/hygiene.json; tools/fabric/control/ctl.py (the `memory` op); bin/fabric-status (the undrained count)
 **Pillar:** P2
+**Class:** engine
 
 ## 1. Context and Problem
 

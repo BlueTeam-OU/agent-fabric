@@ -6,6 +6,7 @@
 **Decision Makers:** the owner; drafted by fabric-coordinator
 **Scope:** runtime/identity.py, bin/fabric-whoami, bin/fabric-role and tools/fabric/role.py, tools/fabric/launch_prompt.py, runtime/openrouter/launch, runtime/claude-code/hooks/session-start.sh, identities/ (roles, catalog.json, prompt/, agents/)
 **Pillar:** P1
+**Class:** engine
 **Evidence:** docs/live-checks/2026-09-15-append-system-prompt.md
 
 ## 1. Context and Problem

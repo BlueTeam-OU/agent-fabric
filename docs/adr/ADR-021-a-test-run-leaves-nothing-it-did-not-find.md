@@ -6,6 +6,7 @@
 **Decision Makers:** the owner; drafted by fabric-coordinator
 **Scope:** identities/prompt/team.md (the rule every session reads); tests/run.sh, tests/run.py, tests/test_leak_check.py, tests/static.sh; the temporary directories of tools/fabric/assemble.py and tools/fabric/harvest_memory.py
 **Pillar:** P3
+**Class:** engine
 
 ## 1. Context and Problem
 

@@ -6,6 +6,7 @@
 **Decision Makers:** the owner; drafted by fabric-coordinator
 **Scope:** how the fabric treats its finite means — host resources, model spend and usage windows, prompt and context budgets — as one account, and how it measures cost per verified result (`tools/fabric/results.py`, `fabric-results`)
 **Pillar:** P7
+**Class:** engine
 
 ## 1. Context and Problem
 

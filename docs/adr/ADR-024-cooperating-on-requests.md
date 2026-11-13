@@ -6,6 +6,7 @@
 **Decision Makers:** the owner; drafted by fabric-coordinator
 **Scope:** communication/gzcoord/protocol/SPEC.md §2 (authority model); communication/gzcoord/protocol/SEMANTICS.md ("The owner's word, relayed", git context); communication/gzcoord/protocol/MESSAGE-FORMAT.md §"Working on a request together" and §"Carrying the owner's word"; identities/prompt/team.md (the request paragraph); every agent's use of GZCoord
 **Pillar:** P3
+**Class:** engine
 
 ## 1. Context and Problem
 

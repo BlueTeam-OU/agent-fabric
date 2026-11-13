@@ -6,6 +6,7 @@
 **Decision Makers:** the owner; drafted by fabric-coordinator
 **Scope:** communication/gzcoord/protocol/SPEC.md §13 and §18; communication/gzcoord/protocol/MESSAGE-FORMAT.md §"Direct versus role addressing"; communication/gzcoord/protocol/examples/; the validator in tools/fabric/gzcoord/gzmsg.py and tools/fabric/gzcoord/send.py; communication/gzcoord/skills/gzcoord-send and gzcoord-receive
 **Pillar:** P3
+**Class:** engine
 
 ## 1. Context and Problem
 

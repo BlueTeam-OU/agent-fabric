@@ -6,6 +6,7 @@
 **Decision Makers:** the owner; drafted by fabric-coordinator
 **Scope:** the permanent specialization one agent carries while it holds a shared role: where it is stored (the agent's own store, ADR-038), who writes it, how the launcher reads and renders it into the launch prompt (ADR-002), how it is validated and audited, and how the locale a holder renders in is chosen (ADR-027). Not the shared role's definition, not a project's remit, not working state.
 **Pillar:** P1
+**Class:** engine
 
 ## 1. Context and Problem
 

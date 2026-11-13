@@ -6,6 +6,7 @@
 **Decision Makers:** the owner (the views, the two stages, the layout); drafted by fabric-coordinator
 **Scope:** `tools/fabric/fleet.py`, `tools/fabric/fleet_proc.py`, `bin/fabric-fleet`; the views in the herdr fork (`fleet-deck/fabric_view.py`, its plugin manifest); what a view may read and do
 **Pillar:** P1
+**Class:** engine
 
 ## 1. Context and Problem
 

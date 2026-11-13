@@ -6,6 +6,7 @@
 **Decision Makers:** the owner; drafted by fabric-coordinator
 **Scope:** the InterWeave carrier of GZCOORD/1 on the host the fleet shares: its roster (`runtime/interweave/roster.json`), each account's InterWeave profile and units, the carrier process, the send and inbox adapters in `tools/fabric/gzcoord/`, and the parity report that decides a switch; ADR-033's relay stays as it is
 **Pillar:** P5
+**Class:** engine
 
 ## 1. Context and Problem
 
@@ -66,7 +67,7 @@ relay, one host first:
   with the agents whose accounts are on the host the relay runs on, over
   loopback. A second host is the next milestone: the fleet is to move agents
   to remote hosts, the first likely edge-hosting, and InterWeave is how
-  they stay reached. Until that milestone's amendment lands, no profile
+  they stay reached. Until a second host opens under §5 rule 1, no profile
   listens beyond `127.0.0.1`.
 - **Dual run.** Every message goes by both carriers. The relay stays the
   transport of record and ADR-033 rule 7's fallback order is unchanged;
@@ -150,8 +151,10 @@ address, where the relay's `sender` is a claim (ADR-033 §6).
    between accounts on that host; a profile listens on `127.0.0.1` only,
    on the port the roster fixes for it, one profile per account
    (InterWeave ADR-0055 decision 5). The next milestone is a second host
-   (A 2026-10-27): it opens by an amendment that names the host, gives its
-   accounts' roster rows routable addresses, and says how InterWeave
+   (A 2026-10-27): it opens once the host is registered in
+   `runtime/hosts/registry.json` and named in the operator's inventory
+   (ADR-069 here) (A 2026-11-12), its accounts' roster rows have routable
+   addresses, and the operator's record says how InterWeave
    ADR-0034 §7's release gate and SPIKE-004's deferred limits are consumed
    or, on the owner's word, accepted as known limits for that host; this
    rule does not stand in its way. The roster's port range is reserved on the host
@@ -159,20 +162,20 @@ address, where the relay's `sender` is a claim (ADR-033 §6).
    one of its ports as a source port (A 2026-10-26). Provisioning makes
    the reservation and keeps it across a reboot, from the roster's range:
    `fabric-host <host> persist`, which a start refused for it names; the
-   read reports whether it is covered (A 2026-11-01). The second host
-   is `fabric-h2` (A 2026-11-11), a VM on the Proxmox node s13337
-   registered in `runtime/hosts/registry.json`. develop-qzapp reaches it
-   directly over the LAN and its VPN, with no overlay, and a connection
-   opens only from develop-qzapp: fabric-h2 cannot open one back. Its
-   profiles listen on the wildcard at their roster ports, and its
-   firewall admits the roster's range only from develop-qzapp's address
-   as fabric-h2 sees it. InterWeave ADR-0055 decision 5b's limits are
-   accepted for it on the owner's word; nothing relies on NAT traversal,
-   a relay circuit or discovery, and a third host is a further
-   amendment. Its first account is a throwaway login for the two-host
-   check, for which the owner waived ADR-034 §7 step 3's held bound and
-   the control parity report. An agent moves there only on the owner's
-   word on that report, its keyring carried over, not rotated.
+   read reports whether it is covered (A 2026-11-01). A second host
+   (A 2026-11-11) is one registered in `runtime/hosts/registry.json`. The
+   coordinator's host reaches it directly, with no overlay, and a
+   connection opens only from the coordinator's host: the second host
+   cannot open one back. Its profiles listen on the wildcard at their
+   roster ports, and its firewall admits the roster's range only from
+   the coordinator's host's address as the second host sees it. InterWeave
+   ADR-0055 decision 5b's limits are accepted for it on the owner's
+   word; nothing relies on NAT traversal, a relay circuit or discovery,
+   and a third host is a further amendment. Its first account is a
+   throwaway login for the two-host check, under the limits and waivers
+   the operator's record gives for it (ADR-069 here). An agent moves there only on
+   the owner's word on the control parity report, its keyring carried
+   over, not rotated.
 2. The roster (`runtime/interweave/roster.json`) is the only source of a
    login's PeerId, endpoint and port. A row is keyed by agent id
    (ADR-039) and carries its login, PeerId, endpoint and port; it counts
@@ -333,8 +336,8 @@ and the two adapters behind a switch that is off by default, dispatched
 to the contributor holders `policies/authority.json` names for that code
 at the time; rule 13's two-instance check; the dual run; the parity
 report; the owner's word. A second host is rule 1's next milestone, opened
-by its own amendment, InterWeave's gate consumed or accepted on the owner's
-word. The carrier's observations of ordering, loss and concurrency
+by its registration and the operator's inventory, InterWeave's gate consumed
+or accepted on the owner's word. The carrier's observations of ordering, loss and concurrency
 are ADR-032 §7's evidence. The mapping in §5 rules 6 to 10 belongs to
 GZCoord's own repository, which the owner asked for (§1;
 `docs/split/agent-fabric-coord.md`). Until that repository exists, it
@@ -379,3 +382,4 @@ The body above reads current; each change's full note is in [history/ADR-064-ame
 | 2026-11-08 | The parity soak includes a relay-outage drill | §5 rule 11 |
 | 2026-11-08 | The parity report reads the relay-outage drill | §5 rule 11 (#509) |
 | 2026-11-11 | The second host is fabric-h2, reached from develop-qzapp only | §5 rule 1 |
+| 2026-11-12 | the second host is any host in the registry, not a named one | §5 rule 1: the named second host, its node, the coordinator's host's address and the waivers read "a second host in `runtime/hosts/registry.json`"; the second-host milestone opens on its registration and the operator's inventory (ADR-069), not by an amendment (§2, §7 follow); the host and waivers are ADR-069 rule 2 |

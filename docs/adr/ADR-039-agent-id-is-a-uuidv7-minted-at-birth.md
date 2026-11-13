@@ -6,6 +6,7 @@
 **Decision Makers:** the owner (an id per agent from its birth time; the id as the identity across renames; the birth of an existing agent as its home's creation time, of a new one as its enrolment; what is stored named by the id, what is typed and read named by the login, the repository's description carrying both); drafted by fabric-coordinator
 **Scope:** the agent's identity record: `identities/keys/lineage.json` and `identities/keys/<id>.asc`; the agent key's user id; each agent's secrets repository and its mirror, bundle and recovery copy (ADR-038); `tools/fabric/secret_store.py`, `runtime/provisioning/secrets/store-enroll.sh`, `runtime/provisioning/new-agent.sh`
 **Pillar:** P1
+**Class:** engine
 **Evidence:** docs/live-checks/2026-09-29-coordinator-secrets-migration.md
 
 ## 1. Context and Problem
@@ -99,7 +100,8 @@ whole when the parent is renamed.
    `<id>@agents.agent-fabric`. The parent's certification is on that user
    id. `verify` and lint refuse a key without either.
 4. An agent's repository, its secrets and its settings (ADR-038), is
-   `BlueTeam-OU/fabric-agent-<id>`; its GitHub description names the
+   `<organisation>/fabric-agent-<id>` in the operator's configured GitHub
+   organisation; its GitHub description names the
    agent's host, login and role, never the id, which the name already
    carries, and a rename updates the description, never the name
    (A 2026-10-13). Every existing store has been moved and renamed; a
@@ -168,3 +170,4 @@ The body above reads current; each change's full note is in [history/ADR-039-ame
 |---|---|---|
 | 2026-10-13 | the agent's repository is fabric-agent-<id>; its description names the login, never the id | §2, §5 rule 4 |
 | 2026-10-13 | the persona belongs to the agent id | §5 rule 8 |
+| 2026-11-12 | rule 4's store owner is the operator's configured GitHub organisation | §5 rule 4: `BlueTeam-OU/fabric-agent-<id>` reads `<organisation>/fabric-agent-<id>` |

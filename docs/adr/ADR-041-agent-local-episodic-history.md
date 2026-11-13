@@ -6,6 +6,7 @@
 **Decision Makers:** the owner (the design, after a written review of what history the fleet keeps); drafted by fabric-coordinator
 **Scope:** `tools/fabric/episodic.py` (the journal), `tools/fabric/history.py` and `bin/fabric-history` (retrieval), the journal calls in `tools/fabric/gzcoord/send.py` and `inbox.py`, the per-agent `episodic.db` in the account's runtime state
 **Pillar:** P1
+**Class:** engine
 **Evidence:** docs/live-checks/2026-10-01-episodic-journal.md
 
 ## 1. Context and Problem

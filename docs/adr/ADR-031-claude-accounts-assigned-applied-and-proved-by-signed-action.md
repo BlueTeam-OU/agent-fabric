@@ -6,6 +6,7 @@
 **Decision Makers:** the owner; drafted by fabric-coordinator
 **Scope:** the Claude-account templates (entries `CLAUDE_ACCOUNT_<ACCOUNT>` of the coordinator's store, ADR-038) and each login's `CLAUDE_CODE_OAUTH_TOKEN` (projects/registry.json `agent_env`); bin/fabric-accounts and tools/fabric/control/accounts.py; the control agent's `secrets-sync` action (tools/fabric/control/secrets.py) and `accounts` op (tools/fabric/control/ops/, tools/fabric/control/agentd.py); the launcher's sign-in check (runtime/openrouter/launch); bin/fabric-status's sign-in line
 **Pillar:** P5
+**Class:** engine
 **Evidence:** docs/live-checks/2026-09-24-claude-accounts.md
 
 ## 1. Context and Problem

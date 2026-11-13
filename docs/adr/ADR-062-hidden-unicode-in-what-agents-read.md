@@ -5,6 +5,7 @@
 **Decision Makers:** the owner; drafted by fabric-coordinator
 **Scope:** `tools/fabric/hidden_unicode.py`, the corpus lint, the pre-commit hook, every file of the control plane an agent reads (skills, charters, briefs, remits, instruction files, memory slices), and every other boundary that admits text into an agent's context
 **Pillar:** P3
+**Class:** engine
 
 ## 1. Context and Problem
 

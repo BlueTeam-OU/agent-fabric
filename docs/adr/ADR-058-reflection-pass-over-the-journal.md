@@ -6,6 +6,7 @@
 **Decision Makers:** the owner; drafted by fabric-coordinator
 **Scope:** a weekly pass in which each agent reads its own GZCoord journal (`episodic.db`, ADR-041) since its last pass and writes the lessons it finds there as its own memory files; the `fabric-reflect` command that prints what the pass reads; the weekly reflection job; the drain report's count of memories written by a pass
 **Pillar:** P1
+**Class:** engine
 
 ## 1. Context and Problem
 

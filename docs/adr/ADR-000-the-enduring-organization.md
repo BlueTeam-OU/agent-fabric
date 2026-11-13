@@ -6,6 +6,7 @@
 **Decision Makers:** the owner (the vision, and the coordinator's proposals adopted into it); drafted by fabric-coordinator
 **Scope:** what agent-fabric is for, the principle every other decision serves, and the pillars the decision records are grouped under
 **Pillar:** all
+**Class:** engine
 
 ## 1. Context and Problem
 

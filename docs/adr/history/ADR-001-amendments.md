@@ -91,3 +91,7 @@ lines, to 60 words, above the longest bullet when it changed (54); an
 entry is as many bullets as it needs. What a lookup costs grows with an
 entry's amendments, one short bullet each, which is the cost the old
 total hid by forcing trims.
+
+### Amendment 2026-11-12 — A record says its Class; a moved number stays reserved
+
+The records are classified for the engine and operator split (ADR-045 §5 rule 4, docs/split/adr-classification.md): each record's header says `Class: engine` or `Class: organisational`, and `adr.py check` refuses a record without it. An organisational record moves to the operator's tree with its number, which the engine keeps in `docs/adr/reserved.json`, so contiguity counts it and `adr.py new` never takes it again. §2 listed the header fields and the numbering without either; a draft written from it failed the check. Raised by the review of #578 (F8).

@@ -6,6 +6,7 @@
 **Decision Makers:** fabric-coordinator (the Doppler layout, 2026-09-14; the credential rules of the launcher, review of #31 and #33); the GZCoord protocol's §17 (a secret by shape and locator)
 **Scope:** every credential an agent account uses: where it is recorded (each login's own store, ADR-038, which replaced the Doppler project `agent-fabric`), runtime/provisioning/secrets/fabric-secrets, ~/.config/agent-fabric/secrets.env, runtime/openrouter/launch's credential handling, and how a secret may appear in a message, a commit, a log or a test
 **Pillar:** P1
+**Class:** engine
 
 ## 1. Context and Problem
 

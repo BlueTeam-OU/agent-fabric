@@ -4,6 +4,8 @@
     adr.py check [--root R]            every rule below; exit 1 on a finding
     adr.py index --write [--root R]    regenerate index.json and the README table
     adr.py new <slug> "<title>"        the next number, from ADR-TEMPLATE.md
+    adr.py list --class <engine|organisational>
+                                       the numbers of the records of that class, one per line
     adr.py amend <NNN> "<title>"       the history note stub and the table row (the DIGEST bullet is yours)
     adr.py lookup [<word>...]          DIGEST entries mentioning every word; none: the table
                                        of which record answers what (fabric-adr lookup)
@@ -18,7 +20,10 @@ that one leaves to convention made checkable (agent-fabric ADR-001):
 - the index is GENERATED from the ADR headers and never hand-edited, so a
   stale one is a finding rather than a comment claiming otherwise;
 - one amendment heading form, `### Amendment YYYY-MM-DD — Title`;
-- the header fields and the section order are checked;
+- the header fields and the section order are checked, `**Class:**` (engine or
+  organisational, ADR-045 rule 4) among them;
+- a number that moved to the operator is kept in `reserved.json`, counted as
+  present so the numbering stays contiguous and a citation of it resolves;
 - `Accepted` needs `**Ratified:** owner, YYYY-MM-DD, <source>` — the
   owner's word reaches an artifact, or the decision is not binding;
 - the pillars are read from ADR-000's §5 table, never restated here;
@@ -52,7 +57,12 @@ FILE_RE = re.compile(r"^ADR-(\d{3})-([a-z0-9]+(?:-[a-z0-9]+)*)\.md$")
 H1_RE = re.compile(r"^# ADR-(\d{3}) — (.+?)\s*$")
 FIELD_RE = re.compile(r"^\*\*([A-Za-z ]+):\*\*\s*(.*?)\s*$")
 STATUSES = ("Proposed", "Accepted", "Superseded", "Deprecated")
-REQUIRED_FIELDS = ("Date", "Status", "Decision Makers", "Scope", "Pillar")
+REQUIRED_FIELDS = ("Date", "Status", "Decision Makers", "Scope", "Pillar", "Class")
+# Whose a record's rules are (ADR-045 rule 4): the engine's, for anyone who runs
+# the fabric, or the organisation's, which moves to the operator with its number.
+CLASSES = ("engine", "organisational")
+RESERVED_FILE = "reserved.json"
+NUMBER_RE = re.compile(r"^\d{3}$")
 SECTIONS = (
     "1. Context and Problem", "2. Decision", "3. Alternatives Considered",
     "4. Rationale", "5. Binding Rules", "6. Consequences",
@@ -204,16 +214,82 @@ def status_word(status: str) -> str:
     return status.split()[0] if status else ""
 
 
-def pillars(root: str | None) -> list[str]:
-    """ADR-000 §5's table is the only list of pillars (agent-fabric ADR-001)."""
-    d = adr_dir(root)
-    zero = [f for f in os.listdir(d) if f.startswith("ADR-000-")] if os.path.isdir(d) else []
-    if not zero:
-        return []
-    text = read(os.path.join(d, zero[0]))
-    sec = text.split("\n## 5. Binding Rules", 1)
-    body = sec[1].split("\n## ", 1)[0] if len(sec) == 2 else ""
-    return [m.group(1) for ln in body.split("\n") if (m := PILLAR_ROW_RE.match(ln))]
+def other_tree(root: str | None, other: str | None = None) -> str | None:
+    """The records dir of the other half of the numbering, or none.
+    A root a tool was handed is the one tree it means, unless the caller names
+    its counterpart in `other` (lint does, for the two trees it holds): a
+    guess here would make `--root X check` mean something else to a person
+    who hands a root. None given and an operator exported, the two trees
+    together hold one numbering (ADR-045 rule 4), so each answers for the
+    numbers the other does not hold."""
+    if other is not None:
+        od = adr_dir(other)
+    elif root is not None:
+        return None
+    else:
+        od = roots.engine_adr_dir(engine=ROOT)
+        if os.path.realpath(od) == os.path.realpath(adr_dir(None)):
+            return None
+    return od if divided(adr_dir(root), od) else None
+
+
+def divided(a: str, b: str) -> bool:
+    """Whether two records dirs are the halves of one numbering. Until move-plan
+    step B an exported operator is a whole copy of the fabric, every record in
+    both; that is one tree twice, not a split, and checking it as a pair would
+    call each record a duplicate. ADR-000 never leaves the engine (it is the
+    pillar table every record names), so an operator tree that holds it is
+    still undivided; a half-done move, which holds some records twice but not
+    ADR-000, is still caught as a pair."""
+    return not ("000" in record_numbers(a) and "000" in record_numbers(b))
+
+
+def reserved(d: str) -> tuple[dict[str, str], list[str]]:
+    """A tree's reserved.json: number -> why, and what is wrong with it. A
+    malformed entry is dropped from the map, so one bad key is one finding."""
+    p = os.path.join(d, RESERVED_FILE)
+    if not os.path.exists(p):
+        return {}, []
+    label = f"{ADR_DIR}/{RESERVED_FILE}"
+    try:
+        table = json.loads(read(p))["reserved"]
+        assert isinstance(table, dict)
+    except (ValueError, KeyError, TypeError, AssertionError):
+        return {}, [f"{label}: not a JSON object with a \"reserved\" map of number -> reason"]
+    good, findings = {}, []
+    for num, why in table.items():
+        if not NUMBER_RE.fullmatch(num) or not isinstance(why, str) or not why.strip():
+            findings.append(f"{label}: {num!r}: {why!r} is not a three-digit number with a reason")
+        else:
+            good[num] = why
+    return good, findings
+
+
+def record_numbers(d: str) -> set[str]:
+    if not os.path.isdir(d):
+        return set()
+    return {m.group(1) for f in os.listdir(d) if (m := FILE_RE.fullmatch(f))}
+
+
+def other_numbers(root: str | None, other: str | None = None) -> set[str]:
+    """What the other tree holds or reserves: present for contiguity and for
+    a citation, never a record this tree checks."""
+    d = other_tree(root, other)
+    return set() if d is None else record_numbers(d) | set(reserved(d)[0])
+
+
+def pillars(root: str | None, other: str | None = None) -> list[str]:
+    """ADR-000 §5's table is the only list of pillars (agent-fabric ADR-001).
+    An operator's tree holds none of the engine's records, so it reads the engine's."""
+    for d in (adr_dir(root), other_tree(root, other)):
+        zero = [f for f in os.listdir(d) if f.startswith("ADR-000-")] if d and os.path.isdir(d) else []
+        if not zero:
+            continue
+        text = read(os.path.join(d, zero[0]))
+        sec = text.split("\n## 5. Binding Rules", 1)
+        body = sec[1].split("\n## ", 1)[0] if len(sec) == 2 else ""
+        return [m.group(1) for ln in body.split("\n") if (m := PILLAR_ROW_RE.match(ln))]
+    return []
 
 
 def history_notes(path: str) -> list[tuple[str, str]]:
@@ -256,9 +332,13 @@ def index_rows(root: str | None, adrs: list[dict]) -> list[dict]:
             "status": status_word(a["fields"].get("Status", "")),
             "date": a["fields"].get("Date", ""),
             "pillar": a["fields"].get("Pillar", ""),
+            "class": a["fields"].get("Class", ""),
             "amendments": len(history_notes(hist)) if os.path.exists(hist) else 0,
         })
-    return rows
+    for num, why in reserved(adr_dir(root))[0].items():
+        rows.append({"number": num, "file": None, "title": why, "status": "Reserved", "date": "",
+                     "pillar": "", "class": "", "amendments": 0})
+    return sorted(rows, key=lambda r: r["number"])
 
 
 def render_index(rows: list[dict]) -> str:
@@ -268,9 +348,11 @@ def render_index(rows: list[dict]) -> str:
 
 
 def render_table(rows: list[dict]) -> str:
-    lines = [INDEX_START, "| ADR | Title | Pillar | Status | Amendments |", "|---|---|---|---|---|"]
+    lines = [INDEX_START, "| ADR | Title | Pillar | Class | Status | Amendments |", "|---|---|---|---|---|---|"]
     for r in rows:
-        lines.append(f"| [ADR-{r['number']}]({r['file']}) | {r['title']} | {r['pillar']} | {r['status']} | {r['amendments']} |")
+        # A reserved number has no file to link: its row says where it went.
+        cell = f"[ADR-{r['number']}]({r['file']})" if r["file"] else f"ADR-{r['number']}"
+        lines.append(f"| {cell} | {r['title']} | {r['pillar']} | {r['class']} | {r['status']} | {r['amendments']} |")
     lines.append(INDEX_END)
     return "\n".join(lines)
 
@@ -283,7 +365,9 @@ def replace_table(readme: str, table: str) -> str | None:
     return head + table + tail
 
 
-def check(root: str | None = None) -> list[str]:
+def check(root: str | None = None, other: str | None = None) -> list[str]:
+    """`other` is the root of the counterpart tree whose numbers and pillar
+    table count as present (see other_tree); alone, a root is only itself."""
     d = adr_dir(root)
     adrs, findings = load(root)
     if not adrs:
@@ -293,11 +377,27 @@ def check(root: str | None = None) -> list[str]:
     if len(set(numbers)) != len(numbers):
         dup = [n for n, c in collections.Counter(numbers).items() if c > 1]
         findings.append(f"{ADR_DIR}: number(s) used twice: {', '.join(f'ADR-{n:03d}' for n in dup)}")
-    if sorted(set(numbers)) != list(range(len(set(numbers)))):
-        missing = sorted(set(range(max(numbers) + 1)) - set(numbers))
+    held = {a["number"] for a in adrs}
+    reserved_map, reserved_findings = reserved(d)
+    findings += reserved_findings
+    for num in sorted(held & set(reserved_map)):
+        findings.append(f"{ADR_DIR}/{RESERVED_FILE}: ADR-{num} is reserved and has a record in this tree — a number is one or the other")
+    elsewhere = other_numbers(root, other)
+    od = other_tree(root, other)
+    # One number, one record across the pair: a copy left behind by a move is
+    # a second record the numbering cannot tell apart. Worded the same from
+    # either tree so a caller checking both reports it once.
+    if od is not None:
+        both = sorted(set(held) & record_numbers(od))
+        for num in both:
+            pair = sorted([os.path.realpath(d), os.path.realpath(od)])
+            findings.append(f"ADR-{num} has a record in both trees ({pair[0]} and {pair[1]}) — a number is held by one")
+    present = {int(n) for n in held | set(reserved_map) | elsewhere}
+    if present != set(range(max(present) + 1)):
+        missing = sorted(set(range(max(present) + 1)) - present)
         findings.append(f"{ADR_DIR}: numbers are not contiguous from ADR-000 — missing {', '.join(f'ADR-{n:03d}' for n in missing)}")
-    known = {a["number"]: a for a in adrs}
-    pill = pillars(root)
+    known = held | set(reserved_map) | elsewhere
+    pill = pillars(root, other)
     foreign = foreign_projects(root)
     if not pill:
         findings.append(f"{ADR_DIR}: ADR-000 §5 has no pillar table (| P1 | … |) — the pillars have one source")
@@ -331,6 +431,8 @@ def check(root: str | None = None) -> list[str]:
                 findings.append(f"{rel(a)}: superseded by ADR-{target.group(1)}, which does not exist")
             if not a["has_point_map"]:
                 findings.append(f"{rel(a)}: Superseded without a point map (where each rule now lives)")
+        if f.get("Class") and f["Class"] not in CLASSES:
+            findings.append(f"{rel(a)}: **Class:** {f['Class']!r} is not one of {', '.join(CLASSES)}")
         pv = f.get("Pillar", "")
         if pv and pill:
             for p in [x.strip() for x in pv.split(",")]:
@@ -382,7 +484,7 @@ def check(root: str | None = None) -> list[str]:
     if os.path.isdir(hdir):
         for f in sorted(os.listdir(hdir)):
             m = re.fullmatch(r"^ADR-(\d{3})-amendments\.md$", f)
-            if not m or m.group(1) not in known:
+            if not m or m.group(1) not in held:
                 findings.append(f"{ADR_DIR}/history/{f}: belongs to no ADR")
             elif not history_notes(os.path.join(hdir, f)):
                 findings.append(f"{ADR_DIR}/history/{f}: no amendment in it — remove it")
@@ -433,7 +535,7 @@ def check(root: str | None = None) -> list[str]:
                 am = DIGEST_AMEND_RE.match(ln)
                 if am:
                     entries[cur]["dates"].append(am.group(1))
-        by = {r["number"]: r for r in rows}
+        by = {r["number"]: r for r in rows if r["file"]}
         for num, r in by.items():
             e = entries.get(num)
             if not e:
@@ -476,13 +578,31 @@ def cmd_new(root: str | None, slug: str, title: str) -> str:
     if not re.fullmatch(r"^[a-z0-9]+(?:-[a-z0-9]+)*$", slug):
         raise SystemExit("adr: the slug is lowercase-kebab")
     adrs, _ = load(root)
-    n = max((int(a["number"]) for a in adrs), default=-1) + 1
-    tpl = read(os.path.join(adr_dir(root), "ADR-TEMPLATE.md"))
+    # Past every reserved number too: one that moved away is not free again.
+    taken = {a["number"] for a in adrs} | set(reserved(adr_dir(root))[0]) | other_numbers(root)
+    n = max(map(int, taken), default=-1) + 1
+    # The template is the engine's (ADR-045 rule 2): an operator tree keeps
+    # none of its own, and a tree that does keep one is the one it means.
+    own = os.path.join(adr_dir(root), "ADR-TEMPLATE.md")
+    tpl = read(own if os.path.isfile(own) else os.path.join(roots.engine_adr_dir(engine=ROOT), "ADR-TEMPLATE.md"))
     body = tpl.replace("ADR-NNN", f"ADR-{n:03d}").replace("<Title>", title)
+    # The engine's template says `engine`; a record written anywhere else is
+    # the operator's, and a new one must not start life classed as the engine's.
+    if os.path.realpath(adr_dir(root)) != os.path.realpath(roots.engine_adr_dir(engine=ROOT)):
+        body = body.replace("**Class:** engine", "**Class:** organisational", 1)
     path = os.path.join(adr_dir(root), f"ADR-{n:03d}-{slug}.md")
     with open(path, "x", encoding="utf-8") as fh:
         fh.write(body)
     return path
+
+
+def cmd_list(root: str | None, cls: str) -> list[str]:
+    adrs, findings = load(root)
+    # Silence with exit 0 reads as "nothing to move" to a script that loops over
+    # the answer (move-plan step B); a missing or empty tree is an error instead.
+    if not adrs:
+        raise SystemExit(f"adr: list: {(findings or [f'{adr_dir(root)}: no ADR'])[0]} — no records to list")
+    return [f"ADR-{a['number']}" for a in adrs if a["fields"].get("Class") == cls]
 
 
 def cmd_amend(root: str | None, num: str, title: str, date: str) -> None:
@@ -701,6 +821,7 @@ def main(argv: list[str] | None = None) -> int:
     sub.add_parser("check")
     p = sub.add_parser("index"); p.add_argument("--write", action="store_true", required=True)
     p = sub.add_parser("new"); p.add_argument("slug"); p.add_argument("title")
+    p = sub.add_parser("list"); p.add_argument("--class", dest="cls", choices=CLASSES, required=True)
     p = sub.add_parser("amend"); p.add_argument("number"); p.add_argument("title"); p.add_argument("--date", required=True)
     p = sub.add_parser("lookup"); p.add_argument("words", nargs="*")
     p = sub.add_parser("range-check"); p.add_argument("base", nargs="?"); p.add_argument("head", nargs="?")
@@ -716,6 +837,10 @@ def main(argv: list[str] | None = None) -> int:
         write_index(a.root); print("adr: index.json and the README table regenerated"); return 0
     if a.cmd == "new":
         print(cmd_new(a.root, a.slug, a.title)); return 0
+    if a.cmd == "list":
+        for n in cmd_list(a.root, a.cls):
+            print(n)
+        return 0
     if a.cmd == "amend":
         if not real_date(a.date):
             raise SystemExit("adr: --date YYYY-MM-DD, a real calendar date")

@@ -50,3 +50,7 @@ A claimed entry in `identities/personas/surnames.json` carries
 the claim and checked by lint against `claims.json` and `lineage.json`.
 The claim stays the record of who holds a surname; the mark is its
 reflection in the list, so a reader of the list sees what is free.
+
+### Amendment 2026-11-12 — The naming theme and the house style move to the operator's record
+
+Rules 3, 5 and 7 each held a mechanism the engine runs and one organisation's taste beside it. The mechanism stays under the same numbers, which engine code cites (`tools/fabric/persona.py`, `new_agent.py`, `provisioning/surname.py`, `lint_rules/schema.py`, `avatar.py`): the list file and its entries' reasons (rule 3), sex first and then a first name of that sex from the entry's `from` (rule 5), the candidates' folder and the record of rejections (rule 7). The taste moves into the operator's ADR-071, as ADR-045 §5 rule 4 has a mixed record split: that the surnames are deceased scientists with no weapons work, the owner judging a mixed record; that a language-culture agent takes a surname of its own culture and no persona is a famous person's name; the house style, written by brand-comms. §2, §4 and the Scope say the naming theme and the style are the operator's. The owner's word is the 2026-11-11 answer on the classification (docs/split/move-plan.md §5, ADR-045's Amendments row of that date), decided in docs/split/adr-classification.md.

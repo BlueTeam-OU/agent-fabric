@@ -1,4 +1,4 @@
-# ADR-019 — Work arrives as pull requests: one open PR per agent and repository, 8 or more work commits to arm, the gate read before arming, no machine attribution, repository settings
+# ADR-019 — Work arrives as pull requests: one open PR per agent and repository, the minimum of work commits to arm, the gate read before arming, no machine attribution, repository settings
 
 **Date:** 2026-09-18
 **Status:** Accepted
@@ -6,6 +6,7 @@
 **Decision Makers:** the owner; drafted by fabric-coordinator
 **Scope:** identities/prompt/team.md and policies/pull-requests/SKILL.md (the PR rules every session reads); fabric-pr gate, tools/fabric/github/commit_class.py, fabric-pr review-status; tools/fabric/guards/ban_generated_by_attribution.py and policies/githooks/commit-msg; .github/workflows/ci.yml; `fabric-repo-settings` and the GitHub-side settings of gzapi-org/agent-fabric
 **Pillar:** P3
+**Class:** engine
 
 ## 1. Context and Problem
 
@@ -37,10 +38,11 @@ another commit on it, if the branch is still addable; otherwise it is built loca
 the merge. Concerns are commit boundaries, not PR boundaries.
 
 **A PR is armed by its work-commit count**: the
-commits of work as opened, review fixes excluded. Eight or more arm once
+commits of work as opened, review fixes excluded. The minimum
+`policies/arming.json` sets or more arm once
 the gate is met, without the owner's word, a security-boundary change
 too; fewer ask the owner, who arms;
-sixteen is the size to open a batch at, not a condition for arming it.
+the policy's batch size is the size to open a batch at, not a condition for arming it.
 
 **The gate is read before arming.** `fabric-pr gate` gives each open PR one
 verdict from its checks, its review, its threads and its merge state;
@@ -82,7 +84,7 @@ part it covers.
 The band spends the owner's attention where it matters: a PR large enough
 to be worth a review round is armed by the gate, a security-boundary
 change and an oversized one included, and a small one is the owner's
-call; sixteen keeps a batch reviewable as advice, not as a gate. One PR per
+call; the policy's batch size keeps a batch reviewable as advice, not as a gate. One PR per
 agent makes a session's in-flight work one artifact to review and one
 place to look. Reading the gate's verdict before arming — rather than
 chaining a merge after a check — makes the arming depend on the verdict,
@@ -102,8 +104,8 @@ not on a pipe's exit status.
    push is always a fast-forward. `policies/githooks/pre-push`
    refuses a direct push that breaks this; in a project without
    `direct` it applies no direct-push rule, and still refuses a push
-   that adds an unsigned commit, as in every project. Declared today for brand-comms on
-   blueteam.ee, gzapi.ge, gzapp.decks and gzapi.brand, where one agent
+   that adds an unsigned commit, as in every project. Declared for the projects
+   whose `arm.json` declares `direct`, where one agent
    writes copy a commit at a time and the band, the gate and the
    branch cost more than they catch. A PR whose every file matches the
    `direct.record_paths` of such a project (a decision record put to
@@ -119,7 +121,7 @@ not on a pipe's exit status.
    addable. A branch stops being addable when the next piece depends on
    something merged, the branch is queued or merged, it touches a slow or
    flaky surface that would hold the rest hostage, the urgency differs, or
-   it holds sixteen work commits, the size a batch is opened at. Two exceptions, each stated in the new
+   it holds `commits.advice_over` work commits, the size a batch is opened at. Two exceptions, each stated in the new
    PR's description: a finding on the queued PR itself (prefer dequeuing
    and fixing on the same head), and a fix that must land now (a
    user-visible or CI-blocking defect).
@@ -143,9 +145,10 @@ not on a pipe's exit status.
    the rule, or without the hook) is read as before: an `Answers:` trailer is a review fix; a
    subject that names a review and says it answers one is a fix;
    everything else is work.
-4. Eight or more work commits: arm once the gate is met, without the
-   owner's word, a security-boundary change and over sixteen too
-   (A 2026-10-05). Under eight: ask the
+4. At `commits.min` work commits or more: arm once the gate is met, without the
+   owner's word, a security-boundary change (at `commits.boundary_min`) and over `commits.advice_over` too
+   (A 2026-10-05). The counts are `policies/arming.json`'s values, which a
+   repository's settings may override, never this record's. Under the minimum: ask the
    owner, who arms, or the role the repository's arming policy names in
    their place: `commits.below_min_authority` for a PR under the
    minimum, `commits.boundary_authority` for a security-boundary change
@@ -156,8 +159,8 @@ not on a pipe's exit status.
    alike (A 2026-10-19). An `AUTHORIZES` message named beside the owner's
    word is that word as relayed: read and checked as any authorization,
    but for the role, it can only refuse, and the arming comment records
-   who relayed it (A 2026-11-03). Sixteen is the size a batch is opened at; a PR over
-   it is armed on the gate all the same, and the count is advice for the
+   who relayed it (A 2026-11-03). `commits.advice_over` is the size a batch is opened at; a PR
+   over that size is armed on the gate all the same, and the count is advice for the
    next batch.
 5. The gate is `fabric-pr gate`'s verdict for the PR, read
    before arming: `MERGEABLE` needs checks green, a review on the current
@@ -195,7 +198,7 @@ not on a pipe's exit status.
    and deletion
    and force-pushes are refused. With auto-merge on, a PR there is armed
    with `gh pr merge --auto --merge`, which waits for green; every merge
-   is made from the one GitHub account every session uses, and a PR that
+   is made from the operator's GitHub account, and a PR that
    introduces a new direction is merged only on the owner's word (ADR-001
    §5 rule 2). A managed project with a merge queue is armed with its own
    `fabric-pr arm`.
@@ -228,7 +231,7 @@ not on a pipe's exit status.
   | code scanning | CodeQL default setup (actions, JavaScript/TypeScript, Python), weekly and on every PR |
   | secret scanning | on, with push protection, validity checks and non-provider patterns; AI detection off |
   | Dependabot security updates | off |
-  | access | one collaborator, the owner; no teams, no webhooks |
+  | access | the repository's administrators; no teams, no webhooks |
 
   Everything the fabric's own CI runs is in the tree (`.github/workflows/ci.yml`,
   `tests/run.sh`, `policies/`); CodeQL's default setup and secret scanning
@@ -291,3 +294,4 @@ The body above reads current; each change's full note is in [history/ADR-019-ame
 | 2026-11-03 | The owner's word as relayed is read | §5 rule 4: an `--authorization` beside a basis giving the owner's word under the minimum is checked (addressee, sender, PR, head) and recorded as the word relayed; before, it was dropped unread |
 | 2026-11-05 | A decision record arms on the owner's ruling | §5 rule 1: a PR wholly of a direct project's `record_paths` arms on the owner's word without the review class, as the brand remit has said since 2026-09-17; lint holds its cases out of `pr_paths` and the boundary |
 | 2026-11-10 | An arming is withdrawn on the record | §5 rule 5: `fabric-pr disarm` takes off `fabric/armed`, the queue entry and auto-merge and posts its basis; who may disarm is who may arm, never on `--any-owner` alone; the gate ignores `fabric/armed` as a check |
+| 2026-11-12 | the record names no organisation's projects, counts or accounts | §5 rules 1, 4, 6, §6 access row, title: the direct projects and the counts are `policies/arming.json`'s; the merging account is the operator's; access is the repository's administrators |

@@ -6,6 +6,7 @@
 **Decision Makers:** the owner; drafted by fabric-coordinator
 **Scope:** every `SKILL.md` the fabric ships — policies/subagent-dispatch/SKILL.md, communication/gzcoord/skills/, identities/roles/*/skills/; tools/fabric/lint.py (`project_name_findings`)
 **Pillar:** P2
+**Class:** engine
 
 ## 1. Context and Problem
 

@@ -6,6 +6,7 @@
 **Decision Makers:** fabric-coordinator, after the CEO's challenge of 2026-09-18 ("all time the same error … did you learn?"); the pin in gzapp's CI landed there (gzapp#854, gzapp#857)
 **Scope:** `<working copy>/.agent-fabric/fabric-ref` in every managed project; the checkout step of a project's CI that runs the fabric's guards; the order in which a drain lands (memory/README.md, "Landing a drain"); `fabric_ref_findings` in tools/fabric/lint.py
 **Pillar:** P1
+**Class:** engine
 
 ## 1. Context and Problem
 

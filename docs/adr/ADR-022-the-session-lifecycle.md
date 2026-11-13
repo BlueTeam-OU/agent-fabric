@@ -6,6 +6,7 @@
 **Decision Makers:** the owner; drafted by fabric-coordinator
 **Scope:** runtime/claude-code/user-settings.py (`permissions.defaultMode`); tools/fabric/launch.py and tools/fabric/launcher/currency.py (the fresh relaunch's directory, the session's fabric root); runtime/openrouter/launch (the opening prompt, the restart marker); bin/fabric-fresh; bin/fabric-branches and policies/branch-hygiene/SKILL.md; runtime/claude-code/workspace/settings.json and each managed project's `.claude/settings.json` (the hook wiring); runtime/claude-code/hooks/session-start.py (the watch check), runtime/claude-code/hooks/plan-hold.sh; tools/fabric/gzcoord/inbox.py and send.py; tools/fabric/control/ops/, tools/fabric/control/presence.py, tools/fabric/control/ctl.py (presence); communication/gzcoord/skills/gzcoord-receive/SKILL.md
 **Pillar:** P3
+**Class:** engine
 **Evidence:** docs/live-checks/2026-09-16-inbox-hold-while-planning.md
 
 ## 1. Context and Problem

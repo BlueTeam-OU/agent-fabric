@@ -6,6 +6,7 @@
 **Decision Makers:** the owner; drafted by fabric-coordinator
 **Scope:** how well the review class judges and finds. The ground truth it is measured against (owner labels, seeded defects), the configuration a result belongs to, the rates and their intervals, the split that keeps tuning from leaking into the measure, and what a change to the review class's routing or instructions must show. The reader `fabric-review-calibration` and the code it ports. Not who erred (ADR-061), not cost (ADR-036)
 **Pillar:** P3
+**Class:** engine
 **Evidence:** docs/live-checks/2026-11-07-review-findings-judged.md
 
 ## 1. Context and Problem

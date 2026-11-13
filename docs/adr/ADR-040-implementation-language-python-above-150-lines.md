@@ -6,6 +6,7 @@
 **Decision Makers:** the owner (new fabric tooling in Python; a shell script ported when it next needs a substantial change; the wave plan); drafted by fabric-coordinator
 **Scope:** every executable the fabric tracks — `bin/`, `runtime/`, `policies/`, `tools/`, `tests/`: the language a script is written in, the two kinds of bash that remain, and how an existing script moves; `tools/fabric/bash-allowlist.json` and the lint rule that reads it; `tools/fabric/gh.py` and `tools/fabric/git.py`
 **Pillar:** P1
+**Class:** engine
 
 ## 1. Context and Problem
 
@@ -219,24 +220,8 @@ serve as the parity oracle for each port, unchanged.
    The project's devex-tooling and architect-cto decide the order. The
    forwarders a project keeps to the fabric's commands (`tools/gh/*.sh`
    to `fabric-pr`) stay forwarders until rule 7 retires them.
-10. A managed project's own Node scripts move to Python in Wave 10
-   (§7), the one port wave a project has; the owner asked for it
-   (A 2026-10-19). A `.mjs` file a project runs as a script, written
-   by us, is ported, and none is added; one a fork took from the
-   upstream it tracks stays the upstream's and is never ported (it
-   would only make the fork diverge), and a project's application
-   code (a TypeScript or JavaScript app, its packages and its build)
-   is the product, in the language the product chose, never a script
-   to port; a `.js` or `.cjs` script of ours may join the wave, and one
-   that is to be updated or fixed is ported instead (A 2026-10-19). Exempt, and named in the wave's
-   inventory with why: a framework's own configuration it loads itself
-   (`astro.config.mjs`), and a script that works inside a Node library's
-   API with no Python counterpart (gzapp's `import-table.mjs`, bound to
-   the pinned TypeScript compiler). An
-   exemption a holder finds is proposed to the coordinator and added to
-   the inventory, never assumed. A port follows rules 3 to 5: the
-   contract frozen, the command kept, the old script the oracle. Rule
-   9's "no port waves in a project" stands for bash.
+10. (moved to ADR-070 here: a managed project's Node scripts are this
+    organisation's programme, not the engine's) (A 2026-11-12)
 
 ## 6. Consequences
 
@@ -375,23 +360,9 @@ enforced a line rule: 160 lines (A 2026-10-13). The change seeded `ports`
 with the one file left (`fabric-ctl`'s completion), which then joined the
 closed list (A 2026-10-24).
 
-Wave 10 ports the managed projects' Node scripts. When it was set the
-projects held 16 `.mjs` scripts of their own, 2,897 lines, beside the
-framework configurations; the fabric itself has none since Wave 8.
-Each port is the holder's of the path in its project's taxonomy, one
-pull request per project and holder, under that project's arming rules.
-
-| project | what | files | lines | holder | note |
-|---|---|---|---|---|---|
-| gzapp | `tools/validate_api_surface/`: `deprecated-refs.mjs`, `validate.js` and their three tests | 5 | 1,601 | devex-tooling | YAML: the project's own dependency, not the fabric's standard-library rule. `validate.js` joins the wave with the two tests that import it; the old script is the oracle on the four real documents, and the OpenAPI validator that replaces its check 4 is the holder's choice |
-| gzapp | `tools/one-shot/split_adr_amendments.mjs` | 1 | 327 | devex-tooling | deleted, not ported: it ran once |
-| gzapp | `tools/build_glyphs/build-glyphs.mjs` | 1 | 271 | devex-tooling | exempt: fontnik and `@mapbox/glyph-pbf-composite` are native Node addons with no Python binding, and `check` compares the committed glyph ranges byte for byte with a fresh render, which a Python rasteriser would not reproduce (its holder's finding) |
-| gzapp | `apps/admin_web/scripts/import-table.mjs` | 1 | 157 | web-dev | exempt: it walks the AST of the project's pinned TypeScript compiler, which has no Python binding; a re-implementation missed real imports (its holder's proposal) |
-| gzapp.decks | `scripts/*.mjs` | 8 | 1,092 | brand-comms | `doc.mjs` drives puppeteer: exempt or ported to the fleet's browser, the holder says |
-| blueteam.ee | `deploy/check-dist.mjs` | 1 | 109 | edge-hosting | the taxonomy's note gives it the deploy; its paths are empty |
-
-`astro.config.mjs` in blueteam.ee and gzapi.ge is exempt (rule 10). herdr's `scripts/docs/*.mjs` came from
-the upstream FleetDeck tracks (`herdrdev/herdr`) and stay as they are.
+Wave 10, the managed projects' Node scripts, is this organisation's programme and
+is in ADR-070 here, with its inventory; the engine's waves end at 9
+(A 2026-11-12).
 
 ## 8. Decision Status
 
@@ -402,7 +373,7 @@ the bash, has landed in all ten batches (§7's table), the lint change
 too (rule 2's two sections and the forwarder shape, the 160-line rule
 gone), but for one file: `pre-push` is a forwarder to the host's
 `python3`, and moving it to the pin is its own decision (rule 4). Wave 10, the managed projects'
-Node scripts, is dispatched (A 2026-10-19).
+Node scripts, is in ADR-070 here.
 
 ## References
 
@@ -412,6 +383,7 @@ Node scripts, is dispatched (A 2026-10-19).
 - `tools/fabric/secrets_sync.py`: the first port, its contract frozen in
   its header, `runtime/provisioning/secrets/fabric-secrets` its shim.
 - ADR-001 (the records), ADR-015 (code as memory), ADR-018 (the guards).
+- ADR-070 — Wave 10, this organisation's porting programme for its projects' Node scripts, moved out of rule 10 and §7 by the split.
 
 ## Amendments
 
@@ -438,3 +410,4 @@ The body above reads current; each change's full note is in [history/ADR-040-ame
 | 2026-10-24 | fabric-ctl's bash completion joins the closed list | §5 rule 1 (the closed list) |
 | 2026-10-24 | the pin moves to 3.14; no third-party wheel | §2 (the pinned version) |
 | 2026-11-11 | One Python on every host: a host's python3 only bootstraps the pin | §5 rule 1: the owner's word; `python_pin.py` valid on EL 10's 3.12; a host whose python3 is below 3.13 takes no account until rule 4's host-`python3` entries run on the pin |
+| 2026-11-12 | Wave 10 moves to the operator's record | §5 rule 10 and §7's Wave 10 paragraph and inventory rows move to ADR-070; §8; rule 10's number stays, vacated; rules 1-9 and waves 0-9 stay |

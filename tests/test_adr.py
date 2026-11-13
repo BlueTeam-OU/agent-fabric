@@ -36,7 +36,23 @@ def fixture(tmp: str) -> str:
         os.makedirs(os.path.dirname(dst), exist_ok=True)
         (shutil.copytree if os.path.isdir(src) else shutil.copy)(src, dst)
     write_registry(os.path.join(root, "projects"))   # the fixture's, never the live one
+    give_class(root)
     return root
+
+
+def give_class(root: str) -> None:
+    """A record without **Class:** gets `engine`, so the fixture stays clean
+    whether or not the real records carry the header yet; the real tree's own
+    headers are held by case_the_real_records_carry_a_class."""
+    d = os.path.join(root, "docs", "adr")
+    for f in os.listdir(d):
+        p = os.path.join(d, f)
+        if adr.FILE_RE.fullmatch(f):
+            s = open(p, encoding="utf-8").read()
+            if "\n**Class:**" not in s:
+                s = re.sub(r"(\n\*\*Pillar:\*\*[^\n]*)", r"\1\n**Class:** engine", s, count=1)
+                open(p, "w", encoding="utf-8").write(s)
+    adr.write_index(root)
 
 
 def edit(root: str, rel: str, old: str, new: str, count: int = 1) -> None:
@@ -507,7 +523,7 @@ def case_range_check_follows_renames_and_passes_header_only(tmp: str) -> None:
     root = fixture(os.path.join(tmp, "b"))
     base = commit_base(root)
     s = open(os.path.join(root, ONE), encoding="utf-8").read()
-    s = s.replace("**Pillar:** P2\n\n## 1.", "**Pillar:** P2\n \n## 1.", 1)
+    s = s.replace("\n\n## 1.", "\n \n## 1.", 1)
     open(os.path.join(root, ONE), "w", encoding="utf-8").write(s)
     git(root, "commit", "-qa", msg="whitespace on the header's last line")
     assert adr.range_check(root, base) == [], "a header-only change was reported as a body edit"
@@ -665,6 +681,202 @@ def case_staged_check_on_an_amend_and_with_no_base(tmp: str) -> None:
         assert r.returncode == 0 and "no base to compare with — not enforced" in r.stderr, (r.returncode, r.stderr)   # said, never silent
     finally:
         os.environ.update(env)
+
+
+def case_the_real_records_carry_a_class(tmp: str) -> None:
+    # Fails until every real record has its **Class:** header: held apart from
+    # the fixture, which supplies the header itself.
+    bad = [x for x in adr.check(ROOT) if "Class" in x]
+    assert bad == [], bad[:3]
+
+
+def case_class_is_required_and_one_of_two(tmp: str) -> None:
+    root = fixture(tmp)
+    edit(root, ONE, "**Class:** engine\n", "")
+    only(root, "header field **Class:** missing")
+    edit(root, ONE, "**Pillar:** P2\n", "**Pillar:** P2\n**Class:** mixed\n")
+    only(root, "'mixed' is not one of engine, organisational")
+    edit(root, ONE, "**Class:** mixed", "**Class:** organisational")
+    assert not [x for x in adr.check(root) if "Class" in x]
+
+
+def case_index_and_table_carry_the_class(tmp: str) -> None:
+    root = fixture(tmp)
+    edit(root, ONE, "**Class:** engine", "**Class:** organisational")
+    adr.write_index(root)
+    rows = {r["number"]: r for r in json.load(open(os.path.join(root, "docs/adr/index.json")))["adrs"]}
+    assert rows["001"]["class"] == "organisational" and rows["000"]["class"] == "engine"
+    assert "| Pillar | Class | Status |" in open(os.path.join(root, "docs/adr/README.md"), encoding="utf-8").read()
+    assert adr.check(root) == []
+
+
+def case_list_prints_the_numbers_of_a_class(tmp: str) -> None:
+    root = fixture(tmp)
+    edit(root, ONE, "**Class:** engine", "**Class:** organisational")
+    r = subprocess.run([sys.executable, os.path.join(ROOT, "tools", "fabric", "adr.py"), "--root", root, "list", "--class", "organisational"],
+                       capture_output=True, text=True, env=git_env())
+    # The fixture copies the real records, whose own organisational ones list too.
+    want = sorted(f"ADR-{a['number']}" for a in adr.load(root)[0] if a["fields"].get("Class") == "organisational")
+    assert "ADR-001" in want and r.returncode == 0 and r.stdout.split() == want, (r.returncode, r.stdout, r.stderr)
+    r = subprocess.run([sys.executable, os.path.join(ROOT, "tools", "fabric", "adr.py"), "--root", root, "list", "--class", "other"],
+                       capture_output=True, text=True, env=git_env())
+    assert r.returncode != 0
+
+
+def reserve(root: str, **table: str) -> None:
+    with open(os.path.join(root, "docs/adr/reserved.json"), "w", encoding="utf-8") as fh:
+        json.dump({"$comment": "t", "reserved": {k.lstrip("n"): v for k, v in table.items()}}, fh)
+
+
+def move_one_out(root: str) -> str:
+    """ADR-001 leaves for an operator tree beside the engine's, its number reserved."""
+    op = os.path.join(os.path.dirname(root), "operator")
+    os.makedirs(os.path.join(op, "docs", "adr"))
+    for sub in ("", "history"):
+        os.makedirs(os.path.join(op, "docs", "adr", sub), exist_ok=True)
+    for rel in (ONE, "docs/adr/history/ADR-001-amendments.md"):
+        shutil.move(os.path.join(root, rel), os.path.join(op, rel))
+    reserve(root, n001="moved to the operator")
+    return op
+
+
+def split_trees(root: str) -> str:
+    """The move done properly: ADR-001 in an operator tree with its own
+    README, DIGEST entry, index and registry, the engine's copies without it,
+    so each tree is clean by itself and only the pair is the numbering."""
+    op = move_one_out(root)
+    eng_digest = os.path.join(root, "docs/adr/DIGEST.md")
+    head, entries = open(eng_digest, encoding="utf-8").read().split("\n### ADR-000", 1)
+    parts = ("### ADR-000" + entries).split("\n### ")
+    first = [p for p in parts if p.startswith("ADR-001 ")][0]
+    rest = [p for p in parts if not p.startswith("ADR-001 ")]
+    def entry(p: str) -> str:
+        return p if p.startswith("### ") else "### " + p
+    with open(eng_digest, "w", encoding="utf-8") as fh:
+        fh.write(head.rstrip("\n") + "\n\n" + "\n".join(entry(p) for p in rest))
+    with open(os.path.join(op, "docs/adr/DIGEST.md"), "w", encoding="utf-8") as fh:
+        fh.write(head.rstrip("\n") + "\n\n" + entry(first))
+    shutil.copy(os.path.join(root, "docs/adr/README.md"), os.path.join(op, "docs/adr/README.md"))
+    write_registry(os.path.join(op, "projects"))
+    adr.write_index(op)
+    adr.write_index(root)
+    return op
+
+
+def case_a_two_tree_check_is_clean_and_a_lone_root_is_only_itself(tmp: str) -> None:
+    root = fixture(tmp)
+    op = split_trees(root)
+    assert adr.check(op, other=root) == [], adr.check(op, other=root)
+    assert adr.check(root, other=op) == [], adr.check(root, other=op)
+    assert adr.check(op), "a root handed alone is that tree only: the engine's numbers are missing"
+
+
+def case_a_number_recorded_in_both_trees_is_a_finding(tmp: str) -> None:
+    root = fixture(tmp)
+    op = split_trees(root)
+    shutil.copy(os.path.join(op, ONE), os.path.join(root, ONE))
+    for tree_, other in ((op, root), (root, op)):
+        got = [x for x in adr.check(tree_, other=other) if "record in both trees" in x]
+        assert len(got) == 1 and "ADR-001" in got[0], got
+        assert os.path.realpath(op) in got[0] and os.path.realpath(root) in got[0], got
+
+
+def case_an_undivided_operator_copy_is_one_tree_not_a_pair(tmp: str) -> None:
+    # Before step B an exported operator is the whole fabric copied: every
+    # record in both trees. That is no duplicate; only a split tree (one
+    # without ADR-000) is checked as a half of the numbering.
+    root = fixture(tmp)
+    op = os.path.join(os.path.dirname(root), "operator")
+    shutil.copytree(root, op)
+    for tree_, other in ((op, root), (root, op)):
+        assert adr.check(tree_, other=other) == [], adr.check(tree_, other=other)
+    assert not adr.divided(adr.adr_dir(op), adr.adr_dir(root))
+
+
+def case_new_in_an_operator_tree_is_organisational(tmp: str) -> None:
+    root = fixture(tmp)
+    op = split_trees(root)
+    saved = adr.ROOT
+    adr.ROOT = root          # the engine, as new sees it: the fixture's, not the live checkout
+    try:
+        mine = open(adr.cmd_new(op, "op-thing", "Op thing"), encoding="utf-8").read()
+        assert "**Class:** organisational" in mine and "**Class:** engine" not in mine
+        theirs = open(adr.cmd_new(root, "eng-thing", "Eng thing"), encoding="utf-8").read()
+        assert "**Class:** engine" in theirs
+    finally:
+        adr.ROOT = saved
+
+
+def case_list_refuses_a_missing_or_empty_tree(tmp: str) -> None:
+    for sub in (None, "docs/adr"):
+        root = os.path.join(tmp, "bare" if sub is None else "empty")
+        os.makedirs(os.path.join(root, sub or ""), exist_ok=True)
+        r = subprocess.run([sys.executable, os.path.join(ROOT, "tools", "fabric", "adr.py"), "--root", root, "list", "--class", "organisational"],
+                           capture_output=True, text=True, env=git_env())
+        assert r.returncode != 0 and "no records to list" in r.stderr and r.stdout == "", (sub, r.returncode, r.stdout, r.stderr)
+
+
+def case_a_reserved_number_keeps_the_numbering_contiguous(tmp: str) -> None:
+    root = fixture(tmp)
+    move_one_out(root)
+    only(root, "DIGEST.md: an entry for ADR-001")   # the move's own step takes the entry out
+    assert not [x for x in adr.check(root) if "contiguous" in x or "cites" in x], adr.check(root)
+    os.remove(os.path.join(root, "docs/adr/reserved.json"))
+    only(root, "missing ADR-001")
+
+
+def case_reserved_and_recorded_is_a_finding_and_a_bad_number_too(tmp: str) -> None:
+    root = fixture(tmp)
+    reserve(root, n001="moved")
+    only(root, "ADR-001 is reserved and has a record in this tree")
+    reserve(root, **{"1": "short", "n002": ""})
+    only(root, "is not a three-digit number with a reason")
+    with open(os.path.join(root, "docs/adr/reserved.json"), "w", encoding="utf-8") as fh:
+        fh.write("[]")
+    only(root, "not a JSON object")
+
+
+def case_the_index_lists_a_reserved_number_without_a_link(tmp: str) -> None:
+    root = fixture(tmp)
+    move_one_out(root)
+    adr.write_index(root)
+    rows = json.load(open(os.path.join(root, "docs/adr/index.json")))["adrs"]
+    assert [r["number"] for r in rows][:3] == ["000", "001", "002"]
+    assert rows[1] == {"number": "001", "file": None, "title": "moved to the operator", "status": "Reserved",
+                       "date": "", "pillar": "", "class": "", "amendments": 0}, rows[1]
+    readme = open(os.path.join(root, "docs/adr/README.md"), encoding="utf-8").read()
+    assert "| ADR-001 | moved to the operator |" in readme and "](ADR-001-decision-records.md) |" not in readme
+
+
+def case_new_never_takes_a_reserved_number(tmp: str) -> None:
+    root = fixture(tmp)
+    top = max(int(a["number"]) for a in adr.load(root)[0])
+    reserve(root, **{f"n{top + 3:03d}": "moved"})
+    assert os.path.basename(adr.cmd_new(root, "next", "Next")).startswith(f"ADR-{top + 4:03d}-")
+
+
+def case_an_exported_operator_and_the_engine_count_each_others_numbers(tmp: str) -> None:
+    root = fixture(tmp)
+    op = move_one_out(root)
+    adr.write_index(root)
+    saved_root, saved_env = adr.ROOT, os.environ.get("AGENT_FABRIC_OPERATOR")
+    adr.ROOT, os.environ["AGENT_FABRIC_OPERATOR"] = root, op
+    try:
+        write_registry(os.path.join(op, "projects"))
+        found = adr.check(None)          # the operator's tree: ADR-001 alone, the rest the engine's
+        assert not [x for x in found if "contiguous" in x or "cites" in x or "pillar" in x], found
+        top = max(int(n) for n in adr.record_numbers(os.path.join(root, "docs", "adr")))
+        assert os.path.basename(adr.cmd_new(None, "next", "Next")).startswith(f"ADR-{top + 1:03d}-")
+        assert not [x for x in adr.check(root) if "contiguous" in x], "--root is the one tree, plus its reserved.json"
+        os.remove(os.path.join(root, "docs/adr/reserved.json"))
+        only(root, "missing ADR-001")
+        assert [x for x in adr.check(None) if "contiguous" in x] == [], "the operator's tree is only its own plus the engine's"
+    finally:
+        adr.ROOT = saved_root
+        if saved_env is None:
+            os.environ.pop("AGENT_FABRIC_OPERATOR")
+        else:
+            os.environ["AGENT_FABRIC_OPERATOR"] = saved_env
 
 
 def main() -> int:

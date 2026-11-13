@@ -6,6 +6,7 @@
 **Decision Makers:** the owner; drafted by fabric-coordinator
 **Scope:** docs/adr/ — how agent-fabric records, amends and supersedes its decisions; tools/fabric/adr.py; who writes and who accepts
 **Pillar:** P2
+**Class:** engine
 
 ## 1. Context and Problem
 
@@ -33,9 +34,12 @@ agent-fabric records its decisions as numbered decision records in
 `docs/adr/`, on gzapp's engine, with what gzapp leaves to convention made
 checkable by `tools/fabric/adr.py`:
 
-- `ADR-NNN-kebab-title.md`, contiguous from ADR-000; the header fields
-  Date, Status, Ratified (when Accepted), Decision Makers, Scope, Pillar,
-  and optionally Evidence; the sections §1 Context and Problem to §8
+- `ADR-NNN-kebab-title.md`, contiguous from ADR-000, a number reserved in
+  `docs/adr/reserved.json` (a record held in another tree, ADR-045 §5
+  rule 4) counting as present and never taken again (A 2026-11-12); the
+  header fields Date, Status, Ratified (when Accepted), Decision Makers,
+  Scope, Pillar, Class (`engine` or `organisational`), and optionally
+  Evidence; the sections §1 Context and Problem to §8
   Decision Status, References, and `## Amendments` last.
 - **Amendment**: the body is edited in place so it always reads current,
   with rule numbers permanent; the full note goes to
@@ -177,3 +181,4 @@ The body above reads current; each change's full note is in [history/ADR-001-ame
 | 2026-10-09 | An exception to a direction covers what exists | §5 rule 12 added: a carve-out keeps the past as it is; new work follows the direction unless the exception admits it in words |
 | 2026-10-18 | The amendment rule is checked at commit time too | §5 rule 4: `adr.py staged-check`, run by the `commit-msg` hook, refuses an unrecorded body edit in the commit being made, beside CI's `range-check` |
 | 2026-11-09 | A DIGEST budget per bullet, not per entry | §2: each bullet at most 60 words in `adr.py check`; the 250-word entry total is gone |
+| 2026-11-12 | A record says its Class; a moved number stays reserved | §2: the Class header, engine or organisational; `docs/adr/reserved.json` numbers count toward contiguity and are never reused |

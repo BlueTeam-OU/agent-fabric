@@ -6,6 +6,7 @@
 **Decision Makers:** the owner (the coordinator keeps the plans); drafted by fabric-coordinator
 **Scope:** `tools/fabric/plan.py`, `bin/fabric-plan`; the coordinator's plan files in its state; how a step's state is derived; the plan view (ADR-046)
 **Pillar:** P1
+**Class:** engine
 
 ## 1. Context and Problem
 

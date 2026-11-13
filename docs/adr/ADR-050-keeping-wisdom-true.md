@@ -6,6 +6,7 @@
 **Decision Makers:** the owner (distributed judgement with a central assist); drafted by fabric-coordinator
 **Scope:** `tools/fabric/memory_check.py` and `tools/fabric/lint_rules/slices.py`; `tools/fabric/harvest_memory.py` (`parse_memory`), `tools/fabric/assembler/slices.py` (`claim_block`, `remove_sections`), `tools/fabric/assembler/writer.py`, `tools/fabric/assemble.py`, `identities/schemas/claims.schema.json`; `runtime/claude-code/hooks/memory-write-check.py`; `memory/RUBRIC.md`, `memory/README.md`, `identities/prompt/memory.md`; the drain report and the `memory` op of the control plane; `policies/hygiene.json`
 **Pillar:** P2
+**Class:** engine
 
 ## 1. Context and Problem
 

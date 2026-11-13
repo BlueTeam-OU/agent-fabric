@@ -5,6 +5,7 @@
 **Decision Makers:** the owner; drafted by fabric-coordinator
 **Scope:** what counts as an error of an actor (review findings, red checks, reverts and fixes forward), who it is attributed to, where it is read from, and what the count may and may not be used for; the reader `fabric-errors` and its section in the fleet views. Not the measure of progress (ADR-026) or of cost (ADR-036), which keep their own definitions
 **Pillar:** P3
+**Class:** engine
 **Evidence:** docs/live-checks/2026-10-19-errors-per-actor.md
 
 ## 1. Context and Problem

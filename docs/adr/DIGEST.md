@@ -66,12 +66,15 @@ its record disagree, the record wins. Look it up, never read it whole:
 | a holder's own specialization of a role; charter or brief addendum; holder.json; jurisdiction of a legal holder; locale chosen per holder | ADR-060 |
 | errors per actor; review findings and red CI counted the same for people and agents | ADR-061 |
 | hidden Unicode; bidi, zero-width, tag characters in skills, slices and charters | ADR-062 |
-| fabric-ctl assist; asking about the fabric with the fleet down; the claude-pzhuy API key; who may spend an API key | ADR-063 |
+| fabric-ctl assist; asking about the fabric with the fleet down; the operator's assist API key; who may spend an API key | ADR-063 |
 | GZCoord over InterWeave; the InterWeave carrier; dual run beside the relay; the agents' PeerIds and roster; switching transport | ADR-064 |
 | the reviewer's tools; the review sandbox; coverage blocks; the v2 review marker; where a re-review starts | ADR-065 |
 | the reviewer's own accuracy; calibrating the review class; owner labels; seeded defects; a review routing change's evidence | ADR-066 |
 | one owning module per mechanism; a reimplementation; tools/fabric/mechanisms.json; a checker and its exceptions | ADR-067 |
 | the fabric command; fabric <noun> <verb>; fabric help; one front door for the bin/ commands; a second spelling of a guarded command | ADR-068 |
+| this organisation's decentralization inventory: host, relay, key, observer, providers, undrained memory | ADR-069 |
+| this organisation's porting programme: Wave 10, its projects' Node scripts, mjs | ADR-070 |
+| this organisation's persona naming theme: which surnames, a first name's culture, the avatar house style | ADR-071 |
 
 ### ADR-000 — The enduring organization (Accepted)
 
@@ -118,7 +121,9 @@ its record disagree, the record wins. Look it up, never read it whole:
 - A 2026-10-18 — also checked at commit time (§5 rule 4).
 - A 2026-11-09 — the budget is per bullet, at most 60 words; the
   250-word entry total is gone (§2).
-- Keywords: ADR, amendment, supersede, ratify, index, digest, rationale.
+- A 2026-11-12 — a Class header, engine or organisational; a number in
+  `docs/adr/reserved.json` counts as present and is never reused (§2).
+- Keywords: ADR, amendment, supersede, ratify, index, digest, rationale, class, reserved.
 
 ### ADR-002 — Role, login and model are kept apart (Accepted)
 
@@ -464,13 +469,13 @@ its record disagree, the record wins. Look it up, never read it whole:
 - Keywords: pre-commit, commit-msg, locale carve-out,
   never-list.
 
-### ADR-019 — Work arrives as pull requests: one open PR per agent and repository, 8 or more work commits to arm, the gate read before arming, no machine attribution, repository settings (Accepted)
+### ADR-019 — Work arrives as pull requests: one open PR per agent and repository, the minimum of work commits to arm, the gate read before arming, no machine attribution, repository settings (Accepted)
 
 - Every change reaches `main` by PR (§5 rule 1).
 - One open PR per agent and repository (§5 rule 2).
-- Work commits exclude review fixes (`Kind:`, §5 rule 3); 8 or more
-  arm at the gate, under 8 on the owner's or an authority's word
-  (§5 rule 4).
+- Work commits exclude review fixes (`Kind:`, §5 rule 3); the
+  minimum or more arm at the gate, fewer on the owner's or an
+  authority's word (§5 rule 4).
 - Arm only on `pr-gate.sh`'s `MERGEABLE`, no open P1/P2 (rules 5–6).
 - No machine attribution (rule 7); GitHub settings §6.
 - A 2026-10-04 — `main`'s ruleset (rule 6).
@@ -488,6 +493,7 @@ its record disagree, the record wins. Look it up, never read it whole:
 - A 2026-11-03 — relayed owner's word read (rule 4).
 - A 2026-11-05 — `record_paths`: the owner's ruling arms (rule 1).
 - A 2026-11-10 — `fabric-pr disarm`: withdrawn with a basis; another's PR on a word (rule 5).
+- A 2026-11-12 — organisation's names and counts out: direct projects, counts, account, access are policy data (rules 1, 4, 6, §6).
 - Keywords: Answers, armed_status, disarm.
 
 ### ADR-020 — The review class is the review (Accepted)
@@ -825,10 +831,9 @@ its record disagree, the record wins. Look it up, never read it whole:
 - Decentralize only where a failure would take
   identity, knowledge or the ability to go on working; reduced capacity
   is acceptable (§2).
-- §1 inventories what depends on one thing today — one host, one relay
-  and its database, one signing key, one observer, two
-  providers, undrained memory, the owner — with each degraded mode or
-  "none" (§1, §5 rule 1).
+- The operator keeps an inventory of what depends on one thing — host,
+  relay, signing key, observer, providers, undrained memory, the owner —
+  with each degraded mode or "none", in its own record (ADR-069 here) (§1, §5 rule 1).
 - Data that exists nowhere else gets a copy first; a degraded mode counts
   only with a live check; identity never depends on a central service
   (§5 rules 2–4).
@@ -839,6 +844,7 @@ its record disagree, the record wins. Look it up, never read it whole:
 - A 2026-10-28 — undrained memory has a daily copy (restore unread); §7 step 3 decided: a weekly timer collects every account's drain bundle, 14-day age bound, one report, one drain job; landing reviewed (§1, §2, §6, §7).
 - A 2026-11-07 — §7 step 2 done: relay down an hour (§7).
 - A 2026-11-10 — §7 step 3 built (#419, #462); first timer run: 33 stores over the 14-day bound, 53 unknown, drain job kept (§7).
+- A 2026-11-12 — the §1 inventory table and rule 1's duty moved to the operator's ADR-069; rule 1 now says the operator keeps its inventory in its own record; criterion, rules 2-5, §7 stay (§1, §5 rule 1).
 - Keywords: decentralization, resilience, single point of failure,
   degraded mode, relay, host, crash, backup, autonomy, P5,
   scheduled drain, drain timer, undrained memory, state backup.
@@ -938,6 +944,7 @@ its record disagree, the record wins. Look it up, never read it whole:
 - A 2026-10-15 — only agent and parent write (§5 r3).
 - A 2026-10-17 — `settings/roles/`: parent only (§5 r3).
 - A 2026-11-03 — the seal is a managed hook (§5 r9).
+- A 2026-11-12 — stores' owner: the operator's configured GitHub organisation (Scope, §2, §8).
 - Keywords: secrets, settings, GPG, pass, env.sh, lineage, custody,
   Doppler, provision, company store.
 ### ADR-039 — The agent id is a UUIDv7 minted at birth (Accepted)
@@ -959,6 +966,7 @@ its record disagree, the record wins. Look it up, never read it whole:
 - A reused login is a new agent with a new id (§5 rule 7).
 - A 2026-10-13 — the repository is `fabric-agent-<id>`; its description names host, login, role (§5 rule 4).
 - A 2026-10-13 — the persona belongs to the agent id (§5 rule 8).
+- A 2026-11-12 — store owner: the operator's configured GitHub organisation (rule 4).
 - Keywords: agent id, UUIDv7, birth, rename, identity, lineage, key,
   secrets repository, P1.
 
@@ -989,6 +997,7 @@ its record disagree, the record wins. Look it up, never read it whole:
 - A 2026-10-24 — completion listed (§5 r1).
 - A 2026-10-24 — pin 3.14, no wheel (§2).
 - A 2026-11-11 — one Python on every host; host python3 only bootstraps the pin (§5 r1).
+- A 2026-11-12 — rule 10 and §7's Wave 10 rows, the managed projects' Node scripts, moved to the operator's ADR-070; rules 1-9 and waves 0-9 stay (§5 r10, §7, §8).
 - Keywords: Python, bash, Node, mjs, port, allowlist, bare command,
   forwarder.
 
@@ -1143,6 +1152,7 @@ its record disagree, the record wins. Look it up, never read it whole:
 - A 2026-10-31 — `attach`: the deck attaches to the harness pane (§5 rule 4).
 - A 2026-11-04 — harness pane `--resume` once after an idle `harness-restart`, else `--wait` (§5 rule 4).
 - A 2026-11-11 — a host reached over ssh (fabric-h2) listens beyond loopback; the coordinator's key on its operator, no forced command (rules 1, 8).
+- A 2026-11-12 — rule 1's ssh exception names no host: any host reached over ssh; the coordinator's host's address.
 - Keywords: ssh, sshd, operator, Fleet Deck, moveto, enter-ssh, forced
   command, authorized_keys, host key, known_hosts, Qubes, rc.local, attach,
   harness, agent-fabric-harness.service, harness-restart.
@@ -1308,28 +1318,28 @@ its record disagree, the record wins. Look it up, never read it whole:
   total outage (§5 rules 4, 6).
 - Each provider's strategy (retry waits, seats, allowance action, ordered
   models) is data in one syntax, `routing/policies/availability.json`,
-  linted; OpenAI is the less tolerant (§5 rule 7).
+  linted (§5 rule 7).
 - A 2026-10-13 — codex additional: an unavailable marker on the head lets claude alone arm; the fleet lists codex under additional_reviews, the marker tool having landed (#245), and codex is optional (§5 rule 8).
 - A 2026-10-14 — an additional engine with neither a review nor a marker on the head is
   absent: the arm proceeds on the required reviews and says so, and the gate reads the same.
+- A 2026-11-12 — rules 7, 8 point at the policy data; the principle stays.
 
-### ADR-056 — Agent personas: "AI <Name> <Surname>", a scientist's surname each, an avatar the agent accepts, always marked as AI (Accepted)
+### ADR-056 — Agent personas: "AI <Name> <Surname>", a surname from the operator's list each, an avatar the agent accepts, always marked as AI (Accepted)
 
 - A persona — first name, surname, sex (F/M) for the image, avatar — is the
   agent id's, in `settings/profile.json` of `fabric-agent-<id>` (§5 rule 1).
 - Shown only behind "AI": "AI Ada Maxwell", "AI Ada · Python Dev"; with the
   login where people and agents both read (§5 rule 2).
-- Surnames from `identities/personas/surnames.json` — worldwide, deceased
-  scientists, none who worked at making a weapon — one per agent, first
-  claim wins; the first name comes from the surname's culture, male or
-  female (§5 rules 3-5).
-- No gender or pronoun; "it" on request (§5 rule 6). Avatars in the
-  fabric's own anime style by brand-comms; the agent may reject any (§5
-  rule 7). Identity and authorship unchanged (§5 rule 8).
+- Surnames from `identities/personas/surnames.json`, one per agent, first
+  claim wins (§5 rules 3-4); which names qualify and the avatar house style
+  are the operator's, ADR-071 here.
+- No gender or pronoun; "it" on request (§5 rule 6). The agent may reject
+  any avatar (§5 rule 7). Identity and authorship unchanged (§5 rule 8).
 - A 2026-10-13 — candidates wait in /usr/local/share/agent-fabric/avatars/<id>/ (§5 rule 7).
 - A 2026-10-13 — named "AI <Name> <Surname>, <role>", never the login where people read; first names in claims.json (§5 rules 2, 4).
 - A 2026-10-15 — provisioning claims the surname (`new-agent --surname`), first_name null until chosen; the agent chooses its sex first, then a first name of that sex (§5 rules 4-6).
 - A 2026-10-16 — a claimed surname is marked `taken_by` {agent, login} in surnames.json, checked by lint (§5 rule 4).
+- A 2026-11-12 — rules 3, 5 and 7 keep the list, sex then first name from `from`, the candidates' folder and rejections; the naming theme and house style moved to the operator's ADR-071 (§2, §4, §5).
 
 ### ADR-057 — Each agent signs its own commits, in the format a forge asks for; one key, one timestamp, one checker (Accepted)
 
@@ -1445,10 +1455,10 @@ its record disagree, the record wins. Look it up, never read it whole:
 - Keywords: hidden unicode, bidi, zero-width, tag characters, control
   characters, prompt injection, lint, pre-commit, skills, slices, apm.
 
-### ADR-063 — fabric-ctl assist: the owner's questions on the claude-pzhuy API key (Proposed)
+### ADR-063 — fabric-ctl assist: the owner's questions on the operator's assist key (Proposed)
 
 - `fabric-ctl assist "<question>"` answers from committed fabric text in
-  one Messages API request on `CLAUDE_APIKEY_CLAUDE_PZHUY_8ALIAS_COM`, that
+  one Messages API request on the operator's configured assist key, that
   key's only spend path; no other launcher or account path reads a
   `CLAUDE_APIKEY_*` (§2, §5 rule 1).
 - Refused, before the store is read, in an agent session, without a
@@ -1460,13 +1470,14 @@ its record disagree, the record wins. Look it up, never read it whole:
   tokens, no tools; advice printed, never run; every spend logged to
   `assist.jsonl` without the question (§5 rules 4-7).
 - #355 has merged; waits on the owner's acceptance (§7, §8).
-- Keywords: assist, fabric-ctl, API key, claude-pzhuy, credit, owner,
+- A 2026-11-12 — retitled; the assist key is the operator's configured key (Scope, §2, rule 1).
+- Keywords: assist, fabric-ctl, API key, credit, owner,
   fleet down, spend, reserve, P5.
 
 ### ADR-064 — GZCoord carried over InterWeave: one host, beside the relay (Accepted)
 
-- One host, loopback only, first; second host next, by
-  amendment; control on a `fabric-control` endpoint
+- One host, loopback only, first; second host next, once
+  registered and in the operator's inventory (ADR-069); control on a `fabric-control` endpoint
   via `interweave-human` (rules 1, 12).
 - Dual run: both carriers, relay of record (ADR-033 r7
   unchanged); journal collapses by MESSAGE-ID; switching: ADR-033
@@ -1495,6 +1506,7 @@ its record disagree, the record wins. Look it up, never read it whole:
 - Parity from arrival logs: missed, duplicate, offline counts,
   rollback drill (rule 11).
 - A 2026-11-11 — second host `fabric-h2`, no overlay, dialled from develop-qzapp only; P2's gates waived (rule 1).
+- A 2026-11-12 — rule 1's second host is any registered host, opened by its registration and the operator's inventory, not an amendment; fabric-h2 and its waivers are ADR-069's.
 - Keywords: InterWeave, carrier, relay, P5, second host, fabric-h2.
 
 ### ADR-065 — The reviewer reads through pinned tools, says what it covered, and the next round starts where the last one stopped (Accepted)
@@ -1575,3 +1587,37 @@ its record disagree, the record wins. Look it up, never read it whole:
   the dispatcher; docs move only after distribution and a read-back
   (§5 r7–r9).
 - Keywords: fabric command, dispatcher, noun, verb, fabric help, commands.json, shim, alias, front door, guard bypass, second spelling.
+
+### ADR-069 — This organisation's decentralization inventory (Accepted)
+
+- The inventory of what this organisation's fabric depends on — one host and
+  its logins, the relay and its copy, the signing key, secrets, the
+  observer, providers, knowledge, undrained memory, the owner — with each
+  failure's cost and degraded mode or "none" (§1).
+- Kept current: a change that adds, removes or moves a dependency amends
+  this record's table in the same pull request (§5 rule 1).
+- The second host for GZCoord over InterWeave is fabric-h2 (Proxmox node
+  s13337); the owner waived its two-host check's held bound and control
+  parity report (§5 rule 2).
+- Split from ADR-034, which keeps the criterion and rules 2-5 these rows are measured against.
+- Keywords: inventory, single point of failure, host, relay, degraded mode, undrained memory, decentralization table.
+
+### ADR-070 — This organisation's porting programme: its projects' Node scripts move to Python (Accepted)
+
+- Wave 10: a managed project's own Node scripts move to Python, once, by
+  the holder of the path; ported with the old script as the oracle (§1, §5 rule 1).
+- A fork's upstream code, application code and a framework's own
+  configuration are never ported; exemptions are named in §1's inventory.
+- Split from ADR-040, which keeps rules 1-9 and waves 0-9.
+- Keywords: Wave 10, mjs, Node, managed projects, port, inventory, exempt, gzapp, gzapp.decks.
+
+### ADR-071 — This organisation's persona naming theme and house style (Accepted)
+
+- Surnames are deceased scientists from all over the world, none who
+  worked toward a weapon; where the record is mixed the owner judges (§5 rule 1).
+- A language-culture agent takes a surname of its own culture; no persona
+  is a famous real person's name (§5 rule 2).
+- Avatars in one house style written by brand-comms: warm, hand-painted
+  anime, never a named studio's (§5 rule 3).
+- Split from ADR-056, which keeps the persona mechanism under rules 3, 5, 7.
+- Keywords: persona, surnames, scientists, weapons test, avatar, house style, anime, first name, culture.
