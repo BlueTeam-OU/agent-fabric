@@ -444,12 +444,14 @@ class Run:
     # read before anything is written, since an unreadable taxonomy refuses.
     bound_roles: set[str] = field(default_factory=set)
     held_files: set[str] = field(default_factory=set)
-    # The slices held because their role is not one the project's taxonomy binds, as records the report names
-    # (hold_unbound_roles): {slice, role, project, class, topic, source}.
-    held_unbound: list[dict[str, Any]] = field(default_factory=list)
-    # The roles hold_unbound_roles took a slice from: one left with nothing to write is no owner of this drain, and gets no
-    # project directory, index or crossref (assemble.main).
+    # The unbound authors of a shared slice some bound role co-owns (note_unbound_owners): one left with nothing to write is no owner of
+    # this drain, and gets no project directory, index or crossref (assemble.main).
     unbound_held_roles: set[str] = field(default_factory=set)
+    # The claims re-homed to the control plane's own corpus because their role is not one the project's taxonomy binds
+    # (rehome_unbound): {slice, role, class, topic, title, from_project, to_project, source}, and the files that run wrote, as the
+    # report names them. A role other than fabric-coordinator is refused, so only that role appears here.
+    rehomed: list[dict[str, Any]] = field(default_factory=list)
+    rehomed_files: list[str] = field(default_factory=list)
     # The anchors a claim brought that did not resolve, kept out for the corpus's that does (anchorkeep): {slice, heading,
     # dropped, kept, agent, host, memory}, the author named so the memory can be repaired.
     anchors_kept: list[dict[str, Any]] = field(default_factory=list)

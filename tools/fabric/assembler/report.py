@@ -208,6 +208,9 @@ def commit_message(report: dict[str, Any], built_against: str | None) -> str:
         owner = sum(1 for d in decisions if isinstance(d, dict) and not d.get("rule"))
         lines.append(f"Collision decisions: {len(decisions)}, {owner} decided by the owner (--collision-decisions), "
                      f"{len(decisions) - owner} by the same-agent rule.")
+    rehomed = report.get("rehomed") or []
+    if rehomed:
+        lines.append(f"Re-homed to the control plane's corpus: {len(rehomed)} ({', '.join(r['slice'] for r in rehomed)}).")
     held = report.get("held_back") or []
     if held:
         lines.append(f"Held back: {len(held)} ({', '.join(held)}).")
@@ -321,7 +324,8 @@ def report(run: Run) -> int:
         "harvest_sources": {source: harvest_meta} if harvest_meta is not None else {},
         "watermarks": watermarks,
         "held_back": sorted(run.held_back),
-        "held_unbound_role": run.held_unbound,
+        "rehomed": run.rehomed,
+        "rehomed_files": run.rehomed_files,
         "anchors_kept": run.anchors_kept,
         "anchors_lost": run.anchors_lost,
         "titles_one_lined": run.titles_one_lined,
@@ -372,8 +376,6 @@ def report(run: Run) -> int:
         klass, _, topic = rest.partition(":")
         return bool(run.shared.get((klass, topic)) if label == "shared" else run.per_role.get(label, {}).get((klass, topic)))
     report["held_back"] = sorted(k for k in report.get("held_back") or [] if k in run.held_back or not written_now(k))
-    # The records follow the keys: a hold a later run released (the role is bound now) leaves with it.
-    report["held_unbound_role"] = [r for r in report.get("held_unbound_role") or [] if r.get("slice") in report["held_back"]]
     # Derived from the corpus as it stands, like the collisions: a link a later drain made good leaves the list. Reported, never
     # rewritten, and never a failure: lint (lint_rules/slices.link_warnings) names what the whole committed corpus carries.
     undrained = {n.removesuffix(".md") for src in [*(report.get("harvest_sources") or {}).values(), harvest_meta]
@@ -440,12 +442,12 @@ def report(run: Run) -> int:
               file=sys.stderr)
         for note in run.unresolved_targets:
             print(f"  {note}", file=sys.stderr)
-    if run.held_unbound:
-        print("\nHELD, ROLE NOT BOUND BY THE PROJECT'S TAXONOMY (not written; the store's mark stays below them, so the "
-              "harvest brings them again once the drain re-homes them):", file=sys.stderr)
-        for row in run.held_unbound:
-            print(f"  {row['slice']} (role {row['role']}, project {row['project']}, from {', '.join(row['source']) or 'unknown'})",
-                  file=sys.stderr)
+    if run.rehomed:
+        print(f"\nRE-HOMED ({len(run.rehomed)}: the role is not bound by {run.project}'s taxonomy, so the claim went to agent-fabric's "
+              "own corpus, which that role's remit covers):", file=sys.stderr)
+        for row in run.rehomed:
+            print(f"  {row['slice']} (role {row['role']}, from project {row['from_project']} to {row['to_project']}, "
+                  f"from {', '.join(row['source']) or 'unknown'})", file=sys.stderr)
     lined = [row for row in run.titles_one_lined if row["slice"] not in run.held_back]
     if lined:
         print("\nTITLES MADE ONE LINE (a line break in the title became a space; fix the memory's description if the break was an escape "

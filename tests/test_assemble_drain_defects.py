@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Four defects of the 2026-11-08 drain in tools/fabric/assemble.py (j120): a resolving anchor lost to one that does not
-resolve, a `[[link]]` in a code span cited, a description read two ways, and a slice written for a role the project's
-taxonomy does not bind. One case per defect with the control that shows the fixture could see it; the fixtures are
+resolve, a `[[link]]` in a code span cited, a description read two ways, and a claim of a role the project's
+taxonomy does not bind (since j227: re-homed for fabric-coordinator, refused for any other role). One case per defect with the control that shows the fixture could see it; the fixtures are
 test_assemble.py's own, imported.
 
 Stdlib only; runnable as `python3 test_assemble_drain_defects.py`.
@@ -33,49 +33,121 @@ def report(out: str) -> dict:
     return json.loads(ta.read(ta.report_path(out)))
 
 
-def test_a_slice_of_a_role_the_taxonomy_does_not_bind_is_held_and_named(tmp: str) -> None:
-    """Drain of 2026-11-08: a bundle wrote a new fabric-coordinator corpus into a project that binds other roles. The
-    project-scoped slice is held (written nowhere, listed nowhere), the bound role's slice is written, and the
-    report names the held one with its role, project and source. A domain slice of the same role is not the project's."""
-    items = [{"class": "workflow", "topic": "w", "title": "T", "body": "The body.", "evidence": ["h1"]}]
-    drain, claims_dir, out = ta.build(tmp, {"alpha": ta.claims("alpha", items), "beta": ta.claims("beta", [
-        {**items[0], "topic": "held", "evidence": ["h2"]},
+COORD = "fabric-coordinator"
+WF = {"class": "workflow", "topic": "w", "title": "T", "body": "The body.", "evidence": ["h1"]}
+
+
+def fabric_proj(out: str, role: str, *rest: str) -> str:
+    """The control plane's own project corpus in the throwaway fabric root."""
+    return os.path.join(out, ".agent-fabric", "memory", role, *rest)
+
+
+def test_a_coordinator_claim_of_a_project_that_does_not_bind_it_lands_in_the_control_plane(tmp: str) -> None:
+    """Drain of 2026-11-08, replayed: fabric-coordinator workflow claims drained with --project of a project that binds
+    other roles. Not admitted there; filed under the control plane's own project memory, and the report counts and
+    names each. The bound role's claim and the coordinator's domain claim are untouched (controls)."""
+    drain, claims_dir, out = ta.build(tmp, {"alpha": ta.claims("alpha", [WF]), COORD: ta.claims(COORD, [
+        {**WF, "topic": "moved", "title": "Moved", "evidence": ["h2"]},
         {"class": "domain", "topic": "field", "title": "F", "body": "Field knowledge.", "evidence": ["h2"]}])})
-    ta.with_agents(drain, {"h1": "dev-01", "h2": "dev-02", "h3": "dev-02"})
+    ta.with_agents(drain, {"h1": "dev-01", "h2": "dev-02"})
     bind(out, "alpha")
     proc = ta.run_assemble(drain, claims_dir, out)
     assert proc.returncode == 0, proc.stderr
     assert os.path.isfile(ta.proj(out, "alpha", "workflow.md")), "positive control: the bound role's slice is written"
-    assert not os.path.exists(ta.proj(out, "beta", "workflow.md")) and "beta/workflow" not in ta.read(ta.proj(out, "beta", "INDEX.md")), \
-        "the unbound role has no project slice, and its index (it lists the domain slice) names none: " + str(sorted(ta.tree(out)))
-    assert os.path.isfile(ta.dom(out, "beta", "domain.md")), \
-        "a domain slice belongs to the fabric, not to the project's roles"
+    assert os.path.isfile(ta.dom(out, COORD, "domain.md")), "a domain slice belongs to the fabric, not to the project's roles"
+    assert os.path.isfile(fabric_proj(out, COORD, "workflow.md")), "re-homed: " + str(sorted(ta.tree(out)))
+    assert "Moved" in ta.read(fabric_proj(out, COORD, "workflow.md"))
+    assert os.path.isfile(fabric_proj(out, COORD, "INDEX.md")), "the re-homed role is indexed where it was written"
+    assert not os.path.exists(ta.proj(out, COORD, "workflow.md")) and "Moved" not in ta.read(ta.proj(out, COORD, "INDEX.md")), \
+        "no project slice of the unbound role, and its index (it lists the domain slice) names none: " + str(sorted(ta.tree(out)))
     rep = report(out)
-    assert rep["held_back"] == ["beta/workflow:held"], rep["held_back"]
-    assert rep["held_unbound_role"] == [{"slice": "beta/workflow:held", "role": "beta", "project": ta.PROJECT, "class": "workflow",
-                                         "topic": "held", "source": ["dev-02@hostA"]}], rep["held_unbound_role"]
-    assert "beta/workflow:held" in proc.stderr, proc.stderr
-    # Once the role is bound the same bundle writes the slice, and the hold leaves the report.
+    assert rep["rehomed"] == [{"slice": f"{COORD}/workflow:moved", "role": COORD, "class": "workflow", "topic": "moved", "title": "Moved",
+                               "from_project": ta.PROJECT, "to_project": "agent-fabric", "source": ["dev-02@hostA"]}], rep["rehomed"]
+    assert any(f.endswith(f"{COORD}/workflow.md") for f in rep["rehomed_files"]), rep["rehomed_files"]
+    assert rep["roles"] == ["alpha", COORD] and rep["held_back"] == [], (rep["roles"], rep["held_back"])
+    assert f"{COORD}/workflow:moved" in proc.stderr and "RE-HOMED (1" in proc.stderr, proc.stderr
+    # Control: bound, the same claim is the project's and nothing is re-homed.
+    bind(out, "alpha", COORD)
+    proc = ta.run_assemble(drain, claims_dir, out, "--stamp", "2026-01-02")
+    assert proc.returncode == 0, proc.stderr
+    assert os.path.isfile(ta.proj(out, COORD, "workflow.md")), "bound now: written in the project"
+    assert report(out)["rehomed"] == [], report(out)["rehomed"]
+
+
+def test_a_rehomed_claim_is_screened_by_the_control_planes_hygiene_view(tmp: str) -> None:
+    """The claim leaves the project's pass, so the project's own-name allowance does not follow it: a name the project
+    keeps to itself (scope "others") stays in its bound role's slice and is redacted in the re-homed one; and the pass
+    over the project afterwards is judged by the project's view again, not the control plane's."""
+    drain, claims_dir, out = ta.build(tmp, {"alpha": ta.claims("alpha", [{**WF, "body": "The acme habit."}]), COORD: ta.claims(COORD, [
+        {**WF, "topic": "moved", "body": "The acme habit.", "evidence": ["h2"]}])})
+    bind(out, "alpha")
+    with open(os.path.join(ta.working_copy(out), ".agent-fabric", "hygiene.json"), "w", encoding="utf-8") as fh:
+        json.dump({"patterns": [{"pattern": "\\bacme\\b", "flags": "i", "label": "own name", "scope": "others"}]}, fh)
+    proc = ta.run_assemble(drain, claims_dir, out)
+    assert proc.returncode == 0, proc.stderr
+    assert "acme" in ta.read(ta.proj(out, "alpha", "workflow.md")), "control: the project's own slice keeps its own name"
+    assert "acme" not in ta.read(fabric_proj(out, COORD, "workflow.md")), "the control plane's view bans it"
+
+
+def test_a_refusal_of_the_control_planes_pass_stops_the_run_with_the_projects_corpus_untouched(tmp: str) -> None:
+    """Two re-homed claims under one heading are a collision the owner decides (the control plane's pass refuses): the run
+    exits 1 and, the control plane's pass going first, nothing of the project's is written. Control: one claim writes."""
+    two = [{**WF, "topic": "moved", "body": "One.", "evidence": ["h2"]}, {**WF, "topic": "moved", "body": "Two.", "evidence": ["h2"]}]
+    drain, claims_dir, out = ta.build(tmp, {"alpha": ta.claims("alpha", [WF]), COORD: ta.claims(COORD, two)})
+    bind(out, "alpha")
+    proc = ta.run_assemble(drain, claims_dir, out)
+    assert proc.returncode == 1, (proc.returncode, proc.stderr)
+    assert not os.path.exists(ta.proj(out, "alpha", "workflow.md")), sorted(ta.tree(out))
+    drain, claims_dir, out = ta.build(os.path.join(tmp, "one"), {"alpha": ta.claims("alpha", [WF]), COORD: ta.claims(COORD, two[:1])})
+    bind(out, "alpha")
+    assert ta.run_assemble(drain, claims_dir, out).returncode == 0
+
+
+def test_a_claim_of_another_unbound_role_refuses_the_run_before_anything_is_written(tmp: str) -> None:
+    """Any role but fabric-coordinator: refused, exit 1, naming the claim, the role and the project, with the bound role's
+    claim not written either (nothing is written before the refusal). Control: bound, the same bundle writes."""
+    items = [{"class": "workflow", "topic": "w", "title": "T", "body": "The body.", "evidence": ["h1"]}]
+    drain, claims_dir, out = ta.build(tmp, {"alpha": ta.claims("alpha", items), "beta": ta.claims("beta", [
+        {**items[0], "topic": "held", "evidence": ["h2"]},
+        {"class": "domain", "topic": "field", "title": "F", "body": "Field knowledge.", "evidence": ["h2"]}])})
+    bind(out, "alpha")
+    proc = ta.run_assemble(drain, claims_dir, out)
+    assert proc.returncode == 1, (proc.returncode, proc.stderr)
+    assert "workflow:held" in proc.stderr and "role beta" in proc.stderr and f"project {ta.PROJECT}" in proc.stderr, proc.stderr
+    assert "Traceback" not in proc.stderr, proc.stderr
+    assert not os.path.exists(ta.proj(out, "alpha")) and not os.path.exists(ta.dom(out, "beta")), sorted(ta.tree(out))
     bind(out, "alpha", "beta")
     proc = ta.run_assemble(drain, claims_dir, out)
     assert proc.returncode == 0, proc.stderr
     assert os.path.isfile(ta.proj(out, "beta", "workflow.md")), "bound now: written"
-    assert report(out)["held_back"] == [] and report(out)["held_unbound_role"] == [], report(out)
 
 
-def test_a_role_whose_every_slice_is_held_gets_no_project_corpus(tmp: str) -> None:
-    """Review round 1, F1: the hold wrote nothing of the slice but the role still got an INDEX and a crossref in the
-    project, which every later run re-indexed. A role with a domain claim keeps its index (the first case above)."""
+def test_a_coordinator_claim_shared_with_another_unbound_role_is_refused(tmp: str) -> None:
+    """The re-home is for a claim only the coordinator owns: one it shares with another role that the project does not
+    bind is that role's too, and is refused naming both."""
+    drain, claims_dir, out = ta.build(tmp, {COORD: ta.claims(COORD, [{**WF, "shared_with": ["beta"]}])})
+    bind(out, "alpha")
+    proc = ta.run_assemble(drain, claims_dir, out)
+    assert proc.returncode == 1 and COORD in proc.stderr and "shared with beta" in proc.stderr, (proc.returncode, proc.stderr)
+    assert not os.path.exists(fabric_proj(out, COORD)), sorted(ta.tree(out))
+
+
+def test_a_rehomed_role_with_nothing_left_gets_no_project_corpus_and_its_evidence_is_not_held(tmp: str) -> None:
+    """The role has no project directory, index or crossref in the project; and the store's mark moves past its memory,
+    since the claim was written (in the control plane's corpus), not held."""
     drain, claims_dir, out = ta.build(tmp, {"alpha": ta.claims("alpha", [
-        {"class": "workflow", "topic": "w", "title": "T", "body": "The body.", "evidence": ["h1"]}]),
-        "beta": ta.claims("beta", [{"class": "workflow", "topic": "held", "title": "T", "body": "Held.", "evidence": ["h2"]}])})
+        {"class": "workflow", "topic": "w", "title": "T", "body": "The body.", "evidence": ["k1"]}]),
+        COORD: ta.claims(COORD, [{"class": "workflow", "topic": "moved", "title": "T", "body": "Moved.", "evidence": ["w1"]}])})
+    with open(os.path.join(drain, "observations.jsonl"), "w", encoding="utf-8") as fh:
+        for cid, epoch in (("k1", 1), ("w1", 4)):
+            fh.write(json.dumps({"content_hash": cid, "agent": "dev-01", "host": "hostA", "created_at_epoch": epoch}) + "\n")
+    with open(os.path.join(drain, "harvest-report.json"), "w", encoding="utf-8") as fh:
+        json.dump({"agent": "dev-01", "host": "hostA", "since_watermark": 0, "next_watermark": 9000, "counts": {"in_scope": 2}}, fh)
     bind(out, "alpha")
     proc = ta.run_assemble(drain, claims_dir, out)
     assert proc.returncode == 0, proc.stderr
-    assert not os.path.exists(ta.proj(out, "beta")), sorted(ta.tree(out))
-    rep = report(out)
-    assert rep["held_back"] == ["beta/workflow:held"] and rep["roles"] == ["alpha"], (rep["held_back"], rep["roles"])
-    assert "memory/beta" not in proc.stdout + proc.stderr, proc.stdout + proc.stderr
+    assert not os.path.exists(ta.proj(out, COORD)), sorted(ta.tree(out))
+    assert report(out)["watermarks"] == {"dev-01@hostA": 9000}, report(out)["watermarks"]
 
 
 def test_an_unbound_author_of_a_shared_slice_gets_no_project_corpus(tmp: str) -> None:
@@ -91,27 +163,6 @@ def test_an_unbound_author_of_a_shared_slice_gets_no_project_corpus(tmp: str) ->
     assert os.path.isdir(ta.proj(out, "shared")), sorted(ta.tree(out))
     assert not os.path.exists(ta.proj(out, "beta")), sorted(ta.tree(out))
     assert report(out)["roles"] == ["alpha"], report(out)["roles"]
-
-
-def test_an_unbound_hold_keeps_the_stores_mark_below_its_memory(tmp: str) -> None:
-    """Review round 1, F2: a hold is not a drop. The mark stays below the oldest memory the held slice stands on, so the
-    harvest brings it again once the role is bound."""
-    drain, claims_dir, out = ta.build(tmp, {"alpha": ta.claims("alpha", [
-        {"class": "workflow", "topic": "w", "title": "T", "body": "The body.", "evidence": ["k1"]}]),
-        "beta": ta.claims("beta", [{"class": "workflow", "topic": "held", "title": "T", "body": "Held.", "evidence": ["w1"]}])})
-    with open(os.path.join(drain, "observations.jsonl"), "w", encoding="utf-8") as fh:
-        for cid, epoch in (("k1", 1), ("w1", 4)):
-            fh.write(json.dumps({"content_hash": cid, "agent": "dev-01", "host": "hostA", "created_at_epoch": epoch}) + "\n")
-    with open(os.path.join(drain, "harvest-report.json"), "w", encoding="utf-8") as fh:
-        json.dump({"agent": "dev-01", "host": "hostA", "since_watermark": 0, "next_watermark": 9000, "counts": {"in_scope": 2}}, fh)
-    bind(out, "alpha")
-    proc = ta.run_assemble(drain, claims_dir, out)
-    assert proc.returncode == 0, proc.stderr
-    assert report(out)["watermarks"] == {"dev-01@hostA": 3999}, report(out)["watermarks"]
-    bind(out, "alpha", "beta")
-    proc = ta.run_assemble(drain, claims_dir, out, "--stamp", "2026-01-02")
-    assert proc.returncode == 0, proc.stderr
-    assert report(out)["watermarks"] == {"dev-01@hostA": 9000}, ("nothing held now: the mark moves on", report(out)["watermarks"])
 
 
 def test_the_fabrics_own_project_is_not_judged_by_its_taxonomy(tmp: str) -> None:
@@ -136,13 +187,13 @@ def test_a_project_with_no_taxonomy_binds_every_role(tmp: str) -> None:
         {"class": "workflow", "topic": "w", "title": "T", "body": "The body.", "evidence": ["h1"]}])})
     proc = ta.run_assemble(drain, claims_dir, out)
     assert proc.returncode == 0, proc.stderr
-    assert os.path.isfile(ta.proj(out, "beta", "workflow.md")) and report(out).get("held_unbound_role", []) == []
+    assert os.path.isfile(ta.proj(out, "beta", "workflow.md")) and report(out).get("rehomed", []) == []
 
 
-def test_a_shared_slice_is_held_only_when_no_owner_is_bound(tmp: str) -> None:
+def test_a_shared_slice_is_refused_when_no_owner_is_bound(tmp: str) -> None:
     """A shared slice is listed by every owner's index. With a bound owner it is written, and the unbound owner is left
     out of the indexes (drain of 2026-11-08: a slice shared by an unbound and a bound role); with none
-    bound it is held, and written when the taxonomy binds one."""
+    bound the run is refused, naming the owners, and writes when the taxonomy binds one."""
     drain, claims_dir, out = ta.build(tmp, {"alpha": ta.claims("alpha", [
         {"class": "workflow", "topic": "w", "title": "T", "body": "The body.", "evidence": ["h1"], "shared_with": ["beta"]}])})
     bind(out, "alpha")
@@ -162,8 +213,7 @@ def test_a_shared_slice_is_held_only_when_no_owner_is_bound(tmp: str) -> None:
         {"class": "workflow", "topic": "w", "title": "T", "body": "The body.", "evidence": ["h1"], "shared_with": ["beta"]}])})
     bind(out, "gamma")
     proc = ta.run_assemble(drain, claims_dir, out)
-    assert proc.returncode == 0, proc.stderr
-    assert report(out)["held_back"] == ["shared/workflow:w"], report(out)["held_back"]
+    assert proc.returncode == 1 and "workflow:w" in proc.stderr and "role alpha shared with beta" in proc.stderr, (proc.returncode, proc.stderr)
     assert not os.path.exists(os.path.join(ta.proj(out, "shared"))), sorted(ta.tree(out))
     bind(out, "alpha", "beta")
     proc = ta.run_assemble(drain, claims_dir, out)
@@ -414,18 +464,11 @@ def test_a_toml_array_header_in_a_code_span_is_not_cited(tmp: str) -> None:
     assert [row["target"] for row in report(out)["unresolved_links"]] == ["real-topic"], report(out)["unresolved_links"]
 
 
-def test_a_title_made_one_line_is_not_told_for_a_held_slice(tmp: str) -> None:
-    """Replay review F1: the entry is named by the slice the claim is filed under, so holding a shared slice (here, no
-    owner bound) takes its entry out of the report and the stderr list; a written one keeps it."""
+def test_a_title_made_one_line_is_told_for_a_slice_written_with_an_unbound_co_owner(tmp: str) -> None:
+    """Replay review F1: the entry is named by the slice the claim is filed under, "shared/" for a shared one."""
     drain, claims_dir, out = ta.build(tmp, {"alpha": ta.claims("alpha", [
         {"class": "workflow", "topic": "w", "title": "A\nB", "body": "Shared.", "evidence": ["h1"], "shared_with": ["beta"]},
         {"class": "workflow", "topic": "own", "title": "C\nD", "body": "Own.", "evidence": ["h1"]}])})
-    bind(out, "gamma")
-    proc = ta.run_assemble(drain, claims_dir, out)
-    assert proc.returncode == 0, proc.stderr
-    assert report(out)["held_back"] == ["alpha/workflow:own", "shared/workflow:w"], report(out)["held_back"]
-    assert report(out)["titles_one_lined"] == [], report(out)["titles_one_lined"]
-    assert "TITLES MADE ONE LINE" not in proc.stderr, proc.stderr
     bind(out, "alpha")      # alpha owns "own" and shares "w" with the unbound beta: both are written
     proc = ta.run_assemble(drain, claims_dir, out)
     assert proc.returncode == 0, proc.stderr
@@ -505,13 +548,16 @@ def test_a_break_in_a_title_does_not_split_the_heading_or_cut_the_index_entry(tm
 
 def main() -> int:
     cases = [
-        test_a_slice_of_a_role_the_taxonomy_does_not_bind_is_held_and_named,
-        test_a_role_whose_every_slice_is_held_gets_no_project_corpus,
+        test_a_coordinator_claim_of_a_project_that_does_not_bind_it_lands_in_the_control_plane,
+        test_a_rehomed_claim_is_screened_by_the_control_planes_hygiene_view,
+        test_a_refusal_of_the_control_planes_pass_stops_the_run_with_the_projects_corpus_untouched,
+        test_a_claim_of_another_unbound_role_refuses_the_run_before_anything_is_written,
+        test_a_coordinator_claim_shared_with_another_unbound_role_is_refused,
+        test_a_rehomed_role_with_nothing_left_gets_no_project_corpus_and_its_evidence_is_not_held,
         test_an_unbound_author_of_a_shared_slice_gets_no_project_corpus,
-        test_an_unbound_hold_keeps_the_stores_mark_below_its_memory,
         test_the_fabrics_own_project_is_not_judged_by_its_taxonomy,
         test_a_project_with_no_taxonomy_binds_every_role,
-        test_a_shared_slice_is_held_only_when_no_owner_is_bound,
+        test_a_shared_slice_is_refused_when_no_owner_is_bound,
         test_an_unbound_owner_with_a_directory_already_is_reindexed_from_shared_with,
         test_an_unbound_owner_of_a_claim_moved_by_merge_target_is_not_indexed,
         test_an_unbound_owner_keeps_its_index_entry_for_a_shared_domain_slice,
@@ -523,7 +569,7 @@ def main() -> int:
         test_the_own_project_form_and_the_malformed_working_copy_arguments,
         test_a_link_in_a_code_span_is_not_cited,
         test_a_toml_array_header_in_a_code_span_is_not_cited,
-        test_a_title_made_one_line_is_not_told_for_a_held_slice,
+        test_a_title_made_one_line_is_told_for_a_slice_written_with_an_unbound_co_owner,
         test_a_title_made_one_line_is_told_as_hygiene_leaves_it_and_not_for_a_refused_claim,
         test_a_break_in_a_title_does_not_split_the_heading_or_cut_the_index_entry,
     ]
