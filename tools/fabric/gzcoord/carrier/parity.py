@@ -36,6 +36,13 @@ hold, or a broadcast it is not addressed by), which is no pair at all. The
 arrival logs hold only copies ADDRESSED to their owner, so a non-holder of a
 role is never counted as a miss of either carrier.
 
+Its fourth property reads the SENDER's relay backfill log (gzcoord/backfill.py, collected as backfills): for each pair held
+by the carrier alone, the column "relay record" says whether the relay's record got the message afterwards (posted or present,
+with the delay; over-age; or none: no row in any account's log by the report's until). The log is the sender's and carries no
+addressee, so rows are joined by MESSAGE-ID across every account. An account whose collection has no backfill log (a daemon from
+before it), or whose log has a line that could not be read, cannot say "none": the column reads "not collected" and the property
+"not judged", never passed and never a refusal, so a collection made before the log existed still computes.
+
 The relay-outage drill (ADR-064 rule 11) is a section of its own, computed from the shown ledgers and
 the acknowledgement logs, for each pair made inside the drill: whether the relay's copy arrived before
 the drill ended (then the carrier was not the only holder and the pair proves nothing), whether the
@@ -140,11 +147,11 @@ def _account(who: str, meta: dict, arrivals: list, deliveries: list, kinds: dict
         raise CollectedError(f"{who}: the files do not hold what the collection counted (cut short, or edited)")
 
 
-def _read_parts(path: str, drill: bool = False) -> dict[str, tuple[dict, list, list, dict, list | None, list | None]]:
-    """login -> (meta, arrivals, deliveries, kinds, shown, acks) as filed; shown and acks are None
-    where the collection has none (one made before the relay-outage drill's sections) and always
+def _read_parts(path: str, drill: bool = False) -> dict[str, tuple[dict, list, list, dict, list | None, list | None, list | None]]:
+    """login -> (meta, arrivals, deliveries, kinds, shown, acks, backfills) as filed; shown, acks and backfills are None
+    where the collection has none (one made before the relay-outage drill's sections, or before the backfill log's) and always
     when `drill` is false: the rollback report must not depend on files it does not use."""
-    parts: dict[str, tuple[dict, list, list, dict, list | None, list | None]] = {}
+    parts: dict[str, tuple[dict, list, list, dict, list | None, list | None, list | None]] = {}
     if os.path.isdir(path):
         try:
             with open(os.path.join(path, MANIFEST), encoding="utf-8") as fh:
@@ -167,7 +174,7 @@ def _read_parts(path: str, drill: bool = False) -> dict[str, tuple[dict, list, l
                 raise CollectedError(f"{login}: cannot read its collection ({e}); a directory written by a run that stopped has no meta.json") from e
             if not isinstance(meta, dict) or meta.get("login") != login:
                 raise CollectedError(f"{login}: meta.json is not this account's")
-            extra = [_jsonl(os.path.join(d, n), login) if drill and os.path.exists(os.path.join(d, n)) else None for n in ("shown.jsonl", "acks.jsonl")]
+            extra = [_jsonl(os.path.join(d, n), login) if drill and os.path.exists(os.path.join(d, n)) else None for n in ("shown.jsonl", "acks.jsonl", "backfills.jsonl")]
             parts[login] = (meta, _jsonl(os.path.join(d, "arrivals.jsonl"), login), _jsonl(os.path.join(d, "deliveries.jsonl"), login), kinds, *extra)
     else:
         for n, line in enumerate(_jsonl(path, "collected"), 1):
@@ -177,7 +184,8 @@ def _read_parts(path: str, drill: bool = False) -> dict[str, tuple[dict, list, l
                 raise CollectedError(f"line {n}: not a row of `fabric-ctl --json interweave-evidence` with its rows (was it printed with --out?)")
             if login in parts:
                 raise CollectedError(f"{login}: collected twice")
-            parts[login] = (body, body["arrivals"], body["deliveries"], body.get("kinds") or {}, body.get("shown") if drill else None, body.get("acks") if drill else None)
+            parts[login] = (body, body["arrivals"], body["deliveries"], body.get("kinds") or {}, body.get("shown") if drill else None, body.get("acks") if drill else None,
+                           body.get("backfills") if drill else None)
     if not parts:
         raise CollectedError("nothing was collected")
     return parts
@@ -192,7 +200,7 @@ def load_collected(path: str, window: tuple[float, float]) -> tuple[list[dict], 
     senders: dict[str, list[dict]] = {}
     kinds_all: dict[str, str] = {}
     journals: dict[str, str] = {}
-    for login, (meta, arr, dels, kinds, _shown, _acks) in parts.items():
+    for login, (meta, arr, dels, kinds, *_drill) in parts.items():
         _account(login, meta, arr, dels, kinds, window)
         arrivals += arr
         senders[login] = dels
@@ -205,6 +213,31 @@ def load_collected(path: str, window: tuple[float, float]) -> tuple[list[dict], 
 
 SHOWN_ROW_KEYS = ("mid", "via", "t")
 ACK_ROW_KEYS = ("mid", "addressee", "t")
+BACKFILL_ROW_KEYS = ("mid", "outcome", "at", "delay_s", "channel")
+BACKFILL_OUTCOMES = ("posted", "present", "over-age")
+
+
+def _backfills(login: str, meta: dict, rows: list | None) -> list[dict] | None:
+    """The account's backfill rows when the collection holds its log whole; None when it does not (no file, or the section
+    failed or had a line that could not be read: "none" cannot be said from it). A row that is not what the op sends is a refusal,
+    as for the other sections: the account did collect it."""
+    log = meta.get("backfill_log")
+    if rows is None or not isinstance(log, dict) or log.get("complete") is not True or log.get("skipped"):
+        return None
+    want = meta.get("counts")
+    if isinstance(want, dict) and "backfills" in want and want["backfills"] != len(rows):
+        raise CollectedError(f"{login}: the files do not hold what the collection counted of the backfill log (cut short, or edited)")
+    for r in rows:
+        d = r.get("delay_s") if isinstance(r, dict) else None
+        if not (isinstance(r, dict) and set(r) <= set(BACKFILL_ROW_KEYS) and all(isinstance(r.get(k), str) for k in ("mid", "outcome", "at"))
+                and r["outcome"] in BACKFILL_OUTCOMES and isinstance(d, (int, float)) and not isinstance(d, bool)
+                and (r.get("channel") is None or isinstance(r["channel"], str))):
+            raise CollectedError(f"{login}: a backfill row is not {{{', '.join(BACKFILL_ROW_KEYS)}}}")
+        try:
+            parse_t(r["at"])
+        except ValueError as e:
+            raise CollectedError(f"{login}: a backfill row has no time ({r['at'][:30]!r})") from e
+    return rows
 
 
 def load_relay_outage(path: str, window: tuple[float, float]) -> dict[str, dict]:
@@ -212,7 +245,7 @@ def load_relay_outage(path: str, window: tuple[float, float]) -> dict[str, dict]
     same collection. Refuses an account whose drill sections were not collected whole: an empty ledger from
     a daemon that never sent one would read as 'never shown', which is a verdict the files do not support."""
     out: dict[str, dict] = {}
-    for login, (meta, arr, dels, kinds, shown, acks) in _read_parts(path, drill=True).items():
+    for login, (meta, arr, dels, kinds, shown, acks, backfills) in _read_parts(path, drill=True).items():
         _account(login, meta, arr, dels, kinds, window)
         ro = meta.get("relay_outage")
         if shown is None or acks is None or not isinstance(ro, dict):
@@ -231,13 +264,34 @@ def load_relay_outage(path: str, window: tuple[float, float]) -> dict[str, dict]
                     raise CollectedError(f"{login}: a {name} row is not {{{', '.join(keys)}}}")
         if any(not isinstance(r.get("ok"), bool) for r in acks):
             raise CollectedError(f"{login}: an acknowledgement row has no ok")
-        out[login] = {"arrivals": arr, "shown": shown, "acks": acks}
+        out[login] = {"arrivals": arr, "shown": shown, "acks": acks, "backfills": _backfills(login, meta, backfills)}
     return out
 
 
-def relay_outage(per_account: dict[str, dict], drill: tuple[float, float]) -> dict:
+NOT_COLLECTED = "not collected"
+
+
+def relay_record(mid: str, per_account: dict[str, dict], until: float | None) -> dict:
+    """What the relay's record got of `mid` afterwards, from every account's backfill log (the log is the sender's, which a pair's
+    addressee does not name): {state: posted|present|over-age|none|not collected, delay_s?, channel?}. A row from `until` on is
+    no answer by then. `none` is said only when every account's log was collected whole."""
+    rows = [r for a in per_account.values() for r in (a.get("backfills") or []) if r["mid"] == mid
+            and (until is None or parse_t(r["at"]) < until)]
+    landed = sorted((r for r in rows if r["outcome"] in ("posted", "present")), key=lambda r: r["at"])
+    if landed:
+        r = landed[0]
+        return {"state": r["outcome"], "delay_s": r["delay_s"], "channel": r.get("channel")}
+    if rows:
+        return {"state": "over-age", "channel": rows[0].get("channel")}
+    if any(a.get("backfills") is None for a in per_account.values()):
+        return {"state": NOT_COLLECTED}
+    return {"state": "none"}
+
+
+def relay_outage(per_account: dict[str, dict], drill: tuple[float, float], until: float | None = None) -> dict:
     """The relay-outage drill's section. A pair belongs to it when its MESSAGE-ID was made inside `drill`
-    (as for the rollback drill) and an account's arrival log holds a copy of it."""
+    (as for the rollback drill) and an account's arrival log holds a copy of it. `until` is the report's end, by
+    which a backfill must have been logged (no bound when None)."""
     pairs = []
     for login in sorted(per_account):
         acct = per_account[login]
@@ -285,10 +339,17 @@ def relay_outage(per_account: dict[str, dict], drill: tuple[float, float]) -> di
             continue
         failed = p["shown"] not in ("once", "unknown") or p["again"] or (p["first_via"] not in (None, "interweave")) or p["acked"] == "no"
         p["ok"] = False if failed else None if "unknown" in (p["shown"], p["acked"]) else True
+    for p in pairs:
+        p["relay_record"] = relay_record(p["mid"], per_account, until) if p["carrier_only"] else None
+    records = [p["relay_record"]["state"] for p in exercised]
+    # The fourth property: a failure is a fact whatever else is not collected; otherwise one that cannot be said is not judged.
+    backfill = (None if not exercised else False if any(s in ("over-age", "none") for s in records)
+                else None if NOT_COLLECTED in records else True)
     judged = [p["ok"] for p in exercised]
     # True: every property held for every pair held by the carrier alone; False: one failed; None: none failed, some cannot be told yet.
     return {"window": drill, "pairs": pairs, "exercised": len(exercised), "unknown": judged.count(None),
-            "holds": None if not judged else False if False in judged else None if None in judged else True}
+            "holds": None if not judged else False if False in judged else None if None in judged else True,
+            "backfill": backfill, "backfill_not_collected": sorted(login for login, a in per_account.items() if a.get("backfills") is None)}
 
 
 def compute(arrivals: list[dict], senders: dict[str, list[dict]], kinds: dict[str, str], window: tuple[float, float],
@@ -366,6 +427,10 @@ def _cause(carrier: str, key: tuple, sent: dict, copies: dict) -> str:
     return "the addressee's inbox recorded no relay copy"
 
 
+def _record_words(r: dict) -> str:
+    return f"{r['state']} (delay {r['delay_s']} s)" if r["state"] in ("posted", "present") else r["state"]
+
+
 def render_markdown(rep: dict, title: str = "InterWeave carrier parity report") -> str:
     w = rep["window"]
     iso = lambda t: time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(t))  # noqa: E731
@@ -418,8 +483,15 @@ def render_markdown(rep: dict, title: str = "InterWeave carrier parity report") 
             held = "carrier alone" if exercised else f"NOT exercised ({why}; it does not count)"
             L.append(f"- {x['mid']} to {x['addressee']} ({x['account']}): {held}; shown {x['shown']}"
                      f"{' by ' + x['first_via'] if x['first_via'] else ''}; shown again: {', '.join(x['again']) or 'no'}; "
+                     f"{'relay record: ' + _record_words(x['relay_record']) + '; ' if exercised else ''}"
                      f"relay copy {'back' if x['relay_back'] else 'not back'}, acknowledged: {x['acked']}"
                      f"{' -- FAILS' if x['ok'] is False else ' -- UNKNOWN' if exercised and x['ok'] is None else ''}")
         if not d["pairs"]:
             L.append("- no pair was made inside the drill")
+        if d["exercised"]:
+            fourth = {True: "holds: every such message reached the relay's record by backfill",
+                      False: "FAILED: a message held by the carrier alone did not reach the relay's record by backfill (over-age, or no row by the report's end)",
+                      None: "not judged: " + (f"the backfill log was not collected from {', '.join(d['backfill_not_collected'])} (a collection made before it, or with a line that could not be read)"
+                                            if d["backfill_not_collected"] else "no pair to judge")}[d["backfill"]]
+            L += ["", f"Fourth property, relay record by backfill: {fourth}."]
     return "\n".join(L) + "\n"

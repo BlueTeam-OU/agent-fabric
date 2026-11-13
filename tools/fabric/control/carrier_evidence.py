@@ -32,6 +32,11 @@ CONTRACT
             AckLog): the relay's acknowledgements this account made, `ok` whether the
             relay answered the call. Both feed the relay-outage drill (ADR-064 rule 11)
             and nothing else.
+  backfills rows {mid, outcome, at, delay_s, channel} of gzcoord-backfill.jsonl (gzcoord/backfill.py): the SENDER's
+            record that a message only the second carrier delivered reached the relay's record afterwards, with `at`
+            in [since, until). `outcome` is posted | present | over-age, `delay_s` a finite number, `channel` a short
+            string or null; any other line is skipped and counted. Read by the parity report's relay-outage drill
+            (its fourth property) and nothing else. A failure of this section ends only this section.
   never     a body. Rows are built key by key from a closed list, each value a
             short string: a line of the log with a text, a path or a key in it
             that a later version adds does not leave. The journal is opened
@@ -46,6 +51,7 @@ second with more rows than a page holds is refused by name, not cut.
 from __future__ import annotations
 
 import json
+import math
 import os
 import re
 import sqlite3
@@ -59,9 +65,12 @@ SECTIONS = ("arrivals", "deliveries")
 # Collected beside the two the report counts: the relay-outage drill's evidence (parity.relay_outage). Kept
 # apart so an account whose daemon predates them still yields a collection the rollback report is computed from.
 DRILL_SECTIONS = ("shown", "acks")
-ALL_SECTIONS = SECTIONS + DRILL_SECTIONS
+BACKFILL_SECTION = "backfills"
+ALL_SECTIONS = SECTIONS + DRILL_SECTIONS + (BACKFILL_SECTION,)
 SHOWN_KEYS = ("mid", "via", "t")
 ACK_KEYS = ("mid", "addressee", "t")
+BACKFILL_KEYS = ("mid", "outcome", "at")
+BACKFILL_OUTCOMES = ("posted", "present", "over-age")
 ARRIVAL_KEYS = ("mid", "addressee", "carrier", "t", "verdict")
 DELIVERY_KEYS = ("mid", "to", "enc", "queued", "state", "code", "by")
 # The relay's message limit is 128 KiB and a record is posted as a JSON string inside a JSON record, which
@@ -185,6 +194,19 @@ def _ack_row(o: dict):
     return {**r, "ok": o["ok"]}
 
 
+def _backfill_row(o: dict):
+    r = _row(o, BACKFILL_KEYS, BACKFILL_KEYS)
+    d, ch = o.get("delay_s"), o.get("channel")
+    # bool is an int in Python: a `true` is no delay. NaN and infinity parse from JSON and would not survive a reader that sorts.
+    if (r is None or _time(r["at"]) is None or r["outcome"] not in BACKFILL_OUTCOMES
+            or isinstance(d, bool) or not isinstance(d, (int, float)) or not math.isfinite(d)
+            or not (ch is None or isinstance(ch, str))):
+        return None
+    if not parity.UUID7.fullmatch(r["mid"]):
+        return DROP
+    return {**r, "delay_s": d, "channel": _short(ch)}
+
+
 def _page(rows: list[dict], key: str, page_bytes: int | None = None) -> tuple[list[dict], str | None] | str:
     """The rows that fit page_bytes (PAGE_BYTES unless the account splits for the second carrier too), whole seconds only, and the time the next page starts at; or why
     the first second alone does not fit."""
@@ -234,7 +256,11 @@ def carrier_evidence(request: Any, *, state: str | None = None, db_path: str | N
     state = util.state_dir() if state is None else state
     section, since, until = args["section"], args["since"], args["until"]
     start, end = _time(since), _time(until)
-    if section in DRILL_SECTIONS:
+    if section == BACKFILL_SECTION:
+        every, skipped = _read_lines(os.path.join(state, "gzcoord-backfill.jsonl"), _backfill_row)
+        inside = sorted((r for r in every if start <= _time(r["at"]) < end), key=lambda r: r["at"])
+        key, extra = "at", {"skipped": skipped}
+    elif section in DRILL_SECTIONS:
         name, convert = ("gzcoord-shown.jsonl", _shown_row) if section == "shown" else ("gzcoord-acks.jsonl", _ack_row)
         every, skipped = _read_lines(os.path.join(state, name), convert)
         # File order breaks a tie on the second: a ledger's pending line comes before its final line.
