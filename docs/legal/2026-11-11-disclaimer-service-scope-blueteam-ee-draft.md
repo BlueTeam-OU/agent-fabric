@@ -5,7 +5,8 @@ the advice of an attorney admitted to the bar. Revised 2026-11-11 after
 language-culture-en's native read (section 6), and again after two
 reads of the MiCA paragraph (REQUESTs 01a1cbe0, 01a1cc24). Revised
 2026-11-12 after the AI section took the crypto section's shape
-(section 7).
+(section 7), and 2026-11-13 to record the owner's ruling on the
+Article 25(1) clause (section 4).
 
 The owner asked the same day whether the page "Disclaimer about service
 scope" could be reorganised so that a prospective client reads it simply,
@@ -139,9 +140,12 @@ subject of a separate matter (the consultant agreement review, j23).
   substantially modify one, or change the intended purpose of a
   client's AI system (AI Act Article 25(1)(a) to (c)); otherwise it
   becomes the provider, and the AI section is wrong. The owner has
-  not been asked to state this; brand-comms-01 put the offer of a
-  clause on the page to the owner on 2026-11-12, advising that the
-  client contract carry it instead.
+  not stated this as a fact. On 2026-11-13 the owner ruled, relayed
+  by brand-comms-01 (INFO 01a1d435), that no clause saying so goes on
+  the page and that the commitment belongs in each client's contract.
+  The condition therefore stays an assumption of this page. A client
+  contract that leaves the commitment out, or an engagement that
+  breaks it, brings the AI section back to this role.
 - If BlueTeam ever offers a service to consumers, the liability
   paragraph is read again against VÕS § 42(3) before that service
   starts.
