@@ -10,6 +10,13 @@ the card at card_base, not at the range's base) and `config` the hash of what pr
 `card`, brief renderer). It is read as the WHOLE first line and nothing else: a marker-like line further down is the report's
 text, never the review's.
 
+THE ADJUDICATION LINE, the second line of a v2 review that post_review accepted on a base that is neither the merge-base
+nor the last checkpoint's head (REQUEST 01a1cf77): its base is the head of an earlier review that raised findings, and
+its machine lines are Judgement:s of those findings and `Finding: none`. It judges the findings raised on its base, at
+the commit it read; it is never a link of a review chain and never a checkpoint (arm_findings, review_checkpoint).
+Whether it is coverage of its head is its block's to say, as for any v2 review. Like the marker, it is read only where
+post_review writes it, and a report line that looks like it is refused by marker_like_lines.
+
 THE BLOCK, one fenced block whose info string is `agent-fabric-coverage v1`, JSON:
     {"paths": {"<path>": {"status": "read"|"not read", "reason": str}}, "lenses": {"<lens>": "applied"|"not applied"},
      "default": {"status": "read"|"not read", "reason": str}}
@@ -36,6 +43,7 @@ from dataclasses import dataclass
 V2_PREFIX = "<!-- agent-fabric-review v2"
 MARKER_V2 = re.compile(r"<!-- agent-fabric-review v2 base=(?P<base>[0-9a-f]{40}) head=(?P<head>[0-9a-f]{40}) "
                        r"card=(?P<card>[0-9a-f]{40}) config=(?P<config>[0-9a-f]{64}) -->")
+ADJUDICATION_LINE = "<!-- agent-fabric-review adjudication: judgements of the findings raised on base, no chain -->"
 BLOCK_INFO = "agent-fabric-coverage v1"
 READ, NOT_READ = "read", "not read"
 APPLIED, NOT_APPLIED = "applied", "not applied"
@@ -85,6 +93,12 @@ def parse_marker(body: str) -> Marker | None:
     """The marker when the whole first line is one, else None."""
     m = MARKER_V2.fullmatch((body or "").split("\n", 1)[0].rstrip("\r"))
     return Marker(m["base"], m["head"], m["card"], m["config"]) if m else None
+
+
+def is_adjudication(body: str) -> bool:
+    """A v2 review whose second line is ADJUDICATION_LINE, whole: written there by post_review and nowhere else."""
+    lines = split_lines(body or "")
+    return parse_marker(body) is not None and len(lines) > 1 and lines[1] == ADJUDICATION_LINE
 
 
 @dataclass(frozen=True)

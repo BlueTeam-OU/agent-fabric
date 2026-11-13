@@ -155,6 +155,18 @@ def main() -> int:
         check("…another login's review on the app's PR is still not read",
               ask([rv(body(), login="rando")], author=dependabot, push_account="ci") is None)
 
+        print("last_checkpoint: an adjudication is set aside before the newest decides (REQUEST 01a1cf77)")
+        rounds = [rv(body(c0, c1), at="2026-10-23T09:00:00Z"), rv(body(c1, c2), commit_id=c2, at="2026-10-23T11:00:00Z")]
+        adj = body(c0, c2).replace("\n", "\n" + rcov.ADJUDICATION_LINE + "\n", 1)
+        check("the adjudication reads as one", rcov.is_adjudication(adj) and not rcov.is_adjudication(body(c0, c2)))
+        check("an adjudication of c0's round posted last: the checkpoint is still the last round's (c1, c2), its body",
+              ask([*rounds, rv(adj, commit_id=c2, at="2026-10-23T12:00:00Z")], listed=(c1, c2)) == (c1, c2, CARD)
+              and bodies[-1] == rounds[1]["body"], bodies[-1])
+        check("…control: the same body unmarked, posted last, is the checkpoint (c0, c2)",
+              ask([*rounds, rv(body(c0, c2), commit_id=c2, at="2026-10-23T12:00:00Z")], listed=(c1, c2)) == (c0, c2, CARD))
+        check("…an adjudication alone is no checkpoint: None, a full review",
+              ask([rv(adj, commit_id=c2)], listed=(c1, c2)) is None)
+
         print("last_checkpoint: exclude_head sets a head's reviews aside before the newest decides")
         round1, round2 = (body(c0, c1), "2026-10-23T09:00:00Z"), (body(c1, c2), "2026-10-23T11:00:00Z")
         pair = [rv(round1[0], at=round1[1]), rv(round2[0], commit_id=c2, at=round2[1])]

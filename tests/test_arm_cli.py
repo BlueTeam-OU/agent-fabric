@@ -278,7 +278,7 @@ def main() -> int:
 
     sys.path.insert(0, os.path.join(ROOT, "tools", "fabric"))
     import gh
-    from github import arm, arm_policy, repo_policy, review_posters
+    from github import arm, arm_policy, repo_policy, review_coverage as rcov, review_posters
 
     base_env = {k: v for k, v in os.environ.items()
                 if not k.startswith(("GITHUB_", "AGENT_FABRIC_", "CLAUDE_", "ANTHROPIC_", "GZAPP_")) and k != "GIT_DIR"}
@@ -1014,6 +1014,70 @@ def main() -> int:
         rc, out = run("7", "--basis", "b")
         check("control: a review with base HEAD, head HEAD judges the F1 raised on HEAD: armed",
               rc == 0 and "no finding open across 4 review(s) in 1 chain(s)" in out and "ARMED #7" in out, out)
+        # REQUEST 01a1cf77 (gzapp#1246): three rounds, each a full review starting its own chain, the third clean at
+        # HEAD; round 1's F1 and F2 and round 2's F1 open. An adjudication (post-review's, its second line the
+        # adjudication line) based on round 1's head judges round 1's findings and nothing else.
+        r1h, r2h = "dddd0001" + "8" * 32, "dddd0002" + "9" * 32
+        round1 = review(5723000001, "a" * 40, r1h, "Finding: F1 | P3 | likely | r1.py:1 | round 1's F1\n"
+                                                    "Finding: F2 | P3 | likely | r1.py:2 | round 1's F2")
+        round2 = review(5723000002, "b" * 40, r2h, "Finding: F1 | P3 | likely | r2.py:1 | round 2's F1")
+        round3 = review(5723000003, "e" * 40, HEAD, "Finding: none")
+
+        def adjudication(rid: int, base: str, lines: str) -> dict:
+            r = review(rid, base, HEAD, lines)
+            first, rest = r["body"].split("\n", 1)
+            return {**r, "body": f"{first}\n{rcov.ADJUDICATION_LINE}\n{rest}"}
+
+        plain(); reviews(round1, round2, round3)
+        rc, out = run("7", "--basis", "b")
+        check("three rounds, round 1's F1/F2 and round 2's F1 open: refused, the remedy naming an adjudication",
+              rc == 1 and "3 finding(s) open" in out and "an adjudication (base = the head it was raised on" in out, out)
+        plain(); reviews(round1, round2, round3,
+                         adjudication(5723000004, r1h, "Judgement: F1 | fixed | gone\nJudgement: F2 | not-fixed | there\nFinding: none"))
+        rc, out = run("7", "--basis", "b")
+        check("an adjudication of round 1 of 3 closes round 1's F1 only: its not-fixed F2 and round 2's F1 stay open",
+              rc == 1 and "2 finding(s) open" in out and "r1.py:2" in out and "r2.py:1" in out and "r1.py:1" not in out
+              and "pr merge" not in calls(), out)
+        plain(); reviews(round1, round2, round3,
+                         adjudication(5723000004, r1h, "Judgement: F1 | fixed | gone\nJudgement: F2 | not-real | moot\nFinding: none"),
+                         adjudication(5723000005, r2h, "Judgement: F1 | fixed | gone\nFinding: none"))
+        rc, out = run("7", "--basis", "b")
+        check("…each round adjudicated from its own head: armed, and no adjudication counted as a chain",
+              rc == 0 and "no finding open across 5 review(s) in 3 chain(s)" in out and "ARMED #7" in out, out)
+        plain(); reviews(round1, round2, round3,
+                         review(5723000004, r1h, HEAD, "Judgement: F1 | fixed | gone\nJudgement: F2 | not-real | moot\n"
+                                                       "Finding: none"),
+                         adjudication(5723000005, r2h, "Judgement: F1 | fixed | gone\nFinding: none"))
+        rc, out = run("7", "--basis", "b")
+        check("control: the same r1h..HEAD body unmarked is a re-review of round 1's chain, read as before: armed",
+              rc == 0 and "in 3 chain(s)" in out, out)
+        # One chain whose rounds 1 and 2 both raise an F1: the chain alone cannot tell them apart (its newest open F1
+        # is round 2's); the head the adjudication is based on can.
+        same1 = review(5724000001, "a" * 40, r1h, "Finding: F1 | P3 | likely | s1.py:1 | round 1's F1")
+        same2 = review(5724000002, r1h, r2h, "Finding: F1 | P3 | likely | s2.py:1 | round 2's own F1")
+        same3 = review(5724000003, r2h, HEAD, "Finding: none")
+        plain(); reviews(same1, same2, same3, adjudication(5724000004, r1h, "Judgement: F1 | fixed | gone\nFinding: none"))
+        rc, out = run("7", "--basis", "b")
+        check("one chain, two rounds each with an F1: an adjudication of round 1's head closes round 1's, never round 2's",
+              rc == 1 and "1 finding(s) open" in out and "s2.py:1" in out and "s1.py:1" not in out, out)
+        plain(); reviews(round1, round3,
+                         adjudication(5723000004, r1h, "Judgement: F1 | fixed | gone\nJudgement: F2 | fixed | gone\n"
+                                                       "Finding: F9 | P1 | certain | new.py:1 | raised by the adjudication"))
+        rc, out = run("7", "--basis", "b")
+        check("an adjudication that raises a finding is unknown, never read: refused, naming it",
+              rc == 1 and "review 5723000004 (an adjudication: it raises findings" in out and "pr merge" not in calls(), out)
+        codex_head = review(5723000006, "e" * 40, HEAD, "Finding: F1 | P2 | likely | head.py:1 | codex's F1 of HEAD")
+        plain(); reviews(round1, round3, codex_head,
+                         adjudication(5723000007, r1h, "Judgement: F1 | fixed | gone\nJudgement: F2 | fixed | gone\nFinding: none"))
+        rc, out = run("7", "--basis", "b")
+        check("an adjudication never closes a finding raised on its own head: codex's F1 of HEAD stays open",
+              rc == 1 and "1 finding(s) open" in out and "head.py:1" in out and "r1.py" not in out, out)
+        plain(); reviews(round1, round3,
+                         adjudication(5723000004, r1h, "Judgement: F1 | fixed | gone\nJudgement: F2 | fixed | gone\nFinding: none"),
+                         review(5723000008, HEAD, HEAD, "Finding: F1 | P2 | likely | late.py:1 | a later round's F1"))
+        rc, out = run("7", "--basis", "b")
+        check("a later round after an adjudication reads as before: its F1 open, round 1's stay closed",
+              rc == 1 and "1 finding(s) open" in out and "late.py:1" in out and "r1.py" not in out, out)
 
         plain(); reviews(first, fresh)
         why = "a P3 on a path this PR does not touch; j470 takes it"
