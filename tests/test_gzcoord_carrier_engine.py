@@ -87,7 +87,7 @@ def pid(n: int) -> str:
 
 class Node:
     def __init__(self, root: str, login: str, n: int, slug: str, rows: list[dict], clock: Clock,
-                 journal_fail: list | None = None) -> None:
+                 journal_fail: list | None = None, host: str = "h") -> None:
         self.login, self.slug, self.clock = login, slug, clock
         d = os.path.join(root, login)
         os.makedirs(d)
@@ -99,7 +99,7 @@ class Node:
         self.journal_fail = journal_fail if journal_fail is not None else [False]
         iso = lambda: "2026-10-24T12:00:00Z"  # noqa: E731
         self.rows = rows
-        self.me = engine.Me(f"agent-{login}", login, f"h/{login}", slug)
+        self.me = engine.Me(f"agent-{login}", login, f"{host}/{login}", slug)
         self.box = record.Outbox(os.path.join(d, "iw"), iso_now=iso)
         self.ledger_path = os.path.join(d, "gzcoord-shown.jsonl")
         self.spool = arrivals.Spool(os.path.join(d, "iw"), self.ledger_path, iso_now=iso)
@@ -108,7 +108,7 @@ class Node:
         self.carrier = engine.Carrier(
             me_fn=lambda: self.me, roster_fn=self._roster, outbox=self.box, spool=self.spool, arrival_log=self.log,
             connect=lambda: ipc.Session.open(self.daemon.path, endpoint="gzcoord", kind="automated-client"),
-            journal=self._journal, parse=parse, for_me=for_me, host="h", clock=clock, iso_now=iso)
+            journal=self._journal, parse=parse, for_me=for_me, host=host, clock=clock, iso_now=iso)
         self.thread = threading.Thread(target=self.carrier.run, daemon=True)
 
     def _roster(self):
@@ -178,6 +178,39 @@ def journal_roundtrip() -> None:
             episodic.connect = real
     check("journal_inbound writes the row under the verified sender, not the FROM", out == "written" and got == [("h/alpha",)], f"{out} {got}")
     check("... and a record with no sender keeps the FROM (the control that the read-back is live)", ctl == [("h/gamma",)], str(ctl))
+
+
+def cross_host() -> None:
+    """ADR-064 rule 2 (W10): a roster row's host is the agent's address. alpha is on h, zeta's row names h2."""
+    with tempfile.TemporaryDirectory(prefix="gz-eng-h2-") as d:
+        clock = Clock()
+        rows = mkrows(["alpha", "zeta"])
+        rows[0]["host"], rows[1]["host"] = "h", "h2"
+        a = Node(d, "alpha", 0, "dev", rows, clock)
+        z = Node(d, "zeta", 1, "dev", rows, clock, host="h2")
+        nodes = [a, z]
+        a.daemon.routes = {pid(0): a.daemon, pid(1): z.daemon}
+        z.daemon.routes = dict(a.daemon.routes)
+        try:
+            for n in nodes:
+                n.start()
+            until(lambda: all(n.carrier.session is not None for n in nodes))
+            res = a.carrier.handle_request({"op": "send", "message_id": "X-1", "text": msg("X-1", "h/alpha", to="h2/zeta")})
+            check("a TO on another host is queued to its roster row", res["carried"] == 1 and res["queued"] == 1, str(res))
+            check("... and the receipt completes it", until(lambda: not [x for x in a.box.outstanding() if x.mid == "X-1"]))
+            res = a.carrier.handle_request({"op": "send", "message_id": "X-2", "text": msg("X-2", "h/alpha", to="h/zeta")})
+            check("a TO naming the login on the wrong host is not carried (positive control for the host match)",
+                  res["carried"] == 0 and res["queued"] == 0, str(res))
+            res = z.carrier.handle_request({"op": "send", "message_id": "X-3", "text": msg("X-3", "h2/zeta", to="h/alpha")})
+            check("the reverse direction: zeta's TO h/alpha is carried to alpha's row",
+                  res["carried"] == 1 and until(lambda: any(r[0] == "X-3" for r in a.journal_rows)), str(res))
+            check("an arrival from a row on another host is ok and journaled under its own host",
+                  until(lambda: "X-1" in z.journal_senders) and z.journal_senders["X-1"] == "h/alpha"
+                  and a.journal_senders.get("X-3") == "h2/zeta"
+                  and [x["verdict"] for x in a.arrivals() if x["mid"] == "X-3"] == ["ok"], str((a.journal_senders, a.arrivals())))
+        finally:
+            for n in nodes:
+                n.stop()
 
 
 def main() -> int:
@@ -487,6 +520,7 @@ def main() -> int:
         finally:
             for n in nodes:
                 n.stop()
+    cross_host()
     journal_roundtrip()
     print(f"\ntest_gzcoord_carrier_engine: {'OK' if not fails else f'FAILED — {fails} check(s)'}")
     return 1 if fails else 0
