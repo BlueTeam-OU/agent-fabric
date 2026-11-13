@@ -403,13 +403,30 @@ def main() -> int:
         stubborn = subprocess.Popen([sys.executable, "-c", stubborn_code], cwd=wt4, stdout=subprocess.PIPE,
                                     start_new_session=True)
         stranger = subprocess.Popen(["sleep", "30"], cwd=scratch, start_new_session=True)
-        real_grace = tw.TERM_GRACE_S
+        real_grace, real_kill_wait = tw.TERM_GRACE_S, tw.KILL_WAIT_S
         try:
             stubborn.stdout.read(5)   # TERM is ignored from here on
-            tw.TERM_GRACE_S = 1.0
-            began = time.monotonic()
-            cleanup_here(tw.cleanup, repo, wt4, stubborn.pid)
-            took = time.monotonic() - began
+            # Distinct from each other and from production's 5.0, so a bound
+            # read from the wrong constant, or a literal, is seen.
+            tw.TERM_GRACE_S, tw.KILL_WAIT_S = 1.0, 2.5
+            # Time the signalling waits alone: cleanup's git removals after
+            # them are bounded by run_git, not by the claim below, and under
+            # CI load they alone took 4 s (j116: 8.4 s against an 8 s bound).
+            waits = []
+            real_wait_ended = tw.wait_ended
+
+            def timed_wait_ended(fds, seconds):
+                t0 = time.monotonic()
+                try:
+                    return real_wait_ended(fds, seconds)
+                finally:
+                    waits.append((seconds, time.monotonic() - t0))
+            tw.wait_ended = timed_wait_ended
+            try:
+                cleanup_here(tw.cleanup, repo, wt4, stubborn.pid)
+            finally:
+                tw.wait_ended = real_wait_ended
+            took = sum(spent for _, spent in waits)
             # Read before poll(), which would reap it itself.
             try:
                 os.waitid(os.P_PID, stubborn.pid, os.WEXITED | os.WNOHANG | os.WNOWAIT)
@@ -417,9 +434,13 @@ def main() -> int:
             except ChildProcessError:
                 reaped = True
             check("…and the runner, this process's child, is reaped by cleanup", reaped)
-            check(f"…gone (not merely signalled) when cleanup returns, after {took:.1f} s",
+            check("…gone (not merely signalled) when cleanup returns",
                   stubborn.poll() is not None)
-            check("…and within the grace and the KILL wait", took < tw.TERM_GRACE_S + tw.KILL_WAIT_S + 2)
+            check("…TERM waited the grace, then KILL waited its own bound",
+                  [w for w, _ in waits] == [tw.TERM_GRACE_S, tw.KILL_WAIT_S])
+            # The KILL lands at once, so the signalling is the grace plus a
+            # little; a wait that did not end when the member did fails here.
+            check(f"…and the signalling took the grace and no more, {took:.1f} s", took < tw.TERM_GRACE_S + 2)
             # A listing that named a pid the kernel has since given to
             # another process: the pidfd holds the stranger, which is not the
             # trial's, and is left alone.
@@ -431,7 +452,7 @@ def main() -> int:
             check("…and a listed pid that is not the trial's when claimed is never signalled",
                   stranger.poll() is None)
         finally:
-            tw.TERM_GRACE_S = real_grace
+            tw.TERM_GRACE_S, tw.KILL_WAIT_S = real_grace, real_kill_wait
             for p in (stubborn, stranger):
                 if p.poll() is None:
                     p.kill()
