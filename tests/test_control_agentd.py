@@ -569,7 +569,9 @@ class Pieces(Scratch):
         self.assertEqual(len(fired), 1, "but once seen, its change is")
 
     def test_port_the_files_watched_are_the_loaded_modules_and_the_config_and_nothing_else_of_the_tree(self):
-        files = agentd.loaded_sources()
+        # The default is what is watched only when the variable names nothing.
+        with mock.patch.dict(os.environ, {"FABRIC_CONTROL_CONFIG": ""}):
+            files = agentd.loaded_sources()
         self.assertIn(agentd.CONFIG, files)
         self.assertIn(os.path.realpath(agentd.__file__) if os.path.realpath(agentd.__file__) in files else agentd.__file__, files)
         self.assertTrue(all(f == agentd.CONFIG or f.endswith(".py") for f in files))
@@ -581,7 +583,6 @@ class Pieces(Scratch):
         # changes that file, not CONFIG, is what must restart the daemon.
         d = self.scratch("agentd-watch-cfg-")
         cfg = os.path.join(d, "control.json")
-        open(cfg, "w").write("{}")
         with mock.patch.dict(os.environ, {"FABRIC_CONTROL_CONFIG": cfg}):
             files = agentd.loaded_sources()
         self.assertIn(cfg, files)
