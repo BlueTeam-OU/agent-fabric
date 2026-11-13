@@ -389,8 +389,8 @@ the relay's flagged unauthenticated; and the same ping answered by
 InterWeave alone with the relay killed after it accepted the request.
 Every account's profile was then re-rendered with `fabric-control`.
 
-§8 now says the carrier is built and read back and the fleet is on
-`dual`; rule 18 itself is unchanged. `runtime/control/config.json`
+§8 now says the carrier is built, its read path read back, and the
+fleet is on `dual`; rule 18 itself is unchanged. `runtime/control/config.json`
 names `dual` in the same change, so each account takes it with its next
 fabric upgrade. The relay stays the transport of record until the
 owner's word on a control parity report (§2). Not read back: a second

@@ -499,4 +499,4 @@ The body above reads current; each change's full note is in [history/ADR-029-ame
 | 2026-10-31 | A tool pinned for some roles is installed only on an account bound to one | §2 table: `tools-install`, skipped for another bound role (j463) |
 | 2026-11-08 | The parity evidence carries the relay-outage drill's shown and acks | §2 table: `interweave-evidence` takes four sections; §5 rule 6: nor a hash of the text (#509) |
 | 2026-11-09 | job-state, a fourth public op | §2 table: `job-state`; §5 rule 3: its one `job` or `request` argument; rule 4: public, its state answered to the job's request sender only and `absent` to anyone, the test reading the relay's channels as a source a token holder already has, since done from dropped and a job's existence are on them; built in #527 (ADR-037 rule 8) |
-| 2026-11-13 | The second carrier is read back and the fleet is on dual | Evidence: the two-account read-back; §8: built, read back, `control_carrier` `dual` (j793) |
+| 2026-11-13 | The second carrier is read back and the fleet is on dual | Evidence: the two-account read-back; §8: built, its read path read back, `control_carrier` `dual` (j793) |

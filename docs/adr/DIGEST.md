@@ -725,7 +725,7 @@ its record disagree, the record wins. Look it up, never read it whole:
 - A 2026-10-31 — roles.
 - A 2026-11-08 — drill sections.
 - A 2026-11-09 — job-state public (r3–4).
-- A 2026-11-13 — carrier read back; fleet on dual (r18).
+- A 2026-11-13 — read path read back; fleet on dual (r18).
 - Keywords: fabric-ctl, keys, operator_key, usage, tokens, herdr,
   resume, interweave-evidence, interweave-human, fabric-control,
   control_carrier, break-glass.

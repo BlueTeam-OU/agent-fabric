@@ -44,12 +44,14 @@ class EverySuiteThatRunsCtlPinsItself(unittest.TestCase):
 
     def test_each_in_process_ctl_suite_names_the_carrier(self) -> None:
         drives = re.compile(r"\bctl\.(main|run)\(")
+        # Set, not merely named: an assignment into os.environ, or a dict handed to mock.patch.dict or a child's env.
+        sets = re.compile(r"""(os\.environ\[["']FABRIC_CONTROL_CARRIER["']\]\s*=|["']FABRIC_CONTROL_CARRIER["']\s*:)""")
         found, missing = [], []
         for path in sorted(glob.glob(os.path.join(HERE, "tests", "test_*.py"))):
             text = open(path, encoding="utf-8").read()
             if drives.search(text):
                 found.append(os.path.basename(path))
-                if "FABRIC_CONTROL_CARRIER" not in text:
+                if not sets.search(text):
                     missing.append(os.path.basename(path))
         self.assertGreaterEqual(len(found), 9, f"the scan found too few ctl suites to mean anything: {found}")
         self.assertEqual(missing, [], "these suites drive fabric-ctl in-process and do not pin the carrier")
