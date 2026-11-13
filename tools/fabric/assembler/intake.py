@@ -414,7 +414,11 @@ def rehome_unbound(run: Run) -> list[dict[str, Any]]:
             elif owners == {REHOME_ROLE}:
                 moved.setdefault(role, []).append(claim)
             else:
-                refused.append(f"{claim['class']}:{claim['topic']} ({claim.get('title')!r}) of role {role}"
+                # Screened as screen_hygiene would, which has not run: this line goes to stderr, and the topic and title are text
+                # the hygiene lists may ban (nothing is committed from it, but a log is read and kept too).
+                topic, title = (hygiene_substitute(v, "", patterns_for(claim["class"]))[0] if isinstance(v, str) else v
+                                for v in (claim.get("topic"), claim.get("title")))
+                refused.append(f"{claim['class']}:{topic} ({title!r}) of role {role}"
                                + (f" shared with {', '.join(sorted(owners - {role}))}" if len(owners) > 1 else "")
                                + f", project {run.project}")
         run.all_claims[role] = kept
@@ -426,14 +430,18 @@ def rehome_unbound(run: Run) -> list[dict[str, Any]]:
         if not run.all_claims[role]:
             # A role with no claim left owns nothing here: not a project directory, index or crossref (assemble.main owning_roles).
             del run.all_claims[role]
-    for role, claims in moved.items():
-        for claim in claims:
-            origins = (run.origins.get(h) for h in claim.get("evidence") or [])
-            run.rehomed.append({"slice": f"{role}/{claim['class']}:{claim['topic']}", "role": role, "class": claim["class"],
-                                "topic": claim["topic"], "title": claim.get("title"), "from_project": run.project,
-                                "to_project": layout.FABRIC_PROJECT_ID,
-                                "source": sorted({f"{o.get('agent') or o.get('clone_id')}@{o.get('host')}" for o in origins if o})})
     return [c for claims in moved.values() for c in claims]
+
+
+def rehomed_row(run: Run, claim: dict[str, Any]) -> dict[str, Any]:
+    """The report's record of a claim re-homed to the control plane. Built from the claim as the control plane's pass left it, never
+    from the one read: that pass screens the topic and the title, and a row from before it would carry to the report, the commit
+    body and stderr what hygiene withheld from the corpus. `claim` is one of that pass's own, so a claim it rejected has no row."""
+    origins = (run.origins.get(h) for h in claim.get("evidence") or [])
+    role = claim["_role"]
+    return {"slice": f"{role}/{claim['class']}:{claim['topic']}", "role": role, "class": claim["class"], "topic": claim["topic"],
+            "title": claim.get("title"), "from_project": run.project, "to_project": layout.FABRIC_PROJECT_ID,
+            "source": sorted({f"{o.get('agent') or o.get('clone_id')}@{o.get('host')}" for o in origins if o})}
 
 
 def note_unbound_owners(run: Run) -> None:

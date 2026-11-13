@@ -448,8 +448,8 @@ class Run:
     # this drain, and gets no project directory, index or crossref (assemble.main).
     unbound_held_roles: set[str] = field(default_factory=set)
     # The claims re-homed to the control plane's own corpus because their role is not one the project's taxonomy binds
-    # (rehome_unbound): {slice, role, class, topic, title, from_project, to_project, source}, and the files that run wrote, as the
-    # report names them. A role other than fabric-coordinator is refused, so only that role appears here.
+    # (assemble.rehome, from the claims the control plane's pass screened): {slice, role, class, topic, title, from_project, to_project,
+    # source}, and the files that pass wrote, as the report names them. A role other than fabric-coordinator is refused, so only that role appears here.
     rehomed: list[dict[str, Any]] = field(default_factory=list)
     rehomed_files: list[str] = field(default_factory=list)
     # The anchors a claim brought that did not resolve, kept out for the corpus's that does (anchorkeep): {slice, heading,

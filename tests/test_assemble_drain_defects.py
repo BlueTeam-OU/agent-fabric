@@ -546,6 +546,125 @@ def test_a_break_in_a_title_does_not_split_the_heading_or_cut_the_index_entry(tm
     assert lint_module.LINE_BREAK_RE.pattern == LINE_BREAK_RE.pattern, "lint reads a break as the INDEX writer makes it"
 
 
+def set_hygiene(out: str, *patterns: dict) -> None:
+    with open(os.path.join(ta.working_copy(out), ".agent-fabric", "hygiene.json"), "w", encoding="utf-8") as fh:
+        json.dump({"patterns": list(patterns)}, fh)
+
+
+ZORG = {"pattern": "\\bzorg\\b", "flags": "i", "label": "a name the corpus must not carry"}
+
+
+def test_f1_a_banned_topic_or_title_reaches_neither_the_report_nor_the_commit_body_nor_stderr(tmp: str) -> None:
+    """j227 review round 1 F1: the re-homed rows were built before hygiene screened the claim, so a banned name in the topic
+    or title was carried to last-drain-report.json, the commit body and stderr, though the slice itself was redacted.
+    Control: with no hygiene list the same claim is named there (the fixture can see the text), and so is a refusal."""
+    claim = {**WF, "topic": "zorg-habit", "title": "The zorg habit", "body": "Plain body.", "evidence": ["h2"]}
+    msg = os.path.join(tmp, "msg.txt")
+    drain, claims_dir, out = ta.build(os.path.join(tmp, "control"), {"alpha": ta.claims("alpha", [WF]), COORD: ta.claims(COORD, [claim])})
+    bind(out, "alpha")
+    set_hygiene(out)
+    proc = ta.run_assemble(drain, claims_dir, out, "--commit-message", msg)
+    assert proc.returncode == 0, proc.stderr
+    seen = [ta.read(ta.report_path(out)), ta.read(msg), proc.stderr]
+    assert all("zorg" in text.lower() for text in seen), "positive control: unscreened, every channel names it"
+    drain, claims_dir, out = ta.build(os.path.join(tmp, "screened"), {"alpha": ta.claims("alpha", [WF]), COORD: ta.claims(COORD, [claim])})
+    bind(out, "alpha")
+    set_hygiene(out, ZORG)
+    proc = ta.run_assemble(drain, claims_dir, out, "--commit-message", msg)
+    assert proc.returncode == 0, proc.stderr
+    assert "redacted" in ta.read(fabric_proj(out, COORD, "workflow.md")).lower()
+    rep = report(out)
+    assert [r["slice"] for r in rep["rehomed"]] == [f"{COORD}/workflow:redacted-habit"], rep["rehomed"]
+    for name, text in (("report", ta.read(ta.report_path(out))), ("commit body", ta.read(msg)), ("stderr", proc.stderr)):
+        assert "zorg" not in text.lower(), (name, text)
+    # The refusal line of another role's claim is screened the same way.
+    drain, claims_dir, out = ta.build(os.path.join(tmp, "refuse"), {"alpha": ta.claims("alpha", [WF]), "beta": ta.claims("beta", [claim])})
+    bind(out, "alpha")
+    set_hygiene(out)
+    assert "zorg" in ta.run_assemble(drain, claims_dir, out).stderr.lower(), "positive control: the refusal names the claim"
+    set_hygiene(out, ZORG)
+    proc = ta.run_assemble(drain, claims_dir, out)
+    assert proc.returncode == 1 and "role beta" in proc.stderr and "zorg" not in proc.stderr.lower(), proc.stderr
+
+
+def test_f2_a_collision_in_the_rehome_pass_is_decided_by_the_owner_and_the_rerun_carries_it(tmp: str) -> None:
+    """F2: --collision-decisions was cleared for the control plane's pass, so its collision could never be decided and the
+    drain was stuck. The decision file serves both passes; the decision is recorded in the project's report."""
+    two = [{**WF, "topic": "moved", "body": "One.", "evidence": ["h2"]}, {**WF, "topic": "moved", "body": "Two.", "evidence": ["h2"]}]
+    drain, claims_dir, out = ta.build(tmp, {"alpha": ta.claims("alpha", [WF]), COORD: ta.claims(COORD, two)})
+    bind(out, "alpha")
+    proc = ta.run_assemble(drain, claims_dir, out)
+    assert proc.returncode == 1 and f"{COORD}/workflow:moved#T" in proc.stderr, proc.stderr
+    proc = ta.run_assemble(drain, claims_dir, out, *ta.keep_both(tmp, f"{COORD}/workflow:moved#T"))
+    assert proc.returncode == 0, proc.stderr
+    text = ta.read(fabric_proj(out, COORD, "workflow.md"))
+    assert "One." in text and "Two." in text, text
+    assert [d["key"] for d in report(out)["collision_decisions"]] == [f"{COORD}/workflow:moved#T"], report(out)["collision_decisions"]
+
+
+def fabric_report(out: str) -> dict:
+    with open(os.path.join(out, ".agent-fabric", "memory", "last-drain-report.json"), encoding="utf-8") as fh:
+        return json.load(fh)
+
+
+def test_f3_what_the_rehome_pass_replaced_is_recorded_in_the_control_planes_report_and_a_replay_keeps_it(tmp: str) -> None:
+    """F3: a correction applied in the re-home pass was recorded nowhere, so a replay of the old bundle wrote the replaced text
+    back into agent-fabric's corpus."""
+    old = {**WF, "topic": "one", "title": "The finding", "body": "The old fact.", "evidence": ["h2"]}
+    fix = {**WF, "topic": "fix-one", "title": "The finding, corrected", "merge_target": "The finding", "body": "The new fact.",
+           "evidence": ["h3"]}
+    drain, claims_dir, out = ta.build(tmp, {"alpha": ta.claims("alpha", [WF]), COORD: ta.claims(COORD, [old])})
+    ta.with_agents(drain, {"h2": "dev-01", "h3": "dev-02"})
+    bind(out, "alpha")
+    assert ta.run_assemble(drain, claims_dir, out).returncode == 0
+    with open(os.path.join(claims_dir, f"{COORD}.json"), "w", encoding="utf-8") as fh:
+        json.dump(ta.claims(COORD, [fix]), fh)
+    assert ta.run_assemble(drain, claims_dir, out, "--stamp", "2026-01-02").returncode == 0
+    rep = fabric_report(out)
+    assert [e["replaced"] for e in rep["applied_corrections"]] == ["The finding"], rep["applied_corrections"]
+    assert [e["heading"] for e in rep["replaced_sections"]] == ["The finding"], rep["replaced_sections"]
+    assert any("The finding, corrected" in k for k in rep["section_writers"]), rep["section_writers"]
+    def corpus() -> str:
+        """Every slice of the coordinator's re-homed workflow corpus (flat or one file per topic), without its index."""
+        root = fabric_proj(out, COORD)
+        return "".join(ta.read(os.path.join(d, n)) for d, _ds, fs in sorted(os.walk(root)) for n in sorted(fs)
+                       if n.endswith(".md") and n != "INDEX.md")
+    corrected = corpus()
+    assert "The new fact." in corrected and "The old fact." not in corrected, corrected
+    # The old bundle again, a later pass of the same drain.
+    with open(os.path.join(claims_dir, f"{COORD}.json"), "w", encoding="utf-8") as fh:
+        json.dump(ta.claims(COORD, [old]), fh)
+    proc = ta.run_assemble(drain, claims_dir, out, "--stamp", "2026-01-02")
+    assert proc.returncode == 0, proc.stderr
+    assert corpus() == corrected, corpus()
+
+
+def test_f4_the_notes_of_the_rehome_pass_reach_the_projects_report_and_its_files_are_checked_for_links(tmp: str) -> None:
+    """F4: titles made one line and the pass's links were dropped; the pass's notes are the run's."""
+    claim = {**WF, "topic": "moved", "title": "Line one\nline two", "body": "See [[no-such-topic-anywhere]].", "evidence": ["h2"]}
+    drain, claims_dir, out = ta.build(tmp, {"alpha": ta.claims("alpha", [WF]), COORD: ta.claims(COORD, [claim])})
+    bind(out, "alpha")
+    proc = ta.run_assemble(drain, claims_dir, out)
+    assert proc.returncode == 0, proc.stderr
+    rep = report(out)
+    assert [r["slice"] for r in rep["titles_one_lined"]] == [f"{COORD}/workflow:moved"], rep["titles_one_lined"]
+    assert "TITLES MADE ONE LINE" in proc.stderr, proc.stderr
+    assert [r["target"] for r in rep["unresolved_links"] if r["slice"].endswith(f"{COORD}/workflow.md")] == ["no-such-topic-anywhere"], \
+        rep["unresolved_links"]
+
+
+def test_the_commit_body_counts_what_was_rehomed(tmp: str) -> None:
+    """A line the report gives reason for: removing it from commit_message passed every suite (the review's risks)."""
+    drain, claims_dir, out = ta.build(tmp, {"alpha": ta.claims("alpha", [WF]), COORD: ta.claims(COORD, [{**WF, "topic": "moved", "evidence": ["h2"]}])})
+    bind(out, "alpha")
+    msg = os.path.join(tmp, "msg.txt")
+    assert ta.run_assemble(drain, claims_dir, out, "--commit-message", msg).returncode == 0
+    assert f"Re-homed to the control plane's corpus: 1 ({COORD}/workflow:moved)." in ta.read(msg), ta.read(msg)
+    bind(out, "alpha", COORD)
+    assert ta.run_assemble(drain, claims_dir, out, "--stamp", "2026-01-02", "--commit-message", msg).returncode == 0
+    assert "Re-homed" not in ta.read(msg), "control: bound, nothing re-homed, no line"
+
+
 def main() -> int:
     cases = [
         test_a_coordinator_claim_of_a_project_that_does_not_bind_it_lands_in_the_control_plane,
@@ -572,6 +691,11 @@ def main() -> int:
         test_a_title_made_one_line_is_told_for_a_slice_written_with_an_unbound_co_owner,
         test_a_title_made_one_line_is_told_as_hygiene_leaves_it_and_not_for_a_refused_claim,
         test_a_break_in_a_title_does_not_split_the_heading_or_cut_the_index_entry,
+        test_f1_a_banned_topic_or_title_reaches_neither_the_report_nor_the_commit_body_nor_stderr,
+        test_f2_a_collision_in_the_rehome_pass_is_decided_by_the_owner_and_the_rerun_carries_it,
+        test_f3_what_the_rehome_pass_replaced_is_recorded_in_the_control_planes_report_and_a_replay_keeps_it,
+        test_f4_the_notes_of_the_rehome_pass_reach_the_projects_report_and_its_files_are_checked_for_links,
+        test_the_commit_body_counts_what_was_rehomed,
     ]
     failures = 0
     for case in cases:
