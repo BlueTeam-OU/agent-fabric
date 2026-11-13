@@ -107,8 +107,9 @@ CONTRACT, frozen from the Node:
                                 journal row state), or {"addressed":
                                 false, "seq": N}
             --history [<seq>]   one line per message addressed here in the
-                                relay's recent history, then those the
-                                journal holds that the relay's page lacks;
+                                relay's recent history, then those a
+                                carrier other than the relay brought
+                                (from the journal) that its page lacks;
                                 with no relay to ask, the journal's list;
                                 bodies stay with --replay; the cursor does
                                 not move
