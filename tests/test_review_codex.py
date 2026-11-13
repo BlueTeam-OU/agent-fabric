@@ -92,6 +92,13 @@ def probe_standin(state: str):
             elif mode == "hang":
                 time.sleep(4)
                 return
+            elif mode == "stall":
+                # the headers and one event line, then silence: the body read ends however the deadline ends it
+                self.wfile.write(b"HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nContent-Length: 999\r\n\r\n"
+                                 b"event: response.created\ndata: {}\n\n")
+                self.wfile.flush()
+                time.sleep(4)
+                return
             elif mode == "trickle":
                 # a status line and headers one byte at a time, each inside any per-read timeout: only a deadline over the whole call ends it
                 try:
@@ -1413,6 +1420,15 @@ def main() -> int:
             review_codex.PROBE_TIMEOUT_S = saved_bound
         not_run("probe timeout, a gateway trickling its headers", rc, err, "probe-timeout")
         check("…the deadline is over the whole call: a byte every 0.3 s does not extend it", took < 3, took)
+        review_codex.PROBE_TIMEOUT_S = 0.5
+        try:
+            # the watchdog and the body's own per-read timeout race; which wins must not change the reason
+            for n in range(6):
+                set_pr(); mode("ok"); probe_mode("stall")
+                rc, out, err, sleeps = inproc("7", req)
+                not_run(f"probe timeout, a gateway that stalls after its headers (run {n + 1})", rc, err, "probe-timeout")
+        finally:
+            review_codex.PROBE_TIMEOUT_S = saved_bound
         check("the bound is seconds, stated", 0 < review_codex.PROBE_TIMEOUT_S <= 30, review_codex.PROBE_TIMEOUT_S)
 
         set_pr(); mode("ok")

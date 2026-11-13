@@ -145,7 +145,8 @@ The marker's reason names which one (REASONS):
   timeout               codex exec did not finish within --timeout
   crash                 codex exec exited non-zero with no unavailability message
   failed                the run is no review: the sandbox proof, the event stream or the answer
-                        was refused (the reason on stderr)
+                        was refused, or the head could not be extracted or the scratch written
+                        (a link out of the head, a full disk, a pipe); the reason is on stderr
   gateway               --gateway chatgpt started its gateway process and it did not come up
   binary-missing        no codex binary, at the start or when the run started it
 What stays a refusal, exit 1 and nothing posted, is what is the caller's to fix: a setting,
@@ -172,7 +173,7 @@ changes neither the review nor the exit status: a measurement never stands in a 
 
 exit 0 posted (or printed); 1 refused, nothing posted; 2 usage; 3 the review was not
 run or not finished (the probe, the model, the binary, a timeout, a crash, a run that
-is no review): no review posted, the unavailable statement above.
+is no review, the head's extract or the scratch failing): no review posted, the unavailable statement above.
 """
 from __future__ import annotations
 
@@ -792,8 +793,11 @@ def _probe_failure(kind: str, text: str, key: str) -> ModelUnavailable:
     return ModelUnavailable(kind, _one_line(text.replace(key, "[key]"))[:300])
 
 
-def _expire(sock: socket.socket) -> None:
-    """The probe's deadline: a shut socket ends whatever read the probe is blocked in."""
+def _expire(sock: socket.socket, expired: threading.Event) -> None:
+    """The probe's deadline: a shut socket ends whatever read the probe is blocked in. The event is set first and
+    is the only evidence of the deadline: that read ends as an empty chunk, an OSError or, on a TLS socket whose
+    state the shutdown clears under the reader, a ValueError or AttributeError, and the probe must call all of them a timeout."""
+    expired.set()
     with contextlib.suppress(OSError):
         sock.shutdown(socket.SHUT_RDWR)
 
@@ -824,10 +828,11 @@ def probe(base_url: str, key: str, account: str | None, model: str) -> None:
     conn = connect(parts.hostname, parts.port, timeout=PROBE_TIMEOUT_S)
     text = b""
     watchdog: threading.Timer | None = None
+    expired = threading.Event()
     try:
         conn.connect()
         sock = conn.sock
-        watchdog = threading.Timer(max(deadline - time.monotonic(), 0.0), _expire, (sock,))
+        watchdog = threading.Timer(max(deadline - time.monotonic(), 0.0), _expire, (sock, expired))
         watchdog.daemon = True
         watchdog.start()
         conn.request("POST", "/responses", body.encode("utf-8"), headers)
@@ -842,13 +847,19 @@ def probe(base_url: str, key: str, account: str | None, model: str) -> None:
             if not chunk:
                 break
             text += chunk
+        if expired.is_set() and b"response.completed" not in text:
+            raise TimeoutError
     except (TimeoutError, socket.timeout):
         raise ModelUnavailable(PROBE_TIMEOUT, f"no answer within {PROBE_TIMEOUT_S:g} s") from None
     except (OSError, http.client.HTTPException) as e:
-        if time.monotonic() >= deadline:   # the watchdog's shutdown surfaces as a closed socket, not a timeout
+        if expired.is_set() or time.monotonic() >= deadline:   # the watchdog's shutdown surfaces as a closed socket, not a timeout
             raise ModelUnavailable(PROBE_TIMEOUT, f"no answer within {PROBE_TIMEOUT_S:g} s") from None
         raise _probe_failure(UNREACHABLE, f"{type(e).__name__}: {e}", key) from None
-    except ValueError:
+    except (ValueError, AttributeError) as e:
+        if expired.is_set():
+            raise ModelUnavailable(PROBE_TIMEOUT, f"no answer within {PROBE_TIMEOUT_S:g} s") from None
+        if not isinstance(e, ValueError):
+            raise
         # http.client's own text quotes the offending header, which is the key's: say it without the value.
         raise Refused("the probe's request cannot be formed (a header value http.client refuses); the key is not shown") from None
     finally:
