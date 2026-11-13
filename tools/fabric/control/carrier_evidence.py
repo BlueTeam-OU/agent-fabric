@@ -33,8 +33,9 @@ CONTRACT
             relay answered the call. Both feed the relay-outage drill (ADR-064 rule 11)
             and nothing else.
   backfills rows {mid, outcome, at, delay_s, channel} of gzcoord-backfill.jsonl (gzcoord/backfill.py): the SENDER's
-            record that a message only the second carrier delivered reached the relay's record afterwards, with `at`
-            in [since, until). `outcome` is posted | present | over-age, `delay_s` a finite number, `channel` a short
+            record of what became of each message only the second carrier delivered once the relay returned: posted,
+            found already present, or over the age bound and not posted, with `at` in [since, until).
+            `outcome` is posted | present | over-age, `delay_s` a finite number, `channel` a short
             string or null; any other line is skipped and counted. Read by the parity report's relay-outage drill
             (its fourth property) and nothing else. A failure of this section ends only this section.
   never     a body. Rows are built key by key from a closed list, each value a

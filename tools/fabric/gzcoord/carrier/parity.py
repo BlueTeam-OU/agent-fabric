@@ -241,7 +241,8 @@ def _backfills(login: str, meta: dict, rows: list | None) -> list[dict] | None:
 
 
 def load_relay_outage(path: str, window: tuple[float, float]) -> dict[str, dict]:
-    """login -> {arrivals, shown, acks} for the relay-outage drill, after load_collected's checks of the
+    """login -> {arrivals, deliveries, shown, acks, backfills} (backfills None when the
+    sender's log was not collected whole) for the relay-outage drill, after load_collected's checks of the
     same collection. Refuses an account whose drill sections were not collected whole: an empty ledger from
     a daemon that never sent one would read as 'never shown', which is a verdict the files do not support."""
     out: dict[str, dict] = {}
