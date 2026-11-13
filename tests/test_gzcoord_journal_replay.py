@@ -242,6 +242,18 @@ def main() -> int:
           r.returncode == 1 and "journal could not be read" in r.stderr, f"{r.returncode}\n{r.stdout}{r.stderr}")
     db = sqlite3.connect(path)
     db.execute("DELETE FROM episodes WHERE id='b2'")
+    for n, (when, sender) in enumerate(((b"\xff\x00", "x/y"), ("T", b"\xfe"))):
+        db.execute("INSERT INTO episodes (id, source, direction, state, happened_at, recorded_at, message_id, type, sender, carrier, "
+                   "content, content_hash, metadata_json) VALUES (?, 'gzcoord', 'inbound', 'received', ?, 'T', ?, 'INFO', ?, "
+                   "'interweave', ?, 'h', '{}')", (f"t{n}", when, C.mid(9 - n), sender, C.msg(9 - n)))
+    db.commit()
+    db.close()
+    for n in (0, 1):
+        r = run(w, "--replay", C.mid(9 - n), "--json")
+        check(f"a row whose {'time' if n == 0 else 'sender'} is a BLOB: --replay --json says the journal could not be read, exit 1, no stdout",
+              r.returncode == 1 and r.stdout == "" and "journal could not be read" in r.stderr, f"{r.returncode}\n{r.stdout}{r.stderr}")
+    db = sqlite3.connect(path)
+    db.execute("DELETE FROM episodes WHERE id IN ('t0', 't1')")
     db.commit()
     db.close()
 
@@ -281,6 +293,21 @@ def main() -> int:
           and C.mid(1) in r.stdout and any("not in the relay's page" in x for x in lines)
           and lines.index(next(x for x in lines if "not in the relay's page" in x)) < next(i for i, x in enumerate(lines) if C.mid(1) in x),
           f"{r.returncode}\n{r.stdout}{r.stderr}")
+    # a row the relay itself carried, older than the relay's page: not "carried another way"
+    saved = dict(os.environ)
+    os.environ.update(w2.env)
+    try:
+        conn = episodic.connect()
+        try:
+            episodic.inbound(conn, [{"content": C.msg(3), "ts": "2026-10-01T00:00:00Z", "seq": 3, "sender": None}])
+        finally:
+            conn.close()
+    finally:
+        os.environ.clear()
+        os.environ.update(saved)
+    r = run(w2, "--history")
+    check("--history with the relay up leaves out a relay-carried row that has aged out of the relay's page (the journal reaches further back)",
+          r.returncode == 0 and C.mid(3) not in r.stdout and C.mid(1) in r.stdout, r.stdout + r.stderr)
     w3 = C.World([], carrier_records=None)
     w3.history = [C.relay_rec(4)]
     r = run(w3, "--history")

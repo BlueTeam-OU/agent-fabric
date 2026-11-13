@@ -131,7 +131,9 @@ def _journal_select(ep: Any, sql: str, params: tuple) -> list:
 def _typed(row: sqlite3.Row) -> sqlite3.Row:
     """SQLite stores any value in any column: a row whose content is not text or whose carrier_seq is not an integer is a
     damaged journal, said as one."""
-    if not isinstance(row["content"], str) or not (row["carrier_seq"] is None or type(row["carrier_seq"]) is int):
+    if (not isinstance(row["content"], str) or not isinstance(row["happened_at"], str)
+            or not (row["sender"] is None or isinstance(row["sender"], str))
+            or not (row["carrier_seq"] is None or type(row["carrier_seq"]) is int)):
         raise JournalUnreadable(f"an episode row ({row['message_id']}) holds a value of the wrong type")
     return row
 
@@ -185,10 +187,13 @@ def replay_journal_row(rec: dict, me: dict, t: i18n.Printer | None = None, as_js
     return 0
 
 
-def _journal_lines(rows: list, from_seq: float | None, me: dict, t: i18n.Printer | None, skip: set | None = None) -> list[str]:
+def _journal_lines(rows: list, from_seq: float | None, me: dict, t: i18n.Printer | None, skip: set | None = None,
+                   not_carrier: str | None = None) -> list[str]:
     lines = []
     for row in reversed(rows):
         seq, when, sender = _typed(row)["carrier_seq"], row["happened_at"], row["sender"]
+        if not_carrier is not None and row["carrier"] == not_carrier:
+            continue
         if from_seq is not None and (seq is None or seq < from_seq):
             continue
         msg = _parse_quiet(row["content"])
@@ -198,7 +203,7 @@ def _journal_lines(rows: list, from_seq: float | None, me: dict, t: i18n.Printer
     return lines
 
 
-_HISTORY_SQL = ("SELECT carrier_seq, happened_at, sender, content, message_id FROM episodes WHERE direction='inbound' "
+_HISTORY_SQL = ("SELECT carrier_seq, happened_at, sender, content, message_id, carrier FROM episodes WHERE direction='inbound' "
                 "ORDER BY happened_at DESC, recorded_at DESC LIMIT ?")
 
 
@@ -218,11 +223,13 @@ def history_journal(ep: Any, from_seq: float | None, me: dict, t: i18n.Printer |
 
 
 def history_journal_only(ep: Any, page: Any, from_seq: float | None, me: dict, t: i18n.Printer | None = None) -> None:
-    """After the relay's list: the messages addressed here that the journal holds and the relay's page does not (one a
-    carrier alone brought), by MESSAGE-ID. Nothing is printed when there are none, so a relay-only account's output is
-    what it always was."""
+    """After the relay's list: the messages addressed here that the journal holds, that the relay did not carry and that the
+    relay's page does not list (one a carrier alone brought), by MESSAGE-ID. A row the relay itself carried is left out
+    even when it has aged out of the page: the journal's window reaches further back than the relay's newest page, and
+    calling those "carried another way" would be false. Nothing is printed when there are none, so a relay-only account's
+    output is what it always was."""
     seen = {m["metadata"].get("MESSAGE-ID") for r in _records(page) if (m := _parse_quiet(r.get("content")))}
-    lines = _journal_lines(_journal_select(ep, _HISTORY_SQL, (HISTORY_WINDOW,)), from_seq, me, t, skip=seen)
+    lines = _journal_lines(_journal_select(ep, _HISTORY_SQL, (HISTORY_WINDOW,)), from_seq, me, t, skip=seen, not_carrier=RELAY_CARRIER)
     if lines:
         print("in your journal, not in the relay's page (carried another way):")
         for line in lines:
