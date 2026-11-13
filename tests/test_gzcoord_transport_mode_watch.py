@@ -2,7 +2,7 @@
 """A running watch takes a changed transport mode (InterWeave-only cutover plan row W5), through the real bin/gzcoord-inbox in the
 protocol suite's scratch environment against a stub relay that holds nothing: the account's mode is changed while the
 watch waits, and the watch says so within the minute the plan allows. A mode that cannot be read ends a starting watch with exit 7
-and its reason on stdout, and is said once, not obeyed, by a running one. The mode file's own cases and open_transport's are in
+and its reason on stdout, and is said once and not obeyed by a running one. The mode file's own cases and open_transport's are in
 tests/test_control_transport_mode.py. The sender refuses on such a file before it keeps or posts anything."""
 from __future__ import annotations
 
@@ -105,15 +105,16 @@ class Watch(unittest.TestCase):
         mode.write("carrier-record", "h1/op", self.dir)       # the positive control: the same watch does see a change
         self.assertIsNotNone(self.line_matching("transport mode is now carrier-record", WITHIN))
 
-    def test_a_mode_that_cannot_be_read_is_said_and_not_obeyed_by_a_running_watch(self):
+    def test_a_mode_that_cannot_be_read_is_said_once_and_not_obeyed_by_a_running_watch(self):
+        mode.write("carrier-record", "h1/op", self.dir)      # not the default: reading damage as relay-record would be a visible move
         self.start()
         with open(self.file, "w", encoding="utf-8") as fh:
             fh.write("{")
-        # A damaged file is no change (Watcher keeps the last mode): the repair is the next signed set.
-        self.assertIsNone(self.line_matching("transport mode", 12))
+        self.assertIsNotNone(self.line_matching("the watch keeps transport mode carrier-record", WITHIN), "the damage is said")
+        self.assertIsNone(self.line_matching("transport mode is now", 12), "and not obeyed, nor said again")
         self.assertIsNone(self.proc.poll())
-        mode.write("carrier-record", "h1/op", self.dir)
-        self.assertIsNotNone(self.line_matching("transport mode is now carrier-record", WITHIN))
+        mode.write("carrier-only", "h1/op", self.dir)
+        self.assertIsNotNone(self.line_matching("transport mode is now carrier-only", WITHIN))
 
     def test_a_watch_that_starts_on_a_damaged_file_ends_with_exit_7_and_says_why_on_stdout(self):
         with open(self.file, "w", encoding="utf-8") as fh:

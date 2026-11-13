@@ -36,6 +36,10 @@ class Scratch(unittest.TestCase):
         self.dir = tempfile.mkdtemp(prefix="transport-mode-")
         self.addCleanup(shutil.rmtree, self.dir, ignore_errors=True)
         self.file = os.path.join(self.dir, mode.FILE)
+        # The login's own state directory is the scratch too: nothing here may touch the real account's.
+        saved = os.environ.get("AGENT_FABRIC_STATE_DIR")
+        os.environ["AGENT_FABRIC_STATE_DIR"] = os.path.join(self.dir, "login-state")
+        self.addCleanup(lambda: os.environ.__setitem__("AGENT_FABRIC_STATE_DIR", saved) if saved is not None else os.environ.pop("AGENT_FABRIC_STATE_DIR", None))
 
     def write(self, text):
         with open(self.file, "w", encoding="utf-8") as fh:
@@ -52,7 +56,8 @@ class State(Scratch):
         r = mode.read(self.dir)
         self.assertEqual((r["mode"], r["set_by"]), ("carrier-record", OPERATOR))
         self.assertRegex(r["set_at"], r"^\d{4}-\d\d-\d\dT")
-        self.assertEqual(os.listdir(self.dir), [mode.FILE] if not os.path.exists(os.path.join(self.dir, ".lock")) else sorted([mode.FILE, ".lock"]))
+        self.assertEqual(os.listdir(self.dir), [mode.FILE], "no temporary and no lock beside it")
+        self.assertFalse(os.path.exists(os.path.join(self.dir, "login-state")), "an explicit directory touches nothing of the login's own")
 
     def test_every_mode_round_trips_and_an_unknown_one_is_not_written(self):
         for m in mode.MODES:
@@ -74,6 +79,22 @@ class State(Scratch):
         # The journal says that failure in its own words (exit 6 in the watch); the mode must not pre-empt it with another.
         open(self.file, "w").close()
         self.assertEqual(mode.read(self.file)["mode"], "relay-record")
+
+    def test_content_and_files_a_reader_must_not_follow_are_errors_not_crashes_or_hangs(self):
+        cases = {"deeply nested": lambda: self.write('{"mode": "carrier-record", "x": ' + "[" * 100000 + "]" * 100000 + "}"),
+                 "larger than a record": lambda: self.write('{"mode": "carrier-record", "x": "' + "a" * 10000 + '"}'),
+                 "a fifo": lambda: os.mkfifo(self.file),
+                 "a symlink to a good file": lambda: (self.write('{"mode": "carrier-record"}'), os.rename(self.file, self.file + ".real"), os.symlink(self.file + ".real", self.file))}
+        for name, make in cases.items():
+            for f in (self.file, self.file + ".real"):
+                if os.path.lexists(f):
+                    os.unlink(f)
+            make()
+            with self.assertRaises(mode.ModeError, msg=name):
+                mode.read(self.dir)
+            a = tm.set_mode({"op": OP, "from": OPERATOR, "args": {"mode": "relay-record"}}, state_dir=self.dir)
+            self.assertEqual((a["status"], a["previous"]), ("set", None), f"{name}: the action repairs it")
+            self.assertEqual(mode.read(self.dir)["mode"], "relay-record", name)
 
     def test_a_directory_in_the_files_place_is_an_error(self):
         os.mkdir(self.file)
@@ -103,14 +124,26 @@ class Watching(Scratch):
         from gzcoord import inbox
         self.assertLessEqual(inbox.MODE_POLL_S, 30)
 
-    def test_a_file_that_cannot_be_read_is_no_change_and_a_later_good_one_is(self):
-        w = self.watcher()
+    def test_a_file_that_cannot_be_read_keeps_the_mode_is_said_once_and_a_later_good_one_is_a_change(self):
+        # Started on carrier-record: a reader that took damage for the default would move it to relay-record.
+        self.now = 0.0
+        said = []
+        w = mode.Watcher("carrier-record", self.dir, every=5.0, clock=lambda: self.now, on_error=said.append)
         self.write("{")
-        self.now = 5.0
+        for t in (5.0, 10.0):
+            self.now = t
+            self.assertFalse(w.changed())
+            self.assertEqual(w.current, "carrier-record")
+        self.assertEqual(len(said), 1, "the same damage is said once")
+        self.assertIn("transport-mode.json", said[0])
+        self.write("[]")
+        self.now = 15.0
         self.assertFalse(w.changed())
-        self.write('{"mode": "carrier-record"}')
-        self.now = 10.0
+        self.assertEqual(len(said), 2, "another reason is said again")
+        self.write('{"mode": "carrier-only"}')
+        self.now = 20.0
         self.assertTrue(w.changed())
+        self.assertEqual(w.current, "carrier-only")
 
     def test_removing_the_file_is_a_move_back_to_the_default(self):
         self.now = 0.0
@@ -322,6 +355,21 @@ class FleetRuns(Fleet):
         self.assertNotRegex(err, r"a \(|b \(")
         self.assertEqual(self.moves(), [], "a refused move is sent to nobody")
         self.assertEqual(self.modes(), {"a": "carrier-record", "b": "carrier-record", "c": "relay-record"})
+
+    def test_carrier_only_over_hostexec_is_refused_up_front_with_its_own_reason(self):
+        for l in self.LOGINS:
+            self.put(l, "carrier-record")
+        rc, out, err = self.run_ctl(["a", OP, "--mode", "carrier-only", "--via", "hostexec"])
+        self.assertEqual(rc, 2)
+        self.assertRegex(err, r"read over the relay: --via hostexec cannot carry it")
+        self.assertEqual(self.sent, [])
+
+    def test_the_fleet_read_is_given_the_reads_budget_not_the_actions(self):
+        for l in self.LOGINS:
+            self.put(l, "carrier-record")
+        self.run_ctl(["all", OP, "--mode", "carrier-only"])
+        read = next(r for r in self.sent if r["op"] == CARRIER_NAME)
+        self.assertGreaterEqual(read["ttl_s"], ctl.CARRIER_READ_BUDGET_S)
 
     def test_the_refusal_looks_at_the_whole_fleet_not_only_the_accounts_addressed(self):
         self.put("a", "carrier-record")

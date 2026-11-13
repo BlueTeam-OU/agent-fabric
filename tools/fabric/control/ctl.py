@@ -2278,6 +2278,9 @@ def main(argv: list[str] | None = None, *, registry: str | None = None, call: Ca
         return max(rcs)
     if args["op"] == EVIDENCE_OP and args.get("section") is None:
         return _collect_evidence(args, expected, registry=registry, call=call, out=out, err=err, sleep=sleep, now=now, who=who, token=token)
+    if args["op"] == MODE_OP and args["mode"] == mode_mod.CARRIER_ONLY and args.get("via"):
+        err(f"fabric-ctl: carrier-only is checked against the fleet's modes, which are read over the relay: --via {args['via']} cannot carry it; nothing sent")
+        return 2
     if args["op"] == MODE_OP and args["mode"] == mode_mod.CARRIER_ONLY:
         # Only the operator sees the fleet: an account cannot know that another is still on the relay's record.
         unready = _carrier_only_blockers(args, registry=registry, call=call, out=out, err=err, sleep=sleep, now=now, who=who, token=token)
@@ -2542,7 +2545,8 @@ def _carrier_only_blockers(args: dict, **inject: Any) -> str:
     """Who stands in the way of carrier-only: every placed account (not only the addressed ones) that reports relay-record,
     and every one that reports nothing, since an account whose mode is unknown is not known to be past it. "" when none."""
     lines: list[str] = []
-    argv = ["--json", "--timeout", str(args["timeout"]), "all", CARRIER_NAME, *(["--via", args["via"]] if args.get("via") else [])]
+    # A read takes its own budget, not the action's: an account answering after the action's 20 s is not silent.
+    argv = ["--json", "--timeout", str(max(args["timeout"], CARRIER_READ_BUDGET_S)), "all", CARRIER_NAME]
     rc = main(argv, **{**inject, "out": lines.append})
     modes: dict[str, str | None] = {}
     for line in lines:

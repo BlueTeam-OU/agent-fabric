@@ -568,7 +568,8 @@ def main(argv: list[str]) -> int:
     primary = tp.primary
     # A running watch takes a changed mode at its next arm, within a minute: the file is read every few seconds and a change
     # ends the arm the way a session's end does (nothing acknowledged is lost, the relay shows the slice again).
-    mode_watch = transport.mode.Watcher(tp.mode, ep.state_dir(), every=MODE_POLL_S)
+    mode_watch = transport.mode.Watcher(tp.mode, ep.state_dir(), every=MODE_POLL_S,
+                                        on_error=lambda why: print(f"gzcoord-inbox: {why}; the watch keeps transport mode {tp.mode}", file=sys.stderr, flush=True))
     cause = {"reason": None}
 
     def held_line(reason: str, n: int) -> str:
@@ -669,7 +670,8 @@ def main(argv: list[str]) -> int:
                 try:
                     tp = open_mux()
                 except transport.ModeError as e:
-                    # The watch keeps the transport it has: a damaged file is said, never read as a mode.
+                    # The watch keeps the transport it has, and asks again at the next poll: a damaged file is said, never read as a mode.
+                    mode_watch.current = tp.mode
                     print(f"gzcoord-inbox: {e}", file=sys.stderr, flush=True)
                 else:
                     primary = tp.primary
