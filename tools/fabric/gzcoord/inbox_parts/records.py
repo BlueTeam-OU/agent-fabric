@@ -72,12 +72,10 @@ def replay(page: Any, channel: str, which: str, me: dict, t: i18n.Printer | None
         msg = None
     if as_json:
         addressed = bool(msg and for_me(msg, me))
-        # carrier / sender_verified say whose the sender is: the relay's record is a claim (ADR-064 rule 9), a journal row
-        # says what its carrier verified.
+        # The relay's record is a claim (ADR-064 rule 9): never verified, whatever fields the record carries.
         print(js.stringify({"addressed": addressed, "seq": rec.get("seq"), "sender": rec.get("sender"), "when": when,
                             "type": msg["type"], "metadata": msg["metadata"], "text": text,
-                            "carrier": rec.get("carrier", RELAY_CARRIER),
-                            "sender_verified": bool(rec.get("sender_verified", False))}
+                            "carrier": RELAY_CARRIER, "sender_verified": False}
                            if addressed else {"addressed": addressed, "seq": rec.get("seq")}))
         return 0 if addressed else 2
     if not msg or not for_me(msg, me):
@@ -107,31 +105,52 @@ class JournalUnreadable(Exception):
     absent row: an unreadable journal is not "the message is not there"."""
 
 
-def journal_record(ep: Any, which: str) -> dict | None:
-    """The journal's row for a MESSAGE-ID as the relay's record shape plus what the journal knows of its carrier, or None
-    when the journal holds none (or no journal file exists yet). Read through episodic.open_readonly: no write lock, no
-    migration, no row written. An inbound row wins over an outbound one (a message to oneself has both); an outbound row
-    that never left (state failed) is not a message anyone holds."""
-    if not os.path.exists(ep.db_path()):
-        return None
+def _journal_select(ep: Any, sql: str, params: tuple) -> list:
+    """Rows of one SELECT on the journal, read through episodic.open_readonly: no write lock, no migration, no row written.
+    No journal file yet is no rows; every other failure is JournalUnreadable, said and never read as an absent message."""
+    try:
+        present = os.path.exists(ep.db_path())
+    except (OSError, ValueError, ep.JournalError) as e:
+        raise JournalUnreadable(f"where the journal is could not be found: {e}") from None
+    if not present:
+        return []
     try:
         conn = ep.open_readonly()
         try:
             conn.row_factory = sqlite3.Row
             cols = {r[1] for r in conn.execute("PRAGMA table_info(episodes)")}
-            verified = "sender_verified" if "sender_verified" in cols else "NULL AS sender_verified"
-            row = conn.execute(
-                f"SELECT content, sender, happened_at, carrier, carrier_seq, {verified} FROM episodes "
-                "WHERE message_id=? AND NOT (direction='outbound' AND state='failed') "
-                "ORDER BY direction='inbound' DESC, recorded_at DESC LIMIT 1", (which,)).fetchone()
+            # A journal older than schema 3 has no sender_verified (a reader migrates nothing): every sender there is a claim.
+            return conn.execute(sql.replace("{verified}", "sender_verified" if "sender_verified" in cols
+                                            else "NULL AS sender_verified"), params).fetchall()
         finally:
             conn.close()
     except (ep.JournalError, sqlite3.Error) as e:
         raise JournalUnreadable(str(e)) from None
-    if row is None:
+
+
+def _typed(row: sqlite3.Row) -> sqlite3.Row:
+    """SQLite stores any value in any column: a row whose content is not text or whose carrier_seq is not an integer is a
+    damaged journal, said as one."""
+    if not isinstance(row["content"], str) or not (row["carrier_seq"] is None or type(row["carrier_seq"]) is int):
+        raise JournalUnreadable(f"an episode row ({row['message_id']}) holds a value of the wrong type")
+    return row
+
+
+def journal_record(ep: Any, which: str) -> dict | None:
+    """The journal's row for a MESSAGE-ID as the relay's record shape plus what the journal knows of it, or None when the
+    journal holds none. An inbound row wins over an outbound one (a message to oneself has both); an outbound row that
+    never left (state failed) is not a message anyone holds. `carrier` is the carrier that FIRST carried the row, never
+    the verifier of its sender (a verified copy leaves it as it was), and None where the journal has none (a send still
+    pending)."""
+    rows = _journal_select(ep, "SELECT content, sender, happened_at, carrier, carrier_seq, state, direction, message_id, "
+                           "{verified} FROM episodes WHERE message_id=? AND NOT (direction='outbound' AND state='failed') "
+                           "ORDER BY direction='inbound' DESC, recorded_at DESC LIMIT 1", (which,))
+    if not rows:
         return None
+    row = _typed(rows[0])
     return {"seq": row["carrier_seq"], "sender": row["sender"], "timestamp": row["happened_at"], "content": row["content"],
-            "carrier": row["carrier"] or "-", "sender_verified": bool(row["sender_verified"]), "journal": True}
+            "carrier": row["carrier"], "sender_verified": bool(row["sender_verified"]), "journal": True,
+            "state": row["state"], "direction": row["direction"]}
 
 
 def replay_journal_row(rec: dict, me: dict, t: i18n.Printer | None = None, as_json: bool = False) -> int:
@@ -147,46 +166,48 @@ def replay_journal_row(rec: dict, me: dict, t: i18n.Printer | None = None, as_js
     if as_json:
         print(js.stringify({"addressed": addressed, "seq": rec["seq"], "sender": rec["sender"], "when": when,
                             "type": msg["type"], "metadata": msg["metadata"], "text": text,
-                            "carrier": rec["carrier"], "sender_verified": rec["sender_verified"]}
+                            "carrier": rec["carrier"], "sender_verified": rec["sender_verified"], "state": rec["state"]}
                            if addressed else {"addressed": addressed, "seq": rec["seq"]}))
         return 0 if addressed else 2
-    who = f"{rec['sender']} ({'verified by' if rec['sender_verified'] else 'claimed to'} {rec['carrier']})"
+    # The two facts apart: whether a carrier verified the sender, and which carrier first carried the row.
+    who = (f"{rec['sender']} (sender {'verified by a carrier' if rec['sender_verified'] else 'claimed, not verified'}; "
+           f"first carried by {rec['carrier'] if rec['carrier'] is not None else 'no carrier yet'})")
+    pending = " [pending: the send's outcome is unknown]" if rec["direction"] == "outbound" and rec["state"] == "pending" else ""
     if not addressed:
         print(f"journal row, from {who}, {when} — not addressed to {me['address']}; body not shown (SPEC §17)")
         if msg:
             print(f"  {one_line(msg, t)}")
         return 2
-    print(f"--- journal row, from {who}, {when} (replay; cursor unchanged)")
+    print(f"--- journal row, from {who}, {when}{pending} (replay; cursor unchanged)")
     print("```text")
     print(text[:-1] if text.endswith("\n") else text)
     print("```")
     return 0
 
 
+def _journal_lines(rows: list, from_seq: float | None, me: dict, t: i18n.Printer | None, skip: set | None = None) -> list[str]:
+    lines = []
+    for row in reversed(rows):
+        seq, when, sender = _typed(row)["carrier_seq"], row["happened_at"], row["sender"]
+        if from_seq is not None and (seq is None or seq < from_seq):
+            continue
+        msg = _parse_quiet(row["content"])
+        if msg is None or not for_me(msg, me) or msg["metadata"].get("MESSAGE-ID") in (skip or ()):
+            continue
+        lines.append(f"  {'-' if seq is None else seq}  {when}  {sender}  {one_line(msg, t)}")
+    return lines
+
+
+_HISTORY_SQL = ("SELECT carrier_seq, happened_at, sender, content, message_id FROM episodes WHERE direction='inbound' "
+                "ORDER BY happened_at DESC, recorded_at DESC LIMIT ?")
+
+
 def history_journal(ep: Any, from_seq: float | None, me: dict, t: i18n.Printer | None = None) -> int:
     """history() over the journal: what this account kept as received, newest HISTORY_WINDOW, the ones addressed here. Used
     where there is no relay to ask (none configured, no token, one that does not answer); `from_seq` filters on the carrier's
     seq, so a row a carrier alone journaled (no seq) is listed only without it."""
-    if not os.path.exists(ep.db_path()):
-        rows: list = []
-    else:
-        try:
-            conn = ep.open_readonly()
-            try:
-                rows = conn.execute("SELECT carrier_seq, happened_at, sender, content FROM episodes WHERE direction='inbound' "
-                                    "ORDER BY happened_at DESC, recorded_at DESC LIMIT ?", (HISTORY_WINDOW,)).fetchall()
-            finally:
-                conn.close()
-        except (ep.JournalError, sqlite3.Error) as e:
-            raise JournalUnreadable(str(e)) from None
-    lines = []
-    for seq, when, sender, content in reversed(rows):
-        if from_seq is not None and (seq is None or seq < from_seq):
-            continue
-        msg = _parse_quiet(content)
-        if msg is None or not for_me(msg, me):
-            continue
-        lines.append(f"  {'-' if seq is None else seq}  {when}  {sender}  {one_line(msg, t)}")
+    rows = _journal_select(ep, _HISTORY_SQL, (HISTORY_WINDOW,))
+    lines = _journal_lines(rows, from_seq, me, t)
     print(f"gzcoord history for {me['address']}: {len(lines)} addressed to you in your journal's last {len(rows)} received"
           " (no relay answered; the cursor does not move)")
     for line in lines:
@@ -194,6 +215,18 @@ def history_journal(ep: Any, from_seq: float | None, me: dict, t: i18n.Printer |
     if lines:
         print("the whole message: gzcoord-inbox --replay <message-id>")
     return 0
+
+
+def history_journal_only(ep: Any, page: Any, from_seq: float | None, me: dict, t: i18n.Printer | None = None) -> None:
+    """After the relay's list: the messages addressed here that the journal holds and the relay's page does not (one a
+    carrier alone brought), by MESSAGE-ID. Nothing is printed when there are none, so a relay-only account's output is
+    what it always was."""
+    seen = {m["metadata"].get("MESSAGE-ID") for r in _records(page) if (m := _parse_quiet(r.get("content")))}
+    lines = _journal_lines(_journal_select(ep, _HISTORY_SQL, (HISTORY_WINDOW,)), from_seq, me, t, skip=seen)
+    if lines:
+        print("in your journal, not in the relay's page (carried another way):")
+        for line in lines:
+            print(line)
 
 
 # The relay pages forward from a message it holds (since_id) and never
