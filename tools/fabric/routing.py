@@ -329,7 +329,9 @@ def load_shims(root: str | None = None) -> list[dict[str, Any]]:
 
 
 def load_review_grade(root: str | None = None) -> dict[str, Any]:
-    path = roots.routing_policy("review-grade.json", root or None, engine=FABRIC_ROOT)
+    # `root` is the engine tree the caller was handed (status.py's, a launcher's):
+    # an exported operator still outranks it for the operator's data (roots.operator_root).
+    path = roots.routing_policy("review-grade.json", engine=root or FABRIC_ROOT)
     return _load(path) if os.path.exists(path) else {"capability": "code-review", "models": []}
 
 
@@ -371,7 +373,7 @@ def effort_for(capability: str, provider: str, model: str | None, role: str | No
 
 
 def load_profiles(root: str | None = None) -> dict[str, Any]:
-    path = roots.routing_profiles(root or None, engine=FABRIC_ROOT)
+    path = roots.routing_profiles(engine=root or FABRIC_ROOT)   # as load_review_grade
     return _load(path) if os.path.exists(path) else {"version": 2, "defaults": {}}
 
 
