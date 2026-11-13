@@ -98,12 +98,21 @@ CONTRACT, frozen from the Node:
             --replay <seq|message-id> [--json]
                                 re-read ONE message; the cursor does not
                                 move; a body not addressed here is not
-                                shown. --json: one object (addressed,
-                                seq, sender, when, type, metadata, text),
-                                or {"addressed": false, "seq": N}
+                                shown. A message-id is answered from this
+                                account's journal first (relay configured
+                                or not), else the relay; a seq only by the
+                                relay. --json: one object (addressed,
+                                seq, sender, when, type, metadata, text,
+                                carrier, sender_verified, and for a
+                                journal row state), or {"addressed":
+                                false, "seq": N}
             --history [<seq>]   one line per message addressed here in the
-                                relay's recent history; bodies stay with
-                                --replay; the cursor does not move
+                                relay's recent history, then those a
+                                carrier other than the relay brought
+                                (from the journal) that its page lacks;
+                                with no relay to ask, the journal's list;
+                                bodies stay with --replay; the cursor does
+                                not move
             --held              is this account's inbox held (planning)?
   env       CLAUDE_BRIDGE_URL and GZCOORD_CHANNEL (together, or over a
             project's integration), CLAUDE_BRIDGE_AUTH_TOKEN (after the
@@ -133,9 +142,10 @@ CONTRACT, frozen from the Node:
   exit      0 drained, delivered, a second watch refused (one per login), --until-delivery quiet to its
             --deadline, a watch whose session ended, nothing for you, relay unreachable on a
             drain or wait, and (outside --until-delivery) not configured
-            or no token; 1 a usage line, replay of no such message, the
-            --held "not held"; 2 a control channel named, replay not
-            addressed (--json too); 3 a keyword hit, and under
+            or no token (--history then lists the journal);
+            1 a usage line, replay of no such message, an unreadable
+            journal, the --held "not held"; 2 a control channel named,
+            replay not addressed (--json too); 3 a keyword hit, and under
             --until-delivery not configured or no token; 4 a refused
             token; 5 --until-delivery's relay unreachable for 15 minutes;
             6 --until-delivery's delivery held by the journal; 7
@@ -175,8 +185,9 @@ GZCOORD_JOURNAL=off skips the journal, never the record: each of those
 messages gets a line in journal-bypass.jsonl (gzcoord/bypass.py) before it
 is shown or acknowledged, and a line that cannot be written holds the page
 as a journal that cannot keep it does. --replay and --history leave no
-bypass line, journal on or off: they show what the relay already holds and
-acknowledge nothing, and the journal is not written by them in either mode.
+bypass line, journal on or off: they show what the relay or the journal
+already holds and acknowledge nothing, and the journal is only read by them
+(episodic.open_readonly), in either mode.
 A replay ahead of the drain shows a record no line or row records yet: it
 is logged when the drain or the watch delivers it.
 """
@@ -214,6 +225,7 @@ from .inbox_parts.relay import _relay_up, ensure_relay, RelayError, API_TIMEOUT 
 from .inbox_parts.relay import _OPENER, api, explain_relay_error  # noqa: F401
 from .inbox_parts.records import _records, _when, one_line, _parse_quiet, replay, HISTORY_WINDOW  # noqa: F401
 from .inbox_parts.records import history, RETRANSMISSION_LOOKUP_MS, mark_retransmissions  # noqa: F401
+from .inbox_parts.records import MESSAGE_ID, JournalUnreadable, history_journal, history_journal_only, journal_record, replay_journal_row  # noqa: F401
 from .inbox_parts.records import KEYWORD_MIN, KEYWORD_MAX, KeywordError, check_keywords  # noqa: F401
 from .inbox_parts.records import _TOKEN_SPLIT, keyword_hit, REPLAY_CMD  # noqa: F401
 from .inbox_parts.hold import hold_dir, pid_start, pid_alive, hold_status, HOLD_POLL_MS  # noqa: F401
@@ -427,6 +439,37 @@ def main(argv: list[str]) -> int:
         return 0 if h["held"] else 1
     root = inbox_root(who)
     cfg = integration_config(who.get("project"), os.environ, t)
+
+    def own_identity() -> dict:
+        tax_path = gzmsg.find_taxonomy(root)
+        return identity(who, gzmsg.load_taxonomy(tax_path) if tax_path else None)
+
+    def journal_unreadable(e: JournalUnreadable) -> int:
+        print(f"gzcoord-inbox: your journal could not be read: {e}", file=sys.stderr)
+        return 1
+
+    # A MESSAGE-ID is answered from this account's journal first, in every configuration: relay configured or not, up or not,
+    # journal writing on or off (it is read here, never written). Only a relay seq, or a MESSAGE-ID the journal does not hold,
+    # goes on to the relay.
+    if replay_which and MESSAGE_ID.fullmatch(replay_which):
+        try:
+            row = journal_record(_episodic(), replay_which)
+        except JournalUnreadable as e:
+            return journal_unreadable(e)
+        if row is not None:
+            return replay_journal_row(row, own_identity(), t, "--json" in argv)
+        if not cfg["configured"]:
+            print(f"gzcoord inbox: no message {replay_which} in your journal, and no relay is configured to ask", file=sys.stderr)
+            return 1
+
+    def history_from_journal() -> int:
+        try:
+            return history_journal(_episodic(), history_from, own_identity(), t)
+        except JournalUnreadable as e:
+            return journal_unreadable(e)
+
+    if history_given and not cfg["configured"]:
+        return history_from_journal()
     # Not configured is not an error at a session start, and not a guess.
     # Under --until-delivery the session reads stdout only, and "run it again"
     # on an immediate exit 0 would loop it one turn per run: so a refusal
@@ -450,6 +493,8 @@ def main(argv: list[str]) -> int:
     elif up.get("note"):
         print(t("start.error", {"detail": up["note"]}), file=sys.stderr)
     tok = token(root, cfg)
+    if not tok and history_given:
+        return history_from_journal()
     if not tok:
         print(t("start.no-token", {"token_file": cfg["token_env_file"] if cfg.get("token_env_file") is not None
                                    else t("config.no-token-file")}), file=refusal_out)
@@ -475,11 +520,22 @@ def main(argv: list[str]) -> int:
         primary = transport.open_transport(cfg, token=tok, me=me, journal_off=True).primary
         try:
             if history_given:
-                return with_fresh_token(primary, lambda: history(primary.newest(HISTORY_WINDOW), channel, history_from, me, t))
+                def relay_then_journal() -> int:
+                    page = primary.newest(HISTORY_WINDOW)
+                    code = history(page, channel, history_from, me, t)
+                    try:
+                        history_journal_only(_episodic(), page, history_from, me, t)
+                    except JournalUnreadable as e:
+                        journal_unreadable(e)   # said on stderr; the relay's list above stands
+                    return code
+                return with_fresh_token(primary, relay_then_journal)
             return with_fresh_token(primary, lambda: replay(primary.newest(500), channel, replay_which, me, t, "--json" in argv))
         except Exception as e:  # noqa: BLE001 — any failure of the read is the primary's line
             x = primary.explain(e, t)
             print(x["line"], file=sys.stderr)
+            if history_given:
+                # The relay said why it did not answer; the journal is the record this account holds.
+                return history_from_journal()
             return x["code"] or 1
 
     # Drain mode spends 1 s on the cursor page and lists everything; wait
