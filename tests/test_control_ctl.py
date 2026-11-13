@@ -32,6 +32,12 @@ BASE = {"targets": [], "op": "status", "json": False, "timeout": 20, "out": None
         "expect": None, "restart": False, "title": None, "topic": None, "project": None, "priority": None, "role": None, "follow": False, "tool": None}
 
 
+# The committed control_carrier may be "dual" (ADR-029 rule 18): an in-process fabric-ctl run would then append
+# its fixture replies to the account's real control-arrivals.jsonl and dial its live agentd, run alone or by
+# tests/run.py (#583 F1). Every suite that runs ctl in-process pins the relay itself; test_run_control_carrier checks.
+os.environ["FABRIC_CONTROL_CARRIER"] = "relay"
+
+
 def raw_controls(text: str, keep: str = "\n") -> list[str]:
     """The C0 and C1 control characters in text, but those in `keep`: what a terminal would act on."""
     return [c for c in text if (ord(c) < 32 or 0x7F <= ord(c) <= 0x9F) and c not in keep]

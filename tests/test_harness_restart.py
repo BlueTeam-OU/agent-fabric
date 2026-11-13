@@ -22,6 +22,12 @@ from control import ctl, harness_restart as hr, units  # noqa: E402
 ME = {"host": "h", "agent": "coordinator"}
 
 
+# The committed control_carrier may be "dual" (ADR-029 rule 18): an in-process fabric-ctl run would then append
+# its fixture replies to the account's real control-arrivals.jsonl and dial its live agentd, run alone or by
+# tests/run.py (#583 F1). Every suite that runs ctl in-process pins the relay itself; test_run_control_carrier checks.
+os.environ["FABRIC_CONTROL_CARRIER"] = "relay"
+
+
 class Fleet:
     """A user manager and a passwd file per login. `stop`/`start` move the unit; a start gives a new MainPID unless
     the login is in `same_pid`. `broken` maps a login to the step ("mark", "stop", "start") that exits 1 for it."""

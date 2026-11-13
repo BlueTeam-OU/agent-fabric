@@ -394,4 +394,6 @@ Every account's profile was then re-rendered with `fabric-control`.
 names `dual` in the same change, so each account takes it with its next
 fabric upgrade. The relay stays the transport of record until the
 owner's word on a control parity report (§2). Not read back: a second
-host, which has no fleet account yet.
+host, which has no fleet account yet; and, on the one host, anything
+but `ping`: no signed action, no reply split into parts, no public op
+from a non-operator account.

@@ -4,8 +4,12 @@
 real control-arrivals.jsonl and dial its live agentd socket (#583 F1). The dual cases set the variable themselves."""
 from __future__ import annotations
 
+import glob
+import json
 import os
+import re
 import sys
+import tempfile
 import unittest
 
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -22,11 +26,33 @@ class RunPinsTheRelay(unittest.TestCase):
             env = run.run_environment(dict(outside), "/nonexistent-scratch")
             self.assertEqual(env["FABRIC_CONTROL_CARRIER"], "relay", outside)
 
-    def test_the_pin_outranks_the_committed_file(self) -> None:
-        env = run.run_environment({}, "/nonexistent-scratch")
-        self.assertEqual(agentd.control_config(env)["control_carrier"], "relay")
-        self.assertEqual(agentd.control_config({})["control_carrier"], agentd.CARRIER_DUAL,
-                         "the committed file is dual: without the pin a suite would run on it")
+    def test_the_pin_outranks_a_config_that_says_dual(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            with open(os.path.join(HERE, "runtime", "control", "config.json"), encoding="utf-8") as fh:
+                committed = json.load(fh)
+            dual = os.path.join(tmp, "config.json")
+            with open(dual, "w", encoding="utf-8") as fh:
+                json.dump({**committed, "control_carrier": agentd.CARRIER_DUAL}, fh)
+            self.assertEqual(agentd.control_config({}, dual)["control_carrier"], agentd.CARRIER_DUAL)
+            env = run.run_environment({}, "/nonexistent-scratch")
+            self.assertEqual(agentd.control_config(env, dual)["control_carrier"], "relay")
+
+
+class EverySuiteThatRunsCtlPinsItself(unittest.TestCase):
+    """A suite run alone (`python3 tests/test_x.py`, the card's way) skips run_environment: each suite that drives
+    fabric-ctl in-process sets FABRIC_CONTROL_CARRIER itself, relay or the dual it tests (#583 F1, round 2)."""
+
+    def test_each_in_process_ctl_suite_names_the_carrier(self) -> None:
+        drives = re.compile(r"\bctl\.(main|run)\(")
+        found, missing = [], []
+        for path in sorted(glob.glob(os.path.join(HERE, "tests", "test_*.py"))):
+            text = open(path, encoding="utf-8").read()
+            if drives.search(text):
+                found.append(os.path.basename(path))
+                if "FABRIC_CONTROL_CARRIER" not in text:
+                    missing.append(os.path.basename(path))
+        self.assertGreaterEqual(len(found), 9, f"the scan found too few ctl suites to mean anything: {found}")
+        self.assertEqual(missing, [], "these suites drive fabric-ctl in-process and do not pin the carrier")
 
 
 if __name__ == "__main__":

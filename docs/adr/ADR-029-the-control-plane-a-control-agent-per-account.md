@@ -437,8 +437,8 @@ with Doppler (ADR-038 §5 rule 8).
 
 Accepted. The control agent, the channel, the read ops and the signed
 actions are in use on every placed account. Rule 18's second carrier is
-built (#571) and read back between two accounts of one host, and
-`control_carrier` is `dual` for the fleet (A 2026-11-13): the relay
+built (#571), its read path read back between two accounts of one host,
+and `control_carrier` is `dual` for the fleet (A 2026-11-13): the relay
 stays the transport of record, InterWeave the carrier beside it.
 
 ## References
