@@ -147,6 +147,19 @@ def open_layout(args: argparse.Namespace) -> str:
     return project
 
 
+def shown(value: Any) -> str:
+    """A distiller's text as a refusal may print it: repr'd, and held to every pattern. These messages go to the
+    operator's terminal and any log of the run before screen_hygiene has judged the claim, so a banned name in a title,
+    topic, anchor, class, role id or file name must not reach them. BANNED_PATTERNS, not the class's set: a name
+    another project keeps out is out of every stream, and a refusal has no slice it is about to be written to."""
+    return hygiene_substitute(repr(value), "", BANNED_PATTERNS)[0]
+
+
+def shown_why(value: Any, why: str) -> str:
+    """role_id_error's text echoes the value; the echo is screened, the rule it names is not."""
+    return why.replace(repr(value), shown(value), 1)
+
+
 def read_claims(run: Run) -> int | None:
     """The drain's references, origins and claims; 1 when a claim is out of its scope."""
     # The harvest's record is judged before anything is written: the store
@@ -184,7 +197,7 @@ def read_claims(run: Run) -> int | None:
         role = payload.get("role") if isinstance(payload, dict) else None
         why = role_id_error(role)
         if why:
-            sys.exit(f"assemble: {name}: the claims file's role {why}")
+            sys.exit(f"assemble: {shown(name)}: the claims file's role {shown_why(role, why)}")
         run.all_claims[role] = payload.get("claims", [])
         for claim in run.all_claims[role]:
             claim["_role"] = role   # for the section's dated tail; never written to disk
@@ -205,7 +218,7 @@ def read_claims(run: Run) -> int | None:
             for owner in claim.get("shared_with") or []:
                 why = role_id_error(owner)
                 if why:
-                    sys.exit(f"assemble: {name}: a claim's shared_with names {why}")
+                    sys.exit(f"assemble: {shown(name)}: a claim's shared_with names {shown_why(owner, why)}")
         run.telemetry[role] = payload.get("telemetry", {})
 
         # DOMAIN-ONLY EVIDENCE MAY SUPPORT ONLY A DOMAIN CLAIM.
@@ -221,12 +234,12 @@ def read_claims(run: Run) -> int | None:
         # Checked here in code, not left to the schema alone: this is the
         # only consumer of a claims file, and lint's fallback validator
         # cannot evaluate a conditional when jsonschema is absent.
-        for claim in run.all_claims[role]:
+        for index, claim in enumerate(run.all_claims[role]):
             if (claim.get("knowledge_scope") == "domain-only"
                     and claim.get("class") != "domain"):
                 scope_violations.append(
-                    f"{name}: {claim.get('title') or claim.get('topic')!r} is "
-                    f"domain-only evidence filed as {claim.get('class')!r} — "
+                    f"{shown(name)}: claim {index} {shown(claim.get('title') or claim.get('topic'))} is "
+                    f"domain-only evidence filed as {shown(claim.get('class'))} — "
                     "sibling-project evidence may support only a domain claim"
                 )
 
@@ -234,15 +247,15 @@ def read_claims(run: Run) -> int | None:
     # slice as a line a later reader trusts and opens files by. They are refused here, before anything is written:
     # only a solution or workflow claim has them, as a list of strings that are anchors (anchors.problem).
     for role, claims in run.all_claims.items():
-        for claim in claims:
+        for index, claim in enumerate(claims):
             if "anchors" not in claim:
                 continue
             listed = claim["anchors"]
-            who = f"{role}: {claim.get('title') or claim.get('topic')!r}"
+            who = f"{role}: claim {index} {shown(claim.get('title') or claim.get('topic'))}"
             if not (isinstance(listed, list) and all(isinstance(a, str) for a in listed)):
                 anchor_violations.append(f"{who}: anchors is not a list of strings")
             elif claim.get("class") not in anchors.ANCHOR_CLASSES:
-                anchor_violations.append(f"{who}: anchors on a {claim.get('class')!r} claim; only {sorted(anchors.ANCHOR_CLASSES)} have them")
+                anchor_violations.append(f"{who}: anchors on a {shown(claim.get('class'))} claim; only {sorted(anchors.ANCHOR_CLASSES)} have them")
             elif len(listed) > anchors.ANCHORS_MAX:
                 anchor_violations.append(f"{who}: {len(listed)} anchors, at most {anchors.ANCHORS_MAX}")
             else:
@@ -250,7 +263,7 @@ def read_claims(run: Run) -> int | None:
                 for a in listed:
                     bad = anchors.problem(a) or anchors.registry_problem(a, known_projects)
                     if bad:
-                        anchor_violations.append(f"{who}: anchor {a[:60]!r}: {bad}")
+                        anchor_violations.append(f"{who}: anchor {shown(a[:60])}: {hygiene_substitute(bad, "", BANNED_PATTERNS)[0]}")
     if anchor_violations:
         print("CLAIM ANCHOR VIOLATIONS:", file=sys.stderr)
         for problem in anchor_violations:
