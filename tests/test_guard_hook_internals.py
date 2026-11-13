@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""The internals of the Wave 9 batch 5 guard modules (ADR-040 §5 rule 5: the port adds Python tests for them).
+r"""The internals of the Wave 9 batch 5 guard modules (ADR-040 §5 rule 5: the port adds Python tests for them).
 
 The oracles (test_model_switch_guard.py, test_pipe_status_guard.py, test_subagent_clone_guard.py) hold each hook's
 behaviour from outside; these hold what the oracles cannot reach:
