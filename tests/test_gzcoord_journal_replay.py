@@ -137,6 +137,53 @@ def main() -> int:
           f"{before}\n{journal_files(w)}")
     check("the carrier's name is the one the journal row holds", carrier_name == "interweave", str(carrier_name))
 
+    # the reader reads a journal as it is: an older schema is neither migrated nor refused
+    db = sqlite3.connect(path)
+    db.execute("UPDATE meta SET schema_version=2")
+    db.commit()
+    db.close()
+    r = run(w, "--replay", C.mid(1))
+    db = sqlite3.connect(path)
+    version = db.execute("SELECT schema_version FROM meta").fetchone()[0]
+    db.close()
+    check("a journal at an older schema version is read as it is, and left at that version (the reader migrates nothing)",
+          r.returncode == 0 and "subject-1" in r.stdout and version == 2, f"{r.returncode} v{version}\n{r.stdout}{r.stderr}")
+    db = sqlite3.connect(path)
+    db.execute("UPDATE meta SET schema_version=?", (episodic.SCHEMA_VERSION,))
+    db.commit()
+    db.close()
+
+    # a send that never left is no message anyone holds: no replay of it, whatever its addressing says
+    db = sqlite3.connect(path)
+    db.execute("INSERT INTO episodes (id, source, direction, state, happened_at, recorded_at, message_id, type, sender, carrier, "
+               "content, content_hash, metadata_json) VALUES ('f1', 'gzcoord', 'outbound', 'failed', 'T', 'T', ?, 'INFO', ?, "
+               "'claude-bridge', ?, 'h', '{}')", (C.mid(5), C.ME, C.msg(5)))
+    db.commit()
+    db.close()
+    r = run(w, "--replay", C.mid(5), CLAUDE_BRIDGE_URL="", GZCOORD_CHANNEL="")
+    check("an outbound row whose send failed is not replayed: the journal does not hold it",
+          r.returncode == 1 and r.stdout == "" and "subject-5" not in r.stderr, f"{r.returncode}\n{r.stdout}{r.stderr}")
+
+    # an unreadable journal is said, never read as "the message is not there"
+    db = sqlite3.connect(path)
+    owner = db.execute("SELECT owner_agent_id FROM meta").fetchone()[0]
+    db.execute("UPDATE meta SET owner_agent_id='someone-else'")
+    db.commit()
+    db.close()
+    r = run(w, "--replay", C.mid(1))
+    check("a journal of another agent: one line naming the journal, exit 1, the relay is not asked in its place",
+          r.returncode == 1 and r.stdout == "" and "journal could not be read" in r.stderr and "relay unreachable" not in r.stderr,
+          f"{r.returncode}\n{r.stdout}{r.stderr}")
+    db = sqlite3.connect(path)
+    db.execute("UPDATE meta SET owner_agent_id=?", (owner,))
+    db.commit()
+    db.close()
+
+    # --history with a relay configured but no token to ask it with
+    r = run(w, "--history", CLAUDE_BRIDGE_AUTH_TOKEN="")
+    check("--history with no token for the relay: the journal's list, exit 0", r.returncode == 0 and "in your journal" in r.stdout
+          and "subject-1" in r.stdout, f"{r.returncode}\n{r.stdout}{r.stderr}")
+
     # a relay seq is answered from the relay while one is configured, with the new --json fields
     w2 = C.World([], carrier_records=None)
     w2.history = [C.relay_rec(4)]
