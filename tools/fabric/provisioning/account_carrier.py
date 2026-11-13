@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""tools/fabric/provisioning/account_carrier.py — the InterWeave carrier's
+"""tools/fabric/provisioning/account_carrier.py — the carrier's
 install and start for a NEW account, run AS that account by new-agent's step
 7c/7e (agent-fabric ADR-064 §5 rules 4 and 11; the cutover's W14).
 

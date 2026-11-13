@@ -1,8 +1,8 @@
 """tools/fabric/provisioning/carrier_step.py — steps 7c-7e of a new-agent run: a new
 login's way onto the channel without the relay (agent-fabric ADR-064; the
-InterWeave-only cutover's W14).
+relay-free cutover's W14).
 
-  7c  the pinned InterWeave release installed, as the account (account_carrier.py install)
+  7c  the pinned carrier release installed, as the account (account_carrier.py install)
   7d  the account's roster row: valid already (a re-run after the coordinator
       countersigned it) or written out for the coordinator and the run left open
   7e  the account's control agent and carrier units started (account_carrier.py start)
@@ -71,8 +71,8 @@ def install(w) -> None:
     if got.returncode != 0:
         for ln in _tail(got.stdout):
             w.say(f"   {ln}")
-        w.die(f"step failed: the InterWeave release for {w.a.login} (account_carrier.py install); nothing after it ran")
-    w.say("7c. InterWeave release " + ("already installed" if '"status": "current"' in (got.stdout or "") else "installed"))
+        w.die(f"step failed: the carrier release for {w.a.login} (account_carrier.py install); nothing after it ran")
+    w.say("7c. carrier release " + ("already installed" if '"status": "current"' in (got.stdout or "") else "installed"))
 
 
 def row_file(w) -> str:

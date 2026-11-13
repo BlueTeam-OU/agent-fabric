@@ -40,7 +40,7 @@ CONTRACT, frozen from the bash (ADR-040 §5 rule 3):
   stderr    `new-agent: …` lines: the host, each step's result, a refusal;
             what store-enroll, the hand-over and the sync print, each line indented three spaces.
   exit      0 when every step ran (or a dry run planned them); 3 when every
-            step ran but the account's InterWeave roster row, which only
+            step ran but the account's carrier roster row, which only
             fabric-coordinator countersigns: the run says the command, left
             the carrier unstarted, and its re-run, once the roster on
             origin/main holds the row, starts it; 1 for a

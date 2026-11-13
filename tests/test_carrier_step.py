@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """tools/fabric/provisioning/carrier_step.py and account_carrier.py: steps 7c-7e of a new-agent run
-(the InterWeave-only cutover's W14). The CLI suite (test_new_agent_cli.py) runs the whole sequence; this one
+(the relay-free cutover's W14). The CLI suite (test_new_agent_cli.py) runs the whole sequence; this one
 pins each step's failure classes against a stub worker: a failed install, a roster-row that fails or prints
 what is not a row, no user manager, a unit or carrier start that fails, and the account-side reply-to-exit mapping.
 Plain script: prints ok/FAIL, exit 1 on any failure."""
@@ -84,7 +84,7 @@ def main() -> int:
            and any("no GH_TOKEN" in s for s in w.said), str(w.said))
         w = stub({"account_carrier install": (0, '{"status": "current"}')})
         run(carrier_step.install, w)
-        ok("a release already there is said as such", "7c. InterWeave release already installed" in w.said, str(w.said))
+        ok("a release already there is said as such", "7c. carrier release already installed" in w.said, str(w.said))
 
         print("carrier_step: the roster row (7d)")
         w = stub({"render-config": (2, "")})
