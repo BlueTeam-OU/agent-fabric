@@ -13,9 +13,11 @@ import tempfile
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, "tools", "fabric"))
+sys.path.insert(0, os.path.join(ROOT, "tests"))
 import episodic  # noqa: E402
 from gzcoord import backfill  # noqa: E402
 from gzcoord.inbox_parts import relay as R  # noqa: E402
+from instance_fixtures import write_gzcoord_integrations  # noqa: E402
 
 fails = 0
 ME = "h/alpha"
@@ -311,11 +313,21 @@ def main() -> int:
         episodic.open_readonly = lambda *a, **k: _ro(tmp)
         episodic.state_dir, episodic.own_address = (lambda: tmp), (lambda: ME)
         backfill._said = set()
+        # The project's relay is the fixture operator's: the live integration config is instance data a stripped copy lacks.
+        operator = write_gzcoord_integrations(os.path.join(tmp, "operator"), {"agent-fabric": ("http://x", "ch")})
+        prior = {k: os.environ.pop(k, None) for k in ("CLAUDE_BRIDGE_URL", "GZCOORD_CHANNEL")}
+        prior["AGENT_FABRIC_OPERATOR"] = os.environ.get("AGENT_FABRIC_OPERATOR")
+        os.environ["AGENT_FABRIC_OPERATOR"] = operator
         try:
             for _ in range(2):
                 backfill.tick(said.append, lambda: asked.append(1))   # None: the daemon has no token
         finally:
             episodic.open_readonly, episodic.state_dir, episodic.own_address = real
+            for k, v in prior.items():
+                if v is None:
+                    os.environ.pop(k, None)
+                else:
+                    os.environ[k] = v
         check("tick uses the token it is given", len(asked) == 2, asked)
         check("a standing note is said once across two ticks", len([m for m in said if "no relay token" in m]) == 1, said)
         check("the row stays pending", log_of(tmp) == [])
