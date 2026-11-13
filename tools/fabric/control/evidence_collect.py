@@ -101,7 +101,7 @@ def _round(got: dict, groups: dict, section: str, until: str, send: Send) -> dic
             elif section == "deliveries":
                 acct["undated"] += int(r.get("undated") or 0)
             elif section == ev.BACKFILL_SECTION:
-                acct["backfill_log"]["skipped"] = int(r.get("skipped") or 0)      # every page repeats the one file's count
+                acct["backfill_log"]["skipped"] = max(acct["backfill_log"]["skipped"], int(r.get("skipped") or 0))      # every page repeats the one file's count; a line torn on one page is not forgotten by the next
             else:
                 # Unreadable lines of the drill's files: carried to meta, where parity refuses a drill it cannot judge.
                 # Every page of a section reports its whole file's count: the largest is that file's count, their sum is
@@ -126,6 +126,10 @@ def _stop(acct: dict, reason: str) -> None:
     if section in ev.DRILL_SECTIONS:
         acct["relay_outage"]["complete"], acct["relay_outage"]["reason"] = False, acct["relay_outage"]["reason"] or reason
         return
+    # An account stopped in a report section is never asked for the drill's sections: they were not collected, whatever
+    # their fresh state says, and a filed "complete, empty" would read as "nothing logged".
+    for meta in (acct["relay_outage"], acct["backfill_log"]):
+        meta["complete"], meta["reason"] = False, meta["reason"] or reason
     acct["complete"], acct["reason"] = False, acct["reason"] or reason
 
 

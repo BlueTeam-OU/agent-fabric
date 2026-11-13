@@ -1511,7 +1511,7 @@ def _table_carrier_evidence(rs: list) -> list[str]:
                 note = f"relay-outage sections: {S(nullish(drill.get('reason'), 'incomplete'))}"      # the rollback report stands; --relay-drill is refused
             backfill = dig(u, "backfill_log")
             if not note and isinstance(backfill, dict) and backfill.get("complete") is not True:
-                note = f"backfills: {S(nullish(backfill.get('reason'), 'incomplete'))}"      # the drill's fourth property reads "not collected"
+                note = f"backfill log: {S(nullish(backfill.get('reason'), 'incomplete'))}"      # the drill's fourth property reads "not collected"
         else:                         # one page of one section
             n = len(dig(u, "rows")) if isinstance(dig(u, "rows"), list) else "-"
             cells = [S(n) if dig(u, "section") == "arrivals" else "-", S(n) if dig(u, "section") == "deliveries" else "-", S(len(dig(u, "kinds"))) if isinstance(dig(u, "kinds"), dict) else "-"]

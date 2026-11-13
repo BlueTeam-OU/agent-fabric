@@ -8,7 +8,7 @@ CONTRACT
             every op's, so what it carries is metadata a channel reader could already
             infer from the traffic, and never a body. With
             args {section, since, until}:
-              section  `arrivals` | `deliveries` | `shown` | `acks`
+              section  `arrivals` | `deliveries` | `shown` | `acks` | `backfills`
               since, until  YYYY-MM-DDTHH:MM:SSZ, since < until
             No other key, no other value: an argument never names a path.
   reply     data["<carrier>-evidence"] = {status: "ok", section, since, until,
@@ -38,7 +38,7 @@ CONTRACT
             string or null; any other line is skipped and counted. Read by the parity report's relay-outage drill
             (its fourth property) and nothing else. A failure of this section ends only this section.
   never     a body. Rows are built key by key from a closed list, each value a
-            short string: a line of the log with a text, a path or a key in it
+            short string (but a backfill row's `delay_s`, a number, and its `channel`, a string or null): a line of the log with a text, a path or a key in it
             that a later version adds does not leave. The journal is opened
             read-only and only message_id and the header fields that make a
             kind are read from it.
@@ -194,12 +194,19 @@ def _ack_row(o: dict):
     return {**r, "ok": o["ok"]}
 
 
+def _finite(d: int | float) -> bool:
+    try:
+        return math.isfinite(d)
+    except OverflowError:      # a JSON integer beyond the float range: an ill-shaped line, counted, never a crash of the page
+        return False
+
+
 def _backfill_row(o: dict):
     r = _row(o, BACKFILL_KEYS, BACKFILL_KEYS)
     d, ch = o.get("delay_s"), o.get("channel")
     # bool is an int in Python: a `true` is no delay. NaN and infinity parse from JSON and would not survive a reader that sorts.
     if (r is None or _time(r["at"]) is None or r["outcome"] not in BACKFILL_OUTCOMES
-            or isinstance(d, bool) or not isinstance(d, (int, float)) or not math.isfinite(d)
+            or isinstance(d, bool) or not isinstance(d, (int, float)) or not _finite(d)
             or not (ch is None or isinstance(ch, str))):
         return None
     if not parity.UUID7.fullmatch(r["mid"]):

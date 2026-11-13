@@ -1075,6 +1075,13 @@ class BackfillAccount(RelayOutageAccount):
         self.assertEqual(len(r["rows"]), 1, "positive control: the well-formed line is sent")
         self.assertEqual(r["skipped"], len(bad) + 2)
 
+    def test_an_integer_beyond_the_float_range_is_an_ill_shaped_line_not_a_crash(self):
+        self.log([backfill(mid(1, 1), "posted", 31)])
+        with open(os.path.join(self.state, "gzcoord-backfill.jsonl"), "a", encoding="utf-8") as fh:
+            fh.write('{"mid": "%s", "outcome": "posted", "at": "%s", "delay_s": %s, "channel": "c"}\n' % (mid(2, 2), iso(32), "9" * 400))
+        r = ev.carrier_evidence(request("backfills", 0, 100), state=self.state)
+        self.assertEqual((r["status"], len(r["rows"]), r["skipped"]), ("ok", 1, 1))
+
     def test_a_mid_that_is_not_a_uuid7_does_not_leave_and_is_not_an_unreadable_line(self):
         self.log([backfill("sha256:" + "ab" * 32, "posted", 10), backfill(mid(1, 1), "posted", 11)])
         r = ev.carrier_evidence(request("backfills", 0, 100), state=self.state)
@@ -1164,6 +1171,21 @@ class BackfillCollect(Collect):
         got = ec.collect(["a"], iso(0), iso(100), send)
         self.assertEqual((got["a"]["relay_outage"]["complete"], got["a"]["backfill_log"]["complete"], len(got["a"]["backfills"])), (False, True, 1))
 
+    def test_an_account_stopped_in_a_report_section_files_no_log_and_no_drill_sections_as_complete(self):
+        self.log_account("a", [backfill(mid(1, 1), "posted", 50)])
+        old = self.sender()
+
+        def send(logins, section, since, until):
+            if section == "arrivals":
+                return {x: {"status": "no answer"} for x in logins}
+            return old(logins, section, since, until)
+        got = ec.collect(["a"], iso(0), iso(100), send)
+        self.assertFalse(got["a"]["complete"])
+        self.assertEqual((got["a"]["backfill_log"]["complete"], got["a"]["relay_outage"]["complete"]), (False, False))
+        d = ec.write_dir(os.path.join(self.root, "out"), "a", got["a"], iso(0), iso(100))
+        self.assertFalse(os.path.exists(os.path.join(d, "backfills.jsonl")))
+        self.assertNotIn("backfills", ec.row_of("a", "h", got["a"], iso(0), iso(100), full=True)["interweaveEvidence"])
+
     def test_an_uncollected_log_is_not_filed_and_an_earlier_runs_file_does_not_outlive_it(self):
         self.account("a", [])
         got = ec.collect(["a"], iso(0), iso(100), self.sender())
@@ -1178,7 +1200,7 @@ class BackfillCollect(Collect):
         row = {"account": "a", "host": "h", "status": "ok", "interweaveEvidence": {
             "complete": True, "reason": None, "counts": {"arrivals": 1}, "journal": "ok", "relay_outage": {"complete": True},
             "backfill_log": {"complete": False, "reason": "backfills: section is one of arrivals"}}}
-        self.assertIn("backfills: backfills: section is one of", "\n".join(ctl._table_carrier_evidence([row])))
+        self.assertIn("backfill log: backfills: section is one of", "\n".join(ctl._table_carrier_evidence([row])))
 
     def test_the_verb_text_names_the_section_and_the_file(self):
         verb = next(v for v in ctl.VERBS if v.name == OP)
@@ -1199,14 +1221,17 @@ class RelayRecord(unittest.TestCase):
         self.root = tempfile.mkdtemp(prefix="evbf-", dir=os.environ.get("TMPDIR"))
         self.addCleanup(shutil.rmtree, self.root, ignore_errors=True)
 
-    def acct(self, login: str, mids: tuple, backfills: list | None, skipped: int = 0) -> dict:
-        """`login` received each of `mids` by the carrier alone during the outage; `backfills` None is a collection made before the log."""
+    def acct(self, login: str, mids: tuple, backfills: list | None, skipped: int = 0, sent: tuple | None = None) -> dict:
+        """`login` received each of `mids` by the carrier alone during the outage and sent `sent` (alpha: the two messages of the class,
+        to beta); `backfills` None is a collection made before the log."""
+        sent = (self.M, self.M2) if sent is None and login == "alpha" else sent or ()
+        dels = [{"mid": m, "to": "beta", "enc": "plain", "queued": iso(110), "state": "done"} for m in sent]
         arr = [arrival(m, f"h/{login}", "interweave", 111) for m in mids]
         log = ({"complete": True, "reason": None, "skipped": skipped} if backfills is not None else {"complete": False, "reason": "backfills: not offered"})
-        return {"arrivals": arr, "deliveries": [], "kinds": {}, "shown": [], "acks": [], "backfills": backfills or [], "backfill_log": log,
+        return {"arrivals": arr, "deliveries": dels, "kinds": {}, "shown": [], "acks": [], "backfills": backfills or [], "backfill_log": log,
                 "complete": True, "reason": None, "journal": "ok", "relay_outage": {"complete": True, "reason": None, "skipped": 0},
                 "pages": {}, "skipped": 0, "undated": 0,
-                "counts": {"arrivals": len(arr), "deliveries": 0, "kinds": 0, "shown": 0, "acks": 0, "backfills": len(backfills or [])}}
+                "counts": {"arrivals": len(arr), "deliveries": len(dels), "kinds": 0, "shown": 0, "acks": 0, "backfills": len(backfills or [])}}
 
     def collect(self, accounts: dict, old: tuple = ()) -> str:
         self.n = getattr(self, "n", 0) + 1
@@ -1254,6 +1279,25 @@ class RelayRecord(unittest.TestCase):
         self.assertIs(self.drill(path)["backfill"], False)
         self.assertIn("Fourth property, relay record by backfill: FAILED", self.report(path)[1])
 
+    def test_a_collection_that_lacks_the_sender_cannot_say_none(self):
+        # The addressee alone: its own log was collected whole, but the log that would hold the row is the sender's.
+        path = self.collect({"beta": self.acct("beta", (self.M,), [])})
+        self.assertEqual(self.record(path, self.M), {"state": "not collected", "why": "the sender's account is not in the collection"})
+        self.assertIsNone(self.drill(path)["backfill"])
+        rc, out, err = self.report(path)
+        self.assertEqual((rc, err), (0, ""))
+        self.assertIn("not judged: the sender's account is not in the collection", out)
+        self.assertNotIn("Fourth property, relay record by backfill: FAILED", out)
+        full = self.collect({"alpha": self.acct("alpha", (), []), "beta": self.acct("beta", (self.M,), [])})
+        self.assertEqual(self.record(full, self.M), {"state": "none"}, "positive control: with the sender collected whole the same files say none")
+
+    def test_the_report_command_passes_its_own_end_as_the_bound(self):
+        path = self.collect({"alpha": self.acct("alpha", (), [backfill(self.M, "posted", 1000)]), "beta": self.acct("beta", (self.M,), [])})
+        rc, out, err = self.report(path)
+        self.assertEqual((rc, err), (0, ""))
+        self.assertIn("relay record: none", out)
+        self.assertIn("Fourth property, relay record by backfill: FAILED", out)
+
     def test_a_row_that_landed_wins_over_an_earlier_over_age_one_of_the_same_message(self):
         path = self.collect({"alpha": self.acct("alpha", (), [backfill(self.M, "over-age", 290, 99999), backfill(self.M, "posted", 300, 190)]),
                              "beta": self.acct("beta", (self.M,), [])})
@@ -1268,7 +1312,7 @@ class RelayRecord(unittest.TestCase):
         meta["backfill_log"] = {"complete": False, "reason": "backfills: no answer", "skipped": 0}
         with open(mp, "w") as fh:
             json.dump(meta, fh)
-        self.assertEqual(self.record(path, self.M), {"state": "not collected"})
+        self.assertEqual(self.record(path, self.M), {"state": "not collected", "why": "the sender's backfill log was not collected"})
 
     def test_no_row_by_the_reports_end_is_none_and_fails_and_a_later_row_does_not_count(self):
         path = self.collect({"alpha": self.acct("alpha", (), [backfill(self.M, "posted", 1000)]), "beta": self.acct("beta", (self.M,), [])})
@@ -1289,31 +1333,31 @@ class RelayRecord(unittest.TestCase):
 
     def test_a_collection_made_before_the_log_reads_not_collected_and_not_judged_and_still_computes(self):
         path = self.collect({"alpha": self.acct("alpha", (), None), "beta": self.acct("beta", (self.M,), None)}, old=("alpha", "beta"))
-        self.assertEqual(self.record(path, self.M), {"state": "not collected"})
+        self.assertEqual(self.record(path, self.M), {"state": "not collected", "why": "the sender's backfill log was not collected"})
         d = self.drill(path)
         self.assertIsNone(d["backfill"])
         rc, out, err = self.report(path)
         self.assertEqual((rc, err), (0, ""))
         self.assertIn("relay record: not collected", out)
         self.assertIn("Fourth property, relay record by backfill: not judged", out)
-        self.assertIn("alpha, beta", out)
+        self.assertIn("the sender's backfill log was not collected", out)
         self.assertNotIn("holds: every such message", out)
 
     def test_one_account_without_the_log_leaves_a_pair_with_no_row_not_judged_but_a_row_found_still_counts(self):
         path = self.collect({"alpha": self.acct("alpha", (), [backfill(self.M, "posted", 300)]), "beta": self.acct("beta", (self.M, self.M2), []),
-                             "old": self.acct("old", (), None)}, old=("old",))
+                             "old": self.acct("old", (), None, sent=(self.M2,))}, old=("old",))
         self.assertEqual(self.record(path, self.M)["state"], "posted")
-        self.assertEqual(self.record(path, self.M2), {"state": "not collected"}, "the sender's log may be the one that was not collected")
+        self.assertEqual(self.record(path, self.M2), {"state": "not collected", "why": "the sender's backfill log was not collected"}, "the sender's log is the one that was not collected")
         self.assertIsNone(self.drill(path)["backfill"])
 
     def test_a_failure_is_a_fact_even_where_another_pair_is_not_judged(self):
         path = self.collect({"alpha": self.acct("alpha", (), [backfill(self.M, "over-age", 300, 99999)]), "beta": self.acct("beta", (self.M, self.M2), []),
-                             "old": self.acct("old", (), None)}, old=("old",))
+                             "old": self.acct("old", (), None, sent=(self.M2,))}, old=("old",))
         self.assertIs(self.drill(path)["backfill"], False)
 
     def test_a_log_with_a_line_that_could_not_be_read_cannot_say_none(self):
         path = self.collect({"alpha": self.acct("alpha", (), [], skipped=1), "beta": self.acct("beta", (self.M,), [])})
-        self.assertEqual(self.record(path, self.M), {"state": "not collected"})
+        self.assertEqual(self.record(path, self.M), {"state": "not collected", "why": "the sender's backfill log was not collected"})
         self.assertIsNone(self.drill(path)["backfill"])
         clean = self.collect({"alpha": self.acct("alpha", (), []), "beta": self.acct("beta", (self.M,), [])})
         self.assertEqual(self.record(clean, self.M), {"state": "none"}, "positive control: the same files with no torn line say none")

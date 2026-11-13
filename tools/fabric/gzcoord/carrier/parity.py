@@ -264,7 +264,7 @@ def load_relay_outage(path: str, window: tuple[float, float]) -> dict[str, dict]
                     raise CollectedError(f"{login}: a {name} row is not {{{', '.join(keys)}}}")
         if any(not isinstance(r.get("ok"), bool) for r in acks):
             raise CollectedError(f"{login}: an acknowledgement row has no ok")
-        out[login] = {"arrivals": arr, "shown": shown, "acks": acks, "backfills": _backfills(login, meta, backfills)}
+        out[login] = {"arrivals": arr, "deliveries": dels, "shown": shown, "acks": acks, "backfills": _backfills(login, meta, backfills)}
     return out
 
 
@@ -274,7 +274,8 @@ NOT_COLLECTED = "not collected"
 def relay_record(mid: str, per_account: dict[str, dict], until: float | None) -> dict:
     """What the relay's record got of `mid` afterwards, from every account's backfill log (the log is the sender's, which a pair's
     addressee does not name): {state: posted|present|over-age|none|not collected, delay_s?, channel?}. A row from `until` on is
-    no answer by then. `none` is said only when every account's log was collected whole."""
+    no answer by then. `none` is said only when the SENDER's log (the account whose delivery record names the message) is in
+    the collection and was collected whole: a collection that lacks the sender, or its log, cannot say the log holds no row."""
     rows = [r for a in per_account.values() for r in (a.get("backfills") or []) if r["mid"] == mid
             and (until is None or parse_t(r["at"]) < until)]
     landed = sorted((r for r in rows if r["outcome"] in ("posted", "present")), key=lambda r: r["at"])
@@ -283,8 +284,11 @@ def relay_record(mid: str, per_account: dict[str, dict], until: float | None) ->
         return {"state": r["outcome"], "delay_s": r["delay_s"], "channel": r.get("channel")}
     if rows:
         return {"state": "over-age", "channel": rows[0].get("channel")}
-    if any(a.get("backfills") is None for a in per_account.values()):
-        return {"state": NOT_COLLECTED}
+    senders = [a for a in per_account.values() if any(d["mid"] == mid for d in a["deliveries"])]
+    if not senders:
+        return {"state": NOT_COLLECTED, "why": "the sender's account is not in the collection"}
+    if any(a.get("backfills") is None for a in senders):
+        return {"state": NOT_COLLECTED, "why": "the sender's backfill log was not collected"}
     return {"state": "none"}
 
 
@@ -349,7 +353,7 @@ def relay_outage(per_account: dict[str, dict], drill: tuple[float, float], until
     # True: every property held for every pair held by the carrier alone; False: one failed; None: none failed, some cannot be told yet.
     return {"window": drill, "pairs": pairs, "exercised": len(exercised), "unknown": judged.count(None),
             "holds": None if not judged else False if False in judged else None if None in judged else True,
-            "backfill": backfill, "backfill_not_collected": sorted(login for login, a in per_account.items() if a.get("backfills") is None)}
+            "backfill": backfill, "backfill_not_collected": sorted({p["relay_record"]["why"] for p in exercised if p["relay_record"]["state"] == NOT_COLLECTED})}
 
 
 def compute(arrivals: list[dict], senders: dict[str, list[dict]], kinds: dict[str, str], window: tuple[float, float],
@@ -491,7 +495,7 @@ def render_markdown(rep: dict, title: str = "InterWeave carrier parity report") 
         if d["exercised"]:
             fourth = {True: "holds: every such message reached the relay's record by backfill",
                       False: "FAILED: a message held by the carrier alone did not reach the relay's record by backfill (over-age, or no row by the report's end)",
-                      None: "not judged: " + (f"the backfill log was not collected from {', '.join(d['backfill_not_collected'])} (a collection made before it, or with a line that could not be read)"
+                      None: "not judged: " + ("; ".join(d["backfill_not_collected"]) + " (a collection made before the log, with a line that could not be read, or of fewer accounts than sent)"
                                             if d["backfill_not_collected"] else "no pair to judge")}[d["backfill"]]
             L += ["", f"Fourth property, relay record by backfill: {fourth}."]
     return "\n".join(L) + "\n"
