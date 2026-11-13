@@ -576,6 +576,20 @@ class Pieces(Scratch):
         self.assertFalse(any(f.endswith(".mjs") for f in files), "a Node module is not the Python daemon's code")
         self.assertEqual(agentd.QUIET_S, 2)
 
+    def test_port_the_config_watched_is_the_one_the_daemon_reads_when_FABRIC_CONTROL_CONFIG_names_another(self):
+        # control_config() reads FABRIC_CONTROL_CONFIG when set; a pull that
+        # changes that file, not CONFIG, is what must restart the daemon.
+        d = self.scratch("agentd-watch-cfg-")
+        cfg = os.path.join(d, "control.json")
+        open(cfg, "w").write("{}")
+        with mock.patch.dict(os.environ, {"FABRIC_CONTROL_CONFIG": cfg}):
+            files = agentd.loaded_sources()
+        self.assertIn(cfg, files)
+        self.assertNotIn(agentd.CONFIG, files)
+        self.assertTrue(all(f == cfg or f.endswith(".py") for f in files))
+        with mock.patch.dict(os.environ, {"FABRIC_CONTROL_CONFIG": ""}):
+            self.assertIn(agentd.CONFIG, agentd.loaded_sources(), "an empty value is the default, as control_config() reads it")
+
     def test_accounts_keeper_the_timer_and_a_request_share_one_reading_the_cache_answers_inside_its_window_a_failed_read_does_not_jam_the_next(self):
         clock, reads = [0], [0]
         gate, entered = threading.Event(), threading.Event()
