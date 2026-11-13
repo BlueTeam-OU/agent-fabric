@@ -63,7 +63,7 @@ from gzcoord.carrier import CARRIER_NAME
 OPS = ["ping", "identity", "usage", "keys", "fabric", "session", "script", "recall", "tokens", "memory", "host", "disk",
        "accounts", "upgrade", "secrets-sync", "status", "presence", "jobs", "jobs-add", "job-state", "tools", "tools-install", "local", "local-prune",
        "secrets-selftest", "pool-add", "pool-list", "pool-claim", "gateway", "gateway-install", CARRIER_NAME, f"{CARRIER_NAME}-install", f"{CARRIER_NAME}-start", f"{CARRIER_NAME}-stop", f"{CARRIER_NAME}-evidence", "branches", "branches-sweep", "restart",
-       "switch", "drift", "clone", "hold", "unhold"]
+       "switch", "drift", "clone", "hold", "unhold", f"{CARRIER_NAME}-mode"]
 
 # Answered for any placed account, not only an operator: whether a session
 # is running is what every sender needs before it writes to one, and it
@@ -120,7 +120,10 @@ def _gateway(ctx: Mapping[str, Any]) -> Any:
 
 def _carrier(ctx: Mapping[str, Any]) -> Any:
     from control.carrier_install import installed
-    return installed(home=ctx.get("home"), root=ctx.get("root"), **(ctx.get("carrier_opts") or {}))
+    from control.transport_mode import section
+    answer = installed(home=ctx.get("home"), root=ctx.get("root"), **(ctx.get("carrier_opts") or {}))
+    # The account's transport mode (W5), beside what is installed: one read answers both.
+    return {**answer, "transport_mode": section(ctx.get("mode_state_dir"))} if isinstance(answer, dict) else answer
 
 
 def _local(ctx: Mapping[str, Any]) -> Any:

@@ -612,6 +612,12 @@ def main(argv: list[str]) -> int:
         return 3
     where = [*(["--project", who["project"]] if who.get("project") else []),
              *(["--working-copy", who["working_copy"]] if who.get("working_copy") else [])]
+    # Before the journal keeps anything: a mode that cannot be read refuses the send, and a row kept first would stay pending.
+    try:
+        tp = transport.open_transport(cfg, token=tok, me=me, journal_off=_journal_off())
+    except transport.ModeError as e:
+        print(f"gzcoord: not sent: {e}", file=sys.stderr)
+        return 2
     kept = None
     if _journal_off():
         try:
@@ -630,8 +636,6 @@ def main(argv: list[str]) -> int:
             return 2
 
     to_one_login = bool(msg["metadata"].get("TO"))   # exactly one of TO, TO-ROLE, BROADCAST: the validator's rule
-
-    tp = transport.open_transport(cfg, token=tok, me=me, journal_off=_journal_off())
 
     def via_mirrors() -> bool:
         """The same message to the mirror transports (ADR-064 rules 6, 7), after

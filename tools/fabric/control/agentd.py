@@ -128,6 +128,7 @@ from gzcoord.carrier import CARRIER_LABEL, control_link  # noqa: E402
 from control.carrier_install import CARRIER_NAME, INSTALL_OP, START_OP, STOP_OP  # noqa: E402
 from control.jobs import job_state, jobs_add  # noqa: E402
 from control import hold as hold_mod  # noqa: E402
+from control import transport_mode as mode_mod  # noqa: E402
 from control.branches_op import branches_sweep  # noqa: E402
 from control.local import local_prune  # noqa: E402
 from control.pool import POOL_FILE, pool_add, pool_claim, pool_holder, pool_list, reconcile, role_from_stream, state_reader  # noqa: E402
@@ -811,6 +812,8 @@ def answer(request: dict, ctx: dict) -> dict:
         data = {START_OP: carrier_mod.carrier_start(request, home=home, root=root, **(ctx.get("carrier_unit_opts") or {}))}
     elif op == STOP_OP:
         data = {STOP_OP: carrier_mod.carrier_stop(request, home=home, root=root, **(ctx.get("carrier_unit_opts") or {}))}
+    elif op == mode_mod.MODE_OP:
+        data = {mode_mod.MODE_OP: mode_mod.set_mode(request, **(ctx.get("mode_opts") or {}))}
     elif op == evidence_mod.EVIDENCE_OP:
         data = {evidence_mod.EVIDENCE_OP: evidence_mod.carrier_evidence(request, **(ctx.get("carrier_evidence_opts") or {}))}
     elif op == "local-prune":

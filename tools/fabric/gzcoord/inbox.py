@@ -28,7 +28,7 @@ CONTRACT, frozen from the Node:
                                 or no token, 4 a refused token, 5 a relay
                                 unreachable for 15 minutes, 6 a delivery
                                 the journal cannot keep, 7 an internal
-                                error. The session runs it again only
+                                error or a transport mode that cannot be read. The session runs it again only
                                 after exit 0 or its own timeout, except
                                 the exit 0 below that is a refusal and
                                 not a delivery: its line says not to.
@@ -232,6 +232,7 @@ DEADLINE_USAGE = "gzcoord inbox: --deadline takes a number of seconds above 0 an
 
 # How long --until-delivery rides out an unreachable relay before it exits
 # to tell the session; --follow never gives up (its Monitor shows each line).
+MODE_POLL_S = 5.0     # how often a running watch reads the account's transport mode; the plan's bound is a minute
 UNTIL_DELIVERY_DOWN_S = float(os.environ.get("GZCOORD_UNTIL_DELIVERY_DOWN_S") or 900)
 
 
@@ -472,7 +473,11 @@ def main(argv: list[str]) -> int:
 
     if history_given or replay_which:
         # The record the primary keeps, read whole; no cursor moves, so no mirror and no logs.
-        primary = transport.open_transport(cfg, token=tok, me=me, journal_off=True).primary
+        try:
+            primary = transport.open_transport(cfg, token=tok, me=me, journal_off=True).primary
+        except transport.ModeError as e:
+            print(f"gzcoord-inbox: {e}", file=refusal_out)
+            return 7
         try:
             if history_given:
                 return with_fresh_token(primary, lambda: history(primary.newest(HISTORY_WINDOW), channel, history_from, me, t))
@@ -496,8 +501,18 @@ def main(argv: list[str]) -> int:
     off = bypass.is_off()
     journal = bypass_inbound if off else (lambda recs: journal_inbound(recs, who))
     ep = _episodic()
-    tp = transport.open_transport(cfg, token=tok, me=me, journal_off=off, state_dir=ep.state_dir(), iso_now=ep.now)
+    def open_mux() -> transport.TransportMux:
+        return transport.open_transport(cfg, token=tok, me=me, journal_off=off, state_dir=ep.state_dir(), iso_now=ep.now)
+
+    try:
+        tp = open_mux()
+    except transport.ModeError as e:
+        print(f"gzcoord-inbox: {e}", file=refusal_out)
+        return 7
     primary = tp.primary
+    # A running watch takes a changed mode at its next arm, within a minute: the file is read every few seconds and a change
+    # ends the arm the way a session's end does (nothing acknowledged is lost, the relay shows the slice again).
+    mode_watch = transport.mode.Watcher(tp.mode, ep.state_dir(), every=MODE_POLL_S)
     cause = {"reason": None}
 
     def held_line(reason: str, n: int) -> str:
@@ -546,8 +561,15 @@ def main(argv: list[str]) -> int:
         # call it so) and a watch started through main alone serves its session as one started through run.
         session = watch_session.current()
 
+        mode_moved = {"v": False}
+
         def session_gone() -> bool:
-            return watch_session.gone(session)
+            if watch_session.gone(session):
+                return True
+            if mode_watch.changed():
+                mode_moved["v"] = True
+                return True
+            return False
         while True:
             # Checked before each arm, so a relay that was down at the
             # deadline, or a hold that outlasted it, ends the watch as a quiet one.
@@ -586,6 +608,17 @@ def main(argv: list[str]) -> int:
                 continue
             if r.get("relayAnswered"):
                 clear_relay_down(who["agent"])
+            if r.get("sessionEnded") and mode_moved["v"]:
+                mode_moved["v"] = False
+                try:
+                    tp = open_mux()
+                except transport.ModeError as e:
+                    # The watch keeps the transport it has: a damaged file is said, never read as a mode.
+                    print(f"gzcoord-inbox: {e}", file=sys.stderr, flush=True)
+                else:
+                    primary = tp.primary
+                    print(f"gzcoord-inbox: transport mode is now {tp.mode}", file=sys.stderr, flush=True)
+                continue
             if r.get("sessionEnded"):
                 print(SESSION_ENDED.format(pid=session.pid), flush=True)
                 return 0

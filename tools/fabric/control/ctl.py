@@ -16,6 +16,7 @@ bin/fabric-ctl runs this on the pinned Python).
     fabric-ctl <login>... clone <project-id>
     fabric-ctl <login|all> gateway | gateway-install --version V
     fabric-ctl <login|all> <carrier> | <carrier>-install      (the carrier's transport; gzcoord.carrier.CARRIER_NAME)
+    fabric-ctl <login|all> <carrier>-mode --mode relay-record|carrier-record|carrier-only
     fabric-ctl <login|all> hold --reason "<why>" [--decision <MESSAGE-ID>] | unhold
     fabric-ctl <login> jobs-add [--topic T] [--project P] [--priority P] [--] "<title>"
     fabric-ctl <holder> pool-add --role R [--topic T] [--project P] [--priority P] [--] "<title>"
@@ -115,6 +116,8 @@ from control.ops import OPS, PUBLIC_OPS
 from control.pool import check_pool_args, pool_holder
 from control.jobs import check_job_args
 from control import hold as hold_mod
+from control import transport_mode as mode_mod
+from control.transport_mode import MODE_OP
 from control.selftest import SELFTEST_BUDGET_S
 from control.restart import RESTART_BUDGET_S
 from control.sessions import SESSION_ID
@@ -245,6 +248,10 @@ VERBS: tuple[Verb, ...] = (
          options=(("--since T", "the window's start, YYYY-MM-DDTHH:MM:SSZ (required)"), ("--until T", "the window's end, exclusive (required)"),
                   ("--out DIR", "file the collection as DIR/<login>/{arrivals.jsonl,deliveries.jsonl,shown.jsonl,acks.jsonl,kinds.json,meta.json}"),
                   ("--section S", "arrivals, deliveries, shown or acks: one page of that section only, from --since; its `next` is the --since of the following page")) + COMMON),
+    Verb(MODE_OP, f"Move the account's GZCoord transport mode: relay-record (today's, and what an account with no mode file is in), carrier-record or carrier-only. The mode is the account's own state; {CARRIER_NAME} shows it.",
+         f"fabric-ctl db-admin {MODE_OP} --mode carrier-record",
+         usage=((f"<login|all> {MODE_OP} --mode M", f"an action: write the account's transport-mode.json (M one of {', '.join(mode_mod.MODES)}); carrier-only is refused while any placed account reports relay-record or does not report; an account that does not answer is not moved, and is named"),),
+         args="--mode M", signed="always", options=(("--mode M", f"{', '.join(mode_mod.MODES)} (required)"),) + COMMON),
     Verb("jobs-add", "Add a job to one agent's list. A job is one agent's, never the fleet's.", 'fabric-ctl db-admin jobs-add --project agent-fabric "port the thing"',
          usage=(('<login> jobs-add [--topic T] [--project P] [--priority P] [--] "<title>"', None),), target="<login>",
          args='[--topic T] [--project P] [--priority P] [--] "<title>"', signed="always",
@@ -518,6 +525,8 @@ def build_request(args: dict, *, id: str, from_: str, to: Any, cfg: dict, ts: st
         req["args"] = job_args(args)
     if op == "hold":
         req["args"] = {"reason": args["reason"], **({"decision": args["decision"]} if args.get("decision") is not None else {})}
+    if op == MODE_OP:
+        req["args"] = {"mode": args["mode"]}
     if op == "tools-install":
         req["args"] = {"tool": args["tool"]}
     if op == "clone":
@@ -626,6 +635,10 @@ def parse_args(argv: list[str]) -> dict:
             out["reason"] = nxt()
         elif a.startswith("--reason="):
             out["reason"] = a[9:]
+        elif a == "--mode":
+            out["mode"] = nxt()
+        elif a.startswith("--mode="):
+            out["mode"] = a[7:]
         elif a == "--decision":
             out["decision"] = nxt()
         elif a.startswith("--decision="):
@@ -692,6 +705,14 @@ def parse_args(argv: list[str]) -> dict:
     # Not in the defaults: the parser's answer for every other verb is the frozen shape (tests/test_control_frozen.py).
     if ("reason" in out or "decision" in out) and op != "hold":
         raise CtlError("--reason and --decision go with hold only")
+    if "mode" in out and op != MODE_OP:
+        raise CtlError(f"--mode goes with {MODE_OP} only")
+    if op == MODE_OP:
+        if not isinstance(out.get("mode"), str):
+            raise CtlError(f"{MODE_OP} takes --mode {'|'.join(mode_mod.MODES)}")
+        bad = mode_mod.check_mode(out["mode"])
+        if bad:
+            raise CtlError(f"{MODE_OP}: {bad}")
     if op == "hold":
         if not isinstance(out.get("reason"), str):
             raise CtlError('hold takes --reason "<why>": one line')
@@ -947,14 +968,14 @@ def rows(expected: list[dict], replies: list[dict]) -> list[dict]:
                     "localPrune": g("local-prune"), "selftest": g("secrets-selftest"), "agentd": g("agentd"),
                     # Only where the control agent answered them (an older one does not): a row never says null for a section nobody asked.
                     **{k: g(k) for k in ("harness", "managed", "inbox", "switch", "drift") if dig(d, k) is not UNDEFINED},
-                    **{key: g(op) for key, op in (("branches", "branches"), ("branchesSweep", "branches-sweep"), ("clone", "clone"), ("hold", "hold"), ("unhold", "unhold"), (f"{CARRIER_NAME}Evidence", EVIDENCE_OP)) if dig(d, op) is not UNDEFINED}})
+                    **{key: g(op) for key, op in (("branches", "branches"), ("branchesSweep", "branches-sweep"), ("clone", "clone"), ("hold", "hold"), ("unhold", "unhold"), (f"{CARRIER_NAME}Evidence", EVIDENCE_OP), (f"{CARRIER_NAME}Mode", MODE_OP)) if dig(d, op) is not UNDEFINED}})
     return out
 
 
 # What counts as success for each action; anything else fails the run.
 ACTION_OK = {"upgrade": ["current", "upgraded"], "secrets-sync": ["synced"], "jobs-add": ["added", "listed"], "local-prune": ["pruned", "clean"],
              "secrets-selftest": ["pass"], "pool-add": ["added"], "tools-install": ["installed", "current", "skipped"], "clone": ["cloned", "present"],
-             "gateway-install": ["installed", "current"], INSTALL_OP: ["installed", "current"], START_OP: ["started"], STOP_OP: ["stopped"], EVIDENCE_OP: ["ok"], "branches-sweep": ["swept"], "hold": ["held"], "unhold": ["released", "none"], "restart": ["restarted", "no-session", "yours"]}
+             "gateway-install": ["installed", "current"], INSTALL_OP: ["installed", "current"], START_OP: ["started"], STOP_OP: ["stopped"], EVIDENCE_OP: ["ok"], MODE_OP: ["set"], "branches-sweep": ["swept"], "hold": ["held"], "unhold": ["released", "none"], "restart": ["restarted", "no-session", "yours"]}
 
 
 def targets_of(targets: list[str], placed: list[dict]) -> dict:
@@ -1405,8 +1426,29 @@ def _table_gateway_install(rs: list) -> list[str]:
     return lines
 
 
+def _mode_cell(u: Any) -> str:
+    """`-` for an agent that does not report a mode (an older one), `unreadable` for a mode file that cannot be read: neither
+    is shown as the default."""
+    m = dig(u, "transport_mode")
+    if not isinstance(m, dict):
+        return "-"
+    return S(m["mode"]) if isinstance(m.get("mode"), str) else "unreadable"
+
+
+def _table_carrier_mode(rs: list) -> list[str]:
+    lines = [f"{pad_end('account', 22)} {pad_end('status', 10)} mode / reason"]
+    for r in rs:
+        u = r.get(f"{CARRIER_NAME}Mode")
+        if _unless(r, u):
+            lines.append(_row(r))
+            continue
+        moved = f"{S(dig(u, 'previous'))} -> {S(dig(u, 'mode', 'mode'))}" if dig(u, "status") == "set" else ""
+        lines.append(esc(trim_end(f"{pad_end(r['account'], 22)} {pad_end(S(nullish(dig(u, 'status'), 'no status')), 10)} {S(nullish(dig(u, 'reason'), moved))}")))
+    return lines
+
+
 def _table_carrier(rs: list) -> list[str]:
-    lines = [f"{pad_end('account', 22)} {pad_end('status', 11)} {pad_end('version', 9)} {pad_end('pinned', 7)} {pad_end('units', 6)} {pad_end('channel', 12)} reason"]
+    lines = [f"{pad_end('account', 22)} {pad_end('status', 11)} {pad_end('mode', 15)} {pad_end('version', 9)} {pad_end('pinned', 7)} {pad_end('units', 6)} {pad_end('channel', 12)} reason"]
     for r in rs:
         u = r.get(CARRIER_NAME)
         if _unless(r, u):
@@ -1418,6 +1460,7 @@ def _table_carrier(rs: list) -> list[str]:
         channel = dig(u, "channel")
         why = nullish(dig(u, "reason"), "") or nullish(dig(channel, "reason"), "")
         lines.append(esc(trim_end(f"{pad_end(r['account'], 22)} {pad_end(S(nullish(dig(u, 'status'), 'no status')), 11)} "
+                                  f"{pad_end(_mode_cell(u), 15)} "
                                   f"{pad_end(S(nullish(dig(u, 'version'), '-')), 9)} {pad_end('yes' if pinned is True else 'no' if pinned is False else '-', 7)} "
                                   f"{pad_end(have, 6)} {pad_end(S(nullish(dig(channel, 'status'), '-')), 12)} {S(why)}")))
     return lines
@@ -2073,6 +2116,8 @@ def table(op: str, rs: list) -> str:
         lines = _table_gateway_install(rs)
     elif op == CARRIER_NAME:
         lines = _table_carrier(rs)
+    elif op == MODE_OP:
+        lines = _table_carrier_mode(rs)
     elif op == INSTALL_OP:
         lines = _table_carrier_install(rs)
     elif op in (START_OP, STOP_OP):
@@ -2233,6 +2278,12 @@ def main(argv: list[str] | None = None, *, registry: str | None = None, call: Ca
         return max(rcs)
     if args["op"] == EVIDENCE_OP and args.get("section") is None:
         return _collect_evidence(args, expected, registry=registry, call=call, out=out, err=err, sleep=sleep, now=now, who=who, token=token)
+    if args["op"] == MODE_OP and args["mode"] == mode_mod.CARRIER_ONLY:
+        # Only the operator sees the fleet: an account cannot know that another is still on the relay's record.
+        unready = _carrier_only_blockers(args, registry=registry, call=call, out=out, err=err, sleep=sleep, now=now, who=who, token=token)
+        if unready:
+            err(f"fabric-ctl: carrier-only is refused while a placed account is not past relay-record: {unready}; nothing sent")
+            return 2
     if args["op"] == "pool-add":
         holder = pool_holder(agentd.control_config(), registry)
         if not expected or expected[0]["address"] != holder:
@@ -2485,6 +2536,27 @@ def _second_carrier(request: dict, expected: list[dict], me: str, args: dict, er
     if lost:
         err(f"fabric-ctl: {CARRIER_LABEL}: not sent to {', '.join(f'{a} ({session.sent[a][1]})' for a in lost)}; the relay carries those")
     return session, early, {a for a, (ok, _why) in session.sent.items() if ok}
+
+
+def _carrier_only_blockers(args: dict, **inject: Any) -> str:
+    """Who stands in the way of carrier-only: every placed account (not only the addressed ones) that reports relay-record,
+    and every one that reports nothing, since an account whose mode is unknown is not known to be past it. "" when none."""
+    lines: list[str] = []
+    argv = ["--json", "--timeout", str(args["timeout"]), "all", CARRIER_NAME, *(["--via", args["via"]] if args.get("via") else [])]
+    rc = main(argv, **{**inject, "out": lines.append})
+    modes: dict[str, str | None] = {}
+    for line in lines:
+        try:
+            r = js.json_parse(line)
+        except ValueError:
+            continue
+        if isinstance(r, dict) and isinstance(r.get("account"), str):
+            m = dig(r.get(CARRIER_NAME), "transport_mode", "mode") if r.get("status") == "ok" else None
+            modes[r["account"]] = m if isinstance(m, str) else None
+    if rc not in (0, 1) and not modes:
+        return f"the fleet's modes could not be read (exit {rc})"
+    names = [f"{a} ({m})" for a, m in sorted(modes.items()) if m is None or m == mode_mod.RELAY_RECORD]
+    return ", ".join(n.replace(" (None)", " (did not report a mode)") for n in names)
 
 
 def _collect_evidence(args: dict, expected: list[dict], *, out: Callable, err: Callable, **inject: Any) -> int:

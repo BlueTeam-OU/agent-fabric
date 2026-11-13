@@ -32,6 +32,7 @@ class TransportMux:
         self._me = me or {}
         self._of_record: dict[Any, str] = {}   # primary record id -> MESSAGE-ID, for the acknowledgement log
         self.ledger: Any = None
+        self.mode: str = "relay-record"   # open_transport sets it from the account's state; a mux built by hand is the default
         self._arrivals: Any = None
         self._acks: Any = None
         if state_dir is not None:
