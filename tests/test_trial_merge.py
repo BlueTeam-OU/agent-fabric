@@ -403,10 +403,12 @@ def main() -> int:
         stubborn = subprocess.Popen([sys.executable, "-c", stubborn_code], cwd=wt4, stdout=subprocess.PIPE,
                                     start_new_session=True)
         stranger = subprocess.Popen(["sleep", "30"], cwd=scratch, start_new_session=True)
-        real_grace = tw.TERM_GRACE_S
+        real_grace, real_kill_wait = tw.TERM_GRACE_S, tw.KILL_WAIT_S
         try:
             stubborn.stdout.read(5)   # TERM is ignored from here on
-            tw.TERM_GRACE_S = 1.0
+            # Distinct from each other and from production's 5.0, so a bound
+            # read from the wrong constant, or a literal, is seen.
+            tw.TERM_GRACE_S, tw.KILL_WAIT_S = 1.0, 2.5
             # Time the signalling waits alone: cleanup's git removals after
             # them are bounded by run_git, not by the claim below, and under
             # CI load they alone took 4 s (j116: 8.4 s against an 8 s bound).
@@ -432,7 +434,7 @@ def main() -> int:
             except ChildProcessError:
                 reaped = True
             check("…and the runner, this process's child, is reaped by cleanup", reaped)
-            check(f"…gone (not merely signalled) when cleanup returns, after {took:.1f} s",
+            check("…gone (not merely signalled) when cleanup returns",
                   stubborn.poll() is not None)
             check("…TERM waited the grace, then KILL waited its own bound",
                   [w for w, _ in waits] == [tw.TERM_GRACE_S, tw.KILL_WAIT_S])
@@ -450,7 +452,7 @@ def main() -> int:
             check("…and a listed pid that is not the trial's when claimed is never signalled",
                   stranger.poll() is None)
         finally:
-            tw.TERM_GRACE_S = real_grace
+            tw.TERM_GRACE_S, tw.KILL_WAIT_S = real_grace, real_kill_wait
             for p in (stubborn, stranger):
                 if p.poll() is None:
                     p.kill()
