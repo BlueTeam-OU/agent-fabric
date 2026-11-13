@@ -1145,6 +1145,22 @@ class BackfillCollect(Collect):
         self.assertGreater(got["a"]["pages"]["backfills"], 2)
         self.assertEqual((got["a"]["backfill_log"]["skipped"], len(got["a"]["backfills"])), (1, 30))
 
+    def test_a_line_torn_on_one_page_is_not_forgotten_by_the_last_page(self):
+        self.log_account("a", [backfill(mid(s, s), "posted", s) for s in range(30)])
+        old, pages = self.sender(), []
+
+        def send(logins, section, since, until):
+            out = old(logins, section, since, until)
+            if section == "backfills":      # the log was being written when the first page was read, and whole by the last
+                pages.append(1)
+                for r in out.values():
+                    r["skipped"] = 1 if len(pages) == 1 else 0
+            return out
+        with unittest.mock.patch.object(ev, "PAGE_BYTES", 900):
+            got = ec.collect(["a"], iso(0), iso(100), send)
+        self.assertGreater(len(pages), 2, "positive control: several pages")
+        self.assertEqual(got["a"]["backfill_log"]["skipped"], 1)
+
     def test_an_account_that_cannot_send_the_section_stays_complete_and_keeps_its_drill_sections(self):
         self.account("a", [arrival(mid(1, 1), "h/a", "relay", 1)])
         old = self.sender()
