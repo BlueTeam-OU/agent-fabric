@@ -168,11 +168,18 @@ as `card_base`, and the card is read there. A first base that is not a
 commit id (`origin/main`) is refused unless the request pins `card_base`
 (round 1's dispatch header names it as `base_sha`).
 
-**A finding-adjudication** reads the findings raised on one head, so its
-range is that head to itself (`H..H`), with `card_base` naming the
-commit the card is read at; a range from another base is refused, since
-gate 4c of `fabric-pr arm` counts its judgements only from a review of
-`H..H`.
+**A finding-adjudication** of a PR judges, at a later head, the
+findings an earlier round raised: its range is that round's head `H_k`
+to the later head, and the brief lists the findings the PR's posted
+reviews raised on `H_k` (with whether gate 4c reads each as open),
+refusing a base that raised none, a typed `previous_findings`, and
+reviews GitHub cannot list or read. `fabric-pr post-review` posts its
+report as an adjudication, which gate 4c of `fabric-pr arm` applies to
+those findings alone; `fabric-review next REQUEST --pr PR --adjudicate
+H_k` derives the request. `card_base` names the commit the card is read
+at. Without a PR there are no posted reviews to tie the base to, so the
+range is a head to itself (`H..H`); so is the legacy `H..H` of a PR,
+which posts as the next round from the PR's last checkpoint head.
 
 **The dispatch header.** The brief's first block is a fenced
 `agent-fabric-dispatch v1` JSON object: `dispatch_id` (minted at render),

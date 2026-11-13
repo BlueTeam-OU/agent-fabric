@@ -42,6 +42,9 @@ into the prompt a code-review dispatch carries.
   fabric-review next REQUEST (--report F | --pr PR) [--head REV] [--keep-lenses]
                                       the re-review's request, derived and rendered
                                       (tools/fabric/review_rounds.py)
+  fabric-review next REQUEST --pr PR --adjudicate REV [--head REV]
+                                      the adjudication, at the new head, of the findings
+                                      raised on an earlier round's head REV
   fabric-review --engine codex PR REQUEST [--gateway chatgpt] [--model M] [--timeout MIN] [--no-post]
                                       the second engine: Codex reviews the PR's head
                                       one-shot and posts, through a gateway of its own

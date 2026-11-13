@@ -272,6 +272,38 @@ def main() -> int:
         r = run("next", req, "--pr", "7", "--head", "nonesuch")
         check("a --head that is no commit is refused", r.returncode == 1 and "not a commit" in r.stderr, r.stderr)
 
+        print("adjudicate")
+        # gate 4c (0f6a2e43): an earlier round's findings are closed by an adjudication based on that round's head,
+        # judged at a later one; next --adjudicate derives that request, and the brief lists the findings raised there.
+        adj1 = review_body(base, head1, base, "## Round 1\n\nFinding: F1 | P2 | certain | - | a finding")
+        adj2 = review_body(head1, head2, base, "## Round 2\n\nJudgement: F1 | real | still there\nFinding: none")
+        serve([posted_review(adj1, head1, "2026-10-24T10:00:00Z"), posted_review(adj2, head2, "2026-10-24T11:00:00Z")],
+              [head1, head2, head3, head4])
+        before = sorted(os.listdir(os.path.join(tmp, "scratch")))
+        r = run("next", req, "--pr", "7", "--adjudicate", head1[:12])
+        written = sorted(set(os.listdir(os.path.join(tmp, "scratch"))) - set(before))
+        adj = json.load(open(os.path.join(tmp, "scratch", written[0]))) if r.returncode == 0 and len(written) == 1 else {}
+        check("--adjudicate REV writes the next REQUEST-rr<N>.json: finding-adjudication of REV..the new head",
+              written == ["REQUEST-rr4.json"] and adj.get("mode") == "finding-adjudication"
+              and adj.get("range") == f"{head1[:12]}..{head4[:12]}" and adj.get("pr") == "7", (r.stderr, written, adj))
+        check("…card_base carried as next does, lenses [] (general is the brief's), no typed findings, round counted",
+              adj.get("card_base") == base and adj.get("lenses") == [] and "previous_findings" not in adj
+              and adj.get("review_round") == 2 and adj.get("review_id") == "myrepo#7", adj)
+        check("…and its brief lists the findings raised on REV, read from the posted reviews",
+              "## Findings to judge\nThis is an adjudication of an earlier round of #7" in r.stdout
+              and "- F1 | P2 | - | a finding (open at gate 4c;" in r.stdout and "### general" in r.stdout, r.stdout[-1200:])
+        r = run("next", req, "--pr", "7", "--adjudicate", head2)
+        check("--adjudicate a head that raised nothing: refused naming the head that did, nothing written",
+              r.returncode == 1 and f"{head1[:12]} raised findings" in r.stderr
+              and not os.path.exists(os.path.join(tmp, "scratch", "REQUEST-rr5.json")), (r.returncode, r.stderr))
+        r = run("next", req, "--pr", "7", "--adjudicate", head4)
+        check("--adjudicate the head itself: refused, the head has not moved",
+              r.returncode == 1 and "has not moved" in r.stderr, r.stderr)
+        r = run("next", req, "--report", report2, "--adjudicate", head1)
+        check("--adjudicate without --pr: usage, exit 2", r.returncode == 2 and "--adjudicate REV" in r.stderr, r.stderr)
+        r = run("next", req, "--pr", "7", "--repo", "myrepo", "--adjudicate", head1)
+        check("--adjudicate with --repo (no saved round is read): usage, exit 2", r.returncode == 2, r.stderr)
+
         print("delta-first")
         # A real file history: the fix inserts three lines above a finding's
         # line (a move) and rewrites another finding's line.
