@@ -21,7 +21,7 @@ from unittest import mock
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(HERE, "tools", "fabric"))
 sys.path.insert(0, os.path.join(HERE, "tests"))
-from control import ctl, js  # noqa: E402
+from control import agentd, ctl, js  # noqa: E402
 from control.sign import generate_operator_key  # noqa: E402
 from gzcoord.carrier import control_link as link  # noqa: E402
 from test_gzcoord_carrier_control_link import PEERS, ROWS, Node, Scratch, until  # noqa: E402
@@ -188,6 +188,44 @@ class Dual(Scratch):
         self.assertEqual((row["status"], row["carrier"], row["relay_copy"]), ("ok", "interweave", "missing"))
         self.assertTrue(any("unreachable" in e and "InterWeave carries alone" in e for e in self.err), self.err)
         self.assertEqual(self.relay.sent, [], "nothing reached the relay")
+
+    def test_the_operators_agentd_restarting_mid_command_loses_no_reply_on_the_carrier_alone(self):
+        # j146: `upgrade fabric` on the fleet restarts the operator's own agentd while replies are still coming.
+        # The daemon is wired as agentd.main wires it: an open ctl session is in flight for the real Leaver.
+        op = Node(self, self.net, "op")
+        inflight: set = set()
+        exits: list[int] = []
+        leave = agentd.leaver(inflight, exit=lambda code: (exits.append(code), server.stop(), op.carrier.stop()), log=lambda m: None)
+
+        def hold():
+            token = object()
+            with leave.lock:
+                inflight.add(token)
+
+            def release():
+                with leave.lock:
+                    if token in inflight:
+                        inflight.discard(token)
+                        leave.settle()
+            return release
+        server = link.Server(link.socket_path(), op.carrier, "h/op", log=op.logs.append, hold=hold)
+        server.start()
+        self.addCleanup(server.stop)
+        self.nodes["op"] = op
+        for n in ("alice", "bob"):
+            self.nodes[n] = Node(self, self.net, n)
+            self.nodes[n].carrier._on_request = lambda request, sender, n=n: self.nodes[n].requests.append((request, sender))
+        self.relay.down = True
+        box = self.run_ctl("alice", "bob", "ping", "--json", "--timeout", "15")
+        self.answer("alice", self.request_of("alice"), relay=False)
+        leave.request("source changed")   # the operator's own upgrade moved the code, mid-command
+        time.sleep(0.5)
+        self.assertEqual(exits, [], "the operator's agentd stayed up for the command")
+        self.answer("bob", self.request_of("bob"), relay=False)
+        self.assertEqual(self.finish(box), 0, self.err)
+        self.assertEqual(sorted((r["account"], r["status"], r["carrier"]) for r in self.rows()),
+                         [("alice", "ok", "interweave"), ("bob", "ok", "interweave")])
+        self.assertTrue(until(lambda: exits == [0]), "and it left once the command was over")
 
     def test_a_second_carrier_that_is_up_but_silent_never_delays_the_relay_post(self):
         self.boot("alice")
