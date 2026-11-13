@@ -159,11 +159,15 @@ def screened(text: str) -> str:
 
 
 def shown(value: Any) -> str:
-    """A distiller's text as a refusal may print it: repr'd, and held to every pattern. These messages go to the
+    """A distiller's text as a refusal may print it: held to every pattern, then repr'd. In that order: repr escapes a quote,
+    a tab or a backslash, and a pattern screened against the escaped text misses what the raw text holds. A value that is
+    no string is named by its type unless it is a scalar, since a list or dict has no text a pattern is told of. These messages go to the
     operator's terminal and any log of the run before screen_hygiene has judged the claim, so a banned name in a title,
     topic, anchor, class, role id or file name must not reach them. BANNED_PATTERNS, not the class's set: a name
     another project keeps out is out of every stream, and a refusal has no slice it is about to be written to."""
-    return screened(repr(value))
+    if isinstance(value, str):
+        return repr(screened(value))
+    return repr(value) if value is None or isinstance(value, (bool, int, float)) else f"<{type(value).__name__}>"
 
 
 def shown_why(value: Any, why: str) -> str:
@@ -435,8 +439,8 @@ def rehome_unbound(run: Run) -> list[dict[str, Any]]:
                 # the hygiene lists may ban (nothing is committed from it, but a log is read and kept too).
                 topic, title = (hygiene_substitute(v, "", patterns_for(claim["class"]))[0] if isinstance(v, str) else v
                                 for v in (claim.get("topic"), claim.get("title")))
-                refused.append(f"{claim['class']}:{topic} ({title!r}) of role {role}"
-                               + (f" shared with {', '.join(sorted(owners - {role}))}" if len(owners) > 1 else "")
+                refused.append(f"{shown(claim['class'])[1:-1]}:{topic} ({title!r}) of role {shown(role)[1:-1]}"
+                               + (f" shared with {', '.join(shown(o)[1:-1] for o in sorted(owners - {role}))}" if len(owners) > 1 else "")
                                + f", project {run.project}")
         run.all_claims[role] = kept
     if refused:

@@ -582,6 +582,30 @@ def test_a_refusal_before_the_hygiene_screen_does_not_print_a_banned_name_from_a
     never_named(proc)
 
 
+def test_a_banned_text_that_repr_would_escape_is_screened_before_it_is_quoted(tmp: str) -> None:
+    """Review F1: screening repr(title) missed a hit whose text repr rewrites (a quote beside a double quote, a tab). The
+    credential pattern is the built-in one; the project's own city is the control that a plain title is still screened."""
+    def refused_title(title: str, sub: str) -> str:
+        claim = {"class": "solution", "topic": "t", "title": title, "body": "B.", "evidence": ["h1"], "knowledge_scope": "domain-only"}
+        return refusal(os.path.join(tmp, sub), {"alpha": ta.claims("alpha", [claim])}).stderr
+    err = refused_title("password='hunter2secret' said \"x\"", "a")
+    assert "hunter2secret" not in err and "claim 0" in err, err
+    err = refused_title("Bearer\tabcdefghijklmnopqrstuvwxyz0123", "b")
+    assert "abcdefghijklmnopqrstuvwxyz0123" not in err and "claim 0" in err, err
+    err = refused_title("it's Springfield \"x\"", "c")
+    assert "pringfield" not in err and "claim 0" in err, err
+
+
+def test_the_rehome_refusal_does_not_print_a_banned_role_or_class(tmp: str) -> None:
+    """Review, pre-existing: a role id the regex admits can be a banned word, and the refusal for an unbound role named it."""
+    drain, claims_dir, out = ta.build(tmp, {"alpha": ta.claims("alpha", [WF]), "springfield": ta.claims("springfield", [WF])})
+    bind(out, "alpha")
+    proc = ta.run_assemble(drain, claims_dir, out)
+    assert proc.returncode != 0 and "not admitted" in proc.stderr, proc.stderr
+    never_named(proc)
+    assert "of role [redacted]" in proc.stderr, proc.stderr
+
+
 def test_an_anchor_refusal_does_not_print_a_banned_name_from_a_claim(tmp: str) -> None:
     ok = refusal(os.path.join(tmp, "a"), {"alpha": ta.claims("alpha", [anchored("not a list", title="Plain notes")])})
     assert "'alpha': claim 0 'Plain notes': anchors is not a list of strings" in ok.stderr, ok.stderr
@@ -837,6 +861,8 @@ def main() -> int:
         test_a_title_made_one_line_is_told_as_hygiene_leaves_it_and_not_for_a_refused_claim,
         test_a_break_in_a_title_does_not_split_the_heading_or_cut_the_index_entry,
         test_a_refusal_before_the_hygiene_screen_does_not_print_a_banned_name_from_a_claim,
+        test_a_banned_text_that_repr_would_escape_is_screened_before_it_is_quoted,
+        test_the_rehome_refusal_does_not_print_a_banned_role_or_class,
         test_an_anchor_refusal_does_not_print_a_banned_name_from_a_claim,
         test_a_valid_role_id_that_is_a_banned_name_is_screened_in_an_anchor_refusal,
         test_a_role_id_refusal_does_not_print_a_banned_name,
