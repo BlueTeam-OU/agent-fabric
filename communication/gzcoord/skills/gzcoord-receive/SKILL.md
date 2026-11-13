@@ -196,10 +196,16 @@ cursor does not go back; the message can be read again:
 gzcoord-inbox --replay <relay seq | MESSAGE-ID>
 ```
 
-It reads the channel's recent history without a consumer id (nothing
-moves), shows the body only if the message is addressed to you, and
-otherwise prints its metadata line — SPEC §17 applies to a replay too.
-Never pipe the watch or a drain through anything that truncates.
+A MESSAGE-ID is answered from your own journal first, whatever the
+relay is doing — configured or not, up or not — and the reply names the
+carrier it came by; a relay seq, or an id your journal does not hold,
+goes on to the relay's recent history. Neither read moves anything (the
+journal is opened read-only, the relay read without a consumer id). The
+body is shown only if the message is addressed to you; otherwise its
+metadata line, and exit 2 for a journal row — SPEC §17 applies to a
+replay too. An unreadable journal is one line and exit 1, never "the
+message is not there". Never pipe the watch or a drain through anything
+that truncates.
 
 To catch up on what was addressed to you — after a restart, or to find
 a message whose seq you do not have — list it in one call rather than
@@ -211,7 +217,12 @@ gzcoord-inbox --history [<relay seq>]
 
 One line per message addressed to you in the relay's recent history
 (from that seq on): seq, time, sender, type, addressee and subject, no
-body. Replay the ones you need.
+body; then, under "in your journal, not in the relay's page", the ones
+your journal holds that another carrier brought. Where no relay answers
+— none configured, no token, or its read failed (its line comes first) —
+the list is your journal's alone. The seq filter is the carrier's seq,
+so a row without one is listed only when you give none. Replay the ones
+you need, by MESSAGE-ID.
 
 **A delivery whose body ends in the watch's own cut notice — naming the
 replay command and the relay seq, in your locale — is not the whole
