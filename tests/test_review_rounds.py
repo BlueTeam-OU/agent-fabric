@@ -293,8 +293,10 @@ def main() -> int:
               "## Findings to judge\nThis is an adjudication of an earlier round of #7" in r.stdout
               and "- F1 | P2 | - | a finding (open at gate 4c;" in r.stdout and "### general" in r.stdout, r.stdout[-1200:])
         r = run("next", req, "--pr", "7", "--adjudicate", head2)
-        check("--adjudicate a head that raised nothing: refused naming the head that did, nothing written",
-              r.returncode == 1 and f"{head1[:12]} raised findings" in r.stderr
+        # head2 raised nothing and is the last checkpoint's head; the checkpoint answers first (a post there would be
+        # the next round, barred from raising findings). test_review_brief has the raised-nothing refusal on its own.
+        check("--adjudicate the last checkpoint's head: refused naming the re-review, nothing written",
+              r.returncode == 1 and "last checkpoint review" in r.stderr and "fabric-review next REQUEST --pr" in r.stderr
               and not os.path.exists(os.path.join(tmp, "scratch", "REQUEST-rr5.json")), (r.returncode, r.stderr))
         r = run("next", req, "--pr", "7", "--adjudicate", head4)
         check("--adjudicate the head itself: refused, the head has not moved",

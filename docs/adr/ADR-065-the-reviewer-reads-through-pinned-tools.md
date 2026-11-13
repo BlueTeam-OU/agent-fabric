@@ -226,9 +226,10 @@ means a full review.
    findings, its report only `Judgement:` lines on labels raised on that
    base and `Finding: none`. `post-review` marks it on the line after the
    marker; gate 4c applies its judgements to the findings raised on its
-   base and nowhere else; it is never a checkpoint and no link of a chain,
-   and its brief lists the findings raised on its base from the posted
-   reviews (A 2026-11-13).
+   base and nowhere else; it is never a checkpoint, no link of a chain
+   and no review of its head at gates 4 and 4b, its base is never the
+   last checkpoint's head (that is the next round's), and its brief lists
+   the findings raised on its base from the posted reviews (A 2026-11-13).
 6. The reviewer does not post. The session posts its report with
    `fabric-pr post-review`.
 7. `review-bash-guard` stays as the fence `subagent-clone-guard` applies to
@@ -297,4 +298,4 @@ The body above reads current; each change's full note is in [history/ADR-065-ame
 | 2026-10-31 | A full review carries the findings earlier chains left open | §5 rule 5: a PR's full-review brief lists the open findings of the PR's earlier review chains to judge by label, and numbers its own past every used label |
 | 2026-11-01 | A coverage block may carry a default entry | §2 C, §5 rule 4: an optional top-level `default` stands for every range path the block does not name; a `not read` default makes the review partial |
 | 2026-11-04 | A moved report's re-review reads its machine lines | §2 C, §5 rule 5: for a report moved to a PR comment, the previous findings are the posted body's `Finding:`/`Judgement:` lines; the brief does not fetch the comment |
-| 2026-11-13 | An adjudication closes a finding from any earlier round | §5 rule 5: a judgements-only review based on an earlier round's head, marked on its second line, closes the findings raised there; never a checkpoint or a chain link |
+| 2026-11-13 | An adjudication closes a finding from any earlier round | §5 rule 5: a judgements-only review based on an earlier round's head, marked on its second line, closes the findings raised there; never a checkpoint, a chain link or a review of its head |

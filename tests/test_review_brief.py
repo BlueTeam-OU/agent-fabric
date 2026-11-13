@@ -1016,11 +1016,12 @@ def test_a_prs_adjudication_of_an_earlier_round(tmp: str) -> None:
     reviews = [posted(1, main, h1, ["Finding: F1 | P2 | certain | a.txt:1 | the first", "Finding: F2 | P3 | likely | - | the second"]),
                posted(2, h1, h2, ["Judgement: F1 | fixed | gone", "Finding: none"])]
     asked = []
-    saved = rb.earlier_reviews
+    saved, saved_checkpoint = rb.earlier_reviews, rb.checkpoint
     def answer(pr, r):
         asked.append(pr); return arm_findings.read(reviews, {"me"})
     try:
         rb.earlier_reviews = answer
+        rb.checkpoint = lambda pr, h, r, exclude_head=None: None
         req = {**base_request(repo), "mode": "finding-adjudication", "range": f"{h1}..HEAD", "card_base": main, "pr": 31}
         assert refusals(req) == [], refusals(req)
         info, refused = rb.resolve_range(req)
@@ -1035,6 +1036,11 @@ def test_a_prs_adjudication_of_an_earlier_round(tmp: str) -> None:
         assert "## Coverage" in out and "Finding: none" in out.split("## Report lines", 1)[1], out[-600:]
         assert _header(out)["base_sha"] == h1 and _header(out)["purpose"] == "finding-adjudication"
         assert asked and set(asked) == {31}, asked
+        # the last checkpoint's head: post_review would post it as the next round, barred from raising findings
+        rb.checkpoint = lambda pr, h, r, exclude_head=None: (main, h1, main, "X")
+        problems = refusals(req)
+        assert any("last checkpoint review" in p and "fabric-review next REQUEST --pr" in p for p in problems), problems
+        rb.checkpoint = lambda pr, h, r, exclude_head=None: None
         # a base that raised nothing: refused, naming the heads that did
         problems = refusals({**req, "range": f"{h2}..HEAD"})
         assert any("raised a finding on" in p and f"{h1[:12]} raised findings" in p for p in problems), problems
@@ -1068,7 +1074,7 @@ def test_a_prs_adjudication_of_an_earlier_round(tmp: str) -> None:
         assert "## Adjudication kind" in legacy and "next round from its last checkpoint" in legacy, legacy
         assert "TYPED" in legacy and "adjudication of an earlier round of" not in legacy and not asked, asked
     finally:
-        rb.earlier_reviews = saved
+        rb.earlier_reviews, rb.checkpoint = saved, saved_checkpoint
 
 
 def main() -> int:

@@ -207,6 +207,14 @@ def main() -> int:
               rc == 1 and d and d["blind"]["count"] == 0 and d["partial"]["rows"][0]["why"] == "partial coverage: 1 path(s) not read", out)
         rc, out, _ = run(f"OPEN:{h40}:0", f"{mine},half.md")
         check("the text report says NOT coverage", rc == 1 and "partial reviews     : 1   (NOT coverage" in out, out)
+        # An adjudication is complete and on its head, yet barred from raising a finding: never the head's review.
+        whole = v2("read", "read")
+        first, rest = whole.split("\n", 1)
+        put("adjudication.md", f"{first}\n<!-- agent-fabric-review adjudication: judgements of the findings raised on base, no chain -->\n{rest}")
+        rc, out, _ = run(f"OPEN:{h40}:0", f"{mine},adjudication.md", "--json")
+        d = one_json(out)
+        check("a complete adjudication on the head: exit 1, no blind row, its partial row naming it",
+              rc == 1 and d and d["blind"]["count"] == 0 and d["partial"]["rows"][0]["why"].startswith("an adjudication"), out)
 
         print("fabric-pr review-status — waiting")
         rc, out, _ = run("OPEN:abc123:1\nOPEN:abc123:1", "", "--wait", "2", "--interval", "1", "-q")

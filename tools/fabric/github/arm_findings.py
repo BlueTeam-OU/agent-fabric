@@ -164,7 +164,7 @@ def read(reviews: list, trusted: set[str]) -> Reading:
             # Never a Finding raised on this review's own head, unless its base is that head: a second engine's
             # review of the same range raises its own F1, which this judgement never saw, whether the two bases start
             # two chains (#437 round 3 F5) or continue one (both on a chain's head h0, #437 round 4 F8); closing it
-            # would arm with that F1 unjudged. A review of H..H (an adjudication, the next round) read the findings
+            # would arm with that F1 unjudged. A review of H..H (the next round from H) read the findings
             # raised on H, and judges them. The filter is on both pools, so a chain that raised the label only on
             # this head counts as never having raised it.
             same = [f for f in out.findings if f.label == label and (f.head != marker.head or marker.base == marker.head)]

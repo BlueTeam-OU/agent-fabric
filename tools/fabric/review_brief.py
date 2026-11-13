@@ -444,6 +444,14 @@ def _earlier_round(pr: int, base: str, base_sha: str, head_sha: str, repo: str) 
     if _git(repo, "merge-base", "--is-ancestor", base_sha, head_sha).returncode != 0:
         return None, [f"range: base {base!r} ({base_sha[:12]}) is not an ancestor of the head {head_sha[:12]}: an "
                       "adjudication judges an earlier round's findings at a later commit of the same PR"]
+    # post_review accepts a report on the last checkpoint's head as the next round (base_refusal) before it asks
+    # whether it is an adjudication: a judgements-only brief there would post as a counted round whose reviewer was
+    # barred from raising a finding on the commits it read. That round is the re-review, which may raise them.
+    found = checkpoint(pr, head_sha, repo)
+    if found and found[1] == base_sha:
+        return None, [f"range: {base!r} ({base_sha[:12]}) is the head of #{pr}'s last checkpoint review, where the next "
+                      "round starts: a re-review from it (fabric-review next REQUEST --pr) judges its findings and may "
+                      "raise new ones; an adjudication there would post as that round, barred from raising any"]
     got = earlier_reviews(pr, repo)
     if got is None:
         return None, [f"pr: #{pr}'s reviews cannot be listed, so which findings were raised on {base_sha[:12]} is "
