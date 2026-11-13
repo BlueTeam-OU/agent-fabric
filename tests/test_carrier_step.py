@@ -19,6 +19,7 @@ from types import SimpleNamespace
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, "tools", "fabric"))
+from gzcoord.carrier import admit  # noqa: E402
 from provisioning import account_carrier, carrier_step  # noqa: E402
 
 fails = 0
@@ -103,6 +104,16 @@ def main() -> int:
         _, died = run(carrier_step.roster_row, w)
         ok("…and any other refusal of it (a program that is not the release's) is a failed step: merging keys would not fix it",
            died and "exit 2" in died and any("pinned digest" in s for s in w.said), str(w.said))
+        class NoKeys:   # a lineage without the agent: what a first run of a new login meets
+            def lineage(self): return {}
+            def public_key(self, agent_id): return None
+        try:
+            admit._committed(NoKeys(), "01a")
+            said_by_carrier = ""
+        except admit.AdmitError as e:
+            said_by_carrier = str(e)
+        ok("the phrase 7d opens on is the one the carrier's own refusal says (reworded there, the first run would fail)",
+           carrier_step.NO_KEY_REFUSAL in said_by_carrier, said_by_carrier)
         w = stub({"render-config": (2, ""), "roster-row": (1, "Traceback: boom\n")})
         _, died = run(carrier_step.roster_row, w)
         ok("…while any other failure of roster-row (a crash) stays a failed step, with its last line said",
