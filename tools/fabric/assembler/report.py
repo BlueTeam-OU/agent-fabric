@@ -208,6 +208,9 @@ def commit_message(report: dict[str, Any], built_against: str | None) -> str:
         owner = sum(1 for d in decisions if isinstance(d, dict) and not d.get("rule"))
         lines.append(f"Collision decisions: {len(decisions)}, {owner} decided by the owner (--collision-decisions), "
                      f"{len(decisions) - owner} by the same-agent rule.")
+    rehomed = report.get("rehomed") or []
+    if rehomed:
+        lines.append(f"Re-homed to the control plane's corpus: {len(rehomed)} ({', '.join(r['slice'] for r in rehomed)}).")
     held = report.get("held_back") or []
     if held:
         lines.append(f"Held back: {len(held)} ({', '.join(held)}).")
@@ -216,6 +219,85 @@ def commit_message(report: dict[str, Any], built_against: str | None) -> str:
         lines.append(f"Oversized claims: {len(oversized)}, written whole; lint fails until the memory is split.")
     lines.append(f"Indexes built against agent-fabric {built_against or 'unknown (its commit could not be read)'}.")
     return "\n".join(lines) + "\n"
+
+
+def correction_holds(project: str, entry: dict[str, Any]) -> bool:
+    """Whether the slice an applied correction names still holds the text it applied."""
+    for base in [layout.working_copy_for(project), layout.FABRIC_ROOT]:
+        path = os.path.join(base, entry["slice"]) if base else ""
+        if path and os.path.isfile(path):
+            try:
+                _meta, sections = read_existing_slice(path)
+            except (OSError, UnicodeDecodeError):
+                return False
+            return entry.get("heading") in sections and section_key(sections[entry["heading"]]) == entry.get("applied_key")
+    return False
+
+
+# What a re-home pass writes into agent-fabric's report: the ledger of its own decisions, nothing of a drain's reading.
+REHOME_RECORD_KEYS = ("section_writers", "applied_corrections", "replaced_sections", "collision_decisions", "retitles")
+
+
+def read_rehome_report() -> tuple[dict[str, Any] | None, str | None]:
+    """agent-fabric's own report: (report, None); (None, None) when there is none; (None, why) when there is a file that is no
+    JSON object or cannot be read, which the pass must neither take for absent nor overwrite."""
+    path = layout.project_report_path(layout.FABRIC_PROJECT_ID)
+    try:
+        with open(path, encoding="utf-8") as fh:
+            previous = json.load(fh)
+    except FileNotFoundError:
+        return None, None
+    except (OSError, ValueError) as exc:
+        return None, f"{path} cannot be read ({type(exc).__name__}: {exc})"
+    if not isinstance(previous, dict):
+        return None, f"{path} is not a JSON object"
+    return previous, None
+
+
+def record_rehomed(other: Run) -> int:
+    """What the control plane's pass of a re-home decided, into agent-fabric's own last-drain-report.json, in REHOME_RECORD_KEYS
+    only: its replacements, applied corrections, section writers, collision decisions and retitles lived nowhere, so a replay of
+    the bundle wrote the replaced text back into the corpus (ADR-050 rules 3 and 10; j82) and a collision decision the owner gave
+    was forgotten by the next run. The pass is no harvest and no drain of agent-fabric's: every other key of the report is left
+    as it is, the stamp and telemetry included (an other-stamp merge_reports would replace them with the drained project's;
+    j227 review rounds 2 and 3).
+
+    The three ledgers are merge_reports' (writers per section, corrections and replacements kept while their slice exists);
+    decisions are kept by key and retitles appended, as a same-stamp merge does, because a pass that decided nothing must not
+    wipe the earlier ones. No report yet: one holding the record keys and `project` is written. A report that cannot be read, or
+    is no object, is refused (1, said on stderr) and left as it is; the caller has asked before the pass wrote anything."""
+    previous, why = read_rehome_report()
+    if why:
+        print(f"agent-fabric's own drain report is not replaced: {why}. Its record of this re-home pass is not written.", file=sys.stderr)
+        return 1
+    files = [in_report(other, p) for p in other.written]
+    current = {
+        "stamp": other.args.stamp, "project": other.project, "roles": other.owning_roles, "files": files, "files_written": len(files),
+        "shared_topics": sorted(f"{k}:{t}" for (k, t) in other.shared), "shared_slices": len(other.shared),
+        "telemetry": other.telemetry, "telemetry_sources": {}, "retired_in_siblings": other.retired_in,
+        "section_writers": other.section_writers, "section_writers_gone": other.section_writers_gone,
+        "section_moves": other.section_moves, "applied_corrections": other.applied_corrections,
+        "replaced_sections": other.replaced_sections, "collision_decisions": other.applied_decisions, "retitles": other.retitles,
+        "anchors_kept": other.anchors_kept, "anchors_lost": other.anchors_lost, "titles_one_lined": other.titles_one_lined,
+    }
+    merged = merge_reports(previous or {}, current, lambda rel: any(os.path.exists(os.path.join(root, rel))
+                                                                    for root in (layout.working_copy_for(other.project), layout.FABRIC_ROOT) if root))
+    decisions = {d.get("key"): d for d in (previous or {}).get("collision_decisions") or [] if isinstance(d, dict)}
+    for d in current["collision_decisions"]:
+        decisions[d["key"]] = d
+    record = {k: merged[k] for k in ("section_writers", "applied_corrections", "replaced_sections")}
+    record["collision_decisions"] = list(decisions.values())
+    record["retitles"] = [*((previous or {}).get("retitles") or []), *current["retitles"]]
+    assert set(record) == set(REHOME_RECORD_KEYS)
+    written = {**(previous or {"project": other.project}), **record}
+    written["applied_corrections"] = [e for e in written["applied_corrections"] if correction_holds(other.project, e)]
+    written["replaced_sections"] = still_replaced(other, written["replaced_sections"])
+    path = layout.project_report_path(other.project)
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w", encoding="utf-8") as fh:
+        json.dump(written, fh, ensure_ascii=False, indent=2, sort_keys=True)
+        fh.write("\n")
+    return 0
 
 
 def report(run: Run) -> int:
@@ -321,7 +403,8 @@ def report(run: Run) -> int:
         "harvest_sources": {source: harvest_meta} if harvest_meta is not None else {},
         "watermarks": watermarks,
         "held_back": sorted(run.held_back),
-        "held_unbound_role": run.held_unbound,
+        "rehomed": run.rehomed,
+        "rehomed_files": run.rehomed_files,
         "anchors_kept": run.anchors_kept,
         "anchors_lost": run.anchors_lost,
         "titles_one_lined": run.titles_one_lined,
@@ -353,17 +436,7 @@ def report(run: Run) -> int:
     report["oversized_by_origin"] = oversized_by_origin(report.get("oversized_claim_details") or [])
     # A correction stays listed only while its slice still holds the text it applied: a later correction, a revert or a hand
     # edit ends it (else the harvest would name a live memory superseded, or skip a correction asserting live text again).
-    def holds(entry: dict[str, Any]) -> bool:
-        for base in [layout.working_copy_for(run.project), layout.FABRIC_ROOT]:
-            path = os.path.join(base, entry["slice"]) if base else ""
-            if path and os.path.isfile(path):
-                try:
-                    _meta, sections = read_existing_slice(path)
-                except (OSError, UnicodeDecodeError):
-                    return False
-                return entry.get("heading") in sections and section_key(sections[entry["heading"]]) == entry.get("applied_key")
-        return False
-    report["applied_corrections"] = [e for e in report.get("applied_corrections") or [] if holds(e)]
+    report["applied_corrections"] = [e for e in report.get("applied_corrections") or [] if correction_holds(run.project, e)]
     report["replaced_sections"] = still_replaced(run, report.get("replaced_sections") or [])
     # A key an earlier run of the stamp held stays held only while no run
     # has written its slice since: this run writing it ends the hold.
@@ -372,8 +445,6 @@ def report(run: Run) -> int:
         klass, _, topic = rest.partition(":")
         return bool(run.shared.get((klass, topic)) if label == "shared" else run.per_role.get(label, {}).get((klass, topic)))
     report["held_back"] = sorted(k for k in report.get("held_back") or [] if k in run.held_back or not written_now(k))
-    # The records follow the keys: a hold a later run released (the role is bound now) leaves with it.
-    report["held_unbound_role"] = [r for r in report.get("held_unbound_role") or [] if r.get("slice") in report["held_back"]]
     # Derived from the corpus as it stands, like the collisions: a link a later drain made good leaves the list. Reported, never
     # rewritten, and never a failure: lint (lint_rules/slices.link_warnings) names what the whole committed corpus carries.
     undrained = {n.removesuffix(".md") for src in [*(report.get("harvest_sources") or {}).values(), harvest_meta]
@@ -382,6 +453,11 @@ def report(run: Run) -> int:
         report["files"], [b for b in (layout.working_copy_for(run.project), layout.FABRIC_ROOT) if b], layout.FABRIC_ROOT,
         layout.project_memory_root(run.project),
         [layout.project_memory_root(p) for p in layout.list_projects() if p != run.project], undrained)
+    # The re-homed files are the control plane's corpus: their links are read as that project's, not the drained project's.
+    report["unresolved_links"] += unresolved_links(
+        report.get("rehomed_files") or [], [layout.FABRIC_ROOT], layout.FABRIC_ROOT,
+        layout.project_memory_root(layout.FABRIC_PROJECT_ID),
+        [layout.project_memory_root(p) for p in layout.list_projects() if p != layout.FABRIC_PROJECT_ID], undrained)
     os.makedirs(os.path.dirname(report_path), exist_ok=True)
     with open(report_path, "w", encoding="utf-8") as fh:
         json.dump(report, fh, ensure_ascii=False, indent=2, sort_keys=True)
@@ -440,12 +516,12 @@ def report(run: Run) -> int:
               file=sys.stderr)
         for note in run.unresolved_targets:
             print(f"  {note}", file=sys.stderr)
-    if run.held_unbound:
-        print("\nHELD, ROLE NOT BOUND BY THE PROJECT'S TAXONOMY (not written; the store's mark stays below them, so the "
-              "harvest brings them again once the drain re-homes them):", file=sys.stderr)
-        for row in run.held_unbound:
-            print(f"  {row['slice']} (role {row['role']}, project {row['project']}, from {', '.join(row['source']) or 'unknown'})",
-                  file=sys.stderr)
+    if run.rehomed:
+        print(f"\nRE-HOMED ({len(run.rehomed)}: the role is not bound by {run.project}'s taxonomy, so the claim went to agent-fabric's "
+              "own corpus, which that role's remit covers):", file=sys.stderr)
+        for row in run.rehomed:
+            print(f"  {row['slice']} (role {row['role']}, from project {row['from_project']} to {row['to_project']}, "
+                  f"from {', '.join(row['source']) or 'unknown'})", file=sys.stderr)
     lined = [row for row in run.titles_one_lined if row["slice"] not in run.held_back]
     if lined:
         print("\nTITLES MADE ONE LINE (a line break in the title became a space; fix the memory's description if the break was an escape "
