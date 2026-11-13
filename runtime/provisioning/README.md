@@ -110,7 +110,13 @@ that remote — the fabric's own clone too when agent-fabric is not a
 `provisioning/launch_record.py`: a `routing/profiles.json` layer's
 `launch_provider` when one names it, else `anthropic` with a Claude
 account, `openrouter` with `--no-claude-account`; a record already there is
-kept); `bootstrap.sh`; `bin/fabric-role bind <role>`; the toolchain each
+kept); `bootstrap.sh`; `bin/fabric-role bind <role>`; the account's way onto the
+channel, none of it through the relay (7c-7e, `provisioning/carrier_step.py`): the pinned
+InterWeave release installed as the account, its roster row (valid in its clone, or written to
+`~/.local/state/agent-fabric/new-agent/roster-row-<login>.json` of the operator for
+fabric-coordinator to `gzcoord-carrier roster-admit` and merge: the run then ends with exit 3
+after every other step, and its re-run starts the units), and agentd and the carrier's units
+started in the account's user manager; the toolchain each
 project's lockfile declares (pnpm under `~/.local`, `pnpm install`,
 `npm ci`, a venv); on a host whose registry entry pins an `sshd`, the
 account joined to the operator's ssh (9b, `provisioning/ssh_add_login.py`:
