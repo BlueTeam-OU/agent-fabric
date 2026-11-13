@@ -12,7 +12,7 @@ CONTRACT
               since, until  YYYY-MM-DDTHH:MM:SSZ, since < until
             No other key, no other value: an argument never names a path.
   reply     data["<carrier>-evidence"] = {status: "ok", section, since, until,
-            rows: [...], next: <ISO time> | null, journal?, skipped?} or
+            rows: [...], next: <ISO time> | null, journal?, skipped?, send_rows?} or
             {status: "refused", reason}. A page is at most PAGE_BYTES of rows; a
             `next` says the window holds more and is the `since` of the next
             page: this request again, from there.
@@ -38,11 +38,17 @@ CONTRACT
             `outcome` is posted | present | over-age, `delay_s` a finite number, `channel` a short
             string or null; any other line is skipped and counted. Read by the parity report's relay-outage drill
             (its fourth property) and nothing else. A failure of this section ends only this section.
+            Beside the log's lines the page carries one derived row {mid, outcome: "relay-took-send", at, channel: null} per
+            outbound message the sender's journal holds as accepted by the relay (carrier episodic.DEFAULT_CARRIER) with `at` (the send's time)
+            in the window: the relay's record had it from the send, so the log has no line for it. It has no delay_s. The
+            reply says `send_rows`: ok | absent | unreadable, the state of the journal it was derived from; a reply without
+            the key is from a daemon that did not derive them, and "no row" cannot then be read as "never reached the relay".
   never     a body. Rows are built key by key from a closed list, each value a
             short string (but a backfill row's `delay_s`, a number, and its `channel`, a string or null): a line of the log with a text, a path or a key in it
             that a later version adds does not leave. The journal is opened
             read-only and only message_id and the header fields that make a
-            kind are read from it.
+            kind are read from it (and, for backfills, message_id and happened_at of
+            outbound accepted rows).
 
 A page is cut on a second boundary, because `next` is a time: rows that share
 the second the page ends on go to the next page whole, never half (a cursor
@@ -72,6 +78,9 @@ SHOWN_KEYS = ("mid", "via", "t")
 ACK_KEYS = ("mid", "addressee", "t")
 BACKFILL_KEYS = ("mid", "outcome", "at")
 BACKFILL_OUTCOMES = ("posted", "present", "over-age")
+# Not a line of the log: derived from the sender's journal for a message the relay took when it was sent, which backfill.py
+# never writes a row for. A log line that says it is refused, so a reader can tell the two by the outcome alone.
+RELAY_TOOK_SEND = "relay-took-send"
 ARRIVAL_KEYS = ("mid", "addressee", "carrier", "t", "verdict")
 DELIVERY_KEYS = ("mid", "to", "enc", "queued", "state", "code", "by")
 # The relay's message limit is 128 KiB and a record is posted as a JSON string inside a JSON record, which
@@ -255,6 +264,34 @@ def kinds_for(db_path: str, mids: list[str]) -> tuple[dict[str, str], str]:
     return out, "ok"
 
 
+def relay_took_send(db_path: str) -> tuple[list[dict], str]:
+    """The derived rows (see `backfills` above) and the journal's state: ok | absent | unreadable. The journal is opened
+    read-only; only message_id and happened_at are read. An unreadable one yields no rows and says so, never an empty "ok"."""
+    # Loaded here, not at module load: episodic pulls in the secret store, and agentd and fabric-ctl import this module at startup
+    # for an op only this function serves (review of #592).
+    import episodic
+    # The relay is the primary transport and send.py marks its accept without --carrier, so the journal holds the default's name
+    # (not transport/relay.py's NAME, which no journal row carries); the second carrier's accept leaves that provenance alone.
+    relay_carrier = episodic.DEFAULT_CARRIER
+    if not os.path.isfile(db_path):
+        return [], "absent"
+    try:
+        con = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True, timeout=5)
+    except sqlite3.Error:
+        return [], "unreadable"
+    rows: list[dict] = []
+    try:
+        for mid, at in con.execute("SELECT message_id, happened_at FROM episodes WHERE source='gzcoord' AND direction='outbound' "
+                                   "AND state='accepted' AND carrier=? ORDER BY happened_at, rowid", (relay_carrier,)):
+            if isinstance(mid, str) and parity.UUID7.fullmatch(mid) and _time(at) is not None:
+                rows.append({"mid": mid, "outcome": RELAY_TOOK_SEND, "at": at, "channel": None})
+    except sqlite3.Error:
+        return [], "unreadable"
+    finally:
+        con.close()
+    return rows, "ok"
+
+
 def carrier_evidence(request: Any, *, state: str | None = None, db_path: str | None = None, page_bytes: int | None = None) -> dict:
     """One page of one section. Every refusal is one line of a reply."""
     args = request.get("args") if isinstance(request, dict) else None
@@ -266,8 +303,10 @@ def carrier_evidence(request: Any, *, state: str | None = None, db_path: str | N
     start, end = _time(since), _time(until)
     if section == BACKFILL_SECTION:
         every, skipped = _read_lines(os.path.join(state, "gzcoord-backfill.jsonl"), _backfill_row)
-        inside = sorted((r for r in every if start <= _time(r["at"]) < end), key=lambda r: r["at"])
-        key, extra = "at", {"skipped": skipped}
+        derived, journal = relay_took_send(db_path or _db_path(state))
+        inside = sorted([r for r in every if start <= _time(r["at"]) < end] + [r for r in derived if start <= _time(r["at"]) < end],
+                        key=lambda r: r["at"])
+        key, extra = "at", {"skipped": skipped, "send_rows": journal}
     elif section in DRILL_SECTIONS:
         name, convert = ("gzcoord-shown.jsonl", _shown_row) if section == "shown" else ("gzcoord-acks.jsonl", _ack_row)
         every, skipped = _read_lines(os.path.join(state, name), convert)
