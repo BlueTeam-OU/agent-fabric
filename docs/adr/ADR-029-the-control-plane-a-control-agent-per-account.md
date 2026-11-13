@@ -7,7 +7,7 @@
 **Scope:** runtime/control/, every module and the unit file, and its Python package tools/fabric/control/ from its creation (ADR-040 Wave 8); bin/fabric-ctl; the control channel's refusal in GZCoord's inbox and send tools; the unit's installation in tools/fabric/bootstrap.py; tools/fabric/local_settings.py (rule 15) and runtime/claude-code/hooks/session-state.py (rule 16); account persistence (runtime/provisioning/persist-accounts.sh, runtime/provisioning/platform/qubes/agent-fabric-accounts.rc); the fallbacks bin/fabric-usage and bin/fabric-host; bin/fabric-op, the break-glass action path (rule 19)
 **Pillar:** P5
 **Class:** engine
-**Evidence:** docs/live-checks/2026-09-17-control-plane.md
+**Evidence:** docs/live-checks/2026-09-17-control-plane.md, docs/live-checks/2026-11-13-control-dual-two-accounts.md
 
 ## 1. Context and Problem
 
@@ -437,8 +437,9 @@ with Doppler (ADR-038 §5 rule 8).
 
 Accepted. The control agent, the channel, the read ops and the signed
 actions are in use on every placed account. Rule 18's second carrier is
-not built yet: until it is, `control_carrier` is read by nothing and
-every account is on the relay alone.
+built (#571) and read back between two accounts of one host, and
+`control_carrier` is `dual` for the fleet (A 2026-11-13): the relay
+stays the transport of record, InterWeave the carrier beside it.
 
 ## References
 
@@ -498,3 +499,4 @@ The body above reads current; each change's full note is in [history/ADR-029-ame
 | 2026-10-31 | A tool pinned for some roles is installed only on an account bound to one | §2 table: `tools-install`, skipped for another bound role (j463) |
 | 2026-11-08 | The parity evidence carries the relay-outage drill's shown and acks | §2 table: `interweave-evidence` takes four sections; §5 rule 6: nor a hash of the text (#509) |
 | 2026-11-09 | job-state, a fourth public op | §2 table: `job-state`; §5 rule 3: its one `job` or `request` argument; rule 4: public, its state answered to the job's request sender only and `absent` to anyone, the test reading the relay's channels as a source a token holder already has, since done from dropped and a job's existence are on them; built in #527 (ADR-037 rule 8) |
+| 2026-11-13 | The second carrier is read back and the fleet is on dual | Evidence: the two-account read-back; §8: built, read back, `control_carrier` `dual` (j793) |

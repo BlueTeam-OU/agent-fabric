@@ -377,3 +377,21 @@ Rule 4 admitted a public op only when its answer is nothing a relay-token holder
 What is protected is a job's open state, its progress, from anyone but its request's sender: `job-state` answers only the sender of the REQUEST the job was taken from (the job's `source.from`, for a job whose source is a request) and refuses everyone else, the same words for every job. The asker's `from` is unverified on an unsigned read, as for `pool-claim`, so the sender rule limits accidental reads, not forged ones. The rule 4 test is what makes a forged read harmless.
 
 Raised by python-dev-03 in the review of #527 (REQUEST 01a1c0b7), since rules 3 and 4 list the public ops and their arguments by name. The two ways `job-state` says more than `jobs`, and the test's second source, were F7 of python-dev-03's round-3 blind review of #527 (REQUEST 01a1c0cb), written by fabric-coordinator as job j711.
+
+### Amendment 2026-11-13 — The second carrier is read back and the fleet is on dual
+
+Rule 18's carrier was built in #571 (python-dev-02, j141) and left off,
+its two-account live read-back named as not yet run. That read-back ran
+on 2026-11-13 between `user` as the operator and `python-dev-01` as the
+peer (`docs/live-checks/2026-11-13-control-dual-two-accounts.md`): a
+ping answered by both carriers, the InterWeave copy kept as the row and
+the relay's flagged unauthenticated; and the same ping answered by
+InterWeave alone with the relay killed after it accepted the request.
+Every account's profile was then re-rendered with `fabric-control`.
+
+§8 now says the carrier is built and read back and the fleet is on
+`dual`; rule 18 itself is unchanged. `runtime/control/config.json`
+names `dual` in the same change, so each account takes it with its next
+fabric upgrade. The relay stays the transport of record until the
+owner's word on a control parity report (§2). Not read back: a second
+host, which has no fleet account yet.
