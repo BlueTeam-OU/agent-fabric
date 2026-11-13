@@ -44,13 +44,18 @@ dual run: a 60000-byte record passes and a 66000-byte one does not, so
 parts are split at 32 KiB, rule 18's ceiling.
 
 **What it decides.**
-- Rule 18 is built and read back on one host between two accounts:
+- Rule 18's read path is built and read back on one host between two
+  accounts:
   `control_carrier` is switched to `dual` for the fleet in the same
   pull request, and reaches each account with its next fabric upgrade.
 - The relay stays the transport of record (ADR-029 §2): `dual` adds a
   carrier, it removes none.
 
 **Not measured.**
+- Only `ping`, a read op, was asked. No signed action went by both
+  carriers (the fixture registry carried no operator key), no reply
+  split into parts at the 32 KiB bound, and no public op was asked from
+  a non-operator account through its own agentd.
 - A second host: fabric-h2 has no fleet account yet, and it cannot dial
   back to develop-qzapp (2026-11-11 record). A control request is
   answered over the connection the operator opened, which this check
