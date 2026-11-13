@@ -138,7 +138,7 @@ Fleet Deck runs on — is placed with `kinds` `human` in
 --human`: the kind decides what `fabric-secrets status` requires of it,
 and its clone reads it there. The run makes the account, its fabric
 clone, its key and store with its identity and `CLAUDE_BRIDGE_AUTH_TOKEN`
-only, the hand-over and first sync, and its inbox cursor; then verifies
+only, the hand-over and first sync; then verifies
 its status and that nothing of a session is in its home. No claude or
 ori, no SSH host keys, no bootstrap, no role, no Claude account, no
 issued key, no signing key; moveto's sudo grant is the host operator's.

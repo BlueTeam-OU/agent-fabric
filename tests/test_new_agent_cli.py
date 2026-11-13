@@ -16,6 +16,7 @@ import os
 import pwd
 import re
 import shutil
+import socket
 import subprocess
 import sys
 import tempfile
@@ -476,8 +477,22 @@ def main() -> int:
         put(f"{src}/bin/fabric-role", '#!/usr/bin/env bash\ncase "$1" in status) echo "role      (none active)";; '
             'bind) echo "bound. role $2";; esac\n', 0o755)
         put(f"{src}/bin/fabric-secrets", filled(ACCOUNT_SECRETS), 0o755)
-        put(f"{src}/tools/fabric/relay_catchup.py", "#!/usr/bin/env python3\nimport sys\n"
-            f'open("{seq}/account-calls", "a").write("relay_catchup " + " ".join(sys.argv[1:]) + "\\n")\n')
+        # The carrier steps (7c-7e) as the account's clone would run them: recorded, and the roster row valid only once
+        # $SEQ/row-valid exists (the coordinator's countersignature merged).
+        put(f"{src}/tools/fabric/provisioning/account_carrier.py", "#!/usr/bin/env python3\nimport sys\n"
+            f'open("{seq}/account-calls", "a").write("account_carrier " + " ".join(sys.argv[1:]) + "\\n")\n'
+            'print({"install": \'{"status": "installed"}\', "start": \'{"status": "started"}\'}[sys.argv[1]])\n')
+        put(f"{src}/bin/gzcoord-carrier", filled('''#!/usr/bin/env bash
+echo "gzcoord-carrier $1" >> "{SEQ}/account-calls"
+case "$1" in
+  render-config) [[ -e "{SEQ}/row-valid" ]] || exit 2;;
+  roster-row) echo '{"agent_id": "01a-fixture", "login": "seq-login", "peer_id": "12D3KooWfixture"}';;
+esac
+'''), 0o755)
+        # systemctl --user, as the account's manager would answer it; the manager's socket is a file under the test's own run dir.
+        put(f"{bin_}/systemctl", filled('''#!/usr/bin/env bash
+echo "systemctl $*" >> "{SEQ}/account-calls"
+'''), 0o755)
         put(f"{src}/runtime/openrouter/launch", '#!/usr/bin/env bash\necho "launch: resolved profile x"\n', 0o755)
         # The account's clone holds the real recorder: step 6b runs it from there, as the account (j125).
         for f in ("provisioning/launch_record.py", "fabric_writes.py", "launch_provider_record.py"):
@@ -527,7 +542,9 @@ def main() -> int:
                    "HOME": f"{sandbox}/home", "AGENT_FABRIC_ACCOUNTS_SNAPSHOT": f"{sandbox}/persist/snap",
                    "AGENT_FABRIC_RC_LOCAL_D": f"{sandbox}/persist/rcd", "AGENT_FABRIC_ETC": f"{sandbox}/persist/etc",
                    "AGENT_FABRIC_LOGINCTL": f"{bin_}/loginctl", "AGENT_FABRIC_LEASES": f"{sandbox}/persist/leases",
-                   "AGENT_FABRIC_TMPFILES_D": f"{sandbox}/persist/tmpfiles.d"}
+                   "AGENT_FABRIC_TMPFILES_D": f"{sandbox}/persist/tmpfiles.d", "AGENT_FABRIC_RUN_USER": f"{seq}/run",
+                   # A relay nobody answers: nothing of a new account's run may need it.
+                   "CLAUDE_BRIDGE_URL": "http://127.0.0.1:9"}
             argv = with_account(args, ("--claude-account", "acct-one"))
             r = subprocess.run([sys.executable, shim, *argv, *h], env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                                text=True, timeout=600)
@@ -535,11 +552,18 @@ def main() -> int:
 
         def reset_seq() -> None:
             shutil.rmtree(homes, ignore_errors=True)
+            put(f"{seq}/row-valid", "")     # the coordinator has countersigned the row, unless a case removes this
+            shutil.rmtree(f"{sandbox}/home/.local/state/agent-fabric/new-agent", ignore_errors=True)
             for f in (f"{seq}/passwd", f"{seq}/enrolled", fault, f"{seq}/account-calls", f"{seq}/token",
                       f"{sandbox}/persist/etc/subuid", f"{sandbox}/persist/etc/subgid"):
                 if os.path.exists(f):
                     os.remove(f)
             os.makedirs(homes)
+            # The account's user manager: a socket at <run user dir>/<uid>/bus, the uid the fake getent gives (1000).
+            os.makedirs(f"{seq}/run/1000", exist_ok=True)
+            if not os.path.exists(f"{seq}/run/1000/bus"):
+                with socket.socket(socket.AF_UNIX) as srv:
+                    srv.bind(f"{seq}/run/1000/bus")
 
         def lines(path: str) -> list[str]:
             return read(path).split("\n")
@@ -558,6 +582,34 @@ def main() -> int:
                 print(f"new-agent: the real sequence on the {backend} backend")
                 rc, out = seq_run(backend, "seq-login", "backend-dev", "--project", "demo")
                 ok("the whole sequence exits 0", rc == 0, f"rc={rc}\n{out}")
+                acc = lines(f"{seq}/account-calls")
+                ok("7c-7e: the release installed, the row found valid, agentd enabled, the carrier started — in that order",
+                   [ln for ln in acc if re.match(r"^(account_carrier|gzcoord-carrier|systemctl)", ln)]
+                   == ["account_carrier install", "gzcoord-carrier render-config",
+                       "systemctl --user enable --now agent-fabric-agentd.service", "account_carrier start"], "\n".join(acc))
+                ok("…said, and nothing of the relay in the whole run",
+                   "7e. agent-fabric-agentd and the carrier's units started" in out and "relay_catchup" not in read(f"{seq}/account-calls")
+                   and "relay_catchup" not in read(calls), out)
+                # The row is the coordinator's to countersign: not valid yet, the run does every other step, writes the row
+                # for the operator, says what to sign and ends 3 — and starts nothing.
+                saved_calls, saved_acc = read(calls), read(f"{seq}/account-calls")      # the checks after these runs read the first one's
+                os.remove(f"{seq}/row-valid")
+                put(f"{seq}/account-calls", "")
+                rc3, out3 = seq_run(backend, "seq-login", "backend-dev", "--project", "demo")
+                row = f"{sandbox}/home/.local/state/agent-fabric/new-agent/roster-row-seq-login.json"
+                acc = lines(f"{seq}/account-calls")
+                ok("7d: a row that is not countersigned: exit 3, the row file written 0644, the command to sign said",
+                   rc3 == 3 and os.path.isfile(row) and (os.stat(row).st_mode & 0o777) == 0o644
+                   and json.load(open(row, encoding="utf-8"))["login"] == "seq-login"
+                   and f"gzcoord-carrier roster-admit {row} --port" in out3 and "open: roster row of seq-login" in out3, f"rc={rc3}\n{out3}")
+                ok("…the carrier and agentd are not started, the steps after still ran and the verification passed",
+                   not any(ln.startswith("systemctl") or ln == "account_carrier start" for ln in acc)
+                   and "10. verification" in out3 and "7e." not in out3, "\n".join(acc) + out3)
+                put(f"{seq}/row-valid", "")
+                rc4, out4 = seq_run(backend, "seq-login", "backend-dev", "--project", "demo")
+                ok("…and the re-run after the countersignature starts them and exits 0", rc4 == 0 and "7e." in out4, f"rc={rc4}\n{out4}")
+                put(calls, saved_calls)
+                put(f"{seq}/account-calls", saved_acc)
                 client = f"{homes}/seq-login/.local/libexec/interweave/client"
                 ok("7b: the carrier's client unit program is in the account's home, executable, said once",
                    os.path.isfile(client) and (os.stat(client).st_mode & 0o777) == 0o755
@@ -582,11 +634,10 @@ def main() -> int:
                 ok("…its store handed over as a bundle, then synced without a pull",
                    "secret_store child-bundle seq-login" in lines(calls)
                    and acc[:2] == ["store take-bundle", "sync --quiet --no-pull"], read(calls) + read(f"{seq}/account-calls"))
-                # Its inbox starts at the channel's newest message, for the
-                # projects it was made for.
-                acc = [ln for ln in lines(f"{seq}/account-calls") if re.match(r"^(sync|relay_catchup)", ln)]
-                ok("…then its inbox cursor moved to the newest message, after the sync, for its projects",
-                   acc[-2:] == ["sync --quiet --no-pull", "relay_catchup demo"], read(f"{seq}/account-calls"))
+                # No inbox cursor to move: nothing of the relay is asked of a new account (the cutover's W14).
+                ok("…and nothing of the relay: no inbox catch-up after the sync",
+                   not any("relay_catchup" in ln for ln in lines(f"{seq}/account-calls")) and "relay_catchup" not in out,
+                   read(f"{seq}/account-calls"))
                 # The Claude account: checked before the account is made, its token
                 # written into the child's store after the keys and before the
                 # bundle, applied by the first sync, and its fingerprint compared.
@@ -821,8 +872,8 @@ def main() -> int:
                has(rf"^store-enroll {login} --host", c) and has(rf"^secrets provision identity {login} --host", c)
                and has(rf"^secrets provision share {login} --name CLAUDE_BRIDGE_AUTH_TOKEN$", c)
                and not has(r"^secrets (provision issue-key|store templates|store assign)", c), c)
-            ok("…its store handed over and synced as itself, its inbox caught up on the fleet's channel",
-               acc[:3] == ["store take-bundle", "sync --quiet --no-pull", "relay_catchup agent-fabric"], "\n".join(acc))
+            ok("…its store handed over and synced as itself, no inbox catch-up",
+               acc[:2] == ["store take-bundle", "sync --quiet --no-pull"] and not any("relay_catchup" in ln for ln in acc), "\n".join(acc))
             ok("…no bootstrap, no role bound, no toolchain; verified as a human, its person's list named",
                "7. bootstrap run" not in out and "8. role" not in out and "9. " not in out
                and "nothing of a session" in out and "status" in acc and "Fleet Deck, run as " + login in out

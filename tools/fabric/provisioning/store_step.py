@@ -111,13 +111,9 @@ def secrets_step(s: Steps, login: str, host: str, projects: list[str], slug: str
     rc = s.indented([*as_account, "projects/agent-fabric/bin/fabric-secrets", "sync", "--quiet", "--no-pull"])[0]
     if rc not in (0, 2):
         die(f"step failed: fabric-secrets sync as {login} (exit {rc}); nothing after it ran")
-    # Its GZCoord cursor at the channel's newest message: a consumer the
-    # relay has never seen reads from the first message it holds, and
-    # everything before the account existed is someone else's history.
-    # Not fatal: an account whose cursor stayed behind still works, it only
-    # reads old traffic once.
-    if s.indented([*as_account, "python3", "projects/agent-fabric/tools/fabric/relay_catchup.py", *projects])[0] != 0:
-        say("   its inbox cursor was not moved (above); its first session reads the channel's backlog")
+    # No inbox cursor to move: the carrier delivers what arrives after the account's units start (step 7e), so
+    # there is no backlog of someone else's history to mark read, and nothing here reaches a relay that may be
+    # stopped (the cutover's W14; relay_catchup.py did this and is gone).
     say("5. its key made and certified, its store filled and synced; commit identities/keys/, then write its recovery "
         "copy and back up:")
     say(f"     fabric-host {host} run --as {login} -- projects/agent-fabric/bin/fabric-secrets store recovery-copy")
