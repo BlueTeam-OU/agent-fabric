@@ -1254,6 +1254,22 @@ class RelayRecord(unittest.TestCase):
         self.assertIs(self.drill(path)["backfill"], False)
         self.assertIn("Fourth property, relay record by backfill: FAILED", self.report(path)[1])
 
+    def test_a_row_that_landed_wins_over_an_earlier_over_age_one_of_the_same_message(self):
+        path = self.collect({"alpha": self.acct("alpha", (), [backfill(self.M, "over-age", 290, 99999), backfill(self.M, "posted", 300, 190)]),
+                             "beta": self.acct("beta", (self.M,), [])})
+        self.assertEqual(self.record(path, self.M)["state"], "posted")
+        self.assertIs(self.drill(path)["backfill"], True)
+
+    def test_a_log_whose_meta_says_it_was_not_collected_is_not_read_even_if_a_file_is_there(self):
+        path = self.collect({"alpha": self.acct("alpha", (), [backfill(self.M, "posted", 300)]), "beta": self.acct("beta", (self.M,), [])})
+        mp = os.path.join(path, "alpha", "meta.json")
+        with open(mp) as fh:
+            meta = json.load(fh)
+        meta["backfill_log"] = {"complete": False, "reason": "backfills: no answer", "skipped": 0}
+        with open(mp, "w") as fh:
+            json.dump(meta, fh)
+        self.assertEqual(self.record(path, self.M), {"state": "not collected"})
+
     def test_no_row_by_the_reports_end_is_none_and_fails_and_a_later_row_does_not_count(self):
         path = self.collect({"alpha": self.acct("alpha", (), [backfill(self.M, "posted", 1000)]), "beta": self.acct("beta", (self.M,), [])})
         self.assertEqual(self.record(path, self.M), {"state": "none"})
