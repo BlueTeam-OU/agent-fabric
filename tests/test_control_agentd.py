@@ -569,12 +569,27 @@ class Pieces(Scratch):
         self.assertEqual(len(fired), 1, "but once seen, its change is")
 
     def test_port_the_files_watched_are_the_loaded_modules_and_the_config_and_nothing_else_of_the_tree(self):
-        files = agentd.loaded_sources()
+        # The default is what is watched only when the variable names nothing.
+        with mock.patch.dict(os.environ, {"FABRIC_CONTROL_CONFIG": ""}):
+            files = agentd.loaded_sources()
         self.assertIn(agentd.CONFIG, files)
         self.assertIn(os.path.realpath(agentd.__file__) if os.path.realpath(agentd.__file__) in files else agentd.__file__, files)
         self.assertTrue(all(f == agentd.CONFIG or f.endswith(".py") for f in files))
         self.assertFalse(any(f.endswith(".mjs") for f in files), "a Node module is not the Python daemon's code")
         self.assertEqual(agentd.QUIET_S, 2)
+
+    def test_port_the_config_watched_is_the_one_the_daemon_reads_when_FABRIC_CONTROL_CONFIG_names_another(self):
+        # control_config() reads FABRIC_CONTROL_CONFIG when set; a pull that
+        # changes that file, not CONFIG, is what must restart the daemon.
+        d = self.scratch("agentd-watch-cfg-")
+        cfg = os.path.join(d, "control.json")
+        with mock.patch.dict(os.environ, {"FABRIC_CONTROL_CONFIG": cfg}):
+            files = agentd.loaded_sources()
+        self.assertIn(cfg, files)
+        self.assertNotIn(agentd.CONFIG, files)
+        self.assertTrue(all(f == cfg or f.endswith(".py") for f in files))
+        with mock.patch.dict(os.environ, {"FABRIC_CONTROL_CONFIG": ""}):
+            self.assertIn(agentd.CONFIG, agentd.loaded_sources(), "an empty value is the default, as control_config() reads it")
 
     def test_accounts_keeper_the_timer_and_a_request_share_one_reading_the_cache_answers_inside_its_window_a_failed_read_does_not_jam_the_next(self):
         clock, reads = [0], [0]
