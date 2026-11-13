@@ -653,6 +653,32 @@ def test_f4_the_notes_of_the_rehome_pass_reach_the_projects_report_and_its_files
         rep["unresolved_links"]
 
 
+def test_f6_the_rehome_pass_updates_the_control_planes_report_in_its_record_keys_only(tmp: str) -> None:
+    """F6: agent-fabric's report at another stamp than the project's drain (the ordinary case) was replaced by the pass's, so
+    its harvest, memory marks, horizons, held-back claims and telemetry went and the project's roles entered its telemetry.
+    Control: the record keys the pass wrote are in it."""
+    kept = {"stamp": "2025-12-01", "project": "agent-fabric", "roles": ["fabric-coordinator"], "files": [], "files_written": 0,
+            "harvest": {"read": 3}, "harvest_sources": {"a@h": {"read": 3}}, "memory_marks": {"s1": [["h", 1]]},
+            "memory_use": {"x": 1}, "review_horizons": {"r": "2026-01-01"}, "held_back": [{"slice": "k"}],
+            "title_collisions": [{"t": "u"}], "unresolved_links": [{"slice": "k", "target": "t"}], "memory_flags": [{"f": 1}],
+            "telemetry": {"fabric-coordinator": {"n": 5}}, "telemetry_sources": {"a@h": {"fabric-coordinator": {"n": 5}}},
+            "watermarks": {"h": 7}}
+    claim = {**WF, "topic": "moved", "title": "Moved", "evidence": ["h2"]}
+    drain, claims_dir, out = ta.build(tmp, {"alpha": ta.claims("alpha", [WF]), COORD: ta.claims(COORD, [claim])})
+    ta.with_agents(drain, {"h1": "dev-01", "h2": "dev-02"})
+    bind(out, "alpha")
+    path = os.path.join(out, ".agent-fabric", "memory", "last-drain-report.json")
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w", encoding="utf-8") as fh:
+        json.dump(kept, fh)
+    proc = ta.run_assemble(drain, claims_dir, out)
+    assert proc.returncode == 0, proc.stderr
+    rep = fabric_report(out)
+    assert {k: v for k, v in rep.items() if k in kept} == kept, {k: v for k, v in rep.items() if k in kept}
+    assert any(COORD in k for k in rep["section_writers"]), "control: the pass's record is there: " + str(rep["section_writers"])
+    assert rep["stamp"] == "2025-12-01" and set(rep["telemetry"]) == {"fabric-coordinator"}, (rep["stamp"], rep["telemetry"])
+
+
 def test_the_commit_body_counts_what_was_rehomed(tmp: str) -> None:
     """A line the report gives reason for: removing it from commit_message passed every suite (the review's risks)."""
     drain, claims_dir, out = ta.build(tmp, {"alpha": ta.claims("alpha", [WF]), COORD: ta.claims(COORD, [{**WF, "topic": "moved", "evidence": ["h2"]}])})
@@ -708,6 +734,7 @@ def main() -> int:
         test_a_break_in_a_title_does_not_split_the_heading_or_cut_the_index_entry,
         test_f1_a_banned_topic_or_title_reaches_neither_the_report_nor_the_commit_body_nor_stderr,
         test_f2_a_collision_in_the_rehome_pass_is_decided_by_the_owner_and_the_rerun_carries_it,
+        test_f6_the_rehome_pass_updates_the_control_planes_report_in_its_record_keys_only,
         test_f3_what_the_rehome_pass_replaced_is_recorded_in_the_control_planes_report_and_a_replay_keeps_it,
         test_f4_the_notes_of_the_rehome_pass_reach_the_projects_report_and_its_files_are_checked_for_links,
         test_the_commit_body_counts_what_was_rehomed,

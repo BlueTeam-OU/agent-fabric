@@ -59,7 +59,9 @@ What it does:
 A project-scoped claim (solution, intersection, rationale, workflow, threads) whose role the project's taxonomy does not bind is
 not admitted to that project's corpus (the owner, 2026-11-11; drain of 2026-11-08). fabric-coordinator's goes to agent-fabric's
 own .agent-fabric/memory/fabric-coordinator/ instead, that role's remit covering the control plane wherever it learned the
-lesson, and the report's `rehomed` names each (its stderr section and the commit body count them). Any other role refuses the
+lesson, and the report's `rehomed` names each (its stderr section and the commit body count them). That pass also updates
+agent-fabric's own last-drain-report.json in place, in its record keys only (section_writers, applied_corrections,
+replaced_sections, collision_decisions, retitles): its stamp, harvest, memory, horizon and telemetry fields stay. Any other role refuses the
 run before anything is written (exit 1), naming the claim, its role and the project: no fallback. A claim some bound role
 co-owns (shared_with) stays; a project with no taxonomy, the fabric's own project and domain claims are not judged.
 
