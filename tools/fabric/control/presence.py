@@ -73,42 +73,109 @@ def _compact(value) -> str:
     return js.stringify(value)
 
 
+def _say(message: str) -> None:
+    print(f"presence: {message}", file=sys.stderr)
+
+
+def _open_leg(request: dict, to: list, wait_s: float):
+    from gzcoord.carrier import control_link
+    return control_link.Leg.open(request, to, wait_s)
+
+
 def ask_presence(*, from_: str, to, expect: list, token: str | None = None, wait_ms: float = PRESENCE_WAIT_MS,
-                 cfg: dict, new_id, call=None, sleep=time.sleep, clock=time.monotonic) -> dict:
+                 cfg: dict, new_id, call=None, sleep=time.sleep, clock=time.monotonic, open_leg=_open_leg, say=_say) -> dict:
     """`to` is one address, a list, or "*" (a TO-ROLE is resolved by the
-    caller from the roles in the answers)."""
+    caller from the roles in the answers).
+
+    With cfg["control_carrier"] "dual" (ADR-029 rule 18) the request also goes
+    to this account's own agentd, which sends it to each other account over
+    the second carrier, and a reply on either carrier answers it: a relay that is down
+    no longer leaves every addressee unknown. The relay post still goes first,
+    and under any other control_carrier nothing below the post differs."""
     def default_call(path, method="GET", body=None):
         return gzcoord.api(token, path, relay_url=cfg["relay_url"], method=method, body=body)
     c = call or default_call
     rid = new_id()
     request = {"v": 1, "kind": "request", "id": rid, "from": from_, "to": to, "op": "presence", "ts": js.iso_now(),
                "ttl_s": max(cfg["ttl_s"], math.ceil(wait_ms / 1000) if math.isfinite(wait_ms) else math.inf)}
-    sent = c("/api/send", method="POST",
-             body=_compact({"channel": cfg["channel"], "sender": from_, "content": _compact(request)}))
+    dual = cfg.get("control_carrier") == "dual"
+    relay_error = None
+    try:
+        sent = c("/api/send", method="POST",
+                 body=_compact({"channel": cfg["channel"], "sender": from_, "content": _compact(request)}))
+    except Exception as e:  # noqa: BLE001 — a failed post is the second carrier's to make up for, or the caller's to say
+        if not dual:
+            raise
+        relay_error, sent = e, None
+    leg = None
+    if dual:
+        # Unbounded waits (wait_ms inf) are the suite's; a socket's wait_s is finite.
+        wait_s = wait_ms / 1000 if math.isfinite(wait_ms) else 86400.0
+        # An account has no second-carrier path to itself: its own presence is the relay's.
+        targets = [a for a in (list(dict.fromkeys(expect))) if a != from_]
+        if targets:
+            try:
+                leg = open_leg(request, targets, wait_s)
+            except RuntimeError as e:
+                if relay_error is not None:
+                    from gzcoord.carrier import control_link
+                    raise control_link.Down(f"{str(relay_error).split(chr(10))[0]}; the second carrier: {e}", relay_error,
+                                            handed=bool(getattr(e, "handed", False))) from None
+                say(f"the second carrier: {e}; the relay carries alone")
+        if relay_error is not None and leg is None:
+            raise relay_error
     out = {a: None for a in expect}
     want = set(expect)
     deadline = clock() + wait_ms / 1000
     # A sent record with no id pages from "undefined", as URLSearchParams wrote it.
     since = sent["id"] if isinstance(sent, dict) and "id" in sent else "undefined"
-    while want and clock() < deadline:
-        page = c("/api/messages?" + js.search_params({"channel": cfg["channel"], "since_id": since, "limit": "500", "full": "1"}))
-        if page is None:
-            raise TypeError("Cannot read properties of null (reading 'messages')")
-        messages = prop(page, "messages")
-        for rec in messages if isinstance(messages, list) else []:
-            since = rec.get("id") if isinstance(rec, dict) and "id" in rec else "undefined"
-            try:
-                r = js.json_parse(prop(rec, "content")) if isinstance(prop(rec, "content"), str) else None
-            except ValueError:
-                continue
-            presence = prop(prop(r, "data"), "presence")
-            sender = prop(r, "from")
-            if (prop(r, "kind") == "reply" and prop(r, "in_reply_to") == rid and isinstance(sender, str) and sender in want
-                    and js.truthy(presence)):
-                out[sender] = presence
-                want.discard(sender)
-        if want:
-            sleep(POLL_S)
+    relay_up = relay_error is None
+    if not relay_up:
+        say(f"the relay post failed ({str(relay_error).splitlines()[0] if str(relay_error) else type(relay_error).__name__}); the second carrier carries alone")
+    lost_said = False
+
+    def take(r, sender) -> None:
+        presence = prop(prop(r, "data"), "presence")
+        if (prop(r, "kind") == "reply" and prop(r, "in_reply_to") == rid and isinstance(sender, str) and sender in want
+                and js.truthy(presence)):
+            out[sender] = presence
+            want.discard(sender)
+    try:
+        while want and clock() < deadline:
+            if relay_up:
+                try:
+                    page = c("/api/messages?" + js.search_params({"channel": cfg["channel"], "since_id": since, "limit": "500", "full": "1"}))
+                    if page is None:
+                        raise TypeError("Cannot read properties of null (reading 'messages')")
+                except Exception as e:  # noqa: BLE001
+                    if leg is None or leg.lost:
+                        raise
+                    say(f"the relay stopped answering ({str(e).split(chr(10))[0]}); the second carrier carries alone")
+                    relay_up, page = False, None
+                messages = prop(page, "messages") if page is not None else []
+                for rec in messages if isinstance(messages, list) else []:
+                    since = rec.get("id") if isinstance(rec, dict) and "id" in rec else "undefined"
+                    try:
+                        r = js.json_parse(prop(rec, "content")) if isinstance(prop(rec, "content"), str) else None
+                    except ValueError:
+                        continue
+                    take(r, prop(r, "from"))
+            if leg is not None and not leg.lost and want:
+                for sender, record in leg.replies(POLL_S if not relay_up else 0.0):
+                    # The roster's address for the PeerId, which the record must also claim.
+                    if record.get("from") == sender:
+                        take(record, sender)
+            if leg is not None and leg.lost and not lost_said:
+                lost_said = True
+                say("the second carrier's connection to this account's agentd closed before the answers were in")
+            if want and (relay_up or (leg is not None and not leg.lost)):
+                if relay_up:
+                    sleep(POLL_S)
+            elif want:
+                break   # no carrier is left to answer
+    finally:
+        if leg is not None:
+            leg.close()
     return out
 
 

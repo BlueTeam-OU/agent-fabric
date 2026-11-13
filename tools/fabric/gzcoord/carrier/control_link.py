@@ -735,6 +735,10 @@ class Server:
             self.carrier.unwatch(rid)
 
 
+class SessionRefused(RuntimeError):
+    """The agentd read the request and refused it: it sent nothing."""
+
+
 class Session:
     """fabric-ctl's end: connect, hand over the request, read the sends' outcomes, then take replies as they
     come. Any failure to reach the operator's agentd is a RuntimeError the caller says in one line; the relay
@@ -786,7 +790,7 @@ class Session:
                 elif ev.get("event") == "sent-all":
                     return replies
                 elif ev.get("event") == "refused":
-                    raise RuntimeError(f"the operator's agentd refused the sends: {js.string(ev.get('why'))}")
+                    raise SessionRefused(f"the operator's agentd refused the sends: {js.string(ev.get('why'))}")
                 elif ev.get("event") == "reply":
                     replies.append(ev)
         raise RuntimeError("the operator's agentd did not finish the sends in time")
@@ -797,6 +801,87 @@ class Session:
     def close(self) -> None:
         with contextlib.suppress(OSError):
             self._conn.close()
+
+
+_NEVER_SENT = ("this account", "no roster row", "the InterWeave channel is", "the child's input is closed", "the child does not drain")
+
+
+class Down(Exception):
+    """Neither carrier took a request: the relay's failure and why the other carrier was not there to carry it.
+    It keeps what the relay's own error said about the post (`status`, `connection_refused`, `sent`), so a caller
+    that classifies a failed post — certainly nothing left, or unknown — classifies it as before; when the socket
+    may have been handed the request, `handed` is true and those are cleared, because then nothing is certain."""
+
+    worded = True   # its message already says both failures; a caller does not re-word it from the relay's alone
+
+    def __init__(self, message: str, relay_error: BaseException | None = None, handed: bool = False) -> None:
+        super().__init__(message)
+        self.status = None if handed else getattr(relay_error, "status", None)
+        self.connection_refused = False if handed else getattr(relay_error, "connection_refused", False)
+        self.timed_out = getattr(relay_error, "timed_out", False)
+        if getattr(relay_error, "sent", False) is True:
+            self.sent = True
+
+
+class LegFailed(RuntimeError):
+    """The InterWeave leg of a request could not be had; `handed` says whether the request may have left anyway."""
+
+    def __init__(self, message: str, handed: bool = False) -> None:
+        super().__init__(message)
+        self.handed = handed
+
+
+class Leg:
+    """The InterWeave half of one request this process asks of its account's own agentd (the 0600 socket above):
+    the presence check and the job queue's holder, which a relay that is down must not stop (ADR-029 rule 18).
+    The relay post stays the record and goes first; this is the second way the same request travels, and a
+    reply on either answers it. What comes back is the roster-authenticated sender with the record, so a reply
+    is attributed to the PeerId's address, never to the `from` it claims."""
+
+    def __init__(self, session: Session, rid: str, early: list[dict] | None = None) -> None:
+        # `early`: replies that came with the sends' outcomes, before anyone polled.
+        self._session, self._rid, self.lost, self._early = session, rid, False, list(early or [])
+
+    @classmethod
+    def open(cls, record: dict, to: list[str], wait_s: float, *, env: dict[str, str] | None = None) -> "Leg":
+        path = socket_path(env)
+        if path is None:
+            raise LegFailed("XDG_RUNTIME_DIR is not set, so there is no socket to this account's agentd")
+        session = None
+        try:
+            session = Session(path, record, to, wait_s)
+            early = session.wait_sent(wait_s + 2)
+        except RuntimeError as e:
+            # A session that was made had the request handed to it: whether it left is unknown. One that was not
+            # made (the socket absent, refused) sent nothing.
+            if session is not None:
+                session.close()
+            # Session's words are fabric-ctl's, run by the operator; here it is this account's own agentd.
+            raise LegFailed(str(e).replace("the operator's agentd", "this account's agentd"),
+                            handed=session is not None and not isinstance(e, SessionRefused)) from e
+        lost = sorted(a for a, (ok, _why) in session.sent.items() if not ok)
+        if len(lost) == len(session.sent):
+            session.close()
+            # Only a send that never reached the child is certainly unsent; a settle that timed out wrote its line,
+            # and the child may still deliver it.
+            certain = all(session.sent[a][1].startswith(_NEVER_SENT) for a in lost)
+            raise LegFailed(f"not sent to {', '.join(f'{a} ({session.sent[a][1]})' for a in lost)}", handed=not certain)
+        return cls(session, record["id"], early)
+
+    def replies(self, timeout_s: float) -> list[tuple[str, dict]]:
+        """(sender, record) for each reply to this request that arrived within the time. A connection that
+        closed ends the leg (`lost`): nothing more will come by it."""
+        events, self._early = self._early, []
+        if not events and not self.lost:
+            try:
+                events = self._session.poll(timeout_s)
+            except RuntimeError:
+                self.lost = True
+        return [(ev["from"], ev["record"]) for ev in events
+                if isinstance(ev.get("from"), str) and isinstance(ev.get("record"), dict) and ev["record"].get("in_reply_to") == self._rid]
+
+    def close(self) -> None:
+        self._session.close()
 
 
 # ── agentd's side ────────────────────────────────────────────────────

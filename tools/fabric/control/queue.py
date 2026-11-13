@@ -174,6 +174,8 @@ def placed_accounts(registry: str | None = None) -> set:
 def relay_error(e: BaseException, cfg: dict) -> str:
     if isinstance(e, (Unreadable, BudgetSpent)):
         return str(e)
+    if getattr(e, "worded", False):   # control_link.Down: both carriers' failures, already said in full
+        return str(e)
     return gzcoord.relay_failure(e, cfg.get("relay_url"))
 
 
@@ -186,11 +188,26 @@ def unsent(e: BaseException) -> bool:
             or getattr(e, "connection_refused", False) is True)
 
 
+def _open_leg(request: dict, to: list, wait_s: float):
+    from gzcoord.carrier import control_link
+    return control_link.Leg.open(request, to, wait_s)
+
+
+def _say(message: str) -> None:
+    print(f"queue: {message}", file=sys.stderr)
+
+
 def ask_holder(*, call, cfg: dict, from_: str, holder: str, op: str, args: dict, new_id, wait_ms: float = QUEUE_WAIT_MS,
-               left=budget_left, sleep=time.sleep, clock=lambda: time.monotonic() * 1000):
+               left=budget_left, sleep=time.sleep, clock=lambda: time.monotonic() * 1000, open_leg=_open_leg, say=_say):
     """One request to the holder, its one reply's data[op], or None when none
     came within wait_ms. The request carries only what the op reads: a role
-    for a list, an id for a claim — never the claimant's role."""
+    for a list, an id for a claim — never the claimant's role.
+
+    With cfg["control_carrier"] "dual" (ADR-029 rule 18) the request also goes
+    to this account's own agentd, which sends it to the holder over the second carrier,
+    and the holder's reply on either carrier answers it: a relay that is down
+    no longer leaves the holder unreachable. Under any other control_carrier
+    nothing differs."""
     rid = new_id()
     # The wait, fixed once before anything is posted: wait_ms, or what the
     # run's budget has left when that is less.
@@ -201,31 +218,83 @@ def ask_holder(*, call, cfg: dict, from_: str, holder: str, op: str, args: dict,
     # the holder took after the asker gave up would be recorded for nobody.
     request = {"v": 1, "kind": "request", "id": rid, "from": from_, "to": [holder], "op": op, "ts": js.iso_now(),
                "ttl_s": math.ceil(wait / 1000), "args": args}
-    sent = call("/api/send", method="POST", body=js.stringify({"channel": cfg["channel"], "sender": from_, "content": js.stringify(request)}))
+    dual = cfg.get("control_carrier") == "dual"
+    relay_error = None
+    sent = None
+    try:
+        sent = call("/api/send", method="POST", body=js.stringify({"channel": cfg["channel"], "sender": from_, "content": js.stringify(request)}))
+    except Exception as e:  # noqa: BLE001 — a failed post is the second carrier's to make up for, or the caller's to say
+        if not dual:
+            raise
+        relay_error = e
+    leg = None
+    if dual:
+        # An account has no second-carrier path to itself: a holder that is this account is reached by the relay.
+        if holder != from_:
+            try:
+                leg = open_leg(request, [holder], min(wait, left()) / 1000)
+            except RuntimeError as e:
+                if relay_error is not None:
+                    from gzcoord.carrier import control_link
+                    raise control_link.Down(f"{gzcoord.relay_failure(relay_error, cfg.get('relay_url'))}; the second carrier: {e}", relay_error,
+                                            handed=bool(getattr(e, "handed", False))) from None
+                say(f"the second carrier: {e}; the relay carries alone")
+        if relay_error is not None and leg is None:
+            raise relay_error
+    relay_up = relay_error is None
+    if not relay_up:
+        say(f"the relay post failed ({gzcoord.relay_failure(relay_error, cfg.get('relay_url'))}); the second carrier carries alone")
+    lost_said = False
     deadline = clock() + min(wait, left())
     since = sent["id"] if isinstance(sent, dict) and "id" in sent else "undefined"
-    while clock() < deadline:
-        try:
-            page = call("/api/messages?" + js.search_params({"channel": cfg["channel"], "since_id": since, "limit": "500", "full": "1"}))
-        except Exception as e:  # noqa: BLE001 — queue.mjs marks every failure here as after the post
-            e.sent = True
-            raise
-        messages = page.get("messages") if isinstance(page, dict) else None
-        for rec in messages if isinstance(messages, list) else []:
-            since = rec.get("id", js.UNDEFINED) if isinstance(rec, dict) else js.UNDEFINED
-            since = js.string(since)
-            content = rec.get("content") if isinstance(rec, dict) else None
-            try:
-                r = js.json_parse(content) if isinstance(content, str) else None
-            except ValueError:
-                continue
-            data = r.get("data") if isinstance(r, dict) else None
-            answer = data.get(op) if isinstance(data, dict) else None
-            # Only the holder's reply to this request: anyone may post on the channel.
-            if (isinstance(r, dict) and r.get("kind") == "reply" and r.get("in_reply_to") == rid and r.get("from") == holder
-                    and js.truthy(answer) and isinstance(answer, dict) and isinstance(answer.get("status"), str)):
-                return answer
-        sleep(POLL_S)
+
+    def taken(r, sender):
+        data = r.get("data") if isinstance(r, dict) else None
+        answer = data.get(op) if isinstance(data, dict) else None
+        # Only the holder's reply to this request: anyone may post on the channel.
+        if (isinstance(r, dict) and r.get("kind") == "reply" and r.get("in_reply_to") == rid and sender == holder
+                and js.truthy(answer) and isinstance(answer, dict) and isinstance(answer.get("status"), str)):
+            return answer
+        return None
+    try:
+        while clock() < deadline:
+            if relay_up:
+                try:
+                    page = call("/api/messages?" + js.search_params({"channel": cfg["channel"], "since_id": since, "limit": "500", "full": "1"}))
+                except Exception as e:  # noqa: BLE001 — queue.mjs marks every failure here as after the post
+                    if leg is None or leg.lost:
+                        e.sent = True
+                        raise
+                    say("the relay stopped answering; the second carrier carries alone")
+                    relay_up, page = False, None
+                messages = page.get("messages") if isinstance(page, dict) else None
+                for rec in messages if isinstance(messages, list) else []:
+                    since = rec.get("id", js.UNDEFINED) if isinstance(rec, dict) else js.UNDEFINED
+                    since = js.string(since)
+                    content = rec.get("content") if isinstance(rec, dict) else None
+                    try:
+                        r = js.json_parse(content) if isinstance(content, str) else None
+                    except ValueError:
+                        continue
+                    answer = taken(r, r.get("from") if isinstance(r, dict) else None)
+                    if answer is not None:
+                        return answer
+            if leg is not None and not leg.lost:
+                for sender, record in leg.replies(0.0 if relay_up else POLL_S):
+                    # The roster's address for the PeerId, which the record must also claim.
+                    answer = taken(record, sender) if record.get("from") == sender else None
+                    if answer is not None:
+                        return answer
+            if leg is not None and leg.lost and not lost_said:
+                lost_said = True
+                say("the second carrier's connection to this account's agentd closed before the holder answered")
+            if relay_up:
+                sleep(POLL_S)
+            elif leg is None or leg.lost:
+                break   # no carrier is left to answer
+    finally:
+        if leg is not None:
+            leg.close()
     return None
 
 
