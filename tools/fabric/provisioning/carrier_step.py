@@ -20,10 +20,10 @@ coordinator picks the port and countersigns it (`roster-admit`, ADR-064 rule 2).
 This module never signs for the coordinator. It writes the row where the
 operator can read it (on the host the account is placed on, which it names), says the command, and the run ends with
 status 3 (open) after everything else ran: the re-run, once the roster on origin/main holds the row, finds it valid
-and starts the units. Status 3 is "open" for either cause: the row, or no user manager yet to start the units in
-(`loginctl enable-linger`); the re-run starts them in both. `roster-row` itself refuses (exit 2) until the account's
-key is on origin/main, which a first run of a new login has not got yet (step 5 only says to commit it): that
-too is open, with the refusal's own words, never a failed run.
+and starts the units. Status 3 is "open" for any of three causes: the row, no user manager yet to start the units in
+(`loginctl enable-linger`), or the account's key not yet merged to origin/main; the re-run starts them in all. `roster-row` refuses until the account's key is on
+origin/main, which a first run of a new login has not got yet (step 5 only says to commit it): that refusal is open,
+with its own words; any other refusal of it is a failed step.
 
 Each function returns the lines that leave the run open, [] when done; a step
 that fails dies (steps are idempotent, a re-run converges).
@@ -39,6 +39,7 @@ import roots
 
 OPEN_EXIT = 3        # the worker's and new-agent's status for "every step ran; something is left for another login or a re-run"
 UNIT = "agent-fabric-agentd"
+NO_KEY_REFUSAL = "hold no key for agent"   # gzcoord/carrier/admit.py _committed
 ROW_DIR_MODE = 0o755
 ROW_MODE = 0o644      # the row holds a public PeerId and signatures; the coordinator's login must read it
 
@@ -102,13 +103,15 @@ def roster_row(w) -> list[str]:
         w.say("7d. roster row valid")
         return []
     got = w.as_login([carrier, "roster-row"], login_shell=False, stderr=subprocess.PIPE)   # stdout is the JSON
-    if got.returncode == 2:
-        # The carrier's own refusal, in its words (usually: the account's key is not on origin/main yet, and step 5 only
-        # said to commit it): the run is left open with the order that fixes it, not failed, since every step after
-        # this one is independent of it. Any other status is a crash or an unreachable command, which stays a failure.
-        why = _tail(got.stderr, 1)
-        return [f"gzcoord-carrier roster-row refused for {login}: {why[0] if why else 'no reason given'}; once identities/keys/ "
-                "is merged to origin/main, re-run this command, which writes the row for the coordinator; the carrier is not started"]
+    why = _tail(got.stderr, 1)
+    if got.returncode == 2 and why and NO_KEY_REFUSAL in why[0]:
+        # The one refusal that is a hand-over and not a failure: the account's key is not on origin/main yet, and step 5
+        # only said to commit it. The run is left open with the order that fixes it, since every step after this one is
+        # independent of it. Matched on the carrier's words because it gives all its refusals the one exit status 2; every
+        # other refusal (a wrong login in the lineage, no secret subkey, a program that is not the release's, a bad
+        # signature) does not converge by merging keys, so it stays a failed step; an unknown refusal fails, never opens.
+        return [f"gzcoord-carrier roster-row refused for {login}: {why[0]}; once identities/keys/ is merged to origin/main, "
+                "re-run this command, which writes the row for the coordinator; the carrier is not started"]
     try:
         row = json.loads(got.stdout) if got.returncode == 0 else None
     except ValueError:

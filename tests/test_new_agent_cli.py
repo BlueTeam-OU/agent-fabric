@@ -486,7 +486,7 @@ def main() -> int:
 echo "gzcoord-carrier $1" >> "{SEQ}/account-calls"
 case "$1" in
   render-config) [[ -e "{SEQ}/row-valid" ]] || exit 2;;
-  roster-row) [[ -e "{SEQ}/key-unmerged" ]] && { echo "refused: the lineage holds no key for seq-login on origin/main" >&2; exit 2; }
+  roster-row) [[ -e "{SEQ}/key-unmerged" ]] && { echo "refused: the lineage and identities/keys on origin/main hold no key for agent 01a-fixture" >&2; exit 2; }
               echo '{"agent_id": "01a-fixture", "login": "seq-login", "peer_id": "12D3KooWfixture"}';;
 esac
 '''), 0o755)
@@ -612,7 +612,7 @@ echo "systemctl $*" >> "{SEQ}/account-calls"
                 put(f"{seq}/key-unmerged", "")
                 rc5, out5 = seq_run(backend, "seq-login", "backend-dev", "--project", "demo")
                 ok("7d: roster-row refusing (key not on origin/main): exit 3 with its reason, no row file, verification still ran",
-                   rc5 == 3 and "roster-row refused for seq-login: refused: the lineage holds no key" in out5
+                   rc5 == 3 and "roster-row refused for seq-login: refused: the lineage and identities/keys" in out5
                    and not os.path.exists(row) and "10. verification" in out5 and "7e." not in out5, f"rc={rc5}\n{out5}")
                 os.remove(f"{seq}/key-unmerged")
                 put(f"{seq}/row-valid", "")

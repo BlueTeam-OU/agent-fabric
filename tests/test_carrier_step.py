@@ -94,11 +94,15 @@ def main() -> int:
         w = stub({"render-config": (2, ""), "roster-row": (0, "not json")})
         _, died = run(carrier_step.roster_row, w)
         ok("…and so does an answer that is not a row", died is not None)
-        w = stub({"render-config": (2, ""), "roster-row": (2, "refused: no key on origin/main for agent 01a\n")})
+        w = stub({"render-config": (2, ""), "roster-row": (2, "refused: the lineage and identities/keys on origin/main hold no key for agent 01a\n")})
         open_, died = run(carrier_step.roster_row, w)
         ok("a roster-row refusal (the key not on origin/main yet) leaves the run open with the carrier's own words, not failed",
-           died is None and open_ and "refused" in open_[0] and "no key on origin/main for agent 01a" in open_[0]
+           died is None and open_ and "refused" in open_[0] and "hold no key for agent 01a" in open_[0]
            and "re-run" in open_[0], f"{open_} {died}")
+        w = stub({"render-config": (2, ""), "roster-row": (2, "refused: transportctl does not match the pinned digest\n")})
+        _, died = run(carrier_step.roster_row, w)
+        ok("…and any other refusal of it (a program that is not the release's) is a failed step: merging keys would not fix it",
+           died and "exit 2" in died and any("pinned digest" in s for s in w.said), str(w.said))
         w = stub({"render-config": (2, ""), "roster-row": (1, "Traceback: boom\n")})
         _, died = run(carrier_step.roster_row, w)
         ok("…while any other failure of roster-row (a crash) stays a failed step, with its last line said",

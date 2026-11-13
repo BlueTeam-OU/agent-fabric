@@ -33,7 +33,7 @@ CONTRACT, frozen from the shell
   stderr  every line, `new-agent: <what>` (the steps numbered as the
           orchestrator's closing numbers them)
   exit    0 done; 1 a must failed or a refusal; 2 usage (worker_args); 3 every step ran but something is left open
-          (the account's roster row for the coordinator, or no user manager to start the units in: carrier_step.py)
+          (the account's roster row for the coordinator, its key not yet on origin/main, or no user manager to start the units in: carrier_step.py)
 """
 from __future__ import annotations
 

@@ -42,8 +42,9 @@ CONTRACT, frozen from the bash (ADR-040 §5 rule 3):
   exit      0 when every step ran (or a dry run planned them); 3 when every
             step ran but the carrier is left unstarted: the account's roster
             row, which only fabric-coordinator countersigns (the run says the
-            command), or no user manager yet to start it in; its re-run,
-            once that is settled, starts it; 1 for a
+            command); or its key not yet on origin/main (roster-row refuses:
+            commit and merge identities/keys/); or no user manager yet to
+            start it in; its re-run, once that is settled, starts it; 1 for a
             refusal or a failed step (`step failed: …`, nothing after it
             ran; step 11, the last, fails alone: 0-10 stay done); 2 for
             usage; hostexec's own refusal of the host is 1.
@@ -328,7 +329,7 @@ def run_steps(o: dict, login: str, role: str, host: str, dry: bool, remote: dict
     finished = s.through([cfg.HX, host, "--", cfg.WORKER, "finish", login, *who, *clones, *account, *nxt, *via, *fabric_arg, *dry_arg])
     if finished not in (0, OPEN_EXIT):
         die("the host half stopped (above); nothing after it ran")
-    # Every step ran but one that is another role's (the roster row's countersignature): steps 12 and 11 still run and the
+    # Every step ran but one that is another role's (the roster row's countersignature, its key's merge, a user manager): steps 12 and 11 still run and the
     # status says it is open, never that it is done.
     left_open = finished == OPEN_EXIT
 
