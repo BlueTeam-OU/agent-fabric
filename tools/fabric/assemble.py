@@ -96,14 +96,14 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
 
 from assembler.core import Run, layout, in_report  # noqa: E402
-from assembler.intake import parse_args, open_layout, read_claims, screen_hygiene, bucket_claims, hold_back, rehome_unbound, note_unbound_owners, load_hygiene, load_decisions  # noqa: E402
+from assembler.intake import parse_args, open_layout, read_claims, screen_hygiene, bucket_claims, hold_back, rehome_unbound, note_unbound_owners, rehomed_row, load_hygiene, load_decisions  # noqa: E402
 from assembler.targets import plan_classes, held_files, resolve_all_targets, point_disk  # noqa: E402
 from assembler.anchorkeep import keep_resolving_anchors  # noqa: E402
 from assembler.collisions import check_collisions  # noqa: E402
 from assembler.shapes import check_correction_shapes, drop_replayed, verify_replacements  # noqa: E402
 from assembler.writer import write_shared, write_role  # noqa: E402
 from assembler.index import bound_roles_with_domain_slices, index_role, read_crossref_index, roles_with_project_directory  # noqa: E402
-from assembler.report import report  # noqa: E402
+from assembler.report import report, record_rehomed  # noqa: E402
 
 
 def main() -> int:
@@ -132,12 +132,15 @@ def main() -> int:
 
 def rehome(run: Run, claims: list) -> int:
     """The claims rehome_unbound took out of `run`, assembled into the control plane's own project corpus as that project's drain
-    would: its taxonomy, hygiene view and working copy. No report of its own (the project's report names what moved and
-    what was written); a rejection, redaction or problem it found is carried into the project's report so the run exits as it would."""
+    would: its taxonomy, hygiene view and working copy. Its report is agent-fabric's own last-drain-report.json (record_rehomed),
+    and what the project's report says of it is the re-homed rows, the files, and the notes the pass made; a rejection, redaction
+    or problem it found is carried into the project's report so the run exits as it would."""
     other = Run(args=copy.copy(run.args), project=layout.FABRIC_PROJECT_ID)
     other.args.working_copy = None
-    # --hold and --collision-decisions name the project's own slices; read here they would be refused as naming no slice.
-    other.args.hold = other.args.collision_decisions = None
+    # Only --hold names the project's own slices (read here it would be refused as naming no slice). --collision-decisions is
+    # keyed by claim and a key naming no claim of a pass is not refused, so the one file serves both passes: a collision the
+    # control plane's pass stops on is decided by the owner and the re-run carries it, as in any drain.
+    other.args.hold = None
     other.references, other.origins, other.evidence_epoch, other.telemetry = run.references, run.origins, run.evidence_epoch, run.telemetry
     for claim in claims:
         other.all_claims.setdefault(claim["_role"], []).append(claim)
@@ -146,10 +149,16 @@ def rehome(run: Run, claims: list) -> int:
         rc = assemble_project(other)
     finally:
         load_hygiene(run.args, run.project)
+    # From the claims the pass screened (a rejected one is gone from them), not those read: see rehomed_row.
+    run.rehomed = [rehomed_row(run, c) for role in sorted(other.all_claims) for c in other.all_claims[role]]
     run.rehomed_files = [in_report(other, p) for p in other.written]
     for name in ("rejected_hygiene", "redactions", "problems", "oversized", "oversized_details", "clipped_descriptions", "migrated",
-                 "unresolved_targets", "superseded_harvests", "reharvested_replaced"):
+                 "unresolved_targets", "superseded_harvests", "reharvested_replaced", "titles_one_lined", "anchors_kept",
+                 "anchors_lost", "retired_in", "empty_crossrefs", "applied_decisions", "retitles"):
         getattr(run, name).extend(getattr(other, name))
+    if not rc:
+        # A pass that stopped wrote no report, as the project's does not: its rerun is the replay.
+        record_rehomed(other)
     return rc or 0
 
 
@@ -181,8 +190,9 @@ def assemble_project(run: Run) -> int | None:
     # including one whose claims all live in shared slices, which would
     # otherwise end up with knowledge and no way to find it — and so does
     # every role the project binds whose domain holds slices.
-    # An unbound role whose every slice here was held owns nothing to write: indexing it would give the project the corpus
-    # the hold refused (a role with a domain claim, a shared slice or a bound role still has its index).
+    # An unbound author of a shared slice a bound role co-owns (note_unbound_owners) with nothing else here owns nothing to write:
+    # indexing it would give the project a corpus of a role it does not bind (a role with a domain claim, a shared slice
+    # or a bound role still has its index).
     emptied = {r for r in run.unbound_held_roles if not run.per_role.get(r) and r not in run.shared_index} - run.bound_roles
     run.owning_roles = sorted((set(run.per_role) | set(run.shared_index) | set(run.all_claims)
                                | run.bound_roles) - emptied)

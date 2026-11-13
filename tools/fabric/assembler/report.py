@@ -221,6 +221,53 @@ def commit_message(report: dict[str, Any], built_against: str | None) -> str:
     return "\n".join(lines) + "\n"
 
 
+def correction_holds(project: str, entry: dict[str, Any]) -> bool:
+    """Whether the slice an applied correction names still holds the text it applied."""
+    for base in [layout.working_copy_for(project), layout.FABRIC_ROOT]:
+        path = os.path.join(base, entry["slice"]) if base else ""
+        if path and os.path.isfile(path):
+            try:
+                _meta, sections = read_existing_slice(path)
+            except (OSError, UnicodeDecodeError):
+                return False
+            return entry.get("heading") in sections and section_key(sections[entry["heading"]]) == entry.get("applied_key")
+    return False
+
+
+def record_rehomed(other: Run) -> None:
+    """What the control plane's pass of a re-home wrote and decided, into agent-fabric's own last-drain-report.json, merged as
+    any run of a stamp is. It has no report of its own otherwise, and its replacements, applied corrections and section writers
+    lived nowhere: a replay of the bundle then wrote the replaced text back into the corpus (ADR-050 rules 3 and 10; j82), and
+    a collision decision the owner gave was forgotten by the next run. The pass is no harvest: watermarks, memory use and
+    the harvest record are the project's report's, never this one's."""
+    files = [in_report(other, p) for p in other.written]
+    current = {
+        "stamp": other.args.stamp, "project": other.project, "roles": other.owning_roles, "files": files, "files_written": len(files),
+        "shared_topics": sorted(f"{k}:{t}" for (k, t) in other.shared), "shared_slices": len(other.shared),
+        "telemetry": other.telemetry, "telemetry_sources": {}, "retired_in_siblings": other.retired_in,
+        "section_writers": other.section_writers, "section_writers_gone": other.section_writers_gone,
+        "section_moves": other.section_moves, "applied_corrections": other.applied_corrections,
+        "replaced_sections": other.replaced_sections, "collision_decisions": other.applied_decisions, "retitles": other.retitles,
+        "anchors_kept": other.anchors_kept, "anchors_lost": other.anchors_lost, "titles_one_lined": other.titles_one_lined,
+    }
+    path = layout.project_report_path(other.project)
+    try:
+        with open(path, encoding="utf-8") as fh:
+            previous = json.load(fh)
+        if not isinstance(previous, dict):
+            previous = {}
+    except (OSError, ValueError):
+        previous = {}
+    merged = merge_reports(previous, current, lambda rel: any(os.path.exists(os.path.join(root, rel))
+                                                              for root in (layout.working_copy_for(other.project), layout.FABRIC_ROOT) if root))
+    merged["applied_corrections"] = [e for e in merged.get("applied_corrections") or [] if correction_holds(other.project, e)]
+    merged["replaced_sections"] = still_replaced(other, merged.get("replaced_sections") or [])
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w", encoding="utf-8") as fh:
+        json.dump(merged, fh, ensure_ascii=False, indent=2, sort_keys=True)
+        fh.write("\n")
+
+
 def report(run: Run) -> int:
     # An unresolved collision is a property of the corpus, not of the drain
     # that happened to create it. Deriving it from the tree is what makes the
@@ -357,17 +404,7 @@ def report(run: Run) -> int:
     report["oversized_by_origin"] = oversized_by_origin(report.get("oversized_claim_details") or [])
     # A correction stays listed only while its slice still holds the text it applied: a later correction, a revert or a hand
     # edit ends it (else the harvest would name a live memory superseded, or skip a correction asserting live text again).
-    def holds(entry: dict[str, Any]) -> bool:
-        for base in [layout.working_copy_for(run.project), layout.FABRIC_ROOT]:
-            path = os.path.join(base, entry["slice"]) if base else ""
-            if path and os.path.isfile(path):
-                try:
-                    _meta, sections = read_existing_slice(path)
-                except (OSError, UnicodeDecodeError):
-                    return False
-                return entry.get("heading") in sections and section_key(sections[entry["heading"]]) == entry.get("applied_key")
-        return False
-    report["applied_corrections"] = [e for e in report.get("applied_corrections") or [] if holds(e)]
+    report["applied_corrections"] = [e for e in report.get("applied_corrections") or [] if correction_holds(run.project, e)]
     report["replaced_sections"] = still_replaced(run, report.get("replaced_sections") or [])
     # A key an earlier run of the stamp held stays held only while no run
     # has written its slice since: this run writing it ends the hold.
@@ -384,6 +421,11 @@ def report(run: Run) -> int:
         report["files"], [b for b in (layout.working_copy_for(run.project), layout.FABRIC_ROOT) if b], layout.FABRIC_ROOT,
         layout.project_memory_root(run.project),
         [layout.project_memory_root(p) for p in layout.list_projects() if p != run.project], undrained)
+    # The re-homed files are the control plane's corpus: their links are read as that project's, not the drained project's.
+    report["unresolved_links"] += unresolved_links(
+        report.get("rehomed_files") or [], [layout.FABRIC_ROOT], layout.FABRIC_ROOT,
+        layout.project_memory_root(layout.FABRIC_PROJECT_ID),
+        [layout.project_memory_root(p) for p in layout.list_projects() if p != layout.FABRIC_PROJECT_ID], undrained)
     os.makedirs(os.path.dirname(report_path), exist_ok=True)
     with open(report_path, "w", encoding="utf-8") as fh:
         json.dump(report, fh, ensure_ascii=False, indent=2, sort_keys=True)
