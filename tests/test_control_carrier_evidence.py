@@ -34,6 +34,13 @@ OP = "interweave-evidence"
 BODY_TEXT = "message-body-9f3a"      # the marker no reply, row or file may ever hold
 
 
+# The committed control_carrier may be "dual" (ADR-029 rule 18): an in-process fabric-ctl run would then append
+# its fixture replies to the account's real control-arrivals.jsonl and dial its live agentd when this suite runs
+# alone, outside tests/run.py's own pin (#583 F1). Each in-process ctl suite sets the carrier it means, this one the
+# relay; test_run_control_carrier checks.
+os.environ["FABRIC_CONTROL_CARRIER"] = "relay"
+
+
 def iso(s: int) -> str:
     return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(T0 + s))
 
