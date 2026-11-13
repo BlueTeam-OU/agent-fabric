@@ -1530,10 +1530,12 @@ its record disagree, the record wins. Look it up, never read it whole:
   unnamed range path; `not read` makes it partial (§2 C, §5 rule 4).
 - A 2026-11-04 — a moved report's re-review reads the posted body's
   `Finding:`/`Judgement:` lines, never the comment (§2 C, §5 rule 5).
+- A 2026-11-13 — an adjudication based on an earlier round's head
+  closes the findings raised there; never a checkpoint (§5 rule 5).
 - Keywords: review class, reviewer, Bash guard, pinned tools, MCP,
   read-only, bubblewrap, sandbox, checks, coverage manifest, checkpoint
   marker, coverage default, moved report, re-review, card_base, open
-  findings, open-code-review, P3.
+  findings, adjudication, earlier round, open-code-review, P3.
 
 ### ADR-066 — The review class is measured like a classifier: owner labels for its judgements, seeded defects for its recall, every rate with its interval (Accepted)
 
