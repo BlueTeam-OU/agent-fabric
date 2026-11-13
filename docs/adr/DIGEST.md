@@ -1324,6 +1324,7 @@ its record disagree, the record wins. Look it up, never read it whole:
 - A 2026-10-14 — an additional engine with neither a review nor a marker on the head is
   absent: the arm proceeds on the required reviews and says so, and the gate reads the same.
 - A 2026-11-12 — rules 7, 8 point at the policy data; the principle stays.
+- A 2026-11-13 — codex never blocks: one cheap gateway call before it starts; any failure to launch or finish (probe, allowance, capacity, timeout, crash) posts the marker with its reason (§5 rule 8).
 
 ### ADR-056 — Agent personas: "AI <Name> <Surname>", a surname from the operator's list each, an avatar the agent accepts, always marked as AI (Accepted)
 

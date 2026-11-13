@@ -37,3 +37,28 @@ blocks, with the absent-engine summary naming `<engine>`.
 Why: ADR-045 §5 rule 4. Rules 1-6 and rule 8's principle are engine; the
 fleet's seats and its policy's current lists are data
 (docs/split/adr-classification.md, ADR-055 row).
+
+### Amendment 2026-11-13 — Codex never blocks: probe first, every failure to launch or finish posts the marker
+
+What changed: rule 8's marker was posted only over the allowance or at
+capacity. Now `fabric-review --engine codex` first makes one cheap call
+through the run's own gateway and credentials, bounded in time, and
+starts codex only when it shows the gateway reachable and the allowance
+not spent; every failure to launch or finish (the probe unreachable,
+refused or timed out, over the allowance, at capacity, the binary
+missing, codex timed out or crashed) posts the unavailable marker for
+the head with its reason and exits "not run". What is the caller's to
+fix (a setting, routing, a sign-in the run refuses, a head that moved)
+stays a refusal and posts nothing.
+
+Why: the owner, 2026-11-12, after #575's two 20-minute codex timeouts
+posted nothing while the review class's clean review was already in,
+and codex was unavailable at the API: codex starts only after a cheap
+call shows it can run, and if it cannot launch or finish for any
+reason it must not block. The 2026-10-14 rule already let an absent
+engine through; a marker now says why, on the head, for every kind.
+Built by python-dev-01 in #577 (job j232); the probe's shape against
+the live backend is not yet read back. Audited the same day: none of
+the fourteen `repos/*.json` in either settings repository names codex
+in `reviews` or `boundary_reviews`; all take the fleet's
+`additional_reviews`.
