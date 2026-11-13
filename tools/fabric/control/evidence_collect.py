@@ -16,7 +16,8 @@ CONTRACT
              must not turn every rollback report into a refusal). Unknown stays unknown:
              that account has no drill evidence, never an empty one.
              The backfill log's section (backfills) is paged the same way and fails on its own: its
-             meta says `backfill_log` {complete, reason, skipped} and neither the report nor the
+             meta says `backfill_log` {complete, reason, skipped, send_rows} (send_rows: every page said its journal was read, from
+             which the rows of messages the relay took at send are derived; false or absent: "no row" proves nothing) and neither the report nor the
              drill's other sections are touched (an account whose daemon predates it must still
              yield the 11-12 drill's collection). No rows are claimed for it: the file is not written.
   write_dir  <out>/<login>/arrivals.jsonl, deliveries.jsonl, shown.jsonl, acks.jsonl, backfills.jsonl
@@ -48,7 +49,7 @@ def _fresh() -> dict:
             "pages": {s: 0 for s in ev.ALL_SECTIONS}, "skipped": 0, "undated": 0, "complete": True, "reason": None,
             "answered": False, "relay_outage": {"complete": True, "reason": None, "skipped": 0},
             "drill_skipped": {s: 0 for s in ev.DRILL_SECTIONS},
-            "backfill_log": {"complete": True, "reason": None, "skipped": 0}}
+            "backfill_log": {"complete": True, "reason": None, "skipped": 0, "send_rows": None}}
 
 
 def collect(logins: list[str], since: str, until: str, send: Send, max_pages: int = MAX_PAGES) -> dict[str, dict]:
@@ -101,6 +102,10 @@ def _round(got: dict, groups: dict, section: str, until: str, send: Send) -> dic
             elif section == "deliveries":
                 acct["undated"] += int(r.get("undated") or 0)
             elif section == ev.BACKFILL_SECTION:
+                # True only when every page said the journal was read: a daemon that predates the derived rows says nothing, and
+                # parity then cannot read "no row" as "the relay never had it" (the pair is not judged, never passed).
+                said = r.get("send_rows") == "ok"
+                acct["backfill_log"]["send_rows"] = said if acct["backfill_log"]["send_rows"] is None else acct["backfill_log"]["send_rows"] and said
                 acct["backfill_log"]["skipped"] = max(acct["backfill_log"]["skipped"], int(r.get("skipped") or 0))      # every page repeats the one file's count; a line torn on one page is not forgotten by the next
             else:
                 # Unreadable lines of the drill's files: carried to meta, where parity refuses a drill it cannot judge.
