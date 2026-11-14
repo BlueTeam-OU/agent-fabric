@@ -728,9 +728,10 @@ its record disagree, the record wins. Look it up, never read it whole:
 - A 2026-11-13 — read path read back; fleet on dual (r18).
 - A 2026-11-13 — backfills: fifth evidence section (§2).
 - A 2026-11-14 — backfills: relay-took-send rows, send_rows (§2).
+- A 2026-11-14 — open ctl session holds agentd's restart (r18).
 - Keywords: fabric-ctl, keys, operator_key, usage, tokens, herdr,
   resume, interweave-evidence, interweave-human, fabric-control,
-  control_carrier, break-glass.
+  control_carrier, break-glass, HOLD_MAX_S.
 ### ADR-030 — Presence replaces HELLO and GOODBYE (Accepted)
 
 - Whether a session runs is the control agent's answer from its process
