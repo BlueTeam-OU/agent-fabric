@@ -2,9 +2,11 @@
 
 A message sent while the relay was down reached its addressee through the second carrier, and gzcoord-send exited 3.
 Nothing put it on the relay later, so a reader of the relay's record never saw it (relay-outage drill, 2026-11-12).
-`fabric-pr arm`'s AUTHORIZES and `gzcoord-inbox --replay` read the journal since #581 and #604; the relay's record is
-kept for the readers of the relay that remain and for the parity report. This module is the return path: once the relay answers, each account posts its own such messages, as journaled,
-under their own MESSAGE-ID.
+`fabric-pr arm`'s AUTHORIZES and `gzcoord-inbox --replay <message-id>` read the journal first since #581 and #604; the
+relay's record is still read by `gzcoord-inbox --history` while the relay answers, by `--replay <seq>` and for a
+MESSAGE-ID the journal lacks, and by the importer that fills a journal from the relay (episodic_import). This module is
+the return path: once the relay answers, each account posts its own such messages, as journaled, under their own
+MESSAGE-ID.
 
 THE CONTRACT
   mode     the account's transport mode (transport/mode.py) decides whether this runs at all: it does in relay-record and
@@ -248,7 +250,7 @@ def run(*, state_dir: str, address: str, conn: Any,
     try:
         transport_mode = mode.read(state_dir)["mode"]
     except mode.ModeError as e:
-        report.notes.append(f"{e}; its rows stay pending")
+        report.notes.append(f"{e}; any row this would post stays pending")
         return report
     if transport_mode == mode.CARRIER_ONLY:
         return report

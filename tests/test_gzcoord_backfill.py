@@ -369,7 +369,7 @@ def main() -> int:
                     shutil.rmtree(tmp_old)
             elif m == "damaged":
                 check("an unreadable mode file leaves the row pending with one note and no relay",
-                      made == [] and r.posts == [] and len(rep.notes) == 1 and "pending" in rep.notes[0], (made, rep))
+                      made == [] and r.posts == [] and len(rep.notes) == 1 and "stays pending" in rep.notes[0], (made, rep))
             else:
                 check(f"{m or 'no mode file (the default)'}: the row is posted", r.posts and r.posts[0][0] == "m1" and rep.posted == ["m1"], rep)
         finally:
