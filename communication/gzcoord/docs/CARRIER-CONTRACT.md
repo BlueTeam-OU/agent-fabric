@@ -147,7 +147,11 @@ refuse.
   line, one that does not parse, or an `ok:true` with `queued != carried` is
   `failed` too: every call ends in exactly one of the three. Provenance is set by
   `episodic.out_final` for the first carrier to accept and left by a later
-  accept (rule 7).
+  accept (rule 7). That `carried == 0` is nothing holds for a mirror only:
+  as the transport of record (carrier-record, carrier-only) the adapter
+  answers `not-carried`, which is not accepted, and the sender exits
+  not-sent. `accepted` is `ok:true` with `carried > 0` and
+  `queued == carried`.
 - `{"op":"unseen"}` -> `{"ok":true,"records":[{"content","ts","seq":null,
   "message_id","verdict","sender"}]}`: InterWeave arrivals journaled, in arrival
   order, each listed again on every call until the shown ledger below holds
@@ -163,6 +167,13 @@ refuse.
   message's sender (rule 9); it is never the message's `FROM`, which a
   `mismatch` verdict says differs from it. A record the carrier cannot
   attribute is not listed (§5 drops a PeerId absent from the roster).
+- `{"op":"wait","seconds":<n>}` -> `{"ok":true,"records":[...]}`: the
+  records `unseen` lists, held up to `<n>` seconds (clamped to 55) until one
+  is listed. An arrival wakes it; it also looks again every second, since
+  the ledger settling a record is written by the inbox and wakes nobody. A
+  `seconds` that is not a number is `{"ok":false,"error":"bad request:
+  ..."}`. It is the watch's clock when the carrier is the transport of
+  record (carrier-record, carrier-only).
 - `{"op":"status"}` -> counts per recipient: outstanding, blocked (with
   code), posted-awaiting-receipt, oldest age.
 - `{"op":"abandon","message_id":<id>,"recipient":<login>,"by":<operator>}`
@@ -198,6 +209,10 @@ MESSAGE-ID up:
   pending-only line is shown once more, flagged "may repeat", and its
   final line appended; a flagged copy with its final line is never shown
   again.
+With the carrier as the transport of record, a message both carriers
+brought is decided from the carrier's copy first, so it is shown from the
+carrier, its sender verified; the relay's copy is marked quiet and
+acknowledged.
 This holds whichever carrier arrives first, with the carrier running,
 stopped or crashed, and with the journal on or off. No order loses a
 message, and none shows one twice unannounced: the only second showings
@@ -214,7 +229,11 @@ report measures (ADR-064 rule 11), and rotation is set from it then.
 
 **The relay path fails open.** When the carrier is unreachable (not
 started, crashed, journal off) the relay inbox does not wait for it: it
-shows through the shown ledger, which it reaches on its own.
+shows through the shown ledger, which it reaches on its own. That holds
+while the carrier is a mirror; so do the adapter's stderr lines saying
+"the relay carries on". As the transport of record the adapter prints
+nothing and raises: a send it did not accept or a wait it did not answer
+is the caller's exit status, never a quiet "nothing arrived".
 
 The inbox adapters feed `unseen` records into the same page flow as relay
 records (classification, journal, acknowledgement, rendering), so a
