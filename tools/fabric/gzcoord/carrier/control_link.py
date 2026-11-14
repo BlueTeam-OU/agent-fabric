@@ -724,8 +724,14 @@ class Server:
             return
         self.carrier.watch(rid, lambda record, sender: put({"event": "reply", "carrier": VIA, "from": sender, "record": record}))
         release = self._hold() if self._hold is not None else (lambda: None)
-        # Counted from the hold, not from the sends' end: a silent child makes the sends take their whole budget.
-        held_until = time.monotonic() + HOLD_MAX_S
+        # A timer, not a check in the read loop below: a silent child makes send_to take its whole budget, and the
+        # cap counts from the hold. release() is idempotent, so the timer firing and the finally never both act.
+        def cap() -> None:
+            self._log(f"fabric-ctl's session for {rid[:8]} has held the restart for {HOLD_MAX_S:.0f}s: released")
+            release()
+        timer = threading.Timer(HOLD_MAX_S, cap)
+        timer.daemon = True
+        timer.start()
         try:
             wait_s = float(req["wait_s"])
             # A request's send never outlives its own ttl_s (rule 18): the budget of the sends is the smaller.
@@ -738,9 +744,6 @@ class Server:
             end = time.monotonic() + wait_s
             conn.settimeout(SOCKET_SEND_S)   # bounds put(); the loop below reads only what select says is there
             while not self._stop.is_set() and (left := end - time.monotonic()) > 0:
-                if time.monotonic() >= held_until:
-                    self._log(f"fabric-ctl's session for {rid[:8]} has held the restart for {HOLD_MAX_S:.0f}s: released")
-                    release()   # idempotent: the session goes on, the restart no longer waits for it
                 try:
                     readable, _, _ = select.select([conn], [], [], min(left, 0.5))
                     if readable and not conn.recv(4096):
@@ -748,6 +751,7 @@ class Server:
                 except (OSError, ValueError):
                     break       # the connection was reset or dropped by put()
         finally:
+            timer.cancel()
             self.carrier.unwatch(rid)
             release()
 

@@ -197,18 +197,7 @@ class Dual(Scratch):
         exits: list[int] = []
         leave = agentd.leaver(inflight, exit=lambda code: (exits.append(code), server.stop(), op.carrier.stop()), log=lambda m: None)
 
-        def hold():
-            token = object()
-            with leave.lock:
-                inflight.add(token)
-
-            def release():
-                with leave.lock:
-                    if token in inflight:
-                        inflight.discard(token)
-                        leave.settle()
-            return release
-        server = link.Server(link.socket_path(), op.carrier, "h/op", log=op.logs.append, hold=hold)
+        server = link.Server(link.socket_path(), op.carrier, "h/op", log=op.logs.append, hold=lambda: agentd.ctl_hold(leave, inflight))
         server.start()
         self.addCleanup(server.stop)
         self.nodes["op"] = op

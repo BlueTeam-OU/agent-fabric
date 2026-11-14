@@ -738,6 +738,27 @@ class Leaver:
         return self.why
 
 
+def ctl_hold(leave: Leaver, inflight: set) -> Callable[[], None]:
+    """A fabric-ctl session on the socket is in flight for the leaver, as an action is: the operator's own
+    `upgrade fabric` moves this daemon's code while its command still waits for the others' replies, and
+    leaving then closes the only carrier-alone path they come by. release() leaves, if asked to, once none is left.
+    Not a thread, unlike the other members: finish_inflight() joins them, and only runs under --once, where no
+    socket is served. A session that opens once a leave is pending holds nothing, so sessions that follow one
+    another (presence checks, the queue's holder asks) cannot keep the daemon on old code past one session's cap."""
+    token = object()
+    with leave.lock:
+        if leave.pending is not None:
+            return lambda: None
+        inflight.add(token)
+
+    def release() -> None:
+        with leave.lock:
+            if token in inflight:
+                inflight.discard(token)
+                leave.settle()
+    return release
+
+
 def leaver(inflight: set, exit: Callable[[int], None] | None = None, log: Callable[[str], None] = _stderr) -> Leaver:  # noqa: A002
     return Leaver(inflight, exit, log)
 
@@ -1222,24 +1243,7 @@ def main(argv: list[str] | None = None, *, stop: threading.Event | None = None) 
         _stderr(f"agentd: answered {request['op']} for {request['from']} ({request['id'][:8]}){tag}")
 
     def hold_for_ctl() -> Callable[[], None]:
-        """A fabric-ctl session on the socket is in flight for the leaver, as an action is: the operator's own
-        `upgrade fabric` moves this daemon's code while its command still waits for the others' replies, and
-        leaving then closes the only carrier-alone path they come by. release() leaves, if asked to, once none is left.
-        Not a thread, unlike the other members: finish_inflight() joins them, and only runs under --once, where no
-        socket is served. A session that opens once a leave is pending holds nothing, so sessions that follow one
-        another (presence checks, the queue's holder asks) cannot keep the daemon on old code past one session's cap."""
-        token = object()
-        with leave.lock:
-            if leave.pending is not None:
-                return lambda: None
-            inflight.add(token)
-
-        def release() -> None:
-            with leave.lock:
-                if token in inflight:
-                    inflight.discard(token)
-                    leave.settle()
-        return release
+        return ctl_hold(leave, inflight)
 
     if cfg["control_carrier"] == CARRIER_DUAL and not once:
         # An account on both splits once, at the bound the second carrier carries (rule 18): the same parts go by both.
