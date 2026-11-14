@@ -27,6 +27,7 @@ What depends on one thing, read from the tree:
 | model inference | two providers, `anthropic` and `openrouter` (`routing/capabilities.json`); on the plain path, the Claude accounts the templates name (ADR-031) | one path lost reduces capacity; a login is moved to another account by `fabric-accounts assign` or launched on the other provider | routing by capability class (ADR-005) |
 | knowledge | git: the fabric's corpus and each project's `.agent-fabric/` on GitHub and in every clone (ADR-013) | an unreachable GitHub stops pushes and merges, not reading | every clone is a full copy |
 | an agent's undrained memory | its own home on the host until a drain (ADR-013); copied daily into the login's own store (`agent-fabric-state-backup.timer`, j179), which its parent's backup carries to Proton Drive | a loss of the host takes what was written since the last good daily copy, if a restore works, and no restore has been read back; until a drain no other agent reads it | none documented: the restore is unread, and a drain is collected and landed by hand (ADR-034 §7 step 3 decides its timer) |
+| InterWeave between hosts | the provider's DNAT and WAN rule on 195.69.140.18 in front of `fabric-h2` (rule 2), once a roster row names that host | develop-qzapp's profiles cannot dial fabric-h2's accounts; fabric-h2's own accounts still reach each other over loopback | the relay, while it is the transport of record (ADR-064 §5 rule 11) |
 | direction and acceptance | the owner (ADR-001 §5 rule 2, ADR-019) | no record is accepted, no PR below the band is armed | none, and this is the point of P3's mandate, not of this record |
 
 ## 2. Decision
@@ -46,8 +47,19 @@ The criterion makes the direction testable for any deployment; the inventory is 
 
 1. The §1 inventory is kept current: a change that adds, removes or moves a dependency an operation relies on amends this record's table in the same pull request.
 2. This organisation's second host for GZCoord over InterWeave (ADR-064
-   §5 rule 1) is `fabric-h2`, a VM on the Proxmox node s13337, reached
-   from develop-qzapp directly over the LAN and its VPN. For its first
+   §5 rule 1) is `fabric-h2`, a VM on the Proxmox node s13337. Its ssh
+   is reached from develop-qzapp directly over the LAN and its VPN
+   (ADR-048). Its InterWeave range is reached at the public address
+   195.69.140.18 (A 2026-11-14), which the provider's OPNsense forwards
+   to 192.168.200.79 on the same ports, TCP 47100-47199, from any
+   source: develop-qzapp is the owner's laptop and travels, so it has
+   no fixed address to admit. The owner accepted that this
+   puts InterWeave's handshake and parser within reach of the internet
+   before InterWeave ADR-0034 §7's release gate (its Stage 18
+   adversarial gate) has closed on the pinned release, as a known limit
+   for fabric-h2 over the whole range; admission is the roster's PeerIds.
+   No roster row names fabric-h2 until a probe from develop-qzapp has
+   read the forward back. For its first
    account, a throwaway login for the two-host check, the owner waived
    ADR-034 §7 step 3's held bound and the control parity report; an agent
    moves there only on the owner's word on that report.
@@ -72,3 +84,11 @@ Accepted and in force.
 - ADR-029 (the control plane), ADR-030 (presence), ADR-031 (Claude accounts), ADR-033 (the relay), ADR-038 (secrets), ADR-013 (memory and the drain), ADR-005 (routing).
 - `runtime/hosts/registry.json`, `routing/capabilities.json`.
 - `docs/live-checks/2026-10-27-relay-backup-restore.md`.
+
+## Amendments
+
+The body above reads current; each change's full note is in [history/ADR-069-amendments.md](history/ADR-069-amendments.md).
+
+| Date | Amendment | Effect |
+|---|---|---|
+| 2026-11-14 | fabric-h2's InterWeave range is a public forward from any source | §1 a row for InterWeave between hosts; §5 rule 2: the address, the forward and the owner's acceptance of the exposure |

@@ -1513,6 +1513,7 @@ its record disagree, the record wins. Look it up, never read it whole:
 - A 2026-11-12 — rule 1's second host is any registered host, opened by its registration and the operator's inventory, not an amendment; fabric-h2 and its waivers are ADR-069's.
 - A 2026-11-13 — drill reads backfill logs: fourth property (rule 11).
 - A 2026-11-14 — relay-took-send held; none needs send_rows (rule 11).
+- A 2026-11-14 — a coordinator with no fixed address reaches the second host at a public forward from any source, on the owner's word: admission by roster PeerId, exposure a known limit (rule 1).
 - Keywords: InterWeave, carrier, relay, P5, second host, fabric-h2.
 
 ### ADR-065 — The reviewer reads through pinned tools, says what it covered, and the next round starts where the last one stopped (Accepted)
@@ -1608,7 +1609,8 @@ its record disagree, the record wins. Look it up, never read it whole:
   s13337); the owner waived its two-host check's held bound and control
   parity report (§5 rule 2).
 - Split from ADR-034, which keeps the criterion and rules 2-5 these rows are measured against.
-- Keywords: inventory, single point of failure, host, relay, degraded mode, undrained memory, decentralization table.
+- A 2026-11-14 — fabric-h2's InterWeave range: public forward 195.69.140.18, any source, exposure accepted by the owner; ssh stays LAN (§1 row, §5 rule 2).
+- Keywords: inventory, single point of failure, host, relay, degraded mode, undrained memory, decentralization table, public forward, fabric-h2.
 
 ### ADR-070 — This organisation's porting programme: its projects' Node scripts move to Python (Accepted)
 
