@@ -76,7 +76,6 @@
         "bin/fabric-history",
         "tools/fabric/reflect.py",
         "bin/fabric-reflect",
-        "tools/fabric/relay_catchup.py",
         "tools/fabric/review_rounds.py"
       ],
       "supplies": [
@@ -94,7 +93,6 @@
         "bin/fabric-history",
         "tools/fabric/reflect.py",
         "bin/fabric-reflect",
-        "tools/fabric/relay_catchup.py",
         "runtime/claude-code/hooks/context-sample.py",
         "runtime/claude-code/hooks/freshness.py",
         "runtime/claude-code/hooks/inbox-watch.py",
@@ -193,7 +191,6 @@
         "bin/fabric-history",
         "tools/fabric/reflect.py",
         "bin/fabric-reflect",
-        "tools/fabric/relay_catchup.py",
         "tools/fabric/review_rounds.py"
       ],
       "supplies": [
