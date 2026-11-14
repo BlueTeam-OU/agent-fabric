@@ -66,15 +66,18 @@ CONTRACT, frozen from the Node:
                                 session is alive is refused as above.
                                 --replace (with --until-delivery or
                                 --follow): when the lock is held by a
-                                watch the lock file says serves THIS
+                                gzcoord-inbox watch of this uid that the
+                                lock file names and that serves THIS
                                 session (same session pid, start time
-                                and kind) and that is a gzcoord-inbox
-                                watch of this uid, end it with SIGTERM
-                                by its pid, wait up to 5 s for the flock,
-                                name both pids on STDERR and take its
-                                place: how a session undoes a watch it
-                                armed by hand. Any other holder (another
-                                session's, one the file does not name, a
+                                and kind), or serves no live session
+                                (its session has ended, it is detached,
+                                or an older file recorded none), end it
+                                with SIGTERM by its pid, wait up to 5 s
+                                for the flock, name both pids on STDERR
+                                and take its place: how a session undoes
+                                a watch it armed by hand. Any other
+                                holder (another live session's, another
+                                user's, one the file does not name, a
                                 session recorded without a start time)
                                 is refused with one line on STDOUT naming
                                 it, exit 0, nothing signalled; --replace

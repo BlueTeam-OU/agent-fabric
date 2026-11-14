@@ -24,7 +24,12 @@ output to /dev/null) has a live watch of its own that no one else may end, and t
 inbox watch, so the mistake had no remedy inside the session. `--replace` ends the holder when the lock file says it serves THIS
 session — the same session pid, start time and kind this process computes for itself — and is a gzcoord-inbox watch of this uid;
 the process signalling is gzcoord-inbox, not a Bash kill, so the guard needs no rule. Anything else (another session's watch, a
-holder the file does not vouch for) is refused with one line naming it, and nothing is signalled."""
+holder the file does not vouch for) is refused with one line naming it, and nothing is signalled.
+
+--REPLACE ENDS AN ORPHAN TOO (2026-11-14): a watch of this uid whose lock names no live session — a session recorded and gone, a
+"detached" watch (no `claude` above it, the hand-armed `( ... & )` shape), an older file that recorded none — is ended by
+--replace as well, whichever session asks: it serves no one, and without this it had no exit. A watch whose recorded session is
+alive and is not this one, another user's, and one the file does not vouch for are still refused."""
 from __future__ import annotations
 
 import fcntl
@@ -42,7 +47,7 @@ from .hold import pid_alive
 # introduced it, and the dictionary is the coordinator's.
 ALREADY_RUNNING = ("gzcoord-inbox: a watch is already running (pid {pid}, started {started}); "
                    "it ends at its next delivery, at its --deadline (default 1 h 55 min) with the quiet line, or with its session "
-                   "— nothing to kill; do not run it again; --replace ends a watch this session itself started and takes its place")
+                   "— nothing to kill; do not run it again; --replace ends a watch this session started, or one whose session is gone or was never recorded, and takes its place")
 # --replace found a holder that is not this session's: one line, on stdout like the line above (a background command's output reaches
 # the session only at exit), and it says not to run it again, as a rerun would be refused the same way.
 REPLACE_REFUSED = ("gzcoord-inbox: --replace refused: the watch of pid {pid} (started {started}) is not provably a watch of this "
@@ -261,15 +266,22 @@ def replaceable_of(path: str, record: list[str], mine: sess.Session, proc: str =
         return None, "the lock file does not name it"
     recorded = sess.Session.of(record[2:])
     if recorded is None:
-        return None, "the lock file records no session for it"
-    if mine.kind == "detached" or recorded.kind == "detached":
-        # Two watches hanging from the same systemd compute the same (parent, start, "detached"): equal only because neither
-        # has a session above it, which is no proof they serve the same one.
-        return None, "a detached watch serves no session of its own"
-    if not recorded.start or not mine.start:
+        if any(record[2:]):
+            return None, "the lock file's session lines are not ones this code knows"
+        # Two lines: an older watch that recorded no session. Nothing live to protect, and a refusal here left a stray with no exit
+        # (2026-11-14: --replace refused it, and the kill guard refuses any Bash kill).
+        return pid, "the lock file records no session for it"
+    if recorded.kind == "detached":
+        # No `claude` above it when it started, so it serves no session whose end could be seen and no live session owns it: the
+        # hand-armed `( ... & )` stray is this shape. Not "serves this session" either: two detached watches under one systemd
+        # compute the same (parent, start, "detached"), so equality proves nothing. It is ended because it is no one's.
+        return pid, "it serves no session (detached)"
+    if not recorded.start:
         return None, "a session without a start time cannot be told from a reused pid"
+    if sess.ended(recorded, pid, proc):
+        return pid, f"its session, pid {recorded.pid}, has ended"
     if (recorded.pid, recorded.start, recorded.kind) != (mine.pid, mine.start, mine.kind):
-        return None, f"it serves session pid {recorded.pid}, this one is pid {mine.pid}"
+        return None, f"it serves live session pid {recorded.pid}, this one is pid {mine.pid}"
     return pid, f"it serves this session, pid {mine.pid}"
 
 
