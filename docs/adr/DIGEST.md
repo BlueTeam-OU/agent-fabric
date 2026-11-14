@@ -727,6 +727,7 @@ its record disagree, the record wins. Look it up, never read it whole:
 - A 2026-11-09 — job-state public (r3–4).
 - A 2026-11-13 — read path read back; fleet on dual (r18).
 - A 2026-11-13 — backfills: fifth evidence section (§2).
+- A 2026-11-14 — backfills: relay-took-send rows, send_rows (§2).
 - Keywords: fabric-ctl, keys, operator_key, usage, tokens, herdr,
   resume, interweave-evidence, interweave-human, fabric-control,
   control_carrier, break-glass.
@@ -1511,6 +1512,7 @@ its record disagree, the record wins. Look it up, never read it whole:
 - A 2026-11-11 — second host `fabric-h2`, no overlay, dialled from develop-qzapp only; P2's gates waived (rule 1).
 - A 2026-11-12 — rule 1's second host is any registered host, opened by its registration and the operator's inventory, not an amendment; fabric-h2 and its waivers are ADR-069's.
 - A 2026-11-13 — drill reads backfill logs: fourth property (rule 11).
+- A 2026-11-14 — relay-took-send held; none needs send_rows (rule 11).
 - Keywords: InterWeave, carrier, relay, P5, second host, fabric-h2.
 
 ### ADR-065 — The reviewer reads through pinned tools, says what it covered, and the next round starts where the last one stopped (Accepted)

@@ -422,3 +422,26 @@ were stated on main before this, by 979fcf43. Rules 3, 5, 6 and 12 are
 unchanged: the op still takes `section`, `since` and `until` and no
 other, is signed, carries no body, and pages at 60 s.
 
+### Amendment 2026-11-14 — The backfills section carries the sends the relay took
+
+The fourth property (ADR-064 rule 11) had a gap: a message the relay
+accepted when it was sent is never backfilled, so
+`gzcoord-backfill.jsonl` has no line for it, and a pair whose relay copy
+was the send's own read "none" — a failure the relay's record does not
+support. python-dev-04's BlueTeam-OU/agent-fabric#592 (j120) derives
+the missing rows from the sender's journal, opened read-only: one row
+{mid, outcome `relay-took-send`, at, channel null} per outbound row the
+journal holds as accepted on the relay's carrier, `at` the send's time
+in the window, with no `delay_s`; only `message_id` and `happened_at`
+are read. A line of the log that claims the outcome is skipped and
+counted like any other unknown outcome, so a reader tells the two
+sources apart by the outcome alone.
+
+Each page's reply says `send_rows`: `ok`, `absent` or `unreadable`, the
+state of the journal the rows came from; an unreadable journal yields
+no rows and says so, never an empty `ok`. `evidence_collect.py` records
+`meta.json`'s `backfill_log.send_rows` as true only when every page said
+`ok`: a daemon from before #592 says nothing, and ADR-064 rule 11 then
+cannot read a missing row as "the relay never had it". Rules 3, 5, 6
+and 12 are unchanged: no new argument, still signed, no body, paged at
+60 s.
