@@ -40,9 +40,12 @@ it again": that is no delivery, another watch of this login holds the
 inbox, and nothing is killed or re-armed (never `pkill` a watch; it ends
 at its next delivery or its deadline). The one exception is a watch this
 session started by hand, outside the harness (a plain `&`, output to
-nowhere): replace it with `gzcoord-inbox --until-delivery --replace`,
-which ends that stray only when its lock record names this session and
-then starts the watch. Never `--replace` a watch the harness started for
+nowhere, `disown` or not): replace it with `gzcoord-inbox
+--until-delivery --replace`, which ends that stray when its lock record
+names this session or no live one (detached, or its session ended) and
+then starts the watch; a watch of another live session it refuses.
+Never signal a watch yourself: the self-kill guard refuses it, and
+`--replace` is the way out. Never `--replace` a watch the harness started for
 this session as a background task: that one is already the watch:
 one wake per delivery, and a quiet session is woken about once per
 1 h 55 min, at the watch's deadline. On any other exit the output is the reason, and you do not run
