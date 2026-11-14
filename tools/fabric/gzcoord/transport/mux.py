@@ -1,12 +1,19 @@
 """tools/fabric/gzcoord/transport/mux.py — the primary transport and its mirrors, as the inbox and the sender use them
 (agent-fabric ADR-064 rules 6, 7, 11; ADR-067).
 
+THE TWO ARRANGEMENTS. With the relay as primary (mode relay-record) the carrier is a mirror: its arrivals are `unseen()`, read
+beside the relay's page. With the carrier as primary (carrier-record, carrier-only) the carrier's `receive` is the wait and its
+records are `unseen()`, and the relay, when there is one, is a mirror whose page (read after the wait, never waited on) is
+the `fetch_page` the watch classifies and acknowledges as before. Either way what is shown is decided by the shown ledger,
+and an error is the primary's.
+
 THE PRIMARY IS THE RECORD. What it fails with is what the inbox reports and the sender exits on; a mirror that fails is a line
 from its own transport and nothing else. Both are sent every message, the mirrors after the primary's outcome is known,
 whatever it was; the sender interleaves its journal rows between the two, so they are two calls.
 
-RECEIVING is the primary's page; the mirrors' records come in the same pass through the shown ledger (dedup.py) and are never
-acknowledged to the primary. The acknowledgement waits for the journal and the showing: that order is watch.wait_loop's, which
+RECEIVING is the primary's page where the relay leads; the mirrors' records come in the same pass through the shown ledger
+(dedup.py) and are never acknowledged to the primary. Where the carrier leads (see THE TWO ARRANGEMENTS) the relay's page is
+the one `fetch_page` returns, and its records are the ones acknowledged, to the relay. The acknowledgement waits for the journal and the showing: that order is watch.wait_loop's, which
 calls `ack` and holds the ledger's lock, and is not decided here.
 
 The logs beside the journal (arrival and acknowledgement logs, the shown ledger) belong to the receiving side; a mux built to
@@ -23,12 +30,18 @@ from .. import gzmsg
 from ..carrier import adapter, arrivals, ledger
 from ..inbox_parts.tokens import for_me
 from .base import Health, Primary, Sent, Transport
+from .carrier import CarrierPrimary
 
 
 class TransportMux:
     def __init__(self, primary: Primary, mirrors: Sequence[Transport] = (), *, me: dict | None = None,
                  state_dir: str | None = None, iso_now: Callable[[], str] | None = None) -> None:
         self.primary, self.mirrors = primary, list(mirrors)
+        # True when the carrier is the record: it is waited on, and the relay (if any) is the mirror read beside it.
+        self.carrier_leads = isinstance(primary, CarrierPrimary)
+        self._relay: Transport | None = next((m for m in self.mirrors if m.name == "relay"), None) if self.carrier_leads \
+            else primary
+        self._carried: list[dict] = []     # what the carrier's wait listed, handed to the watch by `unseen`
         self._me = me or {}
         self._of_record: dict[Any, str] = {}   # primary record id -> MESSAGE-ID, for the acknowledgement log
         self.ledger: Any = None
@@ -52,7 +65,13 @@ class TransportMux:
     # ── receiving, in the shape inbox_parts/watch.wait_loop takes ────
 
     def fetch_page(self, seconds: float, abort: threading.Event) -> dict:
-        records = self.primary.receive(seconds, abort)
+        if self.carrier_leads:
+            # The wait is the carrier's and its error is raised: a dead carrier is not an idle watch. The relay is then
+            # read once without waiting, so a copy that landed there with the carrier's is shown by the same pass.
+            self._carried = self.primary.receive(seconds, abort)
+            records = self._relay.receive(0, abort) if self._relay is not None else []
+        else:
+            records = self.primary.receive(seconds, abort)
         self._remember_ids(records)
         return {"messages": records}
 
@@ -70,8 +89,12 @@ class TransportMux:
                 continue      # not GZCOORD/1: never an arrival
 
     def ack(self, record_id: Any) -> Any:
+        """The relay's cursor: the carrier has nothing to be told (its ledger settles an arrival), so this is the relay's
+        whichever way round the transports are."""
+        if self._relay is None:
+            return
         try:
-            self.primary.ack(record_id)
+            self._relay.ack(record_id)
         except Exception:
             self._log_ack(self._of_record.get(record_id), False)
             raise
@@ -88,10 +111,16 @@ class TransportMux:
 
     @property
     def iw(self) -> "TransportMux | None":
-        """What wait_loop asks for the mirrors' arrivals: this mux, or None with no mirror (the route is the primary alone)."""
-        return self if self.mirrors else None
+        """What wait_loop asks for the carrier's arrivals: this mux, or None with no mirror and the relay as primary (the
+        route is the relay alone)."""
+        return self if self.mirrors or self.carrier_leads else None
 
     def unseen(self) -> list[dict]:
+        if self.carrier_leads:
+            # The wait's own answer, once: asking the carrier again would be a second call a slice, and a record not shown
+            # is listed by the next wait.
+            carried, self._carried = self._carried, []
+            return carried
         return [r for m in self.mirrors for r in m.receive(0, threading.Event())]
 
     def on_arrival(self, recs: list[dict]) -> None:
