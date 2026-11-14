@@ -78,7 +78,9 @@ class Adapter:
             print(f"gzcoord: the InterWeave carrier did not answer ({e}); the relay carries on", file=sys.stderr)
             return None
         if not out.get("ok"):
-            queued = f", {out['queued']} recipient(s) recorded" if "queued" in out else ""
+            # A refusal before any record (the engine's carried 0, queued 0) has no recipients to count: the mirror's line is the
+            # one it was before the engine said so.
+            queued = f", {out['queued']} recipient(s) recorded" if "queued" in out and out.get("carried") != 0 else ""
             print(f"gzcoord: the InterWeave carrier refused ({out.get('error', 'no reason given')}{queued}); "
                   "the relay carries on", file=sys.stderr)
             return None

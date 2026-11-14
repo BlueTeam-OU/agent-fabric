@@ -276,6 +276,20 @@ class Units(unittest.TestCase):
         r = ans({"ok": False, "error": "bad request: ValueError"}).post_result("m", "t")
         self.assertEqual((r.state, r.proved_unsent), ("failed", False), "no queued count: recipients may be recorded")
 
+    def test_the_mirrors_line_for_a_refusal_before_any_record_is_what_it_was_before_the_count(self):
+        lines = {}
+        for name, out in (("pre-record", {"ok": False, "error": "x", "carried": 0, "queued": 0}),
+                          ("partial", {"ok": False, "error": "x", "carried": 2, "queued": 1})):
+            saved, sys.stderr = sys.stderr, types.SimpleNamespace(write=lambda s: said.append(s), flush=lambda: None)
+            said: list[str] = []
+            try:
+                self.fake_adapter(lambda req, timeout, out=out: out).post("m", "t")
+            finally:
+                sys.stderr = saved
+            lines[name] = "".join(said)
+        self.assertIn("refused (x); the relay carries on", lines["pre-record"])
+        self.assertIn("refused (x, 1 recipient(s) recorded)", lines["partial"], "the control: a partly recorded call still says how many")
+
     def test_post_result_is_silent_on_stderr_unless_it_is_the_mirror(self):
         saved, sys.stderr = sys.stderr, types.SimpleNamespace(write=lambda s: written.append(s), flush=lambda: None)
         written: list[str] = []
