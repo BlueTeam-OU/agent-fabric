@@ -188,7 +188,11 @@ def phase_serve() -> int:
     mine = next((row for row in good if row["login"] == LOGIN), None)
     if mine is None:
         return die("no valid roster row for this account")
-    want = roster.render_config(r, good, mine["agent_id"], own_host=mine.get("host", "live"))
+    # through the carrier's own render-config: its own_host is the identity address's, which this test must not re-derive
+    done = subprocess.run([CMD, "render-config"], capture_output=True, text=True, timeout=120, stdin=subprocess.DEVNULL)
+    if done.returncode != 0:
+        return die(f"render-config refused: {done.stderr.strip()}")
+    want = done.stdout
     cfg = config_path()
     os.makedirs(WORK, mode=0o700, exist_ok=True)
     state_file = os.path.join(WORK, "state.json")

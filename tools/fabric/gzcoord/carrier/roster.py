@@ -370,8 +370,7 @@ def render_config(roster: Roster, good: list[dict], agent_id: str, *, own_host: 
     others = sorted((r for r in good if r["agent_id"] != agent_id), key=lambda r: r["port"])
     allowed = json.dumps([r["peer_id"] for r in others])
     def where(r: dict) -> str:
-        if HOST_KEY not in r:
-            return f"/ip4/{LOOPBACK}/tcp/{r['port']}"
+        # only a row naming a host gets here: a hostless one is on own_host and dialled on loopback
         proto, addr = host_address(roster, r[HOST_KEY])
         if proto is None:  # valid_rows refused such a row; a caller that hands one in gets a refusal, not 127.0.0.1
             raise RosterError(addr)

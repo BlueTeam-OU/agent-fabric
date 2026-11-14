@@ -31,7 +31,8 @@ CONTRACT
                                the profile's config.yaml rendered from the
                                roster for THIS agent; to stdout, or atomically
                                to PATH (0600). Refuses when this agent has no
-                               valid roster row
+                               valid roster row, or its row names a host other
+                               than its identity address's
           roster-row           in the login's account (ADR-064 rule 3): refuses unless
                                the transportctl in ~/.local/bin (where the release's
                                install.sh puts it, never a PATH lookup) reports the version
@@ -56,8 +57,8 @@ CONTRACT
   stdout  `status`'s JSON; `render-config`'s YAML; `roster-row`'s JSON
   stderr  every other line, prefixed `gzcoord-carrier:`; no secret, no body
   exit    0 done (run: stopped by SIGTERM/SIGINT); 1 usage; 2 refused to run
-          (journal off, no valid roster row, another carrier already holds the
-          record or the socket, no XDG_RUNTIME_DIR); 3 the carrier is not
+          (journal off, own row names a host other than the identity address's,
+          another carrier already holds the record or the socket, no XDG_RUNTIME_DIR); 3 the carrier is not
           reachable (status, abandon)
 
 The carrier never opens the admin socket and never carries fabric:control

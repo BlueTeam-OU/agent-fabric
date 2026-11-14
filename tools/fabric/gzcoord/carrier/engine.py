@@ -103,8 +103,11 @@ class Carrier:
         inbound, never with the last good roster (ADR-064 rule 2)."""
         try:
             r, good = self.roster_fn()
-            if not any(row["agent_id"] == self.me_fn().agent_id for row in good):
+            own = next((row for row in good if row["agent_id"] == self.me_fn().agent_id), None)
+            if own is None:
                 raise roster.RosterError("this agent has no valid row in the roster")
+            # a roster re-signed after start can disagree with the identity address; startup checks it once, this is every later swap
+            roster.check_own_host(own, self.host)
         except Exception as e:  # noqa: BLE001 — whatever stops the roster verifying, the answer is the same: nothing is carried
             log(f"the roster does not verify, carrying nothing: {type(e).__name__}: {e}")
             r = getattr(self, "roster", None)
