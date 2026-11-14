@@ -68,9 +68,9 @@ claim about the code names its file and function; a path with no function is the
 - **What the last parity run lacked** (`docs/live-checks/2026-11-09-interweave-parity.md`): the
   rollback drill was never run; both relay-outage drills read UNSETTLED because the
   acknowledgement log did not exist yet; 13 InterWeave misses after the rollout days and 516
-  duplicate InterWeave copies were not traced. A relay-outage drill of 2026-11-12 is cited by
-  #573; no record of it is in `docs/live-checks/` on this branch (its files from 2026-11-10 on
-  are other checks).
+  duplicate InterWeave copies were not traced. The two drills of 2026-11-12 are recorded in
+  `docs/live-checks/2026-11-12-interweave-drills.md`: the rollback drill lost nothing, the relay-outage drill holds its three
+  properties, and the fourth (the backfill) fails by age, because the backfill shipped the day after.
 
 ## 2. Inventory: what depends on the relay today
 
@@ -177,14 +177,17 @@ not amended; what the carrier observes of ordering and loss is the evidence its 
 
 1. #573 merged (done, 2026-11-13), and its missing read-back done: a message through the real
    carrier to a second account, shown once, then found on the relay after its return.
-2. The rollback drill, never run: `fabric-ctl <login> interweave-stop` on two accounts in the
+2. The rollback drill: `fabric-ctl <login> interweave-stop` on two accounts in the
    middle of a window with traffic, then `interweave-start`; `gzcoord-carrier parity --drill`
-   reads `nothing_lost`.
+   reads `nothing_lost`. Run on 2026-11-12 on all 30 accounts for 30 minutes: nothing lost
+   (`docs/live-checks/2026-11-12-interweave-drills.md`).
 3. A relay-outage drill whose acknowledgements are logged, judged by
    `gzcoord-carrier parity --relay-drill` as passing, not UNSETTLED. It must include a watch
    restart inside the outage (the 2026-11-09 report says that property was not exercised) and
-   last past 15 minutes, so the watch's give-up (§2.2) is seen. The 2026-11-12 drill gets its
-   record, whatever it shows.
+   last past 15 minutes, so the watch's give-up (§2.2) is seen. The 2026-11-12 drill's record:
+   the three properties hold, and the fourth fails by age. The collected logs do not show the
+   watch restart or the give-up. Whether to re-run with the backfill deployed is the owner's
+   choice.
 4. A fresh parity report over a window after 2026-11-09 in which every InterWeave miss has a
    cause other than "the sender recorded no InterWeave delivery", or that cause is itself
    traced; and the duplicate copies explained. Under InterWeave only a miss is a lost message.
@@ -235,7 +238,7 @@ devex-tooling's `tools/fabric/github/`; **FC** is fabric-coordinator: `tools/fab
 
 | id | piece | surface | accepted when | size | needs |
 |---|---|---|---|---|---|
-| W1 | Land #573; do its real-carrier read-back; file the 2026-11-12 drill | PD (python-dev-03); FC for the record | the PR's suite; the read-back's three facts (shown once, on the relay after return, a `gzcoord-backfill.jsonl` line) in a live check | #573 merged (2026-11-13); the read-back and the drill's record still to file | - |
+| W1 | Land #573; do its real-carrier read-back; file the 2026-11-12 drill | PD (python-dev-03); FC for the record | the PR's suite; the read-back's three facts (shown once, on the relay after return, a `gzcoord-backfill.jsonl` line) in a live check | #573 merged (2026-11-13); the drill's record filed (#612); the read-back still to file | - |
 | W2 | The two drills and the fresh parity report (gate 1, items 2 to 4); trace the misses and duplicates | FC runs and files; PD reads `carrier/engine.py` `send_due` and `Adapter.post` for the causes | the report's "what it lacks" section is empty; each miss has a cause a reviewer can find in the computed file | S, mostly operations | W1 |
 | W3 | **Done, #581.** Journal-first `--replay` and `--history`: a MESSAGE-ID is answered from the journal in every mode; `--json` gains `carrier` and `sender_verified`; a relay seq is still answered from the relay while one is configured | PD (`inbox.py` `main`, `inbox_parts/records.py`; reads through `episodic.open_readonly`, so no supply-tier file changes) | a test with the relay refusing every connection: a row journaled by the carrier alone replays with exit 0, one not addressed exits 2; `jobsparts/records.py` `fetch_message` adds the job | M | - |
 | W4 | **Done, on this PR, #604.** `verify_grant`: a journal row a carrier other than the relay brought counts only with `sender_verified` true and that sender equal to `FROM`; a relay-brought row is judged as the relay's record always was, until the relay stops carrying GZCoord at gate 2 | DX (`tools/fabric/github/arm.py`); FC for ADR-041 rule 7 (amended 2026-11-14) | `tests/test_arm_cli.py`: a grant the carrier alone delivered arms with the relay down; an unverified sender on such a row is refused | S | W3, D4 |
@@ -374,7 +377,7 @@ recommended:
 
 W3, W4, W5, W9, W10, W12, W13 and W14 are done, and #573 is merged. What is left, in this order:
 
-1. **W1's remainder**: the real-carrier read-back of #573, and the 2026-11-12 drill filed.
+1. **W1's remainder**: the real-carrier read-back of #573 (the 2026-11-12 drills are filed).
 2. **W2**: the rollback drill, a judged relay-outage drill, and a parity report with no
    untraced miss. With W1 this is everything gate 1 asks for.
 3. **W6 to W8**, from W5's mode: the carrier as a primary (W6, in review as #613), then the
