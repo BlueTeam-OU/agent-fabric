@@ -36,3 +36,30 @@ The owner asked for an analysis of a context-saving MCP server (2026-10-09). It 
 ### Amendment 2026-10-09 — A resume that reads working events needs rules 2 and 8 amended first
 
 The blind review of the merged §7 sentence found it admitted what binding rules keep out: rule 2 lets only GZCoord application messages into the journal, and rule 8 lets nothing from it into a session automatically, while the sentence had a resume read files edited, decisions and errors into one. §7 now says that reading them needs both rules amended first. The note above no longer cites labels this record does not have.
+
+### Amendment 2026-11-14 — A grant to arm may be read from the arming login's own journal
+
+`fabric-pr arm --authorization` and `--waiver` read the grant through
+`gzcoord-inbox --replay --json`. Since #581 (W3 of the InterWeave-only
+cutover, `docs/proposals/gzcoord-interweave-only-cutover.md`) that
+replay answers a MESSAGE-ID from the journal first, so arm was already
+reading journal rows, which rule 7 kept out of authorisation, and it
+never looked at `sender_verified`. The owner decided on 2026-11-13, in
+the coordinator's session, as the plan recommended (D4): arm may take
+AUTHORIZES and WAIVES from the arming login's own journal, for a row
+addressed to that login whose sender the carrier verified. W4
+(devex-tooling, folded on #604, `tools/fabric/github/arm.py`
+`verify_grant`) lands with this amendment: a row a carrier other than
+the relay brought counts only with `sender_verified` true and that
+sender equal to `FROM`, and each refusal names which.
+
+Two parts of the rule are fabric-coordinator's, not the owner's: D4's
+question carried neither. The first, that the verified sender must be
+`FROM` as arm already required of the relay's sender, was in the plan's
+W4 row from 2026-11-13. The second, made explicit on 2026-11-14 when
+W4 was folded, is that a row the relay brought is judged as before, its
+sender a claim: the relay never authenticated a sender (ADR-033), and
+refusing its rows would stop arming on every account still in
+`relay-record`. That second part ends when the relay stops carrying
+GZCoord, at gate 2 of the plan: its records amend this rule again, and
+its work item W15 removes `verify_grant`'s relay-row branch.

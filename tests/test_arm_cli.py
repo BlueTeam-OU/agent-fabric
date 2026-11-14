@@ -529,7 +529,8 @@ def main() -> int:
         def set_waiver(addressed: bool = True, typ: str = "DECISION", sender: str = cto, frm: str | None = None,
                        role_line: str = "architect-cto", text: str = "Waived for #7: comment-only DDL.",
                        line: str | None = waives, to: str | None = "develop-qzapp/me", extra: dict | None = None,
-                       message_id: str | None = mid) -> None:
+                       message_id: str | None = mid, replay: dict | None = None) -> None:
+            """The replay's JSON; `replay` adds its top-level fields (carrier, sender_verified: W3's journal answer)."""
             if not addressed:
                 put("waiver.out", json.dumps({"addressed": False, "seq": 4242}) + "\n"); put("waiver_rc", "2"); return
             meta = {"FROM": frm if frm is not None else sender, "ROLE": role_line, "PROJECT": "gzapp"}
@@ -541,7 +542,7 @@ def main() -> int:
                 meta["WAIVES"] = line
             meta.update(extra or {})
             put("waiver.out", json.dumps({"addressed": True, "seq": 4242, "sender": sender, "when": "t", "type": typ,
-                                          "metadata": meta, "text": f"[GZCOORD/1] {typ}\n" + text}) + "\n")
+                                          "metadata": meta, "text": f"[GZCOORD/1] {typ}\n" + text, **(replay or {})}) + "\n")
             put("waiver_rc", "0")
 
         def set_presence(role: str | None = "architect-cto", account: str = "architect-cto-01",
@@ -623,6 +624,44 @@ def main() -> int:
         reset(); set_pr(me, "plain", mig); set_gate(9); set_waiver(); set_presence(role=None)
         rc, out = waive(); check("a sender holding no role: refused", rc == 1 and "holds no role" in out, out)
 
+        # W4 of the InterWeave-only cutover (the owner's D4, 2026-11-13): the replay answers from the journal first, and
+        # a row a carrier other than the relay brought counts only with the sender that carrier verified, equal to FROM.
+        iw = {"carrier": "interweave", "sender_verified": True}
+        reset(); set_pr(me, "plain", mig); set_gate(9); set_waiver(replay=iw); set_presence()
+        rc, out = waive()
+        check("a waiver the carrier brought, its sender verified and equal to FROM: armed",
+              rc == 0 and "boundary gate WAIVED by architect-cto-01" in out and "ARMED #7" in out, out)
+        for label, setup, said in (
+                ("its sender not verified", lambda: set_waiver(replay=dict(iw, sender_verified=False)),
+                 f"was carried by interweave from {cto}, a sender it did not verify"),
+                ("sender_verified absent", lambda: set_waiver(replay={"carrier": "interweave"}), "a sender it did not verify"),
+                ("sender_verified a string, not true", lambda: set_waiver(replay=dict(iw, sender_verified="true")),
+                 "a sender it did not verify"),
+                ("no carrier yet (null), unverified", lambda: set_waiver(replay={"carrier": None, "sender_verified": False}),
+                 "was carried by no carrier"),
+                ("a verified sender other than FROM", lambda: set_waiver(replay=iw, frm="develop-qzapp/other-01"),
+                 f"was carried by interweave from the verified sender {cto} but says FROM develop-qzapp/other-01")):
+            reset(); set_pr(me, "plain", mig); set_gate(9); set_presence(); setup()
+            rc, out = waive()
+            check(f"a carrier's waiver, {label}: refused, naming which, nothing armed", rc == 1 and said in out
+                  and "pr merge" not in calls() and "pr comment" not in calls(), out)
+        relay = {"carrier": arm.RELAY_CARRIER, "sender_verified": False}
+        reset(); set_pr(me, "plain", mig); set_gate(9); set_waiver(replay=relay); set_presence()
+        rc, out = waive()
+        check("a relay row as W3's replay names it (claude-bridge, unverified): armed as before", rc == 0 and "ARMED #7" in out, out)
+        reset(); set_pr(me, "plain", mig); set_gate(9); set_waiver(replay=relay, frm="develop-qzapp/me"); set_presence()
+        rc, out = waive()
+        check("…and its FROM other than the relay's sender refused as before", rc == 1 and "was relayed from" in out, out)
+        reset(); set_pr(me, "plain", mig); set_gate(9); set_waiver(replay=dict(relay, sender_verified=True)); set_presence()
+        rc, out = waive()
+        check("a relay row a carrier later verified stays the relay's (carrier is the first): armed",
+              rc == 0 and "ARMED #7" in out, out)
+        from gzcoord.inbox_parts import records as inbox_records
+        import episodic
+        check("arm's relay carrier is the name the replay and the journal give a relay row",
+              arm.RELAY_CARRIER == inbox_records.RELAY_CARRIER == episodic.DEFAULT_CARRIER,
+              f"{arm.RELAY_CARRIER} {inbox_records.RELAY_CARRIER} {episodic.DEFAULT_CARRIER}")
+
         for label, setup in (
                 ("the replay finds no message (exit 1, no JSON)", lambda: (put("waiver.out", ""), put("waiver_rc", "1"))),
                 ("the relay is down (exit 0, no JSON)", lambda: (put("waiver.out", "gzcoord: relay unreachable\n"), put("waiver_rc", "0"))),
@@ -632,7 +671,7 @@ def main() -> int:
                 ("not addressed, with exit 0", lambda: (set_waiver(addressed=False), put("waiver_rc", "0")))):
             reset(); set_pr(me, "plain", mig); set_gate(9); set_presence(); setup()
             rc, out = waive()
-            check(f"{label}: exit 2, nothing posted", rc == 2 and "could not be read from the relay" in out
+            check(f"{label}: exit 2, nothing posted", rc == 2 and "could not be read from the journal or the relay" in out
                   and "pr comment" not in calls() and "pr merge" not in calls(), out)
         for label, setup in (
                 ("fabric-ctl fails", lambda: (set_presence(), put("ctl_rc", "3"))),
@@ -844,6 +883,10 @@ def main() -> int:
         set_waiver(line=None, extra={"AUTHORIZES": "gzapi-org/gzapp#7@01234567"})
         rc, out = run("7", "--basis", owner, "--dry-run", "--authorization", mid, env=renv, policy=direct)
         check("…and one naming another head refuses", rc == 1 and "an approval of one head arms no other" in out, out)
+        set_waiver(line=None, extra={"AUTHORIZES": authz}, replay={"carrier": "interweave", "sender_verified": False})
+        rc, out = run("7", "--basis", owner, "--dry-run", "--authorization", mid, env=renv, policy=direct)
+        check("…and an authorization a carrier brought from an unverified sender refuses (W4)",
+              rc == 1 and "a sender it did not verify" in out, out)
 
         print("arm: an additional engine (additional_reviews) — its review, its unavailable marker, or absent: never blocking")
         extra = dict(claude_only, reviews=["claude"], boundary_reviews=["claude"], additional_reviews=["codex"])
@@ -1653,6 +1696,50 @@ def main() -> int:
               rc == 0 and "boundary gate WAIVED by architect-cto-01" in out and "ARMED #7" in out
               and f"Boundary gate waived by architect-cto-01 ({mid}): {why}." in calls()
               and f"replay --replay {mid} --json" in calls() and "ctl architect-cto-01 presence --json" in calls(), out + calls())
+
+        print("arm (CLI): a waiver the carrier alone delivered, read from the journal by the real gzcoord-inbox, the relay down")
+        import episodic
+        import test_gzcoord_carrier_inbox as C
+        import test_gzcoord_protocol as P
+        w = C.World([])
+        try:
+            mid2 = "01a10593-0000-7000-8000-00000000c7f1"
+
+            def grant(message_id: str) -> str:
+                return (f"[GZCOORD/1] DECISION\nFROM: {cto}\nROLE: architect-cto\nPROJECT: gzapp\nTO: {C.ME}\n"
+                        f"MESSAGE-ID: {message_id}\nSUBJECT: waiver\nWAIVES: {waives}\n\nDECISION:\nWaived for #7.\n")
+            saved = dict(os.environ)
+            os.environ.update(w.env)
+            try:
+                conn = episodic.connect()
+                try:
+                    # The carrier journals with the sender it verified; a record with none is the sender's claim.
+                    journaled = episodic.inbound(conn, [{"content": grant(mid), "ts": "2026-11-13T09:00:00Z", "seq": None, "sender": cto},
+                                                        {"content": grant(mid2), "ts": "2026-11-13T09:00:01Z", "seq": None, "sender": None}],
+                                                 carrier="interweave")
+                finally:
+                    conn.close()
+            finally:
+                os.environ.clear()
+                os.environ.update(saved)
+            w.stub.close()          # every connection to the relay is refused from here on
+            check("setup: the carrier alone journaled both grants", journaled.get("written") == 2, str(journaled))
+            account = {k: w.env[k] for k in ("HOME", "AGENT_FABRIC_SECRET_STORE", "AGENT_FABRIC_STATE_DIR", "AGENT_FABRIC_ROOT",
+                                             "XDG_RUNTIME_DIR", "CLAUDE_BRIDGE_URL", "CLAUDE_BRIDGE_AUTH_TOKEN", "GZCOORD_CHANNEL")}
+            live = dict(wenv, AGENT_FABRIC_GZCOORD_INBOX=P.INBOX_CMD, AGENT_FABRIC_PR_SESSION=C.ME, **account)
+            reset(); set_pr(f"{C.ME}/feat/x", "plain", mig); set_gate(9); set_presence(); both_reviewed()
+            rc, out = cli("7", "--basis", "nine at the gate", "--no-boundary", why, "--waiver", mid, env=live)
+            check("a grant the carrier alone delivered, its sender verified: armed with the relay down, the comment records it",
+                  rc == 0 and "boundary gate WAIVED by architect-cto-01" in out and "ARMED #7" in out
+                  and f"Boundary gate waived by architect-cto-01 ({mid}): {why}." in calls(), out + calls())
+            reset(); set_pr(f"{C.ME}/feat/x", "plain", mig); set_gate(9); set_presence(); both_reviewed()
+            rc, out = cli("7", "--basis", "nine at the gate", "--no-boundary", why, "--waiver", mid2, env=live)
+            check("…and the same grant journaled with its sender unverified: refused, naming it, nothing armed",
+                  rc == 1 and "a sender it did not verify" in out and "pr merge" not in calls(), out + calls())
+        finally:
+            w.close()
+            for d in P.SCRATCH:
+                shutil.rmtree(d, ignore_errors=True)
 
         # ── fabric-pr disarm (REQUEST 01a1c27c): who may arm may disarm, and the basis stays on the PR ──
         from github import disarm
