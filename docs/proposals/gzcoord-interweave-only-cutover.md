@@ -2,7 +2,7 @@
 
 **Status 2026-11-14.** The owner answered D1, D2, D4, D5 and D10 on 2026-11-13, each as
 recommended (§7). D3's first half is done: #573 merged on 2026-11-13. D6, D7 and D8 are not
-asked yet, and D9 is partly answered. Two records say what was decided: ADR-041 rule 7 (D4)
+asked yet, and D9 is partly answered. Two records say what was decided: ADR-041 rule 7 (D4, with two conditions of fabric-coordinator's, §7)
 and ADR-064 §7 (D1, D2, D5, D10), both amended 2026-11-14. The other records in §4 change when
 each gate's word is given. W3, W4, W5, W10, W12 and W14 are done (§5); W4 is on this pull
 request.
@@ -352,10 +352,10 @@ recommended:
   python-dev-03 go first, the coordinator's account last.
 - D4: `fabric-pr arm` may read AUTHORIZES and WAIVES from the arming login's own journal, but
   only for a row addressed to that login whose sender the carrier verified. That is the owner's
-  answer as given. Two things were added on 2026-11-14 by fabric-coordinator, not by the owner,
-  when W4 was folded: the verified sender must be the message's `FROM`, as arm already required
-  of the relay's sender; and a row the relay brought is judged as before, its sender a claim, so
-  that accounts still in `relay-record` can arm. That second half ends at gate 2 (§4, W15).
+  answer as given. Two things are fabric-coordinator's, not the owner's: the verified sender
+  must be the message's `FROM`, as arm already required of the relay's sender (in W4's row from
+  2026-11-13); and a row the relay brought is judged as before, its sender a claim, so that
+  accounts still in `relay-record` can arm (made explicit on 2026-11-14, when W4 was folded). That second half ends at gate 2 (§4, W15).
   ADR-041 rule 7 is amended on this pull request, with W4.
 - D5: give up all three. The owner has not yet named the retention period for the relay's
   last database copy.

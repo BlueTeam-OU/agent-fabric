@@ -53,10 +53,11 @@ addressed to that login whose sender the carrier verified. W4
 the relay brought counts only with `sender_verified` true and that
 sender equal to `FROM`, and each refusal names which.
 
-Two parts of the rule are fabric-coordinator's, added on 2026-11-14
-when W4 was folded, not the owner's. The first is that the verified
-sender must be `FROM`, as arm already required of the relay's sender.
-The second is that a row the relay brought is judged as before, its
+Two parts of the rule are fabric-coordinator's, not the owner's: D4's
+question carried neither. The first, that the verified sender must be
+`FROM` as arm already required of the relay's sender, was in the plan's
+W4 row from 2026-11-13. The second, made explicit on 2026-11-14 when
+W4 was folded, is that a row the relay brought is judged as before, its
 sender a claim: the relay never authenticated a sender (ADR-033), and
 refusing its rows would stop arming on every account still in
 `relay-record`. That second part ends when the relay stops carrying
