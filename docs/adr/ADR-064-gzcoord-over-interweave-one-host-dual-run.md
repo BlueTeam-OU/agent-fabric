@@ -164,11 +164,17 @@ address, where the relay's `sender` is a claim (ADR-033 §6).
    `fabric-host <host> persist`, which a start refused for it names; the
    read reports whether it is covered (A 2026-11-01). A second host
    (A 2026-11-11) is one registered in `runtime/hosts/registry.json`. The
-   coordinator's host reaches it directly, with no overlay, and a
-   connection opens only from the coordinator's host: the second host
-   cannot open one back. Its profiles listen on the wildcard at their
-   roster ports, and its firewall admits the roster's range only from
-   the coordinator's host's address as the second host sees it. InterWeave
+   coordinator's host reaches it directly, with no overlay, and dials
+   it: the second host cannot dial back. Its profiles listen on the
+   wildcard at their roster ports, and its firewall admits the roster's
+   range only from the coordinator's host's address as the second host
+   sees it. Where that host has no fixed address (A 2026-11-14), the
+   operator's record may instead name a public address forwarded to the
+   second host on the same ports and admitted from any source, on the
+   owner's word; the registry's `interweave_address` is then that public
+   address, admission is the roster's PeerId allowlist alone, and the
+   record states the transport's handshake and parser, reachable from
+   the internet, as a known limit for that host. InterWeave
    ADR-0055 decision 5b's limits are accepted for it on the owner's
    word; nothing relies on NAT traversal, a relay circuit or discovery,
    and a third host is a further amendment. Its first account is a
@@ -393,3 +399,4 @@ The body above reads current; each change's full note is in [history/ADR-064-ame
 | 2026-11-12 | the second host is any host in the registry, not a named one | §5 rule 1: the named second host, its node, the coordinator's host's address and the waivers read "a second host in `runtime/hosts/registry.json`"; the second-host milestone opens on its registration and the operator's inventory (ADR-069), not by an amendment (§2, §7 follow); the host and waivers are ADR-069 rule 2 |
 | 2026-11-13 | The relay-outage drill reads the senders' backfill logs | §5 rule 11: a fourth property (#590) |
 | 2026-11-14 | A send the relay took counts as on its record | §5 rule 11: `relay-took-send` read as held; `none` only with the derived rows collected (#592) |
+| 2026-11-14 | A second host with no fixed coordinator address is reached at a public forward, any source | §5 rule 1: admission by roster PeerId alone; the exposure a known limit in the operator's record (ADR-069 rule 2) |

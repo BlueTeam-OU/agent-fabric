@@ -37,8 +37,9 @@ of its host address's family (0.0.0.0 or ::) at its port, not on the address
 itself: a daemon bound to a literal address loses network-change detection
 (InterWeave ADR-0055 5b) and a same-host fleet would fail to start whenever
 the overlay is down. That listener relies on host provisioning: the host's
-firewall must admit the roster's port range from the other hosts' overlay
-addresses, and nothing here does. Bootstrap per peer: a peer on the SAME host
+firewall, or a public forward in front of it, must admit the roster's port
+range (from the coordinator's host, or from any source on the owner's word,
+ADR-064 rule 1), and nothing here does. Bootstrap per peer: a peer on the SAME host
 as the account stays at 127.0.0.1; a peer on another host is at that host's
 `interweave_address` in runtime/hosts/registry.json (a literal IP). A row
 naming a host the registry lacks, or one without an address, is refused like
