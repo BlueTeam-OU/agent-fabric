@@ -148,13 +148,51 @@ class Watch(unittest.TestCase):
         self.assertEqual((r.returncode, r.stdout.count("subject-4")), (0, 1), r.stdout + r.stderr)
         self.assertEqual((w.calls, w.acks), (0, []), "nothing in the inbox path reached the relay")
 
-    def test_a_carrier_that_is_not_running_is_an_error_of_the_watch_not_an_idle_one(self):
+    def login(self):
+        return subprocess.run(["id", "-un"], capture_output=True, text=True, timeout=10).stdout.strip()
+
+    def marker(self, w):
+        return os.path.join(w.env["XDG_RUNTIME_DIR"], "agent-fabric", f"gzcoord-inbox-{self.login()}.relay-down")
+
+    def test_a_carrier_that_is_not_running_ends_the_watch_with_its_line_and_marker(self):
         w, fake = self.world("carrier-record", pages=[[C.relay_rec(5)]])
         fake.close()                                              # the socket is gone: no carrier
         r = w.watch(deadline=8)
-        self.assertEqual(r.returncode, 5, r.stdout + r.stderr)    # the watch's give-up; its words are W7's
+        self.assertEqual(r.returncode, 5, r.stdout + r.stderr)
+        self.assertIn(f"fabric-ctl {self.login()} interweave", r.stdout, "the line names the command that says why")
+        self.assertIn("carrier", r.stdout)
+        self.assertNotIn("relay unreachable", r.stdout)
+        self.assertTrue(os.path.exists(self.marker(w)), "the Stop hook's marker: it means the carrier here")
         self.assertNotIn("subject-5", r.stdout, "the relay's copy is not shown by a watch whose record is down")
         self.assertEqual(w.acks, [], "and not acknowledged")
+
+    def test_a_relay_that_is_down_ends_no_watch_while_the_carrier_answers_and_in_relay_record_it_does(self):
+        w, fake = self.world("carrier-record", hold=60)
+        w.relay_down = True
+        r = w.watch(deadline=8)          # the give-up bound is 3 s here: the relay has been down longer than it
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertNotIn("unreachable", r.stdout)
+        self.assertFalse(os.path.exists(self.marker(w)))
+        w2, fake2 = self.world("relay-record", hold=60)
+        w2.relay_down = True
+        r2 = w2.watch(deadline=8)
+        self.assertEqual(r2.returncode, 5, "the positive control: the same outage ends a relay-record watch")
+
+    def test_carrier_only_never_starts_the_relay_hosting(self):
+        code = ("import sys; sys.path.insert(0, sys.argv[1])\n"
+                "from gzcoord import inbox, transport\n"
+                "def hosted(cfg, t=None):\n"
+                "    open(sys.argv[2], 'a').write('x')\n"
+                "    return {'hosted': False, 'started': False}\n"
+                "transport.start_hosted = hosted\n"
+                "sys.exit(inbox.run([]))\n")
+        for mode_name, expect in (("carrier-only", False), ("carrier-record", True)):
+            w, fake = self.world(mode_name)
+            flag = os.path.join(P.scratch("hosted-"), "called")
+            r = subprocess.run([sys.executable, "-c", code, P.TOOLS, flag], env=w.env, capture_output=True, text=True,
+                               timeout=120, stdin=subprocess.DEVNULL)
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertEqual(os.path.exists(flag), expect, mode_name)
 
 
 class Send(unittest.TestCase):
