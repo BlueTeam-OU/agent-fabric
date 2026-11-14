@@ -91,10 +91,13 @@ a message for the agent and two per send, and no prompt tokens.
    history query means.
 7. A history result is evidence, not current truth and not authorisation;
    `fabric-history` says so, and withholds credential-shaped values. One
-   exception (A 2026-11-14): `fabric-pr arm` may take an AUTHORIZES or
-   WAIVES from the arming login's own journal, only from a row addressed
-   to that login whose sender the carrier verified (`sender_verified`)
-   and is the message's `FROM`; any other journal row is not a grant.
+   exception (A 2026-11-14): `fabric-pr arm` takes an AUTHORIZES or
+   WAIVES from the arming login's own journal, read through
+   `gzcoord-inbox --replay`, from a row addressed to that login. A row
+   that a carrier other than the relay brought counts only with
+   `sender_verified` true and that sender the message's `FROM`. A row
+   the relay brought is judged as the relay's record always was, its
+   sender a claim, while the relay carries GZCoord (ADR-064 §7).
 8. Nothing from the journal enters a session's context automatically, and
    nothing in it is promoted to curated memory without the drain.
 9. An agent's past messages are imported by the agent itself, through the
@@ -169,4 +172,4 @@ The body above reads current; each change's full note is in [history/ADR-041-ame
 | 2026-10-06 | A bypassed send records its outcome | §5 rule 10: a second line after the post, accepted, failed or unknown; a failed line only when the post provably never reached the relay |
 | 2026-10-09 | What a resume reads from the journal, and how it is ranked | §7: a resume fetches the session's working events by query, ranked, never the whole record; the full-text recipe to measure first is FTS5 stemmed + trigram fused by reciprocal rank, with snippets |
 | 2026-10-09 | A resume that reads working events needs rules 2 and 8 amended first | §7: the resume shape stays a direction; reading working events into a session needs rules 2 and 8 amended first |
-| 2026-11-14 | A grant to arm may be read from the arming login's own journal | §5 rule 7: only a row addressed to that login whose sender the carrier verified and is its `FROM` |
+| 2026-11-14 | A grant to arm may be read from the arming login's own journal | §5 rule 7: a row addressed to that login; a carrier's row only with its verified sender as `FROM`, a relay's row as before |

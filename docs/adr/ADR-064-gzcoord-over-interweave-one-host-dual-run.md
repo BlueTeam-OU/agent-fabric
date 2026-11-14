@@ -363,8 +363,9 @@ through three modes, `relay-record`, `carrier-record`, then
 never a committed file; python-dev-02 and python-dev-03 go first and the
 coordinator's account last. The fleet gives up the relay's global seq,
 keyword alerts on others' traffic and the whole-channel record. Each
-gate's word amends rules 7, 8, 11 and 14 here, ADR-033 and ADR-041 rule
-10 when it is given, not before. The mapping in §5 rules 6 to 10 belongs to
+gate's word amends the records the plan's §4 names for it (rules 7, 8,
+11 and 14 here, ADR-033 and ADR-041 among them) when it is given, not
+before. The mapping in §5 rules 6 to 10 belongs to
 GZCoord's own repository, which the owner asked for (§1;
 `docs/split/agent-fabric-coord.md`). Until that repository exists, it
 is in this series. When it is created, the mapping moves there with

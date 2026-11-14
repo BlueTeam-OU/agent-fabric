@@ -40,15 +40,19 @@ The blind review of the merged §7 sentence found it admitted what binding rules
 ### Amendment 2026-11-14 — A grant to arm may be read from the arming login's own journal
 
 `fabric-pr arm --authorization` and `--waiver` read the grant through
-`gzcoord-inbox --replay`, from the relay. Under the InterWeave-only
-cutover (`docs/proposals/gzcoord-interweave-only-cutover.md`, D4) the
-relay stops being the record, so the grant has to be read where the
-message is kept: the arming login's own journal. Rule 7 kept every
-journal row out of authorisation. The owner decided on 2026-11-13, in
-the coordinator's session, as the plan recommended: arm may take an
-AUTHORIZES or WAIVES from that journal, only from a row addressed to the
-arming login whose sender the carrier verified and is the message's
-`FROM`. The relay never authenticated a sender, so this narrows what a
-grant can be rather than widening it. The code is the plan's W4
-(`tools/fabric/github/arm.py` `verify_grant`); until it lands the relay
-read stands.
+`gzcoord-inbox --replay --json`. Since #581 (W3 of the InterWeave-only
+cutover, `docs/proposals/gzcoord-interweave-only-cutover.md`) that
+replay answers a MESSAGE-ID from the journal first, so arm was already
+reading journal rows, which rule 7 kept out of authorisation, and it
+never looked at `sender_verified`. The owner decided on 2026-11-13, in
+the coordinator's session, as the plan recommended (D4): arm may take
+AUTHORIZES and WAIVES from the arming login's own journal, for a row
+addressed to that login whose sender the carrier verified. W4
+(devex-tooling, folded on #604, `tools/fabric/github/arm.py`
+`verify_grant`) lands with this amendment: a row a carrier other than
+the relay brought counts only with `sender_verified` true and that
+sender equal to `FROM`, and each refusal names which. A row the relay
+brought is judged as before: the relay never authenticated a sender
+(ADR-033), and refusing its rows would stop arming on every account
+still in `relay-record`. That half ends when the relay stops carrying
+GZCoord, gate 2 of the plan, which amends this rule again.

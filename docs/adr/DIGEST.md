@@ -1024,7 +1024,7 @@ its record disagree, the record wins. Look it up, never read it whole:
   FTS5 stemmed + trigram fused by reciprocal rank is the recipe to
   measure first (§7).
 - A 2026-10-09 — reading working events needs rules 2 and 8 amended (§7).
-- A 2026-11-14 — arm may take a grant from the arming login's own journal, only a row addressed to it whose carrier-verified sender is its `FROM` (rule 7).
+- A 2026-11-14 — arm takes a grant from the arming login's own journal: a carrier's row only with its verified sender as `FROM`, a relay's row as before (rule 7).
 - Keywords: episodic, history, journal, GZCoord, carrier, transport,
   relay, InterWeave, fabric-history, backfill.
 
