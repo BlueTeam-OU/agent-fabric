@@ -10,6 +10,7 @@ import re
 import shutil
 import subprocess
 import sys
+import warnings
 from typing import Any
 
 from .base import FRONTMATTER_RE, PAYLOAD_DIRS, layout, lint_environ, roots
@@ -388,7 +389,9 @@ def project_tools_findings(root: str) -> list[str]:
                     declared.add(n)
     for script in sorted(glob.glob(os.path.join(root, "runtime", "claude-code", "retire-*.py"))):
         try:
-            tree = ast.parse(open(script, encoding="utf-8").read())
+            with open(script, encoding="utf-8") as fh, warnings.catch_warnings():
+                warnings.simplefilter("ignore", SyntaxWarning)   # the script's own invalid escape is ruff's to report
+                tree = ast.parse(fh.read())
         except (OSError, SyntaxError):
             continue
         for node in ast.walk(tree):

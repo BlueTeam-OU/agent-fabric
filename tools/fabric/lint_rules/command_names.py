@@ -9,6 +9,7 @@ import ast
 import importlib.util
 import os
 import sys
+import warnings
 
 from .base import _tracked
 
@@ -39,7 +40,8 @@ OWN_VERB_SOURCES: dict[str, tuple[str, str, str]] = {
 
 
 def _read_verbs(path: str, shape: str, name: str) -> set[str] | None:
-    with open(path, encoding="utf-8") as fh:
+    with open(path, encoding="utf-8") as fh, warnings.catch_warnings():
+        warnings.simplefilter("ignore", SyntaxWarning)   # the module's own invalid escape is ruff's to report
         tree = ast.parse(fh.read(), filename=path)
     for node in ast.walk(tree):
         if (shape == "dict" and isinstance(node, (ast.Assign, ast.AnnAssign)) and isinstance(node.value, ast.Dict)
