@@ -14,7 +14,7 @@ carrier on one host.
 | profile name (every account) | `gzcoord` |
 | endpoint id leased by the carrier | `gzcoord` |
 | client kind presented in the IPC `hello` | `automated-client` |
-| roster port range | 47100-47199: loopback for a row without `host`; a row with one listens on the wildcard address and is dialled at its host's address, loopback from the same host |
+| roster port range | 47100-47199: loopback for a row without `host`; a row with one listens on the wildcard address and is dialled at its host's address, but at loopback by an account whose own row names the same `host` (an account whose row names none dials it at the host's address) |
 | message media type | `application/vnd.agentfabric.gzcoord.v1` |
 | compressed message | same, plus `;ce=deflate` (zlib; the only codec) |
 | chunk media type | `application/vnd.agentfabric.gzcoord-chunk.v1` |
