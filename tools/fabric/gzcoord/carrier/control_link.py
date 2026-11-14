@@ -715,7 +715,13 @@ class Server:
                 try:
                     conn.sendall((js.stringify(obj) + "\n").encode("utf-8"))
                 except OSError as e:
-                    self._log(f"fabric-ctl's connection for {rid[:8]} is not reading ({e}): dropped")
+                    # A closed peer is fabric-ctl having ended (a reply that landed between its close and this
+                    # session's loop seeing it: nothing is lost, the command had its rows); only a write that
+                    # timed out is a ctl that is still there and not reading. j144.
+                    if isinstance(e, (BrokenPipeError, ConnectionResetError)):
+                        self._log(f"fabric-ctl's session for {rid[:8]} had ended ({e.strerror}): this reply is dropped")
+                    else:
+                        self._log(f"fabric-ctl's connection for {rid[:8]} is not reading ({e}): dropped")
                     self.carrier.unwatch(rid)
                     with contextlib.suppress(OSError):
                         conn.shutdown(socket.SHUT_RDWR)

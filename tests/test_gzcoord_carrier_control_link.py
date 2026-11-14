@@ -504,6 +504,23 @@ class SocketCases(Net):
         self.assertLess(time.monotonic() - t0, 40, "bounded, not for the rest of wait_s")
         self.assertTrue(any("not reading" in l for l in op.logs), op.logs)
 
+    def test_a_reply_after_ctl_closed_says_the_session_ended_not_that_it_is_not_reading(self):
+        s = cc.Session(self.path, request(rid="gone", to=["h/alice"]), ["h/alice"], 60)
+        s.wait_sent(5)
+        op = self.nodes["op"]
+        waiter = op.carrier._waiters["gone"]
+        s.close()
+        # The window is the server thread's wake-up after the close; the waiter is called at once, as the inbox
+        # thread does with a reply already queued.
+        deadline = time.monotonic() + 5
+        while time.monotonic() < deadline and not any("gone"[:8] in l and "had ended" in l for l in op.logs):
+            waiter({"kind": "reply", "id": "x", "in_reply_to": "gone", "from": "h/alice"}, "h/alice")
+            time.sleep(0.01)
+            if op.carrier._waiters.get("gone") is None:
+                break
+        self.assertTrue(any("gone" in l and "had ended" in l for l in op.logs), op.logs)   # the positive control
+        self.assertFalse(any("not reading" in l for l in op.logs), op.logs)
+
     def test_a_peer_of_another_user_is_closed_unread(self):
         from unittest import mock
         with mock.patch.object(cc, "_peer_uid", return_value=os.getuid() + 1):
