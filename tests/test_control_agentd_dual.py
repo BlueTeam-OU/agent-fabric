@@ -8,6 +8,7 @@ account. Nothing leaves this process or touches a live relay, daemon or home.
 """
 from __future__ import annotations
 
+import io
 import json
 import os
 import sys
@@ -226,6 +227,70 @@ class AgentdDual(Base):
             self.assertTrue(until(lambda: left == [0]), self.logs)
             self.assertEqual(len(sent), 1)
             self.assertTrue(until(lambda: got), "and the copy reached the operator")
+
+    def ctl_session(self, rid: str, **over) -> "link.Session":
+        """fabric-ctl's end on this agentd's socket, asking h/op: what the operator's own session is to its agentd."""
+        record = body(rid, **{"from": "h/alice", "to": ["h/op"], **over})
+        session = link.Session(link.socket_path(), record, ["h/op"], 30)
+        self.addCleanup(session.close)
+        session.wait_sent(10)
+        return session
+
+    def op_replies(self, rid: str) -> None:
+        self.assertTrue(until(lambda: self.op.requests), self.logs)
+        self.op.carrier.reply(self.op.requests[0][0], {"v": 1, "kind": "reply", "id": "rp-" + rid, "in_reply_to": rid, "from": "h/op",
+                                                       "op": "ping", "ts": now_iso(), "ok": True, "data": {}})
+
+    def test_a_restart_asked_for_during_a_ctl_session_waits_for_it_and_its_replies_still_come(self):
+        # j146: the operator's `upgrade fabric` moves its own agentd's code while the same command collects replies.
+        session = self.ctl_session("hold")
+        self.leaver[0].request("source changed")
+        time.sleep(0.5)
+        self.assertEqual(self.left, [], "the daemon did not leave under an open fabric-ctl session")
+        self.op_replies("hold")
+        got: list = []
+        self.assertTrue(until(lambda: got.extend(session.poll(0.2)) or got), "the reply after the restart was asked for still comes")
+        self.assertEqual(got[0]["from"], "h/op")
+        self.assertEqual(self.left, [])
+        session.close()
+        self.assertTrue(until(lambda: self.left == [0]), "and the daemon leaves once the session is over")
+
+    def test_a_ctl_session_holds_a_restart_back_only_for_the_cap(self):
+        with mock.patch.object(link, "HOLD_MAX_S", 0.3):
+            self.ctl_session("cap")
+            self.leaver[0].request("source changed")
+            self.assertTrue(until(lambda: self.left == [0]), "a fabric-ctl left waiting does not keep the daemon on old code")
+
+    def test_the_cap_counts_from_the_hold_though_the_sends_never_finish(self):
+        # A child that sends nothing keeps send_to for its whole budget; the cap must not wait for it.
+        gate = threading.Event()
+        self.addCleanup(gate.set)
+        with mock.patch.object(link, "HOLD_MAX_S", 0.3), mock.patch.object(link.Carrier, "send_to", lambda *a, **k: gate.wait(30) and {}):
+            session = link.Session(link.socket_path(), body("silent", **{"from": "h/alice", "to": ["h/op"]}), ["h/op"], 30)
+            self.addCleanup(session.close)
+            self.assertTrue(until(lambda: self.leaver[0].inflight), "the session took its hold")
+            self.leaver[0].request("source changed")
+            self.assertTrue(until(lambda: self.left == [0]), "a silent child did not keep the restart back past the cap")
+
+    def test_a_session_opened_after_a_restart_was_asked_for_holds_nothing_new(self):
+        first = self.ctl_session("one")
+        self.leaver[0].request("source changed")
+        said = io.StringIO()   # the socket server logs by link.say, to the process's stderr
+        with mock.patch.object(sys, "stderr", said):
+            late = link.Session(link.socket_path(), body("two", **{"from": "h/alice", "to": ["h/op"]}), ["h/op"], 30)
+            self.addCleanup(late.close)
+            late.wait_sent(10)
+            self.assertTrue(until(lambda: "opened with a restart pending" in said.getvalue()), said.getvalue())
+        first.close()
+        self.assertTrue(until(lambda: self.left == [0]), "only the session open at the request held it; a later one did not")
+
+    def test_a_request_the_daemon_refused_holds_nothing(self):
+        session = link.Session(link.socket_path(), body("nope", **{"from": "h/mallory"}), ["h/op"], 30)
+        self.addCleanup(session.close)
+        with self.assertRaises(link.SessionRefused):
+            session.wait_sent(10)
+        self.leaver[0].request("source changed")
+        self.assertTrue(until(lambda: self.left == [0]), self.logs)
 
     def test_an_account_on_both_splits_at_the_bound_the_second_carrier_carries(self):
         got = self.watch("ctx")
