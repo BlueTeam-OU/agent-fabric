@@ -116,9 +116,8 @@ class Carrier:
 
     # -- the adapters' calls ---------------------------------------------
     def row_host(self, row: dict) -> str:
-        """The host an agent lives on: the roster row's, and this carrier's own for a row that
-        names none (rows signed before `host` existed are all on the one host; ADR-064 rule 2)."""
-        return row.get(roster.HOST_KEY, self.host)
+        """The one rule of roster.row_host, which render_config's dial uses too."""
+        return roster.row_host(row, self.host)
 
     def recipients(self, meta: dict) -> list[str]:
         """Logins of the roster members a message goes to (rule 6)."""

@@ -188,7 +188,7 @@ def phase_serve() -> int:
     mine = next((row for row in good if row["login"] == LOGIN), None)
     if mine is None:
         return die("no valid roster row for this account")
-    want = roster.render_config(r, good, mine["agent_id"])
+    want = roster.render_config(r, good, mine["agent_id"], own_host=mine.get("host", "live"))
     cfg = config_path()
     os.makedirs(WORK, mode=0o700, exist_ok=True)
     state_file = os.path.join(WORK, "state.json")

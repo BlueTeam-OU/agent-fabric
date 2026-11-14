@@ -154,7 +154,7 @@ def main() -> int:
         good, refused = roster.valid_rows(rdoc, roster.GitMainKeys(fab))
         check("the roster of the two real PeerIds verifies (both signatures, real keys)", len(good) == 2 and not refused, str(refused))
         for inst, agent in ((a, me), (b, peer)):
-            roster.write_config(inst.config_path(), roster.render_config(rdoc, good, agent.agent_id))
+            roster.write_config(inst.config_path(), roster.render_config(rdoc, good, agent.agent_id, own_host="live"))
         for inst in (a, b):
             inst.start()
         ok = until(lambda: all(os.path.exists(i.sock()) for i in (a, b)))

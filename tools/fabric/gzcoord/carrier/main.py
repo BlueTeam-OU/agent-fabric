@@ -185,6 +185,12 @@ def cmd_run(profile: str | None = None) -> int:
     if profile is not None and profile != r.profile:
         return _refuse(f"--profile {profile}: the roster's profile is {r.profile}")
     host = me.address.split("/")[0]
+    own = next((row for row in good if row["agent_id"] == me.agent_id), None)
+    if own is not None:
+        try:
+            roster.check_own_host(own, host)
+        except roster.RosterError as e:
+            return _refuse(str(e))
     data_socket = os.path.join(rd, "interweave", f"{r.profile}.sock")
     try:
         box = record.Outbox(state, iso_now=iso_now)
@@ -249,7 +255,8 @@ def cmd_abandon(mid: str, recipient: str) -> int:
 def cmd_render(path: str | None) -> int:
     try:
         r, good = verified_roster()
-        text = roster.render_config(r, good, make_me().agent_id)
+        me = make_me()
+        text = roster.render_config(r, good, me.agent_id, own_host=me.address.split("/")[0])
     except (roster.RosterError, OSError) as e:
         return _refuse(str(e))
     if path:
