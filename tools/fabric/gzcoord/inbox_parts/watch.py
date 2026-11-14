@@ -70,8 +70,10 @@ def wait_loop(fetch_page: Callable[[int, threading.Event], Any], ack: Callable[[
     does, with `sessionEnded` in the result: a slice abandoned or a page that landed with it is unread and unacknowledged, so
     the relay shows it again to the next watch (a page already being journaled and shown is finished, and is in the journal).
 
-    A relay fetch that raises is read as an empty page when `iw` and `ledger` are given, so the carrier is still asked
-    (ADR-064: the relay is the channel of record, not the only one). If nothing is delivered the error is raised as
+    A primary's fetch that raises (the relay's with the relay leading, the carrier's with the carrier leading; the result key is
+    still `relayError`) is read as an empty page when `iw` and `ledger` are given. With the relay leading the carrier is
+    still asked (ADR-064: the record is not the only channel). With the carrier leading neither is: the relay is read only after
+    a wait the carrier answered (transport/mux.py), so the error is raised and the relay's records wait. If nothing is delivered the error is raised as
     without a carrier; if the carrier delivers, the result carries it as `relayError` and the caller must still report it.
 
     `iw` is anything with `unseen()` (the TransportMux of gzcoord/transport/), None when there is no mirror: it only supplies `unseen`, the arrivals
@@ -137,9 +139,10 @@ def wait_loop(fetch_page: Callable[[int, threading.Event], Any], ack: Callable[[
             abort.set()
             if ledger is None or iw is None:
                 raise box["error"]
-            # ADR-064: the relay is the channel of record, not the only one. A fetch that fails is read as an
-            # empty page so the carrier is still asked; if it brings nothing, the relay's error is raised below
-            # as it always was (the caller's down/give-up accounting is unchanged).
+            # ADR-064: the relay is the channel of record, not the only one. A relay fetch that fails is read as an
+            # empty page so the carrier is still asked; if it brings nothing, the error is raised below as it always
+            # was (the caller's down/give-up accounting is unchanged). A carrier primary's failed wait left nothing
+            # for `iw.unseen()` to hand over, so there the same line raises the carrier's error.
             relay_error = box["error"]
             page = {"messages": []}
         else:
@@ -235,7 +238,7 @@ def wait_loop(fetch_page: Callable[[int, threading.Event], Any], ack: Callable[[
                     delivered = any(c["isMine"] for c in classified)
             if lock is not None:
                 try:
-                    admit(lock, classified, relay_mine, carrier_recs)
+                    admit(lock, classified, relay_mine, carrier_recs, carrier_first=bool(getattr(iw, "carrier_leads", False)))
                     delivered = any(c["isMine"] and not c.get("quiet") for c in classified)
                 except OSError as e:
                     # A ledger write failed (a full disk): said as what it is, not as the relay being

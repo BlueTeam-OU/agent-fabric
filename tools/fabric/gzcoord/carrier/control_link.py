@@ -732,15 +732,34 @@ class Server:
 
     def _run(self, conn: socket.socket, req: dict) -> None:
         rec, rid, lock = req["record"], req["record"]["id"], threading.Lock()
+        opened = time.monotonic()
+        # None while the session is up; "ended" once this thread has finished with it (its socket is closed next, and
+        # a write on it would be EBADF, which is no sign of a ctl that is not reading); "dropped" once a line said so.
+        state: list[str | None] = [None]
+
+        def age() -> str:
+            return f"{time.monotonic() - opened:.1f}s after it opened"
 
         def put(obj: dict) -> None:
             # Called on the inbox thread: a fabric-ctl that stopped reading must not stop every other message, so a
             # write that cannot finish in SOCKET_SEND_S drops this connection and its waiter instead.
             with lock:
+                if state[0] == "dropped":
+                    return   # one line per session: the first failure says which event and when
+                if state[0] == "ended":
+                    state[0] = "dropped"
+                    self._log(f"fabric-ctl's session for {rid[:8]} had ended: a {obj.get('event')} that came after it is dropped, {age()}")
+                    return
                 try:
                     conn.sendall((js.stringify(obj) + "\n").encode("utf-8"))
                 except OSError as e:
-                    self._log(f"fabric-ctl's connection for {rid[:8]} is not reading ({e}): dropped")
+                    # A closed peer is fabric-ctl having ended; only a write that timed out is a ctl that is still
+                    # there and not reading. Whether a closed ctl had its rows is not known from here (j144).
+                    state[0] = "dropped"
+                    if isinstance(e, (BrokenPipeError, ConnectionResetError)):
+                        self._log(f"fabric-ctl's session for {rid[:8]} had ended ({e.strerror}): a {obj.get('event')} dropped, {age()}")
+                    else:
+                        self._log(f"fabric-ctl's connection for {rid[:8]} is not reading ({e}): a {obj.get('event')} dropped, {age()}")
                     self.carrier.unwatch(rid)
                     with contextlib.suppress(OSError):
                         conn.shutdown(socket.SHUT_RDWR)
@@ -788,6 +807,9 @@ class Server:
             if timer is not None:
                 timer.cancel()
             self.carrier.unwatch(rid)
+            with lock:
+                if state[0] is None:
+                    state[0] = "ended"
             if release is not None:
                 release()
 

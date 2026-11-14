@@ -20,6 +20,7 @@ HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(HERE, "tools", "fabric"))
 sys.path.insert(0, os.path.join(HERE, "tests"))
 import test_gzcoord_protocol as P  # noqa: E402 — its relay stub, scratch and command environment
+from gzcoord.carrier import server  # noqa: E402
 from gzcoord.transport import mode  # noqa: E402
 
 WITHIN = 60   # the plan's bound: "a running watch takes a changed mode within a minute"
@@ -39,6 +40,17 @@ class Watch(unittest.TestCase):
         self.addCleanup(self.stub.close)
         self.env = P.cmd_env(CLAUDE_BRIDGE_URL=self.stub.url, CLAUDE_BRIDGE_AUTH_TOKEN="tok", GZCOORD_CHANNEL="fixture:chan",
                              AGENT_FABRIC_SECRET_STORE=P.id_store(), GZCOORD_UNTIL_DELIVERY_DOWN_S="30")
+        # The carrier a watch in carrier-record or carrier-only waits on: it holds each `wait` for a moment and lists nothing.
+        self.carrier_waits = 0
+
+        def carrier(req):
+            if req["op"] == "wait":
+                self.carrier_waits += 1
+                time.sleep(0.2)
+                return {"ok": True, "records": []}
+            return {"ok": True, "records": []}
+        self.carrier = server.Server(server.socket_path(self.env["XDG_RUNTIME_DIR"]), carrier)
+        self.addCleanup(self.carrier.close)
         saved = os.environ.get("AGENT_FABRIC_STATE_DIR")
         os.environ["AGENT_FABRIC_STATE_DIR"] = self.env["AGENT_FABRIC_STATE_DIR"]
         try:
@@ -91,11 +103,12 @@ class Watch(unittest.TestCase):
         line = self.line_matching("transport mode is now carrier-record", WITHIN)
         self.assertIsNotNone(line, "the watch did not take the change")
         self.assertLess(time.monotonic() - t0, WITHIN)
-        waits = self.waits
+        waits, carrier_waits = self.waits, self.carrier_waits
         end = time.monotonic() + 10
-        while self.waits <= waits and time.monotonic() < end:
+        while (self.waits <= waits or self.carrier_waits <= carrier_waits) and time.monotonic() < end:
             time.sleep(0.1)
-        self.assertGreater(self.waits, waits, "the watch waits on the relay again after the change")
+        self.assertGreater(self.carrier_waits, carrier_waits, "the watch waits on the carrier after the change: it is the record")
+        self.assertGreater(self.waits, waits, "and still reads the relay, its mirror, beside it")
         self.assertIsNone(self.proc.poll(), "taking a mode does not end the watch")
         mode.write("carrier-only", "h1/op", self.dir)
         self.assertIsNotNone(self.line_matching("transport mode is now carrier-only", WITHIN), "a second change is taken as well")
@@ -156,10 +169,16 @@ class Send(unittest.TestCase):
         self.assertFalse(os.path.exists(os.path.join(agent, "gzcoord-sent.jsonl")), "nothing was recorded as sent")
         self.assertFalse(os.path.exists(os.path.join(agent, "episodic.db")), "no journal row was kept to stay pending")
 
-    def test_with_no_mode_file_or_any_good_one_the_same_send_goes_out_once(self):
-        for text in (None, '{"mode": "relay-record"}', '{"mode": "carrier-only"}'):
+    def test_with_no_mode_file_or_relay_record_the_send_goes_out_once(self):
+        for text in (None, '{"mode": "relay-record"}'):
             r, relay, agent = self.run_send(text)
             self.assertEqual((r.code, len(relay.posts)), (0, 1), (text, r.err))
+
+    def test_carrier_only_without_a_carrier_is_not_sent_and_the_relay_is_never_called(self):
+        r, relay, agent = self.run_send('{"mode": "carrier-only"}')
+        self.assertEqual((r.code, relay.posts), (3, []), r.err)
+        self.assertIn("the InterWeave carrier is not running", r.err)
+        self.assertIn("not sent", r.err)
 
 
 def tearDownModule():
