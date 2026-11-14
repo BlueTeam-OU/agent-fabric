@@ -41,8 +41,9 @@ line, and a deny when it names one of the tree, the stand-in or an inbox
 watch. By pid it over-reports instead of reading bash's argument order:
 in a command holding the word kill anywhere, every integer-looking token
 is a candidate, refused when it is claude, of the tree, or an inbox watch
-by its /proc command line; a negative `kill` operand (-1, a group) is
-refused outright; an operand held in a variable or a substitution asks.
+by its /proc command line — outside a here-document's body that only a
+data reader takes (drop_data_heredoc_bodies); a negative `kill` operand
+(-1, a group) is refused outright; an operand held in a variable or a substitution asks.
 Seven review rounds on #69 and #70 each found a spelling a
 re-implementation of procps's rules misread; procps does not misread
 itself. The second layer only adds denials.
@@ -121,7 +122,7 @@ def unevaluated(command: str) -> str | None:
     #242; what is left asks instead of passing (round 4).
 
     Judged on the text a shell runs: a here-document's body is data unless
-    a shell reads it (drop_heredoc_bodies, as kill detection does), and kill,
+    a shell reads it (drop_heredoc_bodies, as the word readers do), and kill,
     pkill or killall count only as command words (KILL_TOOL_WORD), so an edit script's
     `os.kill`, a `self_kill` file name or a Python dict's braces no longer
     ask (two sessions stopped on it, 2026-10-15)."""
@@ -146,10 +147,12 @@ def unevaluated(command: str) -> str | None:
 
 def kills(command: str) -> bool:
     """Whether the command kills at all, read in the raw text and with its
-    quotes dropped, or a command word that is a killing tool once its glued
-    expansions are empty (`k"$x"ill`, which neither text spells), or that
-    still spells kill when no cut resolves it (command_names)."""
-    return bool(KILLS.search(command) or KILLS.search(unquoted(command))
+    quotes dropped (a data reader's here-document body aside), or a command
+    word that is a killing tool once its glued expansions are empty
+    (`k"$x"ill`, which neither text spells), or that still spells kill when
+    no cut resolves it (command_names)."""
+    text = drop_data_heredoc_bodies(command)
+    return bool(KILLS.search(text) or KILLS.search(unquoted(text))
                 or any(os.path.basename(w[0]) in {"kill", "pkill", "killall"} for w in tool_commands(command)))
 
 
@@ -276,6 +279,47 @@ def drop_heredoc_bodies(text: str) -> str:
             # Dropped only up to a delimiter line that is there: a `<<` that
             # is no here-document (in $((1<<n)), a quote, a comment) finds
             # none, and then nothing is dropped (review of #70, eighth round).
+            end = next((j for j in range(i, len(lines))
+                        if (lines[j].lstrip("\t") if strip_tabs else lines[j]) == delim), None)
+            if end is not None:
+                i = end + 1
+    return "\n".join(out)
+
+
+# Who may take a here-document whose body is then no command for the raw-text searches (kills, pid_candidates,
+# kill_operands): programs that store or send the text, never run it. An allowlist because it is the safe side: a
+# reader not on it — an interpreter (`python3 - <<X` running subprocess.run(["kill", …])), a pipe into one, an
+# unknown tool, a prefix such as `env cat` — keeps its body judged as text, and a false deny there is a rephrase.
+# Observed: an agent composing a gzcoord-send body that reported a watch's pid was denied as killing it (j866 /
+# OBSERVATION 01a1d8ab). Not git or gh: an alias runs a shell on the stdin (`git -c alias.x='!sh' x`, `gh alias set
+# --shell`), which neither SHELLS nor tool_commands sees; a commit message naming a watch's pid is a rephrase.
+DATA_READERS = {"cat", "tee", "gzcoord-send", "gzcoord-compose", "gzmsg"}
+# What separates the commands of a line: ;, &&, ||, |, |&, a lone & (not the & of >&, &> or <&), a subshell's ( ).
+LINE_COMMANDS = re.compile(r"&&|\|\||\|&?|;|(?<![<>])&(?!>)|[()]")
+QUOTED = re.compile(r"'[^']*'|\"(?:[^\"\\]|\\.)*\"")
+
+
+def drop_data_heredoc_bodies(text: str) -> str:
+    """drop_heredoc_bodies, narrowed for the searches that read the raw text: a here-document's body is dropped only
+    when every command on the line that opens it is a DATA_READERS program by its first word's basename.
+    drop_heredoc_bodies's own callers (tool_commands, lift, unevaluated) keep the broader drop. The opening line,
+    and every line after the delimiter, stay: a kill there is still a kill. Quoted text is blanked before the line is split, so
+    a `;` in a quoted subject splits nothing."""
+    lines, out, i = text.split("\n"), [], 0
+    while i < len(lines):
+        line = lines[i]
+        out.append(line)
+        i += 1
+        delims = [(m.group(1) == "-", m.group(2) or m.group(3) or m.group(4))
+                  for m in re.finditer(r"(?<!<)<<(-?)\s*(?:'([^']+)'|\"([^\"]+)\"|\\?([A-Za-z_][A-Za-z0-9_]*))", line)]
+        if not delims:
+            continue
+        pieces = [p.split() for p in LINE_COMMANDS.split(QUOTED.sub("_", line))]
+        if not all(os.path.basename(p[0]) in DATA_READERS for p in pieces if p):
+            continue
+        for strip_tabs, delim in delims:
+            # Only up to a delimiter line that is there, as drop_heredoc_bodies: a `<<` that opens nothing drops
+            # nothing.
             end = next((j for j in range(i, len(lines))
                         if (lines[j].lstrip("\t") if strip_tabs else lines[j]) == delim), None)
             if end is not None:
@@ -416,12 +460,15 @@ def pid_candidates(command: str) -> list[int]:
     as a command's unquoted word (`k''ill`, `\\kill`). Candidates come from
     every form: the raw text, the text with quotes dropped, and each
     unquoted word of every command read, nested ones included — `12''34`
-    is 1234 to bash and 12, 34 to the raw text."""
-    flat, commands = unquoted(command), tool_commands(command)
-    if not (KILL_WORD.search(command) or KILL_WORD.search(flat)
+    is 1234 to bash and 12, 34 to the raw text. Both texts leave out a
+    data reader's here-document body (drop_data_heredoc_bodies): a message
+    that reports a pid names no target."""
+    text, commands = drop_data_heredoc_bodies(command), tool_commands(command)
+    flat = unquoted(text)
+    if not (KILL_WORD.search(text) or KILL_WORD.search(flat)
             or any(os.path.basename(w[0]) == "kill" for w in commands)):
         return []
-    texts = [command, flat, *(word for words in commands for word in words)]
+    texts = [text, flat, *(word for words in commands for word in words)]
     return list(dict.fromkeys(int(m.group(1)) for t in texts for m in INTEGER.finditer(t)))
 
 
@@ -438,7 +485,7 @@ def kill_operands(command: str) -> tuple[list[int], list[str]]:
     pids = pid_candidates(command)[:MAX_PIDS]
     # The resolved words too, as pid_candidates reads them: a split kill holding `$$` names no integer (review of
     # #300, F1).
-    if not pids and not KILL_WORD.search(unquoted(command)) \
+    if not pids and not KILL_WORD.search(unquoted(drop_data_heredoc_bodies(command))) \
             and not any(os.path.basename(w[0]) == "kill" for w in tool_commands(command)):
         return [], []
     pieces, held = lift(command), []
@@ -846,7 +893,8 @@ def message(found: list[tuple[str, bool]], pats: list[str] | None = None) -> str
         return (f"This command would kill {what}{by}. Never kill an inbox watch: it ends by itself at its next "
                 "delivery or at its deadline, and gzcoord-inbox itself refuses a second watch, so there is nothing to kill. "
                 "A stray this session started by hand outside the harness is replaced with "
-                "`gzcoord-inbox --until-delivery --replace`, never killed.")
+                "`gzcoord-inbox --until-delivery --replace`, never killed. A message body that names a pid goes to "
+                "gzcoord-send from a file or a here-document.")
     if all(label == SHELL_LABEL for label, _ in found):
         return (f"This command would kill {what}{by}. Select by the exact pid of a process you started "
                 "(kill <pid>), never by a -f pattern or a name.")

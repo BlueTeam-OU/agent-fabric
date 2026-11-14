@@ -291,6 +291,42 @@ def main() -> int:
                        ("an empty braced expansion glued to kill", "${x}kill $'\\x31\\x32\\x33\\x34'"),
                        ("a glued kill with a brace list", '"$x"kill 12{3,}4')):
         check(f"a kill tool with a brace expansion still asks: {label}", g.unevaluated(cmd) is not None, cmd)
+    # A here-document a data reader takes is data for the pid and kill-word search too (j866 / OBSERVATION
+    # 01a1d8ab: a gzcoord-send body reporting a watch's pid was denied as killing it). Any other reader keeps its body
+    # judged as text: an interpreter may run the kill. Planted tree: the pid is an inbox watch, no live process.
+    W = 987651
+    watch_tree = {W: (g.INBOX, [g.INBOX, "--until-delivery"])}
+
+    def by_pid(cmd):
+        return g.decision(cmd, CLAUDE, tree=watch_tree, shell=False)
+    for label, cmd in (("cat > /dev/null", f"cat > /dev/null <<'X'\nkill -TERM {W}\nX"),
+                       ("gzcoord-send -", f"gzcoord-send - <<'X'\nOBSERVATION: kill {W} refused\nX"),
+                       ("tee file", f"tee note.txt <<X >/dev/null\nkill -9 {W}\nX"),
+                       ("a pipe of data readers", f"cat <<'X' | tee f | gzcoord-send -\nkill {W}\nX"),
+                       ("a quoted ; in a reader's argument", f"tee 'a;b' <<'X' >/dev/null\nkill {W}\nX"),
+                       ("a 2>&1 on the reader's line", f"cat <<'X' 2>&1\nkill {W}\nX")):
+        d = by_pid(cmd)
+        check(f"a data reader's here-document naming a watch's pid passes: {label}", d is None, d)
+    for label, cmd in (("bash <<X", f"bash <<'X'\nkill {W}\nX"),
+                       ("sh <<X", f"sh <<X\nkill {W}\nX"),
+                       ("python3 - <<X running kill", f"python3 - <<'X'\nimport subprocess\nsubprocess.run(['kill', '{W}'])\nX"),
+                       ("perl <<X", f"perl <<'X'\nkill 'TERM', {W};\nX"),
+                       ("cat <<X | sh", f"cat <<X | sh\nkill {W}\nX"),
+                       ("cat <<X | python3", f"cat <<'X' | python3\nimport os; os.system('kill {W}')\nX"),
+                       ("an unknown reader", f"foo <<'X'\nkill {W}\nX"),
+                       ("env cat, a prefix", f"env cat <<'X'\nkill {W}\nX"),
+                       ("git, whose alias can run a shell", f"git -c alias.x='!sh' x <<'X'\nkill {W}\nX"),
+                       ("git commit -F -, still judged", f"git commit -q -F - <<'X'\nfix: kill {W} was denied\nX"),
+                       ("gh, whose alias can run a shell", f"gh x <<'X'\nkill {W}\nX"),
+                       ("a kill after the body ends", f"cat <<'X'\nmsg\nX\nkill {W}"),
+                       ("a kill on the opening line", f"cat <<'X'; kill {W}\nmsg\nX"),
+                       ("a kill before, on the line above", f"kill {W}\ncat <<'X'\nmsg\nX")):
+        d = by_pid(cmd)
+        check(f"a here-document no data reader alone takes still denies: {label}",
+              d is not None and d[0] == "deny" and "inbox watch" in d[1], d)
+    d = by_pid(f"kill {W}")
+    check("the inbox-watch deny names the here-document way to report a pid",
+          d is not None and "gzcoord-send from a file or a here-document" in d[1], d)
     check("…but kill -0 of a pid outside the tree is a signal, not a group: kill -0 999999999",
           g.decision("kill -0 999999999", CLAUDE, shell=False) is None)
     check("…but a negative first argument is a signal: kill -9 999999999",
