@@ -445,3 +445,33 @@ no rows and says so, never an empty `ok`. `evidence_collect.py` records
 cannot read a missing row as "the relay never had it". Rules 3, 5, 6
 and 12 are unchanged: no new argument, still signed, no body, paged at
 60 s.
+
+### Amendment 2026-11-14 — An open fabric-ctl session holds agentd's restart
+
+`fabric-ctl all upgrade fabric` upgrades the operator's own account
+too, and its agentd then leaves for new code while the command still
+waits for the other accounts' replies. On 2026-11-13 at 21:57 it did
+exactly that: the socket closed, and only the relay carried the rest.
+With control on InterWeave alone, every reply after that restart would
+have been lost (j852, which blocks the InterWeave-only cutover, j814).
+
+python-dev-02's BlueTeam-OU/agent-fabric#594 (j146) makes agentd's
+existing restart gate, the leaver that already waits for running
+actions, also wait for a session open on its socket: the server
+takes a hold when it accepts a request and releases it when the session
+ends, or after `HOLD_MAX_S` (600 s) from the hold, so a `fabric-ctl`
+left waiting cannot keep the daemon on old code. A session that opens
+once a restart is already pending holds nothing, so sessions that
+follow one another cannot chain the restart away. The hold is the
+socket's, not `fabric-ctl`'s: on every account on `dual`, a presence
+or job-queue leg's session holds it too, which is why the pending case
+holds nothing. Reordering the
+command (the operator's own account upgraded last) was not chosen:
+replies that reach a new agentd before `fabric-ctl` reconnects would
+have no listener, and a reconnect needs a new socket op.
+
+The live read-back
+(docs/live-checks/2026-11-14-agentd-restart-held-by-ctl-session.md)
+asked for the restart inside a fleet `status`: the daemon left
+18.6–19.6 s after it was asked, 0.13 s before `fabric-ctl` ended, and all 29 peers'
+replies reached it by InterWeave in between.

@@ -7,7 +7,7 @@
 **Scope:** runtime/control/, every module and the unit file, and its Python package tools/fabric/control/ from its creation (ADR-040 Wave 8); bin/fabric-ctl; the control channel's refusal in GZCoord's inbox and send tools; the unit's installation in tools/fabric/bootstrap.py; tools/fabric/local_settings.py (rule 15) and runtime/claude-code/hooks/session-state.py (rule 16); account persistence (runtime/provisioning/persist-accounts.sh, runtime/provisioning/platform/qubes/agent-fabric-accounts.rc); the fallbacks bin/fabric-usage and bin/fabric-host; bin/fabric-op, the break-glass action path (rule 19)
 **Pillar:** P5
 **Class:** engine
-**Evidence:** docs/live-checks/2026-09-17-control-plane.md, docs/live-checks/2026-11-13-control-dual-two-accounts.md
+**Evidence:** docs/live-checks/2026-09-17-control-plane.md, docs/live-checks/2026-11-13-control-dual-two-accounts.md, docs/live-checks/2026-11-14-agentd-restart-held-by-ctl-session.md
 
 ## 1. Context and Problem
 
@@ -344,6 +344,14 @@ with Doppler (ADR-038 §5 rule 8).
     - `fabric-ctl` holds no lease: it hands its sends to the operator's
       own agentd over a socket in its runtime directory, mode 0600, and
       `all` is one direct send per placed account's roster row;
+    - while a session is open on an agentd's socket (`fabric-ctl`'s,
+      or a presence or job-queue leg's), that agentd's restart for new
+      code waits for it as for a running action, for at most
+      `HOLD_MAX_S` (600 s) from the session's hold, so replies the
+      operator's own `upgrade fabric` would orphan still reach
+      `fabric-ctl`. A session opened with a restart already asked for
+      holds nothing, so legs that follow one another cannot keep a
+      daemon on old code (A 2026-11-14);
     - `interweave`, `interweave-install`, `interweave-start` and
       `interweave-stop` go on the relay only (ADR-064 rule 14);
       `interweave-evidence` goes by both, as any other op;
@@ -502,3 +510,4 @@ The body above reads current; each change's full note is in [history/ADR-029-ame
 | 2026-11-13 | The second carrier is read back and the fleet is on dual | Evidence: the two-account read-back; §8: built, its read path read back, `control_carrier` `dual` (j793) |
 | 2026-11-13 | The parity evidence carries the senders' relay backfill logs | §2 table: `interweave-evidence` takes a fifth section, `backfills` (#590) |
 | 2026-11-14 | The backfills section carries the sends the relay took | §2 table: `backfills` adds a derived `relay-took-send` row per relay-accepted outbound send, and the reply `send_rows` (#592) |
+| 2026-11-14 | An open fabric-ctl session holds agentd's restart | §5 rule 18: a session on an agentd's socket (fabric-ctl's, a presence or queue leg's) holds its restart for new code, up to `HOLD_MAX_S`; Evidence: the held-restart read-back (#594, j852) |
