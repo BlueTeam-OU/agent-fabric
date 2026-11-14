@@ -1512,6 +1512,9 @@ def _table_carrier_evidence(rs: list) -> list[str]:
             backfill = dig(u, "backfill_log")
             if not note and isinstance(backfill, dict) and backfill.get("complete") is not True:
                 note = f"backfill log: {S(nullish(backfill.get('reason'), 'incomplete'))}"      # the drill's fourth property reads "not collected"
+            watch = dig(u, "watch_log")
+            if not note and isinstance(watch, dict) and watch.get("complete") is not True:
+                note = f"watch log: {S(nullish(watch.get('reason'), 'incomplete'))}"      # the drill's restarts and give-ups read "not collected"
         else:                         # one page of one section
             n = len(dig(u, "rows")) if isinstance(dig(u, "rows"), list) else "-"
             cells = [S(n) if dig(u, "section") == "arrivals" else "-", S(n) if dig(u, "section") == "deliveries" else "-", S(len(dig(u, "kinds"))) if isinstance(dig(u, "kinds"), dict) else "-"]

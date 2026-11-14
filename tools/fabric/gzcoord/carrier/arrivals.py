@@ -91,6 +91,24 @@ class AckLog(ArrivalLog):
         self._append({"mid": mid, "addressee": addressee, "t": self._iso(), "ok": ok})
 
 
+class WatchLog(ArrivalLog):
+    """gzcoord-watch.jsonl: when a watch (gzcoord-inbox --follow or --until-delivery) started and how it ended, one line each:
+    {"t","event":"start","pid"} and {"t","event":"end","pid","reason","code"}. The relay-outage drill (ADR-064 rule 11 / Gate 1 item 3)
+    asks whether a watch was restarted inside the outage and whether one gave up after its 15 minutes, and neither the shown
+    ledger nor the acknowledgement log says: the give-up (exit 5) leaves only a marker the next fetch deletes. A watch the
+    kernel ends (SIGKILL, a host crash) writes no end line; a start with no end of its pid is that, or a watch still running,
+    and the report says so rather than naming a reason it does not have."""
+
+    END_REASONS = ("delivery", "quiet", "session-ended", "gave-up", "token-refused", "journal-held")
+
+    def append_start(self, pid: int) -> None:
+        self._append({"t": self._iso(), "event": "start", "pid": pid})
+
+    def append_end(self, pid: int, reason: str, code: int) -> None:
+        assert reason in self.END_REASONS, reason
+        self._append({"t": self._iso(), "event": "end", "pid": pid, "reason": reason, "code": code})
+
+
 class Spool:
     """The arrivals the journal holds, as `unseen` lists them. `ledger_path` is the
     inbox's shown ledger, which the carrier only reads."""

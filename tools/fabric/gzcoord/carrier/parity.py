@@ -151,11 +151,11 @@ def _account(who: str, meta: dict, arrivals: list, deliveries: list, kinds: dict
         raise CollectedError(f"{who}: the files do not hold what the collection counted (cut short, or edited)")
 
 
-def _read_parts(path: str, drill: bool = False) -> dict[str, tuple[dict, list, list, dict, list | None, list | None, list | None]]:
-    """login -> (meta, arrivals, deliveries, kinds, shown, acks, backfills) as filed; shown, acks and backfills are None
-    where the collection has none (one made before the relay-outage drill's sections, or before the backfill log's) and always
-    when `drill` is false: the rollback report must not depend on files it does not use."""
-    parts: dict[str, tuple[dict, list, list, dict, list | None, list | None, list | None]] = {}
+def _read_parts(path: str, drill: bool = False) -> dict[str, tuple[dict, list, list, dict, list | None, list | None, list | None, list | None]]:
+    """login -> (meta, arrivals, deliveries, kinds, shown, acks, backfills, watch) as filed; shown, acks, backfills and watch are None
+    where the collection has none (one made before the relay-outage drill's sections, before the backfill log's or before the
+    watch log's) and always when `drill` is false: the rollback report must not depend on files it does not use."""
+    parts: dict[str, tuple[dict, list, list, dict, list | None, list | None, list | None, list | None]] = {}
     if os.path.isdir(path):
         try:
             with open(os.path.join(path, MANIFEST), encoding="utf-8") as fh:
@@ -178,7 +178,7 @@ def _read_parts(path: str, drill: bool = False) -> dict[str, tuple[dict, list, l
                 raise CollectedError(f"{login}: cannot read its collection ({e}); a directory written by a run that stopped has no meta.json") from e
             if not isinstance(meta, dict) or meta.get("login") != login:
                 raise CollectedError(f"{login}: meta.json is not this account's")
-            extra = [_jsonl(os.path.join(d, n), login) if drill and os.path.exists(os.path.join(d, n)) else None for n in ("shown.jsonl", "acks.jsonl", "backfills.jsonl")]
+            extra = [_jsonl(os.path.join(d, n), login) if drill and os.path.exists(os.path.join(d, n)) else None for n in ("shown.jsonl", "acks.jsonl", "backfills.jsonl", "watch.jsonl")]
             parts[login] = (meta, _jsonl(os.path.join(d, "arrivals.jsonl"), login), _jsonl(os.path.join(d, "deliveries.jsonl"), login), kinds, *extra)
     else:
         for n, line in enumerate(_jsonl(path, "collected"), 1):
@@ -189,7 +189,7 @@ def _read_parts(path: str, drill: bool = False) -> dict[str, tuple[dict, list, l
             if login in parts:
                 raise CollectedError(f"{login}: collected twice")
             parts[login] = (body, body["arrivals"], body["deliveries"], body.get("kinds") or {}, body.get("shown") if drill else None, body.get("acks") if drill else None,
-                           body.get("backfills") if drill else None)
+                           body.get("backfills") if drill else None, body.get("watch") if drill else None)
     if not parts:
         raise CollectedError("nothing was collected")
     return parts
@@ -246,13 +246,41 @@ def _backfills(login: str, meta: dict, rows: list | None) -> list[dict] | None:
     return rows
 
 
+WATCH_ROW_KEYS = ("t", "event", "pid", "reason", "code")
+WATCH_REASONS = ("delivery", "quiet", "session-ended", "gave-up", "token-refused", "journal-held")
+
+
+def _watch(login: str, meta: dict, rows: list | None) -> list[dict] | None:
+    """The account's watch log when the collection holds it whole; None when it does not (no file: a collection from before it,
+    or a section that failed, or had a line that could not be read: "no watch started" cannot be said from it). A row that is not
+    what the op sends is a refusal, as for the other sections."""
+    log = meta.get("watch_log")
+    if rows is None or not isinstance(log, dict) or log.get("complete") is not True or log.get("skipped"):
+        return None
+    want = meta.get("counts")
+    if isinstance(want, dict) and "watch" in want and want["watch"] != len(rows):
+        raise CollectedError(f"{login}: the files do not hold what the collection counted of the watch log (cut short, or edited)")
+    for r in rows:
+        ok = (isinstance(r, dict) and set(r) <= set(WATCH_ROW_KEYS) and isinstance(r.get("t"), str)
+              and isinstance(r.get("pid"), int) and not isinstance(r.get("pid"), bool)
+              and (r.get("event") == "start" and set(r) == {"t", "event", "pid"}
+                   or r.get("event") == "end" and r.get("reason") in WATCH_REASONS and isinstance(r.get("code"), int) and not isinstance(r.get("code"), bool)))
+        if not ok:
+            raise CollectedError(f"{login}: a watch log row is not {{t, event, pid}} or {{t, event, pid, reason, code}}")
+        try:
+            parse_t(r["t"])
+        except ValueError as e:
+            raise CollectedError(f"{login}: a watch log row has no time ({r['t'][:30]!r})") from e
+    return rows
+
+
 def load_relay_outage(path: str, window: tuple[float, float]) -> dict[str, dict]:
     """login -> {arrivals, deliveries, shown, acks, backfills, send_rows} (backfills None when the
     sender's log was not collected whole; send_rows whether its derived rows were) for the relay-outage drill, after load_collected's checks of the
     same collection. Refuses an account whose drill sections were not collected whole: an empty ledger from
     a daemon that never sent one would read as 'never shown', which is a verdict the files do not support."""
     out: dict[str, dict] = {}
-    for login, (meta, arr, dels, kinds, shown, acks, backfills) in _read_parts(path, drill=True).items():
+    for login, (meta, arr, dels, kinds, shown, acks, backfills, watch) in _read_parts(path, drill=True).items():
         _account(login, meta, arr, dels, kinds, window)
         ro = meta.get("relay_outage")
         if shown is None or acks is None or not isinstance(ro, dict):
@@ -272,8 +300,23 @@ def load_relay_outage(path: str, window: tuple[float, float]) -> dict[str, dict]
         if any(not isinstance(r.get("ok"), bool) for r in acks):
             raise CollectedError(f"{login}: an acknowledgement row has no ok")
         out[login] = {"arrivals": arr, "deliveries": dels, "shown": shown, "acks": acks, "backfills": _backfills(login, meta, backfills),
+                     "watch": _watch(login, meta, watch), "watch_why": _watch_why(meta, watch),
                      "send_rows": (meta.get("backfill_log") or {}).get("send_rows") is True}
     return out
+
+
+def _watch_why(meta: dict, rows: list | None) -> str | None:
+    """Why `watch` is None, in words a report prints; None when it is not."""
+    log = meta.get("watch_log")
+    if rows is None and not isinstance(log, dict):
+        return "no watch log in the collection (a daemon from before it)"
+    if not isinstance(log, dict) or log.get("complete") is not True:
+        return f"the watch log's section failed ({(log or {}).get('reason') or 'no reason given'})" if isinstance(log, dict) else "no watch log in the collection (a daemon from before it)"
+    if rows is None:
+        return "the watch log's file is not in the collection"
+    if log.get("skipped"):
+        return f"{log['skipped']} line(s) of the watch log could not be read"
+    return None
 
 
 NOT_COLLECTED = "not collected"
@@ -294,7 +337,7 @@ def relay_record(mid: str, per_account: dict[str, dict], until: float | None) ->
     if any(r["outcome"] == RELAY_TOOK_SEND for r in rows):
         return {"state": RELAY_TOOK_SEND, "channel": None}
     if rows:
-        return {"state": "over-age", "channel": rows[0].get("channel")}
+        return {"state": "over-age", "channel": rows[0].get("channel"), "delay_s": rows[0].get("delay_s")}
     senders = [a for a in per_account.values() if any(d["mid"] == mid for d in a["deliveries"])]
     if not senders:
         return {"state": NOT_COLLECTED, "why": "the sender's account is not in the collection"}
@@ -303,6 +346,25 @@ def relay_record(mid: str, per_account: dict[str, dict], until: float | None) ->
     if not all(a.get("send_rows") for a in senders):
         return {"state": NOT_COLLECTED, "why": "the sender's collection has no rows of the messages the relay took at send (a daemon from before them)"}
     return {"state": "none"}
+
+
+def watch_in_drill(rows: list[dict], drill: tuple[float, float]) -> dict:
+    """The watch log's account of the drill: every start inside it, with how the watch before it ended (the reason of the latest
+    earlier end line; "no end line" when the latest earlier line is another watch's start, which was killed from outside or is
+    still running; "no earlier line" when the log holds nothing before), and every end inside it by the give-up (exit 5)."""
+    ordered = sorted(rows, key=lambda r: parse_t(r["t"]))
+    starts, gave_up = [], []
+    for i, r in enumerate(ordered):
+        at = parse_t(r["t"])
+        if not drill[0] <= at < drill[1]:
+            continue
+        if r["event"] == "start":
+            before = ordered[i - 1] if i else None
+            after = ("no earlier line" if before is None else before["reason"] if before["event"] == "end" else "no end line")
+            starts.append({"t": r["t"], "pid": r["pid"], "after": after})
+        elif r["reason"] == "gave-up":
+            gave_up.append({"t": r["t"], "pid": r["pid"]})
+    return {"starts": starts, "gave_up": gave_up}
 
 
 def relay_outage(per_account: dict[str, dict], drill: tuple[float, float], until: float | None = None) -> dict:
@@ -362,11 +424,13 @@ def relay_outage(per_account: dict[str, dict], drill: tuple[float, float], until
     # The fourth property: a failure is a fact whatever else is not collected; otherwise one that cannot be said is not judged.
     backfill = (None if not exercised else False if any(s in ("over-age", "none") for s in records)
                 else None if NOT_COLLECTED in records else True)
+    watches = {login: (watch_in_drill(a["watch"], drill) if a.get("watch") is not None else {"why": a.get("watch_why") or "not collected"})
+               for login, a in sorted(per_account.items())}
     judged = [p["ok"] for p in exercised]
     # True: every property held for every pair held by the carrier alone; False: one failed; None: none failed, some cannot be told yet.
     return {"window": drill, "pairs": pairs, "exercised": len(exercised), "unknown": judged.count(None),
             "holds": None if not judged else False if False in judged else None if None in judged else True,
-            "backfill": backfill, "backfill_not_collected": sorted({p["relay_record"]["why"] for p in exercised if p["relay_record"]["state"] == NOT_COLLECTED})}
+            "watches": watches, "backfill": backfill, "backfill_not_collected": sorted({p["relay_record"]["why"] for p in exercised if p["relay_record"]["state"] == NOT_COLLECTED})}
 
 
 def compute(arrivals: list[dict], senders: dict[str, list[dict]], kinds: dict[str, str], window: tuple[float, float],
@@ -449,6 +513,18 @@ def _record_words(r: dict) -> str:
             else "the relay took it at send" if r["state"] == RELAY_TOOK_SEND else r["state"])
 
 
+def _row_words(r: dict) -> str:
+    """The row the fourth property read for a pair: its outcome and delay, or why there is none."""
+    if r["state"] in ("posted", "present", "over-age"):
+        d = r.get("delay_s")
+        return f"{r['state']}, delay {d} s" if isinstance(d, (int, float)) else r["state"]
+    if r["state"] == RELAY_TOOK_SEND:
+        return f"{RELAY_TOOK_SEND} (the relay took it at send; no delay)"
+    if r["state"] == NOT_COLLECTED:
+        return f"not collected ({r.get('why')})"
+    return "none by the report's end"
+
+
 def render_markdown(rep: dict, title: str = "InterWeave carrier parity report") -> str:
     w = rep["window"]
     iso = lambda t: time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(t))  # noqa: E731
@@ -506,10 +582,19 @@ def render_markdown(rep: dict, title: str = "InterWeave carrier parity report") 
                      f"{' -- FAILS' if x['ok'] is False else ' -- UNKNOWN' if exercised and x['ok'] is None else ''}")
         if not d["pairs"]:
             L.append("- no pair was made inside the drill")
+        L += ["", "Watches inside the drill, from each account's watch log (every start with how the watch before it ended; a give-up is the watch's exit 5 after 15 minutes of an unreachable relay):", ""]
+        for login, w in d["watches"].items():
+            if "why" in w:
+                L.append(f"- {login}: not collected ({w['why']})")
+                continue
+            starts = ", ".join(f"{iso(parse_t(x['t']))} after {x['after']}" for x in w["starts"]) or "none"
+            gave = ", ".join(iso(parse_t(x["t"])) for x in w["gave_up"])
+            L.append(f"- {login}: restarts (starts inside the drill): {len(w['starts'])} ({starts}); gave up: {'yes, at ' + gave if gave else 'no'}")
         if d["exercised"]:
             fourth = {True: "holds: every such message is on the relay's record (by backfill, or taken by the relay at send)",
                       False: "FAILED: a message held by the carrier alone did not reach the relay's record by backfill (over-age, or no row by the report's end)",
                       None: "not judged: " + ("; ".join(d["backfill_not_collected"]) + " (a collection made before the log or before the rows of sends the relay took, with a line that could not be read, or of fewer accounts than sent)"
                                             if d["backfill_not_collected"] else "no pair to judge")}[d["backfill"]]
             L += ["", f"Fourth property, relay record by backfill: {fourth}."]
+            L += [f"  - {x['mid']} to {x['addressee']}: backfill row {_row_words(x['relay_record'])}" for x in d["pairs"] if x["carrier_only"]]
     return "\n".join(L) + "\n"

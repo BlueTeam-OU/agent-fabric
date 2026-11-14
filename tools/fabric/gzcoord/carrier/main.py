@@ -339,7 +339,7 @@ def cmd_parity(args: list[str]) -> int:
         drill = (parity.parse_t(a.drill[0]), parity.parse_t(a.drill[1])) if a.drill else None
         relay_drill = (parity.parse_t(a.relay_drill[0]), parity.parse_t(a.relay_drill[1])) if a.relay_drill else None
         if relay_drill and a.collected is None:
-            raise ValueError("--relay-drill reads the shown ledgers, acknowledgement logs and backfill logs, which only --collected holds")
+            raise ValueError("--relay-drill reads the shown ledgers, acknowledgement logs, backfill logs and watch logs, which only --collected holds")
         if a.collected is None and not (a.arrivals and a.senders):
             raise ValueError("--collected PATH, or --arrivals and --senders")
         if a.collected is not None and (a.arrivals or a.senders or a.journal):

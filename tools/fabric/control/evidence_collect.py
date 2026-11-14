@@ -20,10 +20,13 @@ CONTRACT
              which the rows of messages the relay took at send are derived; false or absent: "no row" proves nothing) and neither the report nor the
              drill's other sections are touched (an account whose daemon predates it must still
              yield the 11-12 drill's collection). No rows are claimed for it: the file is not written.
+             The watch log's section (watch: when watches started and ended, for the relay-outage report's restarts and give-ups)
+             is the same: its meta says `watch_log` {complete, reason, skipped}, it fails on its own, and an account whose
+             daemon predates it has no watch.jsonl, which the report reads as "not collected", never as "no watch ran".
   write_dir  <out>/<login>/arrivals.jsonl, deliveries.jsonl, shown.jsonl, acks.jsonl, backfills.jsonl
-             (only when the section was collected whole), kinds.json and
+             and watch.jsonl (each only when the section was collected whole), kinds.json and
              meta.json ({login, since, until, margin_s, complete, journal, pages, counts,
-             relay_outage, backfill_log}), the
+             relay_outage, backfill_log, watch_log}), the
              directories 0700 and the files 0600 (other accounts' traffic is not for
              everyone), each replaced atomically; a login's directory is written whole or
              not touched. Every account asked has one, an account that never answered with
@@ -49,7 +52,8 @@ def _fresh() -> dict:
             "pages": {s: 0 for s in ev.ALL_SECTIONS}, "skipped": 0, "undated": 0, "complete": True, "reason": None,
             "answered": False, "relay_outage": {"complete": True, "reason": None, "skipped": 0},
             "drill_skipped": {s: 0 for s in ev.DRILL_SECTIONS},
-            "backfill_log": {"complete": True, "reason": None, "skipped": 0, "send_rows": None}}
+            "backfill_log": {"complete": True, "reason": None, "skipped": 0, "send_rows": None},
+            "watch": [], "watch_log": {"complete": True, "reason": None, "skipped": 0}}
 
 
 def collect(logins: list[str], since: str, until: str, send: Send, max_pages: int = MAX_PAGES) -> dict[str, dict]:
@@ -77,6 +81,8 @@ def got_meta(section: str) -> Callable[[dict], dict]:
         return lambda acct: acct["relay_outage"]
     if section == ev.BACKFILL_SECTION:
         return lambda acct: acct["backfill_log"]
+    if section == ev.WATCH_SECTION:
+        return lambda acct: acct["watch_log"]
     return lambda acct: {"complete": True}
 
 
@@ -101,6 +107,8 @@ def _round(got: dict, groups: dict, section: str, until: str, send: Send) -> dic
                     acct["journal"] = r.get("journal") or "unreadable"
             elif section == "deliveries":
                 acct["undated"] += int(r.get("undated") or 0)
+            elif section == ev.WATCH_SECTION:
+                acct["watch_log"]["skipped"] = max(acct["watch_log"]["skipped"], int(r.get("skipped") or 0))      # every page repeats the one file's count
             elif section == ev.BACKFILL_SECTION:
                 # True only when every page said the journal was read: a daemon that predates the derived rows says nothing, and
                 # parity then cannot read "no row" as "the relay never had it" (the pair is not judged, never passed).
@@ -128,19 +136,22 @@ def _stop(acct: dict, reason: str) -> None:
     if section == ev.BACKFILL_SECTION:
         acct["backfill_log"]["complete"], acct["backfill_log"]["reason"] = False, acct["backfill_log"]["reason"] or reason
         return
+    if section == ev.WATCH_SECTION:
+        acct["watch_log"]["complete"], acct["watch_log"]["reason"] = False, acct["watch_log"]["reason"] or reason
+        return
     if section in ev.DRILL_SECTIONS:
         acct["relay_outage"]["complete"], acct["relay_outage"]["reason"] = False, acct["relay_outage"]["reason"] or reason
         return
     # An account stopped in a report section is never asked for the drill's sections: they were not collected, whatever
     # their fresh state says, and a filed "complete, empty" would read as "nothing logged".
-    for meta in (acct["relay_outage"], acct["backfill_log"]):
+    for meta in (acct["relay_outage"], acct["backfill_log"], acct["watch_log"]):
         meta["complete"], meta["reason"] = False, meta["reason"] or reason
     acct["complete"], acct["reason"] = False, acct["reason"] or reason
 
 
 def counts(acct: dict) -> dict:
     return {"arrivals": len(acct["arrivals"]), "deliveries": len(acct["deliveries"]), "kinds": len(acct["kinds"]),
-            "shown": len(acct["shown"]), "acks": len(acct["acks"]), "backfills": len(acct["backfills"])}
+            "shown": len(acct["shown"]), "acks": len(acct["acks"]), "backfills": len(acct["backfills"]), "watch": len(acct["watch"])}
 
 
 def _atomic(path: str, data: bytes) -> None:
@@ -173,7 +184,7 @@ def write_dir(out: str, login: str, acct: dict, since: str, until: str) -> str:
     meta = {"login": login, "since": since, "until": until, "margin_s": ev.LOOKBACK_S, "complete": acct["complete"],
             "reason": acct["reason"], "journal": acct["journal"], "pages": acct["pages"], "counts": counts(acct),
             "skipped": acct["skipped"], "undated": acct["undated"], "relay_outage": acct["relay_outage"],
-            "backfill_log": acct["backfill_log"]}
+            "backfill_log": acct["backfill_log"], "watch_log": acct["watch_log"]}
     # meta.json last: a reader that finds it finds the files it describes (a crash between leaves no meta, and parity refuses that).
     for name in ("meta.json",):
         try:
@@ -190,6 +201,13 @@ def write_dir(out: str, login: str, acct: dict, since: str, until: str) -> str:
         # An earlier run's file must not outlive a run that could not collect it: an absent file reads "not collected".
         try:
             os.unlink(os.path.join(d, "backfills.jsonl"))
+        except FileNotFoundError:
+            pass
+    if acct["watch_log"]["complete"]:
+        _atomic(os.path.join(d, "watch.jsonl"), _lines(acct["watch"]))
+    else:
+        try:
+            os.unlink(os.path.join(d, "watch.jsonl"))
         except FileNotFoundError:
             pass
     _atomic(os.path.join(d, "kinds.json"), (json.dumps(acct["kinds"], sort_keys=True, separators=(",", ":")) + "\n").encode("utf-8"))
@@ -214,10 +232,12 @@ def row_of(login: str, host: Any, acct: dict, since: str, until: str, *, full: b
     """The row `--json` prints: the whole collection when it is not filed, its counts when it is."""
     body = {"since": since, "until": until, "margin_s": ev.LOOKBACK_S, "complete": acct["complete"], "reason": acct["reason"],
             "journal": acct["journal"], "pages": acct["pages"], "counts": counts(acct), "skipped": acct["skipped"], "undated": acct["undated"],
-            "relay_outage": acct["relay_outage"], "backfill_log": acct["backfill_log"]}
+            "relay_outage": acct["relay_outage"], "backfill_log": acct["backfill_log"], "watch_log": acct["watch_log"]}
     if full:
         body.update(arrivals=acct["arrivals"], deliveries=acct["deliveries"], shown=acct["shown"], acks=acct["acks"], kinds=acct["kinds"])
         if acct["backfill_log"]["complete"]:      # absent, as in the filed form, when it was not collected
             body["backfills"] = acct["backfills"]
+        if acct["watch_log"]["complete"]:
+            body["watch"] = acct["watch"]
     return {"account": login, "host": host, "status": "ok" if acct["answered"] else "no answer",
             f"{ev.CARRIER_NAME}Evidence": body}
