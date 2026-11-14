@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """tools/fabric/relay.py — the GZCoord relay as an account's own tools reach
 it: which relays and channels, its own token, one HTTP call. A library, not
-a command; relay_catchup.py and the journal's import (episodic_import.py)
-read the relay through it.
+a command; the journal's import (episodic_import.py) and fabric-status's
+inbox line (status.py `inbox_state`) read the relay through it.
 
 Each project's integration (projects/<id>/integration/gzcoord/config.json)
 names its relay and channel, as gzcoord-inbox
@@ -83,17 +83,14 @@ def own_token(home: str) -> str | None:
 OPENER = httpsafe.opener(proxies=False, redirects="none")
 
 
-def call(relay: str, tok: str, path: str, body: dict | None = None, timeout: float = TIMEOUT):
-    """GET answers JSON, which is read; a POST's answer is the status alone —
-    the ack landed whatever its body says (review of #77). urllib's errors
-    are OSErrors and name the status, never the header the token is in.
+def call(relay: str, tok: str, path: str, timeout: float = TIMEOUT):
+    """A GET, whose JSON answer is read. urllib's errors are OSErrors and
+    name the status, never the header the token is in.
     The relay is reached directly, never through the environment's proxy,
     and a redirect is an error, never followed with the token (httpsafe)."""
-    req = urllib.request.Request(relay + path, data=None if body is None else json.dumps(body).encode(),
-                                 headers={"Authorization": f"Bearer {tok}", "Content-Type": "application/json"},
-                                 method="GET" if body is None else "POST")
+    req = urllib.request.Request(relay + path, headers={"Authorization": f"Bearer {tok}"}, method="GET")
     with OPENER.open(req, timeout=timeout) as r:
-        return json.load(r) if body is None else None
+        return json.load(r)
 
 
 def records(page) -> list:

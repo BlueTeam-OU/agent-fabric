@@ -39,6 +39,11 @@ keys_mod, usage_mod = sys.modules["control.ops.keys"], sys.modules["control.ops.
 _HOLD = tempfile.TemporaryDirectory(prefix="ops-hold-")
 os.environ["AGENT_FABRIC_HOLD_DIR"] = _HOLD.name
 
+# The account's own state directory holds its real transport mode; a suite reads a scratch one (the inbox section reads the
+# mode, and a carrier-only runner would otherwise send these tests to its live carrier).
+_STATE = tempfile.TemporaryDirectory(prefix="ops-state-")
+os.environ["AGENT_FABRIC_STATE_DIR"] = _STATE.name
+
 FIXTURE_ENV = {"OPENROUTER_API_KEY": "fixture-or-0123456789abcdefghij", "GH_TOKEN": "fixture-gh-ABCDEFGHIJ0123456789",
            "CLAUDE_BRIDGE_AUTH_TOKEN": "fixture-bridge-1234567890"}
 ACCESS = "oauth-access-token-value-XYZ"

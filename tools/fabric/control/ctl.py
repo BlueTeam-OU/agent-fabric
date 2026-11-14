@@ -2066,6 +2066,9 @@ def _drift_cells(r: dict) -> str:
             out += "  inbox ?"
         elif i["lagging"]:
             out += f"  inbox LAG {_age(i['lag_s'])} ({S(i['unread'])}{'+' if i.get('capped') else ''} unread)"
+        blocked = i.get("blocked")
+        if isinstance(blocked, dict) and blocked:
+            out += f"  outbox BLOCKED {S(sum(n for n in blocked.values() if isinstance(n, int) and not isinstance(n, bool)))}"
     return out
 
 
