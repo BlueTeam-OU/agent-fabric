@@ -647,10 +647,20 @@ def managed_state(root, **check_opts):
             "snapshot": snap, "reasons": reasons}
 
 
-def inbox_state(drift, root, ctx, relay=None, home=None):
+def inbox_state(drift, root, ctx, relay=None, home=None, carrier=None):
     """This account's GZCoord read position against the relay's newest message: what it has not read, and the
     age of the oldest, over a day being lag. Read with the account's synced token only (never a working copy's
-    settings), the relay by its own address as the inbox does, and never an acknowledgement."""
+    settings), the relay by its own address as the inbox does, and never an acknowledgement.
+
+    An account in `carrier-only` has no relay cursor to lag (W13): its position is the carrier's spool and outbox
+    (gzcoord/carrier/position.py), read with the relay never asked, and a mode or carrier that cannot be read is
+    unknown, not a fall-back to the relay."""
+    try:
+        carrier = carrier_position(ctx.get("state_dir"), **(carrier or {}))
+    except Exception as e:  # noqa: BLE001 — a status line, never a traceback
+        return {"status": "unknown", "detail": str(e)[:200]}
+    if carrier is not None:
+        return carrier
     try:
         relay = relay or load("fabric_relay", os.path.join(root, "tools", "fabric", "relay.py"))
         pairs, _none = relay.channels([ctx["project"]] if ctx.get("project") else [], os.environ)
@@ -672,6 +682,34 @@ def inbox_state(drift, root, ctx, relay=None, home=None):
     cap = "+" if d["capped"] else ""
     text = f"{d['unread']}{cap} unread, the oldest {_age_words(d['lag_s'])} old (seq {d['oldest_unread_seq']}; relay newest {d['newest_seq']})"
     return {**d, "status": "lag" if d["lagging"] else "ok", "detail": text}
+
+
+def carrier_position(mode_state_dir, **opts):
+    """The carrier-only read as `inbox_state` shapes it, or None when the account is not in carrier-only (the relay
+    reader then answers). `opts` are position.for_mode's seams, a test's."""
+    from gzcoord.carrier import position
+    d = position.for_mode(mode_state_dir, **opts)
+    if d is None:
+        return None
+    if d["status"] != "ok":
+        return {"status": "unknown", "detail": d["reason"]}
+    return {**d, "status": "lag" if d["lagging"] else "unknown" if d["lagging"] is None and d["unread"] else "ok",
+            "detail": carrier_detail(d)}
+
+
+def carrier_detail(d):
+    from gzcoord.carrier import CARRIER_LABEL
+    spool = "nothing unseen" if not d["unread"] else (
+        f"{d['unread']} unseen, the oldest {_age_words(d['lag_s'])} old" if d["lag_s"] is not None
+        else f"{d['unread']} unseen, the age of the oldest could not be read")
+    if not d["outstanding"]:
+        box = "no delivery outstanding"
+    else:
+        age = f", the oldest {_age_words(d['oldest_outstanding_s'])} old" if d["oldest_outstanding_s"] is not None \
+            else ", the age of the oldest could not be read"
+        blocked = "".join(f"; blocked {code} x{n}" for code, n in sorted(d["blocked"].items()))
+        box = f"{d['outstanding']} outstanding{age}{blocked}"
+    return f"{spool}; outbox: {box} ({CARRIER_LABEL} carrier, no relay cursor)"
 
 
 def episodic_journal(root):
