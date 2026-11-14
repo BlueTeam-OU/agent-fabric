@@ -112,7 +112,7 @@ waiver's.
 THE WORD OF A ROLE UNDER THE MINIMUM (the owner, 2026-10-19). A PR under its minimum arms without the owner's word on
 the word of the policy's authority role: commits.boundary_authority for a security-boundary change,
 commits.below_min_authority for any other PR (each a role slug, absent: none). Two ways, neither the PR's own
-author's unless commits.authority_own_prs is true (default false; the fabric's own repositories): (a) the
+author's unless commits.authority_own_prs is true (default false; the owner's choice per repository): (a) the
 --authorization above, from a holder of that role; (b) this session holding the role by its binding (fabric-whoami,
 never a message's ROLE line), with the basis "<role>'s word" — the phrase is the claim and the binding is the check,
 as "the owner's word" is the owner's claim — and with --any-owner when the PR is another session's (gate 2), always

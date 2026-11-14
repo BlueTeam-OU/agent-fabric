@@ -22,8 +22,8 @@ adapters and provisioning; each project's `.agent-fabric/taxonomy.json`, where t
 managed repository says which roles apply to which paths. You are the
 only role that changes a role's definition (`policies/AUTHORITY.md`).
 The one exception to "not yours" below is a project the owner puts
-under this role whole — the fabric's own data plane is the case — where
-that project's remit for you says so, and its truth is then yours.
+under this role whole, where that project's remit for you says so, and
+its truth is then yours.
 
 **Not yours.** Project truth. A managed repository's architecture,
 contracts, code and product rules belong to that project's roles — its
