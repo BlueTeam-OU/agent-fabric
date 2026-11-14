@@ -480,6 +480,28 @@ class SocketCases(Net):
         self.assertTrue(until(lambda: got.extend(s.poll(0.2)) or got), "the own reply was not streamed back")
         self.assertEqual((got[0]["carrier"], got[0]["from"], got[0]["record"]["id"]), ("interweave", "h/op", "o1"))
 
+    def test_a_reply_that_arrives_in_the_same_chunk_behind_sent_all_is_not_lost(self):
+        # The in-process reply of this account can follow `sent-all` at once, in one recv with it.
+        path = os.path.join(self.scratch(), "s.sock")
+        srv = socket.socket(socket.AF_UNIX)
+        self.addCleanup(srv.close)
+        srv.bind(path)
+        srv.listen(1)
+        lines = [{"event": "sent", "to": "h/op", "ok": True, "why": ""}, {"event": "sent-all"},
+                 {"event": "reply", "carrier": "interweave", "from": "h/op", "record": reply(rid="o2", to="q8", frm="h/op")}]
+
+        def serve() -> None:
+            conn, _ = srv.accept()
+            with conn:
+                conn.recv(65536)
+                conn.sendall("".join(json.dumps(l) + "\n" for l in lines).encode())
+                time.sleep(1)
+        threading.Thread(target=serve, daemon=True).start()
+        s = cc.Session(path, request(rid="q8", frm="h/op"), ["h/op"], 5)
+        self.addCleanup(s.close)
+        got = s.wait_sent(3)
+        self.assertEqual([g["record"]["id"] for g in got], ["o2"])
+
     def test_a_reply_that_alice_did_not_send_is_not_streamed(self):
         s = cc.Session(self.path, request(rid="q2"), ["h/alice"], 10)
         self.addCleanup(s.close)

@@ -863,15 +863,20 @@ class Session:
         replies: list[dict] = []
         end = time.monotonic() + timeout_s
         while time.monotonic() < end:
+            done = False
             for ev in self._lines(end - time.monotonic()):
                 if ev.get("event") == "sent" and isinstance(ev.get("to"), str):
                     self.sent[ev["to"]] = (ev.get("ok") is True, js.string(ev.get("why")))
                 elif ev.get("event") == "sent-all":
-                    return replies
+                    # Not a return: _lines has already taken every whole line of the chunk off the buffer, and this
+                    # account's own reply (answered in-process, j245) can sit in the same chunk behind `sent-all`.
+                    done = True
                 elif ev.get("event") == "refused":
                     raise SessionRefused(f"the operator's agentd refused the sends: {js.string(ev.get('why'))}")
                 elif ev.get("event") == "reply":
                     replies.append(ev)
+            if done:
+                return replies
         raise RuntimeError("the operator's agentd did not finish the sends in time")
 
     def poll(self, timeout_s: float) -> list[dict]:
