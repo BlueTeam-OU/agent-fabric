@@ -284,6 +284,12 @@ class CtlStatus(unittest.TestCase):
         self.assertNotIn("inbox", self.line(inbox={"status": "ok", "unread": 0, "capped": False, "lag_s": 0, "lagging": False}))
         self.assertNotIn("inbox", self.line(inbox={"status": "ok", "unread": 2, "capped": False, "lag_s": 600, "lagging": False}))
 
+    def test_a_blocked_outbox_delivery_is_named_and_a_clean_outbox_adds_nothing(self):
+        base = {"status": "ok", "unread": 0, "capped": False, "lag_s": 0, "lagging": False}
+        self.assertTrue(self.line(inbox={**base, "blocked": {"NotInRoster": 2, "Refused": 1}}).endswith("  outbox BLOCKED 3"))
+        self.assertNotIn("outbox", self.line(inbox={**base, "blocked": {}}))
+        self.assertNotIn("outbox", self.line(inbox=base))
+
     def test_an_inbox_that_could_not_be_read_or_aged_is_a_question_mark(self):
         self.assertTrue(self.line(inbox={"status": "failed", "error": "x"}).endswith("  inbox ?"))
         self.assertTrue(self.line(inbox={"status": "ok", "unread": 1, "lagging": None}).endswith("  inbox ?"))
@@ -333,7 +339,10 @@ class FabricStatus(unittest.TestCase):
             def call(url, token, path):
                 self.tokens_used.append(token)
                 return api(path)
-        ctx = {"project": project, "host": "h", "agent": "a"}
+        # A state directory of its own: the account's real one holds the real transport mode.
+        state = tempfile.mkdtemp(prefix="drift-state")
+        self.addCleanup(__import__("shutil").rmtree, state, True)
+        ctx = {"project": project, "host": "h", "agent": "a", "state_dir": state}
         return status.inbox_state(drift, "/r", ctx, relay=R, home="/h"), calls
 
     def test_inbox_lines(self):
