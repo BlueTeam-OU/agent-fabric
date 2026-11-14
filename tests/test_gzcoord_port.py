@@ -1574,7 +1574,7 @@ def _():
                     ok(lock is not None and holder.wait(timeout=10) == -signal.SIGTERM, f"{out!r} {err!r}")
                 else:
                     ok(lock is None and holder.poll() is None, f"{out!r} {err!r}")
-                    ok(f"--replace sent SIGTERM to the watch of pid {holder.pid} " in out and "the lock is still held" in out
+                    ok(f"--replace sent SIGTERM to the watch of pid {holder.pid} " in out and "which serves this session" not in out and "the lock is still held" in out
                        and "nothing to kill" not in out and "nothing was signalled" not in out and "not provably" not in out, out)
             finally:
                 if lock is not None:
@@ -1753,7 +1753,7 @@ def _():
     sent, res, err = _replace_world(["100", "T", "90", "900", "claude"], base, mine)
     eq((sent, res[0]), ([(100, signal.SIGTERM)], 100))
     ok("pid 100" in err and "--replace" in err, err)
-    # a live session that is not ours: refused (its watch serves someone), with 91 made a live "claude" so the record is no orphan's
+    # a live session that is not ours: refused (its watch serves someone), with 92 a live "claude" so the record is no orphan's
     live = {**base, 92: ("claude", 1, "S", 920)}
     sent, res, _ = _replace_world(["100", "T", "92", "920", "claude"], live, mine)
     eq((sent, res[0]), ([], None), "another live session's watch")
@@ -1772,8 +1772,6 @@ def _():
         ok(res[1], what)
     # no live session to protect: each is ended, by pid, whichever session asks
     orphans = [
-        (["100", "T"], "an older watch that recorded no session"),
-        (["100", "T", "", "", ""], "a file of five lines whose session lines are empty"),
         (["100", "T", "91", "900", "claude"], "the recorded pid is another process now (another start time)"),
         (["100", "T", "90", "111", "claude"], "the session pid reused: another start time"),
         (["100", "T", "70", "700", "claude"], "the recorded session is not there"),
@@ -1783,6 +1781,17 @@ def _():
         for asker in (mine, S.Session(500, "50", 500, "detached")):
             sent, res, _ = _replace_world(rec, base, asker)
             eq((sent, res[0]), ([(100, signal.SIGTERM)], 100), what)
+    # an older watch that recorded no session: an orphan only hanging from init through shells, as `orphan_of` asks; the same record
+    # under a live session's claude may be that session's own watch (positive control: the one parent changed)
+    under_init = {**base, 100: ("fabric-python", 1, "S", 1000, watch)}
+    for rec in (["100", "T"], ["100", "T", "", "", ""]):
+        sent, res, _ = _replace_world(rec, under_init, mine)
+        eq((sent, res[0]), ([(100, signal.SIGTERM)], 100), f"{rec} hanging from init")
+        sent, res, _ = _replace_world(rec, base, mine)
+        eq((sent, res[0]), ([], None), f"{rec} under a live session")
+    # a detached record without a start time cannot be told from a reused pid either
+    sent, res, _ = _replace_world(["100", "T", "1", "", "detached"], base, mine)
+    eq((sent, res[0]), ([], None), "detached without a start time")
     # a session of ours without a start time cannot be matched to a record that has one
     sent, res, _ = _replace_world(["100", "T", "90", "900", "claude"], base, S.Session(90, "", 95, "claude"))
     eq((sent, res[0]), ([], None))
