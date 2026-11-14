@@ -62,7 +62,9 @@ own .agent-fabric/memory/fabric-coordinator/ instead, that role's remit covering
 lesson, and the report's `rehomed` names each (its stderr section and the commit body count them). That pass records
 its decisions in agent-fabric's own last-drain-report.json, in the keys section_writers, applied_corrections,
 replaced_sections, collision_decisions and retitles only; any other key of that report stays as it is, and a report that
-cannot be read is not replaced: the run refuses (exit 1) before the pass writes anything. Any other role refuses the
+cannot be read is not replaced: the run refuses (exit 1) before the pass writes anything. The drained project's own
+last-drain-report.json that cannot be read as a JSON object is refused the same way, before anything is written, naming the
+file; an absent one is no refusal. Any other role refuses the
 run before anything is written (exit 1), naming the claim, its role and the project: no fallback. A claim some bound role
 co-owns (shared_with) stays; a project with no taxonomy, the fabric's own project and domain claims are not judged.
 

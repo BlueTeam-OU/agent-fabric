@@ -844,6 +844,8 @@ def test_an_unreadable_report_of_the_drained_project_is_refused_and_left_as_it_i
         assert proc.returncode == 1 and path in proc.stderr and "not replaced" in proc.stderr and "Traceback" not in proc.stderr, \
             (proc.returncode, proc.stderr)
         assert ta.read(path) == text, "left as it is"
+        assert not os.path.exists(ta.proj(out, "alpha", "workflow.md")), "refused before anything is written"
+        assert proc.stderr.strip().count("\n") == 0, "one line: " + proc.stderr
     drain, claims_dir, out = ta.build(os.path.join(tmp, "absent"), {"alpha": ta.claims("alpha", [WF])})
     bind(out, "alpha")
     assert ta.run_assemble(drain, claims_dir, out).returncode == 0, "control"
