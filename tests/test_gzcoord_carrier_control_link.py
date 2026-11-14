@@ -369,9 +369,41 @@ class Inbound(Net):
         self.assertEqual(sum(1 for p in os.listdir(os.path.join(self.net, PEERS["op"])) if not p.startswith(".")), 0)
         self.assertTrue(any("no roster row" in l for l in a.logs))
 
-    def test_an_account_does_not_send_to_itself(self):
+    def test_an_account_sends_a_request_to_itself_in_process_and_not_through_the_child(self):
         a = self.nodes["alice"]
-        self.assertEqual(a.carrier.send_to(["h/alice"], request(), 1)["h/alice"][0], False)
+        a.child.send = lambda *_: self.fail("a request to this account went to the child")
+        rec = request(frm="h/alice", to=["h/alice"])
+        self.assertEqual(a.carrier.send_to(["h/alice"], rec, 1)["h/alice"], (True, ""))
+        self.assertTrue(until(lambda: a.requests), a.logs)
+        self.assertEqual(a.requests, [(rec, "h/alice")])
+        self.assertEqual([(l["carrier"], l["verdict"], l["from"]) for l in a.arrival_lines()], [("interweave", "ok", "h/alice")])
+
+    def test_what_may_not_go_by_interweave_does_not_loop_back_either(self):
+        a = self.nodes["alice"]
+        for rec in [request(op=op) for op in cc.RELAY_ONLY_OPS] + [reply(frm="h/alice")]:
+            self.assertEqual(a.carrier.send_to(["h/alice"], rec, 1)["h/alice"][0], False, rec)
+        time.sleep(0.2)
+        self.assertEqual(a.requests, [])
+
+    def test_a_request_the_handler_cannot_take_is_said_and_does_not_stop_the_carrier(self):
+        a = self.nodes["alice"]
+
+        def boom(r, s):
+            raise RuntimeError("handler broke")
+        a.carrier._on_request = boom
+        self.assertEqual(a.carrier.send_to(["h/alice"], request(frm="h/alice"), 1)["h/alice"][0], True)
+        self.assertTrue(until(lambda: any("handler broke" in l for l in a.logs)), a.logs)
+
+    def test_a_reply_to_a_request_from_this_account_goes_to_its_waiter_in_process(self):
+        a = self.nodes["alice"]
+        got = []
+        a.carrier.watch("r1", lambda rec, sender: got.append((rec["id"], sender)))
+        a.child.send = lambda *_: self.fail("a reply to this account went to the child")
+        a.carrier.reply(request(frm="h/alice"), reply(rid="p5", frm="h/alice"))
+        self.assertEqual(got, [("p5", "h/alice")])
+        a.carrier.unwatch("r1")
+        a.carrier.reply(request(frm="h/alice"), reply(rid="p6", frm="h/alice"))
+        self.assertEqual([l["verdict"] for l in a.arrival_lines()], ["ok", "no-waiter"])
 
     def test_the_inbound_queue_is_bounded_and_drops_the_oldest_with_a_line(self):
         gate, seen, logs = threading.Event(), [], []
@@ -435,6 +467,18 @@ class SocketCases(Net):
         got = []
         self.assertTrue(until(lambda: got.extend(s.poll(0.2)) or got), "the reply was not streamed back")
         self.assertEqual((got[0]["carrier"], got[0]["from"], got[0]["record"]["id"]), ("interweave", "h/alice", "a1"))
+
+    def test_the_operators_own_address_is_answered_through_its_own_socket(self):
+        op = self.nodes["op"]
+        s = cc.Session(self.path, request(rid="q7", frm="h/op", to=["h/op"]), ["h/op"], 10)
+        self.addCleanup(s.close)
+        s.wait_sent(5)
+        self.assertEqual(s.sent["h/op"], (True, ""))
+        self.assertTrue(until(lambda: op.requests), op.logs)
+        op.carrier.reply(op.requests[0][0], reply(rid="o1", to="q7", frm="h/op"))
+        got = []
+        self.assertTrue(until(lambda: got.extend(s.poll(0.2)) or got), "the own reply was not streamed back")
+        self.assertEqual((got[0]["carrier"], got[0]["from"], got[0]["record"]["id"]), ("interweave", "h/op", "o1"))
 
     def test_a_reply_that_alice_did_not_send_is_not_streamed(self):
         s = cc.Session(self.path, request(rid="q2"), ["h/alice"], 10)

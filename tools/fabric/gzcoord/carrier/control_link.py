@@ -545,13 +545,30 @@ class Carrier:
             self.arrivals.add(VIA, record, "ok", sender)
             self._on_request(record, sender)
         elif kind == "reply":
-            with self._lock:
-                waiter = self._waiters.get(record.get("in_reply_to")) if isinstance(record.get("in_reply_to"), str) else None
-            self.arrivals.add(VIA, record, "ok" if waiter else "no-waiter", sender)
-            if waiter is not None:
-                waiter(record, sender)
+            self._route_reply(record, sender)
         else:
             self._log(f"dropped a {js.slice(js.string(kind), 20)} record from {sender}")
+
+    def _route_reply(self, record: dict, sender: str) -> None:
+        with self._lock:
+            waiter = self._waiters.get(record.get("in_reply_to")) if isinstance(record.get("in_reply_to"), str) else None
+        self.arrivals.add(VIA, record, "ok" if waiter else "no-waiter", sender)
+        if waiter is not None:
+            waiter(record, sender)
+
+    def _loop_request(self, record: dict) -> None:
+        """The operator's own row without the relay or the child: the request goes to this process's handler as an
+        arrival from this account, and its reply comes back through `reply` to the waiter. The sender is this
+        account by construction (Server refuses a record `from` anyone else), so nothing here is a claim to check;
+        the handler judges the signature and the replay ledger exactly as for a peer's copy."""
+        self.arrivals.add(VIA, record, "ok", self.me)
+
+        def run() -> None:
+            try:
+                self._on_request(record, self.me)
+            except Exception as e:  # noqa: BLE001 — a thread nobody joins: said, never lost silently
+                self._log(f"own request {js.slice(js.string(record.get('id')), 8)} failed to be handled: {e}")
+        threading.Thread(target=run, name="control-carrier-self", daemon=True).start()
 
     def watch(self, request_id: str, waiter: Callable[[dict, str], None]) -> None:
         with self._lock:
@@ -564,7 +581,12 @@ class Carrier:
     # -- out -----------------------------------------------------------
     def start_send(self, address: str, record: dict) -> Send:
         if address == self.me:
-            return failed("this account (the relay carries it)")
+            if record.get("kind") != "request" or (isinstance(record.get("op"), str) and record["op"] in RELAY_ONLY_OPS):
+                return failed("this account (only a request that may go by InterWeave loops back)")
+            self._loop_request(record)
+            sent = Send("self")
+            sent.finish(True)
+            return sent
         peer = self.directory.peer_of(address)
         if peer is None:
             return failed("no roster row")
@@ -583,6 +605,9 @@ class Carrier:
         if isinstance(op, str) and op in RELAY_ONLY_OPS:
             return
         to = request.get("from")
+        if to == self.me:
+            self._route_reply(reply, self.me)   # the requester is this account: no peer to send to
+            return
         ok, why = self.send_to([to], reply, SEND_WAIT_S)[to] if isinstance(to, str) else (False, "no sender")
         if not ok:
             self._log(f"reply {js.slice(js.string(reply.get('id')), 8)} to {js.slice(js.string(to), 60)} not sent: {why}")

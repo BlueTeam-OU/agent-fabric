@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import os
+import socket
 import sys
 import threading
 import time
@@ -242,6 +243,48 @@ class Dual(Scratch):
         self.assertTrue(any("not sent to h/alice (no roster row)" in e for e in self.err), self.err)
         self.assertIn("relay only: alice", self.out)
         self.assertEqual(self.nodes["alice"].requests, [])
+
+    def place_operator(self) -> None:
+        """The live registry places the operator's own account too, so `all` names it (the fixture's does not)."""
+        with open(self.registry, "w", encoding="utf-8") as fh:
+            json.dump({**REGISTRY, "placement": {"alice": "h", "op": "h"}}, fh)
+
+    def test_the_operators_own_row_comes_with_the_relay_at_a_closed_port(self):
+        # j245: this account was never sent to by InterWeave ("the relay carries it"), so with the relay gone its row was lost.
+        self.place_operator()
+        with socket.socket() as probe:
+            probe.bind(("127.0.0.1", 0))
+            closed = probe.getsockname()[1]
+        env = mock.patch.dict(os.environ, {"CLAUDE_BRIDGE_URL": f"http://127.0.0.1:{closed}"})
+        env.start()
+        self.addCleanup(env.stop)
+        self.boot("alice")
+        box: dict = {}
+        self.done = threading.Event()
+
+        def go() -> None:   # no `call=`: the real api, refused at the closed port
+            box["rc"] = ctl.main(["all", "ping", "--json", "--timeout", "10"], registry=self.registry, who=WHO, token="t",
+                                 out=self.out.append, err=self.err.append)
+            self.done.set()
+        threading.Thread(target=go, daemon=True).start()
+        for login in ("op", "alice"):
+            self.answer(login, self.request_of(login), relay=False)
+        self.assertEqual(self.finish(box), 0, self.err)
+        self.assertEqual({r["account"]: (r["status"], r["carrier"]) for r in self.rows()},
+                         {"op": ("ok", "interweave"), "alice": ("ok", "interweave")})
+        self.assertTrue(any("InterWeave carries alone" in e for e in self.err), self.err)
+        self.assertEqual(self.relay.sent, [], "the fake relay was never reached")
+
+    def test_the_operators_own_row_by_both_carriers_is_the_interweave_copy_and_others_are_unchanged(self):
+        self.place_operator()
+        self.boot("alice")
+        box = self.run_ctl("all", "ping", "--json", "--timeout", "10")
+        for login in ("op", "alice"):
+            self.answer(login, self.request_of(login))
+        self.assertEqual(self.finish(box), 0, self.err)
+        self.assertEqual({r["account"]: (r["carrier"], r["relay_copy"]) for r in self.rows()},
+                         {"op": ("interweave", "same"), "alice": ("interweave", "same")})
+        self.assertEqual(len(self.nodes["op"].requests), 1, "handed to the handler once")
 
     def relay_request(self) -> dict:
         self.assertTrue(until(lambda: self.relay.sent))
