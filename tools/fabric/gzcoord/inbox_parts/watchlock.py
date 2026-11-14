@@ -24,7 +24,13 @@ output to /dev/null) has a live watch of its own that no one else may end, and t
 inbox watch, so the mistake had no remedy inside the session. `--replace` ends the holder when the lock file says it serves THIS
 session — the same session pid, start time and kind this process computes for itself — and is a gzcoord-inbox watch of this uid;
 the process signalling is gzcoord-inbox, not a Bash kill, so the guard needs no rule. Anything else (another session's watch, a
-holder the file does not vouch for) is refused with one line naming it, and nothing is signalled."""
+holder the file does not vouch for) is refused with one line naming it, and nothing is signalled.
+
+--REPLACE ENDS AN ORPHAN TOO (2026-11-14): a watch of this uid whose lock names no live session — a session recorded and gone, a
+"detached" watch (no `claude` above it, the hand-armed `( ... & )` shape), an older file that recorded none and hangs from init
+or systemd — is ended by --replace as well, whichever session asks: it serves no one, and without this it had no exit. Refused
+still: a watch whose recorded session is alive and is not this one, another user's, one the file does not vouch for, a session
+recorded without a start time, session lines this code does not know, and an older file whose holder hangs from a live parent."""
 from __future__ import annotations
 
 import fcntl
@@ -42,13 +48,13 @@ from .hold import pid_alive
 # introduced it, and the dictionary is the coordinator's.
 ALREADY_RUNNING = ("gzcoord-inbox: a watch is already running (pid {pid}, started {started}); "
                    "it ends at its next delivery, at its --deadline (default 1 h 55 min) with the quiet line, or with its session "
-                   "— nothing to kill; do not run it again; --replace ends a watch this session itself started and takes its place")
+                   "— nothing to kill; do not run it again; --replace ends a watch this session started, or a detached one, and takes its place")
 # --replace found a holder that is not this session's: one line, on stdout like the line above (a background command's output reaches
 # the session only at exit), and it says not to run it again, as a rerun would be refused the same way.
 REPLACE_REFUSED = ("gzcoord-inbox: --replace refused: the watch of pid {pid} (started {started}) is not provably a watch of this "
                    "session ({why}); nothing was signalled; do not run it again")
-# --replace signalled a watch it proved to be this session's and the lock is still held: the line above would say two false things.
-REPLACE_SIGNALLED = ("gzcoord-inbox: --replace sent SIGTERM to the watch of pid {pid} (started {started}), which serves this session, "
+# --replace signalled a watch it proved to be this session's or no live session's, and the lock is still held: the line above would say two false things.
+REPLACE_SIGNALLED = ("gzcoord-inbox: --replace sent SIGTERM to the watch of pid {pid} (started {started}), "
                      "and the lock is still held ({why}); do not run it again")
 _UNKNOWN = "unknown"
 # How long a watch that ended an orphan waits for its flock. SIGTERM ends a Python process at once; a holder that does not
@@ -240,7 +246,8 @@ def end_orphan(path: str, record: list[str], proc: str = sess.PROC, locks: str =
 def replaceable_of(path: str, record: list[str], mine: sess.Session, proc: str = sess.PROC,
                    locks: str = LOCKS) -> tuple[int | None, str]:
     """(pid, why) of the holder of the lock on `path` when it is a gzcoord-inbox watch of this uid that the lock file says serves
-    `mine` — same session pid, start time and kind; (None, the reason it is not) for every other holder. Unknown stays unknown: a
+    `mine` — same session pid, start time and kind — or serves no live session; (None, the reason it is not) for every other holder.
+    Unknown stays unknown: a
     holder /proc does not show, a file that is empty or names another pid, a session recorded without a start time, and a
     pid that is only the same number are all "not provably", never a yes."""
     pid = lock_holder(path, locks)
@@ -261,21 +268,30 @@ def replaceable_of(path: str, record: list[str], mine: sess.Session, proc: str =
         return None, "the lock file does not name it"
     recorded = sess.Session.of(record[2:])
     if recorded is None:
-        return None, "the lock file records no session for it"
-    if mine.kind == "detached" or recorded.kind == "detached":
-        # Two watches hanging from the same systemd compute the same (parent, start, "detached"): equal only because neither
-        # has a session above it, which is no proof they serve the same one.
-        return None, "a detached watch serves no session of its own"
-    if not recorded.start or not mine.start:
+        if any(record[2:]):
+            return None, "the lock file's session lines are not ones this code knows"
+        # Two lines: an older watch that recorded no session. It is an orphan only on the proof `orphan_of` asks, hanging from init or
+        # systemd through shells: under a live session's `claude` it may be that session's own watch, and a file records nothing to say.
+        if sess.reparented(pid, proc):
+            return pid, "the lock file records no session for it and it hangs from init or systemd"
+        return None, "the lock file records no session for it and it still hangs from a live parent"
+    if not recorded.start:
         return None, "a session without a start time cannot be told from a reused pid"
+    if recorded.kind == "detached":
+        # No `claude` above it when it started, so it serves no session whose end could be seen and no live session owns it: the
+        # hand-armed `( ... & )` stray is this shape. Not "serves this session" either: two detached watches under one systemd
+        # compute the same (parent, start, "detached"), so equality proves nothing. It is ended because it is no one's.
+        return pid, "it serves no session (detached)"
+    if sess.ended(recorded, pid, proc):
+        return pid, f"its session, pid {recorded.pid}, has ended"
     if (recorded.pid, recorded.start, recorded.kind) != (mine.pid, mine.start, mine.kind):
-        return None, f"it serves session pid {recorded.pid}, this one is pid {mine.pid}"
+        return None, f"it serves live session pid {recorded.pid}, this one is pid {mine.pid}"
     return pid, f"it serves this session, pid {mine.pid}"
 
 
 def end_replaced(path: str, record: list[str], mine: sess.Session, proc: str = sess.PROC, locks: str = LOCKS,
                  kill: Callable[[int, int], None] = os.kill) -> tuple[int | None, str]:
-    """SIGTERM to the holder when `replaceable_of` says it serves this session: (the pid signalled, why), else (None, the reason
+    """SIGTERM to the holder when `replaceable_of` names it: (the pid signalled, why), else (None, the reason
     it was left alone). Said once on stderr, with both pids. By that pid only, never by a pattern."""
     pid, why = replaceable_of(path, record, mine, proc, locks)
     if pid is None:
@@ -293,7 +309,7 @@ def end_replaced(path: str, record: list[str], mine: sess.Session, proc: str = s
 def take_or_report(login: str, session: sess.Session | None = None, wait_s: float | None = None,
                    replace: bool = False) -> WatchLock | None:
     """The lock when this process may watch; None, with the one line printed
-    on stdout, when another watch of this login holds it (`replace`: when it holds it and does not provably serve this session). A lock that cannot
+    on stdout, when another watch of this login holds it (`replace`: when it holds it and is neither this session's nor provably no live session's). A lock that cannot
     be had for a local reason (no runtime directory, a read-only one) does
     not stop the watch: the guard is a convenience, the watch is the
     delivery. The reason is on stderr, said once."""

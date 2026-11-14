@@ -1574,13 +1574,43 @@ def _():
                     ok(lock is not None and holder.wait(timeout=10) == -signal.SIGTERM, f"{out!r} {err!r}")
                 else:
                     ok(lock is None and holder.poll() is None, f"{out!r} {err!r}")
-                    ok(f"--replace sent SIGTERM to the watch of pid {holder.pid} " in out and "the lock is still held" in out
+                    ok(f"--replace sent SIGTERM to the watch of pid {holder.pid} " in out and "which serves this session" not in out and "the lock is still held" in out
                        and "nothing to kill" not in out and "nothing was signalled" not in out and "not provably" not in out, out)
             finally:
                 if lock is not None:
                     lock.release()
         finally:
             _reap(holder)
+
+
+@case("--replace on a holder that serves another LIVE session: the refusal line, nothing signalled, the holder keeps the lock")
+def _():
+    from gzcoord.inbox_parts import session as S, watchlock
+    me = S.read_proc(os.getpid())
+    mine = S.Session(os.getpid(), me.start, os.getppid(), "parent")
+    other = subprocess.Popen(["sleep", "60"])
+    try:
+        run_dir = P.scratch("run-")
+        holder = _spawn_holder("gzcoord-inbox", "new", watchlock.lock_path("fixture-login", run_dir), other.pid, S.read_proc(other.pid).start, "claude")
+        try:
+            lock, out, err = _take(run_dir, mine, wait_s=1.0, replace=True)
+            ok(lock is None and holder.poll() is None, f"{out!r} {err!r}")
+            ok(f"--replace refused: the watch of pid {holder.pid} " in out and f"serves live session pid {other.pid}" in out
+               and "nothing was signalled" in out and "nothing to kill" not in out, out)
+            # the positive control: the same holder, its session gone, is ended by the same call
+            other.kill()
+            other.wait()
+            lock, out, err = _take(run_dir, mine, wait_s=5.0, replace=True)
+            try:
+                ok(lock is not None and holder.wait(timeout=10) == -15, f"{out!r} {err!r}")
+            finally:
+                if lock is not None:
+                    lock.release()
+        finally:
+            _reap(holder)
+    finally:
+        other.kill()
+        other.wait()
 
 
 def _wait_lock_lines(env: dict, n: int, deadline: float = 20) -> list[str]:
@@ -1753,13 +1783,15 @@ def _():
     sent, res, err = _replace_world(["100", "T", "90", "900", "claude"], base, mine)
     eq((sent, res[0]), ([(100, signal.SIGTERM)], 100))
     ok("pid 100" in err and "--replace" in err, err)
+    # a live session that is not ours: refused (its watch serves someone), with 92 a live "claude" so the record is no orphan's
+    live = {**base, 92: ("claude", 1, "S", 920)}
+    sent, res, _ = _replace_world(["100", "T", "92", "920", "claude"], live, mine)
+    eq((sent, res[0]), ([], None), "another live session's watch")
+    ok("live session pid 92" in res[1], res[1])
     # the positive control for every refusal below: the same world with the record changed in one field
     refused = [
-        (["100", "T", "91", "900", "claude"], "another session's pid"),
-        (["100", "T", "90", "111", "claude"], "the session pid reused: another start time"),
         (["100", "T", "90", "900", "parent"], "the same pid and start under another kind"),
         (["100", "T", "90", "", "claude"], "a session recorded without a start time"),
-        (["100", "T"], "an older watch that recorded no session"),
         (["100", "T", "90", "900", "future-kind"], "a session line this code does not know"),
         (["77", "T", "90", "900", "claude"], "a file naming another pid than the holder"),
         ([], "an empty file"),
@@ -1768,15 +1800,36 @@ def _():
         sent, res, _ = _replace_world(rec, base, mine)
         eq((sent, res[0]), ([], None), what)
         ok(res[1], what)
+    # no live session to protect: each is ended, by pid, whichever session asks
+    orphans = [
+        (["100", "T", "91", "900", "claude"], "the recorded pid is another process now (another start time)"),
+        (["100", "T", "90", "111", "claude"], "the session pid reused: another start time"),
+        (["100", "T", "70", "700", "claude"], "the recorded session is not there"),
+        (["100", "T", "500", "50", "detached"], "a detached watch, which serves no session"),
+    ]
+    for rec, what in orphans:
+        for asker in (mine, S.Session(500, "50", 500, "detached")):
+            sent, res, _ = _replace_world(rec, base, asker)
+            eq((sent, res[0]), ([(100, signal.SIGTERM)], 100), what)
+    # an older watch that recorded no session: an orphan only hanging from init through shells, as `orphan_of` asks; the same record
+    # under a live session's claude may be that session's own watch (positive control: the one parent changed)
+    under_init = {**base, 100: ("fabric-python", 1, "S", 1000, watch)}
+    for rec in (["100", "T"], ["100", "T", "", "", ""]):
+        sent, res, _ = _replace_world(rec, under_init, mine)
+        eq((sent, res[0]), ([(100, signal.SIGTERM)], 100), f"{rec} hanging from init")
+        sent, res, _ = _replace_world(rec, base, mine)
+        eq((sent, res[0]), ([], None), f"{rec} under a live session")
+    # a detached record without a start time cannot be told from a reused pid either
+    sent, res, _ = _replace_world(["100", "T", "1", "", "detached"], base, mine)
+    eq((sent, res[0]), ([], None), "detached without a start time")
     # a session of ours without a start time cannot be matched to a record that has one
     sent, res, _ = _replace_world(["100", "T", "90", "900", "claude"], base, S.Session(90, "", 95, "claude"))
     eq((sent, res[0]), ([], None))
     # and when neither has one the two are equal only by being empty: still not provably the same session
     sent, res, _ = _replace_world(["100", "T", "90", "", "claude"], base, S.Session(90, "", 95, "claude"))
     eq((sent, res[0]), ([], None))
-    # two detached watches under one systemd compute the same session: equal only because neither has one
-    detached = S.Session(500, "50", 500, "detached")
-    sent, res, _ = _replace_world(["100", "T", "500", "50", "detached"], base, detached)
+    # a live session's watch is not ended by a detached asker, which cannot be shown to be that session
+    sent, res, _ = _replace_world(["100", "T", "90", "900", "claude"], base, S.Session(500, "50", 500, "detached"))
     eq((sent, res[0]), ([], None))
     # a holder that is no watch, or no process /proc shows, is never signalled though the record says it is ours
     for args in (["sleep", "60"], [PYTHON, "-I", "/x/bin/gzcoord-inbox"], [PYTHON, "-I", "/x/bin/gzcoord-inbox", "--replay", "5", "--follow"]):
@@ -1839,7 +1892,7 @@ def _alive(pid: int) -> bool:
         return False
 
 
-@case("--replace ends a watch this session armed and takes its place; another session's watch is refused, named, and left running")
+@case("--replace ends a watch this session armed, and a same-login orphan that names no live session, and takes its place")
 def _():
     stub, _calls = _wait_stub([])
     try:
@@ -1883,13 +1936,19 @@ def _():
                 time.sleep(0.05)
                 lock = glob.glob(os.path.join(env["XDG_RUNTIME_DIR"], "agent-fabric", "gzcoord-inbox-*.lock"))
             ok(lock and open(lock[0]).read().startswith(str(other)), "the detached watch took its lock")
-            r = subprocess.run([P.INBOX_CMD, "--until-delivery", "--replace"], env=env, capture_output=True, text=True, timeout=60)
-            eq(r.returncode, 0, r.stdout + r.stderr)
-            ok(f"--replace refused: the watch of pid {other} " in r.stdout and "do not run it again" in r.stdout
-               and r.stdout.count("\n") == 1, r.stdout)
-            ok("ending the watch" not in r.stderr, r.stderr)
-            ok(_alive(other), "the other session's watch was not signalled")
-            ok(open(lock[0]).read().startswith(str(other)), "and still holds its lock")
+            # it names no live session (no `claude` above it, so it is "detached"): --replace ends it and takes its place
+            repl = _arm(env, "--until-delivery", "--replace")
+            try:
+                end = time.monotonic() + 30
+                while time.monotonic() < end and _alive(other):
+                    time.sleep(0.05)
+                ok(not _alive(other), "the orphan was ended")
+                _wait_started(repl, env)
+                ok(repl.poll() is None, "the replacing watch runs")
+                ok(open(lock[0]).read().startswith(str(repl.pid)), "and holds the lock")
+            finally:
+                repl.kill()
+                repl.communicate()
         finally:
             try:
                 os.kill(other, 9)
