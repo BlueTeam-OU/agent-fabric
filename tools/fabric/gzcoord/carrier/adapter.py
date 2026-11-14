@@ -8,7 +8,8 @@ The switch is the carrier itself: with no carrier process there is no socket,
 is configured per tool, and a session that has no carrier is a session of the
 relay alone, as before.
 
-THE RELAY FAILS OPEN. A carrier that is present and does not answer must never
+THE RELAY FAILS OPEN (this is the carrier as a mirror: `post`, `unseen`; the primary's `wait` and `post_result` without
+`fail_open` raise, because there the carrier is the record, transport/carrier.py CarrierPrimary). A carrier that is present and does not answer must never
 hold a relay delivery: `unseen` answers nothing when the carrier cannot be
 asked, and the send side reports what happened and carries on. What a session
 sees is decided by the shown ledger (ledger.py), which the inbox reaches on its
@@ -19,7 +20,9 @@ from __future__ import annotations
 import json
 import os
 import sys
+import threading
 import time
+from dataclasses import dataclass
 from typing import Callable
 
 from . import arrivals, framing, server
@@ -30,6 +33,27 @@ SEND_TIMEOUT = 12.0
 # long: the inbox asks once a pass, and a hung carrier must not cost the relay's
 # delivery two seconds a pass.
 DOWN_FOR = 30.0
+# The longest one `wait` call is asked to hold; the carrier clamps it too (engine.MAX_WAIT).
+WAIT_MAX = 55.0
+WAIT_SLACK = 5.0     # what the socket may take beyond the wait asked for
+
+
+class CarrierError(Exception):
+    """The carrier, as the transport of record, did not do what was asked. `never_reached_it` is True only when the failure
+    proves the carrier recorded nothing of the request (no carrier, a request refused before any record, nothing queued);
+    a call that was sent and not answered may have been recorded, and says False."""
+
+    def __init__(self, message: str, *, absent: bool = False, never_reached_it: bool = False) -> None:
+        super().__init__(message)
+        self.absent, self.never_reached_it = absent, never_reached_it
+
+
+@dataclass(frozen=True)
+class Post:
+    """What `Adapter.post_result` knows of one send: the state `post` answers, and why when it is not accepted."""
+    state: str            # accepted | not-carried | absent | failed
+    detail: str = ""
+    proved_unsent: bool = False   # no recipient was recorded by this call
 
 
 class Adapter:
@@ -54,7 +78,9 @@ class Adapter:
             print(f"gzcoord: the InterWeave carrier did not answer ({e}); the relay carries on", file=sys.stderr)
             return None
         if not out.get("ok"):
-            queued = f", {out['queued']} recipient(s) recorded" if "queued" in out else ""
+            # A refusal before any record (the engine's carried 0, queued 0) has no recipients to count: the mirror's line is the
+            # one it was before the engine said so.
+            queued = f", {out['queued']} recipient(s) recorded" if "queued" in out and out.get("carried") != 0 else ""
             print(f"gzcoord: the InterWeave carrier refused ({out.get('error', 'no reason given')}{queued}); "
                   "the relay carries on", file=sys.stderr)
             return None
@@ -65,25 +91,61 @@ class Adapter:
         recipient: relay alone), absent (no carrier) or failed. The request is
         encoded first and refused here, naming its size, when the message is over
         the 4 MiB the carrier carries or the line over the 9 MiB it reads."""
+        return self.post_result(mid, text, fail_open=True).state
+
+    def post_result(self, mid: str, text: str, *, fail_open: bool = False) -> Post:
+        """`post` with what a primary must say when it is not accepted. `fail_open` keeps the mirror's lines on stderr ("the
+        relay carries on"); without it nothing is printed here and the caller owns the words."""
         if not self.present():
-            return "absent"
+            return Post("absent", "no InterWeave carrier is running", proved_unsent=True)
         line = json.dumps({"op": "send", "message_id": mid, "text": text}, separators=(",", ":"), ensure_ascii=False)
         size, body = len(line.encode("utf-8")), len(text.encode("utf-8"))
         if body > framing.MAX_TEXT or size > server.MAX_REQUEST:
-            print(f"gzcoord: the message is {body} bytes, its request {size}: over the {framing.MAX_TEXT >> 20} MiB "
-                  f"the carrier carries or the {server.MAX_REQUEST >> 20} MiB it reads; the relay carries it",
-                  file=sys.stderr)
-            return "failed"
-        out = self._ask({"op": "send", "message_id": mid, "text": text}, SEND_TIMEOUT)
-        if out is None:
-            return "failed"
+            detail = (f"the message is {body} bytes, its request {size}: over the {framing.MAX_TEXT >> 20} MiB "
+                      f"the carrier carries or the {server.MAX_REQUEST >> 20} MiB it reads")
+            if fail_open:
+                print(f"gzcoord: {detail}; the relay carries it", file=sys.stderr)
+            return Post("failed", detail, proved_unsent=True)
+        req = {"op": "send", "message_id": mid, "text": text}
+        if fail_open:
+            out = self._ask(req, SEND_TIMEOUT)
+            if out is None:
+                return Post("failed")
+        else:
+            try:
+                out = self._call(self.path, req, timeout=SEND_TIMEOUT)
+            except OSError as e:
+                # Sent and not answered, or not sent: the carrier may hold it.
+                return Post("failed", f"the InterWeave carrier did not answer ({e})")
+            if not out.get("ok"):
+                # Unsent is proved only by an explicit queued count of 0: an answer without one ("bad request", a handler that
+                # raised mid-loop) may follow recipients already recorded.
+                return Post("failed", str(out.get("error", "no reason given")), proved_unsent=out.get("queued") == 0)
         if out.get("carried", 0) == 0:
-            return "not-carried"
-        return "accepted" if out.get("queued") == out.get("carried") else "failed"
+            return Post("not-carried", "no roster member carries the message's TO", proved_unsent=True)
+        return Post("accepted") if out.get("queued") == out.get("carried") else Post("failed", "not every recipient was recorded")
 
     def unseen(self) -> list[dict]:
         out = self._ask({"op": "unseen"}, CLAIM_TIMEOUT)
         return list(out.get("records", [])) if out else []
+
+    def wait(self, seconds: float, abort: threading.Event | None = None) -> list[dict]:
+        """The carrier as the transport of record waits for the watch: the records `unseen` lists, held up to `seconds`
+        (at most WAIT_MAX) until there is one. Strict: a carrier that is not there, does not answer or refuses raises
+        CarrierError, never an empty answer, for an empty list is "nothing arrived" and would make a dead carrier an
+        idle watch. `abort` is looked at before the call only: the call itself ends at the carrier's own bound."""
+        seconds = max(0.0, min(WAIT_MAX, seconds))
+        if not self.present():
+            raise CarrierError("no InterWeave carrier is running", absent=True, never_reached_it=True)
+        if abort is not None and abort.is_set():
+            return []
+        try:
+            out = self._call(self.path, {"op": "wait", "seconds": seconds}, timeout=seconds + WAIT_SLACK)
+        except OSError as e:
+            raise CarrierError(f"the InterWeave carrier did not answer ({e})") from e
+        if not out.get("ok"):
+            raise CarrierError(f"the InterWeave carrier refused ({out.get('error', 'no reason given')})")
+        return list(out.get("records", []))
 
 
 def relay_arrivals(log: arrivals.ArrivalLog, address: str, copies: list[tuple[str, str]]) -> None:

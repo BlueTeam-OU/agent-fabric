@@ -74,8 +74,9 @@ def down_marker_path(login: str, runtime: str | None = None) -> str:
 
 
 def mark_relay_down(login: str, now: float, runtime: str | None = None) -> None:
-    """A watch that gave up on an unreachable relay (exit 5) leaves the time, beside its lock, for the Stop hook
-    (runtime/claude-code/hooks/watch-on-stop.py): re-arming at once would only spin on the same relay, and an
+    """A watch that gave up on an unreachable primary (exit 5: the relay in relay-record, the carrier in carrier-record and
+    carrier-only, where the relay is a mirror whose silence ends nothing) leaves the time, beside its lock, for the Stop hook
+    (runtime/claude-code/hooks/watch-on-stop.py): re-arming at once would only spin on the same primary, and an
     operator who stopped it on purpose would see it return. A marker that cannot be written is no marker: the hook
     then asks as it always did, the safe side."""
     path = down_marker_path(login, runtime)

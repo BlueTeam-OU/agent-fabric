@@ -499,10 +499,54 @@ class SocketCases(Net):
             waiter = op.carrier._waiters.get("stuck")
             if waiter is None:
                 break
+            captured = waiter
             waiter(big, "h/alice")
         self.assertIsNone(op.carrier._waiters.get("stuck"), "the connection was dropped with its waiter")
         self.assertLess(time.monotonic() - t0, 40, "bounded, not for the rest of wait_s")
         self.assertTrue(any("not reading" in l for l in op.logs), op.logs)
+        # One line per session, and the shutdown it did itself is never reported as a ctl that had ended.
+        waiter = captured
+        waiter(big, "h/alice")   # the inbox thread had captured it before the drop: no second line, no write
+        waiter_gone = [l for l in op.logs if "stuck"[:8] in l]
+        self.assertEqual(len(waiter_gone), 1, op.logs)
+        self.assertNotIn("had ended", waiter_gone[0])
+
+    def test_a_reply_after_ctl_closed_says_the_session_ended_not_that_it_is_not_reading(self):
+        s = cc.Session(self.path, request(rid="gone", to=["h/alice"]), ["h/alice"], 60)
+        s.wait_sent(5)
+        op = self.nodes["op"]
+        waiter = op.carrier._waiters["gone"]
+        s.close()
+        # The window is the server thread's wake-up after the close; the waiter is called at once, as the inbox
+        # thread does with a reply already queued.
+        deadline = time.monotonic() + 5
+        while time.monotonic() < deadline and not any("gone"[:8] in l and "had ended" in l for l in op.logs):
+            waiter({"kind": "reply", "id": "x", "in_reply_to": "gone", "from": "h/alice"}, "h/alice")
+            time.sleep(0.01)
+            if op.carrier._waiters.get("gone") is None:
+                break
+        self.assertTrue(any("gone" in l and "had ended" in l for l in op.logs), op.logs)   # the positive control
+        self.assertFalse(any("not reading" in l for l in op.logs), op.logs)
+
+    def test_a_reply_after_the_session_finished_is_not_written_and_logs_once_with_its_age(self):
+        s = cc.Session(self.path, request(rid="late", to=["h/alice"]), ["h/alice"], 60)
+        s.wait_sent(5)
+        op = self.nodes["op"]
+        waiter = op.carrier._waiters["late"]
+        s.close()
+        # The session thread has finished (and its finally marked it) only once it has unwatched; the lock a put
+        # takes is the one the marking takes, so a put after this point sees "ended" and never touches the socket.
+        deadline = time.monotonic() + 5
+        while time.monotonic() < deadline and op.carrier._waiters.get("late") is not None:
+            time.sleep(0.01)
+        time.sleep(0.3)
+        for _ in range(2):
+            waiter({"kind": "reply", "id": "x", "in_reply_to": "late", "from": "h/alice"}, "h/alice")
+        lines = [l for l in op.logs if "late" in l]
+        self.assertEqual(len(lines), 1, op.logs)
+        self.assertIn("had ended", lines[0])
+        self.assertIn("s after it opened", lines[0])
+        self.assertNotIn("not reading", lines[0])
 
     def test_a_peer_of_another_user_is_closed_unread(self):
         from unittest import mock

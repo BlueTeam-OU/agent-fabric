@@ -73,7 +73,67 @@ def send(relay_status: int, run: str, **env: str):
     return r, rows(state, store)
 
 
+def send_in(mode_name: str, relay_status: int, run: str):
+    """gzcoord-send of the fixture message on an account in `mode_name`; the relay stub's posts are returned beside."""
+    from gzcoord.transport import mode
+    relay = P.Relay(status=relay_status)
+    base = P.scratch("send-mode-")
+    state, store = os.path.join(base, "state"), P.id_store()
+    agent = os.path.join(state, "agents", P.LOGIN)
+    os.makedirs(agent)
+    mode.write(mode_name, "h1/op", agent)
+    try:
+        r = P.send_with(relay.url, P.VALID, AGENT_FABRIC_STATE_DIR=state, AGENT_FABRIC_SECRET_STORE=store, XDG_RUNTIME_DIR=run)
+        posts = len(relay.posts)
+    finally:
+        relay.close()
+    return r, rows(state, store), posts
+
+
+def carrier_primary_cases() -> None:
+    """The four outcomes of Adapter.post as gzcoord-send reports them when the carrier is the transport of record (cutover W8):
+    accepted is the only exit 0; every other is exit 3 with a line, and the pending row is failed only when the carrier
+    provably recorded nothing."""
+    f = Fake({"ok": True, "carried": 3, "queued": 3, "posted": 0})
+    r, db, posts = send_in("carrier-only", 200, f.run)
+    check("W8 accepted: exit 0, one stdout line with the id and no seq, the row the carrier's, the relay never posted",
+          r.code == 0 and r.out == f"sent INFO {P.VALID_ID}\n" and db == [("outbound", "accepted", "interweave", None)] and posts == 0,
+          f"{r.code} {r.out!r} {r.err} {db} {posts}")
+    f.close()
+
+    f = Fake({"ok": True, "carried": 0, "queued": 0, "posted": 0})
+    r, db, posts = send_in("carrier-only", 200, f.run)
+    check("W8 not-carried: exit 3, nothing on stdout, said as not sent, the pending row failed",
+          r.code == 3 and r.out == "" and "not sent" in r.err and db == [("outbound", "failed", "claude-bridge", None)], f"{r.code} {r.err} {db}")
+    f.close()
+
+    r, db, posts = send_in("carrier-only", 200, P.scratch("run-"))
+    check("W8 absent: exit 3, the line names the command that says why, the row failed, the relay never posted",
+          r.code == 3 and "not sent" in r.err and "fabric-ctl" in r.err and f"{P.LOGIN} interweave" in r.err
+          and db == [("outbound", "failed", "claude-bridge", None)] and posts == 0, f"{r.code} {r.err} {db} {posts}")
+
+    f = Fake({"ok": False, "error": "disk", "carried": 3, "queued": 0})
+    r, db, posts = send_in("carrier-only", 200, f.run)
+    check("W8 failed with nothing recorded: exit 3, not sent, the row failed",
+          r.code == 3 and "not sent" in r.err and db == [("outbound", "failed", "claude-bridge", None)], f"{r.code} {r.err} {db}")
+    f.close()
+
+    f = Fake({"ok": False, "error": "disk", "carried": 3, "queued": 1})
+    r, db, posts = send_in("carrier-only", 200, f.run)
+    check("W8 failed with some recipients recorded: exit 3, outcome unknown, the row stays pending",
+          r.code == 3 and "outcome unknown" in r.err and "same id" in r.err and db == [("outbound", "pending", None, None)],
+          f"{r.code} {r.err} {db}")
+    f.close()
+
+    r, db, posts = send_in("carrier-record", 200, P.scratch("run-"))
+    check("W8 carrier-record, no carrier, the relay taking it: still exit 3, and the relay's copy is said, not counted",
+          r.code == 3 and "not sent" in r.err and "the relay took a copy" in r.err and posts == 1, f"{r.code} {r.err} {posts}")
+    check("  and the row is the relay's accept, in the journal's name for the relay, the second transport's",
+          db == [("outbound", "accepted", "claude-bridge", None)], str(db))
+
+
 def main() -> int:
+    carrier_primary_cases()
     ok_reply = {"ok": True, "carried": 3, "queued": 3, "posted": 0}
 
     f = Fake(ok_reply)

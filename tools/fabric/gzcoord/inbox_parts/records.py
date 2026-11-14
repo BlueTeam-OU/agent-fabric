@@ -45,7 +45,7 @@ def _parse_quiet(text: Any) -> dict | None:
 
 
 def replay(page: Any, channel: str, which: str, me: dict, t: i18n.Printer | None = None,
-           as_json: bool = False) -> int:
+           as_json: bool = False, from_journal: bool = False) -> int:
     """Re-read one message already past this session's cursor — the case a
     read was piped through something that dropped the body. The recent
     history, no consumer id, so no cursor moves; the body only when it is
@@ -72,10 +72,12 @@ def replay(page: Any, channel: str, which: str, me: dict, t: i18n.Printer | None
         msg = None
     if as_json:
         addressed = bool(msg and for_me(msg, me))
-        # The relay's record is a claim (ADR-064 rule 9): never verified, whatever fields the record carries.
+        # The relay's record is a claim (ADR-064 rule 9): never verified, whatever fields the record carries. Only a page the
+        # caller says is the journal's (`from_journal`, the carrier's `newest`) carries what the carrier verified.
         print(js.stringify({"addressed": addressed, "seq": rec.get("seq"), "sender": rec.get("sender"), "when": when,
                             "type": msg["type"], "metadata": msg["metadata"], "text": text,
-                            "carrier": RELAY_CARRIER, "sender_verified": False}
+                            "carrier": rec.get("carrier") if from_journal else RELAY_CARRIER,
+                            "sender_verified": rec.get("sender_verified") is True if from_journal else False}
                            if addressed else {"addressed": addressed, "seq": rec.get("seq")}))
         return 0 if addressed else 2
     if not msg or not for_me(msg, me):
@@ -153,6 +155,19 @@ def journal_record(ep: Any, which: str) -> dict | None:
     return {"seq": row["carrier_seq"], "sender": row["sender"], "timestamp": row["happened_at"], "content": row["content"],
             "carrier": row["carrier"], "sender_verified": bool(row["sender_verified"]), "journal": True,
             "state": row["state"], "direction": row["direction"]}
+
+
+def journal_newest(ep: Any, limit: int) -> list[dict]:
+    """The carrier's record of the channel, as `Primary.newest` answers it: the newest `limit` rows this account's journal
+    holds, received and sent, oldest first, in the relay's record shape (`id` is the MESSAGE-ID, `seq` the carrier's seq
+    or None). A send that never left (state failed) is no message anyone holds. Nobody holds the whole channel: this is
+    what this account sent and what was addressed to it."""
+    rows = _journal_select(ep, "SELECT content, sender, happened_at, carrier, carrier_seq, message_id, {verified} FROM episodes "
+                           "WHERE NOT (direction='outbound' AND state='failed') ORDER BY happened_at DESC, recorded_at DESC "
+                           "LIMIT ?", (limit,))
+    return [{"id": r["message_id"], "seq": r["carrier_seq"], "sender": r["sender"], "timestamp": r["happened_at"],
+             "content": r["content"], "carrier": r["carrier"], "sender_verified": bool(r["sender_verified"])}
+            for r in (_typed(r) for r in reversed(rows))]
 
 
 def replay_journal_row(rec: dict, me: dict, t: i18n.Printer | None = None, as_json: bool = False) -> int:

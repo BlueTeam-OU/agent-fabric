@@ -327,6 +327,36 @@ def main() -> int:
             check("every addressed arrival is listed whatever the journal answered: whether it is shown is the ledger's to say",
                   kept.get("M-RS1") == "mismatch" and kept.get("M-RS2") == "ok", str(kept))
 
+            # -- a refusal before any record is written says queued 0 (the sender may then mark its row failed) ------
+            refused = a.carrier.handle_request({"op": "send", "message_id": "M-9", "text": msg("M-OTHER", "h/alpha", to="h/beta")})
+            check("a send whose text carries another MESSAGE-ID is refused with queued 0 and carried 0",
+                  refused["ok"] is False and refused["queued"] == 0 and refused["carried"] == 0, str(refused))
+            big = msg("M-10", "h/alpha", to="h/beta").replace("\n\n", "\n\n" + "".join(chr(0x4e00 + (i * 7919) % 20000) for i in range(900000)) + "\n", 1)
+            toolong = a.carrier.handle_request({"op": "send", "message_id": "M-10", "text": big})
+            check("a message that needs more chunks than the carrier sends is refused with queued 0",
+                  toolong["ok"] is False and toolong.get("queued") == 0 and "chunks" in toolong["error"], str(toolong)[:200])
+            check("... and nothing was written for either", not any(x.mid in ("M-9", "M-10") for x in a.box.deliveries.values()))
+
+            # -- the adapter's `wait`: the watch's clock when this carrier is the record --------------------
+            t0 = time.monotonic()
+            idle = c.carrier.handle_request({"op": "wait", "seconds": 0.6})
+            check("a wait with nothing addressed here lasts its bound and lists nothing (the positive control of the next)",
+                  idle == {"ok": True, "records": []} and 0.5 <= time.monotonic() - t0 < 5, f"{idle} {time.monotonic() - t0}")
+            woken: dict = {}
+            look, engine.WAIT_LOOK_S = engine.WAIT_LOOK_S, 25.0     # only the arrival may wake it: no look comes in time
+            waiter = threading.Thread(target=lambda: woken.update(t=time.monotonic(),
+                                                                  out=c.carrier.handle_request({"op": "wait", "seconds": 30})),
+                                      daemon=True)
+            started = time.monotonic()
+            waiter.start()
+            time.sleep(0.3)
+            a.carrier.handle_request({"op": "send", "message_id": "M-W", "text": msg("M-W", "h/alpha", to="h/gamma")})
+            waiter.join(timeout=10)
+            engine.WAIT_LOOK_S = look
+            check("a wait held open returns at the arrival, with its record, not at its bound",
+                  not waiter.is_alive() and woken.get("t", 1e9) - started < 8
+                  and [r["message_id"] for r in woken["out"]["records"]] == ["M-W"], str(woken))
+
             n_rows = len(b.journal_rows)
             b.carrier.handle_event(b.carrier.session, {"event_type": "message.direct", "data": {
                 "message_id": "d" * 32, "mode": "direct", "source_peer": pid(9), "source_endpoint": "gzcoord",
