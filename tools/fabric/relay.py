@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """tools/fabric/relay.py — the GZCoord relay as an account's own tools reach
 it: which relays and channels, its own token, one HTTP call. A library, not
-a command; relay_catchup.py and the journal's import (episodic_import.py)
-read the relay through it.
+a command; the journal's import (episodic_import.py) reads the relay
+through it.
 
 Each project's integration (projects/<id>/integration/gzcoord/config.json)
 names its relay and channel, as gzcoord-inbox

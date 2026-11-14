@@ -558,8 +558,6 @@ CONTRIBUTOR_SUPPLY = (
     # Writes and reads each agent's private conversational history (ADR-041).
     "tools/fabric/episodic.py", "tools/fabric/episodic_import.py", "tools/fabric/relay.py", "tools/fabric/history.py",
     "bin/fabric-history", "tools/fabric/reflect.py", "bin/fabric-reflect",
-    # Reads the relay as the account, with its token, and prints what it finds.
-    "tools/fabric/relay_catchup.py",
     # The workspace hooks that refuse nothing a commit or a review depends on.
     *(f"runtime/claude-code/hooks/{h}" for h in (
         "context-sample.py", "freshness.py", "inbox-watch.py", "memory-write-check.py", "model-fallback-note.sh",
