@@ -1056,7 +1056,7 @@ class ArmRun(unittest.TestCase):
             self.assertIn(words, str(rc), label)
 
     def test_what_cannot_be_read_is_unanswered_never_a_pass(self):
-        for label, kw, words in (("the relay", {"replay": (1, "")}, "could not be read from the relay"),
+        for label, kw, words in (("the relay", {"replay": (1, "")}, "could not be read from the journal or the relay"),
                                  ("presence", {"presence": (1, "")}, "could not say which role")):
             rc, _ = self.authorized(**kw)
             self.assertTrue(str(rc).startswith("unanswered"), (label, rc))
