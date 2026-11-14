@@ -12,6 +12,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import warnings
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, "tools", "fabric"))
@@ -161,6 +162,19 @@ def main() -> int:
               r.returncode == 2 and "Traceback" not in r.stderr and r.stderr.count("\n") == 1, f"{r.returncode} {r.stderr}")
     finally:
         shutil.rmtree(scratch, ignore_errors=True)
+
+    # ── a module's own invalid escape is not a syntax error: under -W error it would read as unparseable, a clean verdict ──
+    src = 'x = "\\ "\napi(tok, "/api/send", relay_url)\n'   # the invalid escape backslash-space beside a planted call
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        try:
+            compile(src, "x", "exec")
+            positive = False
+        except SyntaxError:
+            positive = True
+        got = found(SEND, src)
+    check("fixture: the invalid escape fails to parse under -W error", positive)
+    check("relay: a planted call beside an invalid escape is found under -W error", len(got) == 1, str(got))
 
     # ── this tree: the inbox and the sender hold no site of their own ────────────────────────────────────────────
     own = [p for d in ("tools/fabric/gzcoord",) for p in T.tracked_files(ROOT) if p.startswith(d + "/") and T.judged_path(p)]
