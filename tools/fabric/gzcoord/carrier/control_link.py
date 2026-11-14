@@ -707,6 +707,7 @@ class Server:
 
     def _run(self, conn: socket.socket, req: dict) -> None:
         rec, rid, lock = req["record"], req["record"]["id"], threading.Lock()
+        opened = time.monotonic()
 
         def put(obj: dict) -> None:
             # Called on the inbox thread: a fabric-ctl that stopped reading must not stop every other message, so a
@@ -719,9 +720,9 @@ class Server:
                     # session's loop seeing it: nothing is lost, the command had its rows); only a write that
                     # timed out is a ctl that is still there and not reading. j144.
                     if isinstance(e, (BrokenPipeError, ConnectionResetError)):
-                        self._log(f"fabric-ctl's session for {rid[:8]} had ended ({e.strerror}): this reply is dropped")
+                        self._log(f"fabric-ctl's session for {rid[:8]} had ended ({e.strerror}): a {obj.get('event')} dropped, {time.monotonic() - opened:.1f}s after it opened")
                     else:
-                        self._log(f"fabric-ctl's connection for {rid[:8]} is not reading ({e}): dropped")
+                        self._log(f"fabric-ctl's connection for {rid[:8]} is not reading ({e}): a {obj.get('event')} dropped, {time.monotonic() - opened:.1f}s after it opened")
                     self.carrier.unwatch(rid)
                     with contextlib.suppress(OSError):
                         conn.shutdown(socket.SHUT_RDWR)
