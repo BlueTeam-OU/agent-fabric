@@ -510,11 +510,18 @@ class SocketCases(Net):
             c = socket.socket(socket.AF_UNIX)
             c.settimeout(5)
             c.connect(self.path)
-            c.sendall(b'{"op":"send"}\n')
+            # The link closes at accept, before it reads: a loaded runner lets that close land
+            # before our send (EPIPE) or after it, with the line unread (ECONNRESET on recv).
+            # Either is "closed unread"; only bytes coming back would be a failure.
+            # recv still runs after a broken send: a refusal written before the close stays readable.
+            try:
+                c.sendall(b'{"op":"send"}\n')
+            except (BrokenPipeError, ConnectionResetError):
+                pass
             try:
                 answer = c.recv(4096)
             except ConnectionResetError:
-                answer = b""    # closed with our line unread: the kernel says reset
+                answer = b""
             self.assertEqual(answer, b"", "closed without a word, not refused with a reason a stranger could read")
             c.close()
         self.assertTrue(any("another user" in l for l in self.nodes["op"].logs))
