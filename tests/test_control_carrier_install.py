@@ -826,7 +826,7 @@ class RealPin(unittest.TestCase):
         self.assertNotIn("minisign", pin["releases"]["0.1.0"])
 
     def test_the_trusted_comments_signature_verifies_with_the_pinned_key_and_names_the_archive(self):
-        # The archive is 117 MB and is not here; the global signature covers the comment and the archive's signature, so
+        # The archive (over 100 MB) is not here; the global signature covers the comment and the archive's signature, so
         # it ties the pinned bytes to the pinned key without it. verify_file itself runs on the archive in the live check.
         signed = {v: r for v, r in iw.load_pin(HERE)["releases"].items() if "minisign" in r}
         self.assertIn(iw.load_pin(HERE)["current"], signed)

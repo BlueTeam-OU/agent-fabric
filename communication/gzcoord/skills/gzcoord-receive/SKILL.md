@@ -202,7 +202,7 @@ carrier it came by; a relay seq, or an id your journal does not hold,
 goes on to the relay's recent history. Neither read moves anything (the
 journal is opened read-only, the relay read without a consumer id). The
 body is shown only if the message is addressed to you; otherwise its
-metadata line, and exit 2 for a journal row — SPEC §17 applies to a
+metadata line and exit 2, from the journal or the relay — SPEC §17 applies to a
 replay too. An unreadable journal is one line and exit 1, never "the
 message is not there". Never pipe the watch or a drain through anything
 that truncates.
