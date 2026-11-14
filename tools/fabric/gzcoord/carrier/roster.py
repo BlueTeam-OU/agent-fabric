@@ -41,7 +41,14 @@ firewall, or a public forward in front of it, must admit the roster's port
 range (from the coordinator's host, or from any source on the owner's word,
 ADR-064 rule 1), and nothing here does. Bootstrap per peer: a peer on the SAME host
 as the account stays at 127.0.0.1; a peer on another host is at that host's
-`interweave_address` in runtime/hosts/registry.json (a literal IP). A row
+`interweave_address` in runtime/hosts/registry.json (a literal IP).
+ONE rule says which host an agent is on, for this dial and for the engine's
+recipients and FROM mapping alike (row_host): the row's `host`, and for a row
+without one the host part of the dialling agent's own identity address
+(`own_host`, passed in by the caller). So a same-machine fleet only partly
+re-signed with `host` never depends on the overlay. An account whose own row
+names a host other than its identity address's is refused (check_own_host):
+two answers to "where am I" are never guessed between. A row
 naming a host the registry lacks, or one without an address, is refused like
 any other bad row.
 It refuses when the account's own row is not valid: an account whose key
@@ -342,21 +349,35 @@ def valid_rows(roster: Roster, keys: KeySource) -> tuple[list[dict], list[Refusa
     return good, bad
 
 
-def render_config(roster: Roster, good: list[dict], agent_id: str) -> str:
+def row_host(row: dict, own_host: str) -> str:
+    """The host a roster row's agent lives on: the row's own, else the dialling agent's
+    (rows signed before `host` existed are all on the one host; ADR-064 rule 2)."""
+    return row.get(HOST_KEY, own_host)
+
+
+def check_own_host(row: dict, own_host: str) -> None:
+    """Refuse an own row naming a host other than the identity address's: the engine would
+    address messages from one host while the config dials as if on the other."""
+    if HOST_KEY in row and row[HOST_KEY] != own_host:
+        raise RosterError(f"this agent's roster row names host {row[HOST_KEY]!r} but its identity address is on "
+                          f"{own_host!r}: the row and the address must agree")
+
+
+def render_config(roster: Roster, good: list[dict], agent_id: str, *, own_host: str) -> str:
     me = next((r for r in good if r["agent_id"] == agent_id), None)
     if me is None:
         raise RosterError("this agent has no valid row in the roster: nothing to render")
+    check_own_host(me, own_host)
     others = sorted((r for r in good if r["agent_id"] != agent_id), key=lambda r: r["port"])
     allowed = json.dumps([r["peer_id"] for r in others])
     def where(r: dict) -> str:
-        if HOST_KEY not in r:
-            return f"/ip4/{LOOPBACK}/tcp/{r['port']}"
+        # only a row naming a host gets here: a hostless one is on own_host and dialled on loopback
         proto, addr = host_address(roster, r[HOST_KEY])
         if proto is None:  # valid_rows refused such a row; a caller that hands one in gets a refusal, not 127.0.0.1
             raise RosterError(addr)
         return f"/{proto}/{addr}/tcp/{r['port']}"
     def dial(r: dict) -> str:
-        if HOST_KEY in r and r[HOST_KEY] == me.get(HOST_KEY):
+        if row_host(r, own_host) == own_host:
             return f"/ip4/{LOOPBACK}/tcp/{r['port']}"
         return where(r)
 

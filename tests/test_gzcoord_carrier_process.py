@@ -112,6 +112,29 @@ def main() -> int:
             check("with this agent's own row failing its signature nothing is rendered (exit 2, reason on stderr)",
                   r3.returncode == 2 and r3.stdout == "" and "counts for nothing" in r3.stderr, r3.stderr)
 
+            # j121: the own row's host and the identity address's host are one answer, or the carrier does not start
+            reg = os.path.join(d, "hosts.json")
+            with open(reg, "w") as fh:
+                json.dump({"hosts": {"zz": {"interweave_address": "10.9.0.9"}}}, fh)
+
+            def host_ros(host: str) -> str:
+                path = os.path.join(d, f"host-{host}.json")
+                with open(path, "w") as fh:
+                    json.dump({"version": 1, "profile": "gzcoord", "endpoint": "gzcoord", "port_range": [47100, 47199],
+                               "rows": [RT.row(me, root, "me", 47101, host=host), rows[1]]}, fh)
+                return path
+            hv = dict(GZCOORD_CARRIER_ROSTER=host_ros("zz"), AGENT_FABRIC_HOSTS_REGISTRY=reg)
+            for verb in ("run", "render-config"):
+                rm = cmd(verb, **hv)
+                check(f"{verb}: an own row naming a host other than the identity address's is refused (exit 2, both hosts named)",
+                      rm.returncode == 2 and "'zz'" in rm.stderr and "identity address is on" in rm.stderr, rm.stderr)
+            id_host = cmd("render-config", **hv).stderr.split("identity address is on '")[1].split("'")[0]
+            with open(reg, "w") as fh:
+                json.dump({"hosts": {id_host: {"interweave_address": "10.9.0.9"}}}, fh)
+            rok = cmd("render-config", GZCOORD_CARRIER_ROSTER=host_ros(id_host), AGENT_FABRIC_HOSTS_REGISTRY=reg)
+            check("positive control: the same row naming the identity address's host renders (exit 0)",
+                  rok.returncode == 0 and "0.0.0.0/tcp/47101" in rok.stdout, rok.stderr)
+
             check("the journal off: run refuses (exit 2)", cmd("run", GZCOORD_JOURNAL="off").returncode == 2)
             env2 = {k: v for k, v in env.items() if k != "XDG_RUNTIME_DIR"}
             r4 = subprocess.run([CMD, "run"], env=env2, capture_output=True, text=True, timeout=60, stdin=subprocess.DEVNULL)

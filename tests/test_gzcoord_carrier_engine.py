@@ -512,6 +512,14 @@ def main() -> int:
             check("whatever stops the roster verifying (a git that cannot run) leaves it carrying nothing, not ending the carrier",
                   res["carried"] == 0)
             a.roster_breaks = False
+            own_row = next(r for r in a.rows if r["login"] == "alpha")
+            send = lambda mid_: a.carrier.handle_request({"op": "send", "message_id": mid_, "text": msg(mid_, "h/alpha", to="h/beta")})["carried"]  # noqa: E731
+            own_row["host"] = "zz"
+            a.carrier.refresh_roster()
+            check("a roster swapped for one whose own row names another host than the identity address carries nothing", send("M-12c") == 0)
+            own_row["host"] = "h"
+            a.carrier.refresh_roster()
+            check("positive control: the same row naming the identity address's host carries again", send("M-12d") == 1)
             a.roster_ok[0] = False
             a.carrier.refresh_roster()
             res = a.carrier.handle_request({"op": "send", "message_id": "M-13", "text": msg("M-13", "h/alpha", to="h/beta")})

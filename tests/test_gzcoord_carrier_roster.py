@@ -179,7 +179,7 @@ def main() -> int:
             check("a PeerId claimed twice refuses both rows", sorted(dup) == ["alpha", "beta"], str(dup))
 
             good, _ = R.valid_rows(doc([ra, rb, row(c, root, "c", 47103, signer=a)]), keys)
-            cfg_a = R.render_config(doc([ra, rb]), good, a.agent_id)
+            cfg_a = R.render_config(doc([ra, rb]), good, a.agent_id, own_host="h1")
             check("the config allowlists the other valid peers and not itself nor a refused one",
                   json.dumps([peer_id("b")]) in cfg_a and peer_id("a") not in cfg_a.split("allowed_peers")[1].split("\n")[0]
                   and peer_id("c") not in cfg_a)
@@ -193,7 +193,7 @@ def main() -> int:
                   and "{ id: fabric-control, enabled: true, advertise: false, allowed_client_kinds: [human-client] }" in cfg_a
                   and "default_direct_endpoint: gzcoord\n" in cfg_a)
             try:
-                R.render_config(doc([ra, rb]), good, c.agent_id)
+                R.render_config(doc([ra, rb]), good, c.agent_id, own_host="h1")
                 refusing = False
             except R.RosterError:
                 refusing = True
@@ -230,7 +230,7 @@ def main() -> int:
             hall = hdoc([ha, hb, hc])
             good, bad = R.valid_rows(hall, keys)
             check("positive control: rows on two hosts, each signed over its own form, all count", len(good) == 3 and not bad, str(bad))
-            cfg_ha, cfg_hb, cfg_hc = (R.render_config(hall, good, x.agent_id) for x in (a, b, c))
+            cfg_ha, cfg_hb, cfg_hc = (R.render_config(hall, good, x.agent_id, own_host=x_host) for x, x_host in ((a, "h1"), (b, "h2"), (c, "h1")))
             check("an account with a host listens on the wildcard of its address's family, never on the address or loopback",
                   'listen: { addresses: ["/ip4/0.0.0.0/tcp/47101"] }' in cfg_ha and 'addresses: ["/ip4/0.0.0.0/tcp/47102"]' in cfg_hb
                   and "10.9.0.1/tcp/47101\"" not in cfg_ha and "127.0.0.1/tcp/47101" not in cfg_ha)
@@ -242,16 +242,38 @@ def main() -> int:
                   json.dumps([peer_id("b"), peer_id("c")]) in cfg_ha and cfg_ha.count("allowed_peers") == 1)
             nohost = row(c, root, "c", 47103)
             good_m, _ = R.valid_rows(hdoc([ha, nohost]), keys)
-            cfg_m_a, cfg_m_c = (R.render_config(hdoc([ha, nohost]), good_m, x.agent_id) for x in (a, c))
+            cfg_m_a, cfg_m_c = (R.render_config(hdoc([ha, nohost]), good_m, x.agent_id, own_host=h) for x, h in ((a, "h1"), (c, "h2")))
             check("a row with no host listens on loopback and is bootstrapped there; a hosted peer is dialled at its address",
                   'addresses: ["/ip4/127.0.0.1/tcp/47103"]' in cfg_m_c and f"/ip4/10.9.0.1/tcp/47101/p2p/{peer_id('a')}" in cfg_m_c
                   and f"/ip4/127.0.0.1/tcp/47103/p2p/{peer_id('c')}" in cfg_m_a)
+            # one notion of "same host" (j121): A's row names none and A's identity address is on h1,
+            # B and C are on h1 whose overlay address is 10.9.0.1 -> A dials both on loopback, not the overlay
+            nh_a = row(a, root, "a", 47101)
+            hb1, hc1 = row(b, root, "b", 47102, host="h1"), row(c, root, "c", 47103, host="h1")
+            doc_abc = hdoc([nh_a, hb1, hc1])
+            good_abc, _ = R.valid_rows(doc_abc, keys)
+            cfg_abc = R.render_config(doc_abc, good_abc, a.agent_id, own_host="h1")
+            check("a hostless own row on h1 dials hosted peers on h1 on loopback, never at the overlay address",
+                  len(good_abc) == 3 and f"/ip4/127.0.0.1/tcp/47102/p2p/{peer_id('b')}" in cfg_abc
+                  and f"/ip4/127.0.0.1/tcp/47103/p2p/{peer_id('c')}" in cfg_abc and "10.9.0.1" not in cfg_abc, cfg_abc)
+            cfg_abc_elsewhere = R.render_config(doc_abc, good_abc, a.agent_id, own_host="h2")
+            check("positive control: the same rows from an account on h2 dial h1 at its overlay address",
+                  f"/ip4/10.9.0.1/tcp/47102/p2p/{peer_id('b')}" in cfg_abc_elsewhere)
+            check("row_host is the one rule: the row's host, else the caller's",
+                  R.row_host(hb1, "h2") == "h1" and R.row_host(nh_a, "h2") == "h2")
+            try:
+                R.render_config(hall, good, a.agent_id, own_host="h2")
+                mismatch = ""
+            except R.RosterError as e:
+                mismatch = str(e)
+            check("an own row naming a host other than the identity address's is refused, naming both",
+                  "'h1'" in mismatch and "'h2'" in mismatch, mismatch)
             h6 = row(a, root, "a", 47101, host="h6")
             good6, _ = R.valid_rows(hdoc([h6, rb]), keys)
-            cfg6 = R.render_config(hdoc([h6, rb]), good6, a.agent_id)
+            cfg6 = R.render_config(hdoc([h6, rb]), good6, a.agent_id, own_host="h6")
             check("an IPv6 host listens on :: and is dialled as an /ip6/ multiaddr",
                   'addresses: ["/ip6/::/tcp/47101"]' in cfg6 and f"/ip4/127.0.0.1/tcp/47102/p2p/{peer_id('b')}" in cfg6
-                  and f"/ip6/fd00::6/tcp/47101/p2p/{peer_id('a')}" in R.render_config(hdoc([h6, rb]), good6, b.agent_id))
+                  and f"/ip6/fd00::6/tcp/47101/p2p/{peer_id('a')}" in R.render_config(hdoc([h6, rb]), good6, b.agent_id, own_host="h2"))
             inj = "fe80::1%x\"] } }\ntrust:\n  policy: allow-all\n#"
             for bad_addr in (inj, "fe80::1%eth0", "0.0.0.0", "::", "224.0.0.1", "::ffff:10.9.0.1", "255.255.255.255", "240.0.0.1"):
                 hosts["evil"] = {"interweave_address": bad_addr}
@@ -274,7 +296,7 @@ def main() -> int:
                 check(f"{why_case}: the row is refused with one line and the rest still count",
                       [x["login"] for x in g] == ["beta"] and len(bd) == 1 and "\n" not in bd[0].reason, str(bd))
             try:
-                R.render_config(hdoc([row(a, root, "a", 47101, host="nowhere"), rb]), [row(a, root, "a", 47101, host="nowhere"), rb], b.agent_id)
+                R.render_config(hdoc([row(a, root, "a", 47101, host="nowhere"), rb]), [row(a, root, "a", 47101, host="nowhere"), rb], b.agent_id, own_host="h2")
                 silent = True
             except R.RosterError:
                 silent = False
