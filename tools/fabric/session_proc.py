@@ -18,7 +18,6 @@ suites carry none); only a cmdline that says `daemon` removes it.
 `proc` is the /proc root, so a test builds the tree it asks about. Everything is read from /proc; nothing is run."""
 from __future__ import annotations
 
-import os
 import re
 
 PROC = "/proc"
