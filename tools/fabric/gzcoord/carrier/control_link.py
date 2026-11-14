@@ -17,7 +17,9 @@ CONTRACT (ADR-029 rule 18, line for line):
              gzcoord (gzcoord/carrier/engine.py).
   authority  a request counts only when its `from` is the address the roster
              maps the message's author PeerId to; a reply reaches fabric-ctl
-             only from the PeerId of its own `from`. A PeerId the roster does
+             only from the PeerId of its own `from`, except this account's own,
+             which is answered in-process and is this account's by uid, not by
+             PeerId (j245). A PeerId the roster does
              not hold is never admitted. The roster is the only source: the
              rows that verify (ADR-064 rule 2), re-verified when the file moves.
   one seen-set  the request is decided by agentd's own accept(), whichever
@@ -36,7 +38,10 @@ CONTRACT (ADR-029 rule 18, line for line):
              own agentd over $XDG_RUNTIME_DIR/agent-fabric/control.sock
              (mode 0600, same uid, SO_PEERCRED checked) and reads back the
              replies agentd routes to it by `in_reply_to`, with the carrier
-             and the authenticated sender. One direct send per target.
+             and the authenticated sender. One direct send per target; the
+             operator's own address is not sent to: its request is looped back
+             to agentd's own handler (Carrier._loop_request), and its reply
+             comes back to the waiter in-process, with no child and no roster row.
 
 PART_BYTES. Measured 2026-11-12 on two scratch profiles of one host with the
 pinned 0.2.0 programs: random base64 texts of 32 768, 49 152 and 60 000 bytes
@@ -476,9 +481,10 @@ class Child:
         """Wait for a send's outcome; a child that answers nothing three sends running is wedged and ended (the
         supervisor restarts it), a restart that costs the lease only for a moment."""
         ok, why = send.wait(wait_s)
-        if ok or send.ref == "-" or send._done.is_set():
-            if ok:
-                self._timeouts = 0
+        # "self": a loopback never touched the child, so it neither counts toward nor resets its wedged tally.
+        if ok and send.ref not in ("-", "self"):
+            self._timeouts = 0
+        if ok or send.ref in ("-", "self") or send._done.is_set():
             return ok, why
         with self._lock:
             self._pending.pop(send.ref, None)
@@ -599,7 +605,8 @@ class Carrier:
         return {a: self.child.settle(s, deadline - time.monotonic()) for a, s in started}
 
     def reply(self, request: dict, reply: dict) -> None:
-        """The same reply a relay copy was posted for, to the sender's own PeerId. Nothing here raises: the relay
+        """The same reply a relay copy was posted for, to the sender's own PeerId (in-process to the waiter when the
+        sender is this account). Nothing here raises: the relay
         copy is posted first and is the record."""
         op = request.get("op")
         if isinstance(op, str) and op in RELAY_ONLY_OPS:

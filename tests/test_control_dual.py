@@ -273,7 +273,7 @@ class Dual(Scratch):
         self.assertEqual({r["account"]: (r["status"], r["carrier"]) for r in self.rows()},
                          {"op": ("ok", "interweave"), "alice": ("ok", "interweave")})
         self.assertTrue(any("InterWeave carries alone" in e for e in self.err), self.err)
-        self.assertEqual(self.relay.sent, [], "the fake relay was never reached")
+        self.assertTrue(any(str(closed) in e for e in self.err), "the line names the closed port the relay was asked at")
 
     def test_the_operators_own_row_by_both_carriers_is_the_interweave_copy_and_others_are_unchanged(self):
         self.place_operator()

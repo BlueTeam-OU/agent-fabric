@@ -229,7 +229,8 @@ def ask_holder(*, call, cfg: dict, from_: str, holder: str, op: str, args: dict,
         relay_error = e
     leg = None
     if dual:
-        # An account has no second-carrier path to itself: a holder that is this account is reached by the relay.
+        # This ask opens no second-carrier leg to itself: a holder that is this account is reached by the relay (the socket
+        # could loop it back, as it does fabric-ctl's own row, j245; this ask has not chosen to).
         if holder != from_:
             try:
                 leg = open_leg(request, [holder], min(wait, left()) / 1000)

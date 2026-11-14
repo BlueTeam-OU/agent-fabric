@@ -378,6 +378,15 @@ class Inbound(Net):
         self.assertEqual(a.requests, [(rec, "h/alice")])
         self.assertEqual([(l["carrier"], l["verdict"], l["from"]) for l in a.arrival_lines()], [("interweave", "ok", "h/alice")])
 
+    def test_a_loopback_send_neither_counts_toward_nor_resets_the_childs_wedged_tally(self):
+        a = self.nodes["alice"]
+        a.child._timeouts = 2
+        a.carrier.send_to(["h/alice"], request(frm="h/alice"), 1)
+        self.assertEqual(a.child._timeouts, 2, "a send that never reached the child said nothing about it")
+        # positive control: a send that did go to the child and was answered does reset it
+        self.assertEqual(a.carrier.send_to(["h/bob"], request(frm="h/alice", to=["h/bob"]), 5)["h/bob"], (True, ""))
+        self.assertEqual(a.child._timeouts, 0)
+
     def test_what_may_not_go_by_interweave_does_not_loop_back_either(self):
         a = self.nodes["alice"]
         for rec in [request(op=op) for op in cc.RELAY_ONLY_OPS] + [reply(frm="h/alice")]:
