@@ -21,8 +21,9 @@ import os
 from dataclasses import dataclass
 from typing import Iterator
 
+import session_proc
+
 PROC = "/proc"
-SESSION_COMM = "claude"                   # /proc/<pid>/comm of the harness process
 SHELLS = frozenset({"bash", "sh", "dash", "zsh"})   # what the harness wraps a background command in
 KINDS = ("claude", "parent", "detached")
 MAX_HOPS = 64
@@ -69,7 +70,7 @@ def ancestors(pid: int, proc: str = PROC) -> Iterator[Proc]:
 
 def nearest_claude(pid: int, proc: str = PROC) -> Proc | None:
     uid = os.getuid()
-    return next((a for a in ancestors(pid, proc) if a.comm == SESSION_COMM and a.uid == uid), None)
+    return next((a for a in ancestors(pid, proc) if a.uid == uid and session_proc.is_session(a.pid, a.comm, proc)), None)
 
 
 def reparented(pid: int, proc: str = PROC) -> bool:

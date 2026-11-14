@@ -82,6 +82,7 @@ def main() -> int:
                                          (20, "python3", 1, b"")):
                 os.makedirs(os.path.join(proc, str(pid)))
                 for name, body in (("comm", f"{comm}\n".encode()), ("status", f"Name:\t{comm}\nPPid:\t{ppid}\n".encode()),
+                                   ("stat", f"{pid} ({comm}) S {ppid} 0 0\n".encode()),
                                    ("environ", env)):
                     with open(os.path.join(proc, str(pid), name), "wb") as fh:
                         fh.write(body)

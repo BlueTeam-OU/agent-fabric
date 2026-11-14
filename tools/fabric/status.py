@@ -372,21 +372,15 @@ def hold_of(identity, agent):
 # a session, or where /proc is not readable: the process's own then.
 def harness_environ(start_pid=None, proc="/proc"):
     pid = os.getppid() if start_pid is None else start_pid
-    for _ in range(64):
-        try:
-            with open(f"{proc}/{pid}/comm", encoding="utf-8") as fh:
-                comm = fh.read().strip()
-            if comm == "claude":
-                with open(f"{proc}/{pid}/environ", "rb") as fh:
-                    pairs = [e.split(b"=", 1) for e in fh.read().split(b"\0") if b"=" in e]
-                return {k.decode(errors="replace"): v.decode(errors="replace") for k, v in pairs}
-            with open(f"{proc}/{pid}/status", encoding="utf-8") as fh:
-                pid = int(next(line.split()[1] for line in fh if line.startswith("PPid:")))
-        except (OSError, ValueError, StopIteration):
-            return None
-        if pid <= 1:
-            return None
-    return None
+    session = load("fabric_session_proc", os.path.join(os.path.dirname(os.path.realpath(__file__)), "session_proc.py")).nearest_session(pid, proc)
+    if session is None:
+        return None
+    try:
+        with open(f"{proc}/{session}/environ", "rb") as fh:
+            pairs = [e.split(b"=", 1) for e in fh.read().split(b"\0") if b"=" in e]
+    except OSError:
+        return None
+    return {k.decode(errors="replace"): v.decode(errors="replace") for k, v in pairs}
 
 
 def session_environ(environ, find=None):
