@@ -503,6 +503,10 @@ class SocketCases(Net):
         self.assertIsNone(op.carrier._waiters.get("stuck"), "the connection was dropped with its waiter")
         self.assertLess(time.monotonic() - t0, 40, "bounded, not for the rest of wait_s")
         self.assertTrue(any("not reading" in l for l in op.logs), op.logs)
+        # One line per session, and the shutdown it did itself is never reported as a ctl that had ended.
+        waiter_gone = [l for l in op.logs if "stuck"[:8] in l]
+        self.assertEqual(len(waiter_gone), 1, op.logs)
+        self.assertNotIn("had ended", waiter_gone[0])
 
     def test_a_reply_after_ctl_closed_says_the_session_ended_not_that_it_is_not_reading(self):
         s = cc.Session(self.path, request(rid="gone", to=["h/alice"]), ["h/alice"], 60)
