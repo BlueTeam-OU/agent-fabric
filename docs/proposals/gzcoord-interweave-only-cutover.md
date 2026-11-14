@@ -1,5 +1,9 @@
 # GZCoord on InterWeave only: the cutover from the dual run
 
+**Status 2026-11-14.** The owner answered D1, D2, D4, D5 and D10 on 2026-11-13, each as
+recommended (§7). D3's first half is done: #573 merged on 2026-11-13. D6, D7 and D8 are not
+asked yet, and D9 is partly answered. The records named in §4 are not amended yet.
+
 A plan for the owner's review, drafted for fabric-coordinator. It decides nothing: every step
 that changes what carries a message waits for the owner's word and the record named beside it
 (§4). The goal is the owner's: the GZCoord data plane runs on InterWeave only, and the central
@@ -299,6 +303,22 @@ other than `NotInRoster`, a roster that fails to verify on any account, or an ac
 - **D10. Where the mode lives.** Recommended: signed action and account state (§6), not a
   committed file: it moves one account in seconds and needs no pull request per stage. The
   cost is that the fleet's modes are read from the accounts, not from git.
+
+**The owner's answers, 2026-11-13**, given in the coordinator's session, each as
+recommended:
+
+- D1: the data plane first, through gates 1 and 2. W12 sits inside gate 2. Retiring the relay,
+  the control plane included, is a later gate 3.
+- D2 and D10: three rungs, `relay-record`, then `carrier-record`, then `carrier-only`. A signed
+  action moves each account, and the account's state keeps its mode. python-dev-02 and
+  python-dev-03 go first, the coordinator's account last.
+- D4: `fabric-pr arm` may read AUTHORIZES and WAIVES from the arming login's own journal, but
+  only for a row addressed to that login whose sender the carrier verified. This needs an
+  amendment of ADR-041 rule 7.
+- D5: give up all three. The owner has not yet named the retention period for the relay's
+  last database copy.
+- D9, in part: fabric-h2 gets a public InterWeave address and port, which the owner accepted on
+  2026-11-14 (#597). Whether a login there can send without dialling out is still open.
 
 ## 8. What happens first
 
