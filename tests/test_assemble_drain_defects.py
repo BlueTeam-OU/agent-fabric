@@ -817,6 +817,41 @@ def test_f6_an_unreadable_control_plane_report_is_refused_and_left_as_it_is(tmp:
         assert not os.path.exists(ta.proj(out, "alpha", "workflow.md")), "nor the project's own"
 
 
+def test_a_rehome_collision_decision_reaches_the_control_planes_own_report(tmp: str) -> None:
+    """The decision of the re-home pass's collision is in agent-fabric's report (record_rehomed), not only the project's: the
+    next run forgot a decision the owner had given when the pass's own record was dropped. Control: the project's report has it."""
+    two = [{**WF, "topic": "moved", "body": "One.", "evidence": ["h2"]}, {**WF, "topic": "moved", "body": "Two.", "evidence": ["h2"]}]
+    drain, claims_dir, out = ta.build(tmp, {"alpha": ta.claims("alpha", [WF]), COORD: ta.claims(COORD, two)})
+    bind(out, "alpha")
+    key = f"{COORD}/workflow:moved#T"
+    proc = ta.run_assemble(drain, claims_dir, out, *ta.keep_both(tmp, key))
+    assert proc.returncode == 0, proc.stderr
+    assert [d["key"] for d in report(out)["collision_decisions"]] == [key], "control: " + str(report(out)["collision_decisions"])
+    assert [d["key"] for d in fabric_report(out)["collision_decisions"]] == [key], fabric_report(out)
+
+
+def test_an_unreadable_report_of_the_drained_project_is_refused_and_left_as_it_is(tmp: str) -> None:
+    """The project's own report was taken for absent and overwritten when it was no JSON or no object, while the re-home pass
+    refuses the same input. Control: absent, the same run writes it."""
+    for text in ("{not json", "[1, 2]"):
+        drain, claims_dir, out = ta.build(os.path.join(tmp, str(len(text))), {"alpha": ta.claims("alpha", [WF])})
+        bind(out, "alpha")
+        path = ta.report_path(out)
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w", encoding="utf-8") as fh:
+            fh.write(text)
+        proc = ta.run_assemble(drain, claims_dir, out)
+        assert proc.returncode == 1 and path in proc.stderr and "not replaced" in proc.stderr and "Traceback" not in proc.stderr, \
+            (proc.returncode, proc.stderr)
+        assert ta.read(path) == text, "left as it is"
+        assert not os.path.exists(ta.proj(out, "alpha", "workflow.md")), "refused before anything is written"
+        assert proc.stderr.strip().count("\n") == 0, "one line: " + proc.stderr
+    drain, claims_dir, out = ta.build(os.path.join(tmp, "absent"), {"alpha": ta.claims("alpha", [WF])})
+    bind(out, "alpha")
+    assert ta.run_assemble(drain, claims_dir, out).returncode == 0, "control"
+    assert report(out)["project"] == ta.PROJECT
+
+
 def test_the_commit_body_counts_what_was_rehomed(tmp: str) -> None:
     """A line the report gives reason for: removing it from commit_message passed every suite (the review's risks)."""
     drain, claims_dir, out = ta.build(tmp, {"alpha": ta.claims("alpha", [WF]), COORD: ta.claims(COORD, [{**WF, "topic": "moved", "evidence": ["h2"]}])})
@@ -883,6 +918,8 @@ def main() -> int:
         test_f6_an_unreadable_control_plane_report_is_refused_and_left_as_it_is,
         test_f3_what_the_rehome_pass_replaced_is_recorded_in_the_control_planes_report_and_a_replay_keeps_it,
         test_f4_the_notes_of_the_rehome_pass_reach_the_projects_report_and_its_files_are_checked_for_links,
+        test_a_rehome_collision_decision_reaches_the_control_planes_own_report,
+        test_an_unreadable_report_of_the_drained_project_is_refused_and_left_as_it_is,
         test_the_commit_body_counts_what_was_rehomed,
         test_a_rehomed_claim_the_control_planes_pass_rejects_is_no_rehomed_row,
     ]
