@@ -7,9 +7,9 @@ background command when its session ends: the watch was reparented to systemd --
 session was gone. So a watch records the session it serves when it starts and ends when that session does, and a watch that
 loses the lock to one whose session is gone ends it (watchlock.py asks here).
 
-THE SESSION is the nearest `claude` ancestor of the watch when it has one (the harness's own process: the bash that runs the
+THE SESSION is the nearest ancestor session_proc.is_session accepts (comm `claude` other than `claude daemon`, or the version-named process of 2.1.322's layout) when it has one (the harness's own process: the bash that runs the
 watch outlives it), else the watch's parent. It is recorded with its start time, so a pid that was reused is another process,
-not the session. A watch started with no `claude` above it and already hanging from init or from this login's systemd (a
+not the session. A watch started with no session above it and already hanging from init or from this login's systemd (a
 service, a container entrypoint) is "detached": nothing above it is a session whose end could be seen, so only its parent's
 death ends it. Everything is read from /proc, which takes `proc` so a test can build the tree it asks about.
 
@@ -21,8 +21,9 @@ import os
 from dataclasses import dataclass
 from typing import Iterator
 
+import session_proc
+
 PROC = "/proc"
-SESSION_COMM = "claude"                   # /proc/<pid>/comm of the harness process
 SHELLS = frozenset({"bash", "sh", "dash", "zsh"})   # what the harness wraps a background command in
 KINDS = ("claude", "parent", "detached")
 MAX_HOPS = 64
@@ -69,7 +70,7 @@ def ancestors(pid: int, proc: str = PROC) -> Iterator[Proc]:
 
 def nearest_claude(pid: int, proc: str = PROC) -> Proc | None:
     uid = os.getuid()
-    return next((a for a in ancestors(pid, proc) if a.comm == SESSION_COMM and a.uid == uid), None)
+    return next((a for a in ancestors(pid, proc) if a.uid == uid and session_proc.is_session(a.pid, a.comm, proc)), None)
 
 
 def reparented(pid: int, proc: str = PROC) -> bool:

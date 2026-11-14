@@ -77,6 +77,7 @@ import sys
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import roots  # noqa: E402
+import session_proc  # noqa: E402
 # The checkout this file is in, never AGENT_FABRIC_ROOT: the bash took its
 # identity.py and jobs.py from beside itself, and so does this.
 FABRIC = os.path.dirname(os.path.dirname(HERE))
@@ -250,35 +251,10 @@ def dirty_toplevel() -> str | None:
     return _git("rev-parse", "--show-toplevel").stdout.rstrip("\n")
 
 
-def _parent(pid: int) -> int | None:
-    try:
-        with open(f"/proc/{pid}/status", encoding="utf-8", errors="replace") as fh:
-            for line in fh:
-                if line.startswith("PPid:"):
-                    return int(line.split()[1])
-    except (OSError, ValueError, IndexError):
-        pass
-    return None
-
-
-def _comm(pid: int) -> str | None:
-    try:
-        with open(f"/proc/{pid}/comm", encoding="utf-8", errors="replace") as fh:
-            return fh.read().rstrip("\n")
-    except OSError:
-        return None
-
-
-def session_pid(comm: str) -> int | None:
-    """The session: the nearest `comm` up this process's parent chain (the
-    Bash tool runs as its descendant). The kernel truncates a process name
-    to fifteen bytes, and the bash compared against it as read."""
-    pid: int | None = os.getpid()
-    while pid is not None and pid > 1:
-        if _comm(pid) == comm:
-            return pid
-        pid = _parent(pid)
-    return None
+def session_pid(comm: str, proc: str = "/proc", start: int | None = None) -> int | None:
+    """The session: the nearest one up this process's parent chain (the Bash tool runs as its descendant); what
+    counts as one is session_proc's, which knows the bg-pty-host layout's daemon is not."""
+    return session_proc.nearest_session(os.getpid() if start is None else start, proc, comm)
 
 
 def write_marker(path: str, note: str, job: str) -> str:
