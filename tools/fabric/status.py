@@ -367,7 +367,7 @@ def hold_of(identity, agent):
 # A session's Bash no longer holds the harness's credentials (the
 # SessionStart hook unsets them, ADR-038 rule 9), so what this session
 # signs in with is read where it is: the environment of the nearest
-# ancestor that is the harness itself, by its process name. Read in this
+# ancestor that is the harness itself, as session_proc decides (comm `claude` other than `claude daemon`, or the version-named process). Read in this
 # process, fingerprinted or reduced to "set", never printed. None outside
 # a session, or where /proc is not readable: the process's own then.
 def harness_environ(start_pid=None, proc="/proc"):

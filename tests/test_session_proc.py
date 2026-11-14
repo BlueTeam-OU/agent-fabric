@@ -92,6 +92,8 @@ def main() -> int:
         check("only a dotted three-part version is a version comm",
               all(session_proc.is_session(1, c, new) for c in ("2.1.322", "10.0.1"))
               and not any(session_proc.is_session(1, c, new) for c in ("2.1", "2.1.322-beta", "v2.1.322", "2.1.x", "claude2", "bash", "")))
+        check("a versioned comm whose argv says daemon is no session either",
+              session_proc.is_session(1, "2.1.322", build(os.path.join(tmp, "vd"), {1: ("2.1.322", 0, ["2.1.322", "daemon"])})) is False)
         check("a named fake comm is matched exactly, and the version rule is off for it",
               session_proc.nearest_session(50, old, "bash") == 40 and session_proc.nearest_session(60, new, "claude-fake") is None
               and session_proc.nearest_session(60, new, "2.1.322") == 80)
@@ -100,6 +102,12 @@ def main() -> int:
               and session_proc.nearest_session(5, build(os.path.join(tmp, "loop"), {5: ("a", 6, ["a"]), 6: ("b", 5, ["b"])})) is None)
         check("a comm with spaces and parentheses is read whole",
               session_proc.read_stat(7, build(os.path.join(tmp, "odd"), {7: ("a b) (c", 3, ["x"])})) == ("a b) (c", 3))
+
+        print("fresh.session_pid")
+        import fresh  # noqa: PLC0415 — only this case needs the module
+        check("old layout", fresh.session_pid("claude", old, 50) == 30)
+        check("new layout: the session, not the daemon", fresh.session_pid("claude", new, 60) == 80)
+        check("a named fake comm", fresh.session_pid("bash", old, 50) == 40)
 
         print("status.harness_environ")
         check("old layout: the claude's environment", status.harness_environ(50, old) == {"CLAUDE_CODE_OAUTH_TOKEN": "old"})

@@ -251,10 +251,10 @@ def dirty_toplevel() -> str | None:
     return _git("rev-parse", "--show-toplevel").stdout.rstrip("\n")
 
 
-def session_pid(comm: str) -> int | None:
+def session_pid(comm: str, proc: str = "/proc", start: int | None = None) -> int | None:
     """The session: the nearest one up this process's parent chain (the Bash tool runs as its descendant); what
     counts as one is session_proc's, which knows the bg-pty-host layout's daemon is not."""
-    return session_proc.nearest_session(os.getpid(), session_comm=comm)
+    return session_proc.nearest_session(os.getpid() if start is None else start, proc, comm)
 
 
 def write_marker(path: str, note: str, job: str) -> str:

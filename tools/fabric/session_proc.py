@@ -3,8 +3,9 @@
 
 THE RULE (j836, 2026-11-14). A session's process is the nearest ancestor that is either
   - the harness under the older layout: comm `claude`, whose argv[1] is not `daemon`; or
-  - the harness under 2.1.322's bg-pty-host layout: comm equal to the version (`2.1.322`, argv0 the same), sitting
-    under bg-pty-host < `claude daemon` < ... .
+  - the harness under 2.1.322's bg-pty-host layout: comm a dotted version (`2.1.322`), sitting under
+    bg-pty-host < `claude daemon` < ... . Neither argv0 nor the place in the tree is checked: only `daemon` as argv[1]
+    removes a candidate, in either branch.
 WHY the daemon is excluded. Under the new layout the daemon is also comm `claude` (cwd the home directory, argv
 `claude daemon ...`) and is an ancestor of every session. A walk that stops at the first comm `claude` stops there:
 the wrong cwd for a review brief's clone check, the wrong environment for status, and a SIGTERM from `fabric-fresh`
@@ -56,9 +57,7 @@ def is_session(pid: int, comm: str, proc: str = PROC, session_comm: str = SESSIO
     (fabric-fresh's AGENT_FABRIC_FRESH_COMM) look for a fake name, which is matched exactly and nothing else is."""
     if session_comm != SESSION_COMM:
         return comm == session_comm
-    if VERSION_COMM.match(comm):
-        return True
-    if comm != SESSION_COMM:
+    if comm != SESSION_COMM and not VERSION_COMM.match(comm):
         return False
     argv = read_argv(pid, proc)
     return not (argv and argv[1:2] == ["daemon"])
