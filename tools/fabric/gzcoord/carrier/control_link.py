@@ -723,7 +723,7 @@ class Server:
                     return   # one line per session: the first failure says which event and when
                 if state[0] == "ended":
                     state[0] = "dropped"
-                    self._log(f"fabric-ctl's session for {rid[:8]} had ended: a {obj.get('event')} that came after it is dropped")
+                    self._log(f"fabric-ctl's session for {rid[:8]} had ended: a {obj.get('event')} that came after it is dropped, {age()}")
                     return
                 try:
                     conn.sendall((js.stringify(obj) + "\n").encode("utf-8"))
