@@ -40,6 +40,10 @@ OVERLOAD_PAUSE = 0.5
 RECONNECT_FIRST = 1.0
 RECONNECT_CAP = 30.0
 SEND_TIMEOUT = 30.0
+# The longest one adapter `wait` holds (adapter.WAIT_MAX is the caller's side of the same number) and how often it looks
+# again with no arrival to wake it.
+MAX_WAIT = 55.0
+WAIT_LOOK_S = 1.0
 MID_RE = re.compile(r"[\x21-\x7e]{1,128}")
 
 
@@ -93,6 +97,8 @@ class Carrier:
         self.session: ipc.Session | None = None
         self._encoded: dict[tuple[str, str], list[framing.Payload]] = {}
         self.pause_until = 0.0
+        # Set when an arrival is kept for the inbox, so a `wait` call returns at once instead of at its next look.
+        self.arrival = threading.Event()
         self._stamp = self.roster_stamp()
         self.refresh_roster()
 
@@ -204,12 +210,28 @@ class Carrier:
             return {"ok": True, **out}
         if op == "unseen":
             return {"ok": True, "records": self.spool.unseen()}
+        if op == "wait":
+            return {"ok": True, "records": self.wait_unseen(float(req.get("seconds", 0)))}
         if op == "status":
             return {"ok": True, **self.status()}
         if op == "abandon":
             return {"ok": True, "abandoned": self.abandon(str(req["message_id"]), str(req["recipient"]),
                                                              str(req["by"]))}
         return {"ok": False, "error": f"unknown op {op!r}"}
+
+    def wait_unseen(self, seconds: float) -> list[dict]:
+        """`unseen`, held up to `seconds` (clamped to MAX_WAIT) until it lists a record: the watch's clock when this carrier
+        is its transport of record. A record is listed until the shown ledger settles it, so the ledger being written by the
+        inbox wakes nobody: the call looks again every WAIT_LOOK_S as well as on an arrival."""
+        # Real time, not `self.clock`: that one is the retry schedule's, which a test (and nothing else) holds still.
+        end = time.monotonic() + max(0.0, min(MAX_WAIT, seconds))
+        while True:
+            self.arrival.clear()      # before the look: an arrival between look and wait sets it again
+            records = self.spool.unseen()
+            left = end - time.monotonic()
+            if records or left <= 0 or self.stop.is_set():
+                return records
+            self.arrival.wait(min(left, WAIT_LOOK_S))
 
     # -- sending ---------------------------------------------------------
     def send_due(self, session: ipc.Session) -> None:
@@ -342,6 +364,7 @@ class Carrier:
             # Every addressed arrival is listed by `unseen` until the shown ledger settles
             # it: whether it is SHOWN is the ledger's to say, not the journal's outcome.
             self.spool.keep(mid, text, ts, verdict, sender)
+            self.arrival.set()
         self.send_receipt(session, row, mid)
 
     def send_receipt(self, session: ipc.Session, row: dict, mid: str) -> None:

@@ -235,7 +235,7 @@ def wait_loop(fetch_page: Callable[[int, threading.Event], Any], ack: Callable[[
                     delivered = any(c["isMine"] for c in classified)
             if lock is not None:
                 try:
-                    admit(lock, classified, relay_mine, carrier_recs)
+                    admit(lock, classified, relay_mine, carrier_recs, carrier_first=bool(getattr(iw, "carrier_leads", False)))
                     delivered = any(c["isMine"] and not c.get("quiet") for c in classified)
                 except OSError as e:
                     # A ledger write failed (a full disk): said as what it is, not as the relay being

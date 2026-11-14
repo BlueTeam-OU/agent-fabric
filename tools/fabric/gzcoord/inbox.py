@@ -231,7 +231,7 @@ from .inbox_parts.relay import _relay_up, ensure_relay, RelayError, API_TIMEOUT 
 from .inbox_parts.relay import _OPENER, api, explain_relay_error  # noqa: F401
 from .inbox_parts.records import _records, _when, one_line, _parse_quiet, replay, HISTORY_WINDOW  # noqa: F401
 from .inbox_parts.records import history, RETRANSMISSION_LOOKUP_MS, mark_retransmissions  # noqa: F401
-from .inbox_parts.records import MESSAGE_ID, JournalUnreadable, history_journal, history_journal_only, journal_record, replay_journal_row  # noqa: F401
+from .inbox_parts.records import MESSAGE_ID, JournalUnreadable, history_journal, history_journal_only, journal_newest, journal_record, replay_journal_row  # noqa: F401
 from .inbox_parts.records import KEYWORD_MIN, KEYWORD_MAX, KeywordError, check_keywords  # noqa: F401
 from .inbox_parts.records import _TOKEN_SPLIT, keyword_hit, REPLAY_CMD  # noqa: F401
 from .inbox_parts.hold import hold_dir, pid_start, pid_alive, hold_status, HOLD_POLL_MS  # noqa: F401
@@ -525,7 +525,8 @@ def main(argv: list[str]) -> int:
     if history_given or replay_which:
         # The record the primary keeps, read whole; no cursor moves, so no mirror and no logs.
         try:
-            primary = transport.open_transport(cfg, token=tok, me=me, journal_off=True).primary
+            primary = transport.open_transport(cfg, token=tok, me=me, record_only=True,
+                                               journal_newest=lambda n: journal_newest(_episodic(), n)).primary
         except transport.ModeError as e:
             print(f"gzcoord-inbox: {e}", file=refusal_out)
             return 7
@@ -564,7 +565,8 @@ def main(argv: list[str]) -> int:
     journal = bypass_inbound if off else (lambda recs: journal_inbound(recs, who))
     ep = _episodic()
     def open_mux() -> transport.TransportMux:
-        return transport.open_transport(cfg, token=tok, me=me, journal_off=off, state_dir=ep.state_dir(), iso_now=ep.now)
+        return transport.open_transport(cfg, token=tok, me=me, journal_off=off, state_dir=ep.state_dir(), iso_now=ep.now,
+                                        journal_newest=lambda n: journal_newest(ep, n))
 
     try:
         tp = open_mux()

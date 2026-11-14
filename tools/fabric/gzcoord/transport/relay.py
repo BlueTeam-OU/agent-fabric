@@ -5,9 +5,11 @@ No behaviour of its own: each verb is the call the inbox and the sender made the
 the same path, query, body, timeout and error."""
 from __future__ import annotations
 
+import sys
 import threading
+import time
 import urllib.parse
-from typing import Any
+from typing import Any, Callable
 
 from .. import i18n
 from .. import jsvalues as js
@@ -86,3 +88,52 @@ class RelayTransport:
         status = getattr(error, "status", None)
         return ((isinstance(status, int) and 400 <= status < 500) or getattr(error, "reached", None) is False
                 or isinstance(error, TokenRefused))
+
+
+# After a relay that did not answer, nothing is asked of it for this long: a mirror that is down must not cost the carrier's
+# watch a connection attempt a slice (the carrier adapter's DOWN_FOR is the same rule on the other side).
+MIRROR_DOWN_FOR_S = 30.0
+
+
+class RelayMirror:
+    """The relay as a mirror of the carrier (mode carrier-record, ADR-064 rule 11): every message goes to it too, and what
+    it holds for this login is read beside the carrier's and shown once (dedup.py). It is never the record, so nothing it
+    does changes an exit status or what is shown: a send that fails is `failed` and a line, a page it cannot give is an empty
+    one and a line, said once per outage. Its acknowledgement is the one call that raises, for the mux logs it; the caller
+    that acknowledges swallows it."""
+    name = NAME
+
+    def __init__(self, relay: RelayTransport, clock: Callable[[], float] = time.monotonic) -> None:
+        self._relay, self._clock = relay, clock
+        self._down_until = 0.0
+        self._said = False
+
+    def _fell(self, what: str, e: BaseException) -> None:
+        self._down_until = self._clock() + MIRROR_DOWN_FOR_S
+        if not self._said:
+            self._said = True
+            print(f"gzcoord: the relay did not answer ({what}: {e}); the InterWeave carrier is the record", file=sys.stderr)
+
+    def send(self, message_id: str, text: str) -> Sent:
+        try:
+            return self._relay.send(message_id, text)
+        except Exception as e:  # noqa: BLE001 — a mirror's failure is a line, whatever it was
+            self._fell("send", e)
+            return Sent(self.name, "failed")
+
+    def receive(self, seconds: float, abort: threading.Event) -> list[dict]:
+        if self._clock() < self._down_until:
+            return []
+        try:
+            page = self._relay.receive(0, abort)
+        except Exception as e:  # noqa: BLE001
+            self._fell("wait", e)
+            return []
+        self._said = False
+        return page
+
+    def ack(self, record_id: Any) -> None:
+        self._relay.ack(record_id)
+
+    def health(self) -> Health:
+        return self._relay.health()

@@ -327,6 +327,26 @@ def main() -> int:
             check("every addressed arrival is listed whatever the journal answered: whether it is shown is the ledger's to say",
                   kept.get("M-RS1") == "mismatch" and kept.get("M-RS2") == "ok", str(kept))
 
+            # -- the adapter's `wait`: the watch's clock when this carrier is the record --------------------
+            t0 = time.monotonic()
+            idle = c.carrier.handle_request({"op": "wait", "seconds": 0.6})
+            check("a wait with nothing addressed here lasts its bound and lists nothing (the positive control of the next)",
+                  idle == {"ok": True, "records": []} and 0.5 <= time.monotonic() - t0 < 5, f"{idle} {time.monotonic() - t0}")
+            woken: dict = {}
+            look, engine.WAIT_LOOK_S = engine.WAIT_LOOK_S, 25.0     # only the arrival may wake it: no look comes in time
+            waiter = threading.Thread(target=lambda: woken.update(t=time.monotonic(),
+                                                                  out=c.carrier.handle_request({"op": "wait", "seconds": 30})),
+                                      daemon=True)
+            started = time.monotonic()
+            waiter.start()
+            time.sleep(0.3)
+            a.carrier.handle_request({"op": "send", "message_id": "M-W", "text": msg("M-W", "h/alpha", to="h/gamma")})
+            waiter.join(timeout=10)
+            engine.WAIT_LOOK_S = look
+            check("a wait held open returns at the arrival, with its record, not at its bound",
+                  not waiter.is_alive() and woken.get("t", 1e9) - started < 8
+                  and [r["message_id"] for r in woken["out"]["records"]] == ["M-W"], str(woken))
+
             n_rows = len(b.journal_rows)
             b.carrier.handle_event(b.carrier.session, {"event_type": "message.direct", "data": {
                 "message_id": "d" * 32, "mode": "direct", "source_peer": pid(9), "source_endpoint": "gzcoord",

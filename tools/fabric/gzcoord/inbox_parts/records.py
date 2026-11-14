@@ -155,6 +155,19 @@ def journal_record(ep: Any, which: str) -> dict | None:
             "state": row["state"], "direction": row["direction"]}
 
 
+def journal_newest(ep: Any, limit: int) -> list[dict]:
+    """The carrier's record of the channel, as `Primary.newest` answers it: the newest `limit` rows this account's journal
+    holds, received and sent, oldest first, in the relay's record shape (`id` is the MESSAGE-ID, `seq` the carrier's seq
+    or None). A send that never left (state failed) is no message anyone holds. Nobody holds the whole channel: this is
+    what this account sent and what was addressed to it."""
+    rows = _journal_select(ep, "SELECT content, sender, happened_at, carrier, carrier_seq, message_id, {verified} FROM episodes "
+                           "WHERE NOT (direction='outbound' AND state='failed') ORDER BY happened_at DESC, recorded_at DESC "
+                           "LIMIT ?", (limit,))
+    return [{"id": r["message_id"], "seq": r["carrier_seq"], "sender": r["sender"], "timestamp": r["happened_at"],
+             "content": r["content"], "carrier": r["carrier"], "sender_verified": bool(r["sender_verified"])}
+            for r in (_typed(r) for r in reversed(rows))]
+
+
 def replay_journal_row(rec: dict, me: dict, t: i18n.Printer | None = None, as_json: bool = False) -> int:
     """replay() for a journal row. The lines around the message are the journal's own, untranslated, as the held-page
     lines are: the dictionaries' replay.* keys say "relay seq", which a carrier row is not."""
