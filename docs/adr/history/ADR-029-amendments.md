@@ -475,3 +475,16 @@ The live read-back
 asked for the restart inside a fleet `status`: the daemon left
 18.6–19.6 s after it was asked, 0.13 s before `fabric-ctl` ended, and all 29 peers'
 replies reached it by InterWeave in between.
+
+### Amendment 2026-11-14 — The transport mode is a signed action
+
+#584 (W5 of the InterWeave-only cutover,
+`docs/proposals/gzcoord-interweave-only-cutover.md`) added the op
+`interweave-mode`, which agentd serves and `fabric-ctl` signs, and §2's
+table did not name it. The owner decided on 2026-11-13 (the plan's D2
+and D10) that each account's mode is moved by a signed action and kept
+in the account's state, not in a committed file. The row says what the
+op takes, what it writes, and that `fabric-ctl` refuses `carrier-only`
+while any placed account is still on `relay-record` or does not report:
+one account cannot see the fleet, so that check is the operator's side.
+Found by the review of #604's first head.

@@ -729,9 +729,10 @@ its record disagree, the record wins. Look it up, never read it whole:
 - A 2026-11-13 — backfills: fifth evidence section (§2).
 - A 2026-11-14 — backfills: relay-took-send rows, send_rows (§2).
 - A 2026-11-14 — open ctl session holds agentd's restart (r18).
+- A 2026-11-14 — interweave-mode: the transport mode by signed action (§2).
 - Keywords: fabric-ctl, keys, operator_key, usage, tokens, herdr,
   resume, interweave-evidence, interweave-human, fabric-control,
-  control_carrier, break-glass, HOLD_MAX_S.
+  control_carrier, break-glass, HOLD_MAX_S, interweave-mode.
 ### ADR-030 — Presence replaces HELLO and GOODBYE (Accepted)
 
 - Whether a session runs is the control agent's answer from its process
