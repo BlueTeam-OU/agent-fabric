@@ -170,13 +170,15 @@ class OpenTransport(Scratch):
         self.assertEqual(self.shape(self.open(journal_off=True))[3], [], "the journal off still has no mirror")
         self.assertFalse(os.path.exists(self.file), "opening a transport writes no mode")
 
-    def test_every_mode_is_carried_and_all_are_wired_to_the_current_transports_for_now(self):
-        base = self.shape(self.open())
+    def test_every_mode_is_carried_and_builds_its_own_transports(self):
+        want = {"relay-record": ("RelayTransport", ["CarrierTransport"]),
+                "carrier-record": ("CarrierPrimary", ["RelayMirror"]),
+                "carrier-only": ("CarrierPrimary", [])}
         for m in mode.MODES:
             mode.write(m, OPERATOR, self.dir)
             mux = self.open()
             self.assertEqual(mux.mode, m)
-            self.assertEqual(self.shape(mux), base, m)
+            self.assertEqual((type(mux.primary).__name__, [type(x).__name__ for x in mux.mirrors]), want[m], m)
 
     def test_a_damaged_file_refuses_to_open_and_the_message_names_the_fix(self):
         self.write("not json")

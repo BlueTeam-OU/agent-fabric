@@ -13,6 +13,7 @@ from typing import Any, Callable
 
 from .. import i18n
 from .. import jsvalues as js
+from ..carrier import CARRIER_LABEL
 from ..inbox_parts import relay as _relay
 from ..inbox_parts.config import relay_runtime_dir
 from ..inbox_parts.tokens import TokenRefused, synced_token
@@ -112,7 +113,7 @@ class RelayMirror:
         self._down_until = self._clock() + MIRROR_DOWN_FOR_S
         if not self._said:
             self._said = True
-            print(f"gzcoord: the relay did not answer ({what}: {e}); the InterWeave carrier is the record", file=sys.stderr)
+            print(f"gzcoord: the relay did not answer ({what}: {e}); the {CARRIER_LABEL} carrier is the record", file=sys.stderr)
 
     def send(self, message_id: str, text: str) -> Sent:
         try:

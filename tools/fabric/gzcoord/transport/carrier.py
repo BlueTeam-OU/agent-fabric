@@ -9,7 +9,7 @@ import time
 from typing import Any, Callable
 
 from .. import i18n
-from ..carrier import CARRIER_NAME, adapter
+from ..carrier import CARRIER_LABEL, CARRIER_NAME, adapter
 from .base import Health, Sent
 
 NAME = CARRIER_NAME
@@ -89,10 +89,10 @@ class CarrierPrimary(CarrierTransport):
     def explain(self, error: BaseException, t: i18n.Printer | None = None) -> dict:
         """The one line for a failure of the carrier. Code 0: the carrier being down is not a refusal no retry cures."""
         who = self._login or "<login>"
-        fix = f"; fabric-ctl {who} interweave says why, and fabric-ctl {who} interweave-start starts it"
+        fix = f"; fabric-ctl {who} {CARRIER_NAME} says why, and fabric-ctl {who} {CARRIER_NAME}-start starts it"
         if isinstance(error, adapter.CarrierError) and error.absent:
-            return {"line": f"gzcoord: the InterWeave carrier is not running{fix}", "code": 0}
-        return {"line": f"gzcoord: the InterWeave carrier failed: {error}{fix}", "code": 0}
+            return {"line": f"gzcoord: the {CARRIER_LABEL} carrier is not running{fix}", "code": 0}
+        return {"line": f"gzcoord: the {CARRIER_LABEL} carrier failed: {error}{fix}", "code": 0}
 
     def never_delivered(self, error: BaseException) -> bool:
         """Only a carrier that recorded nothing of the send: none running, a request it never read, or no recipient it
