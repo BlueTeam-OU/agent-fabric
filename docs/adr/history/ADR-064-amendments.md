@@ -373,3 +373,28 @@ derived rows (`meta.json` `backfill_log.send_rows` true) as well as its
 whole log; a collection without them, as every one made before #592,
 reads "not collected" and the property "not judged", never passed and
 never a refusal. The switching condition is otherwise unchanged.
+
+### Amendment 2026-11-14 — A second host with no fixed coordinator address is reached at a public forward, any source
+
+Rule 1 had the second host's firewall admit the roster's range only from
+the coordinator's host's address as the second host sees it, and the
+2026-11-11 amendment had develop-qzapp reach fabric-h2 over the LAN and
+its VPN. develop-qzapp runs on the owner's laptop, which travels, so the
+coordinator's host has no fixed public address to admit. On 2026-11-13
+the owner asked fabric-h2's provider, who manages the OPNsense in front
+of its node, for a DNAT of the public address's TCP 47100-47199 to the
+VM on the same ports and a WAN rule admitting it from any source
+(devex-tooling's REQUEST 01a1d3c7-8b7d-718f-bb6e-c77c11fd9f70).
+
+Rule 1 now allows that shape where the coordinator's host has no fixed
+address, on the owner's word, named in the operator's record: the
+registry's `interweave_address` is the public address, the second host
+still cannot dial back, and admission is the roster's PeerId allowlist
+alone — deny by default, a row counting only when signed by its login
+and countersigned by the coordinator, so an unknown source opens TCP and
+gets no session. What is left exposed is InterWeave's transport
+handshake and parser, reachable from the internet. The owner accepted it
+on 2026-11-14, in the coordinator's session, as a known limit for
+fabric-h2 over the whole range; ADR-069 rule 2 records the forward and
+the word. The address-bound form stays the default for a second host
+whose coordinator has a fixed address.
