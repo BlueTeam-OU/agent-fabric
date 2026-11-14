@@ -352,7 +352,19 @@ at the time; rule 13's two-instance check; the dual run; the parity
 report; the owner's word. A second host is rule 1's next milestone, opened
 by its registration and the operator's inventory, InterWeave's gate consumed
 or accepted on the owner's word. The carrier's observations of ordering, loss and concurrency
-are ADR-032 §7's evidence. The mapping in §5 rules 6 to 10 belongs to
+are ADR-032 §7's evidence.
+
+Past the dual run (A 2026-11-14), on the owner's word and
+the plan `docs/proposals/gzcoord-interweave-only-cutover.md`: the data
+plane leaves the relay first (the plan's gates 1 and 2), and the relay's
+retirement, control included, is a later gate 3. Each account moves
+through three modes, `relay-record`, `carrier-record`, then
+`carrier-only`, by a signed control action whose state the account keeps,
+never a committed file; python-dev-02 and python-dev-03 go first and the
+coordinator's account last. The fleet gives up the relay's global seq,
+keyword alerts on others' traffic and the whole-channel record. Each
+gate's word amends rules 7, 8, 11 and 14 here, ADR-033 and ADR-041 rule
+10 when it is given, not before. The mapping in §5 rules 6 to 10 belongs to
 GZCoord's own repository, which the owner asked for (§1;
 `docs/split/agent-fabric-coord.md`). Until that repository exists, it
 is in this series. When it is created, the mapping moves there with
@@ -399,4 +411,5 @@ The body above reads current; each change's full note is in [history/ADR-064-ame
 | 2026-11-12 | the second host is any host in the registry, not a named one | §5 rule 1: the named second host, its node, the coordinator's host's address and the waivers read "a second host in `runtime/hosts/registry.json`"; the second-host milestone opens on its registration and the operator's inventory (ADR-069), not by an amendment (§2, §7 follow); the host and waivers are ADR-069 rule 2 |
 | 2026-11-13 | The relay-outage drill reads the senders' backfill logs | §5 rule 11: a fourth property (#590) |
 | 2026-11-14 | A send the relay took counts as on its record | §5 rule 11: `relay-took-send` read as held; `none` only with the derived rows collected (#592) |
+| 2026-11-14 | The cutover past the dual run: data plane first, three modes per account | §7: gates 1 and 2 before the relay's retirement; `relay-record`, `carrier-record`, `carrier-only` by signed action; seq, alerts and whole-channel record given up |
 | 2026-11-14 | A second host with no fixed coordinator address is reached at a public forward, any source | §5 rule 1: admission by roster PeerId alone; the exposure a known limit in the operator's record (ADR-069 rule 2) |

@@ -36,3 +36,19 @@ The owner asked for an analysis of a context-saving MCP server (2026-10-09). It 
 ### Amendment 2026-10-09 — A resume that reads working events needs rules 2 and 8 amended first
 
 The blind review of the merged §7 sentence found it admitted what binding rules keep out: rule 2 lets only GZCoord application messages into the journal, and rule 8 lets nothing from it into a session automatically, while the sentence had a resume read files edited, decisions and errors into one. §7 now says that reading them needs both rules amended first. The note above no longer cites labels this record does not have.
+
+### Amendment 2026-11-14 — A grant to arm may be read from the arming login's own journal
+
+`fabric-pr arm --authorization` and `--waiver` read the grant through
+`gzcoord-inbox --replay`, from the relay. Under the InterWeave-only
+cutover (`docs/proposals/gzcoord-interweave-only-cutover.md`, D4) the
+relay stops being the record, so the grant has to be read where the
+message is kept: the arming login's own journal. Rule 7 kept every
+journal row out of authorisation. The owner decided on 2026-11-13, in
+the coordinator's session, as the plan recommended: arm may take an
+AUTHORIZES or WAIVES from that journal, only from a row addressed to the
+arming login whose sender the carrier verified and is the message's
+`FROM`. The relay never authenticated a sender, so this narrows what a
+grant can be rather than widening it. The code is the plan's W4
+(`tools/fabric/github/arm.py` `verify_grant`); until it lands the relay
+read stands.

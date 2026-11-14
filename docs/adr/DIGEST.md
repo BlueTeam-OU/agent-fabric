@@ -1024,6 +1024,7 @@ its record disagree, the record wins. Look it up, never read it whole:
   FTS5 stemmed + trigram fused by reciprocal rank is the recipe to
   measure first (§7).
 - A 2026-10-09 — reading working events needs rules 2 and 8 amended (§7).
+- A 2026-11-14 — arm may take a grant from the arming login's own journal, only a row addressed to it whose carrier-verified sender is its `FROM` (rule 7).
 - Keywords: episodic, history, journal, GZCoord, carrier, transport,
   relay, InterWeave, fabric-history, backfill.
 
@@ -1514,6 +1515,7 @@ its record disagree, the record wins. Look it up, never read it whole:
 - A 2026-11-12 — rule 1's second host is any registered host, opened by its registration and the operator's inventory, not an amendment; fabric-h2 and its waivers are ADR-069's.
 - A 2026-11-13 — drill reads backfill logs: fourth property (rule 11).
 - A 2026-11-14 — relay-took-send held; none needs send_rows (rule 11).
+- A 2026-11-14 — past the dual run: data plane first, relay retired later; three modes per account by signed action; seq, alerts, whole-channel record given up (§7).
 - A 2026-11-14 — a coordinator with no fixed address reaches the second host at a public forward from any source, on the owner's word: admission by roster PeerId, exposure a known limit (rule 1).
 - Keywords: InterWeave, carrier, relay, P5, second host, fabric-h2.
 

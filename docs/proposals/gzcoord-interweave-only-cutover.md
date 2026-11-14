@@ -2,7 +2,9 @@
 
 **Status 2026-11-14.** The owner answered D1, D2, D4, D5 and D10 on 2026-11-13, each as
 recommended (§7). D3's first half is done: #573 merged on 2026-11-13. D6, D7 and D8 are not
-asked yet, and D9 is partly answered. The records named in §4 are not amended yet.
+asked yet, and D9 is partly answered. Two records say what was decided: ADR-041 rule 7 (D4)
+and ADR-064 §7 (D1, D2, D5, D10), both amended 2026-11-14. The other records in §4 change when
+each gate's word is given.
 
 A plan for the owner's review, drafted for fabric-coordinator. It decides nothing: every step
 that changes what carries a message waits for the owner's word and the record named beside it

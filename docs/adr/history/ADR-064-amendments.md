@@ -398,3 +398,21 @@ on 2026-11-14, in the coordinator's session, as a known limit for
 fabric-h2 over the whole range; ADR-069 rule 2 records the forward and
 the word. The address-bound form stays the default for a second host
 whose coordinator has a fixed address.
+
+### Amendment 2026-11-14 — The cutover past the dual run: data plane first, three modes per account
+
+The owner asked on 2026-11-13 what stands between the fleet and a
+GZCoord data plane on InterWeave only; the answer is the plan
+`docs/proposals/gzcoord-interweave-only-cutover.md`. The owner decided
+the same day, in the coordinator's session, each as the plan
+recommended: D1, the data plane first, through gates 1 and 2, with
+presence and the queue moved off the relay's outage path inside gate 2,
+and the relay's retirement, control included, a later gate 3; D2 and
+D10, three modes per account, `relay-record`, `carrier-record`,
+`carrier-only`, set by a signed control action and kept in the account's
+state, not in a committed file, python-dev-02 and python-dev-03 first and
+the coordinator's account last; D5, the global seq, keyword alerts on
+others' traffic and the whole-channel record are given up. §7 now names
+that path. No rule moves yet: rules 7, 8, 11 and 14 change when each
+gate's word is given, on the evidence the plan's §4 names. The retention
+period for the relay's last database copy is not named yet.
