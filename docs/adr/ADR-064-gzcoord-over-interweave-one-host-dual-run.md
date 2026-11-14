@@ -274,9 +274,11 @@ address, where the relay's `sender` is a claim (ADR-033 §6).
     sender's backfill log (`gzcoord-backfill.jsonl`, written as the relay
     returns, gathered as ADR-029 §2's `backfills`): every message the
     carrier alone held reached the relay's record afterwards, posted or
-    found present. A row over the backfill's age bound, or none by the
-    report's `until`, fails it; a log not collected whole leaves it not
-    judged, never passed (A 2026-11-13).
+    found present, or was the relay's from the send: `relay-took-send`,
+    derived from the sender's journal (A 2026-11-14). A row over the
+    backfill's age bound, or none by the report's `until`, fails it; a
+    log not collected whole, or a collection without the derived rows,
+    leaves it not judged, never passed (A 2026-11-13).
 12. This carrier carries GZCoord application messages only. The control
     plane rides the same profile on its own `fabric-control` endpoint,
     through `interweave-human` under the account's agentd (ADR-029 rule
@@ -390,3 +392,4 @@ The body above reads current; each change's full note is in [history/ADR-064-ame
 | 2026-11-11 | The second host is fabric-h2, reached from develop-qzapp only | §5 rule 1 |
 | 2026-11-12 | the second host is any host in the registry, not a named one | §5 rule 1: the named second host, its node, the coordinator's host's address and the waivers read "a second host in `runtime/hosts/registry.json`"; the second-host milestone opens on its registration and the operator's inventory (ADR-069), not by an amendment (§2, §7 follow); the host and waivers are ADR-069 rule 2 |
 | 2026-11-13 | The relay-outage drill reads the senders' backfill logs | §5 rule 11: a fourth property (#590) |
+| 2026-11-14 | A send the relay took counts as on its record | §5 rule 11: `relay-took-send` read as held; `none` only with the derived rows collected (#592) |

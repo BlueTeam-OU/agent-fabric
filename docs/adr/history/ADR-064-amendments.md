@@ -356,3 +356,20 @@ never passed and never a refusal, so earlier collections still compute.
 Rule 11's switching condition is otherwise unchanged; the cutover's own
 amendment of ADR-033 is not this one.
 
+### Amendment 2026-11-14 — A send the relay took counts as on its record
+
+The fourth property asked whether every message the carrier alone held
+reached the relay's record by backfill. A message the relay accepted at
+send needs no backfill and left no line, so the property read "none"
+for a message the relay held all along. python-dev-04's
+BlueTeam-OU/agent-fabric#592 (j120) gathers a derived `relay-took-send`
+row for each such send (ADR-029 amendment of the same date), and
+`gzcoord-carrier parity --relay-drill` reads it as held, after a
+backfill that posted or found the message present and ahead of
+over-age and none; the report says "the relay took it at send".
+
+"None" is now said only when the sender's collection carries the
+derived rows (`meta.json` `backfill_log.send_rows` true) as well as its
+whole log; a collection without them, as every one made before #592,
+reads "not collected" and the property "not judged", never passed and
+never a refusal. The switching condition is otherwise unchanged.
