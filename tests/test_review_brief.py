@@ -452,11 +452,13 @@ def test_reusing_and_remaking_a_head_worktree(tmp: str) -> None:
 
 
 def _fake_proc(root: str, chain: list[tuple[int, str, int]]) -> str:
-    """A /proc under root: (pid, comm, ppid) per process."""
-    for pid, comm, ppid in chain:
+    """A /proc under root: (pid, comm, ppid[, argv]) per process."""
+    for pid, comm, ppid, *argv in chain:
         d = os.path.join(root, str(pid)); os.makedirs(d)
         open(os.path.join(d, "comm"), "w").write(comm + "\n")
-        open(os.path.join(d, "stat"), "w").write(f"{pid} ({comm} x) S {ppid} 1 1 0\n")
+        open(os.path.join(d, "stat"), "w").write(f"{pid} ({comm}) S {ppid} 1 1 0\n")
+        if argv:
+            open(os.path.join(d, "cmdline"), "wb").write("\0".join(argv[0]).encode() + b"\0")
     return root
 
 
@@ -471,6 +473,13 @@ def test_the_in_use_marker(tmp: str) -> None:
     assert real_pid(proc, 70) == 50 and real_pid(proc, 50) == 50
     noclaude = _fake_proc(os.path.join(tmp, "proc2"), [(60, "bash", 1), (70, "python3", 60)])
     assert real_pid(noclaude, 70) is None
+    # 2.1.322's bg-pty-host layout (j836): the session's comm is its version and the nearest `claude` is the daemon,
+    # whose cwd is the home directory; the session is found, never the daemon.
+    pty = _fake_proc(os.path.join(tmp, "proc-pty"), [
+        (40, "claude", 1, ["claude", "--model", "x"]), (45, "claude", 40, ["claude", "daemon", "run"]),
+        (48, "claude", 45, ["claude", "bg-pty-host"]), (50, "2.1.322", 48, ["2.1.322", "--session-id", "s"]),
+        (60, "bash", 50), (70, "python3", 60)])
+    assert real_pid(pty, 70) == 50, real_pid(pty, 70)
     want = os.path.join(env["TMPDIR"], "fabric-review", f"markrepo-{head[:12]}")
 
     def as_if(fake: str) -> None:

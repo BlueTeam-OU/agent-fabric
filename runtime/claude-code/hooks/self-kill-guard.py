@@ -77,7 +77,9 @@ NAME_PREFIX = "__NAME__:"
 # killall -g: it kills the whole process group of what it names, which no
 # pattern reading can see.
 GROUP_MARK = "__GROUP__"
-SESSION_NAME = "claude"   # own_claude() finds the ancestor by exactly this name
+# The name a pattern without -f is judged against. Under 2.1.322's bg-pty-host layout the session's own comm is its
+# version and `claude` names the daemon above it; the name stays `claude`, so `pkill claude` is still refused.
+SESSION_NAME = "claude"
 # The ground truth's whole budget: under the hook's 5 s timeout, so the ask
 # after it is still reached (ninth round).
 GROUND_TRUTH_BUDGET_S = 3.0
@@ -161,27 +163,27 @@ def own_claude_cmdline(proc: str = "/proc", pid: int | None = None) -> str | Non
     return own_claude(proc, pid)[1]
 
 
+def session_proc():
+    """tools/fabric/session_proc.py of the tree this hook sits in, loaded by path: the one rule for which process is
+    a session (j836). Under 2.1.322's bg-pty-host layout the nearest comm `claude` is `claude daemon`, not the
+    session, so a walk of its own would guard the daemon's command line and miss the session's."""
+    root = os.path.dirname(os.path.dirname(os.path.dirname(HOOKS_DIR)))
+    spec = importlib.util.spec_from_file_location("fabric_session_proc", os.path.join(root, "tools", "fabric", "session_proc.py"))
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
 def own_claude(proc: str = "/proc", pid: int | None = None) -> tuple[int | None, str | None]:
-    """(pid, command line) of the nearest ancestor whose command is `claude`."""
-    p = pid or os.getpid()
-    for _ in range(64):
-        try:
-            with open(f"{proc}/{p}/stat", encoding="utf-8", errors="replace") as fh:
-                raw = fh.read()
-            comm = raw[raw.index("(") + 1:raw.rindex(")")]
-            ppid = int(raw[raw.rindex(")") + 2:].split()[1])
-        except (OSError, ValueError, IndexError):
-            return None, None
-        if comm == "claude":
-            try:
-                with open(f"{proc}/{p}/cmdline", "rb") as fh:
-                    return p, fh.read().replace(b"\0", b" ").decode("utf-8", "replace").strip()
-            except OSError:
-                return p, None
-        if ppid <= 1:
-            return None, None
-        p = ppid
-    return None, None
+    """(pid, command line) of this hook's session process, session_proc's nearest session."""
+    p = session_proc().nearest_session(pid or os.getpid(), proc)
+    if p is None:
+        return None, None
+    try:
+        with open(f"{proc}/{p}/cmdline", "rb") as fh:
+            return p, fh.read().replace(b"\0", b" ").decode("utf-8", "replace").strip()
+    except OSError:
+        return p, None
 
 
 def kill_after_prefixes(words: list[str]) -> list[str]:

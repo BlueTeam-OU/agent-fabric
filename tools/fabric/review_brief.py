@@ -60,6 +60,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(
 import review_card  # noqa: E402
 import review_lines  # noqa: E402
 import roots  # noqa: E402
+import session_proc  # noqa: E402
 
 FABRIC_ROOT = roots.engine_root()
 LENSES_DIR = os.path.join(FABRIC_ROOT, "runtime", "claude-code", "review", "lenses")
@@ -778,23 +779,10 @@ def worktree_head(path: str) -> str | None:
 
 
 def dispatching_session_pid(proc: str = "/proc", start: int | None = None) -> int | None:
-    """Pid of the nearest ancestor of `start` (default: this process) whose comm is
-    `claude`, or None. `proc` is injectable so a test can lay out a fake process tree."""
-    pid = os.getpid() if start is None else start
-    seen: set[int] = set()
-    while pid > 1 and pid not in seen:
-        seen.add(pid)
-        try:
-            with open(os.path.join(proc, str(pid), "comm"), encoding="utf-8", errors="replace") as f:
-                comm = f.read().strip()
-            if comm == "claude":
-                return pid
-            with open(os.path.join(proc, str(pid), "stat"), encoding="utf-8", errors="replace") as f:
-                # comm may hold spaces and parens: the fields after the LAST ')' are state, ppid, ...
-                pid = int(f.read().rsplit(")", 1)[1].split()[1])
-        except (OSError, ValueError, IndexError):
-            return None
-    return None
+    """Pid of the session process at or above `start` (default: this process), session_proc's nearest session, or
+    None. Under 2.1.322's bg-pty-host layout the nearest comm `claude` is `claude daemon`, whose cwd is the home
+    directory, not the session's clone (j836). `proc` is injectable so a test can lay out a fake process tree."""
+    return session_proc.nearest_session(os.getpid() if start is None else start, proc)
 
 
 # Names the session clone a brief is checked against instead of the claude ancestor's directory: a test names its
