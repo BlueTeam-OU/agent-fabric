@@ -546,6 +546,107 @@ def test_a_break_in_a_title_does_not_split_the_heading_or_cut_the_index_entry(tm
     assert lint_module.LINE_BREAK_RE.pattern == LINE_BREAK_RE.pattern, "lint reads a break as the INDEX writer makes it"
 
 
+def refusal(tmp: str, files: dict[str, dict]) -> subprocess.CompletedProcess:
+    drain, claims_dir, out = ta.build(tmp, files)
+    proc = ta.run_assemble(drain, claims_dir, out)
+    assert proc.returncode != 0, proc.stdout + proc.stderr
+    return proc
+
+
+def never_named(proc: subprocess.CompletedProcess) -> None:
+    """The fixture project bans "Springfield" (test_assemble.HYGIENE): neither stream may carry it, in any case."""
+    assert "springfield" not in (proc.stdout + proc.stderr).lower(), proc.stdout + proc.stderr
+
+
+def test_a_refusal_before_the_hygiene_screen_does_not_print_a_banned_name_from_a_claim(tmp: str) -> None:
+    """Round 2-3 of #589: the scope and anchor refusals printed the claim's title, topic, class and anchor as written, to
+    the operator's terminal and any log, before screen_hygiene ran. Each still names the file, the claim's index and the
+    title as screened, so the operator finds it. The positive control is the same claim with a title that is not banned."""
+    def domain_only(title: str) -> dict:
+        return {"class": "solution", "topic": "t", "title": title, "body": "B.", "evidence": ["h1"], "knowledge_scope": "domain-only"}
+    ok = refusal(os.path.join(tmp, "a"), {"alpha": ta.claims("alpha", [domain_only("Plain notes")])})
+    assert "'alpha.json': claim 0 'Plain notes' is domain-only" in ok.stderr, ok.stderr
+    proc = refusal(os.path.join(tmp, "b"), {"alpha": ta.claims("alpha", [domain_only("Springfield notes")])})
+    never_named(proc)
+    assert "'alpha.json': claim 0 '[redacted] notes' is domain-only" in proc.stderr, proc.stderr
+    no_title = domain_only("x")
+    del no_title["title"]
+    no_title["topic"] = "springfield-topic"
+    proc = refusal(os.path.join(tmp, "c"), {"alpha": ta.claims("alpha", [no_title])})
+    never_named(proc)
+    assert "'alpha.json': claim 0" in proc.stderr, proc.stderr
+    proc = refusal(os.path.join(tmp, "d"), {"alpha": ta.claims("alpha", [domain_only("T")])} | {"springfield-file": ta.claims("beta", [domain_only("T")])})
+    never_named(proc)
+    assert "'[redacted]-file.json': claim 0" in proc.stderr, proc.stderr
+    proc = refusal(os.path.join(tmp, "e"), {"alpha": ta.claims("alpha", [{**domain_only("T"), "class": "Springfield"}])})
+    never_named(proc)
+
+
+def test_a_banned_text_that_repr_would_escape_is_screened_before_it_is_quoted(tmp: str) -> None:
+    """Review F1: screening repr(title) missed a hit whose text repr rewrites (a quote beside a double quote, a tab). The
+    credential pattern is the built-in one; the project's own city is the control that a plain title is still screened."""
+    def refused_title(title: str, sub: str) -> str:
+        claim = {"class": "solution", "topic": "t", "title": title, "body": "B.", "evidence": ["h1"], "knowledge_scope": "domain-only"}
+        return refusal(os.path.join(tmp, sub), {"alpha": ta.claims("alpha", [claim])}).stderr
+    err = refused_title("password='hunter2secret' said \"x\"", "a")
+    assert "hunter2secret" not in err and "claim 0" in err, err
+    err = refused_title("Bearer\tabcdefghijklmnopqrstuvwxyz0123", "b")
+    assert "abcdefghijklmnopqrstuvwxyz0123" not in err and "claim 0" in err, err
+    err = refused_title("it's Springfield \"x\"", "c")
+    assert "pringfield" not in err and "claim 0" in err, err
+
+
+def test_the_rehome_refusal_does_not_print_a_banned_role_or_owner(tmp: str) -> None:
+    """Review, pre-existing: a role id the regex admits can be a banned word, and the refusal for an unbound role named it."""
+    drain, claims_dir, out = ta.build(tmp, {"alpha": ta.claims("alpha", [WF]), "springfield": ta.claims("springfield", [WF])})
+    bind(out, "alpha")
+    proc = ta.run_assemble(drain, claims_dir, out)
+    assert proc.returncode != 0 and "not admitted" in proc.stderr, proc.stderr
+    never_named(proc)
+    assert "of role [redacted]" in proc.stderr, proc.stderr
+    owned = {**WF, "topic": "o", "shared_with": ["springfield"]}
+    drain, claims_dir, out = ta.build(os.path.join(tmp, "o"), {"alpha": ta.claims("alpha", [WF]), "beta": ta.claims("beta", [owned])})
+    bind(out, "alpha")
+    proc = ta.run_assemble(drain, claims_dir, out)
+    assert proc.returncode != 0 and "not admitted" in proc.stderr, proc.stderr
+    never_named(proc)
+    assert "shared with [redacted]" in proc.stderr, proc.stderr
+
+
+def test_an_anchor_refusal_does_not_print_a_banned_name_from_a_claim(tmp: str) -> None:
+    ok = refusal(os.path.join(tmp, "a"), {"alpha": ta.claims("alpha", [anchored("not a list", title="Plain notes")])})
+    assert "'alpha': claim 0 'Plain notes': anchors is not a list of strings" in ok.stderr, ok.stderr
+    cut = "docs/" + "x" * 30 + " Bearer abcdefghijklmnopqrstuvwxyz0123"   # a 60-character cut leaves 17 of the token, under the pattern's 20
+    proc = refusal(os.path.join(tmp, "cut"), {"alpha": ta.claims("alpha", [anchored([cut])])})
+    assert "abcdefghijklmnopq" not in proc.stderr and "claim 0" in proc.stderr, proc.stderr
+    for n, extra in enumerate([{"title": "Springfield notes"}, {"title": "T", "anchors": ["springfield:src/a.py"]},
+                               {"title": "T", "class": "Springfield"}, {"title": "T", "anchors": ["x"] * 99 + ["Springfield"]}]):
+        claim = anchored("not a list") | extra
+        proc = refusal(os.path.join(tmp, f"b{n}"), {"alpha": ta.claims("alpha", [claim])})
+        never_named(proc)
+        assert "'alpha': claim 0" in proc.stderr, proc.stderr
+
+
+def test_a_valid_role_id_that_is_a_banned_name_is_screened_in_an_anchor_refusal(tmp: str) -> None:
+    """A role id the regex admits can still be a banned word (the project's own city)."""
+    proc = refusal(tmp, {"alpha": ta.claims("springfield", [anchored("not a list")])})
+    never_named(proc)
+    assert "'[redacted]': claim 0" in proc.stderr, proc.stderr
+
+
+def test_a_role_id_refusal_does_not_print_a_banned_name(tmp: str) -> None:
+    """The claims file's role and a claim's shared_with are echoed by role_id_error before they are known to be role ids."""
+    ok = refusal(os.path.join(tmp, "a"), {"alpha": ta.claims("Plain Role", [])})
+    assert "'Plain Role' is not a role id" in ok.stderr, ok.stderr
+    proc = refusal(os.path.join(tmp, "b"), {"alpha": ta.claims("Springfield", [])})
+    never_named(proc)
+    assert "'[redacted]' is not a role id" in proc.stderr, proc.stderr
+    claim = {"class": "domain", "topic": "t", "title": "T", "body": "B.", "evidence": ["h1"], "shared_with": ["Springfield"]}
+    proc = refusal(os.path.join(tmp, "c"), {"alpha": ta.claims("alpha", [claim])})
+    never_named(proc)
+    assert "shared_with names '[redacted]' is not a role id" in proc.stderr, proc.stderr
+
+
 def set_hygiene(out: str, *patterns: dict) -> None:
     with open(os.path.join(ta.working_copy(out), ".agent-fabric", "hygiene.json"), "w", encoding="utf-8") as fh:
         json.dump({"patterns": list(patterns)}, fh)
@@ -769,6 +870,12 @@ def main() -> int:
         test_a_title_made_one_line_is_told_for_a_slice_written_with_an_unbound_co_owner,
         test_a_title_made_one_line_is_told_as_hygiene_leaves_it_and_not_for_a_refused_claim,
         test_a_break_in_a_title_does_not_split_the_heading_or_cut_the_index_entry,
+        test_a_refusal_before_the_hygiene_screen_does_not_print_a_banned_name_from_a_claim,
+        test_a_banned_text_that_repr_would_escape_is_screened_before_it_is_quoted,
+        test_the_rehome_refusal_does_not_print_a_banned_role_or_owner,
+        test_an_anchor_refusal_does_not_print_a_banned_name_from_a_claim,
+        test_a_valid_role_id_that_is_a_banned_name_is_screened_in_an_anchor_refusal,
+        test_a_role_id_refusal_does_not_print_a_banned_name,
         test_f1_a_banned_topic_or_title_reaches_neither_the_report_nor_the_commit_body_nor_stderr,
         test_f2_a_collision_in_the_rehome_pass_is_decided_by_the_owner_and_the_rerun_carries_it,
         test_f6_the_rehome_pass_updates_the_control_planes_report_in_its_record_keys_only,
