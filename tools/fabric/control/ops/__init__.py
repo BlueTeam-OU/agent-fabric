@@ -95,7 +95,8 @@ def _inbox(ctx: Mapping[str, Any]) -> Any:
     """The account's GZCoord read position against the relay's newest message (tools/fabric/drift.py; in
     carrier-only the carrier's, gzcoord/carrier/position.py). The
     daemon hands in its own relay reader, the channel of its project and its address (`inbox_opts`); a
-    context without them (a `--self` status, a test) has no relay to ask and says so: no token chain is
+    context without them (a `--self` status, a test) has no relay to ask and says so (in carrier-only the carrier
+    answers, so a test names a scratch `mode_state_dir`): no token chain is
     read here, so no test reaches the real relay through the checkout's own settings."""
     import drift
     from gzcoord.carrier import position

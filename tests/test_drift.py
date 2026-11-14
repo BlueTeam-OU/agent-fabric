@@ -18,6 +18,10 @@ sys.path.insert(0, os.path.join(HERE, "tests"))
 from instance_fixtures import own_instance_tree  # noqa: E402
 
 own_instance_tree()
+# The account's own state directory holds its real transport mode; a suite reads a scratch one (the inbox section reads the
+# mode, and a carrier-only runner would otherwise send these tests to its live carrier).
+_STATE = tempfile.TemporaryDirectory(prefix="ops-state-")
+os.environ["AGENT_FABRIC_STATE_DIR"] = _STATE.name
 import drift  # noqa: E402
 import status  # noqa: E402
 from control import ctl  # noqa: E402

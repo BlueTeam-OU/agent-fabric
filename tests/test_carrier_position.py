@@ -61,6 +61,9 @@ def section(**k):
 
 
 class Section(unittest.TestCase):
+    def test_the_lag_threshold_is_the_relay_readers(self):
+        self.assertEqual(position.LAG_S, drift.LAG_S)
+
     def test_an_idle_carrier_has_nothing_unseen_and_no_delivery(self):
         s, asked = section()
         self.assertEqual((s["status"], s["unread"], s["lag_s"], s["lagging"], s["outstanding"], s["blocked"]),

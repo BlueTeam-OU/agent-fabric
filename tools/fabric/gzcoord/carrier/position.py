@@ -28,7 +28,7 @@ from typing import Any, Callable
 from ..transport import mode as _mode
 from . import server
 
-# One day, as drift.LAG_S: what "behind" means must not differ with the transport that is read.
+# One day, as drift.LAG_S (a test holds them equal): what "behind" means must not differ with the transport that is read.
 LAG_S = 86400
 TIMEOUT_S = 5.0
 
