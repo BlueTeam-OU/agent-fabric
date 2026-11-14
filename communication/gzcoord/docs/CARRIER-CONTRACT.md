@@ -14,7 +14,7 @@ carrier on one host.
 | profile name (every account) | `gzcoord` |
 | endpoint id leased by the carrier | `gzcoord` |
 | client kind presented in the IPC `hello` | `automated-client` |
-| roster port range | 47100-47199, loopback only |
+| roster port range | 47100-47199: loopback for a row without `host`; a row with one listens on the wildcard address and is dialled at its host's address, loopback from the same host |
 | message media type | `application/vnd.agentfabric.gzcoord.v1` |
 | compressed message | same, plus `;ce=deflate` (zlib; the only codec) |
 | chunk media type | `application/vnd.agentfabric.gzcoord-chunk.v1` |
@@ -62,12 +62,13 @@ member is ignored.
 
 ## 4. Sender behaviour (ADR-064 rules 6, 7)
 
-- Recipients: `TO <host>/<login>` is the valid roster member with that
-  login whose host is the address's host: the row's `host`, or this
-  carrier's own host for a row that names none (rows signed before `host`
-  existed are all on one host). The same login on another host is not
-  carried. `TO-ROLE` and `BROADCAST` are every other valid roster member. An address with no valid row is not carried
-  (relay alone).
+- Recipients: `TO <host>/<login>` is the valid roster member, other than
+  this agent, with that login whose host is the address's host: the row's
+  `host`, or this carrier's own host (the host part of this agent's
+  address) for a row that names none (rows signed before `host` existed
+  are all on one host). The same login on another host is not carried.
+  `TO-ROLE` and `BROADCAST` are every other valid roster member. An
+  address with no valid row is not carried (relay alone).
 - One delivery per (MESSAGE-ID, recipient), its transport `message_id`s
   minted once and kept across retries and restarts in
   `<state>/agents/<login>/interweave/deliveries.jsonl`.
@@ -88,9 +89,10 @@ member is ignored.
 ## 5. Receiver behaviour (ADR-064 rules 9, 10, 11)
 
 A delivery event carries the source PeerId. The carrier maps it through the
-valid roster to `<row host>/<login>`, the row host being its `host` or,
-for a row that names none, this carrier's own host (§4); a PeerId absent
-from the roster is dropped and counted, never admitted. For an admitted-by-roster message:
+valid roster to `<row host>/<login>`, the row host being its `host` or, for
+a row that names none, this carrier's own host (§4); a PeerId absent from
+the roster is dropped and counted, never admitted. For an
+admitted-by-roster message:
 
 1. parse the header; verdict = `ok` if `FROM` equals the mapped address,
    else `mismatch`;
