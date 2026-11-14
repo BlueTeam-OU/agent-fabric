@@ -107,17 +107,18 @@ def read_procs(proc: str = "/proc") -> dict[int, tuple[int, str, str]]:
     return out
 
 
+def session_proc():
+    """tools/fabric/session_proc.py, loaded by path: the one rule for which process is a session (j836)."""
+    spec = importlib.util.spec_from_file_location("fabric_session_proc", os.path.join(FABRIC_ROOT, "tools", "fabric", "session_proc.py"))
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
 def harness_pid(procs: dict, pid: int) -> int | None:
-    for _ in range(64):
-        entry = procs.get(pid)
-        if not entry:
-            return None
-        if entry[1] == "claude":
-            return pid
-        if entry[0] <= 1:
-            return None
-        pid = entry[0]
-    return None
+    # The table holds the command line joined by spaces; the rule reads only argv[1], which no comm-claude argv0 hides.
+    table = {p: (e[0], e[1], e[2].split()) for p, e in procs.items()}
+    return session_proc().nearest_session_in(table, pid)
 
 
 def is_watch(cmd: str) -> bool:
