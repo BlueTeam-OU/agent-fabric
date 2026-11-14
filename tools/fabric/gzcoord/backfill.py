@@ -1,11 +1,17 @@
 """tools/fabric/gzcoord/backfill.py — put on the relay's record what the second carrier alone delivered.
 
 A message sent while the relay was down reached its addressee through the second carrier, and gzcoord-send exited 3.
-Nothing put it on the relay later, so the readers of the relay's record (`fabric-pr arm`'s AUTHORIZES, `gzcoord-inbox
---replay`, fabric-history) never saw it (relay-outage drill, 2026-11-12). This module is the return path: once the relay
-answers, each account posts its own such messages, as journaled, under their own MESSAGE-ID.
+Nothing put it on the relay later, so a reader of the relay's record never saw it (relay-outage drill, 2026-11-12).
+`fabric-pr arm`'s AUTHORIZES and `gzcoord-inbox --replay` read the journal since #581 and #604; the relay's record is
+kept for the readers of the relay that remain and for the parity report. This module is the return path: once the relay answers, each account posts its own such messages, as journaled,
+under their own MESSAGE-ID.
 
 THE CONTRACT
+  mode     the account's transport mode (transport/mode.py) decides whether this runs at all: it does in relay-record and
+           carrier-record, and in carrier-only it is a no-op: no relay is made, asked or posted to, the journal's rows are
+           left as they are, and nothing is logged (the relay is gone from that account's path, cutover plan row W9). A mode
+           file that cannot be read leaves every row pending with one note: an unknown mode is never read as one that
+           permits the relay.
   who      the account's agentd runs `tick()` on a timer, so an account whose session ended during the outage still
            backfills. A session is not needed and not consulted.
   source   the sender's journal (episodic.db, opened read-only): outbound rows in state `accepted` whose carrier is the
@@ -39,7 +45,7 @@ from .inbox_parts import relay as _relay
 from .inbox_parts.config import integration_config
 from .inbox_parts.tokens import synced_token
 from .carrier import CARRIER_NAME
-from .transport import RelayTransport
+from .transport import RelayTransport, mode
 
 LOG_NAME = "gzcoord-backfill.jsonl"
 SENT_LEDGER_NAME = "gzcoord-sent.jsonl"
@@ -239,6 +245,13 @@ def run(*, state_dir: str, address: str, conn: Any,
         config: Callable[[str | None], dict] = integration_config,
         now: Callable[[], datetime.datetime] = lambda: datetime.datetime.now(datetime.timezone.utc)) -> Report:
     report = Report()
+    try:
+        transport_mode = mode.read(state_dir)["mode"]
+    except mode.ModeError as e:
+        report.notes.append(f"{e}; its rows stay pending")
+        return report
+    if transport_mode == mode.CARRIER_ONLY:
+        return report
     log = os.path.join(state_dir, LOG_NAME)
     skip = finished(log)
     rows = [r for r in candidates(conn) if r.mid not in skip]

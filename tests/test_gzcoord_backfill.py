@@ -333,6 +333,48 @@ def main() -> int:
         check("the row stays pending", log_of(tmp) == [])
     finally:
         shutil.rmtree(tmp)
+    # The transport mode (cutover plan row W9): on in relay-record and carrier-record, a no-op in carrier-only.
+    from gzcoord.transport import mode as tmode
+    for m in (tmode.RELAY_RECORD, tmode.CARRIER_RECORD, tmode.CARRIER_ONLY, None, "damaged"):
+        tmp = scratch()
+        try:
+            if m == "damaged":
+                with open(tmode.path(tmp), "w") as f:
+                    f.write("{not json")
+            elif m:
+                tmode.write(m, "op", tmp)
+            c = journal(tmp, [("m1", "accepted", 30, CAR)])
+            made: list = []
+            r = FakeRelay()
+
+            def make(cfg, addr):
+                made.append(cfg)
+                return r
+            rep = backfill.run(state_dir=tmp, address=ME, conn=c, make_relay=make, now=lambda: T0,
+                               config=lambda p: {"configured": True, "channel": "ch", "relay_url": "http://x"})
+            if m == tmode.CARRIER_ONLY:
+                check("carrier-only: no relay made, asked or posted to; the row is left as it was; nothing logged",
+                      made == [] and r.posts == [] and not os.path.exists(os.path.join(tmp, backfill.LOG_NAME))
+                      and rep.lines() == [] and rep.waiting == [], (made, r.posts, rep))
+                # The age bound reads no relay either, yet carrier-only logs nothing for an over-age row.
+                tmp_old = scratch()
+                try:
+                    tmode.write(m, "op", tmp_old)
+                    c2 = journal(tmp_old, [("m9", "accepted", 13 * 60, CAR)])
+                    rep2 = backfill.run(state_dir=tmp_old, address=ME, conn=c2, make_relay=make, now=lambda: T0,
+                                        config=lambda p: {"configured": True, "channel": "ch", "relay_url": "http://x"})
+                    check("carrier-only: an over-age row is not logged either",
+                          rep2.over_age == [] and not os.path.exists(os.path.join(tmp_old, backfill.LOG_NAME)), rep2)
+                finally:
+                    shutil.rmtree(tmp_old)
+            elif m == "damaged":
+                check("an unreadable mode file leaves the row pending with one note and no relay",
+                      made == [] and r.posts == [] and len(rep.notes) == 1 and "pending" in rep.notes[0], (made, rep))
+            else:
+                check(f"{m or 'no mode file (the default)'}: the row is posted", r.posts and r.posts[0][0] == "m1" and rep.posted == ["m1"], rep)
+        finally:
+            shutil.rmtree(tmp)
+
     print(f"{fails} FAIL")
     return 1 if fails else 0
 
