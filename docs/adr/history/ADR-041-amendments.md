@@ -51,8 +51,14 @@ addressed to that login whose sender the carrier verified. W4
 (devex-tooling, folded on #604, `tools/fabric/github/arm.py`
 `verify_grant`) lands with this amendment: a row a carrier other than
 the relay brought counts only with `sender_verified` true and that
-sender equal to `FROM`, and each refusal names which. A row the relay
-brought is judged as before: the relay never authenticated a sender
-(ADR-033), and refusing its rows would stop arming on every account
-still in `relay-record`. That half ends when the relay stops carrying
-GZCoord, gate 2 of the plan, which amends this rule again.
+sender equal to `FROM`, and each refusal names which.
+
+Two parts of the rule are fabric-coordinator's, added on 2026-11-14
+when W4 was folded, not the owner's. The first is that the verified
+sender must be `FROM`, as arm already required of the relay's sender.
+The second is that a row the relay brought is judged as before, its
+sender a claim: the relay never authenticated a sender (ADR-033), and
+refusing its rows would stop arming on every account still in
+`relay-record`. That second part ends when the relay stops carrying
+GZCoord, at gate 2 of the plan: its records amend this rule again, and
+its work item W15 removes `verify_grant`'s relay-row branch.

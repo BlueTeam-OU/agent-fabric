@@ -128,15 +128,17 @@ carrier's `interweave/inbox.jsonl` (`carrier/arrivals.py` `Spool`), "outbox" is 
 
 ### 2.5 The control plane on the same relay
 
-Not GZCoord messages, so outside the goal as worded; listed because the relay cannot be retired,
-and presence cannot survive a relay outage, while these stand.
+Not GZCoord messages, so outside the goal as worded; listed because the relay cannot be retired
+while these stand. Under `"control_carrier": "dual"` (`runtime/control/config.json`, the fleet
+since 2026-11-13) control already rides InterWeave beside the relay; what is missing is a value
+for InterWeave alone, and the state stream.
 
 | where | uses the relay for | replacement | exists? |
 |---|---|---|---|
-| `tools/fabric/control/agentd.py` `main` (`call`, `post`, `prime`, the read loop) | reads every request on `fabric:control` by `since_id`, posts every reply | `control_link` on the `fabric-control` endpoint | built, off; no InterWeave-alone value |
+| `tools/fabric/control/agentd.py` `main` (`call`, `post`, `prime`, the read loop) | reads every request on `fabric:control` by `since_id`, posts every reply | `control_link` on the `fabric-control` endpoint | built, on under `dual`; no InterWeave-alone value (`agentd.control_config` accepts `relay` or `dual`) |
 | `agentd.py` `state_poster`; `control/ctl.py` `states`; `control/queue.py` `read_waits`; `control/pool.py` `state_reader`, `role_from_stream` | the state channel: each account's newest state record, read back from the relay's stored history | a request each agentd answers, or a table the reader keeps | no: InterWeave stores no history |
-| `control/ctl.py` `main` | posts the request, pages the replies | `_second_carrier`, through the operator's agentd socket | built, off |
-| `control/presence.py` `ask_presence`; `control/queue.py` `ask_holder`, `bound_call`, `relay` | public ops asked by any account (`presence`, `pool-list`, `pool-claim`, `job-state`) | the asker's own agentd socket | no |
+| `control/ctl.py` `main` | posts the request, pages the replies | `_second_carrier`, through the operator's agentd socket | built, used under `dual` |
+| `control/presence.py` `ask_presence`; `control/queue.py` `ask_holder`, `bound_call`, `relay` | public ops asked by any account (`presence`, `pool-list`, `pool-claim`, `job-state`) | the asker's own agentd socket | yes under `dual` (#586, W12): `presence.ask_presence` and `queue.ask_holder` also send through the account's agentd and take a reply from either carrier; `bound_call` and `relay` still post to the relay; the relay-stopped read-back is gate 2's |
 | `control_link.RELAY_ONLY_OPS` (`interweave`, `-install`, `-start`, `-stop`) | the ops that take the InterWeave channel down ride the relay by rule (ADR-064 rule 14) | `bin/fabric-op` through hostexec (`control/breakglass.py`, ADR-029 rule 19) | built; verified on the local backend only |
 
 ## 3. What the relay gives, and what InterWeave gives or the fleet gives up
@@ -201,7 +203,7 @@ exercised (send, watch, replay, `fabric-pr arm --authorization`, `fabric-jobs ad
 a REQUEST's job intake); and W12's read-back if the owner takes D1's recommendation. Records:
 ADR-033 amended again (the relay carries control only; rule 7's trigger; rule 5's "the hosting
 session's start brings it up"), ADR-064 (rules 8, 11 and 14, whose "the relay carries for it
-alone" goes; the dual run ends), ADR-041 rule 10 (D7), ADR-030 rule 3's wording, and ADR-069 §1
+alone" goes; the dual run ends), ADR-041 rule 7 (its relay-row half goes) and rule 10 (D7), ADR-030 rule 3's wording, and ADR-069 §1
 (the "messages between sessions" row is rewritten and the two new rows of §3 added: ADR-034
 rule 1 wants that in the same pull request).
 
@@ -245,7 +247,7 @@ devex-tooling's `tools/fabric/github/`; **FC** is fabric-coordinator: `tools/fab
 | W12 | **Done, #586** (the relay-stopped read-back is gate 2's). Presence and the other public ops off the relay's outage: control's dual run switched on (`runtime/control/config.json`), and `presence.ask_presence` and `queue.ask_holder` handed to the account's own agentd socket | PD (`control/presence.py`, `control/queue.py`, `control_link.Server`); FC for the switch and ADR-029 | with the relay stopped, an addressed send from one staged account to another is checked and sent without `--force` | M to L | D1 |
 | W13 | Read position and health without the relay's cursor: `drift.inbox`, `status.inbox_state` and the `interweave` read show the spool's unseen count and the outbox's oldest outstanding and blocked deliveries | PD | `fabric-status` on a `carrier-only` account prints them with the relay stopped; a lagging relay cursor is no longer reported for it | M | W5 |
 | W14 | **Done, #587** (`store_step.py` no longer calls `relay_catchup.py`; `journal_import` stays, best effort). A new login without the relay: the roster row, the install and the start become provisioning steps; `relay_catchup.py` and `Bootstrap.journal_import` leave them | PD (`provisioning/store_step.py`, `new_agent.py`); PD-supply (`bootstrap.py`, `relay_catchup.py`); FC countersigns rows | a scratch login provisioned on a host with the relay stopped sends and receives | M | - |
-| W15 | Removal, after gate 2: `RelayTransport` out of the send and inbox paths, `integration_config` no longer asks for a relay, the backfill, the acknowledgement log and the relay half of `parity.py` deleted, a one-carrier health report in its place, the state copy takes the outbox, `transport-calls.json` loses `drift.py` | PD, PD-supply (`relay.py`, `episodic_import.py`), FC (the 15 integration files, the skills, the manuals, `transport-calls.json`) | `grep` finds no `/api/` call under `tools/fabric/gzcoord/`; `tools/fabric/transport_calls.py` is clean with the shorter policy; the suite is green with no relay fixture in the GZCoord tests | L | gate 2 |
+| W15 | Removal, after gate 2: `RelayTransport` out of the send and inbox paths, `integration_config` no longer asks for a relay, the backfill, the acknowledgement log and the relay half of `parity.py` deleted, a one-carrier health report in its place, the state copy takes the outbox, `transport-calls.json` loses `drift.py`, and `verify_grant`'s relay-row branch (`RELAY_CARRIER`) goes | PD, PD-supply (`relay.py`, `episodic_import.py`), DX (`tools/fabric/github/arm.py`), FC (the 15 integration files, the skills, the manuals, `transport-calls.json`) | `grep` finds no `/api/` call under `tools/fabric/gzcoord/`; `tests/test_arm_cli.py` refuses a grant row whose carrier is the relay; `tools/fabric/transport_calls.py` is clean with the shorter policy; the suite is green with no relay fixture in the GZCoord tests | L | gate 2 |
 | W16 | The relay retired (gate 3): control on InterWeave alone, the state stream replaced, the relay unit, its token, its backup timer and `secret_relay.py` removed | PD, FC | sized when gate 3 is asked for | L | gate 3 |
 
 W3, W4, W5, W10, W12 and W14 are done. What is left, and in this order: W2 (the two drills and
@@ -291,7 +293,9 @@ at the next send; a running watch builds its transport once (`inbox.py` `main`),
 - From `carrier-only` the step back is to `carrier-record`, not further: the relay's record has
   a hole for that period, and by then no reader uses it (W3).
 - If the control plane cannot reach an account, the same signed request goes through
-  `fabric-ctl <login> … --via hostexec` to `bin/fabric-op`, or the one-command override is used.
+  `fabric-ctl <login> … --via hostexec` to `bin/fabric-op`, for a step back to `carrier-record`
+  or `relay-record` only: `fabric-ctl` refuses `carrier-only` over `--via`, because the fleet's
+  modes it checks first are read over the relay. The one-command override is not built yet.
 - The relay, its token and its 6-hourly copy stay as they are until gate 3.
 
 Step back at once on: a delivery outstanding past an agreed age in any outbox, a `blocked` code
@@ -313,10 +317,8 @@ other than `NotInRoster`, a roster that fails to verify on any account, or an ac
   journal anyway (W3), so both are built.
 - **D4. A grant read from the journal.** `fabric-pr arm` would read AUTHORIZES and WAIVES from
   the arming login's own journal. Recommended: yes, amending ADR-041 rule 7 to say that a
-  message addressed to this login, with a sender its carrier verified and that sender the
-  message's `FROM`, is the message and not a history result. It is stronger than today's check,
-  where the relay's sender is a claim. A row the relay brought is judged as before until gate 2,
-  when the relay stops carrying GZCoord.
+  message addressed to this login, with a sender its carrier verified, is the message and not
+  a history result. It is stronger than today's check, where the relay's sender is a claim.
 - **D5. What is given up.** The global seq (`--replay <seq>`, `sent seq`), keyword alerts on
   others' traffic, and a whole-channel record anyone with the token can list. Recommended:
   give up all three; keep the relay's last database copy on Proton Drive, encrypted, for a
@@ -349,9 +351,12 @@ recommended:
   action moves each account, and the account's state keeps its mode. python-dev-02 and
   python-dev-03 go first, the coordinator's account last.
 - D4: `fabric-pr arm` may read AUTHORIZES and WAIVES from the arming login's own journal, but
-  only for a row addressed to that login whose sender the carrier verified and that sender is
-  the message's `FROM`. A row the relay brought is judged as before until gate 2. The amendment
-  of ADR-041 rule 7 is made (2026-11-14, on this pull request, with W4).
+  only for a row addressed to that login whose sender the carrier verified. That is the owner's
+  answer as given. Two things were added on 2026-11-14 by fabric-coordinator, not by the owner,
+  when W4 was folded: the verified sender must be the message's `FROM`, as arm already required
+  of the relay's sender; and a row the relay brought is judged as before, its sender a claim, so
+  that accounts still in `relay-record` can arm. That second half ends at gate 2 (§4, W15).
+  ADR-041 rule 7 is amended on this pull request, with W4.
 - D5: give up all three. The owner has not yet named the retention period for the relay's
   last database copy.
 - D9, in part: fabric-h2 gets a public InterWeave address and port, which the owner accepted on
