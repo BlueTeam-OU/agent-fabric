@@ -1735,9 +1735,7 @@ class WatchReport(RelayFixture):
         self.assertEqual([(x["t"], x["after"]) for x in d["alpha"]["starts"]], [(iso(120), "delivery"), (iso(160), "gave-up")])
         self.assertEqual([x["t"] for x in d["alpha"]["gave_up"]], [iso(150)])
         lines = self.lines(path)
-        self.assertEqual(lines[0], f"- alpha: restarts (starts inside the drill): 2 ({parity.time.strftime('%Y-%m-%dT%H:%M:%SZ', parity.time.gmtime(T0 + 120))} after delivery, "
-                                   f"{parity.time.strftime('%Y-%m-%dT%H:%M:%SZ', parity.time.gmtime(T0 + 160))} after gave-up); gave up: yes, at "
-                                   f"{parity.time.strftime('%Y-%m-%dT%H:%M:%SZ', parity.time.gmtime(T0 + 150))}")
+        self.assertEqual(lines[0], f"- alpha: restarts (starts inside the drill): 2 ({iso(120)} after delivery, {iso(160)} after gave-up); gave up: yes, at {iso(150)}")
         self.assertEqual(lines[1], "- beta: restarts (starts inside the drill): 0 (none); gave up: no")
 
     def test_a_watch_outside_the_drill_is_neither_a_restart_nor_a_give_up(self):
@@ -1760,12 +1758,12 @@ class WatchReport(RelayFixture):
         path = self.collect({"alpha": self.acct("alpha", watch=self.DRILLED), "beta": self.acct("beta")}, no_watch=("beta",))
         a, b = self.lines(path)
         self.assertIn("gave up: yes", a)
-        self.assertEqual(b, "- beta: not collected (no watch log in the collection (a daemon from before it))")
+        self.assertEqual(b, "- beta: not collected (no watch log in the collection, from a daemon that predates it)")
         self.assertNotIn("restarts", b, "unknown stays unknown: no zero is printed for it")
 
     def test_a_log_whose_section_failed_or_had_a_line_that_could_not_be_read_reads_not_collected(self):
         path = self.collect({"alpha": self.acct("alpha"), "beta": self.acct("beta")})
-        for login, log, want in (("alpha", {"complete": False, "reason": "watch: no answer", "skipped": 0}, "the watch log's section failed (watch: no answer)"),
+        for login, log, want in (("alpha", {"complete": False, "reason": "watch: no answer", "skipped": 0}, "the watch log's section failed: watch: no answer"),
                                  ("beta", {"complete": True, "reason": None, "skipped": 2}, "2 line(s) of the watch log could not be read")):
             with open(os.path.join(path, login, "meta.json")) as fh:
                 meta = json.load(fh)
@@ -1773,7 +1771,7 @@ class WatchReport(RelayFixture):
             with open(os.path.join(path, login, "meta.json"), "w") as fh:
                 json.dump(meta, fh)
         a, b = self.lines(path)
-        self.assertEqual((a, b), (f"- alpha: not collected ({'the watch log' + chr(39) + 's section failed (watch: no answer)'})",
+        self.assertEqual((a, b), ("- alpha: not collected (the watch log's section failed: watch: no answer)",
                                   "- beta: not collected (2 line(s) of the watch log could not be read)"))
 
     def test_the_report_without_pairs_still_says_the_watches(self):

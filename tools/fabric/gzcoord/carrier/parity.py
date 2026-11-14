@@ -308,10 +308,10 @@ def load_relay_outage(path: str, window: tuple[float, float]) -> dict[str, dict]
 def _watch_why(meta: dict, rows: list | None) -> str | None:
     """Why `watch` is None, in words a report prints; None when it is not."""
     log = meta.get("watch_log")
-    if rows is None and not isinstance(log, dict):
-        return "no watch log in the collection (a daemon from before it)"
-    if not isinstance(log, dict) or log.get("complete") is not True:
-        return f"the watch log's section failed ({(log or {}).get('reason') or 'no reason given'})" if isinstance(log, dict) else "no watch log in the collection (a daemon from before it)"
+    if not isinstance(log, dict):
+        return "no watch log in the collection, from a daemon that predates it"
+    if log.get("complete") is not True:
+        return f"the watch log's section failed: {log.get('reason') or 'no reason given'}"
     if rows is None:
         return "the watch log's file is not in the collection"
     if log.get("skipped"):
