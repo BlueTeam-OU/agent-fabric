@@ -8,6 +8,7 @@ account. Nothing leaves this process or touches a live relay, daemon or home.
 """
 from __future__ import annotations
 
+import io
 import json
 import os
 import sys
@@ -267,16 +268,19 @@ class AgentdDual(Base):
         with mock.patch.object(link, "HOLD_MAX_S", 0.3), mock.patch.object(link.Carrier, "send_to", lambda *a, **k: gate.wait(30) and {}):
             session = link.Session(link.socket_path(), body("silent", **{"from": "h/alice", "to": ["h/op"]}), ["h/op"], 30)
             self.addCleanup(session.close)
-            time.sleep(0.1)   # the server has accepted the request and taken its hold
+            self.assertTrue(until(lambda: self.leaver[0].inflight), "the session took its hold")
             self.leaver[0].request("source changed")
             self.assertTrue(until(lambda: self.left == [0]), "a silent child did not keep the restart back past the cap")
 
     def test_a_session_opened_after_a_restart_was_asked_for_holds_nothing_new(self):
         first = self.ctl_session("one")
         self.leaver[0].request("source changed")
-        late = link.Session(link.socket_path(), body("two", **{"from": "h/alice", "to": ["h/op"]}), ["h/op"], 30)
-        self.addCleanup(late.close)
-        late.wait_sent(10)
+        said = io.StringIO()   # the socket server logs by link.say, to the process's stderr
+        with mock.patch.object(sys, "stderr", said):
+            late = link.Session(link.socket_path(), body("two", **{"from": "h/alice", "to": ["h/op"]}), ["h/op"], 30)
+            self.addCleanup(late.close)
+            late.wait_sent(10)
+            self.assertTrue(until(lambda: "opened with a restart pending" in said.getvalue()), said.getvalue())
         first.close()
         self.assertTrue(until(lambda: self.left == [0]), "only the session open at the request held it; a later one did not")
 

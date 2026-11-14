@@ -606,10 +606,11 @@ class Server:
     `hold` is agentd's way to keep its restart back while a session is open: called when a request is accepted,
     it returns the release. A fleet `upgrade fabric` moves the operator's own agentd's code while the same command
     is still collecting the other accounts' replies; the restart closes this socket, and every reply after it
-    would be lost on InterWeave alone (j146). The hold ends when the session does, or after HOLD_MAX_S."""
+    would be lost on InterWeave alone (j146). The hold ends when the session does, or after HOLD_MAX_S from the
+    hold; it returns None when it held nothing (a restart was already asked for)."""
 
     def __init__(self, path: str, carrier: Carrier, me: str, log: Callable[[str], None] = say,
-                 hold: Callable[[], Callable[[], None]] | None = None) -> None:
+                 hold: Callable[[], Callable[[], None] | None] | None = None) -> None:
         self.path, self.carrier, self.me, self._log = path, carrier, me, log
         self._hold = hold
         self._sock: socket.socket | None = None
@@ -723,16 +724,24 @@ class Server:
             put({"event": "refused", "why": f"the record is from {js.string(rec.get('from'))}, this agentd is {self.me}'s"})
             return
         self.carrier.watch(rid, lambda record, sender: put({"event": "reply", "carrier": VIA, "from": sender, "record": record}))
-        release = self._hold() if self._hold is not None else (lambda: None)
-        # A timer, not a check in the read loop below: a silent child makes send_to take its whole budget, and the
-        # cap counts from the hold. release() is idempotent, so the timer firing and the finally never both act.
-        def cap() -> None:
-            self._log(f"fabric-ctl's session for {rid[:8]} has held the restart for {HOLD_MAX_S:.0f}s: released")
-            release()
-        timer = threading.Timer(HOLD_MAX_S, cap)
-        timer.daemon = True
-        timer.start()
+        release: Callable[[], None] | None = None
+        timer: threading.Timer | None = None
         try:
+            # Inside the try: a hold taken and then a failed timer start must still be released by the finally.
+            release = self._hold() if self._hold is not None else None
+            if release is None:
+                if self._hold is not None:
+                    self._log(f"fabric-ctl's session for {rid[:8]} opened with a restart pending: it holds nothing, the daemon leaves under it")
+            else:
+                held = release
+                # A timer, not a check in the read loop below: a silent child makes send_to take its whole budget, and
+                # the cap counts from the hold. release() is idempotent, so the timer and the finally never both act.
+                def cap() -> None:
+                    self._log(f"fabric-ctl's session for {rid[:8]} has held the restart for {HOLD_MAX_S:.0f}s: released")
+                    held()
+                timer = threading.Timer(HOLD_MAX_S, cap)
+                timer.daemon = True
+                timer.start()
             wait_s = float(req["wait_s"])
             # A request's send never outlives its own ttl_s (rule 18): the budget of the sends is the smaller.
             ttl = rec.get("ttl_s")
@@ -751,9 +760,11 @@ class Server:
                 except (OSError, ValueError):
                     break       # the connection was reset or dropped by put()
         finally:
-            timer.cancel()
+            if timer is not None:
+                timer.cancel()
             self.carrier.unwatch(rid)
-            release()
+            if release is not None:
+                release()
 
 
 class SessionRefused(RuntimeError):

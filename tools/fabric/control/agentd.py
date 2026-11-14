@@ -72,7 +72,8 @@ operator_addresses, account_addresses, number_of.
 WHERE THE PORT DIFFERS (each listed because a reader of the Node would look):
   - Threads stand where the Node had promises. An action (ACTION_OPS) and a
     disk read run in a thread beside the read loop; --once and a restart
-    wait for them. The set of running ones is guarded by the leaver's lock,
+    wait for them; so does an open fabric-ctl session on the carrier's socket
+    (ctl_hold), for at most control_link.HOLD_MAX_S. The set of running ones is guarded by the leaver's lock,
     so a restart asked for while one is being started either waits for it or
     comes first, never between.
   - What a restart is: the Node watched the *.mjs and *.json files of its own
@@ -704,7 +705,9 @@ class Leaver:
     exiting then killed the process before it posted the reply the operator
     was waiting for. request() asks to leave; settle() is called as each
     action finishes, and leaves once none is left. A disk read runs there
-    too (BESIDE_LOOP_OPS), so a restart also waits for a scan in flight.
+    too (BESIDE_LOOP_OPS), so a restart also waits for a scan in flight, and
+    a fabric-ctl session open on the socket holds a token (ctl_hold), which
+    is not a thread: only a daemon that serves the socket, never --once, has one.
     `lock` guards `inflight` for everyone who changes it."""
 
     def __init__(self, inflight: set, exit: Callable[[int], None] | None = None,  # noqa: A002 — the Node's word
@@ -738,17 +741,18 @@ class Leaver:
         return self.why
 
 
-def ctl_hold(leave: Leaver, inflight: set) -> Callable[[], None]:
+def ctl_hold(leave: Leaver, inflight: set) -> Callable[[], None] | None:
     """A fabric-ctl session on the socket is in flight for the leaver, as an action is: the operator's own
     `upgrade fabric` moves this daemon's code while its command still waits for the others' replies, and
     leaving then closes the only carrier-alone path they come by. release() leaves, if asked to, once none is left.
     Not a thread, unlike the other members: finish_inflight() joins them, and only runs under --once, where no
     socket is served. A session that opens once a leave is pending holds nothing, so sessions that follow one
-    another (presence checks, the queue's holder asks) cannot keep the daemon on old code past one session's cap."""
+    another (presence checks, the queue's holder asks) cannot keep the daemon on old code past one session's cap.
+    None says nothing was held, so the caller can say so."""
     token = object()
     with leave.lock:
         if leave.pending is not None:
-            return lambda: None
+            return None
         inflight.add(token)
 
     def release() -> None:
@@ -1023,7 +1027,7 @@ def main(argv: list[str] | None = None, *, stop: threading.Event | None = None) 
         return 3
     seen = Seen()
     ledger = action_ledger()
-    inflight: set = set()   # actions and disk reads running beside the loop; --once and a restart wait for them
+    inflight: set = set()   # actions and disk reads (threads; --once and a restart wait for them) and ctl-session tokens (a restart only)
     leave = leaver(inflight)
     token_lock = threading.Lock()
     token_box = [tok]
@@ -1242,9 +1246,10 @@ def main(argv: list[str] | None = None, *, stop: threading.Event | None = None) 
             deliver(f, request, via)
         _stderr(f"agentd: answered {request['op']} for {request['from']} ({request['id'][:8]}){tag}")
 
-    def hold_for_ctl() -> Callable[[], None]:
+    def hold_for_ctl() -> Callable[[], None] | None:
         return ctl_hold(leave, inflight)
 
+    # `not once`: finish_inflight() joins every member of `inflight`, and a ctl session's token is not a thread.
     if cfg["control_carrier"] == CARRIER_DUAL and not once:
         # An account on both splits once, at the bound the second carrier carries (rule 18): the same parts go by both.
         ctx["part_bytes"] = control_link.PART_BYTES
