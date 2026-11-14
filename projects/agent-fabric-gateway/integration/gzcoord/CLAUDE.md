@@ -6,9 +6,10 @@ integration with it, and the state is the first thing to know.
 
 ## GZCoord is ACTIVE — over the relay the coordinator hosts
 
-The gateway's one role, fabric-coordinator — the whole repository is
-its (the gateway is the fabric's own data plane)
-— is on the fleet's coordination channel: the same relay and channel as
+The gateway's roles — architect-cto, which holds its project truth
+since 2026-11-14, rust-services-dev, which holds the Rust workspace, and
+fabric-coordinator, which keeps `.agent-fabric/` — are on the fleet's
+coordination channel: the same relay and channel as
 gzapp, the site, InterWeave and the fabric itself (`config.json` beside
 this file), hosted on the coordinator's workspace
 (`projects/gzapp/integration/gzcoord/BRIDGE-RELAY-SETUP.md`). Activated
@@ -18,7 +19,7 @@ Three claims move together and this file is the authority for the
 first: this status, the section in the gateway's root `CLAUDE.md`
 (`CLAUDE.snippet.md`, included there), and the session-start drain. The
 gateway carries no `.claude/settings.json` of its own: its sessions are
-the coordinator's, launched from the workspace, whose settings run the
+launched from the workspace, whose settings run the
 drain and the watch for every working copy beneath it. The token
 arrives with `fabric-secrets sync` from the account's own
 store; the repository carries no env file for it.
