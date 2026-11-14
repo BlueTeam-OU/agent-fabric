@@ -51,6 +51,10 @@ def log(msg: str) -> None:
     print(f"gzcoord-carrier: {msg}", file=sys.stderr, flush=True)
 
 
+class NotRecorded(Exception):
+    """A send refused before any recipient's delivery record was written (text, id or framing)."""
+
+
 @dataclass
 class Me:
     agent_id: str
@@ -140,12 +144,17 @@ class Carrier:
             return [row["login"] for row in others]
 
     def send(self, mid: str, text: str) -> dict:
-        if text.startswith(framing.CONTROL_PREFIX):
-            raise framing.FramingError("a fabric-control/1 body is a control record: it rides fabric-control, never gzcoord")
-        _, meta = self.parse(text)
-        if meta.get("MESSAGE-ID") != mid:
-            raise ValueError("MESSAGE-ID is not the message's own")
-        payloads = framing.encode(mid, text)
+        """Raises NotRecorded for every refusal that comes before the first delivery record is written: the adapter says
+        `queued: 0` for it, and a sender that reads that may mark its pending row failed."""
+        try:
+            if text.startswith(framing.CONTROL_PREFIX):
+                raise framing.FramingError("a fabric-control/1 body is a control record: it rides fabric-control, never gzcoord")
+            _, meta = self.parse(text)
+            if meta.get("MESSAGE-ID") != mid:
+                raise ValueError("MESSAGE-ID is not the message's own")
+            payloads = framing.encode(mid, text)
+        except (framing.FramingError, ValueError) as e:
+            raise NotRecorded(str(e)) from e
         to = self.recipients(meta)
         problem = None
         with self.lock:
@@ -200,8 +209,8 @@ class Carrier:
                 raise TypeError("message_id and text are strings")
             try:
                 out = self.send(mid, text)
-            except framing.FramingError as e:
-                return {"ok": False, "error": str(e)}
+            except NotRecorded as e:
+                return {"ok": False, "error": str(e), "carried": 0, "queued": 0}
             # ok:true is every recipient durable; a partly durable call is ok:false
             # with its count, and what was written stays (CARRIER-CONTRACT.md §6).
             if out["queued"] != out["carried"]:

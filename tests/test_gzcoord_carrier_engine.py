@@ -327,6 +327,16 @@ def main() -> int:
             check("every addressed arrival is listed whatever the journal answered: whether it is shown is the ledger's to say",
                   kept.get("M-RS1") == "mismatch" and kept.get("M-RS2") == "ok", str(kept))
 
+            # -- a refusal before any record is written says queued 0 (the sender may then mark its row failed) ------
+            refused = a.carrier.handle_request({"op": "send", "message_id": "M-9", "text": msg("M-OTHER", "h/alpha", to="h/beta")})
+            check("a send whose text carries another MESSAGE-ID is refused with queued 0 and carried 0",
+                  refused["ok"] is False and refused["queued"] == 0 and refused["carried"] == 0, str(refused))
+            big = msg("M-10", "h/alpha", to="h/beta").replace("\n\n", "\n\n" + "".join(chr(0x4e00 + (i * 7919) % 20000) for i in range(900000)) + "\n", 1)
+            toolong = a.carrier.handle_request({"op": "send", "message_id": "M-10", "text": big})
+            check("a message that needs more chunks than the carrier sends is refused with queued 0",
+                  toolong["ok"] is False and toolong.get("queued") == 0 and "chunks" in toolong["error"], str(toolong)[:200])
+            check("... and nothing was written for either", not any(x.mid in ("M-9", "M-10") for x in a.box.deliveries.values()))
+
             # -- the adapter's `wait`: the watch's clock when this carrier is the record --------------------
             t0 = time.monotonic()
             idle = c.carrier.handle_request({"op": "wait", "seconds": 0.6})
