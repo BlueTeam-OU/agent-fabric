@@ -84,6 +84,7 @@ BACKOFF_S = (1, 2, 4, 8, 16, 32, 60)
 SEND_WAIT_S = 10.0         # a reply's send; a request's is its ttl_s
 WRITE_WAIT_S = 5.0         # a line the child's pipe cannot take in this long: the child is not reading
 WEDGED_AFTER = 3           # consecutive sends that got no outbound at all: the child is not draining
+OUT_OF_TIME = "the time ran out before this send was handed to the child"
 SOCKET_NAME = "control.sock"
 SOCKET_SEND_S = 5.0        # a reply written to fabric-ctl's socket
 # How long an open fabric-ctl session may hold agentd's restart back (see Server.hold): long enough for a fleet
@@ -571,9 +572,13 @@ class Carrier:
         return self.child.send(f"{peer}/{ENDPOINT}", frame(record))
 
     def send_to(self, addresses: Iterable[str], record: dict, wait_s: float) -> dict[str, tuple[bool, str]]:
-        """One direct send per address, all handed to the child before any is waited on."""
-        started = [(a, self.start_send(a, record)) for a in addresses]
+        """One direct send per address, all handed to the child before any is waited on, the whole inside `wait_s`.
+        The deadline counts from the first hand-over: a child that drains its pipe slowly makes each hand-over take
+        seconds, and a budget that began after them let a 29-account send run past fabric-ctl's wait for it (j144:
+        ctl gave up at its budget + 5 s and the answer went to a closed socket). A send not yet handed over when the
+        time is out is not made; it fails, never sent, and the relay carries it."""
         deadline = time.monotonic() + wait_s
+        started = [(a, self.start_send(a, record) if time.monotonic() < deadline else failed(OUT_OF_TIME)) for a in addresses]
         return {a: self.child.settle(s, deadline - time.monotonic()) for a, s in started}
 
     def reply(self, request: dict, reply: dict) -> None:
@@ -857,7 +862,7 @@ class Session:
             self._conn.close()
 
 
-_NEVER_SENT = ("this account", "no roster row", "the InterWeave channel is", "the child's input is closed", "the child does not drain")
+_NEVER_SENT = (OUT_OF_TIME, "this account", "no roster row", "the InterWeave channel is", "the child's input is closed", "the child does not drain")
 
 
 class Down(Exception):

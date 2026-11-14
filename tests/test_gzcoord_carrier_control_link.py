@@ -229,6 +229,20 @@ class ChildCases(Net):
         self.assertIn("closed", s.wait(0)[1])
         self.assertEqual(n.carrier.send_to(["h/bob"], request(), 1)["h/bob"][0], False)
 
+    def test_slow_hand_overs_count_against_the_budget_and_the_rest_are_never_sent(self):
+        n = self.node("alice")
+        def slow(address, record):
+            time.sleep(0.3)   # a child that drains its pipe slowly: each hand-over takes this long
+            return cc.failed("slow stub")
+        t0 = time.monotonic()
+        with mock.patch.object(n.carrier, "start_send", slow):
+            got = n.carrier.send_to([f"h/a{i}" for i in range(10)], request(), 1.0)
+        took = time.monotonic() - t0
+        self.assertLess(took, 1.0 + 0.5, f"the hand-overs ran past the budget: {took:.1f}s")
+        never = [a for a, (ok, why) in got.items() if why == cc.OUT_OF_TIME]
+        self.assertTrue(0 < len(never) < 10, got)
+        self.assertEqual(sorted(got), sorted(f"h/a{i}" for i in range(10)), "every address has an outcome")
+
     def test_a_child_that_answers_nothing_three_sends_running_is_ended_and_restarted(self):
         n = self.node("alice", extra_env={"FAKE_SILENT": "1"})
         pid = n.child._proc.pid
