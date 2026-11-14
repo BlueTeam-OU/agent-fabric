@@ -1583,6 +1583,36 @@ def _():
             _reap(holder)
 
 
+@case("--replace on a holder that serves another LIVE session: the refusal line, nothing signalled, the holder keeps the lock")
+def _():
+    from gzcoord.inbox_parts import session as S, watchlock
+    me = S.read_proc(os.getpid())
+    mine = S.Session(os.getpid(), me.start, os.getppid(), "parent")
+    other = subprocess.Popen(["sleep", "60"])
+    try:
+        run_dir = P.scratch("run-")
+        holder = _spawn_holder("gzcoord-inbox", "new", watchlock.lock_path("fixture-login", run_dir), other.pid, S.read_proc(other.pid).start, "claude")
+        try:
+            lock, out, err = _take(run_dir, mine, wait_s=1.0, replace=True)
+            ok(lock is None and holder.poll() is None, f"{out!r} {err!r}")
+            ok(f"--replace refused: the watch of pid {holder.pid} " in out and f"serves live session pid {other.pid}" in out
+               and "nothing was signalled" in out and "nothing to kill" not in out, out)
+            # the positive control: the same holder, its session gone, is ended by the same call
+            other.kill()
+            other.wait()
+            lock, out, err = _take(run_dir, mine, wait_s=5.0, replace=True)
+            try:
+                ok(lock is not None and holder.wait(timeout=10) == -15, f"{out!r} {err!r}")
+            finally:
+                if lock is not None:
+                    lock.release()
+        finally:
+            _reap(holder)
+    finally:
+        other.kill()
+        other.wait()
+
+
 def _wait_lock_lines(env: dict, n: int, deadline: float = 20) -> list[str]:
     end = time.monotonic() + deadline
     while time.monotonic() < end:

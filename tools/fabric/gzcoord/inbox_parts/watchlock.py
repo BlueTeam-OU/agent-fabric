@@ -27,9 +27,10 @@ the process signalling is gzcoord-inbox, not a Bash kill, so the guard needs no 
 holder the file does not vouch for) is refused with one line naming it, and nothing is signalled.
 
 --REPLACE ENDS AN ORPHAN TOO (2026-11-14): a watch of this uid whose lock names no live session — a session recorded and gone, a
-"detached" watch (no `claude` above it, the hand-armed `( ... & )` shape), an older file that recorded none — is ended by
---replace as well, whichever session asks: it serves no one, and without this it had no exit. A watch whose recorded session is
-alive and is not this one, another user's, and one the file does not vouch for are still refused."""
+"detached" watch (no `claude` above it, the hand-armed `( ... & )` shape), an older file that recorded none and hangs from init
+or systemd — is ended by --replace as well, whichever session asks: it serves no one, and without this it had no exit. Refused
+still: a watch whose recorded session is alive and is not this one, another user's, one the file does not vouch for, a session
+recorded without a start time, session lines this code does not know, and an older file whose holder hangs from a live parent."""
 from __future__ import annotations
 
 import fcntl
@@ -47,7 +48,7 @@ from .hold import pid_alive
 # introduced it, and the dictionary is the coordinator's.
 ALREADY_RUNNING = ("gzcoord-inbox: a watch is already running (pid {pid}, started {started}); "
                    "it ends at its next delivery, at its --deadline (default 1 h 55 min) with the quiet line, or with its session "
-                   "— nothing to kill; do not run it again; --replace ends a watch this session started, or one whose session is gone or was never recorded, and takes its place")
+                   "— nothing to kill; do not run it again; --replace ends a watch this session started, or a detached one, and takes its place")
 # --replace found a holder that is not this session's: one line, on stdout like the line above (a background command's output reaches
 # the session only at exit), and it says not to run it again, as a rerun would be refused the same way.
 REPLACE_REFUSED = ("gzcoord-inbox: --replace refused: the watch of pid {pid} (started {started}) is not provably a watch of this "

@@ -71,14 +71,17 @@ CONTRACT, frozen from the Node:
                                 session (same session pid, start time
                                 and kind), or serves no live session
                                 (its session has ended, it is detached,
-                                or an older file recorded none), end it
+                                or an older file recorded none and it
+                                hangs from init or systemd), end it
                                 with SIGTERM by its pid, wait up to 5 s
                                 for the flock, name both pids on STDERR
                                 and take its place: how a session undoes
                                 a watch it armed by hand. Any other
                                 holder (another live session's, another
                                 user's, one the file does not name, a
-                                session recorded without a start time)
+                                session recorded without a start time or
+                                with lines this code does not know, an
+                                older file's holder under a live parent)
                                 is refused with one line on STDOUT naming
                                 it, exit 0, nothing signalled; --replace
                                 without a watch flag, or with --replay,
