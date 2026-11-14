@@ -457,18 +457,21 @@ have been lost (j852, which blocks the InterWeave-only cutover, j814).
 
 python-dev-02's BlueTeam-OU/agent-fabric#594 (j146) makes agentd's
 existing restart gate, the leaver that already waits for running
-actions, also wait for an open `fabric-ctl` socket session: the server
+actions, also wait for a session open on its socket: the server
 takes a hold when it accepts a request and releases it when the session
 ends, or after `HOLD_MAX_S` (600 s) from the hold, so a `fabric-ctl`
 left waiting cannot keep the daemon on old code. A session that opens
 once a restart is already pending holds nothing, so sessions that
-follow one another cannot chain the restart away. Reordering the
+follow one another cannot chain the restart away. The hold is the
+socket's, not `fabric-ctl`'s: on every account on `dual`, a presence
+or job-queue leg's session holds it too, which is why the pending case
+holds nothing. Reordering the
 command (the operator's own account upgraded last) was not chosen:
 replies that reach a new agentd before `fabric-ctl` reconnects would
 have no listener, and a reconnect needs a new socket op.
 
 The live read-back
 (docs/live-checks/2026-11-14-agentd-restart-held-by-ctl-session.md)
-asked for the restart inside a fleet `status`: the daemon left 18.6 s
-after it was asked, 0.13 s before `fabric-ctl` ended, and all 29 peers'
+asked for the restart inside a fleet `status`: the daemon left
+18.6–19.6 s after it was asked, 0.13 s before `fabric-ctl` ended, and all 29 peers'
 replies reached it by InterWeave in between.

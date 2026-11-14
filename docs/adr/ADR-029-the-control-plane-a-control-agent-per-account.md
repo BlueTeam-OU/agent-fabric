@@ -344,12 +344,14 @@ with Doppler (ADR-038 §5 rule 8).
     - `fabric-ctl` holds no lease: it hands its sends to the operator's
       own agentd over a socket in its runtime directory, mode 0600, and
       `all` is one direct send per placed account's roster row;
-    - while a `fabric-ctl` session is open on that socket, agentd's
-      restart for new code waits for it as for a running action, for
-      at most `HOLD_MAX_S` (600 s) from the session's hold, so replies
-      the operator's own `upgrade fabric` would orphan still reach the
-      session; one opened with a restart already asked for holds
-      nothing (A 2026-11-14);
+    - while a session is open on an agentd's socket (`fabric-ctl`'s,
+      or a presence or job-queue leg's), that agentd's restart for new
+      code waits for it as for a running action, for at most
+      `HOLD_MAX_S` (600 s) from the session's hold, so replies the
+      operator's own `upgrade fabric` would orphan still reach
+      `fabric-ctl`. A session opened with a restart already asked for
+      holds nothing, so legs that follow one another cannot keep a
+      daemon on old code (A 2026-11-14);
     - `interweave`, `interweave-install`, `interweave-start` and
       `interweave-stop` go on the relay only (ADR-064 rule 14);
       `interweave-evidence` goes by both, as any other op;
@@ -508,4 +510,4 @@ The body above reads current; each change's full note is in [history/ADR-029-ame
 | 2026-11-13 | The second carrier is read back and the fleet is on dual | Evidence: the two-account read-back; §8: built, its read path read back, `control_carrier` `dual` (j793) |
 | 2026-11-13 | The parity evidence carries the senders' relay backfill logs | §2 table: `interweave-evidence` takes a fifth section, `backfills` (#590) |
 | 2026-11-14 | The backfills section carries the sends the relay took | §2 table: `backfills` adds a derived `relay-took-send` row per relay-accepted outbound send, and the reply `send_rows` (#592) |
-| 2026-11-14 | An open fabric-ctl session holds agentd's restart | §5 rule 18: a socket session holds the restart for new code, up to `HOLD_MAX_S`; Evidence: the held-restart read-back (#594, j852) |
+| 2026-11-14 | An open fabric-ctl session holds agentd's restart | §5 rule 18: a session on an agentd's socket (fabric-ctl's, a presence or queue leg's) holds its restart for new code, up to `HOLD_MAX_S`; Evidence: the held-restart read-back (#594, j852) |
