@@ -238,10 +238,11 @@ def correction_holds(project: str, entry: dict[str, Any]) -> bool:
 REHOME_RECORD_KEYS = ("section_writers", "applied_corrections", "replaced_sections", "collision_decisions", "retitles")
 
 
-def read_rehome_report() -> tuple[dict[str, Any] | None, str | None]:
-    """agent-fabric's own report: (report, None); (None, None) when there is none; (None, why) when there is a file that is no
-    JSON object or cannot be read, which the pass must neither take for absent nor overwrite."""
-    path = layout.project_report_path(layout.FABRIC_PROJECT_ID)
+def read_rehome_report(project: str = layout.FABRIC_PROJECT_ID) -> tuple[dict[str, Any] | None, str | None]:
+    """A project's last report (agent-fabric's by default, the re-home pass's): (report, None); (None, None) when there is
+    none; (None, why) when there is a file that is no JSON object or cannot be read, which a writer must neither take for
+    absent nor overwrite."""
+    path = layout.project_report_path(project)
     try:
         with open(path, encoding="utf-8") as fh:
             previous = json.load(fh)
@@ -414,13 +415,13 @@ def report(run: Run) -> int:
         "memory_use": memory_use,
     }
     report_path = layout.project_report_path(run.project)
-    try:
-        with open(report_path, encoding="utf-8") as fh:
-            previous = json.load(fh)
-        if not isinstance(previous, dict):
-            previous = {}
-    except (OSError, ValueError):
-        previous = {}
+    # An unreadable earlier report holds the ledgers (writers, corrections, decisions) the merge carries; taking it for absent
+    # and overwriting it loses them, as the re-home pass refuses to (read_rehome_report).
+    previous, why = read_rehome_report(run.project)
+    if why:
+        print(f"{run.project}'s own drain report is not replaced: {why}. This run's report is not written.", file=sys.stderr)
+        return 1
+    previous = previous or {}
     def still_there(rel: str) -> bool:
         roots = [layout.working_copy_for(run.project), layout.FABRIC_ROOT]
         return any(root and os.path.exists(os.path.join(root, rel)) for root in roots)

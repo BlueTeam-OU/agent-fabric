@@ -114,6 +114,12 @@ def main() -> int:
     run = Run(args=args, project=open_layout(args))
     if read_claims(run):
         return 1
+    # Before anything is written: the passes read this report for the corrections they already applied (shapes._earlier,
+    # targets), and take an unreadable one for none; only the refusal here keeps all of them, and the report's write, honest.
+    _, why = read_rehome_report(run.project)
+    if why:
+        print(f"{run.project}'s own drain report is not replaced: {why}. Nothing is written.", file=sys.stderr)
+        return 1
     rehomed = rehome_unbound(run)
     if rehomed:
         # Before the project's own pass, which reports them: a claim the control plane's pass refuses stops the run with
