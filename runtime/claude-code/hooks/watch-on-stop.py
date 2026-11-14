@@ -34,7 +34,10 @@ included, leaves the hook passing, because asking at once would only spin a
 new watch against the same relay, and a relay an operator stopped on purpose
 would see its sessions hammer it (j626, the 2026-11-05 relay-down drill). The
 hook never removes the marker: the next fetch the relay answers does; one that
-outlives RELAY_DOWN_S is asked again without a probe. A session that was asked
+outlives RELAY_DOWN_S is asked again without a probe. Where the account's transport mode makes the carrier the primary (carrier-record, carrier-only:
+the relay is then a mirror whose silence ends no watch) the marker means the carrier, and the one probe is the
+carrier's own socket, asked its `status` (carrier_answers): an answer lifts the silence, none leaves it, a socket
+that is not there is none. A mode that cannot be read is the relay's probe, as before the modes existed. A session that was asked
 less than WINDOW_S ago passes before any probe is made.
 
 It passes, printing nothing, when: stop_hook_active; no harness ancestor; the
@@ -50,6 +53,7 @@ import glob
 import importlib.util
 import json
 import os
+import socket
 import sys
 import threading
 import time
@@ -201,6 +205,48 @@ def relay_answers(url: str | None) -> bool:
     return bool(answered)
 
 
+def carrier_answers(run_dir: str | None = None) -> bool:
+    """One `status` request to the carrier's adapter socket ($XDG_RUNTIME_DIR/agent-fabric/gzcoord-carrier.sock,
+    CARRIER-CONTRACT.md §6), bounded by RELAY_PROBE_S wall-clock seconds like the relay's probe; True for an
+    `ok` answer. No socket, a refusal, a reply that is not JSON and no answer in time are all "did not answer"."""
+    run_dir = run_dir or os.environ.get("XDG_RUNTIME_DIR") or f"/run/user/{os.getuid()}"
+    path = os.path.join(run_dir, "agent-fabric", "gzcoord-carrier.sock")
+    answered: list[bool] = []
+
+    def probe() -> None:
+        try:
+            with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as s:
+                s.settimeout(RELAY_PROBE_S)
+                s.connect(path)
+                s.sendall(b'{"op":"status"}\n')
+                buf = b""
+                while b"\n" not in buf:
+                    chunk = s.recv(65536)
+                    if not chunk:
+                        break
+                    buf += chunk
+            if json.loads(buf.split(b"\n", 1)[0]).get("ok") is True:
+                answered.append(True)
+        except Exception:  # noqa: BLE001 - no socket, refused, torn, not JSON, timed out: the carrier did not answer
+            pass
+
+    t = threading.Thread(target=probe, daemon=True)
+    t.start()
+    t.join(RELAY_PROBE_S)
+    return bool(answered)
+
+
+def carrier_leads() -> bool:
+    """The account's transport mode has the carrier as the primary (gzcoord/transport/mode.py). Anything that keeps the mode
+    from being read is False: the relay's probe is the answer that existed before the modes."""
+    sys.path.insert(0, os.path.join(FABRIC_ROOT, "tools", "fabric"))
+    try:
+        from gzcoord.transport import mode
+        return mode.read(None)["mode"] != mode.RELAY_RECORD
+    except (Exception, SystemExit):  # noqa: BLE001 - an unreadable mode is no reason to block or to pass
+        return False
+
+
 _identity = None
 
 
@@ -278,7 +324,7 @@ def configured_relay_url(cwd: str | None, session: str | None) -> str | None:
 
 def decide(payload: dict, procs: dict, now: float, path: str, is_integrated=integrated,
            own_pid: int | None = None, run_dir: str | None = None, meminfo: str = "/proc/meminfo",
-           relay_url: str | None = None) -> dict | None:
+           relay_url: str | None = None, carrier_primary: bool | None = None) -> dict | None:
     if payload.get("stop_hook_active"):
         return None
     session_id = payload.get("session_id")
@@ -290,10 +336,14 @@ def decide(payload: dict, procs: dict, now: float, path: str, is_integrated=inte
     # Cheapest guard first: a Stop inside WINDOW_S passes without paying for the relay probe.
     if recently_blocked(path, session_id, now):
         return None
-    # relay_url is passed in by tests; otherwise the project's own, looked up only when a marker stands.
-    if relay_down(now, run_dir) and not relay_answers(
-            relay_url or configured_relay_url(payload.get("cwd"), session_id)):
-        return None
+    # relay_url and carrier_primary are passed in by tests; otherwise the project's own relay and the account's mode,
+    # looked up only when a marker stands.
+    if relay_down(now, run_dir):
+        if (carrier_leads() if carrier_primary is None else carrier_primary):
+            if not carrier_answers(run_dir):
+                return None
+        elif not relay_answers(relay_url or configured_relay_url(payload.get("cwd"), session_id)):
+            return None
     if not is_integrated(payload.get("cwd"), session_id):
         return None
     remember(path, session_id, now)
