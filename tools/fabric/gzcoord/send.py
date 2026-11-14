@@ -107,7 +107,7 @@ from typing import Any, Callable
 
 from . import bypass, gzmsg, i18n, inbox, intake, paths, placement, transport
 from . import jsvalues as js
-from .carrier import CARRIER_NAME
+from .carrier import CARRIER_LABEL, CARRIER_NAME
 
 import hidden_unicode  # noqa: E402 — tools/fabric, on sys.path through paths
 
@@ -650,7 +650,9 @@ def main(argv: list[str]) -> int:
         True when a mirror accepted it: a failed primary's line must then not say "not sent"."""
         accepted = [s for s in tp.send_mirrors(mid, text) if s.state == "accepted"]
         for s in accepted:
-            done = journal(["gzcoord-out-final", mid, "--state", "accepted", "--carrier", s.name], "")
+            # The relay is the journal's default carrier name (claude-bridge), not its transport name.
+            done = journal(["gzcoord-out-final", mid, "--state", "accepted",
+                            *(["--carrier", s.name] if s.name == CARRIER_NAME else [])], "")
             if done["status"] != 0:
                 sys.stderr.write(done["stderr"] or "episodic: the message was not marked accepted by the carrier\n")
         return bool(accepted)
@@ -664,21 +666,24 @@ def main(argv: list[str]) -> int:
         # (an earlier one may have reached it, and this failure says nothing
         # about it: review of #78); otherwise it stays pending.
         never = tp.primary.never_delivered(e)
+        record_name = "the carrier" if tp.primary.name == CARRIER_NAME else "the relay"
         if _journal_off():
             _bypass_outcome(text, "failed" if never else "unknown")
         else:
             if str((kept or {}).get("stdout") or "").strip() == "unknown":
-                sys.stderr.write("episodic: an earlier attempt of this message may have reached the relay; its row"
+                sys.stderr.write(f"episodic: an earlier attempt of this message may have reached {record_name}; its row"
                                  " stays pending\n")
             elif not never:
                 # Not "failed": the relay may hold it. The row stays pending,
                 # the journal's own "may have reached the carrier".
-                sys.stderr.write("episodic: this message may have reached the relay; its row stays pending\n")
+                sys.stderr.write(f"episodic: this message may have reached {record_name}; its row stays pending\n")
             else:
                 done = journal(["gzcoord-out-final", mid, "--state", "failed"], "")
                 if done["status"] != 0:
                     sys.stderr.write(done["stderr"])
         carried = via_mirrors()
+        if tp.primary.name == CARRIER_NAME:
+            return carrier_not_accepted(e, never, carried, me["address"], file, mid, t)
         status = getattr(e, "status", None)
         # Only a message TO one login: the carrier's "accepted" counts roster members, and a TO-ROLE or
         # a broadcast is queued for all of them, so it says nothing of the addressee (review of #505, F1).
@@ -733,8 +738,12 @@ def main(argv: list[str]) -> int:
     except OSError as e:
         print(t("send.ledger-not-written", {"detail": e.strerror or str(e)}), file=sys.stderr)
     deduplicated = sent.deduplicated
-    print(t("send.sent", {"seq": seq, "type": msg["type"], "id": mid,
-                          "deduplicated": t("send.deduplicated") if deduplicated else ""}))
+    if tp.primary.name == CARRIER_NAME:
+        # The carrier numbers nothing: the MESSAGE-ID names the message. The line is the owner's to word (cutover W8).
+        print(f"sent {msg['type']} {mid}")
+    else:
+        print(t("send.sent", {"seq": seq, "type": msg["type"], "id": mid,
+                              "deduplicated": t("send.deduplicated") if deduplicated else ""}))
     if grant_in_body:
         print(t("send.authorizes-in-body"), file=sys.stderr)
     # fabric-jobs speaks for itself, on stderr: stdout stays the one sent line.
@@ -750,6 +759,27 @@ def main(argv: list[str]) -> int:
     # unknown or failed to queue, and the addressee's list check spares the duplicate.
     queue_request(msg, who)
     return 0
+
+
+def carrier_not_accepted(error: BaseException, never: bool, relay_took_it: bool, address: str, file: str, mid: str,
+                         t: i18n.Printer) -> int:
+    """The exit and the line when the carrier, the transport of record, did not accept the send (exit 3 always): not sent
+    when it provably recorded nothing, its outcome unknown when it may have. These lines are plain, not the dictionary's: the
+    owner words them (cutover W8). A relay mirror that took a copy is said, never counted: the carrier's answer is the status."""
+    login = address.rpartition("/")[2]
+    fix = f"fabric-ctl {login} {CARRIER_NAME} says why, and fabric-ctl {login} {CARRIER_NAME}-start starts it"
+    if never:
+        if getattr(error, "absent", False):
+            print(f"send: not sent: the {CARRIER_LABEL} carrier is not running ({fix})", file=sys.stderr)
+        else:
+            print(f"send: not sent: {error}", file=sys.stderr)
+    else:
+        # The same id on a resend: a file carries it, stdin mints one unless the text names it (SPEC §7.2).
+        again = t("send.again-file") if file != "-" else t("send.again-stdin", {"id": mid})
+        print(f"send: outcome unknown: {error}; the carrier may hold it and retries it to the receipt; {again}", file=sys.stderr)
+    if relay_took_it:
+        print("send: the relay took a copy of it; that does not change this status", file=sys.stderr)
+    return 3
 
 
 def queue_request(msg: dict, who: dict) -> None:

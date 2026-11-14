@@ -177,7 +177,7 @@ class Send(unittest.TestCase):
     def test_carrier_only_without_a_carrier_is_not_sent_and_the_relay_is_never_called(self):
         r, relay, agent = self.run_send('{"mode": "carrier-only"}')
         self.assertEqual((r.code, relay.posts), (3, []), r.err)
-        self.assertIn("no InterWeave carrier is running", r.err)
+        self.assertIn("the InterWeave carrier is not running", r.err)
         self.assertIn("not sent", r.err)
 
 
