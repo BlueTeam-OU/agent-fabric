@@ -815,10 +815,11 @@ class Ed25519(unittest.TestCase):
 class RealPin(unittest.TestCase):
     """The committed pin read by the real reader: the data and the code that judges it together."""
 
-    def test_v0_2_0_is_signed_and_its_signature_shape_passes_the_real_pin_problem(self):
+    # Read through `current`, never a version literal: a pin bump is a data commit, and a test naming the old
+    # version fails it for no defect (j817). What must hold of whichever release is current is that it is signed.
+    def test_the_current_release_is_signed_and_its_signature_shape_passes_the_real_pin_problem(self):
         pin = iw.load_pin(HERE)
-        self.assertEqual(pin["current"], "0.2.0")
-        rel = pin["releases"]["0.2.0"]
+        rel = pin["releases"][pin["current"]]
         self.assertNotIn("unsigned", rel)
         self.assertEqual(rel["minisign"]["key_id"], "5B8EC2921F6805E1")
         self.assertIn("unsigned", pin["releases"]["0.1.0"], "v0.1.0 predates the key")
@@ -827,15 +828,18 @@ class RealPin(unittest.TestCase):
     def test_the_trusted_comments_signature_verifies_with_the_pinned_key_and_names_the_archive(self):
         # The archive is 117 MB and is not here; the global signature covers the comment and the archive's signature, so
         # it ties the pinned bytes to the pinned key without it. verify_file itself runs on the archive in the live check.
-        rel = iw.load_pin(HERE)["releases"]["0.2.0"]
-        build = rel["x86_64"]
-        key = base64.b64decode(rel["minisign"]["public_key"])
-        sig = base64.b64decode(build["minisig"]["signature"])
-        comment = build["minisig"]["trusted_comment"]
-        glob = base64.b64decode(build["minisig"]["global_signature"])
-        self.assertTrue(iw.minisign.ed25519_verify(key[10:], sig[10:] + comment.encode(), glob))
-        self.assertFalse(iw.minisign.ed25519_verify(key[10:], sig[10:] + comment.encode() + b"x", glob), "control: an edited comment")
-        self.assertIn(f"file:{build['name']}", comment.split("\t"))
+        signed = {v: r for v, r in iw.load_pin(HERE)["releases"].items() if "minisign" in r}
+        self.assertIn(iw.load_pin(HERE)["current"], signed)
+        for version, rel in signed.items():
+            with self.subTest(version=version):
+                build = rel["x86_64"]
+                key = base64.b64decode(rel["minisign"]["public_key"])
+                sig = base64.b64decode(build["minisig"]["signature"])
+                comment = build["minisig"]["trusted_comment"]
+                glob = base64.b64decode(build["minisig"]["global_signature"])
+                self.assertTrue(iw.minisign.ed25519_verify(key[10:], sig[10:] + comment.encode(), glob))
+                self.assertFalse(iw.minisign.ed25519_verify(key[10:], sig[10:] + comment.encode() + b"x", glob), "control: an edited comment")
+                self.assertIn(f"file:{build['name']}", comment.split("\t"))
 
     def test_a_pin_with_the_real_fields_broken_one_at_a_time_is_refused(self):
         with open(os.path.join(HERE, iw.PIN_REL)) as fh:
