@@ -89,23 +89,26 @@ def open_lock(directory: str, name: str = FILE):
     return os.fdopen(fd, "w")
 
 
+def session_proc():
+    """tools/fabric/session_proc.py, loaded by path: the one rule for which process is a session (j836)."""
+    spec = importlib.util.spec_from_file_location("fabric_session_proc", os.path.join(os.path.dirname(os.path.dirname(IDENTITY)), "tools", "fabric", "session_proc.py"))
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
 def harness(proc: str = "/proc", pid: int | None = None) -> tuple[int, int] | None:
-    """The nearest ancestor named `claude`, as (pid, start time in clock
+    """session_proc's nearest session, as (pid, start time in clock
     ticks since boot, /proc/<pid>/stat field 22); None outside a harness."""
-    p = pid or os.getpid()
-    for _ in range(64):
-        try:
-            with open(f"{proc}/{p}/stat", encoding="utf-8", errors="replace") as fh:
-                raw = fh.read()
-        except OSError:
-            return None
-        rest = raw[raw.rindex(")") + 2:].split()
-        if raw[raw.index("(") + 1:raw.rindex(")")] == "claude":
-            return p, int(rest[19])
-        if int(rest[1]) <= 1:
-            return None
-        p = int(rest[1])
-    return None
+    p = session_proc().nearest_session(pid or os.getpid(), proc)
+    if p is None:
+        return None
+    try:
+        with open(f"{proc}/{p}/stat", encoding="utf-8", errors="replace") as fh:
+            raw = fh.read()
+        return p, int(raw[raw.rindex(")") + 2:].split()[19])
+    except (OSError, ValueError, IndexError):
+        return None
 
 
 def alive(pid: object, start: object, proc: str = "/proc") -> bool:
