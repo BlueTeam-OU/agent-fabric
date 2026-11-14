@@ -4,7 +4,8 @@ Decisions: agent-fabric ADR-064 (rules 5-10), ADR-033, ADR-041.
 This is the contract the carrier (`tools/fabric/gzcoord/carrier/`) and the
 two adapters (`send.py`, `inbox.py`) are built against. It adds nothing to
 the GZCOORD/1 grammar (ADR-033 rule 1); everything below is carrier to
-carrier, or adapter to carrier, on one host.
+carrier (on this host or, by a roster row's `host`, another), or adapter to
+carrier on one host.
 
 ## 1. Names
 
@@ -61,9 +62,11 @@ member is ignored.
 
 ## 4. Sender behaviour (ADR-064 rules 6, 7)
 
-- Recipients: `TO <host>/<login>` is the roster member for that login (one
-  host, so only this host's members); `TO-ROLE` and `BROADCAST` are every
-  other valid roster member. An address with no valid row is not carried
+- Recipients: `TO <host>/<login>` is the valid roster member with that
+  login whose host is the address's host: the row's `host`, or this
+  carrier's own host for a row that names none (rows signed before `host`
+  existed are all on one host). The same login on another host is not
+  carried. `TO-ROLE` and `BROADCAST` are every other valid roster member. An address with no valid row is not carried
   (relay alone).
 - One delivery per (MESSAGE-ID, recipient), its transport `message_id`s
   minted once and kept across retries and restarts in
@@ -85,8 +88,9 @@ member is ignored.
 ## 5. Receiver behaviour (ADR-064 rules 9, 10, 11)
 
 A delivery event carries the source PeerId. The carrier maps it through the
-valid roster to `<this host>/<login>`; a PeerId absent from the roster is
-dropped and counted, never admitted. For an admitted-by-roster message:
+valid roster to `<row host>/<login>`, the row host being its `host` or,
+for a row that names none, this carrier's own host (§4); a PeerId absent
+from the roster is dropped and counted, never admitted. For an admitted-by-roster message:
 
 1. parse the header; verdict = `ok` if `FROM` equals the mapped address,
    else `mismatch`;
