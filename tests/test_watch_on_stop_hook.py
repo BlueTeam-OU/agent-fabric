@@ -96,9 +96,10 @@ def main() -> int:
 
         dead = f"http://127.0.0.1:{closed_port()}/"
 
-        def go(payload, procs, now=1000.0, integ=yes, relay_url=dead):
+        def go(payload, procs, now=1000.0, integ=yes, relay_url=dead, carrier_primary=False):
+            # carrier_primary is always given: left to the hook it reads the account's own mode, which a test must not.
             return mod.decide({"session_id": "s1", **payload}, procs, now, path, integ, own_pid=ME, run_dir=run_dir,
-                              relay_url=relay_url)
+                              relay_url=relay_url, carrier_primary=carrier_primary)
 
         def fresh():
             if os.path.exists(path):
@@ -216,6 +217,56 @@ def main() -> int:
         fresh()
         go({}, table(), now=900.0 + mod.RELAY_DOWN_S, relay_url=live)
         check("a marker past RELAY_DOWN_S: asked without a probe", Relay.seen == [], Relay.seen)
+        # With the carrier as the primary the marker means the carrier, and the one probe is its socket's `status`: a
+        # relay that answers (or none) decides nothing there.
+        sock_path = os.path.join(run_dir, "agent-fabric", "gzcoord-carrier.sock")
+        asked: list[bytes] = []
+
+        def carrier_on(reply: bytes):
+            lsn = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+            lsn.bind(sock_path)
+            lsn.listen(4)
+
+            def serve():
+                while True:
+                    try:
+                        conn, _ = lsn.accept()
+                    except OSError:
+                        return
+                    with conn:
+                        asked.append(conn.recv(4096))
+                        conn.sendall(reply)
+            threading.Thread(target=serve, daemon=True).start()
+            return lsn
+
+        def carrier_off(lsn):
+            lsn.close()
+            os.unlink(sock_path)
+
+        with open(down, "w", encoding="utf-8") as fh:
+            fh.write("900\n")
+        Relay.seen.clear()
+        fresh()
+        out = go({}, table(), carrier_primary=True, relay_url=live)
+        check("carrier primary, a fresh marker, no carrier socket, the relay answering: passes", out is None, out)
+        check("…the relay was not asked: it is a mirror", Relay.seen == [], Relay.seen)
+        for reply, want, label in ((b'{"ok":true,"outstanding":[]}\n', "block", "the carrier answers status"),
+                                   (b'{"ok":false,"error":"x"}\n', None, "the carrier refuses"),
+                                   (b'not json\n', None, "the carrier answers what is not JSON"),
+                                   (b'', None, "the carrier closes without an answer")):
+            lsn = carrier_on(reply)
+            fresh()
+            asked.clear()
+            out = go({}, table(), carrier_primary=True, relay_url=dead)
+            carrier_off(lsn)
+            check(f"carrier primary, a fresh marker, {label}: {want or 'passes'}", (out or {}).get("decision") == want, out)
+            check("…and what was asked was status", asked == [b'{"op":"status"}\n'], asked)
+        fresh()
+        out = go({}, table(), now=900.0 + mod.RELAY_DOWN_S, carrier_primary=True)
+        check("carrier primary, a marker past RELAY_DOWN_S: asked without a probe", (out or {}).get("decision") == "block", out)
+        fresh()
+        check("the positive control: relay primary, the same marker, the relay answering: blocks",
+              (go({}, table(), relay_url=live) or {}).get("decision") == "block")
         srv.shutdown()
         srv.server_close()
         fresh()

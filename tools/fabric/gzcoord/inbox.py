@@ -208,6 +208,7 @@ import threading
 import time
 from typing import Any, Callable
 
+from .carrier import CARRIER_LABEL, CARRIER_NAME
 from . import bypass, gzmsg, i18n, intake, paths, transport
 from . import jsvalues as js
 from .gzmsg import en  # noqa: F401 — send.py calls inbox.en()
@@ -231,7 +232,7 @@ from .inbox_parts.relay import _relay_up, ensure_relay, RelayError, API_TIMEOUT 
 from .inbox_parts.relay import _OPENER, api, explain_relay_error  # noqa: F401
 from .inbox_parts.records import _records, _when, one_line, _parse_quiet, replay, HISTORY_WINDOW  # noqa: F401
 from .inbox_parts.records import history, RETRANSMISSION_LOOKUP_MS, mark_retransmissions  # noqa: F401
-from .inbox_parts.records import MESSAGE_ID, JournalUnreadable, history_journal, history_journal_only, journal_record, replay_journal_row  # noqa: F401
+from .inbox_parts.records import MESSAGE_ID, JournalUnreadable, history_journal, history_journal_only, journal_newest, journal_record, replay_journal_row  # noqa: F401
 from .inbox_parts.records import KEYWORD_MIN, KEYWORD_MAX, KeywordError, check_keywords  # noqa: F401
 from .inbox_parts.records import _TOKEN_SPLIT, keyword_hit, REPLAY_CMD  # noqa: F401
 from .inbox_parts.hold import hold_dir, pid_start, pid_alive, hold_status, HOLD_POLL_MS  # noqa: F401
@@ -493,7 +494,13 @@ def main(argv: list[str]) -> int:
     relay_url, channel = cfg["relay_url"], cfg["channel"]
     # What this session owns first: the hosting working copy starts its
     # relay here, so a session restart is also the relay's.
-    up = transport.start_hosted(cfg, t)
+    # Not in carrier-only: nothing in that mode's inbox path may start or probe the relay. A mode that cannot be read
+    # does not decide it here; open_mux below refuses it in one line.
+    try:
+        relay_not_wanted = transport.mode.read(_episodic().state_dir())["mode"] == transport.mode.CARRIER_ONLY
+    except transport.ModeError:
+        relay_not_wanted = False
+    up = {"hosted": False, "started": False} if relay_not_wanted else transport.start_hosted(cfg, t)
     if up.get("started"):
         print(t("start.relay-started-unit", {"unit": up["unit"]}) if up.get("unit")
               else t("start.relay-started-pid", {"pid": up.get("pid")}), file=sys.stderr)
@@ -525,11 +532,14 @@ def main(argv: list[str]) -> int:
     if history_given or replay_which:
         # The record the primary keeps, read whole; no cursor moves, so no mirror and no logs.
         try:
-            primary = transport.open_transport(cfg, token=tok, me=me, journal_off=True).primary
+            primary = transport.open_transport(cfg, token=tok, me=me, record_only=True,
+                                               journal_newest=lambda n: journal_newest(_episodic(), n)).primary
         except transport.ModeError as e:
             print(f"gzcoord-inbox: {e}", file=refusal_out)
             return 7
         try:
+            if history_given and primary.name == CARRIER_NAME:
+                return history_from_journal()     # the carrier keeps no list of its own: the journal is the record this account holds
             if history_given:
                 def relay_then_journal() -> int:
                     page = primary.newest(HISTORY_WINDOW)
@@ -540,7 +550,10 @@ def main(argv: list[str]) -> int:
                         journal_unreadable(e)   # said on stderr; the relay's list above stands
                     return code
                 return with_fresh_token(primary, relay_then_journal)
-            return with_fresh_token(primary, lambda: replay(primary.newest(500), channel, replay_which, me, t, "--json" in argv))
+            return with_fresh_token(primary, lambda: replay(primary.newest(500), channel, replay_which, me, t, "--json" in argv,
+                                                                      from_journal=primary.name == CARRIER_NAME))
+        except JournalUnreadable as e:
+            return journal_unreadable(e)      # the carrier's record is the journal: the carrier was never asked
         except Exception as e:  # noqa: BLE001 — any failure of the read is the primary's line
             x = primary.explain(e, t)
             print(x["line"], file=sys.stderr)
@@ -564,7 +577,8 @@ def main(argv: list[str]) -> int:
     journal = bypass_inbound if off else (lambda recs: journal_inbound(recs, who))
     ep = _episodic()
     def open_mux() -> transport.TransportMux:
-        return transport.open_transport(cfg, token=tok, me=me, journal_off=off, state_dir=ep.state_dir(), iso_now=ep.now)
+        return transport.open_transport(cfg, token=tok, me=me, journal_off=off, state_dir=ep.state_dir(), iso_now=ep.now,
+                                        journal_newest=lambda n: journal_newest(ep, n))
 
     try:
         tp = open_mux()
@@ -577,6 +591,26 @@ def main(argv: list[str]) -> int:
     mode_watch = transport.mode.Watcher(tp.mode, ep.state_dir(), every=MODE_POLL_S,
                                         on_error=lambda why: print(f"gzcoord-inbox: {why}; the watch keeps transport mode {tp.mode}", file=sys.stderr, flush=True))
     cause = {"reason": None}
+
+    def primary_down_line(kind: str) -> str:
+        """What the watch says of its primary being down, gone for good, or back. The relay's three are the dictionary's;
+        the carrier's are not yet (the owner's strings, cutover W7), so they are plain lines of the same shape."""
+        if primary.name != CARRIER_NAME:
+            # Each key literally beside its t(: the i18n suite reads the source for them.
+            if kind == "down":
+                return t("watch.relay-down", {"relay_url": relay_url})
+            if kind == "gave-up":
+                return t("watch.relay-gave-up", {"relay_url": relay_url})
+            return t("watch.relay-back")
+        who = me["address"].rpartition("/")[2]
+        label = f"the {CARRIER_LABEL} carrier"
+        fix = f"fabric-ctl {who} {CARRIER_NAME} says why, and fabric-ctl {who} {CARRIER_NAME}-start starts it"
+        if kind == "down":
+            return f"gzcoord watch: {label} is not answering — waiting for it ({fix}; this line prints once)"
+        if kind == "gave-up":
+            return (f"gzcoord watch: {label} did not answer for {UNTIL_DELIVERY_DOWN_S / 60:g} minutes — the watch ended; "
+                    f"run it again when it is back ({fix})")
+        return f"gzcoord watch: {label} answers again; watching again"
 
     def held_line(reason: str, n: int) -> str:
         if off:
@@ -657,11 +691,11 @@ def main(argv: list[str]) -> int:
                     return 4
                 if not down:
                     if not until_delivery:
-                        print(t("watch.relay-down", {"relay_url": relay_url}), flush=True)
+                        print(primary_down_line("down"), flush=True)
                     down = True
                     down_since = time.monotonic()
                 elif until_delivery and time.monotonic() - down_since >= UNTIL_DELIVERY_DOWN_S:
-                    print(t("watch.relay-gave-up", {"relay_url": relay_url}), flush=True)
+                    print(primary_down_line("gave-up"), flush=True)
                     mark_relay_down(who["agent"], time.time())
                     return 5
                 # The 30 s between tries, shortened to the time left before the give-up bound and, under --until-delivery,
@@ -688,7 +722,7 @@ def main(argv: list[str]) -> int:
                 return 0
             if down and r.get("relayError") is None:   # a delivery the carrier made says nothing of the relay
                 if not until_delivery:
-                    print(t("watch.relay-back"), flush=True)
+                    print(primary_down_line("back"), flush=True)
                 down = False
             if r["delivered"]:
                 cause["reason"] = None

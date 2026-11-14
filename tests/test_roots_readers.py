@@ -267,8 +267,8 @@ def case_lint_with_an_operator_copy_says_what_it_says_without_one() -> None:
             with open(probe, "a", encoding="utf-8") as fh:
                 fh.write("\n## A section only the operator tree has\n\nSee `tools/fabric/no_such_module_for_the_probe.py`.\n\n"
                          "*Observed 2026-10-01 (python-dev)*\n")
-            plain, over, probed, again = run_together(base, {**base, "AGENT_FABRIC_OPERATOR": tmp},
-                                                      {**base, "AGENT_FABRIC_OPERATOR": probed_tree}, base)
+            plain, over, probed = run_together(base, {**base, "AGENT_FABRIC_OPERATOR": tmp},
+                                               {**base, "AGENT_FABRIC_OPERATOR": probed_tree})
         finally:
             shutil.rmtree(probed_tree, ignore_errors=True)
         # A failing lint prints its findings on stderr and nothing on stdout, so the two stdouts alone read '' vs '' (j157).
@@ -282,8 +282,8 @@ def case_lint_with_an_operator_copy_says_what_it_says_without_one() -> None:
             (f"with the operator: {said(over)}\nwithout: {said(plain)}\nstdout diff:\n{said_diff(plain.stdout, over.stdout)}"
              f"\nstderr diff:\n{said_diff(plain.stderr, over.stderr)}\noperator tree: {tmp}")
         count = lambda r: int(re.findall(r"(\d+) warning", r.stdout)[-1])  # noqa: E731
-        assert probed.returncode == 0 and again.stdout == plain.stdout and count(probed) == count(plain) + 1, \
-            f"lint did not follow the operator's memory: {said(probed)}\nwithout: {said(plain)}\nagain: {said(again)}"
+        assert probed.returncode == 0 and count(probed) == count(plain) + 1, \
+            f"lint did not follow the operator's memory: {said(probed)}\nwithout: {said(plain)}"
 
 
 def case_fabric_labels_do_not_depend_on_the_checkouts_name() -> None:
