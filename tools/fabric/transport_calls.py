@@ -22,6 +22,7 @@ import json
 import os
 import subprocess
 import sys
+import warnings
 
 POLICY = "tools/fabric/transport-calls.json"
 OWNER = "tools/fabric/gzcoord/transport/"
@@ -97,7 +98,10 @@ def scan(rel: str, text: str, allowed: dict[str, str]) -> list[str]:
     if rel in allowed or not judged_path(rel):
         return []
     try:
-        tree = ast.parse(text, filename=rel)
+        with warnings.catch_warnings():
+            # A scanned file's own invalid escape is its own lint's to report; under -W error it would read as a syntax error, a clean verdict.
+            warnings.simplefilter("ignore", SyntaxWarning)
+            tree = ast.parse(text, filename=rel)
     except SyntaxError:
         return []   # ruff refuses it in CI; a commit of a half-merged module is not this rule's to stop
     out = []
