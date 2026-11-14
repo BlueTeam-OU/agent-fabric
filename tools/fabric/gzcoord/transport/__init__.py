@@ -8,7 +8,9 @@ transports there are is decided here and nowhere else, by the account's transpor
 
   relay-record   the relay of the project's integration config is the primary (ADR-064 rule 11), the second carrier a mirror
   carrier-record the carrier is the primary and the relay a mirror, sent to and read beside it
-  carrier-only   the carrier alone: no relay is built, so nothing in the send or inbox path can call one
+  carrier-only   the carrier alone: no relay transport is built, so no transport verb can call one. The presence check before
+                 an addressed send is the control plane's (control/presence.py, W12) and still posts to the relay first,
+                 with the second carrier's leg under `control_carrier: dual`; that is gate 2's read-back, not this factory's
 
 With the journal off (rule 8) the route is the relay alone, whatever the mode says, as the carrier does not start without a
 journal; carrier-only has then no route and is refused (D7 of the cutover plan decides what replaces it). An unreadable mode

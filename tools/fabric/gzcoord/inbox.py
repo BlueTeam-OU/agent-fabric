@@ -552,6 +552,8 @@ def main(argv: list[str]) -> int:
                 return with_fresh_token(primary, relay_then_journal)
             return with_fresh_token(primary, lambda: replay(primary.newest(500), channel, replay_which, me, t, "--json" in argv,
                                                                       from_journal=primary.name == CARRIER_NAME))
+        except JournalUnreadable as e:
+            return journal_unreadable(e)      # the carrier's record is the journal: the carrier was never asked
         except Exception as e:  # noqa: BLE001 — any failure of the read is the primary's line
             x = primary.explain(e, t)
             print(x["line"], file=sys.stderr)

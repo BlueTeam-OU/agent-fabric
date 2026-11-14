@@ -116,8 +116,9 @@ class Adapter:
                 # Sent and not answered, or not sent: the carrier may hold it.
                 return Post("failed", f"the InterWeave carrier did not answer ({e})")
             if not out.get("ok"):
-                queued = out.get("queued", 0) if "queued" in out else 0
-                return Post("failed", str(out.get("error", "no reason given")), proved_unsent=not queued)
+                # Unsent is proved only by an explicit queued count of 0: an answer without one ("bad request", a handler that
+                # raised mid-loop) may follow recipients already recorded.
+                return Post("failed", str(out.get("error", "no reason given")), proved_unsent=out.get("queued") == 0)
         if out.get("carried", 0) == 0:
             return Post("not-carried", "no roster member carries the message's TO", proved_unsent=True)
         return Post("accepted") if out.get("queued") == out.get("carried") else Post("failed", "not every recipient was recorded")

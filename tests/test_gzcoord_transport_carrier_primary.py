@@ -142,6 +142,18 @@ class Watch(unittest.TestCase):
         self.assertIn("in your journal's last", r.stdout)
         self.assertEqual(w.calls, 0)
 
+    def test_replay_by_seq_in_a_carrier_mode_names_an_unreadable_journal_not_the_carrier(self):
+        w, fake = self.world("carrier-only")
+        agent = os.path.join(w.state, "agents", P.LOGIN)
+        os.makedirs(agent, exist_ok=True)
+        with open(os.path.join(agent, "episodic.db"), "wb") as fh:
+            fh.write(b"this is not a database " * 400)
+        r = subprocess.run([P.INBOX_CMD, "--replay", "1234"], env=w.env, capture_output=True, text=True, timeout=120,
+                           stdin=subprocess.DEVNULL)
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        self.assertIn("your journal could not be read", r.stderr)
+        self.assertNotIn("carrier failed", r.stderr)
+
     def test_carrier_only_calls_the_relay_never(self):
         w, fake = self.world("carrier-only", pages=[[C.relay_rec(4)]], records=[C.urec(4)])
         r = w.watch()
@@ -261,6 +273,8 @@ class Units(unittest.TestCase):
         r = ans({"ok": False, "error": "disk", "carried": 2, "queued": 0}).post_result("m", "t")
         self.assertEqual((r.state, r.proved_unsent), ("failed", True))
         self.assertEqual(adapter.Adapter(path="/no/such").post_result("m", "t").state, "absent")
+        r = ans({"ok": False, "error": "bad request: ValueError"}).post_result("m", "t")
+        self.assertEqual((r.state, r.proved_unsent), ("failed", False), "no queued count: recipients may be recorded")
 
     def test_post_result_is_silent_on_stderr_unless_it_is_the_mirror(self):
         saved, sys.stderr = sys.stderr, types.SimpleNamespace(write=lambda s: written.append(s), flush=lambda: None)
@@ -443,6 +457,35 @@ class Units(unittest.TestCase):
             self.assertGreater(timeouts[0], 55, "the control: the record's wait keeps the client's own bound")
         finally:
             inbox_relay.api = saved
+
+    def test_the_relay_mirror_takes_a_rotated_token_once_and_says_a_refusal_as_one(self):
+        from gzcoord.inbox_parts import relay as inbox_relay
+        seen = []
+
+        def api(tok, path, url=None, method="GET", body=None, timeout=inbox_relay.API_TIMEOUT):
+            seen.append(tok)
+            if tok == "old":
+                raise inbox_relay.RelayError("401", 401)
+            return {"messages": []}
+        saved_api, saved_tok = inbox_relay.api, relay_transport.synced_token
+        inbox_relay.api, relay_transport.synced_token = api, lambda: "new"
+        try:
+            mirror = relay_transport.RelayMirror(relay_transport.RelayTransport("http://x", "c", "h/beta", "old"))
+            self.assertEqual(mirror.receive(0, threading.Event()), [])
+            self.assertEqual(seen, ["old", "new"], "refused once, retried once with the synced token")
+            seen.clear()
+            relay_transport.synced_token = lambda: "old"          # the control: nothing fresher to take
+            mirror = relay_transport.RelayMirror(relay_transport.RelayTransport("http://x", "c", "h/beta", "old"))
+            saved_err, sys.stderr = sys.stderr, types.SimpleNamespace(write=lambda s: said.append(s), flush=lambda: None)
+            said: list[str] = []
+            try:
+                mirror.receive(0, threading.Event())
+            finally:
+                sys.stderr = saved_err
+            self.assertEqual(seen, ["old"])
+            self.assertTrue(any("refused the token" in x for x in said), said)
+        finally:
+            inbox_relay.api, relay_transport.synced_token = saved_api, saved_tok
 
     def test_the_factory_bounds_the_mirror_and_not_the_primary_relay(self):
         self.assertEqual(self.build("carrier-record").mirrors[0]._relay._call_timeout, relay_transport.MIRROR_CALL_S)

@@ -121,11 +121,23 @@ class RelayMirror:
         self._down_until = self._clock() + MIRROR_DOWN_FOR_S
         if not self._said:
             self._said = True
-            print(f"gzcoord: the relay did not answer ({what}: {e}); the {CARRIER_LABEL} carrier is the record", file=sys.stderr)
+            status = getattr(e, "status", None)
+            how = f"refused the token (HTTP {status})" if status in (401, 403) else "did not answer"
+            print(f"gzcoord: the relay {how} ({what}: {e}); the {CARRIER_LABEL} carrier is the record", file=sys.stderr)
+
+    def _fresh(self, call: Callable[[], Any]) -> Any:
+        """One retry with the synced token after a refusal: with the carrier leading nothing else refreshes the relay's
+        token, as the watch's `with_fresh_token` does for a relay primary."""
+        try:
+            return call()
+        except Exception as e:  # noqa: BLE001 — the relay says whether it was a refused token
+            if not self._relay.refresh(e):
+                raise
+            return call()
 
     def send(self, message_id: str, text: str) -> Sent:
         try:
-            return self._relay.send(message_id, text)
+            return self._fresh(lambda: self._relay.send(message_id, text))
         except Exception as e:  # noqa: BLE001 — a mirror's failure is a line, whatever it was
             self._fell("send", e)
             return Sent(self.name, "failed")
@@ -134,7 +146,7 @@ class RelayMirror:
         if self._clock() < self._down_until:
             return []
         try:
-            page = self._relay.receive(0, abort)
+            page = self._fresh(lambda: self._relay.receive(0, abort))
         except Exception as e:  # noqa: BLE001
             self._fell("wait", e)
             return []
@@ -142,7 +154,7 @@ class RelayMirror:
         return page
 
     def ack(self, record_id: Any) -> None:
-        self._relay.ack(record_id)
+        self._fresh(lambda: self._relay.ack(record_id))
 
     def health(self) -> Health:
         return self._relay.health()
