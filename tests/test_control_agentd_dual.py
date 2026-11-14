@@ -37,6 +37,7 @@ def body(rid: str, **over) -> dict:
 class Base(Scratch):
     """No cases: the account's agentd running in this process, and the operator's carrier beside it."""
     carrier = "dual"
+    argv: list[str] | None = None
 
     def setUp(self) -> None:
         self.net, self.runtime, self.state, self.home = (self.scratch() for _ in range(4))
@@ -95,11 +96,11 @@ class Base(Scratch):
         a = mock.patch.object(agentd, "answer", spying)
         a.start()
         self.addCleanup(a.stop)
-        self.thread = threading.Thread(target=agentd.main, kwargs={"stop": self.stop}, daemon=True)
+        self.thread = threading.Thread(target=agentd.main, kwargs={"argv": self.argv, "stop": self.stop}, daemon=True)
         self.thread.start()
         self.addCleanup(self.shutdown)
         self.relay.until_waiting()
-        if self.carrier == "dual":
+        if self.carrier == "dual" and not self.argv:
             self.assertTrue(until(lambda: os.path.isdir(os.path.join(self.net, PEERS["alice"]))), self.logs)   # its child is up
         self.op = Node(self, self.net, "op")
         self.replies: list[tuple[dict, str]] = []
@@ -307,6 +308,22 @@ class AgentdDual(Base):
         self.assertIn(link.Running.stop.__name__, [getattr(h, "__name__", "") for h in agentd.EXIT_HOOKS])
         agentd.run_exit_hooks()
         self.assertFalse(os.path.exists(os.path.join(self.runtime, "agent-fabric", "control.sock")), "the exit hook took the socket down")
+
+
+class AgentdOnce(Base):
+    """`--once` with FABRIC_CONTROL_CARRIER=dual: one pass on the relay, no second carrier. Without the `not once` on
+    the dual start, a one-shot would start the child and socket and, on the first ctl session, hit hold_for_ctl's
+    assert (a ctl token is no thread: finish_inflight() would join it)."""
+    argv = ["--once"]
+
+    def test_a_one_shot_on_a_dual_account_starts_no_child_no_socket_and_no_exit_hook(self):
+        self.thread.join(timeout=30)
+        self.assertFalse(self.thread.is_alive(), "--once returned")
+        time.sleep(0.3)   # a child started by mistake writes its argv a moment after the start
+        self.assertFalse(os.path.exists(self.argv_file), "no child was started")
+        self.assertFalse(os.path.exists(os.path.join(self.runtime, "agent-fabric")), "no socket directory either")
+        self.assertEqual(agentd.EXIT_HOOKS, [])
+        self.assertFalse(any("also on" in l for l in self.logs), self.logs)
 
 
 class AgentdRelay(Base):
