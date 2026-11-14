@@ -966,7 +966,7 @@ def default_directory(host: str, placed: Callable[[], set[str]], log: Callable[[
 def start_for_agentd(*, me: str, on_request: Callable[[dict, str], None], placed: Callable[[], set[str]],
                      env: dict[str, str] | None = None, log: Callable[[str], None] = say,
                      directory: Directory | None = None, argv: list[str] | None = None,
-                     hold: Callable[[], Callable[[], None]] | None = None) -> Running:
+                     hold: Callable[[], Callable[[], None] | None] | None = None) -> Running:
     """Start the child, the router and fabric-ctl's socket. Nothing here can stop agentd answering on the relay:
     a program that is not installed, a roster that does not verify and a socket that cannot be bound are each
     said and the account is on the relay alone until they are mended."""

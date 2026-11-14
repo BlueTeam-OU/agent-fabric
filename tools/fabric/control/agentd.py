@@ -1247,6 +1247,7 @@ def main(argv: list[str] | None = None, *, stop: threading.Event | None = None) 
         _stderr(f"agentd: answered {request['op']} for {request['from']} ({request['id'][:8]}){tag}")
 
     def hold_for_ctl() -> Callable[[], None] | None:
+        assert not once, "a ctl token is no thread: finish_inflight() would join it"
         return ctl_hold(leave, inflight)
 
     # `not once`: finish_inflight() joins every member of `inflight`, and a ctl session's token is not a thread.
