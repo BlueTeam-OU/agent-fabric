@@ -1,7 +1,7 @@
 """tools/fabric/gzcoord/transport/carrier.py — the second carrier as a mirror transport, over carrier/adapter.py
 (CARRIER-CONTRACT.md §6). The adapter's switch is the carrier itself: with no carrier running every verb here is a no-op that
 costs a stat, and a carrier that does not answer is a line on stderr from the adapter, never an error raised (the relay
-fails open, ADR-064)."""
+fails open, ADR-064). That is the mirror, CarrierTransport; CarrierPrimary below, the carrier as the record, raises."""
 from __future__ import annotations
 
 import threading

@@ -208,6 +208,7 @@ import threading
 import time
 from typing import Any, Callable
 
+from .carrier import CARRIER_NAME
 from . import bypass, gzmsg, i18n, intake, paths, transport
 from . import jsvalues as js
 from .gzmsg import en  # noqa: F401 — send.py calls inbox.en()
@@ -531,6 +532,8 @@ def main(argv: list[str]) -> int:
             print(f"gzcoord-inbox: {e}", file=refusal_out)
             return 7
         try:
+            if history_given and primary.name == CARRIER_NAME:
+                return history_from_journal()     # the carrier keeps no list of its own: the journal is the record this account holds
             if history_given:
                 def relay_then_journal() -> int:
                     page = primary.newest(HISTORY_WINDOW)
@@ -541,7 +544,8 @@ def main(argv: list[str]) -> int:
                         journal_unreadable(e)   # said on stderr; the relay's list above stands
                     return code
                 return with_fresh_token(primary, relay_then_journal)
-            return with_fresh_token(primary, lambda: replay(primary.newest(500), channel, replay_which, me, t, "--json" in argv))
+            return with_fresh_token(primary, lambda: replay(primary.newest(500), channel, replay_which, me, t, "--json" in argv,
+                                                                      from_journal=primary.name == CARRIER_NAME))
         except Exception as e:  # noqa: BLE001 — any failure of the read is the primary's line
             x = primary.explain(e, t)
             print(x["line"], file=sys.stderr)

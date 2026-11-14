@@ -8,7 +8,8 @@ The switch is the carrier itself: with no carrier process there is no socket,
 is configured per tool, and a session that has no carrier is a session of the
 relay alone, as before.
 
-THE RELAY FAILS OPEN. A carrier that is present and does not answer must never
+THE RELAY FAILS OPEN (this is the carrier as a mirror: `post`, `unseen`; the primary's `wait` and `post_result` without
+`fail_open` raise, because there the carrier is the record, transport/carrier.py CarrierPrimary). A carrier that is present and does not answer must never
 hold a relay delivery: `unseen` answers nothing when the carrier cannot be
 asked, and the send side reports what happened and carries on. What a session
 sees is decided by the shown ledger (ledger.py), which the inbox reaches on its

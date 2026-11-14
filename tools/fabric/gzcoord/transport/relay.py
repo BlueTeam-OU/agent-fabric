@@ -31,11 +31,15 @@ def start(cfg: dict, t: i18n.Printer | None = None) -> dict:
 class RelayTransport:
     name = NAME
 
-    def __init__(self, relay_url: str, channel: str, address: str, token: str) -> None:
+    def __init__(self, relay_url: str, channel: str, address: str, token: str, *, call_timeout: float | None = None) -> None:
         self.relay_url, self.channel, self.address, self._token = relay_url, channel, address, token
+        # None is the relay client's own bound (300 s): right for the record, which is waited on. A mirror is given a short one.
+        self._call_timeout = call_timeout
 
     def _api(self, path_and_query: str, **kw: Any) -> Any:
         # Looked up at the call, so a test that replaces inbox_parts.relay.api sees every verb.
+        if self._call_timeout is not None:
+            kw["timeout"] = self._call_timeout
         return _relay.api(self._token, path_and_query, self.relay_url, **kw)
 
     def send(self, message_id: str, text: str) -> Sent:
@@ -54,7 +58,7 @@ class RelayTransport:
     def receive(self, seconds: float, abort: threading.Event) -> list[dict]:
         q = urllib.parse.urlencode({"channel": self.channel, "consumer_id": self.address,
                                     "timeout_seconds": js.string(seconds), "limit": "50"})
-        page = self._api(f"/api/wait?{q}", timeout=seconds + _relay.API_TIMEOUT)
+        page = self._api(f"/api/wait?{q}", timeout=seconds + _relay.API_TIMEOUT)      # a mirror's bound replaces it in _api
         msgs = page.get("messages") if isinstance(page, dict) else None
         return msgs if isinstance(msgs, list) else []
 
@@ -90,6 +94,10 @@ class RelayTransport:
         return ((isinstance(status, int) and 400 <= status < 500) or getattr(error, "reached", None) is False
                 or isinstance(error, TokenRefused))
 
+
+# What one call to the relay may take as a mirror. The carrier's records and the carrier's accepted send wait for the mirror
+# in the same pass, so a relay that accepts the connection and never answers must not hold them for the client's 300 s.
+MIRROR_CALL_S = 5.0
 
 # After a relay that did not answer, nothing is asked of it for this long: a mirror that is down must not cost the carrier's
 # watch a connection attempt a slice (the carrier adapter's DOWN_FOR is the same rule on the other side).

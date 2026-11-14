@@ -102,7 +102,6 @@ class Watch(unittest.TestCase):
         w, fake = self.world("carrier-record", hold=60)          # the carrier holds a wait to its bound: nothing arrives
         r = w.watch(deadline=6)
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
-        self.assertIn("no message", r.stdout.lower() + "no message")      # a quiet arm ends quiet: nothing is shown
         self.assertNotIn("subject-", r.stdout)
         self.assertLessEqual(fake.calls.count("wait"), 2, fake.calls)
         self.assertEqual([c for c in fake.calls if c != "wait"], [], "no other op: the wait's answer is the page")
@@ -135,6 +134,14 @@ class Watch(unittest.TestCase):
         self.assertEqual((first.stdout.count("subject-3"), second.stdout.count("subject-3")), (1, 0), first.stdout + second.stdout)
         self.assertEqual(w.acks, ["r3"], "the relay's late copy is acknowledged, not shown")
 
+    def test_history_in_a_carrier_mode_is_the_journals_and_calls_no_relay(self):
+        w, fake = self.world("carrier-only")
+        r = subprocess.run([P.INBOX_CMD, "--history"], env=w.env, capture_output=True, text=True, timeout=120,
+                           stdin=subprocess.DEVNULL)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("in your journal's last", r.stdout)
+        self.assertEqual(w.calls, 0)
+
     def test_carrier_only_calls_the_relay_never(self):
         w, fake = self.world("carrier-only", pages=[[C.relay_rec(4)]], records=[C.urec(4)])
         r = w.watch()
@@ -148,6 +155,25 @@ class Watch(unittest.TestCase):
         self.assertEqual(r.returncode, 5, r.stdout + r.stderr)    # the watch's give-up; its words are W7's
         self.assertNotIn("subject-5", r.stdout, "the relay's copy is not shown by a watch whose record is down")
         self.assertEqual(w.acks, [], "and not acknowledged")
+
+
+class Send(unittest.TestCase):
+    def test_a_send_the_carrier_took_is_journaled_as_the_carriers_and_the_relay_is_never_called(self):
+        import test_gzcoord_carrier_send as CS
+        run = P.scratch("run-")
+        carrier = server.Server(server.socket_path(run), lambda req: {"ok": True, "carried": 1, "queued": 1, "posted": 0})
+        self.addCleanup(carrier.close)
+        relay = P.Relay()
+        self.addCleanup(relay.close)
+        base = P.scratch("send-primary-")
+        state, store = os.path.join(base, "state"), P.id_store()
+        agent = os.path.join(state, "agents", P.LOGIN)
+        os.makedirs(agent)
+        mode.write("carrier-only", "h1/op", agent)
+        r = P.send_with(relay.url, P.VALID, AGENT_FABRIC_STATE_DIR=state, AGENT_FABRIC_SECRET_STORE=store, XDG_RUNTIME_DIR=run)
+        self.assertEqual(r.code, 0, r.err)
+        self.assertEqual(relay.posts, [])
+        self.assertEqual(CS.rows(state, store), [("outbound", "accepted", "interweave", None)])
 
 
 class Units(unittest.TestCase):
@@ -235,12 +261,23 @@ class Units(unittest.TestCase):
         self.assertEqual(c.wait_unseen(30), [{"mid": "n"}])
         self.assertLess(time.monotonic() - t0, 0.9, "the look interval is 1 s: an arrival does not wait for it")
 
-    def test_wait_unseen_is_clamped_and_stops_with_the_carrier(self):
+    def test_wait_unseen_stops_with_the_carrier(self):
         c = self.carrier([])
         c.stop.set()
         t0 = time.monotonic()
         self.assertEqual(c.wait_unseen(3600), [])
         self.assertLess(time.monotonic() - t0, 1)
+
+    def test_wait_unseen_is_clamped_by_the_carrier_whatever_the_caller_asks(self):
+        c = self.carrier([])
+        saved, engine.MAX_WAIT = engine.MAX_WAIT, 0.4
+        try:
+            t0 = time.monotonic()
+            self.assertEqual(c.wait_unseen(3600), [])      # stop is clear: only the clamp ends it
+            self.assertGreaterEqual(time.monotonic() - t0, 0.35, "the positive control: it did wait")
+            self.assertLess(time.monotonic() - t0, 2)
+        finally:
+            engine.MAX_WAIT = saved
 
     def test_the_wait_op_answers_in_the_adapter_channels_shape_and_a_bad_seconds_is_a_bad_request(self):
         c = self.carrier([{"mid": "a"}])
@@ -349,6 +386,45 @@ class Units(unittest.TestCase):
         finally:
             sys.stderr = saved
         self.assertEqual(len([s for s in said if s.strip()]), 1, "one line for the outage")
+
+    def test_the_relay_mirror_is_bounded_by_a_short_call_and_the_relay_as_the_record_is_not(self):
+        from gzcoord.inbox_parts import relay as inbox_relay
+        timeouts = []
+        saved = inbox_relay.api
+        inbox_relay.api = lambda tok, path, url=None, method="GET", body=None, timeout=inbox_relay.API_TIMEOUT: (
+            timeouts.append(timeout) or {"seq": 1, "messages": []})
+        try:
+            mirror = relay_transport.RelayMirror(relay_transport.RelayTransport("http://x", "c", "h/beta", "t",
+                                                                                 call_timeout=relay_transport.MIRROR_CALL_S))
+            mirror.send("m", "t")
+            mirror.receive(0, threading.Event())
+            mirror.ack("r1")
+            self.assertEqual(timeouts, [relay_transport.MIRROR_CALL_S] * 3)
+            timeouts.clear()
+            relay_transport.RelayTransport("http://x", "c", "h/beta", "t").receive(55, threading.Event())
+            self.assertGreater(timeouts[0], 55, "the control: the record's wait keeps the client's own bound")
+        finally:
+            inbox_relay.api = saved
+
+    def test_the_factory_bounds_the_mirror_and_not_the_primary_relay(self):
+        self.assertEqual(self.build("carrier-record").mirrors[0]._relay._call_timeout, relay_transport.MIRROR_CALL_S)
+        self.assertIsNone(self.build("relay-record").primary._call_timeout)
+
+    def test_replay_labels_a_row_by_the_journal_only_when_the_caller_says_the_page_is_the_journals(self):
+        import io
+        from contextlib import redirect_stdout
+        from gzcoord.inbox_parts import records
+        rec = {"id": "m", "seq": None, "sender": "x/y", "timestamp": "T", "content": C.msg(1), "carrier": "interweave",
+               "sender_verified": True}
+        out = {}
+        for journal in (False, True):
+            buf = io.StringIO()
+            with redirect_stdout(buf):
+                code = records.replay({"messages": [rec]}, "c", C.mid(1), {"address": C.ME, "slug": "x"}, None, True, journal)
+            out[journal] = (code, json.loads(buf.getvalue()))
+        self.assertEqual((out[False][1]["carrier"], out[False][1]["sender_verified"]), (records.RELAY_CARRIER, False),
+                         "a relay page claiming to be verified is never believed")
+        self.assertEqual((out[True][1]["carrier"], out[True][1]["sender_verified"]), ("interweave", True))
 
     # ── the factory, by mode ─────────────────────────────────────────
     def build(self, mode_name, **kw):

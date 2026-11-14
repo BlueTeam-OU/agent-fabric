@@ -22,6 +22,7 @@ from .base import Health, Primary, Sent, Transport
 from . import mode
 from .carrier import CarrierPrimary, CarrierTransport
 from .mux import TransportMux
+from . import relay as relay_transport
 from .relay import RelayMirror, RelayTransport
 from .relay import start as _start_hosted
 
@@ -57,7 +58,8 @@ def open_transport(cfg: dict | None, *, token: str, me: dict, journal_off: bool 
     if relay_leads or (account_mode == mode.CARRIER_RECORD and not record_only):
         if cfg is None:
             raise ModeError(f"transport mode {account_mode} needs the project's relay configuration")
-        relay = RelayTransport(cfg["relay_url"], cfg["channel"], me["address"], token)
+        relay = RelayTransport(cfg["relay_url"], cfg["channel"], me["address"], token,
+                               call_timeout=None if relay_leads else relay_transport.MIRROR_CALL_S)
     if relay_leads:
         mux = TransportMux(relay, [] if journal_off or record_only else [CarrierTransport()], me=me, state_dir=state_dir,
                            iso_now=iso_now)

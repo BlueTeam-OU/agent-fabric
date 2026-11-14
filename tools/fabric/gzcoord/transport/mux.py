@@ -11,8 +11,9 @@ THE PRIMARY IS THE RECORD. What it fails with is what the inbox reports and the 
 from its own transport and nothing else. Both are sent every message, the mirrors after the primary's outcome is known,
 whatever it was; the sender interleaves its journal rows between the two, so they are two calls.
 
-RECEIVING is the primary's page; the mirrors' records come in the same pass through the shown ledger (dedup.py) and are never
-acknowledged to the primary. The acknowledgement waits for the journal and the showing: that order is watch.wait_loop's, which
+RECEIVING is the primary's page where the relay leads; the mirrors' records come in the same pass through the shown ledger
+(dedup.py) and are never acknowledged to the primary. Where the carrier leads (see THE TWO ARRANGEMENTS) the relay's page is
+the one `fetch_page` returns, and its records are the ones acknowledged, to the relay. The acknowledgement waits for the journal and the showing: that order is watch.wait_loop's, which
 calls `ack` and holds the ledger's lock, and is not decided here.
 
 The logs beside the journal (arrival and acknowledgement logs, the shown ledger) belong to the receiving side; a mux built to

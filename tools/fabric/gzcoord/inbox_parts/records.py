@@ -45,7 +45,7 @@ def _parse_quiet(text: Any) -> dict | None:
 
 
 def replay(page: Any, channel: str, which: str, me: dict, t: i18n.Printer | None = None,
-           as_json: bool = False) -> int:
+           as_json: bool = False, from_journal: bool = False) -> int:
     """Re-read one message already past this session's cursor — the case a
     read was piped through something that dropped the body. The recent
     history, no consumer id, so no cursor moves; the body only when it is
@@ -72,10 +72,12 @@ def replay(page: Any, channel: str, which: str, me: dict, t: i18n.Printer | None
         msg = None
     if as_json:
         addressed = bool(msg and for_me(msg, me))
-        # The relay's record is a claim (ADR-064 rule 9): never verified, whatever fields the record carries.
+        # The relay's record is a claim (ADR-064 rule 9): never verified, whatever fields the record carries. Only a page the
+        # caller says is the journal's (`from_journal`, the carrier's `newest`) carries what the carrier verified.
         print(js.stringify({"addressed": addressed, "seq": rec.get("seq"), "sender": rec.get("sender"), "when": when,
                             "type": msg["type"], "metadata": msg["metadata"], "text": text,
-                            "carrier": RELAY_CARRIER, "sender_verified": False}
+                            "carrier": rec.get("carrier") if from_journal else RELAY_CARRIER,
+                            "sender_verified": rec.get("sender_verified") is True if from_journal else False}
                            if addressed else {"addressed": addressed, "seq": rec.get("seq")}))
         return 0 if addressed else 2
     if not msg or not for_me(msg, me):

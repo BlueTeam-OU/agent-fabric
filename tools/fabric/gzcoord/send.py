@@ -107,6 +107,7 @@ from typing import Any, Callable
 
 from . import bypass, gzmsg, i18n, inbox, intake, paths, placement, transport
 from . import jsvalues as js
+from .carrier import CARRIER_NAME
 
 import hidden_unicode  # noqa: E402 — tools/fabric, on sys.path through paths
 
@@ -716,7 +717,10 @@ def main(argv: list[str]) -> int:
         _bypass_outcome(text, "accepted", seq)
     else:
         # The send has happened: a journal that fails now is said, never a failed send.
+        # The journal names the transport that took it: without the flag the row says the relay did, which a primary that is the
+        # carrier never called (and the relay-outage evidence counts the row as the relay's).
         done = journal(["gzcoord-out-final", mid, "--state", "accepted",
+                        *(["--carrier", tp.primary.name] if tp.primary.name == CARRIER_NAME else []),
                         *(["--seq", js.string(seq)] if not js.nullish(seq) else [])], "")
         if done["status"] != 0:
             sys.stderr.write(done["stderr"] or "episodic: the sent message was not marked accepted\n")
