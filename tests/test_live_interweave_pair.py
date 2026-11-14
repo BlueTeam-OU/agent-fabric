@@ -7,9 +7,11 @@ import importlib.util
 import os
 import sys
 import unittest
+import unittest.mock
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, "tools", "fabric"))
+from gzcoord import paths  # noqa: E402
 from gzcoord.carrier import roster as R  # noqa: E402
 
 _spec = importlib.util.spec_from_file_location("live_pair_under_test", os.path.join(ROOT, "tests", "live_interweave_two_accounts.py"))
@@ -22,21 +24,46 @@ def row(login: str, port: int, **more) -> dict:
     return {"agent_id": f"id-{login}", "login": login, "peer_id": f"peer-{login}", "port": port, **more}
 
 
-def roster(rows: list[dict]) -> R.Roster:
-    return R.Roster("gzcoord", "gzcoord", (47100, 47199), tuple(rows))
+HOSTS = {"h2": {"interweave_address": "192.0.2.7"}}
+
+
+def roster(rows: list[dict], hosts: dict | None = None) -> R.Roster:
+    return R.Roster("gzcoord", "gzcoord", (47100, 47199), tuple(rows), hosts or {})
 
 
 class PairRender(unittest.TestCase):
     A, B = row("alpha", 47101), row("beta", 47102)
 
-    def render(self, rows: list[dict]) -> str:
-        r, good = live.pair_of(roster(rows), list(rows), ("alpha", "beta"))
+    def render(self, rows: list[dict], hosts: dict | None = None) -> str:
+        r, good = live.pair_of(roster(rows, hosts), list(rows), ("alpha", "beta"))
+        return R.render_config(r, good, self.A["agent_id"], own_host="h1")
+
+    def through_judged_roster(self, rows: list[dict], hosts: dict | None = None) -> str:
+        # the entry the live check calls: its own narrowing, not pair_of in isolation
+        with unittest.mock.patch.object(live, "LOGIN", "alpha"), unittest.mock.patch.object(live, "PEER", "beta"), \
+                unittest.mock.patch.object(R, "load", return_value=roster(rows, hosts)), \
+                unittest.mock.patch.object(R, "valid_rows", return_value=(list(rows), [])), \
+                unittest.mock.patch.object(R, "GitMainKeys"), unittest.mock.patch.object(paths, "operator_root", return_value="/x"):
+            r, good, _ = live.judged_roster()
         return R.render_config(r, good, self.A["agent_id"], own_host="h1")
 
     def test_a_third_row_changes_nothing_the_pair_renders(self):
         two = self.render([self.A, self.B])
         self.assertEqual(two, self.render([self.A, self.B, row("gamma", 47103)]))
         self.assertEqual(two, self.render([row("gamma", 47103), self.A, self.B, row("delta", 47100)]))
+
+    def test_a_third_row_on_another_host_changes_nothing_either(self):
+        other = row("gamma", 47103, host="h2")
+        self.assertEqual(self.render([self.A, self.B], HOSTS), self.render([self.A, self.B, other], HOSTS))
+        rows = [self.A, self.B, other]
+        self.assertIn("/ip4/192.0.2.7/tcp/47103", R.render_config(roster(rows, HOSTS), rows, self.A["agent_id"], own_host="h1"))
+
+    def test_judged_roster_renders_the_pair_whatever_else_is_admitted(self):
+        two = self.through_judged_roster([self.A, self.B])
+        self.assertEqual(two, self.through_judged_roster([self.A, self.B, row("gamma", 47103), row("delta", 47104)]))
+        self.assertEqual(two, self.through_judged_roster([self.A, self.B, row("gamma", 47103, host="h2")], HOSTS))
+        self.assertIn("peer-beta", two)
+        self.assertNotIn("peer-gamma", two)
 
     def test_positive_control_the_whole_roster_does_name_the_third(self):
         rows = [self.A, self.B, row("gamma", 47103)]
