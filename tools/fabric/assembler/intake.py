@@ -278,7 +278,7 @@ def read_claims(run: Run) -> int | None:
                 for a in listed:
                     bad = anchors.problem(a) or anchors.registry_problem(a, known_projects)
                     if bad:
-                        anchor_violations.append(f"{who}: anchor {shown(a[:60])}: {screened(bad)}")
+                        anchor_violations.append(f"{who}: anchor {shown(screened(a)[:60])}: {screened(bad)}")
     if anchor_violations:
         print("CLAIM ANCHOR VIOLATIONS:", file=sys.stderr)
         for problem in anchor_violations:

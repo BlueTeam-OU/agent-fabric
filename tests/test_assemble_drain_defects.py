@@ -596,7 +596,7 @@ def test_a_banned_text_that_repr_would_escape_is_screened_before_it_is_quoted(tm
     assert "pringfield" not in err and "claim 0" in err, err
 
 
-def test_the_rehome_refusal_does_not_print_a_banned_role_or_class(tmp: str) -> None:
+def test_the_rehome_refusal_does_not_print_a_banned_role_or_owner(tmp: str) -> None:
     """Review, pre-existing: a role id the regex admits can be a banned word, and the refusal for an unbound role named it."""
     drain, claims_dir, out = ta.build(tmp, {"alpha": ta.claims("alpha", [WF]), "springfield": ta.claims("springfield", [WF])})
     bind(out, "alpha")
@@ -604,11 +604,21 @@ def test_the_rehome_refusal_does_not_print_a_banned_role_or_class(tmp: str) -> N
     assert proc.returncode != 0 and "not admitted" in proc.stderr, proc.stderr
     never_named(proc)
     assert "of role [redacted]" in proc.stderr, proc.stderr
+    owned = {**WF, "topic": "o", "shared_with": ["springfield"]}
+    drain, claims_dir, out = ta.build(os.path.join(tmp, "o"), {"alpha": ta.claims("alpha", [WF]), "beta": ta.claims("beta", [owned])})
+    bind(out, "alpha")
+    proc = ta.run_assemble(drain, claims_dir, out)
+    assert proc.returncode != 0 and "not admitted" in proc.stderr, proc.stderr
+    never_named(proc)
+    assert "shared with [redacted]" in proc.stderr, proc.stderr
 
 
 def test_an_anchor_refusal_does_not_print_a_banned_name_from_a_claim(tmp: str) -> None:
     ok = refusal(os.path.join(tmp, "a"), {"alpha": ta.claims("alpha", [anchored("not a list", title="Plain notes")])})
     assert "'alpha': claim 0 'Plain notes': anchors is not a list of strings" in ok.stderr, ok.stderr
+    cut = "docs/" + "x" * 30 + " Bearer abcdefghijklmnopqrstuvwxyz0123"   # a 60-character cut leaves 17 of the token, under the pattern's 20
+    proc = refusal(os.path.join(tmp, "cut"), {"alpha": ta.claims("alpha", [anchored([cut])])})
+    assert "abcdefghijklmnopq" not in proc.stderr and "claim 0" in proc.stderr, proc.stderr
     for n, extra in enumerate([{"title": "Springfield notes"}, {"title": "T", "anchors": ["springfield:src/a.py"]},
                                {"title": "T", "class": "Springfield"}, {"title": "T", "anchors": ["x"] * 99 + ["Springfield"]}]):
         claim = anchored("not a list") | extra
@@ -862,7 +872,7 @@ def main() -> int:
         test_a_break_in_a_title_does_not_split_the_heading_or_cut_the_index_entry,
         test_a_refusal_before_the_hygiene_screen_does_not_print_a_banned_name_from_a_claim,
         test_a_banned_text_that_repr_would_escape_is_screened_before_it_is_quoted,
-        test_the_rehome_refusal_does_not_print_a_banned_role_or_class,
+        test_the_rehome_refusal_does_not_print_a_banned_role_or_owner,
         test_an_anchor_refusal_does_not_print_a_banned_name_from_a_claim,
         test_a_valid_role_id_that_is_a_banned_name_is_screened_in_an_anchor_refusal,
         test_a_role_id_refusal_does_not_print_a_banned_name,
