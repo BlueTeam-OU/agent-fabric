@@ -710,7 +710,7 @@ def main() -> int:
         open(os.path.join(proc, "10", "stat"), "w").write("10 (node) S 5 0 0\n")
         check("…and none when no ancestor is claude", g.own_claude_cmdline(proc=proc, pid=30) is None)
     # 2.1.322's bg-pty-host layout (j836): hook -> bash -> session (comm its version) -> bg-pty-host -> daemon. The
-    # guard's command line is the session's, never the daemon's, the nearest comm `claude`.
+    # guard's command line is the session's, never that of a comm-`claude` harness process above it.
     with tempfile.TemporaryDirectory() as proc:
         for pid, comm, ppid, cmd in ((30, "python3", 20, "python3 hook"), (20, "bash", 15, "bash -c x"),
                                      (15, "2.1.322", 12, "2.1.322 --session-id s"), (12, "claude", 10, "claude bg-pty-host"),
@@ -720,6 +720,13 @@ def main() -> int:
             open(os.path.join(proc, str(pid), "cmdline"), "wb").write(cmd.replace(" ", "\0").encode())
         found = g.own_claude(proc=proc, pid=30)
         check("bg-pty-host layout: the session is found, not the daemon", found == (15, "2.1.322 --session-id s"), found)
+    # The session's own comm (a version under 2.1.322) is judged as a name too, so layer 1 refuses a kill by it
+    # without the pgrep ground truth (review of #612, pre-existing A).
+    VCMD = "2.1.322 --session-id s --model x"
+    for cmd in ("pkill 2.1.322", "killall 2.1.322", "pkill -x 2.1.322"):
+        check(f"version comm refused by name: {cmd}", g.verdict(cmd, VCMD, "2.1.322") is not None, g.kill_patterns(cmd))
+    check("…and `pkill claude` still refused beside it", g.verdict("pkill claude", VCMD, "2.1.322") is not None)
+    check("…an unread comm ('?') adds no name", g.verdict("pkill '?'", VCMD, "?") is None)
     r = subprocess.run([sys.executable, HOOK], input=json.dumps({"tool_input": {"command": "git status"}}),
                        capture_output=True, text=True)
     check("the hook: a harmless command prints nothing and exits 0", r.returncode == 0 and not r.stdout.strip(), r.stdout)

@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """tools/fabric/session_proc.py: the one rule for finding a session's claude process (j836), against a fake /proc of
-each layout the harness has had, and the three walks that use it (status, gzcoord's session part, fabric-fresh's).
+each layout the harness has had, and the walks that use it (status, gzcoord's session part, fabric-fresh's, and the
+hooks session-start, session-state and watch-on-stop).
 
 The old walk is kept below as `old_walk`, the rule every site had until j836, so each new-layout case also shows what
 it returned there: a case that the old walk passes is no evidence the rule changed.

@@ -13,8 +13,8 @@ session would fall silent. Registered at user scope on Stop
 
 A watch is "of this session" when a process whose command line is
 gzcoord-inbox with --until-delivery, --follow or --wait (inbox-watch.py) descends from the session's
-harness: the nearest ancestor of this hook named `claude` (session-state.py's
-rule). The process table is read from /proc and passed in as `procs`, so a
+harness: session_proc's nearest session above this hook (the one rule,
+tools/fabric/session_proc.py). The process table is read from /proc and passed in as `procs`, so a
 test supplies its own.
 
 A watch outside the session's tree counts too when it holds gzcoord-inbox's

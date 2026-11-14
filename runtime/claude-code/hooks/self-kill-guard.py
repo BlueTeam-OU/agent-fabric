@@ -4,8 +4,8 @@
 Refuses a command that kills processes chosen by a pattern
 (`pkill -f PAT`, `pgrep -f PAT | xargs kill`, `kill $(pgrep -f PAT)`,
 `killall -r PAT`) when PAT selects any process of the session's own tree:
-its `claude` process (the nearest ancestor of this hook), the bash the
-harness will run this very command in, and every process claude has
+its session process (session_proc's nearest session above this hook),
+the bash the harness will run this very command in, and every process it has
 started — the harness's background tasks, its inbox watch, its servers.
 And it refuses any kill whose target is a gzcoord-inbox process, by
 pattern or by pid.
@@ -77,8 +77,9 @@ NAME_PREFIX = "__NAME__:"
 # killall -g: it kills the whole process group of what it names, which no
 # pattern reading can see.
 GROUP_MARK = "__GROUP__"
-# The name a pattern without -f is judged against. Under 2.1.322's bg-pty-host layout the session's own comm is its
-# version and `claude` names the daemon above it; the name stays `claude`, so `pkill claude` is still refused.
+# A name a pattern without -f is judged against, beside the session process's own comm (main reads it): under
+# 2.1.322's bg-pty-host layout that comm is the version, while `claude` still names the harness processes above the
+# session, so `pkill claude` stays refused.
 SESSION_NAME = "claude"
 # The ground truth's whole budget: under the hook's 5 s timeout, so the ask
 # after it is still reached (ninth round).
@@ -159,14 +160,15 @@ def _spells(name: str, word: str) -> bool:
 
 
 def own_claude_cmdline(proc: str = "/proc", pid: int | None = None) -> str | None:
-    """The command line of the nearest ancestor whose command is `claude`."""
+    """The command line of this hook's session process (own_claude)."""
     return own_claude(proc, pid)[1]
 
 
 def session_proc():
     """tools/fabric/session_proc.py of the tree this hook sits in, loaded by path: the one rule for which process is
-    a session (j836). Under 2.1.322's bg-pty-host layout the nearest comm `claude` is `claude daemon`, not the
-    session, so a walk of its own would guard the daemon's command line and miss the session's."""
+    a session (j836). Under 2.1.322's bg-pty-host layout the session's comm is its version and the nearest comm
+    `claude` above it is another harness process (bg-pty-host or the daemon), so a walk of its own would guard that
+    process's command line and miss the session's."""
     root = os.path.dirname(os.path.dirname(os.path.dirname(HOOKS_DIR)))
     spec = importlib.util.spec_from_file_location("fabric_session_proc", os.path.join(root, "tools", "fabric", "session_proc.py"))
     mod = importlib.util.module_from_spec(spec)
@@ -852,12 +854,16 @@ def message(found: list[tuple[str, bool]], pats: list[str] | None = None) -> str
             "ends by itself; kill by exact pid only a process outside this session's tree, never by a pattern.")
 
 
-def verdict(command: str, cmdline: str | None) -> str | None:
+def verdict(command: str, cmdline: str | None, comm: str | None = None) -> str | None:
     """The deny message when a kill pattern matches the session's own
-    claude process: its command line, or its name without -f."""
+    process: its command line, or without -f its name — `claude`, and its
+    own comm when that differs (2.1.322's version comm)."""
     if not cmdline:
         return None
-    found = hits(command, [(CLAUDE_LABEL, SESSION_NAME, cmdline, False)])
+    tgts = [(CLAUDE_LABEL, SESSION_NAME, cmdline, False)]
+    if comm and comm not in (SESSION_NAME, "?"):
+        tgts.append((CLAUDE_LABEL, comm, cmdline, False))
+    found = hits(command, tgts)
     return message([(label, inbox) for _, label, inbox in found], [p for p, _, _ in found]) if found else None
 
 
@@ -1112,14 +1118,16 @@ UNEXPANDED = re.compile(r"\$(\{|[A-Za-z_])")
 
 
 def decision(command: str, cmdline: str | None, pid: int | None = None, tree: Tree | None = None,
-             shell: bool | None = None, session_id: str | None = None) -> tuple[str, str] | None:
+             shell: bool | None = None, session_id: str | None = None,
+             comm: str | None = None) -> tuple[str, str] | None:
     """deny when a kill would select the session's claude process, its
     shell, a process of its tree or an inbox watch; ask when a pattern
     holds a variable or a command substitution the hook cannot read
     (`pkill -f "$P"`, `pkill -f "claude-$(id -un)"`), since its value
     decides; otherwise nothing. `shell` models the shell the command will
-    run in: by default, inside a session (a claude ancestor found)."""
-    why = verdict(command, cmdline)
+    run in: by default, inside a session (a session process found).
+    `comm` is that process's own name (verdict)."""
+    why = verdict(command, cmdline, comm)
     if why:
         return "deny", why
     if not kills(command):
@@ -1184,7 +1192,8 @@ def main() -> int:
     # The tree is read only for a command that kills: the hook runs on
     # every Bash call.
     tree = session_tree(pid) if pid and kills(command) else {}
-    d = decision(command, cmdline, pid, tree, session_id=payload.get("session_id"))
+    d = decision(command, cmdline, pid, tree, session_id=payload.get("session_id"),
+                 comm=read_comm(pid) if pid else None)
     if d:
         print(json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse",
                                                  "permissionDecision": d[0],

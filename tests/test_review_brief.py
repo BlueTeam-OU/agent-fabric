@@ -473,8 +473,9 @@ def test_the_in_use_marker(tmp: str) -> None:
     assert real_pid(proc, 70) == 50 and real_pid(proc, 50) == 50
     noclaude = _fake_proc(os.path.join(tmp, "proc2"), [(60, "bash", 1), (70, "python3", 60)])
     assert real_pid(noclaude, 70) is None
-    # 2.1.322's bg-pty-host layout (j836): the session's comm is its version and the nearest `claude` is the daemon,
-    # whose cwd is the home directory; the session is found, never the daemon.
+    # 2.1.322's bg-pty-host layout (j836): the session's comm is its version, above it bg-pty-host and the daemon
+    # (cwd the home directory). bg-pty-host's own comm is not recorded: here it is `claude`, the case where an old walk
+    # stops short (test_session_proc gives it `bg-pty-host`). The session is found, never a process above it.
     pty = _fake_proc(os.path.join(tmp, "proc-pty"), [
         (40, "claude", 1, ["claude", "--model", "x"]), (45, "claude", 40, ["claude", "daemon", "run"]),
         (48, "claude", 45, ["claude", "bg-pty-host"]), (50, "2.1.322", 48, ["2.1.322", "--session-id", "s"]),

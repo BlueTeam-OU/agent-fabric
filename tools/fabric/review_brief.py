@@ -780,8 +780,9 @@ def worktree_head(path: str) -> str | None:
 
 def dispatching_session_pid(proc: str = "/proc", start: int | None = None) -> int | None:
     """Pid of the session process at or above `start` (default: this process), session_proc's nearest session, or
-    None. Under 2.1.322's bg-pty-host layout the nearest comm `claude` is `claude daemon`, whose cwd is the home
-    directory, not the session's clone (j836). `proc` is injectable so a test can lay out a fake process tree."""
+    None. Under 2.1.322's bg-pty-host layout the session's comm is its version, and the nearest comm `claude` above
+    it is another harness process (bg-pty-host or `claude daemon`, whose cwd is the home directory), never the
+    session's clone (j836). `proc` is injectable so a test can lay out a fake process tree."""
     return session_proc.nearest_session(os.getpid() if start is None else start, proc)
 
 
