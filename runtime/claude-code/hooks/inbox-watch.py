@@ -17,6 +17,7 @@ import importlib
 import importlib.util
 import os
 import sys
+from collections.abc import Sequence
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.realpath(__file__)))))
 # The command a watch runs, compared with what canonical() reads, never with a word as spelled.
@@ -48,17 +49,19 @@ def canonical_module():
     return importlib.import_module("fabric_cli.canonical")
 
 
-def is_watch(cmd: str) -> bool:
+def is_watch(cmd: str | Sequence[str]) -> bool:
     """A `gzcoord-inbox` run (in either spelling, or the Node shim `inbox.mjs`)
     with --until-delivery, --follow (a session not yet moved off it) or --wait
-    after it. `cmd` is a process's command line, its arguments joined by
-    spaces: an interpreter (`fabric-python -I`, `node`) may stand before the
-    command, so every word is asked whether it starts one. Missing either name
-    told an armed session to arm a second consumer (review of #42)."""
-    if not any(flag in cmd for flag in WATCH_FLAGS):
+    after it. `cmd` is a process's argv, one string per argument: an argument
+    that holds a space (`grep -r "gzcoord-inbox --follow" .`) must stay one word,
+    or it reads as a watch. A plain string is split on spaces, for a caller that
+    only has a printed command line. An interpreter (`fabric-python -I`, `node`)
+    may stand before the command, so every word is asked whether it starts one.
+    Missing either name told an armed session to arm a second consumer (review of #42)."""
+    words = cmd.split() if isinstance(cmd, str) else list(cmd)
+    if not any(flag in w for w in words for flag in WATCH_FLAGS):
         return False
     canonical = canonical_module()
-    words = cmd.split()
     for k, word in enumerate(words):
         # By its file name: canonical() reads a path only in a `bin` directory, which a guard may over-report on, but
         # a watch linked from anywhere else (a test's scratch links) unseen here would tell an armed session to arm a

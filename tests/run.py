@@ -199,6 +199,11 @@ def end_tree(root: int, sleep=time.sleep, term_grace: float = TERM_GRACE_S, kill
             pass
         while alive(root) and time.monotonic() - started < kill_wait:
             sleep(0.1)
+        if alive(root):
+            # Said, because what follows loses the runner's buffered output without a trace: an empty stdout with the
+            # right exit was undiagnosable once (j863, CI run 43417991778).
+            print(f"{PROG}: the python runner was still running {kill_wait:g} s after TERM; KILLing it, the output it held is lost",
+                  file=sys.stderr, flush=True)
     try:
         os.kill(root, signal.SIGSTOP)
     except OSError:

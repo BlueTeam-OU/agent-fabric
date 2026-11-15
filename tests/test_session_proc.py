@@ -1,12 +1,14 @@
 #!/usr/bin/env python3
 """tools/fabric/session_proc.py: the one rule for finding a session's claude process (j836), against a fake /proc of
-each layout the harness has had, and the three walks that use it (status, gzcoord's session part, fabric-fresh's).
+each layout the harness has had, and the walks that use it (status, gzcoord's session part, fabric-fresh's, and the
+hooks session-start, session-state and watch-on-stop).
 
 The old walk is kept below as `old_walk`, the rule every site had until j836, so each new-layout case also shows what
 it returned there: a case that the old walk passes is no evidence the rule changed.
 Plain script: prints ok/FAIL, exit 1 on any failure."""
 from __future__ import annotations
 
+import importlib.util
 import os
 import shutil
 import sys
@@ -69,6 +71,21 @@ NEW = {1: ("systemd", 0, ["systemd"]),
        70: ("bash", 80, ["bash"]), 60: ("fabric-python", 70, ["fabric-python"])}
 
 
+HOOKS = os.path.join(os.path.dirname(HERE), "runtime", "claude-code", "hooks")
+
+
+def hook(name: str):
+    spec = importlib.util.spec_from_file_location("hook_" + name.replace("-", "_"), os.path.join(HOOKS, name + ".py"))
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def table_of(tree: dict) -> dict:
+    """The process table watch-on-stop reads: pid -> (ppid, comm, command line joined by spaces)."""
+    return {pid: (spec[1], spec[0], " ".join(spec[2])) for pid, spec in tree.items()}
+
+
 def main() -> int:
     tmp = tempfile.mkdtemp(prefix="session-proc-")
     try:
@@ -119,6 +136,29 @@ def main() -> int:
         check("old layout", getattr(inbox_session.nearest_claude(50, old), "pid", None) == 30)
         check("new layout: the session", getattr(inbox_session.nearest_claude(60, new), "pid", None) == 80)
         check("new layout: nothing above the daemon but init is no session", inbox_session.nearest_claude(90, new) is None)
+
+        print("the three hooks (j143)")
+        sstate = hook("session-state")
+        check("session-state.harness, old layout: pid and start time", sstate.harness(old, 50) == (30, 100))
+        check("session-state.harness, new layout: the session, not the daemon", sstate.harness(new, 60) == (80, 100))
+        check("session-state.harness: nothing above the daemon is None", sstate.harness(new, 90) is None)
+        check("watch-on-stop.harness_pid, old layout", hook("watch-on-stop").harness_pid(table_of(OLD), 50) == 30)
+        check("watch-on-stop.harness_pid, new layout: the session, not the daemon",
+              hook("watch-on-stop").harness_pid(table_of(NEW), 60) == 80)
+        check("watch-on-stop.harness_pid: nothing above the daemon is None", hook("watch-on-stop").harness_pid(table_of(NEW), 90) is None)
+        check("the table walk and the /proc walk agree on every start in both layouts",
+              all(session_proc.nearest_session_in({p: (v[1], v[0], v[2]) for p, v in tree.items()}, start)
+                  == session_proc.nearest_session(start, root)
+                  for tree, root in ((OLD, old), (NEW, new)) for start in tree))
+        # watch_running asks for the watch after finding the session: no session is None, a session with none above is False.
+        sstart = hook("session-start")
+        check("session-start.watch_running, new layout: a session with no watch is False", sstart.watch_running(new, 60) is False)
+        check("session-start.watch_running, new layout: no session above is None", sstart.watch_running(new, 90) is None)
+        watched = build(os.path.join(tmp, "watched"), {**NEW, 65: ("python3", 70, ["python3", "gzcoord-inbox", "--until-delivery"])})
+        check("session-start.watch_running, new layout: a watch under the session is True", sstart.watch_running(watched, 60) is True)
+        under_daemon = build(os.path.join(tmp, "daemonwatch"), {**NEW, 65: ("python3", 90, ["python3", "gzcoord-inbox", "--until-delivery"])})
+        check("session-start.watch_running: a watch under the daemon only is not the session's (the old rule said True)",
+              sstart.watch_running(under_daemon, 60) is False)
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
     print(f"{FAILS} failed" if FAILS else "all ok")
