@@ -196,6 +196,18 @@ sender, or the owner, to approve each step again only delays it (a
 migration requested, checked and then held for a permission nobody had
 withheld, 2026-09-16).
 
+**An ask goes as a `REQUEST`.** Whatever another agent must act on is a
+`REQUEST` `TO` the login that acts, even when it answers a thread: give
+it `IN-REPLY-TO` for the thread. "Merged, distribute it", "the supply is
+ready to fold" and "the record text is yours to write" are requests. The
+receiving inbox queues a `REQUEST` addressed to its login as a job, and
+`fabric-jobs switch` does not move on while a `REQUEST` or `QUESTION`
+with `REPLY-EXPECTED: yes` is unanswered. An `INFO`, `OBSERVATION` or
+`REPLY` that carries an ask does neither: it is lost when the session
+that read it ends (a `REPLY` asking for #620's record text waited five
+hours, 2026-11-15). A receiver who gets an ask in another type queues it
+itself, `fabric-jobs add --request <MESSAGE-ID>`, before acting on it.
+
 **Name the smallest dependency.** "Blocked on #X" usually means one of
 five things, and each is a different wait: a *decision* (who decides,
 and the question), an *agreed interface* (a contract, a schema, a
