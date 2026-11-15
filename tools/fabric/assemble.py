@@ -54,7 +54,8 @@ What it does:
   * Merges the citation graph into each role's crossref.json.
   * Runs the hygiene checks that must never reach a commit. A registered project whose working copy (so whose
     .agent-fabric/hygiene.json) the run cannot find refuses the run, naming it and where it looked;
-    --allow-missing-hygiene lets it through and the report names each project assembled without its list.
+    --allow-missing-hygiene lets it through and the report names each project assembled without its list. A checkout named
+    by --working-copy PROJECT=DIR counts as found: its hygiene.json is read, and a checkout without one is found with no list.
 
 A project-scoped claim (solution, intersection, rationale, workflow, threads) whose role the project's taxonomy does not bind is
 not admitted to that project's corpus (the owner, 2026-11-11; drain of 2026-11-08). fabric-coordinator's goes to agent-fabric's

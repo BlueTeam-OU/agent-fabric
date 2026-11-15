@@ -27,9 +27,9 @@ def parse_args() -> argparse.Namespace:
     ap.add_argument("--working-copy", action="append", default=[], metavar="[PROJECT=]DIR",
                     help="the project's checkout; its .agent-fabric/memory/ receives the "
                          "project-scoped classes (default: the agent's binding, or this checkout "
-                         "for agent-fabric itself; <the --project's id>=DIR is the same). PROJECT=DIR, repeatable as lint takes it, tells the anchor guard "
-                         "where another project's checkout is, so it judges an anchor there and not only in a "
-                         "checkout beside the tree")
+                         "for agent-fabric itself; <the --project's id>=DIR is the same). PROJECT=DIR, repeatable as lint takes it, names another project's checkout: "
+                         "its .agent-fabric/hygiene.json is read (none is no list, not a missing one) and the anchor guard "
+                         "judges an anchor there and not only in a checkout beside the tree")
     ap.add_argument("--allow-missing-hygiene", action="store_true",
                     help="assemble although a registered project's working copy, and so its .agent-fabric/hygiene.json, "
                          "is not found; without it such a run is refused. The report names each project assembled "
@@ -123,22 +123,23 @@ def open_layout(args: argparse.Namespace) -> str:
     # carried a city name another project bans). The working copies
     # beside the fabric are found the way lint finds them, so each list is
     # actually read, not skipped for want of a known checkout.
+    # A checkout named PROJECT=DIR is found, and outranks one discovered beside the tree (the owner's decision on #544's open
+    # cases, j742): its hygiene.json is read, and one it does not have is no list, as for any found checkout.
+    for pid, path in args.checkouts.items():
+        layout.set_working_copy(pid, path)
     for pid, path in workingcopy.sibling_working_copies(layout.FABRIC_ROOT).items():
         if pid not in layout.explicit_working_copies():
             layout.set_working_copy(pid, path)
     listed = sorted(set(layout.project_ids()) | set(layout.explicit_working_copies()))
     # A list that cannot be found withholds nothing, and the drain would go on as if it did: banned names reached
-    # project corpora that way. The fabric's own project always has one: its working copy is the root.
+    # project corpora that way. The fabric's own project has one unless --working-copy agent-fabric=DIR names another checkout, which then is the one read.
     args.without_hygiene = [pid for pid in listed if not layout.working_copy_for(pid)]
     if args.without_hygiene and not args.allow_missing_hygiene:
         looked = (f"beside {os.path.dirname(layout.FABRIC_ROOT)} (a checkout of the project with .agent-fabric/memory/), "
                   "in $AGENT_FABRIC_WORKING_COPY and in this agent's binding")
-        # PROJECT=DIR is the anchor guard's alone (args.checkouts); naming it here keeps the operator from trying it.
-        guard_only = [pid for pid in args.without_hygiene if pid in args.checkouts]
         sys.exit("assemble: no hygiene list can be found for " + ", ".join(args.without_hygiene)
                  + f"; looked {looked}, and no working copy is known. Put the project's checkout beside the fabric, or pass "
-                 "--allow-missing-hygiene to assemble without those lists"
-                 + (f" (--working-copy PROJECT=DIR is read by the anchor guard only: {', '.join(guard_only)})" if guard_only else ""))
+                 "--allow-missing-hygiene to assemble without those lists, or --working-copy PROJECT=DIR to name a checkout")
     args.hygiene_listed = listed
     load_hygiene(args, project)
     return project

@@ -2366,7 +2366,7 @@ def main(argv: list[str] | None = None, *, registry: str | None = None, call: Ca
         sent = api_call("/api/send", method="POST", body=js.stringify({"channel": cfg["channel"], "sender": me["address"], "content": js.stringify(request)}))
     except Exception as e:  # noqa: BLE001 — any failure of the call is said in relay_failure's words, as the Node said it
         relay_error = e
-    session, early, attempted = (_second_carrier(request, expected, me["address"], args, err) if dual else (None, [], set()))
+    session, early, attempted = (_second_carrier(request, expected, args, err) if dual else (None, [], set()))
     t0 = now()   # after both hand-offs, as it was after the one: --timeout is the wait for answers
     if relay_error is not None:
         if session is None:
@@ -2521,7 +2521,7 @@ def main(argv: list[str] | None = None, *, registry: str | None = None, call: Ca
 DUAL_GRACE_S = 3.0
 
 
-def _second_carrier(request: dict, expected: list[dict], me: str, args: dict, err: Callable[[str], None]) -> tuple:
+def _second_carrier(request: dict, expected: list[dict], args: dict, err: Callable[[str], None]) -> tuple:
     """Hand the request to the operator's own agentd for one direct send per target (ADR-029 rule 18): (session,
     replies that came with the sends, the addresses a send went out to). Any failure to reach agentd is one line
     and `(None, [], set())`: the relay has the request too, so the run goes on as a relay run and its rows say so."""
@@ -2529,7 +2529,7 @@ def _second_carrier(request: dict, expected: list[dict], me: str, args: dict, er
     if path is None:
         err(f"fabric-ctl: {CARRIER_LABEL}: XDG_RUNTIME_DIR is not set, so there is no socket to the operator's agentd; the relay carries alone")
         return None, [], set()
-    targets = [e["address"] for e in expected if e["address"] != me]
+    targets = [e["address"] for e in expected]   # the operator's own account too: its agentd loops the request back (j245)
     ttl = request.get("ttl_s")
     budget = min(args["timeout"], ttl) if isinstance(ttl, (int, float)) and not isinstance(ttl, bool) and ttl > 0 else args["timeout"]
     session = None
