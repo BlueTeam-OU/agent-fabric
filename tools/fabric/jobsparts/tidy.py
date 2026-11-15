@@ -16,15 +16,20 @@ absent while ~/projects holds any tree refuses: nothing removed, exit 1, the pat
 jobs", which under a state directory the sessions do not use would free the worktrees of every active job; an empty list that is
 there is a new account's and stays valid. One line per directory, then the total. Exit 0 unless the job list is absent (with trees) or cannot be read, or ~/projects cannot be read: then nothing is
 removed and the reason is said; a missing ~/projects is a fact, not an unreadable one (an account that has no checkouts).
---dry-run says what would go and removes nothing."""
+A tree kept because an open job holds it says how much build output it keeps (measured, never removed; unknown said as unknown). The last
+line is a warning when the filesystem under ~/projects is 85% full or more. --dry-run says what would go and removes nothing."""
 from __future__ import annotations
 
 import os
+import shutil
 import sys
 from fabric_jobs.base import OPEN, STATES, identity
 from fabric_jobs import leave_targets as lt
 
 HOLDING = tuple(s for s in OPEN if s != "delivered")
+# The filesystem under ~/projects warns from here: a disk that is full stops every agent of the host at once (it filled twice, 2026-10-20
+# and 2026-11-13, with targets that open jobs held, which tidy rightly keeps), and 85 % leaves a day to act on the line.
+WARN_USED_PERCENT = 85
 
 
 class Unreadable(Exception):
@@ -70,13 +75,51 @@ def trees(projects: str) -> list[str]:
     return [os.path.join(projects, n) for n in names if os.path.lexists(os.path.join(projects, n, ".git"))]
 
 
+def held_output(real: str) -> str:
+    """What a tree an open job holds keeps on disk: its build output, measured and not removed. A tree kept whole was never
+    measured, so the targets that filled /home were invisible to the sweep that was kept from touching them. A size that cannot
+    be read is said as unknown, never as zero."""
+    # os.walk says nothing of a directory it cannot list: both walks collect what they could not see, and any of it makes the
+    # size unmeasurable, said so, never a smaller number or none.
+    errors: list[OSError] = []
+    try:
+        found, _ = lt.find_targets(real, lt.BUILD_OUTPUT, errors)
+        seen: set[tuple[int, int]] = set()
+        total = 0
+        for target in found:
+            for dirpath, _dirs, files in os.walk(target, followlinks=False, onerror=errors.append):
+                for name in files:
+                    st = os.lstat(os.path.join(dirpath, name))
+                    if (st.st_dev, st.st_ino) not in seen:
+                        seen.add((st.st_dev, st.st_ino))
+                        total += st.st_blocks * 512
+    except OSError as e:
+        return f"; its build output could not be measured ({e.strerror or e})"
+    if errors:
+        e = errors[0]
+        return f"; its build output could not be measured ({e.strerror or e}: {e.filename})"
+    return f"; its build output is {lt.human(total)}" if found else ""
+
+
+def disk_line(path: str) -> str | None:
+    """A warning line when the filesystem holding `path` is WARN_USED_PERCENT full, None when it is not or cannot be asked."""
+    try:
+        usage = shutil.disk_usage(path)
+    except OSError:
+        return None
+    used = 100 * (usage.total - usage.free) // usage.total if usage.total else 0
+    if used < WARN_USED_PERCENT:
+        return None
+    return f"warning: the filesystem under {path} is {used}% full, {lt.human(usage.free)} free"
+
+
 def tidy_tree(tree: str, projects_dev: int, held: dict[str, str], cwds: list[str], why_blind: str, dry_run: bool) -> tuple[list[str], int]:
     if os.path.islink(tree):
         return [f"kept {tree}: a link, not followed"], 0
     real = os.path.realpath(tree)
     for path, job in held.items():
         if lt.overlaps(real, path):
-            return [f"kept {tree}: it is, holds or lies in a checkout of open job {job}"], 0
+            return [f"kept {tree}: it is, holds or lies in a checkout of open job {job}{held_output(real)}"], 0
     st = os.lstat(real)
     if st.st_uid != os.getuid():
         return [f"kept {tree}: owned by another account"], 0
@@ -124,4 +167,7 @@ def tidy(args) -> int:
             print(line)
         total += freed
     print(f"{'would free' if args.dry_run else 'freed'}: {lt.human(total)}")
+    warning = disk_line(projects)
+    if warning:
+        print(warning)
     return 0

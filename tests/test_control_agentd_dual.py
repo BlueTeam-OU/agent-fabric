@@ -147,6 +147,27 @@ class AgentdDual(Base):
         self.send_iw(body("other"))
         self.assertTrue(until(lambda: again), self.logs)
 
+    def test_two_requests_of_one_minute_are_two_answers_and_their_lines_tell_them_apart(self):
+        # j150: agentd logged "answered ping (01a1ddcd)" twice, 7 s apart, for one `fabric-ctl all ping`. A UUIDv7's first 8
+        # characters are its clock to within about 65 s, so two requests print the same there. The seen-set keys the whole id.
+        first, second = "01a1ddcd-0000-7000-8000-00000000aaaa", "01a1ddcd-1111-7000-8000-00000000bbbb"
+        got1, got2 = self.watch(first), self.watch(second)
+        self.send_iw(body(first))
+        self.send_iw(body(second))
+        self.assertTrue(until(lambda: got1 and got2), self.logs)
+        self.assertTrue(until(lambda: len([l for l in self.logs if "answered ping for h/op (01a1ddcd" in l]) >= 2), self.logs)
+        lines = [l for l in self.logs if "answered ping for h/op (01a1ddcd" in l]
+        self.assertEqual(len(lines), 2, self.logs)
+        self.assertEqual(len({l for l in lines}), 2, "the two lines differ: " + repr(lines))
+        self.assertTrue(any(l.endswith(" #aaaa") for l in lines) and any(l.endswith(" #bbbb") for l in lines), lines)
+        # the control: the same id twice is one answer, one line
+        got3 = self.watch("01a1ddce-0000-7000-8000-00000000cccc")
+        self.send_iw(body("01a1ddce-0000-7000-8000-00000000cccc"))
+        self.send_iw(body("01a1ddce-0000-7000-8000-00000000cccc"))
+        self.assertTrue(until(lambda: got3), self.logs)
+        time.sleep(1.5)
+        self.assertEqual(len([l for l in self.logs if "01a1ddce" in l and "answered" in l]), 1, self.logs)
+
     def test_a_request_the_other_way_round_is_answered_once_too(self):
         got = self.watch("dup2")
         self.send_iw(body("dup2"))

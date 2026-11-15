@@ -89,7 +89,23 @@ BACKOFF_S = (1, 2, 4, 8, 16, 32, 60)
 SEND_WAIT_S = 10.0         # a reply's send; a request's is its ttl_s
 WRITE_WAIT_S = 5.0         # a line the child's pipe cannot take in this long: the child is not reading
 WEDGED_AFTER = 3           # consecutive sends that got no outbound at all: the child is not draining
+OUT_OF_TIME = "the time ran out before this send was handed to the child"
 SOCKET_NAME = "control.sock"
+
+
+def short_id(rid: str) -> str:
+    """A request id as the journal prints it. A UUIDv7's first 8 characters are its clock to within about 65 s, so two requests
+    of one minute print the same and a line "answered twice" cannot be told from two requests; the tail is random. A shorter id
+    (a test's) is kept whole, and the 8-character prefix a person greps for stays at the front."""
+    return rid if len(rid) <= 12 else f"{rid[:8]}…{rid[-4:]}"
+
+
+def id_tail(rid: str) -> str:
+    """The random end of a long id as a suffix, for a line whose old shape `(<first 8>)` a test and a reader's grep pin: the
+    prefix stays where it was and the tail follows the line. Nothing for a short id (a test's)."""
+    return "" if len(rid) <= 12 else f" #{rid[-4:]}"
+
+
 SOCKET_SEND_S = 5.0        # a reply written to fabric-ctl's socket
 # How long an open fabric-ctl session may hold agentd's restart back (see Server.hold): long enough for a fleet
 # command's replies to come in, short enough that a fabric-ctl left waiting cannot keep the daemon on old code.
@@ -573,7 +589,7 @@ class Carrier:
             try:
                 self._on_request(record, self.me)
             except Exception as e:  # noqa: BLE001 — a thread nobody joins: said, never lost silently
-                self._log(f"own request {js.slice(js.string(record.get('id')), 8)} failed to be handled: {e}")
+                self._log(f"own request {short_id(js.string(record.get('id')))} failed to be handled: {e}")
         threading.Thread(target=run, name="control-carrier-self", daemon=True).start()
 
     def watch(self, request_id: str, waiter: Callable[[dict, str], None]) -> None:
@@ -599,9 +615,16 @@ class Carrier:
         return self.child.send(f"{peer}/{ENDPOINT}", frame(record))
 
     def send_to(self, addresses: Iterable[str], record: dict, wait_s: float) -> dict[str, tuple[bool, str]]:
-        """One direct send per address, all handed to the child before any is waited on."""
-        started = [(a, self.start_send(a, record)) for a in addresses]
+        """One direct send per address, all handed to the child before any is waited on; every hand-over STARTS inside `wait_s`.
+        The last may run WRITE_WAIT_S past it: a hand-over is not cut by this budget, because a line cut off half way leaves
+        half a line in the child's pipe and Child._write ends the child as wedged for that. A waiter therefore allows the
+        budget plus WRITE_WAIT_S (fabric-ctl's wait_sent, Leg.open).
+        The deadline counts from the first hand-over: a child that drains its pipe slowly makes each hand-over take
+        seconds, and a budget that began after them let a 29-account send run past fabric-ctl's wait for it (j144:
+        ctl gave up at its budget + 5 s and the answer went to a closed socket). A send not yet handed over when the
+        time is out is not made; it fails, never sent, and the relay carries it."""
         deadline = time.monotonic() + wait_s
+        started = [(a, self.start_send(a, record) if time.monotonic() < deadline else failed(OUT_OF_TIME)) for a in addresses]
         return {a: self.child.settle(s, deadline - time.monotonic()) for a, s in started}
 
     def reply(self, request: dict, reply: dict) -> None:
@@ -617,7 +640,7 @@ class Carrier:
             return
         ok, why = self.send_to([to], reply, SEND_WAIT_S)[to] if isinstance(to, str) else (False, "no sender")
         if not ok:
-            self._log(f"reply {js.slice(js.string(reply.get('id')), 8)} to {js.slice(js.string(to), 60)} not sent: {why}")
+            self._log(f"reply {short_id(js.string(reply.get('id')))} to {js.slice(js.string(to), 60)} not sent: {why}")
 
 
 # ── fabric-ctl's socket ──────────────────────────────────────────────
@@ -755,7 +778,7 @@ class Server:
                     return   # one line per session: the first failure says which event and when
                 if state[0] == "ended":
                     state[0] = "dropped"
-                    self._log(f"fabric-ctl's session for {rid[:8]} had ended: a {obj.get('event')} that came after it is dropped, {age()}")
+                    self._log(f"fabric-ctl's session for {short_id(rid)} had ended: a {obj.get('event')} that came after it is dropped, {age()}")
                     return
                 try:
                     conn.sendall((js.stringify(obj) + "\n").encode("utf-8"))
@@ -764,9 +787,9 @@ class Server:
                     # there and not reading. Whether a closed ctl had its rows is not known from here (j144).
                     state[0] = "dropped"
                     if isinstance(e, (BrokenPipeError, ConnectionResetError)):
-                        self._log(f"fabric-ctl's session for {rid[:8]} had ended ({e.strerror}): a {obj.get('event')} dropped, {age()}")
+                        self._log(f"fabric-ctl's session for {short_id(rid)} had ended ({e.strerror}): a {obj.get('event')} dropped, {age()}")
                     else:
-                        self._log(f"fabric-ctl's connection for {rid[:8]} is not reading ({e}): a {obj.get('event')} dropped, {age()}")
+                        self._log(f"fabric-ctl's connection for {short_id(rid)} is not reading ({e}): a {obj.get('event')} dropped, {age()}")
                     self.carrier.unwatch(rid)
                     with contextlib.suppress(OSError):
                         conn.shutdown(socket.SHUT_RDWR)
@@ -782,13 +805,13 @@ class Server:
             release = self._hold() if self._hold is not None else None
             if release is None:
                 if self._hold is not None:
-                    self._log(f"fabric-ctl's session for {rid[:8]} opened with a restart pending: it holds nothing, the daemon leaves under it")
+                    self._log(f"fabric-ctl's session for {short_id(rid)} opened with a restart pending: it holds nothing, the daemon leaves under it")
             else:
                 held = release
                 # A timer, not a check in the read loop below: a silent child makes send_to take its whole budget, and
                 # the cap counts from the hold. release() is idempotent, so the timer and the finally never both act.
                 def cap() -> None:
-                    self._log(f"fabric-ctl's session for {rid[:8]} has held the restart for {HOLD_MAX_S:.0f}s: released")
+                    self._log(f"fabric-ctl's session for {short_id(rid)} has held the restart for {HOLD_MAX_S:.0f}s: released")
                     held()
                 timer = threading.Timer(HOLD_MAX_S, cap)
                 timer.daemon = True
@@ -894,7 +917,7 @@ class Session:
             self._conn.close()
 
 
-_NEVER_SENT = ("this account", "no roster row", "the InterWeave channel is", "the child's input is closed", "the child does not drain")
+_NEVER_SENT = (OUT_OF_TIME, "this account", "no roster row", "the InterWeave channel is", "the child's input is closed", "the child does not drain")
 
 
 class Down(Exception):
@@ -941,7 +964,7 @@ class Leg:
         session = None
         try:
             session = Session(path, record, to, wait_s)
-            early = session.wait_sent(wait_s + 2)
+            early = session.wait_sent(wait_s + WRITE_WAIT_S + 2)
         except RuntimeError as e:
             # A session that was made had the request handed to it: whether it left is unknown. One that was not
             # made (the socket absent, refused) sent nothing.
