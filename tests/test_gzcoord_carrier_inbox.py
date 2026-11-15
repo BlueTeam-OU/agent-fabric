@@ -325,8 +325,13 @@ def main() -> int:
     w.relay_down = False
     r = w.watch(deadline=3)
     check("the relay answered (an empty page): the marker is removed", not os.path.exists(marker), f"{r.returncode}\n{r.stdout}{r.stderr}")
+    # A world of its own: the one above still holds the carrier's record, which a rerun may deliver again (the end then reads delivery).
+    q = World([[]])
+    r = q.watch(deadline=3)
     check("a watch that ended at its deadline says quiet, exit 0",
-          [(x["event"], x.get("reason"), x.get("code")) for x in w.read("gzcoord-watch.jsonl")][-1:] == [("end", "quiet", 0)], str(w.read("gzcoord-watch.jsonl")))
+          r.returncode == 0 and [(x["event"], x.get("reason"), x.get("code")) for x in q.read("gzcoord-watch.jsonl")][-1:] == [("end", "quiet", 0)],
+          f"{r.returncode}\n{q.read('gzcoord-watch.jsonl')}")
+    q.close()
     # A log that cannot be written (a directory where the file belongs) never ends or alters the watch; it is said once on stderr.
     os.remove(os.path.join(w.agent_dir(), "gzcoord-watch.jsonl"))
     os.mkdir(os.path.join(w.agent_dir(), "gzcoord-watch.jsonl"))
