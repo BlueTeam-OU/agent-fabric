@@ -8,6 +8,7 @@ import os
 from collections import defaultdict
 from typing import Any
 from assembler.core import layout, CLASS_FILES, bound_role_ids, normalize_artifact, render_frontmatter, Run, base_for, in_report, role_id_error
+from assembler.intake import REHOME_ROLE
 from assembler.slices import read_existing_slice
 from assembler.writer import described
 
@@ -62,6 +63,16 @@ def read_crossref_index(path: str) -> dict[str, Any]:
         return index
     except (OSError, ValueError, AttributeError) as exc:
         sys.exit(f"assemble: {path}: the role's crossref.json cannot be read ({exc})")
+
+
+def _unlisted_here(run: Run, role: str, klass: str) -> bool:
+    """fabric-coordinator's `domain` slices (reviews of external tools, learned anywhere) are listed in agent-fabric's own
+    INDEX only: in another project's index their cues name projects that repository has nothing to do with (the owner,
+    2026-11-14, gateway review F4). Filtered where the INDEX is rendered, because three producers add domain entries
+    (written claims, the on-disk sweep, shared rows) and one filter cannot disagree with itself. Another role's domain
+    slices and every project-scoped class are listed as before."""
+    return (klass == "domain" and role == REHOME_ROLE
+            and run.project != layout.FABRIC_PROJECT_ID)
 
 
 def index_role(run: Run, role: str) -> None:
@@ -247,6 +258,8 @@ def index_role(run: Run, role: str) -> None:
     ]
     by_class_index: dict[str, list[dict[str, str]]] = defaultdict(list)
     for entry in run.index_entries[role]:
+        if _unlisted_here(run, role, entry["class"]):
+            continue
         by_class_index[entry["class"]].append(entry)
     for klass in ("charter", "brief", "domain", "solution", "intersection", "rationale",
                   "workflow", "threads", "recall"):

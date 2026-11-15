@@ -187,6 +187,29 @@ def test_index_lists_every_slice(tmp: str) -> None:
     assert "First" in index and "Third" in index
 
 
+def test_a_project_index_leaves_out_fabric_coordinators_domain_slices(tmp: str) -> None:
+    """The owner's rule (2026-11-14): fabric-coordinator's domain slices are reviews of external tools whose cues name
+    projects a managed repository has nothing to do with; its INDEX lists only the role's project-scoped slices.
+    Another role's domain slice and fabric-coordinator's own workflow slice stay (the positive controls)."""
+    drain, claims_dir, out = build(tmp, {
+        "fabric-coordinator": claims("fabric-coordinator", [
+            {"class": "domain", "topic": "ext", "title": "Review of an external tool", "body": "b", "evidence": ["h1"]},
+            {"class": "workflow", "topic": "how", "title": "How the coordinator folds", "body": "b", "evidence": ["h2"]},
+        ]),
+        "alpha": claims("alpha", [
+            {"class": "domain", "topic": "one", "title": "Alpha field fact", "body": "b", "evidence": ["h3"]},
+        ]),
+    })
+    proc = run_assemble(drain, claims_dir, out)
+    assert proc.returncode == 0, proc.stderr
+    coordinator = read(proj(out, "fabric-coordinator", "INDEX.md"))
+    assert "Review of an external tool" not in coordinator and "## domain" not in coordinator
+    assert "How the coordinator folds" in coordinator
+    # The slice itself is still written: only the project's index stops naming it.
+    assert os.path.exists(dom(out, "fabric-coordinator", "domain.md"))
+    assert "Alpha field fact" in read(proj(out, "alpha", "INDEX.md"))
+
+
 def test_index_banner_names_which_sections_load_when(tmp: str) -> None:
     # The banner says what a session is given — the charter and brief, the
     # remit and this index's pointer — and that a workflow slice is read
@@ -4268,6 +4291,7 @@ def main() -> int:
         test_places_claims_and_writes_provenance,
         test_unresolved_origin_is_stated_not_invented,
         test_index_lists_every_slice,
+        test_a_project_index_leaves_out_fabric_coordinators_domain_slices,
         test_index_banner_names_which_sections_load_when,
         test_committed_indexes_carry_the_banner_the_assembler_emits,
         test_fabric_links_use_the_sibling_prefix_even_when_the_checkout_is_nested,
