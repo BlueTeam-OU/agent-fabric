@@ -564,6 +564,25 @@ def case_project_index_needs_no_fabric_coordinator_domain_slice() -> None:
         assert "does not list ../agent-fabric/identities/roles/fabric-coordinator/charter.md" in out, out
 
 
+def case_agent_fabrics_own_index_still_needs_fabric_coordinators_domain_slice() -> None:
+    """The control plane's own fabric-coordinator INDEX is where those slices are listed (assembler/index.py
+    _unlisted_here), so lint still calls it drifted when one is missing. Kills: lint dropping the domain slices for
+    every project, agent-fabric's own included (the project clause of the exception)."""
+    with tempfile.TemporaryDirectory() as root:
+        fabric = make_base(root)
+        cat = json.load(open(os.path.join(fabric, "identities", "roles", "catalog.json"), encoding="utf-8"))
+        cat["roles"].append({"id": "fabric-coordinator", "title": "Coordinator"})
+        write(os.path.join(fabric, "identities", "roles", "catalog.json"), json.dumps(cat))
+        write(os.path.join(fabric, "identities", "roles", "fabric-coordinator", "charter.md"),
+              CHARTER.replace('role: "web-dev"', 'role: "fabric-coordinator"'))
+        write(os.path.join(fabric, "memory", "domains", "fabric-coordinator", "domain", "tool-review.md"),
+              SLICE.replace('role: "web-dev"', 'role: "fabric-coordinator"'))
+        own_index = os.path.join(fabric, ".agent-fabric", "memory", "fabric-coordinator", "INDEX.md")
+        write(own_index, "# Index\n\n" + CHARTER_LINE.replace("web-dev", "fabric-coordinator"))
+        code, out = run_lint(fabric)
+        assert "does not list memory/domains/fabric-coordinator/domain/tool-review.md" in out, out
+
+
 def case_domain_bound_by_an_unseen_project_is_not_judged() -> None:
     """A domain whose role no VISIBLE project binds is not required to be
     indexed: another repository's CI passes only its own working copy and
@@ -2997,6 +3016,7 @@ def main() -> int:
         case_a_sibling_working_copy_is_linted_unasked,
         case_index_lists_domain_slices,
         case_project_index_needs_no_fabric_coordinator_domain_slice,
+        case_agent_fabrics_own_index_still_needs_fabric_coordinators_domain_slice,
         case_fabric_ref_is_one_full_commit_id,
         case_quoted_description_round_trips,
         case_the_callers_operator_is_not_part_of_a_fixture,
