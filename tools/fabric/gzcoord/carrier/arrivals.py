@@ -96,7 +96,8 @@ class WatchLog(ArrivalLog):
     {"t","event":"start","pid"} and {"t","event":"end","pid","reason","code"}. The relay-outage drill (ADR-064 rule 11 / Gate 1 item 3)
     asks whether a watch was restarted inside the outage and whether one gave up after its 15 minutes, and neither the shown
     ledger nor the acknowledgement log says: the give-up (exit 5) leaves only a marker the next fetch deletes. A watch the
-    kernel ends (SIGKILL, a host crash) writes no end line; a start with no end of its pid is that, or a watch still running,
+    kernel ends (SIGKILL, a host crash), or that leaves by an interrupt or an exception inside the process (a closed stdout,
+    Ctrl-C), writes no end line; a start with no end of its pid is one of those, or a watch still running,
     and the report says so rather than naming a reason it does not have."""
 
     END_REASONS = ("delivery", "quiet", "session-ended", "gave-up", "token-refused", "journal-held")

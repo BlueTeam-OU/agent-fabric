@@ -18,6 +18,8 @@ what it filed or printed):
              either carrier, arrived inside
   drill      [start, end): the interval the InterWeave carrier was switched
              off, for the rollback drill
+  watch      (only for the relay-outage drill) every account's watch log lines {t, event: start|end, pid, reason?, code?}: when a watch
+             started and how it ended (carrier/arrivals.WatchLog)
   shown, acks  (only for the relay-outage drill) every account's shown ledger lines {mid, via, t,
              pending?, flagged?} and the relay acknowledgements it made {mid, addressee, t, ok}
   relay drill  [start, end): the interval the relay refused every fetch
@@ -64,6 +66,8 @@ import re
 import sqlite3
 import time
 from collections import defaultdict
+
+from . import arrivals
 
 CARRIERS = ("relay", "interweave")
 UUID7 = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[0-9a-f]{4}-[0-9a-f]{12}")
@@ -247,7 +251,7 @@ def _backfills(login: str, meta: dict, rows: list | None) -> list[dict] | None:
 
 
 WATCH_ROW_KEYS = ("t", "event", "pid", "reason", "code")
-WATCH_REASONS = ("delivery", "quiet", "session-ended", "gave-up", "token-refused", "journal-held")
+WATCH_REASONS = arrivals.WatchLog.END_REASONS      # one definition: the writer's, which the op and this reader both follow
 
 
 def _watch(login: str, meta: dict, rows: list | None) -> list[dict] | None:
@@ -275,7 +279,7 @@ def _watch(login: str, meta: dict, rows: list | None) -> list[dict] | None:
 
 
 def load_relay_outage(path: str, window: tuple[float, float]) -> dict[str, dict]:
-    """login -> {arrivals, deliveries, shown, acks, backfills, send_rows} (backfills None when the
+    """login -> {arrivals, deliveries, shown, acks, backfills, watch, watch_why, send_rows} (backfills None when the
     sender's log was not collected whole; send_rows whether its derived rows were) for the relay-outage drill, after load_collected's checks of the
     same collection. Refuses an account whose drill sections were not collected whole: an empty ledger from
     a daemon that never sent one would read as 'never shown', which is a verdict the files do not support."""
@@ -350,8 +354,9 @@ def relay_record(mid: str, per_account: dict[str, dict], until: float | None) ->
 
 def watch_in_drill(rows: list[dict], drill: tuple[float, float]) -> dict:
     """The watch log's account of the drill: every start inside it, with how the watch before it ended (the reason of the latest
-    earlier end line; "no end line" when the latest earlier line is another watch's start, which was killed from outside or is
-    still running; "no earlier line" when the log holds nothing before), and every end inside it by the give-up (exit 5)."""
+    earlier end line; "no end line" when the latest earlier line is another watch's start, which was killed from outside, left by an
+    interrupt or an exception inside the process, or is still running; "no earlier line" when the collection, which reaches back only
+    to the window's margin, holds nothing before), and every end inside it by the give-up (exit 5)."""
     ordered = sorted(rows, key=lambda r: parse_t(r["t"]))
     starts, gave_up = [], []
     for i, r in enumerate(ordered):
@@ -582,7 +587,7 @@ def render_markdown(rep: dict, title: str = "InterWeave carrier parity report") 
                      f"{' -- FAILS' if x['ok'] is False else ' -- UNKNOWN' if exercised and x['ok'] is None else ''}")
         if not d["pairs"]:
             L.append("- no pair was made inside the drill")
-        L += ["", "Watches inside the drill, from each account's watch log (every start with how the watch before it ended; a give-up is the watch's exit 5 after 15 minutes of an unreachable relay):", ""]
+        L += ["", "Watches inside the drill, from each account's watch log (every start with how the watch before it ended; a give-up is the watch's exit 5, after its primary transport, the relay or the carrier where it leads, did not answer for the give-up bound, 15 minutes unless set otherwise):", ""]
         for login, w in d["watches"].items():
             if "why" in w:
                 L.append(f"- {login}: not collected ({w['why']})")

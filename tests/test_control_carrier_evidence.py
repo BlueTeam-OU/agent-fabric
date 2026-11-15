@@ -1835,11 +1835,13 @@ class BackfillRowBesideVerdict(RelayFixture):
         self.assertIn("Fourth property, relay record by backfill: not judged", out)
         self.assertIn(f"- {self.M} to h/beta: backfill row not collected (the sender's backfill log was not collected)", out)
 
-    def test_a_pair_the_carrier_did_not_hold_alone_has_no_row_line(self):
-        both = self.acct("beta", (self.M,), [])
-        both["arrivals"].append(arrival(self.M, "h/beta", "relay", 150))
-        path = self.collect({"alpha": self.acct("alpha", (), [backfill(self.M2, "posted", 300)]), "beta": both})
-        self.assertNotIn("backfill row", self.report(path)[1])
+    def test_a_pair_the_carrier_did_not_hold_alone_has_no_row_line_beside_one_it_did(self):
+        # Beside an exercised pair (M2), so the fourth property's block renders and the filter on carrier_only is what keeps M out of it.
+        beta = self.acct("beta", (self.M2,), [])
+        beta["arrivals"].append(arrival(self.M, "h/beta", "interweave", 111))
+        beta["arrivals"].append(arrival(self.M, "h/beta", "relay", 150))      # the relay delivered M during the outage
+        path = self.collect({"alpha": self.acct("alpha", (), [backfill(self.M2, "posted", 300, 190)]), "beta": beta})
+        self.assertEqual(self.rows(path), [f"- {self.M2} to h/beta: backfill row posted, delay 190 s"])
 
     def test_the_pairs_own_line_keeps_its_words(self):
         path = self.collect({"alpha": self.acct("alpha", (), [backfill(self.M, "over-age", 300, 99999)]), "beta": self.acct("beta", (self.M,), [])})
