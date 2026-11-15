@@ -8,7 +8,7 @@ CONTRACT
             every op's, so what it carries is metadata a channel reader could already
             infer from the traffic, and never a body. With
             args {section, since, until}:
-              section  `arrivals` | `deliveries` | `shown` | `acks` | `backfills`
+              section  `arrivals` | `deliveries` | `shown` | `acks` | `backfills` | `watch`
               since, until  YYYY-MM-DDTHH:MM:SSZ, since < until
             No other key, no other value: an argument never names a path.
   reply     data["<carrier>-evidence"] = {status: "ok", section, since, until,
@@ -43,6 +43,11 @@ CONTRACT
             in the window: the relay's record had it from the send, so the log has no line for it. It has no delay_s. The
             reply says `send_rows`: ok | absent | unreadable, the state of the journal it was derived from; a reply without
             the key is from a daemon that did not derive them, and "no row" cannot then be read as "never reached the relay".
+  watch     rows {t, event, pid, reason?, code?} of gzcoord-watch.jsonl (carrier/arrivals.py WatchLog): one `start` line when a
+            watch began and one `end` line when it ended, `reason` one of WATCH_REASONS (delivery, quiet, session-ended,
+            gave-up, token-refused, journal-held), `code` its exit status, with `t` in [since, until). Read by the relay-outage
+            drill's report (restarts and give-ups inside the outage) and nothing else. A failure of this section ends only this
+            section, as the backfill log's does; a line of another shape is skipped and counted.
   never     a body. Rows are built key by key from a closed list, each value a
             short string (but a backfill row's `delay_s`, a number, and its `channel`, a string or null): a line of the log with a text, a path or a key in it
             that a later version adds does not leave. The journal is opened
@@ -73,7 +78,10 @@ SECTIONS = ("arrivals", "deliveries")
 # apart so an account whose daemon predates them still yields a collection the rollback report is computed from.
 DRILL_SECTIONS = ("shown", "acks")
 BACKFILL_SECTION = "backfills"
-ALL_SECTIONS = SECTIONS + DRILL_SECTIONS + (BACKFILL_SECTION,)
+WATCH_SECTION = "watch"
+ALL_SECTIONS = SECTIONS + DRILL_SECTIONS + (BACKFILL_SECTION, WATCH_SECTION)
+WATCH_EVENTS = ("start", "end")
+WATCH_REASONS = parity.WATCH_REASONS
 SHOWN_KEYS = ("mid", "via", "t")
 ACK_KEYS = ("mid", "addressee", "t")
 BACKFILL_KEYS = ("mid", "outcome", "at")
@@ -224,6 +232,20 @@ def _backfill_row(o: dict):
     return {**r, "delay_s": d, "channel": _short(ch)}
 
 
+def _watch_row(o: dict):
+    """A start is {t, event, pid}; an end adds the reason it ended for and its exit code. Anything else is no line of this log:
+    a reason this version does not know is skipped and counted, never filed as a reason the report would then print."""
+    pid, code = o.get("pid"), o.get("code")
+    if (o.get("event") not in WATCH_EVENTS or not isinstance(o.get("t"), str) or _time(o["t"]) is None
+            or isinstance(pid, bool) or not isinstance(pid, int) or pid < 1):
+        return None
+    if o["event"] == "start":
+        return {"t": o["t"], "event": "start", "pid": pid}
+    if o.get("reason") not in WATCH_REASONS or isinstance(code, bool) or not isinstance(code, int):
+        return None
+    return {"t": o["t"], "event": "end", "pid": pid, "reason": o["reason"], "code": code}
+
+
 def _page(rows: list[dict], key: str, page_bytes: int | None = None) -> tuple[list[dict], str | None] | str:
     """The rows that fit page_bytes (PAGE_BYTES unless the account splits for the second carrier too), whole seconds only, and the time the next page starts at; or why
     the first second alone does not fit."""
@@ -307,6 +329,11 @@ def carrier_evidence(request: Any, *, state: str | None = None, db_path: str | N
         inside = sorted([r for r in every if start <= _time(r["at"]) < end] + [r for r in derived if start <= _time(r["at"]) < end],
                         key=lambda r: r["at"])
         key, extra = "at", {"skipped": skipped, "send_rows": journal}
+    elif section == WATCH_SECTION:
+        every, skipped = _read_lines(os.path.join(state, "gzcoord-watch.jsonl"), _watch_row)
+        # File order breaks a tie on the second: a watch's start line comes before its end line.
+        inside = sorted((r for r in every if start <= _time(r["t"]) < end), key=lambda r: r["t"])
+        key, extra = "t", {"skipped": skipped}
     elif section in DRILL_SECTIONS:
         name, convert = ("gzcoord-shown.jsonl", _shown_row) if section == "shown" else ("gzcoord-acks.jsonl", _ack_row)
         every, skipped = _read_lines(os.path.join(state, name), convert)

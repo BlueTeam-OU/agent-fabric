@@ -171,7 +171,9 @@ more, flagged "may repeat". When the carrier is running, the arrivals it journal
 come in the same page as the relay's, titled from the roster's address; they are
 never acknowledged to the relay. The arrival log (gzcoord-arrivals.jsonl) gets a line
 per relay copy addressed here, journal on or off. The acknowledgement log (gzcoord-acks.jsonl) gets
-a line per POST /api/ack for such a copy, by MESSAGE-ID, with whether the relay answered (the relay-outage drill's evidence). A ledger that cannot be opened is
+a line per POST /api/ack for such a copy, by MESSAGE-ID, with whether the relay answered (the relay-outage drill's evidence). The watch log (gzcoord-watch.jsonl) gets a line when a --follow or --until-delivery watch starts and one when it
+ends, with the reason (delivery, quiet, session-ended, gave-up, token-refused, journal-held): the drill's report counts the starts and the give-ups inside
+the outage from it; a watch killed from outside writes no end line. A ledger that cannot be opened is
 said on stderr and the relay's messages are shown without it.
 
 The rest of the Node's header — the modes, the hold, the addressee rule —
@@ -208,7 +210,7 @@ import threading
 import time
 from typing import Any, Callable
 
-from .carrier import CARRIER_LABEL, CARRIER_NAME
+from .carrier import CARRIER_LABEL, CARRIER_NAME, arrivals
 from . import bypass, gzmsg, i18n, intake, paths, transport
 from . import jsvalues as js
 from .gzmsg import en  # noqa: F401 — send.py calls inbox.en()
@@ -658,6 +660,26 @@ def main(argv: list[str]) -> int:
         # call it so) and a watch started through main alone serves its session as one started through run.
         session = watch_session.current()
 
+        # The watch's own start and end, for the relay-outage drill's report (carrier/arrivals.WatchLog): written beside the
+        # shown ledger because the give-up's marker is deleted by the next fetch and nothing else says a watch ran. A log
+        # that cannot be written is said once and never ends the watch: it is evidence, not a part of what the watch does.
+        watch_log = arrivals.WatchLog(os.path.join(ep.state_dir(), "gzcoord-watch.jsonl"), iso_now=ep.now)
+        said = {"v": False}
+
+        def log_watch(write: Callable[..., None], *args: Any) -> None:
+            try:
+                write(*args)
+            except OSError as e:
+                if not said["v"]:
+                    said["v"] = True
+                    print(f"gzcoord-inbox: the watch log {watch_log.path} cannot be written ({e}); the relay-outage report will not hold this watch",
+                          file=sys.stderr, flush=True)
+
+        def ended(reason: str, code: int) -> int:
+            log_watch(watch_log.append_end, os.getpid(), reason, code)
+            return code
+
+        log_watch(watch_log.append_start, os.getpid())
         mode_moved = {"v": False}
 
         def session_gone() -> bool:
@@ -673,7 +695,7 @@ def main(argv: list[str]) -> int:
             left = deadline - time.monotonic()
             if until_delivery and left <= 0:
                 print(QUIET_LINE.format(minutes=int((time.monotonic() - started) // 60)), flush=True)
-                return 0
+                return ended("quiet", 0)
             try:
                 r = with_fresh_token(primary, lambda: wait_loop(tp.fetch_page, tp.ack, min(3600, math.ceil(left)) if until_delivery else 3600,
                                                            mine_fn, [], me["address"], held, on_hold, journal=journal,
@@ -683,12 +705,12 @@ def main(argv: list[str]) -> int:
                                                            ledger=tp.ledger))
             except _JournalHeld as e:
                 print(e.line, flush=True)
-                return 6
+                return ended("journal-held", 6)
             except Exception as e:  # noqa: BLE001 — every failure of an arm is the relay's, said once
                 x = primary.explain(e, t)
                 if x["code"] == 4:
                     print(x["line"], file=sys.stdout if until_delivery else sys.stderr, flush=True)
-                    return 4
+                    return ended("token-refused", 4)
                 if not down:
                     if not until_delivery:
                         print(primary_down_line("down"), flush=True)
@@ -697,7 +719,7 @@ def main(argv: list[str]) -> int:
                 elif until_delivery and time.monotonic() - down_since >= UNTIL_DELIVERY_DOWN_S:
                     print(primary_down_line("gave-up"), flush=True)
                     mark_relay_down(who["agent"], time.time())
-                    return 5
+                    return ended("gave-up", 5)
                 # The 30 s between tries, shortened to the time left before the give-up bound and, under --until-delivery,
                 # before the --deadline (never negative: sleep refuses that): a relay that refuses connections must not
                 # carry the watch past the deadline it promised, and a shorter bound (a test's) is not slept through twice.
@@ -719,7 +741,7 @@ def main(argv: list[str]) -> int:
                 continue
             if r.get("sessionEnded"):
                 print(SESSION_ENDED.format(pid=session.pid), flush=True)
-                return 0
+                return ended("session-ended", 0)
             if down and r.get("relayError") is None:   # a delivery the carrier made says nothing of the relay
                 if not until_delivery:
                     print(primary_down_line("back"), flush=True)
@@ -734,7 +756,7 @@ def main(argv: list[str]) -> int:
                     print(primary.explain(r["relayError"], t)["line"],
                           file=sys.stdout if until_delivery else sys.stderr, flush=True)
                 if until_delivery:
-                    return 0
+                    return ended("delivery", 0)
 
     try:
         res = with_fresh_token(primary, lambda: wait_loop(tp.fetch_page, tp.ack, wait_total, mine_fn, keywords, me["address"],

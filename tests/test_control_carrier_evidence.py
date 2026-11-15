@@ -334,7 +334,7 @@ class Collect(unittest.TestCase):
         got = ec.collect(["a"], iso(0), iso(100), self.sender())
         out = os.path.join(self.root, "out")
         d = ec.write_dir(out, "a", got["a"], iso(0), iso(100))
-        self.assertEqual(sorted(os.listdir(d)), ["acks.jsonl", "arrivals.jsonl", "backfills.jsonl", "deliveries.jsonl", "kinds.json", "meta.json", "shown.jsonl"])
+        self.assertEqual(sorted(os.listdir(d)), ["acks.jsonl", "arrivals.jsonl", "backfills.jsonl", "deliveries.jsonl", "kinds.json", "meta.json", "shown.jsonl", "watch.jsonl"])
         self.assertEqual(stat.S_IMODE(os.stat(d).st_mode), 0o700)
         self.assertEqual(stat.S_IMODE(os.stat(out).st_mode), 0o700)
         for f in os.listdir(d):
@@ -344,7 +344,7 @@ class Collect(unittest.TestCase):
                 self.assertNotIn(BODY_TEXT, fh.read(), f)
         with open(os.path.join(d, "meta.json"), encoding="utf-8") as fh:
             meta = json.load(fh)
-        self.assertEqual((meta["complete"], meta["counts"], meta["login"]), (True, {"arrivals": 1, "deliveries": 1, "kinds": 0, "shown": 0, "acks": 0, "backfills": 0}, "a"))
+        self.assertEqual((meta["complete"], meta["counts"], meta["login"]), (True, {"arrivals": 1, "deliveries": 1, "kinds": 0, "shown": 0, "acks": 0, "backfills": 0, "watch": 0}, "a"))
         # An interrupted rewrite leaves no meta.json: a reader refuses the directory instead of reading old rows under new counts.
         with unittest.mock.patch.object(ec, "_atomic", side_effect=[None, OSError("disk full")]):
             with self.assertRaises(OSError):
@@ -575,7 +575,7 @@ class Operator(unittest.TestCase):
         row = json.loads(lines[0])
         body = row["interweaveEvidence"]
         self.assertEqual((row["account"], body["complete"], body["arrivals"], body["kinds"], body["counts"]),
-                         ("a", True, [a1], {mid(1, 1): "direct"}, {"arrivals": 1, "deliveries": 0, "kinds": 1, "shown": 0, "acks": 0, "backfills": 0}))
+                         ("a", True, [a1], {mid(1, 1): "direct"}, {"arrivals": 1, "deliveries": 0, "kinds": 1, "shown": 0, "acks": 0, "backfills": 0, "watch": 0}))
         self.assertEqual(seen[0][seen[0].index("--timeout") + 1], str(ev.EVIDENCE_BUDGET_S))
 
     def test_one_page_with_a_section_is_sent_as_one_signed_request_and_not_collected(self):
@@ -601,10 +601,10 @@ class Parity(unittest.TestCase):
     def acct(self, login, **over):
         a = {"arrivals": self.arr[login], "deliveries": self.dels[login], "kinds": self.kinds[login], "complete": True, "reason": None, "journal": "ok",
              "shown": [], "acks": [], "backfills": [], "relay_outage": {"complete": True, "reason": None},
-             "backfill_log": {"complete": True, "reason": None, "skipped": 0}, "since": iso(-100), "until": iso(2000), "margin_s": parity.MARGIN_S, "pages": {"arrivals": 1, "deliveries": 1}, "skipped": 0, "undated": 0}
+             "backfill_log": {"complete": True, "reason": None, "skipped": 0}, "watch": [], "watch_log": {"complete": True, "reason": None, "skipped": 0}, "since": iso(-100), "until": iso(2000), "margin_s": parity.MARGIN_S, "pages": {"arrivals": 1, "deliveries": 1}, "skipped": 0, "undated": 0}
         a.update(over)
         a["counts"] = over.get("counts", {"arrivals": len(a["arrivals"]), "deliveries": len(a["deliveries"]), "kinds": len(a["kinds"]),
-                                                       "shown": len(a["shown"]), "acks": len(a["acks"]), "backfills": len(a["backfills"])})
+                                                       "shown": len(a["shown"]), "acks": len(a["acks"]), "backfills": len(a["backfills"]), "watch": len(a["watch"])})
         return a
 
     def filed(self, **over) -> str:
@@ -851,9 +851,10 @@ class RelayOutage(unittest.TestCase):
         acct = {"arrivals": rows["arrivals"], "deliveries": [], "kinds": {}, "shown": rows["shown"], "acks": rows["acks"], "backfills": rows.get("backfills", []),
                 "backfill_log": rows.get("backfill_log", {"complete": False, "reason": "backfills: section is one of arrivals, deliveries, shown, acks"}), "complete": True,
                 "reason": None, "journal": "ok", "relay_outage": rows.get("relay_outage", {"complete": True, "reason": None}),
-                "pages": {}, "skipped": 0, "undated": 0}
+                "pages": {}, "skipped": 0, "undated": 0, "watch": rows.get("watch", []),
+                "watch_log": rows.get("watch_log", {"complete": True, "reason": None, "skipped": 0})}
         acct["counts"] = {"arrivals": len(acct["arrivals"]), "deliveries": 0, "kinds": 0, "shown": len(acct["shown"]), "acks": len(acct["acks"]),
-                          "backfills": len(acct["backfills"])}
+                          "backfills": len(acct["backfills"]), "watch": len(acct["watch"])}
         ec.write_dir(out, "beta", acct, iso(-100), iso(2000))
         ec.write_manifest(out, ["beta"])
         return out
@@ -1312,8 +1313,8 @@ class BackfillCollect(Collect):
         self.assertIn("backfill", text)
 
 
-class RelayRecord(unittest.TestCase):
-    """The drill's fourth property (ADR-064 rule 11): each pair the carrier alone held has a relay record, read from the senders' backfill logs."""
+class RelayFixture(unittest.TestCase):
+    """The pairs, collections and report of the relay-outage drill's fourth property (ADR-064 rule 11): each pair the carrier alone held has a relay record, read from the senders' backfill logs."""
 
     W = (T0, T0 + 1000)
     DRILL = (T0 + 100, T0 + 200)
@@ -1333,14 +1334,21 @@ class RelayRecord(unittest.TestCase):
         log = ({"complete": True, "reason": None, "skipped": skipped, "send_rows": send_rows} if backfills is not None else {"complete": False, "reason": "backfills: not offered"})
         return {"arrivals": arr, "deliveries": dels, "kinds": {}, "shown": [], "acks": [], "backfills": backfills or [], "backfill_log": log,
                 "complete": True, "reason": None, "journal": "ok", "relay_outage": {"complete": True, "reason": None, "skipped": 0},
-                "pages": {}, "skipped": 0, "undated": 0,
-                "counts": {"arrivals": len(arr), "deliveries": len(dels), "kinds": 0, "shown": 0, "acks": 0, "backfills": len(backfills or [])}}
+                "pages": {}, "skipped": 0, "undated": 0, "watch": [], "watch_log": {"complete": True, "reason": None, "skipped": 0},
+                "counts": {"arrivals": len(arr), "deliveries": len(dels), "kinds": 0, "shown": 0, "acks": 0, "backfills": len(backfills or []), "watch": 0}}
 
-    def collect(self, accounts: dict, old: tuple = ()) -> str:
+    def collect(self, accounts: dict, old: tuple = (), no_watch: tuple = ()) -> str:
         self.n = getattr(self, "n", 0) + 1
         out = os.path.join(self.root, f"dir{self.n}")      # one directory per collection: a leftover account is a refusal
         for login, acct in accounts.items():
             d = ec.write_dir(out, login, acct, iso(-100), iso(2000))
+            if login in no_watch:      # a daemon from before the watch log: no file and no mention in the meta
+                os.unlink(os.path.join(d, "watch.jsonl"))
+                with open(os.path.join(d, "meta.json")) as fh:
+                    meta = json.load(fh)
+                del meta["watch_log"], meta["counts"]["watch"]
+                with open(os.path.join(d, "meta.json"), "w") as fh:
+                    json.dump(meta, fh)
             if login in old:      # a daemon from before the section: no file and no mention in the meta
                 os.unlink(os.path.join(d, "backfills.jsonl")) if os.path.exists(os.path.join(d, "backfills.jsonl")) else None
                 with open(os.path.join(d, "meta.json")) as fh:
@@ -1362,6 +1370,11 @@ class RelayRecord(unittest.TestCase):
         with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
             rc = carrier_main.main(["parity", "--window", iso(0), iso(1000), "--collected", path, "--host", "h", "--relay-drill", iso(100), iso(200)])
         return rc, out.getvalue(), err.getvalue()
+
+
+
+class RelayRecord(RelayFixture):
+    """The drill's fourth property (ADR-064 rule 11): each pair the carrier alone held has a relay record, read from the senders' backfill logs."""
 
     def test_posted_and_present_say_the_delay_and_the_property_holds(self):
         path = self.collect({"alpha": self.acct("alpha", (), [backfill(self.M, "posted", 300, 190), backfill(self.M2, "present", 301, 181)]),
@@ -1554,6 +1567,427 @@ class RelayRecord(unittest.TestCase):
         self.assertEqual((pair["carrier_only"], pair["relay_record"]), (False, None))
         self.assertIsNone(self.drill(path)["backfill"])
         self.assertNotIn("relay record", self.report(path)[1].split("## Relay-outage")[1].split("Fourth")[0])
+
+
+def wrow(event: str, sec: int, pid: int = 1, reason: str | None = None, code: int | None = None) -> dict:
+    return {"t": iso(sec), "event": event, "pid": pid, **({"reason": reason, "code": code} if event == "end" else {})}
+
+
+class WatchAccount(RelayOutageAccount):
+    """gzcoord-watch.jsonl, the watch's own starts and ends (carrier/arrivals.WatchLog), as an account sends it."""
+
+    def log(self, rows: list, torn: str = "") -> None:
+        with open(os.path.join(self.state, "gzcoord-watch.jsonl"), "w", encoding="utf-8") as fh:
+            fh.write("".join(json.dumps(r) + "\n" for r in rows) + torn)
+
+    def test_rows_leave_key_by_key_and_no_other_key_rides_along(self):
+        self.log([{**wrow("start", 10, 7), "text": BODY_TEXT}, {**wrow("end", 20, 7, "gave-up", 5), "path": "/home/x/.secret"}])
+        r = ev.carrier_evidence(request("watch", 0, 100), state=self.state)
+        self.assertEqual((r["status"], r["next"], r["skipped"]), ("ok", None, 0))
+        self.assertEqual(r["rows"], [wrow("start", 10, 7), wrow("end", 20, 7, "gave-up", 5)])
+        self.assertNotIn(BODY_TEXT, json.dumps(r))
+        self.assertNotIn(".secret", json.dumps(r))
+
+    def test_every_reason_is_sent(self):
+        self.log([wrow("end", 10 + i, 7, why, 0) for i, why in enumerate(ev.WATCH_REASONS)])
+        r = ev.carrier_evidence(request("watch", 0, 100), state=self.state)
+        self.assertEqual([x["reason"] for x in r["rows"]], list(ev.WATCH_REASONS))
+
+    def test_a_torn_line_and_a_line_of_the_wrong_shape_are_counted_and_not_sent(self):
+        bad = [{**wrow("end", 30, 7, "gave-up", 5), "reason": "bored"}, {**wrow("end", 30, 7, "gave-up", 5), "code": "5"},
+               {**wrow("end", 30, 7, "gave-up", 5), "code": True}, {**wrow("end", 30, 7, "gave-up", 5), "reason": None},
+               {**wrow("start", 30, 7), "pid": True}, {**wrow("start", 30, 7), "pid": 0}, {**wrow("start", 30, 7), "pid": "7"},
+               {**wrow("start", 30, 7), "t": "yesterday"}, {**wrow("start", 30, 7), "event": "restart"}, {"event": "start"}, [1]]
+        self.log([wrow("start", 31, 7)] + bad)
+        with open(os.path.join(self.state, "gzcoord-watch.jsonl"), "a", encoding="utf-8") as fh:
+            fh.write('{"t": ')
+        r = ev.carrier_evidence(request("watch", 0, 100), state=self.state)
+        self.assertEqual(([x["event"] for x in r["rows"]], r["skipped"]), (["start"], len(bad) + 1))
+
+    def test_the_section_is_windowed_and_a_missing_file_is_an_empty_page(self):
+        r = ev.carrier_evidence(request("watch", 0, 100), state=self.state)
+        self.assertEqual((r["status"], r["rows"], r["skipped"]), ("ok", [], 0))
+        self.log([wrow("start", 99), wrow("start", 100, 2)])
+        self.assertEqual([x["pid"] for x in ev.carrier_evidence(request("watch", 0, 100), state=self.state)["rows"]], [1])
+
+    def test_the_section_reaches_beyond_the_window_like_the_arrivals(self):
+        self.assertEqual(ev.window_for("watch", iso(0), iso(100)), ev.window_for("arrivals", iso(0), iso(100)))
+
+    def test_it_is_a_section_the_op_knows(self):
+        self.assertIn("watch", ev.ALL_SECTIONS)
+        self.assertIsNone(ev.check_args({"section": "watch", "since": iso(0), "until": iso(100)}))
+
+
+class WatchCollect(Collect):
+    def watch_account(self, login: str, rows: list, torn: str = "") -> None:
+        self.account(login, [])
+        with open(os.path.join(self.states[login], "gzcoord-watch.jsonl"), "w") as fh:
+            fh.writelines(json.dumps(x) + "\n" for x in rows)
+            fh.write(torn)
+
+    def test_the_log_is_collected_filed_and_counted(self):
+        self.watch_account("a", [wrow("start", 10), wrow("end", 20, 1, "gave-up", 5)])
+        got = ec.collect(["a"], iso(0), iso(100), self.sender())
+        self.assertEqual((len(got["a"]["watch"]), got["a"]["watch_log"]), (2, {"complete": True, "reason": None, "skipped": 0}))
+        d = ec.write_dir(os.path.join(self.root, "out"), "a", got["a"], iso(0), iso(100))
+        with open(os.path.join(d, "watch.jsonl")) as fh:
+            filed = [json.loads(x) for x in fh]
+        with open(os.path.join(d, "meta.json")) as fh:
+            meta = json.load(fh)
+        self.assertEqual((filed, meta["counts"]["watch"], meta["watch_log"]["complete"]), (got["a"]["watch"], 2, True))
+        self.assertEqual(stat.S_IMODE(os.stat(os.path.join(d, "watch.jsonl")).st_mode), 0o600)
+
+    def test_the_whole_collection_prints_the_rows_and_the_meta(self):
+        self.watch_account("a", [wrow("start", 10)])
+        got = ec.collect(["a"], iso(0), iso(100), self.sender())
+        body = ec.row_of("a", "h", got["a"], iso(0), iso(100), full=True)["interweaveEvidence"]
+        self.assertEqual((body["watch"], body["watch_log"]["complete"]), ([wrow("start", 10)], True))
+
+    def test_a_log_of_several_pages_is_collected_whole_and_its_skipped_count_is_the_files(self):
+        self.watch_account("a", [wrow("start", s, s + 1) for s in range(80)], torn='{"t": ')
+        with unittest.mock.patch.object(ev, "PAGE_BYTES", 900):
+            got = ec.collect(["a"], iso(0), iso(100), self.sender())
+        self.assertGreater(got["a"]["pages"]["watch"], 2)
+        self.assertEqual((got["a"]["watch_log"]["skipped"], len(got["a"]["watch"])), (1, 80))
+
+    def test_an_account_that_cannot_send_the_section_stays_complete_and_keeps_every_other_section(self):
+        self.account("a", [arrival(mid(1, 1), "h/a", "relay", 1)])
+        old = self.sender()
+
+        def send(logins, section, since, until):
+            if section == "watch":      # a daemon from before the section: the closed set refuses it
+                return {x: {"status": "refused", "reason": f"section is one of {', '.join(ev.SECTIONS + ev.DRILL_SECTIONS)}"} for x in logins}
+            return old(logins, section, since, until)
+        got = ec.collect(["a"], iso(0), iso(100), send)
+        self.assertTrue(got["a"]["complete"])
+        self.assertEqual((got["a"]["relay_outage"]["complete"], got["a"]["backfill_log"]["complete"]), (True, True))
+        self.assertFalse(got["a"]["watch_log"]["complete"])
+        self.assertIn("watch: section is one of", got["a"]["watch_log"]["reason"])
+        self.assertEqual(got["a"]["watch"], [], "no rows are claimed for it")
+
+    def test_a_failure_of_another_section_does_not_stop_the_log_and_the_reverse(self):
+        self.watch_account("a", [wrow("start", 10)])
+        old = self.sender()
+
+        def send(logins, section, since, until):
+            if section in ("shown", "backfills"):
+                return {x: {"status": "refused", "reason": "no"} for x in logins}
+            return old(logins, section, since, until)
+        got = ec.collect(["a"], iso(0), iso(100), send)
+        self.assertEqual((got["a"]["relay_outage"]["complete"], got["a"]["backfill_log"]["complete"], got["a"]["watch_log"]["complete"], len(got["a"]["watch"])),
+                         (False, False, True, 1))
+
+    def test_an_account_stopped_in_a_report_section_files_no_watch_log_as_complete(self):
+        self.watch_account("a", [wrow("start", 10)])
+        old = self.sender()
+
+        def send(logins, section, since, until):
+            if section == "arrivals":
+                return {x: {"status": "no answer"} for x in logins}
+            return old(logins, section, since, until)
+        got = ec.collect(["a"], iso(0), iso(100), send)
+        self.assertFalse(got["a"]["watch_log"]["complete"])
+        d = ec.write_dir(os.path.join(self.root, "out"), "a", got["a"], iso(0), iso(100))
+        self.assertFalse(os.path.exists(os.path.join(d, "watch.jsonl")))
+        self.assertNotIn("watch", ec.row_of("a", "h", got["a"], iso(0), iso(100), full=True)["interweaveEvidence"])
+
+    def test_an_uncollected_log_is_not_filed_and_an_earlier_runs_file_does_not_outlive_it(self):
+        self.account("a", [])
+        got = ec.collect(["a"], iso(0), iso(100), self.sender())
+        out = os.path.join(self.root, "out")
+        d = ec.write_dir(out, "a", got["a"], iso(0), iso(100))
+        self.assertTrue(os.path.exists(os.path.join(d, "watch.jsonl")), "positive control: a collected one is filed")
+        got["a"]["watch_log"] = {"complete": False, "reason": "watch: no answer", "skipped": 0}
+        ec.write_dir(out, "a", got["a"], iso(0), iso(100))
+        self.assertFalse(os.path.exists(os.path.join(d, "watch.jsonl")))
+
+    def test_the_table_says_when_only_the_watch_log_is_missing(self):
+        row = {"account": "a", "host": "h", "status": "ok", "interweaveEvidence": {
+            "complete": True, "reason": None, "counts": {"arrivals": 1}, "journal": "ok", "relay_outage": {"complete": True},
+            "backfill_log": {"complete": True}, "watch_log": {"complete": False, "reason": "watch: section is one of arrivals"}}}
+        self.assertIn("watch log: watch: section is one of", "\n".join(ctl._table_carrier_evidence([row])))
+
+
+class WatchReport(RelayFixture):
+    """The drill's watch lines (ADR-064 rule 11, Gate 1 item 3): per account, the starts inside the outage with how the watch before
+    each ended, and whether one gave up. The pair fixtures are RelayRecord's; only the watch rows differ."""
+
+    def acct(self, login, mids=(), backfills=(), watch=(), **kw):
+        a = super().acct(login, mids, list(backfills), **kw)
+        a["watch"] = list(watch)
+        a["counts"]["watch"] = len(a["watch"])
+        return a
+
+    def collected(self, accounts: dict, **kw) -> str:
+        return self.collect(accounts, **kw)
+
+    def lines(self, path: str) -> list[str]:
+        out = self.report(path)[1]
+        block = out.split("Watches inside the drill")[1].split("\n\n")[1]
+        return block.splitlines()
+
+    DRILLED = [wrow("start", 50, 1), wrow("end", 60, 1, "delivery", 0), wrow("start", 120, 2), wrow("end", 150, 2, "gave-up", 5),
+               wrow("start", 160, 3), wrow("end", 300, 3, "quiet", 0)]
+
+    def test_restarts_inside_the_drill_are_counted_with_how_the_watch_before_ended_and_the_give_up_is_named(self):
+        path = self.collect({"alpha": self.acct("alpha", watch=self.DRILLED), "beta": self.acct("beta")})
+        d = self.drill(path)["watches"]
+        self.assertEqual([(x["t"], x["after"]) for x in d["alpha"]["starts"]], [(iso(120), "delivery"), (iso(160), "gave-up")])
+        self.assertEqual([x["t"] for x in d["alpha"]["gave_up"]], [iso(150)])
+        lines = self.lines(path)
+        self.assertEqual(lines[0], f"- alpha: restarts (starts inside the drill): 2 ({iso(120)} after delivery, {iso(160)} after gave-up); gave up: yes, at {iso(150)}")
+        self.assertEqual(lines[1], "- beta: restarts (starts inside the drill): 0 (none); gave up: no")
+
+    def test_a_watch_outside_the_drill_is_neither_a_restart_nor_a_give_up(self):
+        outside = [wrow("start", 50, 1), wrow("end", 99, 1, "gave-up", 5), wrow("start", 200, 2), wrow("end", 210, 2, "gave-up", 5)]
+        path = self.collect({"alpha": self.acct("alpha", watch=outside), "beta": self.acct("beta")})
+        self.assertEqual(self.lines(path)[0], "- alpha: restarts (starts inside the drill): 0 (none); gave up: no")
+
+    def test_a_give_up_without_a_restart_and_a_restart_without_a_give_up_are_told_apart(self):
+        path = self.collect({"alpha": self.acct("alpha", watch=[wrow("start", 90, 1), wrow("end", 180, 1, "gave-up", 5)]),
+                             "beta": self.acct("beta", watch=[wrow("start", 90, 1), wrow("end", 120, 1, "delivery", 0), wrow("start", 130, 2)])})
+        a, b = self.lines(path)
+        self.assertTrue(a.startswith("- alpha: restarts (starts inside the drill): 0 (none); gave up: yes, at "), a)
+        self.assertTrue(b.startswith("- beta: restarts (starts inside the drill): 1 (") and b.endswith("after delivery); gave up: no"), b)
+
+    def test_a_start_after_a_start_says_no_end_line_and_a_first_start_says_no_earlier_line(self):
+        path = self.collect({"alpha": self.acct("alpha", watch=[wrow("start", 110, 1), wrow("start", 130, 2)]), "beta": self.acct("beta")})
+        self.assertEqual([x["after"] for x in self.drill(path)["watches"]["alpha"]["starts"]], ["no earlier line", "no end line"])
+
+    def test_an_account_without_the_log_reads_not_collected_beside_one_that_has_it(self):
+        path = self.collect({"alpha": self.acct("alpha", watch=self.DRILLED), "beta": self.acct("beta")}, no_watch=("beta",))
+        a, b = self.lines(path)
+        self.assertIn("gave up: yes", a)
+        self.assertEqual(b, "- beta: not collected (no watch log in the collection, from a daemon that predates it)")
+        self.assertNotIn("restarts", b, "unknown stays unknown: no zero is printed for it")
+
+    def test_a_log_whose_section_failed_or_had_a_line_that_could_not_be_read_reads_not_collected(self):
+        path = self.collect({"alpha": self.acct("alpha"), "beta": self.acct("beta")})
+        for login, log, want in (("alpha", {"complete": False, "reason": "watch: no answer", "skipped": 0}, "the watch log's section failed: watch: no answer"),
+                                 ("beta", {"complete": True, "reason": None, "skipped": 2}, "2 line(s) of the watch log could not be read")):
+            with open(os.path.join(path, login, "meta.json")) as fh:
+                meta = json.load(fh)
+            meta["watch_log"] = log
+            with open(os.path.join(path, login, "meta.json"), "w") as fh:
+                json.dump(meta, fh)
+        a, b = self.lines(path)
+        self.assertEqual((a, b), ("- alpha: not collected (the watch log's section failed: watch: no answer)",
+                                  "- beta: not collected (2 line(s) of the watch log could not be read)"))
+
+    def test_the_report_without_pairs_still_says_the_watches(self):
+        path = self.collect({"alpha": self.acct("alpha", watch=self.DRILLED)})
+        out = self.report(path)[1]
+        self.assertIn("no pair was made inside the drill", out)
+        self.assertIn("gave up: yes", out)
+
+    def test_a_row_that_is_not_what_the_op_sends_and_files_cut_short_are_refused(self):
+        path = self.collect({"alpha": self.acct("alpha", watch=[wrow("start", 110)]), "beta": self.acct("beta")})
+        with open(os.path.join(path, "alpha", "watch.jsonl"), "w") as fh:
+            fh.write(json.dumps({**wrow("end", 120, 1, "gave-up", 5), "reason": "bored"}) + "\n")
+        rc, out, err = self.report(path)
+        self.assertEqual((rc, out), (2, ""))
+        self.assertIn("alpha: a watch log row is not", err)
+        with open(os.path.join(path, "alpha", "watch.jsonl"), "w") as fh:
+            fh.write("")
+        rc, out, err = self.report(path)
+        self.assertEqual((rc, out), (2, ""))
+        self.assertIn("alpha: the files do not hold what the collection counted of the watch log", err)
+
+    def test_the_rollback_report_does_not_read_the_log(self):
+        path = self.collect({"alpha": self.acct("alpha", watch=[wrow("start", 110)]), "beta": self.acct("beta")})
+        with open(os.path.join(path, "alpha", "watch.jsonl"), "w") as fh:
+            fh.write("not json\n")
+        out, err = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            rc = carrier_main.main(["parity", "--window", iso(0), iso(1000), "--collected", path, "--host", "h"])
+        self.assertEqual((rc, err.getvalue()), (0, ""))
+
+    def test_the_lines_come_after_the_pairs_and_before_the_fourth_property(self):
+        path = self.collect({"alpha": self.acct("alpha", (), [backfill(self.M, "posted", 300, 190)], watch=self.DRILLED), "beta": self.acct("beta", (self.M,))})
+        out = self.report(path)[1]
+        self.assertLess(out.index(self.M), out.index("Watches inside the drill"))
+        self.assertLess(out.index("Watches inside the drill"), out.index("Fourth property"))
+
+
+class BackfillRowBesideVerdict(RelayFixture):
+    """The fourth property prints each pair's backfill row (outcome, delay) under its verdict, so a FAILED by age says why."""
+
+    def rows(self, path: str) -> list[str]:
+        return [x.strip() for x in self.report(path)[1].split("Fourth property")[1].splitlines()[1:] if x.strip()]
+
+    def test_posted_present_over_age_and_none_each_show_their_row(self):
+        m3, m4 = mid(130, 3), mid(140, 4)
+        path = self.collect({"alpha": self.acct("alpha", (), [backfill(self.M, "posted", 300, 190), backfill(self.M2, "present", 301, 181.5),
+                                                              backfill(m3, "over-age", 302, 99999)], sent=(self.M, self.M2, m3, m4)),
+                             "beta": self.acct("beta", (self.M, self.M2, m3, m4), [])})
+        self.assertEqual(self.rows(path), [f"- {self.M} to h/beta: backfill row posted, delay 190 s", f"- {self.M2} to h/beta: backfill row present, delay 181.5 s",
+                                           f"- {m3} to h/beta: backfill row over-age, delay 99999 s", f"- {m4} to h/beta: backfill row none by the report's end"])
+        self.assertIn("Fourth property, relay record by backfill: FAILED", self.report(path)[1])
+
+    def test_a_message_the_relay_took_at_send_says_so_and_has_no_delay(self):
+        took = {"mid": self.M, "outcome": "relay-took-send", "at": iso(110), "channel": None}
+        path = self.collect({"alpha": self.acct("alpha", (), [took, backfill(self.M2, "posted", 300)]), "beta": self.acct("beta", (self.M, self.M2), [])})
+        self.assertEqual(self.rows(path)[0], f"- {self.M} to h/beta: backfill row relay-took-send (the relay took it at send; no delay)")
+
+    def test_a_collection_that_cannot_say_none_says_why_beside_the_unjudged_verdict(self):
+        path = self.collect({"alpha": self.acct("alpha", (), None), "beta": self.acct("beta", (self.M,), [])})
+        out = self.report(path)[1]
+        self.assertIn("Fourth property, relay record by backfill: not judged", out)
+        self.assertIn(f"- {self.M} to h/beta: backfill row not collected (the sender's backfill log was not collected)", out)
+
+    def test_a_pair_the_carrier_did_not_hold_alone_has_no_row_line_beside_one_it_did(self):
+        # Beside an exercised pair (M2), so the fourth property's block renders and the filter on carrier_only is what keeps M out of it.
+        beta = self.acct("beta", (self.M2,), [])
+        beta["arrivals"].append(arrival(self.M, "h/beta", "interweave", 111))
+        beta["arrivals"].append(arrival(self.M, "h/beta", "relay", 150))      # the relay delivered M during the outage
+        path = self.collect({"alpha": self.acct("alpha", (), [backfill(self.M2, "posted", 300, 190)]), "beta": beta})
+        self.assertEqual(self.rows(path), [f"- {self.M2} to h/beta: backfill row posted, delay 190 s"])
+
+    def test_the_pairs_own_line_keeps_its_words(self):
+        path = self.collect({"alpha": self.acct("alpha", (), [backfill(self.M, "over-age", 300, 99999)]), "beta": self.acct("beta", (self.M,), [])})
+        self.assertIn("relay record: over-age;", self.report(path)[1])
+
+
+class CarrierDrill(RelayFixture):
+    """`parity --carrier-drill START END LOGIN` (gate 2): one account's carrier stopped for the window; what the senders' outboxes held is
+    delivered by the carrier once after it (the relay mirror's copy beside it is normal, a second copy of either carrier fails) and shown once. alpha sends to beta; the drill is [T0+100, T0+200)."""
+
+    M3, M4 = mid(130, 3), mid(140, 4)
+
+    def build(self, arrivals: dict, shown: list, sent: tuple | None = None, extra: dict | None = None) -> str:
+        """`arrivals`: {mid: [(carrier, second)]} as beta received them; `shown`: beta's ledger lines; `sent`: what alpha recorded sending."""
+        sent = (self.M, self.M2, self.M3, self.M4) if sent is None else sent
+        alpha = self.acct("alpha", (), [], sent=sent)
+        beta = self.acct("beta", (), [])
+        beta["arrivals"] = [arrival(m, "h/beta", c, sec) for m, got in arrivals.items() for c, sec in got]
+        beta["shown"] = shown
+        beta["counts"].update(arrivals=len(beta["arrivals"]), shown=len(shown))
+        return self.collect({"alpha": alpha, "beta": beta, **(extra or {})})
+
+    def run_report(self, path: str, login: str = "beta", s: int = 100, e: int = 200) -> tuple[int, str, str]:
+        out, err = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            rc = carrier_main.main(["parity", "--window", iso(0), iso(1000), "--collected", path, "--host", "h", "--carrier-drill", iso(s), iso(e), login])
+        return rc, out.getvalue(), err.getvalue()
+
+    @staticmethod
+    def seen(m: str, n: int = 1, sec: int = 210, pending: bool = True) -> list:
+        return [{"mid": m, "via": "interweave", "t": iso(sec), **({"pending": True} if pending else {})}, *[{"mid": m, "via": "interweave", "t": iso(sec)} for _ in range(n)]]
+
+    def section(self, path: str, **kw) -> list[str]:
+        out = self.run_report(path, **kw)[1]
+        return out.split("## Carrier-outage drill")[1].splitlines()
+
+    def test_every_pair_held_by_the_outbox_delivered_once_after_the_end_and_shown_once_holds(self):
+        path = self.build({self.M: [("interweave", 210)], self.M2: [("interweave", 230)]}, self.seen(self.M) + self.seen(self.M2, sec=230), sent=(self.M, self.M2))
+        rc, out, err = self.run_report(path)
+        self.assertEqual((rc, err), (0, ""))
+        lines = self.section(path)
+        self.assertIn(f"of beta ({iso(100)} to {iso(200)}): every message held arrived once by the carrier and was shown once", lines[0])
+        self.assertIn(f"- {self.M}: held by alpha's outbox (done); delivered after the window's end ({iso(210)}); 1 copy(ies) (1 interweave, 0 relay); shown once", out)
+        self.assertNotIn("FAILS", out.split("## Carrier-outage drill")[1])
+
+    def test_a_pair_shown_twice_fails_and_says_how_often(self):
+        path = self.build({self.M: [("interweave", 210)]}, self.seen(self.M, n=2))
+        out = self.run_report(path)[1]
+        self.assertIn("A PROPERTY FAILED", out)
+        self.assertIn("shown 2 times -- FAILS", out)
+
+    def test_a_pair_never_delivered_fails(self):
+        path = self.build({self.M: [("interweave", 210)]}, self.seen(self.M))      # M2 was held and never arrived
+        out = self.run_report(path)[1]
+        self.assertIn("A PROPERTY FAILED", out)
+        self.assertIn(f"- {self.M2}: held by alpha's outbox (done); never delivered by the report's end; 0 copy(ies) (0 interweave, 0 relay); not shown -- FAILS", out)
+
+    def test_the_relay_mirrors_copy_beside_the_carriers_holds(self):
+        # carrier-record mirrors every send to the relay, which the watch reads after the carrier's wait: one of each is the mode working
+        path = self.build({self.M: [("interweave", 210), ("relay", 211)]}, self.seen(self.M), sent=(self.M,))
+        out = self.run_report(path)[1]
+        self.assertIn("2 copy(ies) (1 interweave, 1 relay)", out)
+        self.assertIn("every message held arrived once by the carrier and was shown once", out)
+        self.assertNotIn("A PROPERTY FAILED", out)
+
+    def test_a_second_copy_of_one_carrier_fails(self):
+        for carrier in ("interweave", "relay"):
+            copies = [("interweave", 210), (carrier, 260)] if carrier == "interweave" else [("interweave", 210), ("relay", 211), ("relay", 260)]
+            path = self.build({self.M: copies}, self.seen(self.M), sent=(self.M,))
+            self.assertIn("A PROPERTY FAILED", self.run_report(path)[1], carrier)
+
+    def test_a_pair_only_the_relay_delivered_fails_the_carrier_held_nothing(self):
+        path = self.build({self.M: [("relay", 210)]}, self.seen(self.M), sent=(self.M,))
+        out = self.run_report(path)[1]
+        self.assertIn("1 copy(ies) (0 interweave, 1 relay); shown once -- FAILS", out)
+
+    def test_a_copy_before_the_window_ended_or_no_outbox_row_means_the_pair_is_not_exercised(self):
+        path = self.build({self.M: [("interweave", 150)], self.M2: [("interweave", 210)]}, self.seen(self.M, sec=150) + self.seen(self.M2), sent=(self.M,))
+        out = self.run_report(path)[1]
+        self.assertIn("a copy reached the account before the window ended, so the carrier did not hold it alone; it does not count", out)
+        self.assertIn("no sender in the collection recorded a delivery to the account; it does not count", out)
+        self.assertIn(": no message in the collection was held by a sender's outbox", out)
+
+    def test_a_showing_cut_off_before_its_final_line_is_unsettled_and_a_failure_beats_it(self):
+        pending = [{"mid": self.M, "via": "interweave", "t": iso(210), "pending": True}]
+        path = self.build({self.M: [("interweave", 210)]}, pending, sent=(self.M,))
+        out = self.run_report(path)[1]
+        self.assertIn("UNSETTLED, none failed and 1 pair(s) cannot be told yet", out)
+        self.assertIn("shown: unknown (a showing was interrupted) -- UNKNOWN", out)
+        path = self.build({self.M: [("interweave", 210)]}, pending, sent=(self.M, self.M2))
+        self.assertIn("A PROPERTY FAILED", self.run_report(path)[1])
+
+    def test_pairs_to_another_login_or_made_outside_the_window_are_not_in_it(self):
+        outside = mid(300, 9)
+        path = self.build({self.M: [("interweave", 210)], outside: [("interweave", 310)]}, self.seen(self.M) + self.seen(outside, sec=310), sent=(self.M, outside))
+        out = self.run_report(path)[1]
+        self.assertNotIn(outside, out.split("## Carrier-outage drill")[1])
+        self.assertIn(self.M, out.split("## Carrier-outage drill")[1])
+        # alpha as the drilled login: the messages were sent by it, none was addressed to it
+        self.assertIn("no pair was made inside the drill", self.run_report(path, login="alpha")[1].split("## Carrier-outage drill")[1])
+
+    def test_without_the_flag_nothing_of_the_section_appears_and_with_it_nothing_else_changes(self):
+        path = self.build({self.M: [("interweave", 210)]}, self.seen(self.M), sent=(self.M,))
+        out, err = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            carrier_main.main(["parity", "--window", iso(0), iso(1000), "--collected", path, "--host", "h"])
+        plain = out.getvalue()
+        self.assertNotIn("Carrier-outage", plain)
+        with_flag = self.run_report(path)[1]
+        self.assertEqual(with_flag[:with_flag.index("\n## Carrier-outage drill")].rstrip("\n"), plain.rstrip("\n"))
+
+    def test_a_collection_without_the_account_or_its_shown_ledger_is_refused_not_read_as_never_shown(self):
+        path = self.build({self.M: [("interweave", 210)]}, self.seen(self.M), sent=(self.M,))
+        rc, out, err = self.run_report(path, login="gamma")
+        self.assertEqual((rc, out), (2, ""))
+        self.assertIn("the collection has no account gamma", err)
+        with open(os.path.join(path, "beta", "meta.json")) as fh:
+            meta = json.load(fh)
+        meta["relay_outage"] = {"complete": False, "reason": "shown: no answer", "skipped": 0}
+        with open(os.path.join(path, "beta", "meta.json"), "w") as fh:
+            json.dump(meta, fh)
+        rc, out, err = self.run_report(path)
+        self.assertEqual((rc, out), (2, ""))
+        self.assertIn("beta: the shown ledger was not collected whole (shown: no answer)", err)
+
+    def test_the_flag_needs_a_collection(self):
+        out, err = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            rc = carrier_main.main(["parity", "--window", iso(0), iso(100), "--arrivals", "x", "--senders", "y", "--carrier-drill", iso(1), iso(2), "beta"])
+        self.assertEqual((rc, out.getvalue()), (1, ""))
+        self.assertIn("--carrier-drill reads the account's shown ledger, which only --collected holds", err.getvalue())
+
+    def test_a_collection_made_before_the_shown_ledger_is_refused(self):
+        path = self.build({self.M: [("interweave", 210)]}, self.seen(self.M), sent=(self.M,))
+        os.unlink(os.path.join(path, "beta", "shown.jsonl"))
+        rc, out, err = self.run_report(path)
+        self.assertEqual((rc, out), (2, ""))
+        self.assertIn("beta: the collection has no shown ledger", err)
+
+    def test_shown_ledger_cut_short_is_refused_by_its_count(self):
+        path = self.build({self.M: [("interweave", 210)]}, self.seen(self.M), sent=(self.M,))
+        with open(os.path.join(path, "beta", "shown.jsonl"), "w") as fh:
+            fh.write("")
+        rc, out, err = self.run_report(path)
+        self.assertEqual(rc, 2)
+        self.assertIn("beta: the files do not hold what the collection counted of the shown ledger", err)
 
 
 if __name__ == "__main__":
