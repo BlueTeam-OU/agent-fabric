@@ -432,6 +432,7 @@ carrier-outage drill, one account's units stopped in `carrier-record`.
 Rule 11 now says how it is judged: `parity --carrier-drill START END
 LOGIN` takes every message addressed to that account, made inside the
 window, that a sender's outbox recorded and that no copy reached before
-the window ended, and asks that it arrived once after it and was shown
-to the session once. A pair the files cannot show, a showing
+the window ended, and asks that the carrier delivered it once after it
+(the relay mirror's copy beside it is normal; a second copy of either
+carrier fails) and that it was shown to the session once. A pair the files cannot show, a showing
 interrupted for one, is unsettled, never passed.

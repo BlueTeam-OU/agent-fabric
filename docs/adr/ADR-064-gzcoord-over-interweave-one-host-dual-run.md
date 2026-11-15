@@ -295,8 +295,10 @@ address, where the relay's `sender` is a claim (ADR-033 §6).
     `gzcoord-carrier parity --carrier-drill START END LOGIN` judges it
     from the collected evidence: every message addressed to that account
     and made inside the window that a sender's outbox recorded, and that
-    no copy reached before the window ended, arrived once after it and
-    was shown to the session once. A pair the files cannot show is
+    no copy reached before the window ended, the carrier delivered once
+    after it (the relay mirror's copy beside it is normal; a second copy
+    of either carrier fails), and it was shown to the session once. A
+    pair the files cannot show is
     unsettled, never passed (A 2026-11-15).
 12. This carrier carries GZCoord application messages only. The control
     plane rides the same profile on its own `fabric-control` endpoint,
