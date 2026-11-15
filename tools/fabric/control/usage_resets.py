@@ -60,13 +60,19 @@ def wanted(rows: Any) -> dict[str, dict]:
 def _current(text: str | None) -> Any:
     try:
         v = json.loads(text) if text is not None else None
-    except ValueError:
+    except (ValueError, RecursionError):
         return None   # set_key refuses the file by name; here only "not equal"
     return v.get(KEY) if isinstance(v, dict) else None
 
 
+def _push_ahead() -> None:
+    from secretstore.core import store_dir
+    from secretstore.entries import _push_if_ahead
+    _push_if_ahead(store_dir())
+
+
 def record(rows: Any, *, path_of: Callable[[str], str] = observe.account_path, put: Callable[..., dict] = observe.store_put,
-           locked: Callable[[], Any] = observe._locked,
+           locked: Callable[[], Any] = observe._locked, push_ahead: Callable[[], None] = lambda: _push_ahead(),
            say: Callable[[str], None] = lambda m: print(m, file=sys.stderr, flush=True)) -> dict[str, str]:
     """Write what `rows` say; returns slug → "created" | "updated" | "unchanged" | "refused: why". Never raises."""
     want = wanted(rows)
@@ -92,8 +98,11 @@ def record(rows: Any, *, path_of: Callable[[str], str] = observe.account_path, p
                 result[slug] = "created" if text is None else "updated"
             if any(v in ("created", "updated") for v in result.values()):
                 put(tree, expect_head=head)
+            else:
+                push_ahead()   # a commit an earlier failed push left is not "unchanged" for the remote
     except Exception as e:  # noqa: BLE001 — a store refusal is one line; the keeper's reads go on
-        say(f"agentd: usage resets: the store refused or failed: {str(e)[:160]}")
+        text = str(e)[:160]
+        say(f"agentd: usage resets: the store refused or failed: {text}" + ("" if "nothing written" in text else " (a commit may be made but not pushed)"))
         return {}
     for slug, what in sorted(result.items()):
         if what.startswith("refused"):

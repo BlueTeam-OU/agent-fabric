@@ -59,6 +59,7 @@ import hashlib
 import json
 import os
 import signal
+import threading
 import secrets
 import stat
 
@@ -393,8 +394,10 @@ def settings_put(src: str, expect_head: str | None = None) -> dict:
     # as for Ctrl-C. SIGKILL cannot be handled: it leaves the store dirty, and the next run refuses it by name.
     # A caller that ignores SIGHUP (nohup) keeps ignoring it.
     state = {"committed": False}
+    # signal.signal raises off the main thread, where agentd's keeper writes; a signal is delivered to the main thread
+    # alone, so a worker's write has no handler to install and no interrupt to undo.
     previous = {s: signal.signal(s, _terminate) for s in (signal.SIGTERM, signal.SIGHUP)
-                if signal.getsignal(s) != signal.SIG_IGN}
+                if threading.current_thread() is threading.main_thread() and signal.getsignal(s) != signal.SIG_IGN}
     try:
         files = _read_tree(src)
         _refuse_roles(files)

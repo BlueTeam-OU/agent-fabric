@@ -9,6 +9,7 @@ import json
 import os
 import sys
 import tempfile
+import threading
 import unittest
 
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -67,7 +68,12 @@ class Store(unittest.TestCase):
         yield "head-1"
 
     def record(self, rows, **kw):
-        return R.record(rows, path_of=self.path, put=kw.pop("put", self.put), locked=kw.pop("locked", self.locked), say=self.said.append)
+        self.pushed = 0
+
+        def push():
+            self.pushed += 1
+        return R.record(rows, path_of=self.path, put=kw.pop("put", self.put), locked=kw.pop("locked", self.locked),
+                        push_ahead=kw.pop("push_ahead", push), say=self.said.append)
 
 
 class Record(Store):
@@ -150,6 +156,51 @@ class Record(Store):
             yield
         self.assertEqual(self.record({"accounts": [row()]}, locked=no_store), {})
         self.assertEqual(len(self.said), 2)
+
+
+class Review(Store):
+    def test_a_deeply_nested_file_is_refused_by_name_and_the_others_are_written(self):
+        self.seed("claude-a", '{"a": ' + "[" * 200000 + "]" * 200000 + "}")
+        out = self.record({"accounts": [row("claude-a"), row("claude-b")]})
+        self.assertEqual(out, {"claude-a": "refused: not valid JSON", "claude-b": "created"})
+        self.assertEqual(sorted(self.puts[0]), ["claude-b.json"])
+        self.assertEqual(self.said, ["agentd: usage resets: claude-a: refused: not valid JSON"])
+
+    def test_the_real_settings_put_runs_on_a_worker_thread(self):
+        from secretstore import settings
+        got = []
+
+        def go():
+            try:
+                settings.settings_put(self.dir)
+            except BaseException as e:  # noqa: BLE001
+                got.append(e)
+        os.makedirs(os.path.join(self.dir, "accounts"))
+        t = threading.Thread(target=go)
+        t.start()
+        t.join()
+        self.assertEqual(len(got), 1)
+        self.assertNotIsInstance(got[0], ValueError, "signal.signal is not called off the main thread")
+
+    def test_a_failure_says_a_commit_may_stand_unless_nothing_was_written(self):
+        self.seed("claude-a", OWNER_FILE)
+
+        def push_failed(tree, expect_head=None):
+            raise RuntimeError("git push failed")
+        self.record({"accounts": [row()]}, put=push_failed)
+        self.assertTrue(self.said[-1].endswith("(a commit may be made but not pushed)"), self.said)
+
+    def test_a_tick_with_nothing_changed_still_pushes_a_commit_left_ahead(self):
+        self.seed("claude-a", OWNER_FILE)
+        self.record({"accounts": [row()]})
+        self.assertEqual(self.pushed, 0, "a write pushes in settings_put")
+        self.record({"accounts": [row()]})
+        self.assertEqual(self.pushed, 1)
+
+        def bad_push():
+            raise RuntimeError("remote down")
+        self.assertEqual(self.record({"accounts": [row()]}, push_ahead=bad_push), {})
+        self.assertIn("remote down", self.said[-1])
 
 
 class Keep(unittest.TestCase):
