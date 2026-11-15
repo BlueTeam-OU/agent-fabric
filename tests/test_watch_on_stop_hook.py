@@ -372,6 +372,23 @@ def main() -> int:
         else:
             os.environ["AGENT_FABRIC_STATE_DIR"] = saved_state
 
+        # argv stays a list: an argument that holds a space is one word. A process only MENTIONING a watch in one
+        # argument (grep, an editor, claude -p) is no watch, and the real watch beside it still is.
+        with tempfile.TemporaryDirectory() as fake:
+            def plant(pid, argv):
+                os.makedirs(os.path.join(fake, str(pid)))
+                with open(os.path.join(fake, str(pid), "stat"), "w") as fh:
+                    fh.write(f"{pid} (x) S 1 0 0\n")
+                with open(os.path.join(fake, str(pid), "cmdline"), "wb") as fh:
+                    fh.write(b"\0".join(a.encode() for a in argv) + b"\0")
+            plant(501, ["grep", "-r", "gzcoord-inbox --until-delivery", "."])
+            plant(502, ["/home/a b/bin/python3", "/home/a b/bin/gzcoord-inbox", "--until-delivery"])
+            table_ = mod.read_procs(fake)
+            check("read_procs keeps an argument with a space whole",
+                  list(table_[501][2]) == ["grep", "-r", "gzcoord-inbox --until-delivery", "."], table_[501])
+            check("a process that only mentions a watch is no watch", mod.is_watch(table_[501][2]) is False)
+            check("a watch under a directory with a space is one", mod.is_watch(table_[502][2]) is True)
+
         def boom(*a, **k):
             raise RuntimeError("x")
         orig, mod.read_procs = mod.read_procs, boom

@@ -114,14 +114,19 @@ def pinned_build() -> dict:
     return pin["releases"][pin["current"]]["x86_64"]
 
 
+def pair_of(r, good: list[dict], logins: tuple[str, ...]):
+    """The two accounts under test: a config naming 28 absent peers is not this check, and a third row
+    must change nothing it renders."""
+    good = [row for row in good if row["login"] in logins]
+    return dataclasses.replace(r, rows=tuple(row for row in r.rows if row["login"] in logins)), good
+
+
 def judged_roster():
     from gzcoord import paths
     from gzcoord.carrier import roster
     r = roster.load(ROSTER)
     good, refused = roster.valid_rows(r, roster.GitMainKeys(paths.operator_root()))
-    # only the pair under test: a config naming 28 absent peers is not this check
-    good = [row for row in good if row["login"] in (LOGIN, PEER)]
-    r = dataclasses.replace(r, rows=tuple(row for row in r.rows if row["login"] in (LOGIN, PEER)))
+    r, good = pair_of(r, good, (LOGIN, PEER))
     return r, good, refused
 
 

@@ -471,6 +471,13 @@ def test_inbox_watch_reads_both_spellings(tmp: str) -> None:
     assert mod.is_watch("node inbox.mjs --follow") and mod.is_watch("node /h/scripts/inbox.mjs --until-delivery")
     assert not mod.is_watch("node inbox.mjs") and not mod.is_watch("node inbox.mjs --status")
 
+    # argv as a list: one argument holding a space is one word, so a process that only names a watch in an argument
+    # is no watch (the string form splits on spaces and cannot tell).
+    assert mod.is_watch(["gzcoord-inbox", "--until-delivery"])
+    assert mod.is_watch(["/home/a b/bin/python3", "/h/gzcoord-inbox", "--wait"])
+    assert not mod.is_watch(["grep", "-r", "gzcoord-inbox --until-delivery", "."])
+    assert not mod.is_watch(["claude", "-p", "run gzcoord-inbox --follow"])
+
     tree = os.path.join(tmp, "tree")
     os.makedirs(os.path.join(tree, "runtime", "claude-code", "hooks"))
     shutil.copy(hook, os.path.join(tree, "runtime", "claude-code", "hooks"))
@@ -508,12 +515,13 @@ def test_hook_says_when_the_session_has_no_inbox_watch(tmp: str) -> None:
     with open(payload, "w", encoding="utf-8") as fh:
         json.dump({"cwd": tmp, "session_id": "sess-w", "source": "resume"}, fh)
     with open(fake, "w", encoding="utf-8") as fh:
+        # The fake watches carry real argv (bash -c with a trailing `:`, so bash stays and keeps its argv): `exec -a` would put a whole command
+        # line into argv[0], one word holding spaces, which is exactly what is_watch no longer reads as a watch.
         fh.write("#!/bin/bash\n"  # not env: env re-execs bash and the process is no longer named claude
-                 
-                 "if [ \"$1\" = watch ]; then (exec -a 'node inbox.mjs --follow' sleep 20) & w=$!; sleep 0.3; fi\n"
-                 "if [ \"$1\" = until ]; then (exec -a 'node /home/x/.local/bin/gzcoord-inbox --until-delivery' sleep 20) & w=$!; sleep 0.3; fi\n"
-                 "if [ \"$1\" = wait ]; then (exec -a 'gzcoord-inbox --wait' sleep 20) & w=$!; sleep 0.3; fi\n"
-                 "if [ \"$1\" = named ]; then (exec -a 'node /home/x/.local/bin/gzcoord-inbox --follow' sleep 20) & w=$!; sleep 0.3; fi\n"
+                 "if [ \"$1\" = watch ]; then (exec bash -c 'sleep 20; :' node inbox.mjs --follow) & w=$!; sleep 0.3; fi\n"
+                 "if [ \"$1\" = until ]; then (exec bash -c 'sleep 20; :' node /home/x/.local/bin/gzcoord-inbox --until-delivery) & w=$!; sleep 0.3; fi\n"
+                 "if [ \"$1\" = wait ]; then (exec bash -c 'sleep 20; :' gzcoord-inbox --wait) & w=$!; sleep 0.3; fi\n"
+                 "if [ \"$1\" = named ]; then (exec bash -c 'sleep 20; :' node /home/x/.local/bin/gzcoord-inbox --follow) & w=$!; sleep 0.3; fi\n"
                  f"bash {HOOK} < {payload}\n"
                  "[ -n \"${w:-}\" ] && kill $w\n")
     os.chmod(fake, 0o755)

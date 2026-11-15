@@ -94,9 +94,9 @@ def mem_line(meminfo: str = "/proc/meminfo") -> str:
         return ""
 
 
-def read_procs(proc: str = "/proc") -> dict[int, tuple[int, str, str]]:
-    """pid -> (ppid, comm, command line) for every process /proc shows."""
-    out: dict[int, tuple[int, str, str]] = {}
+def read_procs(proc: str = "/proc") -> dict[int, tuple[int, str, tuple[str, ...]]]:
+    """pid -> (ppid, comm, argv) for every process /proc shows."""
+    out: dict[int, tuple[int, str, tuple[str, ...]]] = {}
     for d in os.listdir(proc):
         if not d.isdigit():
             continue
@@ -104,7 +104,8 @@ def read_procs(proc: str = "/proc") -> dict[int, tuple[int, str, str]]:
             with open(f"{proc}/{d}/stat", encoding="utf-8", errors="replace") as fh:
                 raw = fh.read()
             with open(f"{proc}/{d}/cmdline", "rb") as fh:
-                cmd = fh.read().replace(b"\0", b" ").decode("utf-8", "replace")
+                # argv stays split on its NULs: joined by spaces, an argument holding one is told from two no more
+                cmd = tuple(a.decode("utf-8", "replace") for a in fh.read().split(b"\0") if a)
         except OSError:
             continue
         out[int(d)] = (int(raw[raw.rindex(")") + 2:].split()[1]), raw[raw.index("(") + 1:raw.rindex(")")], cmd)
@@ -125,7 +126,7 @@ def harness_pid(procs: dict, pid: int) -> int | None:
     return session_proc().nearest_session_in(table, pid)
 
 
-def is_watch(cmd: str) -> bool:
+def is_watch(cmd) -> bool:
     # One predicate with session-start.py, loaded by path (inbox-watch.py).
     spec = importlib.util.spec_from_file_location(
         "fabric_inbox_watch", os.path.join(os.path.dirname(os.path.abspath(__file__)), "inbox-watch.py"))
