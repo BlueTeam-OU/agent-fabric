@@ -439,7 +439,7 @@ def watch_running(proc: str = "/proc", pid: int | None = None) -> bool | None:
     for d, _ in parents.items():
         try:
             with open(f"{proc}/{d}/cmdline", "rb") as fh:
-                cmd = fh.read().replace(b"\0", b" ").decode("utf-8", "replace")
+                cmd = [a.decode("utf-8", "replace") for a in fh.read().split(b"\0") if a]
         except OSError:
             continue
         if not inbox_watch().is_watch(cmd):
