@@ -4,8 +4,8 @@
 recommended (§7). D3's first half is done: #573 merged on 2026-11-13. D6, D7 and D8 are not
 asked yet, and D9 is partly answered. Two records say what was decided: ADR-041 rule 7 (D4, with two conditions of fabric-coordinator's, §7)
 and ADR-064 §7 (D1, D2, D5, D10), both amended 2026-11-14. The other records in §4 change when
-each gate's word is given. W3, W4, W5, W9, W10, W12, W13 and W14 are done (§5); W6 is in
-review (#613).
+each gate's word is given. W3 to W10 and W12 to W14 are done (§5): W6, W7 and W8 merged as
+#613, and W7's Stop-hook probe is on #612.
 
 A plan for the owner's review, drafted for fabric-coordinator. It decides nothing: every step
 that changes what carries a message waits for the owner's word and the record named beside it
@@ -243,9 +243,9 @@ devex-tooling's `tools/fabric/github/`; **FC** is fabric-coordinator: `tools/fab
 | W3 | **Done, #581.** Journal-first `--replay` and `--history`: a MESSAGE-ID is answered from the journal in every mode; `--json` gains `carrier` and `sender_verified`; a relay seq is still answered from the relay while one is configured | PD (`inbox.py` `main`, `inbox_parts/records.py`; reads through `episodic.open_readonly`, so no supply-tier file changes) | a test with the relay refusing every connection: a row journaled by the carrier alone replays with exit 0, one not addressed exits 2; `jobsparts/records.py` `fetch_message` adds the job | M | - |
 | W4 | **Done, on this PR, #604.** `verify_grant`: a journal row a carrier other than the relay brought counts only with `sender_verified` true and that sender equal to `FROM`; a relay-brought row is judged as the relay's record always was, until the relay stops carrying GZCoord at gate 2 | DX (`tools/fabric/github/arm.py`); FC for ADR-041 rule 7 (amended 2026-11-14) | `tests/test_arm_cli.py`: a grant the carrier alone delivered arms with the relay down; an unverified sender on such a row is refused | S | W3, D4 |
 | W5 | **Done, #584** (the mode is read, set and shown; the transports that honour it are W6 to W8). The transport mode: `relay-record` (today), `carrier-record`, `carrier-only`; read by `open_transport`; set by a signed action and shown by the `interweave` read and `_table_carrier` (§6) | PD (`gzcoord/transport/`, `control/`); FC supplies ADR-029's op row (done on #604) | default unchanged with no state file; `fabric-ctl all interweave` prints each account's mode; a running watch takes a changed mode within a minute; `carrier-only` is refused while any placed account reports `relay-record` | M | D2, D10 |
-| W6 | The carrier as a `Primary`: `CarrierTransport.receive` waits (a `wait` op on the adapter socket), `newest` reads the journal, `explain` and `never_delivered` answer for the carrier; `TransportMux` takes the relay as a mirror both ways | PD (`gzcoord/transport/`, `carrier/server.py`, `carrier/engine.py` `handle_request`); FC for `CARRIER-CONTRACT.md` §6 | `tests/test_gzcoord_transport.py`: in `carrier-record` a relay that refuses every call changes neither the exit status nor what is shown; an idle watch arm makes a bounded number of adapter calls; a message is shown once whichever copy lands first, and the relay's copy is acknowledged | L | W5 |
-| W7 | The watch under a carrier primary: no relay-down exit while the carrier answers; exit 5 and its marker mean the carrier; the Stop hook probes the carrier | PD (`inbox.py`, `inbox_parts/watchlock.py`); PD-supply (`runtime/claude-code/hooks/watch-on-stop.py`) | a relay stopped for 30 minutes ends no watch on a `carrier-record` account; a stopped carrier ends it with a line naming `fabric-ctl <login> interweave` | M | W6 |
-| W8 | `gzcoord-send` under a carrier primary: exit 0 only when the carrier accepted; no seq on stdout; a carrier that is absent is exit 3, "not sent", the pending row marked failed; a `TO` no roster row carries is said | PD (`send.py`); FC for the stdout contract, `i18n/en-US.json` and the skills; each locale's holder for its dictionary | `tests/test_gzcoord_carrier_send.py` covers the four outcomes of `Adapter.post`; `tests/test_gzcoord_i18n.py` passes in every locale | M | W6 |
+| W6 | **Done, #613.** The carrier as a `Primary`: `CarrierTransport.receive` waits (a `wait` op on the adapter socket), `newest` reads the journal, `explain` and `never_delivered` answer for the carrier; `TransportMux` takes the relay as a mirror both ways | PD (`gzcoord/transport/`, `carrier/server.py`, `carrier/engine.py` `handle_request`); FC for `CARRIER-CONTRACT.md` §6 | `tests/test_gzcoord_transport.py`: in `carrier-record` a relay that refuses every call changes neither the exit status nor what is shown; an idle watch arm makes a bounded number of adapter calls; a message is shown once whichever copy lands first, and the relay's copy is acknowledged | L | W5 |
+| W7 | **Done, #613** (the Stop hook's carrier probe is on #612). The watch under a carrier primary: no relay-down exit while the carrier answers; exit 5 and its marker mean the carrier; the Stop hook probes the carrier | PD (`inbox.py`, `inbox_parts/watchlock.py`); PD-supply (`runtime/claude-code/hooks/watch-on-stop.py`) | a relay stopped for 30 minutes ends no watch on a `carrier-record` account; a stopped carrier ends it with a line naming `fabric-ctl <login> interweave` | M | W6 |
+| W8 | **Done, #613.** `gzcoord-send` under a carrier primary: exit 0 only when the carrier accepted; no seq on stdout; a carrier that is absent is exit 3, "not sent", the pending row marked failed; a `TO` no roster row carries is said | PD (`send.py`); FC for the stdout contract, `i18n/en-US.json` and the skills; each locale's holder for its dictionary | `tests/test_gzcoord_carrier_send.py` covers the four outcomes of `Adapter.post`; `tests/test_gzcoord_i18n.py` passes in every locale | M | W6 |
 | W9 | **Done, #611.** The backfill reads the mode: on in `relay-record` and `carrier-record`, a no-op in `carrier-only` | PD (`gzcoord/backfill.py`) | a test per mode; no relay call in `carrier-only` | S | W1, W5 |
 | W10 | **Done, #585** (the two-host read-back with a throwaway login is not run). Addresses across hosts: `Carrier.recipients` and `Carrier.finish` use the roster row's host | PD (`carrier/engine.py`) | `tests/test_gzcoord_carrier_engine.py`: a `TO` on another host is queued to its row; an arrival from it is `ok` and journaled under its own host; then one message each way with the throwaway login of ADR-069 rule 2 | S to M | - |
 | W11 | TO-ROLE at arrival: a test of a role bound after the message arrived, and the behaviour the owner chooses (D6) | PD | the test states the chosen behaviour | S | D6 |
@@ -255,9 +255,8 @@ devex-tooling's `tools/fabric/github/`; **FC** is fabric-coordinator: `tools/fab
 | W15 | Removal, after gate 2: `RelayTransport` out of the send and inbox paths, `integration_config` no longer asks for a relay, the backfill, the acknowledgement log and the relay half of `parity.py` deleted, a one-carrier health report in its place, the state copy takes the outbox, `transport-calls.json` loses `drift.py`, and `verify_grant`'s relay-row branch (`RELAY_CARRIER`) goes | PD, PD-supply (`relay.py`, `episodic_import.py`), DX (`tools/fabric/github/arm.py`), FC (the 15 integration files, the skills, the manuals, `transport-calls.json`) | `grep` finds no `/api/` call under `tools/fabric/gzcoord/`; `tests/test_arm_cli.py` refuses a grant row whose carrier is the relay; `tools/fabric/transport_calls.py` is clean with the shorter policy; the suite is green with no relay fixture in the GZCoord tests | L | gate 2 |
 | W16 | The relay retired (gate 3): control on InterWeave alone, the state stream replaced, the relay unit, its token, its backup timer and `secret_relay.py` removed | PD, FC | sized when gate 3 is asked for | L | gate 3 |
 
-W3, W4, W5, W9, W10, W12, W13 and W14 are done. What is left, and in this order: W2 (the two
-drills and the parity report), which needs W1's read-back first; W6 to W8, which follow W5 (W6,
-in review as #613, then W7 and W8); W11, which waits on D6; then the gates. W15 and W16
+W3 to W10 and W12 to W14 are done. What is left, and in this order: W2 (the two drills and the
+parity report), which needs W1's read-back first; W11, which waits on D6; then the gates. W15 and W16
 follow gate 2 and gate 3. The staged switches of §6 are operations, not code:
 fabric-coordinator's, on the owner's word.
 
@@ -375,12 +374,11 @@ recommended:
 
 ## 8. What happens first
 
-W3, W4, W5, W9, W10, W12, W13 and W14 are done, and #573 is merged. What is left, in this order:
+W3 to W10 and W12 to W14 are done, and #573 is merged. What is left, in this order:
 
 1. **W1's remainder**: the real-carrier read-back of #573 (the 2026-11-12 drills are filed).
 2. **W2**: the rollback drill, a judged relay-outage drill, and a parity report with no
    untraced miss. With W1 this is everything gate 1 asks for.
-3. **W6 to W8**, from W5's mode: the carrier as a primary (W6, in review as #613), then the
-   watch (W7) and the send (W8). **W11** waits on D6.
+3. **W11** waits on D6.
 4. **The gates**, each on the owner's word and the records in §4; W15 after gate 2, W16 after
    gate 3.
