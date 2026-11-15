@@ -160,8 +160,10 @@ class Watch(unittest.TestCase):
             time.sleep(0.05)
         self.assertGreaterEqual(self.waits, 1, "the watch is waiting on the relay")
         mode.write("carrier-only", "h1/op", self.dir)
-        self.assertIsNotNone(self.line_matching("transport-mode.json broke", WITHIN), "the damage met by the reopen is said")
+        self.assertIsNotNone(self.line_matching("transport-mode.json broke; the watch keeps transport mode carrier-record", WITHIN),
+                             "the damage met by the reopen is said, with the mode the watch keeps")
         self.assertIsNone(self.line_matching("transport-mode.json broke", 14), "and the polls after it, of the same damage, say nothing")
+        self.assertIsNone(self.proc.poll(), "the control: the watch lived through those polls, so their silence is not an exit")
 
     def test_a_watch_that_starts_on_a_damaged_file_ends_with_exit_7_and_says_why_on_stdout(self):
         with open(self.file, "w", encoding="utf-8") as fh:

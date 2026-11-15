@@ -10,8 +10,8 @@ CONTRACT
   DEFAULT          relay-record: what an account with no transport-mode.json is in. Absence is the normal state and a reader
                    never creates the file, so an account nobody moved behaves byte for byte as before this module.
   read(state_dir)  the Mode: {"mode", "set_by", "set_at"} (the last two None for the default). A file that is not a regular
-                   file (a FIFO would block the watch, a symlink would redirect it), is larger than MAX_BYTES, is not JSON, is
-                   not an object, or whose mode is not one of MODES raises ModeError: an unknown mode is never read as the
+                   file (a FIFO would block the watch, a symlink would redirect it), is larger than MAX_BYTES, cannot be
+                   opened or read, is not JSON, is not an object, or whose mode is not one of MODES raises ModeError: an unknown mode is never read as the
                    default, because the file was written to move the account and a damaged one must not quietly move it
                    back. The signed action rewrites it, which is the repair.
   write(mode, set_by, state_dir)

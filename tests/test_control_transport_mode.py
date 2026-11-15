@@ -153,11 +153,18 @@ class Watching(Scratch):
         self.now = 0.0
         said = []
         w = mode.Watcher("carrier-record", self.dir, every=5.0, clock=lambda: self.now, on_error=said.append)
-        w.report("damaged")
-        w.report("damaged")
-        self.assertEqual(said, ["damaged"])
         self.write("{")
+        try:
+            mode.read(self.dir)
+        except mode.ModeError as e:      # what the reopen meets: the reason the next poll will meet too
+            w.report(str(e))
+        w.report(said[0])
+        self.assertEqual(len(said), 1)
         self.now = 5.0
+        self.assertFalse(w.changed())
+        self.assertEqual(len(said), 1, "the poll of the same damage says nothing")
+        self.write("[]")
+        self.now = 10.0
         w.changed()
         self.assertEqual(len(said), 2, "the control: another reason is still said")
 
