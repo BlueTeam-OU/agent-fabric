@@ -125,10 +125,35 @@ class Watch(unittest.TestCase):
         with open(self.file, "w", encoding="utf-8") as fh:
             fh.write("{")
         self.assertIsNotNone(self.line_matching("the watch keeps transport mode carrier-record", WITHIN), "the damage is said")
-        self.assertIsNone(self.line_matching("transport mode is now", 12), "and not obeyed, nor said again")
+        self.assertIsNone(self.line_matching("transport mode is now", 12), "and not obeyed")
+        self.assertIsNone(self.line_matching("the watch keeps transport mode", 12), "nor said again: the control is the first line above")
         self.assertIsNone(self.proc.poll())
         mode.write("carrier-only", "h1/op", self.dir)
         self.assertIsNotNone(self.line_matching("transport mode is now carrier-only", WITHIN))
+
+    def test_a_file_that_breaks_during_the_reopen_is_said_once(self):
+        # Reads: the start (carrier-record), the poll that sees a change (carrier-only), then the reopen and every poll
+        # after it find damage. The watcher reads through the same patched function so the sequence is one file's history.
+        mode.write("carrier-record", "h1/op", self.dir)
+        code = ("import sys; sys.path.insert(0, sys.argv[1])\n"
+                "from gzcoord import inbox, transport\n"
+                "from gzcoord.transport import mode\n"
+                "real, orig, calls = mode.read, mode.Watcher, []\n"
+                "def read(d=None):\n"
+                "    calls.append(1)\n"
+                "    if len(calls) == 1: return real(d)\n"
+                "    if len(calls) == 2: return {'mode': 'carrier-only', 'set_by': None, 'set_at': None}\n"
+                "    raise mode.ModeError('transport-mode.json broke')\n"
+                "mode.read = read\n"
+                "mode.Watcher = lambda *a, **k: orig(*a, reader=read, **k)\n"
+                "sys.exit(inbox.run(['--until-delivery', '--deadline', '40']))\n")
+        self.proc = subprocess.Popen([sys.executable, "-c", code, P.TOOLS], env=self.env, text=True, stdin=subprocess.DEVNULL,
+                                     stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        self.addCleanup(self.stop)
+        self.lines = queue.Queue()
+        threading.Thread(target=lambda: [self.lines.put(l.rstrip("\n")) for l in self.proc.stderr], daemon=True).start()
+        self.assertIsNotNone(self.line_matching("transport-mode.json broke", WITHIN), "the damage met by the reopen is said")
+        self.assertIsNone(self.line_matching("transport-mode.json broke", 14), "and the next polls of the same damage say nothing")
 
     def test_a_watch_that_starts_on_a_damaged_file_ends_with_exit_7_and_says_why_on_stdout(self):
         with open(self.file, "w", encoding="utf-8") as fh:
