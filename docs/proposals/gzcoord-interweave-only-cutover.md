@@ -22,15 +22,16 @@ claim about the code names its file and function; a path with no function is the
 
 ## 1. Where the fleet stands
 
-- **Every message goes by both carriers, and the relay is the record.**
-  `tools/fabric/gzcoord/transport/__init__.py` `open_transport` still builds one shape and no
-  other: `RelayTransport` as the primary and `CarrierTransport` as a mirror (no mirror when the
-  journal is off). Its docstring says "Moving the primary is a change to this factory".
+- **Every message goes by both carriers, and in `relay-record` the relay is the record.**
+  `tools/fabric/gzcoord/transport/__init__.py` `open_transport` builds the mux from the mode
+  (#613, W6): in `relay-record`, or with the journal off, `RelayTransport` is the primary and
+  `CarrierTransport` a mirror; in `carrier-record` `CarrierPrimary` leads with the relay as a
+  `RelayMirror`; in `carrier-only` the carrier is alone.
 - **The transport mode exists and changes nothing yet** (#584, W5).
   `tools/fabric/gzcoord/transport/mode.py` holds `MODES` (`relay-record`, `carrier-record`,
   `carrier-only`), the default `relay-record` for an account with no `transport-mode.json`, and
-  `Watcher`. `open_transport` reads it and carries it on the mux as `.mode`, and says so: until
-  W6 to W8 give the modes their own transports, all three build the same mux. The signed action
+  `Watcher`. `open_transport` reads it, builds each mode's own mux (W6 to W8, #613) and carries
+  the mode on it as `.mode`. The signed action
   is `interweave-mode` (`tools/fabric/control/transport_mode.py` `MODE_OP`, served by
   `control/ctl.py` and `control/agentd.py`); the `interweave` read carries the mode
   (`control/ops/__init__.py`, `transport_mode.section`) and `ctl.py` `_table_carrier` prints it.
@@ -97,14 +98,14 @@ carrier's `interweave/inbox.jsonl` (`carrier/arrivals.py` `Spool`), "outbox" is 
 | where | uses the relay for | replacement | exists? |
 |---|---|---|---|
 | `tools/fabric/gzcoord/inbox.py` `main` | `transport.start_hosted` at every run: the hosting workspace starts the relay (`inbox_parts/relay.py` `ensure_relay`) | nothing | n/a |
-| `inbox.py` `main`, the watch loop | the long poll is the clock of the watch (`tp.fetch_page` → `RelayTransport.receive`, `GET /api/wait`); an unreachable relay ends a quiet `--until-delivery` watch after 15 minutes with exit 5 (`UNTIL_DELIVERY_DOWN_S`, `watchlock.mark_relay_down`), whether or not the carrier is up, and what the carrier brings after that waits in the spool for the next watch | a wait on the carrier | no (W6): `CarrierTransport.receive` ignores `seconds` and returns at once (`Adapter.unseen` is a poll); `wait_loop` driven by it alone would spin |
+| `inbox.py` `main`, the watch loop | the long poll is the clock of the watch (`tp.fetch_page` → `RelayTransport.receive`, `GET /api/wait`); an unreachable relay ends a quiet `--until-delivery` watch after 15 minutes with exit 5 (`UNTIL_DELIVERY_DOWN_S`, `watchlock.mark_relay_down`), whether or not the carrier is up, and what the carrier brings after that waits in the spool for the next watch | a wait on the carrier | yes (W6, #613): `CarrierPrimary` waits on the adapter socket's `wait` op |
 | `inbox_parts/watch.py` `wait_loop`, `acknowledge` | `POST /api/ack` per record, the relay's one cursor per consumer; the journal-hold rule compares relay seqs | the ledger: an arrival is listed by `Spool.unseen` until the ledger holds its final line | yes for carrier arrivals (`transport/dedup.py` `admit`, `CarrierTransport.ack` is a no-op by design) |
 | `transport/mux.py` `TransportMux.fetch_page`, `ack`, `_log_ack`, `on_arrival` | the page, the acknowledgement, and the two evidence logs of the relay's copies (`gzcoord-arrivals.jsonl` relay lines, `gzcoord-acks.jsonl`) | carrier arrival lines only; no acknowledgement log | yes (`carrier/engine.py` `Carrier.finish` writes the arrival line) |
 | `inbox_parts/records.py` `mark_retransmissions`; `inbox.py` `fetch_recent` | the relay's newest 500 records, to mark a retransmission by its earlier seq | the ledger already refuses a second showing | yes |
 | `inbox.py` `main`, `--wait --keyword`; `records.keyword_hit` | every reader sees every message, so a keyword can fire on a message addressed to someone else | nothing: a `TO` reaches its addressee only, and a copy not addressed here is receipted and dropped (`Carrier.finish`) | given up (§3) |
 | `inbox_parts/config.py` `integration_config`, `default_relay` | a project counts as configured only with `relay_url` and `channel` (`projects/<id>/integration/gzcoord/config.json`, 15 files) | "configured" means the account has a valid roster row | no |
 | `inbox_parts/tokens.py` `token`, `_token`, `synced_token` | `CLAUDE_BRIDGE_AUTH_TOKEN`; the inbox and the sender stop without it | no token: the PeerId is the credential | yes (roster) |
-| `runtime/claude-code/hooks/watch-on-stop.py` `relay_down`, `relay_answers`, `configured_relay_url`, `decide` | probes the relay before asking a session to re-arm its watch; while the give-up marker stands and the relay is silent it asks for none, so a session stays unwatched through the outage | a probe of the carrier's socket | no |
+| `runtime/claude-code/hooks/watch-on-stop.py` `relay_down`, `relay_answers`, `configured_relay_url`, `decide` | probes the relay before asking a session to re-arm its watch; while the give-up marker stands and the relay is silent it asks for none, so a session stays unwatched through the outage | a probe of the carrier's socket | yes, on #612 (W7's Stop-hook supply): outside `relay-record` the marker is probed at the carrier socket |
 
 ### 2.3 Readers of the relay's record
 
@@ -149,7 +150,7 @@ for InterWeave alone, and the state stream.
 |---|---|---|---|
 | store and forward to an addressee with no session | the relay holds the record until that consumer acknowledges | the receiving carrier is a unit that runs without a session: it journals, spools and receipts (`Carrier.finish`), and the inbox shows the spool at the next watch | given |
 | store and forward to an addressee whose account is down | the same | the sender's outbox retries to the receipt, 1 s doubling to 5 min, never given up (`carrier/record.py` `backoff`, `Outbox.due`) | given, with a difference: the message waits on the sender's disk, not at a third place; a sender host lost before the receipt loses the delivery but not the text (the journal's outbound row holds it) |
-| a send while the sender's own carrier is down | the relay takes it | none: `Adapter.post` answers `absent` or `failed` | gap: the send must fail loudly (W8) |
+| a send while the sender's own carrier is down | the relay takes it | none: `Adapter.post` answers `absent` or `failed` | done (W8, #613): an absent carrier is exit 3, "not sent", the pending row marked failed |
 | a global order and a seq | one sequence per channel; `--replay <seq>`, `--history <seq>`, the delivery title and the job's `source.seq` cite it | none: one direct send per recipient, no order across senders | given up; the MESSAGE-ID's UUIDv7 time and `IN-REPLY-TO` order a thread (`history.py` `thread_ids`) |
 | history replay | anyone with the token lists the whole channel | each agent's journal holds what it sent and what was addressed to it; nobody holds the whole | own history given (W3 done, #581); the whole-channel record given up |
 | broadcast | one post, every reader | one direct send per roster member and a receipt back (`Carrier.recipients`, ADR-064 rule 6) | given; the roster is the membership, so a login with no valid row receives nothing |
