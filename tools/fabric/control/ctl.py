@@ -240,7 +240,7 @@ VERBS: tuple[Verb, ...] = (
          f"fabric-ctl db-admin {STOP_OP}",
          usage=((f"<login|all> {STOP_OP}", f"an action: disable --now the {CARRIER_LABEL} client and daemon units and confirm both are inactive (the rollback of {START_OP})"),),
          signed="always", options=COMMON),
-    Verb(EVIDENCE_OP, f"Each account's {CARRIER_LABEL} parity evidence for a window: the arrival lines, the delivery records and the kind of each message, and for the relay-outage drill the shown ledger's lines, the relay acknowledgements made and the relay backfill log's lines, metadata only, never a body. Paged by itself.",
+    Verb(EVIDENCE_OP, f"Each account's {CARRIER_LABEL} parity evidence for a window: the arrival lines, the delivery records and the kind of each message, and for the relay-outage drill the shown ledger's lines, the relay acknowledgements made, the relay backfill log's lines and the watch log's starts and ends, metadata only, never a body. Paged by itself.",
          f"fabric-ctl all {EVIDENCE_OP} --since 2026-10-26T05:20:00Z --until 2026-10-27T05:20:00Z --out ./evidence",
          usage=((f"<login|all> {EVIDENCE_OP} --since T --until T [--out <dir>]",
                  f"a signed read: each account's gzcoord-arrivals.jsonl lines, {CARRIER_LABEL} delivery records and message kinds, and its shown ledger, acknowledgement log, relay backfill log and watch log lines (the relay-outage drill's), for [T, T) as YYYY-MM-DDTHH:MM:SSZ, paged until complete; with --out filed as <dir>/<login>/ for gzcoord-carrier parity --collected; a body never leaves an account"),),
