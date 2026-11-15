@@ -1962,6 +1962,13 @@ class CarrierDrill(RelayFixture):
         self.assertEqual((rc, out.getvalue()), (1, ""))
         self.assertIn("--carrier-drill reads the account's shown ledger, which only --collected holds", err.getvalue())
 
+    def test_a_collection_made_before_the_shown_ledger_is_refused(self):
+        path = self.build({self.M: [("interweave", 210)]}, self.seen(self.M), sent=(self.M,))
+        os.unlink(os.path.join(path, "beta", "shown.jsonl"))
+        rc, out, err = self.run_report(path)
+        self.assertEqual((rc, out), (2, ""))
+        self.assertIn("beta: the collection has no shown ledger", err)
+
     def test_shown_ledger_cut_short_is_refused_by_its_count(self):
         path = self.build({self.M: [("interweave", 210)]}, self.seen(self.M), sent=(self.M,))
         with open(os.path.join(path, "beta", "shown.jsonl"), "w") as fh:
