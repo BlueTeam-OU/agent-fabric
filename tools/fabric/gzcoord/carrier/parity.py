@@ -415,8 +415,9 @@ def carrier_outage(arrivals: list[dict], senders: dict[str, list[dict]], shown: 
         p["ok"] = None
         if not p["exercised"]:
             continue
-        copies_n = p["interweave"] + p["relay"]
-        if copies_n == 0 or copies_n > 1 or p["shown"] not in (1, "unknown"):
+        # In carrier-record the sender also mirrors every message to the relay, which the watch reads after the carrier's wait: one relay copy
+        # beside the carrier's is the mode working, so each carrier is counted alone. The outbox under test is the carrier's, so it must deliver.
+        if p["interweave"] != 1 or p["relay"] > 1 or p["shown"] not in (1, "unknown"):
             p["ok"] = False
         else:
             p["ok"] = None if p["shown"] == "unknown" else True
@@ -593,7 +594,7 @@ def _record_words(r: dict) -> str:
 
 def _carrier_pair_line(x: dict, iso) -> str:
     if not x["exercised"]:
-        why = ("no sender recorded a delivery to the account" if not x["held"]
+        why = ("no sender in the collection recorded a delivery to the account" if not x["held"]
                else "a copy reached the account before the window ended, so the carrier did not hold it alone")
         return f"- {x['mid']}: NOT exercised ({why}; it does not count)"
     arrived = (f"delivered after the window's end ({iso(x['first'])})" if x["first"] is not None else "never delivered by the report's end")
@@ -655,11 +656,12 @@ def render_markdown(rep: dict, title: str = "InterWeave carrier parity report") 
               f"interweave {'yes' if x['interweave'] else 'no'}" for x in d["pairs"]] or ["- no pair was made inside the drill"]
     if "carrier_outage" in rep:
         d = rep["carrier_outage"]
-        verdict = ("no message was held by a sender's outbox" if not d["exercised"] else "every message held arrived once and was shown once" if d["holds"] is True
+        verdict = ("no message in the collection was held by a sender's outbox" if not d["exercised"] else "every message held arrived once by the carrier and was shown once" if d["holds"] is True
                    else "A PROPERTY FAILED" if d["holds"] is False else f"UNSETTLED, none failed and {d['unknown']} pair(s) cannot be told yet")
         L += ["", f"## Carrier-outage drill of {d['login']} ({iso(d['window'][0])} to {iso(d['window'][1])}): {verdict}", "",
               "Per pair addressed to the account and made inside the drill: held by a sender's outbox (a delivery row the sender recorded), delivered after the "
-              "window's end, how many copies arrived, and shown to the session once or not. A pair a copy reached before the window ended, or that no outbox recorded, proves nothing.", ""]
+              "window's end, how many copies each carrier delivered (the relay's mirror copy beside the carrier's is normal in carrier-record), "
+              "and shown to the session once or not. A pair a copy reached before the window ended, or that no outbox recorded, proves nothing.", ""]
         L += [_carrier_pair_line(x, iso) for x in d["pairs"]] or ["- no pair was made inside the drill"]
     if "relay_outage" in rep:
         d = rep["relay_outage"]

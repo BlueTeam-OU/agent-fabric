@@ -1883,7 +1883,7 @@ class CarrierDrill(RelayFixture):
         rc, out, err = self.run_report(path)
         self.assertEqual((rc, err), (0, ""))
         lines = self.section(path)
-        self.assertIn(f"of beta ({iso(100)} to {iso(200)}): every message held arrived once and was shown once", lines[0])
+        self.assertIn(f"of beta ({iso(100)} to {iso(200)}): every message held arrived once by the carrier and was shown once", lines[0])
         self.assertIn(f"- {self.M}: held by alpha's outbox (done); delivered after the window's end ({iso(210)}); 1 copy(ies) (1 interweave, 0 relay); shown once", out)
         self.assertNotIn("FAILS", out.split("## Carrier-outage drill")[1])
 
@@ -1899,19 +1899,31 @@ class CarrierDrill(RelayFixture):
         self.assertIn("A PROPERTY FAILED", out)
         self.assertIn(f"- {self.M2}: held by alpha's outbox (done); never delivered by the report's end; 0 copy(ies) (0 interweave, 0 relay); not shown -- FAILS", out)
 
-    def test_a_second_copy_fails_whichever_carrier_brought_it(self):
+    def test_the_relay_mirrors_copy_beside_the_carriers_holds(self):
+        # carrier-record mirrors every send to the relay, which the watch reads after the carrier's wait: one of each is the mode working
+        path = self.build({self.M: [("interweave", 210), ("relay", 211)]}, self.seen(self.M), sent=(self.M,))
+        out = self.run_report(path)[1]
+        self.assertIn("2 copy(ies) (1 interweave, 1 relay)", out)
+        self.assertIn("every message held arrived once by the carrier and was shown once", out)
+        self.assertNotIn("A PROPERTY FAILED", out)
+
+    def test_a_second_copy_of_one_carrier_fails(self):
         for carrier in ("interweave", "relay"):
-            path = self.build({self.M: [("interweave", 210), (carrier, 260)]}, self.seen(self.M), sent=(self.M,))
-            out = self.run_report(path)[1]
-            self.assertIn("2 copy(ies)", out, carrier)
-            self.assertIn("A PROPERTY FAILED", out, carrier)
+            copies = [("interweave", 210), (carrier, 260)] if carrier == "interweave" else [("interweave", 210), ("relay", 211), ("relay", 260)]
+            path = self.build({self.M: copies}, self.seen(self.M), sent=(self.M,))
+            self.assertIn("A PROPERTY FAILED", self.run_report(path)[1], carrier)
+
+    def test_a_pair_only_the_relay_delivered_fails_the_carrier_held_nothing(self):
+        path = self.build({self.M: [("relay", 210)]}, self.seen(self.M), sent=(self.M,))
+        out = self.run_report(path)[1]
+        self.assertIn("1 copy(ies) (0 interweave, 1 relay); shown once -- FAILS", out)
 
     def test_a_copy_before_the_window_ended_or_no_outbox_row_means_the_pair_is_not_exercised(self):
         path = self.build({self.M: [("interweave", 150)], self.M2: [("interweave", 210)]}, self.seen(self.M, sec=150) + self.seen(self.M2), sent=(self.M,))
         out = self.run_report(path)[1]
         self.assertIn("a copy reached the account before the window ended, so the carrier did not hold it alone; it does not count", out)
-        self.assertIn("no sender recorded a delivery to the account; it does not count", out)
-        self.assertIn(": no message was held by a sender's outbox", out)
+        self.assertIn("no sender in the collection recorded a delivery to the account; it does not count", out)
+        self.assertIn(": no message in the collection was held by a sender's outbox", out)
 
     def test_a_showing_cut_off_before_its_final_line_is_unsettled_and_a_failure_beats_it(self):
         pending = [{"mid": self.M, "via": "interweave", "t": iso(210), "pending": True}]
