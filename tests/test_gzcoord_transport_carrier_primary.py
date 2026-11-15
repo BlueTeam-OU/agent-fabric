@@ -536,11 +536,323 @@ class Units(unittest.TestCase):
         self.assertIsInstance(self.build("carrier-record").primary, transport.CarrierPrimary)
         self.assertEqual(names(self.build("carrier-only", cfg=None)), ("interweave", [], "carrier-only"))
 
-    def test_journal_off_is_the_relay_alone_and_has_no_route_in_carrier_only(self):
-        tp = self.build("carrier-record", journal_off=True)
-        self.assertEqual((tp.primary.name, tp.mirrors), ("relay", []))
-        with self.assertRaises(transport.ModeError):
-            self.build("carrier-only", journal_off=True)
+    def test_journal_off_send_follows_the_modes_primary_with_no_mirror(self):
+        got = {}
+        for m in ("relay-record", "carrier-record", "carrier-only"):
+            tp = self.build(m, journal_off=True, for_send=True)
+            got[m] = (tp.primary.name, tp.mirrors)
+        self.assertEqual(got, [({"op": "wait", "seconds": adapter.WAIT_MAX}, adapter.WAIT_MAX + adapter.WAIT_SLACK)])
+
+    def test_wait_raises_for_every_way_the_carrier_is_not_answering(self):
+        def refuse(req, timeout):
+            return {"ok": False, "error": "no"}
+
+        def dead(req, timeout):
+            raise OSError("reset")
+        for ask in (refuse, dead):
+            with self.assertRaises(adapter.CarrierError) as cm:
+                self.fake_adapter(ask).wait(1, threading.Event())
+            self.assertFalse(cm.exception.absent)
+        with self.assertRaises(adapter.CarrierError) as cm:
+            adapter.Adapter(path="/no/such/socket").wait(1, threading.Event())
+        self.assertTrue(cm.exception.absent)
+        self.assertTrue(cm.exception.never_reached_it)
+
+    def test_wait_of_an_aborted_slice_asks_nothing(self):
+        asked = []
+        a = self.fake_adapter(lambda req, timeout: asked.append(req) or {"ok": True, "records": []})
+        gone = threading.Event()
+        gone.set()
+        self.assertEqual(a.wait(5, gone), [])
+        self.assertEqual(asked, [])
+
+    def test_post_result_keeps_what_post_answered_and_says_why(self):
+        def ans(out):
+            return self.fake_adapter(lambda req, timeout: out)
+        self.assertEqual(ans({"ok": True, "carried": 2, "queued": 2}).post("m", "t"), "accepted")
+        self.assertEqual(ans({"ok": True, "carried": 0, "queued": 0}).post("m", "t"), "not-carried")
+        self.assertEqual(ans({"ok": False, "error": "x", "carried": 2, "queued": 1}).post("m", "t"), "failed")
+        r = ans({"ok": False, "error": "disk", "carried": 2, "queued": 1}).post_result("m", "t")
+        self.assertEqual((r.state, r.proved_unsent), ("failed", False), "some recipients are recorded: not unsent")
+        r = ans({"ok": False, "error": "disk", "carried": 2, "queued": 0}).post_result("m", "t")
+        self.assertEqual((r.state, r.proved_unsent), ("failed", True))
+        self.assertEqual(adapter.Adapter(path="/no/such").post_result("m", "t").state, "absent")
+        r = ans({"ok": False, "error": "bad request: ValueError"}).post_result("m", "t")
+        self.assertEqual((r.state, r.proved_unsent), ("failed", False), "no queued count: recipients may be recorded")
+
+    def test_the_mirrors_line_for_a_refusal_before_any_record_is_what_it_was_before_the_count(self):
+        lines = {}
+        for name, out in (("pre-record", {"ok": False, "error": "x", "carried": 0, "queued": 0}),
+                          ("partial", {"ok": False, "error": "x", "carried": 2, "queued": 1})):
+            saved, sys.stderr = sys.stderr, types.SimpleNamespace(write=lambda s: said.append(s), flush=lambda: None)
+            said: list[str] = []
+            try:
+                self.fake_adapter(lambda req, timeout, out=out: out).post("m", "t")
+            finally:
+                sys.stderr = saved
+            lines[name] = "".join(said)
+        self.assertIn("refused (x); the relay carries on", lines["pre-record"])
+        self.assertIn("refused (x, 1 recipient(s) recorded)", lines["partial"], "the control: a partly recorded call still says how many")
+
+    def test_post_result_is_silent_on_stderr_unless_it_is_the_mirror(self):
+        saved, sys.stderr = sys.stderr, types.SimpleNamespace(write=lambda s: written.append(s), flush=lambda: None)
+        written: list[str] = []
+        try:
+            a = self.fake_adapter(lambda req, timeout: {"ok": False, "error": "no"})
+            a.post_result("m", "t")
+            self.assertEqual(written, [])
+            a.post_result("m", "t", fail_open=True)
+            self.assertTrue(written, "the mirror's line says the relay carries on")
+        finally:
+            sys.stderr = saved
+
+    # ── the carrier's wait op ────────────────────────────────────────
+    def carrier(self, records):
+        spool = types.SimpleNamespace(unseen=lambda: list(records))
+        c = types.SimpleNamespace(spool=spool, stop=threading.Event(), arrival=threading.Event())
+        c.wait_unseen = lambda s: engine.Carrier.wait_unseen(c, s)
+        return c
+
+    def test_wait_unseen_returns_at_once_with_records_and_at_its_bound_without(self):
+        c = self.carrier([{"mid": "a"}])
+        t0 = time.monotonic()
+        self.assertEqual(c.wait_unseen(30), [{"mid": "a"}])
+        self.assertLess(time.monotonic() - t0, 1)
+        c = self.carrier([])
+        t0 = time.monotonic()
+        self.assertEqual(c.wait_unseen(0.5), [])
+        self.assertGreaterEqual(time.monotonic() - t0, 0.45, "the positive control: with nothing it does wait")
+
+    def test_wait_unseen_wakes_on_an_arrival_and_not_at_the_next_look(self):
+        records: list[dict] = []
+        c = self.carrier(records)
+        threading.Timer(0.3, lambda: (records.append({"mid": "n"}), c.arrival.set())).start()
+        t0 = time.monotonic()
+        self.assertEqual(c.wait_unseen(30), [{"mid": "n"}])
+        self.assertLess(time.monotonic() - t0, 0.9, "the look interval is 1 s: an arrival does not wait for it")
+
+    def test_wait_unseen_stops_with_the_carrier(self):
+        c = self.carrier([])
+        c.stop.set()
+        t0 = time.monotonic()
+        self.assertEqual(c.wait_unseen(3600), [])
+        self.assertLess(time.monotonic() - t0, 1)
+
+    def test_wait_unseen_is_clamped_by_the_carrier_whatever_the_caller_asks(self):
+        c = self.carrier([])
+        saved, engine.MAX_WAIT = engine.MAX_WAIT, 0.4
+        try:
+            t0 = time.monotonic()
+            self.assertEqual(c.wait_unseen(3600), [])      # stop is clear: only the clamp ends it
+            self.assertGreaterEqual(time.monotonic() - t0, 0.35, "the positive control: it did wait")
+            self.assertLess(time.monotonic() - t0, 2)
+        finally:
+            engine.MAX_WAIT = saved
+
+    def test_the_wait_op_answers_in_the_adapter_channels_shape_and_a_bad_seconds_is_a_bad_request(self):
+        c = self.carrier([{"mid": "a"}])
+        out = engine.Carrier.handle_request(c, {"op": "wait", "seconds": 1})
+        self.assertEqual(out, {"ok": True, "records": [{"mid": "a"}]})
+        with self.assertRaises((TypeError, ValueError)):
+            engine.Carrier.handle_request(c, {"op": "wait", "seconds": "soon"})     # the server turns this into ok:false
+
+    # ── CarrierPrimary ───────────────────────────────────────────────
+    def primary(self, answer, **kw):
+        return carrier_transport.CarrierPrimary(self.fake_adapter(answer), address="h/beta", **kw)
+
+    def test_a_send_is_accepted_or_raises_with_whether_the_carrier_can_hold_it(self):
+        p = self.primary(lambda req, t: {"ok": True, "carried": 1, "queued": 1})
+        self.assertEqual(p.send("m", "t").state, "accepted")
+        p = self.primary(lambda req, t: {"ok": True, "carried": 0, "queued": 0})
+        with self.assertRaises(adapter.CarrierError) as cm:
+            p.send("m", "t")
+        self.assertTrue(p.never_delivered(cm.exception), "no roster member carries it: nothing was recorded")
+        p = self.primary(lambda req, t: {"ok": False, "error": "disk", "carried": 2, "queued": 1})
+        with self.assertRaises(adapter.CarrierError) as cm:
+            p.send("m", "t")
+        self.assertFalse(p.never_delivered(cm.exception), "one recipient is recorded and will be sent")
+
+        def dead(req, t):
+            raise OSError("timed out")
+        p = self.primary(dead)
+        with self.assertRaises(adapter.CarrierError) as cm:
+            p.send("m", "t")
+        self.assertFalse(p.never_delivered(cm.exception), "sent and not answered: the carrier may hold it")
+        p = carrier_transport.CarrierPrimary(adapter.Adapter(path="/no/such"), address="h/beta")
+        with self.assertRaises(adapter.CarrierError) as cm:
+            p.send("m", "t")
+        self.assertTrue(p.never_delivered(cm.exception))
+        self.assertFalse(p.never_delivered(OSError("x")), "an error that is not the carrier's proves nothing")
+
+    def test_the_mirror_is_unchanged_a_send_to_no_carrier_is_a_state_not_a_raise(self):
+        m = carrier_transport.CarrierTransport(adapter.Adapter(path="/no/such"))
+        self.assertEqual(m.send("m", "t").state, "absent")
+        self.assertEqual(m.receive(1, threading.Event()), [])
+
+    def test_receive_raises_and_the_line_names_the_login_and_the_command_that_says_why(self):
+        p = carrier_transport.CarrierPrimary(adapter.Adapter(path="/no/such"), address="h/beta")
+        with self.assertRaises(adapter.CarrierError) as cm:
+            p.receive(1, threading.Event())
+        x = p.explain(cm.exception)
+        self.assertEqual(x["code"], 0)
+        self.assertIn("fabric-ctl beta interweave", x["line"])
+        self.assertFalse(p.refresh(cm.exception))
+
+    def test_a_record_listed_again_at_once_is_not_news(self):
+        rec = [{"message_id": "m"}]
+        p = self.primary(lambda req, t: {"ok": True, "records": rec})
+        saved, carrier_transport.SAME_PAGE_PAUSE_S = carrier_transport.SAME_PAGE_PAUSE_S, 0.4
+        try:
+            t0 = time.monotonic()
+            p.receive(30, threading.Event())
+            self.assertLess(time.monotonic() - t0, 0.3, "the first listing is returned as it comes")
+            t0 = time.monotonic()
+            p.receive(30, threading.Event())
+            self.assertGreaterEqual(time.monotonic() - t0, 0.3, "the same listing again waits out the pause")
+            gone = threading.Event()
+            gone.set()
+            t0 = time.monotonic()
+            p.receive(30, gone)
+            self.assertLess(time.monotonic() - t0, 0.2, "and an abort cuts it")
+        finally:
+            carrier_transport.SAME_PAGE_PAUSE_S = saved
+
+    def test_newest_is_the_journals_rows_and_without_a_journal_it_raises(self):
+        rows = [{"id": "m", "content": "c"}]
+        p = self.primary(lambda req, t: {}, journal_newest=lambda n: rows[:n])
+        self.assertEqual(p.newest(5), {"messages": rows})
+        with self.assertRaises(adapter.CarrierError):
+            self.primary(lambda req, t: {}).newest(5)
+
+    # ── the relay as a mirror ────────────────────────────────────────
+    def test_the_relay_mirror_fails_open_says_it_once_and_is_not_asked_again_for_a_while(self):
+        class Dead:
+            name = "relay"
+
+            def __init__(self):
+                self.calls = 0
+
+            def send(self, *a):
+                self.calls += 1
+                raise RuntimeError("down")
+
+            def receive(self, *a):
+                self.calls += 1
+                raise RuntimeError("down")
+
+        now = [0.0]
+        dead = Dead()
+        m = relay_transport.RelayMirror(dead, clock=lambda: now[0])     # type: ignore[arg-type]
+        saved, sys.stderr = sys.stderr, types.SimpleNamespace(write=lambda s: said.append(s), flush=lambda: None)
+        said: list[str] = []
+        try:
+            self.assertEqual(m.send("m", "t").state, "failed")
+            self.assertEqual(m.receive(0, threading.Event()), [])
+            self.assertEqual(m.receive(0, threading.Event()), [])
+            self.assertEqual(dead.calls, 1, "after a failure, a send's too, nothing is asked of the relay within the back-off")
+            now[0] += relay_transport.MIRROR_DOWN_FOR_S + 1
+            self.assertEqual(m.receive(0, threading.Event()), [])
+            self.assertEqual(dead.calls, 2, "positive control: later it is asked again")
+        finally:
+            sys.stderr = saved
+        self.assertEqual(len([s for s in said if s.strip()]), 1, "one line for the outage")
+
+    def test_the_relay_mirror_is_bounded_by_a_short_call_and_the_relay_as_the_record_is_not(self):
+        from gzcoord.inbox_parts import relay as inbox_relay
+        timeouts = []
+        saved = inbox_relay.api
+        inbox_relay.api = lambda tok, path, url=None, method="GET", body=None, timeout=inbox_relay.API_TIMEOUT: (
+            timeouts.append(timeout) or {"seq": 1, "messages": []})
+        try:
+            mirror = relay_transport.RelayMirror(relay_transport.RelayTransport("http://x", "c", "h/beta", "t",
+                                                                                 call_timeout=relay_transport.MIRROR_CALL_S))
+            mirror.send("m", "t")
+            mirror.receive(0, threading.Event())
+            mirror.ack("r1")
+            self.assertEqual(timeouts, [relay_transport.MIRROR_CALL_S] * 3)
+            timeouts.clear()
+            relay_transport.RelayTransport("http://x", "c", "h/beta", "t").receive(55, threading.Event())
+            self.assertGreater(timeouts[0], 55, "the control: the record's wait keeps the client's own bound")
+        finally:
+            inbox_relay.api = saved
+
+    def test_the_relay_mirror_takes_a_rotated_token_once_and_says_a_refusal_as_one(self):
+        from gzcoord.inbox_parts import relay as inbox_relay
+        seen = []
+
+        def api(tok, path, url=None, method="GET", body=None, timeout=inbox_relay.API_TIMEOUT):
+            seen.append(tok)
+            if tok == "old":
+                raise inbox_relay.RelayError("401", 401)
+            return {"messages": []}
+        saved_api, saved_tok = inbox_relay.api, relay_transport.synced_token
+        inbox_relay.api, relay_transport.synced_token = api, lambda: "new"
+        try:
+            mirror = relay_transport.RelayMirror(relay_transport.RelayTransport("http://x", "c", "h/beta", "old"))
+            self.assertEqual(mirror.receive(0, threading.Event()), [])
+            self.assertEqual(seen, ["old", "new"], "refused once, retried once with the synced token")
+            seen.clear()
+            relay_transport.synced_token = lambda: "old"          # the control: nothing fresher to take
+            mirror = relay_transport.RelayMirror(relay_transport.RelayTransport("http://x", "c", "h/beta", "old"))
+            saved_err, sys.stderr = sys.stderr, types.SimpleNamespace(write=lambda s: said.append(s), flush=lambda: None)
+            said: list[str] = []
+            try:
+                mirror.receive(0, threading.Event())
+            finally:
+                sys.stderr = saved_err
+            self.assertEqual(seen, ["old"])
+            self.assertTrue(any("refused the token" in x for x in said), said)
+        finally:
+            inbox_relay.api, relay_transport.synced_token = saved_api, saved_tok
+
+    def test_the_factory_bounds_the_mirror_and_not_the_primary_relay(self):
+        self.assertEqual(self.build("carrier-record").mirrors[0]._relay._call_timeout, relay_transport.MIRROR_CALL_S)
+        self.assertIsNone(self.build("relay-record").primary._call_timeout)
+
+    def test_replay_labels_a_row_by_the_journal_only_when_the_caller_says_the_page_is_the_journals(self):
+        import io
+        from contextlib import redirect_stdout
+        from gzcoord.inbox_parts import records
+        rec = {"id": "m", "seq": None, "sender": "x/y", "timestamp": "T", "content": C.msg(1), "carrier": "interweave",
+               "sender_verified": True}
+        out = {}
+        for journal in (False, True):
+            buf = io.StringIO()
+            with redirect_stdout(buf):
+                code = records.replay({"messages": [rec]}, "c", C.mid(1), {"address": C.ME, "slug": "x"}, None, True, journal)
+            out[journal] = (code, json.loads(buf.getvalue()))
+        self.assertEqual((out[False][1]["carrier"], out[False][1]["sender_verified"]), (records.RELAY_CARRIER, False),
+                         "a relay page claiming to be verified is never believed")
+        self.assertEqual((out[True][1]["carrier"], out[True][1]["sender_verified"]), ("interweave", True))
+
+    # ── the factory, by mode ─────────────────────────────────────────
+    def build(self, mode_name, **kw):
+        d = P.scratch("mode-factory-")
+        mode.write(mode_name, "h1/op", d)
+        cfg = {"relay_url": "http://127.0.0.1:9", "channel": "c"}
+        return transport.open_transport(kw.pop("cfg", cfg), token="t", me=ME, state_dir=d, iso_now=lambda: "2026-11-14T00:00:00Z",
+                                        **kw)
+
+    def test_each_mode_builds_its_own_transports(self):
+        names = lambda tp: (tp.primary.name, [m.name for m in tp.mirrors], tp.mode)   # noqa: E731
+        self.assertEqual(names(self.build("relay-record")), ("relay", ["interweave"], "relay-record"))
+        self.assertEqual(names(self.build("carrier-record")), ("interweave", ["relay"], "carrier-record"))
+        self.assertIsInstance(self.build("carrier-record").primary, transport.CarrierPrimary)
+        self.assertEqual(names(self.build("carrier-only", cfg=None)), ("interweave", [], "carrier-only"))
+
+    def test_journal_off_send_follows_the_modes_primary_with_no_mirror(self):
+        got = {m: (lambda tp: (tp.primary.name, tp.mirrors))(self.build(m, journal_off=True, for_send=True, cfg=None if m == "carrier-only" else None) if False else self.build(m, journal_off=True, for_send=True))
+               for m in ("relay-record", "carrier-record", "carrier-only")}
+        self.assertEqual(got, {"relay-record": ("relay", []), "carrier-record": ("interweave", []), "carrier-only": ("interweave", [])})
+
+    def test_journal_off_send_in_carrier_record_needs_no_relay_configuration(self):
+        self.assertEqual(self.build("carrier-record", journal_off=True, for_send=True, cfg=None).primary.name, "interweave")
+
+    def test_journal_off_receive_is_refused_in_the_carrier_modes_not_in_relay_record(self):
+        for m in ("carrier-record", "carrier-only"):
+            with self.assertRaisesRegex(transport.ModeError, "no receiving with GZCOORD_JOURNAL=off"):
+                self.build(m, journal_off=True)
+        self.assertEqual(self.build("relay-record", journal_off=True).primary.name, "relay")   # the positive control
 
     def test_a_read_of_the_record_builds_the_primary_alone(self):
         for m, primary in (("relay-record", "relay"), ("carrier-record", "interweave"), ("carrier-only", "interweave")):

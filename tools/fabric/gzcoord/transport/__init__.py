@@ -12,8 +12,10 @@ transports there are is decided here and nowhere else, by the account's transpor
                  an addressed send is the control plane's (control/presence.py, W12) and still posts to the relay first,
                  with the second carrier's leg under `control_carrier: dual`; that is gate 2's read-back, not this factory's
 
-With the journal off (rule 8) the route is the relay alone, whatever the mode says, as the carrier does not start without a
-journal; carrier-only has then no route and is refused (D7 of the cutover plan decides what replaces it). An unreadable mode
+With the journal off (ADR-064 rule 8, D7 of the cutover plan) a SEND follows the mode's own primary, with no mirror: a mirror's
+acceptance writes a journal row, and the journal is what is off; the outbox keeps the text and the sender's bypass line says so.
+In relay-record that primary is the relay, as it always was. Receiving with the journal off is refused in the carrier modes: the
+carrier does not run without a journal, so there is nothing to receive from, and the human relay is the break-glass. An unreadable mode
 raises ModeError; a caller says it in one line and does not guess one."""
 from __future__ import annotations
 
@@ -42,22 +44,23 @@ def start_hosted(cfg: dict, t: i18n.Printer | None = None) -> dict:
 
 def open_transport(cfg: dict | None, *, token: str, me: dict, journal_off: bool = False, state_dir: str | None = None,
                    iso_now: Callable[[], str] | None = None,
-                   journal_newest: Callable[[int], list[dict]] | None = None, record_only: bool = False) -> TransportMux:
+                   journal_newest: Callable[[int], list[dict]] | None = None, record_only: bool = False,
+                   for_send: bool = False) -> TransportMux:
     """`cfg` is the project's integration config (inbox_parts.config.integration_config) and must be a configured one
     wherever a relay is built (None is for carrier-only alone); `me` the login's identity (its `address` is the consumer and
     the sender). `state_dir` and `iso_now` give the receiving side its logs; without them the mux only sends. `journal_newest`
     is what the carrier's `newest` reads (inbox_parts.records.journal_newest over the account's journal); without it the
     carrier as primary cannot answer `newest`. The mode is read from `state_dir` when given, else from the account's own
     state directory. `record_only` is the read of the record (--replay, --history): the primary alone, no mirror, no logs, in
-    whatever mode the account is in."""
+    whatever mode the account is in. `journal_off` with `for_send` is a send's route (above); `journal_off` alone is a
+    receive's, refused in the carrier modes."""
     account_mode = mode.read(state_dir)["mode"]
-    if journal_off and account_mode == mode.CARRIER_ONLY and not record_only:
-        raise ModeError("transport mode carrier-only has no route with GZCOORD_JOURNAL=off: the carrier starts only with a "
-                        "journal (ADR-064 rule 8)")
-    # The relay is the primary in relay-record, and with the journal off in any mode (the carrier does not run without one).
-    relay_leads = account_mode == mode.RELAY_RECORD or (journal_off and not record_only)
+    if journal_off and not for_send and not record_only and account_mode != mode.RELAY_RECORD:
+        raise ModeError(f"transport mode {account_mode} has no receiving with GZCOORD_JOURNAL=off: the carrier starts only with a "
+                        "journal (ADR-064 rule 8); the human relay is the break-glass")
+    relay_leads = account_mode == mode.RELAY_RECORD
     relay = None
-    if relay_leads or (account_mode == mode.CARRIER_RECORD and not record_only):
+    if relay_leads or (account_mode == mode.CARRIER_RECORD and not record_only and not journal_off):
         if cfg is None:
             raise ModeError(f"transport mode {account_mode} needs the project's relay configuration")
         relay = RelayTransport(cfg["relay_url"], cfg["channel"], me["address"], token,
