@@ -371,6 +371,9 @@ def main() -> int:
                        ("an unquoted body", "cat <<EOF\npkill -f claude-fable\nEOF"),
                        ("an arithmetic << with its 'delimiter'", "echo $((1<<n))\npkill -f claude-fable\nn"),
                        ("a <<true inside $'…'", "cat $'a\\' <<true'\npkill -f claude-fable\ntrue"),
+                       # Review of #612, round 3 F11: `<<` in the old arithmetic and in a parameter expansion.
+                       ("an arithmetic << inside $[…]", "echo $[1<<\"n\"]\npkill -f claude-fable\nn]"),
+                       ("a << inside ${…}", "echo ${x/<<'t'/y}\npkill -f claude-fable\nt/y}"),
                        ("an unquoted body joined over its delimiter",
                         "cat <<A >/dev/null\nx\\\nA\ncat <<'Y'\nA\npkill -f claude-fable\nY"),
                        ("a here-document inside a shell's body", "bash <<'EOF'\ncat <<'Y'\nEOF\npkill -f claude-fable\nY")):

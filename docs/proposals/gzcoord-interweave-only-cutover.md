@@ -24,10 +24,11 @@ claim about the code names its file and function; a path with no function is the
 
 - **Every message goes by both carriers, and in `relay-record` the relay is the record.**
   `tools/fabric/gzcoord/transport/__init__.py` `open_transport` builds the mux from the mode
-  (#613, W6): in `relay-record`, or with the journal off, `RelayTransport` is the primary and
-  `CarrierTransport` a mirror; in `carrier-record` `CarrierPrimary` leads with the relay as a
-  `RelayMirror`; in `carrier-only` the carrier is alone.
-- **The transport mode exists and changes nothing yet** (#584, W5).
+  (#613, W6): in `relay-record` `RelayTransport` is the primary and `CarrierTransport` a mirror;
+  with the journal off `RelayTransport` is alone, and `carrier-only` refuses (`ModeError`); in
+  `carrier-record` `CarrierPrimary` leads with the relay as a `RelayMirror`; in `carrier-only`
+  the carrier is alone.
+- **The transport mode exists and picks the mux** (#584 W5, #613 W6).
   `tools/fabric/gzcoord/transport/mode.py` holds `MODES` (`relay-record`, `carrier-record`,
   `carrier-only`), the default `relay-record` for an account with no `transport-mode.json`, and
   `Watcher`. `open_transport` reads it, builds each mode's own mux (W6 to W8, #613) and carries

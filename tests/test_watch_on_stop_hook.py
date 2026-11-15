@@ -388,6 +388,21 @@ def main() -> int:
                   list(table_[501][2]) == ["grep", "-r", "gzcoord-inbox --until-delivery", "."], table_[501])
             check("a process that only mentions a watch is no watch", mod.is_watch(table_[501][2]) is False)
             check("a watch under a directory with a space is one", mod.is_watch(table_[502][2]) is True)
+        # What read_procs returns is what harness_pid reads in production: the real table, not a stub, goes through it.
+        with tempfile.TemporaryDirectory() as fake:
+            def plant_(pid, ppid, comm, argv):
+                os.makedirs(os.path.join(fake, str(pid)))
+                with open(os.path.join(fake, str(pid), "stat"), "w") as fh:
+                    fh.write(f"{pid} ({comm}) S {ppid} 0 0\n")
+                with open(os.path.join(fake, str(pid), "cmdline"), "wb") as fh:
+                    fh.write(b"\0".join(a.encode() for a in argv) + b"\0")
+            plant_(10, 1, "claude", ["claude"])
+            plant_(20, 10, "bash", ["bash", "-c", "x"])
+            try:
+                got = mod.harness_pid(mod.read_procs(fake), 20)
+            except Exception as e:  # noqa: BLE001
+                got = e
+            check("harness_pid reads read_procs' own table (argv a tuple)", got == 10, got)
 
         def boom(*a, **k):
             raise RuntimeError("x")

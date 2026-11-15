@@ -121,8 +121,8 @@ def session_proc():
 
 
 def harness_pid(procs: dict, pid: int) -> int | None:
-    # The table holds the command line joined by spaces; the rule reads only argv[1], which no comm-claude argv0 hides.
-    table = {p: (e[0], e[1], e[2].split()) for p, e in procs.items()}
+    # read_procs keeps argv as a tuple; a table built by hand (the tests' stubs) may still hold a printed command line.
+    table = {p: (e[0], e[1], e[2].split() if isinstance(e[2], str) else list(e[2])) for p, e in procs.items()}
     return session_proc().nearest_session_in(table, pid)
 
 

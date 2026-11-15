@@ -262,8 +262,9 @@ SHELLS = re.compile(r"(?:^|[\s|;&(/])(?:bash|sh|zsh|dash|ksh|eval|source|\.)(?=$
 WORD_END = " \t;&|()<>"
 # What makes a command line's quoting or its `<<` unreadable to heredoc_operators: ANSI-C quoting, where `\'` is a
 # literal quote (`cat $'a\' <<true'` is one word to bash, an operator to a plain quote scan; review of #612, round 2
-# F4), and arithmetic, where `<<` is a shift (`echo $((1<<n))`, `(( x<<2 ))`).
-UNREADABLE_LINE = re.compile(r"\$'|\(\(")
+# F4), arithmetic, where `<<` is a shift (`echo $((1<<n))`, `(( x<<2 ))`, the old `$[1<<n]`), and a parameter
+# expansion, where it is pattern text (`${x/<<'t'/y}`; review of #612, round 3 F11).
+UNREADABLE_LINE = re.compile(r"\$'|\(\(|\$\[|\$\{")
 
 
 def heredoc_operators(line: str) -> list[tuple[bool, str, bool]] | None:
