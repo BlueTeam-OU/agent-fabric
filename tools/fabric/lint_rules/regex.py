@@ -5,6 +5,7 @@ from __future__ import annotations
 import ast
 import os
 import re
+import warnings
 
 from .base import _is_under, _not_ours, _tracked
 
@@ -206,7 +207,9 @@ class _Resolver:
     def module(self, rel: str) -> _Module | None:
         if rel not in self.modules:
             try:
-                with open(os.path.join(self.root, rel), encoding="utf-8") as fh:
+                with open(os.path.join(self.root, rel), encoding="utf-8") as fh, warnings.catch_warnings():
+                    # A scanned file's own invalid escape is its own lint's to report; under -W error the module would read as unparseable.
+                    warnings.simplefilter("ignore", SyntaxWarning)
                     self.modules[rel] = _Module(ast.parse(fh.read(), filename=rel))
             except (OSError, SyntaxError, ValueError):
                 self.modules[rel] = None

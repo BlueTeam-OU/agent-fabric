@@ -132,6 +132,8 @@ def main() -> int:
         ("a << in arithmetic, then a kill", "echo $((1<<n))\npkill -f claude-fable"),
         ("a << in a quote, then a kill", "grep -n 'x <<EOF' README.md\npkill -f claude-fable"),
         ("a heredoc fed to /bin/sh", "/bin/sh <<EOF\npkill -f claude-fable\nEOF"),
+        # Review of #612, round 2: only a quoted delimiter drops a body, so an unquoted <<- body is judged.
+        ("an unquoted <<- heredoc's body", "cat <<-EOF > f\n\tpkill -f claude-fable\n\tEOF"),
         ("pkill -c by the session's name", "pkill -c claude"),
         # A value glued to its option ends the cluster: the pattern after
         # it is the pattern (tenth round).
@@ -167,7 +169,7 @@ def main() -> int:
         ("a real comment naming the kill", "git status # pkill -f claude-fable"),
         ("a commit message in a heredoc quoting a kill",
          "git commit -q -F - <<'EOF'\nfix: `pgrep -d -- -f claude-fable` and pkill -f claude-fable\nEOF"),
-        ("a <<- heredoc with a tab-indented delimiter", "cat <<-EOF > f\n\tpkill -f claude-fable\n\tEOF"),
+        ("a <<- heredoc with a quoted, tab-indented delimiter", "cat <<-'EOF' > f\n\tpkill -f claude-fable\n\tEOF"),
         ("pkill by name with a short option value that is in 'claude'", "pkill -u a sleep"),
         ("a listing pgrep by the session's name, no kill anywhere",
          "for c in $(pgrep -x claude); do ls -l /proc/$c/exe; done"),
@@ -291,6 +293,101 @@ def main() -> int:
                        ("an empty braced expansion glued to kill", "${x}kill $'\\x31\\x32\\x33\\x34'"),
                        ("a glued kill with a brace list", '"$x"kill 12{3,}4')):
         check(f"a kill tool with a brace expansion still asks: {label}", g.unevaluated(cmd) is not None, cmd)
+    # A here-document a data reader takes is data for the pid and kill-word search too (j866 / OBSERVATION
+    # 01a1d8ab: a gzcoord-send body reporting a watch's pid was denied as killing it). Any other reader keeps its body
+    # judged as text: an interpreter may run the kill. Planted tree: the pid is an inbox watch, no live process.
+    W = 987651
+    watch_tree = {W: (g.INBOX, [g.INBOX, "--until-delivery"])}
+
+    def by_pid(cmd):
+        return g.decision(cmd, CLAUDE, tree=watch_tree, shell=False)
+    for label, cmd in (("cat > /dev/null", f"cat > /dev/null <<'X'\nkill -TERM {W}\nX"),
+                       ("gzcoord-send -", f"gzcoord-send - <<'X'\nOBSERVATION: kill {W} refused\nX"),
+                       ("tee /dev/null", f"tee /dev/null <<'X' >/dev/null\nkill -9 {W}\nX"),
+                       ("a pipe of data readers", f"cat <<'X' | grep -v x | tee /dev/stderr | gzcoord-send -\nkill {W}\nX"),
+                       ("two bodies, data readers joined by && and ;",
+                        f"cat <<'X' >/dev/null && gzcoord-send - <<\"Y\"; wc -l\nkill {W}\nX\nkill {W}\nY"),
+                       ("a quoted ; in a reader's argument", f"cat 'a;b' - <<'X' >/dev/null\nkill {W}\nX"),
+                       ("a 2>&1 on the reader's line", f"cat <<'X' 2>&1\nkill {W}\nX"),
+                       # Review of #612, P3: grep and its kin only print what they read.
+                       ("grep -c", f"grep -c x <<'X'\nkill {W}\nX"),
+                       ("wc, head, tail", f"wc -l <<'X' | head -1 | tail -1\nkill {W}\nX"),
+                       ("a quoted body's $( … ) is not run", f"cat <<'X'\n$(kill {W})\nX"),
+                       ("a \\-quoted delimiter", f"cat <<\\X\n`kill {W}`\nX")):
+        d = by_pid(cmd)
+        check(f"a data reader's here-document naming a watch's pid passes: {label}", d is None, d)
+    for label, cmd in (("bash <<X", f"bash <<'X'\nkill {W}\nX"),
+                       ("sh <<X", f"sh <<X\nkill {W}\nX"),
+                       ("python3 - <<X running kill", f"python3 - <<'X'\nimport subprocess\nsubprocess.run(['kill', '{W}'])\nX"),
+                       ("perl <<X", f"perl <<'X'\nkill 'TERM', {W};\nX"),
+                       ("cat <<X | sh", f"cat <<X | sh\nkill {W}\nX"),
+                       ("cat <<X | python3", f"cat <<'X' | python3\nimport os; os.system('kill {W}')\nX"),
+                       ("an unknown reader", f"foo <<'X'\nkill {W}\nX"),
+                       ("env cat, a prefix", f"env cat <<'X'\nkill {W}\nX"),
+                       ("git, whose alias can run a shell", f"git -c alias.x='!sh' x <<'X'\nkill {W}\nX"),
+                       ("git commit -F -, still judged", f"git commit -q -F - <<'X'\nfix: kill {W} was denied\nX"),
+                       ("gh, whose alias can run a shell", f"gh x <<'X'\nkill {W}\nX"),
+                       ("a kill after the body ends", f"cat <<'X'\nmsg\nX\nkill {W}"),
+                       ("a kill on the opening line", f"cat <<'X'; kill {W}\nmsg\nX"),
+                       ("a kill before, on the line above", f"kill {W}\ncat <<'X'\nmsg\nX"),
+                       # Review of #612, P2: a << in a quote or a comment opens no here-document.
+                       ("a quoted <<, then the kill", f"cat '<<true'\nkill {W}\ntrue"),
+                       ("a commented <<, then the kill", f"cat # <<true\nkill {W}\ntrue"),
+                       # Review of #612, P1: bash runs an unquoted body's substitutions.
+                       ("$( … ) in an unquoted body", f"cat <<EOF\n$(kill {W})\nEOF"),
+                       ("a backtick in an unquoted body", f"cat <<EOF\n`kill {W}`\nEOF"),
+                       ("${ … } in an unquoted body", f"cat <<EOF\n${{x:-$(kill {W})}}\nEOF"),
+                       # Review of #612, P1: a continued opening line pipes the body into sh.
+                       ("a continued line into sh", f"cat <<'EOF' \\\n| sh\nkill {W}\nEOF"),
+                       # Review of #612, P3: a body stored in a file a later command runs.
+                       ("cat > file, then bash it", f"cat > /tmp/k.sh <<'X'\nkill {W}\nX\nbash /tmp/k.sh"),
+                       ("cat >> file", f"cat >>/tmp/k.sh <<'X'\nkill {W}\nX"),
+                       ("tee file, then source it", f"tee f <<X >/dev/null\nkill {W}\nX\n. f"),
+                       ("a quoted redirection target", f"cat >'/dev/null' <<'X'\nkill {W}\nX"),
+                       ("sort -o file", f"sort -o f <<'X'\nkill {W}\nX"),
+                       # Review of #612, round 2: the drop fails closed (_drop_bodies). Each passed at 159cd3b8.
+                       # Rule 1, an unquoted body is always judged: a plain kill, and bash's backslash-newline join,
+                       # which moves the delimiter (`x\` NL `A` is the line xA), with a later body unquoted or quoted.
+                       ("an unquoted cat <<EOF body", f"cat <<EOF\nkill {W}\nEOF"),
+                       ("an unquoted tee body", f"tee /dev/null <<X >/dev/null\nkill -9 {W}\nX"),
+                       ("an unquoted body joined over its delimiter",
+                        f"cat <<A >/dev/null\nx\\\nA\ncat <<Y\nA\nkill {W}\nY"),
+                       ("…and a quoted body after it", f"cat <<A >/dev/null\nx\\\nA\ncat <<'Y'\nA\nkill {W}\nY"),
+                       # Rule 2, the whole input is data readers: a block's redirection, an exec, sort.
+                       ("{ … } > k.sh, then bash it", f"{{\ncat <<'X'\nkill {W}\nX\n}} > k.sh\nbash k.sh"),
+                       ("exec > k.sh, then bash it", f"exec > k.sh\ncat <<'X'\nkill {W}\nX\nexec >&2\nbash k.sh"),
+                       ("sort --compress-program=sh", f"sort -S 1K --compress-program=sh <<'X'\nkill {W}\nX"),
+                       ("cat | sort --compress-program=sh", f"cat <<'X' | sort -S 1K --compress-program=sh\nkill {W}\nX"),
+                       # Rule 4, doubt keeps the body: ANSI-C quoting, where \' is a literal quote.
+                       ("a <<true inside $'…'", f"cat $'a\\' <<true'\nkill {W}\ntrue")):
+        d = by_pid(cmd)
+        check(f"a here-document no data reader alone takes still denies: {label}",
+              d is not None and d[0] == "deny" and "inbox watch" in d[1], d)
+    # The broad drop, which the pattern reading uses, misread the same ways (review of #612, P1 and P2).
+    for label, cmd in (("a quoted <<", "cat '<<true'\npkill -f claude-fable\ntrue"),
+                       ("$( … ) in an unquoted body", "cat <<EOF\n$(pkill -f claude-fable)\nEOF"),
+                       ("a continued line into sh", "cat <<'EOF' \\\n| sh\npkill -f claude-fable\nEOF"),
+                       # Review of #612, round 2: the broad drop fails closed too (_drop_bodies).
+                       ("an unquoted body", "cat <<EOF\npkill -f claude-fable\nEOF"),
+                       ("an arithmetic << with its 'delimiter'", "echo $((1<<n))\npkill -f claude-fable\nn"),
+                       ("a <<true inside $'…'", "cat $'a\\' <<true'\npkill -f claude-fable\ntrue"),
+                       # Review of #612, round 3 F11: `<<` in the old arithmetic and in a parameter expansion.
+                       ("an arithmetic << inside $[…]", "echo $[1<<\"n\"]\npkill -f claude-fable\nn]"),
+                       ("a << inside ${…}", "echo ${x/<<'t'/y}\npkill -f claude-fable\nt/y}"),
+                       # The allowlist, not a spelling: a subscript holds a << bash reads as a shift.
+                       ("a << inside an array subscript", "a[1<<\"n\"]=5\npkill -f claude-fable\nn]=5"),
+                       ("a here-document in a function body", "f() { cat <<'n'; }\npkill -f claude-fable\nn"),
+                       ("an unquoted body joined over its delimiter",
+                        "cat <<A >/dev/null\nx\\\nA\ncat <<'Y'\nA\npkill -f claude-fable\nY"),
+                       ("a here-document inside a shell's body", "bash <<'EOF'\ncat <<'Y'\nEOF\npkill -f claude-fable\nY")):
+        d = g.decision(cmd, CLAUDE, shell=False)
+        check(f"a pattern kill the broad here-document drop must keep denies: {label}",
+              d is not None and d[0] == "deny", d)
+    check("…a quoted body's pkill stays data for the broad drop",
+          g.decision("git commit -F - <<'EOF'\n$(pkill -f claude-fable)\nEOF", CLAUDE, shell=False) is None)
+    d = by_pid(f"kill {W}")
+    check("the inbox-watch deny names the here-document way to report a pid",
+          d is not None and "gzcoord-send from a file or a here-document" in d[1], d)
     check("…but kill -0 of a pid outside the tree is a signal, not a group: kill -0 999999999",
           g.decision("kill -0 999999999", CLAUDE, shell=False) is None)
     check("…but a negative first argument is a signal: kill -9 999999999",
@@ -709,6 +806,34 @@ def main() -> int:
         check("the walk finds the nearest claude ancestor's command line", found == CLAUDE, found)
         open(os.path.join(proc, "10", "stat"), "w").write("10 (node) S 5 0 0\n")
         check("…and none when no ancestor is claude", g.own_claude_cmdline(proc=proc, pid=30) is None)
+    # 2.1.322's bg-pty-host layout (j836): hook -> bash -> session (comm its version) -> bg-pty-host -> daemon. The
+    # guard's command line is the session's, never that of a comm-`claude` harness process above it.
+    with tempfile.TemporaryDirectory() as proc:
+        for pid, comm, ppid, cmd in ((30, "python3", 20, "python3 hook"), (20, "bash", 15, "bash -c x"),
+                                     (15, "2.1.322", 12, "2.1.322 --session-id s"), (12, "claude", 10, "claude bg-pty-host"),
+                                     (10, "claude", 5, "claude daemon run")):
+            os.makedirs(os.path.join(proc, str(pid)))
+            open(os.path.join(proc, str(pid), "stat"), "w").write(f"{pid} ({comm}) S {ppid} 0 0\n")
+            open(os.path.join(proc, str(pid), "cmdline"), "wb").write(cmd.replace(" ", "\0").encode())
+        found = g.own_claude(proc=proc, pid=30)
+        check("bg-pty-host layout: the session is found, not the daemon", found == (15, "2.1.322 --session-id s"), found)
+        # The harness above the session ends it too (review of #612, P1): bg-pty-host and the daemon are guarded.
+        tree = g.guarded_tree(15, proc=proc, me=30)
+        check("guarded_tree: bg-pty-host and the daemon beside the descendants", sorted(tree) == [10, 12], tree)
+        for cmd in ("kill 12", "kill -TERM 10", "pkill -f '[b]g-pty-host'", "pkill -f '[c]laude daemon'"):
+            d = g.decision(cmd, "2.1.322 --session-id s", pid=15, tree=tree, shell=False, comm="2.1.322")
+            check(f"bg-pty-host layout: a kill of the harness above the session denies: {cmd}",
+                  d is not None and d[0] == "deny", d)
+        open(os.path.join(proc, "10", "cmdline"), "wb").write(b"claude\0run")
+        check("…and with no daemon above it, nothing above the session is guarded",
+              g.harness_ancestors(15, proc=proc) == {}, g.harness_ancestors(15, proc=proc))
+    # The session's own comm (a version under 2.1.322) is judged as a name too, so layer 1 refuses a kill by it
+    # without the pgrep ground truth (review of #612, pre-existing A).
+    VCMD = "2.1.322 --session-id s --model x"
+    for cmd in ("pkill 2.1.322", "killall 2.1.322", "pkill -x 2.1.322"):
+        check(f"version comm refused by name: {cmd}", g.verdict(cmd, VCMD, "2.1.322") is not None, g.kill_patterns(cmd))
+    check("…and `pkill claude` still refused beside it", g.verdict("pkill claude", VCMD, "2.1.322") is not None)
+    check("…an unread comm ('?') adds no name", g.verdict("pkill '?'", VCMD, "?") is None)
     r = subprocess.run([sys.executable, HOOK], input=json.dumps({"tool_input": {"command": "git status"}}),
                        capture_output=True, text=True)
     check("the hook: a harmless command prints nothing and exits 0", r.returncode == 0 and not r.stdout.strip(), r.stdout)
