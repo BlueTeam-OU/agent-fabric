@@ -52,15 +52,22 @@ def read_argv(pid: int, proc: str = PROC) -> list[str] | None:
     return [a.decode("utf-8", "replace") for a in raw.split(b"\0") if a]
 
 
-def is_session(pid: int, comm: str, proc: str = PROC, session_comm: str = SESSION_COMM) -> bool:
-    """Is process `pid`, whose comm is `comm`, a harness session? `session_comm` is the name looked for: the suites
-    (fabric-fresh's AGENT_FABRIC_FRESH_COMM) look for a fake name, which is matched exactly and nothing else is."""
+def matches(comm: str, argv: list[str] | None, session_comm: str = SESSION_COMM) -> bool:
+    """The rule on what a caller already holds: a process's comm and argv (None: unreadable). `session_comm` is the
+    name looked for: the suites (fabric-fresh's AGENT_FABRIC_FRESH_COMM) look for a fake name, which is matched
+    exactly and nothing else is."""
     if session_comm != SESSION_COMM:
         return comm == session_comm
     if comm != SESSION_COMM and not VERSION_COMM.match(comm):
         return False
-    argv = read_argv(pid, proc)
     return not (argv and argv[1:2] == ["daemon"])
+
+
+def is_session(pid: int, comm: str, proc: str = PROC, session_comm: str = SESSION_COMM) -> bool:
+    """Is process `pid`, whose comm is `comm`, a harness session? Reads argv from `proc` only when the comm could match."""
+    if session_comm != SESSION_COMM or (comm != SESSION_COMM and not VERSION_COMM.match(comm)):
+        return matches(comm, None, session_comm)
+    return matches(comm, read_argv(pid, proc), session_comm)
 
 
 def nearest_session(start: int, proc: str = PROC, session_comm: str = SESSION_COMM) -> int | None:
@@ -78,3 +85,18 @@ def nearest_session(start: int, proc: str = PROC, session_comm: str = SESSION_CO
         pid = stat[1]
     return None
 
+
+def nearest_session_in(table: dict[int, tuple[int, str, list[str] | None]], start: int) -> int | None:
+    """nearest_session over a process table a caller has already read: pid -> (ppid, comm, argv). Same rule, same
+    hop limit; a pid the table lacks is a break in the chain."""
+    pid = start
+    for _ in range(MAX_HOPS):
+        if pid <= 1:
+            return None
+        entry = table.get(pid)
+        if entry is None:
+            return None
+        if matches(entry[1], entry[2]):
+            return pid
+        pid = entry[0]
+    return None

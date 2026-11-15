@@ -28,7 +28,9 @@ project's own repository; fabric-coordinator's to write), multi-owner
 slices under the matching shared/. The generated INDEX.md for each
 (project, role) lists all of it with paths relative to the working copy
 (fabric-side slices through ../agent-fabric/), plus the role's authored
-charter and recall from identities/roles/<role>/.
+charter and recall from identities/roles/<role>/. Outside agent-fabric's own
+project, fabric-coordinator's domain slices are left out of its INDEX (the owner,
+2026-11-14: they review external tools); every other class and role is listed.
 
 Distillers judge; this assembles. A distiller emits claims and nothing
 else — no files, no frontmatter, no index — because everything mechanical

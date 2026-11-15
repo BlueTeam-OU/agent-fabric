@@ -416,3 +416,23 @@ others' traffic and the whole-channel record are given up. §7 now names
 that path. No rule moves yet: rules 7, 8, 11 and 14 change when each
 gate's word is given, on the evidence the plan's §4 names. The retention
 period for the relay's last database copy is not named yet.
+
+### Amendment 2026-11-15 — The drills read each account's watch log; a carrier-outage drill is judged
+
+Rule 11's relay-outage drill could not say whether a watch restarted or
+gave up inside the outage. BlueTeam-OU/agent-fabric#620 (j152) gathers
+each account's watch log (ADR-029 amendment of the same date), and
+`gzcoord-carrier parity --relay-drill` prints per account the starts
+inside the drill, each with how the watch before it ended, and whether
+a watch gave up (exit 5); an account whose log was not collected whole
+reads not collected, never none.
+
+Gate 2 of `docs/proposals/gzcoord-interweave-only-cutover.md` names a
+carrier-outage drill, one account's units stopped in `carrier-record`.
+Rule 11 now says how it is judged: `parity --carrier-drill START END
+LOGIN` takes every message addressed to that account, made inside the
+window, that a sender's outbox recorded and that no copy reached before
+the window ended, and asks that the carrier delivered it once after it
+(the relay mirror's copy beside it is normal; a second copy of either
+carrier fails) and that it was shown to the session once. A pair the files cannot show, a showing
+interrupted for one, is unsettled, never passed.

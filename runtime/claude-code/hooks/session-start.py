@@ -406,10 +406,18 @@ def inbox_watch():
     return mod
 
 
+def session_proc():
+    """tools/fabric/session_proc.py, loaded by path: the one rule for which process is a session (j836)."""
+    spec = importlib.util.spec_from_file_location("fabric_session_proc", os.path.join(FABRIC_ROOT, "tools", "fabric", "session_proc.py"))
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
 def watch_running(proc: str = "/proc", pid: int | None = None) -> bool | None:
     """Whether a `gzcoord-inbox --until-delivery` (or a `--follow` or `--wait`, as
     inbox-watch.py says) runs under the session this hook
-    belongs to: the nearest ancestor whose command is `claude`. None when
+    belongs to: session_proc's nearest session. None when
     there is no such ancestor (not under a harness) — nothing to say."""
     def stat(p: int) -> tuple[str, int] | None:
         try:
@@ -419,17 +427,7 @@ def watch_running(proc: str = "/proc", pid: int | None = None) -> bool | None:
             return None
         comm = raw[raw.index("(") + 1:raw.rindex(")")]
         return comm, int(raw[raw.rindex(")") + 2:].split()[1])
-    session, p = None, pid or os.getpid()
-    for _ in range(64):
-        st = stat(p)
-        if not st:
-            break
-        if st[0] == "claude":
-            session = p
-            break
-        if st[1] <= 1:
-            break
-        p = st[1]
+    session = session_proc().nearest_session(pid or os.getpid(), proc)
     if session is None:
         return None
     parents: dict[int, int] = {}
@@ -439,7 +437,7 @@ def watch_running(proc: str = "/proc", pid: int | None = None) -> bool | None:
     for d, _ in parents.items():
         try:
             with open(f"{proc}/{d}/cmdline", "rb") as fh:
-                cmd = fh.read().replace(b"\0", b" ").decode("utf-8", "replace")
+                cmd = [a.decode("utf-8", "replace") for a in fh.read().split(b"\0") if a]
         except OSError:
             continue
         if not inbox_watch().is_watch(cmd):

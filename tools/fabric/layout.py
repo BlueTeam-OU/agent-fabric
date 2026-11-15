@@ -193,11 +193,11 @@ def _binding_working_copy(project: str) -> str | None:
             "fabric_identity", os.path.join(FABRIC_ROOT, "runtime", "identity.py"))
         identity = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(identity)  # type: ignore[union-attr]
-        binding = identity.read_binding() or {}
+        binding = identity.binding_record()
     except Exception:  # noqa: BLE001
         return None
-    if binding.get("project") == project and binding.get("working_copy"):
-        return binding["working_copy"]
+    if binding.project == project and binding.working_copy:
+        return binding.working_copy
     return None
 
 

@@ -1074,7 +1074,7 @@ def main(argv: list[str] | None = None) -> int:
                 "fabric_identity", os.path.join(root or FABRIC_ROOT, "runtime", "identity.py"))
             identity = importlib.util.module_from_spec(spec); spec.loader.exec_module(identity)
             agent = agent or identity.current_agent()
-            role = role or identity.read_binding(agent).get("role")
+            role = role or identity.binding_record(agent).role
         if args.local or args.me:
             local = load_local(agent, args.local, root)
         return role, agent, local

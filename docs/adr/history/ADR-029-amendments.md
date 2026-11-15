@@ -488,3 +488,21 @@ op takes, what it writes, and that `fabric-ctl` refuses `carrier-only`
 while any placed account is still on `relay-record` or does not report:
 one account cannot see the fleet, so that check is the operator's side.
 Found by the review of #604's first head.
+
+### Amendment 2026-11-15 — The parity evidence carries each account's watch log
+
+The relay-outage drill asks whether a watch was restarted inside the
+outage and whether one gave up after its 15 minutes. Neither the shown
+ledger nor the acknowledgement log says: the give-up (exit 5) leaves a
+marker the next fetch deletes. python-dev-02's
+BlueTeam-OU/agent-fabric#620 (j152) has `gzcoord-inbox --follow` and
+`--until-delivery` write `gzcoord-watch.jsonl`, a `start` line and an
+`end` line with its reason and exit code, and `interweave-evidence`
+takes a sixth section, `watch`, with the lines whose `t` is in the
+window. Rows are built from the keys `t`, `event`, `pid`, `reason` and
+`code`, the reason from a closed set; a line of another shape is left
+out and counted. A failure of this section ends only it, as the
+backfills' does; `fabric-ctl` records in `meta.json` whether it was
+collected whole, and the report reads an account whose log was not as
+not collected, never as no watch ran. A watch the kernel kills writes no
+end line, so a start without one is not given a reason.

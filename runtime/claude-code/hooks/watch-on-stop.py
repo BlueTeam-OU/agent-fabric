@@ -13,8 +13,8 @@ session would fall silent. Registered at user scope on Stop
 
 A watch is "of this session" when a process whose command line is
 gzcoord-inbox with --until-delivery, --follow or --wait (inbox-watch.py) descends from the session's
-harness: the nearest ancestor of this hook named `claude` (session-state.py's
-rule). The process table is read from /proc and passed in as `procs`, so a
+harness: session_proc's nearest session above this hook (the one rule,
+tools/fabric/session_proc.py). The process table is read from /proc and passed in as `procs`, so a
 test supplies its own.
 
 A watch outside the session's tree counts too when it holds gzcoord-inbox's
@@ -34,7 +34,10 @@ included, leaves the hook passing, because asking at once would only spin a
 new watch against the same relay, and a relay an operator stopped on purpose
 would see its sessions hammer it (j626, the 2026-11-05 relay-down drill). The
 hook never removes the marker: the next fetch the relay answers does; one that
-outlives RELAY_DOWN_S is asked again without a probe. A session that was asked
+outlives RELAY_DOWN_S is asked again without a probe. Where the account's transport mode makes the carrier the primary (carrier-record, carrier-only:
+the relay is then a mirror whose silence ends no watch) the marker means the carrier, and the one probe is the
+carrier's own socket, asked its `status` (carrier_answers): an answer lifts the silence, none leaves it, a socket
+that is not there is none. A mode that cannot be read is the relay's probe, as before the modes existed. A session that was asked
 less than WINDOW_S ago passes before any probe is made.
 
 It passes, printing nothing, when: stop_hook_active; no harness ancestor; the
@@ -50,6 +53,7 @@ import glob
 import importlib.util
 import json
 import os
+import socket
 import sys
 import threading
 import time
@@ -90,9 +94,9 @@ def mem_line(meminfo: str = "/proc/meminfo") -> str:
         return ""
 
 
-def read_procs(proc: str = "/proc") -> dict[int, tuple[int, str, str]]:
-    """pid -> (ppid, comm, command line) for every process /proc shows."""
-    out: dict[int, tuple[int, str, str]] = {}
+def read_procs(proc: str = "/proc") -> dict[int, tuple[int, str, tuple[str, ...]]]:
+    """pid -> (ppid, comm, argv) for every process /proc shows."""
+    out: dict[int, tuple[int, str, tuple[str, ...]]] = {}
     for d in os.listdir(proc):
         if not d.isdigit():
             continue
@@ -100,27 +104,29 @@ def read_procs(proc: str = "/proc") -> dict[int, tuple[int, str, str]]:
             with open(f"{proc}/{d}/stat", encoding="utf-8", errors="replace") as fh:
                 raw = fh.read()
             with open(f"{proc}/{d}/cmdline", "rb") as fh:
-                cmd = fh.read().replace(b"\0", b" ").decode("utf-8", "replace")
+                # argv stays split on its NULs: joined by spaces, an argument holding one is told from two no more
+                cmd = tuple(a.decode("utf-8", "replace") for a in fh.read().split(b"\0") if a)
         except OSError:
             continue
         out[int(d)] = (int(raw[raw.rindex(")") + 2:].split()[1]), raw[raw.index("(") + 1:raw.rindex(")")], cmd)
     return out
 
 
+def session_proc():
+    """tools/fabric/session_proc.py, loaded by path: the one rule for which process is a session (j836)."""
+    spec = importlib.util.spec_from_file_location("fabric_session_proc", os.path.join(FABRIC_ROOT, "tools", "fabric", "session_proc.py"))
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
 def harness_pid(procs: dict, pid: int) -> int | None:
-    for _ in range(64):
-        entry = procs.get(pid)
-        if not entry:
-            return None
-        if entry[1] == "claude":
-            return pid
-        if entry[0] <= 1:
-            return None
-        pid = entry[0]
-    return None
+    # read_procs keeps argv as a tuple; a table built by hand (the tests' stubs) may still hold a printed command line.
+    table = {p: (e[0], e[1], e[2].split() if isinstance(e[2], str) else list(e[2])) for p, e in procs.items()}
+    return session_proc().nearest_session_in(table, pid)
 
 
-def is_watch(cmd: str) -> bool:
+def is_watch(cmd) -> bool:
     # One predicate with session-start.py, loaded by path (inbox-watch.py).
     spec = importlib.util.spec_from_file_location(
         "fabric_inbox_watch", os.path.join(os.path.dirname(os.path.abspath(__file__)), "inbox-watch.py"))
@@ -201,6 +207,48 @@ def relay_answers(url: str | None) -> bool:
     return bool(answered)
 
 
+def carrier_answers(run_dir: str | None = None) -> bool:
+    """One `status` request to the carrier's adapter socket ($XDG_RUNTIME_DIR/agent-fabric/gzcoord-carrier.sock,
+    CARRIER-CONTRACT.md §6), bounded by RELAY_PROBE_S wall-clock seconds like the relay's probe; True for an
+    `ok` answer. No socket, a refusal, a reply that is not JSON and no answer in time are all "did not answer"."""
+    run_dir = run_dir or os.environ.get("XDG_RUNTIME_DIR") or f"/run/user/{os.getuid()}"
+    path = os.path.join(run_dir, "agent-fabric", "gzcoord-carrier.sock")
+    answered: list[bool] = []
+
+    def probe() -> None:
+        try:
+            with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as s:
+                s.settimeout(RELAY_PROBE_S)
+                s.connect(path)
+                s.sendall(b'{"op":"status"}\n')
+                buf = b""
+                while b"\n" not in buf:
+                    chunk = s.recv(65536)
+                    if not chunk:
+                        break
+                    buf += chunk
+            if json.loads(buf.split(b"\n", 1)[0]).get("ok") is True:
+                answered.append(True)
+        except Exception:  # noqa: BLE001 - no socket, refused, torn, not JSON, timed out: the carrier did not answer
+            pass
+
+    t = threading.Thread(target=probe, daemon=True)
+    t.start()
+    t.join(RELAY_PROBE_S)
+    return bool(answered)
+
+
+def carrier_leads() -> bool:
+    """The account's transport mode has the carrier as the primary (gzcoord/transport/mode.py). Anything that keeps the mode
+    from being read is False: the relay's probe is the answer that existed before the modes."""
+    sys.path.insert(0, os.path.join(FABRIC_ROOT, "tools", "fabric"))
+    try:
+        from gzcoord.transport import mode
+        return mode.read(None)["mode"] != mode.RELAY_RECORD
+    except (Exception, SystemExit):  # noqa: BLE001 - an unreadable mode is no reason to block or to pass
+        return False
+
+
 _identity = None
 
 
@@ -278,7 +326,7 @@ def configured_relay_url(cwd: str | None, session: str | None) -> str | None:
 
 def decide(payload: dict, procs: dict, now: float, path: str, is_integrated=integrated,
            own_pid: int | None = None, run_dir: str | None = None, meminfo: str = "/proc/meminfo",
-           relay_url: str | None = None) -> dict | None:
+           relay_url: str | None = None, carrier_primary: bool | None = None) -> dict | None:
     if payload.get("stop_hook_active"):
         return None
     session_id = payload.get("session_id")
@@ -290,10 +338,14 @@ def decide(payload: dict, procs: dict, now: float, path: str, is_integrated=inte
     # Cheapest guard first: a Stop inside WINDOW_S passes without paying for the relay probe.
     if recently_blocked(path, session_id, now):
         return None
-    # relay_url is passed in by tests; otherwise the project's own, looked up only when a marker stands.
-    if relay_down(now, run_dir) and not relay_answers(
-            relay_url or configured_relay_url(payload.get("cwd"), session_id)):
-        return None
+    # relay_url and carrier_primary are passed in by tests; otherwise the project's own relay and the account's mode,
+    # looked up only when a marker stands.
+    if relay_down(now, run_dir):
+        if (carrier_leads() if carrier_primary is None else carrier_primary):
+            if not carrier_answers(run_dir):
+                return None
+        elif not relay_answers(relay_url or configured_relay_url(payload.get("cwd"), session_id)):
+            return None
     if not is_integrated(payload.get("cwd"), session_id):
         return None
     remember(path, session_id, now)

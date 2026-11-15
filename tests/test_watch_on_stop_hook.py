@@ -96,9 +96,10 @@ def main() -> int:
 
         dead = f"http://127.0.0.1:{closed_port()}/"
 
-        def go(payload, procs, now=1000.0, integ=yes, relay_url=dead):
+        def go(payload, procs, now=1000.0, integ=yes, relay_url=dead, carrier_primary=False):
+            # carrier_primary is always given: left to the hook it reads the account's own mode, which a test must not.
             return mod.decide({"session_id": "s1", **payload}, procs, now, path, integ, own_pid=ME, run_dir=run_dir,
-                              relay_url=relay_url)
+                              relay_url=relay_url, carrier_primary=carrier_primary)
 
         def fresh():
             if os.path.exists(path):
@@ -216,6 +217,56 @@ def main() -> int:
         fresh()
         go({}, table(), now=900.0 + mod.RELAY_DOWN_S, relay_url=live)
         check("a marker past RELAY_DOWN_S: asked without a probe", Relay.seen == [], Relay.seen)
+        # With the carrier as the primary the marker means the carrier, and the one probe is its socket's `status`: a
+        # relay that answers (or none) decides nothing there.
+        sock_path = os.path.join(run_dir, "agent-fabric", "gzcoord-carrier.sock")
+        asked: list[bytes] = []
+
+        def carrier_on(reply: bytes):
+            lsn = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+            lsn.bind(sock_path)
+            lsn.listen(4)
+
+            def serve():
+                while True:
+                    try:
+                        conn, _ = lsn.accept()
+                    except OSError:
+                        return
+                    with conn:
+                        asked.append(conn.recv(4096))
+                        conn.sendall(reply)
+            threading.Thread(target=serve, daemon=True).start()
+            return lsn
+
+        def carrier_off(lsn):
+            lsn.close()
+            os.unlink(sock_path)
+
+        with open(down, "w", encoding="utf-8") as fh:
+            fh.write("900\n")
+        Relay.seen.clear()
+        fresh()
+        out = go({}, table(), carrier_primary=True, relay_url=live)
+        check("carrier primary, a fresh marker, no carrier socket, the relay answering: passes", out is None, out)
+        check("…the relay was not asked: it is a mirror", Relay.seen == [], Relay.seen)
+        for reply, want, label in ((b'{"ok":true,"outstanding":[]}\n', "block", "the carrier answers status"),
+                                   (b'{"ok":false,"error":"x"}\n', None, "the carrier refuses"),
+                                   (b'not json\n', None, "the carrier answers what is not JSON"),
+                                   (b'', None, "the carrier closes without an answer")):
+            lsn = carrier_on(reply)
+            fresh()
+            asked.clear()
+            out = go({}, table(), carrier_primary=True, relay_url=dead)
+            carrier_off(lsn)
+            check(f"carrier primary, a fresh marker, {label}: {want or 'passes'}", (out or {}).get("decision") == want, out)
+            check("…and what was asked was status", asked == [b'{"op":"status"}\n'], asked)
+        fresh()
+        out = go({}, table(), now=900.0 + mod.RELAY_DOWN_S, carrier_primary=True)
+        check("carrier primary, a marker past RELAY_DOWN_S: asked without a probe", (out or {}).get("decision") == "block", out)
+        fresh()
+        check("the positive control: relay primary, the same marker, the relay answering: blocks",
+              (go({}, table(), relay_url=live) or {}).get("decision") == "block")
         srv.shutdown()
         srv.server_close()
         fresh()
@@ -291,6 +342,78 @@ def main() -> int:
                 check(f"lock holder: {label}", mod.lock_holder_is_watch(procs, rd) is want)
             os.remove(lock)
             check("lock holder: no lock file", mod.lock_holder_is_watch(procs, rd) is False)
+
+        # carrier_leads() reads the account's own mode file; the state root is this test's, never the session's.
+        saved_state = os.environ.get("AGENT_FABRIC_STATE_DIR")
+        os.environ["AGENT_FABRIC_STATE_DIR"] = os.path.join(tmp, "modestate")
+        # The stub tree above planted its own gzcoord package: drop it so the hook's lazy import finds the real one.
+        for name in [n for n in sys.modules if n == "gzcoord" or n.startswith("gzcoord.")]:
+            del sys.modules[name]
+        sys.path.insert(0, os.path.join(HERE, "tools", "fabric"))
+        from gzcoord.transport import mode as tmode
+        mode_file = tmode.path()
+        check("the mode file is under the test's state root", mode_file.startswith(os.path.join(tmp, "modestate")), mode_file)
+        os.makedirs(os.path.dirname(mode_file))
+        check("carrier_leads: no mode file is the relay's answer (False)", mod.carrier_leads() is False)
+        for m, want in ((tmode.RELAY_RECORD, False), (tmode.CARRIER_RECORD, True), (tmode.CARRIER_ONLY, True)):
+            tmode.write(m, "test", os.path.dirname(mode_file))
+            check(f"carrier_leads: mode {m}", mod.carrier_leads() is want)
+        for label, plant in (("not JSON", lambda: open(mode_file, "w").write("{")),
+                             ("an unknown mode", lambda: open(mode_file, "w").write('{"mode": "bogus"}')),
+                             ("a directory", lambda: (os.remove(mode_file), os.mkdir(mode_file)))):
+            tmode.write(tmode.CARRIER_ONLY, "test", os.path.dirname(mode_file))   # positive control: it would lead
+            check(f"carrier_leads: control, carrier-only reads True before '{label}'", mod.carrier_leads() is True)
+            plant()
+            check(f"carrier_leads: an unreadable mode file ({label}) is False", mod.carrier_leads() is False)
+            if os.path.isdir(mode_file):
+                os.rmdir(mode_file)
+        if saved_state is None:
+            os.environ.pop("AGENT_FABRIC_STATE_DIR")
+        else:
+            os.environ["AGENT_FABRIC_STATE_DIR"] = saved_state
+
+        # argv stays a list: an argument that holds a space is one word. A process only MENTIONING a watch in one
+        # argument (grep, an editor, claude -p) is no watch, and the real watch beside it still is.
+        with tempfile.TemporaryDirectory() as fake:
+            def plant(pid, argv):
+                os.makedirs(os.path.join(fake, str(pid)))
+                with open(os.path.join(fake, str(pid), "stat"), "w") as fh:
+                    fh.write(f"{pid} (x) S 1 0 0\n")
+                with open(os.path.join(fake, str(pid), "cmdline"), "wb") as fh:
+                    fh.write(b"\0".join(a.encode() for a in argv) + b"\0")
+            plant(501, ["grep", "-r", "gzcoord-inbox --until-delivery", "."])
+            plant(502, ["/home/a b/bin/python3", "/home/a b/bin/gzcoord-inbox", "--until-delivery"])
+            table_ = mod.read_procs(fake)
+            check("read_procs keeps an argument with a space whole",
+                  list(table_[501][2]) == ["grep", "-r", "gzcoord-inbox --until-delivery", "."], table_[501])
+            check("a process that only mentions a watch is no watch", mod.is_watch(table_[501][2]) is False)
+            check("a watch under a directory with a space is one", mod.is_watch(table_[502][2]) is True)
+        # What read_procs returns is what harness_pid reads in production: the real table, not a stub, goes through it.
+        with tempfile.TemporaryDirectory() as fake:
+            def plant_(pid, ppid, comm, argv):
+                os.makedirs(os.path.join(fake, str(pid)))
+                with open(os.path.join(fake, str(pid), "stat"), "w") as fh:
+                    fh.write(f"{pid} ({comm}) S {ppid} 0 0\n")
+                with open(os.path.join(fake, str(pid), "cmdline"), "wb") as fh:
+                    fh.write(b"\0".join(a.encode() for a in argv) + b"\0")
+            plant_(10, 1, "claude", ["claude"])
+            plant_(20, 10, "bash", ["bash", "-c", "x"])
+            try:
+                got = mod.harness_pid(mod.read_procs(fake), 20)
+            except Exception as e:  # noqa: BLE001
+                got = e
+            check("harness_pid reads read_procs' own table (argv a tuple)", got == 10, got)
+            # …and the whole decision from that table: a session with no watch is asked for one (round 3 F10 was a
+            # Stop hook that raised here, which main() swallows, and so asked for nothing on any real run).
+            empty_run = os.path.join(fake, "run")
+            os.makedirs(empty_run)
+            try:
+                out = mod.decide({"session_id": "s-f10"}, mod.read_procs(fake), 1000.0, os.path.join(fake, "state.json"),
+                                 lambda *a: True, own_pid=20, run_dir=empty_run, relay_url=dead, carrier_primary=False)
+            except Exception as e:  # noqa: BLE001
+                out = e
+            check("decide on read_procs' own table: no watch is blocked",
+                  isinstance(out, dict) and out.get("decision") == "block", out)
 
         def boom(*a, **k):
             raise RuntimeError("x")

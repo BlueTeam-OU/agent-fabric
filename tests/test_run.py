@@ -501,6 +501,7 @@ def main() -> int:
             if not wait_until(p, lambda: len(os.listdir(started)) >= 2, "the python section's first two suites started", own_group=True):
                 continue
             time.sleep(0.5)
+            began = time.monotonic()
             os.killpg(p.pid, sig)
             try:
                 out, err = p.communicate(timeout=30)
@@ -508,9 +509,12 @@ def main() -> int:
             except subprocess.TimeoutExpired:
                 os.killpg(p.pid, signal.SIGKILL)
                 (out, err), rc = p.communicate(), None
+            # The seconds to the exit are in the detail because one red had the right exit and an empty stdout (j863): past
+            # run.py's KILL_WAIT_S they say run.py KILLed the runner, which its stderr line then names.
+            took = round(time.monotonic() - began, 1)
             shown = sorted(set(re.findall(r"MARK\d", out)))
             check(f"a group {name} during the python section: the exit is {128 + int(sig)} and both running suites' lines reach stdout",
-                  rc == 128 + int(sig) and len(shown) == 2, (rc, shown, out[-300:], err[-600:]))
+                  rc == 128 + int(sig) and len(shown) == 2, (rc, took, shown, out[-300:], err[-600:]))
         # A group INT also reaches run.py, which asks the runner to stop by TERM: that alone ends the run and hides a runner
         # that takes no INT of its own. So INT goes to the runner and its suites only, as a terminal would send it to a
         # foreground group run.py is not in.
@@ -685,6 +689,21 @@ def main() -> int:
         lines = [l for l in shown2.getvalue().splitlines() if l.startswith("   ")]
         check("leak_report: exactly the added entries, whole, and never one that was there before",
               lines == ["   a b", "   star*.py"], shown2.getvalue())
+        # A graceful root that outlives its wait is KILLed with what it buffered: that must be said, or an empty stdout with the
+        # right exit is all a red shows (j863). A root that answers TERM is ended silently.
+        for deaf, said in ((True, True), (False, False)):
+            body = ("import signal, time\nsignal.signal(signal.SIGTERM, signal.SIG_IGN)\n" if deaf else "import time\n") + \
+                "print('up', flush=True)\ntime.sleep(30)\n"
+            root = subprocess.Popen([sys.executable, "-c", body], stdout=subprocess.PIPE, stdin=subprocess.DEVNULL, text=True)
+            root.stdout.readline()          # its handler is in place before TERM is sent
+            with contextlib.redirect_stderr(io.StringIO()) as err:
+                runner.end_tree(root.pid, kill_wait=0.5, graceful=True)
+            root.wait(timeout=10)
+            root.stdout.close()
+            check(f"end_tree: a graceful root {'deaf to' if deaf else 'that answers'} TERM is "
+                  f"{'KILLed, said on stderr' if deaf else 'ended, nothing said'}",
+                  ("KILLing it" in err.getvalue()) == said and root.returncode == (-signal.SIGKILL if deaf else -signal.SIGTERM),
+                  (root.returncode, err.getvalue()))
         check("short_dir: the runtime directory when it is a writable directory, else /tmp",
               runner.short_dir({"XDG_RUNTIME_DIR": d}) == d and runner.short_dir({"XDG_RUNTIME_DIR": os.path.join(d, "added")}) == "/tmp"
               and runner.short_dir({}) == "/tmp")

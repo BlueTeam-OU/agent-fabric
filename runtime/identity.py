@@ -786,7 +786,7 @@ def main(argv: list[str] | None = None) -> int:
         print(current_host())
         return 0
     if args.role:
-        print((read_binding() or {}).get("role") or "")
+        print(binding_record().role or "")
         return 0
     if args.json:
         print(json.dumps(resolve_context(args.cwd, args.session).as_dict(), ensure_ascii=False, indent=2, sort_keys=True))
