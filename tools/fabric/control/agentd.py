@@ -123,7 +123,7 @@ if sys.path and os.path.realpath(sys.path[0] or ".") == os.path.dirname(os.path.
     sys.path[0] = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
 else:
     sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.realpath(__file__))))
-from control import clone as clone_mod, gateway as gateway_mod, carrier_install as carrier_mod, carrier_evidence as evidence_mod, gzcoord, js, ops, pressure, sessions, tools as tools_mod  # noqa: E402
+from control import clone as clone_mod, gateway as gateway_mod, carrier_install as carrier_mod, carrier_evidence as evidence_mod, gzcoord, js, ops, pressure, sessions, tools as tools_mod, usage_resets  # noqa: E402
 from control.gzcoord import FABRIC_ROOT  # noqa: E402
 from gzcoord.carrier import CARRIER_LABEL, control_link  # noqa: E402
 from control.carrier_install import CARRIER_NAME, INSTALL_OP, START_OP, STOP_OP  # noqa: E402
@@ -371,6 +371,27 @@ class AccountsKeeper:
 def accounts_keeper(read: Callable[[], Any] | None = None, now: Callable[[], float] = _now_ms,
                     cache_ms: float = ACCOUNTS_CACHE_MS) -> AccountsKeeper:
     return AccountsKeeper(read or (lambda: ops.accounts()), now, cache_ms)
+
+
+def keep_accounts(keeper: AccountsKeeper, accounts_present: Callable[[], Any] = lambda: ops.account_slugs(ops.accounts_dir()),
+                  record: Callable[[Any], Any] = usage_resets.record, say: Callable[[str], None] = _stderr) -> None:
+    """One keeper tick: read every observed sign-in (which renews it), say which did not read, and record each weekly
+    reset the read gave in the store (usage_resets.py). The record is the tick's last step and never raises: a
+    store that is absent here (only the coordinator's account has one to write) must not stop the next read."""
+    if not accounts_present():
+        return
+    try:
+        r = keeper.refresh()
+    except Exception as e:  # noqa: BLE001
+        say(f"agentd: accounts: {e}")
+        return
+    for a in (r.get("accounts") if isinstance(r, dict) and isinstance(r.get("accounts"), list) else []):
+        if a.get("status") != "ok":
+            say(f"agentd: account {a.get('slug')}: {a.get('status')}{' (' + js.string(a['error']) + ')' if js.truthy(a.get('error', js.UNDEFINED)) else ''}")
+    try:
+        record(r)
+    except Exception as e:  # noqa: BLE001
+        say(f"agentd: usage resets: {str(e)[:160]}")
 
 
 def _registry_file() -> str:
@@ -1076,16 +1097,7 @@ def main(argv: list[str] | None = None, *, stop: threading.Event | None = None) 
         # At start too: after a reboot every observed sign-in may have lapsed.
 
         def keep() -> None:
-            if not ops.account_slugs(ops.accounts_dir()):
-                return
-            try:
-                r = keeper.refresh()
-            except Exception as e:  # noqa: BLE001
-                _stderr(f"agentd: accounts: {e}")
-                return
-            for a in (r.get("accounts") if isinstance(r, dict) and isinstance(r.get("accounts"), list) else []):
-                if a.get("status") != "ok":
-                    _stderr(f"agentd: account {a.get('slug')}: {a.get('status')}{' (' + js.string(a['error']) + ')' if js.truthy(a.get('error', js.UNDEFINED)) else ''}")
+            keep_accounts(keeper)
         Ticker("accounts keeper", keep, ACCOUNTS_KEEPALIVE_MS / 1000, first_s=30).start()
         # The tools report (tools.py): at start, so a reboot or a new registry
         # is answered within the stagger window (tools.first_run_delay_s), every hour, and when the role binding changes.
