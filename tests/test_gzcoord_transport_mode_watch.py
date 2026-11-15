@@ -132,28 +132,36 @@ class Watch(unittest.TestCase):
         self.assertIsNotNone(self.line_matching("transport mode is now carrier-only", WITHIN))
 
     def test_a_file_that_breaks_during_the_reopen_is_said_once(self):
-        # Reads: the start (carrier-record), the poll that sees a change (carrier-only), then the reopen and every poll
-        # after it find damage. The watcher reads through the same patched function so the sequence is one file's history.
+        # The race, made deterministic: the watcher's poll reads a good carrier-only, and from then on every read (the
+        # reopen's, and the polls after it) finds the file broken. The watcher reads through the same history.
         mode.write("carrier-record", "h1/op", self.dir)
         code = ("import sys; sys.path.insert(0, sys.argv[1])\n"
-                "from gzcoord import inbox, transport\n"
+                "from gzcoord import inbox\n"
                 "from gzcoord.transport import mode\n"
-                "real, orig, calls = mode.read, mode.Watcher, []\n"
+                "real, orig, seen = mode.read, mode.Watcher, []\n"
                 "def read(d=None):\n"
-                "    calls.append(1)\n"
-                "    if len(calls) == 1: return real(d)\n"
-                "    if len(calls) == 2: return {'mode': 'carrier-only', 'set_by': None, 'set_at': None}\n"
-                "    raise mode.ModeError('transport-mode.json broke')\n"
-                "mode.read = read\n"
+                "    if seen: raise mode.ModeError('transport-mode.json broke')\n"
+                "    r = real(d)\n"
+                "    if r['mode'] == 'carrier-only': seen.append(1)\n"
+                "    return r\n"
+                "def reopen_read(d=None):\n"
+                "    if seen: raise mode.ModeError('transport-mode.json broke')\n"
+                "    return real(d)\n"
+                "mode.read = reopen_read\n"
                 "mode.Watcher = lambda *a, **k: orig(*a, reader=read, **k)\n"
-                "sys.exit(inbox.run(['--until-delivery', '--deadline', '40']))\n")
+                "sys.exit(inbox.run(['--until-delivery', '--deadline', '60']))\n")
         self.proc = subprocess.Popen([sys.executable, "-c", code, P.TOOLS], env=self.env, text=True, stdin=subprocess.DEVNULL,
                                      stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         self.addCleanup(self.stop)
         self.lines = queue.Queue()
         threading.Thread(target=lambda: [self.lines.put(l.rstrip("\n")) for l in self.proc.stderr], daemon=True).start()
+        end = time.monotonic() + 30
+        while self.waits < 1 and time.monotonic() < end and self.proc.poll() is None:
+            time.sleep(0.05)
+        self.assertGreaterEqual(self.waits, 1, "the watch is waiting on the relay")
+        mode.write("carrier-only", "h1/op", self.dir)
         self.assertIsNotNone(self.line_matching("transport-mode.json broke", WITHIN), "the damage met by the reopen is said")
-        self.assertIsNone(self.line_matching("transport-mode.json broke", 14), "and the next polls of the same damage say nothing")
+        self.assertIsNone(self.line_matching("transport-mode.json broke", 14), "and the polls after it, of the same damage, say nothing")
 
     def test_a_watch_that_starts_on_a_damaged_file_ends_with_exit_7_and_says_why_on_stdout(self):
         with open(self.file, "w", encoding="utf-8") as fh:
