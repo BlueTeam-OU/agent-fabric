@@ -6,8 +6,9 @@ Refuses a command that kills processes chosen by a pattern
 `killall -r PAT`) when PAT selects any process of the session's own tree:
 its session process (session_proc's nearest session above this hook),
 the bash the harness will run this very command in, and every process it has
-started — the harness's background tasks, its inbox watch, its servers.
-And it refuses any kill whose target is a gzcoord-inbox process, by
+started — the harness's background tasks, its inbox watch, its servers —
+and the harness processes above it (2.1.322's bg-pty-host and daemon,
+harness_ancestors). And it refuses any kill whose target is a gzcoord-inbox process, by
 pattern or by pid.
 
 WHY. A session's claude process carries its opening prompt in argv, and the
@@ -42,7 +43,7 @@ watch. By pid it over-reports instead of reading bash's argument order:
 in a command holding the word kill anywhere, every integer-looking token
 is a candidate, refused when it is claude, of the tree, or an inbox watch
 by its /proc command line — outside a here-document's body that only a
-data reader takes (drop_data_heredoc_bodies); a negative `kill` operand
+data reader takes and bash does not expand (drop_data_heredoc_bodies); a negative `kill` operand
 (-1, a group) is refused outright; an operand held in a variable or a substitution asks.
 Seven review rounds on #69 and #70 each found a spelling a
 re-implementation of procps's rules misread; procps does not misread
@@ -257,33 +258,102 @@ def command_names(word: str) -> list[str]:
 
 
 SHELLS = re.compile(r"(?:^|[\s|;&(/])(?:bash|sh|zsh|dash|ksh|eval|source|\.)(?=$|[\s;&|)])")
+# Bash expands these in the body of a here-document whose delimiter is unquoted, whoever reads it: a `$(kill N)`
+# there runs before cat sees a byte (review of #612, P1).
+BODY_EXPANDS = re.compile(r"\$\(|`|\$\{")
+# What ends a here-document's delimiter word outside quotes: a blank or a metacharacter.
+WORD_END = " \t;&|()<>"
+
+
+def heredoc_operators(line: str) -> list[tuple[bool, str, bool]]:
+    """(strips tabs, delimiter, quoted) of each `<<` operator in a command line, read OUTSIDE quotes and comments: a
+    regex on the raw line took `cat '<<true'` for an operator, dropped the lines up to a line `true`, and the kill
+    between them, which bash runs, passed (review of #612, P2). The delimiter is its word with the quotes removed;
+    any quote or backslash in the word quotes it, and then bash expands nothing in the body. <<< is a here-string.
+    `$((1<<n))` still reads as an operator; its delimiter line is not there, and then nothing is dropped."""
+    s, out, i, quote = strip_non_arguments(line), [], 0, None
+    n = len(s)
+    while i < n:
+        c = s[i]
+        if quote:
+            if c == "\\" and quote == '"':
+                i += 1
+            elif c == quote:
+                quote = None
+        elif c == "\\":
+            i += 1
+        elif c in "'\"":
+            quote = c
+        elif s.startswith("<<<", i):
+            i += 3
+            continue
+        elif s.startswith("<<", i):
+            j = i + 2
+            strip = s.startswith("-", j)
+            j += strip
+            while j < n and s[j] in " \t":
+                j += 1
+            k, q = j, None
+            while k < n and (q or s[k] not in WORD_END):
+                if q:
+                    q = None if s[k] == q else q
+                elif s[k] in "'\"":
+                    q = s[k]
+                elif s[k] == "\\":
+                    k += 1
+                k += 1
+            word = s[j:k]
+            delim = re.sub(r"['\"\\]", "", word)
+            if delim:
+                out.append((strip, delim, any(ch in word for ch in "'\"\\")))
+            i = k
+            continue
+        i += 1
+    return out
+
+
+def _logical_end(lines: list[str], i: int) -> int:
+    """The index after the last physical line of the command line starting at lines[i]: a line ending in an odd run
+    of backslashes continues on the next. Bash joins them before it reads the operators, so `cat <<'EOF' \\` NL
+    `| sh` pipes the body into sh, which a judgment of the first line alone took for data (review of #612, P1)."""
+    j = i
+    while j + 1 < len(lines) and (len(lines[j]) - len(lines[j].rstrip("\\"))) % 2:
+        j += 1
+    return j + 1
+
+
+def _drop_bodies(text: str, takes) -> str:
+    """The text with each here-document body dropped that `takes(opening command line)` says is data, up to its
+    delimiter line. The opening line, a body bash expands (BODY_EXPANDS under an unquoted delimiter), and every line
+    after the delimiter stay: a kill there still runs. Dropped only up to a delimiter line that is there: an
+    operator that opens nothing drops nothing (review of #70, eighth round). An opening line `takes` refuses keeps
+    every body, which is then read line by line as code."""
+    lines, out, i = text.split("\n"), [], 0
+    while i < len(lines):
+        end_of_line = _logical_end(lines, i)
+        physical = lines[i:end_of_line]
+        joined = "".join(p[:-1] for p in physical[:-1]) + physical[-1]
+        out += physical
+        i = end_of_line
+        delims = heredoc_operators(joined)
+        if not delims or not takes(joined):
+            continue
+        for strip_tabs, delim, quoted in delims:
+            end = next((j for j in range(i, len(lines))
+                        if (lines[j].lstrip("\t") if strip_tabs else lines[j]) == delim), None)
+            if end is None:
+                break
+            if not quoted and BODY_EXPANDS.search("\n".join(lines[i:end])):
+                out += lines[i:end + 1]
+            i = end + 1
+    return "\n".join(out)
 
 
 def drop_heredoc_bodies(text: str) -> str:
-    """A here-document's body is data for the command that reads it — a
-    commit message quoting a kill is not a kill — so it is dropped, up to
-    its delimiter line. Unless a shell reads it (`bash <<EOF`, `cat <<EOF |
-    sh`, eval): then the body is code, and is kept to be judged. The
-    delimiter may be quoted; <<- strips leading tabs. <<< is a here-string,
-    not a here-document."""
-    lines, out, i = text.split("\n"), [], 0
-    while i < len(lines):
-        line = lines[i]
-        out.append(line)
-        i += 1
-        delims = [(m.group(1) == "-", m.group(2) or m.group(3) or m.group(4))
-                  for m in re.finditer(r"(?<!<)<<(-?)\s*(?:'([^']+)'|\"([^\"]+)\"|\\?([A-Za-z_][A-Za-z0-9_]*))", line)]
-        if not delims or SHELLS.search(line):
-            continue
-        for strip_tabs, delim in delims:
-            # Dropped only up to a delimiter line that is there: a `<<` that
-            # is no here-document (in $((1<<n)), a quote, a comment) finds
-            # none, and then nothing is dropped (review of #70, eighth round).
-            end = next((j for j in range(i, len(lines))
-                        if (lines[j].lstrip("\t") if strip_tabs else lines[j]) == delim), None)
-            if end is not None:
-                i = end + 1
-    return "\n".join(out)
+    """A here-document's body is data for the command that reads it — a commit message quoting a kill is not a
+    kill — so it is dropped (_drop_bodies). Unless a shell reads it (`bash <<EOF`, `cat <<EOF | sh`, eval): then the
+    body is code, and is kept to be judged."""
+    return _drop_bodies(text, lambda line: not SHELLS.search(line))
 
 
 # Who may take a here-document whose body is then no command for the raw-text searches (kills, pid_candidates,
@@ -293,38 +363,56 @@ def drop_heredoc_bodies(text: str) -> str:
 # Observed: an agent composing a gzcoord-send body that reported a watch's pid was denied as killing it (j866 /
 # OBSERVATION 01a1d8ab). Not git or gh: an alias runs a shell on the stdin (`git -c alias.x='!sh' x`, `gh alias set
 # --shell`), which neither SHELLS nor tool_commands sees; a commit message naming a watch's pid is a rephrase.
-DATA_READERS = {"cat", "tee", "gzcoord-send", "gzcoord-compose", "gzmsg"}
+# grep, wc, head, tail and sort only print what they read (review of #612: `grep -c x <<'X'` was denied).
+DATA_READERS = {"cat", "tee", "grep", "wc", "head", "tail", "sort",
+                "gzcoord-send", "gzcoord-compose", "gzmsg"}
 # What separates the commands of a line: ;, &&, ||, |, |&, a lone & (not the & of >&, &> or <&), a subshell's ( ).
 LINE_COMMANDS = re.compile(r"&&|\|\||\|&?|;|(?<![<>])&(?!>)|[()]")
 QUOTED = re.compile(r"'[^']*'|\"(?:[^\"\\]|\\.)*\"")
+# A redirection that opens a file for writing, and its target: `>`, `>>`, `>|`, `&>`, `&>>`, and `>&` before a word
+# that is no fd. `>&2` and `2>&1` duplicate an fd and write no file.
+WRITE_REDIRECT = re.compile(r"(?:&>>?|>>?\|?(?!&)|>&(?![\d-]))\s*([^\s;&|()<>]*)")
+# Where a write keeps nothing a later command could run.
+NO_FILE = {"/dev/null", "/dev/stdout", "/dev/stderr"}
+
+
+def _writes_file(line: str, pieces: list[list[str]]) -> bool:
+    """Whether a data reader's line stores the body where a later command can run it: a redirection to a file, a
+    file operand of tee, sort's -o. `cat > k.sh <<'X'` NL `kill N` NL `X` NL `bash k.sh` passed with the body dropped
+    (review of #612, P3). `line` has its quotes blanked, so a quoted target counts as a file."""
+    if any(m.group(1) not in NO_FILE for m in WRITE_REDIRECT.finditer(line)):
+        return True
+    for words in pieces:
+        tool = os.path.basename(words[0]) if words else ""
+        if tool == "sort" and any(w.startswith("--o") or (w.startswith("-") and not w.startswith("--") and "o" in w)
+                                  for w in words[1:]):
+            return True
+        if tool == "tee":
+            skip = False
+            for w in words[1:]:
+                if skip:
+                    skip = False
+                elif "<" in w or ">" in w:
+                    # An operator standing alone (`<< X`, `> f`) takes the next word as its own.
+                    skip = w.rstrip("-") and set(w.rstrip("-")) <= set("<>&|")
+                elif not w.startswith("-") and w not in NO_FILE:
+                    return True
+    return False
+
+
+def _data_line(line: str) -> bool:
+    """Every command on the line is a DATA_READERS program by its first word's basename, and none stores the body
+    (_writes_file). Quoted text is blanked before the line is split, so a `;` in a quoted subject splits nothing."""
+    blank = QUOTED.sub("_", strip_non_arguments(line))
+    pieces = [p.split() for p in LINE_COMMANDS.split(blank)]
+    return all(os.path.basename(p[0]) in DATA_READERS for p in pieces if p) and not _writes_file(blank, pieces)
 
 
 def drop_data_heredoc_bodies(text: str) -> str:
     """drop_heredoc_bodies, narrowed for the searches that read the raw text: a here-document's body is dropped only
-    when every command on the line that opens it is a DATA_READERS program by its first word's basename.
-    drop_heredoc_bodies's own callers (tool_commands, lift, unevaluated) keep the broader drop. The opening line,
-    and every line after the delimiter, stay: a kill there is still a kill. Quoted text is blanked before the line is split, so
-    a `;` in a quoted subject splits nothing."""
-    lines, out, i = text.split("\n"), [], 0
-    while i < len(lines):
-        line = lines[i]
-        out.append(line)
-        i += 1
-        delims = [(m.group(1) == "-", m.group(2) or m.group(3) or m.group(4))
-                  for m in re.finditer(r"(?<!<)<<(-?)\s*(?:'([^']+)'|\"([^\"]+)\"|\\?([A-Za-z_][A-Za-z0-9_]*))", line)]
-        if not delims:
-            continue
-        pieces = [p.split() for p in LINE_COMMANDS.split(QUOTED.sub("_", line))]
-        if not all(os.path.basename(p[0]) in DATA_READERS for p in pieces if p):
-            continue
-        for strip_tabs, delim in delims:
-            # Only up to a delimiter line that is there, as drop_heredoc_bodies: a `<<` that opens nothing drops
-            # nothing.
-            end = next((j for j in range(i, len(lines))
-                        if (lines[j].lstrip("\t") if strip_tabs else lines[j]) == delim), None)
-            if end is not None:
-                i = end + 1
-    return "\n".join(out)
+    when its opening command line is a data reader's that keeps no copy (_data_line). drop_heredoc_bodies's own
+    callers (tool_commands, lift, unevaluated) keep the broader drop."""
+    return _drop_bodies(text, _data_line)
 
 
 def strip_non_arguments(text: str) -> str:
@@ -758,7 +846,8 @@ INBOX_MODELS = tuple(
 
 # (what a deny message calls it, process name, command line, is an inbox watch)
 Target = tuple[str, str, str, bool]
-Tree = dict[int, tuple[str, list[str]]]   # pid -> (name, argv)
+# pid -> (name, argv): the session's descendants and the harness above it (guarded_tree).
+Tree = dict[int, tuple[str, list[str]]]
 
 
 def shell_texts(command: str, prefix: str = "") -> list[str]:
@@ -1081,6 +1170,35 @@ def session_tree(root: int, proc: str = "/proc", me: int | None = None) -> Tree:
     return {p: (comm_of[p], read_argv(p, proc)) for p in below(root) - drop}
 
 
+def harness_ancestors(session: int, proc: str = "/proc") -> Tree:
+    """The harness processes above the session, as (name, argv): under 2.1.322's bg-pty-host layout every process
+    from the session's parent up to and including the nearest `claude daemon` (session_proc's rule: comm `claude`,
+    argv[1] `daemon`). Killing bg-pty-host or the daemon ends the session with them, and a guard of the session and
+    its descendants alone passed `kill <its ppid>` and `pkill -f '[c]laude daemon'` (review of #612, P1). No daemon
+    above it (the older layout, where the session is comm `claude` under a terminal's shell): nothing, since what is
+    above is no harness process."""
+    sp, out, p = session_proc(), {}, session
+    for _ in range(sp.MAX_HOPS):
+        stat = sp.read_stat(p, proc)
+        if stat is None or stat[1] <= 1:
+            return {}
+        p = stat[1]
+        parent = sp.read_stat(p, proc)
+        if parent is None:
+            return {}
+        argv = sp.read_argv(p, proc) or []
+        out[p] = (parent[0], argv)
+        if parent[0] == sp.SESSION_COMM and argv[1:2] == ["daemon"]:
+            return out
+    return {}
+
+
+def guarded_tree(session: int, proc: str = "/proc", me: int | None = None) -> Tree:
+    """Every process whose kill ends the session, beside the session itself: its descendants (session_tree) and the
+    harness above it (harness_ancestors)."""
+    return {**session_tree(session, proc, me), **harness_ancestors(session, proc)}
+
+
 def _stand_in(command: str, prefix: str = "") -> subprocess.Popen | None:
     """A process carrying the modelled shell's command line, for pgrep to
     be asked about: the real shell does not exist yet. Its program is
@@ -1239,7 +1357,7 @@ def main() -> int:
     pid, cmdline = own_claude()
     # The tree is read only for a command that kills: the hook runs on
     # every Bash call.
-    tree = session_tree(pid) if pid and kills(command) else {}
+    tree = guarded_tree(pid) if pid and kills(command) else {}
     d = decision(command, cmdline, pid, tree, session_id=payload.get("session_id"),
                  comm=read_comm(pid) if pid else None)
     if d:

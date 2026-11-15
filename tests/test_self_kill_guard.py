@@ -301,10 +301,17 @@ def main() -> int:
         return g.decision(cmd, CLAUDE, tree=watch_tree, shell=False)
     for label, cmd in (("cat > /dev/null", f"cat > /dev/null <<'X'\nkill -TERM {W}\nX"),
                        ("gzcoord-send -", f"gzcoord-send - <<'X'\nOBSERVATION: kill {W} refused\nX"),
-                       ("tee file", f"tee note.txt <<X >/dev/null\nkill -9 {W}\nX"),
-                       ("a pipe of data readers", f"cat <<'X' | tee f | gzcoord-send -\nkill {W}\nX"),
-                       ("a quoted ; in a reader's argument", f"tee 'a;b' <<'X' >/dev/null\nkill {W}\nX"),
-                       ("a 2>&1 on the reader's line", f"cat <<'X' 2>&1\nkill {W}\nX")):
+                       ("tee /dev/null", f"tee /dev/null <<X >/dev/null\nkill -9 {W}\nX"),
+                       ("a pipe of data readers", f"cat <<'X' | sort | tee /dev/stderr | gzcoord-send -\nkill {W}\nX"),
+                       ("a quoted ; in a reader's argument", f"cat 'a;b' - <<'X' >/dev/null\nkill {W}\nX"),
+                       ("a 2>&1 on the reader's line", f"cat <<'X' 2>&1\nkill {W}\nX"),
+                       # Review of #612, P3: grep and its kin only print what they read.
+                       ("grep -c", f"grep -c x <<'X'\nkill {W}\nX"),
+                       ("wc, head, tail, sort", f"wc -l <<'X' | head -1 | tail -1 | sort\nkill {W}\nX"),
+                       # Review of #612, P1: an unquoted body without an expansion is still data.
+                       ("an unquoted body with no expansion", f"cat <<X\nkill {W} $x\nX"),
+                       ("a quoted body's $( … ) is not run", f"cat <<'X'\n$(kill {W})\nX"),
+                       ("a \\-quoted delimiter", f"cat <<\\X\n`kill {W}`\nX")):
         d = by_pid(cmd)
         check(f"a data reader's here-document naming a watch's pid passes: {label}", d is None, d)
     for label, cmd in (("bash <<X", f"bash <<'X'\nkill {W}\nX"),
@@ -320,10 +327,34 @@ def main() -> int:
                        ("gh, whose alias can run a shell", f"gh x <<'X'\nkill {W}\nX"),
                        ("a kill after the body ends", f"cat <<'X'\nmsg\nX\nkill {W}"),
                        ("a kill on the opening line", f"cat <<'X'; kill {W}\nmsg\nX"),
-                       ("a kill before, on the line above", f"kill {W}\ncat <<'X'\nmsg\nX")):
+                       ("a kill before, on the line above", f"kill {W}\ncat <<'X'\nmsg\nX"),
+                       # Review of #612, P2: a << in a quote or a comment opens no here-document.
+                       ("a quoted <<, then the kill", f"cat '<<true'\nkill {W}\ntrue"),
+                       ("a commented <<, then the kill", f"cat # <<true\nkill {W}\ntrue"),
+                       # Review of #612, P1: bash runs an unquoted body's substitutions.
+                       ("$( … ) in an unquoted body", f"cat <<EOF\n$(kill {W})\nEOF"),
+                       ("a backtick in an unquoted body", f"cat <<EOF\n`kill {W}`\nEOF"),
+                       ("${ … } in an unquoted body", f"cat <<EOF\n${{x:-$(kill {W})}}\nEOF"),
+                       # Review of #612, P1: a continued opening line pipes the body into sh.
+                       ("a continued line into sh", f"cat <<'EOF' \\\n| sh\nkill {W}\nEOF"),
+                       # Review of #612, P3: a body stored in a file a later command runs.
+                       ("cat > file, then bash it", f"cat > /tmp/k.sh <<'X'\nkill {W}\nX\nbash /tmp/k.sh"),
+                       ("cat >> file", f"cat >>/tmp/k.sh <<'X'\nkill {W}\nX"),
+                       ("tee file, then source it", f"tee f <<X >/dev/null\nkill {W}\nX\n. f"),
+                       ("a quoted redirection target", f"cat >'/dev/null' <<'X'\nkill {W}\nX"),
+                       ("sort -o file", f"sort -o f <<'X'\nkill {W}\nX")):
         d = by_pid(cmd)
         check(f"a here-document no data reader alone takes still denies: {label}",
               d is not None and d[0] == "deny" and "inbox watch" in d[1], d)
+    # The broad drop, which the pattern reading uses, misread the same ways (review of #612, P1 and P2).
+    for label, cmd in (("a quoted <<", "cat '<<true'\npkill -f claude-fable\ntrue"),
+                       ("$( … ) in an unquoted body", "cat <<EOF\n$(pkill -f claude-fable)\nEOF"),
+                       ("a continued line into sh", "cat <<'EOF' \\\n| sh\npkill -f claude-fable\nEOF")):
+        d = g.decision(cmd, CLAUDE, shell=False)
+        check(f"a pattern kill the broad here-document drop must keep denies: {label}",
+              d is not None and d[0] == "deny", d)
+    check("…a quoted body's pkill stays data for the broad drop",
+          g.decision("git commit -F - <<'EOF'\n$(pkill -f claude-fable)\nEOF", CLAUDE, shell=False) is None)
     d = by_pid(f"kill {W}")
     check("the inbox-watch deny names the here-document way to report a pid",
           d is not None and "gzcoord-send from a file or a here-document" in d[1], d)
@@ -756,6 +787,16 @@ def main() -> int:
             open(os.path.join(proc, str(pid), "cmdline"), "wb").write(cmd.replace(" ", "\0").encode())
         found = g.own_claude(proc=proc, pid=30)
         check("bg-pty-host layout: the session is found, not the daemon", found == (15, "2.1.322 --session-id s"), found)
+        # The harness above the session ends it too (review of #612, P1): bg-pty-host and the daemon are guarded.
+        tree = g.guarded_tree(15, proc=proc, me=30)
+        check("guarded_tree: bg-pty-host and the daemon beside the descendants", sorted(tree) == [10, 12], tree)
+        for cmd in ("kill 12", "kill -TERM 10", "pkill -f '[b]g-pty-host'", "pkill -f '[c]laude daemon'"):
+            d = g.decision(cmd, "2.1.322 --session-id s", pid=15, tree=tree, shell=False, comm="2.1.322")
+            check(f"bg-pty-host layout: a kill of the harness above the session denies: {cmd}",
+                  d is not None and d[0] == "deny", d)
+        open(os.path.join(proc, "10", "cmdline"), "wb").write(b"claude\0run")
+        check("…and with no daemon above it, nothing above the session is guarded",
+              g.harness_ancestors(15, proc=proc) == {}, g.harness_ancestors(15, proc=proc))
     # The session's own comm (a version under 2.1.322) is judged as a name too, so layer 1 refuses a kill by it
     # without the pgrep ground truth (review of #612, pre-existing A).
     VCMD = "2.1.322 --session-id s --model x"
