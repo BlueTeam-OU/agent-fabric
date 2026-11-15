@@ -518,6 +518,7 @@ class SocketCases(Net):
         self.assertIsNone(op.carrier._waiters.get("stuck"), "the connection was dropped with its waiter")
         self.assertLess(time.monotonic() - t0, 40, "bounded, not for the rest of wait_s")
         self.assertTrue(any("not reading" in l for l in op.logs), op.logs)
+        self.assertTrue(any("a reply" in l and "after it opened" in l for l in op.logs), op.logs)
         # One line per session, and the shutdown it did itself is never reported as a ctl that had ended.
         waiter = captured
         waiter(big, "h/alice")   # the inbox thread had captured it before the drop: no second line, no write
@@ -530,16 +531,18 @@ class SocketCases(Net):
         s.wait_sent(5)
         op = self.nodes["op"]
         waiter = op.carrier._waiters["gone"]
-        s.close()
-        # The window is the server thread's wake-up after the close; the waiter is called at once, as the inbox
-        # thread does with a reply already queued.
-        deadline = time.monotonic() + 5
-        while time.monotonic() < deadline and not any("gone"[:8] in l and "had ended" in l for l in op.logs):
-            waiter({"kind": "reply", "id": "x", "in_reply_to": "gone", "from": "h/alice"}, "h/alice")
-            time.sleep(0.01)
-            if op.carrier._waiters.get("gone") is None:
-                break
-        self.assertTrue(any("gone" in l and "had ended" in l for l in op.logs), op.logs)   # the positive control
+        # SHUT_RD, not close(): the server's write then fails with EPIPE while its read sees no EOF, so the session
+        # stays open and the write path is reached on every run. After close() the server thread's wake-up races
+        # this call, and when it wins the "ended" guard logs the same words whatever the EPIPE branch says.
+        self.addCleanup(s.close)
+        s._conn.shutdown(socket.SHUT_RD)
+        waiter({"kind": "reply", "id": "x", "in_reply_to": "gone", "from": "h/alice"}, "h/alice")
+        lines = [l for l in op.logs if "gone"[:8] in l]
+        self.assertEqual(len(lines), 1, op.logs)
+        self.assertIn("had ended", lines[0])   # the positive control
+        self.assertIn("Broken pipe", lines[0])
+        self.assertIn("a reply", lines[0])
+        self.assertIn("after it opened", lines[0])
         self.assertFalse(any("not reading" in l for l in op.logs), op.logs)
 
     def test_a_reply_after_the_session_finished_is_not_written_and_logs_once_with_its_age(self):
