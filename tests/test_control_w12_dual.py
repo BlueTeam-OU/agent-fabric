@@ -29,6 +29,25 @@ CFG_DUAL = {"relay_url": "http://relay.invalid", "channel": "fabric:control", "t
 CFG_RELAY = {**CFG_DUAL, "control_carrier": "relay"}
 
 
+def setUpModule() -> None:
+    # The default reader would read this session's own state directory: a suite owns its mode.
+    patch = mock.patch.object(presence, "_read_mode", lambda: "relay-record")
+    patch.start()
+    unittest.addModuleCleanup(patch.stop)
+
+
+class Relay:
+    """A relay that records every call and is down: ask_presence swallows a failed call as a relay failure, so a test
+    that raised from it would stay green when the relay is asked; the record is what is asserted."""
+
+    def __init__(self) -> None:
+        self.calls: list = []
+
+    def __call__(self, path, method="GET", body=None):
+        self.calls.append((method, path))
+        raise gzcoord.ApiError(f"{path} -> refused", connection_refused=True)
+
+
 def down(**kw):
     """The relay stopped: what gzcoord.api raises on a refused connection."""
     def call(path, method="GET", body=None):
@@ -81,6 +100,29 @@ class Answering(base.Net):
         self.assertEqual(self.ask(call=call), {BOB: ONLINE})
         self.assertEqual(len(posts), 1)   # the relay post is still the record
 
+    def test_carrier_only_posts_and_reads_nothing_on_the_relay_and_interweave_answers(self):
+        self.bob_answers({"presence": ONLINE}, "presence")
+        relay = Relay()
+        self.assertEqual(self.ask(call=relay, read_mode=lambda: "carrier-only"), {BOB: ONLINE})
+        self.assertEqual(relay.calls, [])
+        self.assertEqual(self.bob.requests[0][0]["op"], "presence")
+
+    def test_carrier_only_with_no_answer_is_unknown_and_never_reads_the_relay(self):
+        relay = Relay()
+        self.assertEqual(self.ask(call=relay, read_mode=lambda: "carrier-only", wait_ms=300), {BOB: None})
+        self.assertEqual(relay.calls, [])
+
+    def test_carrier_record_still_posts_the_relay_record(self):
+        posts = []
+
+        def call(path, method="GET", body=None):
+            if method == "POST":
+                posts.append(body)
+            return {"id": "s1"} if method == "POST" else {"messages": []}
+        self.bob_answers({"presence": ONLINE}, "presence")
+        self.assertEqual(self.ask(call=call, read_mode=lambda: "carrier-record"), {BOB: ONLINE})
+        self.assertEqual(len(posts), 1)
+
     def test_an_answer_whose_record_claims_another_sender_is_not_taken(self):
         self.bob_answers({"presence": ONLINE}, "presence", frm="h/alice")
         self.assertEqual(self.ask(call=down(), wait_ms=1500), {BOB: None})
@@ -110,6 +152,31 @@ class SocketAbsent(unittest.TestCase):
             presence.ask_presence(from_=ALICE, to=[BOB], expect=[BOB], wait_ms=200, cfg=CFG_DUAL, new_id=lambda: "p", call=down())
         self.assertIn("XDG_RUNTIME_DIR is not set", str(cm.exception))
         self.assertTrue(cm.exception.connection_refused)
+
+    def test_carrier_only_with_no_socket_says_so_and_asks_the_relay_nothing(self):
+        relay = Relay()
+        with self.assertRaises(cc.Down) as cm:
+            presence.ask_presence(from_=ALICE, to=[BOB], expect=[BOB], wait_ms=200, cfg=CFG_DUAL, new_id=lambda: "p",
+                                  call=relay, read_mode=lambda: "carrier-only")
+        self.assertEqual(relay.calls, [])
+        self.assertIn("XDG_RUNTIME_DIR is not set", str(cm.exception))
+        self.assertIn("carrier-only", str(cm.exception))
+
+    def test_carrier_only_without_dual_has_no_carrier_to_ask_by_and_says_so(self):
+        with self.assertRaises(RuntimeError) as cm:
+            presence.ask_presence(from_=ALICE, to=[BOB], expect=[BOB], wait_ms=200, cfg=CFG_RELAY, new_id=lambda: "p",
+                                  call=Relay(), read_mode=lambda: "carrier-only")
+        self.assertIn("carrier-only", str(cm.exception))
+
+    def test_an_unreadable_mode_is_not_read_as_relay_record(self):
+        from gzcoord.transport import mode
+
+        def broken() -> str:
+            raise mode.ModeError("transport-mode.json does not hold a transport mode")
+        with self.assertRaises(RuntimeError) as cm:
+            presence.ask_presence(from_=ALICE, to=[BOB], expect=[BOB], wait_ms=200, cfg=CFG_DUAL, new_id=lambda: "p",
+                                  call=Relay(), read_mode=broken)
+        self.assertIn("transport mode is unknown", str(cm.exception))
 
     def test_presence_with_no_socket_and_the_relay_up_says_so_once_and_the_relay_answers(self):
         said = []
