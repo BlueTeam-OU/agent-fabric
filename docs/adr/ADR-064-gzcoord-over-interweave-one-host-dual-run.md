@@ -276,7 +276,13 @@ address, where the relay's `sender` is a claim (ADR-033 §6).
     judges the three properties from them, and the drill's evidence is a
     record in `docs/live-checks/` beside the report (A 2026-11-08). An
     acknowledgement there is the account's record of the relay's answer,
-    not the relay's own cursor. A fourth property is judged from each
+    not the relay's own cursor. `interweave-evidence` also gathers each
+    account's watch log (`gzcoord-watch.jsonl`: a line when a watch
+    starts and one when it ends, with its reason), and `gzcoord-carrier
+    parity --relay-drill` prints per account the starts inside the drill
+    and whether a watch gave up (exit 5); an account whose log was not
+    collected whole reads not collected, never none (A 2026-11-15). A
+    fourth property is judged from each
     sender's backfill log (`gzcoord-backfill.jsonl`, written as the relay
     returns, gathered as ADR-029 §2's `backfills`): every message the
     carrier alone held reached the relay's record afterwards, posted or
@@ -284,7 +290,14 @@ address, where the relay's `sender` is a claim (ADR-033 §6).
     derived from the sender's journal (A 2026-11-14). A row over the
     backfill's age bound, or none by the report's `until`, fails it; a
     log not collected whole, or a collection without the derived rows,
-    leaves it not judged, never passed (A 2026-11-13).
+    leaves it not judged, never passed (A 2026-11-13). A carrier-outage drill stops one
+    account's InterWeave units for a stated window in `carrier-record`;
+    `gzcoord-carrier parity --carrier-drill START END LOGIN` judges it
+    from the collected evidence: every message addressed to that account
+    and made inside the window that a sender's outbox recorded, and that
+    no copy reached before the window ended, arrived once after it and
+    was shown to the session once. A pair the files cannot show is
+    unsettled, never passed (A 2026-11-15).
 12. This carrier carries GZCoord application messages only. The control
     plane rides the same profile on its own `fabric-control` endpoint,
     through `interweave-human` under the account's agentd (ADR-029 rule
@@ -414,3 +427,4 @@ The body above reads current; each change's full note is in [history/ADR-064-ame
 | 2026-11-14 | A send the relay took counts as on its record | §5 rule 11: `relay-took-send` read as held; `none` only with the derived rows collected (#592) |
 | 2026-11-14 | The cutover past the dual run: data plane first, three modes per account | §7: gates 1 and 2 before the relay's retirement; `relay-record`, `carrier-record`, `carrier-only` by signed action; seq, alerts and whole-channel record given up |
 | 2026-11-14 | A second host with no fixed coordinator address is reached at a public forward, any source | §5 rule 1: admission by roster PeerId alone; the exposure a known limit in the operator's record (ADR-069 rule 2) |
+| 2026-11-15 | The drills read each account's watch log; a carrier-outage drill is judged | §5 rule 11: restarts and give-ups from `gzcoord-watch.jsonl`; `gzcoord-carrier parity --carrier-drill` (#620) |

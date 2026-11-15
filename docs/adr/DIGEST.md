@@ -730,6 +730,7 @@ its record disagree, the record wins. Look it up, never read it whole:
 - A 2026-11-14 — backfills: relay-took-send rows, send_rows (§2).
 - A 2026-11-14 — open ctl session holds agentd's restart (r18).
 - A 2026-11-14 — interweave-mode: the transport mode by signed action (§2).
+- A 2026-11-15 — evidence takes a sixth section, watch: the watch log's starts and ends (§2).
 - Keywords: fabric-ctl, keys, operator_key, usage, tokens, herdr,
   resume, interweave-evidence, interweave-human, fabric-control,
   control_carrier, break-glass, HOLD_MAX_S, interweave-mode.
@@ -1518,6 +1519,7 @@ its record disagree, the record wins. Look it up, never read it whole:
 - A 2026-11-14 — relay-took-send held; none needs send_rows (rule 11).
 - A 2026-11-14 — past the dual run: data plane first, relay retired later; three modes per account by signed action; seq, alerts, whole-channel record given up (§7).
 - A 2026-11-14 — a coordinator with no fixed address reaches the second host at a public forward from any source, on the owner's word: admission by roster PeerId, exposure a known limit (rule 1).
+- A 2026-11-15 — drills read the watch log (starts, give-ups); a carrier-outage drill is judged by `parity --carrier-drill`: held, once after, shown once (rule 11).
 - Keywords: InterWeave, carrier, relay, P5, second host, fabric-h2.
 
 ### ADR-065 — The reviewer reads through pinned tools, says what it covered, and the next round starts where the last one stopped (Accepted)

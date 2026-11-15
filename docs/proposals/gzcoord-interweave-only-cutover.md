@@ -197,7 +197,7 @@ on the same pull request (A 2026-11-14), since #584 had built it.
 
 **Gate 2: the relay carries no GZCoord.** Evidence: every account in `carrier-record` for the
 agreed soak (D8) with no stranded delivery; a carrier-outage drill (one account's units stopped
-for 30 minutes: senders' outboxes hold, everything arrives once on its return, shown once); two
+for 30 minutes: senders' outboxes hold, everything arrives once on its return, shown once, judged by `gzcoord-carrier parity --carrier-drill` (#620)); two
 accounts in `carrier-only` through a relay stop of a working hour with every GZCoord function
 exercised (send, watch, replay, `fabric-pr arm --authorization`, `fabric-jobs add --request`,
 a REQUEST's job intake); and W12's read-back if the owner takes D1's recommendation. Records:
