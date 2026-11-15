@@ -169,6 +169,27 @@ def main() -> int:
         rc, out, err = tidy()
         check("a held tree with no build output says nothing of it (the control for the size above)",
               rc == 0 and f"kept {t_bare}: it is, holds or lies in a checkout of open job j2\n" in out, out)
+        t_deaf = tree()
+        write(os.path.join(t_deaf, "target", "debug", "big.o"), 3 * 1024 * 1024)
+        listing(job(3, "active", worktree=t_deaf))
+        os.chmod(os.path.join(t_deaf, "target", "debug"), 0)
+        try:
+            rc, out, err = tidy()
+            deaf_line = next((l for l in out.splitlines() if l.startswith(f"kept {t_deaf}:")), "")
+            check("a held tree whose build output cannot be listed says it could not be measured, never a size",
+                  rc == 0 and "its build output could not be measured" in deaf_line and "MB" not in deaf_line and " 0 B" not in deaf_line, out + err)
+        finally:
+            os.chmod(os.path.join(t_deaf, "target", "debug"), 0o755)
+        os.chmod(t_deaf, 0o311)      # the tree itself cannot be listed: its targets are not found, which must not read as "none"
+        try:
+            rc, out, err = tidy()
+            deaf_line = next((l for l in out.splitlines() if l.startswith(f"kept {t_deaf}:")), "")
+            check("…and so does a held tree that cannot itself be listed (the control: the same tree readable names its size)",
+                  rc == 0 and "could not be measured" in deaf_line, out + err)
+        finally:
+            os.chmod(t_deaf, 0o755)
+        rc, out, err = tidy()
+        check("…the control: readable again, the size is named", "its build output is 3.0 MB" in next((l for l in out.splitlines() if l.startswith(f"kept {t_deaf}:")), ""), out + err)
         usage = types.SimpleNamespace(total=1000, free=100, used=900)
         real_usage = tidy_mod.shutil.disk_usage
         try:

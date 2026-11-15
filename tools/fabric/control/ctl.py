@@ -2548,7 +2548,7 @@ def _second_carrier(request: dict, expected: list[dict], args: dict, err: Callab
     session = None
     try:
         session = link.Session(path, request, targets, args["timeout"])
-        early = session.wait_sent(budget + 5)
+        early = session.wait_sent(budget + link.WRITE_WAIT_S + 2)
     except RuntimeError as e:
         err(f"fabric-ctl: {CARRIER_LABEL}: {e}; the relay carries alone")
         if session is not None:

@@ -589,7 +589,7 @@ class Carrier:
             try:
                 self._on_request(record, self.me)
             except Exception as e:  # noqa: BLE001 — a thread nobody joins: said, never lost silently
-                self._log(f"own request {js.slice(js.string(record.get('id')), 8)} failed to be handled: {e}")
+                self._log(f"own request {short_id(js.string(record.get('id')))} failed to be handled: {e}")
         threading.Thread(target=run, name="control-carrier-self", daemon=True).start()
 
     def watch(self, request_id: str, waiter: Callable[[dict, str], None]) -> None:
@@ -615,7 +615,10 @@ class Carrier:
         return self.child.send(f"{peer}/{ENDPOINT}", frame(record))
 
     def send_to(self, addresses: Iterable[str], record: dict, wait_s: float) -> dict[str, tuple[bool, str]]:
-        """One direct send per address, all handed to the child before any is waited on, the whole inside `wait_s`.
+        """One direct send per address, all handed to the child before any is waited on; every hand-over STARTS inside `wait_s`.
+        The last may run WRITE_WAIT_S past it: a hand-over is not cut by this budget, because a line cut off half way leaves
+        half a line in the child's pipe and Child._write ends the child as wedged for that. A waiter therefore allows the
+        budget plus WRITE_WAIT_S (fabric-ctl's wait_sent, Leg.open).
         The deadline counts from the first hand-over: a child that drains its pipe slowly makes each hand-over take
         seconds, and a budget that began after them let a 29-account send run past fabric-ctl's wait for it (j144:
         ctl gave up at its budget + 5 s and the answer went to a closed socket). A send not yet handed over when the
@@ -637,7 +640,7 @@ class Carrier:
             return
         ok, why = self.send_to([to], reply, SEND_WAIT_S)[to] if isinstance(to, str) else (False, "no sender")
         if not ok:
-            self._log(f"reply {js.slice(js.string(reply.get('id')), 8)} to {js.slice(js.string(to), 60)} not sent: {why}")
+            self._log(f"reply {short_id(js.string(reply.get('id')))} to {js.slice(js.string(to), 60)} not sent: {why}")
 
 
 # ── fabric-ctl's socket ──────────────────────────────────────────────
@@ -961,7 +964,7 @@ class Leg:
         session = None
         try:
             session = Session(path, record, to, wait_s)
-            early = session.wait_sent(wait_s + 2)
+            early = session.wait_sent(wait_s + WRITE_WAIT_S + 2)
         except RuntimeError as e:
             # A session that was made had the request handed to it: whether it left is unknown. One that was not
             # made (the socket absent, refused) sent nothing.

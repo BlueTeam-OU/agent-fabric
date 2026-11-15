@@ -79,12 +79,15 @@ def held_output(real: str) -> str:
     """What a tree an open job holds keeps on disk: its build output, measured and not removed. A tree kept whole was never
     measured, so the targets that filled /home were invisible to the sweep that was kept from touching them. A size that cannot
     be read is said as unknown, never as zero."""
+    # os.walk says nothing of a directory it cannot list: both walks collect what they could not see, and any of it makes the
+    # size unmeasurable, said so, never a smaller number or none.
+    errors: list[OSError] = []
     try:
-        found, _ = lt.find_targets(real, lt.BUILD_OUTPUT)
+        found, _ = lt.find_targets(real, lt.BUILD_OUTPUT, errors)
         seen: set[tuple[int, int]] = set()
         total = 0
         for target in found:
-            for dirpath, _dirs, files in os.walk(target, followlinks=False):
+            for dirpath, _dirs, files in os.walk(target, followlinks=False, onerror=errors.append):
                 for name in files:
                     st = os.lstat(os.path.join(dirpath, name))
                     if (st.st_dev, st.st_ino) not in seen:
@@ -92,6 +95,9 @@ def held_output(real: str) -> str:
                         total += st.st_blocks * 512
     except OSError as e:
         return f"; its build output could not be measured ({e.strerror or e})"
+    if errors:
+        e = errors[0]
+        return f"; its build output could not be measured ({e.strerror or e}: {e.filename})"
     return f"; its build output is {lt.human(total)}" if found else ""
 
 

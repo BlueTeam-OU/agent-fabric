@@ -9,8 +9,11 @@ is the wire's far end (a second fake daemon, its PeerId in the signed roster, it
 carrier needs a second Linux login, because the carrier names itself from `pwd` (gzmsg.whoami) with no override: that half of
 "two accounts" is what the live check has and this stand-in has not.
 
-A function that still needs the relay FAILS here, naming the function and the lines that reach for it. Nothing is patched or
-skipped. Plain script: prints ok/FAIL, exit 1 on any failure."""
+A function that still needs the relay FAILS here, naming the function and the lines that reach for it, with ONE exception held
+to its exact conditions: `gzcoord-send`'s presence check, which posts to the relay (python-dev-04's j130 fixes it). That case
+passes for a send that works, or for exactly that failure (exit 4, nothing sent, "presence is unknown", connection refused, no
+send reached the daemon), and prints a KNOWN GAP line with the lines that reach the relay; once j130 lands it becomes a plain
+pass. Nothing is patched or skipped. Plain script: prints ok/FAIL, exit 1 on any failure."""
 from __future__ import annotations
 
 import json

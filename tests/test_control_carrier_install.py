@@ -1697,6 +1697,7 @@ class Wiring(Case):
                "carrier_opts": {"state": self.state}}
         r = agentd.answer({"id": "q", "op": "interweave-install", "to": "*", "from": "h/user"}, ctx)
         self.assertEqual((r["op"], list(r["data"]), r["data"]["interweave-install"]["status"]), ("interweave-install", ["interweave-install", "agentd"], "installed"))
+        ctx = {**ctx, "inbox_carrier_opts": {"runtime_dir": "/nonexistent-runtime"}}      # the outbox read never reaches this login's live carrier
         r = agentd.answer({"id": "q2", "op": "interweave", "to": "*", "from": "h/user"}, ctx)
         self.assertEqual((list(r["data"]), r["data"]["interweave"]["status"], r["data"]["interweave"]["version"]), (["interweave", "agentd"], "ok", VERSION))
         r = agentd.answer({"id": "q3", "op": "interweave-install", "to": "*", "args": {"url": "https://x"}, "from": "h/user"}, ctx)
