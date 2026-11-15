@@ -4208,18 +4208,59 @@ def test_a_registered_project_without_a_working_copy_refuses_the_drain(tmp: str)
     assert not os.path.exists(dom(out, "alpha")), "a slice was written past the refusal"
 
 
-def test_the_refusal_does_not_offer_a_flag_that_cannot_clear_it(tmp: str) -> None:
-    """--working-copy PROJECT=DIR serves the anchor guard only: the message says so for a project given that way
-    and never sends the operator to a remedy that leaves the refusal in place."""
-    drain, claims_dir, out = one_domain_claim(tmp)
-    registry_with(out, PROJECT, "ghost")
+def slice_text(out: str, role: str) -> str:
+    d = dom(out, role)
+    return "".join(read(os.path.join(d, f)) for f in sorted(os.listdir(d)) if f.endswith(".md")) if os.path.isdir(d) else ""
+
+
+def ghost_checkout(out: str, hygiene: dict | None) -> str:
     ghost = os.path.join(out, "wc-ghost")
     os.makedirs(os.path.join(ghost, ".agent-fabric"))
+    if hygiene is not None:
+        with open(os.path.join(ghost, ".agent-fabric", "hygiene.json"), "w", encoding="utf-8") as fh:
+            json.dump(hygiene, fh)
+    return ghost
+
+
+def test_a_checkout_named_by_working_copy_is_found_and_its_list_is_read(tmp: str) -> None:
+    """--working-copy PROJECT=DIR counts as found (the owner's decision on #544's open cases): no refusal, and the
+    list in that checkout withholds its name from every slice. Control: the same run without the flag refuses."""
+    drain, claims_dir, out = build(tmp, {"alpha": claims("alpha", [
+        {"class": "domain", "topic": "grid", "title": "Grid", "body": "Gotham is gridded.", "evidence": ["h1"]},
+    ])})
+    registry_with(out, PROJECT, "ghost")
+    ghost = ghost_checkout(out, {"patterns": [{"pattern": "\\bgotham\\b", "flags": "i", "label": "city name"}]})
+    refused = run_assemble(drain, claims_dir, out)
+    assert refused.returncode == 1 and "ghost" in refused.stderr, refused.stderr
     proc = run_assemble(drain, claims_dir, out, "--working-copy", "ghost=" + ghost)
-    assert proc.returncode == 1 and "anchor guard only: ghost" in proc.stderr, proc.stderr
-    assert "for the run's own project" not in proc.stderr, proc.stderr
-    plain = run_assemble(drain, claims_dir, out)
-    assert plain.returncode == 1 and "anchor guard only" not in plain.stderr, plain.stderr
+    assert proc.returncode == 0, proc.stderr
+    assert "NO HYGIENE LIST" not in proc.stderr, proc.stderr
+    report = read(report_path(out))
+    assert json.loads(report)["redactions"], report
+    assert json.loads(report)["assembled_without_hygiene"] == [], report
+    assert "gotham" not in report.lower() and "gotham" not in slice_text(out, "alpha").lower()
+
+
+def test_a_named_checkout_without_a_hygiene_list_is_found_with_no_project_list(tmp: str) -> None:
+    """A checkout given as PROJECT=DIR that has no hygiene.json is found, with no project list: the run goes on,
+    says nothing of a missing list, and the fabric's own lists still apply (a credential shape is still refused)."""
+    drain, claims_dir, out = build(tmp, {"alpha": claims("alpha", [
+        {"class": "domain", "topic": "grid", "title": "Grid", "body": "Gotham is gridded.", "evidence": ["h1"]},
+    ])})
+    registry_with(out, PROJECT, "ghost")
+    ghost = ghost_checkout(out, None)
+    proc = run_assemble(drain, claims_dir, out, "--working-copy", "ghost=" + ghost)
+    assert proc.returncode == 0, proc.stderr
+    assert "NO HYGIENE LIST" not in proc.stderr, proc.stderr
+    assert json.loads(read(report_path(out)))["assembled_without_hygiene"] == []
+    assert "Gotham" in slice_text(out, "alpha"), "no list names it: it stands"
+    leaky, claims_leaky, out2 = build(os.path.join(tmp, "second"), {"alpha": claims("alpha", [
+        {"class": "domain", "topic": "key", "title": "Key", "body": "Use the token=abcdefgh12345678 here.", "evidence": ["h1"]},
+    ])})
+    registry_with(out2, PROJECT, "ghost")
+    again = run_assemble(leaky, claims_leaky, out2, "--working-copy", "ghost=" + ghost_checkout(out2, None))
+    assert again.returncode == 0, again.stderr
+    assert "abcdefgh12345678" not in slice_text(out2, "alpha") and "abcdefgh12345678" not in again.stderr, again.stderr
 
 
 def test_allow_missing_hygiene_assembles_and_names_the_projects_without_a_list(tmp: str) -> None:
@@ -4247,7 +4288,8 @@ def test_a_project_whose_list_is_found_is_assembled_as_before(tmp: str) -> None:
 
 def main() -> int:
     cases = [
-        test_the_refusal_does_not_offer_a_flag_that_cannot_clear_it,
+        test_a_checkout_named_by_working_copy_is_found_and_its_list_is_read,
+        test_a_named_checkout_without_a_hygiene_list_is_found_with_no_project_list,
         test_a_registered_project_without_a_working_copy_refuses_the_drain,
         test_allow_missing_hygiene_assembles_and_names_the_projects_without_a_list,
         test_a_project_whose_list_is_found_is_assembled_as_before,
