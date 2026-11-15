@@ -564,6 +564,27 @@ def case_project_index_needs_no_fabric_coordinator_domain_slice() -> None:
         assert "does not list ../agent-fabric/identities/roles/fabric-coordinator/charter.md" in out, out
 
 
+def case_a_bound_project_without_a_fabric_coordinator_directory_is_not_asked_to_index_its_domain() -> None:
+    """The per-index exception is not enough: a project that binds fabric-coordinator and has no directory for it yet
+    was told its INDEX lists none of the domain slices, which the assembler never renders there. Kills: the
+    'indexed by no project' check naming fabric-coordinator."""
+    with tempfile.TemporaryDirectory() as root:
+        fabric = make_base(root)
+        cat = json.load(open(os.path.join(fabric, "identities", "roles", "catalog.json"), encoding="utf-8"))
+        cat["roles"].append({"id": "fabric-coordinator", "title": "Coordinator"})
+        write(os.path.join(fabric, "identities", "roles", "catalog.json"), json.dumps(cat))
+        tax = dict(TAXONOMY); tax["roles"] = TAXONOMY["roles"] + [{"id": "fabric-coordinator", "paths": [".agent-fabric/"]}]
+        write(os.path.join(fabric, "projects", PROJECT, "taxonomy.json"), json.dumps(tax))
+        write(os.path.join(wc_demo(fabric), ".agent-fabric", "taxonomy.json"), json.dumps(tax))  # the copy lint reads first
+        os.makedirs(os.path.join(wc_demo(fabric), ".agent-fabric", "memory", "web-dev"))  # a project is visible by its memory
+        write(os.path.join(fabric, "identities", "roles", "fabric-coordinator", "charter.md"),
+              CHARTER.replace('role: "web-dev"', 'role: "fabric-coordinator"'))
+        write(os.path.join(fabric, "memory", "domains", "fabric-coordinator", "domain", "tool-review.md"),
+              SLICE.replace('role: "web-dev"', 'role: "fabric-coordinator"'))
+        code, out = run_lint(fabric)
+        assert "memory/domains/fabric-coordinator" not in out, out
+
+
 def case_agent_fabrics_own_index_still_needs_fabric_coordinators_domain_slice() -> None:
     """The control plane's own fabric-coordinator INDEX is where those slices are listed (assembler/index.py
     _unlisted_here), so lint still calls it drifted when one is missing. Kills: lint dropping the domain slices for
@@ -3017,6 +3038,7 @@ def main() -> int:
         case_index_lists_domain_slices,
         case_project_index_needs_no_fabric_coordinator_domain_slice,
         case_agent_fabrics_own_index_still_needs_fabric_coordinators_domain_slice,
+        case_a_bound_project_without_a_fabric_coordinator_directory_is_not_asked_to_index_its_domain,
         case_fabric_ref_is_one_full_commit_id,
         case_quoted_description_round_trips,
         case_the_callers_operator_is_not_part_of_a_fixture,

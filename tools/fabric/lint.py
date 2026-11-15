@@ -21,7 +21,8 @@ Checks:
   identity   every role directory is catalogued; charter, brief and recall
              are the only authored classes; payload is well-shaped
   index      every (project, role) index lists every slice the role has —
-             its domain slices, its project slices, its charter and recall,
+             its domain slices (fabric-coordinator's only in agent-fabric's
+             own index), its project slices, its charter and recall,
              its shared slices — and every index line resolves
   budgets    no slice exceeds its token budget
   shared     a shared slice really is shared (two or more owners)
@@ -1023,7 +1024,9 @@ def main() -> int:
     visible = [pid for pid in layout.list_projects() if pid != layout.FABRIC_PROJECT_ID]
     for domain, slices in domain_slices.items():
         bound_by = [pid for pid in visible if domain in taxonomy_roles.get(pid, set())]
-        if slices and domain not in indexed_domains and bound_by:
+        # fabric-coordinator's domain slices are listed in agent-fabric's own INDEX only (see the per-index check above),
+        # and `visible` already leaves that project out: no other project's INDEX is where they must be.
+        if slices and domain not in indexed_domains and bound_by and domain != "fabric-coordinator":
             findings.append(f"memory/domains/{domain}: {len(slices)} slice(s) indexed by no project — "
                             f"{', '.join(bound_by)} binds the role and its "
                             f".agent-fabric/memory/{domain}/INDEX.md does not list them")
