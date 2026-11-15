@@ -1,8 +1,8 @@
 # GZCoord on InterWeave only: the cutover from the dual run
 
-**Status 2026-11-14.** The owner answered D1, D2, D4, D5 and D10 on 2026-11-13, each as
-recommended (§7). D3's first half is done: #573 merged on 2026-11-13. D6, D7 and D8 are not
-asked yet, and D9 is partly answered. Two records say what was decided: ADR-041 rule 7 (D4, with two conditions of fabric-coordinator's, §7)
+**Status 2026-11-15.** The owner answered D1, D2, D4, D5 and D10 on 2026-11-13, and D6, D7 and
+D8 on 2026-11-15, each as recommended (§7). D3's first half is done: #573 merged on 2026-11-13.
+D9 is partly answered. Two records say what was decided: ADR-041 rule 7 (D4, with two conditions of fabric-coordinator's, §7)
 and ADR-064 §7 (D1, D2, D5, D10), both amended 2026-11-14. The other records in §4 change when
 each gate's word is given. W3 to W10 and W12 to W14 are done (§5): W6, W7 and W8 merged as
 #613, and W7's Stop-hook probe is on #612.
@@ -160,7 +160,7 @@ for InterWeave alone, and the state stream.
 | an authenticated sender | none: `sender` is a claim (agent-fabric ADR-033 §6) | the PeerId, mapped by the roster; a mismatch is shown flagged (ADR-064 rule 9) | gained |
 | presence | a control op on the relay | unchanged by the data plane; control's dual run is on, and `presence.ask_presence` and `queue.ask_holder` also ask through the account's own agentd (#586, W12) | in code the relay's outage no longer stops an addressed send; not yet read back with the relay stopped (gate 2) |
 | the human relay (ADR-033 rule 7) | a person carries text between terminals when the relay is down | the same procedure, used when a carrier cannot deliver; it never used the relay | given; rule 7's trigger is reworded |
-| journal-off break-glass (ADR-041 rule 10) | "the route is the relay alone" (ADR-064 rule 8); `carrier/main.py` `cmd_run` refuses to start | none | gap: to be decided (D7) |
+| journal-off break-glass (ADR-041 rule 10) | "the route is the relay alone" (ADR-064 rule 8); `carrier/main.py` `cmd_run` refuses to start | none | decided (D7, owner 2026-11-15): W17 |
 | reach to a second host | none: the relay binds loopback | the profile's listener. The carrier no longer assumes one host (#585, W10): `Carrier.recipients` carries a `TO` to the roster row whose host matches, and `Carrier.finish` judges and journals a sender as `<row's host>/<login>`, both through `Carrier.row_host` | done in code; the two-host read-back with a throwaway login is not run, and for an account on fabric-h2 InterWeave is the only route from its first day |
 | one place to back up | one database, copied every 6 h | 30 state directories, copied daily | changed: the copy must add the outbox |
 
@@ -250,7 +250,8 @@ devex-tooling's `tools/fabric/github/`; **FC** is fabric-coordinator: `tools/fab
 | W8 | **Done, #613.** `gzcoord-send` under a carrier primary: exit 0 only when the carrier accepted; no seq on stdout; a carrier that is absent is exit 3, "not sent", the pending row marked failed; a `TO` no roster row carries is said | PD (`send.py`); FC for the stdout contract, `i18n/en-US.json` and the skills; each locale's holder for its dictionary | `tests/test_gzcoord_carrier_send.py` covers the four outcomes of `Adapter.post`; `tests/test_gzcoord_i18n.py` passes in every locale | M | W6 |
 | W9 | **Done, #611.** The backfill reads the mode: on in `relay-record` and `carrier-record`, a no-op in `carrier-only` | PD (`gzcoord/backfill.py`) | a test per mode; no relay call in `carrier-only` | S | W1, W5 |
 | W10 | **Done, #585** (the two-host read-back with a throwaway login is not run). Addresses across hosts: `Carrier.recipients` and `Carrier.finish` use the roster row's host | PD (`carrier/engine.py`) | `tests/test_gzcoord_carrier_engine.py`: a `TO` on another host is queued to its row; an arrival from it is `ok` and journaled under its own host; then one message each way with the throwaway login of ADR-069 rule 2 | S to M | - |
-| W11 | TO-ROLE at arrival: a test of a role bound after the message arrived, and the behaviour the owner chooses (D6) | PD | the test states the chosen behaviour | S | D6 |
+| W11 | TO-ROLE at arrival: a test of a role bound after the message arrived, and the behaviour the owner chose (D6: decided at arrival; the presence check refuses a role with no running holder unless forced) | PD | the test states the chosen behaviour | S | - |
+| W17 | Journal-off under a carrier primary (D7): a `GZCOORD_JOURNAL=off` send in `carrier-record` or `carrier-only` goes through the carrier with its bypass line, the outbox keeping the text, where `open_transport` today makes the relay alone or refuses (`ModeError`); journal-off receiving in those modes is refused; the human relay is the break-glass | PD (`transport/__init__.py`, `send.py`) | a test per mode: the send's route and its bypass line; a journal-off receive still refused | S | - |
 | W12 | **Done, #586** (the relay-stopped read-back is gate 2's). Presence and the other public ops off the relay's outage: control's dual run switched on (`runtime/control/config.json`), and `presence.ask_presence` and `queue.ask_holder` handed to the account's own agentd socket | PD (`control/presence.py`, `control/queue.py`, `control_link.Server`); FC for the switch and ADR-029 | with the relay stopped, an addressed send from one staged account to another is checked and sent without `--force` | M to L | D1 |
 | W13 | **Done, #609** (in `carrier-only`, `status.inbox_state` and the status op's `_inbox` read `gzcoord/carrier/position.py`; `drift.inbox` and the `interweave` read are unchanged; the live read-back with the relay stopped is not run). Read position and health without the relay's cursor: `drift.inbox`, `status.inbox_state` and the `interweave` read show the spool's unseen count and the outbox's oldest outstanding and blocked deliveries | PD | `fabric-status` on a `carrier-only` account prints them with the relay stopped; a lagging relay cursor is no longer reported for it | M | W5 |
 | W14 | **Done, #587** (`store_step.py` no longer calls `relay_catchup.py`; `journal_import` stays, best effort). A new login without the relay: the roster row, the install and the start become provisioning steps; `relay_catchup.py` and `Bootstrap.journal_import` leave them | PD (`provisioning/store_step.py`, `new_agent.py`); PD-supply (`bootstrap.py`, `relay_catchup.py`); FC countersigns rows | a scratch login provisioned on a host with the relay stopped sends and receives | M | - |
@@ -258,7 +259,7 @@ devex-tooling's `tools/fabric/github/`; **FC** is fabric-coordinator: `tools/fab
 | W16 | The relay retired (gate 3): control on InterWeave alone, the state stream replaced, the relay unit, its token, its backup timer and `secret_relay.py` removed | PD, FC | sized when gate 3 is asked for | L | gate 3 |
 
 W3 to W10 and W12 to W14 are done. What is left, and in this order: W2 (the two drills and the
-parity report), which needs W1's read-back first; W11, which waits on D6; then the gates. W15 and W16
+parity report), which needs W1's read-back first; W11 and W17 (D6 and D7, decided 2026-11-15); then the gates. W15 and W16
 follow gate 2 and gate 3. The staged switches of §6 are operations, not code:
 fabric-coordinator's, on the owner's word.
 
@@ -335,14 +336,14 @@ other than `NotInRoster`, a roster that fails to verify on any account, or an ac
   others' traffic, and a whole-channel record anyone with the token can list. Recommended:
   give up all three; keep the relay's last database copy on Proton Drive, encrypted, for a
   period the owner names, then delete it.
-- **D6. A TO-ROLE that arrives before its holder binds.** Recommended: accept that it is
+- **D6. A TO-ROLE that arrives before its holder binds.** Accepted, owner 2026-11-15 (W11). Recommended: accept that it is
   decided at arrival, since the presence check already refuses a role with no running holder
   unless forced; the alternative is each carrier keeping every role-addressed message for a
   later binding.
-- **D7. Journal-off.** Recommended: a `GZCOORD_JOURNAL=off` send goes through the carrier with
+- **D7. Journal-off.** Accepted, owner 2026-11-15 (W17). Recommended: a `GZCOORD_JOURNAL=off` send goes through the carrier with
   its bypass line, since the outbox keeps the text; there is no journal-off receiving, and the
   human relay is the break-glass for an account whose journal cannot be written.
-- **D8. The soak and the first accounts.** Recommended: three working days on two accounts and
+- **D8. The soak and the first accounts.** Accepted, owner 2026-11-15 (gates 1 and 2). Recommended: three working days on two accounts and
   seven days on the fleet at each rung, python-dev-02 and python-dev-03 first, the
   coordinator's account last.
 - **D9. The second host.** Recommended: W10 before gate 2, and the two-host check before any
@@ -381,6 +382,6 @@ W3 to W10 and W12 to W14 are done, and #573 is merged. What is left, in this ord
 1. **W1's remainder**: the real-carrier read-back of #573 (the 2026-11-12 drills are filed).
 2. **W2**: the rollback drill, a judged relay-outage drill, and a parity report with no
    untraced miss. With W1 this is everything gate 1 asks for.
-3. **W11** waits on D6.
+3. **W11** and **W17**, both decided on 2026-11-15 (D6, D7).
 4. **The gates**, each on the owner's word and the records in §4; W15 after gate 2, W16 after
    gate 3.
