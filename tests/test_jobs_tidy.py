@@ -156,6 +156,38 @@ def main() -> int:
         rc, out, err = tidy()
         check("a directory under ~/projects that is no checkout is not a tree", rc == 0 and os.path.isdir(os.path.join(sub, "target")) and "plain" not in out, out + err)
 
+        print("fabric-jobs tidy: what a held tree keeps, and the disk")
+        t = tree()
+        write(os.path.join(t, "target", "debug", "big.o"), 3 * 1024 * 1024)
+        listing(job(1, "active", worktree=t))
+        rc, out, err = tidy()
+        held_line = next((l for l in out.splitlines() if l.startswith(f"kept {t}:")), "")
+        check("a held tree's line says how much build output it keeps, and the target stays",
+              rc == 0 and "open job j1; its build output is 3.0 MB" in held_line and os.path.isdir(os.path.join(t, "target")), out + err)
+        t_bare = tree()
+        listing(job(2, "active", worktree=t_bare))
+        rc, out, err = tidy()
+        check("a held tree with no build output says nothing of it (the control for the size above)",
+              rc == 0 and f"kept {t_bare}: it is, holds or lies in a checkout of open job j2\n" in out, out)
+        usage = types.SimpleNamespace(total=1000, free=100, used=900)
+        real_usage = tidy_mod.shutil.disk_usage
+        try:
+            tidy_mod.shutil.disk_usage = lambda path: usage
+            rc, out, err = tidy("--dry-run")
+            check("a filesystem 90% full warns, with what is free; the exit stays 0 and the dry run removes nothing",
+                  rc == 0 and "warning: the filesystem under " in out and "is 90% full, 100 B free" in out, out + err)
+            usage = types.SimpleNamespace(total=1000, free=200, used=800)
+            rc, out, err = tidy("--dry-run")
+            check("…and one 80% full does not (the control)", rc == 0 and "% full" not in out, out + err)
+            def refuse(path):
+                raise OSError("no")
+            tidy_mod.shutil.disk_usage = refuse
+            rc, out, err = tidy("--dry-run")
+            check("…a filesystem that cannot be asked is silent, not a warning of 0%", rc == 0 and "% full" not in out, out + err)
+        finally:
+            tidy_mod.shutil.disk_usage = real_usage
+        listing()
+
         print("fabric-jobs tidy: dry run")
         t = tree("target/debug/a.o", "node_modules/x/index.js")
         rc, out, err = tidy("--dry-run")
