@@ -132,7 +132,7 @@ def open_layout(args: argparse.Namespace) -> str:
             layout.set_working_copy(pid, path)
     listed = sorted(set(layout.project_ids()) | set(layout.explicit_working_copies()))
     # A list that cannot be found withholds nothing, and the drain would go on as if it did: banned names reached
-    # project corpora that way. The fabric's own project always has one: its working copy is the root.
+    # project corpora that way. The fabric's own project has one unless --working-copy agent-fabric=DIR names another checkout, which then is the one read.
     args.without_hygiene = [pid for pid in listed if not layout.working_copy_for(pid)]
     if args.without_hygiene and not args.allow_missing_hygiene:
         looked = (f"beside {os.path.dirname(layout.FABRIC_ROOT)} (a checkout of the project with .agent-fabric/memory/), "

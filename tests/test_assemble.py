@@ -4243,7 +4243,7 @@ def test_a_checkout_named_by_working_copy_is_found_and_its_list_is_read(tmp: str
 
 def test_a_named_checkout_without_a_hygiene_list_is_found_with_no_project_list(tmp: str) -> None:
     """A checkout given as PROJECT=DIR that has no hygiene.json is found, with no project list: the run goes on,
-    says nothing of a missing list, and the fabric's own lists still apply (a credential shape is still refused)."""
+    says nothing of a missing list, and the fabric's own lists still apply (a credential shape is still withheld)."""
     drain, claims_dir, out = build(tmp, {"alpha": claims("alpha", [
         {"class": "domain", "topic": "grid", "title": "Grid", "body": "Gotham is gridded.", "evidence": ["h1"]},
     ])})
@@ -4261,6 +4261,31 @@ def test_a_named_checkout_without_a_hygiene_list_is_found_with_no_project_list(t
     again = run_assemble(leaky, claims_leaky, out2, "--working-copy", "ghost=" + ghost_checkout(out2, None))
     assert again.returncode == 0, again.stderr
     assert "abcdefgh12345678" not in slice_text(out2, "alpha") and "abcdefgh12345678" not in again.stderr, again.stderr
+
+
+def test_a_named_checkout_outranks_one_found_beside_the_tree(tmp: str) -> None:
+    """The same project has a checkout beside the fabric (found by discovery) and another named by PROJECT=DIR: the named
+    one's list is the one read. Control: without the flag the sibling's list applies, so the fixture is live."""
+    drain, claims_dir, out = build(tmp, {"alpha": claims("alpha", [
+        {"class": "domain", "topic": "grid", "title": "Grid", "body": "Gotham and Metropolis are gridded.", "evidence": ["h1"]},
+    ])})
+    registry_with(out, PROJECT, "ghost")
+    sibling = os.path.join(tmp, "sib-ghost")
+    os.makedirs(os.path.join(sibling, ".agent-fabric", "memory"))
+    subprocess.run(["git", "init", "-q", sibling], check=True, timeout=60)
+    with open(os.path.join(sibling, ".agent-fabric-project"), "w", encoding="utf-8") as fh:
+        fh.write("ghost\n")
+    with open(os.path.join(sibling, ".agent-fabric", "hygiene.json"), "w", encoding="utf-8") as fh:
+        json.dump({"patterns": [{"pattern": "\\bmetropolis\\b", "flags": "i", "label": "sibling's city"}]}, fh)
+    named = ghost_checkout(out, {"patterns": [{"pattern": "\\bgotham\\b", "flags": "i", "label": "named city"}]})
+    control = run_assemble(drain, claims_dir, out)
+    assert control.returncode == 0, control.stderr
+    assert "Metropolis" not in slice_text(out, "alpha") and "Gotham" in slice_text(out, "alpha"), "the sibling's list was not read"
+    shutil.rmtree(dom(out, "alpha"))     # the control's slice would make the second run a supersession
+    proc = run_assemble(drain, claims_dir, out, "--working-copy", "ghost=" + named)
+    assert proc.returncode == 0, proc.stderr
+    text = slice_text(out, "alpha")
+    assert "Gotham" not in text and "Metropolis" in text, text
 
 
 def test_allow_missing_hygiene_assembles_and_names_the_projects_without_a_list(tmp: str) -> None:
@@ -4290,6 +4315,7 @@ def main() -> int:
     cases = [
         test_a_checkout_named_by_working_copy_is_found_and_its_list_is_read,
         test_a_named_checkout_without_a_hygiene_list_is_found_with_no_project_list,
+        test_a_named_checkout_outranks_one_found_beside_the_tree,
         test_a_registered_project_without_a_working_copy_refuses_the_drain,
         test_allow_missing_hygiene_assembles_and_names_the_projects_without_a_list,
         test_a_project_whose_list_is_found_is_assembled_as_before,
