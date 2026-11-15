@@ -159,7 +159,7 @@ class AgentdDual(Base):
         lines = [l for l in self.logs if "answered ping for h/op (01a1ddcd" in l]
         self.assertEqual(len(lines), 2, self.logs)
         self.assertEqual(len({l for l in lines}), 2, "the two lines differ: " + repr(lines))
-        self.assertTrue(any("aaaa)" in l for l in lines) and any("bbbb)" in l for l in lines), lines)
+        self.assertTrue(any(l.endswith(" #aaaa") for l in lines) and any(l.endswith(" #bbbb") for l in lines), lines)
         # the control: the same id twice is one answer, one line
         got3 = self.watch("01a1ddce-0000-7000-8000-00000000cccc")
         self.send_iw(body("01a1ddce-0000-7000-8000-00000000cccc"))

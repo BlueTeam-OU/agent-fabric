@@ -100,6 +100,12 @@ def short_id(rid: str) -> str:
     return rid if len(rid) <= 12 else f"{rid[:8]}…{rid[-4:]}"
 
 
+def id_tail(rid: str) -> str:
+    """The random end of a long id as a suffix, for a line whose old shape `(<first 8>)` a test and a reader's grep pin: the
+    prefix stays where it was and the tail follows the line. Nothing for a short id (a test's)."""
+    return "" if len(rid) <= 12 else f" #{rid[-4:]}"
+
+
 SOCKET_SEND_S = 5.0        # a reply written to fabric-ctl's socket
 # How long an open fabric-ctl session may hold agentd's restart back (see Server.hold): long enough for a fleet
 # command's replies to come in, short enough that a fabric-ctl left waiting cannot keep the daemon on old code.
