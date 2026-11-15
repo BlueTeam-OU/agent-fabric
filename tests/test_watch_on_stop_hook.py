@@ -343,6 +343,35 @@ def main() -> int:
             os.remove(lock)
             check("lock holder: no lock file", mod.lock_holder_is_watch(procs, rd) is False)
 
+        # carrier_leads() reads the account's own mode file; the state root is this test's, never the session's.
+        saved_state = os.environ.get("AGENT_FABRIC_STATE_DIR")
+        os.environ["AGENT_FABRIC_STATE_DIR"] = os.path.join(tmp, "modestate")
+        # The stub tree above planted its own gzcoord package: drop it so the hook's lazy import finds the real one.
+        for name in [n for n in sys.modules if n == "gzcoord" or n.startswith("gzcoord.")]:
+            del sys.modules[name]
+        sys.path.insert(0, os.path.join(HERE, "tools", "fabric"))
+        from gzcoord.transport import mode as tmode
+        mode_file = tmode.path()
+        check("the mode file is under the test's state root", mode_file.startswith(os.path.join(tmp, "modestate")), mode_file)
+        os.makedirs(os.path.dirname(mode_file))
+        check("carrier_leads: no mode file is the relay's answer (False)", mod.carrier_leads() is False)
+        for m, want in ((tmode.RELAY_RECORD, False), (tmode.CARRIER_RECORD, True), (tmode.CARRIER_ONLY, True)):
+            tmode.write(m, "test", os.path.dirname(mode_file))
+            check(f"carrier_leads: mode {m}", mod.carrier_leads() is want)
+        for label, plant in (("not JSON", lambda: open(mode_file, "w").write("{")),
+                             ("an unknown mode", lambda: open(mode_file, "w").write('{"mode": "bogus"}')),
+                             ("a directory", lambda: (os.remove(mode_file), os.mkdir(mode_file)))):
+            tmode.write(tmode.CARRIER_ONLY, "test", os.path.dirname(mode_file))   # positive control: it would lead
+            check(f"carrier_leads: control, carrier-only reads True before '{label}'", mod.carrier_leads() is True)
+            plant()
+            check(f"carrier_leads: an unreadable mode file ({label}) is False", mod.carrier_leads() is False)
+            if os.path.isdir(mode_file):
+                os.rmdir(mode_file)
+        if saved_state is None:
+            os.environ.pop("AGENT_FABRIC_STATE_DIR")
+        else:
+            os.environ["AGENT_FABRIC_STATE_DIR"] = saved_state
+
         def boom(*a, **k):
             raise RuntimeError("x")
         orig, mod.read_procs = mod.read_procs, boom
