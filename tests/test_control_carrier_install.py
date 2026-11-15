@@ -1737,7 +1737,14 @@ class Operator(unittest.TestCase):
         self.assertIn("sha256 mismatch", install[3])
         self.assertNotIn("\u0007", install[3], "an account's words reach the terminal escaped")
         read = ctl.table("interweave", rows).split("\n")
-        self.assertRegex(read[1], r"^a +ok +- +0\.1\.0 +yes +both +off +status exited 3", "an account off the channel is not a clean row")
+        self.assertRegex(read[1], r"^a +ok +- +0\.1\.0 +yes +both +off +- +status exited 3", "an account off the channel is not a clean row")
+        # The stranded column (j151, gate 2's "no stranded delivery"): `-` from an agent that does not report its outbox, the
+        # count older than the bound from one that does, `?` from one that could not read it, never 0 for either.
+        with_outbox = [{**rows[0], "interweave": {**rows[0]["interweave"], "outbox": {"status": "ok", "older": 0, "outstanding": 0}}},
+                       {**rows[0], "account": "d", "interweave": {**rows[0]["interweave"], "outbox": {"status": "ok", "older": 3, "outstanding": 5}}},
+                       {**rows[0], "account": "e", "interweave": {**rows[0]["interweave"], "outbox": {"status": "unknown", "reason": "no socket"}}}]
+        cells = [line.split()[-4] for line in ctl.table("interweave", with_outbox).split("\n")[1:]]
+        self.assertEqual(cells, ["0", "3", "?"], "a count, never a guess")
         self.assertRegex(read[3], r"^c +absent +- +- +- +no")
         self.assertIn("installed", ctl.ACTION_OK["interweave-install"])
         self.assertIn("current", ctl.ACTION_OK["interweave-install"])

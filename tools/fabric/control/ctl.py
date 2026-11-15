@@ -1448,7 +1448,7 @@ def _table_carrier_mode(rs: list) -> list[str]:
 
 
 def _table_carrier(rs: list) -> list[str]:
-    lines = [f"{pad_end('account', 22)} {pad_end('status', 11)} {pad_end('mode', 15)} {pad_end('version', 9)} {pad_end('pinned', 7)} {pad_end('units', 6)} {pad_end('channel', 12)} reason"]
+    lines = [f"{pad_end('account', 22)} {pad_end('status', 11)} {pad_end('mode', 15)} {pad_end('version', 9)} {pad_end('pinned', 7)} {pad_end('units', 6)} {pad_end('channel', 12)} {pad_end('stranded', 9)} reason"]
     for r in rs:
         u = r.get(CARRIER_NAME)
         if _unless(r, u):
@@ -1462,8 +1462,18 @@ def _table_carrier(rs: list) -> list[str]:
         lines.append(esc(trim_end(f"{pad_end(r['account'], 22)} {pad_end(S(nullish(dig(u, 'status'), 'no status')), 11)} "
                                   f"{pad_end(_mode_cell(u), 15)} "
                                   f"{pad_end(S(nullish(dig(u, 'version'), '-')), 9)} {pad_end('yes' if pinned is True else 'no' if pinned is False else '-', 7)} "
-                                  f"{pad_end(have, 6)} {pad_end(S(nullish(dig(channel, 'status'), '-')), 12)} {S(why)}")))
+                                  f"{pad_end(have, 6)} {pad_end(S(nullish(dig(channel, 'status'), '-')), 12)} "
+                                  f"{pad_end(_stranded_cell(u), 9)} {S(why)}")))
     return lines
+
+
+def _stranded_cell(u: Any) -> str:
+    """`-` for an agent that does not report its outbox, `?` for one that could not read it, else how many deliveries are older
+    than the bound (`0` is the soak's answer)."""
+    o = dig(u, "outbox")
+    if not isinstance(o, dict):
+        return "-"
+    return S(o["older"]) if o.get("status") == "ok" and isinstance(o.get("older"), int) else "?"
 
 
 def _table_carrier_install(rs: list) -> list[str]:
