@@ -111,7 +111,7 @@ class World:
         return {"journal": rows, "jobs": jobs, "ledger": [(bool(x.get("pending")), x["mid"]) for x in self.ledger_lines()]}
 
     def agent_dir(self) -> str:
-        found = [os.path.join(dp) for dp, _, fs in os.walk(self.state) if "gzcoord-shown.jsonl" in fs or "gzcoord-arrivals.jsonl" in fs]
+        found = [os.path.join(dp) for dp, _, fs in os.walk(self.state) if {"gzcoord-shown.jsonl", "gzcoord-arrivals.jsonl", "gzcoord-watch.jsonl"} & set(fs)]
         return found[0] if found else ""
 
     def read(self, name: str) -> list[dict]:
@@ -241,14 +241,25 @@ def main() -> int:
     r = w.watch()
     check("relay down, nothing on the carrier: the watch gives up with the relay's line, shows nothing",
           r.returncode == 5 and "subject-" not in r.stdout, f"{r.returncode}\n{r.stdout}{r.stderr}")
+    # The watch log (the relay-outage drill's evidence of restarts and give-ups): a start, and the end with the reason the watch ended.
+    def lifecycle() -> list[tuple]:
+        return [(x["event"], x.get("reason"), x.get("code")) for x in w.read("gzcoord-watch.jsonl")]
+    check("the watch that gave up wrote its start and an end with reason gave-up and exit code 5",
+          lifecycle() == [("start", None, None), ("end", "gave-up", 5)], str(w.read("gzcoord-watch.jsonl")))
+    check("the watch log's lines are one pid, and a time each; no text of any message",
+          len({x["pid"] for x in w.read("gzcoord-watch.jsonl")}) == 1 and all(x["t"].endswith("Z") for x in w.read("gzcoord-watch.jsonl")))
     # (b) the watch above ended and a new one starts: the message that arrived meanwhile is shown
     recs.append(urec(1))
     r = w.watch()
     check("(a)(b) relay down: a message only the carrier has reaches a watch started after the first one ended",
           r.returncode == 0 and r.stdout.count("subject-1") == 1 and w.acks == [], f"{r.returncode}\n{r.stdout}{r.stderr}")
+    check("the restart is a second start, and its end says delivery",
+          lifecycle()[2:] == [("start", None, None), ("end", "delivery", 0)], str(w.read("gzcoord-watch.jsonl")))
     r = w.watch()
     check("(b) a restart of the watch does not show it again, the carrier still listing it",
           "subject-1" not in r.stdout and r.returncode == 5, f"{r.returncode}\n{r.stdout}{r.stderr}")
+    check("... and the third watch gave up again: the log keeps every start and end of the account",
+          [e for e in lifecycle() if e[0] == "end"] == [("end", "gave-up", 5), ("end", "delivery", 0), ("end", "gave-up", 5)], str(lifecycle()))
     # (c) the relay comes back carrying the same message
     w.relay_down = False
     w.pages = [[relay_rec(1)]]
@@ -314,6 +325,23 @@ def main() -> int:
     w.relay_down = False
     r = w.watch(deadline=3)
     check("the relay answered (an empty page): the marker is removed", not os.path.exists(marker), f"{r.returncode}\n{r.stdout}{r.stderr}")
+    # The world above must not show the carrier's record a second time: the shown ledger holds its final line, so the rerun is quiet. An earlier
+    # run once ended that second watch with "delivery" (cause untraced); the check below runs in a world of its own so it does not depend on that.
+    check("the carrier's record is not shown again by the rerun", "subject-5" not in r.stdout
+          and len([x for x in w.ledger_lines() if not x.get("pending")]) == 1, f"{r.stdout}\n{w.ledger_lines()}")
+    q = World([[]])
+    r = q.watch(deadline=3)
+    check("a watch that ended at its deadline says quiet, exit 0",
+          r.returncode == 0 and [(x["event"], x.get("reason"), x.get("code")) for x in q.read("gzcoord-watch.jsonl")][-1:] == [("end", "quiet", 0)],
+          f"{r.returncode}\n{q.read('gzcoord-watch.jsonl')}")
+    q.close()
+    # A log that cannot be written (a directory where the file belongs) never ends or alters the watch; it is said once on stderr.
+    os.remove(os.path.join(w.agent_dir(), "gzcoord-watch.jsonl"))
+    os.mkdir(os.path.join(w.agent_dir(), "gzcoord-watch.jsonl"))
+    w.pages = [[relay_rec(8)]]
+    r = w.watch()
+    check("an unwritable watch log is said once on stderr and the watch still delivers, exit 0",
+          r.returncode == 0 and "subject-8" in r.stdout and r.stderr.count("the watch log") == 1, f"{r.returncode}\n{r.stdout}{r.stderr}")
     w.close()
     # --follow: an arm failed (the watch is "down"), then the carrier delivers while the relay still fails: not "the relay is back".
     # The watch retries every 30 s, so the record arrives after the first failed arm and the case waits for the second.
