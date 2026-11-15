@@ -23,6 +23,7 @@ what it filed or printed):
   shown, acks  (only for the relay-outage drill) every account's shown ledger lines {mid, via, t,
              pending?, flagged?} and the relay acknowledgements it made {mid, addressee, t, ok}
   relay drill  [start, end): the interval the relay refused every fetch
+  carrier drill  [start, end) and a login: the interval that account's InterWeave units were stopped (carrier-record); its shown ledger is read
   offline    seconds after a message was made (its uuid7 timestamp) beyond
              which a copy counts as delivered to an addressee that was away
 
@@ -352,6 +353,78 @@ def relay_record(mid: str, per_account: dict[str, dict], until: float | None) ->
     return {"state": "none"}
 
 
+def load_shown(path: str, login: str) -> list[dict]:
+    """`login`'s shown ledger lines for the carrier-outage drill, after load_collected's checks of the same collection. Refuses a
+    collection without that account, or whose shown ledger was not collected whole: an empty ledger from a daemon that never
+    sent one would read as 'never shown', which is a verdict the files do not support."""
+    parts = _read_parts(path, drill=True)
+    if login not in parts:
+        raise CollectedError(f"the collection has no account {login}: the carrier-outage drill reads that account's own shown ledger")
+    meta, shown = parts[login][0], parts[login][4]
+    ro = meta.get("relay_outage")
+    if shown is None or not isinstance(ro, dict):
+        raise CollectedError(f"{login}: the collection has no shown ledger (made before the relay-outage drill's sections)")
+    if ro.get("complete") is not True:
+        raise CollectedError(f"{login}: the shown ledger was not collected whole ({ro.get('reason') or 'no reason given'})")
+    if ro.get("skipped"):
+        raise CollectedError(f"{login}: {ro['skipped']} line(s) of the account's shown ledger or acknowledgement log could not be read; the drill cannot be judged from the rest")
+    want = meta.get("counts")
+    if isinstance(want, dict) and want.get("shown") != len(shown):
+        raise CollectedError(f"{login}: the files do not hold what the collection counted of the shown ledger (cut short, or edited)")
+    if any(not (isinstance(r, dict) and all(isinstance(r.get(k), str) for k in SHOWN_ROW_KEYS)) for r in shown):
+        raise CollectedError(f"{login}: a shown row is not {{{', '.join(SHOWN_ROW_KEYS)}}}")
+    return shown
+
+
+def _login_of(address: str) -> str:
+    return address.rsplit("/", 1)[-1]
+
+
+def carrier_outage(arrivals: list[dict], senders: dict[str, list[dict]], shown: list[dict], drill: tuple[float, float], login: str) -> dict:
+    """The carrier-outage drill (ADR-064 rule 11, gate 2): one account's carrier stopped for [drill) in carrier-record. A pair belongs to it when
+    its MESSAGE-ID was made inside the window and it is addressed to `login` (a copy arrived for it, or a sender recorded a delivery to it).
+    Per pair: whether a sender's outbox recorded the delivery (`held`), whether a copy of any carrier reached the account before the
+    window ended (then the carrier did not hold it alone and the pair proves nothing), how many copies of each carrier arrived and the
+    first of them, and how often the session was shown it. A property the files cannot show is `unknown`, never yes."""
+    copies: dict[str, dict[str, list[float]]] = defaultdict(lambda: defaultdict(list))
+    for a in arrivals:
+        if _login_of(a["addressee"]) == login:
+            copies[a["mid"]][a["carrier"]].append(parse_t(a["t"]))
+    queued: dict[str, list[tuple[str, dict]]] = defaultdict(list)
+    for sender, recs in senders.items():
+        for r in recs:
+            if r["to"] == login:
+                queued[r["mid"]].append((sender, r))
+    pairs = []
+    for m in sorted(set(copies) | set(queued)):
+        created = made_at(m)
+        if created is None or not drill[0] <= created < drill[1]:
+            continue
+        by = copies.get(m, {})
+        times = sorted(t for ts in by.values() for t in ts)
+        lines = [x for x in shown if x["mid"] == m]
+        finals = [x for x in lines if not x.get("pending")]
+        held = bool(queued.get(m))
+        early = bool(times) and times[0] < drill[1]
+        rows = queued.get(m, [])
+        pairs.append({"mid": m, "held": held, "sender": rows[0][0] if rows else None, "outbox_state": rows[0][1]["state"] if rows else None,
+                      "exercised": held and not early, "early": early, "first": times[0] if times else None,
+                      "interweave": len(by.get("interweave", [])), "relay": len(by.get("relay", [])),
+                      "shown": len(finals) if finals else "unknown" if lines else "no"})
+    for p in pairs:
+        p["ok"] = None
+        if not p["exercised"]:
+            continue
+        copies_n = p["interweave"] + p["relay"]
+        if copies_n == 0 or copies_n > 1 or p["shown"] not in (1, "unknown"):
+            p["ok"] = False
+        else:
+            p["ok"] = None if p["shown"] == "unknown" else True
+    judged = [p["ok"] for p in pairs if p["exercised"]]
+    return {"window": drill, "login": login, "pairs": pairs, "exercised": len(judged), "unknown": judged.count(None),
+            "holds": None if not judged else False if False in judged else None if None in judged else True}
+
+
 def watch_in_drill(rows: list[dict], drill: tuple[float, float]) -> dict:
     """The watch log's account of the drill: every start inside it, with how the watch before it ended (the reason of the latest
     earlier end line; "no end line" when the latest earlier line is another watch's start, which was killed from outside, left by an
@@ -518,6 +591,18 @@ def _record_words(r: dict) -> str:
             else "the relay took it at send" if r["state"] == RELAY_TOOK_SEND else r["state"])
 
 
+def _carrier_pair_line(x: dict, iso) -> str:
+    if not x["exercised"]:
+        why = ("no sender recorded a delivery to the account" if not x["held"]
+               else "a copy reached the account before the window ended, so the carrier did not hold it alone")
+        return f"- {x['mid']}: NOT exercised ({why}; it does not count)"
+    arrived = (f"delivered after the window's end ({iso(x['first'])})" if x["first"] is not None else "never delivered by the report's end")
+    copies = f"{x['interweave'] + x['relay']} copy(ies) ({x['interweave']} interweave, {x['relay']} relay)"
+    shown = {"no": "not shown", "unknown": "shown: unknown (a showing was interrupted)", 1: "shown once"}.get(x["shown"], f"shown {x['shown']} times")
+    return (f"- {x['mid']}: held by {x['sender']}'s outbox ({x['outbox_state']}); {arrived}; {copies}; {shown}"
+            f"{' -- FAILS' if x['ok'] is False else ' -- UNKNOWN' if x['ok'] is None else ''}")
+
+
 def _row_words(r: dict) -> str:
     """The row the fourth property read for a pair: its outcome and delay, or why there is none."""
     if r["state"] in ("posted", "present", "over-age"):
@@ -568,6 +653,14 @@ def render_markdown(rep: dict, title: str = "InterWeave carrier parity report") 
               f"{'nothing lost' if d['nothing_lost'] else 'MESSAGES LOST'}", ""]
         L += [f"- {x['mid']} to {x['addressee']} ({x['kind']}): relay {'yes' if x['relay'] else 'NO'}, "
               f"interweave {'yes' if x['interweave'] else 'no'}" for x in d["pairs"]] or ["- no pair was made inside the drill"]
+    if "carrier_outage" in rep:
+        d = rep["carrier_outage"]
+        verdict = ("no message was held by a sender's outbox" if not d["exercised"] else "every message held arrived once and was shown once" if d["holds"] is True
+                   else "A PROPERTY FAILED" if d["holds"] is False else f"UNSETTLED, none failed and {d['unknown']} pair(s) cannot be told yet")
+        L += ["", f"## Carrier-outage drill of {d['login']} ({iso(d['window'][0])} to {iso(d['window'][1])}): {verdict}", "",
+              "Per pair addressed to the account and made inside the drill: held by a sender's outbox (a delivery row the sender recorded), delivered after the "
+              "window's end, how many copies arrived, and shown to the session once or not. A pair a copy reached before the window ended, or that no outbox recorded, proves nothing.", ""]
+        L += [_carrier_pair_line(x, iso) for x in d["pairs"]] or ["- no pair was made inside the drill"]
     if "relay_outage" in rep:
         d = rep["relay_outage"]
         verdict = ("no message was held by the carrier alone" if not d["exercised"] else "the three properties hold" if d["holds"] is True

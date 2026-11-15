@@ -1848,5 +1848,128 @@ class BackfillRowBesideVerdict(RelayFixture):
         self.assertIn("relay record: over-age;", self.report(path)[1])
 
 
+class CarrierDrill(RelayFixture):
+    """`parity --carrier-drill START END LOGIN` (gate 2): one account's carrier stopped for the window; what the senders' outboxes held arrives
+    once after it and is shown once. alpha sends to beta; the drill is [T0+100, T0+200)."""
+
+    M3, M4 = mid(130, 3), mid(140, 4)
+
+    def build(self, arrivals: dict, shown: list, sent: tuple | None = None, extra: dict | None = None) -> str:
+        """`arrivals`: {mid: [(carrier, second)]} as beta received them; `shown`: beta's ledger lines; `sent`: what alpha recorded sending."""
+        sent = (self.M, self.M2, self.M3, self.M4) if sent is None else sent
+        alpha = self.acct("alpha", (), [], sent=sent)
+        beta = self.acct("beta", (), [])
+        beta["arrivals"] = [arrival(m, "h/beta", c, sec) for m, got in arrivals.items() for c, sec in got]
+        beta["shown"] = shown
+        beta["counts"].update(arrivals=len(beta["arrivals"]), shown=len(shown))
+        return self.collect({"alpha": alpha, "beta": beta, **(extra or {})})
+
+    def run_report(self, path: str, login: str = "beta", s: int = 100, e: int = 200) -> tuple[int, str, str]:
+        out, err = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            rc = carrier_main.main(["parity", "--window", iso(0), iso(1000), "--collected", path, "--host", "h", "--carrier-drill", iso(s), iso(e), login])
+        return rc, out.getvalue(), err.getvalue()
+
+    @staticmethod
+    def seen(m: str, n: int = 1, sec: int = 210, pending: bool = True) -> list:
+        return [{"mid": m, "via": "interweave", "t": iso(sec), **({"pending": True} if pending else {})}, *[{"mid": m, "via": "interweave", "t": iso(sec)} for _ in range(n)]]
+
+    def section(self, path: str, **kw) -> list[str]:
+        out = self.run_report(path, **kw)[1]
+        return out.split("## Carrier-outage drill")[1].splitlines()
+
+    def test_every_pair_held_by_the_outbox_delivered_once_after_the_end_and_shown_once_holds(self):
+        path = self.build({self.M: [("interweave", 210)], self.M2: [("interweave", 230)]}, self.seen(self.M) + self.seen(self.M2, sec=230), sent=(self.M, self.M2))
+        rc, out, err = self.run_report(path)
+        self.assertEqual((rc, err), (0, ""))
+        lines = self.section(path)
+        self.assertIn(f"of beta ({iso(100)} to {iso(200)}): every message held arrived once and was shown once", lines[0])
+        self.assertIn(f"- {self.M}: held by alpha's outbox (done); delivered after the window's end ({iso(210)}); 1 copy(ies) (1 interweave, 0 relay); shown once", out)
+        self.assertNotIn("FAILS", out.split("## Carrier-outage drill")[1])
+
+    def test_a_pair_shown_twice_fails_and_says_how_often(self):
+        path = self.build({self.M: [("interweave", 210)]}, self.seen(self.M, n=2))
+        out = self.run_report(path)[1]
+        self.assertIn("A PROPERTY FAILED", out)
+        self.assertIn("shown 2 times -- FAILS", out)
+
+    def test_a_pair_never_delivered_fails(self):
+        path = self.build({self.M: [("interweave", 210)]}, self.seen(self.M))      # M2 was held and never arrived
+        out = self.run_report(path)[1]
+        self.assertIn("A PROPERTY FAILED", out)
+        self.assertIn(f"- {self.M2}: held by alpha's outbox (done); never delivered by the report's end; 0 copy(ies) (0 interweave, 0 relay); not shown -- FAILS", out)
+
+    def test_a_second_copy_fails_whichever_carrier_brought_it(self):
+        for carrier in ("interweave", "relay"):
+            path = self.build({self.M: [("interweave", 210), (carrier, 260)]}, self.seen(self.M), sent=(self.M,))
+            out = self.run_report(path)[1]
+            self.assertIn("2 copy(ies)", out, carrier)
+            self.assertIn("A PROPERTY FAILED", out, carrier)
+
+    def test_a_copy_before_the_window_ended_or_no_outbox_row_means_the_pair_is_not_exercised(self):
+        path = self.build({self.M: [("interweave", 150)], self.M2: [("interweave", 210)]}, self.seen(self.M, sec=150) + self.seen(self.M2), sent=(self.M,))
+        out = self.run_report(path)[1]
+        self.assertIn("a copy reached the account before the window ended, so the carrier did not hold it alone; it does not count", out)
+        self.assertIn("no sender recorded a delivery to the account; it does not count", out)
+        self.assertIn(": no message was held by a sender's outbox", out)
+
+    def test_a_showing_cut_off_before_its_final_line_is_unsettled_and_a_failure_beats_it(self):
+        pending = [{"mid": self.M, "via": "interweave", "t": iso(210), "pending": True}]
+        path = self.build({self.M: [("interweave", 210)]}, pending, sent=(self.M,))
+        out = self.run_report(path)[1]
+        self.assertIn("UNSETTLED, none failed and 1 pair(s) cannot be told yet", out)
+        self.assertIn("shown: unknown (a showing was interrupted) -- UNKNOWN", out)
+        path = self.build({self.M: [("interweave", 210)]}, pending, sent=(self.M, self.M2))
+        self.assertIn("A PROPERTY FAILED", self.run_report(path)[1])
+
+    def test_pairs_to_another_login_or_made_outside_the_window_are_not_in_it(self):
+        outside = mid(300, 9)
+        path = self.build({self.M: [("interweave", 210)], outside: [("interweave", 310)]}, self.seen(self.M) + self.seen(outside, sec=310), sent=(self.M, outside))
+        out = self.run_report(path)[1]
+        self.assertNotIn(outside, out.split("## Carrier-outage drill")[1])
+        self.assertIn(self.M, out.split("## Carrier-outage drill")[1])
+        # alpha as the drilled login: the messages were sent by it, none was addressed to it
+        self.assertIn("no pair was made inside the drill", self.run_report(path, login="alpha")[1].split("## Carrier-outage drill")[1])
+
+    def test_without_the_flag_nothing_of_the_section_appears_and_with_it_nothing_else_changes(self):
+        path = self.build({self.M: [("interweave", 210)]}, self.seen(self.M), sent=(self.M,))
+        out, err = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            carrier_main.main(["parity", "--window", iso(0), iso(1000), "--collected", path, "--host", "h"])
+        plain = out.getvalue()
+        self.assertNotIn("Carrier-outage", plain)
+        with_flag = self.run_report(path)[1]
+        self.assertEqual(with_flag[:with_flag.index("\n## Carrier-outage drill")].rstrip("\n"), plain.rstrip("\n"))
+
+    def test_a_collection_without_the_account_or_its_shown_ledger_is_refused_not_read_as_never_shown(self):
+        path = self.build({self.M: [("interweave", 210)]}, self.seen(self.M), sent=(self.M,))
+        rc, out, err = self.run_report(path, login="gamma")
+        self.assertEqual((rc, out), (2, ""))
+        self.assertIn("the collection has no account gamma", err)
+        with open(os.path.join(path, "beta", "meta.json")) as fh:
+            meta = json.load(fh)
+        meta["relay_outage"] = {"complete": False, "reason": "shown: no answer", "skipped": 0}
+        with open(os.path.join(path, "beta", "meta.json"), "w") as fh:
+            json.dump(meta, fh)
+        rc, out, err = self.run_report(path)
+        self.assertEqual((rc, out), (2, ""))
+        self.assertIn("beta: the shown ledger was not collected whole (shown: no answer)", err)
+
+    def test_the_flag_needs_a_collection(self):
+        out, err = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            rc = carrier_main.main(["parity", "--window", iso(0), iso(100), "--arrivals", "x", "--senders", "y", "--carrier-drill", iso(1), iso(2), "beta"])
+        self.assertEqual((rc, out.getvalue()), (1, ""))
+        self.assertIn("--carrier-drill reads the account's shown ledger, which only --collected holds", err.getvalue())
+
+    def test_shown_ledger_cut_short_is_refused_by_its_count(self):
+        path = self.build({self.M: [("interweave", 210)]}, self.seen(self.M), sent=(self.M,))
+        with open(os.path.join(path, "beta", "shown.jsonl"), "w") as fh:
+            fh.write("")
+        rc, out, err = self.run_report(path)
+        self.assertEqual(rc, 2)
+        self.assertIn("beta: the files do not hold what the collection counted of the shown ledger", err)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=1)
