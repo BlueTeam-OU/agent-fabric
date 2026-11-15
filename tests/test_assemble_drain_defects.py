@@ -59,7 +59,7 @@ def test_a_coordinator_claim_of_a_project_that_does_not_bind_it_lands_in_the_con
     assert "Moved" in ta.read(fabric_proj(out, COORD, "workflow.md"))
     assert os.path.isfile(fabric_proj(out, COORD, "INDEX.md")), "the re-homed role is indexed where it was written"
     assert not os.path.exists(ta.proj(out, COORD, "workflow.md")) and "Moved" not in ta.read(ta.proj(out, COORD, "INDEX.md")), \
-        "no project slice of the unbound role, and its index (it lists the domain slice) names none: " + str(sorted(ta.tree(out)))
+        "no project slice of the unbound role, and its index names none (it leaves the domain slice out too): " + str(sorted(ta.tree(out)))
     rep = report(out)
     assert rep["rehomed"] == [{"slice": f"{COORD}/workflow:moved", "role": COORD, "class": "workflow", "topic": "moved", "title": "Moved",
                                "from_project": ta.PROJECT, "to_project": "agent-fabric", "source": ["dev-02@hostA"]}], rep["rehomed"]

@@ -17,7 +17,7 @@ from assembler.writer import described
 def bound_roles_with_domain_slices(run: Run) -> set[str]:
     """Every role this project's taxonomy binds whose fabric domain holds a
     slice: the project's INDEX.md is where those slices must be listed
-    (lint holds every visible project to it), so each such role gets an
+    (lint holds every visible project to it; fabric-coordinator's are the exception, _unlisted_here), so each such role gets an
     index here even when this drain brought it nothing (B5). A taxonomy
     that exists and cannot be read stops the drain, as a broken hygiene
     list does: a skipped one would quietly index nothing."""
@@ -36,8 +36,8 @@ def roles_with_project_directory(run: Run) -> set[str]:
     """Every role that has a directory under the project's memory root. A
     role keeps its directory after its last bundle here, while a bundle of
     another project can still write that role's domain slices into the
-    fabric — and no run of this project would rebuild the index that must
-    list them, so lint reported drift until that role drained here again.
+    fabric — and no run of this project would rebuild the index that lists
+    them, so lint reported drift until that role drained here again.
     `shared/` is the project's shared slices, not a role. A name that is no
     role id is left alone: it is not ours to index."""
     root = layout.project_memory_root(run.project)
