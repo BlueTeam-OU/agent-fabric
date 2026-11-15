@@ -21,7 +21,8 @@ Checks:
   identity   every role directory is catalogued; charter, brief and recall
              are the only authored classes; payload is well-shaped
   index      every (project, role) index lists every slice the role has —
-             its domain slices, its project slices, its charter and recall,
+             its domain slices (fabric-coordinator's only in agent-fabric's
+             own index), its project slices, its charter and recall,
              its shared slices — and every index line resolves
   budgets    no slice exceeds its token budget
   shared     a shared slice really is shared (two or more owners)
@@ -949,9 +950,12 @@ def main() -> int:
                 findings.append(f"{label}: not a role in identities/roles/catalog.json")
             findings += flat_and_dir_findings(rbase, label)
             slices = lint_slices(rbase, label, template_schema, findings, shared_owner_count, descriptions, pid)
-            # Fabric-side slices as THIS project's index links them.
+            # Fabric-side slices as THIS project's index links them. fabric-coordinator's domain slices (reviews of
+            # external tools) are listed in agent-fabric's own INDEX only, as the assembler renders it
+            # (assembler/index.py _unlisted_here): expecting them elsewhere would call every project's index drifted.
+            unlisted = role == "fabric-coordinator" and pid != layout.FABRIC_PROJECT_ID
             fabric_side = {layout.link_rel(layout.fabric_path(r), pid): r
-                           for r in domain_slices.get(role, []) + identity_slices.get(role, [])}
+                           for r in ([] if unlisted else domain_slices.get(role, [])) + identity_slices.get(role, [])}
             expected = list(slices) + list(fabric_side)
             indexed_domains.add(role)
 
@@ -1020,7 +1024,9 @@ def main() -> int:
     visible = [pid for pid in layout.list_projects() if pid != layout.FABRIC_PROJECT_ID]
     for domain, slices in domain_slices.items():
         bound_by = [pid for pid in visible if domain in taxonomy_roles.get(pid, set())]
-        if slices and domain not in indexed_domains and bound_by:
+        # fabric-coordinator's domain slices are listed in agent-fabric's own INDEX only (see the per-index check above),
+        # and `visible` already leaves that project out: no other project's INDEX is where they must be.
+        if slices and domain not in indexed_domains and bound_by and domain != "fabric-coordinator":
             findings.append(f"memory/domains/{domain}: {len(slices)} slice(s) indexed by no project — "
                             f"{', '.join(bound_by)} binds the role and its "
                             f".agent-fabric/memory/{domain}/INDEX.md does not list them")
