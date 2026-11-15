@@ -949,9 +949,12 @@ def main() -> int:
                 findings.append(f"{label}: not a role in identities/roles/catalog.json")
             findings += flat_and_dir_findings(rbase, label)
             slices = lint_slices(rbase, label, template_schema, findings, shared_owner_count, descriptions, pid)
-            # Fabric-side slices as THIS project's index links them.
+            # Fabric-side slices as THIS project's index links them. fabric-coordinator's domain slices (reviews of
+            # external tools) are listed in agent-fabric's own INDEX only, as the assembler renders it
+            # (assembler/index.py _unlisted_here): expecting them elsewhere would call every project's index drifted.
+            unlisted = role == "fabric-coordinator" and pid != layout.FABRIC_PROJECT_ID
             fabric_side = {layout.link_rel(layout.fabric_path(r), pid): r
-                           for r in domain_slices.get(role, []) + identity_slices.get(role, [])}
+                           for r in ([] if unlisted else domain_slices.get(role, [])) + identity_slices.get(role, [])}
             expected = list(slices) + list(fabric_side)
             indexed_domains.add(role)
 

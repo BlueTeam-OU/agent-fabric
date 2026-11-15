@@ -538,6 +538,32 @@ def case_index_lists_domain_slices() -> None:
         assert code == 1 and "indexed by no project" in out, out
 
 
+def case_project_index_needs_no_fabric_coordinator_domain_slice() -> None:
+    """fabric-coordinator's domain slices are listed in agent-fabric's own INDEX only (assembler/index.py
+    _unlisted_here), so another project's fabric-coordinator INDEX that leaves them out has not drifted; its charter
+    link is still expected. Kills: lint expecting every role's domain slices in every project's index."""
+    with tempfile.TemporaryDirectory() as root:
+        fabric = make_base(root)
+        cat = json.load(open(os.path.join(fabric, "identities", "roles", "catalog.json"), encoding="utf-8"))
+        cat["roles"].append({"id": "fabric-coordinator", "title": "Coordinator"})
+        write(os.path.join(fabric, "identities", "roles", "catalog.json"), json.dumps(cat))
+        tax = dict(TAXONOMY); tax["roles"] = TAXONOMY["roles"] + [{"id": "fabric-coordinator", "paths": [".agent-fabric/"]}]
+        write(os.path.join(fabric, "projects", PROJECT, "taxonomy.json"), json.dumps(tax))
+        write(os.path.join(fabric, "identities", "roles", "fabric-coordinator", "charter.md"),
+              CHARTER.replace('role: "web-dev"', 'role: "fabric-coordinator"'))
+        write(os.path.join(fabric, "memory", "domains", "fabric-coordinator", "domain", "tool-review.md"),
+              SLICE.replace('role: "web-dev"', 'role: "fabric-coordinator"'))
+        fc_index = os.path.join(wc_demo(fabric), ".agent-fabric", "memory", "fabric-coordinator", "INDEX.md")
+        write(fc_index, "# Index\n\n" + CHARTER_LINE.replace("web-dev", "fabric-coordinator"))
+        code, out = run_lint(fabric)
+        assert "domains/fabric-coordinator/domain/tool-review.md" not in out, \
+            f"a project index was required to list fabric-coordinator's domain slice:\n{out}"
+        # The charter link stays expected: an index without it has drifted.
+        write(fc_index, "# Index\n\n")
+        code, out = run_lint(fabric)
+        assert "does not list ../agent-fabric/identities/roles/fabric-coordinator/charter.md" in out, out
+
+
 def case_domain_bound_by_an_unseen_project_is_not_judged() -> None:
     """A domain whose role no VISIBLE project binds is not required to be
     indexed: another repository's CI passes only its own working copy and
@@ -2970,6 +2996,7 @@ def main() -> int:
         case_index_description_drift_is_caught,
         case_a_sibling_working_copy_is_linted_unasked,
         case_index_lists_domain_slices,
+        case_project_index_needs_no_fabric_coordinator_domain_slice,
         case_fabric_ref_is_one_full_commit_id,
         case_quoted_description_round_trips,
         case_the_callers_operator_is_not_part_of_a_fixture,
