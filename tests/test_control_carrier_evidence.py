@@ -1849,8 +1849,8 @@ class BackfillRowBesideVerdict(RelayFixture):
 
 
 class CarrierDrill(RelayFixture):
-    """`parity --carrier-drill START END LOGIN` (gate 2): one account's carrier stopped for the window; what the senders' outboxes held arrives
-    once after it and is shown once. alpha sends to beta; the drill is [T0+100, T0+200)."""
+    """`parity --carrier-drill START END LOGIN` (gate 2): one account's carrier stopped for the window; what the senders' outboxes held is
+    delivered by the carrier once after it (the relay mirror's copy beside it is normal, a second copy of either carrier fails) and shown once. alpha sends to beta; the drill is [T0+100, T0+200)."""
 
     M3, M4 = mid(130, 3), mid(140, 4)
 

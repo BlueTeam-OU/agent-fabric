@@ -325,7 +325,10 @@ def main() -> int:
     w.relay_down = False
     r = w.watch(deadline=3)
     check("the relay answered (an empty page): the marker is removed", not os.path.exists(marker), f"{r.returncode}\n{r.stdout}{r.stderr}")
-    # A world of its own: the one above still holds the carrier's record, which a rerun may deliver again (the end then reads delivery).
+    # The world above must not show the carrier's record a second time: the shown ledger holds its final line, so the rerun is quiet. An earlier
+    # run once ended that second watch with "delivery" (cause untraced); the check below runs in a world of its own so it does not depend on that.
+    check("the carrier's record is not shown again by the rerun", "subject-5" not in r.stdout
+          and len([x for x in w.ledger_lines() if not x.get("pending")]) == 1, f"{r.stdout}\n{w.ledger_lines()}")
     q = World([[]])
     r = q.watch(deadline=3)
     check("a watch that ended at its deadline says quiet, exit 0",
