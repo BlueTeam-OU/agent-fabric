@@ -8,6 +8,7 @@ import os
 from collections import defaultdict
 from typing import Any
 from assembler.core import layout, CLASS_FILES, bound_role_ids, normalize_artifact, render_frontmatter, Run, base_for, in_report, role_id_error
+from assembler.intake import REHOME_ROLE
 from assembler.slices import read_existing_slice
 from assembler.writer import described
 
@@ -16,7 +17,7 @@ from assembler.writer import described
 def bound_roles_with_domain_slices(run: Run) -> set[str]:
     """Every role this project's taxonomy binds whose fabric domain holds a
     slice: the project's INDEX.md is where those slices must be listed
-    (lint holds every visible project to it), so each such role gets an
+    (lint holds every visible project to it; fabric-coordinator's are the exception, _unlisted_here), so each such role gets an
     index here even when this drain brought it nothing (B5). A taxonomy
     that exists and cannot be read stops the drain, as a broken hygiene
     list does: a skipped one would quietly index nothing."""
@@ -35,8 +36,8 @@ def roles_with_project_directory(run: Run) -> set[str]:
     """Every role that has a directory under the project's memory root. A
     role keeps its directory after its last bundle here, while a bundle of
     another project can still write that role's domain slices into the
-    fabric — and no run of this project would rebuild the index that must
-    list them, so lint reported drift until that role drained here again.
+    fabric — and no run of this project would rebuild the index that lists
+    them, so lint reported drift until that role drained here again.
     `shared/` is the project's shared slices, not a role. A name that is no
     role id is left alone: it is not ours to index."""
     root = layout.project_memory_root(run.project)
@@ -62,6 +63,16 @@ def read_crossref_index(path: str) -> dict[str, Any]:
         return index
     except (OSError, ValueError, AttributeError) as exc:
         sys.exit(f"assemble: {path}: the role's crossref.json cannot be read ({exc})")
+
+
+def _unlisted_here(run: Run, role: str, klass: str) -> bool:
+    """fabric-coordinator's `domain` slices (reviews of external tools, learned anywhere) are listed in agent-fabric's own
+    INDEX only: in another project's index their cues name projects that repository has nothing to do with (the owner,
+    2026-11-14, gateway review F4). Filtered where the INDEX is rendered, because three producers add domain entries
+    (written claims, the on-disk sweep, shared rows) and one filter cannot disagree with itself. Another role's domain
+    slices and every project-scoped class are listed as before."""
+    return (klass == "domain" and role == REHOME_ROLE
+            and run.project != layout.FABRIC_PROJECT_ID)
 
 
 def index_role(run: Run, role: str) -> None:
@@ -247,6 +258,8 @@ def index_role(run: Run, role: str) -> None:
     ]
     by_class_index: dict[str, list[dict[str, str]]] = defaultdict(list)
     for entry in run.index_entries[role]:
+        if _unlisted_here(run, role, entry["class"]):
+            continue
         by_class_index[entry["class"]].append(entry)
     for klass in ("charter", "brief", "domain", "solution", "intersection", "rationale",
                   "workflow", "threads", "recall"):
