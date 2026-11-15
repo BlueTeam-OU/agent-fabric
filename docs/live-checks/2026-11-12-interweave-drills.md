@@ -89,7 +89,7 @@ copies arrived after 10:54 plus the collection's 60-minute margin.
   minutes the carrier alone held five messages, and each was shown once.
   When the relay returned, its copies did not show them again.
 - **Without a backfill, the relay's record needed hand resends.**
-  devex-tooling's `01a1cf5d` found it during the drill, and it became
+  devex-tooling's `01a1cf5d` found it at 10:46:24, after the relay returned, and it became
   the cutover blocker j798. The backfill (#590) and the mode it reads
   (#611, W9) are now on main. A relay-outage drill run now would
   exercise them; this one cannot.

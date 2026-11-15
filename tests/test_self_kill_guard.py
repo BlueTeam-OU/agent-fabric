@@ -374,6 +374,9 @@ def main() -> int:
                        # Review of #612, round 3 F11: `<<` in the old arithmetic and in a parameter expansion.
                        ("an arithmetic << inside $[…]", "echo $[1<<\"n\"]\npkill -f claude-fable\nn]"),
                        ("a << inside ${…}", "echo ${x/<<'t'/y}\npkill -f claude-fable\nt/y}"),
+                       # The allowlist, not a spelling: a subscript holds a << bash reads as a shift.
+                       ("a << inside an array subscript", "a[1<<\"n\"]=5\npkill -f claude-fable\nn]=5"),
+                       ("a here-document in a function body", "f() { cat <<'n'; }\npkill -f claude-fable\nn"),
                        ("an unquoted body joined over its delimiter",
                         "cat <<A >/dev/null\nx\\\nA\ncat <<'Y'\nA\npkill -f claude-fable\nY"),
                        ("a here-document inside a shell's body", "bash <<'EOF'\ncat <<'Y'\nEOF\npkill -f claude-fable\nY")):

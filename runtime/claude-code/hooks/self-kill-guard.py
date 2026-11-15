@@ -265,6 +265,9 @@ WORD_END = " \t;&|()<>"
 # F4), arithmetic, where `<<` is a shift (`echo $((1<<n))`, `(( x<<2 ))`, the old `$[1<<n]`), and a parameter
 # expansion, where it is pattern text (`${x/<<'t'/y}`; review of #612, round 3 F11).
 UNREADABLE_LINE = re.compile(r"\$'|\(\(|\$\[|\$\{")
+# What a line that opens a here-document may not hold outside plain quotes for its body to be dropped: an expansion,
+# a substitution, a subscript, a subshell or a group can each make a `<<` something bash does not read as an operator.
+OPENS_SYNTAX = frozenset("$`[({")
 
 
 def heredoc_operators(line: str) -> list[tuple[bool, str, bool]] | None:
@@ -272,11 +275,14 @@ def heredoc_operators(line: str) -> list[tuple[bool, str, bool]] | None:
     regex on the raw line took `cat '<<true'` for an operator, dropped the lines up to a line `true`, and the kill
     between them, which bash runs, passed (review of #612, P2). The delimiter is its word with the quotes removed;
     any quote or backslash in the word quotes it, and then bash expands nothing in the body. <<< is a here-string.
-    None when the line cannot be read surely: UNREADABLE_LINE, or a quote the scan leaves open at its end (bash would
-    carry it onto the next line, which this scan does not follow)."""
+    None when the line cannot be read surely: UNREADABLE_LINE, a quote the scan leaves open at its end (bash would
+    carry it onto the next line, which this scan does not follow), or a line with an operator that holds, outside plain
+    quotes, any of OPENS_SYNTAX. That last test is an allowlist, not a list of spellings: `$((1<<n))`, `$[1<<n]`,
+    `${x/<<'t'/y}` and `a[1<<"n"]=5` each hold a `<<` bash reads as no operator, and the next spelling of the same kind
+    is caught without being named (review of #612, rounds 2 and 3)."""
     if UNREADABLE_LINE.search(line):
         return None
-    s, out, i, quote = strip_non_arguments(line), [], 0, None
+    s, out, i, quote, outside = strip_non_arguments(line), [], 0, None, []
     n = len(s)
     while i < n:
         c = s[i]
@@ -289,6 +295,8 @@ def heredoc_operators(line: str) -> list[tuple[bool, str, bool]] | None:
             i += 1
         elif c in "'\"":
             quote = c
+        elif c in OPENS_SYNTAX:
+            outside.append(c)
         elif s.startswith("<<<", i):
             i += 3
             continue
@@ -316,7 +324,9 @@ def heredoc_operators(line: str) -> list[tuple[bool, str, bool]] | None:
             i = k
             continue
         i += 1
-    return None if quote else out
+    if quote or (out and outside):
+        return None
+    return out
 
 
 def _logical_end(lines: list[str], i: int) -> int:

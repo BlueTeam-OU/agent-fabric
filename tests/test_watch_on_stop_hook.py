@@ -403,6 +403,17 @@ def main() -> int:
             except Exception as e:  # noqa: BLE001
                 got = e
             check("harness_pid reads read_procs' own table (argv a tuple)", got == 10, got)
+            # …and the whole decision from that table: a session with no watch is asked for one (round 3 F10 was a
+            # Stop hook that raised here, which main() swallows, and so asked for nothing on any real run).
+            empty_run = os.path.join(fake, "run")
+            os.makedirs(empty_run)
+            try:
+                out = mod.decide({"session_id": "s-f10"}, mod.read_procs(fake), 1000.0, os.path.join(fake, "state.json"),
+                                 lambda *a: True, own_pid=20, run_dir=empty_run, relay_url=dead, carrier_primary=False)
+            except Exception as e:  # noqa: BLE001
+                out = e
+            check("decide on read_procs' own table: no watch is blocked",
+                  isinstance(out, dict) and out.get("decision") == "block", out)
 
         def boom(*a, **k):
             raise RuntimeError("x")
