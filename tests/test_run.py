@@ -491,6 +491,7 @@ def main() -> int:
         # that ignores TERM must be ended after the grace, its line kept.
         sys.path.insert(0, TESTS)
         import run_python_suites
+        import run as run_py
         for sig, name in ((signal.SIGINT, "INT"), (signal.SIGHUP, "HUP")):
             base = fresh(files=suites)
             started = os.path.join(sandbox, f"started-group-{name}")
@@ -501,16 +502,26 @@ def main() -> int:
             if not wait_until(p, lambda: len(os.listdir(started)) >= 2, "the python section's first two suites started", own_group=True):
                 continue
             time.sleep(0.5)
+            signalled = time.monotonic()
             os.killpg(p.pid, sig)
+            test_killed = False
             try:
                 out, err = p.communicate(timeout=30)
                 rc = p.returncode
             except subprocess.TimeoutExpired:
+                test_killed = True
                 os.killpg(p.pid, signal.SIGKILL)
                 (out, err), rc = p.communicate(), None
+            elapsed = time.monotonic() - signalled
             shown = sorted(set(re.findall(r"MARK\d", out)))
+            # A red here once said only (130, [], ''): not whether the run was slow or cut short. end_tree KILLs what is left
+            # only after run.KILL_WAIT_S, so an elapsed time past it says the run was ended by KILL and not by its own answer.
+            # Read from the clock, not from run.py: its INT handling is not this test's to change.
             check(f"a group {name} during the python section: the exit is {128 + int(sig)} and both running suites' lines reach stdout",
-                  rc == 128 + int(sig) and len(shown) == 2, (rc, shown, out[-300:], err[-600:]))
+                  rc == 128 + int(sig) and len(shown) == 2,
+                  (rc, shown, out[-300:], err[-600:],
+                   f"elapsed {elapsed:.1f}s since the signal", f"killed: {'yes' if test_killed or elapsed > run_py.KILL_WAIT_S else 'no'} "
+                   f"(by this test after 30s: {test_killed}; run.py's KILL_WAIT_S {run_py.KILL_WAIT_S}s)"))
         # A group INT also reaches run.py, which asks the runner to stop by TERM: that alone ends the run and hides a runner
         # that takes no INT of its own. So INT goes to the runner and its suites only, as a terminal would send it to a
         # foreground group run.py is not in.
