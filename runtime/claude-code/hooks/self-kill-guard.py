@@ -42,8 +42,8 @@ line, and a deny when it names one of the tree, the stand-in or an inbox
 watch. By pid it over-reports instead of reading bash's argument order:
 in a command holding the word kill anywhere, every integer-looking token
 is a candidate, refused when it is claude, of the tree, or an inbox watch
-by its /proc command line — outside a here-document's body that only a
-data reader takes and bash does not expand (drop_data_heredoc_bodies); a negative `kill` operand
+by its /proc command line — outside a quoted here-document's body in an
+input of data readers alone (drop_data_heredoc_bodies, _drop_bodies); a negative `kill` operand
 (-1, a group) is refused outright; an operand held in a variable or a substitution asks.
 Seven review rounds on #69 and #70 each found a spelling a
 re-implementation of procps's rules misread; procps does not misread
@@ -258,19 +258,23 @@ def command_names(word: str) -> list[str]:
 
 
 SHELLS = re.compile(r"(?:^|[\s|;&(/])(?:bash|sh|zsh|dash|ksh|eval|source|\.)(?=$|[\s;&|)])")
-# Bash expands these in the body of a here-document whose delimiter is unquoted, whoever reads it: a `$(kill N)`
-# there runs before cat sees a byte (review of #612, P1).
-BODY_EXPANDS = re.compile(r"\$\(|`|\$\{")
 # What ends a here-document's delimiter word outside quotes: a blank or a metacharacter.
 WORD_END = " \t;&|()<>"
+# What makes a command line's quoting or its `<<` unreadable to heredoc_operators: ANSI-C quoting, where `\'` is a
+# literal quote (`cat $'a\' <<true'` is one word to bash, an operator to a plain quote scan; review of #612, round 2
+# F4), and arithmetic, where `<<` is a shift (`echo $((1<<n))`, `(( x<<2 ))`).
+UNREADABLE_LINE = re.compile(r"\$'|\(\(")
 
 
-def heredoc_operators(line: str) -> list[tuple[bool, str, bool]]:
+def heredoc_operators(line: str) -> list[tuple[bool, str, bool]] | None:
     """(strips tabs, delimiter, quoted) of each `<<` operator in a command line, read OUTSIDE quotes and comments: a
     regex on the raw line took `cat '<<true'` for an operator, dropped the lines up to a line `true`, and the kill
     between them, which bash runs, passed (review of #612, P2). The delimiter is its word with the quotes removed;
     any quote or backslash in the word quotes it, and then bash expands nothing in the body. <<< is a here-string.
-    `$((1<<n))` still reads as an operator; its delimiter line is not there, and then nothing is dropped."""
+    None when the line cannot be read surely: UNREADABLE_LINE, or a quote the scan leaves open at its end (bash would
+    carry it onto the next line, which this scan does not follow)."""
+    if UNREADABLE_LINE.search(line):
+        return None
     s, out, i, quote = strip_non_arguments(line), [], 0, None
     n = len(s)
     while i < n:
@@ -302,6 +306,8 @@ def heredoc_operators(line: str) -> list[tuple[bool, str, bool]]:
                 elif s[k] == "\\":
                     k += 1
                 k += 1
+            if q:
+                return None
             word = s[j:k]
             delim = re.sub(r"['\"\\]", "", word)
             if delim:
@@ -309,7 +315,7 @@ def heredoc_operators(line: str) -> list[tuple[bool, str, bool]]:
             i = k
             continue
         i += 1
-    return out
+    return None if quote else out
 
 
 def _logical_end(lines: list[str], i: int) -> int:
@@ -323,11 +329,24 @@ def _logical_end(lines: list[str], i: int) -> int:
 
 
 def _drop_bodies(text: str, takes) -> str:
-    """The text with each here-document body dropped that `takes(opening command line)` says is data, up to its
-    delimiter line. The opening line, a body bash expands (BODY_EXPANDS under an unquoted delimiter), and every line
-    after the delimiter stay: a kill there still runs. Dropped only up to a delimiter line that is there: an
-    operator that opens nothing drops nothing (review of #70, eighth round). An opening line `takes` refuses keeps
-    every body, which is then read line by line as code."""
+    """The text with the here-document bodies dropped that are surely data, each up to its delimiter line. The one
+    rule for both drops (drop_heredoc_bodies, drop_data_heredoc_bodies), and it fails closed: a body is dropped only
+    when the guard is sure bash will not run it, and any doubt keeps it, and everything after it, judged. A false deny
+    is a rephrase; a dropped kill runs. Two review rounds on #612 each found a spelling where bash ran a body that a
+    narrower reading dropped, so the rule is no longer patched spelling by spelling.
+
+    1. Only a QUOTED delimiter ('X', "X", \\X) drops a body. Bash expands an unquoted body (`$(kill N)`, `${…}`,
+       backticks) and joins its backslash-newlines before it compares a line with the delimiter, so where such a body
+       ends is bash's to say: `cat <<A` / `x\\` / `A` / `cat <<Y` / `A` / `kill N` / `Y` runs the kill. An unquoted
+       operator keeps its body and every line after it.
+    2. The data-reader drop (drop_data_heredoc_bodies) drops anything only when the whole input outside the bodies
+       is data readers (_data_only); the broad drop (drop_heredoc_bodies) only when no shell reads the body. An
+       opening line `takes(line)` refuses keeps its body and every line after it: the body is code, and its lines are
+       not read again for here-documents of their own.
+    3. A command line heredoc_operators cannot read surely (None: `$'…'`, `((`, a quote it cannot balance) opens no
+       droppable here-document, and everything from it on is judged.
+    4. An operator whose delimiter line is not there drops nothing (review of #70, eighth round).
+    The opening line and every line after a body stay: a kill there still runs."""
     lines, out, i = text.split("\n"), [], 0
     while i < len(lines):
         end_of_line = _logical_end(lines, i)
@@ -336,58 +355,59 @@ def _drop_bodies(text: str, takes) -> str:
         out += physical
         i = end_of_line
         delims = heredoc_operators(joined)
-        if not delims or not takes(joined):
-            continue
-        for strip_tabs, delim, quoted in delims:
+        if delims is None or (delims and (not takes(joined) or not all(quoted for _, _, quoted in delims))):
+            return "\n".join(out + lines[i:])
+        for strip_tabs, delim, _ in delims:
             end = next((j for j in range(i, len(lines))
                         if (lines[j].lstrip("\t") if strip_tabs else lines[j]) == delim), None)
             if end is None:
-                break
-            if not quoted and BODY_EXPANDS.search("\n".join(lines[i:end])):
-                out += lines[i:end + 1]
+                return "\n".join(out + lines[i:])
             i = end + 1
     return "\n".join(out)
 
 
 def drop_heredoc_bodies(text: str) -> str:
     """A here-document's body is data for the command that reads it — a commit message quoting a kill is not a
-    kill — so it is dropped (_drop_bodies). Unless a shell reads it (`bash <<EOF`, `cat <<EOF | sh`, eval): then the
-    body is code, and is kept to be judged."""
+    kill — so it is dropped when _drop_bodies is sure of it. Unless a shell reads it (`bash <<'EOF'`, `cat <<'EOF' |
+    sh`, eval): then the body is code, and it and what follows are kept to be judged."""
     return _drop_bodies(text, lambda line: not SHELLS.search(line))
 
 
 # Who may take a here-document whose body is then no command for the raw-text searches (kills, pid_candidates,
-# kill_operands): programs that store or send the text, never run it. An allowlist because it is the safe side: a
-# reader not on it — an interpreter (`python3 - <<X` running subprocess.run(["kill", …])), a pipe into one, an
-# unknown tool, a prefix such as `env cat` — keeps its body judged as text, and a false deny there is a rephrase.
-# Observed: an agent composing a gzcoord-send body that reported a watch's pid was denied as killing it (j866 /
-# OBSERVATION 01a1d8ab). Not git or gh: an alias runs a shell on the stdin (`git -c alias.x='!sh' x`, `gh alias set
-# --shell`), which neither SHELLS nor tool_commands sees; a commit message naming a watch's pid is a rephrase.
-# grep, wc, head, tail and sort only print what they read (review of #612: `grep -c x <<'X'` was denied).
-DATA_READERS = {"cat", "tee", "grep", "wc", "head", "tail", "sort",
-                "gzcoord-send", "gzcoord-compose", "gzmsg"}
-# What separates the commands of a line: ;, &&, ||, |, |&, a lone & (not the & of >&, &> or <&), a subshell's ( ).
-LINE_COMMANDS = re.compile(r"&&|\|\||\|&?|;|(?<![<>])&(?!>)|[()]")
+# kill_operands): programs that print, store or send the text and never run any of it. An allowlist because it is the
+# safe side: a reader not on it — an interpreter (`python3 - <<X` running subprocess.run(["kill", …])), a pipe into
+# one, an unknown tool, a prefix such as `env cat` — keeps its body judged as text, and a false deny there is a
+# rephrase. Observed: an agent composing a gzcoord-send body that reported a watch's pid was denied as killing it
+# (j866 / OBSERVATION 01a1d8ab). Not git or gh: an alias runs a shell on the stdin (`git -c alias.x='!sh' x`, `gh
+# alias set --shell`), which neither SHELLS nor tool_commands sees; a commit message naming a watch's pid is a
+# rephrase. Not sort: `sort --compress-program=sh` runs what it sorts (review of #612, round 2 F9). grep, wc, head and
+# tail print what they read (review of #612: `grep -c x <<'X'` was denied); tee writes only where _writes_file allows.
+DATA_READERS = {"cat", "tee", "grep", "wc", "head", "tail", "gzcoord-send", "gzcoord-compose", "gzmsg"}
+# What joins the simple commands of a data-only input: a newline, ;, &&, ||, | and |&. A lone & is not among them.
+DATA_JOINS = re.compile(r"\n|&&|\|\||\|&?|;")
+# What a data-only input may not hold outside quotes: a group or subshell that can redirect a whole block (`{` NL
+# `cat <<'X'` … `X` NL `} > k.sh` NL `bash k.sh`, review of #612, round 2 F5), a substitution (`$(`, `<(`,
+# backticks), a lone & (a background job), and a quote left over once the balanced ones are blanked.
+DATA_FORBIDDEN = re.compile(r"[(){}`'\"]|(?<![&>|<])&(?![&>])")
 QUOTED = re.compile(r"'[^']*'|\"(?:[^\"\\]|\\.)*\"")
 # A redirection that opens a file for writing, and its target: `>`, `>>`, `>|`, `&>`, `&>>`, and `>&` before a word
 # that is no fd. `>&2` and `2>&1` duplicate an fd and write no file.
 WRITE_REDIRECT = re.compile(r"(?:&>>?|>>?\|?(?!&)|>&(?![\d-]))\s*([^\s;&|()<>]*)")
 # Where a write keeps nothing a later command could run.
 NO_FILE = {"/dev/null", "/dev/stdout", "/dev/stderr"}
+# A backslash-newline bash joins: one after an even run of backslashes is a literal backslash and a newline.
+CONTINUATION = re.compile(r"(?<!\\)((?:\\\\)*)\\\n")
 
 
-def _writes_file(line: str, pieces: list[list[str]]) -> bool:
-    """Whether a data reader's line stores the body where a later command can run it: a redirection to a file, a
-    file operand of tee, sort's -o. `cat > k.sh <<'X'` NL `kill N` NL `X` NL `bash k.sh` passed with the body dropped
-    (review of #612, P3). `line` has its quotes blanked, so a quoted target counts as a file."""
-    if any(m.group(1) not in NO_FILE for m in WRITE_REDIRECT.finditer(line)):
+def _writes_file(text: str, pieces: list[list[str]]) -> bool:
+    """Whether a data-only input stores anything where a later command can run it: a redirection to a file, or a
+    file operand of tee. `cat > k.sh <<'X'` NL `kill N` NL `X` NL `bash k.sh` passed with the body dropped (review of
+    #612, P3), and so did `exec > k.sh` on a line of its own (round 2 F5). `text` has its quotes blanked, so a quoted
+    target counts as a file."""
+    if any(m.group(1) not in NO_FILE for m in WRITE_REDIRECT.finditer(text)):
         return True
     for words in pieces:
-        tool = os.path.basename(words[0]) if words else ""
-        if tool == "sort" and any(w.startswith("--o") or (w.startswith("-") and not w.startswith("--") and "o" in w)
-                                  for w in words[1:]):
-            return True
-        if tool == "tee":
+        if words and os.path.basename(words[0]) == "tee":
             skip = False
             for w in words[1:]:
                 if skip:
@@ -400,19 +420,27 @@ def _writes_file(line: str, pieces: list[list[str]]) -> bool:
     return False
 
 
-def _data_line(line: str) -> bool:
-    """Every command on the line is a DATA_READERS program by its first word's basename, and none stores the body
-    (_writes_file). Quoted text is blanked before the line is split, so a `;` in a quoted subject splits nothing."""
-    blank = QUOTED.sub("_", strip_non_arguments(line))
-    pieces = [p.split() for p in LINE_COMMANDS.split(blank)]
+def _data_only(rest: str) -> bool:
+    """Whether the whole input, its bodies dropped, is data readers and nothing else: every simple command's first
+    word a DATA_READERS program by its basename, joined only by DATA_JOINS, nothing DATA_FORBIDDEN or UNREADABLE_LINE
+    outside quotes, and no file written (_writes_file). A command that is no reader — exec, eval, source, `.`, a
+    shell, an assignment, a redirection before the command word — fails on its first word. Read on the whole input,
+    not the opening line: a block's redirection or an exec on another line stores the body as well."""
+    if UNREADABLE_LINE.search(rest):
+        return False
+    blank = QUOTED.sub("_", strip_non_arguments(CONTINUATION.sub(r"\1", rest)))
+    if DATA_FORBIDDEN.search(blank):
+        return False
+    pieces = [p.split() for p in DATA_JOINS.split(blank)]
     return all(os.path.basename(p[0]) in DATA_READERS for p in pieces if p) and not _writes_file(blank, pieces)
 
 
 def drop_data_heredoc_bodies(text: str) -> str:
-    """drop_heredoc_bodies, narrowed for the searches that read the raw text: a here-document's body is dropped only
-    when its opening command line is a data reader's that keeps no copy (_data_line). drop_heredoc_bodies's own
-    callers (tool_commands, lift, unevaluated) keep the broader drop."""
-    return _drop_bodies(text, _data_line)
+    """drop_heredoc_bodies, narrowed for the searches that read the raw text: the bodies _drop_bodies is sure of are
+    dropped only when what is left of the whole input is data readers alone (_data_only); otherwise nothing is.
+    drop_heredoc_bodies's own callers (tool_commands, lift, unevaluated) keep the broader drop."""
+    rest = _drop_bodies(text, lambda line: True)
+    return rest if rest != text and _data_only(rest) else text
 
 
 def strip_non_arguments(text: str) -> str:

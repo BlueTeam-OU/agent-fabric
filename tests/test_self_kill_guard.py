@@ -132,6 +132,8 @@ def main() -> int:
         ("a << in arithmetic, then a kill", "echo $((1<<n))\npkill -f claude-fable"),
         ("a << in a quote, then a kill", "grep -n 'x <<EOF' README.md\npkill -f claude-fable"),
         ("a heredoc fed to /bin/sh", "/bin/sh <<EOF\npkill -f claude-fable\nEOF"),
+        # Review of #612, round 2: only a quoted delimiter drops a body, so an unquoted <<- body is judged.
+        ("an unquoted <<- heredoc's body", "cat <<-EOF > f\n\tpkill -f claude-fable\n\tEOF"),
         ("pkill -c by the session's name", "pkill -c claude"),
         # A value glued to its option ends the cluster: the pattern after
         # it is the pattern (tenth round).
@@ -167,7 +169,7 @@ def main() -> int:
         ("a real comment naming the kill", "git status # pkill -f claude-fable"),
         ("a commit message in a heredoc quoting a kill",
          "git commit -q -F - <<'EOF'\nfix: `pgrep -d -- -f claude-fable` and pkill -f claude-fable\nEOF"),
-        ("a <<- heredoc with a tab-indented delimiter", "cat <<-EOF > f\n\tpkill -f claude-fable\n\tEOF"),
+        ("a <<- heredoc with a quoted, tab-indented delimiter", "cat <<-'EOF' > f\n\tpkill -f claude-fable\n\tEOF"),
         ("pkill by name with a short option value that is in 'claude'", "pkill -u a sleep"),
         ("a listing pgrep by the session's name, no kill anywhere",
          "for c in $(pgrep -x claude); do ls -l /proc/$c/exe; done"),
@@ -301,15 +303,15 @@ def main() -> int:
         return g.decision(cmd, CLAUDE, tree=watch_tree, shell=False)
     for label, cmd in (("cat > /dev/null", f"cat > /dev/null <<'X'\nkill -TERM {W}\nX"),
                        ("gzcoord-send -", f"gzcoord-send - <<'X'\nOBSERVATION: kill {W} refused\nX"),
-                       ("tee /dev/null", f"tee /dev/null <<X >/dev/null\nkill -9 {W}\nX"),
-                       ("a pipe of data readers", f"cat <<'X' | sort | tee /dev/stderr | gzcoord-send -\nkill {W}\nX"),
+                       ("tee /dev/null", f"tee /dev/null <<'X' >/dev/null\nkill -9 {W}\nX"),
+                       ("a pipe of data readers", f"cat <<'X' | grep -v x | tee /dev/stderr | gzcoord-send -\nkill {W}\nX"),
+                       ("two bodies, data readers joined by && and ;",
+                        f"cat <<'X' >/dev/null && gzcoord-send - <<\"Y\"; wc -l\nkill {W}\nX\nkill {W}\nY"),
                        ("a quoted ; in a reader's argument", f"cat 'a;b' - <<'X' >/dev/null\nkill {W}\nX"),
                        ("a 2>&1 on the reader's line", f"cat <<'X' 2>&1\nkill {W}\nX"),
                        # Review of #612, P3: grep and its kin only print what they read.
                        ("grep -c", f"grep -c x <<'X'\nkill {W}\nX"),
-                       ("wc, head, tail, sort", f"wc -l <<'X' | head -1 | tail -1 | sort\nkill {W}\nX"),
-                       # Review of #612, P1: an unquoted body without an expansion is still data.
-                       ("an unquoted body with no expansion", f"cat <<X\nkill {W} $x\nX"),
+                       ("wc, head, tail", f"wc -l <<'X' | head -1 | tail -1\nkill {W}\nX"),
                        ("a quoted body's $( … ) is not run", f"cat <<'X'\n$(kill {W})\nX"),
                        ("a \\-quoted delimiter", f"cat <<\\X\n`kill {W}`\nX")):
         d = by_pid(cmd)
@@ -342,14 +344,36 @@ def main() -> int:
                        ("cat >> file", f"cat >>/tmp/k.sh <<'X'\nkill {W}\nX"),
                        ("tee file, then source it", f"tee f <<X >/dev/null\nkill {W}\nX\n. f"),
                        ("a quoted redirection target", f"cat >'/dev/null' <<'X'\nkill {W}\nX"),
-                       ("sort -o file", f"sort -o f <<'X'\nkill {W}\nX")):
+                       ("sort -o file", f"sort -o f <<'X'\nkill {W}\nX"),
+                       # Review of #612, round 2: the drop fails closed (_drop_bodies). Each passed at 159cd3b8.
+                       # Rule 1, an unquoted body is always judged: a plain kill, and bash's backslash-newline join,
+                       # which moves the delimiter (`x\` NL `A` is the line xA), with a later body unquoted or quoted.
+                       ("an unquoted cat <<EOF body", f"cat <<EOF\nkill {W}\nEOF"),
+                       ("an unquoted tee body", f"tee /dev/null <<X >/dev/null\nkill -9 {W}\nX"),
+                       ("an unquoted body joined over its delimiter",
+                        f"cat <<A >/dev/null\nx\\\nA\ncat <<Y\nA\nkill {W}\nY"),
+                       ("…and a quoted body after it", f"cat <<A >/dev/null\nx\\\nA\ncat <<'Y'\nA\nkill {W}\nY"),
+                       # Rule 2, the whole input is data readers: a block's redirection, an exec, sort.
+                       ("{ … } > k.sh, then bash it", f"{{\ncat <<'X'\nkill {W}\nX\n}} > k.sh\nbash k.sh"),
+                       ("exec > k.sh, then bash it", f"exec > k.sh\ncat <<'X'\nkill {W}\nX\nexec >&2\nbash k.sh"),
+                       ("sort --compress-program=sh", f"sort -S 1K --compress-program=sh <<'X'\nkill {W}\nX"),
+                       ("cat | sort --compress-program=sh", f"cat <<'X' | sort -S 1K --compress-program=sh\nkill {W}\nX"),
+                       # Rule 4, doubt keeps the body: ANSI-C quoting, where \' is a literal quote.
+                       ("a <<true inside $'…'", f"cat $'a\\' <<true'\nkill {W}\ntrue")):
         d = by_pid(cmd)
         check(f"a here-document no data reader alone takes still denies: {label}",
               d is not None and d[0] == "deny" and "inbox watch" in d[1], d)
     # The broad drop, which the pattern reading uses, misread the same ways (review of #612, P1 and P2).
     for label, cmd in (("a quoted <<", "cat '<<true'\npkill -f claude-fable\ntrue"),
                        ("$( … ) in an unquoted body", "cat <<EOF\n$(pkill -f claude-fable)\nEOF"),
-                       ("a continued line into sh", "cat <<'EOF' \\\n| sh\npkill -f claude-fable\nEOF")):
+                       ("a continued line into sh", "cat <<'EOF' \\\n| sh\npkill -f claude-fable\nEOF"),
+                       # Review of #612, round 2: the broad drop fails closed too (_drop_bodies).
+                       ("an unquoted body", "cat <<EOF\npkill -f claude-fable\nEOF"),
+                       ("an arithmetic << with its 'delimiter'", "echo $((1<<n))\npkill -f claude-fable\nn"),
+                       ("a <<true inside $'…'", "cat $'a\\' <<true'\npkill -f claude-fable\ntrue"),
+                       ("an unquoted body joined over its delimiter",
+                        "cat <<A >/dev/null\nx\\\nA\ncat <<'Y'\nA\npkill -f claude-fable\nY"),
+                       ("a here-document inside a shell's body", "bash <<'EOF'\ncat <<'Y'\nEOF\npkill -f claude-fable\nY")):
         d = g.decision(cmd, CLAUDE, shell=False)
         check(f"a pattern kill the broad here-document drop must keep denies: {label}",
               d is not None and d[0] == "deny", d)
