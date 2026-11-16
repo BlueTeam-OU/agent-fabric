@@ -267,6 +267,9 @@ def failed(why: str) -> Send:
     return s
 
 
+CLOSE_WAIT_S = 3.0
+
+
 class Inbox:
     """Messages read from the child, bounded at INBOUND_MAX: the reader only enqueues, so a slow handler never
     stops the child's stdout. Full: the OLDEST is dropped with a line (a request is stale after ttl_s anyway)."""
@@ -294,11 +297,18 @@ class Inbox:
     def close(self) -> None:
         with self._cv:
             self._stop = True
+            dropped = len(self._q)
+            self._q.clear()
             self._cv.notify()
+        if dropped:
+            self._log(f"inbox closed with {dropped} unhandled message(s): dropped (the relay still holds them)")
         # A handler still running when close() returned writes the arrival log (makedirs included) after its
-        # owner removed the directory, which re-creates it; bounded like Child.stop, never on the thread itself.
+        # owner removed the directory, which re-creates it. Short, because agentd's Leaver calls this holding the
+        # lock the handler may be waiting on: the wait must not stretch a leave. Never on the thread itself.
         if self._thread.is_alive() and threading.current_thread() is not self._thread:
-            self._thread.join(timeout=10)
+            self._thread.join(timeout=CLOSE_WAIT_S)
+            if self._thread.is_alive():
+                self._log(f"inbox handler still running {CLOSE_WAIT_S:g} s after close")
 
     def _run(self) -> None:
         while True:

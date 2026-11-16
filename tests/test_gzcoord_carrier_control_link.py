@@ -460,6 +460,25 @@ class Inbound(Net):
         inbox.close()
         self.assertEqual(finished, [1], "the handler was still running when close() returned")
 
+    def test_close_drops_the_backlog_and_says_so_and_names_a_handler_that_outlives_the_wait(self):
+        gate, seen, logs = threading.Event(), [], []
+
+        def slow(ev):
+            gate.wait(5)
+            seen.append(ev["n"])
+        inbox = cc.Inbox(slow, logs.append)
+        inbox.start()
+        for n in range(4):
+            inbox.put({"n": n})
+        self.assertTrue(until(lambda: not inbox._q or len(inbox._q) == 3))
+        with mock.patch.object(cc, "CLOSE_WAIT_S", 0.1):
+            inbox.close()
+        self.assertTrue(any("dropped" in l for l in logs), logs)
+        self.assertTrue(any("still running" in l for l in logs), logs)
+        gate.set()
+        self.assertTrue(until(lambda: not inbox._thread.is_alive()))
+        self.assertEqual(seen, [0], "only the message in hand was handled after close")
+
     def test_close_from_the_handler_itself_does_not_wait_for_itself(self):
         done = threading.Event()
         box = []
