@@ -1515,10 +1515,23 @@ class Help(unittest.TestCase):
             self.assertEqual(ctl.USAGE, fh.read())
 
     def test_every_verb_has_help_on_stdout_exit_0_with_no_registry_relay_or_token(self):
+        # The command itself, bare (no PATH, an empty home), once per form for the first verb; the other 46 verbs go through main() in this
+        # process with a relay, an identity and a sleep that raise, which is what the bare environment would make of a read: 141 starts
+        # of the interpreter were 100 s of this suite's 110.
+        def boom(*a, **k):
+            raise AssertionError("help touched the relay, the identity or the clock")
+        first = next(iter(ctl.VERB))
         for name in ctl.VERB:
             for args in (["all", name, "--help"], ["all", name, "-h"], ["help", name]):
-                r = self.bare(args)
-                self.assertEqual((r.returncode, r.stderr), (0, ""), args)
+                if name == first:
+                    r = self.bare(args)
+                    code, out, err = r.returncode, r.stdout, r.stderr
+                else:
+                    said, errs = [], []
+                    code = ctl.main(args, registry="/nonexistent/registry.json", call=boom, who=boom, token=None, out=said.append, err=errs.append, sleep=boom)
+                    out, err = "".join(f"{m}\n" for m in said), "".join(f"{m}\n" for m in errs)
+                self.assertEqual((code, err), (0, ""), args)
+                r = subprocess.CompletedProcess(args, code, out, err)
                 self.assertEqual(r.stdout, ctl.render_help(name) + "\n", args)
                 self.assertRegex(r.stdout, rf"(?m)^usage: fabric-ctl .*\b{re.escape(name)}\b", args)
                 self.assertRegex(r.stdout, r"(?m)^action: ")

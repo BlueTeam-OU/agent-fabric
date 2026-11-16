@@ -114,10 +114,12 @@ def main() -> int:
                 jobs_world.touch_memory(home, repo)
             if argv[:1] == ("done",):
                 jobs_world.landed(state, subprocess.run(["id", "-un"], capture_output=True, text=True).stdout.strip(), argv[1])
+            if argv[:1] in (("next",), ("switch",)):
+                return jobs_world.inprocess(env, repo, *argv, quiet_sweep=True)
             return subprocess.run([JOBS, *argv], cwd=repo, env=env, capture_output=True, text=True, timeout=120)
 
         def jobs(*extra: str) -> list[dict]:
-            return json.loads(run("list", "--all", "--json", *extra).stdout)
+            return json.loads(jobs_world.listing(env, repo, *extra))
 
         def job(i: str, *extra: str) -> dict:
             return next(j for j in jobs(*extra) if j["id"] == i)
