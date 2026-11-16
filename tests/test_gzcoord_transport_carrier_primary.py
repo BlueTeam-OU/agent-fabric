@@ -536,11 +536,21 @@ class Units(unittest.TestCase):
         self.assertIsInstance(self.build("carrier-record").primary, transport.CarrierPrimary)
         self.assertEqual(names(self.build("carrier-only", cfg=None)), ("interweave", [], "carrier-only"))
 
-    def test_journal_off_is_the_relay_alone_and_has_no_route_in_carrier_only(self):
-        tp = self.build("carrier-record", journal_off=True)
-        self.assertEqual((tp.primary.name, tp.mirrors), ("relay", []))
-        with self.assertRaises(transport.ModeError):
-            self.build("carrier-only", journal_off=True)
+    def test_journal_off_send_follows_the_modes_primary_with_no_mirror(self):
+        got = {}
+        for m in ("relay-record", "carrier-record", "carrier-only"):
+            tp = self.build(m, journal_off=True, for_send=True)
+            got[m] = (tp.primary.name, tp.mirrors)
+        self.assertEqual(got, {"relay-record": ("relay", []), "carrier-record": ("interweave", []), "carrier-only": ("interweave", [])})
+
+    def test_journal_off_send_in_carrier_record_needs_no_relay_configuration(self):
+        self.assertEqual(self.build("carrier-record", journal_off=True, for_send=True, cfg=None).primary.name, "interweave")
+
+    def test_journal_off_receive_is_refused_in_the_carrier_modes_not_in_relay_record(self):
+        for m in ("carrier-record", "carrier-only"):
+            with self.assertRaisesRegex(transport.ModeError, "no receiving with GZCOORD_JOURNAL=off"):
+                self.build(m, journal_off=True)
+        self.assertEqual(self.build("relay-record", journal_off=True).primary.name, "relay")   # the positive control
 
     def test_a_read_of_the_record_builds_the_primary_alone(self):
         for m, primary in (("relay-record", "relay"), ("carrier-record", "interweave"), ("carrier-only", "interweave")):

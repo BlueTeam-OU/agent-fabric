@@ -73,7 +73,7 @@ def send(relay_status: int, run: str, **env: str):
     return r, rows(state, store)
 
 
-def send_in(mode_name: str, relay_status: int, run: str):
+def send_in(mode_name: str, relay_status: int, run: str, **env: str):
     """gzcoord-send of the fixture message on an account in `mode_name`; the relay stub's posts are returned beside."""
     from gzcoord.transport import mode
     relay = P.Relay(status=relay_status)
@@ -83,7 +83,7 @@ def send_in(mode_name: str, relay_status: int, run: str):
     os.makedirs(agent)
     mode.write(mode_name, "h1/op", agent)
     try:
-        r = P.send_with(relay.url, P.VALID, AGENT_FABRIC_STATE_DIR=state, AGENT_FABRIC_SECRET_STORE=store, XDG_RUNTIME_DIR=run)
+        r = P.send_with(relay.url, P.VALID, AGENT_FABRIC_STATE_DIR=state, AGENT_FABRIC_SECRET_STORE=store, XDG_RUNTIME_DIR=run, **env)
         posts = len(relay.posts)
     finally:
         relay.close()
@@ -132,8 +132,30 @@ def carrier_primary_cases() -> None:
           db == [("outbound", "accepted", "claude-bridge", None)], str(db))
 
 
+def journal_off_cases() -> None:
+    """D7 (cutover plan, owner 2026-11-15): a GZCOORD_JOURNAL=off send goes through the mode's own primary, says so, and
+    leaves no journal row; relay-record's route is the relay alone as before."""
+    bypass = "GZCOORD_JOURNAL=off"
+    for m in ("carrier-record", "carrier-only"):
+        f = Fake({"ok": True, "carried": 3, "queued": 3, "posted": 0})
+        r, db, posts = send_in(m, 200, f.run, GZCOORD_JOURNAL="off")
+        check(f"D7 {m}: the carrier takes the send (exit 0, its id line), the relay is not posted, the bypass line is said, no journal row",
+              r.code == 0 and r.out == f"sent INFO {P.VALID_ID}\n" and posts == 0 and bypass in r.err and db == []
+              and [q["op"] for q in f.requests] == ["send"], f"{r.code} {r.out!r} {r.err} {db} {posts} {f.requests}")
+        f.close()
+        r, db, posts = send_in(m, 200, P.scratch("run-"), GZCOORD_JOURNAL="off")
+        check(f"D7 {m}: no carrier running is the carrier's failure (exit 3), never a fall back to the relay",
+              r.code == 3 and "not sent" in r.err and "fabric-ctl" in r.err and posts == 0 and bypass in r.err, f"{r.code} {r.err} {posts}")
+    f = Fake({"ok": True, "carried": 3, "queued": 3, "posted": 0})
+    r, db, posts = send_in("relay-record", 200, f.run, GZCOORD_JOURNAL="off")
+    check("D7 relay-record unchanged: the relay alone takes it, the carrier is not asked, the bypass line is said",
+          r.code == 0 and posts == 1 and f.requests == [] and bypass in r.err and r.out.startswith("sent seq "), f"{r.code} {r.err} {posts}")
+    f.close()
+
+
 def main() -> int:
     carrier_primary_cases()
+    journal_off_cases()
     ok_reply = {"ok": True, "carried": 3, "queued": 3, "posted": 0}
 
     f = Fake(ok_reply)

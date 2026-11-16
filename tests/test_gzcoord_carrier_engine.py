@@ -300,6 +300,22 @@ def main() -> int:
             check("the filtering member logs no arrival line (it is no addressee of the pair), yet receipted",
                   not any(x["mid"] == "M-3" for x in c.arrivals()) and receipts_for(c, "M-3") == 1)
 
+            # D6 (owner, 2026-11-15): a TO-ROLE message is decided at arrival. gamma held "ops" when M-3 came; it binds
+            # "dev" afterwards (make_me reads the role per message, and a relaunch rebinds it) and still never sees M-3.
+            c.me = engine.Me(c.me.agent_id, c.me.login, c.me.address, "dev")
+            check("D6: a role bound after a TO-ROLE message arrived does not get it: not listed, not journaled",
+                  not any(r["message_id"] == "M-3" for r in c.spool.unseen())
+                  and not any(r[0] == "M-3" for r in c.journal_rows),
+                  f"unseen {[r['message_id'] for r in c.spool.unseen()]}, journal {c.journal_rows}")
+            m3b = msg("M-3b", "h/alpha", to_role="dev")
+            a.carrier.handle_request({"op": "send", "message_id": "M-3b", "text": m3b})
+            check("D6 positive control: the same member, now holding the role, gets the next TO-ROLE message",
+                  until(lambda: any(r[0] == "M-3b" for r in c.journal_rows))
+                  and any(r["message_id"] == "M-3b" for r in c.spool.unseen()))
+            # Back to the fixture's role and an empty spool: the waits below count gamma's arrivals.
+            c.me = engine.Me(c.me.agent_id, c.me.login, c.me.address, "ops")
+            c.spool.records = [r for r in c.spool.records if r["mid"] != "M-3b"]
+
             # -- verdict ---------------------------------------------------
             b.carrier.handle_event(b.carrier.session, {"event_type": "message.direct", "data": {
                 "message_id": "e" * 32, "mode": "direct", "source_peer": pid(0), "source_endpoint": "gzcoord",

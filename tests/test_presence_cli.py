@@ -87,7 +87,11 @@ def main() -> int:
         with open(registry, "w") as fh:
             json.dump({"version": 1, "hosts": {"h": {"operator": "user"}}, "placement": {"alpha": "h", "beta": "h"}}, fh)
         base = {k: v for k, v in os.environ.items() if not k.startswith(("AGENT_FABRIC_", "GITHUB_", "CLAUDE_"))}
-        base.update(AGENT_FABRIC_HOSTS_REGISTRY=registry, GZCOORD_PRESENCE_WAIT_MS="800")
+        # The suite's own state directory, empty: presence reads the account's transport mode, and the running account's own
+        # file (carrier-only on a moved account) would otherwise decide which of this suite's cases can pass (review of #623, F2).
+        state = os.path.join(tmp, "state")
+        os.makedirs(state)
+        base.update(AGENT_FABRIC_HOSTS_REGISTRY=registry, GZCOORD_PRESENCE_WAIT_MS="800", AGENT_FABRIC_STATE_DIR=state)
 
         def ask(metadata: dict, url: str = "http://127.0.0.1:1", args: tuple = ("check",), raw: str | None = None):
             req = raw if raw is not None else json.dumps({"metadata": metadata, "from": "h/me", "token": TOKEN})
