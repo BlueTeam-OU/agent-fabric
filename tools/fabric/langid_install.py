@@ -175,7 +175,10 @@ def run(argv: list[str]) -> int:
             try:
                 made = quiet([maker, "-m", "venv", *(["--clear"] if stale else []), venv], VENV_TIMEOUT_S)
             finally:
-                if not made and not existed:
+                # --clear empties the old venv first, then writes pyvenv.cfg with the NEW version and links bin/python
+                # before pip: a remake that fails after that is a half-made venv this run began, and left in place
+                # it matches the maker's version, so no run would ever make it again.
+                if not made and (not existed or stale):
                     shutil.rmtree(venv, ignore_errors=True)
         if not executable and not made:
             say(f"  !  {venv}: {maker} -m venv failed; the language section stays unavailable")

@@ -76,6 +76,9 @@ class Langid(unittest.TestCase):
         self.pip_log = os.path.join(self.sandbox, "pip.log")
         self.script(self.pip, f'#!/bin/sh\nprintf "%s\\n" "$*" >> "{self.pip_log}"\ntouch "{self.installed}"\n')
         self.path = os.environ.get("PATH", "/usr/bin:/bin")
+        # A pin that is not the host's python3 by path, so a maker hard-coded to /usr/bin/python3 cannot pass as it.
+        self.pin = os.path.join(self.sandbox, "pin-python")
+        os.symlink(sys.executable, self.pin)
 
     def script(self, path: str, body: str) -> str:
         with open(path, "w", encoding="utf-8") as fh:
@@ -90,7 +93,7 @@ class Langid(unittest.TestCase):
 
     def run_install(self, *args: str, pip: str | None = None, path: str | None = None, python: str | None = None) -> subprocess.CompletedProcess:
         env = {"PATH": path or self.path, "HOME": self.home, "LANG": "C.UTF-8", "TMPDIR": self.sandbox,
-               "AGENT_FABRIC_PYTHON": sys.executable,  # install.sh's pin, so the interpreter that makes the venv is known
+               "AGENT_FABRIC_PYTHON": self.pin,  # install.sh's pin, so the interpreter that makes the venv is known
                "AGENT_FABRIC_LANGID_DIR": self.dir, "AGENT_FABRIC_LANGID_PIP": self.pip if pip is None else pip}
         if python is not None:
             env["AGENT_FABRIC_LANGID_PYTHON"] = python
@@ -183,7 +186,7 @@ class Langid(unittest.TestCase):
         self.run_install(path=f"{fakebin}{os.pathsep}{self.path}")
         self.assertFalse(os.path.exists(asked), "the host's python3 was run")
         self.assertTrue(os.path.isfile(os.path.join(self.dir, "venv", "pyvenv.cfg")), "no venv was made")
-        self.assertIn(f"command = {sys.executable} -m venv", self.venv_cfg())
+        self.assertIn(f"command = {self.pin} -m venv", self.venv_cfg())
 
     def venv_cfg(self) -> str:
         with open(os.path.join(self.dir, "venv", "pyvenv.cfg"), encoding="utf-8") as fh:
@@ -192,13 +195,18 @@ class Langid(unittest.TestCase):
     def test_an_empty_override_counts_as_unset(self) -> None:
         # Positive control of the failing-interpreter cases: "" must not be run as a command.
         p = self.run_install(python="")
-        self.assertIn(f"command = {sys.executable} -m venv", self.venv_cfg(), p.stdout + p.stderr)
+        self.assertIn(f"command = {self.pin} -m venv", self.venv_cfg(), p.stdout + p.stderr)
 
     def recording_maker(self, minor: str) -> tuple[str, str]:
-        """An interpreter that says it is `minor`, logs each `-m venv` call and fails it."""
+        """An interpreter that says it is `minor`, logs each `-m venv` call, and fails it the way venv does after
+        `--clear`: the directory emptied, pyvenv.cfg written with its own version, bin/python linked, no pip."""
         log = os.path.join(self.sandbox, "maker.log")
         fake = self.script(os.path.join(self.sandbox, "maker-python"),
-                           f'#!/bin/sh\nif [ "$1" = -c ]; then echo {minor}.1; exit 0; fi\nprintf "%s\\n" "$*" >> "{log}"\nexit 1\n')
+                           f'#!/bin/sh\nif [ "$1" = -c ]; then echo {minor}.1; exit 0; fi\n'
+                           f'printf "%s\\n" "$*" >> "{log}"\n'
+                           'for a in "$@"; do v="$a"; done\n'
+                           'if [ "$3" = --clear ]; then rm -rf "$v"; mkdir -p "$v/bin"; : > "$v/bin/python"; '
+                           f'printf "version = {minor}.1\\n" > "$v/pyvenv.cfg"; fi\nexit 1\n')
         return fake, log
 
     def venv_of(self, minor: str) -> None:
@@ -214,7 +222,7 @@ class Langid(unittest.TestCase):
         self.assertEqual(p.returncode, 1, p.stdout + p.stderr)
         with open(log, encoding="utf-8") as fh:
             self.assertEqual(fh.read().strip(), f"-m venv --clear {self.dir}/venv")
-        self.assertTrue(os.path.isdir(os.path.join(self.dir, "venv")), "a venv that was there was removed on failure")
+        self.assertFalse(os.path.lexists(os.path.join(self.dir, "venv")), "a half-made remake was left to poison the next run")
 
     def test_a_venv_of_the_same_minor_is_kept(self) -> None:
         fake, log = self.recording_maker("3.99")
