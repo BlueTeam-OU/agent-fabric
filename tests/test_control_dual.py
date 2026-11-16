@@ -275,6 +275,27 @@ class Dual(Scratch):
         self.assertTrue(any("InterWeave carries alone" in e for e in self.err), self.err)
         self.assertTrue(any(str(closed) in e for e in self.err), "the line names the closed port the relay was asked at")
 
+    def test_agentds_window_ending_before_the_wait_does_not_say_agentd_went_away(self):
+        # j249: agentd's window counts from its sends, --timeout from after the relay post; a slow post makes the first end first.
+        self.boot("alice")
+        real = self.relay
+
+        def slow(*a, **k):
+            if a and not str(a[0]).startswith("/api/messages?"):   # the post, not the reads
+                time.sleep(1.5)
+            return real(*a, **k)
+        self.done = threading.Event()
+        box: dict = {}
+
+        def go() -> None:
+            box["rc"] = ctl.main(["all", "ping", "--json", "--timeout", "3"], registry=self.registry, call=slow, who=WHO, token="t",
+                                 out=self.out.append, err=self.err.append)
+            self.done.set()
+        threading.Thread(target=go, daemon=True).start()
+        self.request_of("alice")   # handed over by the second carrier; never answered
+        self.assertEqual(self.finish(box, 30), 1, self.err)   # nobody answered: the rows say so
+        self.assertEqual([e for e in self.err if "agentd" in e], [], self.err)
+
     def test_the_operators_own_row_by_both_carriers_is_the_interweave_copy_and_others_are_unchanged(self):
         self.place_operator()
         self.boot("alice")
