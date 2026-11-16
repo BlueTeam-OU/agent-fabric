@@ -118,6 +118,7 @@
         "projects/interweave/integration/gh/",
         "communication/gzcoord/tests/",
         "tests/test_arm_cli.py",
+        "tests/arm_mocks.py",
         "tests/test_arm_policy.py",
         "tests/test_commit_class.py",
         "tests/test_commit_class_cli.py",
