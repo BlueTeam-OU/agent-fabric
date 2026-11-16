@@ -66,15 +66,47 @@ Over-reported, on purpose, and named in the deny so the session knows the
 way through: an unquoted or double-quoted mention (`echo fabric-pr
 post-review`, `git commit -m "… fabric-pr post-review …"`) — put the words
 in single quotes, a quoted heredoc or a file. Not seen: a script file that
-runs a post-review (`bash post.sh`), a command held in a variable and
-expanded (`$x`), `$SHELL -c` — a fence against the habit of wrapping, not
-a sandbox.
+runs a post-review (`bash post.sh`), and a program that runs text it was
+given in a way no word here names (`python -c`, `sed …/e`) — a fence against
+the habit of wrapping, not a sandbox.
+
+COMMAND WORDS THE WALK CANNOT NAME. Inert text is only safe while nothing
+can run it, and a word whose letters the shell picks can be anything,
+`bash` or `fabric-pr` included: `read -r c <<< 'fabric-pr post-review 1';
+$c`, `"${c}" post-review 1`, `e$c`, `/bin/${c} -c '…'`. The invariant: when
+the walk meets a command word it cannot name statically, the command is
+refused if it also holds text that could be post-review's input or its
+words — `post-review` or `fabric-pr` anywhere (quoted, a heredoc, a comment
+too), or a `<` (a redirection, a here-string, a heredoc). Without that text
+the unnameable word is passed (`"$PY" -m pytest`, `$EDITOR notes.md`), so
+the refusal stays rare; with it, there is a post-review the walk cannot
+rule out, and a refusal costs a rephrase. A command word the walk cannot
+name is
+  - one with an unquoted or double-quoted expansion in its last path part
+    (`$c`, `${c}`, `e$c`, `/bin/${c}`; `$ROOT/bin/fabric-pr` is named by its
+    last part and is not one), a `$(…)` or backtick, `$'…'` (its escapes
+    spell the name), a glob (`*`, `?`, `[`) or a brace list (`{a,b}`);
+  - the command word position itself is not trusted to the walk's reading of
+    wrappers (`timeout 5s`, `sudo -u X`, `setsid`, a leading `2>/dev/null`
+    all misread it): after a wrapper, or a program this file does not list
+    as one that never runs its arguments (PLAIN), every later word that is
+    not nameable counts, until a PLAIN command shows up (`sudo grep -n x
+    "$f"` is a grep). A redirection's fd and target are no word at all;
+  - what `xargs` and `find -exec` run, unless a PLAIN command is named
+    there: `xargs grep -n foo` is a grep, `xargs env` and `xargs -I X env
+    -S X` run what stdin says; `env -S` runs its text.
+Not covered: an argument assembled from pieces (`fabric-pr ${a}${b}`), a
+program not in PLAIN or RUNNERS that runs text itself. The list PLAIN is
+what keeps everyday commands (`git`, `gh`, `grep`, `sed`, `printf`, `find`,
+`fabric-pr gate`) passing; a name missing from it costs one false refusal
+when the line also names post-review.
 
 COST. One pass over the text, no recursion and no backtracking: each
 character is looked at a bounded number of times, so the 5 s the settings
 give the hook covers any command a session sends (review of #451, F3, F6,
-F7). Nothing is scanned, and no table read, unless `post-review` occurs in the
-text: the command's name is not looked for before canonical() is asked.
+F7). Nothing is scanned unless `post-review`, `fabric-pr` or a `<` occurs in the
+text, and no table is read unless `post-review` does: the command's name is
+not looked for before canonical() is asked.
 
 Output: one deny decision on stdout, or nothing. Exit 0 always: a payload it
 cannot read is passed, never blocked (a command table it cannot read is not
@@ -116,59 +148,190 @@ STDIN_PATHS = {"/dev/stdin", "/dev/fd/0", "/proc/self/fd/0"}
 READERS = {"grep", "egrep", "fgrep", "rg", "ag", "ack", "git", "ls", "cat", "head", "tail", "wc", "diff", "stat",
            "file", "less", "more"}
 WORD_END = set(" \t\n;&|()<>")
+# Words after which the next word is a command word again, not an argument.
+KEYWORDS = {"then", "do", "else", "elif", "if", "while", "until", "!", "{"}
+ASSIGN = re.compile(r"[A-Za-z_][A-Za-z0-9_]*\+?=")
+# After `$`, what starts an expansion (a name or digit is tested apart): `${`, `$@`, `$?`, `$$`, `$!`, `$-`, `$#`, `$*`.
+EXPANSION_CHARS = set("_{@*#?$!-")
+# Programs that feed their command line from elsewhere: what follows is the command, or the stdin is its arguments.
+FEEDERS = {"xargs", "parallel"}
+EXEC_FLAGS = {"-exec", "-execdir", "-ok", "-okdir"}
+# Programs known not to run their arguments as a command (as far as this fence goes: `sed`'s `e` and `python -c` run
+# text too, and are no more seen than before). Under one of these an expansion is an argument; under anything else (a
+# wrapper, a program the list does not know) a later word may be the command, so an expansion there is not nameable.
+# Keep it to what agents run every day beside text that mentions post-review: each name is a false refusal avoided.
+PLAIN = READERS | {"echo", "printf", "cd", "pwd", "gh", "sed", "awk", "jq", "python", "python3", "tee", "sort", "uniq",
+                   "tr", "cut", "cp", "mv", "rm", "mkdir", "rmdir", "touch", "ln", "chmod", "test", "[", "[[", "true",
+                   "false", ":", "export", "local", "declare", "readonly", "unset", "read", "set", "shift", "exit",
+                   "return", "for", "case", "select", "find", "date", "sleep", "basename", "dirname", "realpath",
+                   "mktemp", "tar", "curl", "make", "cargo", "npm", "pytest", COMMAND, "fabric", "fabric-adr",
+                   "fabric-jobs", "fabric-status", "fabric-whoami"}
 REASON = ("Post the review as the bare command `fabric-pr post-review [--repo <owner/name>] [--model <m>] <n> < <report>`, "
           "and nothing else in the call: no `cd … &&` (use --repo for another repository), no `2>&1`, no pipe, no `;`, "
-          "no wrapper (time, env, bash -c), no path to the script, no variable. The bare form is what the "
+          "no wrapper (time, env, bash -c), no path to the script, no variable, "
+          "no command word from an expansion, substitution or glob. The bare form is what the "
           "`Bash(fabric-pr *)` permission every account has matches; a wrapped one goes to the auto-mode classifier, "
           "which refuses a review on your own pull request as [Self-Approval] for the rest of the session. "
           "Read its output in the next call. If this command only mentions the two words (a grep, a commit message, "
           "a doc), put them in single quotes, a quoted heredoc (<<'EOF') or a file.")
 
 
-def live_text(cmd: str) -> str:
-    """The text the shell may run: the command less comments, single-quoted strings and quoted-delimiter heredoc
-    bodies, those two given back when the command names a shell, eval or source (the header says why)."""
+class Simple:
+    """The walk's state for one simple command and the word being read in it. A `$( … )` or backtick gets a fresh one
+    and the outer one is kept, so the word that holds the substitution is still seen whole when it closes."""
+    __slots__ = ("first", "after_wrapper", "prev", "command", "phase", "plain_name", "fed", "env", "exec", "redir",
+                 "word", "uq", "wilds")
+
+    def __init__(self) -> None:
+        self.word: list[str] = []     # the current word, its quotes off
+        self.uq: list[str] = []       # one char per char of `word`: itself if unquoted, "Q" if quoted or escaped
+        self.wilds: list[int] = []    # offsets in the word where the shell, not the text, decides what it says
+        self.reset()
+
+    def reset(self) -> None:
+        self.first, self.after_wrapper, self.prev, self.command = True, False, "", ""
+        # The nameability walk, apart from the above: "cmd" (the command word is still to come), "open" (a wrapper or
+        # an unknown program stands in front, so a later word may be the command), "plain" (the command is known
+        # not to run its arguments).
+        self.phase, self.plain_name = "cmd", ""
+        self.fed = self.env = self.exec = self.redir = False
+
+
+def unnameable(uq: str) -> list[int]:
+    """Offsets in an unquoted-text mask where a glob or a brace expansion makes the shell pick the word's letters.
+    One pass: no regex, so no input backtracks."""
+    found: list[int] = []
+    brace, seen = -1, False
+    for k, ch in enumerate(uq):
+        if ch in "*?[":
+            found.append(k)
+        elif ch == "{":
+            brace, seen = k, False
+        elif ch == "," and brace != -1:
+            seen = True
+        elif ch == "." and brace != -1 and uq[k - 1:k] == ".":
+            seen = True
+        elif ch == "}" and brace != -1:
+            if seen:
+                found.append(brace)
+            brace = -1
+    return found
+
+
+def live_text(cmd: str) -> tuple[str, bool]:
+    """(the text the shell may run, whether a command word is one the walk cannot name). The text is the command less
+    comments, single-quoted strings and quoted-delimiter heredoc bodies, those two given back when the command names a
+    shell, eval or source; the flag is the invariant of the header's COMMAND WORDS THE WALK CANNOT NAME."""
     live: list[str] = []
     inert: list[str] = []
     runner = False
-    word: list[str] = []
+    dynamic = False
+    states = [Simple()]
     stack = ["N"]               # N: unquoted (top level, $( … ) or ` … `); D: inside "…"
     depth = [0]                 # open parentheses inside each $( … )
     pending: list[tuple[str, bool, bool]] = []      # heredocs opened on this line: (delimiter, quoted, <<-)
-    first, after_wrapper = True, False      # the next word is a command word; the last command word was a wrapper
-    prev = ""                               # the previous word of this simple command
-    command = ""                            # the word the walk took as this simple command's name
     n, i = len(cmd), 0
+
+    def add(text: str, plain: bool = False) -> None:
+        s = states[-1]
+        s.word.append(text)
+        s.uq.extend(text if plain else "Q" * len(text))
+
+    def mark() -> None:
+        s = states[-1]
+        s.wilds.append(len(s.uq))
+
+    def literal(s: Simple, name: str, full: str) -> None:
+        """A word that names itself where a command (or what a wrapper runs) may be."""
+        nonlocal dynamic
+        if name in PLAIN:
+            s.phase, s.plain_name = "plain", name
+            return
+        s.phase = "open"
+        if name == "env":
+            s.env = True
+        elif name in FEEDERS:
+            s.fed = True
+        elif s.env and (full == "--split-string" or full.startswith("--split-string=")
+                        or (full[:1] == "-" and full[1:2] != "-" and "S" in full)):
+            dynamic = True      # `env -S 'text'` runs the text as a command line
 
     def end_word() -> None:
         """Close the word: its quotes are already off (`"bash" -c` names bash), so it is a runner by its name."""
-        nonlocal runner, first, after_wrapper, prev, command
-        if word:
-            full = "".join(word)
-            name = full.rsplit("/", 1)[-1]
-            # A runner by bare name counts anywhere (`find -exec bash -c '…'` runs it); by path, unless the command
-            # only reads files (READERS says why).
-            named = name in RUNNERS and ("/" not in full or command not in READERS)
-            stdin = full in STDIN_PATHS or (full.startswith("/dev/fd/") and full[8:].isdigit())
-            runner = runner or named or (first and name == ".") or (prev == "." and stdin)
-            if not (prev == "." and full == "--"):          # `. -- /dev/stdin` reads the path after the --
-                prev = full
-            if first:
-                option = after_wrapper and (name.startswith("-") or "=" in name or name.isdigit())
-                after_wrapper = name in WRAPPERS or option
-                first = after_wrapper or "=" in name     # an assignment leaves the command word still to come
-                if not first:
-                    command = name
-            word.clear()
+        nonlocal runner, dynamic
+        s = states[-1]
+        if not s.word:
+            return
+        full = "".join(s.word)
+        wilds = s.wilds + unnameable("".join(s.uq))
+        redir = s.redir
+        s.word.clear()
+        s.uq.clear()
+        s.wilds = []
+        if redir:                   # the target of a redirection: neither a command word nor a wrapper's argument
+            s.redir = False
+            return
+        name = full.rsplit("/", 1)[-1]
+        # A runner by bare name counts anywhere (`find -exec bash -c '…'` runs it); by path, unless the command
+        # only reads files (READERS says why).
+        named = name in RUNNERS and ("/" not in full or s.command not in READERS)
+        stdin = full in STDIN_PATHS or (full.startswith("/dev/fd/") and full[8:].isdigit())
+        runner = runner or named or (s.first and name == ".") or (s.prev == "." and stdin)
+        if not (s.prev == "." and full == "--"):            # `. -- /dev/stdin` reads the path after the --
+            s.prev = full
+        if s.first:
+            option = s.after_wrapper and (name.startswith("-") or "=" in name or name.isdigit())
+            s.after_wrapper = name in WRAPPERS or option
+            s.first = s.after_wrapper or "=" in name         # an assignment leaves the command word still to come
+            if not s.first:
+                s.command = name
+        # Can the walk name this word? Only its last part is the command's name (`$ROOT/bin/fabric-pr` is fabric-pr;
+        # `/bin/${c}` is not), so an expansion or glob before the last `/` leaves it nameable.
+        slash = full.rfind("/")
+        unnamed = any(p > slash for p in wilds) and not (full in ("[", "[[") and wilds == [0])
+        if s.phase == "plain":
+            if s.plain_name == "find" and full in EXEC_FLAGS:       # what `-exec` runs is a command line of its own
+                s.phase, s.fed, s.exec = "open", True, True
+            elif s.exec and full in (";", "+"):
+                s.phase, s.fed, s.exec = "plain", False, False
+            return
+        if s.phase == "cmd" and ASSIGN.match(full):
+            return
+        if unnamed:
+            dynamic = True
+            s.phase = "open"
+        elif s.phase == "cmd" and name in KEYWORDS:
+            return
+        else:
+            literal(s, name, full)
 
     def separator() -> None:
-        nonlocal first, after_wrapper, prev, command
+        nonlocal dynamic
         end_word()
-        first, after_wrapper, prev, command = True, False, "", ""
+        s = states[-1]
+        if s.phase == "open" and s.fed:     # xargs, or find -exec, whose command line never named a plain command
+            dynamic = True
+        s.reset()
+
+    def open_sub(kind: str) -> None:
+        mark()                              # the word holding the substitution is not text the walk can read
+        states[-1].word.append("")
+        states.append(Simple())
+        stack.append(kind)
+        if kind == "S":
+            depth.append(0)
+
+    def close_sub(kind: str) -> None:
+        separator()
+        states.pop()
+        stack.pop()
+        if kind == "S":
+            depth.pop()
 
     while i < n:
         c = cmd[i]
         top = stack[-1]
+        s = states[-1]
         if top == "D":
             if c == "\\" and i + 1 < n:
                 live.append(cmd[i:i + 2])
@@ -177,24 +340,23 @@ def live_text(cmd: str) -> str:
             if c == '"':
                 stack.pop()
             elif cmd.startswith("$(", i):
-                separator()
-                stack.append("S")
-                depth.append(0)
+                open_sub("S")
                 live.append("$(")
                 i += 2
                 continue
             elif c == "`":
-                separator()
-                stack.append("B")
+                open_sub("B")
             else:
-                word.append(c)
+                if c == "$" and i + 1 < n and (cmd[i + 1].isalnum() or cmd[i + 1] in EXPANSION_CHARS):
+                    mark()
+                add(c)
             live.append(c)
             i += 1
             continue
         # Unquoted: the top level, a $( … ) or a ` … `.
         if c == "\\" and i + 1 < n:
             live.append(cmd[i:i + 2])
-            word.append(cmd[i + 1])
+            add(cmd[i + 1])
             i += 2
             continue
         if cmd.startswith("$'", i):
@@ -203,8 +365,15 @@ def live_text(cmd: str) -> str:
                 j += 2 if cmd[j] == "\\" else 1
             (inert if j < n else live).append(" " + cmd[i + 2:j] + " ")
             live.append(" ")
-            word.append(cmd[i + 2:j])
+            mark()                                       # `$'\x62ash'`: the escapes spell what the walk reads raw
+            add(cmd[i + 2:j])
             i = j + 1
+            continue
+        if c == "$" and i + 1 < n and (cmd[i + 1].isalnum() or cmd[i + 1] in EXPANSION_CHARS):
+            mark()
+            add(c, True)
+            live.append(c)
+            i += 1
             continue
         if c == "'":
             close = cmd.find("'", i + 1)
@@ -212,23 +381,24 @@ def live_text(cmd: str) -> str:
             (inert if close != -1 else live).append(" " + cmd[i + 1:(n if close == -1 else close)] + " ")
             close = n if close == -1 else close
             live.append(" ")
-            word.append(cmd[i + 1:close])
+            add(cmd[i + 1:close])
             i = close + 1
             continue
-        if c == "#" and not word:
+        if c == "#" and not s.word:
             nl = cmd.find("\n", i)
             i = n if nl == -1 else nl
             continue
         if c == '"':
             stack.append("D")
             live.append(c)
-            word.append("")                              # a word has begun: a `#` after it is no comment
+            s.word.append("")                            # a word has begun: a `#` after it is no comment
             i += 1
             continue
         if cmd.startswith("<<<", i):
             # A here-string is one operator: stepping one character would leave `<< x` at i+1, read as a heredoc whose
             # body (the next lines, a live post-review among them) went inert (j830 mutation S10).
             end_word()
+            s.redir = True
             live.append("<<<")
             i += 3
             continue
@@ -272,33 +442,50 @@ def live_text(cmd: str) -> str:
                     (inert if quoted else live).append(" " + cmd[body_start:n] + " ")
             pending.clear()
             continue
+        if c in "<>" and cmd[i + 1:i + 2] != "(":
+            # A redirection: its fd number (`2` of `2>/dev/null`) and its target are not command words. Dropped here,
+            # not read as a command: the walk took `2` for the command and the real one for an argument (#631 F2).
+            if s.word and "".join(s.uq).isdigit():
+                s.word.clear()
+                s.uq.clear()
+                s.wilds = []
+            else:
+                end_word()
+            s.redir = True
+            live.append(c)
+            i += 1
+            continue
+        if c == "&" and (cmd[i - 1:i] in ("<", ">") or cmd[i + 1:i + 2] == ">") and cmd[i + 1:i + 2] != "&":
+            end_word()                                  # `>&2`, `&>file`: part of a redirection, not a separator
+            s.redir = True
+            live.append(c)
+            i += 1
+            continue
+        if c == "|" and cmd[i - 1:i] == ">":
+            live.append(c)                              # `>|file`
+            i += 1
+            continue
         if top == "S" and c == "(":
             depth[-1] += 1
         elif top == "S" and c == ")":
             if depth[-1] == 0:
-                separator()
-                stack.pop()
-                depth.pop()
+                close_sub("S")
                 live.append(c)
                 i += 1
                 continue
             depth[-1] -= 1
         elif top == "B" and c == "`":
-            separator()
-            stack.pop()
+            close_sub("B")
             live.append(c)
             i += 1
             continue
         elif c == "`":
-            separator()
-            stack.append("B")
+            open_sub("B")
             live.append(c)
             i += 1
             continue
         elif cmd.startswith("$(", i):
-            separator()
-            stack.append("S")
-            depth.append(0)
+            open_sub("S")
             live.append("$(")
             i += 2
             continue
@@ -307,11 +494,14 @@ def live_text(cmd: str) -> str:
         elif c in WORD_END:
             end_word()
         else:
-            word.append(c)
+            add(c, True)
         live.append(c)
         i += 1
-    end_word()
-    return "".join(live) + ("".join(inert) if runner else "")
+    while len(states) > 1:                  # an unclosed `$(` or backtick: what it held is judged all the same
+        separator()
+        states.pop()
+    separator()
+    return "".join(live) + ("".join(inert) if runner else ""), dynamic
 
 
 def canonical_module():
@@ -341,12 +531,16 @@ def bare(cmd: str, canonical) -> bool:
 
 
 def refused(cmd: str) -> bool:
-    if VERB not in cmd:
+    named = VERB in cmd
+    # The trigger (header, COMMAND WORDS THE WALK CANNOT NAME): either word, or any text a command could read as input.
+    if not (named or COMMAND in cmd or "<" in cmd):
         return False
-    canonical = canonical_module()
-    if bare(cmd.strip(), canonical):
+    canonical = canonical_module() if named else None
+    if named and bare(cmd.strip(), canonical):
         return False
-    text = live_text(cmd)
+    text, dynamic = live_text(cmd)
+    if dynamic or not named:
+        return dynamic
     last = text.rfind(VERB)                 # a run names the subcommand after the script: `grep post-review bin/fabric-pr` runs none
     if last == -1:
         return False

@@ -118,6 +118,46 @@ def main() -> int:
         ("a heredoc fed to a shell by path after 2>&1",
          "2>&1 /usr/bin/bash <<'EOF'\nfabric-pr post-review 12 < r.md\nEOF"),
     ]
+    # A command word the walk cannot name, with post-review text or an input on the line (#631 reviews F1, F2; j830).
+    # Mutation: post-review-shape-guard.py refused(), `return dynamic` made `return False` (and live_text's flag ignored).
+    held = "read -r c <<< 'fabric-pr post-review 1'; "
+    unnameable = [
+        # What the reviews of #631 named.
+        ("a command held in a variable", "x='fabric-pr post-review 1'; $x < r.md"),
+        ("read into a variable, run", held + "$c"),
+        ("$SHELL -c", "$SHELL -c 'fabric-pr post-review 1 < r.md'"),
+        ("an expansion glued to a letter", "read -r c <<< 'abric-pr post-review 1'; f$c < r.md"),
+        ("an expansion glued to a letter, the text after it", "c=val; e$c 'fabric-pr post-review 1 < r.md'"),
+        ("after timeout 5s", held + "timeout 5s $c < r.md"),
+        ("after sudo -u root", held + "sudo -u root $c < r.md"),
+        ("after a leading redirection", held + "2>/dev/null $c < r.md"),
+        ("after setsid, a wrapper nobody listed", held + "setsid $c < r.md"),
+        ("after stdbuf -oL", held + "stdbuf -oL $c < r.md"),
+        ("xargs with another replace string", "xargs -0 -I X env -S X <<< 'fabric-pr post-review 1'"),
+        ("xargs with {} and env", "xargs -0 -I{} env {} <<< 'fabric-pr post-review 1'"),
+        ("the name in a variable, the verb after it", "c='fabric-pr'; \"${c}\" post-review 1"),
+        ("a redirection before an expansion holding the whole line", "c='fabric-pr post-review 1'; 2>/dev/null $c"),
+        ("an expansion in the shell's path", "c=bash; /bin/${c} -c 'fabric-pr post-review 1'"),
+        # Shapes they did not name.
+        ("a command substitution as the command word", "$(echo fabric-pr) post-review 12 < r.md"),
+        ("backticks as the command word", "`printf fabric-pr` post-review 12 < r.md"),
+        ("ANSI-C quoting spelling the name", "$'\\x66abric-pr' post-review 12 < r.md"),
+        ("a glob in the command word", "fabric-p? post-review 12 < r.md"),
+        ("a bracket glob in the command word", "/opt/bin/fabric-p[r] post-review 12 < r.md"),
+        ("a brace expansion in the command word", "{fabric-pr,x} post-review 12 < r.md"),
+        ("xargs feeding a wrapper", "xargs env <<< 'fabric-pr post-review 1'"),
+        ("xargs with a command it does not name", "xargs nice -n 5 <<< 'fabric-pr post-review 1'"),
+        ("find -exec of an expansion", "c='fabric-pr post-review 1'; find . -maxdepth 0 -exec $c \\;"),
+        ("find -exec of a wrapper", "find . -maxdepth 0 -exec env -S 'fabric-pr post-review 1' \\;"),
+        ("env -S", "env -S 'fabric-pr post-review 1 < r.md'"),
+        ("a loop over quoted lines", "for c in 'fabric-pr post-review 1'; do $c < r.md; done"),
+        ("a substitution held in a variable", "cmd=$(echo 'fabric-pr post-review 1'); $cmd < r.md"),
+        ("an expansion after exec and nice", held + "nice -n 5 exec $c"),
+        ("a parameter operator in the command word", held + "${c%% *} 1 < r.md"),
+        ("an expansion in a pipeline's second command", "echo 'fabric-pr post-review 1' | $SHELL"),
+        ("after a here-string and a brace group", "{ read -r c <<< 'fabric-pr post-review 1'; }; \"$c\""),
+        ("a substitution glued into the name", "fabric-$(echo pr) post-review 12 < r.md"),
+    ]
     # Mentions the shell may run, refused on purpose: the deny names the way through (single quotes, a quoted heredoc,
     # a file). Pinned so a change to what is over-reported is a decision, not a drift.
     over_reported = [
@@ -162,8 +202,28 @@ def main() -> int:
         ("a single-quoted grep of a directory named ssh", "grep -rn 'fabric-pr post-review' runtime/ssh"),
         ("a single-quoted grep of tests/bash/", "grep -rln 'fabric-pr post-review' tests/bash/x.sh docs/flock"),
         ("git log of a path ending in sh", "git log -S 'fabric-pr post-review' -- policies/watch"),
+        # Expansions that are arguments, or a command the walk can name, beside text that mentions the words.
+        ("xargs of a plain command", "xargs grep -n foo"),
+        ("xargs of grep over the words", "git ls-files | xargs grep -ln 'fabric-pr post-review'"),
+        ("fabric-pr gate", "fabric-pr gate 12"),
+        ("fabric-pr with an expanded argument", 'fabric-pr arm "$n" --dry-run'),
+        ("the script under an expanded directory", 'cd "$d" && "$R"/bin/fabric-pr arm 3 --dry-run'),
+        ("an ordinary pipeline", "git log --oneline | head -5 | wc -l"),
+        ("an ordinary pipeline with an input and expansions", 'sort < "$f" | uniq -c | head -3'),
+        ("a while-read loop over a file", 'while read -r l; do echo "$l"; done < list.txt'),
+        ("a commit message from a heredoc in a substitution, the words in it",
+         "git commit -m \"$(cat <<'EOF'\nfabric-pr post-review 12 < r.md\nEOF\n)\" && git status"),
+        ("an assignment from a substitution", "x=$(date +%s) && git log -S 'post-review' -- docs"),
+        ("sudo of a plain command with an expansion", 'sudo grep -n \'fabric-pr post-review\' "$f"'),
+        ("timeout of a plain command with an expansion", 'timeout 60 grep -rn \'post-review\' "$d"'),
+        ("find -exec of grep with an expanded -name", 'find . -name "$p" -exec grep -l \'fabric-pr post-review\' {} +'),
+        ("gh comment with an expanded number", 'gh pr comment "$n" --body \'fabric-pr post-review 12\''),
+        ("a for loop over an expansion", 'for f in $files; do grep -l \'post-review\' "$f"; done'),
+        ("sed over a variable file", 'sed -i \'s/post-review/x/\' "$f"'),
+        ("the test builtin with a glob-looking bracket", "[ -f x ] && grep -n 'post-review' x < /dev/null"),
+        ("a stderr redirect before a plain command", "2>/dev/null grep -n 'post-review' bin/fabric-pr"),
     ]
-    for label, cmd in refused:
+    for label, cmd in refused + unnameable:
         check(f"refused: {label}", g.refused(cmd), cmd[:200])
     for label, cmd in over_reported:
         check(f"over-reported: {label}", g.refused(cmd), cmd)
