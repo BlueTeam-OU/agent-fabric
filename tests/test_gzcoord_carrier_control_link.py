@@ -480,11 +480,12 @@ class Inbound(Net):
         self.assertEqual(seen, [0], "only the message in hand was handled after close")
 
     def test_a_message_put_after_close_is_not_handled(self):
-        seen = []
-        inbox = cc.Inbox(lambda ev: seen.append(ev["n"]), lambda l: None)
+        seen, logs = [], []
+        inbox = cc.Inbox(lambda ev: seen.append(ev["n"]), logs.append)
         inbox.start()
         inbox.close()
         inbox.put({"n": 1})
+        self.assertTrue(any("read after close" in l for l in logs), logs)
         self.assertFalse(inbox._thread.is_alive())
         self.assertEqual((seen, len(inbox._q)), ([], 0))
 

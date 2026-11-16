@@ -288,6 +288,7 @@ class Inbox:
     def put(self, event: dict) -> None:
         with self._cv:
             if self._stop:   # a message read after close would be handled behind the owner's back
+                self._log("inbox closed: dropped a message read after close; one that came by InterWeave alone is lost")
                 return
             if len(self._q) >= self._limit:
                 self._q.popleft()
