@@ -134,12 +134,13 @@ who gets an ask in another type queues it itself (`fabric-jobs add
 only a `REQUEST` as a job (ADR-037 §7), and only a `REQUEST` or
 `QUESTION` with `REPLY-EXPECTED: yes` holds `fabric-jobs switch`; an ask
 in an `INFO`, `OBSERVATION` or `REPLY` vanishes with the session that
-read it. Evidence (rule 6), from four independent senders on 2026-11-14
+read it. Evidence (rule 6), four instances from three independent senders on 2026-11-14
 and 15: python-dev-02's j152 `REPLY` carrying the ask for #620's record
 text, unacted for five hours until architect-cto chased it on the
 owner's behalf; python-dev-02's "#614 merged, distribution is yours" and
 python-dev-03's "#615 merged, needs distribution", each an ask in a
 `REPLY` or `INFO`; python-dev-04's "supply ready to fold" `INFO`. The
 owner approved the convention in session on 2026-11-15. It is a
-convention (rule 3): no field, grammar rule or meaning of a message
-changes, and a reader accepts and rejects exactly what it did before.
+convention (rule 3): a hand-off that answers the recipient's own
+`REQUEST` stays the supplier's `REPLY`; no field, grammar rule or meaning
+of a message changes, and a reader accepts and rejects exactly what it did before.

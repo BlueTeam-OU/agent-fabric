@@ -198,8 +198,10 @@ withheld, 2026-09-16).
 
 **An ask goes as a `REQUEST`.** Whatever another agent must act on is a
 `REQUEST` `TO` the login that acts, even when it answers a thread: give
-it `IN-REPLY-TO` for the thread. "Merged, distribute it", "the supply is
-ready to fold" and "the record text is yours to write" are requests. The
+it `IN-REPLY-TO` for the thread. "Merged, distribute it", an unrequested
+"the supply is ready to fold" and "the record text is yours to write" are
+requests. A hand-off that answers the recipient's own `REQUEST` is not a
+new ask: it stays the supplier's `REPLY` (§Working on a request together). The
 receiving inbox queues a `REQUEST` addressed to its login as a job, and
 `fabric-jobs switch` does not move on while a `REQUEST` or `QUESTION`
 with `REPLY-EXPECTED: yes` is unanswered. An `INFO`, `OBSERVATION` or
