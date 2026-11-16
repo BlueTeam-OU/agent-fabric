@@ -224,5 +224,60 @@ class Readers(unittest.TestCase):
                          {"status": "none", "reason": "no relay reader in this context"})
 
 
+class Stranded(unittest.TestCase):
+    """Gate 2's soak asks for "no stranded delivery" per account, in carrier-record too (j151, cutover plan D8): the outbox's
+    age and count, metadata only, from the carrier's status op alone."""
+
+    def read(self, outstanding=(), **k):
+        call, asked = carrier(outstanding=outstanding, **k)
+        return position.stranded(call, RD, NOW), asked
+
+    def test_an_idle_outbox_has_none_older(self):
+        s, asked = self.read()
+        self.assertEqual((s["status"], s["outstanding"], s["older"], s["oldest_s"], s["blocked"]), ("ok", 0, 0, 0, {}))
+        self.assertEqual(asked, ["status"], "the outbox alone: the spool is not read")
+
+    def test_only_the_deliveries_older_than_the_bound_count_and_the_oldest_is_named(self):
+        bound = position.STRANDED_AFTER_S
+        s, _ = self.read([delivery(5), delivery(bound), delivery(bound + 1), delivery(bound * 3, blocked="E_ROSTER")])
+        self.assertEqual((s["outstanding"], s["older"], s["oldest_s"], s["older_than_s"], s["blocked"]),
+                         (4, 2, bound * 3, bound, {"E_ROSTER": 1}), "the bound itself is not older")
+
+    def test_a_stamp_that_cannot_be_read_is_stranded_and_leaves_the_age_unknown(self):
+        bad = {**delivery(1), "queued_at": "yesterday"}
+        s, _ = self.read([delivery(5), bad])
+        self.assertEqual((s["older"], s["oldest_s"]), (1, None))
+
+    def test_no_identifier_or_text_leaves_the_account(self):
+        s, _ = self.read([{**delivery(900), "mid": "SECRET-MID", "to": "h/secret-recipient"}])
+        self.assertNotIn("SECRET-MID", repr(s))
+        self.assertNotIn("secret-recipient", repr(s))
+
+    def test_a_carrier_that_cannot_be_asked_is_unknown_never_zero(self):
+        s, _ = self.read(status_ok=False)
+        self.assertEqual(s["status"], "unknown")
+        self.assertNotIn("older", s)
+
+        def gone(path, req, timeout=15.0):
+            raise ConnectionRefusedError("no socket")
+        self.assertEqual(position.stranded(gone, RD, NOW)["status"], "unknown")
+        self.assertEqual(position.stranded(gone, "", NOW)["status"], "unknown")
+
+    def test_the_interweave_op_carries_it_in_any_mode(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            call, _ = carrier(outstanding=[delivery(5000)])
+            for m in (mode.RELAY_RECORD, mode.CARRIER_RECORD):
+                mode.write(m, "test", d)      # an explicit state directory: never the login's own transport-mode.json
+                out = ops.SECTIONS[position_op_name()]({"mode_state_dir": d, "home": d, "root": d,
+                                                         "inbox_carrier_opts": {"call": call, "runtime_dir": RD, "now": NOW}})
+                self.assertEqual((out["outbox"]["status"], out["outbox"]["older"]), ("ok", 1), out)
+
+
+def position_op_name() -> str:
+    from control.carrier_install import CARRIER_NAME
+    return CARRIER_NAME
+
+
 if __name__ == "__main__":
     unittest.main()

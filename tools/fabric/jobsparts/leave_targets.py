@@ -46,14 +46,17 @@ def inside(path: str, root: str) -> bool:
     return path != root and path.startswith(root.rstrip(os.sep) + os.sep)
 
 
-def find_targets(worktree: str, kinds: tuple[tuple[str, str], ...] = CARGO) -> tuple[list[str], list[str]]:
+def find_targets(worktree: str, kinds: tuple[tuple[str, str], ...] = CARGO,
+                 errors: list | None = None) -> tuple[list[str], list[str]]:
     """(the build-output directories beside their marker file, the links of that name beside one), below the worktree and not
-    below another. A kind's directory is not entered: what a `node_modules` holds is its own packages' business."""
+    below another. A kind's directory is not entered: what a `node_modules` holds is its own packages' business. A directory
+    that cannot be listed is appended to `errors` when one is given: os.walk says nothing of it otherwise, and a target below
+    it is then "not there" to a caller that must say what it could not see (tidy's measurement of a held tree)."""
     found: list[str] = []
     links: list[str] = []
     skip = {".git"} | {name for name, _ in kinds}
     base = worktree.rstrip(os.sep).count(os.sep)
-    for dirpath, dirnames, filenames in os.walk(worktree, followlinks=False):
+    for dirpath, dirnames, filenames in os.walk(worktree, followlinks=False, onerror=errors.append if errors is not None else None):
         depth = dirpath.count(os.sep) - base
         dirnames[:] = [d for d in dirnames if d not in skip and not os.path.islink(os.path.join(dirpath, d))] if depth < MAX_DEPTH - 1 else []
         for name, marker in kinds:

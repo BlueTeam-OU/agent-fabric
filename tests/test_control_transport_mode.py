@@ -240,7 +240,7 @@ class Action(Scratch):
         ci.installed = lambda **_: {"status": "ok"}
         self.addCleanup(setattr, ci, "installed", keep)
         mode.write("carrier-record", OPERATOR, self.dir)
-        got = ops._carrier({"mode_state_dir": self.dir})
+        got = ops._carrier({"mode_state_dir": self.dir, "inbox_carrier_opts": {"runtime_dir": "/nonexistent-runtime"}})   # never this login's live carrier
         self.assertEqual((got["status"], got["transport_mode"]["mode"]), ("ok", "carrier-record"))
 
     def test_the_daemon_dispatches_it_with_the_signers_address(self):
