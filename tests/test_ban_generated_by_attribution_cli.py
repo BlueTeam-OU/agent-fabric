@@ -239,6 +239,13 @@ An indented paste is still the line, not prose:
     check("a malformed payload says NOT ENFORCED rather than OK",
           rc == 0 and "NOT ENFORCED" in out, f"rc={rc}\n{out}")
 
+    # Mutation: ban_generated_by_attribution.sh:13 `exit 127` -> `exit 0` (a host with no pinned Python must refuse, not pass)
+    new_repo()
+    commit(repo, "feat: clean commit")
+    rc, out = run_guard(AGENT_FABRIC_PYTHON="/nonexistent/fabric-python")
+    check("a missing pinned Python is exit 127 naming the path",
+          rc == 127 and "the fleet's pinned Python is not installed at /nonexistent/fabric-python" in out, f"rc={rc}\n{out}")
+
 
 def main() -> int:
     global T

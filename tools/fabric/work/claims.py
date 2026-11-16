@@ -16,7 +16,6 @@ nothing — never a default that closes or reopens a claim.
 """
 from __future__ import annotations
 
-import calendar
 import re
 import time
 
@@ -101,6 +100,7 @@ def reopen(job: dict) -> None:
 
 
 def _epoch(stamp) -> float | None:
+    import calendar     # lazy: loaded only by a path that parses a stamp
     try:
         return calendar.timegm(time.strptime(str(stamp)[:19], "%Y-%m-%dT%H:%M:%S"))
     except (ValueError, OverflowError):

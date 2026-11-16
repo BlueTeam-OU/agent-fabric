@@ -74,8 +74,16 @@ def main() -> int:
         ("sudo -E bash -c", 'sudo -E bash -c "fabric-pr post-review 12 < r.md"'),
         ("env -i bash -c", 'env -i bash -c "fabric-pr post-review 12 < r.md"'),
         ("nice -10 bash -c", 'nice -10 bash -c "fabric-pr post-review 12 < r.md"'),
+        # Mutation: post-review-shape-guard.py bare(), drop its `read[1][:1] == [VERB]` clause (an option before the verb is not bare)
+        ("an option before the subcommand, no pipe", "fabric-pr --repo o/n post-review 3 < r.md"),
+        ("the same through the dispatcher", "fabric pr --repo o/n post-review 3 < r.md"),
         ("a heredoc fed to bash", "bash <<EOF\nfabric-pr post-review 12 < r.md\nEOF"),
         ("a quoted heredoc fed to bash", "bash <<'EOF'\nfabric-pr post-review 12 < r.md\nEOF"),
+        # Mutation S10 (j830): `<<<` stepped one character at a time, so `<< 'x'` at i+1 opened a heredoc that hid the
+        # next line; bash reads a here-string, and the line after it runs.
+        ("a quoted here-string, then the command", "cat <<< 'x'\nfabric-pr post-review 1 < r.md"),
+        ("a double-quoted here-string, then the command", 'cat <<< "a b"\nfabric-pr post-review 1 < r.md'),
+        ("a quoted here-string with no space, then the command", "cat <<<'x'\nfabric-pr post-review 1 < r.md"),
         ("single quotes piped to a shell", "printf '%s' 'fabric-pr post-review 12 < r.md' | sh"),
         ("1500 nested evals (F7)", "eval " * 1500 + "fabric-pr post-review 1"),
         # Round 3 of #451: quoting read differently from bash hid a later call (F10), and runners it did not name.

@@ -36,7 +36,7 @@ import time
 import zlib
 from typing import Any, Callable
 
-from control.ops import util
+from control import opsutil as util
 
 TOOLS_REPORT = "tools.json"
 TOOLS_INTERVAL_MS = 3600 * 1000

@@ -50,6 +50,7 @@ mistaken for a leak. tests/test_run.py proves the report fires on a planted entr
 """
 from __future__ import annotations
 
+import json
 import os
 import shutil
 import signal
@@ -99,6 +100,10 @@ BASH_SUITES: list[tuple[str, dict[str, str], list[str]]] = [
 ]
 
 
+# Commands the python runner's pool runs besides tests/test_*.py, under these headers.
+POOL_ENTRIES = [["corpus lint", [PY, "tools/fabric/lint.py"]], ["routing check", [PY, "tools/fabric/routing.py", "check"]]]
+
+
 class Signalled(BaseException):
     """A termination signal, raised so the `finally` that removes the run's directory runs."""
 
@@ -134,9 +139,13 @@ def run_environment(environ: dict[str, str], scratch: str) -> dict[str, str]:
     env["FABRIC_CONTROL_CARRIER"] = "relay"
     # Likewise the account's commit signing: a gpg key with a timestamp that needs the network made five suites'
     # fixture commits fail offline, green in CI and red on the account that signs. Git's environment config outranks
-    # every file, so the run's sandboxes never sign.
-    env.update(GIT_CONFIG_COUNT="2", GIT_CONFIG_KEY_0="commit.gpgsign", GIT_CONFIG_VALUE_0="false",
-               GIT_CONFIG_KEY_1="tag.gpgsign", GIT_CONFIG_VALUE_1="false")
+    # every file, so the run's sandboxes never sign. Nor do they start git's automatic housekeeping: a sandbox lives
+    # seconds, its gc and maintenance children were about 3,300 processes in the profiled suites (j830), and a detached
+    # maintenance holding objects/maintenance.lock raced the next command in several suites. No code under test relies on it.
+    env.update(GIT_CONFIG_COUNT="4", GIT_CONFIG_KEY_0="commit.gpgsign", GIT_CONFIG_VALUE_0="false",
+               GIT_CONFIG_KEY_1="tag.gpgsign", GIT_CONFIG_VALUE_1="false",
+               GIT_CONFIG_KEY_2="gc.auto", GIT_CONFIG_VALUE_2="0",
+               GIT_CONFIG_KEY_3="maintenance.auto", GIT_CONFIG_VALUE_3="false")
     return env
 
 
@@ -417,9 +426,10 @@ def main(argv: list[str] | None = None, environ: dict[str, str] | None = None) -
         if what in ("all", "static"):
             failed += invoke("static (bash -n, shellcheck, ruff)", [PY, os.path.join(HERE, "static.py")], env, ROOT) != 0
         if what in ("all", "python"):
-            failed += invoke(None, [PY, os.path.join(HERE, "run_python_suites.py")], env, ROOT, graceful=True) != 0
-            failed += invoke("corpus lint", [PY, "tools/fabric/lint.py"], env, ROOT) != 0
-            failed += invoke("routing check", [PY, "tools/fabric/routing.py", "check"], env, ROOT) != 0
+            # The lint and the routing check run in the runner's pool beside the suites (3 of 4 cores were idle while they ran
+            # alone after it), in the environment and cwd the suites get, and count in its FAILED_SUITES.
+            failed += invoke(None, [PY, os.path.join(HERE, "run_python_suites.py"), "--entries", json.dumps(POOL_ENTRIES)],
+                             env, ROOT, graceful=True) != 0
         if what in ("all", "bash"):
             # The branch's authority, from the branch's own copy of the guards: the local check. CI's verdict is main's
             # copy, run isolated in a step before this script (ci.yml), since a contributor's tests and modules run

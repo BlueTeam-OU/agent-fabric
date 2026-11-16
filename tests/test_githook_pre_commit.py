@@ -136,6 +136,17 @@ class Project(PreCommit):
         self.assertIn(GENERIC_TAIL, r.stderr)
 
 
+class PinnedPython(PreCommit):
+    def test_a_missing_pinned_python_refuses_with_127_and_names_it(self):
+        self.build(owner_role="fabric-coordinator")
+        repo = self.fabric.project()
+        gone = os.path.join(self.fabric.root, "no-such-python")
+        r = self.fabric.hook("pre-commit", repo, AGENT_FABRIC_PYTHON=gone)
+        # Mutation: policies/githooks/pre-commit:22 `exit 127` -> `exit 0` (a host without the pinned Python waves every commit through).
+        self.assertEqual(r.returncode, 127, r.stderr)
+        self.assertIn(f"not installed at {gone}", r.stderr)
+
+
 class OwnerRole(PreCommit):
     def attempt(self, bound):
         self.fabric.bind(bound)

@@ -17,7 +17,6 @@ from __future__ import annotations
 import fcntl
 import os
 import shutil
-import tomllib
 from fabric_jobs import vcs
 
 MAX_DEPTH = 4
@@ -46,19 +45,39 @@ def inside(path: str, root: str) -> bool:
     return path != root and path.startswith(root.rstrip(os.sep) + os.sep)
 
 
+def same_device(path: str, dev: int, errors: list | None, mounts: list | None) -> bool:
+    """A mount inside a checkout is not entered: with no depth limit a network mount would be walked whole, with no timeout, and
+    its bytes counted as the checkout's. What is not entered is appended to `mounts` and what cannot be statted to `errors`, where the
+    caller collects them: a build tree that stays unseen must be said (one line per directory)."""
+    try:
+        if os.lstat(path).st_dev == dev:
+            return True
+        if mounts is not None:
+            mounts.append(path)
+        return False
+    except OSError as e:
+        if errors is not None:
+            errors.append(e)
+        return False
+
+
 def find_targets(worktree: str, kinds: tuple[tuple[str, str], ...] = CARGO,
-                 errors: list | None = None) -> tuple[list[str], list[str]]:
+                 errors: list | None = None, max_depth: int | None = MAX_DEPTH,
+                 mounts: list | None = None) -> tuple[list[str], list[str]]:
     """(the build-output directories beside their marker file, the links of that name beside one), below the worktree and not
     below another. A kind's directory is not entered: what a `node_modules` holds is its own packages' business. A directory
     that cannot be listed is appended to `errors` when one is given: os.walk says nothing of it otherwise, and a target below
-    it is then "not there" to a caller that must say what it could not see (tidy's measurement of a held tree)."""
+    it is then "not there" to a caller that must say what it could not see (tidy's measurement of a held tree). `max_depth` is the
+    levels below the worktree that are searched; None is no limit (tidy: a spike's `spikes/<x>/<y>/node/target` is 5 deep, and a
+    limit that is not said in the line is a build tree that stays and fills the disk unseen)."""
     found: list[str] = []
     links: list[str] = []
     skip = {".git"} | {name for name, _ in kinds}
     base = worktree.rstrip(os.sep).count(os.sep)
+    dev = os.lstat(worktree).st_dev
     for dirpath, dirnames, filenames in os.walk(worktree, followlinks=False, onerror=errors.append if errors is not None else None):
         depth = dirpath.count(os.sep) - base
-        dirnames[:] = [d for d in dirnames if d not in skip and not os.path.islink(os.path.join(dirpath, d))] if depth < MAX_DEPTH - 1 else []
+        dirnames[:] = [d for d in dirnames if d not in skip and not os.path.islink(os.path.join(dirpath, d)) and same_device(os.path.join(dirpath, d), dev, errors, mounts)] if max_depth is None or depth < max_depth - 1 else []
         for name, marker in kinds:
             if marker in filenames:
                 t = os.path.join(dirpath, name)
@@ -163,6 +182,7 @@ def outside_config(target: str, worktree: str) -> str | None:
         except OSError as e:
             raise Unknown(f"{conf} cannot be looked at ({e.strerror})") from None
         try:
+            import tomllib      # only a path that reads a cargo configuration pays for the TOML parser
             with open(conf, "rb") as fh:
                 doc = tomllib.load(fh)
         except (OSError, ValueError) as e:      # a TOML error and bytes that are not UTF-8 are both ValueErrors
@@ -254,8 +274,9 @@ def clean_targets(worktree: str | None, working_copy: str | None, others: tuple[
         for c in (mine, *others):
             if c and os.path.lexists(c) and overlaps(os.path.realpath(c), root):
                 return [f"cargo targets: {worktree} is, holds or lies in a checkout of this or another job ({c}); left alone"]
-        found, links = find_targets(root)
-        lines = [f"kept {t}: a link, not followed" for t in links]
+        mounts: list[str] = []
+        found, links = find_targets(root, mounts=mounts)
+        lines = [f"kept {t}: a link, not followed" for t in links] + [f"kept {m}: another filesystem, not entered" for m in mounts]
         if not found:
             return lines
         dev = os.lstat(root).st_dev

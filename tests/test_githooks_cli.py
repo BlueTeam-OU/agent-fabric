@@ -34,6 +34,7 @@ if not os.path.isfile(os.path.join(HOOKS, "pre-commit")):
     sys.exit(f"test: hooks not found at {HOOKS}")
 FABRIC = os.path.normpath(os.path.join(HOOKS, "..", ".."))
 sys.path.insert(0, os.path.join(HERE, "tests"))
+import githook_fixtures  # noqa: E402 — the scratch fabric's module copy, shared with the other hook tests
 from instance_fixtures import write_registry  # noqa: E402
 from instance_fixtures import own_instance_tree  # noqa: E402 — tests/, the script's own directory
 own_instance_tree()
@@ -209,15 +210,7 @@ def run() -> None:
     for name in ("pre-commit", "commit-msg", "guarded-change.sh", "locale-carve-out.sh"):
         shutil.copy2(f"{HOOKS}/{name}", f"{REPO}/policies/githooks/")
     shutil.copy2(f"{FABRIC}/runtime/identity.py", f"{REPO}/runtime/")   # the hooks read the binding through their own fabric's resolver
-    os.makedirs(f"{REPO}/tools/fabric/guards")
-    shutil.copy2(f"{FABRIC}/tools/fabric/guards/commit_kind.py", f"{REPO}/tools/fabric/guards/")   # commit-msg's Kind rule
-    # the hooks' module beside commit_kind.py (ADR-040 rule 5: a fixture that copies the scripts copies their modules)
-    shutil.copy2(f"{FABRIC}/tools/fabric/guards/commit_hooks.py", f"{REPO}/tools/fabric/guards/")
-    shutil.copy2(f"{FABRIC}/tools/fabric/guards/secret_values.py", f"{REPO}/tools/fabric/guards/")   # the value check it runs first
-    shutil.copy2(f"{FABRIC}/tools/fabric/roots.py", f"{REPO}/tools/fabric/")   # which commit_hooks.py spells its policy path with
-    for m in ("agent_text.py", "hidden_unicode.py", "review_card.py", "state_writes.py", "context_reads.py", "evidence_caps.py", "process_spawns.py", "work_writes.py", "transport_calls.py", "roots_bypass.py"):   # the hidden-text, card, state-write, binding-read, list-cap, process-group, work-write, transport-call and roots-bypass checks commit_hooks.py runs for every committer
-        shutil.copy2(f"{FABRIC}/tools/fabric/{m}", f"{REPO}/tools/fabric/")
-    shutil.copytree(f"{FABRIC}/tools/fabric/cli", f"{REPO}/tools/fabric/cli", ignore=shutil.ignore_patterns("__pycache__"))   # the command-name check's package, which commit_hooks.py loads by path (ADR-068)
+    githook_fixtures.copy_fabric_modules(FABRIC, REPO)   # the hooks' modules and everything they load (ADR-040 rule 5: a fixture that copies the scripts copies their modules)
     git("config", "core.hooksPath", f"{REPO}/policies/githooks")
     git("add", "-A"); git("-c", "core.hooksPath=/dev/null", "commit", "-qm", "hooks in place")
     check("backend-dev bound: a code change in the fabric is refused",

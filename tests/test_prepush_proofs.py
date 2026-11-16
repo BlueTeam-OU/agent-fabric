@@ -180,7 +180,7 @@ def run() -> None:
     r = git("a", "push", "-q", "origin", "HEAD:refs/heads/work-dry")
     check("positive control: the real push attaches and pushes it", r.returncode == 0 and remote_note(sha_d) is not None, r.stderr)
     # git takes any unique prefix of a long option; each spelling is its own commit with its own waiting proof.
-    for spelling in ("--dr", "--dry", "--dry-r"):
+    for spelling in ("--dr", "--dry", "--dry-r", "-n"):
         sha_p = commit("a", "dry" + spelling)
         waiting = len(os.listdir(f"{T}/spool-a"))
         r = git("a", "push", spelling, "-q", "origin", f"HEAD:refs/heads/work-dry{spelling}")
@@ -195,6 +195,11 @@ def run() -> None:
     r = git("b", "push", "-f", "-q", "origin", "HEAD:" + notes.REF)
     check("is checked like any push: the unsigned commit is refused", r.returncode != 0 and remote_note(sha_a) is not None, r.stderr)
     git("b", "reset", "-q", "--hard", "HEAD~1")
+
+    print("the notes ref pushed as the name of a branch")
+    r = git("a", "push", "-q", "origin", f"{notes.REF}:refs/heads/work-notes-as-branch")
+    check("is checked like any push: the notes' unsigned commits are refused, and no branch appears",
+          r.returncode != 0 and git("a", "ls-remote", "origin", "refs/heads/work-notes-as-branch").stdout.strip() == "", r.stderr)
 
     print("pushing the notes ref by itself")
     r = git("a", "push", "-q", "origin", notes.REF)

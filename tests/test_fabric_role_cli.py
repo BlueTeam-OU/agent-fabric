@@ -133,9 +133,24 @@ gone = "/nonexistent/fabric-python"
 for args in (("status",), ("frob",), ("help",), ("bind",)):
     outcome("missing pin: %s is 127" % args[0], run(*args, python=gone, env={"CLAUDECODE": "1"}),
             127, "", INSTALL % gone)
-# Mutation: the default pin path is not /usr/local/bin/fabric-python.
-if not os.access("/usr/local/bin/fabric-python", os.X_OK):
-    outcome("default pin path", run("status", python=None), 127, "", INSTALL % "/usr/local/bin/fabric-python")
+# Mutation: the default pin path is not /usr/local/bin/fabric-python. The path is the host's own, so the case has
+# two shapes and one always runs: where the pin is absent the entry names it and exits 127; where it is installed (a
+# fleet host, CI) the entry's answer is the pin's own answer to the same verb.
+DEFAULT_PIN = "/usr/local/bin/fabric-python"
+# The installed shape cannot tell the pin from another working interpreter (their output is the same), so the shim's
+# own text is held to the literal default.
+if not ENTRY.endswith(".py"):
+    with open(ENTRY, encoding="utf-8") as fh:
+        check("the entry's default interpreter is the pin's path", ':-' + DEFAULT_PIN + '}' in fh.read(), True)
+if not os.access(DEFAULT_PIN, os.X_OK):
+    outcome("default pin path", run("list", python=None), 127, "", INSTALL % DEFAULT_PIN)
+else:
+    direct = subprocess.run([DEFAULT_PIN, os.path.join(ROOT, "tools", "fabric", "role_cli.py"), "list"],
+                            env={k: v for k, v in os.environ.items() if k not in GUARDS + ("AGENT_FABRIC_ROOT", "AGENT_FABRIC_PYTHON")},
+                            capture_output=True, text=True, stdin=subprocess.DEVNULL)
+    check("default pin path: the installed pin answers the verb", direct.returncode, 0)
+    outcome("default pin path: the entry reaches it", run("list", python=None),
+            direct.returncode, direct.stdout, direct.stderr)
 # Mutation: the root taken from the symlink's directory instead of the real path.
 if not ENTRY.endswith(".py"):
     link = os.path.join(tmp, "fabric-role-link")

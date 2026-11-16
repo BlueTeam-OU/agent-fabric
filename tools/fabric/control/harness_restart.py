@@ -45,7 +45,6 @@ CONTRACT
 """
 from __future__ import annotations
 
-import calendar
 import re
 import time
 from typing import Any, Callable
@@ -76,6 +75,7 @@ def iso_seconds(value: Any) -> float | None:
     m = re.fullmatch(r"(\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d)(\.\d+)?Z", value) if isinstance(value, str) else None
     if not m:
         return None
+    import calendar     # lazy: a start of fabric-ctl imports this module and parses no stamp
     try:
         return calendar.timegm(time.strptime(m.group(1), "%Y-%m-%dT%H:%M:%S")) + float(m.group(2) or 0)
     except ValueError:

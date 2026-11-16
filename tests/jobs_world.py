@@ -3,26 +3,49 @@ use `next` as a way to take a job rather than to test the settling: every checko
 memory directory changes before a switch, and a job without artifacts is given one gh calls merged before it is done."""
 from __future__ import annotations
 
+import atexit
 import datetime
 import json
 import os
 import re
+import shutil
 import subprocess
+import tempfile
 from git_env import git_env  # noqa: E402 — tests/, the script's own directory
 
 GH_REPO = "fixture-org/fixture-proj"
 LANDED = f"{GH_REPO}#1"       # the pull request a fake gh calls merged
 
 
+_TEMPLATE: str | None = None
+
+
+def _template() -> str:
+    """One seeded checkout and its bare origin, built once per process: a world copies it (about 7 ms) instead of running six git
+    commands (about 60 ms), and a suite makes hundreds of worlds. Removed when the process ends."""
+    global _TEMPLATE
+    if _TEMPLATE is None:
+        root = tempfile.mkdtemp(prefix="jobs-world-template-")
+        atexit.register(shutil.rmtree, root, True)
+        bare, path = os.path.join(root, "origin.git"), os.path.join(root, "checkout")
+        subprocess.run(["git", "init", "-q", "--bare", "-b", "main", bare], check=True, env=git_env())
+        os.makedirs(path)
+        for args in (["init", "-q", "-b", "main"], ["commit", "-q", "--allow-empty", "-m", "seed"], ["remote", "add", "origin", bare],
+                     ["push", "-q", "origin", "main"], ["remote", "set-head", "origin", "main"]):
+            subprocess.run(["git", "-C", path, *args], check=True, env=git_env())
+        _TEMPLATE = root
+    return _TEMPLATE
+
+
 def seeded(path: str, origins: str) -> str:
     """A checkout of a new bare origin under `origins`, main pushed and origin/HEAD set."""
     bare = os.path.join(origins, os.path.basename(path) + ".git")
     os.makedirs(origins, exist_ok=True)
-    subprocess.run(["git", "init", "-q", "--bare", "-b", "main", bare], check=True, env=git_env())
-    os.makedirs(path)
-    for args in (["init", "-q", "-b", "main"], ["commit", "-q", "--allow-empty", "-m", "seed"], ["remote", "add", "origin", bare],
-                 ["push", "-q", "origin", "main"], ["remote", "set-head", "origin", "main"]):
-        subprocess.run(["git", "-C", path, *args], check=True, env=git_env())
+    root = _template()
+    shutil.copytree(os.path.join(root, "origin.git"), bare, symlinks=True)
+    shutil.copytree(os.path.join(root, "checkout"), path, symlinks=True)
+    # The copied checkout's origin is the template's absolute path: a world that pushed would write the template.
+    subprocess.run(["git", "-C", path, "remote", "set-url", "origin", bare], check=True, env=git_env())
     return path
 
 

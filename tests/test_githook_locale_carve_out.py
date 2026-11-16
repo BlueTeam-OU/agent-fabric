@@ -163,5 +163,15 @@ class Paths(unittest.TestCase):
         self.assertEqual(self.paths(), [LOCALE + "branch.md", "src/a.py"])
 
 
+class UnusablePython(unittest.TestCase):
+    def test_with_an_unusable_python_the_path_listing_fails(self):
+        repo = Repo({"README": "r\n"})
+        self.addCleanup(repo.cleanup)
+        gone = os.path.join(repo.root, "no-such-python")
+        r = call_library(LIB, repo.path, f'_lc_py="{gone}"; locale_carve_out_paths; echo "rc=$?"')
+        # Mutation: policies/githooks/locale-carve-out.sh:8 `locale-paths; }` -> `locale-paths || true; }` (a failed listing reads as "no locale path", and the commit is judged as no carve-out).
+        self.assertEqual(r.stdout.strip().splitlines()[-1], "rc=127", r.stdout)
+
+
 if __name__ == "__main__":
     unittest.main()

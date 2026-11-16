@@ -804,6 +804,7 @@ its record disagree, the record wins. Look it up, never read it whole:
 - A 2026-10-22 — SUPPLIER-REVIEW is the supplier's checks.
 - A 2026-11-09 — a watch read at its end rides out a relay drop it
   recovers from; one read as it runs says down and back (SEMANTICS).
+- A 2026-11-15 — an ask another agent must act on goes as a REQUEST; a receiver queues an ask of another type itself.
 - Keywords: GZCoord, GZCOORD/1, GZCOORD/2, protocol, SPEC, grammar,
   freeze, frozen, compatibility, narrowing, conformance, validator,
   extension, X-, protocol change, WAIVES, waiver.

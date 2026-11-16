@@ -325,6 +325,12 @@ def main() -> int:
         check("a workflows-only commit by another author is refused", rc == 1)
         sh(rr, "reset", "-q", "--hard", "HEAD~1")
 
+        # Mutation: agent_fabric_dir_authority.py:340 drop `and touched` (all([]) is true, so an empty Dependabot commit passes)
+        sh(rr, "commit", "-q", "--allow-empty", "-m", "bump", env={**GIT_ENV, "GIT_AUTHOR_NAME": "dependabot[bot]"})
+        rc, _, e = run()
+        check("an empty Dependabot commit changes no workflow and is refused", rc == 1 and " bump  [Fabric-Role: none]" in e)
+        sh(rr, "reset", "-q", "--hard", "HEAD~1")
+
         # In agent-fabric itself every path is guarded: a clean fold of a
         # side branch is no change of its own and needs no trailer; the
         # commits it brings are judged on their own.
@@ -360,6 +366,35 @@ def main() -> int:
         check("a merge that moves a guarded file into a locale is not the locale carve-out",
               rc == 1 and "moves a policy into a locale" in e)
         sh(rr, "reset", "-q", "--hard", "HEAD~1")
+
+        # Mutation: agent_fabric_dir_authority.py:239 `r.returncode in (0, 1)` -> `in (0,)` (a conflicted merge is then
+        # judged against every parent, so the side's clean policies/p.md counts as the merge's own change)
+        def write(path: str, text: str) -> None:
+            os.makedirs(os.path.dirname(os.path.join(rr, path)), exist_ok=True)
+            with open(os.path.join(rr, path), "w") as fh:
+                fh.write(text)
+        loc = "identities/roles/x/locale/it/c.md"
+        coordinator = "\n\nFabric-Role: fabric-coordinator"
+        write(loc, "base\n")
+        sh(rr, "add", "-A")
+        sh(rr, "commit", "-q", "-m", "locale base" + coordinator)
+        sh(rr, "checkout", "-q", "-b", "conflict-side", "work")
+        write(loc, "side\n")
+        write("policies/p.md", "p\n")
+        sh(rr, "add", "-A")
+        sh(rr, "commit", "-q", "-m", "side edits both" + coordinator)
+        sh(rr, "checkout", "-q", "work")
+        write(loc, "work\n")
+        sh(rr, "add", "-A")
+        sh(rr, "commit", "-q", "-m", "work edits the locale" + coordinator)
+        merge = subprocess.run(["git", "merge", "--no-ff", "--no-commit", "conflict-side"], cwd=rr, env=GIT_ENV,
+                               capture_output=True, text=True, timeout=60)
+        write(loc, "resolved\n")
+        sh(rr, "add", "-A")
+        sh(rr, "commit", "-q", "-m", "resolve the locale conflict\n\nFabric-Role: x")
+        rc, o, _ = run()
+        check("a merge conflicting only in a locale file is judged on that file alone: the locale carve-out",
+              merge.returncode != 0 and rc == 0 and "locale carve-out" in o)
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
 

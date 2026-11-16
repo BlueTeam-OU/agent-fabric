@@ -21,9 +21,9 @@ import threading
 from typing import Any, Callable
 
 from control.local import takes_no_arguments
-from control.ops import util
+from control import opsutil as util
 from gzcoord import gzmsg
-import roots  # noqa: E402 — control.ops.util puts tools/fabric on sys.path
+import roots  # noqa: E402 — control.opsutil puts tools/fabric on sys.path
 
 # Above the tool's own worst case (seven commands, each bounded at 60 s):
 # a test killed half-way may leave its canary, which the next one then

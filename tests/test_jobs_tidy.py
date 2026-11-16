@@ -132,10 +132,78 @@ def main() -> int:
         gone = [p for p in ("target", "node_modules", "app/target", "ui/node_modules", "w/x/y/target") if not os.path.exists(os.path.join(t, p))]
         check("a target beside a Cargo.toml and a node_modules beside a package.json go, at the top and below",
               rc == 0 and gone == ["target", "node_modules", "app/target", "ui/node_modules", "w/x/y/target"] and f"removed {t}/node_modules (" in out and f"removed {t}/ui/node_modules (" in out, out + err)
-        check("…one beside no marker, and one deeper than 4 levels, stay; so do the sources",
-              os.path.isdir(os.path.join(t, "docs", "target")) and os.path.isdir(os.path.join(t, "w/x/y/z/target")) and os.path.isfile(os.path.join(t, "Cargo.toml")) and os.path.isfile(os.path.join(t, "package.json")), out)
+        check("…one beside no marker stays, one deeper than 4 levels goes (j152); so do the sources stay",
+              os.path.isdir(os.path.join(t, "docs", "target")) and not os.path.exists(os.path.join(t, "w/x/y/z/target")) and os.path.isfile(os.path.join(t, "Cargo.toml")) and os.path.isfile(os.path.join(t, "package.json")), out)
         m = re.search(r"^freed: (\d+(\.\d)? \w+)$", out, re.M)
         check("a total closes the run", bool(m) and out.rstrip().splitlines()[-1].startswith("freed: "), out)
+        # j152: the two trees a hygiene round left were spikes/spike-004/phase-b/node/target and spikes/spike-009/device/harness/target.
+        deep = ("spikes/spike-004/phase-b/node", "spikes/spike-009/device/harness", "a/b/c/d/e/f/g")
+        built = tuple(f for d in deep for f in (f"{d}/Cargo.toml", f"{d}/target/debug/a.o"))
+        t_deep = tree(*built)
+        found_limited, _ = lt.find_targets(t_deep, lt.BUILD_OUTPUT, max_depth=lt.MAX_DEPTH)
+        found_all, _ = lt.find_targets(t_deep, lt.BUILD_OUTPUT, max_depth=None)
+        check("the depth-limited search misses them (the failing control), the unlimited one finds all three",
+              found_limited == [] and sorted(found_all) == sorted(os.path.join(t_deep, d, "target") for d in deep), (found_limited, found_all))
+        rc, out, err = tidy("--dry-run")
+        check("a dry run lists every deep target and removes none",
+              rc == 0 and all(f"{t_deep}/{d}/target" in out and os.path.isdir(os.path.join(t_deep, d, "target")) for d in deep), out + err)
+        # A mount cannot be made here: a directory whose st_dev differs stands for it. Review F1: no depth limit must not mean no filesystem limit.
+        mnt = os.path.join(t_deep, "a/b/c")
+        real_lstat = os.lstat
+
+        def lstat_with_mount(path, *a, **kw):
+            st = real_lstat(path, *a, **kw)
+            if os.fspath(path) == mnt:
+                return os.stat_result((st.st_mode, st.st_ino, st.st_dev + 1, *st[3:]))
+            return st
+        lt.os.lstat = lstat_with_mount
+        mounts: list[str] = []
+        try:
+            found_mnt, _ = lt.find_targets(t_deep, lt.BUILD_OUTPUT, max_depth=None, mounts=mounts)
+            rc, out, err = tidy("--dry-run")
+        finally:
+            lt.os.lstat = real_lstat
+        found_ctl, _ = lt.find_targets(t_deep, lt.BUILD_OUTPUT, max_depth=None)
+        check("a directory on another filesystem is not entered, at any depth (the control: the same tree unmounted finds its target)",
+              os.path.join(t_deep, "a/b/c/d/e/f/g/target") not in found_mnt and len(found_mnt) == 2 and len(found_ctl) == 3, (found_mnt, found_ctl))
+        check("…and it is said, one line, never silence (F3)", mounts == [mnt] and f"kept {mnt}: another filesystem, not entered\n" in out, (mounts, out))
+        listing()
+        t_mnt_held = tree("m/Cargo.toml", "m/target/debug/a.o")
+        mnt_held = os.path.join(t_mnt_held, "m")
+        listing(job(9, "active", worktree=t_mnt_held))
+
+        def lstat_held_mount(path, *a, **kw):
+            st = real_lstat(path, *a, **kw)
+            if os.fspath(path) == mnt_held:
+                return os.stat_result((st.st_mode, st.st_ino, st.st_dev + 1, *st[3:]))
+            return st
+        lt.os.lstat = lstat_held_mount
+        try:
+            rc, out, err = tidy("--dry-run")
+        finally:
+            lt.os.lstat = real_lstat
+        held_mnt_line = next((l for l in out.splitlines() if l.startswith(f"kept {t_mnt_held}:")), "")
+        check("a held tree whose build output is behind a mount says it could not be measured, never nothing (F4)",
+              rc == 0 and f"another filesystem at {mnt_held}, not entered" in held_mnt_line, out + err)
+        listing()
+        t_unseen = tree("q/Cargo.toml", "q/target/debug/a.o")
+        os.makedirs(os.path.join(t_unseen, "p/hidden"))
+        os.chmod(os.path.join(t_unseen, "p/hidden"), 0)
+        try:
+            rc, out, err = tidy("--dry-run")
+            check("a directory that cannot be listed is said, never read as having no build output (the control: the readable q/target is listed)",
+                  rc == 0 and f"warning: {t_unseen}/p/hidden could not be searched for build output" in out and f"{t_unseen}/q/target" in out, out + err)
+        finally:
+            os.chmod(os.path.join(t_unseen, "p/hidden"), 0o755)
+        t_deep_held = tree(*built)
+        listing(job(1, "active", worktree=t_deep_held))
+        rc, out, err = tidy()
+        held_line = next((l for l in out.splitlines() if l.startswith(f"kept {t_deep_held}:")), "")
+        check("a held tree keeps its deep targets and measures them (3 targets, 4 KB of blocks each: 12.0 KB)",
+              rc == 0 and all(os.path.isdir(os.path.join(t_deep_held, d, "target")) for d in deep) and "its build output is 12.0 KB" in held_line, out + err)
+        check("…and the same run removes the unheld tree's deep targets",
+              rc == 0 and not any(os.path.exists(os.path.join(t_deep, d, "target")) for d in deep) and all(f"removed {t_deep}/{d}/target (" in out for d in deep), out + err)
+        listing()
         t = tree("node_modules/x/package.json", "node_modules/x/node_modules/y/i.js")
         rc, out, err = tidy()
         check("a node_modules is removed whole, not entered: one line, no warning for the one inside it",

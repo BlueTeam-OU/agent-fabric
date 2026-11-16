@@ -2035,6 +2035,22 @@ def main() -> int:
         tdir = os.path.join(left, "target")
         check("a target on another filesystem than the worktree's is kept whole, said",
               lt0.one(tdir, left, -1, [], "") == f"kept {tdir}: another filesystem")
+        # A mount cannot be made here: a directory whose st_dev differs stands for it (F5: switch says what it does not enter).
+        mnt_sub = os.path.join(left, "sub")
+        real_lstat = os.lstat
+
+        def lstat_sub_mount(path, *a, **kw):
+            st = real_lstat(path, *a, **kw)
+            if os.fspath(path) == mnt_sub:
+                return os.stat_result((st.st_mode, st.st_ino, st.st_dev + 1, *st[3:]))
+            return st
+        os.lstat = lstat_sub_mount
+        try:
+            mount_said = lt0.clean_targets(left, w.repo)
+        finally:
+            os.lstat = real_lstat
+        check("a directory on another filesystem inside the left worktree is said, not entered, by switch (F5)",
+              f"kept {mnt_sub}: another filesystem, not entered" in mount_said, mount_said)
 
         w = World(under=home)
         j, left = cargo_job(w, "Cargo.toml", "target/debug/big.o", "q/Cargo.toml", "q/target/z")

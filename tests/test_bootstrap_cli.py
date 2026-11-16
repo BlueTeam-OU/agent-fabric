@@ -14,8 +14,9 @@ Nothing it runs reaches this account: HOME, CLAUDE_CONFIG_DIR, the XDG
 directories and TMPDIR are under one mkdtemp; PATH holds only fakes (which
 record their argv) and links to the plain tools the script needs, so
 systemctl, loginctl, curl, ss, pgrep, claude, pip and uv are fakes and the
-real ones are not on it; `python3 -m venv` is intercepted by a python3
-wrapper. Paths the script derives from elsewhere: XDG_RUNTIME_DIR falls back
+real ones are not on it; step 7's `-m venv` is made by a fake interpreter
+(AGENT_FABRIC_LANGID_PYTHON, the seam langid_install.py reads) and a python3
+on PATH, which the venv no longer asks, refuses the call. Paths the script derives from elsewhere: XDG_RUNTIME_DIR falls back
 to /run/user/<uid> (always set here), `id -un` and the passwd entry are read,
 never written.
 
@@ -63,7 +64,7 @@ HOOK_REL = "policies/githooks"
 SYSTOOLS = ("bash", "sh", "env", "git", "cmp", "install", "mkdir", "cp", "rm", "grep", "dirname", "readlink",
             "ln", "mktemp", "id", "sed", "cut", "head", "tail", "chmod", "cat", "ls", "sort", "tr", "basename",
             "uname", "date", "mv", "touch", "wc", "awk", "realpath", "stat", "printf", "true", "false", "test")
-FAKES = ("systemctl", "loginctl", "curl", "ss", "pgrep", "claude", "pip", "pip3", "uv", "sudo", "python3")
+FAKES = ("systemctl", "loginctl", "curl", "ss", "pgrep", "claude", "pip", "pip3", "uv", "sudo", "python3", "venv-python")
 
 fails = 0
 T = ""
@@ -147,10 +148,11 @@ exit 1
 ''',
     "loginctl": "exit 0\n",
     "pip": "exit 1\n", "pip3": "exit 1\n", "uv": "exit 1\n", "sudo": "exit 1\n",
-    # `python3 -m venv DIR` makes a fake venv whose pip "installs" by marker
-    # and whose python answers `import pycld2` by that marker; every other
-    # python3 call is the real interpreter.
-    "python3": r'''
+    # Step 7's interpreter is the pin, never the host's python3 (ADR-040 rule 1): the test hands it a fake, which
+    # makes a fake venv whose pip "installs" by marker and whose python answers `import pycld2` by that marker;
+    # every other call is the real interpreter. A python3 on PATH that is asked to make the venv is a regression: it
+    # exits 97 and is logged.
+    "venv-python": r'''
 if [[ "${1:-}" == -m && "${2:-}" == venv ]]; then
   [[ -n "${FAKE_VENV_FAIL:-}" ]] && exit 1
   v="${*: -1}"; mkdir -p "$v/bin"
@@ -170,6 +172,10 @@ PIP
 fi
 exec @PY@ "$@"
 ''',
+    "python3": r'''
+if [[ "${1:-}" == -m && "${2:-}" == venv ]]; then exit 97; fi
+exec @PY@ "$@"
+''',
 }
 
 
@@ -180,7 +186,7 @@ def make_bins() -> None:
         # The python3 wrapper logs only the venv call: every python3 the
         # script runs would otherwise flood the log.
         logger = LOGGER
-        if name == "python3":
+        if name in ("python3", "venv-python"):
             body = body.replace("@PY@", REAL_PYTHON)
             logger = 'if [[ "${1:-}" == -m && "${2:-}" == venv ]]; then ' + LOGGER.rstrip("\n") + "; fi\n"
         put(f"{T}/fakebin/{name}", "#!/bin/bash\n" + logger + body, 0o755)
@@ -222,7 +228,10 @@ def make_pristine(script: str) -> str:
     commit."""
     d = f"{T}/pristine/agent-fabric"
     os.makedirs(d)
-    arch = subprocess.run(["git", "-C", HERE, "archive", "HEAD"], capture_output=True, check=True,
+    # Without tests/, docs/ and memory/: bootstrap reads none of them, and the
+    # fixture's copy per account is what this suite spends its time on.
+    arch = subprocess.run(["git", "-C", HERE, "archive", "HEAD", "--", ".", ":(exclude)tests", ":(exclude)docs", ":(exclude)memory"],
+                          capture_output=True, check=True,
                           env={"PATH": "/usr/bin:/bin", "HOME": f"{T}/git-home", "GIT_CONFIG_NOSYSTEM": "1"}).stdout
     subprocess.run(["tar", "-x", "-C", d], input=arch, check=True)
     # HEAD's engine, never its instance data (ADR-045 §5 rule 3): taken out
@@ -325,6 +334,7 @@ class Account:
         e = {"HOME": self.home, "PATH": f"{T}/fakebin:{T}/sysbin", "LC_ALL": "C.UTF-8", "TMPDIR": self.tmp,
              "CLAUDE_CONFIG_DIR": self.cfg, "XDG_STATE_HOME": self.state, "XDG_CONFIG_HOME": self.xdgcfg,
              "XDG_RUNTIME_DIR": self.run, "FAKE_LOG": self.log,
+             "AGENT_FABRIC_LANGID_PYTHON": f"{T}/fakebin/venv-python",
              # The operator checkout's clone has nowhere to go but here: a path that is not a repository, so the
              # run never reaches the network and says the same "!" line every time.
              "AGENT_FABRIC_OPERATOR_CLONE_URL": f"file://{T}/no-operator.git"}
@@ -379,7 +389,8 @@ def bootstrap(acct: Account, *args: str, env: dict[str, str] | None = None, cwd:
         sys.exit("test: refusing to run: HOME is not the scratch home")
     for k in e:
         if k.startswith(("AGENT_FABRIC_", "GITHUB_", "GZCOORD_", "GIT_")) or (k.startswith("CLAUDE") and k != "CLAUDE_CONFIG_DIR"):
-            if k not in ("AGENT_FABRIC_DEFER_AGENTD_RESTART", "AGENT_FABRIC_LOCAL_BIN", "AGENT_FABRIC_OPERATOR_CLONE_URL"):
+            if k not in ("AGENT_FABRIC_DEFER_AGENTD_RESTART", "AGENT_FABRIC_LOCAL_BIN", "AGENT_FABRIC_OPERATOR_CLONE_URL",
+                         "AGENT_FABRIC_LANGID_PYTHON"):
                 sys.exit(f"test: refusing to run: {k} reaches the script")
     script = f"{acct.fr}/runtime/claude-code/bootstrap.sh"
     p = subprocess.run([script, *args], env=e, capture_output=True, timeout=300, cwd=cwd or acct.root, stdin=subprocess.DEVNULL)
@@ -707,7 +718,8 @@ def first_run() -> None:
     check("step 7: the detector's venv made and its package installed, said",
           L[k + 10] == f"  +  {VENV} ({pkg})", L[k + 10:k + 11])
     check("step 7: …by the venv's own pip, quietly, the pinned package",
-          a.calls("pip") == [["pip", "install", "-q", pkg]] and a.calls("python3") == [["python3", "-m", "venv", VENV]],
+          a.calls("pip") == [["pip", "install", "-q", pkg]] and a.calls("venv-python") == [["venv-python", "-m", "venv", VENV]]
+          and a.calls("python3") == [],
           a.calls())
     check("step 7: …its directory mode 700", mode(f"{H}/.cache/agent-fabric/langid") == 0o700)
     check("step 8: nothing of Doppler's here, nothing said", not any("Doppler" in x for x in L))
@@ -741,7 +753,8 @@ def first_run() -> None:
           f"bootstrap: 0 written, {n_same} already current." in r2.lines, r2.out)
     check("second run: step 4 says =", f"  =  {FR}: core.hooksPath = {HOOK_REL}" in r2.lines)
     check("second run: step 7 says =", f"  =  {VENV} ({pkg})" in r2.lines)
-    check("second run: the venv was not remade, pip not run", a.calls("pip") == [] and a.calls("python3") == [], a.calls())
+    check("second run: the venv was not remade, pip not run", a.calls("pip") == [] and a.calls("venv-python") == [] and a.calls("python3") == [],
+          a.calls())
 
     # The dry run over a settled account changes nothing either.
     r3 = bootstrap(a, "--dry-run")
@@ -1327,7 +1340,7 @@ def failures() -> None:
     venv = f"{a.home}/.cache/agent-fabric/langid/venv"
     r = bootstrap(a, env=a.env(FAKE_VENV_FAIL="1"))
     check("step 7: no venv: said twice on stdout, exit 0, not counted as NOT written",
-          r.rc == 0 and f"  !  {venv}: python3 -m venv failed; the language section stays unavailable" in r.lines
+          r.rc == 0 and f"  !  {venv}: {T}/fakebin/venv-python -m venv failed; the language section stays unavailable" in r.lines
           and "  !  langid: not installed (above); fabric-ctl <login> script reports language unavailable until it is" in r.lines
           and "NOT written" not in r.out and r.err == "", r)
     r = bootstrap(a, env=a.env(FAKE_PIP_FAIL="1"))
@@ -1446,12 +1459,13 @@ def failures() -> None:
     k = Account("no-python", wcs=False)
     r = bootstrap(k, env=k.env(PATH=path_without("python3")))
     # The helpers run on bootstrap's own interpreter, the fleet's pin
-    # (ADR-040 §5 rule 4); only step 7's venv needs the host's python3. The
-    # bash stopped here with 127 before step 2.
-    check("no host python3: the header names the agent, every step runs, step 7 says its venv failed, exit 0",
+    # (ADR-040 §5 rule 4), and so does step 7's venv (amended 2026-11-11): a host without python3 on PATH
+    # loses nothing. The bash stopped here with 127 before step 2.
+    check("no host python3: the header names the agent, every step runs, step 7 makes its venv, exit 0",
           r.rc == 0 and r.lines[0] == f"agent-fabric bootstrap for agent {LOGIN} — projects: {k.ws}"
           and os.path.exists(f"{k.ws}/.claude/settings.json") and os.path.exists(k.units)
-          and any("python3 -m venv failed" in ln for ln in r.lines), r)
+          and any(ln.startswith("  +  ") and "/langid/venv (" in ln for ln in r.lines)
+          and not any("-m venv failed" in ln for ln in r.lines), r)
 
 
 # The cases are independent (each makes its own account under the scratch root), so they run as GROUPS, each in a process of
