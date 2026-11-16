@@ -982,16 +982,16 @@ def main() -> int:
         check("a review of exactly MAX_REVIEW_CHARS: posts as one review, no comment",
               rc == 0 and len(body_of()) == rcov.MAX_REVIEW_CHARS and calls().count("POST") == 1, f"{out}\n{len(body_of())}\n{calls()}")
         v2_pr()
-        rc, out = v2_post(padded(2 + rcov.MAX_REVIEW_CHARS - probe + 1000))
+        rc, out = v2_post(padded(1 + rcov.MAX_REVIEW_CHARS - probe + 1000))
         check("…one character over: the report goes to a comment first", rc == 0 and calls().count("POST") == 2
               and calls().splitlines()[0].endswith("/issues/552/comments"), f"{out}\n{calls()}")
         comment_len = len(sent(1).get("body", ""))
         v2_pr()
-        rc, out = v2_post(padded(2 + rcov.MAX_REVIEW_CHARS - probe + 1000 + rcov.MAX_REVIEW_CHARS - comment_len))
+        rc, out = v2_post(padded(1 + rcov.MAX_REVIEW_CHARS - probe + 1000 + rcov.MAX_REVIEW_CHARS - comment_len))
         check("a comment of exactly MAX_REVIEW_CHARS posts: comment, then the review", rc == 0 and calls().count("POST") == 2
               and len(sent(1).get("body", "")) == rcov.MAX_REVIEW_CHARS, f"{out}\n{len(sent(1).get('body', ''))}\n{calls()}")
         v2_pr()
-        rc, out = v2_post(padded(2 + rcov.MAX_REVIEW_CHARS - probe + 1000 + rcov.MAX_REVIEW_CHARS - comment_len + 1))
+        rc, out = v2_post(padded(1 + rcov.MAX_REVIEW_CHARS - probe + 1000 + rcov.MAX_REVIEW_CHARS - comment_len + 1))
         check("…one character more: refused, nothing sent", rc == 2 and not posted() and "GitHub takes" in out, out)
 
         # P20, P21: a payload that names the branch and not the head commit or the base branch is unknown, not a default.
