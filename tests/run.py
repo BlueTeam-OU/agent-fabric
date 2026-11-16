@@ -139,9 +139,13 @@ def run_environment(environ: dict[str, str], scratch: str) -> dict[str, str]:
     env["FABRIC_CONTROL_CARRIER"] = "relay"
     # Likewise the account's commit signing: a gpg key with a timestamp that needs the network made five suites'
     # fixture commits fail offline, green in CI and red on the account that signs. Git's environment config outranks
-    # every file, so the run's sandboxes never sign.
-    env.update(GIT_CONFIG_COUNT="2", GIT_CONFIG_KEY_0="commit.gpgsign", GIT_CONFIG_VALUE_0="false",
-               GIT_CONFIG_KEY_1="tag.gpgsign", GIT_CONFIG_VALUE_1="false")
+    # every file, so the run's sandboxes never sign. Nor do they start git's automatic housekeeping: a sandbox lives
+    # seconds, its gc and maintenance children were about 3,300 processes in the profiled suites (j830), and a detached
+    # maintenance holding objects/maintenance.lock raced the next command in several suites. No code under test relies on it.
+    env.update(GIT_CONFIG_COUNT="4", GIT_CONFIG_KEY_0="commit.gpgsign", GIT_CONFIG_VALUE_0="false",
+               GIT_CONFIG_KEY_1="tag.gpgsign", GIT_CONFIG_VALUE_1="false",
+               GIT_CONFIG_KEY_2="gc.auto", GIT_CONFIG_VALUE_2="0",
+               GIT_CONFIG_KEY_3="maintenance.auto", GIT_CONFIG_VALUE_3="false")
     return env
 
 

@@ -417,7 +417,8 @@ def main() -> int:
         base = fresh(files={"tests/test_env.py": suite(
             "import json\n"
             "keys = ['TMPDIR', 'PYTHONUNBUFFERED', 'GZCOORD_DEFAULT_LOCALE_ONLY', 'GIT_CONFIG_COUNT', 'GIT_CONFIG_KEY_0',\n"
-            "        'GIT_CONFIG_VALUE_0', 'GIT_CONFIG_KEY_1', 'GIT_CONFIG_VALUE_1', 'AGENT_FABRIC_SUITE_RUN']\n"
+            "        'GIT_CONFIG_VALUE_0', 'GIT_CONFIG_KEY_1', 'GIT_CONFIG_VALUE_1', 'GIT_CONFIG_KEY_2', 'GIT_CONFIG_VALUE_2',\n"
+            "        'GIT_CONFIG_KEY_3', 'GIT_CONFIG_VALUE_3', 'AGENT_FABRIC_SUITE_RUN']\n"
             "print('ENV ' + json.dumps({k: os.environ.get(k) for k in keys}))\n"
             "print('TMPDIR-EXISTS ' + str(os.path.isdir(os.environ['TMPDIR'])))\n")})
         r = run(base, "python")
@@ -428,10 +429,12 @@ def main() -> int:
               (got.get("TMPDIR") or "").startswith(os.path.join(runtime, "af-t.")), got)
         check("…it existed while the suite ran", "TMPDIR-EXISTS True" in r.stdout, r.stdout)
         check("…and is gone when the run ends", not runs_left(base), os.listdir(runtime))
-        check("unbuffered output, the default locale pinned, git signing off in the environment",
+        check("unbuffered output, the default locale pinned, git signing and automatic housekeeping off in the environment",
               got.get("PYTHONUNBUFFERED") == "1" and got.get("GZCOORD_DEFAULT_LOCALE_ONLY") == "1"
-              and got.get("GIT_CONFIG_COUNT") == "2" and (got.get("GIT_CONFIG_KEY_0"), got.get("GIT_CONFIG_VALUE_0")) == ("commit.gpgsign", "false")
-              and (got.get("GIT_CONFIG_KEY_1"), got.get("GIT_CONFIG_VALUE_1")) == ("tag.gpgsign", "false"), got)
+              and got.get("GIT_CONFIG_COUNT") == "4" and (got.get("GIT_CONFIG_KEY_0"), got.get("GIT_CONFIG_VALUE_0")) == ("commit.gpgsign", "false")
+              and (got.get("GIT_CONFIG_KEY_1"), got.get("GIT_CONFIG_VALUE_1")) == ("tag.gpgsign", "false")
+              and (got.get("GIT_CONFIG_KEY_2"), got.get("GIT_CONFIG_VALUE_2")) == ("gc.auto", "0")
+              and (got.get("GIT_CONFIG_KEY_3"), got.get("GIT_CONFIG_VALUE_3")) == ("maintenance.auto", "false"), got)
         # env() starts from nothing of the session's, so the marker seen here is the run's own, not inherited.
         check("the suite marker is set, so resume reads no live routing/profiles.json (j556)",
               got.get("AGENT_FABRIC_SUITE_RUN") == "1", got)
