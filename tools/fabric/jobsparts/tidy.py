@@ -125,8 +125,9 @@ def tidy_tree(tree: str, projects_dev: int, held: dict[str, str], cwds: list[str
         return [f"kept {tree}: owned by another account"], 0
     if st.st_dev != projects_dev:
         return [f"kept {tree}: on another filesystem"], 0
-    found, links = lt.find_targets(real, lt.BUILD_OUTPUT, max_depth=None)
-    lines = [f"kept {t}: a link, not followed" for t in links]
+    mounts: list[str] = []
+    found, links = lt.find_targets(real, lt.BUILD_OUTPUT, max_depth=None, mounts=mounts)
+    lines = [f"kept {t}: a link, not followed" for t in links] + [f"kept {m}: another filesystem, not entered" for m in mounts]
     freed = 0
     for t in found:
         try:

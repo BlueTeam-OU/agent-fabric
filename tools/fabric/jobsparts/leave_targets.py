@@ -46,11 +46,16 @@ def inside(path: str, root: str) -> bool:
     return path != root and path.startswith(root.rstrip(os.sep) + os.sep)
 
 
-def same_device(path: str, dev: int, errors: list | None) -> bool:
+def same_device(path: str, dev: int, errors: list | None, mounts: list | None) -> bool:
     """A mount inside a checkout is not entered: with no depth limit a network mount would be walked whole, with no timeout, and
-    its bytes counted as the checkout's. What cannot be statted is not entered and, where the caller collects them, said."""
+    its bytes counted as the checkout's. What is not entered is appended to `mounts` and what cannot be statted to `errors`, where the
+    caller collects them: a build tree that stays unseen must be said (one line per directory)."""
     try:
-        return os.lstat(path).st_dev == dev
+        if os.lstat(path).st_dev == dev:
+            return True
+        if mounts is not None:
+            mounts.append(path)
+        return False
     except OSError as e:
         if errors is not None:
             errors.append(e)
@@ -58,7 +63,8 @@ def same_device(path: str, dev: int, errors: list | None) -> bool:
 
 
 def find_targets(worktree: str, kinds: tuple[tuple[str, str], ...] = CARGO,
-                 errors: list | None = None, max_depth: int | None = MAX_DEPTH) -> tuple[list[str], list[str]]:
+                 errors: list | None = None, max_depth: int | None = MAX_DEPTH,
+                 mounts: list | None = None) -> tuple[list[str], list[str]]:
     """(the build-output directories beside their marker file, the links of that name beside one), below the worktree and not
     below another. A kind's directory is not entered: what a `node_modules` holds is its own packages' business. A directory
     that cannot be listed is appended to `errors` when one is given: os.walk says nothing of it otherwise, and a target below
@@ -72,7 +78,7 @@ def find_targets(worktree: str, kinds: tuple[tuple[str, str], ...] = CARGO,
     dev = os.lstat(worktree).st_dev
     for dirpath, dirnames, filenames in os.walk(worktree, followlinks=False, onerror=errors.append if errors is not None else None):
         depth = dirpath.count(os.sep) - base
-        dirnames[:] = [d for d in dirnames if d not in skip and not os.path.islink(os.path.join(dirpath, d)) and same_device(os.path.join(dirpath, d), dev, errors)] if max_depth is None or depth < max_depth - 1 else []
+        dirnames[:] = [d for d in dirnames if d not in skip and not os.path.islink(os.path.join(dirpath, d)) and same_device(os.path.join(dirpath, d), dev, errors, mounts)] if max_depth is None or depth < max_depth - 1 else []
         for name, marker in kinds:
             if marker in filenames:
                 t = os.path.join(dirpath, name)
@@ -268,8 +274,9 @@ def clean_targets(worktree: str | None, working_copy: str | None, others: tuple[
         for c in (mine, *others):
             if c and os.path.lexists(c) and overlaps(os.path.realpath(c), root):
                 return [f"cargo targets: {worktree} is, holds or lies in a checkout of this or another job ({c}); left alone"]
-        found, links = find_targets(root)
-        lines = [f"kept {t}: a link, not followed" for t in links]
+        mounts: list[str] = []
+        found, links = find_targets(root, mounts=mounts)
+        lines = [f"kept {t}: a link, not followed" for t in links] + [f"kept {m}: another filesystem, not entered" for m in mounts]
         if not found:
             return lines
         dev = os.lstat(root).st_dev

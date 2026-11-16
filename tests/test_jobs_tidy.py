@@ -157,13 +157,16 @@ def main() -> int:
                 return os.stat_result((st.st_mode, st.st_ino, st.st_dev + 1, *st[3:]))
             return st
         lt.os.lstat = lstat_with_mount
+        mounts: list[str] = []
         try:
-            found_mnt, _ = lt.find_targets(t_deep, lt.BUILD_OUTPUT, max_depth=None)
+            found_mnt, _ = lt.find_targets(t_deep, lt.BUILD_OUTPUT, max_depth=None, mounts=mounts)
+            rc, out, err = tidy("--dry-run")
         finally:
             lt.os.lstat = real_lstat
         found_ctl, _ = lt.find_targets(t_deep, lt.BUILD_OUTPUT, max_depth=None)
         check("a directory on another filesystem is not entered, at any depth (the control: the same tree unmounted finds its target)",
               os.path.join(t_deep, "a/b/c/d/e/f/g/target") not in found_mnt and len(found_mnt) == 2 and len(found_ctl) == 3, (found_mnt, found_ctl))
+        check("…and it is said, one line, never silence (F3)", mounts == [mnt] and f"kept {mnt}: another filesystem, not entered\n" in out, (mounts, out))
         t_deep_held = tree(*built)
         listing(job(1, "active", worktree=t_deep_held))
         rc, out, err = tidy()
