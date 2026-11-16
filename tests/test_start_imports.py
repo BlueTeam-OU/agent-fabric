@@ -37,11 +37,12 @@ check("jobs.py --help", loaded([os.path.join(T, "jobs.py"), "--help"]), absent=(
 # addenda.py --help never asks whether a name is an IANA zone.
 check("addenda.py --help", loaded([os.path.join(T, "addenda.py"), "--help"]), absent=("zoneinfo",))
 # The entries import the module, so its bytecode is cached; run as a script it is __main__ and never in this list.
+# Through bin/fabric-ctl itself: control.ops (every op's code) is never loaded by the client, nor calendar.
 # Through bin/fabric-ctl itself (not -I, so the environment's switch reaches the interpreter): the shim must name the entry.
 _p = subprocess.run(["bash", os.path.join(ROOT, "bin", "fabric-ctl"), "--help"], stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=120,
                     env={"PATH": "/usr/bin:/bin", "HOME": "/", "AGENT_FABRIC_PYTHON": PY, "AGENT_FABRIC_ROOT": ROOT, "PYTHONPROFILEIMPORTTIME": "1"})
 check("bin/fabric-ctl imports control.ctl", {l.split("|")[2].strip() for l in _p.stderr.splitlines() if l.startswith("import time:") and l.count("|") == 2},
-      present=("control.ctl",))
+      present=("control.ctl",), absent=("control.ops", "calendar"))
 # bin/fabric-branches runs under -I, where PYTHONPROFILEIMPORTTIME is ignored: its proof is the module's cache file, which
 # only an import writes (runpy.run_path compiles every start and caches nothing).
 import glob

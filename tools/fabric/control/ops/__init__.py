@@ -58,22 +58,8 @@ from .activity import (script_counts, langid_cmd, languages, recall_kind, recall
                        WORKER_TYPE, worker_transcripts, source_locale, SOURCE_TAG)
 from .memory import MEMORY_PART_BYTES, memory_slug, memory_dirs, memory  # noqa: F401
 from .account_drift import FINDINGS_MAX, drift_report, section as _drift_section  # noqa: F401
-from gzcoord.carrier import CARRIER_NAME
-
-OPS = ["ping", "identity", "usage", "keys", "fabric", "session", "script", "recall", "tokens", "memory", "host", "disk",
-       "accounts", "upgrade", "secrets-sync", "status", "presence", "jobs", "jobs-add", "job-state", "tools", "tools-install", "local", "local-prune",
-       "secrets-selftest", "pool-add", "pool-list", "pool-claim", "gateway", "gateway-install", CARRIER_NAME, f"{CARRIER_NAME}-install", f"{CARRIER_NAME}-start", f"{CARRIER_NAME}-stop", f"{CARRIER_NAME}-evidence", "branches", "branches-sweep", "restart",
-       "switch", "drift", "clone", "hold", "unhold", f"{CARRIER_NAME}-mode"]
-
-# Answered for any placed account, not only an operator: whether a session
-# is running is what every sender needs before it writes to one, and it
-# names nothing a relay reader could not already infer (the owner,
-# 2026-09-25: presence moves from HELLO/GOODBYE, now retired, to the
-# control plane). And a role's pool (pool, ADR-037 rule 9): every placed
-# agent lists its role's pool and claims from it, for itself. And one job's
-# state, to the sender of the request it was taken from (job-state,
-# control/jobs.py): the blocker `job:` of a login that is not an operator.
-PUBLIC_OPS = ["presence", "pool-list", "pool-claim", "job-state"]
+from ..opnames import OPS, PUBLIC_OPS  # noqa: F401 — the names live in a module that loads no op code
+from gzcoord.carrier import CARRIER_NAME  # noqa: F401
 
 
 def _harness(ctx: Mapping[str, Any]) -> Any:
