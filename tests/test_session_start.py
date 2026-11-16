@@ -642,6 +642,9 @@ def test_bootstrap_writes_only_the_workspace_and_home_files(tmp: str) -> None:
     assert proc.returncode == 0, proc.stdout + proc.stderr
     unit = os.path.join(home, ".config", "systemd", "user", "agent-fabric-agentd.service")
     assert os.path.isfile(unit), "the control agent's unit is installed per account"
+    origin = subprocess.run(["git", "-C", os.path.join(projects, "blueteam-fabric"), "config", "--get", "remote.origin.url"],
+                            capture_output=True, text=True, env=git_env(), timeout=60).stdout.strip()
+    assert origin == env["AGENT_FABRIC_OPERATOR_CLONE_URL"], f"the operator checkout came from {origin!r}, not the case's own remote"
     trusted = {d for d, v in json.load(open(os.path.join(home, ".claude.json"), encoding="utf-8"))["projects"].items()
                if v.get("hasTrustDialogAccepted") is True}
     assert trusted == {os.path.realpath(projects), os.path.realpath(root)}, \
