@@ -141,6 +141,11 @@ def gh_mock(s: str, a: list[str], stdin: str) -> tuple[int, str, str]:
         if not has("noarm"):
             open(os.path.join(s, "armed"), "w").close()
         return 0, "", ""
+    # A direct repository's merge (no --auto): it lands at once and reads merged, or with `direct_reads_armed` a
+    # PR the API still reads armed (the read-back must not take that for a merge).
+    if line == "pr merge 7 --merge --match-head-commit abcdef0123456789abcdef0123456789abcdef01":
+        open(os.path.join(s, "armed" if has("direct_reads_armed") else "merged"), "w").close()
+        return 0, "", ""
     return 1, "", "mock gh: unhandled: " + line
 
 

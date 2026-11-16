@@ -85,7 +85,7 @@ def main() -> int:
                       "mergefail", "inbase", "unasked", "moved", "statusfail", "reviews.json", "reviews_fail", "viewer", "viewer_fail", "jobs.json", "jobs_fail", "shows.json",
                       "waiver.out", "waiver_rc", "presence.out", "ctl_rc", "gh_repos", "modes.json", "trees_fail",
                       "whoami.json", "armed_status", "status_read_fail", "sticky",
-                      "mutationfail", "commentfail", "merges_on_disarm"):
+                      "mutationfail", "commentfail", "merges_on_disarm", "direct_reads_armed"):
                 if os.path.exists(f"{state}/{n}"):
                     os.remove(f"{state}/{n}")
             put("review_rc", "0" if reviewed else "1")
@@ -483,6 +483,10 @@ def main() -> int:
         rc, out = run("7", "--basis", "b", "--no-boundary", why, "--waiver", "4242", env=wenv)
         check("a waiver with no MESSAGE-ID: exit 2, never recorded under the seq typed",
               rc == 2 and "carries no MESSAGE-ID" in out and "pr comment" not in calls(), out)
+        reset(); set_pr(me, "plain", mig); set_gate(9); set_waiver(message_id=""); set_presence()
+        rc, out = run("7", "--basis", "b", "--no-boundary", why, "--waiver", "4242", env=wenv)
+        check("a waiver whose MESSAGE-ID is empty: exit 2 too, nothing posted",
+              rc == 2 and "carries no MESSAGE-ID" in out and "pr comment" not in calls(), out)
 
         reset(); set_pr(me, "plain", ["docs/a.md"]); set_gate(9); set_waiver(addressed=False)
         rc, out = waive()
@@ -568,6 +572,36 @@ def main() -> int:
         reset(); set_pr(me, "plain", mig); set_gate(9); put("review_rc", "0"); put("blind", "abcdef01 abcdef01:codex")
         rc, out = run("7", "--basis", "b")
         check("…while the review class's own review of the head, beside a codex one, still arms", rc == 0 and "ARMED #7" in out, out)
+
+        print("arm: a direct repository — the waiver lifts the boundary's gate only; the merge is read back as a merge")
+        rules = json.load(open(GZAPP_CONFIG))
+        rules["waiver_role"] = "architect-cto"
+        put("direct-waiver-rules.json", json.dumps(rules))
+        dwenv = {"AGENT_FABRIC_ARM_CONFIG": f"{state}/direct-waiver-rules.json"}
+        direct_policy = dict(claude_only, mode="direct")
+        for reviewed in (False, True):
+            reset(reviewed=reviewed); set_pr(me, "plain", mig); set_gate(9); set_waiver(); set_presence()
+            rc, out = run("7", "--basis", "b", "--no-boundary", why, "--waiver", mid, env=dwenv, policy=direct_policy)
+            check("a waived boundary change on a direct repository " + ("with the review of its head: merged" if reviewed
+                  else "with no review of its head: refused (the waiver lifts gate 4, not 4b), nothing merged"),
+                  (rc == 0 and "MERGED #7" in out) if reviewed else
+                  (rc == 1 and "no review-class review" in out and "pr merge" not in calls()), out)
+        reset(); set_pr(me, "plain", ["docs/a.md"]); set_gate(9)
+        rc, out = run("7", "--basis", "b", policy=direct_policy)
+        check("a direct repository's merge that reads merged: exit 0", rc == 0 and "MERGED #7" in out
+              and "pr merge 7 --merge --match-head-commit" in calls() and "--auto" not in calls(), out + calls())
+        reset(); set_pr(me, "plain", ["docs/a.md"]); set_gate(9); put("direct_reads_armed", "")
+        rc, out = run("7", "--basis", "b", policy=direct_policy)
+        check("…one that reads armed after the merge is not a merge: exit 2, said",
+              rc == 2 and "reads 'armed' after gh pr merge on a direct repository, not merged" in out and "ARMED" not in out, out)
+        reset(); set_pr(me, "plain", ["docs/a.md"]); set_gate(9); put("direct_reads_armed", ""); put("inbase", "")
+        rc, out = run("7", "--basis", "b", policy=direct_policy)
+        check("…unless the head is in the base: GitHub merged it and the API lags — exit 0, git asked (a direct repository"
+              " never reads armed as success, so it asks)",
+              rc == 0 and "is in origin/main: GitHub merged it" in out and "landed gzapi-org/gzapp" in calls(), out + calls())
+        reset(); set_pr(me, "plain", ["docs/a.md"]); set_gate(9); put("direct_reads_armed", ""); put("queued", "")
+        rc, out = run("7", "--basis", "b", policy=direct_policy)
+        check("…and one that reads queued: exit 2 too", rc == 2 and "reads 'queued at 2' after gh pr merge on a direct" in out, out)
 
         print("arm: the record path — a decision record on a direct repository arms on the owner's word, no review (ADR-019 A 2026-11-05)")
         rules = json.load(open(GZAPP_CONFIG))
@@ -688,6 +722,12 @@ def main() -> int:
               rc == 0 and "ARMED #7" in out and "review=head reviewed: claude ✓ codex absent (head abcdef01)" in out
               and "codex: absent, no review or marker on abcdef01" in out and absent in calls()
               and calls().count(f"pr merge 7 --merge --auto --match-head-commit {HEAD}") == 1, out + calls())
+        reset(); set_pr(me, "plain", ["docs/a.md"]); set_gate(9); put("review_rc", "0")
+        put("blind", "abcdef01 abcdef01:codex"); put("unavailable", f"{HEAD}@abcdef01:allowance")
+        rc, out = run("7", "--basis", "b", policy=extra)
+        check("codex with a review AND an unavailable marker on the head: it ran, the basis records no could-not-run",
+              rc == 0 and "review=head reviewed: claude ✓ codex ✓ (head abcdef01)" in out
+              and "could not run" not in out and "could not run" not in calls() and "unavailable (" not in out, out + calls())
         other = "0123456789abcdef0123456789abcdef01234567"
         for mark, what in ((f"{other}@01234567:allowance", "a marker for another head"),
                            (f"{other}@abcdef01:allowance", "…one naming another head on a review of this one"),
@@ -799,6 +839,20 @@ def main() -> int:
         plain(); reviews(*chain_b)
         rc, out = run("7", "--basis", "b")
         check("control: chain B alone, its F1 judged fixed twice: armed", rc == 0 and "ARMED #7" in out, out)
+        # F08 (mutation): one chain raising F5 twice, the newest closed by a first `fixed`: the second `fixed` closes the
+        # one still open, not the closed newest again.
+        hc = ["dddd000%d" % i + str(i) * 32 for i in range(1, 4)]
+        twice = [review(5730000001, "d" * 40, hc[0], "Finding: F5 | P2 | likely | z.py:1 | the first F5"),
+                 review(5730000002, hc[0], hc[1], "Finding: F5 | P2 | likely | z.py:2 | the F5 raised again"),
+                 review(5730000003, hc[1], hc[2], "Judgement: F5 | fixed | the newest is gone\nFinding: none")]
+        plain(); reviews(*twice, review(5730000004, hc[2], HEAD, "Judgement: F5 | fixed | and the first\nFinding: none"))
+        rc, out = run("7", "--basis", "b")
+        check("F5 raised twice in a chain, judged fixed twice: the second verdict closes the one still open — armed",
+              rc == 0 and "ARMED #7" in out, out)
+        plain(); reviews(*twice)
+        rc, out = run("7", "--basis", "b")
+        check("…control: judged fixed once, the older F5 is still open (the first verdict closed the newest)",
+              rc == 1 and "1 finding(s) open" in out and "z.py:1" in out and "z.py:2" not in out, out)
         plain(); reviews(chain_a, chain_b[0], review(5720000003, ha, hb2, "Judgement: F1 | fixed | done\nFinding: none"))
         rc, out = run("7", "--basis", "b")
         check("control: a judgement in chain A's own chain closes A's F1, B's stays open",
@@ -991,6 +1045,17 @@ def main() -> int:
         dependabot(); reviews(review(5709892041, h1, h2, f5, login="drive-by"), fresh)
         rc, out = run("7", "--basis", "b")
         check("…another account's on that PR is still not read: armed", rc == 0 and "ARMED #7" in out, out)
+        # Q02: each spelling of an app alone, and the shapes that are a person's.
+        for shape, bot in (({"login": "app/dependabot"}, True), ({"login": "dependabot[bot]"}, True),
+                           ({"login": "x", "is_bot": True}, True), ({"login": "x", "type": "Bot"}, True),
+                           ({"login": "dependabot", "__typename": "Bot"}, True), ({"login": "dependabot"}, False),
+                           ({"login": "bot[x]"}, False), ({"login": "x", "is_bot": "true"}, False), (None, False), ("app/x", False)):
+            check(f"is_bot({shape!r}) is {bot}", review_posters.is_bot(shape) is bot)
+        plain(); pr = json.load(open(f"{state}/pr.json"))
+        put("pr.json", json.dumps(dict(pr, author={"login": "dependabot[bot]"}))); reviews(review(5709892041, h1, h2, f5, login="pusher"), fresh)
+        rc, out = run("7", "--basis", "b")
+        check("a PR authored by a login ending [bot], with no type given, is an app's: the push account's review is read",
+              rc == 1 and "F5 | P3" in out and "api user" in calls(), out)
         plain(); reviews(review(5709892041, h1, h2, f5, login="pusher"), fresh)
         rc, out = run("7", "--basis", "b")
         check("…a person's PR asks nobody whom gh acts as, and the push account's review is not read there",
@@ -1585,6 +1650,10 @@ def main() -> int:
         armed_pr(); put("sticky", "")
         rc, out = drun("7", "--basis", "b")
         check("auto-merge still on at the read-back: exit 2, said", rc == 2 and "still reads armed" in out, out)
+        armed_pr(auto=False, queued=True); put("sticky", "")
+        rc, out = drun("7", "--basis", "b")
+        check("still in the merge queue at the read-back (auto-merge off): exit 2, said",
+              rc == 2 and "still reads armed or queued" in out and "DISARMED" not in out, out)
 
         # Part-way failures (#545 round 1 F3): each exit 2 with no DISARMED line, and stderr says what is already off.
         def partway(label: str, want: list[str], said: str, rc: int, out: str) -> None:
