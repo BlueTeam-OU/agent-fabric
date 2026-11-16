@@ -19,7 +19,7 @@ HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(HERE, "tests"))
 from instance_fixtures import own_instance_tree  # noqa: E402 — tests/, the script's own directory
 own_instance_tree()
-from signing_fixture import drop_key, make_key  # noqa: E402
+from signing_fixture import drop_key, make_agent_key, make_key  # noqa: E402
 sys.path.insert(0, os.path.join(HERE, "tools", "fabric"))
 sys.path.insert(0, os.path.join(HERE, "tools", "fabric", "guards"))
 import signing_policy as sp  # noqa: E402
@@ -74,12 +74,33 @@ def main() -> None:
           sp.entry_for(doc, "neworg/thing", REGISTRY, pr) == ("oldorg/thing", {"format": "ssh", "since": None}))
     check("case does not matter (GitHub's names do not)",
           sp.entry_for(doc, "ACME/Widget", REGISTRY, pr)[0] == "acme/widget")
+    # Mutation: signing_policy.py:159 `{k.lower(): k for k in repos}` -> `{k: k for k in repos}` (a policy key in mixed case)
+    mixed = {**good, "repositories": {"Acme/Widget": {"since": None}}}
+    check("a policy key in mixed case covers the lower-case slug, and is named as written",
+          sp.entry_for(mixed, "acme/widget", REGISTRY, pr)[0] == "Acme/Widget")
     check("a repository no entry names: the default, not covered",
           sp.entry_for(doc, "acme/elsewhere", REGISTRY, pr) == (None, {"format": "ssh", "since": None}))
     check("no repository at all: the default", sp.entry_for(doc, None, REGISTRY, pr)[0] is None)
     check("slug_of reads both remote shapes",
           sp.slug_of("git@github.com:acme/widget.git", pr) == "acme/widget"
           and sp.slug_of("https://github.com/acme/widget", pr) == "acme/widget" and sp.slug_of("/a/path", pr) is None)
+    # Mutation: signing_policy.py:42 SHA_RE `\Z` dropped (41-hex since accepted) and `{64}` -> `{63}` (a sha256 since refused)
+    for label, since, takes in (("a 41-hex since", "a" * 41, False), ("a 64-hex (sha256) since", "b" * 64, True),
+                                ("a 63-hex since", "a" * 63, False)):
+        write({**good, "repositories": {"acme/widget": {"since": since}}})
+        try:
+            sp.load(POLICY)
+            check(f"the reader {'takes' if takes else 'refuses'} {label}", takes)
+        except sp.PolicyError as e:
+            check(f"the reader {'takes' if takes else 'refuses'} {label}", not takes, e)
+    # Mutation: signing_policy.py:113 `not SLUG_RE.match(slug)` -> `False` (a repositories key that is no owner/name)
+    for label, slug in (("a name with no owner", "widget"), ("a path of three parts", "a/b/c")):
+        write({**good, "repositories": {slug: {"since": None}}})
+        try:
+            sp.load(POLICY)
+            check(f"the reader refuses a repositories key that is {label}", False, "loaded")
+        except sp.PolicyError as e:
+            check(f"the reader refuses a repositories key that is {label}", "is not <owner>/<name>" in str(e), e)
     os.remove(POLICY)
     check("an absent policy: the fleet default, nothing covered",
           sp.load(POLICY) == {"default": {"format": "ssh", "since": None}, "repositories": {}})
@@ -184,6 +205,16 @@ def main() -> None:
     check("a listed forge key whose file is that key: clean", findings(listed) == [], findings(listed))
     check("sp.key_file_primaries reads the file's primary", sp.key_file_primaries(os.path.join(FORGE_DIR, f"{fprs[0]}.asc"),
                                                                                 homes[1]) == [fprs[0]])
+    # Mutation: signing_policy.py:129 `after_pub and ` dropped (a subkey's fpr line counted as a primary)
+    os.makedirs(os.path.join(T, "ks"))
+    ahome, aprimary, asub = make_agent_key(os.path.join(T, "ks"))
+    KEYS.append(ahome)
+    keyed = os.path.join(T, "with-subkey.asc")
+    with open(keyed, "w", encoding="utf-8") as fh:
+        fh.write(subprocess.run(["gpg", "--homedir", ahome, "--batch", "--armor", "--export", aprimary], capture_output=True,
+                                text=True, check=True, timeout=60).stdout)
+    check("sp.key_file_primaries counts a key with a subkey once, by its primary",
+          sp.key_file_primaries(keyed, homes[1]) == [aprimary.upper()] and asub.upper() != aprimary.upper())
     put_key(f"{fprs[0]}.asc", 1)
     f = findings(listed)
     check("a listed forge key whose file is another key", any(f"holds {fprs[1]}" in x for x in f), f)

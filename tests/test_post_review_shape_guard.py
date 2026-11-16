@@ -74,6 +74,9 @@ def main() -> int:
         ("sudo -E bash -c", 'sudo -E bash -c "fabric-pr post-review 12 < r.md"'),
         ("env -i bash -c", 'env -i bash -c "fabric-pr post-review 12 < r.md"'),
         ("nice -10 bash -c", 'nice -10 bash -c "fabric-pr post-review 12 < r.md"'),
+        # Mutation: post-review-shape-guard.py:332 drop `read[1][:1] == [VERB]` in bare() (an option before the verb is not bare)
+        ("an option before the subcommand, no pipe", "fabric-pr --repo o/n post-review 3 < r.md"),
+        ("the same through the dispatcher", "fabric pr --repo o/n post-review 3 < r.md"),
         ("a heredoc fed to bash", "bash <<EOF\nfabric-pr post-review 12 < r.md\nEOF"),
         ("a quoted heredoc fed to bash", "bash <<'EOF'\nfabric-pr post-review 12 < r.md\nEOF"),
         ("single quotes piped to a shell", "printf '%s' 'fabric-pr post-review 12 < r.md' | sh"),
