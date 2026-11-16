@@ -212,7 +212,7 @@ exercised (send, watch, replay, `fabric-pr arm --authorization`, `fabric-jobs ad
 a REQUEST's job intake); and W12's read-back if the owner takes D1's recommendation. Records:
 ADR-033 amended again (the relay carries control only; rule 7's trigger; rule 5's "the hosting
 session's start brings it up"), ADR-064 (rules 8, 11 and 14, whose "the relay carries for it
-alone" goes; the dual run ends), ADR-041 rule 7 (its relay-row half goes) and rule 10 (D7), ADR-030 rule 3's wording, and ADR-069 §1
+alone" goes; the dual run ends), ADR-041 rule 7 (its relay-row half goes), ADR-030 rule 3's wording, and ADR-069 §1
 (the "messages between sessions" row is rewritten and the two new rows of §3 added: ADR-034
 rule 1 wants that in the same pull request).
 
