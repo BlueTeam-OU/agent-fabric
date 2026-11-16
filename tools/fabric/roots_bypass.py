@@ -144,7 +144,7 @@ def scan(rel: str, text: str) -> list[str]:
         value = _resolved(arg, consts)
         return value is not None and bool(pattern.search(value))
 
-    for node in ast.walk(tree):
+    for node in _syntax_tree().walk(tree):
         if isinstance(node, ast.Call):
             name = _call_name(node.func)
             if name in ("get", "pop", "getenv") and node.args and (var := _env_name(node.args[0], consts)):

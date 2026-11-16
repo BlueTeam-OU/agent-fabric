@@ -41,7 +41,7 @@ OWN_VERB_SOURCES: dict[str, tuple[str, str, str]] = {
 def _read_verbs(path: str, shape: str, name: str) -> set[str] | None:
     with open(path, encoding="utf-8") as fh:
         tree = syntax_tree.parse(fh.read(), path)
-    for node in ast.walk(tree):
+    for node in syntax_tree.walk(tree):
         if (shape == "dict" and isinstance(node, (ast.Assign, ast.AnnAssign)) and isinstance(node.value, ast.Dict)
                 and any(isinstance(t, ast.Name) and t.id == name for t in (node.targets if isinstance(node, ast.Assign) else [node.target]))):
             keys = node.value.keys

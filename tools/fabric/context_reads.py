@@ -65,7 +65,7 @@ def judged_path(rel: str) -> bool:
 def _docstrings(tree: ast.Module) -> set[int]:
     """ids of the string nodes that are a module's, class's or function's docstring."""
     out: set[int] = set()
-    for node in ast.walk(tree):
+    for node in _syntax_tree().walk(tree):
         if isinstance(node, (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)):
             body = node.body
             if body and isinstance(body[0], ast.Expr) and isinstance(body[0].value, ast.Constant) \
@@ -85,7 +85,7 @@ def raw_findings(rel: str, text: str) -> list[str]:
         return []
     docs = _docstrings(tree)
     out: list[tuple[int, str]] = []
-    for node in ast.walk(tree):
+    for node in _syntax_tree().walk(tree):
         if isinstance(node, ast.Constant) and isinstance(node.value, str) and id(node) not in docs \
                 and _FILE.search(node.value):
             out.append((node.lineno, "names binding.json"))

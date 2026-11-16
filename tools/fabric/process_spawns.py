@@ -73,7 +73,7 @@ def sites(text: str, rel: str = "<module>") -> list[tuple[int, str]]:
     except SyntaxError:
         return []
     found: list[tuple[int, str]] = []
-    for node in ast.walk(tree):
+    for node in _syntax_tree().walk(tree):
         if not isinstance(node, ast.Call):
             continue
         name = _name(node.func)
