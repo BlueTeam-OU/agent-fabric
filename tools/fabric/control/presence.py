@@ -82,8 +82,14 @@ def _open_leg(request: dict, to: list, wait_s: float):
     return control_link.Leg.open(request, to, wait_s)
 
 
+def _read_mode() -> str:
+    from gzcoord.transport import mode
+    return mode.read()["mode"]
+
+
 def ask_presence(*, from_: str, to, expect: list, token: str | None = None, wait_ms: float = PRESENCE_WAIT_MS,
-                 cfg: dict, new_id, call=None, sleep=time.sleep, clock=time.monotonic, open_leg=_open_leg, say=_say) -> dict:
+                 cfg: dict, new_id, call=None, sleep=time.sleep, clock=time.monotonic, open_leg=_open_leg, say=_say,
+                 read_mode=None) -> dict:
     """`to` is one address, a list, or "*" (a TO-ROLE is resolved by the
     caller from the roles in the answers).
 
@@ -91,33 +97,54 @@ def ask_presence(*, from_: str, to, expect: list, token: str | None = None, wait
     to this account's own agentd, which sends it to each other account over
     the second carrier, and a reply on either carrier answers it: a relay that is down
     no longer leaves every addressee unknown. The relay post still goes first,
-    and under any other control_carrier nothing below the post differs."""
+    and under any other control_carrier nothing below the post differs.
+
+    An account in transport mode carrier-only (cutover plan W9) has no relay in its path: nothing is posted to it or
+    read from it, and the second carrier answers alone. That needs control_carrier "dual", else there is no carrier to
+    ask by, which is said, never answered from the relay. A mode file that cannot be read is raised, not defaulted:
+    the file may be the one that says carrier-only."""
     def default_call(path, method="GET", body=None):
         return gzcoord.api(token, path, relay_url=cfg["relay_url"], method=method, body=body)
     c = call or default_call
+    from gzcoord.transport import mode as transport_mode
+    try:
+        carrier_only = (read_mode or _read_mode)() == transport_mode.CARRIER_ONLY
+    except transport_mode.ModeError as e:
+        raise RuntimeError(f"the transport mode is unknown, so whether the relay may be asked is: {e}") from None
+    if carrier_only and cfg.get("control_carrier") != "dual":
+        raise RuntimeError("this account is in carrier-only, which has no relay to ask, and control_carrier is not dual: "
+                           "there is no carrier to ask presence by")
     rid = new_id()
     request = {"v": 1, "kind": "request", "id": rid, "from": from_, "to": to, "op": "presence", "ts": js.iso_now(),
                "ttl_s": max(cfg["ttl_s"], math.ceil(wait_ms / 1000) if math.isfinite(wait_ms) else math.inf)}
     dual = cfg.get("control_carrier") == "dual"
     relay_error = None
-    try:
-        sent = c("/api/send", method="POST",
-                 body=_compact({"channel": cfg["channel"], "sender": from_, "content": _compact(request)}))
-    except Exception as e:  # noqa: BLE001 — a failed post is the second carrier's to make up for, or the caller's to say
-        if not dual:
-            raise
-        relay_error, sent = e, None
+    sent = None
+    if not carrier_only:
+        try:
+            sent = c("/api/send", method="POST",
+                     body=_compact({"channel": cfg["channel"], "sender": from_, "content": _compact(request)}))
+        except Exception as e:  # noqa: BLE001 — a failed post is the second carrier's to make up for, or the caller's to say
+            if not dual:
+                raise
+            relay_error, sent = e, None
     leg = None
     if dual:
         # Unbounded waits (wait_ms inf) are the suite's; a socket's wait_s is finite.
         wait_s = wait_ms / 1000 if math.isfinite(wait_ms) else 86400.0
         # Presence asks no second-carrier leg of this account itself: its own presence is the relay's (the socket would loop
-        # it back, as it does fabric-ctl's own row, j245, but this ask has not chosen to).
-        targets = [a for a in (list(dict.fromkeys(expect))) if a != from_]
+        # it back, as it does fabric-ctl's own row, j245, but this ask has not chosen to). Carrier-only has no relay to answer
+        # for it, so the loop-back is the only answer the sender's own address can have: left out, a TO-ROLE ask would wait its
+        # whole budget for an account nobody asked and list it as silent (review of #623, F1).
+        targets = [a for a in (list(dict.fromkeys(expect))) if carrier_only or a != from_]
         if targets:
             try:
                 leg = open_leg(request, targets, wait_s)
             except RuntimeError as e:
+                if carrier_only:
+                    from gzcoord.carrier import control_link
+                    raise control_link.Down(f"carrier-only: {e}", None,
+                                            handed=bool(getattr(e, "handed", False))) from None
                 if relay_error is not None:
                     from gzcoord.carrier import control_link
                     raise control_link.Down(f"{str(relay_error).split(chr(10))[0]}; the second carrier: {e}", relay_error,
@@ -130,8 +157,8 @@ def ask_presence(*, from_: str, to, expect: list, token: str | None = None, wait
     deadline = clock() + wait_ms / 1000
     # A sent record with no id pages from "undefined", as URLSearchParams wrote it.
     since = sent["id"] if isinstance(sent, dict) and "id" in sent else "undefined"
-    relay_up = relay_error is None
-    if not relay_up:
+    relay_up = relay_error is None and not carrier_only
+    if relay_error is not None:
         say(f"the relay post failed ({str(relay_error).splitlines()[0] if str(relay_error) else type(relay_error).__name__}); the second carrier carries alone")
     lost_said = False
 

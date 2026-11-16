@@ -34,6 +34,8 @@ def asker(answers):
 
 
 def main() -> int:
+    # A suite's own mode, not this session's state directory's.
+    cp._read_mode = lambda: "relay-record"
     fails = 0
 
     def check(label: str, good: bool, detail: object = "") -> None:
