@@ -59,7 +59,9 @@ CONTRACT
   exit    0 done (run: stopped by SIGTERM/SIGINT); 1 usage; 2 refused to run
           (journal off, own row names a host other than the identity address's,
           another carrier already holds the record or the socket, no XDG_RUNTIME_DIR); 3 the carrier is not
-          reachable (status, abandon)
+          reachable (status, abandon); 4 roster-row, roster-admit: the agent's key is not committed on
+          origin/main yet (commit identities/keys/ and merge it, new-agent step 5; waiting converges, no
+          other refusal does)
 
 The carrier never opens the admin socket and never carries fabric:control
 (ADR-064 rules 5, 12).
@@ -116,9 +118,19 @@ def runtime_dir() -> str:
     return rd
 
 
+NO_KEY_EXIT = 4   # not 3: that is "the carrier is not reachable"; 4 is only "wait for the committed key"
+
+
 def _refuse(why: str) -> int:
     say(why)
     return 2
+
+
+def _refuse_admit(e: Exception) -> int:
+    if isinstance(e, admit.NoCommittedKey):
+        say(str(e))
+        return NO_KEY_EXIT
+    return _refuse(str(e))
 
 
 def _state() -> str:
@@ -279,7 +291,7 @@ def cmd_roster_row() -> int:
         row = admit.make_row(rost=r, keys=roster.GitMainKeys(paths.operator_root()), agent_id=make_me().agent_id,
                              login=pwd.getpwuid(os.getuid()).pw_name, release_path=release_path())
     except (roster.RosterError, admit.AdmitError, OSError) as e:
-        return _refuse(str(e))
+        return _refuse_admit(e)
     print(json.dumps(row, sort_keys=True, indent=2))
     return 0
 
@@ -316,7 +328,7 @@ def cmd_roster_admit(args: list[str]) -> int:
         finally:
             os.close(dfd)
     except (roster.RosterError, admit.AdmitError, OSError, ValueError) as e:
-        return _refuse(str(e))
+        return _refuse_admit(e)
     say(f"admitted {row_in['login']} at port {args[2]}")
     return 0
 

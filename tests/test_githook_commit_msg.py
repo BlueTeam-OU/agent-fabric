@@ -61,6 +61,15 @@ class Hook(unittest.TestCase):
         (repo or self.repo).stage(rel)
 
 
+class PinnedPython(Hook):
+    def test_a_missing_pinned_python_refuses_with_127_and_names_it(self):
+        gone = os.path.join(self.fabric.root, "no-such-python")
+        r, _ = self.run_hook("msg" + KIND, AGENT_FABRIC_PYTHON=gone)
+        # Mutation: policies/githooks/commit-msg:21 `exit 127` -> `exit 0`, and `|| { echo` -> `|| { true; } || { echo` (the refusal is waved through, or loses its message).
+        self.assertEqual(r.returncode, 127, r.stderr)
+        self.assertIn(f"not installed at {gone}", r.stderr)
+
+
 class BannedAttribution(Hook):
     def refused(self, text, *reasons):
         r, after = self.run_hook(text + KIND)

@@ -55,6 +55,11 @@ class AdmitError(Exception):
     """A refusal with the fact that fixes it; nothing was written, and no transport key is minted after one."""
 
 
+class NoCommittedKey(AdmitError):
+    """The agent's key is not on origin/main yet. Unlike every other refusal it converges by waiting: the step that
+    commits identities/keys/ (provisioning step 5) and its merge. main.py gives it its own exit status."""
+
+
 def _release_entry(release_path: str, machine: str | None = None) -> dict:
     arch = machine or platform.machine()
     try:
@@ -171,7 +176,8 @@ def _committed(keys: roster.KeySource, agent_id: str) -> tuple[dict, bytes]:
     rec = keys.lineage().get(agent_id)
     pub = keys.public_key(agent_id)
     if not isinstance(rec, dict) or not rec.get("fingerprint") or pub is None:
-        raise AdmitError(f"the lineage and identities/keys on origin/main hold no key for agent {agent_id}")
+        raise NoCommittedKey(f"the lineage and identities/keys on origin/main hold no key for agent {agent_id}: commit "
+                             f"identities/keys/{agent_id}.asc and its lineage.json entry (new-agent step 5) and merge it")
     return rec, pub
 
 
@@ -224,6 +230,8 @@ def admit_row(*, doc: dict, rost: roster.Roster, keys: roster.KeySource, row_in:
             if isinstance(other, dict) and other.get(field) == value:
                 raise AdmitError(f"the roster already has a row with that {field}: {value!r}")
     lineage = keys.lineage()
+    # Before the countersignature: the row's own key missing is the waiting case, not a bad row.
+    _committed(keys, row_in["agent_id"])
     roots = [a for a, r in lineage.items() if isinstance(r, dict) and not r.get("parent")]
     if len(roots) != 1:
         raise AdmitError("the lineage does not have exactly one root: the coordinator's key is unknown")

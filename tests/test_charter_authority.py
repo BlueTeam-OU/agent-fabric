@@ -112,6 +112,11 @@ def main() -> int:
         sh(repo, "branch", "other")
         sh(repo, "update-ref", "refs/remotes/origin/rel", "HEAD")
         check("main", common.resolve_base(repo, {}) == "main")
+        # Mutation: common.py:73 `"origin/main", "main"` -> `"main"` (a local main that has moved on is not the base)
+        sh(repo, "update-ref", "refs/remotes/origin/main", "HEAD")
+        sh(repo, "commit", "-q", "--allow-empty", "-m", "c1, local main moves past origin/main")
+        check("origin/main before a local main that differs", common.resolve_base(repo, {}) == "origin/main")
+        sh(repo, "update-ref", "-d", "refs/remotes/origin/main")
         check("the caller's ref first", common.resolve_base(repo, {"AGENT_FABRIC_CHARTER_BASE": "other"}) == "other")
         check("an unresolvable caller ref falls through",
               common.resolve_base(repo, {"AGENT_FABRIC_CHARTER_BASE": "nope"}) == "main")

@@ -75,9 +75,11 @@ try:
 except ImportError:
     pass          # a tree without the guard: every red is a failure
 NOT_CI = re.compile(r"(AGENT_FABRIC_|GITHUB_|CLAUDE|ANTHROPIC_)")
-# tests/run.sh's: no sandbox signs, whatever the caller's git config says.
-NO_SIGNING = {"GIT_CONFIG_COUNT": "2", "GIT_CONFIG_KEY_0": "commit.gpgsign", "GIT_CONFIG_VALUE_0": "false",
-              "GIT_CONFIG_KEY_1": "tag.gpgsign", "GIT_CONFIG_VALUE_1": "false"}
+# tests/run.sh's: no sandbox signs or starts git's automatic housekeeping, whatever the caller's git config says.
+NO_SIGNING = {"GIT_CONFIG_COUNT": "4", "GIT_CONFIG_KEY_0": "commit.gpgsign", "GIT_CONFIG_VALUE_0": "false",
+              "GIT_CONFIG_KEY_1": "tag.gpgsign", "GIT_CONFIG_VALUE_1": "false",
+              "GIT_CONFIG_KEY_2": "gc.auto", "GIT_CONFIG_VALUE_2": "0",
+              "GIT_CONFIG_KEY_3": "maintenance.auto", "GIT_CONFIG_VALUE_3": "false"}
 
 
 class NotRunnable(Exception):

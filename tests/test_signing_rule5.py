@@ -702,6 +702,17 @@ def run() -> None:
                         ("another digest", proof_mod.MAGIC + b"\x01\x08" + b"\x00" * 32)):
         check(f"the checker's proof match agrees with signing/proof.py: {label}",
               guard_mod.proof_matches(sig, blob) == proof_mod.matches(sig, blob))
+    head = len(guard_mod.OTS_HEAD)
+    digest = hashlib.sha256(sig).digest()
+    # Mutation: ban_unsigned_commits.py:210 `not proof.startswith(OTS_HEAD) or` dropped (a wrong header with the right digest at offset head passes).
+    check("proof_matches: a wrong header with the right digest at offset head is no proof",
+          not guard_mod.proof_matches(sig, proof_mod.MAGIC + b"\x01\x09" + digest + b"\x00tail"))
+    # Mutation: ban_unsigned_commits.py:210 `len(proof) < head + 32` -> `<=` (a proof of exactly head + 32 bytes is refused).
+    check("proof_matches: a proof of exactly head + 32 bytes is a proof",
+          len(guard_mod.OTS_HEAD + digest) == head + 32 and guard_mod.proof_matches(sig, guard_mod.OTS_HEAD + digest))
+    # Mutation: ban_unsigned_commits.py:212 `signature.strip()` -> `signature` (a signature with surrounding whitespace is digested whole).
+    check("proof_matches: the digest is of the stripped signature",
+          guard_mod.proof_matches(b"\n " + sig + b" \n", guard_mod.OTS_HEAD + digest))
     check("may_hold: -<n>, a locale suffix, a holder; not another role's -<word>",
           guard_mod.may_hold("python-dev-04", "python-dev", None, []) and guard_mod.may_hold("lc-en", "lc", None, ["en"])
           and guard_mod.may_hold("user", "fabric-coordinator", ["user"], [])

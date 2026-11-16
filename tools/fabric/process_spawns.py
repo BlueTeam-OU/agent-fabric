@@ -24,16 +24,27 @@ from __future__ import annotations
 
 import argparse
 import ast
+import importlib.util
 import json
 import os
 import subprocess
 import sys
-import warnings
 
 POLICY = "tools/fabric/process-spawns.json"
 OWNER = "tools/fabric/process.py"
 SIGNALS = frozenset({"killpg", "setsid", "setpgid", "setpgrp"})
 SPAWN_KEYWORDS = frozenset({"start_new_session", "process_group"})
+
+
+def _syntax_tree():
+    """The lint run's shared parse cache (tools/fabric/lint_rules/syntax_tree.py): one module per process, loaded by path like every module lint
+    trusts and registered once so each by-path copy of this checker meets the same cache."""
+    mod = sys.modules.get("fabric_syntax_tree")
+    if mod is None:
+        spec = importlib.util.spec_from_file_location("fabric_syntax_tree", os.path.join(os.path.dirname(os.path.realpath(__file__)), "lint_rules", "syntax_tree.py"))
+        mod = sys.modules["fabric_syntax_tree"] = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+    return mod
 
 
 def parse_allowed(text: str) -> dict[str, str]:
@@ -58,10 +69,7 @@ def sites(text: str, rel: str = "<module>") -> list[tuple[int, str]]:
     """[(line, what)] of every call that starts or signals a group; [] for a module that does not parse (ruff refuses it
     in CI, and a half-merged module is not this rule's to stop)."""
     try:
-        with warnings.catch_warnings():
-            # A scanned file's own invalid escape is its own lint's to report; under -W error it would read as a syntax error, a clean verdict.
-            warnings.simplefilter("ignore", SyntaxWarning)
-            tree = ast.parse(text, filename=rel)
+        tree = _syntax_tree().parse(text, rel)
     except SyntaxError:
         return []
     found: list[tuple[int, str]] = []

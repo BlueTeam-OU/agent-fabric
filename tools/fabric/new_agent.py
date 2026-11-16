@@ -42,7 +42,7 @@ CONTRACT, frozen from the bash (ADR-040 §5 rule 3):
   exit      0 when every step ran (or a dry run planned them); 3 when every
             step ran but the carrier is left unstarted: the account's roster
             row, which only fabric-coordinator countersigns (the run says the
-            command); or its key not yet on origin/main (roster-row refuses:
+            command); or its key not yet on origin/main (roster-row refuses, status 4:
             commit and merge identities/keys/); or no user manager yet to
             start it in; its re-run, once that is settled, starts it; 1 for a
             refusal or a failed step (`step failed: …`, nothing after it

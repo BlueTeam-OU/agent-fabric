@@ -151,6 +151,9 @@ UNDATED_SPANS = re.compile(r"`[^`]*`|\]\([^)]*\)|\((?:A|Amendment) \d{4}-\d\d-\d
                            r"|[\w.-]*/[\w./-]*\d{4}-\d\d-\d\d[\w./-]*|[\w.-]*\d{4}-\d\d-\d\d[\w.-]*\.[a-z]{2,4}\b")
 
 
+ENOUGH_DIGITS = re.compile(r"\d(?:\D*\d){7}")
+
+
 def dated_sections(text: str) -> list[tuple[str, str]]:
     """(section number, date) for each date §2–§8 carries."""
     out, cur, fenced = [], None, False
@@ -164,9 +167,42 @@ def dated_sections(text: str) -> list[tuple[str, str]]:
             m = re.match(r"## (\d)\.", ln)
             cur = m.group(1) if m and m.group(1) != "1" else None
             continue
-        if cur:
+        # UNDATED_SPANS only removes text, and a date needs two hyphens and
+        # eight digits, so a line short of either has none before or after the
+        # removal. The test is not "no date in the line": removing a span can
+        # join the halves of one ("2026-0`x`1-01"), so only a count is safe.
+        if cur and ln.count("-") >= 2 and ENOUGH_DIGITS.search(ln):
             for d in BODY_DATE_RE.findall(UNDATED_SPANS.sub("", ln)):
                 out.append((cur, d))
+    return out
+
+
+CITE_ID_RE = re.compile(r"ADR-\d{3}(?!\d)")
+
+
+def cites(text: str) -> list[re.Match]:
+    """CITE_RE.finditer(text), found without trying the optional project-name
+    prefix at every position of a long record: it is tried from the start of
+    the token before each ADR-NNN, where a match can first begin. The scan back
+    over-reaches (it takes the word as far as `[\\w.-]` goes), never
+    under-reaches, and CITE_RE decides from there, so the matches are the same
+    ones."""
+    out: list[re.Match] = []
+    end = 0
+    for occ in CITE_ID_RE.finditer(text):
+        if occ.start() < end:
+            continue
+        j = occ.start()
+        while j > end and text[j - 1].isspace():
+            j -= 1
+        if j - 2 >= end and text[j - 2:j] in ("'s", "’s"):
+            j -= 2
+        while j > end and (text[j - 1].isalnum() or text[j - 1] in "_.-"):
+            j -= 1
+        m = CITE_RE.search(text, j)
+        if m:
+            out.append(m)
+            end = m.end()
     return out
 
 
@@ -322,7 +358,9 @@ def load(root: str | None) -> tuple[list[dict], list[str]]:
     return adrs, findings
 
 
-def index_rows(root: str | None, adrs: list[dict]) -> list[dict]:
+def index_rows(root: str | None, adrs: list[dict], notes_at=None) -> list[dict]:
+    """`notes_at` is the caller's history_notes when it holds one per call (check)."""
+    notes_at = notes_at or history_notes
     rows = []
     for a in adrs:
         hist = os.path.join(adr_dir(root), "history", f"ADR-{a['number']}-amendments.md")
@@ -333,7 +371,7 @@ def index_rows(root: str | None, adrs: list[dict]) -> list[dict]:
             "date": a["fields"].get("Date", ""),
             "pillar": a["fields"].get("Pillar", ""),
             "class": a["fields"].get("Class", ""),
-            "amendments": len(history_notes(hist)) if os.path.exists(hist) else 0,
+            "amendments": len(notes_at(hist)) if os.path.exists(hist) else 0,
         })
     for num, why in reserved(adr_dir(root))[0].items():
         rows.append({"number": num, "file": None, "title": why, "status": "Reserved", "date": "",
@@ -372,6 +410,17 @@ def check(root: str | None = None, other: str | None = None) -> list[str]:
     adrs, findings = load(root)
     if not adrs:
         return findings or [f"{ADR_DIR}: no ADR"]
+    # A history file is read four times below (its record, the stray-file loop,
+    # the index rows, the DIGEST dates). Held for this call only, never across
+    # calls: callers rewrite files between two checks within one mtime tick.
+    notes_seen: dict[str, list[tuple[str, str]]] = {}
+
+    def notes_at(path: str) -> list[tuple[str, str]]:
+        if path not in notes_seen:
+            notes_seen[path] = history_notes(path)
+        return notes_seen[path]
+
+    repo = tree(root)
     rel = lambda a: f"{ADR_DIR}/{a['file']}"  # noqa: E731
     numbers = [int(a["number"]) for a in adrs]
     if len(set(numbers)) != len(numbers):
@@ -439,9 +488,9 @@ def check(root: str | None = None, other: str | None = None) -> list[str]:
                 if p != "all" and p not in pill:
                     findings.append(f"{rel(a)}: **Pillar:** {p} is not in ADR-000 §5 ({', '.join(pill)})")
         for ev in [x.strip() for x in f.get("Evidence", "").split(",") if x.strip()]:
-            if not within(tree(root), ev):
+            if not within(repo, ev):
                 findings.append(f"{rel(a)}: **Evidence:** {ev} is not a path inside the repository")
-            elif not os.path.exists(os.path.join(tree(root), ev)):
+            elif not os.path.exists(os.path.join(repo, ev)):
                 findings.append(f"{rel(a)}: **Evidence:** {ev} does not exist")
         secs = [s for s in a["sections"] if s != "Amendments"]
         if secs != list(SECTIONS):
@@ -451,7 +500,7 @@ def check(root: str | None = None, other: str | None = None) -> list[str]:
         if a["stray_amendment"]:
             findings.append(f"{rel(a)}: an '### Amendment' heading in the ADR itself — the note goes to history/, the ADR keeps a table row")
         hist = os.path.join(d, "history", f"ADR-{a['number']}-amendments.md")
-        notes = history_notes(hist) if os.path.exists(hist) else []
+        notes = notes_at(hist) if os.path.exists(hist) else []
         for dt, title in notes:
             if dt == "?":
                 findings.append(f"{ADR_DIR}/history/ADR-{a['number']}-amendments.md: {title!r} is not '### Amendment YYYY-MM-DD — Title'")
@@ -474,7 +523,7 @@ def check(root: str | None = None, other: str | None = None) -> list[str]:
             findings.append(f"{rel(a)}: §{sec} dates something ({dated}) — a record reads current; when is the header's and the history's, §1 may date an incident")
         for att in attributions(body):
             findings.append(f"{rel(a)}: an inline attribution {att!r} — who decided and when belong in the header and the history")
-        for m in CITE_RE.finditer(a["text"]):
+        for m in cites(a["text"]):
             if m.group(1) and m.group(1).lower() in foreign:
                 continue
             if m.group(2) not in known:
@@ -486,10 +535,10 @@ def check(root: str | None = None, other: str | None = None) -> list[str]:
             m = re.fullmatch(r"^ADR-(\d{3})-amendments\.md$", f)
             if not m or m.group(1) not in held:
                 findings.append(f"{ADR_DIR}/history/{f}: belongs to no ADR")
-            elif not history_notes(os.path.join(hdir, f)):
+            elif not notes_at(os.path.join(hdir, f)):
                 findings.append(f"{ADR_DIR}/history/{f}: no amendment in it — remove it")
 
-    rows = index_rows(root, adrs)
+    rows = index_rows(root, adrs, notes_at)
     ip = os.path.join(d, "index.json")
     if not os.path.exists(ip) or read(ip) != render_index(rows):
         findings.append(f"{ADR_DIR}/index.json: stale or missing — run tools/fabric/adr.py index --write")
@@ -508,11 +557,12 @@ def check(root: str | None = None, other: str | None = None) -> list[str]:
     if not os.path.exists(dp):
         findings.append(f"{ADR_DIR}/DIGEST.md: missing")
     else:
-        for att in attributions(read(dp)):
+        digest = read(dp)
+        for att in attributions(digest):
             findings.append(f"{ADR_DIR}/DIGEST.md: an inline attribution {att!r} — who decided and when belong in the record's header and history")
         entries: dict[str, dict] = {}
         cur = None
-        for ln in read(dp).split("\n"):
+        for ln in digest.split("\n"):
             m = DIGEST_RE.fullmatch(ln)
             if m:
                 cur = m.group(1)
@@ -548,7 +598,7 @@ def check(root: str | None = None, other: str | None = None) -> list[str]:
             if e["title"] != r["title"] or e["status"] != r["status"]:
                 findings.append(f"{ADR_DIR}/DIGEST.md: ADR-{num} reads {e['title']!r} ({e['status']}), the ADR {r['title']!r} ({r['status']})")
             hist = os.path.join(d, "history", f"ADR-{num}-amendments.md")
-            hd = sorted(n[0] for n in history_notes(hist)) if os.path.exists(hist) else []
+            hd = sorted(n[0] for n in notes_at(hist)) if os.path.exists(hist) else []
             if e["dates"] != sorted(e["dates"]):
                 findings.append(f"{ADR_DIR}/DIGEST.md: ADR-{num}'s amendment bullets are out of date order {e['dates']}: "
                                 "a new amendment's bullet goes after the latest")

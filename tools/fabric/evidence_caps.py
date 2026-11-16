@@ -18,10 +18,11 @@ rewritten, or the number named, not excused. The lint and CI wiring is the owner
 from __future__ import annotations
 
 import ast
+import importlib.util
 import json
 import os
 import re
-import warnings
+import sys
 
 FABRIC_DIR = "tools/fabric"
 GITHUB_DIR = FABRIC_DIR + "/github"
@@ -29,6 +30,17 @@ OWNERS = frozenset({f"{GITHUB_DIR}/common.py", f"{GITHUB_DIR}/evidence.py"})
 CAPS = frozenset({250, 3000})
 PR_LIST_PATH = re.compile(r"/pulls/[^/]*/(?:files|commits)(?:[?/]|$)")
 POLICY = "tools/fabric/evidence-caps.json"   # the modules admitted with their reason (ADR-067 rule 1); lint and the hook read it
+
+
+def _syntax_tree():
+    """The lint run's shared parse cache (tools/fabric/lint_rules/syntax_tree.py): one module per process, loaded by path like every module lint
+    trusts and registered once so each by-path copy of this checker meets the same cache."""
+    mod = sys.modules.get("fabric_syntax_tree")
+    if mod is None:
+        spec = importlib.util.spec_from_file_location("fabric_syntax_tree", os.path.join(os.path.dirname(os.path.realpath(__file__)), "lint_rules", "syntax_tree.py"))
+        mod = sys.modules["fabric_syntax_tree"] = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+    return mod
 
 
 def parse_modules(text: str) -> dict[str, str]:
@@ -89,10 +101,7 @@ def scan(rel: str, text: str) -> list[str]:
     if not judged_path(rel):
         return []
     try:
-        with warnings.catch_warnings():
-            # A scanned file's own invalid escape is its own lint's to report; under -W error it would read as a syntax error, a clean verdict.
-            warnings.simplefilter("ignore", SyntaxWarning)
-            tree = ast.parse(text)
+        tree = _syntax_tree().parse(text)
     except SyntaxError:
         return []
     out = []

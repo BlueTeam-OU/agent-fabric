@@ -262,6 +262,12 @@ def main() -> int:
         check("both shapes in the body give two lines",
               st == 1 and err[1:3] == ["  the pull-request description carries a banned attribution trailer",
                                        "  the pull-request description carries generated-with attribution or a session URL"])
+        # Mutation: ban_generated_by_attribution.py:205 `utf-8-sig` -> `utf-8` (a BOM payload no longer parses, so is unenforced)
+        with open(ev, "wb") as f:
+            f.write(b"\xef\xbb\xbf" + json.dumps({"pull_request": {"body": "Generated with [Claude Code](u)"}}).encode())
+        st, out, err = guard.check({**env, "GITHUB_EVENT_PATH": ev})
+        check("a payload with a byte-order mark is read and its footer fails",
+              st == 1 and err[1] == "  the pull-request description carries generated-with attribution or a session URL")
         for label, doc in (("no body", {"pull_request": {}}), ("a null body", {"pull_request": {"body": None}}),
                            ("an empty body", {"pull_request": {"body": ""}}), ("no pull_request", {"merge_group": {}}),
                            ("a string pull_request", {"pull_request": "x"}), ("an array payload", [1])):
