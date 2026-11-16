@@ -225,7 +225,14 @@ def live_text(cmd: str) -> str:
             word.append("")                              # a word has begun: a `#` after it is no comment
             i += 1
             continue
-        if cmd.startswith("<<", i) and not cmd.startswith("<<<", i):
+        if cmd.startswith("<<<", i):
+            # A here-string is one operator: stepping one character would leave `<< x` at i+1, read as a heredoc whose
+            # body (the next lines, a live post-review among them) went inert (j830 mutation S10).
+            end_word()
+            live.append("<<<")
+            i += 3
+            continue
+        if cmd.startswith("<<", i):
             end_word()
             dash = cmd.startswith("<<-", i)
             j = i + 2 + dash
