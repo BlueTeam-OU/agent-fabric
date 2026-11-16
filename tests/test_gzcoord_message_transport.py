@@ -221,20 +221,22 @@ def main() -> int:
     # --follow tells the session when the relay drops and when it returns (SEMANTICS.md, "When the relay is down")
     w = C.World([[]])
     w.relay_down = True
-    pr = subprocess.Popen([P.INBOX_CMD, "--follow"], env=w.env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
-                          stdin=subprocess.DEVNULL)
+    f = C.Follow(w.env)
     try:
-        time.sleep(3)
+        f.wait_for(lambda out, err: "unreachable" in out)
         w.relay_down = False
         w.pages = []
-        time.sleep(34)             # the retry is 30 s
+        f.wait_for(lambda out, err: sum(x.startswith("gzcoord watch:") for x in out.splitlines()) >= 2)
     finally:
-        pr.terminate()
-        out, err = pr.communicate(timeout=30)
+        out, err = f.stop()
     watch_lines = [x for x in out.splitlines() if x.startswith("gzcoord watch:")]
     check("--follow: one line when the relay drops and one when it answers again, on stdout, in that order",
           len(watch_lines) == 2 and "unreachable" in watch_lines[0] and "back" in watch_lines[1], f"{out}{err}")
     w.close()
+    # the seam shortens the retry for the cases above; the production value is still 30 s
+    r = subprocess.run([sys.executable, "-I", "-c", "import sys; sys.path.insert(0, sys.argv[1]); from gzcoord import inbox; print(inbox.RETRY_S)",
+                        os.path.join(C.ROOT, "tools", "fabric")], env={"PATH": os.environ["PATH"]}, capture_output=True, text=True, timeout=60)
+    check("the retry between tries while the relay does not answer is 30 s unless a test shortens it", r.stdout.strip() == "30.0", f"{r.stdout}{r.stderr}")
     # --until-delivery rides out a drop it recovers from without a word
     w = C.World([[]])
     w.relay_down = True
