@@ -13,6 +13,7 @@ import json
 import os
 import sys
 import threading
+import time
 import unittest
 from unittest import mock
 
@@ -138,6 +139,34 @@ class Answering(base.Net):
         got = queue.ask_holder(call=down(), cfg=CFG_DUAL, from_=ALICE, holder=BOB, op="pool-list", args={}, new_id=lambda: "qq2",
                                wait_ms=1500)
         self.assertIsNone(got)
+
+
+class OwnAddress(unittest.TestCase):
+    """The sender's own address in a presence ask: the relay answers for it where there is one, the loop-back where there is not."""
+
+    def asked(self, mode_name: str, *, call):
+        targets: list = []
+
+        def open_leg(request, to, wait_s):
+            targets.extend(to)
+            replies = [(a, {"kind": "reply", "in_reply_to": request["id"], "from": a, "data": {"presence": ONLINE}}) for a in to]
+            return mock.Mock(lost=False, replies=lambda t: replies)
+        got = presence.ask_presence(from_=ALICE, to="*", expect=[ALICE, BOB], wait_ms=1500, cfg=CFG_DUAL, new_id=lambda: "o1",
+                                    call=call, open_leg=open_leg, read_mode=lambda: mode_name)
+        return targets, got
+
+    def test_carrier_only_asks_the_senders_own_address_through_the_loop_back(self):
+        t0 = time.monotonic()
+        targets, got = self.asked("carrier-only", call=Relay())
+        self.assertEqual(targets, [ALICE, BOB])
+        self.assertEqual(got, {ALICE: ONLINE, BOB: ONLINE})
+        self.assertLess(time.monotonic() - t0, 1.0, "no wait for an account nobody asked")
+
+    def test_with_a_relay_the_senders_own_address_is_still_not_asked_of_the_leg(self):    # the positive control
+        def call(path, method="GET", body=None):
+            return {"id": "s1"} if method == "POST" else {"messages": []}
+        targets, _got = self.asked("carrier-record", call=call)
+        self.assertEqual(targets, [BOB])
 
 
 class SocketAbsent(unittest.TestCase):

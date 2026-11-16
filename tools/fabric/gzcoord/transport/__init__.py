@@ -9,8 +9,8 @@ transports there are is decided here and nowhere else, by the account's transpor
   relay-record   the relay of the project's integration config is the primary (ADR-064 rule 11), the second carrier a mirror
   carrier-record the carrier is the primary and the relay a mirror, sent to and read beside it
   carrier-only   the carrier alone: no relay transport is built, so no transport verb can call one. The presence check before
-                 an addressed send is the control plane's (control/presence.py, W12) and still posts to the relay first,
-                 with the second carrier's leg under `control_carrier: dual`; that is gate 2's read-back, not this factory's
+                 an addressed send is the control plane's (control/presence.py, W12) and posts nothing to the relay either: it
+                 is asked of the account's own agentd under `control_carrier: dual`, and refused without it
 
 With the journal off (ADR-064 rule 8, D7 of the cutover plan) a SEND follows the mode's own primary, with no mirror: a mirror's
 acceptance writes a journal row, and the journal is what is off; the outbox keeps the text and the sender's bypass line says so.

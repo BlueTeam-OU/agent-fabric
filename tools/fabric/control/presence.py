@@ -133,15 +133,17 @@ def ask_presence(*, from_: str, to, expect: list, token: str | None = None, wait
         # Unbounded waits (wait_ms inf) are the suite's; a socket's wait_s is finite.
         wait_s = wait_ms / 1000 if math.isfinite(wait_ms) else 86400.0
         # Presence asks no second-carrier leg of this account itself: its own presence is the relay's (the socket would loop
-        # it back, as it does fabric-ctl's own row, j245, but this ask has not chosen to).
-        targets = [a for a in (list(dict.fromkeys(expect))) if a != from_]
+        # it back, as it does fabric-ctl's own row, j245, but this ask has not chosen to). Carrier-only has no relay to answer
+        # for it, so the loop-back is the only answer the sender's own address can have: left out, a TO-ROLE ask would wait its
+        # whole budget for an account nobody asked and list it as silent (review of #623, F1).
+        targets = [a for a in (list(dict.fromkeys(expect))) if carrier_only or a != from_]
         if targets:
             try:
                 leg = open_leg(request, targets, wait_s)
             except RuntimeError as e:
                 if carrier_only:
                     from gzcoord.carrier import control_link
-                    raise control_link.Down(f"carrier-only posts nothing to the relay; the second carrier: {e}", None,
+                    raise control_link.Down(f"carrier-only: {e}", None,
                                             handed=bool(getattr(e, "handed", False))) from None
                 if relay_error is not None:
                     from gzcoord.carrier import control_link

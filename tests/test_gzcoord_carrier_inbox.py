@@ -306,10 +306,12 @@ def main() -> int:
     check("D6: a TO-ROLE message read by a holder of another role is acknowledged and not shown",
           "r7" in w.acks and "subject-7" not in r.stdout, f"{w.acks}\n{r.stdout}{r.stderr}")
     bind(w, "python-dev")
-    w.pages = [[]]       # the relay does not serve again a record it was acknowledged for
+    w.pages = [[rec7]]   # served again: a relay that lost its acknowledgement, or a second listing
     r = w.drain()
-    check("D6: the same account, bound to the role afterwards, is not shown it (the relay has nothing left to give)",
-          "subject-7" not in r.stdout, r.stdout + r.stderr)
+    # KNOWN LIMIT, reported to fabric-coordinator with the review of #623 (F5): the decision is not kept per record, so a
+    # re-served record is judged again by the role held now. This pins what the code does today, not what D6 wants.
+    check("D6 limit: a TO-ROLE record served again is judged again, by the role held at that read",
+          "subject-7" in r.stdout, r.stdout + r.stderr)
     w.close()
     w = World([[rec7]])
     bind(w, "python-dev")
