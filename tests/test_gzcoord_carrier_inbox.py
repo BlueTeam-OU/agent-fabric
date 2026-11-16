@@ -289,6 +289,37 @@ def main() -> int:
           f"{w.acks}\n{w.read('gzcoord-acks.jsonl')}\n{r.stdout}{r.stderr}")
     w.close()
 
+    # D6 (owner, 2026-11-15): a TO-ROLE message is decided at arrival. The relay reads the role when its watch reads, so
+    # "arrival" is the first read that fetches the record: it is passed through and acknowledged by a holder of another
+    # role, and a holder who binds the role afterwards is never shown it.
+    def bind(w: World, role: str) -> None:
+        d = os.path.join(w.state, "agents", P.LOGIN)
+        os.makedirs(d, exist_ok=True)
+        with open(os.path.join(d, "binding.json"), "w", encoding="utf-8") as fh:
+            fh.write(P.bound(role))
+
+    to_role = msg(7).replace(f"TO: {ME}", "TO-ROLE: python-dev")
+    rec7 = {"seq": 7, "id": "r7", "ts": "T", "sender": "x/y", "content": to_role}
+    w = World([[rec7]])
+    bind(w, "fabric-coordinator")
+    r = w.drain()
+    check("D6: a TO-ROLE message read by a holder of another role is acknowledged and not shown",
+          "r7" in w.acks and "subject-7" not in r.stdout, f"{w.acks}\n{r.stdout}{r.stderr}")
+    bind(w, "python-dev")
+    w.pages = [[rec7]]   # served again: a relay that lost its acknowledgement, or a second listing
+    r = w.drain()
+    # KNOWN LIMIT, reported to fabric-coordinator with the review of #623 (F5): the decision is not kept per record, so a
+    # re-served record is judged again by the role held now. This pins what the code does today, not what D6 wants.
+    check("D6 limit: a TO-ROLE record served again is judged again, by the role held at that read",
+          "subject-7" in r.stdout, r.stdout + r.stderr)
+    w.close()
+    w = World([[rec7]])
+    bind(w, "python-dev")
+    r = w.drain()
+    check("D6 positive control: a holder of the role at the read is shown it",
+          "subject-7" in r.stdout, r.stdout + r.stderr)
+    w.close()
+
     # the relay's copy arrives first, the relay then goes down and the carrier lists it: still once
     w = World([[relay_rec(2)]], carrier_records=[urec(2)])
     r = w.watch()

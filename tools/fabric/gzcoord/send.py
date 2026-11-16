@@ -615,7 +615,7 @@ def main(argv: list[str]) -> int:
              *(["--working-copy", who["working_copy"]] if who.get("working_copy") else [])]
     # Before the journal keeps anything: a mode that cannot be read refuses the send, and a row kept first would stay pending.
     try:
-        tp = transport.open_transport(cfg, token=tok, me=me, journal_off=_journal_off())
+        tp = transport.open_transport(cfg, token=tok, me=me, journal_off=_journal_off(), for_send=True)
     except transport.ModeError as e:
         print(f"gzcoord: not sent: {e}", file=sys.stderr)
         return 2

@@ -9,11 +9,11 @@ is the wire's far end (a second fake daemon, its PeerId in the signed roster, it
 carrier needs a second Linux login, because the carrier names itself from `pwd` (gzmsg.whoami) with no override: that half of
 "two accounts" is what the live check has and this stand-in has not.
 
-A function that still needs the relay FAILS here, naming the function and the lines that reach for it, with ONE exception held
-to its exact conditions: `gzcoord-send`'s presence check, which posts to the relay (python-dev-04's j130 fixes it). That case
-passes for a send that works, or for exactly that failure (exit 4, nothing sent, "presence is unknown", connection refused, no
-send reached the daemon), and prints a KNOWN GAP line with the lines that reach the relay; once j130 lands it becomes a plain
-pass. Nothing is patched or skipped. Plain script: prints ok/FAIL, exit 1 on any failure."""
+A function that still needs the relay FAILS here, naming the function and the lines that reach for it. `gzcoord-send`'s presence
+check is asked of the account's own agentd alone (control_carrier "dual", never the relay): the send case answers it with an
+agentd stand-in on <XDG_RUNTIME_DIR>/agent-fabric/control.sock and needs a plain pass, and its control, the same send with no
+agentd there, exits 4 saying presence is unknown and naming the socket, sends nothing and prints nothing on stdout (the owner's
+rule, 2026-11-16: refusing beats sending blind; --force is the sender's own word). Nothing is patched or skipped. Plain script: prints ok/FAIL, exit 1 on any failure."""
 from __future__ import annotations
 
 import json
@@ -31,6 +31,7 @@ import time
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, "tools", "fabric"))
 sys.path.insert(0, os.path.join(ROOT, "tests"))
+from gzcoord.carrier import control_link as cc  # noqa: E402
 from gzcoord.carrier import server  # noqa: E402
 from gzcoord.transport import mode  # noqa: E402
 from interweave_fake import FakeDaemon  # noqa: E402
@@ -253,29 +254,61 @@ def watch(w: World, push: str | None, deadline: int = 40) -> tuple[subprocess.Co
     return r, (f"ended after under 3 s with exit {early}" if early is not None and push is not None else "")
 
 
+class AgentdStandIn:
+    """This account's agentd as far as presence goes: the real control_link.Server on the real socket path, over a carrier
+    whose one peer answers every presence request online. Only the answer is faked; the framing, the socket's mode and the
+    sender's own address check are the server's."""
+
+    def __init__(self, run_dir: str) -> None:
+        self.requests: list[dict] = []
+        self.waiters: dict[str, object] = {}
+        self.server = cc.Server(os.path.join(run_dir, "agent-fabric", "control.sock"), self, ME, log=lambda _m: None)
+
+    def watch(self, rid, waiter) -> None:
+        self.waiters[rid] = waiter
+
+    def unwatch(self, rid) -> None:
+        self.waiters.pop(rid, None)
+
+    def send_to(self, addresses, record, wait_s):
+        self.requests.append(record)
+        waiter = self.waiters.get(record["id"])
+        if waiter is not None:
+            waiter({"v": 1, "kind": "reply", "id": "a1", "in_reply_to": record["id"], "from": PEER, "op": "presence",
+                    "ts": "2026-11-16T00:00:01.000Z", "ok": True,
+                    "data": {"presence": {"status": "ok", "online": True, "sessions": 1, "since": "2026-11-16T00:00:00.000Z",
+                                          "role": "python-dev", "project": "x"}}}, PEER)
+        return {a: (True, "") for a in addresses}
+
+    def __enter__(self) -> "AgentdStandIn":
+        self.server.start()
+        return self
+
+    def __exit__(self, *exc) -> None:
+        self.server.stop()
+
+
 def cases(w: World) -> None:
     # (1) send
     mid, body = text("INFO", 10, ME, PEER)
     path = os.path.join(w.base, "out.txt")
     with open(path, "w", encoding="utf-8", newline="") as fh:
         fh.write(body)
+    # Control first: with no agentd on its socket the presence of an addressed send is unknown, and an unknown presence refuses.
     r = w.run([os.path.join(BIN, "gzcoord-send"), path], timeout=120)
-    strict = (r.returncode == 0 and r.stdout == f"sent INFO {mid}\n" and until(lambda: len(w.daemon.sends) >= 1)
-              and w.daemon.sends[0]["peer"] == RT.peer_id("peer") and until(lambda: w.daemon.forwarded >= 1))
-    report = (relay_report("gzcoord-send", r, w.port,
-                           source_line("tools/fabric/gzcoord/send.py", "pres = asked_presence("),
-                           source_line("tools/fabric/control/presence.py", 'sent = c("/api/send"'),
-                           source_line("tools/fabric/control/presence.py", "raise relay_error"))
-              + f"\ndaemon sends: {len(w.daemon.sends)}")
-    # The one gap this test found (j149, a finding for fabric-coordinator: W12's presence read-back with the relay stopped). It is
-    # held to exactly the failure found, so the suite stays green while it stands and any other failure is red; once send passes
-    # the strict branch is the check, and a send that fails otherwise is red either way. Nothing is skipped: the line is printed.
-    known_gap = (not strict and r.returncode == 4 and r.stdout == "" and "presence is unknown" in r.stderr
-                 and "Connection refused" in r.stderr and len(w.daemon.sends) == 0)
-    if known_gap:
-        print("KNOWN GAP send: gzcoord-send needs the relay for its presence check (exit 4, nothing sent):\n" + report)
-    check("send: exit 0 with one line `sent INFO <id>`, the peer's PeerId posted through the carrier, and nothing asked of the relay"
-          " (or exactly the known presence gap above)", strict or known_gap, report)
+    check("send, control: no agentd on its socket: exit 4, nothing on stdout, presence unknown naming the agentd socket, nothing posted",
+          r.returncode == 4 and r.stdout == "" and "presence is unknown" in r.stderr and "control.sock" in r.stderr
+          and "Connection refused" not in r.stderr and not w.daemon.sends,
+          f"{r.returncode} {r.stdout!r} {r.stderr!r} daemon sends: {len(w.daemon.sends)}")
+    with AgentdStandIn(w.run_dir) as agentd:
+        r = w.run([os.path.join(BIN, "gzcoord-send"), path], timeout=120)
+        strict = (r.returncode == 0 and r.stdout == f"sent INFO {mid}\n" and until(lambda: len(w.daemon.sends) >= 1)
+                  and w.daemon.sends[0]["peer"] == RT.peer_id("peer") and until(lambda: w.daemon.forwarded >= 1))
+        report = (relay_report("gzcoord-send", r, w.port, source_line("tools/fabric/gzcoord/send.py", "pres = asked_presence("))
+                  + f"\ndaemon sends: {len(w.daemon.sends)}, presence asked of the agentd: {len(agentd.requests)}")
+        check("send: exit 0 with one line `sent INFO <id>`, presence asked of the agentd, the peer's PeerId posted through the carrier",
+              strict and len(agentd.requests) == 1 and agentd.requests[0].get("op") == "presence",
+              report)
     # Diagnostic beside the case above, which stays as it is: with the presence question waived (--force, the sender's own word
     # for it) is the carrier's half of a send sound? It does not stand in for the case above.
     r = w.run([os.path.join(BIN, "gzcoord-send"), path, "--force"], timeout=120)
