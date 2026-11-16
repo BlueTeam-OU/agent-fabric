@@ -82,6 +82,7 @@ def landed(state_dir: str, login: str, job_id: str) -> None:
 
 
 _JOBS = None
+_SWEEP = None   # the leave_sweep module of the package _JOBS was loaded with: a suite that loads jobs.py again replaces sys.modules["fabric_jobs"]
 
 
 def inprocess(env: dict[str, str], cwd: str, *argv: str, quiet_sweep: bool = False) -> subprocess.CompletedProcess:
@@ -90,14 +91,15 @@ def inprocess(env: dict[str, str], cwd: str, *argv: str, quiet_sweep: bool = Fal
     the cases are about still run as the command. `quiet_sweep`: the sweep a switch runs on leaving a job is `branches.py` as a
     command (~0.85 s), here an empty script that exits 0; for the suites whose cases take a job with `next` and ask nothing
     of the sweep (tests/test_jobs_switch.py reads it as the command in its own section)."""
-    global _JOBS
+    global _JOBS, _SWEEP
     if _JOBS is None:
         root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         spec = importlib.util.spec_from_file_location("jobs_world_jobs", os.path.join(root, "tools", "fabric", "jobs.py"))
         _JOBS = importlib.util.module_from_spec(spec)
         with mock.patch.dict(os.environ, env):
             spec.loader.exec_module(_JOBS)
-    sweep = sys.modules["fabric_jobs"].leave_sweep
+        _SWEEP = sys.modules["fabric_jobs"].leave_sweep
+    sweep = _SWEEP
     real_branches = sweep.BRANCHES
     if quiet_sweep:
         sweep.BRANCHES = _quiet_script()

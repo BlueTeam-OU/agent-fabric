@@ -380,6 +380,7 @@ class Dual(Scratch):
         self.assertTrue(ok, why)
         # dropped, and said so, while ctl is still waiting: the "no answer" below is the drop's and not a timeout that came first
         self.assertTrue(until(lambda: any("says it is from" in l for l in self.nodes["op"].logs), 2.0), self.nodes["op"].logs)
+        self.assertFalse(self.done.is_set(), "ctl was still waiting when the forged copy was dropped")
         self.finish(box)
         self.assertEqual(self.rows()[0]["status"], "no answer", "alice never answered; bob's copy in her name was dropped at the carrier")
 

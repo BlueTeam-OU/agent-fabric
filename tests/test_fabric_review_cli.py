@@ -168,6 +168,9 @@ if not ENTRY.endswith(".py"):
     os.chmod(scratch_pin, 0o755)
     outcome("scratch pin: installed is reached", run("lenses", python=None, entry=copy), 0,
             "PIN %s lenses\n" % os.path.join(os.path.dirname(copy_dir), "tools", "fabric", "review_cli.py"), "")
+    # Present but not executable: the shim's `-x` is what refuses it, which an absent file cannot show.
+    os.chmod(scratch_pin, 0o644)
+    outcome("scratch pin: present and not executable is 127", run("lenses", python=None, entry=copy), 127, "", INSTALL % scratch_pin)
     os.unlink(scratch_pin)
 if not os.access(DEFAULT_PIN, os.X_OK):
     outcome("default pin path", run("lenses", python=None), 127, "", INSTALL % DEFAULT_PIN)

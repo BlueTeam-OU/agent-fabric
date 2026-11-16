@@ -201,6 +201,9 @@ class AgentdDual(Base):
         got = self.watch("forged")
         self.send_iw(body("forged"), via=bob)   # bob writes the operator's address
         self.assertTrue(until(lambda: "forged-from" in self.arrival_verdicts()), "the arrival the code logs for it")
+        # That arrival is written before the drop returns, so it is no bound by itself: alice's inbox is read in order, and a request
+        # of the operator's answered after it means the forged one has been through everything that would answer it.
+        self.barrier("after-forged", via="interweave")
         self.assertEqual((got, self.relay_replies("forged")), ([], []))
 
     def test_a_request_older_than_its_ttl_is_dropped(self):
@@ -250,6 +253,7 @@ class AgentdDual(Base):
         self.send_iw(body("nore"))
         self.assertTrue(until(lambda: got), self.logs)
         self.assertTrue(until(lambda: any("relay copy of ping reply" in l and "not posted" in l for l in self.logs)), self.logs)
+        self.shutdown()   # before the RETRY_S patch is undone (cleanups run last in, first out): a loop that woke in between would sleep 30 s
 
     def test_a_restart_asked_for_while_the_second_carriers_reply_is_going_waits_for_it(self):
         from gzcoord.carrier import control_link as cl
