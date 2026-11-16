@@ -11,6 +11,7 @@ differs (camelCase), the Python one is used. Plain script: prints ok/FAIL,
 exit 1 on any failure."""
 from __future__ import annotations
 
+import concurrent.futures
 import glob
 import json
 import os
@@ -21,6 +22,7 @@ import sys
 import tempfile
 import threading
 import traceback
+import types
 from typing import Any, Callable
 
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -30,6 +32,7 @@ os.environ["FABRIC_CONTROL_CARRIER"] = "relay"
 sys.path.insert(0, os.path.join(HERE, "tools", "fabric"))
 from gzcoord import gzmsg, inbox, send  # noqa: E402
 from gzcoord import jsvalues  # noqa: E402
+from gzcoord.inbox_parts import relay as relay_part  # noqa: E402
 
 GZCOORD = os.path.join(HERE, "communication", "gzcoord")
 # The operator's instance data is a fixture tree (ADR-045 §5 rule 3), never
@@ -1992,7 +1995,9 @@ def _unit_fixture():
     return runtime, home, binp, xdg
 
 
-def _unit_case(show: str, want_started: bool, curl: str | None = None) -> dict:
+def _unit_case(show: str, want_started: bool, curl: str | None = None, slept: list | None = None) -> dict:
+    """`slept` collects the relay poll's waits instead of waiting them: a unit that stays silent is polled 16 times at 0.5 s,
+    8 s of nothing. The poll's own probes are real (a refused connection answers at once)."""
     runtime, home, binp, xdg = _unit_fixture()
     log = os.path.join(runtime, "systemctl.log")
     for name, body in (("systemctl", f'if [[ "$2" == show ]]; then printf %b {json.dumps(show)}; exit 0; fi\n'
@@ -2004,9 +2009,13 @@ def _unit_case(show: str, want_started: bool, curl: str | None = None) -> dict:
     keys = ("HOME", "PATH", "XDG_RUNTIME_DIR", "GZCOORD_TEST_BUS_ANY")
     saved = {k: os.environ.get(k) for k in keys}
     os.environ.update(HOME=home, PATH=f"{binp}:{os.environ['PATH']}", XDG_RUNTIME_DIR=xdg, GZCOORD_TEST_BUS_ANY="1")
+    real_time = relay_part.time
+    if slept is not None:
+        relay_part.time = types.SimpleNamespace(sleep=slept.append)
     try:
         r = inbox.ensure_relay(runtime, "http://127.0.0.1:1")
     finally:
+        relay_part.time = real_time
         for k, v in saved.items():
             if v is None:
                 os.environ.pop(k, None)
@@ -2039,7 +2048,9 @@ def _():
 
 @case("ensureRelay: a unit started but silent points at the journal, never at bridge.log (#569 F1)")
 def _():
-    r = _unit_case(_show("inactive", "success", 0, 0), True, curl="exit 7\n")   # the probe never answers
+    slept: list = []
+    r = _unit_case(_show("inactive", "success", 0, 0), True, curl="exit 7\n", slept=slept)   # the probe never answers
+    eq(slept, [0.5] * 16, "the poll waits 0.5 s, sixteen times, before it gives up")
     eq((r["hosted"], r["started"]), (True, False), json.dumps(r))
     ok("journalctl --user -u gzcoord-relay" in r.get("note", ""), f"the note names the unit's journal: {r}")
     ok("bridge.log" not in r.get("note", ""), f"the note does not send the operator to bridge.log: {r}")
@@ -2764,25 +2775,38 @@ def with_body(msg_type: str, sections: str) -> str:
     return head + "\n\n" + sections
 
 
+def in_parallel(calls: list[Callable[[], Any]], workers: int = 4) -> list[Any]:
+    """The calls' results, in order, run side by side: each is its own process and scratch directory, and the case reads
+    them one at a time afterwards. Four, the most the gateway suites also allow themselves (tests/section_groups.py)."""
+    with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as pool:
+        return [f.result() for f in [pool.submit(c) for c in calls]]
+
+
 @case("send refuses a message whose own section is empty, naming it, and posts nothing; --dry-run says the same")
 def _():
     relay = Relay()
     try:
+        filled_runs, refused_runs = [], []
         for typ, section in (("REQUEST", "REQUEST"), ("REPLY", "REPLY"), ("OBSERVATION", "OBSERVATION"),
                              ("QUESTION", "QUESTION"), ("DECISION", "DECISION"), ("HANDOFF", "CONTEXT")):
             # The same message with its section filled is the positive control:
             # the refusal is about the body, not the fixture.
             for text in (f"{section}:\nsomething\n\nREFERENCES:\n", f"{section}:\n\u200bsomething\n"):
-                filled = send_with(relay.url, with_body(typ, text), ["--dry-run"])
-                eq(filled.code, 0, f"{typ} filled: {filled.err}")
+                filled_runs.append((typ, section, text, ["--dry-run"]))
             # The last four validate() lets through: a heading indented into the
             # section above it (a warning only), and characters no reader sees.
             for body in (f"{section}:\n\nREFERENCES:\n", f"{section}:\n   \n\t\n", "REFERENCES:\n- path: x\n",
                          f"{section}:\n\n  REFERENCES:\n", f"{section}:\n\u200b\n", f"{section}:\n\u180e \u2060\ufeff\n"):
                 for extra in ([], ["--dry-run"]):
-                    r = send_with(relay.url, with_body(typ, body), extra)
-                    eq(r.code, 2, f"{typ} {body!r} {extra}: {r.err}")
-                    has(rf"the subject alone is not a message.*{section}", r.err)
+                    refused_runs.append((typ, section, body, extra))
+        everything = filled_runs + refused_runs
+        ran = in_parallel([lambda r=r: send_with(relay.url, with_body(r[0], r[2]), r[3]) for r in everything])
+        for (typ, section, text, extra), got in zip(everything, ran):
+            if (typ, section, text, extra) in filled_runs:
+                eq(got.code, 0, f"{typ} filled: {got.err}")
+            else:
+                eq(got.code, 2, f"{typ} {text!r} {extra}: {got.err}")
+                has(rf"the subject alone is not a message.*{section}", got.err)
         eq(len(relay.posts), 0)
     finally:
         relay.close()
