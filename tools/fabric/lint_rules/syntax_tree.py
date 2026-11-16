@@ -12,8 +12,7 @@ import warnings
 # The cost is memory: every tree is held until the run ends, about 780 MiB peak for the corpus lint against 66 MiB parsing
 # per rule, for about 8 s of its 70 (#624 review, measured in its sandbox). That fits SUITE_MEM_MIB (1024), what the
 # test pool assumes per slot, the lint being one of its entries. No eviction: each rule walks every file in turn, so a
-# bounded cache would drop each tree before the next rule asks for it and keep only the cost. A host short of memory
-# runs the lint alone, where nothing else shares it (j910).
+# bounded cache would drop each tree before the next rule asks for it and keep only the cost (j910).
 _TREES: dict[str, ast.Module] = {}
 
 
