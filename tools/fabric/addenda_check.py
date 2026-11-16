@@ -61,7 +61,6 @@ import json
 import os
 import re
 import sys
-import zoneinfo
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
@@ -299,6 +298,8 @@ def _holder(name: str, text: str) -> list[str]:
 
 
 def _is_iana(value: object) -> bool:
+    # Imported here: ~13 ms, and only a holder file with a timezone asks.
+    import zoneinfo
     zones = zoneinfo.available_timezones()
     if not zones:
         # No tz database on this host: every name would read as unknown, and

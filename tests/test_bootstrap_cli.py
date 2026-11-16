@@ -228,7 +228,10 @@ def make_pristine(script: str) -> str:
     commit."""
     d = f"{T}/pristine/agent-fabric"
     os.makedirs(d)
-    arch = subprocess.run(["git", "-C", HERE, "archive", "HEAD"], capture_output=True, check=True,
+    # Without tests/, docs/ and memory/: bootstrap reads none of them, and the
+    # fixture's copy per account is what this suite spends its time on.
+    arch = subprocess.run(["git", "-C", HERE, "archive", "HEAD", "--", ".", ":(exclude)tests", ":(exclude)docs", ":(exclude)memory"],
+                          capture_output=True, check=True,
                           env={"PATH": "/usr/bin:/bin", "HOME": f"{T}/git-home", "GIT_CONFIG_NOSYSTEM": "1"}).stdout
     subprocess.run(["tar", "-x", "-C", d], input=arch, check=True)
     # HEAD's engine, never its instance data (ADR-045 §5 rule 3): taken out

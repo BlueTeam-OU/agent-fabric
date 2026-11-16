@@ -7,7 +7,7 @@ Contract. The trees are the directories directly under ~/projects that have a `.
 session checkout); a link, a tree another uid owns and a tree on another filesystem than ~/projects are kept, said. A tree
 that is, holds or lies in the `worktree` or `working copy` of a job that is active, queued, paused or blocked is left alone
 whole. In every other tree, leave_targets' rules apply to a `target` beside a Cargo.toml and to a `node_modules` beside a
-package.json, at the same depth: kept, with the reason, when a process of this uid stands in it, when its `.cargo-lock` is
+package.json, at any depth, where switch stops at 4 levels: kept, with the reason, when a process of this uid stands in it, when its `.cargo-lock` is
 held, when a cargo configuration points the target elsewhere, a link, another filesystem, git tracks a file under it or cannot be asked, or
 anything in it belongs to another uid;
 whatever cannot be told is kept. A delivered job is not open here: its work is on a branch, and a build is cheaper than a full
@@ -82,8 +82,9 @@ def held_output(real: str) -> str:
     # os.walk says nothing of a directory it cannot list: both walks collect what they could not see, and any of it makes the
     # size unmeasurable, said so, never a smaller number or none.
     errors: list[OSError] = []
+    mounts: list[str] = []      # a mount is not entered: what is behind it is unknown, and "none" would say it is clean
     try:
-        found, _ = lt.find_targets(real, lt.BUILD_OUTPUT, errors)
+        found, _ = lt.find_targets(real, lt.BUILD_OUTPUT, errors, max_depth=None, mounts=mounts)
         seen: set[tuple[int, int]] = set()
         total = 0
         for target in found:
@@ -98,6 +99,8 @@ def held_output(real: str) -> str:
     if errors:
         e = errors[0]
         return f"; its build output could not be measured ({e.strerror or e}: {e.filename})"
+    if mounts:
+        return f"; its build output could not be measured (another filesystem at {mounts[0]}, not entered)"
     return f"; its build output is {lt.human(total)}" if found else ""
 
 
@@ -125,8 +128,11 @@ def tidy_tree(tree: str, projects_dev: int, held: dict[str, str], cwds: list[str
         return [f"kept {tree}: owned by another account"], 0
     if st.st_dev != projects_dev:
         return [f"kept {tree}: on another filesystem"], 0
-    found, links = lt.find_targets(real, lt.BUILD_OUTPUT)
-    lines = [f"kept {t}: a link, not followed" for t in links]
+    mounts: list[str] = []
+    unseen: list[OSError] = []      # os.walk says nothing of a directory it cannot list: its build output would read as none
+    found, links = lt.find_targets(real, lt.BUILD_OUTPUT, unseen, max_depth=None, mounts=mounts)
+    lines = [f"kept {t}: a link, not followed" for t in links] + [f"kept {m}: another filesystem, not entered" for m in mounts]
+    lines += [f"warning: {e.filename or tree} could not be searched for build output ({e.strerror or e})" for e in unseen]
     freed = 0
     for t in found:
         try:

@@ -75,7 +75,7 @@ import urllib.error
 import urllib.request
 from typing import Any, Callable
 
-from control.ops import util
+from control import opsutil as util
 from control.upgrade import VERSION_RE
 
 BIN_NAME_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")

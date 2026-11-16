@@ -112,7 +112,7 @@ elif os.path.dirname(_HERE) not in sys.path:
 
 from control import js  # noqa: E402
 from control.gzcoord import FABRIC_ROOT, api, inbox_root, integration_config, relay_failure, synced_token, token as gz_token, whoami as gz_whoami
-from control.ops import OPS, PUBLIC_OPS
+from control.opnames import OPS, PUBLIC_OPS
 from control.pool import check_pool_args, pool_holder
 from control.jobs import check_job_args
 from control import hold as hold_mod

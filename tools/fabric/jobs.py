@@ -225,8 +225,8 @@ check that failed and changing nothing:
 `tidy` (j90, the owner 2026-10-27: /home at 97%) is the same clearing for every checkout, not one job's: the directories directly
 under ~/projects that have a `.git` are the trees; one that is, holds or lies in the worktree or working copy of an active, queued,
 paused or blocked job (a delivered job is not open here), or is a link, another uid's, or on another filesystem, is kept whole,
-said. In the others each `target` beside a Cargo.toml and `node_modules` beside a package.json (4 levels, the keep rules above)
-goes; one line per directory, then `freed: <size>` (`would free:` under --dry-run, which removes nothing). Exit 1, nothing removed,
+said. In the others each `target` beside a Cargo.toml and `node_modules` beside a package.json (at any depth, unlike `switch`'s 4 levels; the keep rules above)
+goes; one line per directory, a directory that cannot be listed or is another filesystem said as well (never read as holding no build output), then `freed: <size>` (`would free:` under --dry-run, which removes nothing). Exit 1, nothing removed,
 and the reason on stderr when the job list (an entry that is no job or has an unknown state included) or ~/projects cannot be
 read; a missing ~/projects is exit 0, "nothing to tidy". A process standing beside a `node_modules` (a dev server at the package
 root) does not protect it: only one standing in it does. The job list is read once, before the walk. Run daily by a user timer as
