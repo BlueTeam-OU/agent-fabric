@@ -132,10 +132,30 @@ def main() -> int:
         gone = [p for p in ("target", "node_modules", "app/target", "ui/node_modules", "w/x/y/target") if not os.path.exists(os.path.join(t, p))]
         check("a target beside a Cargo.toml and a node_modules beside a package.json go, at the top and below",
               rc == 0 and gone == ["target", "node_modules", "app/target", "ui/node_modules", "w/x/y/target"] and f"removed {t}/node_modules (" in out and f"removed {t}/ui/node_modules (" in out, out + err)
-        check("…one beside no marker, and one deeper than 4 levels, stay; so do the sources",
-              os.path.isdir(os.path.join(t, "docs", "target")) and os.path.isdir(os.path.join(t, "w/x/y/z/target")) and os.path.isfile(os.path.join(t, "Cargo.toml")) and os.path.isfile(os.path.join(t, "package.json")), out)
+        check("…one beside no marker stays, one deeper than 4 levels goes (j152); so do the sources stay",
+              os.path.isdir(os.path.join(t, "docs", "target")) and not os.path.exists(os.path.join(t, "w/x/y/z/target")) and os.path.isfile(os.path.join(t, "Cargo.toml")) and os.path.isfile(os.path.join(t, "package.json")), out)
         m = re.search(r"^freed: (\d+(\.\d)? \w+)$", out, re.M)
         check("a total closes the run", bool(m) and out.rstrip().splitlines()[-1].startswith("freed: "), out)
+        # j152: the two trees a hygiene round left were spikes/spike-004/phase-b/node/target and spikes/spike-009/device/harness/target.
+        deep = ("spikes/spike-004/phase-b/node", "spikes/spike-009/device/harness", "a/b/c/d/e/f/g")
+        built = tuple(f for d in deep for f in (f"{d}/Cargo.toml", f"{d}/target/debug/a.o"))
+        t_deep = tree(*built)
+        found_limited, _ = lt.find_targets(t_deep, lt.BUILD_OUTPUT, max_depth=lt.MAX_DEPTH)
+        found_all, _ = lt.find_targets(t_deep, lt.BUILD_OUTPUT, max_depth=None)
+        check("the depth-limited search misses them (the failing control), the unlimited one finds all three",
+              found_limited == [] and sorted(found_all) == sorted(os.path.join(t_deep, d, "target") for d in deep), (found_limited, found_all))
+        rc, out, err = tidy("--dry-run")
+        check("a dry run lists every deep target and removes none",
+              rc == 0 and all(f"{t_deep}/{d}/target" in out and os.path.isdir(os.path.join(t_deep, d, "target")) for d in deep), out + err)
+        t_deep_held = tree(*built)
+        listing(job(1, "active", worktree=t_deep_held))
+        rc, out, err = tidy()
+        held_line = next((l for l in out.splitlines() if l.startswith(f"kept {t_deep_held}:")), "")
+        check("a held tree keeps its deep targets and measures them (3 targets, 4 KB of blocks each: 12.0 KB)",
+              rc == 0 and all(os.path.isdir(os.path.join(t_deep_held, d, "target")) for d in deep) and "its build output is 12.0 KB" in held_line, out + err)
+        check("…and the same run removes the unheld tree's deep targets",
+              rc == 0 and not any(os.path.exists(os.path.join(t_deep, d, "target")) for d in deep) and all(f"removed {t_deep}/{d}/target (" in out for d in deep), out + err)
+        listing()
         t = tree("node_modules/x/package.json", "node_modules/x/node_modules/y/i.js")
         rc, out, err = tidy()
         check("a node_modules is removed whole, not entered: one line, no warning for the one inside it",

@@ -83,7 +83,7 @@ def held_output(real: str) -> str:
     # size unmeasurable, said so, never a smaller number or none.
     errors: list[OSError] = []
     try:
-        found, _ = lt.find_targets(real, lt.BUILD_OUTPUT, errors)
+        found, _ = lt.find_targets(real, lt.BUILD_OUTPUT, errors, max_depth=None)
         seen: set[tuple[int, int]] = set()
         total = 0
         for target in found:
@@ -125,7 +125,7 @@ def tidy_tree(tree: str, projects_dev: int, held: dict[str, str], cwds: list[str
         return [f"kept {tree}: owned by another account"], 0
     if st.st_dev != projects_dev:
         return [f"kept {tree}: on another filesystem"], 0
-    found, links = lt.find_targets(real, lt.BUILD_OUTPUT)
+    found, links = lt.find_targets(real, lt.BUILD_OUTPUT, max_depth=None)
     lines = [f"kept {t}: a link, not followed" for t in links]
     freed = 0
     for t in found:
