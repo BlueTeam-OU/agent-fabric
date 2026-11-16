@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import contextlib
 import io
+import json
 import os
 import re
 import shutil
@@ -248,6 +249,86 @@ def main() -> int:
         check("a check whose file is missing is a failed suite, never skipped", r.returncode == 1
               and "tests/run.py: 1 suite(s) FAILED" in r.stdout, (r.returncode, r.stdout, r.stderr))
 
+        print("the python runner measures its suites, starts the longest first and runs the lint in its pool")
+        four = {f"tests/test_{x}.py": suite(f"print('{x}')\n") for x in "abcd"}
+
+        def headers(r: subprocess.CompletedProcess) -> list[str]:
+            return [ln[len("== tests/test_"):-3] for ln in r.stdout.splitlines() if ln.startswith("== tests/test_")]
+        # One slot, so the order of the headers is the order of the starts.
+        base = fresh(files=four)
+        write(os.path.join(base, "tests/suite_durations.json"), '{"test_a": 5, "test_b": 50, "test_c": 20}\n')
+        r = run(base, "python", AGENT_FABRIC_TEST_JOBS="1")
+        check("a known file: the longest first, and a suite it does not know before all of them",
+              headers(r) == ["d", "b", "c", "a"], (headers(r), r.stderr))
+        base = fresh(files=four)
+        write(os.path.join(base, "tests/suite_durations.json"),
+              '{"test_a": {"wall_s": 5, "exit_to_pipe_s": 0, "status": 0}, "test_b": {"wall_s": 50}, "test_c": {"wall_s": 20}}\n')
+        r = run(base, "python", AGENT_FABRIC_TEST_JOBS="1")
+        check("a run's own durations file, as CI uploads it, orders by its wall seconds",
+              headers(r) == ["d", "b", "c", "a"], (headers(r), r.stderr))
+        base = fresh(files=four)
+        r = run(base, "python", AGENT_FABRIC_TEST_JOBS="1")
+        check("no file: the alphabetical order", headers(r) == ["a", "b", "c", "d"], headers(r))
+        base = fresh(files=four)
+        write(os.path.join(base, "tests/suite_durations.json"), "{not json")
+        r = run(base, "python", AGENT_FABRIC_TEST_JOBS="1")
+        check("an unreadable file: the alphabetical order, the run unharmed", headers(r) == ["a", "b", "c", "d"] and r.returncode == 0,
+              (headers(r), r.returncode))
+
+        lingering = suite("import subprocess\nsubprocess.Popen(['sleep', '2'])\nprint('left a child')\n")
+        base = fresh(files={"tests/test_quick.py": suite("print('q')\n"), "tests/test_linger.py": lingering,
+                            "tests/test_bad.py": suite("sys.exit(1)\n")})
+        out = os.path.join(sandbox, "durations.json")
+        direct = subprocess.run([sys.executable, os.path.join(base, "tests", "run_python_suites.py"), "--entries",
+                                 json.dumps([["corpus lint", [sys.executable, "tools/fabric/lint.py"]]])], cwd=base,
+                                env=env(base, AGENT_FABRIC_TEST_DURATIONS=out), capture_output=True, text=True, timeout=120,
+                                stdin=subprocess.DEVNULL)
+        try:
+            with open(out, encoding="utf-8") as fh:
+                records = json.load(fh)
+        except (OSError, ValueError):
+            records = {}
+        check("the durations file holds one record per suite and entry, with wall, pipe gap and status",
+              set(records) == {"test_quick", "test_linger", "test_bad", "corpus lint"}
+              and all(set(v) == {"wall_s", "exit_to_pipe_s", "status"} for v in records.values())
+              and records.get("test_bad", {}).get("status") == 1 and records.get("test_quick", {}).get("status") == 0,
+              (records, direct.stderr))
+        gap = records.get("test_linger", {}).get("exit_to_pipe_s")
+        check("a child that outlives its suite shows as the gap between the exit and the end of the pipe",
+              gap is not None and gap > 0.8 and records["test_quick"]["exit_to_pipe_s"] < gap, records)
+        lines = direct.stdout.splitlines()
+        slow_at = [i for i, ln in enumerate(lines) if ln.startswith("slowest ")]
+        check("the slowest list comes before the count, which is still the last line",
+              lines[-1] == "FAILED_SUITES=1" and len(slow_at) == 1 and slow_at[0] < len(lines) - 1, direct.stdout)
+        slow_rows = [ln for ln in lines if ln.startswith("  ") and "(pipe " in ln]
+        check("…and names the slowest suite first", bool(slow_rows) and "test_linger" in slow_rows[0], slow_rows)
+
+        base = fresh(files={"tests/test_ok.py": suite("print('fine')\n")})
+        write(os.path.join(base, "tools/fabric/lint.py"), "import sys\nprint('lint finding')\nsys.exit(1)\n")
+        r = run(base, "python")
+        check("a failing lint in the pool: exit 1, FAILED_SUITES=1 (counted once), its output once under its header",
+              r.returncode == 1 and "FAILED_SUITES=1" in r.stdout and r.stdout.count("lint finding") == 1
+              and r.stdout.index("== corpus lint") < r.stdout.index("lint finding") < r.stdout.index("FAILED_SUITES="),
+              (r.returncode, r.stdout))
+
+        # A stop ends the lint like a suite: its process is gone and the run exits 128+signal with no count.
+        pidfile = os.path.join(sandbox, "lint.pid")
+        base = fresh(files={"tests/test_ok.py": suite("import time\ntime.sleep(30)\n")})
+        write(os.path.join(base, "tools/fabric/lint.py"),
+              "import os, time\nopen(os.environ['LINTPID'], 'w').write(str(os.getpid()))\ntime.sleep(60)\n")
+        p = subprocess.Popen([sys.executable, os.path.join(base, "tests", "run.py"), "python"], cwd=base, stdout=subprocess.PIPE,
+                             stderr=subprocess.DEVNULL, stdin=subprocess.DEVNULL, text=True, env=env(base, LINTPID=pidfile))
+        if wait_until(p, lambda: os.path.exists(pidfile) and open(pidfile).read().isdigit(), "the lint started in the pool"):
+            lint_pid = int(open(pidfile).read())
+            p.send_signal(signal.SIGTERM)
+            try:
+                rc = p.wait(timeout=30)
+            except subprocess.TimeoutExpired:
+                p.kill()
+                rc = None
+            check("TERM: the run exits 143 and the lint's process is ended", rc == 143 and poll_until(lambda: ended(lint_pid), 10),
+                  (rc, lint_pid))
+
         print("through the forwarders tests/run.sh and tests/static.sh, which CI and every habit call")
 
         def via(base: str, script: str, *args: str, **extra: str) -> subprocess.CompletedProcess:
@@ -285,7 +366,6 @@ def main() -> int:
             "print('ENV ' + json.dumps({k: os.environ.get(k) for k in keys}))\n"
             "print('TMPDIR-EXISTS ' + str(os.path.isdir(os.environ['TMPDIR'])))\n")})
         r = run(base, "python")
-        import json
         line = next((ln for ln in r.stdout.splitlines() if ln.startswith("ENV ")), "ENV {}")
         got = json.loads(line[4:])
         runtime = os.path.join(os.path.dirname(base), "runtime")
@@ -914,7 +994,6 @@ def main() -> int:
               os.path.exists(os.path.join(sandbox, "ran-broken")) and "no host lease" in r.stderr, (r.returncode, r.stderr))
 
         print("every section holds one cpu slot, after full-suite (ADR-010 A 2026-10-28)")
-        import json
         import socket
         host = socket.gethostname().split(".")[0]
         nproc = len(os.sched_getaffinity(0))

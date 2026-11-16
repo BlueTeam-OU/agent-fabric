@@ -50,6 +50,7 @@ mistaken for a leak. tests/test_run.py proves the report fires on a planted entr
 """
 from __future__ import annotations
 
+import json
 import os
 import shutil
 import signal
@@ -97,6 +98,10 @@ BASH_SUITES: list[tuple[str, dict[str, str], list[str]]] = [
     ("signatures (this branch)", {"AGENT_FABRIC_SIGNATURES_BASE": "origin/main"}, [PY, "tools/fabric/guards/ban_unsigned_commits.py"]),
     ("decision-record amendments (this branch)", {"AGENT_FABRIC_ADR_BASE": "origin/main"}, [PY, "tools/fabric/adr.py", "range-check"]),
 ]
+
+
+# Commands the python runner's pool runs besides tests/test_*.py, under these headers.
+POOL_ENTRIES = [["corpus lint", [PY, "tools/fabric/lint.py"]], ["routing check", [PY, "tools/fabric/routing.py", "check"]]]
 
 
 class Signalled(BaseException):
@@ -417,9 +422,10 @@ def main(argv: list[str] | None = None, environ: dict[str, str] | None = None) -
         if what in ("all", "static"):
             failed += invoke("static (bash -n, shellcheck, ruff)", [PY, os.path.join(HERE, "static.py")], env, ROOT) != 0
         if what in ("all", "python"):
-            failed += invoke(None, [PY, os.path.join(HERE, "run_python_suites.py")], env, ROOT, graceful=True) != 0
-            failed += invoke("corpus lint", [PY, "tools/fabric/lint.py"], env, ROOT) != 0
-            failed += invoke("routing check", [PY, "tools/fabric/routing.py", "check"], env, ROOT) != 0
+            # The lint and the routing check run in the runner's pool beside the suites (3 of 4 cores were idle while they ran
+            # alone after it), in the environment and cwd the suites get, and count in its FAILED_SUITES.
+            failed += invoke(None, [PY, os.path.join(HERE, "run_python_suites.py"), "--entries", json.dumps(POOL_ENTRIES)],
+                             env, ROOT, graceful=True) != 0
         if what in ("all", "bash"):
             # The branch's authority, from the branch's own copy of the guards: the local check. CI's verdict is main's
             # copy, run isolated in a step before this script (ci.yml), since a contributor's tests and modules run

@@ -242,7 +242,15 @@ jobs:
             ln -sf /usr/local/bin/fabric-python /usr/local/lib/ci-pin-bin/python3
             on_pin="export PATH=/usr/local/lib/ci-pin-bin:\$PATH && python3 -V && "
           fi
-          su ci -c "${on_pin}cd '$GITHUB_WORKSPACE' && bash tests/run.sh static && bash tests/run.sh python && bash tests/run.sh bash"
+          # The python step's per-suite times, for refreshing tests/suite_durations.json; in the workspace, which is ci's.
+          su ci -c "${on_pin}cd '$GITHUB_WORKSPACE' && bash tests/run.sh static && AGENT_FABRIC_TEST_DURATIONS='$GITHUB_WORKSPACE/suite-durations.json' bash tests/run.sh python && bash tests/run.sh bash"
+      - name: per-suite durations
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: suite-durations-${{ matrix.platform }}
+          path: suite-durations.json
+          if-no-files-found: ignore
 
   ci-ok:
     # The one check the ruleset on main requires
