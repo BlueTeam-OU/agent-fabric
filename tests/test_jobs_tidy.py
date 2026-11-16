@@ -167,6 +167,25 @@ def main() -> int:
         check("a directory on another filesystem is not entered, at any depth (the control: the same tree unmounted finds its target)",
               os.path.join(t_deep, "a/b/c/d/e/f/g/target") not in found_mnt and len(found_mnt) == 2 and len(found_ctl) == 3, (found_mnt, found_ctl))
         check("…and it is said, one line, never silence (F3)", mounts == [mnt] and f"kept {mnt}: another filesystem, not entered\n" in out, (mounts, out))
+        listing()
+        t_mnt_held = tree("m/Cargo.toml", "m/target/debug/a.o")
+        mnt_held = os.path.join(t_mnt_held, "m")
+        listing(job(9, "active", worktree=t_mnt_held))
+
+        def lstat_held_mount(path, *a, **kw):
+            st = real_lstat(path, *a, **kw)
+            if os.fspath(path) == mnt_held:
+                return os.stat_result((st.st_mode, st.st_ino, st.st_dev + 1, *st[3:]))
+            return st
+        lt.os.lstat = lstat_held_mount
+        try:
+            rc, out, err = tidy("--dry-run")
+        finally:
+            lt.os.lstat = real_lstat
+        held_mnt_line = next((l for l in out.splitlines() if l.startswith(f"kept {t_mnt_held}:")), "")
+        check("a held tree whose build output is behind a mount says it could not be measured, never nothing (F4)",
+              rc == 0 and f"another filesystem at {mnt_held}, not entered" in held_mnt_line, out + err)
+        listing()
         t_unseen = tree("q/Cargo.toml", "q/target/debug/a.o")
         os.makedirs(os.path.join(t_unseen, "p/hidden"))
         os.chmod(os.path.join(t_unseen, "p/hidden"), 0)

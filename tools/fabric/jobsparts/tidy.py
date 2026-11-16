@@ -82,8 +82,9 @@ def held_output(real: str) -> str:
     # os.walk says nothing of a directory it cannot list: both walks collect what they could not see, and any of it makes the
     # size unmeasurable, said so, never a smaller number or none.
     errors: list[OSError] = []
+    mounts: list[str] = []      # a mount is not entered: what is behind it is unknown, and "none" would say it is clean
     try:
-        found, _ = lt.find_targets(real, lt.BUILD_OUTPUT, errors, max_depth=None)
+        found, _ = lt.find_targets(real, lt.BUILD_OUTPUT, errors, max_depth=None, mounts=mounts)
         seen: set[tuple[int, int]] = set()
         total = 0
         for target in found:
@@ -98,6 +99,8 @@ def held_output(real: str) -> str:
     if errors:
         e = errors[0]
         return f"; its build output could not be measured ({e.strerror or e}: {e.filename})"
+    if mounts:
+        return f"; its build output could not be measured (another filesystem at {mounts[0]}, not entered)"
     return f"; its build output is {lt.human(total)}" if found else ""
 
 
