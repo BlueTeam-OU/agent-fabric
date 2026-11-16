@@ -160,7 +160,7 @@ class HalfMadeVenv(unittest.TestCase):
         os.makedirs(fakebin)
         fake = os.path.join(fakebin, "half-python")
         with open(fake, "w", encoding="utf-8") as fh:
-            fh.write('#!/bin/sh\nmkdir -p "$3/bin" && : > "$3/bin/python" && chmod 755 "$3/bin/python"\nexit 1\n')
+            fh.write('#!/bin/sh\n[ "$1 $2" = "-m venv" ] || exit 1\nfor t; do :; done\nmkdir -p "$t/bin" && : > "$t/bin/python" && chmod 755 "$t/bin/python"\nexit 1\n')
         os.chmod(fake, 0o755)
         target = os.path.join(sandbox, "langid")
         env = {"PATH": f"{fakebin}{os.pathsep}/usr/bin:/bin", "HOME": sandbox, "AGENT_FABRIC_LANGID_DIR": target,

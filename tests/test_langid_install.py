@@ -242,7 +242,7 @@ class Langid(unittest.TestCase):
     def failing_venv(self) -> str:
         """An interpreter whose `-m venv` leaves a half-made venv (bin/half only) behind and fails."""
         return self.script(os.path.join(self.sandbox, "half-python"),
-                           '#!/bin/sh\nmkdir -p "$3/bin"; : > "$3/bin/half"; exit 1\n')
+                           '#!/bin/sh\n[ "$1 $2" = "-m venv" ] || exit 1\nfor t; do :; done\nmkdir -p "$t/bin"; : > "$t/bin/half"; exit 1\n')
 
     def test_venv_failure_removes_the_half_made_venv_it_began(self) -> None:
         # The positive control of the next test: the same failure over a venv that was not there.

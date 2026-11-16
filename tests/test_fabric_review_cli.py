@@ -141,6 +141,11 @@ for args in (("lenses",), ("frob",), ("-h",), ()):
 # two shapes and one always runs: where the pin is absent the entry names it and exits 127; where it is installed (a
 # fleet host, CI) the entry's answer is the pin's own answer to the same verb.
 DEFAULT_PIN = "/usr/local/bin/fabric-python"
+# The installed shape cannot tell the pin from another working interpreter (their output is the same), so the shim's
+# own text is held to the literal default.
+if not ENTRY.endswith(".py"):
+    with open(ENTRY, encoding="utf-8") as fh:
+        check("the entry's default interpreter is the pin's path", ':-' + DEFAULT_PIN + '}' in fh.read(), True)
 if not os.access(DEFAULT_PIN, os.X_OK):
     outcome("default pin path", run("lenses", python=None), 127, "", INSTALL % DEFAULT_PIN)
 else:
