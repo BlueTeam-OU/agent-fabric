@@ -241,5 +241,43 @@ class Keep(unittest.TestCase):
         self.assertEqual(said, ["agentd: usage resets: no store"])
 
 
+class Background(unittest.TestCase):
+    """F1 of the review of j250: a record that never returns must not hold the keeper's tick."""
+
+    def test_a_stalled_record_does_not_hold_the_tick_and_the_next_is_skipped_by_name(self):
+        import threading
+        started, release, calls, said = threading.Event(), threading.Event(), [], []
+
+        def stalled(r):
+            calls.append(r)
+            started.set()
+            release.wait(30)
+        start = agentd.background_record(stalled, said.append)
+        try:
+            start("first")                      # returns while stalled() is still blocked
+            self.assertTrue(started.wait(10))
+            start("second")
+            self.assertEqual(calls, ["first"])
+            self.assertEqual(said, ["agentd: usage resets: the last record is still running; this read is not recorded"])
+        finally:
+            release.set()
+        start.wait(10)
+        start("third")                          # positive control: a free store records again
+        start.wait(10)
+        self.assertEqual(calls, ["first", "third"])
+
+    def test_a_raising_record_is_one_line_and_the_next_runs(self):
+        said, n = [], []
+
+        def bad(r):
+            n.append(r)
+            raise RuntimeError("no store")
+        start = agentd.background_record(bad, said.append)
+        for r in ("a", "b"):
+            start(r)
+            start.wait(10)
+        self.assertEqual((n, said), (["a", "b"], ["agentd: usage resets: no store"] * 2))
+
+
 if __name__ == "__main__":
     unittest.main()
