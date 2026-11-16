@@ -734,7 +734,7 @@ def main(argv: list[str]) -> int:
                 except transport.ModeError as e:
                     # The watch keeps the transport it has, and asks again at the next poll: a damaged file is said, never read as a mode.
                     mode_watch.current = tp.mode
-                    print(f"gzcoord-inbox: {e}", file=sys.stderr, flush=True)
+                    mode_watch.report(str(e))
                 else:
                     primary = tp.primary
                     print(f"gzcoord-inbox: transport mode is now {tp.mode}", file=sys.stderr, flush=True)

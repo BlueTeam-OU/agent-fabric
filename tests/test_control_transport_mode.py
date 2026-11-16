@@ -148,6 +148,26 @@ class Watching(Scratch):
         self.assertTrue(w.changed())
         self.assertEqual(w.current, "carrier-only")
 
+    def test_a_reason_a_caller_reported_is_not_said_again_by_the_next_poll(self):
+        # The reopen after a change meets the damage itself and reports it; the poll after it reads the same file.
+        self.now = 0.0
+        said = []
+        w = mode.Watcher("carrier-record", self.dir, every=5.0, clock=lambda: self.now, on_error=said.append)
+        self.write("{")
+        try:
+            mode.read(self.dir)
+        except mode.ModeError as e:      # what the reopen meets: the reason the next poll will meet too
+            w.report(str(e))
+        w.report(said[0])
+        self.assertEqual(len(said), 1)
+        self.now = 5.0
+        self.assertFalse(w.changed())
+        self.assertEqual(len(said), 1, "the poll of the same damage says nothing")
+        self.write("[]")
+        self.now = 10.0
+        w.changed()
+        self.assertEqual(len(said), 2, "the control: another reason is still said")
+
     def test_removing_the_file_is_a_move_back_to_the_default(self):
         self.now = 0.0
         w = mode.Watcher("carrier-record", self.dir, every=1.0, clock=lambda: self.now)
@@ -371,6 +391,8 @@ class FleetRuns(Fleet):
 
     def test_the_mode_move_waits_as_long_as_the_read_it_makes_first_unless_told_otherwise(self):
         self.assertEqual(ctl.parse_args(["all", OP, "--mode", "carrier-only"])["timeout"], ctl.CARRIER_READ_BUDGET_S)
+        for other in ("relay-record", "carrier-record"):    # no fleet read before these: the usual wait names a silent account
+            self.assertEqual(ctl.parse_args(["all", OP, "--mode", other])["timeout"], 20, other)
         self.assertEqual(ctl.parse_args(["all", OP, "--mode", "carrier-only", "--timeout", "7"])["timeout"], 7)
 
     def test_the_refusal_looks_at_the_whole_fleet_not_only_the_accounts_addressed(self):
