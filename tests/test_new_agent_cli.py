@@ -486,7 +486,7 @@ def main() -> int:
 echo "gzcoord-carrier $1" >> "{SEQ}/account-calls"
 case "$1" in
   render-config) [[ -e "{SEQ}/row-valid" ]] || exit 2;;
-  roster-row) [[ -e "{SEQ}/key-unmerged" ]] && { echo "refused: the lineage and identities/keys on origin/main hold no key for agent 01a-fixture" >&2; exit 2; }
+  roster-row) [[ -e "{SEQ}/key-unmerged" ]] && { echo "refused: the lineage and identities/keys on origin/main hold no key for agent 01a-fixture" >&2; exit 4; }
               echo '{"agent_id": "01a-fixture", "login": "seq-login", "peer_id": "12D3KooWfixture"}';;
 esac
 '''), 0o755)

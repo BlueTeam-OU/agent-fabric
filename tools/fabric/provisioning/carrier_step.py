@@ -23,7 +23,7 @@ status 3 (open) after everything else ran: the re-run, once the roster on origin
 and starts the units. Status 3 is "open" for any of three causes: the row, no user manager yet to start the units in
 (`loginctl enable-linger`), or the account's key not yet merged to origin/main; the re-run starts them in all. `roster-row` refuses until the account's key is on
 origin/main, which a first run of a new login has not got yet (step 5 only says to commit it): that refusal is open,
-with its own words; any other refusal of it is a failed step.
+with its own words, read from its status; any other refusal of it is a failed step.
 
 Each function returns the lines that leave the run open, [] when done; a step
 that fails dies (steps are idempotent, a re-run converges).
@@ -39,7 +39,7 @@ import roots
 
 OPEN_EXIT = 3        # the worker's and new-agent's status for "every step ran; something is left for another login or a re-run"
 UNIT = "agent-fabric-agentd"
-NO_KEY_REFUSAL = "hold no key for agent"   # gzcoord/carrier/admit.py _committed
+NO_KEY_EXIT = 4   # gzcoord/carrier/main.py NO_KEY_EXIT: roster-row's status for "the key is not on origin/main yet"
 ROW_DIR_MODE = 0o755
 ROW_MODE = 0o644      # the row holds a public PeerId and signatures; the coordinator's login must read it
 
@@ -104,12 +104,12 @@ def roster_row(w) -> list[str]:
         return []
     got = w.as_login([carrier, "roster-row"], login_shell=False, stderr=subprocess.PIPE)   # stdout is the JSON
     why = _tail(got.stderr, 1)
-    if got.returncode == 2 and why and NO_KEY_REFUSAL in why[0]:
+    if got.returncode == NO_KEY_EXIT and why:
         # The one refusal that is a hand-over and not a failure: the account's key is not on origin/main yet, and step 5
         # only said to commit it. The run is left open with the order that fixes it, since every step after this one is
-        # independent of it. Matched on the carrier's words because it gives all its refusals the one exit status 2; every
-        # other refusal (a wrong login in the lineage, no secret subkey, a program that is not the release's, a bad
-        # signature) does not converge by merging keys, so it stays a failed step; an unknown refusal fails, never opens.
+        # independent of it. Told by the carrier's exit status 4, never by its words; every
+        # other refusal, status 2 (a wrong login in the lineage, no secret subkey, a program that is not the release's, a bad
+        # signature), does not converge by merging keys, so it stays a failed step; an unknown refusal fails, never opens.
         return [f"gzcoord-carrier roster-row refused for {login}: {why[0]}; once identities/keys/ is merged to origin/main, "
                 "re-run this command, which writes the row for the coordinator; the carrier is not started"]
     try:

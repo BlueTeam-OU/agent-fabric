@@ -61,6 +61,19 @@ def refuses(fn, *a, **k) -> str | None:
     return None
 
 
+def _raised(fn, *a, **k) -> Exception | None:
+    try:
+        fn(*a, **k)
+    except A.AdmitError as e:
+        return e
+    return None
+
+
+def _msg(fn, *a, **k) -> str | None:
+    e = _raised(fn, *a, **k)
+    return None if e is None else str(e)
+
+
 def main() -> int:
     with tempfile.TemporaryDirectory(prefix="gza-") as d:
         root = T.Agent(d, "root", "00000000-0000-7000-8000-000000000001", "user")
@@ -284,6 +297,53 @@ def main() -> int:
                 sys.stderr = saved
             check("the commands' argv: a missing, non-numeric or negative --port and a stray argument are usage errors (1)",
                   usage == [1] * 5, str(usage))
+
+            # "no committed key" is its own status (4); every other refusal keeps 2
+            ghost = "00000000-0000-7000-8000-0000000000ff"   # in neither the lineage nor identities/keys/
+            check("make_row for an agent with no committed key raises NoCommittedKey, naming the step that commits it",
+                  isinstance(_raised(A.make_row, rost=base, keys=keys, agent_id=ghost, login="x", release_path=release),
+                             A.NoCommittedKey)
+                  and "step 5" in (_msg(A.make_row, rost=base, keys=keys, agent_id=ghost, login="x", release_path=release) or ""))
+            check("…and a refusal of another kind (a wrong login) is an AdmitError that is not NoCommittedKey",
+                  type(_raised(A.make_row, rost=base, keys=keys, agent_id=a.agent_id, login="beta", release_path=release)) is A.AdmitError)
+            check("admit_row refuses a row whose agent has no committed key as NoCommittedKey, before it signs anything",
+                  isinstance(_raised(admit, dict(rc, agent_id=ghost), 47150), A.NoCommittedKey))
+            check("…while a duplicate port stays a plain AdmitError",
+                  type(_raised(admit, rc, 47101, rost1, out)) is A.AdmitError)
+            rj_ghost, rj_dup = os.path.join(d, "ghost.json"), os.path.join(d, "dup.json")
+            json.dump(dict(rc, agent_id=ghost), open(rj_ghost, "w"))
+            json.dump(ra, open(rj_dup, "w"))
+            rd0 = os.path.join(d, "status-roster")
+            os.makedirs(rd0)
+            rp0 = os.path.join(rd0, "roster.json")
+            json.dump(out, open(rp0, "w"))
+            patched = [(R, "GitMainKeys", R.GitMainKeys), (M, "make_me", M.make_me), (os, "environ", os.environ)]
+            R.GitMainKeys = lambda _root: keys
+            M.make_me = lambda: type("Me", (), {"agent_id": ghost})()
+            saved_env = {k: os.environ.get(k) for k in ("GZCOORD_CARRIER_ROSTER", "AGENT_FABRIC_OPERATOR", "GZCOORD_CARRIER_RELEASE")}
+            os.environ.update({"GZCOORD_CARRIER_ROSTER": rp0, "AGENT_FABRIC_OPERATOR": os.path.join(d, "no-operator"),
+                               "GZCOORD_CARRIER_RELEASE": release})
+            errs0 = os.path.join(d, "errs0.txt")
+            sys.stderr, saved = open(errs0, "w"), sys.stderr
+            try:
+                got = {"admit-no-key": M.main(["roster-admit", rj_ghost, "--port", "47160"]),
+                       "admit-other": M.main(["roster-admit", rj_dup, "--port", "47160"]),
+                       "row-no-key": M.main(["roster-row"])}
+                real_make_row, M.admit.make_row = M.admit.make_row, lambda **k: (_ for _ in ()).throw(A.AdmitError("boom"))
+                try:
+                    got["row-other"] = M.main(["roster-row"])
+                finally:
+                    M.admit.make_row = real_make_row
+            finally:
+                sys.stderr.close()
+                sys.stderr = saved
+                R.GitMainKeys, M.make_me = patched[0][2], patched[1][2]
+                for k, v in saved_env.items():
+                    os.environ.pop(k, None) if v is None else os.environ.__setitem__(k, v)
+            check("roster-admit and roster-row exit 4 for no committed key, and 2 for every other refusal",
+                  got == {"admit-no-key": 4, "admit-other": 2, "row-no-key": 4, "row-other": 2}, str(got))
+            check("the usage text names status 4", "4 roster-row, roster-admit" in (M.__doc__ or ""))
+            check("the roster file is untouched by the refused admits", json.load(open(rp0)) == out)
 
             # one admit at a time: a second waits on the roster directory's lock
             rd = os.path.join(d, "locked")

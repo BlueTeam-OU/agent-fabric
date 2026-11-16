@@ -19,7 +19,6 @@ from types import SimpleNamespace
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, "tools", "fabric"))
-from gzcoord.carrier import admit  # noqa: E402
 from provisioning import account_carrier, carrier_step  # noqa: E402
 
 fails = 0
@@ -95,25 +94,20 @@ def main() -> int:
         w = stub({"render-config": (2, ""), "roster-row": (0, "not json")})
         _, died = run(carrier_step.roster_row, w)
         ok("…and so does an answer that is not a row", died is not None)
-        w = stub({"render-config": (2, ""), "roster-row": (2, "refused: the lineage and identities/keys on origin/main hold no key for agent 01a\n")})
+        w = stub({"render-config": (2, ""), "roster-row": (carrier_step.NO_KEY_EXIT, "refused: the lineage and identities/keys on origin/main hold no key for agent 01a\n")})
         open_, died = run(carrier_step.roster_row, w)
         ok("a roster-row refusal (the key not on origin/main yet) leaves the run open with the carrier's own words, not failed",
            died is None and open_ and "refused" in open_[0] and "hold no key for agent 01a" in open_[0]
            and "re-run" in open_[0], f"{open_} {died}")
+        w = stub({"render-config": (2, ""), "roster-row": (2, "refused: the lineage and identities/keys on origin/main hold no key for agent 01a\n")})
+        _, died = run(carrier_step.roster_row, w)
+        ok("…and the same words under exit 2 are a failed step: the status decides, not the wording", died and "exit 2" in died, str(died))
         w = stub({"render-config": (2, ""), "roster-row": (2, "refused: transportctl does not match the pinned digest\n")})
         _, died = run(carrier_step.roster_row, w)
         ok("…and any other refusal of it (a program that is not the release's) is a failed step: merging keys would not fix it",
            died and "exit 2" in died and any("pinned digest" in s for s in w.said), str(w.said))
-        class NoKeys:   # a lineage without the agent: what a first run of a new login meets
-            def lineage(self): return {}
-            def public_key(self, agent_id): return None
-        try:
-            admit._committed(NoKeys(), "01a")
-            said_by_carrier = ""
-        except admit.AdmitError as e:
-            said_by_carrier = str(e)
-        ok("the phrase 7d opens on is the one the carrier's own refusal says (reworded there, the first run would fail)",
-           carrier_step.NO_KEY_REFUSAL in said_by_carrier, said_by_carrier)
+        ok("the carrier's NO_KEY_EXIT is the status roster-row returns",
+           carrier_step.NO_KEY_EXIT == __import__("gzcoord.carrier.main", fromlist=["x"]).NO_KEY_EXIT)
         w = stub({"render-config": (2, ""), "roster-row": (1, "Traceback: boom\n")})
         _, died = run(carrier_step.roster_row, w)
         ok("…while any other failure of roster-row (a crash) stays a failed step, with its last line said",

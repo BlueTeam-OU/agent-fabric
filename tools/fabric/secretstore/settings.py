@@ -27,7 +27,8 @@ Contract of `settings_put(src)`:
           left there, or a file flagged assume-unchanged or skip-worktree; a
           store with no remote (the commit would reach no one).
   signals Ctrl-C, SIGTERM and SIGHUP before the commit exists undo the write
-          and end as a one-line refusal; SIGKILL cannot be handled and leaves
+          and end as a one-line refusal, on the main thread only (a write on
+          another thread, agentd's keeper, installs no handler and has no undo); SIGKILL cannot be handled and leaves
           the store dirty, which the next run refuses by name.
   effect  under the store's write lock, brought up to its remote first
           (verified, ADR-042), then ONE commit signed through the store's
@@ -59,6 +60,7 @@ import hashlib
 import json
 import os
 import signal
+import threading
 import secrets
 import stat
 
@@ -393,8 +395,10 @@ def settings_put(src: str, expect_head: str | None = None) -> dict:
     # as for Ctrl-C. SIGKILL cannot be handled: it leaves the store dirty, and the next run refuses it by name.
     # A caller that ignores SIGHUP (nohup) keeps ignoring it.
     state = {"committed": False}
+    # signal.signal raises off the main thread, where agentd's keeper writes. A worker's write therefore has no undo: a
+    # SIGTERM or an exit during it ends the process where it is and leaves the store dirty, as SIGKILL does.
     previous = {s: signal.signal(s, _terminate) for s in (signal.SIGTERM, signal.SIGHUP)
-                if signal.getsignal(s) != signal.SIG_IGN}
+                if threading.current_thread() is threading.main_thread() and signal.getsignal(s) != signal.SIG_IGN}
     try:
         files = _read_tree(src)
         _refuse_roles(files)
