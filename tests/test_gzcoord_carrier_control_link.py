@@ -445,6 +445,37 @@ class Inbound(Net):
         self.assertGreaterEqual(inbox.dropped, 4)
         self.assertTrue(any("dropped the oldest" in l for l in logs))
 
+    def test_close_returns_only_after_the_handler_has_finished(self):
+        # j157: a handler writing the arrival log after close() re-created the scratch dir its owner had removed.
+        started, finished = threading.Event(), []
+
+        def slow(ev):
+            started.set()
+            time.sleep(0.3)
+            finished.append(ev["n"])
+        inbox = cc.Inbox(slow, lambda l: None)
+        inbox.start()
+        inbox.put({"n": 1})
+        self.assertTrue(started.wait(5))
+        inbox.close()
+        self.assertEqual(finished, [1], "the handler was still running when close() returned")
+
+    def test_close_from_the_handler_itself_does_not_wait_for_itself(self):
+        done = threading.Event()
+        box = []
+
+        def handle(ev):
+            box[0].close()
+            done.set()
+        inbox = cc.Inbox(handle, lambda l: None)
+        box.append(inbox)
+        inbox.start()
+        inbox.put({"n": 1})
+        self.assertTrue(done.wait(5))
+
+    def test_close_of_an_inbox_never_started_returns(self):
+        cc.Inbox(lambda ev: None, lambda l: None).close()
+
     def test_one_message_that_breaks_the_handler_does_not_end_the_queue(self):
         done, logs = [], []
 

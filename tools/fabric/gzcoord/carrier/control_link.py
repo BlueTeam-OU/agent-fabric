@@ -295,6 +295,10 @@ class Inbox:
         with self._cv:
             self._stop = True
             self._cv.notify()
+        # A handler still running when close() returned writes the arrival log (makedirs included) after its
+        # owner removed the directory, which re-creates it; bounded like Child.stop, never on the thread itself.
+        if self._thread.is_alive() and threading.current_thread() is not self._thread:
+            self._thread.join(timeout=10)
 
     def _run(self) -> None:
         while True:
