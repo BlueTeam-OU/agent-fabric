@@ -1,6 +1,6 @@
 """tools/fabric/gzcoord/intake.py — a REQUEST addressed to a login is work
 that login has, so it is on that login's job list without anyone
-remembering to put it there (agent-fabric ADR-037 §7, the owner,
+remembering to put it there (agent-fabric ADR-037 §5 rule 11, the owner,
 2026-10-09).
 
 Two halves, both best effort — a REQUEST that cannot be queued is a line

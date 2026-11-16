@@ -1028,6 +1028,7 @@ its record disagree, the record wins. Look it up, never read it whole:
   measure first (§7).
 - A 2026-10-09 — reading working events needs rules 2 and 8 amended (§7).
 - A 2026-11-14 — arm takes a grant from the arming login's own journal: a carrier's row only with its verified sender as `FROM`, a relay's row as before (rule 7).
+- A 2026-11-16 — journal off: a carrier mode refuses a receive; the send keeps its audit lines (rule 10).
 - Keywords: episodic, history, journal, GZCoord, carrier, transport,
   relay, InterWeave, fabric-history, backfill.
 
@@ -1521,6 +1522,7 @@ its record disagree, the record wins. Look it up, never read it whole:
 - A 2026-11-14 — past the dual run: data plane first, relay retired later; three modes per account by signed action; seq, alerts, whole-channel record given up (§7).
 - A 2026-11-14 — a coordinator with no fixed address reaches the second host at a public forward from any source, on the owner's word: admission by roster PeerId, exposure a known limit (rule 1).
 - A 2026-11-15 — drills read the watch log (starts, give-ups); a carrier-outage drill is judged by `parity --carrier-drill`: held, the carrier's one copy after (a relay mirror copy beside it), shown once (rule 11).
+- A 2026-11-16 — journal off: the mode's primary, no mirror; the carrier in a carrier mode, a receive refused (rule 8).
 - Keywords: InterWeave, carrier, relay, P5, second host, fabric-h2.
 
 ### ADR-065 — The reviewer reads through pinned tools, says what it covered, and the next round starts where the last one stopped (Accepted)

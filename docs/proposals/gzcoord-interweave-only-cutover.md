@@ -4,8 +4,9 @@
 D8 on 2026-11-15, each as recommended (§7). D3's first half is done: #573 merged on 2026-11-13.
 D9 is partly answered. Two records say what was decided: ADR-041 rule 7 (D4, with two conditions of fabric-coordinator's, §7)
 and ADR-064 §7 (D1, D2, D5, D10), both amended 2026-11-14. The other records in §4 change when
-each gate's word is given. W3 to W14 are done (§5): W6, W7 and W8 merged as
-#613, W7's Stop-hook probe is on #612, and W11 and W17's code are #623.
+each gate's word is given. W3 to W14 and W17 are done (§5): W6, W7 and W8 merged as
+#613, W7's Stop-hook probe is on #612, W11 and W17's code are #623, and W17's records
+were amended 2026-11-16.
 
 A plan for the owner's review, drafted for fabric-coordinator. It decides nothing: every step
 that changes what carries a message waits for the owner's word and the record named beside it
@@ -25,9 +26,9 @@ claim about the code names its file and function; a path with no function is the
 - **Every message goes by both carriers, and in `relay-record` the relay is the record.**
   `tools/fabric/gzcoord/transport/__init__.py` `open_transport` builds the mux from the mode
   (#613, W6): in `relay-record` `RelayTransport` is the primary and `CarrierTransport` a mirror;
-  with the journal off `RelayTransport` is alone, and `carrier-only` refuses (`ModeError`); in
-  `carrier-record` `CarrierPrimary` leads with the relay as a `RelayMirror`; in `carrier-only`
-  the carrier is alone.
+  in `carrier-record` `CarrierPrimary` leads with the relay as a `RelayMirror`; in `carrier-only`
+  the carrier is alone. With the journal off a send goes to the mode's primary with no mirror,
+  and a receive is refused in both carrier modes (#623, ADR-064 rule 8).
 - **The transport mode exists and picks the mux** (#584 W5, #613 W6).
   `tools/fabric/gzcoord/transport/mode.py` holds `MODES` (`relay-record`, `carrier-record`,
   `carrier-only`), the default `relay-record` for an account with no `transport-mode.json`, and
@@ -161,7 +162,7 @@ for InterWeave alone, and the state stream.
 | an authenticated sender | none: `sender` is a claim (agent-fabric ADR-033 §6) | the PeerId, mapped by the roster; a mismatch is shown flagged (ADR-064 rule 9) | gained |
 | presence | a control op on the relay | unchanged by the data plane; control's dual run is on, and `presence.ask_presence` and `queue.ask_holder` also ask through the account's own agentd (#586, W12) | in code the relay's outage no longer stops an addressed send; not yet read back with the relay stopped (gate 2) |
 | the human relay (ADR-033 rule 7) | a person carries text between terminals when the relay is down | the same procedure, used when a carrier cannot deliver; it never used the relay | given; rule 7's trigger is reworded |
-| journal-off break-glass (ADR-041 rule 10) | "the route is the relay alone" (ADR-064 rule 8); `carrier/main.py` `cmd_run` refuses to start | a send goes through `CarrierPrimary` with its bypass line, the outbox keeping the text; a receive is refused (#623) | done in code (D7, W17, #623); the records are owed |
+| journal-off break-glass (ADR-041 rule 10) | the relay alone in `relay-record` (ADR-064 rule 8); `carrier/main.py` `cmd_run` refuses to start | a send goes through `CarrierPrimary` with its bypass line, the outbox keeping the text; a receive is refused (#623) | done (D7, W17): code #623, ADR-064 rule 8 and ADR-041 rule 10 amended 2026-11-16 |
 | reach to a second host | none: the relay binds loopback | the profile's listener. The carrier no longer assumes one host (#585, W10): `Carrier.recipients` carries a `TO` to the roster row whose host matches, and `Carrier.finish` judges and journals a sender as `<row's host>/<login>`, both through `Carrier.row_host` | done in code; the two-host read-back with a throwaway login is not run, and for an account on fabric-h2 InterWeave is the only route from its first day |
 | one place to back up | one database, copied every 6 h | 30 state directories, copied daily | changed: the copy must add the outbox |
 
@@ -252,7 +253,7 @@ devex-tooling's `tools/fabric/github/`; **FC** is fabric-coordinator: `tools/fab
 | W9 | **Done, #611.** The backfill reads the mode: on in `relay-record` and `carrier-record`, a no-op in `carrier-only` | PD (`gzcoord/backfill.py`) | a test per mode; no relay call in `carrier-only` | S | W1, W5 |
 | W10 | **Done, #585** (the two-host read-back with a throwaway login is not run). Addresses across hosts: `Carrier.recipients` and `Carrier.finish` use the roster row's host | PD (`carrier/engine.py`) | `tests/test_gzcoord_carrier_engine.py`: a `TO` on another host is queued to its row; an arrival from it is `ok` and journaled under its own host; then one message each way with the throwaway login of ADR-069 rule 2 | S to M | - |
 | W11 | TO-ROLE at arrival: a test of a role bound after the message arrived, and the behaviour the owner chose (D6: decided at arrival; the presence check refuses a role with no running holder unless forced). Done (#623), both routes; a record the relay serves again is judged again | PD, done | the test states the chosen behaviour | S | - |
-| W17 | Journal-off under a carrier primary (D7): a `GZCOORD_JOURNAL=off` send in `carrier-record` or `carrier-only` goes through the carrier with its bypass line, the outbox keeping the text; a journal-off receive in either carrier mode is refused; the human relay is the break-glass. Code done (#623, `open_transport`); left: the record amendments | PD (`transport/__init__.py`, `send.py`), done; FC: ADR-064 rule 8 (still the relay alone) and ADR-041 rule 10 (still promises journal-off receiving), amended next | a test per mode: the send's route and its bypass line; a journal-off receive refused in both | S | - |
+| W17 | Journal-off under a carrier primary (D7): a `GZCOORD_JOURNAL=off` send in `carrier-record` or `carrier-only` goes through the carrier with its bypass line, the outbox keeping the text; a journal-off receive in either carrier mode is refused; the human relay is the break-glass. **Done**: code #623 (`open_transport`), ADR-064 rule 8 and ADR-041 rule 10 amended 2026-11-16 | PD (`transport/__init__.py`, `send.py`), FC (the two records) | a test per mode: the send's route and its bypass line; a journal-off receive refused in both | S | - |
 | W18 | **Done, #618** (j871, found in the 2026-11-14 live check `docs/live-checks/2026-11-14-agentd-restart-held-by-ctl-session.md`). The operator's own row without the relay: a request `fabric-ctl` addresses to its own account loops back in-process to agentd's handler and its reply to the waiter, never through the child; `fabric-ctl` hands the own address to the socket with the others | PD (`gzcoord/carrier/control_link.py`, `control/ctl.py`, `control/presence.py`, `control/queue.py`) | the suite's loopback cases; live, the operator's `control-arrivals.jsonl` shows its own replies as `interweave`, `ok` from 2026-11-15T00:07:08Z, where it showed none before | S | - |
 | W12 | **Done, #586** (the relay-stopped read-back is gate 2's). Presence and the other public ops off the relay's outage: control's dual run switched on (`runtime/control/config.json`), and `presence.ask_presence` and `queue.ask_holder` handed to the account's own agentd socket | PD (`control/presence.py`, `control/queue.py`, `control_link.Server`); FC for the switch and ADR-029 | with the relay stopped, an addressed send from one staged account to another is checked and sent without `--force` | M to L | D1 |
 | W13 | **Done, #609** (in `carrier-only`, `status.inbox_state` and the status op's `_inbox` read `gzcoord/carrier/position.py`; `drift.inbox` and the `interweave` read are unchanged; the live read-back with the relay stopped is not run). Read position and health without the relay's cursor: `drift.inbox`, `status.inbox_state` and the `interweave` read show the spool's unseen count and the outbox's oldest outstanding and blocked deliveries | PD | `fabric-status` on a `carrier-only` account prints them with the relay stopped; a lagging relay cursor is no longer reported for it | M | W5 |
@@ -260,8 +261,8 @@ devex-tooling's `tools/fabric/github/`; **FC** is fabric-coordinator: `tools/fab
 | W15 | Removal, after gate 2: `RelayTransport` out of the send and inbox paths, `integration_config` no longer asks for a relay, the backfill, the acknowledgement log and the relay half of `parity.py` deleted, a one-carrier health report in its place, the state copy takes the outbox, `transport-calls.json` loses `drift.py`, and `verify_grant`'s relay-row branch (`RELAY_CARRIER`) goes | PD, PD-supply (`relay.py`, `episodic_import.py`), DX (`tools/fabric/github/arm.py`), FC (the 15 integration files, the skills, the manuals, `transport-calls.json`) | `grep` finds no `/api/` call under `tools/fabric/gzcoord/`; `tests/test_arm_cli.py` refuses a grant row whose carrier is the relay; `tools/fabric/transport_calls.py` is clean with the shorter policy; the suite is green with no relay fixture in the GZCoord tests | L | gate 2 |
 | W16 | The relay retired (gate 3): control on InterWeave alone, the state stream replaced, the relay unit, its token, its backup timer and `secret_relay.py` removed | PD, FC | sized when gate 3 is asked for | L | gate 3 |
 
-W3 to W14 are done, and W17's code. What is left, and in this order: W2 (the two drills and the
-parity report), which needs W1's read-back first; W17's record amendments (D7; W11's test and W17's code are #623); then the gates. W15 and W16
+W3 to W14 and W17 are done. What is left, and in this order: W2 (the two drills and the
+parity report), which needs W1's read-back first; then the gates. W15 and W16
 follow gate 2 and gate 3. The staged switches of §6 are operations, not code:
 fabric-coordinator's, on the owner's word.
 
@@ -379,11 +380,10 @@ recommended:
 
 ## 8. What happens first
 
-W3 to W10 and W12 to W14 are done, and #573 is merged. What is left, in this order:
+W3 to W14 and W17 are done, and #573 is merged. What is left, in this order:
 
 1. **W1's remainder**: the real-carrier read-back of #573 (the 2026-11-12 drills are filed).
 2. **W2**: the rollback drill, a judged relay-outage drill, and a parity report with no
    untraced miss. With W1 this is everything gate 1 asks for.
-3. **W17**'s amendments of ADR-064 rule 8 and ADR-041 rule 10, decided on 2026-11-15 (D7); W11 and W17's code landed in #623.
-4. **The gates**, each on the owner's word and the records in §4; W15 after gate 2, W16 after
+3. **The gates**, each on the owner's word and the records in §4; W15 after gate 2, W16 after
    gate 3.
