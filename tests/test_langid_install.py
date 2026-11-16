@@ -90,8 +90,9 @@ class Langid(unittest.TestCase):
 
     def run_install(self, *args: str, pip: str | None = None, path: str | None = None, python: str | None = None) -> subprocess.CompletedProcess:
         env = {"PATH": path or self.path, "HOME": self.home, "LANG": "C.UTF-8", "TMPDIR": self.sandbox,
+               "AGENT_FABRIC_PYTHON": sys.executable,  # install.sh's pin, so the interpreter that makes the venv is known
                "AGENT_FABRIC_LANGID_DIR": self.dir, "AGENT_FABRIC_LANGID_PIP": self.pip if pip is None else pip}
-        if python:
+        if python is not None:
             env["AGENT_FABRIC_LANGID_PYTHON"] = python
         return subprocess.run([*ARGV0, INSTALL, *args], capture_output=True, text=True, env=env, cwd=self.sandbox,
                               timeout=TIMEOUT_S, check=False)
@@ -169,7 +170,7 @@ class Langid(unittest.TestCase):
         p = self.run_install(python=fake)
         out = p.stdout + p.stderr
         self.assertEqual(p.returncode, 1, out)
-        self.assertIn("-m venv failed; the language section stays unavailable", out)
+        self.assertIn(f"{fake} -m venv failed; the language section stays unavailable", out)
         self.assertFalse(os.path.exists(self.installed))
 
     def test_the_venv_is_made_by_this_interpreter_not_the_host_python3(self) -> None:
@@ -182,6 +183,52 @@ class Langid(unittest.TestCase):
         self.run_install(path=f"{fakebin}{os.pathsep}{self.path}")
         self.assertFalse(os.path.exists(asked), "the host's python3 was run")
         self.assertTrue(os.path.isfile(os.path.join(self.dir, "venv", "pyvenv.cfg")), "no venv was made")
+        self.assertIn(f"command = {sys.executable} -m venv", self.venv_cfg())
+
+    def venv_cfg(self) -> str:
+        with open(os.path.join(self.dir, "venv", "pyvenv.cfg"), encoding="utf-8") as fh:
+            return fh.read()
+
+    def test_an_empty_override_counts_as_unset(self) -> None:
+        # Positive control of the failing-interpreter cases: "" must not be run as a command.
+        p = self.run_install(python="")
+        self.assertIn(f"command = {sys.executable} -m venv", self.venv_cfg(), p.stdout + p.stderr)
+
+    def recording_maker(self, minor: str) -> tuple[str, str]:
+        """An interpreter that says it is `minor`, logs each `-m venv` call and fails it."""
+        log = os.path.join(self.sandbox, "maker.log")
+        fake = self.script(os.path.join(self.sandbox, "maker-python"),
+                           f'#!/bin/sh\nif [ "$1" = -c ]; then echo {minor}.1; exit 0; fi\nprintf "%s\\n" "$*" >> "{log}"\nexit 1\n')
+        return fake, log
+
+    def venv_of(self, minor: str) -> None:
+        self.fakevenv()
+        with open(os.path.join(self.dir, "venv", "pyvenv.cfg"), "w", encoding="utf-8") as fh:
+            fh.write(f"home = /usr/local/bin\nversion = {minor}.0\n")
+
+    def test_a_venv_of_another_minor_is_made_again_with_clear(self) -> None:
+        # bin/python follows the pin's symlink: after a minor move it runs a new interpreter over old site-packages.
+        fake, log = self.recording_maker("3.99")
+        self.venv_of("3.14")
+        p = self.run_install(python=fake)
+        self.assertEqual(p.returncode, 1, p.stdout + p.stderr)
+        with open(log, encoding="utf-8") as fh:
+            self.assertEqual(fh.read().strip(), f"-m venv --clear {self.dir}/venv")
+        self.assertTrue(os.path.isdir(os.path.join(self.dir, "venv")), "a venv that was there was removed on failure")
+
+    def test_a_venv_of_the_same_minor_is_kept(self) -> None:
+        fake, log = self.recording_maker("3.99")
+        self.venv_of("3.99")
+        p = self.run_install(python=fake)
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        self.assertFalse(os.path.exists(log), "a venv of the right minor was made again")
+
+    def test_a_venv_whose_cfg_cannot_be_read_is_kept(self) -> None:
+        fake, log = self.recording_maker("3.99")
+        self.fakevenv()
+        p = self.run_install(python=fake)
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        self.assertFalse(os.path.exists(log))
 
     def failing_venv(self) -> str:
         """An interpreter whose `-m venv` leaves a half-made venv (bin/half only) behind and fails."""
@@ -199,10 +246,11 @@ class Langid(unittest.TestCase):
         os.makedirs(os.path.dirname(keep))
         with open(keep, "w", encoding="utf-8") as fh:
             fh.write("kept")
-        p = self.run_install(python=self.failing_venv())
+        fake = self.failing_venv()
+        p = self.run_install(python=fake)
         out = p.stdout + p.stderr
         self.assertEqual(p.returncode, 1, out)
-        self.assertIn("-m venv failed; the language section stays unavailable", out)
+        self.assertIn(f"{fake} -m venv failed; the language section stays unavailable", out)
         with open(keep, encoding="utf-8") as fh:
             self.assertEqual(fh.read(), "kept")
 

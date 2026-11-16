@@ -168,7 +168,7 @@ class HalfMadeVenv(unittest.TestCase):
         p = subprocess.run([sys.executable, os.path.join(HERE, "tools", "fabric", "langid_install.py")],
                            env=env, capture_output=True, text=True, timeout=60, check=False)
         self.assertEqual(p.returncode, 1, p.stdout + p.stderr)
-        self.assertIn("-m venv failed", p.stdout)
+        self.assertIn(f"{fake} -m venv failed", p.stdout)
         self.assertFalse(os.path.exists(os.path.join(target, "venv")), "a half-made venv was left behind")
 
 

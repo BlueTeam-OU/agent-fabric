@@ -20,9 +20,12 @@ CONTRACT:
             AGENT_FABRIC_LANGID_PYTHON (empty counts as unset, default the
             interpreter running this file, the fleet's pin, ADR-040 rule 1
             amended 2026-11-11) makes the venv; the host's python3 is never
-            asked. A venv outlives a pin move no better than the build it
-            links to: once the old build is swept it no longer runs, is not
-            "executable", and the next run makes it again.
+            asked. The venv's bin/python links to the pin's symlink, not to
+            one build, so a pin move to another minor version leaves a venv
+            that runs the new interpreter over site-packages of the old one:
+            a venv whose pyvenv.cfg names another major.minor than the
+            maker's is made again with `venv --clear`; one whose pyvenv.cfg
+            cannot be read is kept as it is.
             The children inherit the environment.
   stdout    one line per step: "  -  <model> (removed|would remove: the
             detector is CLD2 now)" for an earlier version's lid.176.ftz,
@@ -79,6 +82,35 @@ def quiet(argv: list[str], timeout: int) -> bool:
         return False
 
 
+def minor_of(version: str) -> str | None:
+    """"3.14.1" -> "3.14"; None when it does not look like a version."""
+    parts = version.strip().split(".")
+    return ".".join(parts[:2]) if len(parts) >= 2 and all(p.isdigit() for p in parts[:2]) else None
+
+
+def venv_minor(venv: str) -> str | None:
+    """The major.minor venv recorded for its interpreter, None when pyvenv.cfg is absent or has none: unknown is
+    not "stale", so a venv this cannot read is kept as an earlier run kept it."""
+    try:
+        with open(os.path.join(venv, "pyvenv.cfg"), encoding="utf-8") as fh:
+            for line in fh:
+                key, _, value = line.partition("=")
+                if key.strip() == "version":
+                    return minor_of(value)
+    except (OSError, UnicodeDecodeError):
+        pass
+    return None
+
+
+def maker_minor(maker: str) -> str | None:
+    try:
+        done = subprocess.run([maker, "-c", "import sys; print('%d.%d' % sys.version_info[:2])"], capture_output=True,
+                              text=True, stdin=subprocess.DEVNULL, timeout=IMPORT_TIMEOUT_S, check=False)
+    except (OSError, subprocess.TimeoutExpired, UnicodeDecodeError):
+        return None
+    return minor_of(done.stdout) if done.returncode == 0 else None
+
+
 def has_detector(venv_python: str) -> bool:
     return (os.path.isfile(venv_python) and os.access(venv_python, os.X_OK)
             and quiet([venv_python, "-c", "import pycld2"], IMPORT_TIMEOUT_S))
@@ -129,13 +161,19 @@ def run(argv: list[str]) -> int:
         maker = os.environ.get("AGENT_FABRIC_LANGID_PYTHON") or sys.executable
         executable = os.path.isfile(venv_python) and os.access(venv_python, os.X_OK)
         made = False
+        # bin/python of a venv follows the pin's symlink: after a minor-version move it runs the new interpreter
+        # over the old one's site-packages, so pip fails on every run with a reason that is not the cause.
+        recorded, current = venv_minor(venv), maker_minor(maker)
+        stale = executable and recorded is not None and current is not None and recorded != current
+        if stale:
+            executable = False
         if not executable:
             # A directory that was there before is not ours to delete when `venv` fails over it; only the
             # half-made one this run began is: venv writes bin/python before bin/pip, so a half-made one would
             # pass the `executable` test on the next run and fail there for the wrong reason.
             existed = os.path.lexists(venv)
             try:
-                made = quiet([maker, "-m", "venv", venv], VENV_TIMEOUT_S)
+                made = quiet([maker, "-m", "venv", *(["--clear"] if stale else []), venv], VENV_TIMEOUT_S)
             finally:
                 if not made and not existed:
                     shutil.rmtree(venv, ignore_errors=True)
