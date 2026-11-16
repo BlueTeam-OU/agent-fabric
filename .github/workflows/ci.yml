@@ -174,22 +174,25 @@ jobs:
         # platform still runs every suite, in a third of the time per job (the owner, 2026-11-13).
         shard: [1, 2, 3]
         include:
+          # minisign and bubblewrap are not host tools: they let the suites' cross-check against the minisign program
+          # (test_control_carrier_install AgainstMinisign) and the review sandbox's cases (test_review_mcp) run instead of
+          # skipping; bwrap may still be refused user namespaces in a container, which those cases probe and skip on (j830).
           - platform: fedora
             image: fedora:latest
             install: dnf install -y --setopt=install_weak_deps=False
-            extra: ShellCheck python3-pip hostname
+            extra: ShellCheck python3-pip hostname minisign bubblewrap
           - platform: debian
             image: debian:stable-slim
             install: apt-get install -y --no-install-recommends
-            extra: shellcheck python3-pip ca-certificates hostname
-          # AlmaLinux 10 (fabric-h2): gh and ShellCheck are in EPEL; a minimal
+            extra: shellcheck python3-pip ca-certificates hostname minisign bubblewrap
+          # AlmaLinux 10 (fabric-h2): gh, ShellCheck and minisign are in EPEL; a minimal
           # image has coreutils-single, which coreutils replaces only with
           # --allowerasing; its python3 is 3.12, below the floor (host_python).
           - platform: almalinux
             image: almalinux:10
             install: dnf install -y --allowerasing --setopt=install_weak_deps=False
             repos: dnf install -y epel-release
-            extra: ShellCheck python3-pip hostname
+            extra: ShellCheck python3-pip hostname minisign bubblewrap
             host_python: bootstrap-only
     container: ${{ matrix.image }}
     # Measured 7-8.5 min on 2026-09-29, 20-24 min on 2026-10-11 (Fedora cancelled at 25 on #194 and #197);

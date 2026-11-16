@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """A REQUEST to a login becomes a queued job on its list (agent-fabric
-ADR-037 §7): the inbox's half and the send's half, tools/fabric/gzcoord/
+ADR-037 §5 rule 11): the inbox's half and the send's half, tools/fabric/gzcoord/
 intake.py. The job list and the control plane are faked at the edge the
 module calls them through; the module's own rules (which messages, once per
 id, the title, who may ask, what a failure says) are the code under test.

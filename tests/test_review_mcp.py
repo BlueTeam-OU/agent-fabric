@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """tools/fabric/review_mcp/ and bin/fabric-review-mcp (agent-fabric ADR-065 §2 A and B): one case per threat the review tools are built
 against, each with its positive control (the same thing done without the guard does happen), and the real server over stdio as Claude
-Code runs it. The sandbox cases need unprivileged user namespaces; where the host refuses them (CI's Ubuntu 24.04) or has no bwrap (its fedora and debian images) they print a `skip`
+Code runs it. The sandbox cases need unprivileged user namespaces; where the host refuses them (CI's Ubuntu 24.04, and a container that refuses bwrap its namespaces) or has no bwrap they print a `skip`
 line saying so and are not counted as passed. Plain script: prints ok/FAIL, exit 1 on any failure."""
 from __future__ import annotations
 
@@ -89,7 +89,7 @@ def processes_with(needle: str) -> list[int]:
 
 
 def userns_refused() -> str | None:
-    """Why the sandbox cases cannot run here, or None. A host without bwrap (CI's fedora and debian images) is refused like one whose kernel
+    """Why the sandbox cases cannot run here, or None. A host without bwrap is refused like one whose kernel
     refuses user namespaces: subprocess would raise FileNotFoundError and end the suite instead of skipping."""
     if shutil.which("bwrap", path=os.environ.get("PATH", "")) is None:
         return "bubblewrap (bwrap) is not installed"
@@ -626,12 +626,23 @@ def main() -> int:
     why = userns_refused()
     if why:
         skip("review_check cases", f"this host cannot run the sandbox ({why})")
-        if shutil.which("bwrap", path=os.environ.get("PATH", "")) is None:
-            # The refusal is a contract of its own: it needs no bwrap, so it is asserted exactly where the sandbox cases cannot run.
+        # The refusal is a contract of its own: it needs no bwrap, so it is asserted wherever the sandbox cases cannot run,
+        # a host that has bwrap but refuses its namespaces included (CI's images carry bwrap since j830). The call sees a
+        # PATH with no bwrap on it, and git through a link of its own, since git sits beside bwrap in /usr/bin.
+        nobwrap = os.path.join(scratch, "path-without-bwrap")
+        os.makedirs(nobwrap, exist_ok=True)
+        if not os.path.lexists(os.path.join(nobwrap, "git")):
+            os.symlink(shutil.which("git"), os.path.join(nobwrap, "git"))
+        kept = [d for d in os.environ.get("PATH", "").split(os.pathsep) if d and not os.path.exists(os.path.join(d, "bwrap"))]
+        saved_path = os.environ.get("PATH", "")
+        os.environ["PATH"] = os.pathsep.join([nobwrap, *kept])
+        try:
             done = os.path.join(scratch, "ran-anyway")
             err, text = fresh("review_check", head=head, argv=["sh", "-c", f'touch "{done}"'])
-            check("bwrap not installed: review_check runs nothing and one line says so",
-                  err and "not installed" in text and "\n" not in text and not os.path.exists(done), text)
+        finally:
+            os.environ["PATH"] = saved_path
+        check("bwrap not installed: review_check runs nothing and one line says so",
+              err and "not installed" in text and "\n" not in text and not os.path.exists(done), text)
     else:
         sandbox_cases(server, call, head, base, clone, evidence, scratch, home, secret_file, ssh_file, marks)
 

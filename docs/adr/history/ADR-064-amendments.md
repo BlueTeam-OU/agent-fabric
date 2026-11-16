@@ -436,3 +436,24 @@ the window ended, and asks that the carrier delivered it once after it
 (the relay mirror's copy beside it is normal; a second copy of either
 carrier fails) and that it was shown to the session once. A pair the files cannot show, a showing
 interrupted for one, is unsettled, never passed.
+
+### Amendment 2026-11-16 — journal off, a carrier mode sends through the carrier and refuses a receive
+
+What changed: §5 rule 8's last sentence said that with the journal off
+the route is the relay alone. It now says the route is the mode's
+primary with no mirror: the relay alone in `relay-record`, as before;
+in `carrier-record` and `carrier-only` the carrier, the send appending
+its bypass line first (ADR-041 rule 10) and the outbox keeping the
+text; and a journal-off receive is refused in both carrier modes.
+
+Why: the cutover plan's D7 (`docs/proposals/gzcoord-interweave-only-cutover.md`
+§7). A relay-alone route has no place once an account leaves the relay,
+and the outbox already keeps what a journal-off send carried, so the
+carrier can take it with its audit line. A receive has nothing to keep
+the arrival in; the human relay is the break-glass for an account whose
+journal cannot be written. The code landed first, in #623 (W17,
+`tools/fabric/gzcoord/transport/__init__.py` `open_transport`); this
+amendment brings the record to it, as #624's review found it behind.
+
+Accepted by the owner, 2026-11-15 (D7, in the coordinator's session).
+ADR-041 rule 10 is amended the same day for the receive.
