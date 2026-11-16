@@ -417,24 +417,24 @@ def main() -> int:
           r.returncode == 0 and "subject-8" in r.stdout and r.stderr.count("the watch log") == 1, f"{r.returncode}\n{r.stdout}{r.stderr}")
     w.close()
     # --follow: an arm failed (the watch is "down"), then the carrier delivers while the relay still fails: not "the relay is back".
-    # The watch retries every RETRY_S, so the record arrives after the first failed arm and the case waits for the retry
-    # that shows it, and for one more failed fetch after that (the point where a wrong "back" line would be printed).
+    # The watch retries every RETRY_S: the record is added once the watch has said the relay is down, and the case waits for
+    # the retry that shows it, then for one more failed fetch. A wait that never fires is a failed check, not a silent timeout.
     recs = []
     w = World([], carrier_records=recs)
     w.relay_down = True
     f = Follow(w.env)
     try:
-        f.wait_for(lambda out, err: "HTTP 500" in err)
+        waited = [f.wait_for(lambda out, err: "relay unreachable" in out)]
         recs.append(urec(5))
-        f.wait_for(lambda out, err: "subject-5" in out)
+        waited.append(f.wait_for(lambda out, err: "subject-5" in out))
         seen = w.calls
-        f.wait_for(lambda out, err: w.calls > seen)
+        waited.append(f.wait_for(lambda out, err: w.calls > seen))
     finally:
         out, err = f.stop()
     check("--follow, relay down, then the carrier delivers: shown, the relay still reported, and no relay-back line",
-          "subject-5" in out and "HTTP 500" in err
+          all(waited) and "subject-5" in out and "HTTP 500" in err
           and [x for x in out.splitlines() if x.startswith("gzcoord watch:")] == [x for x in out.splitlines() if "relay unreachable" in x],
-          f"{out}{err}")
+          f"{waited}\n{out}{err}")
     w.close()
 
     for d in P.SCRATCH:
