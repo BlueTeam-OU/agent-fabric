@@ -131,7 +131,7 @@ whatever another agent must act on goes as a `REQUEST` `TO` the login
 that acts, with `IN-REPLY-TO` when it answers a thread, and a receiver
 who gets an ask in another type queues it itself (`fabric-jobs add
 --request`). The reason is the fleet's own tooling: the inbox queues
-only a `REQUEST` as a job (ADR-037 §7), and only a `REQUEST` or
+only a `REQUEST` as a job (ADR-037 §5 rule 11), and only a `REQUEST` or
 `QUESTION` with `REPLY-EXPECTED: yes` holds `fabric-jobs switch`; an ask
 in an `INFO`, `OBSERVATION` or `REPLY` vanishes with the session that
 read it. Evidence (rule 6), four instances from three independent senders on 2026-11-14
