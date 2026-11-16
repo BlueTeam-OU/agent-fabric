@@ -333,7 +333,7 @@ def main() -> int:
 
     # D6 (owner, 2026-11-15): a TO-ROLE message is decided at arrival. The relay reads the role when its watch reads, so
     # "arrival" is the first read that fetches the record: it is passed through and acknowledged by a holder of another
-    # role, and a holder who binds the role afterwards is never shown it.
+    # role, and a holder who binds the role afterwards is not shown it while the relay keeps that acknowledgement.
     def bind(w: World, role: str) -> None:
         d = os.path.join(w.state, "agents", P.LOGIN)
         os.makedirs(d, exist_ok=True)
@@ -350,8 +350,9 @@ def main() -> int:
     bind(w, "python-dev")
     w.pages = [[rec7]]   # served again: a relay that lost its acknowledgement, or a second listing
     r = w.drain()
-    # KNOWN LIMIT, reported to fabric-coordinator with the review of #623 (F5): the decision is not kept per record, so a
-    # re-served record is judged again by the role held now. This pins what the code does today, not what D6 wants.
+    # Decided (fabric-coordinator, j905): kept. Only a relay that lost an acknowledgement serves a record again, and
+    # then the record is judged again by the role held now. That fault errs towards showing a message to a holder of
+    # its role, never towards losing it, which a per-record arrival decision would not improve enough to keep state for.
     check("D6 limit: a TO-ROLE record served again is judged again, by the role held at that read",
           "subject-7" in r.stdout, r.stdout + r.stderr)
     w.close()
