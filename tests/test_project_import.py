@@ -122,6 +122,7 @@ def main() -> int:
         return 1 if fails else 0
 
     scratch = tempfile.mkdtemp(prefix="test_project_import.")
+    lints: list[tuple[str, subprocess.Popen]] = []
     try:
         env = clean_env(scratch)
         base = os.path.join(scratch, "tree")
@@ -303,11 +304,15 @@ def main() -> int:
                       "project: scratch.proj\n" in text and "agent: fabric-coordinator" in text and "class: remit" in text)
             # lint reads what git tracks; the owner commits the import, the test only stages it.
             sh(tree, GIT, "add", "-A", env=env)
-            lint = sh(tree, PY, "tools/fabric/lint.py", "--no-siblings", "--working-copy", f"scratch.proj={wcopy}", env=env)
-            check(f"--like {like}: lint.py --no-siblings on the imported tree is clean", lint.returncode == 0 and "corpus lint: clean" in lint.stdout,
-                  (lint.stdout + lint.stderr)[-600:])
+            # Each lint is a minute of one core on its own tree: the two run side by side and are read after the loop.
+            lints.append((like, subprocess.Popen([PY, "tools/fabric/lint.py", "--no-siblings", "--working-copy", f"scratch.proj={wcopy}"], cwd=tree,
+                                                 env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)))
             again = imp(tree, *argv)
             check(f"--like {like}: a second run is refused, nothing more written", again.returncode == 2 and "already registered" in again.stderr)
+        for like, proc in lints:
+            out, err = proc.communicate(timeout=300)
+            check(f"--like {like}: lint.py --no-siblings on the imported tree is clean", proc.returncode == 0 and "corpus lint: clean" in out,
+                  (out + err)[-600:])
 
         # --- a remit the sibling has is copied, its project set ----------------
         tree = os.path.join(scratch, "tree-remit")
@@ -390,6 +395,10 @@ def main() -> int:
         r = sh(base, shim, "bogus", env=env_run)
         check("an unknown subcommand: exit 2, one line", r.returncode == 2 and r.stderr.count("\n") == 1)
     finally:
+        for _, proc in lints:   # a failed case leaves no lint running on a tree about to be removed
+            if proc.poll() is None:
+                proc.kill()
+            proc.communicate()
         shutil.rmtree(scratch, ignore_errors=True)
     print(f"{'FAILED' if fails else 'ok'}: {fails} failure(s)")
     return 1 if fails else 0
